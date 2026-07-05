@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Topology Framework - s3g-dsp</title>
-    <meta name="description" content="Shared topology framework documentation for s3g-dsp multichannel plugins.">
+    <meta name="description" content="Topology controls for s3g-dsp multichannel plugins.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -25,9 +25,9 @@
       <main class="content" id="content">
         <h1>Topology Framework</h1>
 
-        <p>The topology framework is the shared control layer for s3g-dsp multichannel plugins. Inside each plugin, the patch matrix selects active input lanes. Those lanes become points. The points form a network. Each plugin maps the point and network data to its own internal DSP parameters.</p>
+        <p>Topology is the shared control layer for s3g-dsp plugins. The patch matrix selects active input lanes. Those lanes become points. The points form a network. Each plugin maps that network to sound.</p>
 
-        <p>This keeps host automation compact. The host sees global controls and topology/meta controls, while per-lane parameter variation is generated inside the plugin.</p>
+        <p>This keeps automation compact. REAPER sees global controls while per-lane variation stays inside the plugin.</p>
 
         <div class="related-links">
           <h2>Related s3g-mc Docs</h2>
@@ -47,7 +47,7 @@
 
         <h2 id="roadmap">Roadmap Diagram</h2>
 
-        <p>The framework diagram shows the generic model. It does not define a single effect. A delay, filter, spatial mixer, dynamics processor, or future processor can reuse the same topology layer and decide what each effect parameter means.</p>
+        <p>The diagram shows the generic model. A delay, filter, spatial mixer, or future processor can reuse the same topology layer and map it to different parameters.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -59,27 +59,27 @@
 
         <ul>
           <li>The host pin connector feeds the fixed-width plugin inputs.</li>
-          <li>The internal patch matrix controls which plugin input lanes are active.</li>
+          <li>The patch matrix controls which plugin input lanes are active.</li>
           <li>Shape and displacement controls position active lanes as points.</li>
           <li>Animation and variants move the point field over time.</li>
           <li>Neighbor and centroid controls define relationships between lanes.</li>
-          <li>Each plugin maps the resulting topology field to its own internal DSP parameters.</li>
+          <li>Each plugin maps the topology field to its own sound parameters.</li>
         </ul>
 
         <h2 id="heatmap">Heatmap Visualization</h2>
 
-        <p>The heatmap view is a second visualization of the topology field. It shows the point configuration, displacement, and motion from another viewpoint. It is not an audio amplitude meter, loudness meter, or output-level display.</p>
+        <p>The heatmap is another view of the topology field. It shows point position, displacement, and motion. It is not a level meter.</p>
 
         <figure>
           <div class="doc-graphic">
             <img src="topology_heatmap_example.svg" alt="Topology heatmap visualization example">
           </div>
-          <figcaption>Example heatmap view: the colors describe a projected topology field, not signal level.</figcaption>
+          <figcaption>Example heatmap view: colors show topology, not signal level.</figcaption>
         </figure>
 
         <h2 id="plugin-mapping">Plugin Mapping</h2>
 
-        <p>The framework separates generic topology controls from effect-specific parameter meanings. For example, the Delay Processor maps topology to delay time, feedback, tone, pitch, smear, and diffusion. A different plugin can map the same topology field to a different set of effect parameters.</p>
+        <p>Topology controls stay consistent across plugins. Each plugin decides what the field means. The Delay Processor maps it to time, feedback, tone, pitch, smear, and diffusion.</p>
 
         <figure>
           <div class="doc-graphic">

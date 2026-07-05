@@ -25,9 +25,9 @@
       <main class="content" id="content">
         <h1>Installing Pre-release Plugins</h1>
 
-        <p>s3g-dsp is in a pre-release development state. These notes are for installing a packaged macOS CLAP zip attached to a GitHub pre-release. Plugin names, parameter mappings, state formats, and the included plugin set may still change.</p>
+        <p>These notes are for installing a packaged macOS CLAP zip from a GitHub pre-release. Plugin names, parameters, saved states, and included plugins may change.</p>
 
-        <p>The current development target is macOS with REAPER as the tested host. Other operating systems and DAWs are not expected support targets at this stage.</p>
+        <p>The supported development target is macOS + REAPER.</p>
 
         <div class="related-links">
           <h2>Related s3g-mc Docs</h2>
@@ -48,12 +48,12 @@
 
         <ul>
           <li>A macOS pre-release zip from the <a href="https://github.com/s3g/s3g-dsp/releases" target="_blank" rel="noopener noreferrer">s3g-dsp GitHub releases page</a>.</li>
-          <li>REAPER for the current tested host workflow.</li>
+          <li>REAPER.</li>
         </ul>
 
         <h2 id="download">Download</h2>
 
-        <p>Pre-release macOS CLAP builds may be attached to GitHub pre-releases when available. These builds are provided for early REAPER testing only. If no pre-release zip is available, use the <a href="building-from-source.html">Building From Source</a> page instead.</p>
+        <p>Pre-release builds are attached to GitHub releases when available. If no zip is available, use the <a href="building-from-source.html">Building From Source</a> page.</p>
 
         <h2 id="install">Install</h2>
 
@@ -65,20 +65,20 @@
 
         <h2 id="current-plugins">Current Plugins</h2>
 
-        <p>The current source tree builds these plugin families:</p>
+        <p>The current source tree builds:</p>
 
         <ul>
           <li><code>s3g 24ch Passthrough Test</code>: fixed 24-in/24-out passthrough/gain plugin for host testing.</li>
-          <li><code>s3g Delay Processor 8ch</code>: primary topology-driven multichannel delay processor.</li>
+          <li><code>s3g Delay Processor 8ch</code>: main topology-driven delay processor.</li>
           <li><code>s3g Delay Processor 24ch</code>: wider delay build for future 3OAFX insert workflows.</li>
-          <li><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code>: experimental boundary plugins for 3OAFX insert chains.</li>
+          <li><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code>: work-in-progress boundary plugins for 3OAFX insert chains.</li>
         </ul>
 
         <h2 id="reaper">REAPER Setup</h2>
 
-        <p>After installing, open REAPER and rescan CLAP plugins if the new builds do not appear automatically. In REAPER, use the FX browser search field to find <code>s3g</code> plugins.</p>
+        <p>After installing, open REAPER and rescan CLAP plugins if the new builds do not appear automatically. Search for <code>s3g</code> in the FX browser.</p>
 
-        <p>For multichannel testing, set the track channel count before inserting the plugin. The current fixed-width plugin wrappers are designed around predictable REAPER FX pin behavior.</p>
+        <p>For multichannel testing, set the track channel count before inserting the plugin.</p>
 
         <p>For the larger REAPER package workflow, see the <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX Send Return Controller guide</a>.</p>
 
@@ -88,7 +88,7 @@
 
         <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
 
-        <p>Build folders can also contain stale generated artifacts after plugin renames or target culls. Reconfiguring and rebuilding with the current preset should only recreate the active targets.</p>
+        <p>Build folders can also contain stale artifacts after plugin renames. Reconfigure and rebuild with the current preset if needed.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="building-from-source.html">

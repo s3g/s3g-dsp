@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>s3g-dsp</title>
-    <meta name="description" content="Documentation for s3g-dsp native multichannel CLAP plugins.">
+    <meta name="description" content="Documentation for s3g-dsp multichannel CLAP plugins.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -25,11 +25,11 @@
       <main class="content" id="content">
         <h1>s3g-dsp</h1>
 
-        <p>Native C++ DSP experiments and CLAP plugin targets for multichannel audio. <code>s3g-dsp</code> is a sibling repository to the <a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code> multichannel REAPER package</a>: it can be used alongside <code>s3g-mc</code> workflows or independently as a small native plugin project.</p>
+        <p>CLAP audio plugins for multichannel work in REAPER. <code>s3g-dsp</code> is a sibling project to the <a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code> multichannel REAPER package</a>. It can be used with <code>s3g-mc</code> or on its own.</p>
 
-        <p>The current focus is reliable multichannel lane processing in REAPER: fixed-width plugins, predictable FX pin behavior, compact host automation, and a topology layer that generates per-channel DSP variation internally.</p>
+        <p>The current focus is predictable multichannel routing, compact automation, and topology controls that create per-channel variation inside the plugin.</p>
 
-        <p>Development and testing are currently centered on macOS and REAPER. Other operating systems or DAWs are not expected support targets unless that changes later.</p>
+        <p>The supported development target is macOS + REAPER. Other operating systems and DAWs are not support targets at this stage.</p>
 
         <div class="status-strip" aria-label="Project status">
           <div><span>current target</span><strong>Delay Processor</strong></div>
@@ -48,46 +48,46 @@
 
         <h2 id="status">Status</h2>
 
-        <p>This is an early public development repository. The code is useful for testing and iteration, but the plugin set and parameter mappings may still change.</p>
+        <p>This is a pre-release project. Plugin names, parameters, and saved states may change.</p>
 
         <h3>Current Validated Targets</h3>
 
         <ul>
           <li><code>s3g 24ch Passthrough Test</code>: fixed 24-in/24-out CLAP passthrough/gain plugin.</li>
-          <li><code>s3g Delay Processor 8ch</code>: primary topology-driven multichannel delay test.</li>
+          <li><code>s3g Delay Processor 8ch</code>: main topology-driven delay processor.</li>
           <li><code>s3g Delay Processor 24ch</code>: wider delay build for future 3OAFX insert work.</li>
-          <li><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code>: experimental boundary plugins for the 3OAFX insert workflow.</li>
+          <li><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code>: work-in-progress boundary plugins for the 3OAFX insert workflow.</li>
         </ul>
 
-        <p>The most developed plugin is the <a href="delay-processor.html">Delay Processor</a>. It includes a native macOS CLAP GUI with a patch matrix, topology view, heatmap, readout, and ANIM/VAR motion controls.</p>
+        <p>The most developed plugin is the <a href="delay-processor.html">Delay Processor</a>. It includes a macOS GUI with a patch matrix, topology view, heatmap, readout, and ANIM/VAR motion controls.</p>
 
         <h2 id="design">Design</h2>
 
         <ul>
           <li>Reusable DSP lives in <code>dsp/</code>.</li>
           <li>Plugin wrappers live in <code>plugins/</code>.</li>
-          <li>Fixed-width CLAP wrappers are preferred for REAPER workflows where the FX pin connector needs predictable multichannel I/O.</li>
-          <li>Per-channel settings are generated internally. The host sees global effect controls and topology/meta controls rather than one automatable parameter per lane.</li>
+          <li>Fixed-width CLAP plugins are used where REAPER pin routing needs to be predictable.</li>
+          <li>Per-channel settings are generated inside the plugin. REAPER sees global effect and topology controls, not one parameter list per channel.</li>
           <li>24-channel 3OAFX-specific work is kept separate from general multichannel lane processors.</li>
         </ul>
 
         <h2 id="topology-layer">Topology Layer</h2>
 
-        <p>The topology layer is the common control idea for future s3g-dsp plugins. A patch matrix selects active lanes, those lanes become points, and each plugin maps the resulting point/network field to its own internal DSP parameters.</p>
+        <p>The topology layer is the shared control idea for s3g-dsp plugins. A patch matrix selects lanes, those lanes become points, and each plugin maps the point network to its own sound parameters.</p>
 
         <p>See the <a href="topology-framework.html">Topology Framework</a> page for the generic model, including the heatmap visualization. See the <a href="delay-processor.html">Delay Processor</a> page for the delay-specific mapping.</p>
 
         <h2 id="get-plugins">Get Plugins</h2>
 
-        <p>The local development build uses the CLAP preset and installs bundles into the macOS CLAP plugin folder for REAPER testing. This is a pre-release source-build workflow.</p>
+        <p>The local build uses the CLAP preset and installs bundles into the macOS CLAP plugin folder.</p>
 
-        <p>Requirements are CMake 3.20 or newer, a C++17 compiler, macOS for the native CLAP GUI/plugin bundle targets, and REAPER as the primary tested DAW/host.</p>
+        <p>Requirements are CMake 3.20 or newer, a C++17 compiler, macOS, and REAPER.</p>
 
         <p>See <a href="building-from-source.html">Building From Source</a> for CMake commands, local install scripts, and validation checks. See <a href="installing-plugins.html">Installing Pre-release Plugins</a> for installing a packaged macOS CLAP zip.</p>
 
         <h2 id="relationship">Relationship to s3g-mc</h2>
 
-        <p><a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code></a> is the main REAPER package. <code>s3g-dsp</code> is a sibling repository for native DSP/plugin work that may support <code>s3g-mc</code> workflows, especially multichannel lane effects and future 3OAFX insert chains. The plugins can also be used independently where the host/channel configuration matches the current macOS + REAPER development target.</p>
+        <p><a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code></a> is the main REAPER package. <code>s3g-dsp</code> is a sibling plugin project for multichannel effects and future 3OAFX insert chains. It can also be used independently in matching macOS + REAPER sessions.</p>
 
         <div class="related-links">
           <h2>Related s3g-mc Docs</h2>

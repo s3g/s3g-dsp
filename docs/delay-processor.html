@@ -25,9 +25,9 @@
       <main class="content" id="content">
         <h1>Delay Processor</h1>
 
-        <p>The s3g Delay Processor is the first stable native effect in this repository. It treats each active channel as a parallel lane with its own delay time, feedback, tone, pitch, smear, and cross-lane diffusion behavior.</p>
+        <p>The s3g Delay Processor treats each active channel as a parallel delay lane. Each lane can have its own time, feedback, tone, pitch, smear, and diffusion behavior.</p>
 
-        <p>The important idea is that these per-lane values are controlled through a compact topology surface instead of a long list of channel-by-channel host parameters. Moving the surface changes the relationships between lanes while keeping automation readable. The shared topology model is described separately on the <a href="topology-framework.html">Topology Framework</a> page.</p>
+        <p>Instead of exposing every lane as a separate parameter list, the plugin uses a compact topology surface. Moving the surface changes relationships between lanes while keeping automation readable. See the <a href="topology-framework.html">Topology Framework</a> page for the shared model.</p>
 
         <div class="related-links">
           <h2>Related s3g-mc Docs</h2>
@@ -49,15 +49,15 @@
         <div class="compact-grid">
           <div>
             <h3>Patch Matrix</h3>
-            <p>The internal patch matrix routes plugin input lanes to plugin output lanes. Active input rows define the lane count used by the topology.</p>
+            <p>Routes plugin inputs to outputs. Active input rows set the topology lane count.</p>
           </div>
           <div>
             <h3>Point Field</h3>
-            <p>Shape, displacement, animation, and variants position the active lanes as points in a 3D space.</p>
+            <p>Shape, displacement, animation, and variants place active lanes as points.</p>
           </div>
           <div>
             <h3>Delay Engine</h3>
-            <p>Each point is converted into smoothed per-lane delay values while the host automation surface stays compact.</p>
+            <p>The points become smoothed per-lane delay settings.</p>
           </div>
         </div>
 
@@ -72,9 +72,9 @@
 
         <h2 id="routing">REAPER Pins and Internal Matrix</h2>
 
-        <p>There are two routing layers. REAPER's FX pin connector decides which track channels feed the fixed-width plugin inputs and where the plugin outputs return to the track. The Delay Processor's internal patch matrix decides how those plugin input lanes are connected to processed plugin output lanes.</p>
+        <p>There are two routing layers. REAPER's FX pin connector sends track channels into and out of the plugin. The Delay Processor matrix routes those plugin lanes after they arrive.</p>
 
-        <p>For topology-driven processing, the important detail is that active input rows in the internal patch matrix become active topology lanes. If only input rows 1 and 2 are active, the processor behaves like a 2-point topology even if those two rows are fanned out to many outputs.</p>
+        <p>For topology, active matrix input rows become active points. If only rows 1 and 2 are active, the topology is 2-point, even if those rows feed many outputs.</p>
 
         <table class="readout-table">
           <thead>
@@ -93,7 +93,7 @@
             <tr>
               <td>Stereo source as 8 topology lanes</td>
               <td>Set the track to 8 channels. Route left to plugin inputs 1, 3, 5, 7. Route right to plugin inputs 2, 4, 6, 8.</td>
-              <td>Use diagonal routing for all 8 lanes. This makes all 8 input rows active, so the topology uses 8 points.</td>
+              <td>Use diagonal routing for all 8 lanes. All 8 input rows are active, so the topology uses 8 points.</td>
             </tr>
             <tr>
               <td>Quad source as 4 topology lanes</td>
@@ -108,11 +108,11 @@
           </tbody>
         </table>
 
-        <p>A good default habit is to use REAPER's pin connector for source expansion into the plugin, then keep the internal matrix diagonal while shaping the topology. Use the internal matrix for deliberate lane patching after the input width is established.</p>
+        <p>For sources narrower than the plugin, use REAPER pins to expand the source into the plugin inputs. Then keep the plugin matrix diagonal while shaping the topology.</p>
 
         <h2 id="topology-map">Topology Map</h2>
 
-        <p>The topology map is a readable way to understand what the Delay Processor is doing internally. The point display is not only a visualization: point position, radius, lane phase, nearest neighbors, and centroid pull are used by the delay generator.</p>
+        <p>The topology map shows how active lanes influence the delay. Point position, radius, lane phase, nearest neighbors, and centroid pull all feed the delay generator.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -175,12 +175,12 @@
               <text x="48" y="300" fill="#8e9893" font-family="Menlo, Monaco, Courier New, monospace" font-size="10">Topology controls scale how strongly the point field offsets each delay parameter.</text>
             </svg>
           </div>
-          <figcaption>This delay-specific map shows how the shared topology framework becomes TIME, FDBK, TONE, PITCH, SMR, and DIFF inside the Delay Processor.</figcaption>
+          <figcaption>Delay-specific topology mapping for TIME, FDBK, TONE, PITCH, SMR, and DIFF.</figcaption>
         </figure>
 
         <h2 id="engine-sliders">Delay Engine Sliders</h2>
 
-        <p>The engine sliders set the main delay behavior before topology variation is applied. In practice, several of them act like trims or centers: they define the base value that the topology layer bends differently for each active lane.</p>
+        <p>The engine sliders set the base delay sound. Topology then bends those values differently for each active lane.</p>
 
         <table class="readout-table">
           <thead>
@@ -201,7 +201,7 @@
           </tbody>
         </table>
 
-        <p>The topology controls do not replace the engine sliders. They describe how each active lane departs from the slider values. Lower topology amount keeps the lanes closer to the engine settings; higher topology amount makes the per-lane differences more pronounced.</p>
+        <p>Topology controls do not replace the engine sliders. They control how far each lane departs from the base settings.</p>
 
         <h2 id="readout">Readout Terms</h2>
 
@@ -229,7 +229,7 @@
           <li>Topology controls generate per-lane differences.</li>
           <li>ANIM and VAR provide motion scene behavior using the same topology controls.</li>
           <li>Mix remains a global dry/wet control.</li>
-          <li>Per-lane internals remain hidden from host automation.</li>
+          <li>Per-lane details stay inside the plugin.</li>
         </ul>
 
         <nav class="page-nav" aria-label="Page navigation">

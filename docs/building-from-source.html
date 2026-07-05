@@ -25,9 +25,9 @@
       <main class="content" id="content">
         <h1>Building From Source</h1>
 
-        <p>These notes are for compiling the current s3g-dsp CLAP plugins from source. The repository is still pre-release, so plugin names, parameter mappings, state formats, and the included plugin set may change.</p>
+        <p>These notes are for building the current s3g-dsp CLAP plugins from source. This is pre-release software: plugin names, parameters, saved states, and included plugins may change.</p>
 
-        <p>The current development target is macOS with REAPER as the tested host. Other operating systems and DAWs are not expected support targets at this stage.</p>
+        <p>The supported development target is macOS + REAPER.</p>
 
         <div class="status-strip" aria-label="Build status">
           <div><span>state</span><strong>pre-release</strong></div>
@@ -41,14 +41,14 @@
         <ul>
           <li>CMake 3.20 or newer.</li>
           <li>A C++17 compiler, such as Apple Clang through Xcode Command Line Tools.</li>
-          <li>macOS for the current native CLAP GUI/plugin bundle targets.</li>
-          <li>REAPER for the current tested host workflow.</li>
+          <li>macOS for the current CLAP GUI/plugin bundles.</li>
+          <li>REAPER.</li>
           <li>Optional: <code>clap-validator</code> for plugin validation.</li>
         </ul>
 
         <h2 id="smoke-test">Smoke Test</h2>
 
-        <p>The development preset builds the shared DSP smoke test without building CLAP bundles:</p>
+        <p>The development preset builds the DSP smoke test without CLAP bundles:</p>
 
         <pre><code>cmake --preset dev
 cmake --build --preset dev
@@ -56,7 +56,7 @@ cmake --build --preset dev
 
         <h2 id="clap-build">Build CLAP Plugins</h2>
 
-        <p>Build the CLAP plugins with the saved CMake preset:</p>
+        <p>Build the CLAP plugins:</p>
 
         <pre><code>cmake --preset clap
 cmake --build --preset clap</code></pre>
@@ -71,7 +71,7 @@ cmake --build build-clap</code></pre>
 
         <h2 id="install-local">Install Local Build</h2>
 
-        <p>Install the built CLAP bundles into the user CLAP plugin folder:</p>
+        <p>Install the CLAP bundles:</p>
 
         <pre><code>./scripts/install-clap-bundles.sh</code></pre>
 
@@ -79,7 +79,7 @@ cmake --build build-clap</code></pre>
 
         <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
 
-        <p>The install script currently copies the active plugin bundles from <code>build-clap/plugins/</code> and replaces existing bundles with the same names.</p>
+        <p>The install script copies bundles from <code>build-clap/plugins/</code> and replaces matching older bundles.</p>
 
         <h2 id="validate">Validate</h2>
 
@@ -94,7 +94,7 @@ clap-validator validate \
 
         <h2 id="cleanup">Cleanup</h2>
 
-        <p>Build folders can contain stale generated artifacts after plugin renames or target culls. Reconfiguring and rebuilding with the current preset should only recreate the active targets.</p>
+        <p>If old plugin names remain after a rename, reconfigure and rebuild with the current preset.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="index.html">
