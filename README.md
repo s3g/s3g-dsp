@@ -7,6 +7,9 @@ plugin project.
 
 Related package docs: <https://s3g.github.io/s3g-mc/>
 
+Project documentation for `s3g-dsp` is available at
+<https://s3g.github.io/s3g-dsp/>.
+
 The current focus is reliable multichannel lane processing in REAPER: fixed
 width plugins, predictable FX pin behavior, compact host automation, and a
 topology layer that generates per-channel DSP variation internally.
