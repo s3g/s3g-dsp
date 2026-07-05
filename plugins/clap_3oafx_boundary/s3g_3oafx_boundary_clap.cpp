@@ -2,9 +2,11 @@
 #include "s3g_math.h"
 
 #include <clap/clap.h>
+#include "s3g_realtime.h"
 #if defined(__APPLE__)
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
+#include "../common/s3g_clap_macos.h"
 #endif
 
 #include <algorithm>
@@ -87,6 +89,7 @@ struct Plugin {
     uint32_t meterRedrawCountdown = 0;
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    void* macRealtimeActivity = nullptr;
     std::atomic<bool> guiDirty { false };
 #endif
 };
@@ -95,6 +98,7 @@ Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
 }
+
 
 double clampParam(clap_id id, double value)
 {
@@ -308,6 +312,7 @@ void destroy(const clap_plugin_t* plugin)
 {
 #if defined(__APPLE__)
     auto* p = self(plugin);
+    s3g::clap_support::endRealtimeActivity(p->macRealtimeActivity);
     if (p->guiView) {
         NSView* view = static_cast<NSView*>(p->guiView);
         [view removeFromSuperview];
@@ -321,13 +326,21 @@ void destroy(const clap_plugin_t* plugin)
 bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t maxFrames)
 {
     auto* p = self(plugin);
+#if defined(__APPLE__)
+    s3g::clap_support::beginRealtimeActivity(p->macRealtimeActivity);
+#endif
     p->sampleRate = sampleRate;
     p->maxFrames = maxFrames;
     p->meterRedrawCountdown = static_cast<uint32_t>(std::max(1.0, sampleRate / 24.0));
     return true;
 }
 
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin)
+{
+#if defined(__APPLE__)
+    s3g::clap_support::endRealtimeActivity(self(plugin)->macRealtimeActivity);
+#endif
+}
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)

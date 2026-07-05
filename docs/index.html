@@ -16,6 +16,7 @@
         <a href="installing-plugins.html">Install Pre-release</a>
         <a href="topology-framework.html">Topology Framework</a>
         <a href="delay-processor.html">Delay Processor</a>
+        <a href="mc-to-stereo-autogain.html">MC to Stereo</a>
         <a href="3oafx-insert-workflow.html">3OAFX Notes</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
@@ -42,6 +43,7 @@
           <a class="utility-link" href="building-from-source.html">Build from source</a>
           <a class="utility-link" href="installing-plugins.html">Install pre-release plugins</a>
           <a class="utility-link" href="delay-processor.html">Delay Processor docs</a>
+          <a class="utility-link" href="mc-to-stereo-autogain.html">MC to Stereo docs</a>
           <a class="utility-link" href="topology-framework.html">Topology framework docs</a>
           <a class="utility-link" href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer">s3g-mc docs</a>
         </p>
@@ -56,10 +58,11 @@
           <li><code>s3g 24ch Passthrough Test</code>: fixed 24-in/24-out CLAP passthrough/gain plugin.</li>
           <li><code>s3g Delay Processor 8ch</code>: main topology-driven delay processor.</li>
           <li><code>s3g Delay Processor 24ch</code>: wider delay build for future 3OAFX insert work.</li>
+          <li><code>s3g MC to Stereo Autogain</code>: 128-channel input to true stereo output fold-down prototype.</li>
           <li><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code>: work-in-progress boundary plugins for the 3OAFX insert workflow.</li>
         </ul>
 
-        <p>The most developed plugin is the <a href="delay-processor.html">Delay Processor</a>. It includes a macOS GUI with a patch matrix, topology view, heatmap, readout, and ANIM/VAR motion controls.</p>
+        <p>The most developed effect is the <a href="delay-processor.html">Delay Processor</a>. The <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a> plugin is a practical fold-down tool for auditioning multichannel work in stereo.</p>
 
         <h2 id="design">Design</h2>
 

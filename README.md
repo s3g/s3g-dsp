@@ -23,6 +23,8 @@ Current validated targets:
 - `s3g 24ch Passthrough Test`: fixed 24-in/24-out CLAP passthrough/gain plugin.
 - `s3g Delay Processor 8ch`: main topology-driven delay processor.
 - `s3g Delay Processor 24ch`: wider delay build for future 3OAFX insert work.
+- `s3g MC to Stereo Autogain`: 128-channel input to true stereo output
+  fold-down prototype.
 - `s3g 3OAFX Send Decoder` / `s3g 3OAFX Return Encoder`: work-in-progress
   boundary plugins for the 3OAFX insert workflow.
 
@@ -131,6 +133,8 @@ clap-validator validate \
   ~/Library/Audio/Plug-Ins/CLAP/s3g_8ch_delay_processor.clap --only-failed
 clap-validator validate \
   ~/Library/Audio/Plug-Ins/CLAP/s3g_24ch_delay_processor.clap --only-failed
+clap-validator validate \
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_mc_to_stereo_autogain.clap --only-failed
 ```
 
 ## Relationship to s3g-mc

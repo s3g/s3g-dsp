@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1020 420" role="img" aria-labelledby="title desc">
+  <title id="title">MC to Stereo fold-down map</title>
+  <desc id="desc">Diagram showing many input channels feeding layout weighting, pan and gain calculation, autogain, and true stereo output.</desc>
+  <rect width="1020" height="420" fill="#0d0f0f"/>
+  <style>
+    text{font-family:Menlo,Monaco,'Courier New',monospace;letter-spacing:0;fill:#c6cdc8}.h{fill:#d8ddd8;font-weight:700;font-size:13px}.s{fill:#8e9893;font-size:11px}.b{fill:#111313;stroke:#303636;stroke-width:1}.l{stroke:#8e9893;stroke-width:1.4;fill:none}.a{stroke:#c6cdc8;stroke-width:2;fill:none}.p{fill:#d8ddd8;stroke:#080909;stroke-width:2}.m{fill:#242a28;stroke:#4b5652;stroke-width:1}
+  </style>
+  <g transform="translate(38 40)">
+    <rect class="b" x="0" y="0" width="214" height="320"/>
+    <text class="h" x="18" y="28">INPUT CHANNELS</text>
+    <text class="s" x="18" y="52">2 to 128 plugin inputs</text>
+    <g transform="translate(28 82)">
+      <rect class="p" x="0" y="0" width="12" height="12"/><text class="s" x="24" y="11">1</text>
+      <rect class="p" x="0" y="28" width="12" height="12"/><text class="s" x="24" y="39">2</text>
+      <rect class="p" x="0" y="56" width="12" height="12"/><text class="s" x="24" y="67">3</text>
+      <rect class="p" x="0" y="84" width="12" height="12"/><text class="s" x="24" y="95">4</text>
+      <text class="s" x="1" y="131">...</text>
+      <rect class="p" x="0" y="158" width="12" height="12"/><text class="s" x="24" y="169">N</text>
+    </g>
+    <text class="s" x="18" y="284">IN selects how many</text>
+    <text class="s" x="18" y="303">inputs are included.</text>
+  </g>
+  <path class="a" d="M264 200 H320"/><path class="a" d="M310 194 L322 200 L310 206"/>
+  <g transform="translate(334 40)">
+    <rect class="b" x="0" y="0" width="278" height="320"/>
+    <text class="h" x="18" y="28">LAYOUT MAP</text>
+    <text class="s" x="18" y="52">places each input in a fold-down model</text>
+    <g transform="translate(70 98)">
+      <circle cx="72" cy="72" r="68" fill="none" stroke="#4b5652" stroke-width="1"/>
+      <line class="l" x1="72" y1="2" x2="72" y2="142" opacity=".45"/>
+      <line class="l" x1="2" y1="72" x2="142" y2="72" opacity=".45"/>
+      <rect class="p" x="65" y="4" width="14" height="14"/>
+      <rect class="p" x="114" y="23" width="14" height="14"/>
+      <rect class="p" x="132" y="68" width="14" height="14"/>
+      <rect class="p" x="112" y="114" width="14" height="14"/>
+      <rect class="p" x="65" y="130" width="14" height="14"/>
+      <rect class="p" x="18" y="114" width="14" height="14"/>
+      <rect class="p" x="0" y="68" width="14" height="14"/>
+      <rect class="p" x="18" y="23" width="14" height="14"/>
+    </g>
+    <text class="s" x="18" y="258">LAY chooses the model.</text>
+    <text class="s" x="18" y="277">ROT turns it.</text>
+    <text class="s" x="18" y="296">WGT controls rear/shape weighting.</text>
+  </g>
+  <path class="a" d="M624 200 H680"/><path class="a" d="M670 194 L682 200 L670 206"/>
+  <g transform="translate(694 40)">
+    <rect class="b" x="0" y="0" width="288" height="320"/>
+    <text class="h" x="18" y="28">STEREO OUTPUT</text>
+    <text class="s" x="18" y="52">per-channel pan + gain sum</text>
+    <g transform="translate(35 92)">
+      <rect class="m" x="0" y="122" width="64" height="64"/><text class="h" x="27" y="160">L</text>
+      <rect class="m" x="154" y="122" width="64" height="64"/><text class="h" x="181" y="160">R</text>
+      <g stroke="#8e9893" stroke-width="1" opacity=".7">
+        <line x1="28" y1="28" x2="32" y2="122"/><line x1="72" y1="52" x2="32" y2="122"/><line x1="118" y1="36" x2="186" y2="122"/><line x1="170" y1="70" x2="186" y2="122"/>
+        <line x1="28" y1="28" x2="186" y2="122" opacity=".25"/><line x1="72" y1="52" x2="186" y2="122" opacity=".35"/><line x1="118" y1="36" x2="32" y2="122" opacity=".25"/><line x1="170" y1="70" x2="32" y2="122" opacity=".35"/>
+      </g>
+      <rect class="p" x="21" y="21" width="14" height="14"/><rect class="p" x="65" y="45" width="14" height="14"/><rect class="p" x="111" y="29" width="14" height="14"/><rect class="p" x="163" y="63" width="14" height="14"/>
+    </g>
+    <text class="s" x="18" y="258">AGN scales the summed level.</text>
+    <text class="s" x="18" y="277">OUT trims final stereo gain.</text>
+    <text class="s" x="18" y="296">Only outputs 1-2 carry audio.</text>
+  </g>
+  <text class="s" x="38" y="392">This plugin is for auditioning multichannel material in stereo. It is not an ambisonic decoder.</text>
+</svg>

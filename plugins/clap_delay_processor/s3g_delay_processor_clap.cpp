@@ -5,11 +5,13 @@
 #include "s3g_topology_heatmap.h"
 
 #include <clap/clap.h>
+#include "s3g_realtime.h"
 #include <clap/ext/latency.h>
 #include <clap/ext/tail.h>
 #if defined(__APPLE__)
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
+#include "../common/s3g_clap_macos.h"
 #endif
 
 #include <algorithm>
@@ -384,6 +386,8 @@ struct Plugin {
     s3g::DelayProcessor delay;
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    void* macRealtimeActivity = nullptr;
+    std::atomic<bool> guiVisible { false };
     std::atomic<bool> guiDirty { false };
 #endif
 };
@@ -392,6 +396,7 @@ Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
 }
+
 
 uint32_t activePatchRows(const Plugin& p);
 void requestGuiRedraw(Plugin& p);
@@ -956,7 +961,7 @@ void advanceTopologyMotion(Plugin& p, uint32_t frames)
 void requestGuiRedraw(Plugin& p)
 {
 #if defined(__APPLE__)
-    if (!p.guiView) {
+    if (!p.guiView || !p.guiVisible.load(std::memory_order_relaxed)) {
         return;
     }
     const bool wasDirty = p.guiDirty.exchange(true, std::memory_order_release);
@@ -1018,6 +1023,9 @@ void destroy(const clap_plugin_t* plugin)
 bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t maxFrames)
 {
     auto* p = self(plugin);
+#if defined(__APPLE__)
+    s3g::clap_support::beginRealtimeActivity(p->macRealtimeActivity);
+#endif
     p->sampleRate = sampleRate;
     p->maxFrames = maxFrames;
     p->meterRedrawCountdown = static_cast<uint32_t>(std::max(1.0, sampleRate / 24.0));
@@ -1029,7 +1037,12 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     return true;
 }
 
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin)
+{
+#if defined(__APPLE__)
+    s3g::clap_support::endRealtimeActivity(self(plugin)->macRealtimeActivity);
+#endif
+}
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 
@@ -2317,6 +2330,7 @@ const clap_plugin_state_t state {
 - (void)updateSliderAtPoint:(NSPoint)pt;
 - (void)resetTopology;
 - (void)setTopologyView:(uint32_t)view;
+- (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 - (void)selectShapeMenuItem:(NSMenuItem*)item;
 - (void)selectMotionMenuItem:(NSMenuItem*)item;
@@ -2384,12 +2398,7 @@ static NSColor* s3gHeatColor(double value, double alpha)
         _openMenu = 0;
         _menuOrigin = NSMakePoint(0, 0);
         _menuItemCount = 0;
-        _refreshTimer = [NSTimer timerWithTimeInterval:(1.0 / 30.0)
-                                                target:self
-                                              selector:@selector(refreshTimerFired:)
-                                              userInfo:nil
-                                               repeats:YES];
-        [[NSRunLoop mainRunLoop] addTimer:_refreshTimer forMode:NSRunLoopCommonModes];
+        _refreshTimer = nil;
     }
     return self;
 }
@@ -2408,10 +2417,23 @@ static NSColor* s3gHeatColor(double value, double alpha)
     }
 }
 
+- (void)startRefreshTimer
+{
+    if (_refreshTimer) {
+        return;
+    }
+    _refreshTimer = [NSTimer timerWithTimeInterval:(1.0 / 30.0)
+                                            target:self
+                                          selector:@selector(refreshTimerFired:)
+                                          userInfo:nil
+                                           repeats:YES];
+    [[NSRunLoop mainRunLoop] addTimer:_refreshTimer forMode:NSRunLoopCommonModes];
+}
+
 - (void)refreshTimerFired:(NSTimer*)timer
 {
     (void)timer;
-    if ([self isHidden] || !_plugin) {
+    if ([self isHidden] || !_plugin || !s3g::clap_support::hostAppIsActive()) {
         return;
     }
     auto* p = static_cast<Plugin*>(_plugin);
@@ -3309,6 +3331,8 @@ void guiDestroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
     if (p->guiView) {
+        p->guiVisible.store(false, std::memory_order_relaxed);
+        p->guiDirty.store(false, std::memory_order_relaxed);
         NSView* view = static_cast<NSView*>(p->guiView);
         if ([view respondsToSelector:@selector(stopRefreshTimer)]) {
             [static_cast<S3GDelayProcessorView*>(view) stopRefreshTimer];
@@ -3371,7 +3395,12 @@ bool guiShow(const clap_plugin_t* plugin)
     if (!p->guiView) {
         return false;
     }
+    p->guiVisible.store(true, std::memory_order_relaxed);
     [static_cast<NSView*>(p->guiView) setHidden:NO];
+    if ([static_cast<NSView*>(p->guiView) respondsToSelector:@selector(startRefreshTimer)]) {
+        [static_cast<S3GDelayProcessorView*>(p->guiView) startRefreshTimer];
+    }
+    requestGuiRedraw(*p);
     return true;
 }
 
@@ -3380,6 +3409,11 @@ bool guiHide(const clap_plugin_t* plugin)
     auto* p = self(plugin);
     if (!p->guiView) {
         return false;
+    }
+    p->guiVisible.store(false, std::memory_order_relaxed);
+    p->guiDirty.store(false, std::memory_order_relaxed);
+    if ([static_cast<NSView*>(p->guiView) respondsToSelector:@selector(stopRefreshTimer)]) {
+        [static_cast<S3GDelayProcessorView*>(p->guiView) stopRefreshTimer];
     }
     [static_cast<NSView*>(p->guiView) setHidden:YES];
     return true;

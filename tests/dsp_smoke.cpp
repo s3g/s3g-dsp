@@ -3,6 +3,7 @@
 #include "s3g_delay_processor.h"
 #include "s3g_gain.h"
 #include "s3g_lane_patch.h"
+#include "s3g_mc_to_stereo.h"
 
 #include <array>
 #include <cmath>
@@ -41,6 +42,35 @@ int main()
     patch.toggle(7, 0);
     if (!patch.connected(7, 0)) {
         std::cerr << "LanePatch toggle failed\n";
+        return 1;
+    }
+
+    s3g::McStereoParams stereoParams;
+    stereoParams.inputChannels = 8;
+    stereoParams.layout = s3g::McStereoLayout::OddEvenStereo;
+    stereoParams.autogain = s3g::McStereoAutogain::Off;
+    stereoParams.widthPercent = 100.0f;
+    float mcIn[s3g::kMcToStereoMaxInputChannels] {};
+    float stereoOut[2] {};
+    mcIn[0] = 1.0f;
+    mcIn[1] = 1.0f;
+    s3g::processMcToStereoFrame(mcIn, s3g::kMcToStereoMaxInputChannels, stereoOut, stereoParams);
+    if (std::abs(stereoOut[0] - 1.0f) > 0.0001f || std::abs(stereoOut[1] - 1.0f) > 0.0001f) {
+        std::cerr << "MC to Stereo odd/even fold-down failed\n";
+        return 1;
+    }
+    stereoParams.inputChannels = 128;
+    stereoParams.layout = s3g::McStereoLayout::SphereProjection;
+    stereoParams.autogain = s3g::McStereoAutogain::PowerSqrtN;
+    stereoParams.rotationDegrees = 37.0f;
+    stereoParams.layoutWeightPercent = 73.0f;
+    stereoParams.attenuation3dPercent = 62.0f;
+    for (uint32_t ch = 0; ch < s3g::kMcToStereoMaxInputChannels; ++ch) {
+        mcIn[ch] = std::sin(static_cast<float>(ch) * 0.37f) * 0.1f;
+    }
+    s3g::processMcToStereoFrame(mcIn, s3g::kMcToStereoMaxInputChannels, stereoOut, stereoParams);
+    if (!std::isfinite(stereoOut[0]) || !std::isfinite(stereoOut[1])) {
+        std::cerr << "MC to Stereo 128ch fold-down is not finite\n";
         return 1;
     }
 
@@ -129,6 +159,7 @@ int main()
     std::cout << "layout speakers: " << s3g::kVirtualSpeakerCount << "\n";
     std::cout << "gain ch1 sample4: " << samples[0][3] << "\n";
     std::cout << "lane patch row8: " << patch.rowMask(7) << "\n";
+    std::cout << "mc stereo L/R: " << stereoOut[0] << " / " << stereoOut[1] << "\n";
     std::cout << "delay processor impulse: " << delayOut[0] << "\n";
     std::cout << "delay processor stress peak: " << delayStressPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";

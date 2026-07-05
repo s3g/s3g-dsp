@@ -46,5 +46,6 @@ if(S3G_BUILD_CLAP_PLUGIN)
 
   add_subdirectory(plugins/clap_24ch_passthrough)
   add_subdirectory(plugins/clap_delay_processor)
+  add_subdirectory(plugins/clap_mc_to_stereo_autogain)
   add_subdirectory(plugins/clap_3oafx_boundary)
 endif()

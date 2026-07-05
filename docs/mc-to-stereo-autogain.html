@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MC to Stereo Autogain - s3g-dsp</title>
+    <meta name="description" content="MC to Stereo Autogain documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build Source</a>
+        <a href="installing-plugins.html">Install Pre-release</a>
+        <a href="topology-framework.html">Topology Framework</a>
+        <a href="delay-processor.html">Delay Processor</a>
+        <a href="mc-to-stereo-autogain.html">MC to Stereo</a>
+        <a href="3oafx-insert-workflow.html">3OAFX Notes</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>MC to Stereo Autogain</h1>
+
+        <p><code>s3g MC to Stereo Autogain</code> folds a multichannel REAPER track down to a true stereo CLAP output. It is meant for auditioning multichannel material when the session is not using an ambisonic decoder.</p>
+
+        <p>The plugin accepts up to 128 input channels and returns outputs 1-2 as stereo. It uses layout models, width, rotation, weighting, 3D distance, 3D attenuation, autogain, and output trim to make the fold-down controllable.</p>
+
+        <div class="related-links">
+          <h2>Related s3g-mc Docs</h2>
+          <ul>
+            <li><a href="https://s3g.github.io/s3g-mc/process-guides-channel-mixing.html" target="_blank" rel="noopener noreferrer">Channel mixing guides</a></li>
+            <li><a href="https://s3g.github.io/s3g-mc/gallery.html" target="_blank" rel="noopener noreferrer">s3g-mc tool gallery</a></li>
+          </ul>
+        </div>
+
+        <div class="status-strip" aria-label="MC to Stereo summary">
+          <div><span>input</span><strong>2-128ch</strong></div>
+          <div><span>output</span><strong>true stereo</strong></div>
+          <div><span>use</span><strong>audition fold-down</strong></div>
+          <div><span>host</span><strong>REAPER CLAP</strong></div>
+        </div>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <p>Each included input channel receives a pan and gain value. The plugin sums those weighted channels to left and right, then applies autogain and output gain.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="mc_to_stereo_fold_down.svg" alt="MC to Stereo fold-down diagram">
+          </div>
+          <figcaption>Many input channels are placed in a layout model, converted to stereo pan/gain pairs, then summed to outputs 1-2.</figcaption>
+        </figure>
+
+        <h2 id="layouts">Layout Models</h2>
+
+        <p><code>LAY</code> chooses how input channels are interpreted before the stereo fold-down. The current models are:</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Layout</th><th>Use</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Ring projection</td><td>Places channels around a circle and folds rear positions into stereo using layout weighting.</td></tr>
+            <tr><td>Linear left-right</td><td>Spreads channels in order from left to right.</td></tr>
+            <tr><td>Odd/even stereo</td><td>Sends odd/even channel pairs toward left and right.</td></tr>
+            <tr><td>Center-out</td><td>Keeps middle channels near center and spreads outer channels outward.</td></tr>
+            <tr><td>Pair-preserving</td><td>Keeps adjacent channel pairs close while distributing pairs across stereo.</td></tr>
+            <tr><td>Sphere projection</td><td>Uses 3D positions where elevation and rear placement can affect pan and gain.</td></tr>
+            <tr><td>Hemisphere projection</td><td>Uses an upper dome model for layouts that do not need lower speakers.</td></tr>
+            <tr><td>Cube projection</td><td>Uses an 8-point cube-style model for upper/lower spatial testing.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="three-d-controls">3D Controls</h2>
+
+        <p>The 3D layouts separate placement from level. <code>DST</code> changes how far elevated or lowered points sit from the center of the projection. <code>ATT</code> changes how much height and rear position reduce gain.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="mc_to_stereo_3d_controls.svg" alt="3D layout control diagram for MC to Stereo">
+          </div>
+          <figcaption><code>DST</code> exaggerates or collapses the 3D point spread. <code>ATT</code> changes gain attenuation for height and rear placement.</figcaption>
+        </figure>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>IN</td><td>How many plugin input channels are included in the fold-down.</td></tr>
+            <tr><td>WDTH</td><td>Stereo width. Low values collapse inward; high values exaggerate left/right placement.</td></tr>
+            <tr><td>ROT</td><td>Rotates ring and 3D layouts before they are folded to stereo.</td></tr>
+            <tr><td>LAY</td><td>Chooses the layout model.</td></tr>
+            <tr><td>WGT</td><td>Controls how strongly the layout shape affects rear or grouped channel positions.</td></tr>
+            <tr><td>ATT</td><td>3D attenuation. In 3D layouts, height and rear position can reduce gain.</td></tr>
+            <tr><td>DST</td><td>3D distance. In 3D layouts, upper and lower positions spread away from or toward center.</td></tr>
+            <tr><td>AGN</td><td>Autogain mode: off, power/sqrt(N), or energy sum.</td></tr>
+            <tr><td>OUT</td><td>Final stereo output gain trim.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="reaper-pins">REAPER Pins</h2>
+
+        <p>The plugin has a true stereo output bus, but REAPER may still preserve existing audio on unmapped track channels. If a following meter still shows channels above 2, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code>.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="mc_to_stereo_reaper_pins.svg" alt="REAPER pin connector note for MC to Stereo">
+          </div>
+          <figcaption>Use REAPER's pin connector to make sure only the plugin's stereo outputs continue after the fold-down.</figcaption>
+        </figure>
+
+        <h2 id="when-to-use">When To Use It</h2>
+
+        <ul>
+          <li>Audition a multichannel track quickly through stereo speakers or headphones.</li>
+          <li>Check a multichannel render without setting up an ambisonic decoder.</li>
+          <li>Compare layout fold-down choices while building wider-channel material.</li>
+        </ul>
+
+        <p>For ambisonic monitoring, use an appropriate decoder instead. This plugin is a practical stereo fold-down, not an HOA decode stage.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="delay-processor.html">
+            <span>Previous</span>
+            Delay Processor
+          </a>
+          <a class="page-nav-link next" href="3oafx-insert-workflow.html">
+            <span>Next</span>
+            3OAFX Notes
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#layouts">Layout Models</a>
+          <a href="#three-d-controls">3D Controls</a>
+          <a href="#controls">Controls</a>
+          <a href="#reaper-pins">REAPER Pins</a>
+          <a href="#when-to-use">When To Use It</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

@@ -1,6 +1,7 @@
 #include "s3g_gain.h"
 
 #include <clap/clap.h>
+#include "s3g_realtime.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -106,14 +107,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         }
     }
 
-    for (uint32_t ch = channels; ch < output.channel_count; ++ch) {
-        if (output.data32 && output.data32[ch]) {
-            std::fill(output.data32[ch], output.data32[ch] + frames, 0.0f);
-        }
-        if (output.data64 && output.data64[ch]) {
-            std::fill(output.data64[ch], output.data64[ch] + frames, 0.0);
-        }
-    }
+    s3g::clearAudioBufferFromChannel(output, channels, frames);
 
     p->gain.setGainDb(static_cast<float>(p->gainDb));
     if (output.data32 && channels == kChannelCount) {

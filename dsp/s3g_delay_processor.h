@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_math.h"
+#include "s3g_realtime.h"
 
 #include <algorithm>
 #include <cmath>
@@ -210,7 +211,7 @@ public:
             const float age = character_[index];
             const float toneCoeff = 0.006f + tone_[index] * tone_[index] * (0.28f - age * 0.16f);
             float& filter = feedbackFilter_[index];
-            filter += toneCoeff * (delayed - filter);
+            filter = flushDenormal(filter + toneCoeff * (delayed - filter));
 
             delayedFrame_[index] = delayed;
             filteredFrame_[index] = filter;
@@ -243,7 +244,7 @@ public:
             const float feedbackSource = filteredFrame_[index] + (networked - filteredFrame_[index]) * network_[index];
             const float character = character_[index];
             const float feedbackTrim = 1.0f - character * 0.28f;
-            const float feedbackSend = tapeSaturate(feedbackSource * feedback_[index] * feedbackTrim, character);
+            const float feedbackSend = flushDenormal(tapeSaturate(feedbackSource * feedback_[index] * feedbackTrim, character));
             const float writeValue = input[ch] + feedbackSend;
             writeSample(ch, safetyLimit(tapeSaturate(writeValue, character * 0.35f)));
         }

@@ -16,6 +16,7 @@
         <a href="installing-plugins.html">Install Pre-release</a>
         <a href="topology-framework.html">Topology Framework</a>
         <a href="delay-processor.html">Delay Processor</a>
+        <a href="mc-to-stereo-autogain.html">MC to Stereo</a>
         <a href="3oafx-insert-workflow.html">3OAFX Notes</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
@@ -71,6 +72,7 @@
           <li><code>s3g 24ch Passthrough Test</code>: fixed 24-in/24-out passthrough/gain plugin for host testing.</li>
           <li><code>s3g Delay Processor 8ch</code>: main topology-driven delay processor.</li>
           <li><code>s3g Delay Processor 24ch</code>: wider delay build for future 3OAFX insert workflows.</li>
+          <li><code>s3g MC to Stereo Autogain</code>: 128-channel input to true stereo output fold-down prototype.</li>
           <li><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code>: work-in-progress boundary plugins for 3OAFX insert chains.</li>
         </ul>
 
@@ -79,6 +81,8 @@
         <p>After installing, open REAPER and rescan CLAP plugins if the new builds do not appear automatically. Search for <code>s3g</code> in the FX browser.</p>
 
         <p>For multichannel testing, set the track channel count before inserting the plugin.</p>
+
+        <p>For <code>s3g MC to Stereo Autogain</code>, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code>. The CLAP plugin has a true stereo output bus, but REAPER can still pass unmapped track channels around the effect unless this option is enabled.</p>
 
         <p>For the larger REAPER package workflow, see the <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX Send Return Controller guide</a>.</p>
 

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1020 360" role="img" aria-labelledby="title desc">
+  <title id="title">REAPER pin routing note for MC to Stereo</title>
+  <desc id="desc">Diagram showing a multichannel REAPER track feeding MC to Stereo and returning only channels one and two, with unused host outputs needing zeroed in REAPER.</desc>
+  <rect width="1020" height="360" fill="#0d0f0f"/>
+  <style>
+    text{font-family:Menlo,Monaco,'Courier New',monospace;letter-spacing:0;fill:#c6cdc8}.h{fill:#d8ddd8;font-weight:700;font-size:13px}.s{fill:#8e9893;font-size:11px}.b{fill:#111313;stroke:#303636;stroke-width:1}.p{fill:#d8ddd8;stroke:#080909;stroke-width:2}.d{fill:#252b29;stroke:#4b5652;stroke-width:1}.l{stroke:#8e9893;stroke-width:1.3;fill:none}.a{stroke:#c6cdc8;stroke-width:2;fill:none}.x{stroke:#777f7b;stroke-width:1.5;fill:none}
+  </style>
+  <g transform="translate(42 42)">
+    <rect class="b" x="0" y="0" width="230" height="238"/>
+    <text class="h" x="16" y="28">REAPER TRACK</text>
+    <text class="s" x="16" y="52">multichannel media / bus</text>
+    <g transform="translate(24 82)">
+      <rect class="p" x="0" y="0" width="12" height="12"/><text class="s" x="24" y="11">ch 1</text>
+      <rect class="p" x="0" y="24" width="12" height="12"/><text class="s" x="24" y="35">ch 2</text>
+      <rect class="p" x="0" y="48" width="12" height="12"/><text class="s" x="24" y="59">ch 3</text>
+      <rect class="p" x="0" y="72" width="12" height="12"/><text class="s" x="24" y="83">ch 4</text>
+      <text class="s" x="0" y="116">...</text>
+      <rect class="p" x="0" y="138" width="12" height="12"/><text class="s" x="24" y="149">ch N</text>
+    </g>
+  </g>
+  <path class="a" d="M288 160 H344"/><path class="a" d="M334 154 L346 160 L334 166"/>
+  <g transform="translate(360 42)">
+    <rect class="b" x="0" y="0" width="286" height="238"/>
+    <text class="h" x="16" y="28">s3g MC TO STEREO</text>
+    <text class="s" x="16" y="52">folds selected input count to stereo</text>
+    <g transform="translate(34 82)">
+      <rect class="d" x="0" y="0" width="82" height="30"/><text class="s" x="18" y="20">LAY</text>
+      <rect class="d" x="102" y="0" width="82" height="30"/><text class="s" x="120" y="20">WDTH</text>
+      <rect class="d" x="0" y="46" width="82" height="30"/><text class="s" x="18" y="66">ROT</text>
+      <rect class="d" x="102" y="46" width="82" height="30"/><text class="s" x="120" y="66">AGN</text>
+      <rect class="d" x="0" y="92" width="82" height="30"/><text class="s" x="18" y="112">DST</text>
+      <rect class="d" x="102" y="92" width="82" height="30"/><text class="s" x="120" y="112">ATT</text>
+    </g>
+  </g>
+  <path class="a" d="M662 160 H718"/><path class="a" d="M708 154 L720 160 L708 166"/>
+  <g transform="translate(734 42)">
+    <rect class="b" x="0" y="0" width="244" height="238"/>
+    <text class="h" x="16" y="28">TRACK RETURN</text>
+    <text class="s" x="16" y="52">true stereo output bus</text>
+    <g transform="translate(24 86)">
+      <rect class="p" x="0" y="0" width="12" height="12"/><text class="s" x="24" y="11">out 1 = left</text>
+      <rect class="p" x="0" y="28" width="12" height="12"/><text class="s" x="24" y="39">out 2 = right</text>
+      <g opacity=".62">
+        <line class="x" x1="0" y1="72" x2="12" y2="84"/><line class="x" x1="12" y1="72" x2="0" y2="84"/><text class="s" x="24" y="83">out 3+ should be silent</text>
+      </g>
+      <text class="s" x="0" y="124">In REAPER, enable</text>
+      <text class="s" x="0" y="142">Zero out unmapped</text>
+      <text class="s" x="0" y="160">output channels when needed.</text>
+    </g>
+  </g>
+  <text class="s" x="42" y="322">The plugin sums to outputs 1-2. REAPER can still preserve old track-channel data unless unmapped output channels are zeroed in the host pin connector.</text>
+</svg>
