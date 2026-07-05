@@ -66,12 +66,10 @@ the selected plugin format expose and preserve 24-channel audio correctly.
 
 This passthrough has been confirmed to work as a 24-channel CLAP in REAPER.
 
-The general plugin direction is scalable multichannel by default. `s3g Diffusion
-Mesh` defaults to stereo, advertises common channel configurations through 128
-channels, and can accept matching input/output channel requests up to that
-realtime cap.
+The general plugin direction is fixed-width where REAPER pin behavior needs to
+be predictable. `s3g Delay Processor 24ch` is the current wide insert effect for
+testing this boundary.
 
-The 3OAFX-specific target is `s3g 24ch Diffusion Mesh`. It keeps the fixed
-24-in/24-out shape because it is meant to sit directly on the virtual speaker
-insert layer, where channel count and speaker order are part of the musical
-contract.
+Future 3OAFX-specific processors should keep the fixed 24-in/24-out shape when
+they sit directly on the virtual speaker insert layer, where channel count and
+speaker order are part of the musical contract.

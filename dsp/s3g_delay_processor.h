@@ -1,6 +1,5 @@
 #pragma once
 
-#include "s3g_diffusion_mesh.h"
 #include "s3g_math.h"
 
 #include <algorithm>
@@ -9,12 +8,14 @@
 
 namespace s3g {
 
-class TapeDelay {
+constexpr int kDelayProcessorMaxChannels = 128;
+
+class DelayProcessor {
 public:
     void prepare(double sampleRate, int channels, double maxDelaySeconds = 2.0)
     {
         sampleRate_ = std::max(1.0, sampleRate);
-        channels_ = std::clamp(channels, 0, kMaxRealtimeChannels);
+        channels_ = std::clamp(channels, 0, kDelayProcessorMaxChannels);
         maxDelaySamples_ = std::max(2, static_cast<int>(std::ceil(sampleRate_ * maxDelaySeconds)) + 2);
         buffer_.assign(static_cast<size_t>(channels_) * static_cast<size_t>(maxDelaySamples_), 0.0f);
         writeIndex_ = 0;

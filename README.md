@@ -17,8 +17,6 @@ Current validated targets:
 - `s3g 24ch Passthrough Test`: fixed 24-in/24-out CLAP passthrough/gain plugin.
 - `s3g Delay Processor 8ch`: primary topology-driven multichannel delay test.
 - `s3g Delay Processor 24ch`: wider delay build for future 3OAFX insert work.
-- `s3g Diffusion Mesh` fixed-width wrappers: neutral multichannel diffusion
-  test plugins.
 - `s3g 3OAFX Send Decoder` / `s3g 3OAFX Return Encoder`: experimental boundary
   plugins for the 3OAFX insert workflow.
 

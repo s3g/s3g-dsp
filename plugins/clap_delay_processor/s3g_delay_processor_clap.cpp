@@ -1,6 +1,6 @@
 #include "s3g_lane_patch.h"
 #include "s3g_math.h"
-#include "s3g_tape_delay.h"
+#include "s3g_delay_processor.h"
 #include "s3g_topology.h"
 #include "s3g_topology_heatmap.h"
 
@@ -25,15 +25,15 @@
 
 namespace {
 
-#ifndef S3G_TAPE_DELAY_CHANNEL_COUNT
-#define S3G_TAPE_DELAY_CHANNEL_COUNT 8
+#ifndef S3G_DELAY_PROCESSOR_CHANNEL_COUNT
+#define S3G_DELAY_PROCESSOR_CHANNEL_COUNT 8
 #endif
 
-constexpr uint32_t kChannelCount = S3G_TAPE_DELAY_CHANNEL_COUNT;
+constexpr uint32_t kChannelCount = S3G_DELAY_PROCESSOR_CHANNEL_COUNT;
 static_assert(kChannelCount > 0 && kChannelCount <= s3g::kLanePatchMaxChannels,
-              "S3G_TAPE_DELAY_CHANNEL_COUNT must fit the lane patch matrix");
+              "S3G_DELAY_PROCESSOR_CHANNEL_COUNT must fit the lane patch matrix");
 
-#if S3G_TAPE_DELAY_CHANNEL_COUNT == 24
+#if S3G_DELAY_PROCESSOR_CHANNEL_COUNT == 24
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.delay-processor-24ch";
 constexpr const char* kPluginName = "s3g Delay Processor 24ch";
 constexpr const char* kPluginDescription =
@@ -381,7 +381,7 @@ struct Plugin {
     std::atomic<bool> outputClip { false };
     uint32_t meterRedrawCountdown = 0;
     s3g::LanePatch patch;
-    s3g::TapeDelay delay;
+    s3g::DelayProcessor delay;
 #if defined(__APPLE__)
     void* guiView = nullptr;
     std::atomic<bool> guiDirty { false };
@@ -2296,7 +2296,7 @@ const clap_plugin_state_t state {
 
 } // namespace
 
-@interface S3GTapeDelayView : NSView {
+@interface S3GDelayProcessorView : NSView {
     void* _plugin;
     int _dragSlider;
     bool _dragTopologyView;
@@ -2364,7 +2364,7 @@ static NSColor* s3gHeatColor(double value, double alpha)
     return [NSColor colorWithCalibratedRed:r green:g blue:bl alpha:alpha];
 }
 
-@implementation S3GTapeDelayView
+@implementation S3GDelayProcessorView
 
 - (id)initWithPlugin:(void*)plugin
 {
@@ -3301,7 +3301,7 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     if (p->guiView) {
         return true;
     }
-    p->guiView = [[S3GTapeDelayView alloc] initWithPlugin:p];
+    p->guiView = [[S3GDelayProcessorView alloc] initWithPlugin:p];
     return p->guiView != nullptr;
 }
 
@@ -3311,7 +3311,7 @@ void guiDestroy(const clap_plugin_t* plugin)
     if (p->guiView) {
         NSView* view = static_cast<NSView*>(p->guiView);
         if ([view respondsToSelector:@selector(stopRefreshTimer)]) {
-            [static_cast<S3GTapeDelayView*>(view) stopRefreshTimer];
+            [static_cast<S3GDelayProcessorView*>(view) stopRefreshTimer];
         }
         [view removeFromSuperview];
         [view release];

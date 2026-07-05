@@ -1,14 +1,14 @@
-function(add_s3g_tape_delay_target target channels output_name bundle_id bundle_name)
+function(add_s3g_delay_processor_target target channels output_name bundle_id bundle_name)
   add_library(${target} MODULE
-    s3g_tape_delay_clap.cpp
+    s3g_delay_processor_clap.cpp
   )
 
   target_link_libraries(${target} PRIVATE s3g_dsp)
   target_include_directories(${target} PRIVATE ${S3G_CLAP_INCLUDE_DIR})
-  target_compile_definitions(${target} PRIVATE S3G_TAPE_DELAY_CHANNEL_COUNT=${channels})
+  target_compile_definitions(${target} PRIVATE S3G_DELAY_PROCESSOR_CHANNEL_COUNT=${channels})
 
   if(APPLE)
-    set_source_files_properties(s3g_tape_delay_clap.cpp PROPERTIES LANGUAGE OBJCXX)
+    set_source_files_properties(s3g_delay_processor_clap.cpp PROPERTIES LANGUAGE OBJCXX)
     target_link_libraries(${target} PRIVATE "-framework Cocoa")
   endif()
 
@@ -29,16 +29,16 @@ function(add_s3g_tape_delay_target target channels output_name bundle_id bundle_
   endif()
 endfunction()
 
-add_s3g_tape_delay_target(
-  s3g_8ch_tape_delay_clap
+add_s3g_delay_processor_target(
+  s3g_8ch_delay_processor_clap
   8
   "s3g_8ch_delay_processor"
   "org.s3g.s3g-dsp.delay-processor-8ch"
   "s3g Delay Processor 8ch"
 )
 
-add_s3g_tape_delay_target(
-  s3g_24ch_tape_delay_clap
+add_s3g_delay_processor_target(
+  s3g_24ch_delay_processor_clap
   24
   "s3g_24ch_delay_processor"
   "org.s3g.s3g-dsp.delay-processor-24ch"
