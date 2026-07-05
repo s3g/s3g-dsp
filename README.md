@@ -61,7 +61,7 @@ Useful local docs:
 - `docs/installing-plugins.html`: installing packaged pre-release CLAP bundles.
 - `docs/topology-framework.html`: shared topology framework overview.
 - `docs/delay-processor.html`: Delay Processor overview and topology map.
-- `docs/delay_processor_gui.svg`: vector rendering of the Delay Processor GUI.
+- `docs/delay_processor_gui.png`: screenshot of the Delay Processor GUI.
 - `docs/topology_framework.svg`: shared topology framework diagram.
 - `docs/topology_effect_map.svg`: generic topology-to-effect mapping diagram.
 - `docs/topology_heatmap_example.svg`: topology heatmap visualization example.

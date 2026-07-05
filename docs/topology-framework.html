@@ -25,7 +25,7 @@
       <main class="content" id="content">
         <h1>Topology Framework</h1>
 
-        <p>The topology framework is the shared control layer for s3g-dsp multichannel plugins. A patch matrix selects active lanes. Those lanes become points. The points form a network. Each plugin maps the point and network data to its own internal DSP parameters.</p>
+        <p>The topology framework is the shared control layer for s3g-dsp multichannel plugins. Inside each plugin, the patch matrix selects active input lanes. Those lanes become points. The points form a network. Each plugin maps the point and network data to its own internal DSP parameters.</p>
 
         <p>This keeps host automation compact. The host sees global controls and topology/meta controls, while per-lane parameter variation is generated inside the plugin.</p>
 
@@ -58,7 +58,8 @@
         <h2 id="control-model">Control Model</h2>
 
         <ul>
-          <li>Patch matrix controls which lanes are active.</li>
+          <li>The host pin connector feeds the fixed-width plugin inputs.</li>
+          <li>The internal patch matrix controls which plugin input lanes are active.</li>
           <li>Shape and displacement controls position active lanes as points.</li>
           <li>Animation and variants move the point field over time.</li>
           <li>Neighbor and centroid controls define relationships between lanes.</li>
