@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If this software supports your project, publication, research, workshop, or teaching material, citation or attribution is appreciated."
+title: "s3g-dsp"
+authors:
+  - family-names: "Greenlee"
+    given-names: "Shawn"
+version: "0.1.0"
+date-released: 2026-07-05
+repository-code: "https://github.com/s3g/s3g-dsp"
+url: "https://s3g.github.io/s3g-dsp/"
+license: "BSD-3-Clause"
+keywords:
+  - "digital signal processing"
+  - "multichannel audio"
+  - "REAPER"
+  - "CLAP plugins"
+  - "spatial audio"

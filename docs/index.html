@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>s3g-dsp</title>
+    <meta name="description" content="Documentation for s3g-dsp native multichannel CLAP plugins.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="delay-processor.html">Delay Processor</a>
+        <a href="topology_framework.svg">Topology SVG</a>
+        <a href="3OAFX_insert_workflow.md">3OAFX Notes</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>s3g-dsp</h1>
+
+        <p>s3g-dsp is a BSD-3-Clause C++/CLAP plugin project for native multichannel DSP experiments that support the larger s3g-mc REAPER package.</p>
+
+        <p>The current focus is reliable multichannel lane processing in REAPER, beginning with the <strong>s3g Delay Processor</strong>. It uses a topology layer where active channels become points, points form a neighbor network, and the network maps to per-lane DSP values without exposing every lane as a host automation parameter.</p>
+
+        <div class="status-strip" aria-label="Project status">
+          <div><span>current target</span><strong>Delay Processor</strong></div>
+          <div><span>stable widths</span><strong>8ch / 24ch</strong></div>
+          <div><span>plugin format</span><strong>CLAP</strong></div>
+          <div><span>host target</span><strong>REAPER</strong></div>
+        </div>
+
+        <p>
+          <a class="utility-link" href="delay-processor.html">Delay Processor docs</a>
+          <a class="utility-link" href="topology_framework.svg">Topology framework SVG</a>
+        </p>
+
+        <h2 id="start-here">Start Here</h2>
+
+        <ul>
+          <li><a href="delay-processor.html">Delay Processor</a> explains the first stable native effect and its topology map.</li>
+          <li><a href="topology_framework.svg">Topology Framework SVG</a> shows the shared model for active lanes, point fields, network links, and per-lane DSP.</li>
+          <li><a href="3OAFX_insert_workflow.md">3OAFX Notes</a> preserve the current send/return boundary workflow for later refinement.</li>
+        </ul>
+
+        <h2 id="topology-layer">Topology Layer</h2>
+
+        <p>The topology layer is the common control idea for future s3g-dsp plugins. A patch matrix selects active lanes. Those lanes become points in a compact 3D field. Shape, displacement, animation, and variants move the points. The plugin then derives per-lane DSP values from point position, radius, lane phase, nearest neighbors, and centroid pull.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <svg viewBox="0 0 760 260" role="img" aria-labelledby="net-title net-desc">
+              <title id="net-title">Topology network preview</title>
+              <desc id="net-desc">Minimal network showing active channel points, neighbor links, and a delay map heat strip.</desc>
+              <rect width="760" height="260" fill="#0d0f0f"/>
+              <g stroke="#6f7774" stroke-width="1" fill="none">
+                <path d="M80 58 L190 34 L292 92 L250 198 L112 186 Z"/>
+                <path d="M80 58 L156 122 L112 186 M190 34 L156 122 L250 198 M292 92 L156 122"/>
+                <path d="M156 122 L388 128 M388 128 L548 64 M388 128 L618 110 M388 128 L586 196"/>
+                <path d="M548 64 L618 110 L586 196 L482 182 Z"/>
+              </g>
+              <g fill="#d8ddd8" stroke="#080909" stroke-width="2">
+                <rect x="72" y="50" width="16" height="16"/>
+                <rect x="182" y="26" width="16" height="16"/>
+                <rect x="284" y="84" width="16" height="16"/>
+                <rect x="242" y="190" width="16" height="16"/>
+                <rect x="104" y="178" width="16" height="16"/>
+                <rect x="148" y="114" width="16" height="16" fill="#eef4ef"/>
+                <rect x="380" y="120" width="16" height="16" fill="#eef4ef"/>
+                <rect x="540" y="56" width="16" height="16"/>
+                <rect x="610" y="102" width="16" height="16"/>
+                <rect x="578" y="188" width="16" height="16"/>
+                <rect x="474" y="174" width="16" height="16"/>
+              </g>
+              <g transform="translate(70 224)">
+                <rect width="620" height="12" fill="#111313" stroke="#303636"/>
+                <rect width="84" height="10" x="1" y="1" fill="#0d2a78"/>
+                <rect width="108" height="10" x="85" y="1" fill="#008de0"/>
+                <rect width="132" height="10" x="193" y="1" fill="#ffe448"/>
+                <rect width="120" height="10" x="325" y="1" fill="#ff4f0a"/>
+                <rect width="174" height="10" x="445" y="1" fill="#df0000"/>
+              </g>
+              <g fill="#8e9893" font-family="Menlo, Monaco, Courier New, monospace" font-size="11">
+                <text x="70" y="32">ACTIVE POINTS</text>
+                <text x="356" y="102">NEIGHBOR GRAPH</text>
+                <text x="70" y="214">TIME / FDBK / TONE / PITCH / SMR / DIFF FIELD</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption>Minimal topology preview in the same grayscale network language as the Delay Processor plugin.</figcaption>
+        </figure>
+
+        <h2 id="build">Build and Install</h2>
+
+        <p>The local development build uses the CLAP preset and installs bundles into the macOS CLAP plugin folder for REAPER testing.</p>
+
+        <pre><code>cmake --preset clap
+cmake --build --preset clap
+./scripts/install-clap-bundles.sh</code></pre>
+
+        <h2 id="release-site">GitHub Pages</h2>
+
+        <p>This site is a static project-site draft intended for <code>https://s3g.github.io/s3g-dsp/</code>. In GitHub repository settings, enable Pages from the default branch and the <code>/docs</code> folder.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <span></span>
+          <a class="page-nav-link next" href="delay-processor.html">
+            <span>Next</span>
+            Delay Processor
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#start-here">Start Here</a>
+          <a href="#topology-layer">Topology Layer</a>
+          <a href="#build">Build and Install</a>
+          <a href="#release-site">GitHub Pages</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

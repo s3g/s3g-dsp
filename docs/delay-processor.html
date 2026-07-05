@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Delay Processor - s3g-dsp</title>
+    <meta name="description" content="Delay Processor documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="delay-processor.html">Delay Processor</a>
+        <a href="topology_framework.svg">Topology SVG</a>
+        <a href="3OAFX_insert_workflow.md">3OAFX Notes</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Delay Processor</h1>
+
+        <p>The s3g Delay Processor is the first stable native effect in this repository. It treats each active channel as a parallel lane with its own delay time, feedback, tone, pitch, smear, and cross-lane diffusion behavior.</p>
+
+        <p>The important idea is that these per-lane values are not exposed as hundreds of host parameters. Instead, the plugin exposes a compact topology surface. Moving that surface changes the relationships between lanes.</p>
+
+        <div class="status-strip" aria-label="Delay Processor status">
+          <div><span>plugin widths</span><strong>8ch / 24ch</strong></div>
+          <div><span>routing</span><strong>patch matrix</strong></div>
+          <div><span>motion</span><strong>ANIM / VAR</strong></div>
+          <div><span>visuals</span><strong>topology + heatmap</strong></div>
+        </div>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <div class="compact-grid">
+          <div>
+            <h3>Patch Matrix</h3>
+            <p>Active input rows define the lane count used by the topology. The 8ch processor can be used as 2ch, 4ch, 6ch, 8ch, or a custom matrix.</p>
+          </div>
+          <div>
+            <h3>Point Field</h3>
+            <p>Shape, displacement, animation, and variants position the active lanes as points in a 3D field.</p>
+          </div>
+          <div>
+            <h3>Delay Engine</h3>
+            <p>Each point is converted into smoothed per-lane DSP values while the host automation surface stays compact.</p>
+          </div>
+        </div>
+
+        <h2 id="topology-map">Topology Map</h2>
+
+        <p>The topology map is a readable way to understand what the Delay Processor is doing internally. The point field is not only a visualization: point position, radius, lane phase, nearest neighbors, and centroid pull are used by the delay generator.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <svg viewBox="0 0 820 340" role="img" aria-labelledby="map-title map-desc">
+              <title id="map-title">Delay topology parameter map</title>
+              <desc id="map-desc">Vector diagram showing topology point dimensions mapped to delay processor parameters.</desc>
+              <rect width="820" height="340" fill="#0d0f0f"/>
+              <g transform="translate(48 48)">
+                <rect x="0" y="0" width="172" height="212" fill="#111313" stroke="#303636"/>
+                <text x="16" y="28" fill="#d8ddd8" font-family="Menlo, Monaco, Courier New, monospace" font-size="13" font-weight="700">POINT</text>
+                <g stroke="#8e9893" stroke-width="1" fill="none">
+                  <path d="M56 122 L104 58 L142 132 L88 178 Z"/>
+                  <path d="M56 122 L142 132 M104 58 L88 178"/>
+                </g>
+                <g fill="#d8ddd8" stroke="#080909" stroke-width="2">
+                  <rect x="49" y="115" width="14" height="14"/>
+                  <rect x="97" y="51" width="14" height="14"/>
+                  <rect x="135" y="125" width="14" height="14"/>
+                  <rect x="81" y="171" width="14" height="14"/>
+                </g>
+                <g fill="#8e9893" font-family="Menlo, Monaco, Courier New, monospace" font-size="11">
+                  <text x="16" y="70">X/Z spread</text>
+                  <text x="16" y="90">Y height</text>
+                  <text x="16" y="110">R radius</text>
+                  <text x="16" y="196">lane phase</text>
+                </g>
+              </g>
+              <g stroke="#c6cdc8" stroke-width="2" fill="none">
+                <path d="M238 154 H310"/>
+                <path d="M302 148 L314 154 L302 160"/>
+              </g>
+              <g transform="translate(330 36)" font-family="Menlo, Monaco, Courier New, monospace">
+                <rect x="0" y="0" width="440" height="238" fill="#111313" stroke="#303636"/>
+                <text x="18" y="30" fill="#d8ddd8" font-size="13" font-weight="700">DELAY GENERATOR FIELD</text>
+                <g fill="#c6cdc8" font-size="12">
+                  <text x="20" y="66">TIME  = X + Z + Y + R + SEED</text>
+                  <text x="20" y="96">FDBK  = Y - Z + X + R + SEED</text>
+                  <text x="20" y="126">TONE  = -Y + X + R + SEED</text>
+                  <text x="20" y="156">PITCH = Y + R + Z + SHAPE</text>
+                  <text x="20" y="186">SMR   = lane phase + R + X/Z</text>
+                  <text x="20" y="216">DIFF  = nearest neighbors + centroid</text>
+                </g>
+              </g>
+              <g transform="translate(48 286)">
+                <rect x="0" y="0" width="722" height="14" fill="#111313" stroke="#303636"/>
+                <rect x="1" y="1" width="124" height="12" fill="#0d2a78"/>
+                <rect x="125" y="1" width="146" height="12" fill="#008de0"/>
+                <rect x="271" y="1" width="152" height="12" fill="#ffe448"/>
+                <rect x="423" y="1" width="132" height="12" fill="#ff4f0a"/>
+                <rect x="555" y="1" width="166" height="12" fill="#df0000"/>
+                <text x="0" y="-10" fill="#8e9893" font-family="Menlo, Monaco, Courier New, monospace" font-size="10">AMT scales topology influence. ANIM/VAR moves the field over time.</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption>The delay-specific map uses vector drawing where possible so it can evolve with the plugin rather than becoming a static screenshot.</figcaption>
+        </figure>
+
+        <h2 id="readout">Readout Terms</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr>
+              <th>Term</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>TIME</td><td>Base delay plus topology-derived per-lane time offset.</td></tr>
+            <tr><td>FDBK</td><td>Per-lane regeneration amount.</td></tr>
+            <tr><td>TONE</td><td>Per-lane delay color.</td></tr>
+            <tr><td>PIT</td><td>Steady pitch shift in semitones.</td></tr>
+            <tr><td>SMR</td><td>Delay tap smear amount.</td></tr>
+            <tr><td>DIFF</td><td>Cross-lane diffusion based on neighbor links and centroid influence.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="control-model">Control Model</h2>
+
+        <ul>
+          <li>Patch matrix controls which lanes are active.</li>
+          <li>Topology controls generate per-lane differences.</li>
+          <li>ANIM and VAR provide motion scene behavior using the same topology controls.</li>
+          <li>Mix remains a global dry/wet control.</li>
+          <li>Per-lane internals remain hidden from host automation.</li>
+        </ul>
+
+        <h2 id="framework-svg">Framework SVG</h2>
+
+        <p>The full framework diagram shows the broader model shared by future plugins: active channels become points, points form a network, and the network maps to per-lane DSP values.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="topology_framework.svg" alt="s3g-dsp topology framework diagram">
+          </div>
+        </figure>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="index.html">
+            <span>Previous</span>
+            Getting Started
+          </a>
+          <span></span>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#topology-map">Topology Map</a>
+          <a href="#readout">Readout Terms</a>
+          <a href="#control-model">Control Model</a>
+          <a href="#framework-svg">Framework SVG</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

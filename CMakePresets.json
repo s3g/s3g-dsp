@@ -1,0 +1,30 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "dev",
+      "displayName": "Dev",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build"
+    },
+    {
+      "name": "clap",
+      "displayName": "CLAP",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-clap",
+      "cacheVariables": {
+        "S3G_BUILD_CLAP_PLUGIN": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "clap",
+      "configurePreset": "clap"
+    }
+  ]
+}
