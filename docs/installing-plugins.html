@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Installing Pre-release Plugins - s3g-dsp</title>
+    <meta name="description" content="Install notes for pre-release s3g-dsp CLAP plugin bundles.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build Source</a>
+        <a href="installing-plugins.html">Install Pre-release</a>
+        <a href="topology-framework.html">Topology Framework</a>
+        <a href="delay-processor.html">Delay Processor</a>
+        <a href="3oafx-insert-workflow.html">3OAFX Notes</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Installing Pre-release Plugins</h1>
+
+        <p>s3g-dsp is in a pre-release development state. These notes are for installing a packaged macOS CLAP zip attached to a GitHub pre-release. Plugin names, parameter mappings, state formats, and the included plugin set may still change.</p>
+
+        <p>The current development target is macOS with REAPER as the tested host. Other operating systems and DAWs are not expected support targets at this stage.</p>
+
+        <div class="related-links">
+          <h2>Related s3g-mc Docs</h2>
+          <ul>
+            <li><a href="https://s3g.github.io/s3g-mc/installation.html" target="_blank" rel="noopener noreferrer">Install the s3g-mc REAPER package</a></li>
+            <li><a href="https://s3g.github.io/s3g-mc/dependencies.html" target="_blank" rel="noopener noreferrer">s3g-mc dependencies</a></li>
+          </ul>
+        </div>
+
+        <div class="status-strip" aria-label="Install status">
+          <div><span>state</span><strong>pre-release</strong></div>
+          <div><span>format</span><strong>CLAP</strong></div>
+          <div><span>platform</span><strong>macOS</strong></div>
+          <div><span>host</span><strong>REAPER</strong></div>
+        </div>
+
+        <h2 id="requirements">Requirements</h2>
+
+        <ul>
+          <li>A macOS pre-release zip from the <a href="https://github.com/s3g/s3g-dsp/releases" target="_blank" rel="noopener noreferrer">s3g-dsp GitHub releases page</a>.</li>
+          <li>REAPER for the current tested host workflow.</li>
+        </ul>
+
+        <h2 id="download">Download</h2>
+
+        <p>Pre-release macOS CLAP builds may be attached to GitHub pre-releases when available. These builds are provided for early REAPER testing only. If no pre-release zip is available, use the <a href="building-from-source.html">Building From Source</a> page instead.</p>
+
+        <h2 id="install">Install</h2>
+
+        <p>Unzip the pre-release package and copy the included <code>.clap</code> bundles to the user CLAP plugin folder:</p>
+
+        <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
+
+        <p>Replace older bundles with the same names if prompted. REAPER may need a plugin rescan after installation.</p>
+
+        <h2 id="current-plugins">Current Plugins</h2>
+
+        <p>The current source tree builds these plugin families:</p>
+
+        <ul>
+          <li><code>s3g 24ch Passthrough Test</code>: fixed 24-in/24-out passthrough/gain plugin for host testing.</li>
+          <li><code>s3g Delay Processor 8ch</code>: primary topology-driven multichannel delay processor.</li>
+          <li><code>s3g Delay Processor 24ch</code>: wider delay build for future 3OAFX insert workflows.</li>
+          <li><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code>: experimental boundary plugins for 3OAFX insert chains.</li>
+        </ul>
+
+        <h2 id="reaper">REAPER Setup</h2>
+
+        <p>After installing, open REAPER and rescan CLAP plugins if the new builds do not appear automatically. In REAPER, use the FX browser search field to find <code>s3g</code> plugins.</p>
+
+        <p>For multichannel testing, set the track channel count before inserting the plugin. The current fixed-width plugin wrappers are designed around predictable REAPER FX pin behavior.</p>
+
+        <p>For the larger REAPER package workflow, see the <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX Send Return Controller guide</a>.</p>
+
+        <h2 id="cleanup">Cleanup</h2>
+
+        <p>If older pre-release test plugins appear in REAPER, remove stale bundles from the user CLAP folder and rescan:</p>
+
+        <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
+
+        <p>Build folders can also contain stale generated artifacts after plugin renames or target culls. Reconfiguring and rebuilding with the current preset should only recreate the active targets.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="building-from-source.html">
+            <span>Previous</span>
+            Building From Source
+          </a>
+          <a class="page-nav-link next" href="topology-framework.html">
+            <span>Next</span>
+            Topology Framework
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#requirements">Requirements</a>
+          <a href="#download">Download</a>
+          <a href="#install">Install</a>
+          <a href="#current-plugins">Current Plugins</a>
+          <a href="#reaper">REAPER Setup</a>
+          <a href="#cleanup">Cleanup</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

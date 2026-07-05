@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="310" viewBox="0 0 920 310" role="img" aria-labelledby="title desc">
+  <title id="title">Generic topology to effect map</title>
+  <desc id="desc">Diagram showing topology point measures and lane relationships mapping to effect parameters.</desc>
+  <defs>
+    <style>
+      text { font-family: Menlo, Consolas, monospace; letter-spacing: 0; }
+      .bg { fill: #080909; }
+      .panel { fill: #111313; stroke: #303636; stroke-width: 1; }
+      .title { fill: #d8ddd8; font-size: 18px; }
+      .label { fill: #d8ddd8; font-size: 13px; }
+      .small { fill: #c6cdc8; font-size: 11px; }
+      .muted { fill: #8e9893; font-size: 10px; }
+      .line { stroke: #c6cdc8; stroke-width: 2; fill: none; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c6cdc8"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="920" height="310"/>
+  <text class="title" x="28" y="38">generic topology-to-effect map</text>
+  <text class="small" x="28" y="60">Future plugins can reuse the same point and network layer while mapping it to different DSP parameters.</text>
+
+  <rect class="panel" x="28" y="92" width="238" height="120"/>
+  <text class="label" x="48" y="122">POINT MEASURES</text>
+  <text class="small" x="48" y="150">X / Y / Z position</text>
+  <text class="small" x="48" y="168">radius from center</text>
+  <text class="small" x="48" y="186">lane phase and shape bias</text>
+
+  <rect x="282" y="151" width="40" height="2" fill="#c6cdc8"/>
+  <polygon points="322,144 334,152 322,160" fill="#c6cdc8"/>
+
+  <rect class="panel" x="350" y="92" width="250" height="120"/>
+  <text class="label" x="370" y="122">PARAMETER FIELD</text>
+  <text class="small" x="370" y="150">FX 1: base + topo offset</text>
+  <text class="small" x="370" y="168">FX 2: lane variation</text>
+  <text class="small" x="370" y="186">FX 3+: mapped from points</text>
+
+  <rect x="616" y="151" width="40" height="2" fill="#c6cdc8"/>
+  <polygon points="656,144 668,152 656,160" fill="#c6cdc8"/>
+
+  <rect class="panel" x="684" y="92" width="208" height="120"/>
+  <text class="label" x="704" y="122">RELATIONSHIPS</text>
+  <text class="small" x="704" y="150">neighbors compare lanes</text>
+  <text class="small" x="704" y="168">centroid creates coherence</text>
+  <text class="small" x="704" y="186">animation moves the field</text>
+
+  <rect class="panel" x="88" y="238" width="744" height="46"/>
+  <text class="muted" x="108" y="260">In the Delay Processor, this map becomes TIME, FDBK, TONE, PITCH, SMR, and DIFF.</text>
+  <text class="muted" x="108" y="276">Other plugins can reuse the framework with different meanings.</text>
+</svg>

@@ -3,6 +3,12 @@
 The first native plugin tests are designed for the 24-channel virtual speaker
 layer used by the `s3g-mc` 3OAFX workflow.
 
+Related `s3g-mc` docs:
+
+- [s3g-mc 3OAFX process guide](https://s3g.github.io/s3g-mc/process-guides-3oafx.html)
+- [3OAFX Send Return Controller](https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller)
+- [s3g-mc tools overview](https://s3g.github.io/s3g-mc/tools.html)
+
 Typical signal path:
 
 ```text

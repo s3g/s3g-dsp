@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Building From Source - s3g-dsp</title>
+    <meta name="description" content="Source build notes for s3g-dsp CLAP plugins.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build Source</a>
+        <a href="installing-plugins.html">Install Pre-release</a>
+        <a href="topology-framework.html">Topology Framework</a>
+        <a href="delay-processor.html">Delay Processor</a>
+        <a href="3oafx-insert-workflow.html">3OAFX Notes</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Building From Source</h1>
+
+        <p>These notes are for compiling the current s3g-dsp CLAP plugins from source. The repository is still pre-release, so plugin names, parameter mappings, state formats, and the included plugin set may change.</p>
+
+        <p>The current development target is macOS with REAPER as the tested host. Other operating systems and DAWs are not expected support targets at this stage.</p>
+
+        <div class="status-strip" aria-label="Build status">
+          <div><span>state</span><strong>pre-release</strong></div>
+          <div><span>format</span><strong>CLAP</strong></div>
+          <div><span>platform</span><strong>macOS</strong></div>
+          <div><span>host</span><strong>REAPER</strong></div>
+        </div>
+
+        <h2 id="requirements">Requirements</h2>
+
+        <ul>
+          <li>CMake 3.20 or newer.</li>
+          <li>A C++17 compiler, such as Apple Clang through Xcode Command Line Tools.</li>
+          <li>macOS for the current native CLAP GUI/plugin bundle targets.</li>
+          <li>REAPER for the current tested host workflow.</li>
+          <li>Optional: <code>clap-validator</code> for plugin validation.</li>
+        </ul>
+
+        <h2 id="smoke-test">Smoke Test</h2>
+
+        <p>The development preset builds the shared DSP smoke test without building CLAP bundles:</p>
+
+        <pre><code>cmake --preset dev
+cmake --build --preset dev
+./build/s3g_dsp_smoke</code></pre>
+
+        <h2 id="clap-build">Build CLAP Plugins</h2>
+
+        <p>Build the CLAP plugins with the saved CMake preset:</p>
+
+        <pre><code>cmake --preset clap
+cmake --build --preset clap</code></pre>
+
+        <p>By default, the build fetches CLAP headers with CMake. To use an existing local CLAP checkout, configure manually with <code>S3G_FETCH_CLAP=OFF</code> and <code>S3G_CLAP_INCLUDE_DIR</code>.</p>
+
+        <pre><code>cmake -S . -B build-clap \
+  -DS3G_BUILD_CLAP_PLUGIN=ON \
+  -DS3G_FETCH_CLAP=OFF \
+  -DS3G_CLAP_INCLUDE_DIR=/path/to/clap/include
+cmake --build build-clap</code></pre>
+
+        <h2 id="install-local">Install Local Build</h2>
+
+        <p>Install the built CLAP bundles into the user CLAP plugin folder:</p>
+
+        <pre><code>./scripts/install-clap-bundles.sh</code></pre>
+
+        <p>The default install location is:</p>
+
+        <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
+
+        <p>The install script currently copies the active plugin bundles from <code>build-clap/plugins/</code> and replaces existing bundles with the same names.</p>
+
+        <h2 id="validate">Validate</h2>
+
+        <p>If <code>clap-validator</code> is installed, validate installed bundles with commands like:</p>
+
+        <pre><code>clap-validator validate \
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_8ch_delay_processor.clap --only-failed
+clap-validator validate \
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_24ch_delay_processor.clap --only-failed
+clap-validator validate \
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_24ch_passthrough_test.clap --only-failed</code></pre>
+
+        <h2 id="cleanup">Cleanup</h2>
+
+        <p>Build folders can contain stale generated artifacts after plugin renames or target culls. Reconfiguring and rebuilding with the current preset should only recreate the active targets.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="index.html">
+            <span>Previous</span>
+            Getting Started
+          </a>
+          <a class="page-nav-link next" href="installing-plugins.html">
+            <span>Next</span>
+            Install Pre-release
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#requirements">Requirements</a>
+          <a href="#smoke-test">Smoke Test</a>
+          <a href="#clap-build">Build CLAP Plugins</a>
+          <a href="#install-local">Install Local Build</a>
+          <a href="#validate">Validate</a>
+          <a href="#cleanup">Cleanup</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

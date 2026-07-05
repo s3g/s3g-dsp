@@ -1,11 +1,19 @@
 # s3g-dsp
 
-Native C++ DSP experiments and CLAP plugin targets for the `s3g-mc`
-multichannel REAPER package.
+Native C++ DSP experiments and CLAP plugin targets for multichannel audio.
+`s3g-dsp` is a sibling repository to the `s3g-mc` multichannel REAPER package:
+it can be used alongside `s3g-mc` workflows or independently as a small native
+plugin project.
+
+Related package docs: <https://s3g.github.io/s3g-mc/>
 
 The current focus is reliable multichannel lane processing in REAPER: fixed
 width plugins, predictable FX pin behavior, compact host automation, and a
 topology layer that generates per-channel DSP variation internally.
+
+Development and testing are currently centered on macOS and REAPER. Other
+operating systems or DAWs are not expected support targets unless that changes
+later.
 
 ## Status
 
@@ -48,9 +56,15 @@ https://s3g.github.io/s3g-dsp/
 Useful local docs:
 
 - `docs/index.html`: documentation site home page.
+- `docs/building-from-source.html`: source build, local install, and validation notes.
+- `docs/installing-plugins.html`: installing packaged pre-release CLAP bundles.
+- `docs/topology-framework.html`: shared topology framework overview.
 - `docs/delay-processor.html`: Delay Processor overview and topology map.
+- `docs/delay_processor_gui.svg`: vector rendering of the Delay Processor GUI.
 - `docs/topology_framework.svg`: shared topology framework diagram.
-- `docs/3OAFX_insert_workflow.md`: current 3OAFX boundary workflow notes.
+- `docs/topology_effect_map.svg`: generic topology-to-effect mapping diagram.
+- `docs/topology_heatmap_example.svg`: topology heatmap visualization example.
+- `docs/3oafx-insert-workflow.html`: current 3OAFX boundary workflow notes.
 
 ## Build
 
@@ -59,6 +73,7 @@ Requirements:
 - CMake 3.20 or newer
 - A C++17 compiler
 - macOS for the current native CLAP GUI/plugin bundle targets
+- REAPER as the primary tested DAW/host
 
 Build the DSP smoke test:
 
@@ -96,6 +111,17 @@ On macOS, install the built CLAP bundles into the user CLAP plugin folder:
 
 REAPER may need a plugin rescan after installation.
 
+## Pre-release Binaries
+
+Pre-release macOS CLAP builds may be attached to GitHub pre-releases when
+available. These binaries are provided for early REAPER testing only. Plugin
+names, parameter mappings, state compatibility, and the included plugin set may
+change before a stable release.
+
+Build output is not committed to this repository. Packaged binaries, when
+available, should be downloaded from the GitHub releases page rather than from
+the source tree.
+
 ## Validate
 
 The local smoke test exercises shared DSP code:
@@ -117,7 +143,14 @@ clap-validator validate \
 
 `s3g-mc` is the main REAPER package. `s3g-dsp` is a sibling repository for
 native DSP/plugin work that may support `s3g-mc` workflows, especially
-multichannel lane effects and future 3OAFX insert chains.
+multichannel lane effects and future 3OAFX insert chains. The plugins can also
+be used independently where the host/channel configuration matches the current
+macOS + REAPER development target.
+
+Useful `s3g-mc` references:
+
+- <https://s3g.github.io/s3g-mc/installation.html>
+- <https://s3g.github.io/s3g-mc/process-guides-3oafx.html>
 
 ## License
 
@@ -127,3 +160,14 @@ otherwise. See `LICENSE`.
 CLAP headers are MIT licensed and are fetched at build time unless an existing
 SDK path is supplied. Keep the CLAP notice with source and binary distributions;
 see `THIRD_PARTY_NOTICES.md`.
+
+## Attribution
+
+BSD-3-Clause requires preserving the license and copyright notice in source and
+binary redistributions.
+
+Attribution is also appreciated for software development, publications,
+research, teaching materials, and projects that build on or adapt this package.
+See `CITATION.cff`.
+
+Development assistance: OpenAI Codex.

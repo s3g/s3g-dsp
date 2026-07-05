@@ -12,9 +12,11 @@
       <a class="brand" href="index.html">s3g-dsp</a>
       <nav class="top-nav" aria-label="Top navigation">
         <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build Source</a>
+        <a href="installing-plugins.html">Install Pre-release</a>
+        <a href="topology-framework.html">Topology Framework</a>
         <a href="delay-processor.html">Delay Processor</a>
-        <a href="topology_framework.svg">Topology SVG</a>
-        <a href="3OAFX_insert_workflow.md">3OAFX Notes</a>
+        <a href="3oafx-insert-workflow.html">3OAFX Notes</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -25,13 +27,21 @@
 
         <p>The s3g Delay Processor is the first stable native effect in this repository. It treats each active channel as a parallel lane with its own delay time, feedback, tone, pitch, smear, and cross-lane diffusion behavior.</p>
 
-        <p>The important idea is that these per-lane values are not exposed as hundreds of host parameters. Instead, the plugin exposes a compact topology surface. Moving that surface changes the relationships between lanes.</p>
+        <p>The important idea is that these per-lane values are controlled through a compact topology surface instead of a long list of channel-by-channel host parameters. Moving the surface changes the relationships between lanes while keeping automation readable. The shared topology model is described separately on the <a href="topology-framework.html">Topology Framework</a> page.</p>
+
+        <div class="related-links">
+          <h2>Related s3g-mc Docs</h2>
+          <ul>
+            <li><a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">3OAFX Send Return Controller</a></li>
+            <li><a href="https://s3g.github.io/s3g-mc/process-guides-channel-mixing.html" target="_blank" rel="noopener noreferrer">Channel mixing guides</a></li>
+          </ul>
+        </div>
 
         <div class="status-strip" aria-label="Delay Processor status">
           <div><span>plugin widths</span><strong>8ch / 24ch</strong></div>
           <div><span>routing</span><strong>patch matrix</strong></div>
           <div><span>motion</span><strong>ANIM / VAR</strong></div>
-          <div><span>visuals</span><strong>topology + heatmap</strong></div>
+          <div><span>visuals</span><strong>topology + map view</strong></div>
         </div>
 
         <h2 id="workflow">Workflow</h2>
@@ -39,54 +49,77 @@
         <div class="compact-grid">
           <div>
             <h3>Patch Matrix</h3>
-            <p>Active input rows define the lane count used by the topology. The 8ch processor can be used as 2ch, 4ch, 6ch, 8ch, or a custom matrix.</p>
+            <p>Active input rows define the lane count used by the topology. The 8ch processor can run as 2ch, 4ch, 6ch, 8ch, or a custom matrix.</p>
           </div>
           <div>
             <h3>Point Field</h3>
-            <p>Shape, displacement, animation, and variants position the active lanes as points in a 3D field.</p>
+            <p>Shape, displacement, animation, and variants position the active lanes as points in a 3D space.</p>
           </div>
           <div>
             <h3>Delay Engine</h3>
-            <p>Each point is converted into smoothed per-lane DSP values while the host automation surface stays compact.</p>
+            <p>Each point is converted into smoothed per-lane delay values while the host automation surface stays compact.</p>
           </div>
         </div>
 
+        <figure>
+          <div class="doc-graphic">
+            <img src="delay_processor_gui.svg" alt="Vector rendering of the s3g Delay Processor plugin GUI">
+          </div>
+          <figcaption>SVG rendering of the current Delay Processor GUI layout.</figcaption>
+        </figure>
+
         <h2 id="topology-map">Topology Map</h2>
 
-        <p>The topology map is a readable way to understand what the Delay Processor is doing internally. The point field is not only a visualization: point position, radius, lane phase, nearest neighbors, and centroid pull are used by the delay generator.</p>
+        <p>The topology map is a readable way to understand what the Delay Processor is doing internally. The point display is not only a visualization: point position, radius, lane phase, nearest neighbors, and centroid pull are used by the delay generator.</p>
 
         <figure>
           <div class="doc-graphic">
-            <svg viewBox="0 0 820 340" role="img" aria-labelledby="map-title map-desc">
+            <svg viewBox="0 0 1020 340" role="img" aria-labelledby="map-title map-desc">
               <title id="map-title">Delay topology parameter map</title>
               <desc id="map-desc">Vector diagram showing topology point dimensions mapped to delay processor parameters.</desc>
-              <rect width="820" height="340" fill="#0d0f0f"/>
+              <rect width="1020" height="340" fill="#0d0f0f"/>
               <g transform="translate(48 48)">
-                <rect x="0" y="0" width="172" height="212" fill="#111313" stroke="#303636"/>
+                <rect x="0" y="0" width="374" height="212" fill="#111313" stroke="#303636"/>
                 <text x="16" y="28" fill="#d8ddd8" font-family="Menlo, Monaco, Courier New, monospace" font-size="13" font-weight="700">POINT</text>
-                <g stroke="#8e9893" stroke-width="1" fill="none">
-                  <path d="M56 122 L104 58 L142 132 L88 178 Z"/>
-                  <path d="M56 122 L142 132 M104 58 L88 178"/>
+                <g stroke="#8e9893" stroke-width="1" fill="none" transform="translate(128 0)">
+                  <line x1="44" y1="78" x2="128" y2="36"/>
+                  <line x1="128" y1="36" x2="204" y2="92"/>
+                  <line x1="204" y1="92" x2="120" y2="138"/>
+                  <line x1="120" y1="138" x2="44" y2="78"/>
+                  <line x1="20" y1="128" x2="104" y2="86"/>
+                  <line x1="104" y1="86" x2="180" y2="142"/>
+                  <line x1="180" y1="142" x2="96" y2="188"/>
+                  <line x1="96" y1="188" x2="20" y2="128"/>
+                  <line x1="44" y1="78" x2="20" y2="128"/>
+                  <line x1="128" y1="36" x2="104" y2="86"/>
+                  <line x1="204" y1="92" x2="180" y2="142"/>
+                  <line x1="120" y1="138" x2="96" y2="188"/>
                 </g>
-                <g fill="#d8ddd8" stroke="#080909" stroke-width="2">
-                  <rect x="49" y="115" width="14" height="14"/>
-                  <rect x="97" y="51" width="14" height="14"/>
-                  <rect x="135" y="125" width="14" height="14"/>
-                  <rect x="81" y="171" width="14" height="14"/>
+                <g fill="#d8ddd8" stroke="#080909" stroke-width="2" transform="translate(128 0)">
+                  <rect x="37" y="71" width="14" height="14"/>
+                  <rect x="121" y="29" width="14" height="14"/>
+                  <rect x="197" y="85" width="14" height="14"/>
+                  <rect x="113" y="131" width="14" height="14"/>
+                  <rect x="13" y="121" width="14" height="14"/>
+                  <rect x="97" y="79" width="14" height="14"/>
+                  <rect x="173" y="135" width="14" height="14"/>
+                  <rect x="89" y="181" width="14" height="14"/>
                 </g>
                 <g fill="#8e9893" font-family="Menlo, Monaco, Courier New, monospace" font-size="11">
-                  <text x="16" y="70">X/Z spread</text>
-                  <text x="16" y="90">Y height</text>
-                  <text x="16" y="110">R radius</text>
-                  <text x="16" y="196">lane phase</text>
+                  <text x="16" y="72">X/Z spread</text>
+                  <text x="16" y="96">Y height</text>
+                  <text x="16" y="120">R radius</text>
+                  <text x="16" y="144">lane phase</text>
+                  <text x="16" y="178">8 lanes</text>
+                  <text x="16" y="196">neighbor graph</text>
                 </g>
               </g>
               <g stroke="#c6cdc8" stroke-width="2" fill="none">
-                <path d="M238 154 H310"/>
-                <path d="M302 148 L314 154 L302 160"/>
+                <path d="M444 154 H492"/>
+                <path d="M484 148 L496 154 L484 160"/>
               </g>
-              <g transform="translate(330 36)" font-family="Menlo, Monaco, Courier New, monospace">
-                <rect x="0" y="0" width="440" height="238" fill="#111313" stroke="#303636"/>
+              <g transform="translate(514 36)" font-family="Menlo, Monaco, Courier New, monospace">
+                <rect x="0" y="0" width="458" height="238" fill="#111313" stroke="#303636"/>
                 <text x="18" y="30" fill="#d8ddd8" font-size="13" font-weight="700">DELAY GENERATOR FIELD</text>
                 <g fill="#c6cdc8" font-size="12">
                   <text x="20" y="66">TIME  = X + Z + Y + R + SEED</text>
@@ -97,19 +130,36 @@
                   <text x="20" y="216">DIFF  = nearest neighbors + centroid</text>
                 </g>
               </g>
-              <g transform="translate(48 286)">
-                <rect x="0" y="0" width="722" height="14" fill="#111313" stroke="#303636"/>
-                <rect x="1" y="1" width="124" height="12" fill="#0d2a78"/>
-                <rect x="125" y="1" width="146" height="12" fill="#008de0"/>
-                <rect x="271" y="1" width="152" height="12" fill="#ffe448"/>
-                <rect x="423" y="1" width="132" height="12" fill="#ff4f0a"/>
-                <rect x="555" y="1" width="166" height="12" fill="#df0000"/>
-                <text x="0" y="-10" fill="#8e9893" font-family="Menlo, Monaco, Courier New, monospace" font-size="10">AMT scales topology influence. ANIM/VAR moves the field over time.</text>
-              </g>
+              <text x="48" y="300" fill="#8e9893" font-family="Menlo, Monaco, Courier New, monospace" font-size="10">Topology controls scale how strongly the point field offsets each delay parameter.</text>
             </svg>
           </div>
-          <figcaption>The delay-specific map uses vector drawing where possible so it can evolve with the plugin rather than becoming a static screenshot.</figcaption>
+          <figcaption>This delay-specific map shows how the shared topology framework becomes TIME, FDBK, TONE, PITCH, SMR, and DIFF inside the Delay Processor.</figcaption>
         </figure>
+
+        <h2 id="engine-sliders">Delay Engine Sliders</h2>
+
+        <p>The engine sliders set the main delay behavior before topology variation is applied. In practice, several of them act like trims or centers: they define the base value that the topology layer bends differently for each active lane.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr>
+              <th>Slider</th>
+              <th>How it relates to topology</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>TIME</td><td>Sets the base delay time. Topology offsets create different delay times per lane around that base.</td></tr>
+            <tr><td>FDBK</td><td>Sets the feedback amount and practical ceiling. Topology changes how feedback is distributed across lanes.</td></tr>
+            <tr><td>MIX</td><td>Global dry/wet balance. It is kept separate from topology so the whole effect can be blended predictably.</td></tr>
+            <tr><td>TONE</td><td>Sets the overall delay color. Topology shifts lane tone around this center.</td></tr>
+            <tr><td>PITCH</td><td>Sets the steady pitch-shift center. Topology can spread pitch relationships between lanes.</td></tr>
+            <tr><td>CHAR</td><td>Global character trim for saturation/instability behavior inside the delay engine.</td></tr>
+            <tr><td>SMR</td><td>Controls tap smear. Topology changes how smear is distributed through lane phase and radius.</td></tr>
+            <tr><td>OUT</td><td>Output gain trim after the delay engine.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The topology controls do not replace the engine sliders. They describe how each active lane departs from the slider values. Lower topology amount keeps the lanes closer to the engine settings; higher topology amount makes the per-lane differences more pronounced.</p>
 
         <h2 id="readout">Readout Terms</h2>
 
@@ -140,20 +190,10 @@
           <li>Per-lane internals remain hidden from host automation.</li>
         </ul>
 
-        <h2 id="framework-svg">Framework SVG</h2>
-
-        <p>The full framework diagram shows the broader model shared by future plugins: active channels become points, points form a network, and the network maps to per-lane DSP values.</p>
-
-        <figure>
-          <div class="doc-graphic">
-            <img src="topology_framework.svg" alt="s3g-dsp topology framework diagram">
-          </div>
-        </figure>
-
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="index.html">
+          <a class="page-nav-link" href="topology-framework.html">
             <span>Previous</span>
-            Getting Started
+            Topology Framework
           </a>
           <span></span>
         </nav>
@@ -164,9 +204,9 @@
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
           <a href="#topology-map">Topology Map</a>
+          <a href="#engine-sliders">Engine Sliders</a>
           <a href="#readout">Readout Terms</a>
           <a href="#control-model">Control Model</a>
-          <a href="#framework-svg">Framework SVG</a>
         </div>
       </aside>
     </div>

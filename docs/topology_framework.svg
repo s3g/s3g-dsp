@@ -1,147 +1,149 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="780" viewBox="0 0 1120 780" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="620" viewBox="0 0 1120 620" role="img" aria-labelledby="title desc">
   <title id="title">s3g-dsp topology framework</title>
-  <desc id="desc">Diagram showing active channels becoming topology points, points forming a network, and the network mapping to per-lane DSP parameters.</desc>
+  <desc id="desc">A roadmap diagram showing active plugin lanes becoming points, points forming a topology network, and that network mapping to per-lane effect parameters.</desc>
   <defs>
     <style>
       text { font-family: Menlo, Consolas, monospace; letter-spacing: 0; }
-      .bg { fill: #090909; }
-      .panel { fill: #151515; stroke: #6a6a6a; stroke-width: 1; }
-      .title { fill: #f0f0f0; font-size: 18px; }
-      .label { fill: #d8d8d8; font-size: 13px; }
-      .small { fill: #a8a8a8; font-size: 11px; }
-      .muted { fill: #777; font-size: 10px; }
-      .line { stroke: #bcbcbc; stroke-width: 2; fill: none; }
-      .thin { stroke: #8c8c8c; stroke-width: 1; fill: none; }
-      .accent { stroke: #f4f4f4; stroke-width: 2; fill: none; }
-      .node { fill: #d6d6d6; stroke: #111; stroke-width: 1; }
-      .node2 { fill: #8ad0ff; stroke: #111; stroke-width: 1; }
-      .heat1 { fill: #0d2a78; }
-      .heat2 { fill: #008de0; }
-      .heat3 { fill: #ffe448; }
-      .heat4 { fill: #ff4f0a; }
-      .heat5 { fill: #df0000; }
+      .bg { fill: #080909; }
+      .panel { fill: #111313; stroke: #303636; stroke-width: 1; }
+      .title { fill: #d8ddd8; font-size: 18px; }
+      .label { fill: #d8ddd8; font-size: 13px; }
+      .small { fill: #c6cdc8; font-size: 11px; }
+      .muted { fill: #8e9893; font-size: 10px; }
+      .line { stroke: #c6cdc8; stroke-width: 2; fill: none; }
+      .thin { stroke: #a8afaa; stroke-width: 1.5; fill: none; }
+      .soft { stroke: #5a625f; stroke-width: 1; fill: none; }
+      .node { fill: #d8ddd8; stroke: #080909; stroke-width: 2; }
+      .node-dim { fill: #8e9893; stroke: #080909; stroke-width: 2; }
+      .node-core { fill: #eef4ef; stroke: #080909; stroke-width: 2; }
     </style>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#bcbcbc"/>
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c6cdc8"/>
     </marker>
   </defs>
 
-  <rect class="bg" width="1120" height="780"/>
+  <rect class="bg" width="1120" height="620"/>
   <text class="title" x="32" y="38">s3g-dsp topology layer</text>
-  <text class="small" x="32" y="60">host-visible meta controls generate per-lane DSP relationships without exposing per-channel automation.</text>
+  <text class="small" x="32" y="60">A compact host control surface creates per-lane relationships inside multichannel effects.</text>
 
-  <rect class="panel" x="32" y="92" width="220" height="360"/>
-  <text class="label" x="52" y="122">1. ACTIVE PINS</text>
-  <text class="small" x="52" y="148">patch matrix rows define</text>
-  <text class="small" x="52" y="166">the active lane set</text>
+  <rect class="panel" x="32" y="92" width="224" height="354"/>
+  <text class="label" x="52" y="122">1. ACTIVE LANES</text>
+  <text class="small" x="52" y="148">The patch matrix selects the</text>
+  <text class="small" x="52" y="166">input/output lanes used</text>
+  <text class="small" x="52" y="184">by the effect.</text>
   <g transform="translate(62 196)">
-    <rect class="thin" x="0" y="0" width="128" height="128"/>
-    <g class="thin">
+    <rect class="soft" x="0" y="0" width="128" height="128"/>
+    <g class="soft">
       <path d="M16 0v128 M32 0v128 M48 0v128 M64 0v128 M80 0v128 M96 0v128 M112 0v128"/>
       <path d="M0 16h128 M0 32h128 M0 48h128 M0 64h128 M0 80h128 M0 96h128 M0 112h128"/>
     </g>
-    <rect class="node2" x="3" y="3" width="10" height="10"/>
-    <rect class="node2" x="19" y="19" width="10" height="10"/>
-    <rect class="node2" x="35" y="35" width="10" height="10"/>
-    <rect class="node2" x="51" y="51" width="10" height="10"/>
-    <rect class="node2" x="67" y="67" width="10" height="10"/>
-    <rect class="node2" x="83" y="83" width="10" height="10"/>
-    <rect class="node2" x="99" y="99" width="10" height="10"/>
-    <rect class="node2" x="115" y="115" width="10" height="10"/>
+    <g class="node">
+      <rect x="3" y="3" width="10" height="10"/>
+      <rect x="19" y="19" width="10" height="10"/>
+      <rect x="35" y="35" width="10" height="10"/>
+      <rect x="51" y="51" width="10" height="10"/>
+      <rect x="67" y="67" width="10" height="10"/>
+      <rect x="83" y="83" width="10" height="10"/>
+      <rect x="99" y="99" width="10" height="10"/>
+      <rect x="115" y="115" width="10" height="10"/>
+    </g>
   </g>
-  <text class="muted" x="52" y="372">full / 2ch / 4ch / custom</text>
-  <text class="muted" x="52" y="390">unused channels can pass through</text>
+  <text class="muted" x="52" y="372">2ch / 4ch / 8ch / custom sets</text>
+  <text class="muted" x="52" y="390">inactive lanes can pass through</text>
+  <text class="muted" x="52" y="406">unchanged</text>
 
-  <path class="line" marker-end="url(#arrow)" d="M260 272 H340"/>
+  <rect x="264" y="267" width="58" height="2" fill="#c6cdc8"/>
+  <polygon points="322,260 334,268 322,276" fill="#c6cdc8"/>
 
-  <rect class="panel" x="352" y="92" width="250" height="360"/>
-  <text class="label" x="372" y="122">2. TOPOLOGY SPACE</text>
-  <text class="small" x="372" y="148">shape + displacement + animation</text>
-  <text class="small" x="372" y="166">position each active lane</text>
-  <g transform="translate(424 206)">
-    <path class="thin" d="M40 40 L150 18 L204 92 L168 190 L54 168 Z"/>
-    <path class="thin" d="M40 40 L78 112 L54 168 M150 18 L118 116 L168 190 M204 92 L118 116 M78 112 L118 116"/>
-    <circle class="node" cx="40" cy="40" r="7"/>
-    <circle class="node" cx="150" cy="18" r="7"/>
-    <circle class="node" cx="204" cy="92" r="7"/>
-    <circle class="node" cx="168" cy="190" r="7"/>
-    <circle class="node" cx="54" cy="168" r="7"/>
-    <circle class="node2" cx="78" cy="112" r="7"/>
-    <circle class="node2" cx="118" cy="116" r="7"/>
+  <rect class="panel" x="348" y="92" width="266" height="354"/>
+  <text class="label" x="368" y="122">2. POINT SPACE</text>
+  <text class="small" x="368" y="148">Each active lane becomes a point.</text>
+  <text class="small" x="368" y="166">Shape, displacement, and motion</text>
+  <text class="small" x="368" y="184">move the points through the field.</text>
+  <g transform="translate(386 204) scale(0.88)">
+    <g stroke="#e5ebe6" stroke-width="2.4">
+      <line x1="30" y1="72" x2="86" y2="24"/>
+      <line x1="86" y1="24" x2="152" y2="34"/>
+      <line x1="152" y1="34" x2="218" y2="86"/>
+      <line x1="218" y1="86" x2="202" y2="154"/>
+      <line x1="202" y1="154" x2="148" y2="194"/>
+      <line x1="148" y1="194" x2="74" y2="176"/>
+      <line x1="74" y1="176" x2="26" y2="126"/>
+      <line x1="26" y1="126" x2="30" y2="72"/>
+      <line x1="30" y1="72" x2="152" y2="34"/>
+      <line x1="86" y1="24" x2="218" y2="86"/>
+      <line x1="202" y1="154" x2="74" y2="176"/>
+      <line x1="148" y1="194" x2="26" y2="126"/>
+    </g>
+    <rect class="node" x="22" y="64" width="16" height="16"/>
+    <rect class="node" x="78" y="16" width="16" height="16"/>
+    <rect class="node" x="144" y="26" width="16" height="16"/>
+    <rect class="node" x="210" y="78" width="16" height="16"/>
+    <rect class="node" x="194" y="146" width="16" height="16"/>
+    <rect class="node" x="140" y="186" width="16" height="16"/>
+    <rect class="node" x="66" y="168" width="16" height="16"/>
+    <rect class="node" x="18" y="118" width="16" height="16"/>
+    <path class="thin" stroke="#a8afaa" stroke-width="1.5" fill="none" d="M92 112h24 M104 100v24"/>
   </g>
-  <text class="muted" x="372" y="388">SHAP AMT PULL X Y Z TWST FLAR SEED</text>
-  <text class="muted" x="372" y="406">ANIM + VAR set readable motion scenes</text>
+  <text class="muted" x="368" y="414">SHAP AMT PULL X Y Z</text>
+  <text class="muted" x="368" y="432">TWST FLAR SEED / ANIM VAR</text>
 
-  <path class="line" marker-end="url(#arrow)" d="M610 272 H690"/>
+  <rect x="622" y="267" width="58" height="2" fill="#c6cdc8"/>
+  <polygon points="680,260 692,268 680,276" fill="#c6cdc8"/>
 
-  <rect class="panel" x="702" y="92" width="190" height="360"/>
-  <text class="label" x="722" y="122">3. NETWORK</text>
-  <text class="small" x="722" y="148">nearest neighbors and</text>
-  <text class="small" x="722" y="166">centroid pull define</text>
-  <text class="small" x="722" y="184">lane relationships</text>
-  <g transform="translate(742 218)">
-    <circle class="node2" cx="64" cy="68" r="8"/>
-    <circle class="node" cx="14" cy="22" r="6"/>
-    <circle class="node" cx="112" cy="18" r="6"/>
-    <circle class="node" cx="128" cy="112" r="6"/>
-    <circle class="node" cx="28" cy="124" r="6"/>
-    <path class="accent" d="M64 68 L14 22 M64 68 L112 18 M64 68 L128 112 M64 68 L28 124"/>
-    <path class="thin" d="M14 22 L112 18 L128 112 L28 124 Z"/>
-    <path class="thin" d="M54 68 h20 M64 58 v20"/>
+  <rect class="panel" x="706" y="92" width="190" height="354"/>
+  <text class="label" x="726" y="122">3. NETWORK</text>
+  <text class="small" x="726" y="148">Neighbor links and</text>
+  <text class="small" x="726" y="166">centroid pull describe</text>
+  <text class="small" x="726" y="184">lane relationships.</text>
+  <g transform="translate(730 214) scale(0.84)">
+    <g stroke="#e5ebe6" stroke-width="2.4">
+      <line x1="28" y1="48" x2="90" y2="22"/>
+      <line x1="90" y1="22" x2="152" y2="34"/>
+      <line x1="152" y1="34" x2="178" y2="92"/>
+      <line x1="178" y1="92" x2="152" y2="146"/>
+      <line x1="152" y1="146" x2="94" y2="174"/>
+      <line x1="94" y1="174" x2="36" y2="142"/>
+      <line x1="36" y1="142" x2="18" y2="88"/>
+      <line x1="18" y1="88" x2="28" y2="48"/>
+      <line x1="28" y1="48" x2="152" y2="34"/>
+      <line x1="90" y1="22" x2="178" y2="92"/>
+      <line x1="152" y1="146" x2="36" y2="142"/>
+      <line x1="94" y1="174" x2="18" y2="88"/>
+    </g>
+    <path class="thin" stroke="#a8afaa" stroke-width="1.5" fill="none" d="M80 92h24 M92 80v24"/>
+    <rect class="node" x="20" y="40" width="16" height="16"/>
+    <rect class="node" x="82" y="14" width="16" height="16"/>
+    <rect class="node" x="144" y="26" width="16" height="16"/>
+    <rect class="node" x="170" y="84" width="16" height="16"/>
+    <rect class="node" x="144" y="138" width="16" height="16"/>
+    <rect class="node" x="86" y="166" width="16" height="16"/>
+    <rect class="node" x="28" y="134" width="16" height="16"/>
+    <rect class="node" x="10" y="80" width="16" height="16"/>
   </g>
-  <text class="muted" x="722" y="388">NBR: 1-3 neighbors</text>
-  <text class="muted" x="722" y="406">RAD: neighbor threshold</text>
-  <text class="muted" x="722" y="424">CENT: centroid influence</text>
+  <text class="muted" x="726" y="384">NBR selects link density</text>
+  <text class="muted" x="726" y="402">RAD sets the neighbor reach</text>
+  <text class="muted" x="726" y="420">CENT sets center influence</text>
 
-  <path class="line" marker-end="url(#arrow)" d="M900 272 H970"/>
+  <rect x="904" y="267" width="54" height="2" fill="#c6cdc8"/>
+  <polygon points="958,260 970,268 958,276" fill="#c6cdc8"/>
 
-  <rect class="panel" x="982" y="92" width="106" height="360"/>
+  <rect class="panel" x="984" y="92" width="104" height="354"/>
   <text class="label" x="1002" y="122">4. DSP</text>
-  <text class="small" x="1002" y="148">per-lane</text>
-  <text class="small" x="1002" y="166">effect values</text>
-  <g transform="translate(1004 208)">
-    <rect class="heat1" x="0" y="0" width="18" height="18"/>
-    <rect class="heat2" x="20" y="0" width="18" height="18"/>
-    <rect class="heat3" x="40" y="0" width="18" height="18"/>
-    <rect class="heat4" x="60" y="0" width="18" height="18"/>
-    <rect class="heat2" x="0" y="20" width="18" height="18"/>
-    <rect class="heat4" x="20" y="20" width="18" height="18"/>
-    <rect class="heat5" x="40" y="20" width="18" height="18"/>
-    <rect class="heat3" x="60" y="20" width="18" height="18"/>
-  </g>
-  <text class="muted" x="1002" y="302">delay</text>
-  <text class="muted" x="1002" y="320">feedback</text>
-  <text class="muted" x="1002" y="338">tone</text>
-  <text class="muted" x="1002" y="356">pitch</text>
-  <text class="muted" x="1002" y="374">smear</text>
+  <text class="small" x="1002" y="148">Effect</text>
+  <text class="small" x="1002" y="166">parameter</text>
+  <text class="small" x="1002" y="184">mapping.</text>
+  <text class="muted" x="1002" y="230">FX 1</text>
+  <text class="muted" x="1002" y="248">FX 2</text>
+  <text class="muted" x="1002" y="266">FX 3</text>
+  <text class="muted" x="1002" y="284">FX 4</text>
+  <text class="muted" x="1002" y="318">per-lane</text>
+  <text class="muted" x="1002" y="336">smoothed</text>
+  <text class="muted" x="1002" y="354">DSP values</text>
 
-  <rect class="panel" x="92" y="486" width="936" height="42"/>
-  <text class="small" x="112" y="512">One host automation surface controls many internal lane values: topology is the repeatable meta-layer for future multichannel effects.</text>
-
-  <text class="title" x="32" y="590">delay processor topology map</text>
-  <text class="small" x="32" y="612">Each active lane becomes a point. The point's position is read as a control field for the delay engine.</text>
-
-  <rect class="panel" x="32" y="636" width="250" height="104"/>
-  <text class="label" x="52" y="664">POINT POSITION</text>
-  <text class="small" x="52" y="690">X/Z: left-right and depth spread</text>
-  <text class="small" x="52" y="708">Y: height / vertical weighting</text>
-  <text class="small" x="52" y="726">R: distance from center</text>
-
-  <path class="line" marker-end="url(#arrow)" d="M290 688 H330"/>
-
-  <rect class="panel" x="342" y="636" width="350" height="104"/>
-  <text class="label" x="362" y="664">DELAY FIELD</text>
-  <text class="small" x="362" y="690">TIME: X + Z + Y + radius + SEED</text>
-  <text class="small" x="362" y="708">FDBK: Y - Z + X + radius + SEED</text>
-  <text class="small" x="362" y="726">TONE: -Y + X + radius + SEED</text>
-
-  <path class="line" marker-end="url(#arrow)" d="M700 688 H740"/>
-
-  <rect class="panel" x="752" y="636" width="336" height="104"/>
-  <text class="label" x="772" y="664">EFFECT CHARACTER</text>
-  <text class="small" x="772" y="690">PITCH: Y + radius + Z + shape bias</text>
-  <text class="small" x="772" y="708">SMR: lane phase + radius + X/Z relation</text>
-  <text class="small" x="772" y="726">DIFF: neighbor graph + centroid pull</text>
-
-  <text class="muted" x="52" y="766">AMT scales how strongly topology offsets the base delay controls. ANIM/VAR move the point field over time; NBR/RAD/CENT shape cross-lane diffusion.</text>
+  <rect class="panel" x="92" y="482" width="936" height="94"/>
+  <text class="small" x="112" y="506">The same topology controls can drive different effects.</text>
+  <text class="small" x="112" y="524">Each plugin chooses what its point positions,</text>
+  <text class="small" x="112" y="542">neighbor links, and centroid values mean internally.</text>
+  <text class="small" x="112" y="560">The host sees compact global controls.</text>
 </svg>

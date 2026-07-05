@@ -12,9 +12,11 @@
       <a class="brand" href="index.html">s3g-dsp</a>
       <nav class="top-nav" aria-label="Top navigation">
         <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build Source</a>
+        <a href="installing-plugins.html">Install Pre-release</a>
+        <a href="topology-framework.html">Topology Framework</a>
         <a href="delay-processor.html">Delay Processor</a>
-        <a href="topology_framework.svg">Topology SVG</a>
-        <a href="3OAFX_insert_workflow.md">3OAFX Notes</a>
+        <a href="3oafx-insert-workflow.html">3OAFX Notes</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -23,9 +25,11 @@
       <main class="content" id="content">
         <h1>s3g-dsp</h1>
 
-        <p>s3g-dsp is a BSD-3-Clause C++/CLAP plugin project for native multichannel DSP experiments that support the larger s3g-mc REAPER package.</p>
+        <p>Native C++ DSP experiments and CLAP plugin targets for multichannel audio. <code>s3g-dsp</code> is a sibling repository to the <a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code> multichannel REAPER package</a>: it can be used alongside <code>s3g-mc</code> workflows or independently as a small native plugin project.</p>
 
-        <p>The current focus is reliable multichannel lane processing in REAPER, beginning with the <strong>s3g Delay Processor</strong>. It uses a topology layer where active channels become points, points form a neighbor network, and the network maps to per-lane DSP values without exposing every lane as a host automation parameter.</p>
+        <p>The current focus is reliable multichannel lane processing in REAPER: fixed-width plugins, predictable FX pin behavior, compact host automation, and a topology layer that generates per-channel DSP variation internally.</p>
+
+        <p>Development and testing are currently centered on macOS and REAPER. Other operating systems or DAWs are not expected support targets unless that changes later.</p>
 
         <div class="status-strip" aria-label="Project status">
           <div><span>current target</span><strong>Delay Processor</strong></div>
@@ -35,82 +39,76 @@
         </div>
 
         <p>
+          <a class="utility-link" href="building-from-source.html">Build from source</a>
+          <a class="utility-link" href="installing-plugins.html">Install pre-release plugins</a>
           <a class="utility-link" href="delay-processor.html">Delay Processor docs</a>
-          <a class="utility-link" href="topology_framework.svg">Topology framework SVG</a>
+          <a class="utility-link" href="topology-framework.html">Topology framework docs</a>
+          <a class="utility-link" href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer">s3g-mc docs</a>
         </p>
 
-        <h2 id="start-here">Start Here</h2>
+        <h2 id="status">Status</h2>
+
+        <p>This is an early public development repository. The code is useful for testing and iteration, but the plugin set and parameter mappings may still change.</p>
+
+        <h3>Current Validated Targets</h3>
 
         <ul>
-          <li><a href="delay-processor.html">Delay Processor</a> explains the first stable native effect and its topology map.</li>
-          <li><a href="topology_framework.svg">Topology Framework SVG</a> shows the shared model for active lanes, point fields, network links, and per-lane DSP.</li>
-          <li><a href="3OAFX_insert_workflow.md">3OAFX Notes</a> preserve the current send/return boundary workflow for later refinement.</li>
+          <li><code>s3g 24ch Passthrough Test</code>: fixed 24-in/24-out CLAP passthrough/gain plugin.</li>
+          <li><code>s3g Delay Processor 8ch</code>: primary topology-driven multichannel delay test.</li>
+          <li><code>s3g Delay Processor 24ch</code>: wider delay build for future 3OAFX insert work.</li>
+          <li><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code>: experimental boundary plugins for the 3OAFX insert workflow.</li>
+        </ul>
+
+        <p>The most developed plugin is the <a href="delay-processor.html">Delay Processor</a>. It includes a native macOS CLAP GUI with a patch matrix, topology view, heatmap, readout, and ANIM/VAR motion controls.</p>
+
+        <h2 id="design">Design</h2>
+
+        <ul>
+          <li>Reusable DSP lives in <code>dsp/</code>.</li>
+          <li>Plugin wrappers live in <code>plugins/</code>.</li>
+          <li>Fixed-width CLAP wrappers are preferred for REAPER workflows where the FX pin connector needs predictable multichannel I/O.</li>
+          <li>Per-channel settings are generated internally. The host sees global effect controls and topology/meta controls rather than one automatable parameter per lane.</li>
+          <li>24-channel 3OAFX-specific work is kept separate from general multichannel lane processors.</li>
         </ul>
 
         <h2 id="topology-layer">Topology Layer</h2>
 
-        <p>The topology layer is the common control idea for future s3g-dsp plugins. A patch matrix selects active lanes. Those lanes become points in a compact 3D field. Shape, displacement, animation, and variants move the points. The plugin then derives per-lane DSP values from point position, radius, lane phase, nearest neighbors, and centroid pull.</p>
+        <p>The topology layer is the common control idea for future s3g-dsp plugins. A patch matrix selects active lanes, those lanes become points, and each plugin maps the resulting point/network field to its own internal DSP parameters.</p>
 
-        <figure>
-          <div class="doc-graphic">
-            <svg viewBox="0 0 760 260" role="img" aria-labelledby="net-title net-desc">
-              <title id="net-title">Topology network preview</title>
-              <desc id="net-desc">Minimal network showing active channel points, neighbor links, and a delay map heat strip.</desc>
-              <rect width="760" height="260" fill="#0d0f0f"/>
-              <g stroke="#6f7774" stroke-width="1" fill="none">
-                <path d="M80 58 L190 34 L292 92 L250 198 L112 186 Z"/>
-                <path d="M80 58 L156 122 L112 186 M190 34 L156 122 L250 198 M292 92 L156 122"/>
-                <path d="M156 122 L388 128 M388 128 L548 64 M388 128 L618 110 M388 128 L586 196"/>
-                <path d="M548 64 L618 110 L586 196 L482 182 Z"/>
-              </g>
-              <g fill="#d8ddd8" stroke="#080909" stroke-width="2">
-                <rect x="72" y="50" width="16" height="16"/>
-                <rect x="182" y="26" width="16" height="16"/>
-                <rect x="284" y="84" width="16" height="16"/>
-                <rect x="242" y="190" width="16" height="16"/>
-                <rect x="104" y="178" width="16" height="16"/>
-                <rect x="148" y="114" width="16" height="16" fill="#eef4ef"/>
-                <rect x="380" y="120" width="16" height="16" fill="#eef4ef"/>
-                <rect x="540" y="56" width="16" height="16"/>
-                <rect x="610" y="102" width="16" height="16"/>
-                <rect x="578" y="188" width="16" height="16"/>
-                <rect x="474" y="174" width="16" height="16"/>
-              </g>
-              <g transform="translate(70 224)">
-                <rect width="620" height="12" fill="#111313" stroke="#303636"/>
-                <rect width="84" height="10" x="1" y="1" fill="#0d2a78"/>
-                <rect width="108" height="10" x="85" y="1" fill="#008de0"/>
-                <rect width="132" height="10" x="193" y="1" fill="#ffe448"/>
-                <rect width="120" height="10" x="325" y="1" fill="#ff4f0a"/>
-                <rect width="174" height="10" x="445" y="1" fill="#df0000"/>
-              </g>
-              <g fill="#8e9893" font-family="Menlo, Monaco, Courier New, monospace" font-size="11">
-                <text x="70" y="32">ACTIVE POINTS</text>
-                <text x="356" y="102">NEIGHBOR GRAPH</text>
-                <text x="70" y="214">TIME / FDBK / TONE / PITCH / SMR / DIFF FIELD</text>
-              </g>
-            </svg>
-          </div>
-          <figcaption>Minimal topology preview in the same grayscale network language as the Delay Processor plugin.</figcaption>
-        </figure>
+        <p>See the <a href="topology-framework.html">Topology Framework</a> page for the generic model, including the heatmap visualization. See the <a href="delay-processor.html">Delay Processor</a> page for the delay-specific mapping.</p>
 
-        <h2 id="build">Build and Install</h2>
+        <h2 id="get-plugins">Get Plugins</h2>
 
-        <p>The local development build uses the CLAP preset and installs bundles into the macOS CLAP plugin folder for REAPER testing.</p>
+        <p>The local development build uses the CLAP preset and installs bundles into the macOS CLAP plugin folder for REAPER testing. This is a pre-release source-build workflow.</p>
 
-        <pre><code>cmake --preset clap
-cmake --build --preset clap
-./scripts/install-clap-bundles.sh</code></pre>
+        <p>Requirements are CMake 3.20 or newer, a C++17 compiler, macOS for the native CLAP GUI/plugin bundle targets, and REAPER as the primary tested DAW/host.</p>
 
-        <h2 id="release-site">GitHub Pages</h2>
+        <p>See <a href="building-from-source.html">Building From Source</a> for CMake commands, local install scripts, and validation checks. See <a href="installing-plugins.html">Installing Pre-release Plugins</a> for installing a packaged macOS CLAP zip.</p>
 
-        <p>This site is a static project-site draft intended for <code>https://s3g.github.io/s3g-dsp/</code>. In GitHub repository settings, enable Pages from the default branch and the <code>/docs</code> folder.</p>
+        <h2 id="relationship">Relationship to s3g-mc</h2>
+
+        <p><a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code></a> is the main REAPER package. <code>s3g-dsp</code> is a sibling repository for native DSP/plugin work that may support <code>s3g-mc</code> workflows, especially multichannel lane effects and future 3OAFX insert chains. The plugins can also be used independently where the host/channel configuration matches the current macOS + REAPER development target.</p>
+
+        <div class="related-links">
+          <h2>Related s3g-mc Docs</h2>
+          <ul>
+            <li><a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer">s3g-mc overview</a></li>
+            <li><a href="https://s3g.github.io/s3g-mc/installation.html" target="_blank" rel="noopener noreferrer">s3g-mc installation</a></li>
+            <li><a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX process guide</a></li>
+          </ul>
+        </div>
+
+        <h2 id="license">License and Attribution</h2>
+
+        <p>BSD-3-Clause for the code in this repository unless a subdirectory states otherwise. CLAP headers are MIT licensed and are fetched at build time unless an existing SDK path is supplied.</p>
+
+        <p>Attribution is appreciated for software development, publications, research, teaching materials, and projects that build on or adapt this package. See <code>CITATION.cff</code>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <span></span>
-          <a class="page-nav-link next" href="delay-processor.html">
+          <a class="page-nav-link next" href="building-from-source.html">
             <span>Next</span>
-            Delay Processor
+            Building From Source
           </a>
         </nav>
       </main>
@@ -118,10 +116,12 @@ cmake --build --preset clap
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
           <h2>On This Page</h2>
-          <a href="#start-here">Start Here</a>
+          <a href="#status">Status</a>
+          <a href="#design">Design</a>
           <a href="#topology-layer">Topology Layer</a>
-          <a href="#build">Build and Install</a>
-          <a href="#release-site">GitHub Pages</a>
+          <a href="#get-plugins">Get Plugins</a>
+          <a href="#relationship">Relationship</a>
+          <a href="#license">License</a>
         </div>
       </aside>
     </div>

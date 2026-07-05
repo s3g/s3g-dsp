@@ -1,15 +1,15 @@
 :root {
   color-scheme: dark;
-  --bg: #080909;
-  --panel: #111313;
-  --panel-alt: #0d0f0f;
+  --bg: #2a2d2c;
+  --panel: #171a19;
+  --panel-alt: #202423;
   --ink: #d8ddd8;
   --muted: #8e9893;
-  --line: #303636;
-  --soft-line: #202626;
+  --line: #444b48;
+  --soft-line: #2f3633;
   --accent: #78b7a6;
   --accent-dark: #a3d7c6;
-  --code-bg: #252b2a;
+  --code-bg: #2b3230;
   --heat-blue: #008de0;
   --heat-yellow: #ffe448;
   --heat-red: #df0000;
@@ -57,7 +57,7 @@ a:focus-visible {
   justify-content: space-between;
   min-height: 60px;
   padding: 0 28px;
-  background: rgba(8, 9, 9, 0.96);
+  background: rgba(36, 39, 38, 0.96);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(10px);
 }
@@ -290,9 +290,37 @@ a:focus-visible {
   margin-bottom: 0;
 }
 
+.related-links {
+  margin: 22px 0;
+  padding: 14px 16px;
+  background: #232827;
+  border: 1px solid var(--line);
+}
+
+.related-links h2,
+.related-links h3 {
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  font-family: Menlo, Monaco, "Courier New", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.related-links ul {
+  margin: 0;
+}
+
+.related-links li {
+  font-size: 13px;
+}
+
 .doc-graphic {
   overflow: auto;
-  background: #090b0b;
+  background: #111413;
   border: 1px solid var(--line);
 }
 

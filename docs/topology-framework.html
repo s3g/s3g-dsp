@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Topology Framework - s3g-dsp</title>
+    <meta name="description" content="Shared topology framework documentation for s3g-dsp multichannel plugins.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build Source</a>
+        <a href="installing-plugins.html">Install Pre-release</a>
+        <a href="topology-framework.html">Topology Framework</a>
+        <a href="delay-processor.html">Delay Processor</a>
+        <a href="3oafx-insert-workflow.html">3OAFX Notes</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Topology Framework</h1>
+
+        <p>The topology framework is the shared control layer for s3g-dsp multichannel plugins. A patch matrix selects active lanes. Those lanes become points. The points form a network. Each plugin maps the point and network data to its own internal DSP parameters.</p>
+
+        <p>This keeps host automation compact. The host sees global controls and topology/meta controls, while per-lane parameter variation is generated inside the plugin.</p>
+
+        <div class="related-links">
+          <h2>Related s3g-mc Docs</h2>
+          <ul>
+            <li><a href="https://s3g.github.io/s3g-mc/utilities-spatial-score.html" target="_blank" rel="noopener noreferrer">Spatial Score utility</a></li>
+            <li><a href="https://s3g.github.io/s3g-mc/utilities-displacement-score.html" target="_blank" rel="noopener noreferrer">Displacement Score utility</a></li>
+            <li><a href="https://s3g.github.io/s3g-mc/utilities-automation-score-designer.html" target="_blank" rel="noopener noreferrer">Automation Score utility</a></li>
+          </ul>
+        </div>
+
+        <div class="status-strip" aria-label="Topology framework summary">
+          <div><span>input</span><strong>active lanes</strong></div>
+          <div><span>space</span><strong>points</strong></div>
+          <div><span>relation</span><strong>network</strong></div>
+          <div><span>output</span><strong>per-lane DSP</strong></div>
+        </div>
+
+        <h2 id="roadmap">Roadmap Diagram</h2>
+
+        <p>The framework diagram shows the generic model. It does not define a single effect. A delay, filter, spatial mixer, dynamics processor, or future processor can reuse the same topology layer and decide what each effect parameter means.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="topology_framework.svg" alt="s3g-dsp topology framework diagram">
+          </div>
+        </figure>
+
+        <h2 id="control-model">Control Model</h2>
+
+        <ul>
+          <li>Patch matrix controls which lanes are active.</li>
+          <li>Shape and displacement controls position active lanes as points.</li>
+          <li>Animation and variants move the point field over time.</li>
+          <li>Neighbor and centroid controls define relationships between lanes.</li>
+          <li>Each plugin maps the resulting topology field to its own internal DSP parameters.</li>
+        </ul>
+
+        <h2 id="heatmap">Heatmap Visualization</h2>
+
+        <p>The heatmap view is a second visualization of the topology field. It shows the point configuration, displacement, and motion from another viewpoint. It is not an audio amplitude meter, loudness meter, or output-level display.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="topology_heatmap_example.svg" alt="Topology heatmap visualization example">
+          </div>
+          <figcaption>Example heatmap view: the colors describe a projected topology field, not signal level.</figcaption>
+        </figure>
+
+        <h2 id="plugin-mapping">Plugin Mapping</h2>
+
+        <p>The framework separates generic topology controls from effect-specific parameter meanings. For example, the Delay Processor maps topology to delay time, feedback, tone, pitch, smear, and diffusion. A different plugin can map the same topology field to a different set of effect parameters.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="topology_effect_map.svg" alt="Generic topology to effect parameter map">
+          </div>
+        </figure>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="installing-plugins.html">
+            <span>Previous</span>
+            Install Pre-release
+          </a>
+          <a class="page-nav-link next" href="delay-processor.html">
+            <span>Next</span>
+            Delay Processor
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#roadmap">Roadmap Diagram</a>
+          <a href="#control-model">Control Model</a>
+          <a href="#heatmap">Heatmap Visualization</a>
+          <a href="#plugin-mapping">Plugin Mapping</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>
