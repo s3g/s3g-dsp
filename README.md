@@ -5,8 +5,6 @@ Native C++ DSP experiments and CLAP plugin targets for multichannel audio.
 it can be used alongside `s3g-mc` workflows or independently as a small native
 plugin project.
 
-Related package docs: <https://s3g.github.io/s3g-mc/>
-
 Project documentation for `s3g-dsp` is available at
 <https://s3g.github.io/s3g-dsp/>.
 
