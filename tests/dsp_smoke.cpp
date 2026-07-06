@@ -4,6 +4,7 @@
 #include "s3g_gain.h"
 #include "s3g_lane_patch.h"
 #include "s3g_mc_to_stereo.h"
+#include "s3g_resonant_terrain.h"
 
 #include <array>
 #include <cmath>
@@ -129,6 +130,64 @@ int main()
         return 1;
     }
 
+
+    s3g::ResonantTerrain modal;
+    modal.prepare(48000.0);
+    s3g::ResonantTerrainParams modalParams;
+    modalParams.density = 0.45f;
+    modalParams.outputGainDb = -18.0f;
+    modal.setParams(modalParams);
+    modal.noteOn(60, 0.8f);
+    float modalOut[s3g::kResonantTerrainChannels] {};
+    float modalPeak = 0.0f;
+    for (int i = 0; i < 48000; ++i) {
+        modal.processFrame(modalOut);
+        for (float value : modalOut) {
+            if (!std::isfinite(value)) {
+                std::cerr << "Resonant Terrain output is not finite\n";
+                return 1;
+            }
+            modalPeak = std::max(modalPeak, std::abs(value));
+        }
+    }
+    if (modalPeak <= 0.00001f || modalPeak > 1.1f) {
+        std::cerr << "Resonant Terrain peak outside expected range: " << modalPeak << "\n";
+        return 1;
+    }
+
+    s3g::ResonantTerrain modalStress;
+    modalStress.prepare(48000.0);
+    s3g::ResonantTerrainParams modalStressParams;
+    modalStressParams.density = 1.0f;
+    modalStressParams.decay = 1.0f;
+    modalStressParams.brightness = 1.0f;
+    modalStressParams.harmonicity = 1.0f;
+    modalStressParams.exciterTone = 1.0f;
+    modalStressParams.midiInfluence = 1.0f;
+    modalStressParams.outputGainDb = -6.0f;
+    modalStress.setParams(modalStressParams);
+    float modalStressPeak = 0.0f;
+    for (int i = 0; i < 192000; ++i) {
+        if ((i % 12000) == 0) {
+            modalStress.noteOn(48 + ((i / 12000) % 36), 1.0f);
+        }
+        if ((i % 12000) == 6000) {
+            modalStress.noteOff(48 + ((i / 12000) % 36));
+        }
+        modalStress.processFrame(modalOut);
+        for (float value : modalOut) {
+            if (!std::isfinite(value)) {
+                std::cerr << "Resonant Terrain stress output is not finite\n";
+                return 1;
+            }
+            modalStressPeak = std::max(modalStressPeak, std::abs(value));
+        }
+    }
+    if (modalStressPeak > 1.01f) {
+        std::cerr << "Resonant Terrain stress peak exceeded limiter: " << modalStressPeak << "\n";
+        return 1;
+    }
+
     s3g::AedMaskState sendState;
     s3g::AedMaskState retState;
     s3g::MixerState mixState;
@@ -162,6 +221,8 @@ int main()
     std::cout << "mc stereo L/R: " << stereoOut[0] << " / " << stereoOut[1] << "\n";
     std::cout << "delay processor impulse: " << delayOut[0] << "\n";
     std::cout << "delay processor stress peak: " << delayStressPeak << "\n";
+    std::cout << "resonant terrain peak: " << modalPeak << "\n";
+    std::cout << "resonant terrain stress peak: " << modalStressPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";
     return 0;
 }

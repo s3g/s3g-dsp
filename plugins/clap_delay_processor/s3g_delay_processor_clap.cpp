@@ -12,6 +12,7 @@
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
+#include "../common/s3g_cocoa_gui.h"
 #endif
 
 #include <algorithm>
@@ -2337,46 +2338,8 @@ const clap_plugin_state_t state {
 - (void)selectNeighborMenuItem:(NSMenuItem*)item;
 @end
 
-static NSColor* s3gTapeColor(int rgb)
-{
-    return [NSColor colorWithCalibratedRed:((rgb >> 16) & 0xff) / 255.0
-                                     green:((rgb >> 8) & 0xff) / 255.0
-                                      blue:(rgb & 0xff) / 255.0
-                                     alpha:1.0];
-}
-
-static NSColor* s3gHeatColor(double value, double alpha)
-{
-    struct Stop {
-        double t;
-        int r;
-        int g;
-        int b;
-    };
-    static constexpr Stop kStops[] = {
-        { 0.00, 10, 24, 94 },
-        { 0.22, 0, 146, 232 },
-        { 0.48, 255, 232, 42 },
-        { 0.72, 255, 84, 12 },
-        { 1.00, 238, 0, 0 },
-    };
-    value = std::clamp(value, 0.0, 1.0);
-    const Stop* a = &kStops[0];
-    const Stop* b = &kStops[sizeof(kStops) / sizeof(kStops[0]) - 1];
-    for (size_t i = 1; i < sizeof(kStops) / sizeof(kStops[0]); ++i) {
-        if (value <= kStops[i].t) {
-            a = &kStops[i - 1];
-            b = &kStops[i];
-            break;
-        }
-    }
-    const double span = std::max(0.0001, b->t - a->t);
-    const double mix = (value - a->t) / span;
-    const double r = s3g::lerp(static_cast<double>(a->r), static_cast<double>(b->r), mix) / 255.0;
-    const double g = s3g::lerp(static_cast<double>(a->g), static_cast<double>(b->g), mix) / 255.0;
-    const double bl = s3g::lerp(static_cast<double>(a->b), static_cast<double>(b->b), mix) / 255.0;
-    return [NSColor colorWithCalibratedRed:r green:g blue:bl alpha:alpha];
-}
+static NSColor* s3gTapeColor(int rgb) { return s3g::clap_gui::color(rgb); }
+static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui::heatColor(value, alpha); }
 
 @implementation S3GDelayProcessorView
 
@@ -2458,25 +2421,12 @@ static NSColor* s3gHeatColor(double value, double alpha)
               fill:(NSColor*)fill
               text:(NSColor*)text
 {
-    [name drawAtPoint:NSMakePoint(654, y - 2) withAttributes:labelAttrs];
-    NSRect track = NSMakeRect(750, y + 1, 150, 9);
-    [strip setFill];
-    NSRectFill(track);
-    [grid setStroke];
-    NSFrameRect(track);
-
-    norm = std::clamp(norm, static_cast<CGFloat>(0.0), static_cast<CGFloat>(1.0));
-    NSRect filled = NSInsetRect(track, 1.0, 1.0);
-    filled.size.width = std::max<CGFloat>(1.0, filled.size.width * norm);
-    [fill setFill];
-    NSRectFill(filled);
-
-    const CGFloat handleX = std::clamp(track.origin.x + track.size.width * norm - 1.5,
-                                       track.origin.x + 1.0,
-                                       track.origin.x + track.size.width - 4.0);
-    [text setFill];
-    NSRectFill(NSMakeRect(handleX, track.origin.y - 2.0, 3.0, track.size.height + 4.0));
-    [value drawAtPoint:NSMakePoint(920, y - 2) withAttributes:valueAttrs];
+    (void)strip;
+    (void)grid;
+    (void)fill;
+    (void)text;
+    s3g::clap_gui::Style style;
+    s3g::clap_gui::drawSlider(name, value, norm, y, labelAttrs, valueAttrs, style);
 }
 
 - (void)drawMenuControl:(NSString*)name
@@ -2489,16 +2439,12 @@ static NSColor* s3gHeatColor(double value, double alpha)
                    fill:(NSColor*)fill
                    text:(NSColor*)text
 {
-    [name drawAtPoint:NSMakePoint(654, y - 2) withAttributes:labelAttrs];
-    NSRect box = NSMakeRect(750, y - 1, 178, 15);
-    [strip setFill];
-    NSRectFill(box);
-    [grid setStroke];
-    NSFrameRect(box);
-    [fill setFill];
-    NSRectFill(NSMakeRect(box.origin.x + 1, box.origin.y + 1, 2, box.size.height - 2));
-    [value drawAtPoint:NSMakePoint(box.origin.x + 8, y + 1) withAttributes:valueAttrs];
-    [@"v" drawAtPoint:NSMakePoint(box.origin.x + box.size.width - 12, y) withAttributes:valueAttrs];
+    (void)strip;
+    (void)grid;
+    (void)fill;
+    (void)text;
+    s3g::clap_gui::Style style;
+    s3g::clap_gui::drawMenu(name, value, y, labelAttrs, valueAttrs, style);
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -2796,82 +2742,28 @@ static NSColor* s3gHeatColor(double value, double alpha)
     NSFrameRect(resetRect);
     [@"RESET" drawAtPoint:NSMakePoint(933, panelY + 6) withAttributes:smallAttrs];
     if (_showMeta) {
-        [self drawMenuControl:@"SHAP"
-                         value:[NSString stringWithUTF8String:topologyShapeName(p->topologyShape)]
-                             y:panelY + 30.0
-                    labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"AMT"
-                   value:[NSString stringWithFormat:@"%3.0f%%", p->topologySpread * 100.0]
-                    norm:static_cast<CGFloat>(p->topologySpread)
-                       y:panelY + 48.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"PULL"
-                   value:[NSString stringWithFormat:@"%3.0f%%", p->displaceCollapse * 100.0]
-                    norm:static_cast<CGFloat>(p->displaceCollapse)
-                       y:panelY + 66.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"X"
-                   value:[NSString stringWithFormat:@"%+3.0f%%", p->displaceDirX * 100.0]
-                    norm:static_cast<CGFloat>((p->displaceDirX + 1.0) * 0.5)
-                       y:panelY + 84.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"Y"
-                   value:[NSString stringWithFormat:@"%+3.0f%%", p->displaceDirY * 100.0]
-                    norm:static_cast<CGFloat>((p->displaceDirY + 1.0) * 0.5)
-                       y:panelY + 102.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"Z"
-                   value:[NSString stringWithFormat:@"%+3.0f%%", p->displaceDirZ * 100.0]
-                    norm:static_cast<CGFloat>((p->displaceDirZ + 1.0) * 0.5)
-                       y:panelY + 120.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"TWST"
-                   value:[NSString stringWithFormat:@"%+3.0f%%", p->displaceTwist * 100.0]
-                    norm:static_cast<CGFloat>((p->displaceTwist + 1.0) * 0.5)
-                       y:panelY + 138.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"FLAR"
-                   value:[NSString stringWithFormat:@"%+3.0f%%", p->displaceFlare * 100.0]
-                    norm:static_cast<CGFloat>((p->displaceFlare + 1.0) * 0.5)
-                       y:panelY + 156.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"SEED"
-                   value:[NSString stringWithFormat:@"%3.0f%%", p->topologyJitter * 100.0]
-                    norm:static_cast<CGFloat>(p->topologyJitter)
-                       y:panelY + 174.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawMenuControl:@"ANIM"
-                         value:[NSString stringWithUTF8String:topologyMotionModeName(p->topologyMotionMode)]
-                             y:panelY + 192.0
-                    labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawMenuControl:@"VAR"
-                         value:[NSString stringWithUTF8String:topologyVariantName(p->topologyMotionVariant)]
-                             y:panelY + 210.0
-                    labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"RATE"
-                   value:[NSString stringWithFormat:@"%4.2f", p->topologyMotionRateHz]
-                    norm:static_cast<CGFloat>((p->topologyMotionRateHz - kTopologyMotionMinHz) / (kTopologyMotionMaxHz - kTopologyMotionMinHz))
-                       y:panelY + 228.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"DPTH"
-                   value:[NSString stringWithFormat:@"%3.0f%%", p->topologyMotionDepth * 100.0]
-                    norm:static_cast<CGFloat>(p->topologyMotionDepth)
-                       y:panelY + 246.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawMenuControl:@"NBR"
-                         value:[NSString stringWithFormat:@"%uNN", p->topologyNeighborCount]
-                             y:panelY + 264.0
-                    labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"RAD"
-                   value:[NSString stringWithFormat:@"%3.0f%%", p->topologyRadius * 100.0]
-                    norm:static_cast<CGFloat>(p->topologyRadius)
-                       y:panelY + 282.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
-        [self drawSlider:@"CENT"
-                   value:[NSString stringWithFormat:@"%3.0f%%", p->topologyCentroid * 100.0]
-                    norm:static_cast<CGFloat>(p->topologyCentroid)
-                       y:panelY + 300.0
-              labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
+        s3g::clap_gui::TopologyUiValues topoValues;
+        topoValues.shape = topologyShapeName(p->topologyShape);
+        topoValues.amount = p->topologySpread;
+        topoValues.pull = p->displaceCollapse;
+        topoValues.x = p->displaceDirX;
+        topoValues.y = p->displaceDirY;
+        topoValues.z = p->displaceDirZ;
+        topoValues.twist = p->displaceTwist;
+        topoValues.flare = p->displaceFlare;
+        topoValues.seed = p->topologyJitter;
+        topoValues.motion = topologyMotionModeName(p->topologyMotionMode);
+        topoValues.variant = topologyVariantName(p->topologyMotionVariant);
+        topoValues.rateHz = p->topologyMotionRateHz;
+        topoValues.rateMinHz = kTopologyMotionMinHz;
+        topoValues.rateMaxHz = kTopologyMotionMaxHz;
+        topoValues.depth = p->topologyMotionDepth;
+        topoValues.neighbors = p->topologyNeighborCount;
+        topoValues.neighborSuffix = true;
+        topoValues.radius = p->topologyRadius;
+        topoValues.centroid = p->topologyCentroid;
+        s3g::clap_gui::Style style;
+        s3g::clap_gui::drawTopologyRows(topoValues, panelY, smallAttrs, smallAttrs, style);
     }
     panelY += metaH + gap;
 
@@ -3172,60 +3064,53 @@ static NSColor* s3gHeatColor(double value, double alpha)
         return;
     }
     if (_showMeta) {
-        NSRect shapeRow = NSMakeRect(650, panelY + 24.0, 330, 20);
-        NSRect motionRow = NSMakeRect(650, panelY + 24.0 + 9.0 * 18.0, 330, 20);
-        NSRect variantRow = NSMakeRect(650, panelY + 24.0 + 10.0 * 18.0, 330, 20);
-        NSRect neighborRow = NSMakeRect(650, panelY + 24.0 + 13.0 * 18.0, 330, 20);
-        if (NSPointInRect(pt, shapeRow)) {
+        const auto row = s3g::clap_gui::hitTopologyRow(pt, panelY);
+        if (row == s3g::clap_gui::TopologyRow::Shape) {
             _openMenu = 1;
             _menuItemCount = kTopologyShapeCount;
-            _menuOrigin = menuOrigin(750, panelY + 48.0, _menuItemCount);
+            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
-        if (NSPointInRect(pt, motionRow)) {
+        if (row == s3g::clap_gui::TopologyRow::Motion) {
             _openMenu = 2;
             _menuItemCount = kTopologyMotionModeCount;
-            _menuOrigin = menuOrigin(750, panelY + 210.0, _menuItemCount);
+            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
-        if (NSPointInRect(pt, variantRow)) {
+        if (row == s3g::clap_gui::TopologyRow::Variant) {
             _openMenu = 4;
             _menuItemCount = kTopologyVariantCount;
-            _menuOrigin = menuOrigin(750, panelY + 228.0, _menuItemCount);
+            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
-        if (NSPointInRect(pt, neighborRow)) {
+        if (row == s3g::clap_gui::TopologyRow::Neighbors) {
             _openMenu = 3;
             _menuItemCount = 3;
-            _menuOrigin = menuOrigin(750, panelY + 282.0, _menuItemCount);
+            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
-        for (uint32_t i = 0; i < 16; ++i) {
-            if (i == 0 || i == 9 || i == 10 || i == 13) {
-                continue;
-            }
-            NSRect r = NSMakeRect(650, panelY + 24.0 + i * 18.0, 330, 20);
-            if (NSPointInRect(pt, r)) {
-                if (i < 9) {
-                    _dragSlider = static_cast<int>(i + 8);
-                } else if (i == 11) {
-                    _dragSlider = 18;
-                } else if (i == 12) {
-                    _dragSlider = 19;
-                } else if (i == 14) {
-                    _dragSlider = 21;
-                } else if (i == 15) {
-                    _dragSlider = 22;
-                } else {
-                    continue;
-                }
-                [self updateSliderAtPoint:pt];
-                return;
-            }
+        switch (row) {
+        case s3g::clap_gui::TopologyRow::Amount: _dragSlider = 9; break;
+        case s3g::clap_gui::TopologyRow::Pull: _dragSlider = 10; break;
+        case s3g::clap_gui::TopologyRow::X: _dragSlider = 11; break;
+        case s3g::clap_gui::TopologyRow::Y: _dragSlider = 12; break;
+        case s3g::clap_gui::TopologyRow::Z: _dragSlider = 13; break;
+        case s3g::clap_gui::TopologyRow::Twist: _dragSlider = 14; break;
+        case s3g::clap_gui::TopologyRow::Flare: _dragSlider = 15; break;
+        case s3g::clap_gui::TopologyRow::Seed: _dragSlider = 16; break;
+        case s3g::clap_gui::TopologyRow::Rate: _dragSlider = 18; break;
+        case s3g::clap_gui::TopologyRow::Depth: _dragSlider = 19; break;
+        case s3g::clap_gui::TopologyRow::Radius: _dragSlider = 21; break;
+        case s3g::clap_gui::TopologyRow::Centroid: _dragSlider = 22; break;
+        default: _dragSlider = -1; break;
+        }
+        if (_dragSlider >= 0) {
+            [self updateSliderAtPoint:pt];
+            return;
         }
     }
     panelY += metaH + gap;

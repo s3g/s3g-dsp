@@ -71,6 +71,7 @@ Requirements:
 - A C++17 compiler
 - macOS for the current CLAP GUI/plugin bundle targets
 - REAPER as the primary tested DAW/host
+- Optional docs tooling: use an active Node.js LTS release newer than Node.js 20 if a docs build reports that Node.js 20 is deprecated
 
 Build the DSP smoke test:
 

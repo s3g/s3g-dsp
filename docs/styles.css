@@ -318,6 +318,70 @@ a:focus-visible {
   font-size: 13px;
 }
 
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 18px 0 10px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+.category-card {
+  display: block;
+  min-height: 148px;
+  padding: 14px;
+  background: var(--panel-alt);
+  color: var(--ink);
+}
+
+.category-card:hover {
+  color: var(--ink);
+  background: #252b29;
+  text-decoration: none;
+}
+
+.feature-card {
+  grid-column: 1 / -1;
+  min-height: 120px;
+}
+
+.feature-card strong {
+  font-size: 19px;
+}
+
+.category-card span {
+  display: block;
+  color: var(--muted);
+  font-family: Menlo, Monaco, "Courier New", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.category-card strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.category-card em {
+  display: block;
+  margin-top: 10px;
+  color: #c6cdc8;
+  font-style: normal;
+  font-size: 13px;
+}
+
+.muted-card {
+  cursor: default;
+}
+
+.muted-card:hover {
+  background: var(--panel-alt);
+}
+
 .doc-graphic {
   overflow: auto;
   background: #111413;
@@ -520,6 +584,7 @@ a:focus-visible {
 @media (max-width: 700px) {
   .status-strip,
   .compact-grid,
+  .category-grid,
   .page-nav {
     grid-template-columns: 1fr;
   }

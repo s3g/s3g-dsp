@@ -12,12 +12,11 @@
       <a class="brand" href="index.html">s3g-dsp</a>
       <nav class="top-nav" aria-label="Top navigation">
         <a href="index.html">Getting Started</a>
-        <a href="building-from-source.html">Build Source</a>
-        <a href="installing-plugins.html">Install Pre-release</a>
-        <a href="topology-framework.html">Topology Framework</a>
-        <a href="delay-processor.html">Delay Processor</a>
-        <a href="mc-to-stereo-autogain.html">MC to Stereo</a>
-        <a href="3oafx-insert-workflow.html">3OAFX Notes</a>
+        <a href="effects.html">Effects</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -42,8 +41,8 @@
         <p>
           <a class="utility-link" href="building-from-source.html">Build from source</a>
           <a class="utility-link" href="installing-plugins.html">Install pre-release plugins</a>
-          <a class="utility-link" href="delay-processor.html">Delay Processor docs</a>
-          <a class="utility-link" href="mc-to-stereo-autogain.html">MC to Stereo docs</a>
+          <a class="utility-link" href="effects.html">Effect docs</a>
+          <a class="utility-link" href="instruments.html">Instrument docs</a>
           <a class="utility-link" href="topology-framework.html">Topology framework docs</a>
           <a class="utility-link" href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer">s3g-mc docs</a>
         </p>
@@ -56,13 +55,30 @@
 
         <ul>
           <li><code>s3g 24ch Passthrough Test</code>: fixed 24-in/24-out CLAP passthrough/gain plugin.</li>
-          <li><code>s3g Delay Processor 8ch</code>: main topology-driven delay processor.</li>
-          <li><code>s3g Delay Processor 24ch</code>: wider delay build for future 3OAFX insert work.</li>
-          <li><code>s3g MC to Stereo Autogain</code>: 128-channel input to true stereo output fold-down prototype.</li>
-          <li><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code>: work-in-progress boundary plugins for the 3OAFX insert workflow.</li>
+          <li><a href="delay-processor.html"><code>s3g Delay Processor 8ch</code></a>: main topology-driven delay processor.</li>
+          <li><a href="delay-processor.html"><code>s3g Delay Processor 24ch</code></a>: wider delay build for future 3OAFX insert work.</li>
+          <li><a href="mc-to-stereo-autogain.html"><code>s3g MC to Stereo Autogain</code></a>: 128-channel input to true stereo output fold-down prototype.</li>
+          <li><a href="3oafx-insert-workflow.html"><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code></a>: work-in-progress boundary plugins for the 3OAFX insert workflow.</li>
         </ul>
 
         <p>The most developed effect is the <a href="delay-processor.html">Delay Processor</a>. The <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a> plugin is a practical fold-down tool for auditioning multichannel work in stereo.</p>
+
+        <h2 id="plugin-groups">Plugin Groups</h2>
+
+        <p>The docs are grouped by plugin role so the top navigation stays stable as the plugin list grows.</p>
+
+        <div class="category-grid">
+          <a class="category-card" href="effects.html">
+            <span>audio processors</span>
+            <strong>Effects</strong>
+            <em>Delay Processor, fold-down, 3OAFX boundary, and host-test plugins.</em>
+          </a>
+          <a class="category-card" href="instruments.html">
+            <span>sound generators</span>
+            <strong>Instruments</strong>
+            <em>Internal or MIDI-excited synthesizers and resonator instruments.</em>
+          </a>
+        </div>
 
         <h2 id="design">Design</h2>
 
@@ -109,9 +125,9 @@
 
         <nav class="page-nav" aria-label="Page navigation">
           <span></span>
-          <a class="page-nav-link next" href="building-from-source.html">
+          <a class="page-nav-link next" href="effects.html">
             <span>Next</span>
-            Building From Source
+            Effects
           </a>
         </nav>
       </main>
@@ -120,6 +136,7 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#status">Status</a>
+          <a href="#plugin-groups">Plugin Groups</a>
           <a href="#design">Design</a>
           <a href="#topology-layer">Topology Layer</a>
           <a href="#get-plugins">Get Plugins</a>
