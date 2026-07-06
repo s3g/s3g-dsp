@@ -12,11 +12,11 @@
       <a class="brand" href="index.html">s3g-dsp</a>
       <nav class="top-nav" aria-label="Top navigation">
         <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
         <a href="effects.html">Effects</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
-        <a href="building-from-source.html">Build</a>
-        <a href="installing-plugins.html">Install</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -28,15 +28,6 @@
         <p>These notes are for installing a packaged macOS CLAP zip from a GitHub pre-release. Plugin names, parameters, saved states, and included plugins may change.</p>
 
         <p>The supported development target is macOS + REAPER.</p>
-
-        <div class="related-links">
-          <h2>Related s3g-mc Docs</h2>
-          <ul>
-            <li><a href="https://s3g.github.io/s3g-mc/installation.html" target="_blank" rel="noopener noreferrer">Install the s3g-mc REAPER package</a></li>
-            <li><a href="https://s3g.github.io/s3g-mc/dependencies.html" target="_blank" rel="noopener noreferrer">s3g-mc dependencies</a></li>
-          </ul>
-        </div>
-
         <div class="status-strip" aria-label="Install status">
           <div><span>state</span><strong>pre-release</strong></div>
           <div><span>format</span><strong>CLAP</strong></div>
@@ -65,9 +56,9 @@
 
         <h2 id="current-plugins">Current Plugins</h2>
 
-        <p>The current source tree builds effects and instruments separately. Effects process incoming track audio. Instruments generate sound from internal or MIDI excitation.</p>
+        <p>The current source tree builds processors, macros, utilities, CLAP instruments, and 3OAFX boundary tools.</p>
 
-        <h3>Effects</h3>
+        <h3>Processors and Macros</h3>
 
         <div class="category-grid">
           <a class="category-card" href="delay-processor.html">
@@ -75,6 +66,16 @@
             <strong>s3g Delay Processor 8ch / 24ch</strong>
             <em>Main topology-driven delay processor and wider 3OAFX insert build.</em>
           </a>
+          <div class="category-card muted-card">
+            <span>delay macro</span>
+            <strong>s3g Macro Delay 8ch</strong>
+            <em>Compact multichannel delay macro with shared engine controls and lane relationship controls.</em>
+          </div>
+        </div>
+
+        <h3>Utilities and Boundary Tools</h3>
+
+        <div class="category-grid">
           <a class="category-card" href="mc-to-stereo-autogain.html">
             <span>fold-down</span>
             <strong>s3g MC to Stereo Autogain</strong>
@@ -95,11 +96,11 @@
         <h3>Instruments</h3>
 
         <div class="category-grid">
-          <div class="category-card muted-card">
-            <span>in development</span>
-            <strong>s3g Resonant Terrain 8ch</strong>
-            <em>8-channel resonant terrain instrument with topology-distributed resonators and internal/MIDI excitation.</em>
-          </div>
+          <a class="category-card" href="loop-processor.html">
+            <span>sample instrument</span>
+            <strong>s3g Loop Processor 8ch</strong>
+            <em>CLAP instrument plugin for loaded audio loops, repeated source channels, lane playheads, and phase relationship controls.</em>
+          </a>
         </div>
 
         <h2 id="reaper">REAPER Setup</h2>
@@ -125,14 +126,20 @@
             <span>Previous</span>
             Building From Source
           </a>
-          <a class="page-nav-link next" href="topology-framework.html">
+          <a class="page-nav-link next" href="effects.html">
             <span>Next</span>
-            Topology Framework
+            Effects
           </a>
         </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Setup Pages</h2>
+          <a href="index.html">Getting Started</a>
+          <a href="building-from-source.html">Build From Source</a>
+          <a href="installing-plugins.html">Install Pre-release</a>
+        </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#requirements">Requirements</a>

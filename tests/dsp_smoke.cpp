@@ -3,8 +3,9 @@
 #include "s3g_delay_processor.h"
 #include "s3g_gain.h"
 #include "s3g_lane_patch.h"
+#include "s3g_loop_processor.h"
 #include "s3g_mc_to_stereo.h"
-#include "s3g_resonant_terrain.h"
+#include "s3g_macro_delay.h"
 
 #include <array>
 #include <cmath>
@@ -131,60 +132,169 @@ int main()
     }
 
 
-    s3g::ResonantTerrain modal;
-    modal.prepare(48000.0);
-    s3g::ResonantTerrainParams modalParams;
-    modalParams.density = 0.45f;
-    modalParams.outputGainDb = -18.0f;
-    modal.setParams(modalParams);
-    modal.noteOn(60, 0.8f);
-    float modalOut[s3g::kResonantTerrainChannels] {};
-    float modalPeak = 0.0f;
-    for (int i = 0; i < 48000; ++i) {
-        modal.processFrame(modalOut);
-        for (float value : modalOut) {
-            if (!std::isfinite(value)) {
-                std::cerr << "Resonant Terrain output is not finite\n";
-                return 1;
+    auto loopSample = std::make_shared<s3g::LoopProcessorSample>();
+    loopSample->frames = 4096;
+    loopSample->channels = 2;
+    loopSample->sampleRate = 48000.0;
+    loopSample->audio.assign(static_cast<size_t>(loopSample->frames) * loopSample->channels, 0.0f);
+    for (uint32_t i = 0; i < loopSample->frames; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(loopSample->sampleRate);
+        loopSample->audio[static_cast<size_t>(i) * 2u + 0u] = std::sin(6.28318530718f * 110.0f * t) * 0.25f;
+        loopSample->audio[static_cast<size_t>(i) * 2u + 1u] = std::sin(6.28318530718f * 165.0f * t) * 0.25f;
+    }
+    s3g::LoopProcessorEngine loopProcessor;
+    loopProcessor.prepare(48000.0);
+    s3g::LoopProcessorParams loopParams;
+    loopParams.baseRate = 1.0f;
+    loopParams.rateSpread = 0.20f;
+    loopParams.driftAmount = 0.03f;
+    loopParams.xfadePct = 0.08f;
+    loopParams.gainDb = -18.0f;
+    loopProcessor.setParams(loopParams);
+    std::array<std::array<float, 512>, s3g::kLoopProcessorChannels> loopBuffers {};
+    float* loopOut[s3g::kLoopProcessorChannels] {};
+    for (uint32_t ch = 0; ch < s3g::kLoopProcessorChannels; ++ch) {
+        loopOut[ch] = loopBuffers[ch].data();
+    }
+    float loopPeak = 0.0f;
+    for (int block = 0; block < 32; ++block) {
+        loopProcessor.process(loopSample, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
+        for (const auto& channel : loopBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Loop Processor output is not finite\n";
+                    return 1;
+                }
+                loopPeak = std::max(loopPeak, std::abs(value));
             }
-            modalPeak = std::max(modalPeak, std::abs(value));
         }
     }
-    if (modalPeak <= 0.00001f || modalPeak > 1.1f) {
-        std::cerr << "Resonant Terrain peak outside expected range: " << modalPeak << "\n";
+    if (loopPeak <= 0.00001f || loopPeak > 1.0f) {
+        std::cerr << "Loop Processor peak outside expected range: " << loopPeak << "\n";
+        return 1;
+    }
+    float loopXfdStressPeak = 0.0f;
+    for (int block = 0; block < 96; ++block) {
+        if ((block % 8) == 0) {
+            loopParams.xfadePct = static_cast<float>((block * 137) % 30) / 100.0f;
+            loopProcessor.setParams(loopParams);
+        }
+        loopProcessor.process(loopSample, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
+        for (const auto& channel : loopBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Loop Processor XFD stress output is not finite\n";
+                    return 1;
+                }
+                loopXfdStressPeak = std::max(loopXfdStressPeak, std::abs(value));
+            }
+        }
+    }
+    if (loopXfdStressPeak <= 0.00001f || loopXfdStressPeak > 1.0f) {
+        std::cerr << "Loop Processor XFD stress peak outside expected range: " << loopXfdStressPeak << "\n";
+        return 1;
+    }
+    float loopRegionStressPeak = 0.0f;
+    float loopRegionStressMaxStep = 0.0f;
+    float loopRegionStressPrev = 0.0f;
+    for (int block = 0; block < 160; ++block) {
+        if ((block % 3) == 0) {
+            loopParams.loopStart = static_cast<float>((block * 37) % 920) / 1000.0f;
+            loopParams.loopLength = 0.18f + static_cast<float>((block * 53) % 760) / 1000.0f;
+            loopProcessor.setParams(loopParams);
+        }
+        loopProcessor.process(loopSample, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
+        for (const auto& channel : loopBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Loop Processor region stress output is not finite\n";
+                    return 1;
+                }
+                loopRegionStressPeak = std::max(loopRegionStressPeak, std::abs(value));
+                loopRegionStressMaxStep = std::max(loopRegionStressMaxStep, std::abs(value - loopRegionStressPrev));
+                loopRegionStressPrev = value;
+            }
+        }
+    }
+    if (loopRegionStressPeak <= 0.00001f || loopRegionStressPeak > 1.0f) {
+        std::cerr << "Loop Processor region stress peak outside expected range: " << loopRegionStressPeak << "\n";
+        return 1;
+    }
+    if (loopRegionStressMaxStep > 0.35f) {
+        std::cerr << "Loop Processor region stress step too large: " << loopRegionStressMaxStep << "\n";
+        return 1;
+    }
+    float loopCtrStressPeak = 0.0f;
+    float loopCtrStressMaxStep = 0.0f;
+    float loopCtrStressPrev = 0.0f;
+    loopParams.loopStart = 0.18f;
+    loopParams.loopLength = 0.32f;
+    loopParams.relationGlideMs = 220.0f;
+    for (int block = 0; block < 180; ++block) {
+        loopParams.relationCenter = static_cast<float>((block * 41) % 100) / 100.0f;
+        loopProcessor.setParams(loopParams);
+        loopProcessor.process(loopSample, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
+        for (const auto& channel : loopBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Loop Processor CTR stress output is not finite\n";
+                    return 1;
+                }
+                loopCtrStressPeak = std::max(loopCtrStressPeak, std::abs(value));
+                loopCtrStressMaxStep = std::max(loopCtrStressMaxStep, std::abs(value - loopCtrStressPrev));
+                loopCtrStressPrev = value;
+            }
+        }
+    }
+    if (loopCtrStressPeak <= 0.00001f || loopCtrStressPeak > 1.0f) {
+        std::cerr << "Loop Processor CTR stress peak outside expected range: " << loopCtrStressPeak << "\n";
+        return 1;
+    }
+    if (loopCtrStressMaxStep > 0.35f) {
+        std::cerr << "Loop Processor CTR stress step too large: " << loopCtrStressMaxStep << "\n";
         return 1;
     }
 
-    s3g::ResonantTerrain modalStress;
-    modalStress.prepare(48000.0);
-    s3g::ResonantTerrainParams modalStressParams;
-    modalStressParams.density = 1.0f;
-    modalStressParams.decay = 1.0f;
-    modalStressParams.brightness = 1.0f;
-    modalStressParams.harmonicity = 1.0f;
-    modalStressParams.exciterTone = 1.0f;
-    modalStressParams.midiInfluence = 1.0f;
-    modalStressParams.outputGainDb = -6.0f;
-    modalStress.setParams(modalStressParams);
-    float modalStressPeak = 0.0f;
-    for (int i = 0; i < 192000; ++i) {
-        if ((i % 12000) == 0) {
-            modalStress.noteOn(48 + ((i / 12000) % 36), 1.0f);
+    s3g::MacroDelay macroDelay;
+    macroDelay.prepare(48000.0, s3g::kMacroDelayChannels, 2.5);
+    s3g::MacroDelayParams macroParams;
+    macroParams.timeMs = 75.0f;
+    macroParams.feedback = 0.42f;
+    macroParams.tone = 0.55f;
+    macroParams.character = 0.35f;
+    macroParams.smear = 0.20f;
+    macroParams.spread = 0.35f;
+    macroParams.deviation = 0.25f;
+    macroParams.skew = 0.20f;
+    macroParams.mix = 0.65f;
+    macroParams.outputGainDb = -3.0f;
+    macroDelay.setParams(macroParams);
+    float macroIn[s3g::kMacroDelayChannels] {};
+    float macroOut[s3g::kMacroDelayChannels] {};
+    float macroPeak = 0.0f;
+    float macroTailPeak = 0.0f;
+    for (int i = 0; i < 48000; ++i) {
+        for (uint32_t ch = 0; ch < s3g::kMacroDelayChannels; ++ch) {
+            macroIn[ch] = (i == static_cast<int>(ch * 127u)) ? 0.5f : 0.0f;
         }
-        if ((i % 12000) == 6000) {
-            modalStress.noteOff(48 + ((i / 12000) % 36));
-        }
-        modalStress.processFrame(modalOut);
-        for (float value : modalOut) {
+        macroDelay.processFrame(macroIn, macroOut);
+        for (float value : macroOut) {
             if (!std::isfinite(value)) {
-                std::cerr << "Resonant Terrain stress output is not finite\n";
+                std::cerr << "Macro Delay output is not finite\n";
                 return 1;
             }
-            modalStressPeak = std::max(modalStressPeak, std::abs(value));
+            macroPeak = std::max(macroPeak, std::abs(value));
+            if (i > 12000) {
+                macroTailPeak = std::max(macroTailPeak, std::abs(value));
+            }
         }
     }
-    if (modalStressPeak > 1.01f) {
-        std::cerr << "Resonant Terrain stress peak exceeded limiter: " << modalStressPeak << "\n";
+    if (macroPeak <= 0.00001f || macroPeak > 1.01f) {
+        std::cerr << "Macro Delay peak outside expected range: " << macroPeak << "\n";
+        return 1;
+    }
+    if (macroTailPeak <= 0.000001f) {
+        std::cerr << "Macro Delay did not preserve a silence-fed tail\n";
         return 1;
     }
 
@@ -221,8 +331,11 @@ int main()
     std::cout << "mc stereo L/R: " << stereoOut[0] << " / " << stereoOut[1] << "\n";
     std::cout << "delay processor impulse: " << delayOut[0] << "\n";
     std::cout << "delay processor stress peak: " << delayStressPeak << "\n";
-    std::cout << "resonant terrain peak: " << modalPeak << "\n";
-    std::cout << "resonant terrain stress peak: " << modalStressPeak << "\n";
+    std::cout << "loop processor peak: " << loopPeak << "\n";
+    std::cout << "loop processor XFD stress peak: " << loopXfdStressPeak << "\n";
+    std::cout << "loop processor region stress peak/step: " << loopRegionStressPeak << " / " << loopRegionStressMaxStep << "\n";
+    std::cout << "macro delay peak: " << macroPeak << "\n";
+    std::cout << "macro delay tail peak: " << macroTailPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";
     return 0;
 }

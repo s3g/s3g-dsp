@@ -1,7 +1,7 @@
 # 3OAFX Insert Workflow
 
-The first native plugin tests are designed for the 24-channel virtual speaker
-layer used by the `s3g-mc` 3OAFX workflow.
+The 3OAFX plugin tests are designed for the 24-channel virtual speaker layer
+used by the `s3g-mc` 3OAFX workflow.
 
 Related `s3g-mc` docs:
 
@@ -14,7 +14,7 @@ Typical signal path:
 ```text
 3OA source
 -> s3g 3OAFX Send Decoder
--> 24-channel native insert plugin
+-> 24-channel CLAP insert plugin
 -> s3g 3OAFX Return Encoder
 -> 3OA output
 ```
@@ -35,7 +35,7 @@ and independent-return controls visibly follow the Send Decoder.
 
 ## REAPER Parameter Links
 
-After inserting the native boundary pair, link the Return Encoder direction
+After inserting the CLAP boundary pair, link the Return Encoder direction
 parameters to the Send Decoder:
 
 1. Put the plugins on a 72-channel REAPER track in this order:

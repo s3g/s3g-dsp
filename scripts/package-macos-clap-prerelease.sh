@@ -14,7 +14,8 @@ bundles=(
   "$src_root/clap_delay_processor/s3g_24ch_delay_processor.clap"
   "$src_root/clap_mc_to_stereo_autogain/s3g_mc_to_stereo_autogain.clap"
   "$src_root/clap_3oafx_boundary/s3g_3oafx_boundary.clap"
-  "$src_root/clap_resonant_terrain/s3g_resonant_terrain.clap"
+  "$src_root/clap_loop_processor/s3g_loop_processor.clap"
+  "$src_root/clap_macro_delay/s3g_macro_delay.clap"
 )
 
 for bundle in "${bundles[@]}"; do

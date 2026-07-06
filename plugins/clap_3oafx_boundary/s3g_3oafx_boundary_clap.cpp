@@ -7,6 +7,7 @@
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
+#include "../common/s3g_cocoa_gui.h"
 #endif
 
 #include <algorithm>
@@ -704,18 +705,8 @@ static NSColor* color(int rgb, double alpha = 1.0)
 
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs dim:(NSDictionary*)dim
 {
-    [name drawAtPoint:NSMakePoint(596, y - 2) withAttributes:dim];
-    NSRect track = NSMakeRect(674, y, 132, 10);
-    [color(0x141414) setFill];
-    NSRectFill(track);
-    [color(0x626262) setStroke];
-    NSFrameRect(track);
-    norm = std::clamp(norm, static_cast<CGFloat>(0.0), static_cast<CGFloat>(1.0));
-    [color(0xa0a0a0) setFill];
-    NSRectFill(NSMakeRect(track.origin.x + 1, track.origin.y + 1, std::max<CGFloat>(1, (track.size.width - 2) * norm), track.size.height - 2));
-    [color(0xf0f0f0) setFill];
-    NSRectFill(NSMakeRect(track.origin.x + track.size.width * norm - 2, track.origin.y - 2, 4, track.size.height + 4));
-    [value drawAtPoint:NSMakePoint(818, y - 2) withAttributes:attrs];
+    s3g::clap_gui::Style style;
+    s3g::clap_gui::drawSlider(name, value, norm, y, dim, attrs, style, 596, 674, 818, 132);
 }
 
 - (NSPoint)project:(s3g::Vec3)p rect:(NSRect)rect
@@ -769,23 +760,23 @@ static NSColor* color(int rgb, double alpha = 1.0)
 {
     (void)dirtyRect;
     auto* p = static_cast<Plugin*>(_plugin);
-    [color(0x0c0c0c) setFill];
+    s3g::clap_gui::Style style;
+    [style.bg setFill];
     NSRectFill([self bounds]);
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
     NSFont* bold = [NSFont fontWithName:@"Menlo-Bold" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightBold];
-    NSDictionary* attrs = @{ NSForegroundColorAttributeName: color(0xf0f0f0), NSFontAttributeName: mono };
-    NSDictionary* dim = @{ NSForegroundColorAttributeName: color(0xa6a6a6), NSFontAttributeName: mono };
-    NSDictionary* head = @{ NSForegroundColorAttributeName: color(0xf0f0f0), NSFontAttributeName: bold };
+    NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
+    NSDictionary* attrs = @{ NSForegroundColorAttributeName: style.text, NSFontAttributeName: mono };
+    NSDictionary* dim = @{ NSForegroundColorAttributeName: style.dim, NSFontAttributeName: mono };
+    NSDictionary* head = @{ NSForegroundColorAttributeName: style.text, NSFontAttributeName: bold };
+    NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName: style.text, NSFontAttributeName: titleFont };
     NSString* title = p->mode == PluginMode::Send ? @"s3g 3OAFX SEND DECODER" : @"s3g 3OAFX RETURN ENCODER";
-    [title drawAtPoint:NSMakePoint(18, 16) withAttributes:attrs];
+    [title drawAtPoint:NSMakePoint(18, 16) withAttributes:titleAttrs];
     [[NSString stringWithFormat:@"PK %.3f", p->outputPeak.load(std::memory_order_relaxed)] drawAtPoint:NSMakePoint(782, 16) withAttributes:dim];
 
     NSRect panel = NSMakeRect(12, 42, 560, 500);
-    [color(0x1b1b1b) setFill];
-    NSRectFill(panel);
-    [color(0x666666) setStroke];
-    NSFrameRect(panel);
-    [@"24-POINT MASK SHELL" drawAtPoint:NSMakePoint(22, 50) withAttributes:head];
+    s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"24-POINT MASK SHELL", true, panel.origin.x, panel.origin.y, panel.size.width, 21, head, style);
     NSRect map = NSMakeRect(22, 78, 540, 430);
     [color(0x101010) setFill];
     NSRectFill(map);
@@ -832,11 +823,8 @@ static NSColor* color(int rgb, double alpha = 1.0)
     [[NSString stringWithFormat:@"AZ %+5.1f   EL %+5.1f", p->params.azimuth, p->params.elevation] drawAtPoint:NSMakePoint(34, 516) withAttributes:dim];
     [@"MASK PASSES AS AUDIO ON LANES 49-72" drawAtPoint:NSMakePoint(326, 516) withAttributes:dim];
 
-    [color(0x1b1b1b) setFill];
-    NSRectFill(NSMakeRect(584, 42, 304, 500));
-    [color(0x666666) setStroke];
-    NSFrameRect(NSMakeRect(584, 42, 304, 500));
-    [@"CONTROL" drawAtPoint:NSMakePoint(596, 50) withAttributes:head];
+    s3g::clap_gui::drawPanelFrame(584, 42, 304, 500, style);
+    s3g::clap_gui::drawPanelHeader(@"CONTROL", true, 584, 42, 304, 21, head, style);
     struct Slider { const char* label; clap_id id; };
     const Slider common[] = {
         { "AZ", kAzParamId }, { "EL", kElParamId }, { "WID", kWidthParamId }, { "FOC", kFocusParamId },

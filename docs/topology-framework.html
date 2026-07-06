@@ -12,11 +12,11 @@
       <a class="brand" href="index.html">s3g-dsp</a>
       <nav class="top-nav" aria-label="Top navigation">
         <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
         <a href="effects.html">Effects</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
-        <a href="building-from-source.html">Build</a>
-        <a href="installing-plugins.html">Install</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -28,16 +28,6 @@
         <p>Topology is the shared control layer for s3g-dsp plugins. The patch matrix selects active input lanes. Those lanes become points. The points form a network. Each plugin maps that network to sound.</p>
 
         <p>This keeps automation compact. REAPER sees global controls while per-lane variation stays inside the plugin.</p>
-
-        <div class="related-links">
-          <h2>Related s3g-mc Docs</h2>
-          <ul>
-            <li><a href="https://s3g.github.io/s3g-mc/utilities-spatial-score.html" target="_blank" rel="noopener noreferrer">Spatial Score utility</a></li>
-            <li><a href="https://s3g.github.io/s3g-mc/utilities-displacement-score.html" target="_blank" rel="noopener noreferrer">Displacement Score utility</a></li>
-            <li><a href="https://s3g.github.io/s3g-mc/utilities-automation-score-designer.html" target="_blank" rel="noopener noreferrer">Automation Score utility</a></li>
-          </ul>
-        </div>
-
         <div class="status-strip" aria-label="Topology framework summary">
           <div><span>input</span><strong>active lanes</strong></div>
           <div><span>space</span><strong>points</strong></div>
@@ -88,18 +78,21 @@
         </figure>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="installing-plugins.html">
+          <a class="page-nav-link" href="loop-processor.html">
             <span>Previous</span>
-            Install Pre-release
+            Loop Processor
           </a>
-          <a class="page-nav-link next" href="delay-processor.html">
-            <span>Next</span>
-            Delay Processor
-          </a>
+          <span></span>
         </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Reference Pages</h2>
+          <a href="topology-framework.html">Topology Framework</a>
+          <a href="delay-processor.html">Delay Processor Mapping</a>
+          <a href="loop-processor.html">Loop Processor Model</a>
+        </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#roadmap">Roadmap Diagram</a>

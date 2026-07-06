@@ -8,7 +8,8 @@ Project documentation for `s3g-dsp` is available at
 <https://s3g.github.io/s3g-dsp/>.
 
 The current focus is predictable multichannel routing, compact automation, and
-topology controls that create per-channel variation inside the plugin.
+clear multichannel control models. Some plugins use topology; others use
+simpler relationship controls when that better fits the sound.
 
 The supported development target is macOS + REAPER. Other operating systems and
 DAWs are not support targets at this stage.
@@ -18,18 +19,23 @@ DAWs are not support targets at this stage.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-Current validated targets:
+Current plugins:
 
 - `s3g 24ch Passthrough Test`: fixed 24-in/24-out CLAP passthrough/gain plugin.
 - `s3g Delay Processor 8ch`: main topology-driven delay processor.
-- `s3g Delay Processor 24ch`: wider delay build for future 3OAFX insert work.
+- `s3g Delay Processor 24ch`: wider delay build for 24-channel insert work.
+- `s3g Loop Processor 8ch`: CLAP instrument plugin for loaded audio loops,
+  lane playheads, waveform display, and phase relationship controls.
+- `s3g Macro Delay 8ch`: compact multichannel delay macro with relationship
+  controls.
 - `s3g MC to Stereo Autogain`: 128-channel input to true stereo output
   fold-down prototype.
 - `s3g 3OAFX Send Decoder` / `s3g 3OAFX Return Encoder`: work-in-progress
   boundary plugins for the 3OAFX insert workflow.
 
-The most developed plugin is the Delay Processor. It includes a macOS GUI with
-a patch matrix, topology view, heatmap, readout, and ANIM/VAR motion controls.
+Delay Processor is the main topology effect. Loop Processor is the first
+loaded-audio instrument. MC to Stereo Autogain is a practical fold-down tool
+for auditioning multichannel work in stereo.
 
 ## Design
 
@@ -37,8 +43,8 @@ a patch matrix, topology view, heatmap, readout, and ANIM/VAR motion controls.
 - Plugin wrappers live in `plugins/`.
 - Fixed-width CLAP plugins are used where REAPER pin routing needs to be
   predictable.
-- Per-channel settings are generated inside the plugin. REAPER sees global
-  effect and topology controls, not one parameter list per channel.
+- Per-channel settings are generated inside the plugin. REAPER sees compact
+  global controls, not one parameter list per channel.
 - 24-channel 3OAFX-specific work is kept separate from general multichannel
   lane processors.
 
@@ -55,8 +61,13 @@ Useful local docs:
 - `docs/index.html`: documentation site home page.
 - `docs/building-from-source.html`: source build, local install, and validation notes.
 - `docs/installing-plugins.html`: installing packaged pre-release CLAP bundles.
+- `docs/effects.html`: effect plugin index.
+- `docs/instruments.html`: instrument plugin index.
 - `docs/topology-framework.html`: shared topology framework overview.
 - `docs/delay-processor.html`: Delay Processor overview and topology map.
+- `docs/loop-processor.html`: Loop Processor workflow and control reference.
+- `docs/mc-to-stereo-autogain.html`: MC to Stereo Autogain fold-down reference.
+- `docs/gui-style-guide.md`: working style guide for custom plugin GUIs.
 - `docs/delay_processor_gui.png`: screenshot of the Delay Processor GUI.
 - `docs/topology_framework.svg`: shared topology framework diagram.
 - `docs/topology_effect_map.svg`: generic topology-to-effect mapping diagram.
@@ -141,8 +152,8 @@ clap-validator validate \
 ## Relationship to s3g-mc
 
 `s3g-mc` is the main REAPER package. `s3g-dsp` is a sibling plugin project for
-multichannel effects and future 3OAFX insert chains. It can also be used
-independently in matching macOS + REAPER sessions.
+multichannel effects, instruments, utilities, and 3OAFX insert experiments. It
+can also be used independently in matching macOS + REAPER sessions.
 
 Useful `s3g-mc` references:
 

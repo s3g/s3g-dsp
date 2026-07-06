@@ -96,10 +96,11 @@ inline void drawSlider(NSString* name,
                        const Style& style,
                        CGFloat labelX = 654.0,
                        CGFloat trackX = 750.0,
-                       CGFloat valueX = 920.0)
+                       CGFloat valueX = 920.0,
+                       CGFloat trackW = 150.0)
 {
     [name drawAtPoint:NSMakePoint(labelX, y - 2) withAttributes:labelAttrs];
-    NSRect track = NSMakeRect(trackX, y + 1, 150, 9);
+    NSRect track = NSMakeRect(trackX, y + 1, trackW, 9);
     [style.strip setFill];
     NSRectFill(track);
     [style.grid setStroke];
@@ -124,10 +125,11 @@ inline void drawMenu(NSString* name,
                      NSDictionary* valueAttrs,
                      const Style& style,
                      CGFloat labelX = 654.0,
-                     CGFloat boxX = 750.0)
+                     CGFloat boxX = 750.0,
+                     CGFloat boxW = 178.0)
 {
     [name drawAtPoint:NSMakePoint(labelX, y - 2) withAttributes:labelAttrs];
-    NSRect box = NSMakeRect(boxX, y - 1, 178, 15);
+    NSRect box = NSMakeRect(boxX, y - 1, boxW, 15);
     [style.strip setFill];
     NSRectFill(box);
     [style.grid setStroke];

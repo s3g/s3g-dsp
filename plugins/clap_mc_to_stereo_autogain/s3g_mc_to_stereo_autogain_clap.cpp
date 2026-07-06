@@ -6,6 +6,7 @@
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
+#include "../common/s3g_cocoa_gui.h"
 #endif
 
 #include <algorithm>
@@ -750,57 +751,29 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
 
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
-    NSColor* strip = s3gMcColor(0x131313);
-    NSColor* grid = s3gMcColor(0x5f5f5f);
-    NSColor* fill = s3gMcColor(0x9a9a9a);
-    NSColor* text = s3gMcColor(0xe9e9e9);
-    [name drawAtPoint:NSMakePoint(600, y - 2) withAttributes:small];
-    NSRect track = NSMakeRect(710, y + 1, 122, 9);
-    [strip setFill];
-    NSRectFill(track);
-    [grid setStroke];
-    NSFrameRect(track);
-    norm = std::clamp(norm, static_cast<CGFloat>(0.0), static_cast<CGFloat>(1.0));
-    NSRect filled = NSInsetRect(track, 1, 1);
-    filled.size.width = std::max<CGFloat>(1.0, filled.size.width * norm);
-    [fill setFill];
-    NSRectFill(filled);
-    const CGFloat hx = std::clamp(track.origin.x + track.size.width * norm - 1.5, track.origin.x + 1.0, track.origin.x + track.size.width - 4.0);
-    [text setFill];
-    NSRectFill(NSMakeRect(hx, track.origin.y - 2, 3, track.size.height + 4));
-    [value drawAtPoint:NSMakePoint(846, y - 2) withAttributes:small];
+    (void)attrs;
+    s3g::clap_gui::Style style;
+    s3g::clap_gui::drawSlider(name, value, norm, y, small, small, style, 600, 710, 846, 122);
 }
 
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
-    NSColor* strip = s3gMcColor(0x131313);
-    NSColor* grid = s3gMcColor(0x5f5f5f);
-    NSColor* fill = s3gMcColor(0x9a9a9a);
-    [name drawAtPoint:NSMakePoint(600, y - 2) withAttributes:small];
-    NSRect box = NSMakeRect(710, y - 1, 160, 15);
-    [strip setFill];
-    NSRectFill(box);
-    [grid setStroke];
-    NSFrameRect(box);
-    [fill setFill];
-    NSRectFill(NSMakeRect(box.origin.x + 1, box.origin.y + 1, 2, box.size.height - 2));
-    [value drawAtPoint:NSMakePoint(box.origin.x + 8, y + 1) withAttributes:small];
-    [@"v" drawAtPoint:NSMakePoint(box.origin.x + box.size.width - 12, y) withAttributes:small];
+    (void)attrs;
+    s3g::clap_gui::Style style;
+    s3g::clap_gui::drawMenu(name, value, y, small, small, style, 600, 710, 160);
 }
 
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
     auto* p = static_cast<Plugin*>(_plugin);
-    NSColor* bg = s3gMcColor(0x0c0c0c);
-    NSColor* panel = s3gMcColor(0x1b1b1b);
-    NSColor* strip = s3gMcColor(0x131313);
-    NSColor* grid = s3gMcColor(0x5f5f5f);
-    NSColor* dim = s3gMcColor(0x9a9a9a);
-    NSColor* text = s3gMcColor(0xefefef);
-    NSColor* accent = s3gMcColor(0xd1d1d1);
-    NSColor* fill = s3gMcColor(0x8f8f8f);
-    [bg setFill];
+    s3g::clap_gui::Style style;
+    NSColor* bg = style.bg;
+    NSColor* grid = style.grid;
+    NSColor* dim = style.dim;
+    NSColor* text = style.text;
+    NSColor* fill = style.fill;
+    [style.bg setFill];
     NSRectFill([self bounds]);
 
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
@@ -813,15 +786,8 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     [@"128IN / 2OUT" drawAtPoint:NSMakePoint(824, 13) withAttributes:small];
 
     NSRect mapPanel = NSMakeRect(12, 34, 564, 514);
-    [panel setFill];
-    NSRectFill(mapPanel);
-    [grid setStroke];
-    NSFrameRect(mapPanel);
-    [strip setFill];
-    NSRectFill(NSMakeRect(12, 34, 564, 21));
-    [accent setFill];
-    NSRectFill(NSMakeRect(12, 34, 564, 2));
-    [@"DOWNMIX MAP" drawAtPoint:NSMakePoint(18, 39) withAttributes:label];
+    s3g::clap_gui::drawPanelFrame(mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, mapPanel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"DOWNMIX MAP", true, mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, 21, label, style);
 
     const uint32_t count = s3g::clampInputChannels(p->params.inputChannels);
     const uint32_t layout = static_cast<uint32_t>(p->params.layout);
@@ -942,11 +908,8 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     [routeNote drawAtPoint:NSMakePoint(28, 488) withAttributes:small];
 
     NSRect side = NSMakeRect(592, 34, 316, 514);
-    [panel setFill]; NSRectFill(side);
-    [grid setStroke]; NSFrameRect(side);
-    [strip setFill]; NSRectFill(NSMakeRect(592, 34, 316, 21));
-    [accent setFill]; NSRectFill(NSMakeRect(592, 34, 316, 2));
-    [@"AUDITION" drawAtPoint:NSMakePoint(598, 39) withAttributes:label];
+    s3g::clap_gui::drawPanelFrame(side.origin.x, side.origin.y, side.size.width, side.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"AUDITION", true, side.origin.x, side.origin.y, side.size.width, 21, label, style);
 
     [self drawSlider:@"IN" value:[NSString stringWithFormat:@"%u", count] norm:(count - 2.0) / 126.0 y:74 attrs:label small:small];
     [self drawSlider:@"WDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.widthPercent)] norm:p->params.widthPercent / 200.0 y:96 attrs:label small:small];
@@ -958,28 +921,30 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     [self drawMenu:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))] y:228 attrs:label small:small];
     [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 24.0) / 48.0 y:250 attrs:label small:small];
 
-    NSRect meterPanel = NSMakeRect(604, 288, 292, 204);
+    NSRect meterPanel = NSMakeRect(604, 288, 292, 106);
     [s3gMcColor(0x111111) setFill]; NSRectFill(meterPanel);
     [grid setStroke]; NSFrameRect(meterPanel);
-    [@"STEREO OUT" drawAtPoint:NSMakePoint(616, 286) withAttributes:label];
+    [@"STEREO OUT" drawAtPoint:NSMakePoint(616, 294) withAttributes:label];
     const float pkL = p->outputPeakLeft.exchange(p->outputPeakLeft.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
     const float pkR = p->outputPeakRight.exchange(p->outputPeakRight.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
-    auto drawMeter = [&](CGFloat x, NSString* name, float peak) {
-        const CGFloat h = 140.0;
+    auto drawMeter = [&](CGFloat y, NSString* name, float peak) {
+        const CGFloat x = 638.0;
+        const CGFloat w = 190.0;
+        const CGFloat h = 18.0;
         const double db = 20.0 * std::log10(std::max(0.000001f, peak));
         const CGFloat norm = std::clamp<CGFloat>((db + 60.0) / 60.0, 0.0, 1.0);
-        NSRect r = NSMakeRect(x, 318, 34, h);
+        NSRect r = NSMakeRect(x, y, w, h);
         [bg setFill]; NSRectFill(r);
-        [fill setFill]; NSRectFill(NSMakeRect(r.origin.x + 2, r.origin.y + h * (1.0 - norm), r.size.width - 4, h * norm));
+        [fill setFill]; NSRectFill(NSMakeRect(r.origin.x + 2, r.origin.y + 2, (r.size.width - 4) * norm, r.size.height - 4));
         [grid setStroke]; NSFrameRect(r);
         [s3gMcColor(0xd0d0d0, 0.55) setStroke];
-        const CGFloat minus12 = r.origin.y + h * (1.0 - ((-12.0 + 60.0) / 60.0));
-        [NSBezierPath strokeLineFromPoint:NSMakePoint(r.origin.x - 4, minus12) toPoint:NSMakePoint(r.origin.x + r.size.width + 4, minus12)];
-        [name drawAtPoint:NSMakePoint(x + 12, 464) withAttributes:small];
-        [[NSString stringWithFormat:@"%+4.1f", db] drawAtPoint:NSMakePoint(x - 4, 296) withAttributes:small];
+        const CGFloat minus12 = r.origin.x + w * ((-12.0 + 60.0) / 60.0);
+        [NSBezierPath strokeLineFromPoint:NSMakePoint(minus12, r.origin.y - 3) toPoint:NSMakePoint(minus12, r.origin.y + r.size.height + 3)];
+        [name drawAtPoint:NSMakePoint(616, y + 2) withAttributes:small];
+        [[NSString stringWithFormat:@"%+4.1f", db] drawAtPoint:NSMakePoint(838, y + 2) withAttributes:small];
     };
-    drawMeter(682, @"L", pkL);
-    drawMeter(728, @"R", pkR);
+    drawMeter(342, @"L", pkL);
+    drawMeter(316, @"R", pkR);
 
     [@"PIN NOTE" drawAtPoint:NSMakePoint(616, 508) withAttributes:label];
     [@"REAPER: enable zero unmapped outputs" drawAtPoint:NSMakePoint(684, 508) withAttributes:small];
@@ -988,14 +953,14 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
         const CGFloat itemH = 18;
         NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 160, itemH * _menuItems);
         [s3gMcColor(0x080808) setFill]; NSRectFill(NSInsetRect(menu, -2, -2));
-        [panel setFill]; NSRectFill(menu);
-        [grid setStroke]; NSFrameRect(menu);
+        [style.cellBg setFill]; NSRectFill(menu);
+        [style.grid setStroke]; NSFrameRect(menu);
         for (uint32_t i = 0; i < _menuItems; ++i) {
             NSRect row = NSMakeRect(menu.origin.x, menu.origin.y + i * itemH, menu.size.width, itemH);
             const bool selected = (_openMenu == 1) ? i == layout : i == static_cast<uint32_t>(p->params.autogain);
             if (selected) {
                 [s3gMcColor(0x2c2c2c) setFill]; NSRectFill(NSInsetRect(row, 1, 1));
-                [fill setFill]; NSRectFill(NSMakeRect(row.origin.x + 2, row.origin.y + 2, 3, row.size.height - 4));
+                [style.fill setFill]; NSRectFill(NSMakeRect(row.origin.x + 2, row.origin.y + 2, 3, row.size.height - 4));
             }
             NSString* rowText = _openMenu == 1 ? [NSString stringWithUTF8String:layoutName(i)] : [NSString stringWithUTF8String:autogainName(i)];
             [rowText drawAtPoint:NSMakePoint(row.origin.x + 9, row.origin.y + 3) withAttributes:small];
