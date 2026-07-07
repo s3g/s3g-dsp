@@ -79,12 +79,15 @@ inline void drawPanelHeader(NSString* title,
                             NSDictionary* attrs,
                             const Style& style)
 {
+    (void)attrs;
     [style.strip setFill];
     NSRectFill(NSMakeRect(x, y, w, h));
     [style.accent setFill];
     NSRectFill(NSMakeRect(x, y, w, 2));
-    [(open ? @"-" : @"+") drawAtPoint:NSMakePoint(x + 8, y + 5) withAttributes:attrs];
-    [title drawAtPoint:NSMakePoint(x + 24, y + 5) withAttributes:attrs];
+    NSFont* headerFont = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
+    NSDictionary* headerAttrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:headerFont };
+    [(open ? @"-" : @"+") drawAtPoint:NSMakePoint(x + 8, y + 5) withAttributes:headerAttrs];
+    [title drawAtPoint:NSMakePoint(x + 24, y + 5) withAttributes:headerAttrs];
 }
 
 inline void drawSlider(NSString* name,

@@ -3,6 +3,12 @@
 The 3OAFX plugin tests are designed for the 24-channel virtual speaker layer
 used by the `s3g-mc` 3OAFX workflow.
 
+Current HTML docs:
+
+- [`3oafx.html`](3oafx.html): 3OAFX and ambisonics-specific plugin overview
+- [`3oafx-point-encoder.html`](3oafx-point-encoder.html): 16-point AED encoder
+- [`3oafx-insert-workflow.html`](3oafx-insert-workflow.html): Send/return insert notes
+
 Related `s3g-mc` docs:
 
 - [s3g-mc 3OAFX process guide](https://s3g.github.io/s3g-mc/process-guides-3oafx.html)

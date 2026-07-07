@@ -28,8 +28,13 @@ Current plugins:
   lane playheads, waveform display, and phase relationship controls.
 - `s3g Macro Delay 8ch`: compact multichannel delay macro with relationship
   controls.
+- `s3g Macro Pitch 8ch`: compact multichannel pitch macro with the shared Macro
+  control layout.
 - `s3g MC to Stereo Autogain`: 128-channel input to true stereo output
   fold-down prototype.
+- `s3g 3OAFX Point Encoder`: 16 point-source input to third-order
+  `ACN/SN3D` ambisonic output with AED placement, point mixer, physics scenes,
+  and Geist-driven bond breaking.
 - `s3g 3OAFX Send Decoder` / `s3g 3OAFX Return Encoder`: work-in-progress
   boundary plugins for the 3OAFX insert workflow.
 
@@ -62,11 +67,13 @@ Useful local docs:
 - `docs/building-from-source.html`: source build, local install, and validation notes.
 - `docs/installing-plugins.html`: installing packaged pre-release CLAP bundles.
 - `docs/effects.html`: effect plugin index.
+- `docs/3oafx.html`: 3OAFX and ambisonics-specific plugin index.
 - `docs/instruments.html`: instrument plugin index.
 - `docs/topology-framework.html`: shared topology framework overview.
 - `docs/delay-processor.html`: Delay Processor overview and topology map.
 - `docs/loop-processor.html`: Loop Processor workflow and control reference.
 - `docs/mc-to-stereo-autogain.html`: MC to Stereo Autogain fold-down reference.
+- `docs/3oafx-point-encoder.html`: 3OAFX Point Encoder reference.
 - `docs/gui-style-guide.md`: working style guide for custom plugin GUIs.
 - `docs/delay_processor_gui.png`: screenshot of the Delay Processor GUI.
 - `docs/topology_framework.svg`: shared topology framework diagram.
@@ -152,8 +159,9 @@ clap-validator validate \
 ## Relationship to s3g-mc
 
 `s3g-mc` is the main REAPER package. `s3g-dsp` is a sibling plugin project for
-multichannel effects, instruments, utilities, and 3OAFX insert experiments. It
-can also be used independently in matching macOS + REAPER sessions.
+general multichannel effects, instruments, utilities, and ambisonics-specific
+3OAFX tools. It can also be used independently in matching macOS + REAPER
+sessions.
 
 Useful `s3g-mc` references:
 

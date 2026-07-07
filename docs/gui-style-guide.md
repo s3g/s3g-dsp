@@ -25,8 +25,18 @@ This is the working style reference for custom macOS CLAP plugin GUIs in
 - Do not inset the header relative to the panel frame.
 - Use a dark header strip with a 2 px light line at the top.
 - Use `+` / `-` at the left of collapsible headers.
+- Keep toolbox header titles normal weight. The header strip and top line are
+  enough hierarchy; avoid bold or highlighted panel titles unless the title is
+  an active status indicator.
 - Put controls inside the panel with a small internal text/control inset.
 - Keep panels aligned by their top edges when they form a visual column.
+- Size panels to their visible controls. After the final row, leave only enough
+  bottom padding to match the family reference, usually about 12-18 px. Do not
+  leave large empty panel interiors because another plugin has more controls in
+  the same panel type.
+- Use consistent stacked-panel gaps inside a plugin family. Macro and other
+  toolbox stacks should stay around 12-14 px unless the whole family layout is
+  intentionally revised.
 
 Reference pattern:
 
@@ -39,10 +49,17 @@ drawPanelHeader(@"ENGINE", open, panelX, panelY, panelW, headerH, attrs, style);
 
 - Sliders are square, horizontal, and text-labeled with short all-caps names.
 - Use three-letter abbreviations when possible: `OUT`, `CTR`, `LEN`, `SMR`.
+- Parameters with discrete named states must be menus, not sliders. Examples:
+  motion modes, layout modes, shape choices, neighbor counts, launch modes,
+  mute/on-off states, and global mode toggles.
 - Menus should use the same dark fill, gray border, and compact type as sliders.
 - Do not use native-looking popup controls inside the plugin canvas.
 - Reuse abbreviations consistently across plugins. When a label is reused, it
   should describe the same kind of relationship everywhere.
+
+Before editing a GUI, check the controls being drawn against this section:
+continuous numeric values use sliders; named/discrete values use menus or
+buttons. Do this before build/test so style drift is caught in the edit pass.
 
 ## Primary Visuals
 
@@ -55,12 +72,119 @@ drawPanelHeader(@"ENGINE", open, panelX, panelY, panelW, headerH, attrs, style);
 - If a visualization has a secondary layer, such as the Delay Processor heatmap,
   separate it clearly from labels and borders.
 
+## Spatial Views
+
+Ambisonic and 3OAFX infrastructure plugins use a restrained spatial-view
+grammar:
+
+- Put compact `TOP`, `SIDE`, and `3/4` view buttons in the primary visual
+  header when a point scene can be reoriented.
+- Put compact `-` / `+` camera zoom buttons near the view buttons when point
+  density can obscure the spatial read. Camera zoom changes only the view
+  projection, never AED distance values.
+- AED point displays follow the `s3g-mc` screen convention: in `TOP` view,
+  azimuth `0` degrees draws at the top of the field, `180` degrees at the
+  bottom, `-90` degrees to the right, and `+90` degrees to the left. In `SIDE`
+  view, positive elevation draws upward.
+- Physics or motion scene presets belong in a `SCENE` menu, with continuous
+  force trims below it. Scene selection may set several related controls, but
+  subsequent trim edits should read as a custom scene.
+- Physics scenes should be behaviorally distinct, not only different speeds:
+  `ORBIT` should read as slow circulation, `BOUNCE` as inward/gravity-like
+  rebound and collision, `COLLIDE` as point-to-point pressure, and `SCATTER` as
+  non-orbital burst energy.
+- Physics scenes should use a persistent point world rather than one-frame
+  trigonometric offsets when collision or rebound is central to the behavior.
+  The preferred model is previous-position/Verlet-style motion, nearest-neighbor
+  constraints or springs, boundary collision, and a moving `POLTERGEIST`
+  cue-ball source that prevents the scene from settling into static balance.
+  `POLTERGEIST` should be exposed as a host-automatable macro where the motion
+  benefits from one readable agitation control. It should have a visible radius
+  of influence drawn as a projected 3D sphere, not a flat screen-space circle:
+  points outside the radius are not pushed, and points inside it receive smooth
+  falloff, carry, and glancing energy from the moving source. The force should
+  begin at the visible sphere edge so the visual boundary and physical boundary
+  agree. If a plugin has a global hemisphere constraint, auxiliary motion
+  sources such as `POLTERGEIST` must adapt to that hemisphere too; the force path
+  and any clipped radius drawing should match the constrained point field.
+  In point-network scenes, `POLTERGEIST` amount also dissolves nearest-neighbor
+  relationships: `0%` keeps the scene's normal bonds, while `100%` disables
+  neighbor springs so the Geist/collision/boundary model dominates.
+  Geist strikes may erase local bonds for a musically readable duration; broken
+  links should disappear or fade in the nearest-neighbor drawing while released
+  points get a subtle visual marker.
+  Avoid inverse-distance force fields here because they create jerky close-range
+  acceleration and point grinding. Visualize collision energy with outline/link
+  brightness, not point-size changes, so the display does not imply gain or
+  distance changes.
+- Point-to-point collisions should behave like elastic ball contact, not like
+  points grinding against each other for space. Prefer smaller contact radii,
+  capped repel, and velocity rebound over continuous overlap pressure.
+- `MANUAL` should be the first physics scene for spatial tools that expose
+  point automation. It disables internal motion so REAPER automation lanes can
+  drive AED/gain directly. `CUSTOM` is reserved for hand-tweaked moving states
+  after a scene preset has been modified.
+- Use `SCALE` as the motion-space radius limit. `1.0` is the normal unit-sphere
+  reach for scene presets; values above `1.0` should be an explicit user choice
+  rather than a preset default. This is separate from camera zoom: scale changes
+  the animated/smoothed point positions used by the encoder, while camera zoom
+  changes only the view.
+- Spatial point-source plugins with many automatable points should include a
+  compact point mixer surface when space allows: one lane per point, gain as a
+  continuous fader, and mute/solo as discrete buttons. The selected-point AED
+  editor can stay separate from this mixer.
+- When the point mixer would compete with the spatial field, put the mixer on a
+  second primary-view page rather than shrinking the spatial field. This is the
+  preferred pattern for future 32/64 point tools.
+- Dragging directly on a visible point may edit AED when the active view has a
+  clear 2D mapping. In `TOP`, point drag edits azimuth and distance while
+  preserving elevation. In `SIDE`, point drag edits elevation plus the lateral
+  axis while preserving the hidden depth component. In `3/4` or manually
+  rotated views, point clicks should select points and blank-field drags should
+  rotate the inspection view.
+- Use OKLCH-derived point colors for spatial identity: hue follows azimuth with
+  `0` degrees at red and wrapping like a color wheel, lightness follows
+  elevation, and chroma follows distance. Keep chroma restrained so color
+  carries meaning without breaking the grayscale UI.
+- Draw nearest-neighbor links as a quiet analysis overlay behind spatial
+  points. These links show geometric proximity and should not imply audio
+  routing unless the plugin explicitly uses them for DSP.
+- Keep spatial control panels separate from view controls. View changes are
+  inspection tools; automation-relevant controls remain in the toolbox stack.
+- Prefer readable full parameter names in spatial infrastructure panels when
+  the panel width supports them. Compact three-letter labels are still fine for
+  dense Macro/effect families where repeated controls need tight alignment.
+
 ## Layout
 
 - Avoid large unused bands between information regions.
 - Align related columns at the same top y-position.
 - Do not put cards inside cards.
 - Use collapsible toolboxes when a right-side control stack becomes tall.
+
+## Macro Family Layout
+
+Macro plugins use a fixed panel grammar so related effects can be stacked and
+read quickly:
+
+- `ENGINE` is the effect-specific panel.
+- `RELATIONSHIPS` always uses the shared lane relationship set:
+  `SPRD`, `DEV`, `SKW`, `CTR`, `GLD`.
+- `OUTPUT` always holds `MIX` and `OUT`, in that order.
+- The upper-right title area uses compact status readouts, not prose:
+  `PK` followed by the channel width such as `8CH`.
+- Avoid explanatory copy inside the plugin canvas. Put explanations in docs,
+  tooltips, or diagrams instead.
+- Keep shared labels in the same visual positions across Macro plugins when the
+  window size allows it.
+- Keep the left-column `ENGINE` and lane relationship stack visually equivalent
+  across Macro plugins: same top origin, same panel style, control-fitted panel
+  heights, and the same stacked-panel gap. If an engine has fewer controls, the
+  panel gets shorter; it does not keep unused height.
+- The lane relationship preview follows `s3g Macro Delay`: a compact framed
+  lane-bar display with `L1`, `L2`, etc. labels, dark tracks, gray fills, and
+  normalized per-lane relationship values. Avoid effect-specific graph styles
+  in the Macro family preview area unless the whole family adopts them.
 
 ## Current Visual Reference
 

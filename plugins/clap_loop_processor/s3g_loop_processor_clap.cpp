@@ -798,10 +798,9 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
     const s3g::LoopProcessorParams params = snapshotParams(*p);
     [c(0x0c0c0c) setFill]; NSRectFill([self bounds]);
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSFont* bold = [NSFont fontWithName:@"Menlo-Bold" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightBold];
     NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
-    NSDictionary* lab = @{ NSForegroundColorAttributeName:c(0xf0f0f0), NSFontAttributeName:bold };
-    NSDictionary* section = @{ NSForegroundColorAttributeName:c(0xd1d1d1), NSFontAttributeName:bold };
+    NSDictionary* lab = @{ NSForegroundColorAttributeName:c(0xf0f0f0), NSFontAttributeName:mono };
+    NSDictionary* section = @{ NSForegroundColorAttributeName:c(0xd1d1d1), NSFontAttributeName:mono };
     NSDictionary* small = @{ NSForegroundColorAttributeName:c(0xa0a0a0), NSFontAttributeName:mono };
     NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:c(0xf0f0f0), NSFontAttributeName:titleFont };
     [@"s3g LOOP PROCESSOR" drawAtPoint:NSMakePoint(18,13) withAttributes:titleAttrs];

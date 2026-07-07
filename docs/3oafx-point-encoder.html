@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>3OAFX Point Encoder - s3g-dsp</title>
+    <meta name="description" content="3OAFX Point Encoder documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="effects.html">Effects</a>
+        <a href="3oafx.html">3OAFX</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>3OAFX Point Encoder</h1>
+
+        <p><code>s3g 3OAFX Point Encoder</code> is a 16-point ambisonic encoder. Each mono input lane is treated as a point source with azimuth, elevation, distance, gain, mute, and solo state.</p>
+
+        <p>The output is third-order ambisonics in <code>ACN/SN3D</code>. The plugin is for point-source placement and motion experiments, not for generic channel fold-down.</p>
+
+        <div class="status-strip" aria-label="Point Encoder status">
+          <div><span>input</span><strong>16 points</strong></div>
+          <div><span>output</span><strong>3OA ACN/SN3D</strong></div>
+          <div><span>automation</span><strong>per point</strong></div>
+          <div><span>scene</span><strong>manual or motion</strong></div>
+        </div>
+
+        <h2 id="field">Field View</h2>
+
+        <figure>
+          <div class="media-frame">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="3oafx_point_encoder_gui.png" aria-label="Open 3OAFX Point Encoder GUI screenshot">
+              <img src="3oafx_point_encoder_gui.png" alt="Screenshot of the s3g 3OAFX Point Encoder plugin GUI">
+            </button>
+          </div>
+          <figcaption>3OAFX Point Encoder FIELD view with point IDs, nearest-neighbor lines, and physics controls.</figcaption>
+        </figure>
+
+        <p>The FIELD page is the main spatial display. It draws active points, point IDs, a nearest-neighbor analysis graph, and the selected point readout.</p>
+
+        <ul>
+          <li><code>TOP</code> view uses the project convention: <code>0</code> degrees at the top, <code>180</code> at the bottom, <code>-90</code> right, and <code>+90</code> left.</li>
+          <li><code>SIDE</code> view draws positive elevation upward.</li>
+          <li><code>3/4</code> view is for inspection. Drag blank space to rotate the camera.</li>
+          <li><code>-</code> / <code>+</code> zoom buttons change only the camera view, not AED distance values.</li>
+          <li>Click a point to select it. Click blank space to deselect all points.</li>
+        </ul>
+
+        <p>The nearest-neighbor lines are an analysis and physics readout, not fixed audio routing. In scenes that use bonds, the lines show which points are currently connected by the internal point network. When a Geist strike breaks local bonds, those lines disappear and fade back as the network heals.</p>
+
+        <h2 id="point-editing">Point Editing</h2>
+
+        <p>Points can be edited directly in views where the mouse plane maps clearly to AED.</p>
+
+        <ul>
+          <li>In <code>TOP</code>, dragging a point edits azimuth and distance while preserving elevation.</li>
+          <li>In <code>SIDE</code>, dragging a point edits elevation and the side axis while preserving the hidden depth component.</li>
+          <li>In <code>3/4</code> or manually rotated views, clicking selects points and blank-field dragging rotates the view.</li>
+        </ul>
+
+        <p>The right-side POINT panel edits the selected point. The MIXER page provides one lane per point with gain faders plus mute and solo buttons.</p>
+
+        <h2 id="scenes">Scenes and Automation</h2>
+
+        <p>The SCENE menu controls whether the internal motion engine is active.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Scene</th>
+                <th>Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>MANUAL</code></td>
+                <td>Internal motion off. Use this when REAPER automation lanes should drive point AED/gain directly.</td>
+              </tr>
+              <tr>
+                <td><code>DRIFT</code></td>
+                <td>Slow independent motion.</td>
+              </tr>
+              <tr>
+                <td><code>ORBIT</code></td>
+                <td>Slow circulation with per-point wobble.</td>
+              </tr>
+              <tr>
+                <td><code>BOUNCE</code></td>
+                <td>Physics motion with boundary rebound and point collisions. Fixed nearest-neighbor bonds are disabled.</td>
+              </tr>
+              <tr>
+                <td><code>COLLIDE</code></td>
+                <td>Point-to-point pressure, stronger collision impulses, and temporary links that can be broken by Geist strikes.</td>
+              </tr>
+              <tr>
+                <td><code>SCATTER</code></td>
+                <td>Non-orbital burst/random energy with no nearest-neighbor net.</td>
+              </tr>
+              <tr>
+                <td><code>CUSTOM</code></td>
+                <td>Shown after motion or physics trims are edited by hand. This keeps a moderate recoverable web unless Poltergeist dissolves it.</td>
+              </tr>
+              <tr>
+                <td><code>ELASTIC</code></td>
+                <td>Explicit nearest-neighbor net. Use this when the point field should feel like a connected elastic structure.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Per-point azimuth, elevation, distance, gain, mute, and solo are exposed to REAPER automation. GUI-only selection is not meant to be an automation target.</p>
+
+        <h2 id="physics">Physics Controls</h2>
+
+        <p>The PHYSICS panel shapes internal motion scenes. Physics scenes use a persistent point world with boundary rebound, collision events, optional nearest-neighbor springs, and an automatable <code>POLTER</code> / Poltergeist cue-ball source.</p>
+
+        <p><code>POLTER</code> also dissolves neighbor physics. At <code>0%</code>, a scene keeps its normal nearest-neighbor behavior. At <code>100%</code>, no nearest-neighbor springs are applied, so motion is driven by the Geist, point collisions, boundary rebound, and scene forces.</p>
+
+        <h2 id="geist">Reading Geist Motion</h2>
+
+        <p>The Geist source is shown as a small grayscale marker in the FIELD view. The three-ring sphere around it is the active 3D influence radius, not a flat screen overlay. When a point enters that sphere, the force begins at the sphere edge and increases inward. If <code>HEMISPHERE</code> is set to upper hemisphere, the Geist path is also constrained upward and the lower half of its influence sphere is clipped from the view.</p>
+
+        <ul>
+          <li><code>POLTER</code> sets Geist strength and dissolves neighbor bonds.</li>
+          <li><code>G-RATE</code> sets Geist movement speed.</li>
+          <li><code>G-REACH</code> sets how far the Geist travels through the 3D point field, including elevation travel.</li>
+          <li><code>G-RAD</code> sets the Geist influence radius.</li>
+          <li><code>G-CHAOS</code> adds irregularity and extends bond-break time.</li>
+        </ul>
+
+        <p>When the Geist strikes a point, local bonds are erased for at least two seconds, scaling up toward five seconds with higher <code>POLTER</code>, <code>G-CHAOS</code>, and strike energy. Broken bonds disappear from the nearest-neighbor drawing and fade back as they heal. Released points get a subtle dashed outline.</p>
+
+        <p>Collision and strike energy change outline and link brightness, but point size stays stable so the display does not imply gain or distance changes.</p>
+
+        <p><code>SCALE</code> expands or compresses the animated motion reach. Scene presets default to <code>1.0</code>, which keeps animated points inside the normal unit sphere. Values above <code>1.0</code> deliberately let the scene move farther outward. This is separate from camera zoom: SCALE changes animated point positions used by the encoder, while camera zoom changes only the view.</p>
+
+        <p><code>HEMISPHERE</code> is global. When set to upper hemisphere, points and auxiliary motion sources are constrained to non-negative elevation.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="3oafx.html">
+            <span>Previous</span>
+            3OAFX
+          </a>
+          <a class="page-nav-link next" href="3oafx-insert-workflow.html">
+            <span>Next</span>
+            Insert Workflow
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>3OAFX Pages</h2>
+          <a href="3oafx.html">3OAFX Overview</a>
+          <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="3oafx-insert-workflow.html">Insert Workflow</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#field">Field View</a>
+          <a href="#point-editing">Point Editing</a>
+          <a href="#scenes">Scenes and Automation</a>
+          <a href="#physics">Physics Controls</a>
+          <a href="#geist">Reading Geist Motion</a>
+        </div>
+      </aside>
+    </div>
+
+    <div class="media-lightbox" data-page-lightbox aria-hidden="true">
+      <button class="media-lightbox-close" type="button" data-page-lightbox-close aria-label="Close image">x</button>
+      <img data-page-lightbox-image src="" alt="">
+    </div>
+    <script>
+    (() => {
+      const triggers = Array.from(document.querySelectorAll("[data-lightbox-image]"));
+      const lightbox = document.querySelector("[data-page-lightbox]");
+      if (!triggers.length || !lightbox) return;
+      const image = document.querySelector("[data-page-lightbox-image]");
+      const close = document.querySelector("[data-page-lightbox-close]");
+
+      function show(trigger) {
+        const img = trigger.querySelector("img");
+        image.src = trigger.dataset.lightboxImage;
+        image.alt = img ? img.alt : "";
+        lightbox.setAttribute("aria-hidden", "false");
+        document.body.classList.add("media-lightbox-open");
+      }
+
+      function hide() {
+        lightbox.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("media-lightbox-open");
+        image.src = "";
+      }
+
+      triggers.forEach(trigger => trigger.addEventListener("click", () => show(trigger)));
+      close.addEventListener("click", hide);
+      lightbox.addEventListener("click", event => {
+        if (event.target === lightbox) hide();
+      });
+      document.addEventListener("keydown", event => {
+        if (lightbox.getAttribute("aria-hidden") === "true") return;
+        if (event.key === "Escape") hide();
+      });
+    })();
+    </script>
+  </body>
+</html>

@@ -15,6 +15,7 @@
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
         <a href="effects.html">Effects</a>
+        <a href="3oafx.html">3OAFX</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
@@ -35,6 +36,7 @@
           <li><a href="building-from-source.html">Build from source</a></li>
           <li><a href="installing-plugins.html">Install pre-release plugins</a></li>
           <li><a href="effects.html">Effect docs</a></li>
+          <li><a href="3oafx.html">3OAFX docs</a></li>
           <li><a href="instruments.html">Instrument docs</a></li>
           <li><a href="topology-framework.html">Topology framework docs</a></li>
         </ul>
@@ -51,7 +53,9 @@
           <li><a href="delay-processor.html"><code>s3g Delay Processor 24ch</code></a>: wider delay build for 24-channel insert work.</li>
           <li><a href="loop-processor.html"><code>s3g Loop Processor 8ch</code></a>: CLAP instrument plugin for loaded audio loops, lane playheads, waveform display, and phase relationship controls.</li>
           <li><code>s3g Macro Delay 8ch</code>: compact multichannel delay macro with relationship controls.</li>
+          <li><code>s3g Macro Pitch 8ch</code>: compact multichannel pitch macro with the shared Macro control layout.</li>
           <li><a href="mc-to-stereo-autogain.html"><code>s3g MC to Stereo Autogain</code></a>: 128-channel input to true stereo output fold-down prototype.</li>
+          <li><a href="3oafx-point-encoder.html"><code>s3g 3OAFX Point Encoder</code></a>: 16 point-source input to 3OA <code>ACN/SN3D</code> output with AED placement, point mixer, physics scenes, and Geist-driven bond breaking.</li>
           <li><a href="3oafx-insert-workflow.html"><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code></a>: work-in-progress boundary plugins for the 3OAFX insert workflow.</li>
         </ul>
 
@@ -65,7 +69,12 @@
           <a class="category-card" href="effects.html">
             <span>audio processors</span>
             <strong>Effects</strong>
-            <em>Delay Processor, Macro Delay, fold-down, 3OAFX boundary, and routing-test plugins.</em>
+            <em>Delay Processor, Macro Delay, Macro Pitch, fold-down, and routing-test plugins.</em>
+          </a>
+          <a class="category-card" href="3oafx.html">
+            <span>ambisonics</span>
+            <strong>3OAFX</strong>
+            <em>Point Encoder, Send Decoder, Return Encoder, and ambisonic insert workflow notes.</em>
           </a>
           <a class="category-card" href="instruments.html">
             <span>CLAP instruments</span>
@@ -100,7 +109,7 @@
 
         <h2 id="relationship">Relationship to s3g-mc</h2>
 
-        <p><a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code></a> is the main REAPER package. <code>s3g-dsp</code> is a sibling plugin project for multichannel effects, instruments, utilities, and 3OAFX insert experiments. It can also be used independently in matching macOS + REAPER sessions.</p>
+        <p><a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code></a> is the main REAPER package. <code>s3g-dsp</code> is a sibling plugin project for general multichannel effects, instruments, utilities, and ambisonics-specific 3OAFX tools. It can also be used independently in matching macOS + REAPER sessions.</p>
         <h2 id="license">License and Attribution</h2>
 
         <p>BSD-3-Clause for the code in this repository unless a subdirectory states otherwise. CLAP headers are MIT licensed and are fetched at build time unless an existing SDK path is supplied.</p>

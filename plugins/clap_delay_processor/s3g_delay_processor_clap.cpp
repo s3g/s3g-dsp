@@ -2468,7 +2468,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
     NSDictionary* labelAttrs = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: monoBold };
     NSDictionary* smallAttrs = @{ NSForegroundColorAttributeName: dim, NSFontAttributeName: mono };
-    NSDictionary* sectionAttrs = @{ NSForegroundColorAttributeName: accent, NSFontAttributeName: monoBold };
+    NSDictionary* sectionAttrs = @{ NSForegroundColorAttributeName: accent, NSFontAttributeName: mono };
     NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: titleFont };
 
     [@"s3g DELAY PROCESSOR" drawAtPoint:NSMakePoint(18, 13) withAttributes:titleAttrs];

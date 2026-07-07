@@ -15,6 +15,7 @@
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
         <a href="effects.html">Effects</a>
+        <a href="3oafx.html">3OAFX</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
@@ -56,7 +57,7 @@
 
         <h2 id="current-plugins">Current Plugins</h2>
 
-        <p>The current source tree builds processors, macros, utilities, CLAP instruments, and 3OAFX boundary tools.</p>
+        <p>The current source tree builds general effects/macros, utilities, CLAP instruments, and 3OAFX ambisonics tools.</p>
 
         <h3>Processors and Macros</h3>
 
@@ -71,20 +72,20 @@
             <strong>s3g Macro Delay 8ch</strong>
             <em>Compact multichannel delay macro with shared engine controls and lane relationship controls.</em>
           </div>
+          <div class="category-card muted-card">
+            <span>pitch macro</span>
+            <strong>s3g Macro Pitch 8ch</strong>
+            <em>Compact multichannel pitch macro with the shared Macro layout.</em>
+          </div>
         </div>
 
-        <h3>Utilities and Boundary Tools</h3>
+        <h3>Utilities</h3>
 
         <div class="category-grid">
           <a class="category-card" href="mc-to-stereo-autogain.html">
             <span>fold-down</span>
             <strong>s3g MC to Stereo Autogain</strong>
             <em>128-channel input to true stereo output fold-down prototype.</em>
-          </a>
-          <a class="category-card" href="3oafx-insert-workflow.html">
-            <span>3OAFX boundary</span>
-            <strong>s3g 3OAFX Send Decoder / Return Encoder</strong>
-            <em>Work-in-progress boundary pair for 3OAFX insert chains.</em>
           </a>
           <div class="category-card muted-card">
             <span>host test</span>
@@ -103,6 +104,21 @@
           </a>
         </div>
 
+        <h3>3OAFX</h3>
+
+        <div class="category-grid">
+          <a class="category-card" href="3oafx-point-encoder.html">
+            <span>point encoder</span>
+            <strong>s3g 3OAFX Point Encoder</strong>
+            <em>16 point-source input to third-order ACN/SN3D output with AED placement and motion scenes.</em>
+          </a>
+          <a class="category-card" href="3oafx-insert-workflow.html">
+            <span>3OAFX boundary</span>
+            <strong>s3g 3OAFX Send Decoder / Return Encoder</strong>
+            <em>Work-in-progress boundary pair for 3OAFX insert chains.</em>
+          </a>
+        </div>
+
         <h2 id="reaper">REAPER Setup</h2>
 
         <p>After installing, open REAPER and rescan CLAP plugins if the new builds do not appear automatically. Search for <code>s3g</code> in the FX browser.</p>
@@ -111,7 +127,7 @@
 
         <p>For <code>s3g MC to Stereo Autogain</code>, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code>. The CLAP plugin has a true stereo output bus, but REAPER can still pass unmapped track channels around the effect unless this option is enabled.</p>
 
-        <p>For the larger REAPER package workflow, see the <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX Send Return Controller guide</a>.</p>
+        <p>For ambisonics-specific tools in this package, see <a href="3oafx.html">3OAFX</a>. For the larger REAPER package workflow, see the <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX Send Return Controller guide</a>.</p>
 
         <h2 id="cleanup">Cleanup</h2>
 

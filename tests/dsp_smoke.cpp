@@ -1,11 +1,13 @@
 #include "s3g_24ch_layout.h"
 #include "s3g_3oafx.h"
+#include "s3g_ambisonic_point_encoder.h"
 #include "s3g_delay_processor.h"
 #include "s3g_gain.h"
 #include "s3g_lane_patch.h"
 #include "s3g_loop_processor.h"
 #include "s3g_mc_to_stereo.h"
 #include "s3g_macro_delay.h"
+#include "s3g_macro_pitch.h"
 
 #include <array>
 #include <cmath>
@@ -298,6 +300,88 @@ int main()
         return 1;
     }
 
+    s3g::MacroPitch macroPitch;
+    macroPitch.prepare(48000.0, s3g::kMacroPitchChannels);
+    s3g::MacroPitchParams macroPitchParams;
+    macroPitchParams.pitchSemitones = 7.0f;
+    macroPitchParams.fineCents = -8.0f;
+    macroPitchParams.windowMs = 72.0f;
+    macroPitchParams.spread = 0.22f;
+    macroPitchParams.deviation = 0.18f;
+    macroPitchParams.skew = -0.12f;
+    macroPitchParams.center = 0.55f;
+    macroPitchParams.glideMs = 120.0f;
+    macroPitchParams.mix = 0.65f;
+    macroPitchParams.outputGainDb = -6.0f;
+    macroPitch.setParams(macroPitchParams);
+    float macroPitchIn[s3g::kMacroPitchChannels] {};
+    float macroPitchOut[s3g::kMacroPitchChannels] {};
+    float macroPitchPeak = 0.0f;
+    for (int i = 0; i < 24000; ++i) {
+        for (uint32_t ch = 0; ch < s3g::kMacroPitchChannels; ++ch) {
+            macroPitchIn[ch] = std::sin(6.28318530718f * (110.0f + static_cast<float>(ch) * 17.0f) * static_cast<float>(i) / 48000.0f) * 0.18f;
+        }
+        macroPitch.processFrame(macroPitchIn, macroPitchOut);
+        for (float value : macroPitchOut) {
+            if (!std::isfinite(value)) {
+                std::cerr << "Macro Pitch output is not finite\n";
+                return 1;
+            }
+            macroPitchPeak = std::max(macroPitchPeak, std::abs(value));
+        }
+    }
+    if (macroPitchPeak <= 0.00001f || macroPitchPeak > 1.0f) {
+        std::cerr << "Macro Pitch peak outside expected range: " << macroPitchPeak << "\n";
+        return 1;
+    }
+
+    s3g::AmbiPointEncoder pointEncoder;
+    pointEncoder.prepare(48000.0, s3g::kAmbiPointEncoderPrototypePoints);
+    s3g::AmbiPointEncoderParams pointParams;
+    pointParams.activePoints = s3g::kAmbiPointEncoderPrototypePoints;
+    pointParams.selectedPoint = 0;
+    pointParams.selectedAzimuthDeg = -35.0f;
+    pointParams.selectedElevationDeg = 18.0f;
+    pointParams.selectedDistance = 0.85f;
+    pointParams.motionMode = s3g::AmbiPointMotionMode::Orbit;
+    pointParams.motionAmount = 0.35f;
+    pointParams.rateHz = 0.04f;
+    pointParams.swirl = 0.05f;
+    pointParams.outputGainDb = -12.0f;
+    pointEncoder.setParams(pointParams);
+    std::array<std::array<float, 512>, s3g::kAmbiPointEncoderPrototypePoints> pointInputBuffers {};
+    std::array<std::array<float, 512>, s3g::k3OaChannels> pointOutputBuffers {};
+    std::array<const float*, s3g::kAmbiPointEncoderPrototypePoints> pointInputs {};
+    std::array<float*, s3g::k3OaChannels> pointOutputs {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiPointEncoderPrototypePoints; ++ch) {
+        pointInputs[ch] = pointInputBuffers[ch].data();
+    }
+    for (uint32_t ch = 0; ch < s3g::k3OaChannels; ++ch) {
+        pointOutputs[ch] = pointOutputBuffers[ch].data();
+    }
+    float pointEncoderPeak = 0.0f;
+    for (int block = 0; block < 32; ++block) {
+        for (uint32_t ch = 0; ch < s3g::kAmbiPointEncoderPrototypePoints; ++ch) {
+            for (uint32_t i = 0; i < pointInputBuffers[ch].size(); ++i) {
+                pointInputBuffers[ch][i] = std::sin(6.28318530718f * (90.0f + ch * 11.0f) * static_cast<float>(block * 512 + i) / 48000.0f) * 0.03f;
+            }
+        }
+        pointEncoder.processBlock(pointInputs.data(), pointOutputs.data(), static_cast<uint32_t>(pointOutputBuffers[0].size()));
+        for (const auto& channel : pointOutputBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "3OAFX Point Encoder output is not finite\n";
+                    return 1;
+                }
+                pointEncoderPeak = std::max(pointEncoderPeak, std::abs(value));
+            }
+        }
+    }
+    if (pointEncoderPeak <= 0.00001f || pointEncoderPeak > 1.0f) {
+        std::cerr << "3OAFX Point Encoder peak outside expected range: " << pointEncoderPeak << "\n";
+        return 1;
+    }
+
     s3g::AedMaskState sendState;
     s3g::AedMaskState retState;
     s3g::MixerState mixState;
@@ -336,6 +420,8 @@ int main()
     std::cout << "loop processor region stress peak/step: " << loopRegionStressPeak << " / " << loopRegionStressMaxStep << "\n";
     std::cout << "macro delay peak: " << macroPeak << "\n";
     std::cout << "macro delay tail peak: " << macroTailPeak << "\n";
+    std::cout << "macro pitch peak: " << macroPitchPeak << "\n";
+    std::cout << "3OAFX point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";
     return 0;
 }

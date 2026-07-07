@@ -15,6 +15,7 @@
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
         <a href="effects.html">Effects</a>
+        <a href="3oafx.html">3OAFX</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
@@ -25,15 +26,15 @@
       <main class="content" id="content">
         <h1>Effects</h1>
 
-        <p>Effects process incoming REAPER track audio. This page groups processors, macros, fold-down utilities, boundary plugins, and routing-test tools as the plugin set grows.</p>
+        <p>Effects process incoming REAPER track audio without assuming an ambisonic format. Ambisonics-specific plugins now live in the <a href="3oafx.html">3OAFX</a> section.</p>
 
         <div class="related-links">
           <h2>Effect Pages</h2>
           <ul>
             <li><a href="delay-processor.html">Delay Processor</a>: main topology-driven delay effect and the best starting point for topology controls.</li>
             <li><strong>Macro Delay</strong>: compact 8-channel delay macro with relationship controls.</li>
+            <li><strong>Macro Pitch</strong>: compact 8-channel pitch macro using the shared Macro control layout.</li>
             <li><a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a>: multichannel-to-stereo audition fold-down.</li>
-            <li><a href="3oafx-insert-workflow.html">3OAFX Insert Workflow</a>: Send Decoder / Return Encoder boundary notes for 3OA insert chains.</li>
           </ul>
         </div>
 
@@ -62,6 +63,11 @@
             <strong>Macro Delay</strong>
             <em>8-channel delay macro with shared engine controls and lane relationship controls such as spread, deviation, skew, center, and glide.</em>
           </div>
+          <div class="category-card muted-card">
+            <span>pitch macro</span>
+            <strong>Macro Pitch</strong>
+            <em>8-channel pitch macro using the same Macro relationship panel style as Macro Delay.</em>
+          </div>
         </div>
 
         <h2 id="utilities">Utilities</h2>
@@ -77,16 +83,6 @@
             <strong>24ch Passthrough Test</strong>
             <em>Fixed-width gain and routing check for REAPER and CLAP bundle validation.</em>
           </div>
-        </div>
-
-        <h2 id="3oafx">3OAFX</h2>
-
-        <div class="category-grid">
-          <a class="category-card" href="3oafx-insert-workflow.html">
-            <span>3OAFX boundary</span>
-            <strong>Send Decoder / Return Encoder</strong>
-            <em>Work-in-progress boundary pair for inserting 24-channel processors inside a 3OA workflow.</em>
-          </a>
         </div>
 
         <nav class="page-nav" aria-label="Page navigation">
@@ -106,14 +102,12 @@
           <h2>Effect Pages</h2>
           <a href="delay-processor.html">Delay Processor</a>
           <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a>
-          <a href="3oafx-insert-workflow.html">3OAFX Insert Workflow</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#processors">Processors</a>
           <a href="#macros">Macros</a>
           <a href="#utilities">Utilities</a>
-          <a href="#3oafx">3OAFX</a>
         </div>
       </aside>
     </div>
