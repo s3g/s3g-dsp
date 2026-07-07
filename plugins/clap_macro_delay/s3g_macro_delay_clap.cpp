@@ -24,6 +24,8 @@ namespace {
 
 constexpr uint32_t kChannelCount = s3g::kMacroDelayChannels;
 constexpr uint32_t kStateVersion = 1;
+constexpr uint32_t kGuiWidth = 760;
+constexpr uint32_t kGuiHeight = 496;
 
 constexpr clap_id kTimeParamId = 1;
 constexpr clap_id kFeedbackParamId = 2;
@@ -335,7 +337,7 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
 @implementation S3GMacroDelayView
 - (id)initWithPlugin:(void*)plugin
 {
-    self = [super initWithFrame:NSMakeRect(0, 0, 760, 420)];
+    self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
     if (self) {
         _plugin = plugin;
         _dragSlider = -1;
@@ -404,7 +406,7 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
 
     s3g::clap_gui::drawPanelFrame(18, 42, 352, 188, style);
     s3g::clap_gui::drawPanelHeader(@"ENGINE", true, 18, 42, 352, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(18, 242, 352, 150, style);
+    s3g::clap_gui::drawPanelFrame(18, 242, 352, 226, style);
     s3g::clap_gui::drawPanelHeader(@"LANE DELAY REL", true, 18, 242, 352, 21, lab, style);
     s3g::clap_gui::drawPanelFrame(388, 42, 354, 166, style);
     s3g::clap_gui::drawPanelHeader(@"RELATIONSHIPS", true, 388, 42, 354, 21, lab, style);
@@ -426,7 +428,7 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
     s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 258, small, small, style, 398, 500, 674);
     s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 72.0f, 284, small, small, style, 398, 500, 674);
 
-    [self drawRelationshipPreview:prm rect:NSMakeRect(30,274,330,106) attrs:small];
+    [self drawRelationshipPreview:prm rect:NSMakeRect(30,274,330,182) attrs:small];
 }
 - (void)updateSlider:(NSPoint)point
 {
@@ -495,12 +497,12 @@ bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating
 bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GMacroDelayView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
 void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3GMacroDelayView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = 760; *h = 420; return true; }
+bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
 bool guiCanResize(const clap_plugin_t*) { return false; }
 bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
 bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,760,420)]; return true; }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,kGuiWidth,kGuiHeight)]; return true; }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GMacroDelayView*>(p->guiView) startRefreshTimer]; return true; }

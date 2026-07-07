@@ -268,10 +268,12 @@ read quickly:
   across Macro plugins: same top origin, same panel style, control-fitted panel
   heights, and the same stacked-panel gap. If an engine has fewer controls, the
   panel gets shorter; it does not keep unused height.
-- The lane relationship preview follows `s3g Macro Delay`: a compact framed
-  lane-bar display with `L1`, `L2`, etc. labels, dark tracks, gray fills, and
-  normalized per-lane relationship values. Avoid effect-specific graph styles
-  in the Macro family preview area unless the whole family adopts them.
+- The lane relationship preview follows the roomier `s3g Macro Pitch` spacing:
+  a compact framed lane-bar display with `L1`, `L2`, etc. labels, dark tracks,
+  gray fills, and normalized per-lane relationship values. Keep enough panel
+  height for eight lanes to breathe, even if an effect-specific engine panel
+  requires a taller window. Avoid effect-specific graph styles in the Macro
+  family preview area unless the whole family adopts them.
 
 ## Current Visual Reference
 
