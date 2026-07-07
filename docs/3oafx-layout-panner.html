@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Layout Panner - s3g-dsp</title>
+    <meta name="description" content="Layout Panner documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="effects.html">Effects</a>
+        <a href="3oafx.html">3OAFX</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Layout Panner</h1>
+
+        <p><code>s3g Layout Panner</code> is a direct spatial panner: 16 source inputs are distributed across a fixed 64-channel speaker output bus. It does not encode to ambisonics internally. It is useful when the speaker layout itself is the target.</p>
+
+        <p>The plugin is grouped with 3OAFX tools because it shares the same spatial layout language, camera controls, and custom speaker-design workflow as the ambisonic plugins. It can also be used independently for multichannel panning tests in REAPER.</p>
+
+        <div class="status-strip" aria-label="Layout Panner status">
+          <div><span>input</span><strong>16 sources</strong></div>
+          <div><span>output</span><strong>64 speakers</strong></div>
+          <div><span>routing</span><strong>direct gain</strong></div>
+          <div><span>layout</span><strong>preset/custom</strong></div>
+        </div>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="layout_panner_gui.png" aria-label="Open Layout Panner GUI screenshot">
+              <img src="layout_panner_gui.png" alt="Screenshot of the s3g Layout Panner plugin GUI">
+            </button>
+          </div>
+          <figcaption>Layout Panner with source points, speaker geometry, camera controls, and panner setup panels.</figcaption>
+        </figure>
+
+        <h2 id="signal-shape">Signal Shape</h2>
+
+        <pre><code>source inputs 1-16
+-&gt; source AED / gain / mute / solo
+-&gt; selected speaker layout
+-&gt; direct source-to-speaker gain render
+-&gt; speaker outputs 1-64</code></pre>
+
+        <p>Only the active speaker count writes sound. Unused output lanes are silent. Source mute and solo are available for diagnosis and performance setup.</p>
+
+        <h2 id="pages">Pages</h2>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Page</th>
+                <th>Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>FIELD</code></td>
+                <td>Shows speaker geometry and source points together. Drag source points in the current camera plane for free spatial positioning.</td>
+              </tr>
+              <tr>
+                <td><code>MIXER</code></td>
+                <td>Shows source gain faders, mute, solo, and output level without crowding the spatial field.</td>
+              </tr>
+              <tr>
+                <td><code>DESIGN</code></td>
+                <td>Edits the speaker layout. Source points are hidden so speaker selection, dragging, and JSON import/export stay clear.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="layout-presets">Layout Presets</h2>
+
+        <p>The layout menu provides common speaker shapes such as quad, rings, cube layouts, dodeca, domes, and custom. Presets are starting points. Switch to <code>CUSTOM</code> or edit a speaker to build a layout for a specific room or test format.</p>
+
+        <p>Speaker markers use the same square AED color strategy as the 3OAFX Point Encoder and Speaker Decoder. Geometry lines show the intended layout mesh, not nearest-neighbor analysis.</p>
+
+        <h2 id="design-page">Design Page</h2>
+
+        <p><code>DESIGN</code> is for speaker geometry only. It hides panning method, focus, diffusion, and other audio-distribution controls so the page stays about the speaker layout.</p>
+
+        <ul>
+          <li><code>SHAPE</code> chooses the custom layout generator: <code>AUTO</code>, <code>RING</code>, <code>DOME</code>, <code>GEO</code>, or <code>STACK</code>.</li>
+          <li><code>COUNT</code> sets active speakers from 2 to 64.</li>
+          <li><code>AUTO</code> chooses useful count-based defaults. For example, 8 speakers generates a cube.</li>
+          <li><code>SEL</code>, <code>AZ</code>, <code>EL</code>, and <code>DST</code> edit one speaker at a time.</li>
+          <li><code>COPY</code> copies the current preset into a custom editable layout.</li>
+          <li><code>LOAD</code> and <code>SAVE</code> import/export readable JSON layout files.</li>
+        </ul>
+
+        <h2 id="json">Custom Layout JSON</h2>
+
+        <p>Saved layouts use readable JSON with a shape label, speaker count, and one AED entry per speaker.</p>
+
+        <pre><code>{
+  "shape": "AUTO",
+  "speaker_count": 8,
+  "speakers": [
+    { "azimuth": -45.0, "elevation": -35.0, "distance": 1.0 }
+  ]
+}</code></pre>
+
+        <p>Imported files preserve their speaker coordinates. The shape label is metadata after import, so loading a measured layout does not regenerate over the edited positions.</p>
+
+        <h2 id="reaper">REAPER Notes</h2>
+
+        <p>Use a track with enough channels for the desired speaker output. The plugin exposes a stable 64-channel output bus so REAPER pin routing remains predictable as layouts change.</p>
+
+        <p>The plugin is not a replacement for the 3OAFX Point Encoder or Speaker Decoder. Use those when you need an <code>ACN/SN3D</code> ambisonic signal path. Use Layout Panner when you want direct source-to-speaker panning.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="3oafx-speaker-decoder.html">
+            <span>Previous</span>
+            Speaker Decoder
+          </a>
+          <a class="page-nav-link next" href="3oafx-insert-workflow.html">
+            <span>Next</span>
+            Insert Workflow
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>3OAFX Pages</h2>
+          <a href="3oafx.html">3OAFX Overview</a>
+          <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
+          <a href="3oafx-layout-panner.html">Layout Panner</a>
+          <a href="3oafx-insert-workflow.html">Insert Workflow</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#signal-shape">Signal Shape</a>
+          <a href="#pages">Pages</a>
+          <a href="#layout-presets">Layout Presets</a>
+          <a href="#design-page">Design Page</a>
+          <a href="#json">Custom Layout JSON</a>
+          <a href="#reaper">REAPER Notes</a>
+        </div>
+      </aside>
+    </div>
+    <div class="media-lightbox" data-page-lightbox aria-hidden="true">
+      <button class="media-lightbox-close" type="button" data-page-lightbox-close aria-label="Close image">x</button>
+      <img data-page-lightbox-image src="" alt="">
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

@@ -35,6 +35,11 @@ Current plugins:
 - `s3g 3OAFX Point Encoder`: 16 point-source input to third-order
   `ACN/SN3D` ambisonic output with AED placement, point mixer, physics scenes,
   and Geist-driven bond breaking.
+- `s3g 3OAFX Speaker Decoder 64`: first-through-seventh-order `ACN/SN3D`
+  speaker decoder with curated layouts, custom speaker editing, and a stable
+  64-channel output bus.
+- `s3g Layout Panner`: direct 16-source to 64-speaker spatial panner with
+  speaker presets, source mixer, and custom layout design.
 - `s3g 3OAFX Send Decoder` / `s3g 3OAFX Return Encoder`: work-in-progress
   boundary plugins for the 3OAFX insert workflow.
 
@@ -74,8 +79,10 @@ Useful local docs:
 - `docs/loop-processor.html`: Loop Processor workflow and control reference.
 - `docs/mc-to-stereo-autogain.html`: MC to Stereo Autogain fold-down reference.
 - `docs/3oafx-point-encoder.html`: 3OAFX Point Encoder reference.
+- `docs/3oafx-speaker-decoder.html`: 3OAFX Speaker Decoder reference.
+- `docs/3oafx-layout-panner.html`: Layout Panner reference.
 - `docs/gui-style-guide.md`: working style guide for custom plugin GUIs.
-- `docs/delay_processor_gui.png`: screenshot of the Delay Processor GUI.
+- `docs/*_gui.png`: plugin GUI screenshots used by the documentation pages.
 - `docs/topology_framework.svg`: shared topology framework diagram.
 - `docs/topology_effect_map.svg`: generic topology-to-effect mapping diagram.
 - `docs/topology_heatmap_example.svg`: topology heatmap visualization example.

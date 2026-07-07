@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>3OAFX Speaker Decoder - s3g-dsp</title>
+    <meta name="description" content="3OAFX Speaker Decoder documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="effects.html">Effects</a>
+        <a href="3oafx.html">3OAFX</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>3OAFX Speaker Decoder</h1>
+
+        <p><code>s3g 3OAFX Speaker Decoder 64</code> decodes ambisonic <code>ACN/SN3D</code> input to a 64-channel speaker output bus. It is built for REAPER sessions where the speaker layout is part of the composition or 3OAFX test chain.</p>
+
+        <p>The prototype supports first through seventh order. The output bus stays 64 channels so routing is predictable; the active speaker count decides which output lanes are used.</p>
+
+        <div class="status-strip" aria-label="Speaker Decoder status">
+          <div><span>input</span><strong>1OA..7OA</strong></div>
+          <div><span>format</span><strong>ACN/SN3D</strong></div>
+          <div><span>output</span><strong>64 speakers</strong></div>
+          <div><span>weight</span><strong>NONE/MAXRE/IP</strong></div>
+        </div>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="3oafx_speaker_decoder_gui.png" aria-label="Open 3OAFX Speaker Decoder GUI screenshot">
+              <img src="3oafx_speaker_decoder_gui.png" alt="Screenshot of the s3g 3OAFX Speaker Decoder plugin GUI">
+            </button>
+          </div>
+          <figcaption>3OAFX Speaker Decoder with speaker field, layout controls, and editable speaker placement.</figcaption>
+        </figure>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <figure class="doc-graphic">
+          <img src="3oafx_speaker_decoder_map.svg" alt="Diagram of ACN/SN3D input, decoder matrix, speaker layout, and 64-channel output">
+        </figure>
+
+        <p>The decoder reads ambisonic channels from the input bus, builds a speaker matrix from the selected order and layout, and writes one output lane per active speaker. Unused speaker lanes are silent.</p>
+
+        <h2 id="layouts">Layouts</h2>
+
+        <p>The layout menu is intentionally limited to common s3g testing shapes plus custom editing.</p>
+
+        <p>For room-style presets, speaker numbering starts at the stereo-right position and moves clockwise around each elevation layer, then continues upward. <code>DOME24</code> and <code>DOME25</code> follow the s3g-mc dome panner structure: 12 lower speakers, 8 middle speakers, 4 upper speakers, and a top point for <code>DOME25</code>. <code>SPHERE24</code> keeps the fixed 3OAFX virtual-speaker order because that order is part of the insert workflow.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Layout</th>
+                <th>Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>QUAD</code></td>
+                <td>Four speakers at zero elevation.</td>
+              </tr>
+              <tr>
+                <td><code>CUBE8</code></td>
+                <td>Eight corner speakers around a cube.</td>
+              </tr>
+              <tr>
+                <td><code>CUBE17</code></td>
+                <td>The 17-point cube layout used by the s3g-mc cube panner.</td>
+              </tr>
+              <tr>
+                <td><code>DOME24</code></td>
+                <td>Twenty-four speaker hemisphere dome: 12 lower, 8 middle, 4 upper.</td>
+              </tr>
+              <tr>
+                <td><code>DOME25</code></td>
+                <td>Dome24 plus a top speaker, matching the s3g-mc 25-channel dome panner shape.</td>
+              </tr>
+              <tr>
+                <td><code>QUAD+OH</code></td>
+                <td>Quad plus two overhead speakers at <code>-90</code> and <code>+90</code> azimuth.</td>
+              </tr>
+              <tr>
+                <td><code>SPHERE24</code></td>
+                <td>The 24-channel virtual sphere used by the 3OAFX workflow.</td>
+              </tr>
+              <tr>
+                <td><code>CUSTOM</code></td>
+                <td>Generate a full-sphere or hemisphere speaker field, then edit speakers directly.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="controls">Controls</h2>
+
+        <ul>
+          <li><code>ORDER</code> selects the ambisonic order from <code>1OA</code> to <code>7OA</code>.</li>
+          <li><code>MODE</code> chooses the prototype decoder matrix style: <code>BASIC</code>, <code>EPAD</code>, or <code>MMD</code>.</li>
+          <li><code>COUNT</code> sets how many output lanes are used, from 2 to 64. In <code>CUSTOM</code>, this also generates a new speaker field.</li>
+          <li><code>FIELD</code> chooses how <code>CUSTOM</code> layouts are generated: <code>SPHERE</code> distributes speakers over a full sphere, and <code>HEMI</code> keeps them in the upper hemisphere.</li>
+          <li><code>WGT</code> chooses ambisonic order weighting: <code>NONE</code>, <code>MAXRE</code>, or <code>INPHASE</code>.</li>
+          <li><code>WIDTH</code> is the broad decoder matrix trim.</li>
+          <li><code>MIXER</code> switches the large left view to per-speaker <code>GAIN</code> trims, diagnostic mute/solo buttons, and the final <code>OUT</code> gain. Speaker gains are shown 16 at a time, with more pages as needed.</li>
+        </ul>
+
+        <p>Changing <code>COUNT</code> or <code>FIELD</code> creates a new <code>CUSTOM</code> layout automatically. <code>SELECTED SPEAKER</code>, <code>AZIMUTH</code>, <code>ELEVATION</code>, and <code>DISTANCE</code> edit one speaker at a time. <code>AZIMUTH</code>, <code>ELEVATION</code>, and <code>DISTANCE</code> have sliders for quick movement and text boxes for exact entry. Any position edit keeps the layout in <code>CUSTOM</code>.</p>
+
+        <h2 id="field-view">Field View</h2>
+
+        <p>The speaker field follows the same camera convention as the 3OAFX Point Encoder. <code>TOP</code> draws <code>0</code> degrees at the top, <code>180</code> at the bottom, <code>-90</code> to the right, and <code>+90</code> to the left. <code>SIDE</code> draws positive elevation upward. <code>3/4</code> is for inspecting layers and custom layouts.</p>
+
+        <p>Use <code>-</code> / <code>+</code> to zoom the camera view. Drag blank space in the field to rotate the view. Camera movement changes only the visual inspection angle, not speaker AED positions.</p>
+
+        <p>Connection lines show the intended layout mesh, not nearest-neighbor analysis and not speaker list order. A cube draws as a cube. A dome draws as rings with vertical layer connections.</p>
+
+        <h2 id="mode-notes">Mode Notes</h2>
+
+        <p><code>BASIC</code> uses direct speaker basis weighting and is useful as a clear, simple reference. <code>EPAD</code> uses a regularized matrix solve inspired by energy-preserving speaker decoding. <code>MMD</code> is a first prototype blend that points toward multi-mode decoder behavior; it is not yet a finished multiband MMD implementation.</p>
+
+        <p><code>WGT</code> is separate from <code>MODE</code>. It tapers ambisonic orders before the signal reaches the speaker outputs. <code>MAXRE</code> is the default because it usually gives a useful balance of localization and stability. <code>INPHASE</code> is more conservative and can help with irregular layouts. <code>NONE</code> leaves the orders unweighted for comparison.</p>
+
+        <h2 id="reaper">REAPER Notes</h2>
+
+        <p>Use a track with enough channels for the selected ambisonic input and speaker output. The plugin has a fixed 64-channel input bus and fixed 64-channel output bus so REAPER pin routing remains stable while layout and order change inside the plugin.</p>
+
+        <p>For 3OAFX insert work, <code>SPHERE24</code> is the current virtual speaker reference. For real speaker playback, start with the layout closest to the room, then switch to <code>CUSTOM</code> for measured speaker positions.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="3oafx-point-encoder.html">
+            <span>Previous</span>
+            Point Encoder
+          </a>
+          <a class="page-nav-link next" href="3oafx-layout-panner.html">
+            <span>Next</span>
+            Layout Panner
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>3OAFX Pages</h2>
+          <a href="3oafx.html">3OAFX Overview</a>
+          <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
+          <a href="3oafx-layout-panner.html">Layout Panner</a>
+          <a href="3oafx-insert-workflow.html">Insert Workflow</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#layouts">Layouts</a>
+          <a href="#controls">Controls</a>
+          <a href="#field-view">Field View</a>
+          <a href="#mode-notes">Mode Notes</a>
+          <a href="#reaper">REAPER Notes</a>
+        </div>
+      </aside>
+    </div>
+    <div class="media-lightbox" data-page-lightbox aria-hidden="true">
+      <button class="media-lightbox-close" type="button" data-page-lightbox-close aria-label="Close image">x</button>
+      <img data-page-lightbox-image src="" alt="">
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

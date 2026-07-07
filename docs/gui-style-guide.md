@@ -118,8 +118,54 @@ grammar:
   brightness, not point-size changes, so the display does not imply gain or
   distance changes.
 - Point-to-point collisions should behave like elastic ball contact, not like
-  points grinding against each other for space. Prefer smaller contact radii,
-  capped repel, and velocity rebound over continuous overlap pressure.
+  grinding overlap. If motion can settle into static balance, add an explicit
+  macro force or scene energy rather than making points jitter against one
+  another.
+
+Speaker decoder views are spatial infrastructure, not physics instruments:
+
+- Use a single large speaker field as the primary visual. Draw speaker points,
+  IDs, and a simple layout outline without implying gain changes through point
+  size.
+- Speaker layout presets should number room-style speakers from the stereo
+  right position, continue clockwise around the current elevation layer, then
+  continue upward through higher layers. Fixed 3OAFX virtual-speaker layouts may
+  preserve their workflow-specific order.
+- Speaker decoder fields should use the same camera controls as Point Encoder:
+  `TOP`, `SIDE`, `3/4`, `-`, `+`, and blank-field drag rotation.
+- Speaker markers should use square Point Encoder-style blocks with centered
+  IDs and the shared AED/OKLCH color mapping. Selected speakers get a thin
+  outer square frame.
+- Speaker decoder connection lines should show the intended 3D layout mesh,
+  not nearest-neighbor analysis and not speaker list order. Cubes draw as cube
+  wireframes; domes draw as rings with vertical layer connections. If a layout
+  uses stacked cube tiers, preserve the actual 3D distance so upper/lower
+  corner speakers project to the same plan-view coordinates as the middle-tier
+  corners. For CUBE17, keep the drawing readable: lower, middle, and upper
+  tiers use simple horizontal/vertical edges, with the top four corners
+  radiating to the central top speaker.
+- Keep decoder setup in one right-side `DECODER` panel: layout, mode, order,
+  order weighting, active speaker count, and musically readable matrix trims.
+  Numerical conditioning controls such as regularization should stay internal
+  unless they solve a visible user problem.
+- Keep per-speaker editing in one right-side `SPEAKER` panel: selected speaker,
+  AED position, and distance. Speakers are always active; level adjustment
+  belongs in the mixer.
+- Keep decoder speaker levels in a primary `MIXER` view that swaps with the
+  large speaker field: one lane per active speaker, per-speaker gain as a
+  continuous fader, and global `OUT` in the same view. Speaker mixer faders
+  should use the panel height generously, include compact numeric text fields
+  for exact gain entry, and group speakers in pages of 16 so mute/solo
+  diagnostics remain readable at high speaker counts.
+- Discrete decoder states such as layout, mode, order, weighting, and field
+  shape use dropdown menus, not click-to-advance controls. Numeric layout edits
+  use sliders.
+- AED angles and speaker distance should also provide compact text-entry boxes
+  for exact placement. Sliders are for fast movement; boxes are for measured
+  coordinates.
+- Custom speaker layouts need a generated starting point. Changing speaker
+  count should create a logical layout, with an explicit full-sphere/hemisphere
+  field choice before manual AED edits.
 - `MANUAL` should be the first physics scene for spatial tools that expose
   point automation. It disables internal motion so REAPER automation lanes can
   drive AED/gain directly. `CUSTOM` is reserved for hand-tweaked moving states
@@ -154,6 +200,47 @@ grammar:
 - Prefer readable full parameter names in spatial infrastructure panels when
   the panel width supports them. Compact three-letter labels are still fine for
   dense Macro/effect families where repeated controls need tight alignment.
+
+Direct layout panners are spatial infrastructure, but they are not ambisonic
+encoder/decoder pairs:
+
+- Keep direct panners as one plugin when the audio model is source-to-speaker
+  gain rendering. Use linked plugin pairs only when there is a meaningful
+  intermediate format, such as ACN/SN3D ambisonics.
+- Use a large `LAYOUT FIELD` primary view that can show speaker geometry and
+  source points together. Speakers remain quieter square markers; source points
+  are larger square markers with `S1` style IDs.
+- Current direct panners may expose up to 16 source points before moving to a
+  wider/page-based source mixer. Keep all 16 visible in the field and mixer
+  when the window size allows it.
+- Direct source dragging should feel like free XYZ movement in the current
+  camera plane. AED controls may remain as readable coordinate sliders, but
+  field interaction should not feel constrained to angular/radius paths.
+- Use a second `SOURCE MIXER` primary view for source gain, mute, and solo when
+  mixer controls would crowd the spatial field.
+- Use a third `LAYOUT DESIGN` primary view for custom speaker layouts rather
+  than opening a separate floating editor window. `DESIGN` should make speaker
+  points selectable and draggable, hide source points, and keep camera controls
+  identical to `FIELD`.
+- In `DESIGN`, use a `SHAPE` menu for speaker layout rules instead of a simple
+  sphere/hemisphere toggle. `AUTO` chooses useful defaults by count, while
+  explicit user-selectable shapes such as `RING`, `DOME`, `GEO`, and `STACK`
+  keep the count slider meaningful for arbitrary layouts up to 64 speakers.
+  `AUTO` may generate canonical polyhedra such as tetrahedra, octahedra, cubes,
+  icosahedra, or dodecahedra for matching counts, but those fixed-count
+  polyhedra should not be separate `SHAPE` menu choices. Hide panning method,
+  focus, diffusion, and other audio-distribution controls in `DESIGN`; they
+  change audio behavior, not the speaker geometry being edited.
+- Layout presets and panning methods are dropdown menus. Continuous controls
+  such as focus, rolloff, smoothing, global AED offsets, diffusion, selected
+  source AED, source gain, and output gain are sliders.
+- Draw layout meshes from the intended speaker geometry, not nearest-neighbor
+  analysis. Direct panners may later add analysis overlays, but those should be
+  visually secondary and clearly distinct from the speaker layout mesh.
+- Custom layout import/export uses readable JSON with `shape`, `speaker_count`,
+  and a `speakers` array of `azimuth`, `elevation`, and `distance` objects. This
+  is the preferred hand-editable format unless a future workflow needs a more
+  compact plain-text layout list.
 
 ## Layout
 

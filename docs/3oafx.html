@@ -28,7 +28,7 @@
 
         <p>3OAFX pages cover ambisonics-specific plugins and infrastructure. These tools are separate from the general multichannel effects and instruments because channel order, spatial format, and host routing are part of the instrument.</p>
 
-        <p>The current target is REAPER on macOS, using third-order ambisonics in <code>ACN/SN3D</code> and fixed-width buses where predictable routing matters.</p>
+        <p>The current target is REAPER on macOS, using <code>ACN/SN3D</code> ambisonics and fixed-width buses where predictable routing matters. The point encoder is third-order; the speaker decoder prototype allows first through seventh order.</p>
 
         <div class="status-strip" aria-label="3OAFX status">
           <div><span>format</span><strong>3OA ACN/SN3D</strong></div>
@@ -45,6 +45,16 @@
             <strong>3OAFX Point Encoder</strong>
             <em>16 mono point-source inputs encoded to third-order ACN/SN3D, with AED placement, point mixer, physics scenes, and Geist-driven bond breaking.</em>
           </a>
+          <a class="category-card" href="3oafx-speaker-decoder.html">
+            <span>speaker decoder</span>
+            <strong>3OAFX Speaker Decoder 64</strong>
+            <em>First-through-seventh-order ACN/SN3D speaker decoder with curated layouts, custom speaker editing, and stable 64-channel output.</em>
+          </a>
+          <a class="category-card" href="3oafx-layout-panner.html">
+            <span>direct panner</span>
+            <strong>Layout Panner</strong>
+            <em>16-source to 64-speaker direct spatial panner with speaker presets, source mixer, and custom layout design.</em>
+          </a>
           <a class="category-card" href="3oafx-insert-workflow.html">
             <span>insert boundary</span>
             <strong>Send Decoder / Return Encoder</strong>
@@ -58,6 +68,8 @@
 
         <ul>
           <li>Point-source encoders expose per-point AED/gain automation.</li>
+          <li>Speaker decoders expose layout, order, matrix mode, and custom speaker placement.</li>
+          <li>Direct layout panners route sources to speaker layouts without an ambisonic encode/decode stage.</li>
           <li>Boundary plugins keep fixed bus layouts so REAPER pin routing stays predictable.</li>
           <li>24-channel virtual speaker inserts are treated as spatial infrastructure, not generic channel counts.</li>
         </ul>
@@ -83,6 +95,8 @@
           <h2>3OAFX Pages</h2>
           <a href="3oafx.html">3OAFX Overview</a>
           <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
+          <a href="3oafx-layout-panner.html">Layout Panner</a>
           <a href="3oafx-insert-workflow.html">Insert Workflow</a>
         </div>
         <div class="toc-section">

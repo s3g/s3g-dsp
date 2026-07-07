@@ -1,10 +1,12 @@
 #include "s3g_24ch_layout.h"
 #include "s3g_3oafx.h"
 #include "s3g_ambisonic_point_encoder.h"
+#include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_delay_processor.h"
 #include "s3g_gain.h"
 #include "s3g_lane_patch.h"
 #include "s3g_loop_processor.h"
+#include "s3g_layout_panner.h"
 #include "s3g_mc_to_stereo.h"
 #include "s3g_macro_delay.h"
 #include "s3g_macro_pitch.h"
@@ -382,6 +384,266 @@ int main()
         return 1;
     }
 
+    s3g::AmbiSpeakerDecoder speakerDecoder;
+    speakerDecoder.prepare(48000.0);
+    s3g::AmbiSpeakerDecoderParams speakerParams;
+    speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Sphere24;
+    speakerParams.mode = s3g::AmbiSpeakerDecoderMode::Epad;
+    speakerParams.weighting = s3g::AmbiSpeakerDecoderWeighting::MaxRe;
+    speakerParams.order = 7;
+    speakerParams.outputGainDb = -12.0f;
+    speakerDecoder.setParams(speakerParams);
+    float decoderIn[s3g::kAmbiSpeakerDecoderMaxChannels] {};
+    float decoderOut[s3g::kAmbiSpeakerDecoderMaxSpeakers] {};
+    decoderIn[0] = 0.25f;
+    decoderIn[1] = 0.05f;
+    decoderIn[7] = -0.04f;
+    decoderIn[31] = 0.02f;
+    decoderIn[63] = -0.01f;
+    speakerDecoder.processFrame(decoderIn, decoderOut);
+    float speakerDecoderPeak = 0.0f;
+    for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
+        if (!std::isfinite(decoderOut[ch])) {
+            std::cerr << "3OAFX Speaker Decoder output is not finite\n";
+            return 1;
+        }
+        speakerDecoderPeak = std::max(speakerDecoderPeak, std::abs(decoderOut[ch]));
+    }
+    if (speakerDecoderPeak <= 0.000001f || speakerDecoderPeak > 1.0f) {
+        std::cerr << "3OAFX Speaker Decoder peak outside expected range: " << speakerDecoderPeak << "\n";
+        return 1;
+    }
+    speakerParams.weighting = s3g::AmbiSpeakerDecoderWeighting::InPhase;
+    speakerDecoder.setParams(speakerParams);
+    speakerDecoder.processFrame(decoderIn, decoderOut);
+    for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
+        if (!std::isfinite(decoderOut[ch])) {
+            std::cerr << "3OAFX Speaker Decoder weighted output is not finite\n";
+            return 1;
+        }
+    }
+    speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Quad;
+    speakerParams.order = 1;
+    speakerDecoder.setParams(speakerParams);
+    speakerDecoder.processFrame(decoderIn, decoderOut);
+    for (uint32_t ch = 4; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
+        if (std::abs(decoderOut[ch]) > 0.000001f) {
+            std::cerr << "3OAFX Speaker Decoder did not zero inactive speakers\n";
+            return 1;
+        }
+    }
+    speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::QuadOverhead6;
+    speakerDecoder.setParams(speakerParams);
+    if (std::abs(speakerDecoder.speaker(0).azimuthDeg - -45.0f) > 0.001f
+        || std::abs(speakerDecoder.speaker(4).azimuthDeg - -90.0f) > 0.001f
+        || std::abs(speakerDecoder.speaker(5).azimuthDeg - 90.0f) > 0.001f) {
+        std::cerr << "3OAFX Speaker Decoder quad+overhead order changed unexpectedly\n";
+        return 1;
+    }
+    speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Dome24;
+    speakerDecoder.setParams(speakerParams);
+    if (std::abs(speakerDecoder.speaker(0).azimuthDeg - -30.0f) > 0.001f
+        || std::abs(speakerDecoder.speaker(2).azimuthDeg - -90.0f) > 0.001f
+        || std::abs(speakerDecoder.speaker(12).elevationDeg - 32.0f) > 0.001f
+        || std::abs(speakerDecoder.speaker(20).elevationDeg - 66.6f) > 0.001f) {
+        std::cerr << "3OAFX Speaker Decoder dome spiral order changed unexpectedly\n";
+        return 1;
+    }
+    auto speakerToWorld = [](const s3g::AmbiSpeaker& speaker) {
+        const auto dir = s3g::directionFromAed(speaker.azimuthDeg, speaker.elevationDeg);
+        return s3g::Vec3 {
+            dir.x * speaker.distance,
+            dir.y * speaker.distance,
+            dir.z * speaker.distance
+        };
+    };
+    speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Cube17;
+    speakerDecoder.setParams(speakerParams);
+    const auto cubeLower = speakerToWorld(speakerDecoder.speaker(0));
+    const auto cubeMiddle = speakerToWorld(speakerDecoder.speaker(4));
+    const auto cubeUpper = speakerToWorld(speakerDecoder.speaker(12));
+    if (std::abs(cubeLower.x - cubeMiddle.x) > 0.001f
+        || std::abs(cubeLower.y - cubeMiddle.y) > 0.001f
+        || std::abs(cubeUpper.x - cubeMiddle.x) > 0.001f
+        || std::abs(cubeUpper.y - cubeMiddle.y) > 0.001f
+        || std::sqrt(cubeLower.x * cubeLower.x + cubeLower.y * cubeLower.y + cubeLower.z * cubeLower.z)
+            <= std::sqrt(cubeMiddle.x * cubeMiddle.x + cubeMiddle.y * cubeMiddle.y + cubeMiddle.z * cubeMiddle.z)) {
+        std::cerr << "3OAFX Speaker Decoder CUBE17 tier projection changed unexpectedly\n";
+        return 1;
+    }
+    const auto cubePresetSpeaker0 = speakerDecoder.speaker(0);
+    speakerParams.selectedSpeaker = 0;
+    speakerParams.selectedAzimuthDeg = 0.0f;
+    speakerParams.selectedElevationDeg = 0.0f;
+    speakerParams.selectedDistance = 1.0f;
+    speakerParams.width = 0.72f;
+    speakerDecoder.setParams(speakerParams);
+    if (std::abs(speakerDecoder.speaker(0).azimuthDeg - cubePresetSpeaker0.azimuthDeg) > 0.001f
+        || std::abs(speakerDecoder.speaker(0).elevationDeg - cubePresetSpeaker0.elevationDeg) > 0.001f
+        || std::abs(speakerDecoder.speaker(0).distance - cubePresetSpeaker0.distance) > 0.001f) {
+        std::cerr << "3OAFX Speaker Decoder preset geometry was changed by editable speaker fields\n";
+        return 1;
+    }
+    speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Custom;
+    speakerParams.activeSpeakers = 13;
+    speakerParams.customField = s3g::AmbiSpeakerCustomField::Hemisphere;
+    speakerDecoder.setParams(speakerParams);
+    if (speakerDecoder.params().activeSpeakers != 13u) {
+        std::cerr << "3OAFX Speaker Decoder custom speaker count failed\n";
+        return 1;
+    }
+    for (uint32_t i = 0; i < 13u; ++i) {
+        if (speakerDecoder.speaker(i).elevationDeg < -0.001f) {
+            std::cerr << "3OAFX Speaker Decoder hemisphere custom layout dipped below horizon\n";
+            return 1;
+        }
+    }
+    speakerParams.activeSpeakers = 14;
+    speakerParams.customField = s3g::AmbiSpeakerCustomField::FullSphere;
+    speakerDecoder.setParams(speakerParams);
+    bool fullSphereHasLower = false;
+    for (uint32_t i = 0; i < 14u; ++i) {
+        fullSphereHasLower = fullSphereHasLower || speakerDecoder.speaker(i).elevationDeg < -0.001f;
+    }
+    if (!fullSphereHasLower) {
+        std::cerr << "3OAFX Speaker Decoder full-sphere custom layout did not use lower hemisphere\n";
+        return 1;
+    }
+
+    s3g::LayoutPanner layoutPanner;
+    layoutPanner.prepare(48000.0);
+    s3g::LayoutPannerParams layoutPannerParams;
+    layoutPannerParams.layout = s3g::LayoutPannerPreset::Dome24NoOverhead;
+    layoutPannerParams.method = s3g::LayoutPannerMethod::Distance;
+    layoutPannerParams.outputGainDb = -12.0f;
+    layoutPanner.setParams(layoutPannerParams);
+    float pannerIn[s3g::kLayoutPannerSources] {};
+    float pannerOut[s3g::kLayoutPannerMaxSpeakers] {};
+    pannerIn[0] = 0.25f;
+    layoutPanner.processFrame(pannerIn, pannerOut, s3g::kLayoutPannerSources);
+    float pannerPeak = 0.0f;
+    for (uint32_t ch = 0; ch < s3g::kLayoutPannerMaxSpeakers; ++ch) {
+        if (!std::isfinite(pannerOut[ch])) {
+            std::cerr << "Layout Panner output is not finite\n";
+            return 1;
+        }
+        pannerPeak = std::max(pannerPeak, std::abs(pannerOut[ch]));
+    }
+    if (pannerPeak <= 0.000001f || pannerPeak > 1.0f) {
+        std::cerr << "Layout Panner peak outside expected range: " << pannerPeak << "\n";
+        return 1;
+    }
+    layoutPannerParams.layout = s3g::LayoutPannerPreset::Quad;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 4u
+        || std::abs(layoutPanner.speakers()[0].azimuthDeg - 45.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[1].azimuthDeg - -45.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[2].azimuthDeg - -135.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[3].azimuthDeg - 135.0f) > 0.001f) {
+        std::cerr << "Layout Panner quad layout is not square-corner ordered\n";
+        return 1;
+    }
+    for (uint32_t ch = 0; ch < s3g::kLayoutPannerMaxSpeakers; ++ch) {
+        pannerOut[ch] = 0.125f;
+    }
+    layoutPanner.processFrame(pannerIn, pannerOut, s3g::kLayoutPannerSources);
+    for (uint32_t ch = 4; ch < s3g::kLayoutPannerMaxSpeakers; ++ch) {
+        if (std::abs(pannerOut[ch]) > 0.000001f) {
+            std::cerr << "Layout Panner did not zero inactive outputs\n";
+            return 1;
+        }
+    }
+    layoutPannerParams.layout = s3g::LayoutPannerPreset::QuadOverhead6;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 6u
+        || std::abs(layoutPanner.speakers()[0].azimuthDeg - 45.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[1].azimuthDeg - -45.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[2].azimuthDeg - -135.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[3].azimuthDeg - 135.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[4].azimuthDeg - 90.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[5].azimuthDeg - -90.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[4].elevationDeg - 60.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[5].elevationDeg - 60.0f) > 0.001f) {
+        std::cerr << "Layout Panner quad+overhead layout changed unexpectedly\n";
+        return 1;
+    }
+    layoutPannerParams.layout = s3g::LayoutPannerPreset::Cube17;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 17u
+        || std::abs(layoutPanner.speakers()[16].elevationDeg - 90.0f) > 0.001f) {
+        std::cerr << "Layout Panner cube17 layout changed unexpectedly\n";
+        return 1;
+    }
+    layoutPannerParams.layout = s3g::LayoutPannerPreset::Dodeca12;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 12u
+        || std::abs(layoutPanner.speakers()[0].azimuthDeg - -31.717474f) > 0.001f
+        || std::abs(layoutPanner.speakers()[11].elevationDeg - 31.717474f) > 0.001f) {
+        std::cerr << "Layout Panner dodeca12 layout changed unexpectedly\n";
+        return 1;
+    }
+    layoutPannerParams.layout = s3g::LayoutPannerPreset::Custom;
+    layoutPannerParams.activeSpeakers = 9;
+    layoutPannerParams.customShape = s3g::LayoutPannerCustomShape::Dome;
+    layoutPanner.setParams(layoutPannerParams);
+    bool domeHasLowerSpeaker = false;
+    bool domeHasUpperSpeaker = false;
+    for (uint32_t i = 0; i < layoutPanner.activeSpeakers(); ++i) {
+        domeHasLowerSpeaker = domeHasLowerSpeaker || layoutPanner.speakers()[i].elevationDeg < -0.001f;
+        domeHasUpperSpeaker = domeHasUpperSpeaker || layoutPanner.speakers()[i].elevationDeg > 30.0f;
+    }
+    if (layoutPanner.activeSpeakers() != 9u || domeHasLowerSpeaker || !domeHasUpperSpeaker) {
+        std::cerr << "Layout Panner custom dome layout changed unexpectedly\n";
+        return 1;
+    }
+    layoutPannerParams.activeSpeakers = 8;
+    layoutPannerParams.customShape = s3g::LayoutPannerCustomShape::Auto;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 8u
+        || std::abs(layoutPanner.speakers()[0].azimuthDeg - -45.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[0].elevationDeg - -35.26439f) > 0.001f
+        || std::abs(layoutPanner.speakers()[7].azimuthDeg - 45.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[7].elevationDeg - 35.26439f) > 0.001f) {
+        std::cerr << "Layout Panner custom AUTO 8 did not default to cube\n";
+        return 1;
+    }
+    layoutPannerParams.customShape = s3g::LayoutPannerCustomShape::Icosa;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 12u) {
+        std::cerr << "Layout Panner custom ICO did not force 12 speakers\n";
+        return 1;
+    }
+    layoutPannerParams.customShape = s3g::LayoutPannerCustomShape::Dodeca;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 20u) {
+        std::cerr << "Layout Panner custom DODECA did not force 20 speakers\n";
+        return 1;
+    }
+    layoutPanner.setSpeaker(0, { 12.0f, -8.0f, 1.25f });
+    if (layoutPanner.params().layout != s3g::LayoutPannerPreset::Custom
+        || std::abs(layoutPanner.speakers()[0].azimuthDeg - 12.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[0].elevationDeg - -8.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[0].distance - 1.25f) > 0.001f) {
+        std::cerr << "Layout Panner custom speaker edit failed\n";
+        return 1;
+    }
+    layoutPannerParams.layout = s3g::LayoutPannerPreset::Dome25;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 25u
+        || std::abs(layoutPanner.speakers()[24].elevationDeg - 90.0f) > 0.001f) {
+        std::cerr << "Layout Panner dome25 layout changed unexpectedly\n";
+        return 1;
+    }
+    layoutPannerParams.method = s3g::LayoutPannerMethod::Cosine;
+    layoutPanner.setParams(layoutPannerParams);
+    layoutPanner.processFrame(pannerIn, pannerOut, s3g::kLayoutPannerSources);
+    for (uint32_t ch = 0; ch < s3g::kLayoutPannerMaxSpeakers; ++ch) {
+        if (!std::isfinite(pannerOut[ch])) {
+            std::cerr << "Layout Panner cosine output is not finite\n";
+            return 1;
+        }
+    }
+
     s3g::AedMaskState sendState;
     s3g::AedMaskState retState;
     s3g::MixerState mixState;
@@ -422,6 +684,7 @@ int main()
     std::cout << "macro delay tail peak: " << macroTailPeak << "\n";
     std::cout << "macro pitch peak: " << macroPitchPeak << "\n";
     std::cout << "3OAFX point encoder peak: " << pointEncoderPeak << "\n";
+    std::cout << "3OAFX speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";
     return 0;
 }

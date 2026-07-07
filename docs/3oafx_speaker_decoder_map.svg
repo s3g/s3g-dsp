@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 430" role="img" aria-labelledby="title desc">
+  <title id="title">3OAFX Speaker Decoder map</title>
+  <desc id="desc">Diagram showing ambisonic input, decoder matrix, speaker layout, and 64-channel speaker output.</desc>
+  <defs>
+    <style>
+      .bg { fill: #111413; }
+      .panel { fill: #171a19; stroke: #444b48; stroke-width: 1; }
+      .sub { fill: #202423; stroke: #444b48; stroke-width: 1; }
+      .line { stroke: #88918d; stroke-width: 1.4; fill: none; }
+      .faint { stroke: #3c4541; stroke-width: 1; fill: none; }
+      .text { fill: #d8ddd8; font-family: Menlo, Monaco, "Courier New", monospace; font-size: 13px; }
+      .small { fill: #9aa39f; font-family: Menlo, Monaco, "Courier New", monospace; font-size: 10px; }
+      .muted { fill: #87908c; font-family: Menlo, Monaco, "Courier New", monospace; font-size: 11px; }
+      .point { fill: #d8ddd8; stroke: #050606; stroke-width: 1; }
+      .selected { fill: #78b7a6; stroke: #050606; stroke-width: 1; }
+      .cell { fill: #2a2d2c; stroke: #555e5a; stroke-width: 1; }
+      .cellhot { fill: #aeb8b3; stroke: #d8ddd8; stroke-width: 1; }
+    </style>
+  </defs>
+  <rect class="bg" width="900" height="430"/>
+
+  <rect class="panel" x="34" y="38" width="206" height="318"/>
+  <text class="text" x="54" y="68">ACN/SN3D INPUT</text>
+  <text class="muted" x="54" y="94">ORDER 1..7</text>
+  <text class="muted" x="54" y="114">CHANNELS = (N+1)^2</text>
+  <g transform="translate(58 145)">
+    <rect class="sub" x="0" y="0" width="148" height="148"/>
+    <text class="small" x="15" y="26">W</text>
+    <text class="small" x="49" y="26">Y</text>
+    <text class="small" x="83" y="26">Z</text>
+    <text class="small" x="117" y="26">X</text>
+    <text class="small" x="15" y="68">...</text>
+    <text class="small" x="15" y="111">63</text>
+    <line class="faint" x1="0" y1="39" x2="148" y2="39"/>
+    <line class="faint" x1="0" y1="78" x2="148" y2="78"/>
+    <line class="faint" x1="0" y1="117" x2="148" y2="117"/>
+    <line class="faint" x1="37" y1="0" x2="37" y2="148"/>
+    <line class="faint" x1="74" y1="0" x2="74" y2="148"/>
+    <line class="faint" x1="111" y1="0" x2="111" y2="148"/>
+  </g>
+  <text class="small" x="54" y="326">64-channel input bus</text>
+
+  <rect class="panel" x="292" y="38" width="264" height="318"/>
+  <text class="text" x="312" y="68">DECODER MATRIX</text>
+  <text class="muted" x="312" y="94">BASIC / EPAD / MMD</text>
+  <text class="muted" x="312" y="114">WIDTH + ENERGY + REG</text>
+  <g transform="translate(324 146)">
+    <rect class="sub" x="0" y="0" width="168" height="132"/>
+    <g>
+      <rect class="cellhot" x="12" y="12" width="16" height="16"/>
+      <rect class="cell" x="34" y="12" width="16" height="16"/>
+      <rect class="cellhot" x="56" y="12" width="16" height="16"/>
+      <rect class="cell" x="78" y="12" width="16" height="16"/>
+      <rect class="cell" x="100" y="12" width="16" height="16"/>
+      <rect class="cellhot" x="122" y="12" width="16" height="16"/>
+      <rect class="cell" x="144" y="12" width="12" height="16"/>
+
+      <rect class="cell" x="12" y="38" width="16" height="16"/>
+      <rect class="cellhot" x="34" y="38" width="16" height="16"/>
+      <rect class="cell" x="56" y="38" width="16" height="16"/>
+      <rect class="cellhot" x="78" y="38" width="16" height="16"/>
+      <rect class="cell" x="100" y="38" width="16" height="16"/>
+      <rect class="cell" x="122" y="38" width="16" height="16"/>
+      <rect class="cellhot" x="144" y="38" width="12" height="16"/>
+
+      <rect class="cellhot" x="12" y="64" width="16" height="16"/>
+      <rect class="cell" x="34" y="64" width="16" height="16"/>
+      <rect class="cell" x="56" y="64" width="16" height="16"/>
+      <rect class="cell" x="78" y="64" width="16" height="16"/>
+      <rect class="cellhot" x="100" y="64" width="16" height="16"/>
+      <rect class="cell" x="122" y="64" width="16" height="16"/>
+      <rect class="cellhot" x="144" y="64" width="12" height="16"/>
+
+      <rect class="cell" x="12" y="90" width="16" height="16"/>
+      <rect class="cellhot" x="34" y="90" width="16" height="16"/>
+      <rect class="cell" x="56" y="90" width="16" height="16"/>
+      <rect class="cellhot" x="78" y="90" width="16" height="16"/>
+      <rect class="cellhot" x="100" y="90" width="16" height="16"/>
+      <rect class="cell" x="122" y="90" width="16" height="16"/>
+      <rect class="cell" x="144" y="90" width="12" height="16"/>
+    </g>
+  </g>
+  <text class="small" x="312" y="326">preset layout or custom speakers</text>
+
+  <rect class="panel" x="608" y="38" width="258" height="318"/>
+  <text class="text" x="628" y="68">SPEAKER OUTPUT</text>
+  <text class="muted" x="628" y="94">ACTIVE 2..64</text>
+  <text class="muted" x="628" y="114">AED + DIST + GAIN</text>
+  <g transform="translate(647 142)">
+    <circle class="faint" cx="90" cy="82" r="74"/>
+    <circle class="faint" cx="90" cy="82" r="42"/>
+    <line class="faint" x1="16" y1="82" x2="164" y2="82"/>
+    <line class="faint" x1="90" y1="8" x2="90" y2="156"/>
+    <line class="line" x1="90" y1="20" x2="138" y2="47"/>
+    <line class="line" x1="138" y1="47" x2="147" y2="112"/>
+    <line class="line" x1="147" y1="112" x2="92" y2="151"/>
+    <line class="line" x1="92" y1="151" x2="34" y2="116"/>
+    <line class="line" x1="34" y1="116" x2="42" y2="47"/>
+    <line class="line" x1="42" y1="47" x2="90" y2="20"/>
+    <circle class="selected" cx="90" cy="20" r="6"/>
+    <circle class="point" cx="138" cy="47" r="5"/>
+    <circle class="point" cx="147" cy="112" r="5"/>
+    <circle class="point" cx="92" cy="151" r="5"/>
+    <circle class="point" cx="34" cy="116" r="5"/>
+    <circle class="point" cx="42" cy="47" r="5"/>
+    <circle class="point" cx="90" cy="82" r="4"/>
+  </g>
+  <text class="small" x="628" y="326">64-channel speaker bus</text>
+
+  <path class="line" d="M240 197 C262 197 270 197 292 197"/>
+  <path class="line" d="M556 197 C578 197 586 197 608 197"/>
+</svg>
