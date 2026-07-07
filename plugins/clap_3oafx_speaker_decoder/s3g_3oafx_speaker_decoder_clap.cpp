@@ -80,6 +80,21 @@ const char* layoutName(uint32_t value)
     }
 }
 
+uint32_t layoutPresetForMenuIndex(uint32_t index)
+{
+    static constexpr uint32_t values[] = {
+        0u, // CUSTOM
+        2u, // CUBE 8
+        3u, // CUBE 17
+        4u, // DOME 24
+        5u, // DOME 25
+        1u, // QUAD
+        6u, // QUAD+OH
+        7u, // 3OAFX 24
+    };
+    return values[std::min<uint32_t>(index, static_cast<uint32_t>(std::size(values) - 1u))];
+}
+
 const char* modeName(uint32_t value)
 {
     switch (value) {
@@ -189,9 +204,6 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     std::array<float, kInputChannels> frameIn {};
     std::array<float, kOutputChannels> frameOut {};
     float blockPeak = 0.0f;
-    p->decoder.setParams(p->params);
-    p->params = p->decoder.params();
-
     for (uint32_t i = 0; i < frames; ++i) {
         for (uint32_t ch = 0; ch < inChannels; ++ch) {
             frameIn[ch] = input.data32[ch] ? input.data32[ch][i] : 0.0f;
@@ -351,6 +363,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     BOOL _dragView;
     NSPoint _lastDragPoint;
     int _openMenu;
+    int _hoverMenuItem;
     uint32_t _menuItemCount;
     NSPoint _menuOrigin;
     NSTextField* _azField;
@@ -377,6 +390,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)drawOpenMenu:(NSDictionary*)attrs;
+- (void)updateMenuHover:(NSPoint)point;
 - (NSRect)fieldPageButtonRect:(int)index inRect:(NSRect)rect;
 - (void)drawFieldPageButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs;
 - (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect;
@@ -387,6 +401,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (CGFloat)viewScaleForRect:(NSRect)rect;
 - (NSPoint)projectWorldPoint:(s3g::Vec3)point rect:(NSRect)rect depth:(CGFloat*)depth;
 - (void)drawSpeakerField:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style;
+- (void)drawDecodeMap:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style;
 - (NSRect)mixerOutputTrackRect:(NSRect)rect;
 - (NSRect)mixerSpeakerRect:(uint32_t)index inRect:(NSRect)rect;
 - (NSRect)mixerGainFieldRect:(uint32_t)slot inRect:(NSRect)rect;
@@ -450,6 +465,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         _dragView = NO;
         _lastDragPoint = NSMakePoint(0, 0);
         _openMenu = 0;
+        _hoverMenuItem = -1;
         _menuItemCount = 0;
         _menuOrigin = NSMakePoint(0, 0);
         _azField = [self makeValueField:kAzimuthParamId];
@@ -476,10 +492,26 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 }
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
+- (void)updateTrackingAreas
+{
+    for (NSTrackingArea* area in [self trackingAreas]) {
+        [self removeTrackingArea:area];
+    }
+    [super updateTrackingAreas];
+    NSTrackingAreaOptions options = NSTrackingMouseMoved | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+    NSTrackingArea* area = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:options owner:self userInfo:nil];
+    [self addTrackingArea:[area autorelease]];
+}
 - (void)dealloc { [self stopRefreshTimer]; [super dealloc]; }
 - (void)startRefreshTimer { if (_timer) return; _timer = [NSTimer timerWithTimeInterval:1.0/20.0 target:self selector:@selector(refresh:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
-- (void)refresh:(NSTimer*)timer { (void)timer; if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
+- (void)refresh:(NSTimer*)timer
+{
+    (void)timer;
+    if ([self isHidden] || !_plugin || !s3g::clap_support::hostAppIsActive()) return;
+    if (_rightPage == 2 && !_dragView) return;
+    [self setNeedsDisplay:YES];
+}
 - (NSTextField*)makeValueField:(NSInteger)tag
 {
     NSTextField* field = [[NSTextField alloc] initWithFrame:NSMakeRect(812, 0, 54, 16)];
@@ -620,7 +652,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 - (void)drawOpenMenu:(NSDictionary*)attrs
 {
     if (_openMenu <= 0 || _menuItemCount == 0) return;
-    static NSString* layoutItems[] = { @"CUSTOM", @"QUAD", @"CUBE 8", @"CUBE 17", @"DOME 24", @"DOME 25", @"QUAD+OH", @"3OAFX 24" };
+    static NSString* layoutItems[] = { @"CUSTOM", @"CUBE 8", @"CUBE 17", @"DOME 24", @"DOME 25", @"QUAD", @"QUAD+OH", @"3OAFX 24" };
     static NSString* modeItems[] = { @"BASIC", @"EPAD", @"MMD" };
     static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
     static NSString* weightItems[] = { @"NONE", @"MAXRE", @"INPHASE" };
@@ -633,18 +665,33 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     const CGFloat itemH = 18.0;
     const CGFloat w = 124.0;
     NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, w, itemH * static_cast<CGFloat>(_menuItemCount));
-    [sdColor(0x101010) setFill];
-    NSRectFill(menuRect);
-    [sdColor(0x666666) setStroke];
-    NSFrameRect(menuRect);
-    for (uint32_t i = 0; i < _menuItemCount; ++i) {
-        NSRect row = NSMakeRect(_menuOrigin.x, _menuOrigin.y + itemH * static_cast<CGFloat>(i), w, itemH);
-        if (i > 0) {
-            [sdColor(0x343434) setStroke];
-            [NSBezierPath strokeLineFromPoint:NSMakePoint(row.origin.x, row.origin.y)
-                                      toPoint:NSMakePoint(NSMaxX(row), row.origin.y)];
-        }
-        [items[i] drawAtPoint:NSMakePoint(row.origin.x + 8, row.origin.y + 4) withAttributes:attrs];
+    int selected = 0;
+    if (_plugin) {
+        auto* p = static_cast<Plugin*>(_plugin);
+        const auto prm = p->decoder.params();
+        if (_openMenu == 1) {
+            const uint32_t layoutValue = static_cast<uint32_t>(prm.layout);
+            for (uint32_t i = 0; i < _menuItemCount; ++i) {
+                if (layoutPresetForMenuIndex(i) == layoutValue) selected = static_cast<int>(i);
+            }
+        } else if (_openMenu == 2) selected = static_cast<int>(static_cast<uint32_t>(prm.mode));
+        else if (_openMenu == 3) selected = static_cast<int>(prm.order - 1u);
+        else if (_openMenu == 4) selected = static_cast<int>(static_cast<uint32_t>(prm.weighting));
+        else if (_openMenu == 5) selected = static_cast<int>(static_cast<uint32_t>(prm.customField));
+    }
+    s3g::clap_gui::Style style;
+    s3g::clap_gui::drawDropdownMenu(menuRect, itemH, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
+}
+- (void)updateMenuHover:(NSPoint)point
+{
+    if (_openMenu <= 0 || _menuItemCount == 0) return;
+    const CGFloat itemH = 18.0;
+    const CGFloat w = 124.0;
+    const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, w, itemH * static_cast<CGFloat>(_menuItemCount));
+    const int next = s3g::clap_gui::dropdownHitIndex(point, menuRect, itemH, _menuItemCount);
+    if (next != _hoverMenuItem) {
+        _hoverMenuItem = next;
+        [self setNeedsDisplay:YES];
     }
 }
 - (NSRect)fieldPageButtonRect:(int)index inRect:(NSRect)rect
@@ -659,17 +706,10 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 }
 - (void)drawFieldPageButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
 {
-    static NSString* labels[] = { @"FIELD", @"MIXER" };
-    for (int i = 0; i < 2; ++i) {
-        NSRect button = [self fieldPageButtonRect:i inRect:rect];
-        [sdColor(i == _rightPage ? 0x303030 : 0x151515) setFill];
-        NSRectFill(button);
-        [sdColor(i == _rightPage ? 0xd1d1d1 : 0x555555) setStroke];
-        NSFrameRect(button);
-        NSSize size = [labels[i] sizeWithAttributes:attrs];
-        [labels[i] drawAtPoint:NSMakePoint(button.origin.x + (button.size.width - size.width) * 0.5,
-                                           button.origin.y + (button.size.height - size.height) * 0.5 - 0.5)
-                 withAttributes:attrs];
+    static NSString* labels[] = { @"FIELD", @"MIXER", @"MAP" };
+    s3g::clap_gui::Style style;
+    for (int i = 0; i < 3; ++i) {
+        s3g::clap_gui::drawHeaderButton([self fieldPageButtonRect:i inRect:rect], rect, labels[i], i == _rightPage, attrs, style);
     }
 }
 - (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect
@@ -692,31 +732,17 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 - (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
 {
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
+    s3g::clap_gui::Style style;
     for (int i = 0; i < 3; ++i) {
-        NSRect button = [self viewButtonRect:i inRect:rect];
-        [sdColor(i == _viewMode ? 0x303030 : 0x151515) setFill];
-        NSRectFill(button);
-        [sdColor(i == _viewMode ? 0xd1d1d1 : 0x555555) setStroke];
-        NSFrameRect(button);
-        NSSize size = [labels[i] sizeWithAttributes:attrs];
-        [labels[i] drawAtPoint:NSMakePoint(button.origin.x + (button.size.width - size.width) * 0.5,
-                                           button.origin.y + (button.size.height - size.height) * 0.5 - 0.5)
-                 withAttributes:attrs];
+        s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
     }
 }
 - (void)drawZoomButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
 {
     static NSString* labels[] = { @"-", @"+" };
+    s3g::clap_gui::Style style;
     for (int i = 0; i < 2; ++i) {
-        NSRect button = [self zoomButtonRect:i inRect:rect];
-        [sdColor(0x151515) setFill];
-        NSRectFill(button);
-        [sdColor(0x666666) setStroke];
-        NSFrameRect(button);
-        NSSize size = [labels[i] sizeWithAttributes:attrs];
-        [labels[i] drawAtPoint:NSMakePoint(button.origin.x + (button.size.width - size.width) * 0.5,
-                                           button.origin.y + (button.size.height - size.height) * 0.5 - 0.5)
-                 withAttributes:attrs];
+        s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i inRect:rect], rect, labels[i], false, attrs, style);
     }
 }
 - (void)setViewPreset:(int)mode
@@ -779,6 +805,8 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         const s3g::Vec3 dir = s3g::directionFromAed(sp.azimuthDeg, sp.elevationDeg);
         const s3g::Vec3 world { dir.x * sp.distance, dir.y * sp.distance, dir.z * sp.distance };
         points[i] = [self projectWorldPoint:world rect:rect depth:nil];
+        points[i].x = std::round(points[i].x);
+        points[i].y = std::round(points[i].y);
     }
     [sdColor(0x777777, 0.72) setStroke];
     NSBezierPath* links = [NSBezierPath bezierPath];
@@ -857,6 +885,119 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     NSString* viewText = _viewMode == 0 ? @"TOP VIEW   0 front/top  -90 right  +90 left"
         : (_viewMode == 1 ? @"SIDE VIEW   +90 elevation up" : @"3/4 VIEW   drag blank space to rotate");
     [viewText drawAtPoint:NSMakePoint(rect.origin.x + 12, rect.origin.y + rect.size.height - 23) withAttributes:attrs];
+}
+- (void)drawDecodeMap:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    const auto prm = p->decoder.params();
+    const auto speakers = p->decoder.speakers();
+    const auto& matrix = p->decoder.matrix();
+    const uint32_t n = std::min<uint32_t>(prm.activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    const uint32_t ambiCh = s3g::ambiChannelsForOrder(prm.order);
+    [sdColor(0x111111) setFill]; NSRectFill(rect);
+    [style.grid setStroke]; NSFrameRect(rect);
+
+    std::array<NSPoint, s3g::kAmbiSpeakerDecoderMaxSpeakers> points {};
+    for (uint32_t i = 0; i < n; ++i) {
+        const auto& sp = speakers[i];
+        const s3g::Vec3 dir = s3g::directionFromAed(sp.azimuthDeg, sp.elevationDeg);
+        const s3g::Vec3 world { dir.x * sp.distance, dir.y * sp.distance, dir.z * sp.distance };
+        points[i] = [self projectWorldPoint:world rect:rect depth:nil];
+    }
+
+    NSBezierPath* links = [NSBezierPath bezierPath];
+    auto edge = [&](uint32_t a, uint32_t b) {
+        if (a >= n || b >= n) return;
+        [links moveToPoint:points[a]];
+        [links lineToPoint:points[b]];
+    };
+    auto ring = [&](uint32_t base, uint32_t count) {
+        if (count < 2u || base >= n) return;
+        count = std::min<uint32_t>(count, n - base);
+        for (uint32_t i = 0; i < count; ++i) edge(base + i, base + ((i + 1u) % count));
+    };
+    const auto layout = prm.layout;
+    if (layout == s3g::AmbiSpeakerLayoutPreset::Quad) {
+        ring(0, 4);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube8) {
+        ring(0, 4); ring(4, 4);
+        for (uint32_t i = 0; i < 4; ++i) edge(i, i + 4u);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube17) {
+        ring(0, 4);
+        edge(4, 5); edge(5, 6); edge(6, 7); edge(7, 8);
+        edge(8, 9); edge(9, 10); edge(10, 11); edge(11, 4);
+        ring(12, 4);
+        edge(0, 4); edge(1, 6); edge(2, 8); edge(3, 10);
+        edge(4, 12); edge(6, 13); edge(8, 14); edge(10, 15);
+        edge(12, 16); edge(13, 16); edge(14, 16); edge(15, 16);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dome24 || layout == s3g::AmbiSpeakerLayoutPreset::Dome25) {
+        ring(0, 12); ring(12, 8); ring(20, 4);
+        for (uint32_t i = 0; i < 8; ++i) {
+            const uint32_t lowerA = (i * 3u) / 2u;
+            edge(12u + i, lowerA);
+            edge(12u + i, (lowerA + 1u) % 12u);
+        }
+        for (uint32_t i = 0; i < 4; ++i) {
+            edge(20u + i, 12u + i * 2u);
+            edge(20u + i, 12u + ((i * 2u + 1u) % 8u));
+        }
+        if (layout == s3g::AmbiSpeakerLayoutPreset::Dome25) {
+            for (uint32_t i = 0; i < 4; ++i) edge(24, 20u + i);
+        }
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::QuadOverhead6) {
+        ring(0, 4);
+        edge(4, 0); edge(4, 3); edge(5, 1); edge(5, 2); edge(4, 5);
+    }
+    const uint32_t probeIndex = std::min<uint32_t>(prm.selectedSpeaker, n > 0u ? n - 1u : 0u);
+    const auto& probeSpeaker = speakers[probeIndex];
+    const auto basis = s3g::acnSn3dBasis7(s3g::directionFromAed(probeSpeaker.azimuthDeg, probeSpeaker.elevationDeg));
+    std::array<float, s3g::kAmbiSpeakerDecoderMaxSpeakers> energy {};
+    float maxEnergy = 0.000001f;
+    for (uint32_t sp = 0; sp < n; ++sp) {
+        float value = 0.0f;
+        for (uint32_t ch = 0; ch < ambiCh; ++ch) {
+            value += basis[ch] * matrix[sp][ch];
+        }
+        value *= speakers[sp].enabled ? speakers[sp].gain : 0.0f;
+        energy[sp] = std::fabs(value);
+        maxEnergy = std::max(maxEnergy, energy[sp]);
+    }
+
+    for (uint32_t i = 0; i < n; ++i) {
+        const CGFloat e = std::pow(std::clamp<CGFloat>(energy[i] / maxEnergy, 0.0, 1.0), 0.70);
+        const CGFloat r = 7.0;
+        const NSRect square = NSMakeRect(points[i].x - r, points[i].y - r, r * 2.0, r * 2.0);
+        [sdColor(0x151515) setFill]; NSRectFill(square);
+        [s3g::clap_gui::heatColor(e, speakers[i].enabled ? 0.96 : 0.24) setFill];
+        NSRectFill(NSInsetRect(square, 2.0, 2.0));
+        [sdColor(i == probeIndex ? 0xf5f5f5 : (e > 0.92 ? 0xf0f0f0 : 0x777777)) setStroke];
+        NSFrameRect(square);
+        if (i == probeIndex) {
+            [sdColor(0xf5f5f5, 0.92) setStroke];
+            NSFrameRect(NSInsetRect(square, -4.0, -4.0));
+            [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(square) - 13.0, NSMidY(square))
+                                      toPoint:NSMakePoint(NSMidX(square) + 13.0, NSMidY(square))];
+            [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(square), NSMidY(square) - 13.0)
+                                      toPoint:NSMakePoint(NSMidX(square), NSMidY(square) + 13.0)];
+        }
+        if (n <= 32) {
+            NSString* label = [NSString stringWithFormat:@"%u", i + 1u];
+            NSSize labelSize = [label sizeWithAttributes:small];
+            [label drawAtPoint:NSMakePoint(NSMidX(square) - labelSize.width * 0.5,
+                                           NSMidY(square) - labelSize.height * 0.5 - 0.5)
+                withAttributes:small];
+        }
+    }
+    [sdColor(0xd0d0d0, 0.76) setStroke];
+    [links setLineWidth:1.15];
+    [links stroke];
+    [[NSString stringWithFormat:@"PROBE S%u   AZ %+.1f  EL %+.1f   %uOA",
+        probeIndex + 1u,
+        probeSpeaker.azimuthDeg,
+        probeSpeaker.elevationDeg,
+        prm.order]
+        drawAtPoint:NSMakePoint(rect.origin.x + 12, rect.origin.y + rect.size.height - 23)
+        withAttributes:attrs];
 }
 - (NSRect)mixerOutputTrackRect:(NSRect)rect
 {
@@ -1065,13 +1206,17 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     [@"64CH" drawAtPoint:NSMakePoint(838,14) withAttributes:small];
 
     s3g::clap_gui::drawPanelFrame(18, 42, 596, 556, style);
-    s3g::clap_gui::drawPanelHeader(_rightPage == 0 ? @"SPEAKER FIELD" : @"SPEAKER MIXER", true, 18, 42, 596, 21, lab, style);
+    s3g::clap_gui::drawPanelHeader(_rightPage == 0 ? @"SPEAKER FIELD" : (_rightPage == 1 ? @"SPEAKER MIXER" : @"DECODE MAP"), true, 18, 42, 596, 21, lab, style);
     [self drawFieldPageButtonsInRect:NSMakeRect(18, 42, 596, 556) attrs:small];
-    if (_rightPage == 0) {
+    if (_rightPage == 0 || _rightPage == 2) {
         for (int i = 0; i < 16; ++i) [_gainFields[i] setHidden:YES];
         [self drawZoomButtonsInRect:NSMakeRect(18, 42, 596, 556) attrs:small];
         [self drawViewButtonsInRect:NSMakeRect(18, 42, 596, 556) attrs:small];
-        [self drawSpeakerField:NSMakeRect(34, 76, 564, 506) attrs:small small:small style:style];
+        if (_rightPage == 0) {
+            [self drawSpeakerField:NSMakeRect(34, 76, 564, 506) attrs:small small:small style:style];
+        } else {
+            [self drawDecodeMap:NSMakeRect(34, 76, 564, 506) attrs:small small:small style:style];
+        }
     } else {
         [self drawSpeakerMixer:NSMakeRect(34, 76, 564, 506) attrs:small style:style];
     }
@@ -1143,7 +1288,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
             const uint32_t index = std::min<uint32_t>(_menuItemCount - 1u,
                 static_cast<uint32_t>((pt.y - _menuOrigin.y) / itemH));
             switch (_openMenu) {
-            case 1: applyParam(*p, kLayoutParamId, index); break;
+            case 1: applyParam(*p, kLayoutParamId, layoutPresetForMenuIndex(index)); break;
             case 2: applyParam(*p, kModeParamId, index); break;
             case 3: applyParam(*p, kOrderParamId, index + 1u); break;
             case 4: applyParam(*p, kWeightingParamId, index); break;
@@ -1151,17 +1296,20 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
             default: break;
             }
             _openMenu = 0;
+            _hoverMenuItem = -1;
             _menuItemCount = 0;
             [self setNeedsDisplay:YES];
             return;
         }
         _openMenu = 0;
+        _hoverMenuItem = -1;
         _menuItemCount = 0;
         [self setNeedsDisplay:YES];
     }
     auto openMenu = [&](int menu, uint32_t count, CGFloat preferredY) {
         const CGFloat itemH = 18.0;
         _openMenu = menu;
+        _hoverMenuItem = -1;
         _menuItemCount = count;
         _menuOrigin = NSMakePoint(738.0, std::clamp(preferredY, 28.0, 616.0 - itemH * static_cast<CGFloat>(count)));
         [self setNeedsDisplay:YES];
@@ -1209,7 +1357,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         }
     }
     if (NSPointInRect(pt, fieldPanel)) {
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 3; ++i) {
             if (NSPointInRect(pt, [self fieldPageButtonRect:i inRect:fieldPanel])) {
                 _rightPage = i;
                 _dragMixerSpeaker = -1;
@@ -1222,7 +1370,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
             }
         }
     }
-    if (_rightPage == 0 && NSPointInRect(pt, fieldPanel)) {
+    if ((_rightPage == 0 || _rightPage == 2) && NSPointInRect(pt, fieldPanel)) {
         for (int i = 0; i < 2; ++i) {
             if (NSPointInRect(pt, [self zoomButtonRect:i inRect:fieldPanel])) {
                 const CGFloat step = i == 0 ? -0.15 : 0.15;
@@ -1237,7 +1385,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
                 return;
             }
         }
-        if (NSPointInRect(pt, fieldRect)) {
+        if (_rightPage == 0 && NSPointInRect(pt, fieldRect)) {
             BOOL found = NO;
             const uint32_t best = [self hitSpeakerAt:pt inRect:fieldRect found:&found];
             if (found) {
@@ -1247,6 +1395,12 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
                 return;
             }
             _hasSpeakerSelection = NO;
+            _dragView = YES;
+            _lastDragPoint = pt;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (_rightPage == 2 && NSPointInRect(pt, fieldRect)) {
             _dragView = YES;
             _lastDragPoint = pt;
             [self setNeedsDisplay:YES];
@@ -1269,9 +1423,14 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         }
     }
 }
+- (void)mouseMoved:(NSEvent*)event
+{
+    [self updateMenuHover:[self convertPoint:[event locationInWindow] fromView:nil]];
+}
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    [self updateMenuHover:pt];
     if (_dragView) {
         const CGFloat dx = pt.x - _lastDragPoint.x;
         const CGFloat dy = pt.y - _lastDragPoint.y;

@@ -424,6 +424,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     int _dragMixerSource;
     BOOL _dragMixerOutput;
     int _openMenu;
+    int _hoverMenuItem;
     uint32_t _menuItemCount;
     NSPoint _menuOrigin;
 }
@@ -433,6 +434,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)drawOpenMenu:(NSDictionary*)attrs;
+- (void)updateMenuHover:(NSPoint)point;
 - (NSRect)pageButtonRect:(int)index inRect:(NSRect)rect;
 - (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect;
 - (NSRect)zoomButtonRect:(int)index inRect:(NSRect)rect;
@@ -531,6 +533,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         _dragMixerSource = -1;
         _dragMixerOutput = NO;
         _openMenu = 0;
+        _hoverMenuItem = -1;
         _menuItemCount = 0;
         _menuOrigin = NSMakePoint(0, 0);
     }
@@ -538,6 +541,16 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
 }
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
+- (void)updateTrackingAreas
+{
+    for (NSTrackingArea* area in [self trackingAreas]) {
+        [self removeTrackingArea:area];
+    }
+    [super updateTrackingAreas];
+    NSTrackingAreaOptions options = NSTrackingMouseMoved | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+    NSTrackingArea* area = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:options owner:self userInfo:nil];
+    [self addTrackingArea:[area autorelease]];
+}
 - (void)dealloc { [self stopRefreshTimer]; [super dealloc]; }
 - (void)startRefreshTimer { if (_timer) return; _timer = [NSTimer timerWithTimeInterval:1.0/20.0 target:self selector:@selector(refresh:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
@@ -560,18 +573,27 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     const CGFloat itemH = 18.0;
     const CGFloat w = _openMenu == 1 ? 148.0 : (_openMenu == 3 ? 92.0 : 78.0);
     NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, w, itemH * static_cast<CGFloat>(_menuItemCount));
-    [lpColor(0x101010) setFill];
-    NSRectFill(menuRect);
-    [lpColor(0x666666) setStroke];
-    NSFrameRect(menuRect);
-    for (uint32_t i = 0; i < _menuItemCount; ++i) {
-        NSRect row = NSMakeRect(_menuOrigin.x, _menuOrigin.y + itemH * static_cast<CGFloat>(i), w, itemH);
-        if (i > 0) {
-            [lpColor(0x343434) setStroke];
-            [NSBezierPath strokeLineFromPoint:NSMakePoint(row.origin.x, row.origin.y)
-                                      toPoint:NSMakePoint(NSMaxX(row), row.origin.y)];
-        }
-        [items[i] drawAtPoint:NSMakePoint(row.origin.x + 8, row.origin.y + 4) withAttributes:attrs];
+    int selected = 0;
+    if (_plugin) {
+        auto* p = static_cast<Plugin*>(_plugin);
+        const auto params = p->panner.params();
+        if (_openMenu == 1) selected = static_cast<int>(static_cast<uint32_t>(params.layout));
+        else if (_openMenu == 2) selected = static_cast<int>(static_cast<uint32_t>(params.method));
+        else if (_openMenu == 3) selected = static_cast<int>(static_cast<uint32_t>(params.customShape));
+    }
+    s3g::clap_gui::Style style;
+    s3g::clap_gui::drawDropdownMenu(menuRect, itemH, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
+}
+- (void)updateMenuHover:(NSPoint)point
+{
+    if (_openMenu <= 0 || _menuItemCount == 0) return;
+    const CGFloat itemH = 18.0;
+    const CGFloat w = _openMenu == 1 ? 148.0 : (_openMenu == 3 ? 92.0 : 78.0);
+    const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, w, itemH * static_cast<CGFloat>(_menuItemCount));
+    const int next = s3g::clap_gui::dropdownHitIndex(point, menuRect, itemH, _menuItemCount);
+    if (next != _hoverMenuItem) {
+        _hoverMenuItem = next;
+        [self setNeedsDisplay:YES];
     }
 }
 - (NSRect)pageButtonRect:(int)index inRect:(NSRect)rect
@@ -1136,28 +1158,16 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     s3g::clap_gui::drawPanelHeader(panelTitle, true, mainPanel.origin.x, mainPanel.origin.y, mainPanel.size.width, 21, lab, style);
     static NSString* pageLabels[] = { @"FIELD", @"MIXER", @"DESIGN" };
     for (int i = 0; i < 3; ++i) {
-        NSRect button = [self pageButtonRect:i inRect:mainPanel];
-        [lpColor(i == _page ? 0x303030 : 0x151515) setFill]; NSRectFill(button);
-        [lpColor(i == _page ? 0xd1d1d1 : 0x555555) setStroke]; NSFrameRect(button);
-        NSSize size = [pageLabels[i] sizeWithAttributes:small];
-        [pageLabels[i] drawAtPoint:NSMakePoint(button.origin.x + (button.size.width - size.width) * 0.5, button.origin.y + (button.size.height - size.height) * 0.5 - 0.5) withAttributes:small];
+        s3g::clap_gui::drawHeaderButton([self pageButtonRect:i inRect:mainPanel], mainPanel, pageLabels[i], i == _page, small, style);
     }
     if (_page == 0 || _page == 2) {
         static NSString* zoomLabels[] = { @"-", @"+" };
         for (int i = 0; i < 2; ++i) {
-            NSRect button = [self zoomButtonRect:i inRect:mainPanel];
-            [lpColor(0x151515) setFill]; NSRectFill(button);
-            [lpColor(0x666666) setStroke]; NSFrameRect(button);
-            NSSize size = [zoomLabels[i] sizeWithAttributes:small];
-            [zoomLabels[i] drawAtPoint:NSMakePoint(button.origin.x + (button.size.width - size.width) * 0.5, button.origin.y + (button.size.height - size.height) * 0.5 - 0.5) withAttributes:small];
+            s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i inRect:mainPanel], mainPanel, zoomLabels[i], false, small, style);
         }
         static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
         for (int i = 0; i < 3; ++i) {
-            NSRect button = [self viewButtonRect:i inRect:mainPanel];
-            [lpColor(i == _viewMode ? 0x303030 : 0x151515) setFill]; NSRectFill(button);
-            [lpColor(i == _viewMode ? 0xd1d1d1 : 0x555555) setStroke]; NSFrameRect(button);
-            NSSize size = [viewLabels[i] sizeWithAttributes:small];
-            [viewLabels[i] drawAtPoint:NSMakePoint(button.origin.x + (button.size.width - size.width) * 0.5, button.origin.y + (button.size.height - size.height) * 0.5 - 0.5) withAttributes:small];
+            s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:mainPanel], mainPanel, viewLabels[i], i == _viewMode, small, style);
         }
         [self drawField:fieldRect attrs:small style:style];
     } else {
@@ -1278,7 +1288,8 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         const CGFloat menuW = _openMenu == 1 ? 148.0 : (_openMenu == 3 ? 92.0 : 78.0);
         const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, menuW, itemH * static_cast<CGFloat>(_menuItemCount));
         if (NSPointInRect(pt, menuRect)) {
-            const uint32_t index = std::min<uint32_t>(_menuItemCount - 1u, static_cast<uint32_t>((pt.y - _menuOrigin.y) / itemH));
+            const int hit = s3g::clap_gui::dropdownHitIndex(pt, menuRect, itemH, _menuItemCount);
+            const uint32_t index = static_cast<uint32_t>(std::max(0, hit));
             if (_openMenu == 1) {
                 applyParam(*p, kLayoutParamId, index);
             } else if (_openMenu == 3) {
@@ -1291,17 +1302,20 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
                 applyParam(*p, kMethodParamId, index);
             }
             _openMenu = 0;
+            _hoverMenuItem = -1;
             _menuItemCount = 0;
             [self setNeedsDisplay:YES];
             return;
         }
         _openMenu = 0;
+        _hoverMenuItem = -1;
         _menuItemCount = 0;
         [self setNeedsDisplay:YES];
     }
     auto openMenu = [&](int menu, uint32_t count, CGFloat preferredY) {
         const CGFloat itemH = 18.0;
         _openMenu = menu;
+        _hoverMenuItem = -1;
         _menuItemCount = count;
         _menuOrigin = NSMakePoint(738.0, std::clamp(preferredY, 28.0, 616.0 - itemH * static_cast<CGFloat>(count)));
         [self setNeedsDisplay:YES];
@@ -1448,9 +1462,14 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         }
     }
 }
+- (void)mouseMoved:(NSEvent*)event
+{
+    [self updateMenuHover:[self convertPoint:[event locationInWindow] fromView:nil]];
+}
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    [self updateMenuHover:pt];
     auto* p = static_cast<Plugin*>(_plugin);
     if (_dragView) {
         const CGFloat dx = pt.x - _lastDragPoint.x;

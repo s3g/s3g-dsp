@@ -2323,6 +2323,7 @@ const clap_plugin_state_t state {
     bool _showMatrix;
     bool _showReadout;
     int _openMenu;
+    int _hoverMenuItem;
     NSPoint _menuOrigin;
     uint32_t _menuItemCount;
     NSTimer* _refreshTimer;
@@ -2336,6 +2337,7 @@ const clap_plugin_state_t state {
 - (void)selectShapeMenuItem:(NSMenuItem*)item;
 - (void)selectMotionMenuItem:(NSMenuItem*)item;
 - (void)selectNeighborMenuItem:(NSMenuItem*)item;
+- (void)updateMenuHover:(NSPoint)point;
 @end
 
 static NSColor* s3gTapeColor(int rgb) { return s3g::clap_gui::color(rgb); }
@@ -2359,6 +2361,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         _showMatrix = false;
         _showReadout = false;
         _openMenu = 0;
+        _hoverMenuItem = -1;
         _menuOrigin = NSMakePoint(0, 0);
         _menuItemCount = 0;
         _refreshTimer = nil;
@@ -2408,6 +2411,17 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
 - (BOOL)isFlipped
 {
     return YES;
+}
+
+- (void)updateTrackingAreas
+{
+    for (NSTrackingArea* area in [self trackingAreas]) {
+        [self removeTrackingArea:area];
+    }
+    [super updateTrackingAreas];
+    NSTrackingAreaOptions options = NSTrackingMouseMoved | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+    NSTrackingArea* area = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:options owner:self userInfo:nil];
+    [self addTrackingArea:[area autorelease]];
 }
 
 - (void)drawSlider:(NSString*)name
@@ -2846,7 +2860,12 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
 
         for (uint32_t i = 0; i < _menuItemCount; ++i) {
             NSRect row = NSMakeRect(_menuOrigin.x, _menuOrigin.y + static_cast<CGFloat>(i) * itemH, menuW, itemH);
-            if (menuSelected(i)) {
+            if (static_cast<int>(i) == _hoverMenuItem) {
+                [s3gTapeColor(0x343434) setFill];
+                NSRectFill(NSInsetRect(row, 1, 1));
+                [fillColor setFill];
+                NSRectFill(NSMakeRect(row.origin.x + 2, row.origin.y + 2, 3, row.size.height - 4));
+            } else if (menuSelected(i)) {
                 [s3gTapeColor(0x2c2c2c) setFill];
                 NSRectFill(NSInsetRect(row, 1, 1));
                 [fillColor setFill];
@@ -2987,6 +3006,18 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     [self setNeedsDisplay:YES];
 }
 
+- (void)updateMenuHover:(NSPoint)point
+{
+    if (_openMenu <= 0 || _menuItemCount == 0) return;
+    const CGFloat itemH = 18.0;
+    const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 178.0, itemH * static_cast<CGFloat>(_menuItemCount));
+    const int next = s3g::clap_gui::dropdownHitIndex(point, menuRect, itemH, _menuItemCount);
+    if (next != _hoverMenuItem) {
+        _hoverMenuItem = next;
+        [self setNeedsDisplay:YES];
+    }
+}
+
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
@@ -3009,6 +3040,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
             applyParamsToDsp(*p);
         }
         _openMenu = 0;
+        _hoverMenuItem = -1;
         _menuItemCount = 0;
         [self setNeedsDisplay:YES];
         return;
@@ -3067,6 +3099,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         const auto row = s3g::clap_gui::hitTopologyRow(pt, panelY);
         if (row == s3g::clap_gui::TopologyRow::Shape) {
             _openMenu = 1;
+            _hoverMenuItem = -1;
             _menuItemCount = kTopologyShapeCount;
             _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
@@ -3074,6 +3107,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         }
         if (row == s3g::clap_gui::TopologyRow::Motion) {
             _openMenu = 2;
+            _hoverMenuItem = -1;
             _menuItemCount = kTopologyMotionModeCount;
             _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
@@ -3081,6 +3115,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         }
         if (row == s3g::clap_gui::TopologyRow::Variant) {
             _openMenu = 4;
+            _hoverMenuItem = -1;
             _menuItemCount = kTopologyVariantCount;
             _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
@@ -3088,6 +3123,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         }
         if (row == s3g::clap_gui::TopologyRow::Neighbors) {
             _openMenu = 3;
+            _hoverMenuItem = -1;
             _menuItemCount = 3;
             _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
@@ -3158,9 +3194,15 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     }
 }
 
+- (void)mouseMoved:(NSEvent*)event
+{
+    [self updateMenuHover:[self convertPoint:[event locationInWindow] fromView:nil]];
+}
+
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    [self updateMenuHover:pt];
     if (_dragTopologyView) {
         const CGFloat dx = pt.x - _lastDragPoint.x;
         const CGFloat dy = pt.y - _lastDragPoint.y;

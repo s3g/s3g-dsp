@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Multichannel Meter 64 - s3g-dsp</title>
+    <meta name="description" content="Multichannel Meter 64 documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="effects.html">Effects</a>
+        <a href="3oafx.html">3OAFX</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Multichannel Meter 64</h1>
+
+        <p><code>s3g Multichannel Meter 64</code> is a fixed 64-in/64-out passthrough meter for checking REAPER multichannel routing. It does not change the signal. Use <code>WIDTH</code> to show only the channels you care about while keeping the track bus predictable.</p>
+
+        <h2 id="views">Views</h2>
+
+        <ul>
+          <li><code>GRID</code>: channel cells with RMS fill and peak tick. This is the direct routing/debug view.</li>
+          <li><code>FIELD</code>: channels drawn as a spatial layout-style field. Choose common speaker layouts such as quad, quad plus overhead, cube, dome, 3OAFX 24, dodeca, octophonic ring, ring 12/16, or double ring 16/20. Marker size follows loudness, VU-style color follows level, and red marks very high peaks.</li>
+          <li><code>HEAT</code>: energy over time. Each lane scrolls horizontally so bursts, dropouts, and sustained channel activity are easier to see.</li>
+        </ul>
+
+        <h2 id="field-camera">Field Camera</h2>
+
+        <p>The field view uses the same inspection controls as the spatial plugins: <code>TOP</code>, <code>SIDE</code>, <code>3/4</code>, plus camera zoom. Drag in the field to rotate the 3/4 view without changing audio or routing.</p>
+
+        <h2 id="routing">Routing</h2>
+
+        <p>The plugin exposes one 64-channel input bus and one 64-channel output bus. Audio passes through channel-for-channel, and unused output lanes are cleared. If a project uses a smaller working width, leave the REAPER track width as needed and set <code>WIDTH</code> to the number of channels you want to inspect.</p>
+
+        <h2 id="use-cases">Use Cases</h2>
+
+        <ul>
+          <li>Confirm that a 24-channel or 25-channel chain is only using the intended lanes.</li>
+          <li>Check whether a fold-down or panner leaves unexpected audio on higher channels.</li>
+          <li>Watch a multichannel texture as an energy pattern instead of reading one peak meter at a time.</li>
+        </ul>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="mc-to-stereo-autogain.html">
+            <span>Previous</span>
+            MC to Stereo Autogain
+          </a>
+          <a class="page-nav-link next" href="3oafx.html">
+            <span>Next</span>
+            3OAFX
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Effect Pages</h2>
+          <a href="delay-processor.html">Delay Processor</a>
+          <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a>
+          <a href="multichannel-meter.html">Multichannel Meter 64</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#views">Views</a>
+          <a href="#field-camera">Field Camera</a>
+          <a href="#routing">Routing</a>
+          <a href="#use-cases">Use Cases</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

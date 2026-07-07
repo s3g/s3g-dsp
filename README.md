@@ -32,6 +32,10 @@ Current plugins:
   control layout.
 - `s3g MC to Stereo Autogain`: 128-channel input to true stereo output
   fold-down prototype.
+- `s3g Multichannel Meter 64`: fixed 64-in/64-out passthrough meter with
+  selectable visual width, level grid, spatial layout view, and energy history.
+- `s3g Ambisonic Energy Visualizer 64`: fixed 64-in/64-out passthrough analyzer
+  that projects `ACN/SN3D` channel energy onto a high-resolution heatmap.
 - `s3g 3OAFX Point Encoder`: 16 point-source input to third-order
   `ACN/SN3D` ambisonic output with AED placement, point mixer, physics scenes,
   and Geist-driven bond breaking.
@@ -78,6 +82,8 @@ Useful local docs:
 - `docs/delay-processor.html`: Delay Processor overview and topology map.
 - `docs/loop-processor.html`: Loop Processor workflow and control reference.
 - `docs/mc-to-stereo-autogain.html`: MC to Stereo Autogain fold-down reference.
+- `docs/multichannel-meter.html`: Multichannel Meter view modes and routing notes.
+- `docs/ambisonic-energy-visualizer.html`: Ambisonic Energy Visualizer reference.
 - `docs/3oafx-point-encoder.html`: 3OAFX Point Encoder reference.
 - `docs/3oafx-speaker-decoder.html`: 3OAFX Speaker Decoder reference.
 - `docs/3oafx-layout-panner.html`: Layout Panner reference.

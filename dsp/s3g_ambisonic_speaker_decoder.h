@@ -179,6 +179,7 @@ public:
 
     AmbiSpeakerDecoderParams params() const { return params_; }
     const std::array<AmbiSpeaker, kAmbiSpeakerDecoderMaxSpeakers>& speakers() const { return speakers_; }
+    const std::array<std::array<float, kAmbiSpeakerDecoderMaxChannels>, kAmbiSpeakerDecoderMaxSpeakers>& matrix() const { return matrix_; }
 
     AmbiSpeaker speaker(uint32_t index) const
     {

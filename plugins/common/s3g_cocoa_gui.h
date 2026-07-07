@@ -143,6 +143,84 @@ inline void drawMenu(NSString* name,
     [@"v" drawAtPoint:NSMakePoint(box.origin.x + box.size.width - 12, y) withAttributes:valueAttrs];
 }
 
+inline NSRect dropdownRowRect(NSRect menuRect, CGFloat itemH, uint32_t index)
+{
+    return NSMakeRect(menuRect.origin.x,
+                      menuRect.origin.y + itemH * static_cast<CGFloat>(index),
+                      menuRect.size.width,
+                      itemH);
+}
+
+inline int dropdownHitIndex(NSPoint point, NSRect menuRect, CGFloat itemH, uint32_t count)
+{
+    if (!NSPointInRect(point, menuRect) || count == 0u) return -1;
+    return static_cast<int>(std::min<uint32_t>(
+        count - 1u,
+        static_cast<uint32_t>((point.y - menuRect.origin.y) / itemH)));
+}
+
+inline void drawDropdownMenu(NSRect menuRect,
+                             CGFloat itemH,
+                             NSString* const* items,
+                             uint32_t count,
+                             int selectedIndex,
+                             int hoverIndex,
+                             NSDictionary* attrs,
+                             const Style& style)
+{
+    [color(0x080808) setFill];
+    NSRectFill(NSInsetRect(menuRect, -2.0, -2.0));
+    [color(0x151515) setFill];
+    NSRectFill(menuRect);
+    [color(0x6c6c6c) setStroke];
+    NSFrameRect(menuRect);
+    for (uint32_t i = 0; i < count; ++i) {
+        const NSRect row = dropdownRowRect(menuRect, itemH, i);
+        if (static_cast<int>(i) == hoverIndex) {
+            [color(0x343434) setFill];
+            NSRectFill(NSInsetRect(row, 1.0, 1.0));
+        } else if (static_cast<int>(i) == selectedIndex) {
+            [color(0x292929) setFill];
+            NSRectFill(NSInsetRect(row, 1.0, 1.0));
+        } else if ((i % 2u) == 1u) {
+            [style.strip setFill];
+            NSRectFill(NSInsetRect(row, 1.0, 1.0));
+        }
+        if (static_cast<int>(i) == selectedIndex || static_cast<int>(i) == hoverIndex) {
+            [style.fill setFill];
+            NSRectFill(NSMakeRect(row.origin.x + 2.0, row.origin.y + 2.0, 3.0, row.size.height - 4.0));
+        }
+        if (i > 0) {
+            [color(0x3a3a3a) setStroke];
+            [NSBezierPath strokeLineFromPoint:NSMakePoint(row.origin.x, row.origin.y)
+                                      toPoint:NSMakePoint(NSMaxX(row), row.origin.y)];
+        }
+        [items[i] drawAtPoint:NSMakePoint(row.origin.x + 9.0, row.origin.y + 4.0) withAttributes:attrs];
+    }
+}
+
+inline CGFloat headerTextY(NSRect headerRect)
+{
+    return headerRect.origin.y + 5.0;
+}
+
+inline void drawHeaderButton(NSRect button,
+                             NSRect headerRect,
+                             NSString* label,
+                             bool active,
+                             NSDictionary* attrs,
+                             const Style& style)
+{
+    [color(active ? 0x303030 : 0x151515) setFill];
+    NSRectFill(button);
+    [color(active ? 0xd1d1d1 : 0x555555) setStroke];
+    NSFrameRect(button);
+    const NSSize size = [label sizeWithAttributes:attrs];
+    [label drawAtPoint:NSMakePoint(button.origin.x + (button.size.width - size.width) * 0.5,
+                                   headerTextY(headerRect))
+        withAttributes:attrs];
+}
+
 struct TopologyUiValues {
     const char* shape = "";
     double amount = 0.0;

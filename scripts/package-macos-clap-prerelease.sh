@@ -20,6 +20,8 @@ bundles=(
   "$src_root/clap_loop_processor/s3g_loop_processor.clap"
   "$src_root/clap_macro_delay/s3g_macro_delay.clap"
   "$src_root/clap_macro_pitch/s3g_macro_pitch.clap"
+  "$src_root/clap_multichannel_meter/s3g_multichannel_meter.clap"
+  "$src_root/clap_ambisonic_energy_visualizer/s3g_ambisonic_energy_visualizer.clap"
 )
 
 for bundle in "${bundles[@]}"; do
@@ -63,6 +65,8 @@ Included plugins:
 - s3g Loop Processor 8ch
 - s3g Macro Delay 8ch
 - s3g Macro Pitch 8ch
+- s3g Multichannel Meter 64
+- s3g Ambisonic Energy Visualizer 64
 
 Docs:
 
