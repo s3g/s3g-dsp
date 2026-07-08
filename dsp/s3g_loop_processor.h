@@ -298,7 +298,7 @@ private:
             const float fadeOut = 1.0f - fadeIn;
             const float duck = 1.0f - clamp(seamDuck, 0.0f, 0.75f) * std::sin(3.14159265359f * u);
             const float tail = readLinear(sample, ch, phase);
-            const float head = readLinear(sample, ch, seamPhase);
+            const float head = readLinear(sample, ch, seamPhase - static_cast<double>(xfadeFrames));
             value = (tail * fadeOut + head * fadeIn) * duck;
         }
         return value;
@@ -334,7 +334,7 @@ private:
         const float fadeOut = 1.0f - fadeIn;
         const float duck = 1.0f - clamp(seamDuck, 0.0f, 0.75f) * std::sin(3.14159265359f * clamp(u, 0.0f, 1.0f));
         const float tail = readLinear(sample, ch, absolutePos);
-        const float head = readLinear(sample, ch, wrapPosition(loopStart + seamPhase, fullPeriod));
+        const float head = readLinear(sample, ch, wrapPosition(loopStart + seamPhase - static_cast<double>(fadeFrames), fullPeriod));
         return (tail * fadeOut + head * fadeIn) * duck;
     }
 

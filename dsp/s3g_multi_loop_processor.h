@@ -60,6 +60,37 @@ inline float multiLoopReadSourceLinear(const LoopProcessorSample& sample, uint32
     return a + (b - a) * frac;
 }
 
+inline float multiLoopReadSourceSeam(const LoopProcessorSample& sample, uint32_t lane, double pos)
+{
+    if (sample.frames < 4u || sample.channels == 0u || sample.audio.empty()) {
+        return multiLoopReadSourceLinear(sample, lane, pos);
+    }
+    const double period = static_cast<double>(sample.frames);
+    double phase = pos - std::floor(pos / period) * period;
+    if (phase < 0.0) {
+        phase += period;
+    }
+
+    const uint32_t fadeFrames = std::clamp<uint32_t>(
+        static_cast<uint32_t>(std::round(sample.sampleRate * 0.020)),
+        8u,
+        std::max<uint32_t>(8u, std::min<uint32_t>(4096u, sample.frames / 4u)));
+    if (fadeFrames <= 1u || sample.frames <= fadeFrames + 2u) {
+        return multiLoopReadSourceLinear(sample, lane, phase);
+    }
+
+    float taper = 1.0f;
+    if (phase < static_cast<double>(fadeFrames)) {
+        const float u = static_cast<float>(phase / std::max(1.0, static_cast<double>(fadeFrames)));
+        taper = 0.5f - 0.5f * std::cos(3.14159265359f * std::clamp(u, 0.0f, 1.0f));
+    } else if (phase >= period - static_cast<double>(fadeFrames)) {
+        const double seamPhase = phase - (period - static_cast<double>(fadeFrames));
+        const float u = static_cast<float>(seamPhase / std::max(1.0, static_cast<double>(fadeFrames)));
+        taper = 0.5f + 0.5f * std::cos(3.14159265359f * std::clamp(u, 0.0f, 1.0f));
+    }
+    return multiLoopReadSourceLinear(sample, lane, phase) * taper;
+}
+
 inline uint32_t multiLoopHashLane(uint32_t lane, uint32_t count)
 {
     uint32_t x = lane * 747796405u + 2891336453u;
@@ -170,8 +201,8 @@ inline std::shared_ptr<LoopProcessorSample> buildMultiLoopComposite(
         const double rateB = static_cast<double>(multiLoopSourceRateForIndex(b, count, sourceRateSpread));
         for (uint32_t frame = 0; frame < compositeFrames; ++frame) {
             const double t = static_cast<double>(frame) / compositeRate;
-            const float va = multiLoopReadSourceLinear(sampleA, lane, t * sampleA.sampleRate * rateA);
-            const float vb = multiLoopReadSourceLinear(sampleB, lane, t * sampleB.sampleRate * rateB);
+            const float va = multiLoopReadSourceSeam(sampleA, lane, t * sampleA.sampleRate * rateA);
+            const float vb = multiLoopReadSourceSeam(sampleB, lane, t * sampleB.sampleRate * rateB);
             composite->audio[static_cast<size_t>(frame) * kLoopProcessorChannels + lane] = va + (vb - va) * blend;
         }
     }

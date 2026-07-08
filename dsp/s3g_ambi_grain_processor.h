@@ -48,6 +48,7 @@ struct AmbiGrainParams {
     float density = 28.0f;
     float grainMs = 90.0f;
     float sourcePosition = 0.0f;
+    float scanSpeed = 1.0f;
     float positionJitter = 0.12f;
     float rate = 1.0f;
     float rateJitterOct = 0.04f;
@@ -85,6 +86,7 @@ inline AmbiGrainParams sanitizeAmbiGrainParams(AmbiGrainParams params)
     params.grainMs = clamp(params.grainMs, 8.0f, kAmbiGrainMaxGrainMs);
     params.density = clamp(params.density, 0.1f, ambiGrainDensityLimitForGrainMs(params.grainMs));
     params.sourcePosition = clamp(params.sourcePosition, 0.0f, 1.0f);
+    params.scanSpeed = clamp(params.scanSpeed, 0.0f, 4.0f);
     params.positionJitter = clamp(params.positionJitter, 0.0f, 1.0f);
     params.rate = clamp(params.rate, 0.125f, 4.0f);
     params.rateJitterOct = clamp(params.rateJitterOct, 0.0f, 1.0f);
@@ -154,7 +156,7 @@ public:
                         asyncCountdown_ += std::max(1.0, mean * (0.20 + static_cast<double>(randUnit()) * 1.80));
                     }
                 }
-                scanPhase_ += 1.0 / std::max(1.0, static_cast<double>(sample->frames));
+                scanPhase_ += static_cast<double>(params_.scanSpeed) / std::max(1.0, static_cast<double>(sample->frames));
                 if (scanPhase_ >= 1.0) scanPhase_ -= std::floor(scanPhase_);
             }
 

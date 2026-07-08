@@ -4,6 +4,7 @@
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
@@ -27,7 +28,7 @@
 namespace {
 
 constexpr uint32_t kChannelCount = s3g::kLoopProcessorChannels;
-constexpr uint32_t kStateVersion = 7;
+constexpr uint32_t kStateVersion = 8;
 
 constexpr clap_id kRateParamId = 1;
 constexpr clap_id kSpreadParamId = 2;
@@ -44,6 +45,8 @@ constexpr clap_id kLaneMaskParamId = 14;
 constexpr clap_id kRuleParamId = 15;
 constexpr clap_id kSourceRateParamId = 16;
 constexpr clap_id kSourceBlendParamId = 17;
+constexpr clap_id kMidiModeParamId = 18;
+constexpr clap_id kMidiRootParamId = 19;
 
 constexpr double kGuiW = 920.0;
 constexpr double kGuiH = 640.0;
@@ -69,6 +72,8 @@ struct SavedState {
     double gainDb = -12.0;
     double sourceRateSpread = 0.0;
     double sourceBlend = 1.0;
+    double midiMode = 0.0;
+    double midiRoot = 60.0;
     uint32_t launchMode = 0;
     uint32_t laneMask = 0xffu;
     uint32_t rule = 1;
@@ -89,6 +94,8 @@ struct ParameterTargets {
     std::atomic<float> gainDb { -12.0f };
     std::atomic<float> sourceRateSpread { 0.0f };
     std::atomic<float> sourceBlend { 1.0f };
+    std::atomic<uint32_t> midiMode { 0u };
+    std::atomic<float> midiRoot { 60.0f };
     std::atomic<uint32_t> launchMode { 0u };
     std::atomic<uint32_t> laneMask { 0xffu };
     std::atomic<uint32_t> rule { 1u };
@@ -107,6 +114,9 @@ struct Plugin {
     std::atomic<uint32_t> sourceCount { 0u };
     std::atomic<bool> playing { true };
     std::atomic<uint32_t> resetAfterStopFrames { 0u };
+    std::atomic<uint32_t> heldNotes { 0u };
+    std::atomic<int32_t> lastMidiNote { -1 };
+    std::atomic<float> midiRateScale { 1.0f };
     bool audioPlaying = true;
     std::atomic<float> outputPeak { 0.0f };
     std::array<std::atomic<float>, kChannelCount> lanePhases {};
@@ -148,6 +158,15 @@ const char* ruleName(uint32_t rule)
     }
 }
 
+const char* midiModeName(uint32_t mode)
+{
+    switch (std::min<uint32_t>(mode, 2u)) {
+    case 1: return "GATE";
+    case 2: return "TRIG";
+    default: return "OFF";
+    }
+}
+
 void setParam(Plugin& p, clap_id id, double value)
 {
     switch (id) {
@@ -163,6 +182,8 @@ void setParam(Plugin& p, clap_id id, double value)
     case kRuleParamId: p.targets.rule.store(static_cast<uint32_t>(std::clamp(std::floor(value + 0.5), 0.0, 3.0)), std::memory_order_release); break;
     case kSourceRateParamId: p.targets.sourceRateSpread.store(static_cast<float>(std::clamp(value, 0.0, 1.0)), std::memory_order_release); break;
     case kSourceBlendParamId: p.targets.sourceBlend.store(static_cast<float>(std::clamp(value, 0.0, 1.0)), std::memory_order_release); break;
+    case kMidiModeParamId: p.targets.midiMode.store(static_cast<uint32_t>(std::clamp(std::floor(value + 0.5), 0.0, 2.0)), std::memory_order_release); break;
+    case kMidiRootParamId: p.targets.midiRoot.store(static_cast<float>(std::clamp(std::floor(value + 0.5), 0.0, 127.0)), std::memory_order_release); break;
     case kXfadeParamId: p.targets.xfadePct.store(static_cast<float>(std::clamp(value, 0.0, 0.3)), std::memory_order_release); break;
     case kDuckParamId: p.targets.seamDuck.store(static_cast<float>(std::clamp(value, 0.0, 0.75)), std::memory_order_release); break;
     case kGainParamId: p.targets.gainDb.store(static_cast<float>(std::clamp(value, -60.0, 6.0)), std::memory_order_release); break;
@@ -345,9 +366,46 @@ void readEvents(Plugin& p, const clap_input_events_t* in)
     const uint32_t n = in->size(in);
     for (uint32_t i = 0; i < n; ++i) {
         const clap_event_header_t* ev = in->get(in, i);
-        if (ev && ev->space_id == CLAP_CORE_EVENT_SPACE_ID && ev->type == CLAP_EVENT_PARAM_VALUE) {
+        if (!ev || ev->space_id != CLAP_CORE_EVENT_SPACE_ID) {
+            continue;
+        }
+        if (ev->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
             setParam(p, param->param_id, param->value);
+        } else if (ev->type == CLAP_EVENT_NOTE_ON || ev->type == CLAP_EVENT_NOTE_OFF || ev->type == CLAP_EVENT_NOTE_CHOKE) {
+            const uint32_t midiMode = p.targets.midiMode.load(std::memory_order_acquire);
+            if (midiMode == 0u) {
+                continue;
+            }
+            const auto* note = reinterpret_cast<const clap_event_note_t*>(ev);
+            const bool on = ev->type == CLAP_EVENT_NOTE_ON && note->velocity > 0.0;
+            const bool off = ev->type == CLAP_EVENT_NOTE_OFF || ev->type == CLAP_EVENT_NOTE_CHOKE || (ev->type == CLAP_EVENT_NOTE_ON && note->velocity <= 0.0);
+            if (on) {
+                const float root = p.targets.midiRoot.load(std::memory_order_acquire);
+                const float semi = static_cast<float>(note->key) - root;
+                p.midiRateScale.store(std::pow(2.0f, semi / 12.0f), std::memory_order_release);
+                p.lastMidiNote.store(note->key, std::memory_order_release);
+                if (midiMode == 1u) {
+                    p.heldNotes.fetch_add(1u, std::memory_order_acq_rel);
+                } else {
+                    p.heldNotes.store(0u, std::memory_order_release);
+                }
+                p.resetAfterStopFrames.store(0u, std::memory_order_release);
+                p.playing.store(true, std::memory_order_release);
+                if (midiMode == 2u) {
+                    p.engine.resync();
+                    for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
+                        p.lanePhases[ch].store(0.0f, std::memory_order_relaxed);
+                    }
+                }
+            } else if (off && midiMode == 1u) {
+                uint32_t held = p.heldNotes.load(std::memory_order_acquire);
+                while (held > 0u && !p.heldNotes.compare_exchange_weak(held, held - 1u, std::memory_order_acq_rel)) {}
+                if (p.heldNotes.load(std::memory_order_acquire) == 0u) {
+                    p.playing.store(false, std::memory_order_release);
+                    p.midiRateScale.store(1.0f, std::memory_order_release);
+                }
+            }
         }
     }
 }
@@ -373,7 +431,11 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
             laneOut[ch] = out.data32[ch];
         }
         auto sample = std::atomic_load_explicit(&p->sample, std::memory_order_acquire);
-        const s3g::LoopProcessorParams params = snapshotParams(*p);
+        s3g::LoopProcessorParams params = snapshotParams(*p);
+        const uint32_t midiMode = p->targets.midiMode.load(std::memory_order_acquire);
+        if (midiMode != 0u) {
+            params.baseRate = std::clamp(params.baseRate * p->midiRateScale.load(std::memory_order_acquire), 0.125f, 4.0f);
+        }
         p->engine.setParams(params);
         const bool requestedPlaying = p->playing.load(std::memory_order_acquire);
         p->audioPlaying = requestedPlaying;
@@ -432,6 +494,21 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 }
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
+uint32_t notePortsCount(const clap_plugin_t*, bool isInput) { return isInput ? 1u : 0u; }
+
+bool notePortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_note_port_info_t* info)
+{
+    if (!isInput || index != 0u || !info) {
+        return false;
+    }
+    info->id = 30;
+    info->supported_dialects = CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
+    info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
+    std::strncpy(info->name, "MIDI In", sizeof(info->name));
+    return true;
+}
+const clap_plugin_note_ports_t notePorts { notePortsCount, notePortsGet };
+
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; };
 constexpr ParamDef kParamDefs[] {
     { kRateParamId, "Base Rate", 0.125, 4.0, 1.0 },
@@ -445,6 +522,8 @@ constexpr ParamDef kParamDefs[] {
     { kRuleParamId, "Lane Rule", 0.0, 3.0, 1.0 },
     { kSourceRateParamId, "Source Rate Spread", 0.0, 1.0, 0.0 },
     { kSourceBlendParamId, "Source Crossblend", 0.0, 1.0, 1.0 },
+    { kMidiModeParamId, "MIDI Mode", 0.0, 2.0, 0.0 },
+    { kMidiRootParamId, "MIDI Root Note", 0.0, 127.0, 60.0 },
     { kXfadeParamId, "Loop Crossfade", 0.0, 0.3, 0.08 },
     { kDuckParamId, "Seam Duck", 0.0, 0.75, 0.12 },
     { kGainParamId, "Output Gain", -60.0, 6.0, -12.0 },
@@ -458,7 +537,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     const auto& def = kParamDefs[index];
     info->id = def.id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
-    if (def.id == kLaneMaskParamId || def.id == kRuleParamId) {
+    if (def.id == kLaneMaskParamId || def.id == kRuleParamId || def.id == kMidiModeParamId || def.id == kMidiRootParamId) {
         info->flags |= CLAP_PARAM_IS_STEPPED;
     }
     if (def.id == kRuleParamId || def.id == kSourceRateParamId || def.id == kSourceBlendParamId) {
@@ -490,6 +569,8 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kRuleParamId: *value = p->targets.rule.load(std::memory_order_acquire); return true;
     case kSourceRateParamId: *value = p->targets.sourceRateSpread.load(std::memory_order_acquire); return true;
     case kSourceBlendParamId: *value = p->targets.sourceBlend.load(std::memory_order_acquire); return true;
+    case kMidiModeParamId: *value = p->targets.midiMode.load(std::memory_order_acquire); return true;
+    case kMidiRootParamId: *value = p->targets.midiRoot.load(std::memory_order_acquire); return true;
     case kXfadeParamId: *value = params.xfadePct; return true;
     case kDuckParamId: *value = params.seamDuck; return true;
     case kGainParamId: *value = params.gainDb; return true;
@@ -506,6 +587,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kDriftParamId) std::snprintf(display, size, "%+.3f", value);
     else if (id == kLoopStartParamId || id == kLoopLengthParamId || id == kXfadeParamId || id == kSourceRateParamId || id == kSourceBlendParamId) std::snprintf(display, size, "%.0f %%", value * 100.0);
     else if (id == kRuleParamId) std::snprintf(display, size, "%s", ruleName(static_cast<uint32_t>(std::clamp(std::floor(value + 0.5), 0.0, 3.0))));
+    else if (id == kMidiModeParamId) std::snprintf(display, size, "%s", midiModeName(static_cast<uint32_t>(std::clamp(std::floor(value + 0.5), 0.0, 2.0))));
+    else if (id == kMidiRootParamId) std::snprintf(display, size, "%.0f", value);
     else if (id == kLaneMaskParamId) std::snprintf(display, size, "0x%02X", static_cast<uint32_t>(std::clamp(std::floor(value + 0.5), 0.0, 255.0)));
     else std::snprintf(display, size, "%.3f", value);
     return true;
@@ -521,6 +604,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         v *= 0.01;
     } else if (id == kSpreadParamId && (v > 1.0 || v < -1.0)) {
         v *= 0.01;
+    } else if (id == kMidiModeParamId) {
+        if (std::strstr(display, "GATE") || std::strstr(display, "gate")) v = 1.0;
+        else if (std::strstr(display, "TRIG") || std::strstr(display, "trig")) v = 2.0;
+        else if (std::strstr(display, "OFF") || std::strstr(display, "off")) v = 0.0;
     }
     *value = v;
     return true;
@@ -547,6 +634,8 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     s.gainDb = params.gainDb;
     s.sourceRateSpread = p->targets.sourceRateSpread.load(std::memory_order_acquire);
     s.sourceBlend = p->targets.sourceBlend.load(std::memory_order_acquire);
+    s.midiMode = p->targets.midiMode.load(std::memory_order_acquire);
+    s.midiRoot = p->targets.midiRoot.load(std::memory_order_acquire);
     s.launchMode = 0u;
     s.laneMask = params.laneMask;
     s.rule = p->targets.rule.load(std::memory_order_acquire);
@@ -575,6 +664,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     setParam(*p, kRuleParamId, s.rule);
     setParam(*p, kSourceRateParamId, s.sourceRateSpread);
     setParam(*p, kSourceBlendParamId, s.sourceBlend);
+    setParam(*p, kMidiModeParamId, s.midiMode);
+    setParam(*p, kMidiRootParamId, s.midiRoot);
     setParam(*p, kXfadeParamId, s.xfadePct);
     setParam(*p, kDuckParamId, s.seamDuck);
     setParam(*p, kGainParamId, s.gainDb);
@@ -1061,7 +1152,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
         s3g::clap_gui::drawPanelFrame(panelX, y, panelW, h, style);
     };
     CGFloat y = 42.0;
-    const CGFloat engineH = _engineOpen ? 246.0 : headerH;
+    const CGFloat engineH = _engineOpen ? 294.0 : headerH;
     panelFrame(y, engineH);
     [self drawSectionHeader:@"ENGINE" open:_engineOpen y:y attrs:section];
     if (_engineOpen) {
@@ -1074,6 +1165,8 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
         [self drawSlider:@"STRT" value:[NSString stringWithFormat:@"%.0f%%", params.loopStart * 100.0f] norm:params.loopStart / 0.999f y:y + 172 attrs:small small:small];
         [self drawSlider:@"LEN" value:[NSString stringWithFormat:@"%.0f%%", params.loopLength * 100.0f] norm:(params.loopLength - 0.01f) / 0.99f y:y + 196 attrs:small small:small];
         [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.gainDb] norm:(params.gainDb + 60.0f) / 66.0f y:y + 220 attrs:small small:small];
+        [self drawMenuControl:@"MIDI" value:[NSString stringWithUTF8String:midiModeName(p->targets.midiMode.load(std::memory_order_acquire))] y:y + 244 attrs:small small:small];
+        [self drawSlider:@"ROOT" value:[NSString stringWithFormat:@"%.0f", p->targets.midiRoot.load(std::memory_order_acquire)] norm:p->targets.midiRoot.load(std::memory_order_acquire) / 127.0f y:y + 268 attrs:small small:small];
     }
     y += engineH + gap;
     const CGFloat relH = _relationshipsOpen ? 260.0 : headerH;
@@ -1091,6 +1184,11 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
         s3g::clap_gui::Style style;
         const int selected = static_cast<int>(p->targets.rule.load(std::memory_order_acquire));
         s3g::clap_gui::drawDropdownMenu(NSMakeRect(_menuOrigin.x, _menuOrigin.y, 150, 18.0 * 4.0), 18.0, items, 4, selected, -1, small, style);
+    } else if (_openMenu == 2) {
+        NSString* items[] = { @"OFF", @"GATE", @"TRIG" };
+        s3g::clap_gui::Style style;
+        const int selected = static_cast<int>(p->targets.midiMode.load(std::memory_order_acquire));
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(_menuOrigin.x, _menuOrigin.y, 150, 18.0 * 3.0), 18.0, items, 3, selected, -1, small, style);
     }
 }
 - (void)updateSlider:(NSPoint)pt
@@ -1110,6 +1208,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     case 10: setParam(*p, kLoopLengthParamId, 0.01 + n * 0.99); break;
     case 11: setParam(*p, kSourceRateParamId, n); break;
     case 12: setParam(*p, kSourceBlendParamId, n); break;
+    case 13: setParam(*p, kMidiRootParamId, n * 127.0); break;
     default: break;
     }
     [self setNeedsDisplay:YES];
@@ -1118,13 +1217,20 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     auto* p = static_cast<Plugin*>(_plugin);
-    if (_openMenu == 1) {
-        const int hit = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(_menuOrigin.x, _menuOrigin.y, 150, 18.0 * 4.0), 18.0, 4);
+    if (_openMenu == 1 || _openMenu == 2) {
+        const uint32_t menuCount = _openMenu == 1 ? 4u : 3u;
+        const int hit = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(_menuOrigin.x, _menuOrigin.y, 150, 18.0 * static_cast<CGFloat>(menuCount)), 18.0, menuCount);
         if (hit >= 0) {
-            setParam(*p, kRuleParamId, hit);
+            if (_openMenu == 1) {
+                setParam(*p, kRuleParamId, hit);
 #if defined(__APPLE__)
-            rebuildCompositeSample(*p, false);
+                rebuildCompositeSample(*p, false);
 #endif
+            } else if (_openMenu == 2) {
+                setParam(*p, kMidiModeParamId, hit);
+                p->heldNotes.store(0u, std::memory_order_release);
+                p->midiRateScale.store(1.0f, std::memory_order_release);
+            }
         }
         _openMenu = 0;
         _menuItemCount = 0;
@@ -1212,7 +1318,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     const CGFloat headerH = 20.0;
     const CGFloat gap = 10.0;
     CGFloat engineY = 42.0;
-    CGFloat engineH = _engineOpen ? 246.0 : headerH;
+    CGFloat engineH = _engineOpen ? 294.0 : headerH;
     CGFloat relY = engineY + engineH + gap;
     CGFloat relH = _relationshipsOpen ? 260.0 : headerH;
     if (NSPointInRect(pt, NSMakeRect(kToolboxX, engineY, kToolboxW, 20))) {
@@ -1232,6 +1338,13 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
         [self setNeedsDisplay:YES];
         return;
     }
+    if (_engineOpen && NSPointInRect(pt, NSMakeRect(kSliderLabelX - 4.0, engineY + 244 - 8, 296, 24))) {
+        _openMenu = 2;
+        _menuItemCount = 3;
+        _menuOrigin = NSMakePoint(kSliderTrackX, engineY + 261);
+        [self setNeedsDisplay:YES];
+        return;
+    }
     struct RowHit { CGFloat y; int slider; BOOL open; };
     const RowHit rows[] = {
         { engineY + 52, 11, _engineOpen },
@@ -1242,6 +1355,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
         { engineY + 172, 9, _engineOpen },
         { engineY + 196, 10, _engineOpen },
         { engineY + 220, 4, _engineOpen },
+        { engineY + 268, 13, _engineOpen },
         { relY + 28, 5, _relationshipsOpen },
         { relY + 52, 6, _relationshipsOpen },
         { relY + 76, 7, _relationshipsOpen },
@@ -1305,6 +1419,7 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
+    if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
 #if defined(__APPLE__)

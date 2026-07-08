@@ -71,6 +71,17 @@ cmake --build --preset clap</code></pre>
   -DS3G_CLAP_INCLUDE_DIR=/path/to/clap/include
 cmake --build build-clap</code></pre>
 
+        <h2 id="standalone-apps">Build Standalone Apps</h2>
+
+        <p>Experimental macOS standalone app targets are built separately from the CLAP plugin bundle targets:</p>
+
+        <pre><code>cmake --preset apps
+cmake --build --preset apps</code></pre>
+
+        <p>The first standalone prototype is:</p>
+
+        <pre><code>build-apps/apps/multi_loop_processor_standalone/s3g Multi Loop Processor.app</code></pre>
+
         <h2 id="install-local">Install Local Build</h2>
 
         <p>Install the CLAP bundles:</p>

@@ -42,6 +42,7 @@ constexpr clap_id kJumpStepsParamId = 11;
 constexpr clap_id kGainParamId = 12;
 constexpr clap_id kSyncParamId = 13;
 constexpr clap_id kEnvelopeParamId = 14;
+constexpr clap_id kScanSpeedParamId = 15;
 
 constexpr double kGuiW = 920.0;
 constexpr double kGuiH = 640.0;
@@ -59,6 +60,7 @@ struct SavedState {
     double density = 28.0;
     double grainMs = 90.0;
     double sourcePosition = 0.0;
+    double scanSpeed = 1.0;
     double positionJitter = 0.12;
     double rate = 1.0;
     double rateJitter = 0.04;
@@ -78,6 +80,7 @@ struct Targets {
     std::atomic<float> density { 28.0f };
     std::atomic<float> grainMs { 90.0f };
     std::atomic<float> sourcePosition { 0.0f };
+    std::atomic<float> scanSpeed { 1.0f };
     std::atomic<float> positionJitter { 0.12f };
     std::atomic<float> rate { 1.0f };
     std::atomic<float> rateJitter { 0.04f };
@@ -99,6 +102,7 @@ struct Plugin {
     std::shared_ptr<const s3g::AmbiGrainSample> sample;
     std::string samplePath;
     std::atomic<bool> playing { true };
+    std::atomic<bool> resetRequested { false };
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<float> visualPhase { 0.0f };
     std::atomic<float> visualPulse { 0.0f };
@@ -139,6 +143,7 @@ s3g::AmbiGrainParams snapshotParams(const Plugin& p)
     params.density = p.targets.density.load(std::memory_order_acquire);
     params.grainMs = p.targets.grainMs.load(std::memory_order_acquire);
     params.sourcePosition = p.targets.sourcePosition.load(std::memory_order_acquire);
+    params.scanSpeed = p.targets.scanSpeed.load(std::memory_order_acquire);
     params.positionJitter = p.targets.positionJitter.load(std::memory_order_acquire);
     params.rate = p.targets.rate.load(std::memory_order_acquire);
     params.rateJitterOct = p.targets.rateJitter.load(std::memory_order_acquire);
@@ -174,6 +179,7 @@ void setParam(Plugin& p, clap_id id, double value)
         break;
     }
     case kSourcePosParamId: p.targets.sourcePosition.store(static_cast<float>(std::clamp(value, 0.0, 1.0)), std::memory_order_release); break;
+    case kScanSpeedParamId: p.targets.scanSpeed.store(static_cast<float>(std::clamp(value, 0.0, 4.0)), std::memory_order_release); break;
     case kJitterParamId: p.targets.positionJitter.store(static_cast<float>(std::clamp(value, 0.0, 1.0)), std::memory_order_release); break;
     case kRateParamId: p.targets.rate.store(static_cast<float>(std::clamp(value, 0.125, 4.0)), std::memory_order_release); break;
     case kRateJitterParamId: p.targets.rateJitter.store(static_cast<float>(std::clamp(value, 0.0, 1.0)), std::memory_order_release); break;
@@ -308,12 +314,23 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         auto sample = std::atomic_load_explicit(&p->sample, std::memory_order_acquire);
         const s3g::AmbiGrainParams params = snapshotParams(*p);
         const bool playing = p->playing.load(std::memory_order_acquire);
+        if (p->resetRequested.exchange(false, std::memory_order_acq_rel)) {
+            p->engine.reset();
+            p->visualPhase.store(0.0f, std::memory_order_relaxed);
+            p->visualPulse.store(0.0f, std::memory_order_relaxed);
+            p->outputPeak.store(0.0f, std::memory_order_relaxed);
+        }
         p->engine.setParams(params);
         p->engine.process(sample, laneOut, std::min<uint32_t>(out.channel_count, kChannelCount), frames, playing);
         if (playing && sample) {
             const float advance = static_cast<float>(static_cast<double>(frames) / std::max(1.0, p->sampleRate));
             const float densityStep = params.density * advance;
-            float phase = p->visualPhase.load(std::memory_order_relaxed) + advance / std::max(0.25f, params.grainMs * 0.001f);
+            float phaseAdvance = advance / std::max(0.25f, params.grainMs * 0.001f);
+            if (params.mode == s3g::AmbiGrainMode::Scan && params.sourcePosition <= 0.0001f) {
+                const double duration = static_cast<double>(sample->frames) / std::max(1.0, sample->sampleRate);
+                phaseAdvance = static_cast<float>(advance * params.scanSpeed / std::max(0.001, duration));
+            }
+            float phase = p->visualPhase.load(std::memory_order_relaxed) + phaseAdvance;
             phase -= std::floor(phase);
             p->visualPhase.store(phase, std::memory_order_relaxed);
             const float pulse = std::max(p->visualPulse.load(std::memory_order_relaxed) * 0.88f,
@@ -359,6 +376,7 @@ constexpr ParamDef kParamDefs[] {
     { kDensityParamId, "Density", 0.1, s3g::kAmbiGrainMaxDensity, 28.0 },
     { kGrainMsParamId, "Grain Size", 8.0, s3g::kAmbiGrainMaxGrainMs, 90.0 },
     { kSourcePosParamId, "Source Position", 0.0, 1.0, 0.0 },
+    { kScanSpeedParamId, "Scan Speed", 0.0, 4.0, 1.0 },
     { kJitterParamId, "Position Jitter", 0.0, 1.0, 0.12 },
     { kRateParamId, "Rate", 0.125, 4.0, 1.0 },
     { kRateJitterParamId, "Rate Jitter", 0.0, 1.0, 0.04 },
@@ -397,6 +415,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kDensityParamId: *value = p->targets.density.load(std::memory_order_acquire); return true;
     case kGrainMsParamId: *value = p->targets.grainMs.load(std::memory_order_acquire); return true;
     case kSourcePosParamId: *value = p->targets.sourcePosition.load(std::memory_order_acquire); return true;
+    case kScanSpeedParamId: *value = p->targets.scanSpeed.load(std::memory_order_acquire); return true;
     case kJitterParamId: *value = p->targets.positionJitter.load(std::memory_order_acquire); return true;
     case kRateParamId: *value = p->targets.rate.load(std::memory_order_acquire); return true;
     case kRateJitterParamId: *value = p->targets.rateJitter.load(std::memory_order_acquire); return true;
@@ -420,7 +439,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kGainParamId) std::snprintf(display, size, "%+.1f dB", value);
     else if (id == kGrainMsParamId) std::snprintf(display, size, "%.1f ms", value);
     else if (id == kDensityParamId) std::snprintf(display, size, "%.1f/s", value);
-    else if (id == kRateParamId) std::snprintf(display, size, "%.3fx", value);
+    else if (id == kRateParamId || id == kScanSpeedParamId) std::snprintf(display, size, "%.3fx", value);
     else if (id == kSourcePosParamId || id == kJitterParamId || id == kRateJitterParamId || id == kReverseParamId || id == kFreezeParamId) std::snprintf(display, size, "%.0f %%", value * 100.0);
     else std::snprintf(display, size, "%.3f", value);
     return true;
@@ -457,6 +476,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     paramsGetValue(plugin, kDensityParamId, &s.density);
     paramsGetValue(plugin, kGrainMsParamId, &s.grainMs);
     paramsGetValue(plugin, kSourcePosParamId, &s.sourcePosition);
+    paramsGetValue(plugin, kScanSpeedParamId, &s.scanSpeed);
     paramsGetValue(plugin, kJitterParamId, &s.positionJitter);
     paramsGetValue(plugin, kRateParamId, &s.rate);
     paramsGetValue(plugin, kRateJitterParamId, &s.rateJitter);
@@ -482,6 +502,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     setParam(*p, kDensityParamId, s.density);
     setParam(*p, kGrainMsParamId, s.grainMs);
     setParam(*p, kSourcePosParamId, s.sourcePosition);
+    setParam(*p, kScanSpeedParamId, s.scanSpeed);
     setParam(*p, kJitterParamId, s.positionJitter);
     setParam(*p, kRateParamId, s.rate);
     setParam(*p, kRateJitterParamId, s.rateJitter);
@@ -512,6 +533,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
+- (void)drawTransportButton:(NSRect)rect kind:(int)kind active:(BOOL)active;
 - (void)drawSlider:(NSString*)label param:(clap_id)param y:(CGFloat)y min:(double)min max:(double)max attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
 - (void)drawSlider:(NSString*)label param:(clap_id)param y:(CGFloat)y min:(double)min max:(double)max attrs:(NSDictionary*)attrs small:(NSDictionary*)small active:(BOOL)active;
 - (void)drawMenuControl:(NSString*)label param:(clap_id)param y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
@@ -558,6 +580,29 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
                                    rect.origin.y + (rect.size.height - size.height) * 0.5 - 1.0)
         withAttributes:a];
     [a release];
+}
+- (void)drawTransportButton:(NSRect)rect kind:(int)kind active:(BOOL)active
+{
+    [c(active ? 0xd1d1d1 : 0x141414) setFill];
+    NSRectFill(rect);
+    [c(0xd1d1d1) setStroke];
+    NSFrameRect(rect);
+    [c(active ? 0x0c0c0c : 0xd1d1d1) setFill];
+    const CGFloat cx = NSMidX(rect);
+    const CGFloat cy = NSMidY(rect);
+    if (kind == 0) {
+        NSBezierPath* tri = [NSBezierPath bezierPath];
+        [tri moveToPoint:NSMakePoint(cx - 3.0, cy - 5.5)];
+        [tri lineToPoint:NSMakePoint(cx - 3.0, cy + 5.5)];
+        [tri lineToPoint:NSMakePoint(cx + 6.0, cy)];
+        [tri closePath];
+        [tri fill];
+    } else if (kind == 1) {
+        NSRectFill(NSMakeRect(cx - 5.5, cy - 5.5, 3.5, 11.0));
+        NSRectFill(NSMakeRect(cx + 2.0, cy - 5.5, 3.5, 11.0));
+    } else {
+        NSRectFill(NSMakeRect(cx - 5.5, cy - 5.5, 11.0, 11.0));
+    }
 }
 - (void)drawSlider:(NSString*)label param:(clap_id)param y:(CGFloat)y min:(double)min max:(double)max attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
@@ -754,12 +799,15 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
     const BOOL isScan = prm.mode == s3g::AmbiGrainMode::Scan;
     const BOOL isFreeze = prm.mode == s3g::AmbiGrainMode::Freeze;
     const BOOL isJump = prm.mode == s3g::AmbiGrainMode::Jump;
+    const BOOL isPlaying = p->playing.load(std::memory_order_acquire);
     [@"s3g Ambi Grain Processor" drawAtPoint:NSMakePoint(18, 16) withAttributes:title];
     [self drawButton:@"LOAD" rect:NSMakeRect(18, 48, 70, 24) active:NO attrs:text];
-    [self drawButton:p->playing.load() ? @"PAUSE" : @"PLAY" rect:NSMakeRect(96, 48, 70, 24) active:p->playing.load() attrs:text];
+    [self drawTransportButton:NSMakeRect(96, 49, 26, 22) kind:0 active:isPlaying];
+    [self drawTransportButton:NSMakeRect(130, 49, 26, 22) kind:1 active:!isPlaying];
+    [self drawTransportButton:NSMakeRect(164, 49, 26, 22) kind:2 active:NO];
     auto sample = std::atomic_load_explicit(&p->sample, std::memory_order_acquire);
     NSString* info = sample ? [NSString stringWithFormat:@"%u ch / %.1f sec / %.0f Hz", sample->channels, static_cast<double>(sample->frames) / sample->sampleRate, sample->sampleRate] : @"no ambisonic file loaded";
-    [info drawAtPoint:NSMakePoint(178, 53) withAttributes:text];
+    [info drawAtPoint:NSMakePoint(202, 53) withAttributes:text];
     const float peak = p->outputPeak.load(std::memory_order_relaxed);
     [[NSString stringWithFormat:@"PK %.2f", peak] drawAtPoint:NSMakePoint(858, 16) withAttributes:text];
 
@@ -780,11 +828,12 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
     s3g::clap_gui::drawPanelHeader(@"SOURCE", true, kToolboxX, 246, kToolboxW, 20, text, style);
     NSString* sourceLabel = isScan ? @"S-SRC" : (isJump ? @"J-SRC" : @"SRC");
     [self drawSlider:sourceLabel param:kSourcePosParamId y:280 min:0 max:1 attrs:text small:small active:(isScan || isJump)];
-    [self drawSlider:@"JIT" param:kJitterParamId y:306 min:0 max:1 attrs:text small:small];
-    [self drawSlider:@"RJIT" param:kRateJitterParamId y:332 min:0 max:1 attrs:text small:small];
-    [self drawSlider:@"REV" param:kReverseParamId y:358 min:0 max:1 attrs:text small:small];
-    [self drawSlider:@"F-SRC" param:kFreezeParamId y:384 min:0 max:1 attrs:text small:small active:isFreeze];
-    [self drawSlider:@"J-STP" param:kJumpStepsParamId y:410 min:2 max:64 attrs:text small:small active:isJump];
+    [self drawSlider:@"S-SPD" param:kScanSpeedParamId y:306 min:0 max:4 attrs:text small:small active:isScan];
+    [self drawSlider:@"JIT" param:kJitterParamId y:332 min:0 max:1 attrs:text small:small];
+    [self drawSlider:@"RJIT" param:kRateJitterParamId y:358 min:0 max:1 attrs:text small:small];
+    [self drawSlider:@"REV" param:kReverseParamId y:384 min:0 max:1 attrs:text small:small];
+    [self drawSlider:@"F-SRC" param:kFreezeParamId y:410 min:0 max:1 attrs:text small:small active:isFreeze];
+    [self drawSlider:@"J-STP" param:kJumpStepsParamId y:436 min:2 max:64 attrs:text small:small active:isJump];
 
     s3g::clap_gui::drawPanelFrame(kToolboxX, 470, kToolboxW, 118, style);
     s3g::clap_gui::drawPanelHeader(@"WINDOW", true, kToolboxX, 470, kToolboxW, 20, text, style);
@@ -815,9 +864,10 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
     struct Row { clap_id id; double min; double max; CGFloat y; };
     const Row rows[] = {
         {kDensityParamId,0.1,s3g::kAmbiGrainMaxDensity,134},{kGrainMsParamId,8,s3g::kAmbiGrainMaxGrainMs,160},
-        {kRateParamId,0.125,4,186},{kSourcePosParamId,0,1,280},{kJitterParamId,0,1,306},
-        {kRateJitterParamId,0,1,332},{kReverseParamId,0,1,358},{kFreezeParamId,0,1,384},
-        {kJumpStepsParamId,2,64,410},{kGainParamId,-60,6,556}
+        {kRateParamId,0.125,4,186},{kSourcePosParamId,0,1,280},{kScanSpeedParamId,0,4,306},
+        {kJitterParamId,0,1,332},{kRateJitterParamId,0,1,358},
+        {kReverseParamId,0,1,384},{kFreezeParamId,0,1,410},{kJumpStepsParamId,2,64,436},
+        {kGainParamId,-60,6,556}
     };
     if (_dragSlider <= 0) return;
     const Row& row = rows[_dragSlider - 1];
@@ -852,13 +902,28 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
         _hoverMenuIndex = -1;
     }
     if (NSPointInRect(pt, NSMakeRect(18,48,70,24))) { chooseSampleFromFinder(*p); [self setNeedsDisplay:YES]; return; }
-    if (NSPointInRect(pt, NSMakeRect(96,48,70,24))) { p->playing.store(!p->playing.load()); [self setNeedsDisplay:YES]; return; }
+    if (NSPointInRect(pt, NSMakeRect(96,49,26,22))) {
+        p->playing.store(true, std::memory_order_release);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, NSMakeRect(130,49,26,22))) {
+        p->playing.store(!p->playing.load(std::memory_order_acquire), std::memory_order_release);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, NSMakeRect(164,49,26,22))) {
+        p->playing.store(false, std::memory_order_release);
+        p->resetRequested.store(true, std::memory_order_release);
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (NSPointInRect(pt, NSMakeRect(kSliderTrackX, 81, 178, 16))) { _openMenu = 1; [self setNeedsDisplay:YES]; return; }
     if (NSPointInRect(pt, NSMakeRect(kSliderTrackX, 107, 178, 16))) { _openMenu = 2; [self setNeedsDisplay:YES]; return; }
     if (NSPointInRect(pt, NSMakeRect(kSliderTrackX, 503, 178, 16))) { _openMenu = 3; [self setNeedsDisplay:YES]; return; }
     if (NSPointInRect(pt, NSMakeRect(kSliderTrackX, 529, 178, 16))) { _openMenu = 4; [self setNeedsDisplay:YES]; return; }
-    const CGFloat ys[] = {134,160,186,280,306,332,358,384,410,556};
-    for (int i = 0; i < 10; ++i) {
+    const CGFloat ys[] = {134,160,186,280,306,332,358,384,410,436,556};
+    for (int i = 0; i < 11; ++i) {
         if (pt.y >= ys[i] - 5 && pt.y <= ys[i] + 18 && pt.x >= kSliderTrackX - 10 && pt.x <= kSliderTrackX + kSliderTrackW + 10) {
             _dragSlider = i + 1;
             [self updateSlider:pt];

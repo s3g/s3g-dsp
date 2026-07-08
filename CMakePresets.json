@@ -15,6 +15,15 @@
       "cacheVariables": {
         "S3G_BUILD_CLAP_PLUGIN": "ON"
       }
+    },
+    {
+      "name": "apps",
+      "displayName": "Standalone Apps",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-apps",
+      "cacheVariables": {
+        "S3G_BUILD_STANDALONE_APPS": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -25,6 +34,10 @@
     {
       "name": "clap",
       "configurePreset": "clap"
+    },
+    {
+      "name": "apps",
+      "configurePreset": "apps"
     }
   ]
 }

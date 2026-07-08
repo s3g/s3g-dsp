@@ -40,6 +40,7 @@
         <ul>
           <li>Insert <code>s3g Ambi Grain Processor</code> on a 16-channel REAPER track.</li>
           <li>Click <code>LOAD</code> and choose an ambisonic audio file.</li>
+          <li>Use the transport icons to play, pause/resume, or stop and return the scan/grain state to the start.</li>
           <li>Use <code>ORD</code> to choose whether the loaded file is treated as 1OA, 2OA, or 3OA.</li>
           <li>Follow the plugin with an ambisonic decoder, stereo decoder, head decoder, or energy visualizer.</li>
         </ul>
@@ -67,6 +68,7 @@
             <tr><td>DENS</td><td>Grain density in events per second. Long grain sizes reduce the available density range for stable playback.</td></tr>
             <tr><td>GMS</td><td>Grain size in milliseconds, from short cuts to long 4-second sparse cloud windows.</td></tr>
             <tr><td>S-SRC</td><td>Scan source. At 0%, SCAN reads through the full file; above 0%, it scans from the chosen source point.</td></tr>
+            <tr><td>S-SPD</td><td>Auto-scan speed used by SCAN when S-SRC is 0%. 1.0x scans through the file at normal timeline speed.</td></tr>
             <tr><td>J-SRC</td><td>Jump source used by JUMP mode.</td></tr>
             <tr><td>JIT</td><td>Source-position jitter around the current grain position.</td></tr>
             <tr><td>RATE</td><td>Grain playback rate.</td></tr>

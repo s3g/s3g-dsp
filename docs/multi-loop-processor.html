@@ -45,6 +45,7 @@
           <li>Choose a <code>RULE</code> to decide how files feed the eight lanes.</li>
           <li>Use <code>SRAT</code> and <code>XBLD</code> to shape the source layer.</li>
           <li>Use the shared loop engine controls to set rate, loop region, seam crossfade, and output gain.</li>
+          <li>Optionally set <code>MIDI</code> to <code>GATE</code> or <code>TRIG</code> so note input can launch and transpose playback.</li>
           <li>Use <code>SYNC</code> to realign lane playheads after editing loop timing.</li>
         </ul>
 
@@ -109,6 +110,8 @@
             <tr><td>STRT</td><td>Loop start position inside the composite.</td></tr>
             <tr><td>LEN</td><td>Loop length. The default is the full composite.</td></tr>
             <tr><td>OUT</td><td>Output gain after lane playback.</td></tr>
+            <tr><td>MIDI</td><td>MIDI input behavior. <code>OFF</code> ignores notes, <code>GATE</code> plays while notes are held, and <code>TRIG</code> retriggers from note-on.</td></tr>
+            <tr><td>ROOT</td><td>Root MIDI note for pitch-follow playback rate. Note 60 is middle C.</td></tr>
           </tbody>
         </table>
 
@@ -130,6 +133,14 @@
             <tr><td>GLD</td><td>Glide time for relationship changes.</td></tr>
           </tbody>
         </table>
+
+        <h2 id="standalone-app">Standalone Prototype</h2>
+
+        <p>The macOS standalone prototype uses the same shared DSP engine, but runs outside REAPER with <code>AVAudioEngine</code> and <code>CoreMIDI</code>. For this app, the MIDI map follows the nanoKONTROL2 control layout used in the Max controller patch.</p>
+
+        <p>Sliders <code>CC0-CC7</code> control rate, spread, drift, center, glide, start, length, and output. Knobs <code>CC16</code> and <code>CC17</code> control crossfade and ducking. SOLO buttons <code>CC32-CC35</code> choose the source rule. Transport buttons control play, stop, sync, rule advance, rebuild, and toggle play. MIDI notes are ignored in the standalone app.</p>
+
+        <p>If the active audio device has fewer than eight outputs, the app folds the eight internal lanes down across the available output channels for auditioning.</p>
 
         <h2 id="notes">Current Notes</h2>
 
@@ -170,6 +181,7 @@
           <a href="#source-controls">Source Controls</a>
           <a href="#loop-engine">Loop Engine</a>
           <a href="#relationships">Relationships</a>
+          <a href="#standalone-app">Standalone Prototype</a>
           <a href="#notes">Current Notes</a>
           <a href="#testing">Testing</a>
         </div>

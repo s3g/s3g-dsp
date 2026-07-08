@@ -261,6 +261,44 @@ int main()
         std::cerr << "Loop Processor XFD stress peak outside expected range: " << loopXfdStressPeak << "\n";
         return 1;
     }
+
+    auto discontinuousLoop = std::make_shared<s3g::LoopProcessorSample>();
+    discontinuousLoop->frames = 2048u;
+    discontinuousLoop->channels = s3g::kLoopProcessorChannels;
+    discontinuousLoop->sampleRate = 48000.0;
+    discontinuousLoop->audio.assign(static_cast<size_t>(discontinuousLoop->frames) * discontinuousLoop->channels, 0.0f);
+    for (uint32_t frame = 0; frame < discontinuousLoop->frames; ++frame) {
+        const float value = frame < discontinuousLoop->frames / 2u ? 0.8f : -0.8f;
+        for (uint32_t ch = 0; ch < discontinuousLoop->channels; ++ch) {
+            discontinuousLoop->audio[static_cast<size_t>(frame) * discontinuousLoop->channels + ch] = value;
+        }
+    }
+    s3g::LoopProcessorEngine seamEngine;
+    seamEngine.prepare(48000.0);
+    s3g::LoopProcessorParams seamParams;
+    seamParams.baseRate = 1.0f;
+    seamParams.rateSpread = 0.0f;
+    seamParams.driftAmount = 0.0f;
+    seamParams.loopStart = 0.0f;
+    seamParams.loopLength = 1.0f;
+    seamParams.xfadePct = 0.12f;
+    seamParams.seamDuck = 0.0f;
+    seamParams.gainDb = -12.0f;
+    seamEngine.setParams(seamParams);
+    float seamMaxStep = 0.0f;
+    float seamPrev = 0.0f;
+    for (int block = 0; block < 12; ++block) {
+        seamEngine.process(discontinuousLoop, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
+        for (float value : loopBuffers[0]) {
+            seamMaxStep = std::max(seamMaxStep, std::abs(value - seamPrev));
+            seamPrev = value;
+        }
+    }
+    if (seamMaxStep > 0.40f) {
+        std::cerr << "Loop Processor seam step too large: " << seamMaxStep << "\n";
+        return 1;
+    }
+
     float loopRegionStressPeak = 0.0f;
     float loopRegionStressMaxStep = 0.0f;
     float loopRegionStressPrev = 0.0f;
@@ -356,11 +394,12 @@ int main()
         std::cerr << "Multi Loop interleave composite was not built\n";
         return 1;
     }
+    const uint32_t assignmentFrame = 16u;
     for (uint32_t lane = 0; lane < s3g::kLoopProcessorChannels; ++lane) {
         const uint32_t source = lane % 4u;
         const uint32_t channel = s3g::multiLoopSourceChannelForLane(lane, multiSources[source]->channels);
         const float expected = static_cast<float>(source * 1000u + channel);
-        if (!near(sampleAt(*multiComposite, 0u, lane), expected)) {
+        if (!near(sampleAt(*multiComposite, assignmentFrame, lane), expected)) {
             std::cerr << "Multi Loop interleave source/lane assignment failed\n";
             return 1;
         }
@@ -372,7 +411,7 @@ int main()
         const uint32_t source = s3g::multiLoopOrderedSourceForLane(lane, 4u);
         const uint32_t channel = s3g::multiLoopSourceChannelForLane(lane, multiSources[source]->channels);
         const float expected = static_cast<float>(source * 1000u + channel);
-        if (!near(sampleAt(*multiComposite, 0u, lane), expected)) {
+        if (!near(sampleAt(*multiComposite, assignmentFrame, lane), expected)) {
             std::cerr << "Multi Loop ordered source/lane assignment failed\n";
             return 1;
         }
@@ -385,8 +424,8 @@ int main()
         const uint32_t source = s3g::multiLoopHashLane(lane, 4u);
         const uint32_t channel = s3g::multiLoopSourceChannelForLane(lane, multiSources[source]->channels);
         const float expected = static_cast<float>(source * 1000u + channel);
-        if (!near(sampleAt(*randomA, 0u, lane), expected)
-            || !near(sampleAt(*randomA, 0u, lane), sampleAt(*randomB, 0u, lane))) {
+        if (!near(sampleAt(*randomA, assignmentFrame, lane), expected)
+            || !near(sampleAt(*randomA, assignmentFrame, lane), sampleAt(*randomB, assignmentFrame, lane))) {
             std::cerr << "Multi Loop random source/lane assignment was not deterministic\n";
             return 1;
         }
@@ -399,10 +438,10 @@ int main()
     multiOptions.sourceBlend = 1.0f;
     multiComposite = s3g::buildMultiLoopComposite(morphSources, 2u, multiOptions);
     if (!multiComposite
-        || !near(sampleAt(*multiComposite, 0u, 0u), 0.0f)
-        || !near(sampleAt(*multiComposite, 0u, 7u), 1000.0f)
-        || sampleAt(*multiComposite, 0u, 3u) <= 0.0f
-        || sampleAt(*multiComposite, 0u, 3u) >= 1000.0f) {
+        || !near(sampleAt(*multiComposite, assignmentFrame, 0u), 0.0f)
+        || !near(sampleAt(*multiComposite, assignmentFrame, 7u), 1000.0f)
+        || sampleAt(*multiComposite, assignmentFrame, 3u) <= 0.0f
+        || sampleAt(*multiComposite, assignmentFrame, 3u) >= 1000.0f) {
         std::cerr << "Multi Loop morph blend did not span sources as expected\n";
         return 1;
     }
@@ -411,6 +450,19 @@ int main()
         || s3g::multiLoopSourceRateForIndex(3u, 4u, 1.0f) <= 1.0f
         || !near(s3g::multiLoopSourceRateForIndex(2u, 4u, 0.0f), 1.0f)) {
         std::cerr << "Multi Loop source-rate spread bounds changed unexpectedly\n";
+        return 1;
+    }
+
+    s3g::LoopProcessorSample seamSource;
+    seamSource.frames = 4096u;
+    seamSource.channels = 1u;
+    seamSource.sampleRate = 48000.0;
+    seamSource.audio.assign(seamSource.frames, -1.0f);
+    for (uint32_t i = 0; i < 512u; ++i) seamSource.audio[i] = 1.0f;
+    const float seamBeforeWrap = s3g::multiLoopReadSourceSeam(seamSource, 0u, static_cast<double>(seamSource.frames - 1u));
+    const float seamAfterWrap = s3g::multiLoopReadSourceSeam(seamSource, 0u, 0.0);
+    if (std::abs(seamBeforeWrap - seamAfterWrap) > 0.20f) {
+        std::cerr << "Multi Loop source seam smoothing failed: " << seamBeforeWrap << " / " << seamAfterWrap << "\n";
         return 1;
     }
 
