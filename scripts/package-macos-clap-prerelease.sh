@@ -19,6 +19,7 @@ bundles=(
   "$src_root/clap_layout_panner/s3g_layout_panner.clap"
   "$src_root/clap_loop_processor/s3g_loop_processor.clap"
   "$src_root/clap_multi_loop_processor/s3g_multi_loop_processor.clap"
+  "$src_root/clap_ambi_grain_processor/s3g_ambi_grain_processor.clap"
   "$src_root/clap_macro_delay/s3g_macro_delay.clap"
   "$src_root/clap_macro_delay/s3g_24ch_macro_delay.clap"
   "$src_root/clap_macro_pitch/s3g_macro_pitch.clap"
@@ -66,21 +67,22 @@ Included plugins:
 - s3g Delay Processor 24ch
 - s3g MC to Stereo Autogain
 - s3g 3OAFX Send Decoder / Return Encoder
-- s3g 3OAFX Point Encoder
-- s3g 3OAFX Speaker Decoder 64
+- s3g Ambi Point Encoder
+- s3g Ambi Speaker Decoder 64
 - s3g Layout Panner
 - s3g Loop Processor 8ch
 - s3g Multi Loop Processor 8ch
+- s3g Ambi Grain Processor
 - s3g Macro Delay 8ch
 - s3g Macro Delay 24ch
 - s3g Macro Pitch 8ch
 - s3g Macro Pitch 24ch
 - s3g Multichannel Meter 64
-- s3g Ambisonic Energy Visualizer 64
-- s3g Ambisonic Stereo Decoder
-- s3g Ambisonic Head Decoder
-- s3g Ambisonic Rotate 64
-- s3g Ambisonic Order / Band Tool 64
+- s3g Ambi Energy Visualizer 64
+- s3g Ambi Stereo Decoder
+- s3g Ambi Head Decoder
+- s3g Ambi Rotate 64
+- s3g Ambi Order / Band 64
 
 Docs:
 

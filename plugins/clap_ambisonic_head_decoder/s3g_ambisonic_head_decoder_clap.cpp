@@ -485,7 +485,7 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
     NSDictionary* text = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
-    [@"s3g AMBISONIC HEAD DECODER" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
+    [@"s3g AMBI HEAD DECODER" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
     [[NSString stringWithFormat:@"%uOA ACN/SN3D / TRUE 2OUT", p->params.order] drawAtPoint:NSMakePoint(748, 13) withAttributes:small];
 
     NSRect fieldPanel = NSMakeRect(12, 34, 568, 664);
@@ -794,7 +794,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambisonic-head-decoder",
-    "s3g Ambisonic Head Decoder",
+    "s3g Ambi Head Decoder",
     "s3g",
     "https://s3g.github.io/s3g-dsp/",
     "",

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Grain Processor - s3g-dsp</title>
+    <meta name="description" content="Ambi Grain Processor documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="effects.html">Effects</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Grain Processor</h1>
+
+        <p><code>s3g Ambi Grain Processor</code> is a CLAP instrument plugin for loaded <code>ACN/SN3D</code> ambisonic media. It creates grain events in source time and writes those grains into a circular multichannel tape buffer, so every encoded channel follows the same grain timing.</p>
+
+        <div class="status-strip" aria-label="Ambi Grain Processor status">
+          <div><span>format</span><strong>ACN/SN3D</strong></div>
+          <div><span>output</span><strong>16ch 3OA</strong></div>
+          <div><span>type</span><strong>CLAP instrument</strong></div>
+          <div><span>state</span><strong>prototype</strong></div>
+        </div>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ul>
+          <li>Insert <code>s3g Ambi Grain Processor</code> on a 16-channel REAPER track.</li>
+          <li>Click <code>LOAD</code> and choose an ambisonic audio file.</li>
+          <li>Use <code>ORD</code> to choose whether the loaded file is treated as 1OA, 2OA, or 3OA.</li>
+          <li>Follow the plugin with an ambisonic decoder, stereo decoder, head decoder, or energy visualizer.</li>
+        </ul>
+
+        <p>The output bus is fixed at 16 channels. First-order and second-order settings fill the active ambisonic channels and leave higher-order channels silent.</p>
+
+        <h2 id="grain-model">Grain Model</h2>
+
+        <p>The processor uses one shared event stream. A grain has one source position, duration, rate, direction, and window. That event reads every active ambisonic channel at the matching sample time, applies a Parzen-style grain envelope, and accumulates the result into a circular 16-channel tape buffer before playback.</p>
+
+        <p>This follows the older Max Gen patch model more closely than direct live grain summing. The tape layer lets overlapping grains build a field while preserving encoded channel relationships. This is different from independent per-channel granulation, which can smear or destabilize the spatial image.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr>
+              <th>Control</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>ORD</td><td>Ambisonic order to process: 1OA, 2OA, or 3OA.</td></tr>
+            <tr><td>MODE</td><td>Source-time mode: scan, cloud, freeze, or stepped jump.</td></tr>
+            <tr><td>DENS</td><td>Grain density in events per second. Long grain sizes reduce the available density range for stable playback.</td></tr>
+            <tr><td>GMS</td><td>Grain size in milliseconds, from short cuts to long 4-second sparse cloud windows.</td></tr>
+            <tr><td>S-SRC</td><td>Scan source. At 0%, SCAN reads through the full file; above 0%, it scans from the chosen source point.</td></tr>
+            <tr><td>J-SRC</td><td>Jump source used by JUMP mode.</td></tr>
+            <tr><td>JIT</td><td>Source-position jitter around the current grain position.</td></tr>
+            <tr><td>RATE</td><td>Grain playback rate.</td></tr>
+            <tr><td>RJIT</td><td>Per-grain rate jitter in octave range.</td></tr>
+            <tr><td>REV</td><td>Chance that a grain reads backward.</td></tr>
+            <tr><td>F-SRC</td><td>Freeze source position used by FREEZE mode.</td></tr>
+            <tr><td>J-STP</td><td>Number of source-position steps used by JUMP mode.</td></tr>
+            <tr><td>SYNC</td><td>Regular grain spacing or randomized asynchronous spacing around the same density.</td></tr>
+            <tr><td>ENV</td><td>Grain window: Parzen, sine, Hann, triangle, or Gaussian.</td></tr>
+            <tr><td>OUT</td><td>Output gain after density compensation.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="testing">Testing Notes</h2>
+
+        <p>This is a fresh prototype rebuilt from the Max Gen/HOA granular direction and the current CLAP package framework, not a restored committed plugin. The first test target is simple: load known 1OA, 2OA, or 3OA media, confirm the following decoder receives coherent motion, and check that mode and density changes do not produce runaway levels or broken channel order.</p>
+
+        <p>If REAPER routing behaves strangely after prior unstable projects, test in a new REAPER project first. That keeps host-state issues separate from plugin behavior.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambisonic-energy-visualizer.html">
+            <span>Previous</span>
+            Energy Visualizer
+          </a>
+          <a class="page-nav-link next" href="3oafx-insert-workflow.html">
+            <span>Next</span>
+            Insert Workflow
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics Pages</h2>
+          <a href="3oafx.html">Ambisonics Overview</a>
+          <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
+          <a href="3oafx-layout-panner.html">Layout Panner</a>
+          <a href="ambisonic-rotate.html">Rotate</a>
+          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
+          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
+          <a href="ambisonic-head-decoder.html">Head Decoder</a>
+          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
+          <a href="ambi-grain-processor.html">Ambi Grain Processor</a>
+          <a href="3oafx-insert-workflow.html">Insert Workflow</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#grain-model">Grain Model</a>
+          <a href="#controls">Controls</a>
+          <a href="#testing">Testing Notes</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

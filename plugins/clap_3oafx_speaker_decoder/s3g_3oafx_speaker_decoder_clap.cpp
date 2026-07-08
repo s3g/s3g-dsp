@@ -265,7 +265,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->id = def.id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0);
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, "3OAFX Speaker Decoder", sizeof(info->module));
+    std::strncpy(info->module, "Ambi Speaker Decoder", sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -1200,7 +1200,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
     NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
     NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
-    [@"s3g 3OAFX SPEAKER DECODER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
+    [@"s3g AMBI SPEAKER DECODER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
     [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))] drawAtPoint:NSMakePoint(728,14) withAttributes:small];
     [@"64CH" drawAtPoint:NSMakePoint(838,14) withAttributes:small];
@@ -1490,7 +1490,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.3oafx-speaker-decoder-64",
-    "s3g 3OAFX Speaker Decoder 64",
+    "s3g Ambi Speaker Decoder 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

@@ -272,7 +272,7 @@ uint32_t paramsCount(const clap_plugin_t*) { return 1; }
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
     if (!info || index >= 1) return false;
-    std::strncpy(info->module, "Ambisonic Energy", sizeof(info->module));
+    std::strncpy(info->module, "Ambi Energy", sizeof(info->module));
     if (index == 0) {
         info->id = kMapParamId;
         info->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_STEPPED;
@@ -870,7 +870,7 @@ static void drawEnergyMenu(NSString* name,
         [_overlayView setHidden:YES];
     }
 
-    [@"s3g AMBISONIC ENERGY" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
+    [@"s3g AMBI ENERGY" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     [[NSString stringWithFormat:@"%u/%uCH", active, ambiCh] drawAtPoint:NSMakePoint(viewW - 106.0,14) withAttributes:small];
 
     const NSRect bar = NSMakeRect(18, 38, viewW - 36, 34);
@@ -1190,7 +1190,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambisonic-energy-visualizer-64",
-    "s3g Ambisonic Energy Visualizer 64",
+    "s3g Ambi Energy Visualizer 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

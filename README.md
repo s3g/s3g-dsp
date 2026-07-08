@@ -28,6 +28,8 @@ Current plugins:
   lane playheads, waveform display, and phase relationship controls.
 - `s3g Multi Loop Processor 8ch`: CLAP instrument plugin for combining up to
   four loaded audio files into one eight-lane loop instrument.
+- `s3g Ambi Grain Processor`: CLAP instrument plugin for loaded `ACN/SN3D`
+  ambisonic media with channel-locked grain events.
 - `s3g Macro Delay 8ch` / `s3g Macro Delay 24ch`: compact multichannel delay
   macros with relationship controls.
 - `s3g Macro Pitch 8ch` / `s3g Macro Pitch 24ch`: compact multichannel pitch
@@ -36,24 +38,24 @@ Current plugins:
   fold-down prototype.
 - `s3g Multichannel Meter 64`: fixed 64-in/64-out passthrough meter with
   selectable visual width, level grid, spatial layout view, and energy history.
-- `s3g Ambisonic Energy Visualizer 64`: fixed 64-in/64-out passthrough analyzer
+- `s3g Ambi Energy Visualizer 64`: fixed 64-in/64-out passthrough analyzer
   that projects `ACN/SN3D` channel energy onto a high-resolution heatmap.
-- `s3g 3OAFX Point Encoder`: 16 point-source input to third-order
+- `s3g Ambi Point Encoder`: 16 point-source input to third-order
   `ACN/SN3D` ambisonic output with AED placement, point mixer, physics scenes,
   and Geist-driven bond breaking.
-- `s3g 3OAFX Speaker Decoder 64`: first-through-seventh-order `ACN/SN3D`
+- `s3g Ambi Speaker Decoder 64`: first-through-seventh-order `ACN/SN3D`
   speaker decoder with curated layouts, custom speaker editing, and a stable
   64-channel output bus.
 - `s3g Layout Panner`: direct 16-source to 64-speaker spatial panner with
   speaker presets, source mixer, and custom layout design.
-- `s3g Ambisonic Rotate 64`: first-through-seventh-order `ACN/SN3D` field
+- `s3g Ambi Rotate 64`: first-through-seventh-order `ACN/SN3D` field
   rotation utility with yaw, pitch, roll, and order-width trim.
-- `s3g Ambisonic Order / Band Tool 64`: first-through-seventh-order
+- `s3g Ambi Order / Band 64`: first-through-seventh-order
   order-band gain and weighting utility with Flat, MaxRE, In-phase, and
   Custom modes.
-- `s3g Ambisonic Stereo Decoder`: first-through-seventh-order `ACN/SN3D` to
+- `s3g Ambi Stereo Decoder`: first-through-seventh-order `ACN/SN3D` to
   true stereo using virtual fields and stereo pickup models.
-- `s3g Ambisonic Head Decoder`: synthetic binaural/transaural stereo decoder
+- `s3g Ambi Head Decoder`: synthetic binaural/transaural stereo decoder
   with no external SOFA files.
 - `s3g 3OAFX Send Decoder` / `s3g 3OAFX Return Encoder`: work-in-progress
   boundary plugins for the 3OAFX insert workflow.
@@ -87,23 +89,25 @@ Useful local docs:
 - `docs/building-from-source.html`: source build, local install, and validation notes.
 - `docs/installing-plugins.html`: installing packaged pre-release CLAP bundles.
 - `docs/effects.html`: effect plugin index.
-- `docs/3oafx.html`: 3OAFX and ambisonics-specific plugin index.
+- `docs/3oafx.html`: Ambisonics plugin index.
 - `docs/instruments.html`: instrument plugin index.
 - `docs/topology-framework.html`: shared topology framework overview.
 - `docs/delay-processor.html`: Delay Processor overview and topology map.
 - `docs/loop-processor.html`: Loop Processor workflow and control reference.
 - `docs/multi-loop-processor.html`: Multi Loop Processor source rules,
   multi-file loading, and loop control reference.
+- `docs/ambi-grain-processor.html`: Ambi Grain Processor loaded ambisonic
+  media workflow.
 - `docs/mc-to-stereo-autogain.html`: MC to Stereo Autogain fold-down reference.
 - `docs/multichannel-meter.html`: Multichannel Meter view modes and routing notes.
-- `docs/ambisonic-energy-visualizer.html`: Ambisonic Energy Visualizer reference.
-- `docs/3oafx-point-encoder.html`: 3OAFX Point Encoder reference.
-- `docs/3oafx-speaker-decoder.html`: 3OAFX Speaker Decoder reference.
+- `docs/ambisonic-energy-visualizer.html`: Ambi Energy Visualizer reference.
+- `docs/3oafx-point-encoder.html`: Ambi Point Encoder reference.
+- `docs/3oafx-speaker-decoder.html`: Ambi Speaker Decoder reference.
 - `docs/3oafx-layout-panner.html`: Layout Panner reference.
-- `docs/ambisonic-rotate.html`: Ambisonic Rotate reference.
-- `docs/ambisonic-order-band-tool.html`: Ambisonic Order / Band Tool reference.
-- `docs/ambisonic-stereo-decoder.html`: Ambisonic Stereo Decoder reference.
-- `docs/ambisonic-head-decoder.html`: Ambisonic Head Decoder reference.
+- `docs/ambisonic-rotate.html`: Ambi Rotate reference.
+- `docs/ambisonic-order-band-tool.html`: Ambi Order / Band reference.
+- `docs/ambisonic-stereo-decoder.html`: Ambi Stereo Decoder reference.
+- `docs/ambisonic-head-decoder.html`: Ambi Head Decoder reference.
 - `docs/gui-style-guide.md`: working style guide for custom plugin GUIs.
 - `docs/*_gui.png`: plugin GUI screenshots used by the documentation pages.
 - `docs/topology_framework.svg`: shared topology framework diagram.
@@ -174,6 +178,10 @@ The local smoke test exercises shared DSP code:
 ```sh
 ./build-clap/s3g_dsp_smoke
 ```
+
+The smoke test includes Loop Processor and Multi Loop Processor checks for
+loop playback stability, source-to-lane mapping, mixed source channel counts,
+source rules, source-rate spread bounds, and non-finite/clipping guardrails.
 
 If `clap-validator` is installed, validate installed bundles with:
 

@@ -20,7 +20,7 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.ambisonic-energy-visualizer-64"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambisonic Energy Visualizer 64"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Energy Visualizer 64"
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
   )

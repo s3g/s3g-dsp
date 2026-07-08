@@ -1,4 +1,5 @@
 #include "s3g_loop_processor.h"
+#include "s3g_multi_loop_processor.h"
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
@@ -52,7 +53,7 @@ constexpr double kSliderValueX = 858.0;
 constexpr double kSliderTrackW = 150.0;
 constexpr double kToolboxX = 596.0;
 constexpr double kToolboxW = 306.0;
-constexpr uint32_t kMaxSources = 4;
+constexpr uint32_t kMaxSources = s3g::kMultiLoopMaxSources;
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -217,78 +218,6 @@ std::shared_ptr<s3g::LoopProcessorSample> readSampleFromPath(const std::string& 
     }
 }
 
-uint32_t sourceChannelForLane(uint32_t lane, uint32_t sourceChannels)
-{
-    if (sourceChannels <= 1u) {
-        return 0u;
-    }
-    if (sourceChannels <= kChannelCount) {
-        return lane % sourceChannels;
-    }
-    const double u = kChannelCount > 1u
-        ? static_cast<double>(lane) / static_cast<double>(kChannelCount - 1u)
-        : 0.0;
-    return std::min<uint32_t>(
-        sourceChannels - 1u,
-        static_cast<uint32_t>(std::llround(u * static_cast<double>(sourceChannels - 1u))));
-}
-
-float readSourceLinear(const s3g::LoopProcessorSample& sample, uint32_t lane, double pos)
-{
-    if (sample.frames < 2u || sample.channels == 0u) {
-        return 0.0f;
-    }
-    pos -= std::floor(pos / static_cast<double>(sample.frames)) * static_cast<double>(sample.frames);
-    if (pos < 0.0) pos += static_cast<double>(sample.frames);
-    const uint32_t i0 = static_cast<uint32_t>(std::floor(pos)) % sample.frames;
-    const uint32_t i1 = (i0 + 1u) % sample.frames;
-    const float frac = static_cast<float>(pos - std::floor(pos));
-    const uint32_t srcCh = sourceChannelForLane(lane, sample.channels);
-    const float a = sample.audio[static_cast<size_t>(i0) * sample.channels + srcCh];
-    const float b = sample.audio[static_cast<size_t>(i1) * sample.channels + srcCh];
-    return a + (b - a) * frac;
-}
-
-uint32_t hashLane(uint32_t lane, uint32_t count)
-{
-    uint32_t x = lane * 747796405u + 2891336453u;
-    x ^= x >> 16u;
-    x *= 2246822519u;
-    x ^= x >> 13u;
-    return count == 0u ? 0u : x % count;
-}
-
-uint32_t orderedSourceForLane(uint32_t lane, uint32_t count)
-{
-    const uint32_t lanesPerSource = std::max<uint32_t>(1u, (kChannelCount + count - 1u) / count);
-    return std::min<uint32_t>(count - 1u, lane / lanesPerSource);
-}
-
-float sourceRateForIndex(uint32_t index, uint32_t count, float spread)
-{
-    spread = std::clamp(spread, 0.0f, 1.0f);
-    if (count <= 1u || spread <= 0.0001f) {
-        return 1.0f;
-    }
-    const float u = static_cast<float>(index) / static_cast<float>(count - 1u);
-    const float centered = u * 2.0f - 1.0f;
-    return std::pow(2.0f, centered * spread);
-}
-
-float morphBlendForLane(float x, float width)
-{
-    width = std::clamp(width, 0.0f, 1.0f);
-    if (width <= 0.0001f) {
-        return (x - std::floor(x)) >= 0.5f ? 1.0f : 0.0f;
-    }
-    const float frac = x - std::floor(x);
-    const float half = width * 0.5f;
-    const float lo = 0.5f - half;
-    const float hi = 0.5f + half;
-    const float u = width >= 0.999f ? frac : std::clamp((frac - lo) / std::max(0.0001f, hi - lo), 0.0f, 1.0f);
-    return u * u * (3.0f - 2.0f * u);
-}
-
 void rebuildCompositeSample(Plugin& p, bool resetControls)
 {
     std::array<std::shared_ptr<const s3g::LoopProcessorSample>, kMaxSources> active {};
@@ -305,59 +234,12 @@ void rebuildCompositeSample(Plugin& p, bool resetControls)
         return;
     }
 
-    const double compositeRate = std::max(1.0, active[0]->sampleRate);
-    uint32_t compositeFrames = 2u;
-    for (uint32_t i = 0; i < count; ++i) {
-        const double seconds = static_cast<double>(active[i]->frames) / std::max(1.0, active[i]->sampleRate);
-        compositeFrames = std::max<uint32_t>(compositeFrames, static_cast<uint32_t>(std::ceil(seconds * compositeRate)));
-    }
-    compositeFrames = std::min<uint32_t>(compositeFrames, static_cast<uint32_t>(compositeRate * 600.0));
-
-    auto composite = std::make_shared<s3g::LoopProcessorSample>();
-    composite->frames = compositeFrames;
-    composite->channels = kChannelCount;
-    composite->sampleRate = compositeRate;
-    composite->path = count == 1u ? active[0]->path : "multi-source composite";
-    composite->audio.assign(static_cast<size_t>(compositeFrames) * kChannelCount, 0.0f);
-
-    const uint32_t rule = p.targets.rule.load(std::memory_order_acquire);
-    const float sourceRateSpread = p.targets.sourceRateSpread.load(std::memory_order_acquire);
-    const float sourceBlend = p.targets.sourceBlend.load(std::memory_order_acquire);
-    for (uint32_t lane = 0; lane < kChannelCount; ++lane) {
-        uint32_t a = 0;
-        uint32_t b = 0;
-        float blend = 0.0f;
-        if (rule == 0u) {
-            a = orderedSourceForLane(lane, count);
-            b = a;
-        } else if (rule == 2u) {
-            a = hashLane(lane, count);
-            b = a;
-        } else if (rule == 3u && count > 1u) {
-            const float u = kChannelCount > 1u ? static_cast<float>(lane) / static_cast<float>(kChannelCount - 1u) : 0.0f;
-            const float x = u * static_cast<float>(count - 1u);
-            a = static_cast<uint32_t>(std::floor(x));
-            b = std::min<uint32_t>(count - 1u, a + 1u);
-            blend = morphBlendForLane(x, sourceBlend);
-            if (sourceBlend <= 0.0001f && blend >= 1.0f) {
-                a = b;
-                blend = 0.0f;
-            }
-        } else {
-            a = lane % count;
-            b = a;
-        }
-        const auto& sampleA = *active[a];
-        const auto& sampleB = *active[b];
-        const double rateA = static_cast<double>(sourceRateForIndex(a, count, sourceRateSpread));
-        const double rateB = static_cast<double>(sourceRateForIndex(b, count, sourceRateSpread));
-        for (uint32_t frame = 0; frame < compositeFrames; ++frame) {
-            const double t = static_cast<double>(frame) / compositeRate;
-            const float va = readSourceLinear(sampleA, lane, t * sampleA.sampleRate * rateA);
-            const float vb = readSourceLinear(sampleB, lane, t * sampleB.sampleRate * rateB);
-            composite->audio[static_cast<size_t>(frame) * kChannelCount + lane] = va + (vb - va) * blend;
-        }
-    }
+    s3g::MultiLoopCompositeOptions options {};
+    options.rule = static_cast<s3g::MultiLoopSourceRule>(
+        std::min<uint32_t>(p.targets.rule.load(std::memory_order_acquire), 3u));
+    options.sourceRateSpread = p.targets.sourceRateSpread.load(std::memory_order_acquire);
+    options.sourceBlend = p.targets.sourceBlend.load(std::memory_order_acquire);
+    auto composite = s3g::buildMultiLoopComposite(active, count, options);
 
     std::shared_ptr<const s3g::LoopProcessorSample> immutable = composite;
     std::atomic_store_explicit(&p.sample, immutable, std::memory_order_release);

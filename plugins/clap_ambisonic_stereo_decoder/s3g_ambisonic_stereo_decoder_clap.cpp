@@ -680,7 +680,7 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
     NSDictionary* text = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
-    [@"s3g AMBISONIC STEREO DECODER" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
+    [@"s3g AMBI STEREO DECODER" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
     [[NSString stringWithFormat:@"%uOA ACN/SN3D / TRUE 2OUT", p->params.order] drawAtPoint:NSMakePoint(760, 13) withAttributes:small];
 
     NSRect fieldPanel = NSMakeRect(12, 34, 568, 514);
@@ -1153,7 +1153,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambisonic-stereo-decoder",
-    "s3g Ambisonic Stereo Decoder",
+    "s3g Ambi Stereo Decoder",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

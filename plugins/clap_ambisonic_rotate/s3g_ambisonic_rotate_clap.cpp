@@ -287,7 +287,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
     NSDictionary* text = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
-    [@"s3g AMBISONIC ROTATE 64" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
+    [@"s3g AMBI ROTATE 64" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
     [[NSString stringWithFormat:@"%uOA ACN/SN3D / 64CH", p->params.order] drawAtPoint:NSMakePoint(590, 13) withAttributes:small];
 
     NSRect fieldPanel = NSMakeRect(12, 34, 456, 366);
@@ -418,7 +418,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambisonic-rotate-64",
-    "s3g Ambisonic Rotate 64",
+    "s3g Ambi Rotate 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

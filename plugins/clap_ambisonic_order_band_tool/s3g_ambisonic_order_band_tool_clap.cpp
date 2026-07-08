@@ -195,7 +195,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 {
     if (index != 0 || !info) return false;
     info->id = isInput ? 10 : 20;
-    std::strncpy(info->name, isInput ? "Ambisonic In" : "Ambisonic Out", sizeof(info->name));
+    std::strncpy(info->name, isInput ? "Ambi In" : "Ambi Out", sizeof(info->name));
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = kChannels;
     info->port_type = CLAP_PORT_AMBISONIC;
@@ -339,7 +339,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
     NSDictionary* text = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
-    [@"s3g AMBISONIC ORDER / BAND TOOL 64" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
+    [@"s3g AMBI ORDER / BAND 64" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
     [[NSString stringWithFormat:@"%uOA / %@", p->params.order, [NSString stringWithUTF8String:weightingName(static_cast<uint32_t>(p->params.weighting))]]
         drawAtPoint:NSMakePoint(640, 13) withAttributes:small];
 
@@ -490,7 +490,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambisonic-order-band-tool-64",
-    "s3g Ambisonic Order / Band Tool 64",
+    "s3g Ambi Order / Band 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

@@ -15,7 +15,7 @@
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
         <a href="effects.html">Effects</a>
-        <a href="3oafx.html">3OAFX</a>
+        <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
@@ -94,17 +94,17 @@
           </div>
           <a class="category-card" href="ambisonic-energy-visualizer.html">
             <span>ambisonic analyzer</span>
-            <strong>s3g Ambisonic Energy Visualizer 64</strong>
+            <strong>s3g Ambi Energy Visualizer 64</strong>
             <em>Fixed 64-in/64-out passthrough analyzer for ACN/SN3D energy heatmap views.</em>
           </a>
           <a class="category-card" href="ambisonic-rotate.html">
             <span>ambisonic utility</span>
-            <strong>s3g Ambisonic Rotate 64</strong>
+            <strong>s3g Ambi Rotate 64</strong>
             <em>Fixed 64-in/64-out ACN/SN3D field rotation utility up to 7OA.</em>
           </a>
           <a class="category-card" href="ambisonic-order-band-tool.html">
             <span>ambisonic utility</span>
-            <strong>s3g Ambisonic Order / Band Tool 64</strong>
+            <strong>s3g Ambi Order / Band 64</strong>
             <em>Fixed 64-in/64-out order-band gain and weighting utility with MaxRE and In-phase starting points.</em>
           </a>
           <div class="category-card muted-card">
@@ -129,17 +129,17 @@
           </a>
         </div>
 
-        <h3>3OAFX</h3>
+        <h3>Ambisonics</h3>
 
         <div class="category-grid">
           <a class="category-card" href="3oafx-point-encoder.html">
             <span>point encoder</span>
-            <strong>s3g 3OAFX Point Encoder</strong>
+            <strong>s3g Ambi Point Encoder</strong>
             <em>16 point-source input to third-order ACN/SN3D output with AED placement and motion scenes.</em>
           </a>
           <a class="category-card" href="3oafx-speaker-decoder.html">
             <span>speaker decoder</span>
-            <strong>s3g 3OAFX Speaker Decoder 64</strong>
+            <strong>s3g Ambi Speaker Decoder 64</strong>
             <em>1OA to 7OA ACN/SN3D speaker decoder with curated layouts and custom speaker editing.</em>
           </a>
           <a class="category-card" href="3oafx-layout-panner.html">
@@ -149,23 +149,28 @@
           </a>
           <a class="category-card" href="ambisonic-rotate.html">
             <span>field utility</span>
-            <strong>s3g Ambisonic Rotate 64</strong>
+            <strong>s3g Ambi Rotate 64</strong>
             <em>1OA to 7OA ACN/SN3D field rotation with yaw, pitch, roll, and order-width trim.</em>
           </a>
           <a class="category-card" href="ambisonic-order-band-tool.html">
             <span>order utility</span>
-            <strong>s3g Ambisonic Order / Band Tool 64</strong>
+            <strong>s3g Ambi Order / Band 64</strong>
             <em>Order-band trims and common weighting curves such as Flat, MaxRE, and In-phase.</em>
           </a>
           <a class="category-card" href="ambisonic-stereo-decoder.html">
             <span>stereo decoder</span>
-            <strong>s3g Ambisonic Stereo Decoder</strong>
+            <strong>s3g Ambi Stereo Decoder</strong>
             <em>1OA to 7OA ACN/SN3D to true stereo using virtual fields and stereo pickup models.</em>
           </a>
           <a class="category-card" href="ambisonic-head-decoder.html">
             <span>head decoder</span>
-            <strong>s3g Ambisonic Head Decoder</strong>
+            <strong>s3g Ambi Head Decoder</strong>
             <em>Synthetic binaural/transaural stereo decoder with no external SOFA files.</em>
+          </a>
+          <a class="category-card" href="ambi-grain-processor.html">
+            <span>grain instrument</span>
+            <strong>s3g Ambi Grain Processor</strong>
+            <em>Loaded ACN/SN3D media granulator with fixed 16-channel output.</em>
           </a>
           <a class="category-card" href="3oafx-insert-workflow.html">
             <span>3OAFX boundary</span>
@@ -180,9 +185,9 @@
 
         <p>For multichannel testing, set the track channel count before inserting the plugin.</p>
 
-        <p>For true stereo-output plugins on wide REAPER tracks, including <code>s3g MC to Stereo Autogain</code>, <code>s3g Ambisonic Stereo Decoder</code>, and <code>s3g Ambisonic Head Decoder</code>, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code> if a following meter still shows channels above 2. These CLAP plugins expose stereo output buses, but REAPER can still pass unmapped track channels around the effect unless this option is enabled.</p>
+        <p>For true stereo-output plugins on wide REAPER tracks, including <code>s3g MC to Stereo Autogain</code>, <code>s3g Ambi Stereo Decoder</code>, and <code>s3g Ambi Head Decoder</code>, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code> if a following meter still shows channels above 2. These CLAP plugins expose stereo output buses, but REAPER can still pass unmapped track channels around the effect unless this option is enabled.</p>
 
-        <p>For ambisonics-specific tools in this package, see <a href="3oafx.html">3OAFX</a>. For the larger REAPER package workflow, see the <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX Send Return Controller guide</a>.</p>
+        <p>For ambisonics-specific tools in this package, see <a href="3oafx.html">Ambisonics</a>. For the larger REAPER package workflow, see the <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX Send Return Controller guide</a>.</p>
 
         <h2 id="cleanup">Cleanup</h2>
 

@@ -5,7 +5,7 @@ used by the `s3g-mc` 3OAFX workflow.
 
 Current HTML docs:
 
-- [`3oafx.html`](3oafx.html): 3OAFX and ambisonics-specific plugin overview
+- [`3oafx.html`](3oafx.html): Ambisonics plugin overview
 - [`3oafx-point-encoder.html`](3oafx-point-encoder.html): 16-point AED encoder
 - [`3oafx-speaker-decoder.html`](3oafx-speaker-decoder.html): 1OA to 7OA speaker decoder
 - [`3oafx-layout-panner.html`](3oafx-layout-panner.html): direct source-to-speaker panner

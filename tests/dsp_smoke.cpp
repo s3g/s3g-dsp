@@ -1,5 +1,6 @@
 #include "s3g_24ch_layout.h"
 #include "s3g_3oafx.h"
+#include "s3g_ambi_grain_processor.h"
 #include "s3g_ambisonic_point_encoder.h"
 #include "s3g_ambisonic_head_decoder.h"
 #include "s3g_ambisonic_utilities.h"
@@ -9,6 +10,7 @@
 #include "s3g_gain.h"
 #include "s3g_lane_patch.h"
 #include "s3g_loop_processor.h"
+#include "s3g_multi_loop_processor.h"
 #include "s3g_layout_panner.h"
 #include "s3g_mc_to_stereo.h"
 #include "s3g_macro_delay.h"
@@ -17,6 +19,64 @@
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <memory>
+#include <string>
+
+namespace {
+
+std::shared_ptr<s3g::LoopProcessorSample> makeIdSample(uint32_t sourceIndex,
+                                                       uint32_t channels,
+                                                       uint32_t frames = 32u,
+                                                       double sampleRate = 48000.0)
+{
+    auto sample = std::make_shared<s3g::LoopProcessorSample>();
+    sample->frames = std::max<uint32_t>(2u, frames);
+    sample->channels = std::max<uint32_t>(1u, channels);
+    sample->sampleRate = sampleRate;
+    sample->path = "test-source-" + std::to_string(sourceIndex);
+    sample->audio.assign(static_cast<size_t>(sample->frames) * sample->channels, 0.0f);
+    for (uint32_t frame = 0; frame < sample->frames; ++frame) {
+        for (uint32_t ch = 0; ch < sample->channels; ++ch) {
+            sample->audio[static_cast<size_t>(frame) * sample->channels + ch] =
+                static_cast<float>(sourceIndex * 1000u + ch);
+        }
+    }
+    return sample;
+}
+
+std::shared_ptr<s3g::LoopProcessorSample> makeSineSample(uint32_t sourceIndex,
+                                                         uint32_t channels,
+                                                         uint32_t frames = 4096u,
+                                                         double sampleRate = 48000.0)
+{
+    auto sample = std::make_shared<s3g::LoopProcessorSample>();
+    sample->frames = std::max<uint32_t>(2u, frames);
+    sample->channels = std::max<uint32_t>(1u, channels);
+    sample->sampleRate = sampleRate;
+    sample->path = "stress-source-" + std::to_string(sourceIndex);
+    sample->audio.assign(static_cast<size_t>(sample->frames) * sample->channels, 0.0f);
+    for (uint32_t frame = 0; frame < sample->frames; ++frame) {
+        const float t = static_cast<float>(frame) / static_cast<float>(sample->sampleRate);
+        for (uint32_t ch = 0; ch < sample->channels; ++ch) {
+            const float hz = 80.0f + static_cast<float>(sourceIndex) * 47.0f + static_cast<float>(ch) * 9.0f;
+            sample->audio[static_cast<size_t>(frame) * sample->channels + ch] =
+                std::sin(6.28318530718f * hz * t) * 0.18f;
+        }
+    }
+    return sample;
+}
+
+float sampleAt(const s3g::LoopProcessorSample& sample, uint32_t frame, uint32_t lane)
+{
+    return sample.audio[static_cast<size_t>(frame) * sample.channels + lane];
+}
+
+bool near(float a, float b, float tolerance = 0.0001f)
+{
+    return std::abs(a - b) <= tolerance;
+}
+
+} // namespace
 
 int main()
 {
@@ -262,6 +322,153 @@ int main()
         return 1;
     }
 
+    const uint32_t channelCountsToCheck[] = { 1u, 2u, 4u, 8u, 24u, 64u };
+    for (uint32_t sourceChannels : channelCountsToCheck) {
+        for (uint32_t lane = 0; lane < s3g::kLoopProcessorChannels; ++lane) {
+            const uint32_t mapped = s3g::multiLoopSourceChannelForLane(lane, sourceChannels);
+            if (mapped >= sourceChannels) {
+                std::cerr << "Multi Loop source-channel map exceeded source channel count\n";
+                return 1;
+            }
+            if (sourceChannels <= s3g::kLoopProcessorChannels && mapped != lane % sourceChannels) {
+                std::cerr << "Multi Loop low-channel repeat map changed unexpectedly\n";
+                return 1;
+            }
+        }
+    }
+    if (s3g::multiLoopSourceChannelForLane(0, 24u) != 0u
+        || s3g::multiLoopSourceChannelForLane(7, 24u) != 23u
+        || s3g::multiLoopSourceChannelForLane(4, 64u) != 36u) {
+        std::cerr << "Multi Loop wide-channel distribution changed unexpectedly\n";
+        return 1;
+    }
+
+    std::array<std::shared_ptr<const s3g::LoopProcessorSample>, s3g::kMultiLoopMaxSources> multiSources {};
+    multiSources[0] = makeIdSample(0u, 1u);
+    multiSources[1] = makeIdSample(1u, 2u);
+    multiSources[2] = makeIdSample(2u, 4u);
+    multiSources[3] = makeIdSample(3u, 24u);
+
+    s3g::MultiLoopCompositeOptions multiOptions {};
+    multiOptions.rule = s3g::MultiLoopSourceRule::Interleave;
+    auto multiComposite = s3g::buildMultiLoopComposite(multiSources, 4u, multiOptions);
+    if (!multiComposite || multiComposite->channels != s3g::kLoopProcessorChannels) {
+        std::cerr << "Multi Loop interleave composite was not built\n";
+        return 1;
+    }
+    for (uint32_t lane = 0; lane < s3g::kLoopProcessorChannels; ++lane) {
+        const uint32_t source = lane % 4u;
+        const uint32_t channel = s3g::multiLoopSourceChannelForLane(lane, multiSources[source]->channels);
+        const float expected = static_cast<float>(source * 1000u + channel);
+        if (!near(sampleAt(*multiComposite, 0u, lane), expected)) {
+            std::cerr << "Multi Loop interleave source/lane assignment failed\n";
+            return 1;
+        }
+    }
+
+    multiOptions.rule = s3g::MultiLoopSourceRule::Order;
+    multiComposite = s3g::buildMultiLoopComposite(multiSources, 4u, multiOptions);
+    for (uint32_t lane = 0; lane < s3g::kLoopProcessorChannels; ++lane) {
+        const uint32_t source = s3g::multiLoopOrderedSourceForLane(lane, 4u);
+        const uint32_t channel = s3g::multiLoopSourceChannelForLane(lane, multiSources[source]->channels);
+        const float expected = static_cast<float>(source * 1000u + channel);
+        if (!near(sampleAt(*multiComposite, 0u, lane), expected)) {
+            std::cerr << "Multi Loop ordered source/lane assignment failed\n";
+            return 1;
+        }
+    }
+
+    multiOptions.rule = s3g::MultiLoopSourceRule::Random;
+    auto randomA = s3g::buildMultiLoopComposite(multiSources, 4u, multiOptions);
+    auto randomB = s3g::buildMultiLoopComposite(multiSources, 4u, multiOptions);
+    for (uint32_t lane = 0; lane < s3g::kLoopProcessorChannels; ++lane) {
+        const uint32_t source = s3g::multiLoopHashLane(lane, 4u);
+        const uint32_t channel = s3g::multiLoopSourceChannelForLane(lane, multiSources[source]->channels);
+        const float expected = static_cast<float>(source * 1000u + channel);
+        if (!near(sampleAt(*randomA, 0u, lane), expected)
+            || !near(sampleAt(*randomA, 0u, lane), sampleAt(*randomB, 0u, lane))) {
+            std::cerr << "Multi Loop random source/lane assignment was not deterministic\n";
+            return 1;
+        }
+    }
+
+    std::array<std::shared_ptr<const s3g::LoopProcessorSample>, s3g::kMultiLoopMaxSources> morphSources {};
+    morphSources[0] = makeIdSample(0u, 1u);
+    morphSources[1] = makeIdSample(1u, 1u);
+    multiOptions.rule = s3g::MultiLoopSourceRule::Morph;
+    multiOptions.sourceBlend = 1.0f;
+    multiComposite = s3g::buildMultiLoopComposite(morphSources, 2u, multiOptions);
+    if (!multiComposite
+        || !near(sampleAt(*multiComposite, 0u, 0u), 0.0f)
+        || !near(sampleAt(*multiComposite, 0u, 7u), 1000.0f)
+        || sampleAt(*multiComposite, 0u, 3u) <= 0.0f
+        || sampleAt(*multiComposite, 0u, 3u) >= 1000.0f) {
+        std::cerr << "Multi Loop morph blend did not span sources as expected\n";
+        return 1;
+    }
+
+    if (s3g::multiLoopSourceRateForIndex(0u, 4u, 1.0f) >= 1.0f
+        || s3g::multiLoopSourceRateForIndex(3u, 4u, 1.0f) <= 1.0f
+        || !near(s3g::multiLoopSourceRateForIndex(2u, 4u, 0.0f), 1.0f)) {
+        std::cerr << "Multi Loop source-rate spread bounds changed unexpectedly\n";
+        return 1;
+    }
+
+    std::array<std::shared_ptr<const s3g::LoopProcessorSample>, s3g::kMultiLoopMaxSources> stressSources {};
+    stressSources[0] = makeSineSample(0u, 1u);
+    stressSources[1] = makeSineSample(1u, 2u);
+    stressSources[2] = makeSineSample(2u, 4u);
+    stressSources[3] = makeSineSample(3u, 24u);
+    multiOptions.rule = s3g::MultiLoopSourceRule::Morph;
+    multiOptions.sourceRateSpread = 0.35f;
+    multiOptions.sourceBlend = 0.70f;
+    auto stressComposite = s3g::buildMultiLoopComposite(stressSources, 4u, multiOptions);
+    s3g::LoopProcessorEngine multiLoopEngine;
+    multiLoopEngine.prepare(48000.0);
+    s3g::LoopProcessorParams multiLoopParams;
+    multiLoopParams.baseRate = 0.90f;
+    multiLoopParams.rateSpread = -0.18f;
+    multiLoopParams.driftAmount = 0.04f;
+    multiLoopParams.relationCenter = 0.35f;
+    multiLoopParams.relationGlideMs = 180.0f;
+    multiLoopParams.loopStart = 0.12f;
+    multiLoopParams.loopLength = 0.45f;
+    multiLoopParams.xfadePct = 0.16f;
+    multiLoopParams.seamDuck = 0.18f;
+    multiLoopParams.gainDb = -18.0f;
+    multiLoopEngine.setParams(multiLoopParams);
+    float multiLoopPeak = 0.0f;
+    float multiLoopMaxStep = 0.0f;
+    float multiLoopPrev = 0.0f;
+    for (int block = 0; block < 96; ++block) {
+        if ((block % 12) == 0) {
+            multiLoopParams.loopStart = static_cast<float>((block * 19) % 800) / 1000.0f;
+            multiLoopParams.loopLength = 0.18f + static_cast<float>((block * 23) % 620) / 1000.0f;
+            multiLoopParams.relationCenter = static_cast<float>((block * 17) % 100) / 100.0f;
+            multiLoopEngine.setParams(multiLoopParams);
+        }
+        multiLoopEngine.process(stressComposite, loopOut, static_cast<uint32_t>(loopBuffers[0].size()));
+        for (const auto& channel : loopBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Multi Loop engine stress output is not finite\n";
+                    return 1;
+                }
+                multiLoopPeak = std::max(multiLoopPeak, std::abs(value));
+                multiLoopMaxStep = std::max(multiLoopMaxStep, std::abs(value - multiLoopPrev));
+                multiLoopPrev = value;
+            }
+        }
+    }
+    if (multiLoopPeak <= 0.00001f || multiLoopPeak > 1.0f) {
+        std::cerr << "Multi Loop engine stress peak outside expected range: " << multiLoopPeak << "\n";
+        return 1;
+    }
+    if (multiLoopMaxStep > 0.40f) {
+        std::cerr << "Multi Loop engine stress step too large: " << multiLoopMaxStep << "\n";
+        return 1;
+    }
+
     s3g::MacroDelay macroDelay;
     macroDelay.prepare(48000.0, s3g::kMacroDelayChannels, 2.5);
     s3g::MacroDelayParams macroParams;
@@ -375,7 +582,7 @@ int main()
         for (const auto& channel : pointOutputBuffers) {
             for (float value : channel) {
                 if (!std::isfinite(value)) {
-                    std::cerr << "3OAFX Point Encoder output is not finite\n";
+                    std::cerr << "Ambi Point Encoder output is not finite\n";
                     return 1;
                 }
                 pointEncoderPeak = std::max(pointEncoderPeak, std::abs(value));
@@ -383,7 +590,7 @@ int main()
         }
     }
     if (pointEncoderPeak <= 0.00001f || pointEncoderPeak > 1.0f) {
-        std::cerr << "3OAFX Point Encoder peak outside expected range: " << pointEncoderPeak << "\n";
+        std::cerr << "Ambi Point Encoder peak outside expected range: " << pointEncoderPeak << "\n";
         return 1;
     }
 
@@ -407,13 +614,13 @@ int main()
     float speakerDecoderPeak = 0.0f;
     for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
         if (!std::isfinite(decoderOut[ch])) {
-            std::cerr << "3OAFX Speaker Decoder output is not finite\n";
+            std::cerr << "Ambi Speaker Decoder output is not finite\n";
             return 1;
         }
         speakerDecoderPeak = std::max(speakerDecoderPeak, std::abs(decoderOut[ch]));
     }
     if (speakerDecoderPeak <= 0.000001f || speakerDecoderPeak > 1.0f) {
-        std::cerr << "3OAFX Speaker Decoder peak outside expected range: " << speakerDecoderPeak << "\n";
+        std::cerr << "Ambi Speaker Decoder peak outside expected range: " << speakerDecoderPeak << "\n";
         return 1;
     }
     speakerParams.weighting = s3g::AmbiSpeakerDecoderWeighting::InPhase;
@@ -421,7 +628,7 @@ int main()
     speakerDecoder.processFrame(decoderIn, decoderOut);
     for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
         if (!std::isfinite(decoderOut[ch])) {
-            std::cerr << "3OAFX Speaker Decoder weighted output is not finite\n";
+            std::cerr << "Ambi Speaker Decoder weighted output is not finite\n";
             return 1;
         }
     }
@@ -431,7 +638,7 @@ int main()
     speakerDecoder.processFrame(decoderIn, decoderOut);
     for (uint32_t ch = 4; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
         if (std::abs(decoderOut[ch]) > 0.000001f) {
-            std::cerr << "3OAFX Speaker Decoder did not zero inactive speakers\n";
+            std::cerr << "Ambi Speaker Decoder did not zero inactive speakers\n";
             return 1;
         }
     }
@@ -440,7 +647,7 @@ int main()
     if (std::abs(speakerDecoder.speaker(0).azimuthDeg - -45.0f) > 0.001f
         || std::abs(speakerDecoder.speaker(4).azimuthDeg - -90.0f) > 0.001f
         || std::abs(speakerDecoder.speaker(5).azimuthDeg - 90.0f) > 0.001f) {
-        std::cerr << "3OAFX Speaker Decoder quad+overhead order changed unexpectedly\n";
+        std::cerr << "Ambi Speaker Decoder quad+overhead order changed unexpectedly\n";
         return 1;
     }
     speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Dome24;
@@ -449,7 +656,7 @@ int main()
         || std::abs(speakerDecoder.speaker(2).azimuthDeg - -90.0f) > 0.001f
         || std::abs(speakerDecoder.speaker(12).elevationDeg - 32.0f) > 0.001f
         || std::abs(speakerDecoder.speaker(20).elevationDeg - 66.6f) > 0.001f) {
-        std::cerr << "3OAFX Speaker Decoder dome spiral order changed unexpectedly\n";
+        std::cerr << "Ambi Speaker Decoder dome spiral order changed unexpectedly\n";
         return 1;
     }
     auto speakerToWorld = [](const s3g::AmbiSpeaker& speaker) {
@@ -471,7 +678,7 @@ int main()
         || std::abs(cubeUpper.y - cubeMiddle.y) > 0.001f
         || std::sqrt(cubeLower.x * cubeLower.x + cubeLower.y * cubeLower.y + cubeLower.z * cubeLower.z)
             <= std::sqrt(cubeMiddle.x * cubeMiddle.x + cubeMiddle.y * cubeMiddle.y + cubeMiddle.z * cubeMiddle.z)) {
-        std::cerr << "3OAFX Speaker Decoder CUBE17 tier projection changed unexpectedly\n";
+        std::cerr << "Ambi Speaker Decoder CUBE17 tier projection changed unexpectedly\n";
         return 1;
     }
     const auto cubePresetSpeaker0 = speakerDecoder.speaker(0);
@@ -484,7 +691,7 @@ int main()
     if (std::abs(speakerDecoder.speaker(0).azimuthDeg - cubePresetSpeaker0.azimuthDeg) > 0.001f
         || std::abs(speakerDecoder.speaker(0).elevationDeg - cubePresetSpeaker0.elevationDeg) > 0.001f
         || std::abs(speakerDecoder.speaker(0).distance - cubePresetSpeaker0.distance) > 0.001f) {
-        std::cerr << "3OAFX Speaker Decoder preset geometry was changed by editable speaker fields\n";
+        std::cerr << "Ambi Speaker Decoder preset geometry was changed by editable speaker fields\n";
         return 1;
     }
     speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Custom;
@@ -492,12 +699,12 @@ int main()
     speakerParams.customField = s3g::AmbiSpeakerCustomField::Hemisphere;
     speakerDecoder.setParams(speakerParams);
     if (speakerDecoder.params().activeSpeakers != 13u) {
-        std::cerr << "3OAFX Speaker Decoder custom speaker count failed\n";
+        std::cerr << "Ambi Speaker Decoder custom speaker count failed\n";
         return 1;
     }
     for (uint32_t i = 0; i < 13u; ++i) {
         if (speakerDecoder.speaker(i).elevationDeg < -0.001f) {
-            std::cerr << "3OAFX Speaker Decoder hemisphere custom layout dipped below horizon\n";
+            std::cerr << "Ambi Speaker Decoder hemisphere custom layout dipped below horizon\n";
             return 1;
         }
     }
@@ -509,7 +716,7 @@ int main()
         fullSphereHasLower = fullSphereHasLower || speakerDecoder.speaker(i).elevationDeg < -0.001f;
     }
     if (!fullSphereHasLower) {
-        std::cerr << "3OAFX Speaker Decoder full-sphere custom layout did not use lower hemisphere\n";
+        std::cerr << "Ambi Speaker Decoder full-sphere custom layout did not use lower hemisphere\n";
         return 1;
     }
 
@@ -532,11 +739,11 @@ int main()
     ambiStereoIn[63] = 0.01f;
     ambiStereo.processFrame(ambiStereoIn, ambiStereoLeft, ambiStereoRight);
     if (!std::isfinite(ambiStereoLeft) || !std::isfinite(ambiStereoRight)) {
-        std::cerr << "Ambisonic Stereo Decoder output is not finite\n";
+        std::cerr << "Ambi Stereo Decoder output is not finite\n";
         return 1;
     }
     if (std::max(std::abs(ambiStereoLeft), std::abs(ambiStereoRight)) <= 0.000001f) {
-        std::cerr << "Ambisonic Stereo Decoder output is silent\n";
+        std::cerr << "Ambi Stereo Decoder output is silent\n";
         return 1;
     }
     ambiStereoParams.layout = s3g::AmbiStereoVirtualLayout::Sphere32;
@@ -548,7 +755,7 @@ int main()
         ambiStereoIn[3] = std::sin(static_cast<float>(i) * 0.023f) * 0.08f;
         ambiStereo.processFrame(ambiStereoIn, ambiStereoLeft, ambiStereoRight);
         if (!std::isfinite(ambiStereoLeft) || !std::isfinite(ambiStereoRight)) {
-            std::cerr << "Ambisonic Stereo Decoder spaced/bass output is not finite\n";
+            std::cerr << "Ambi Stereo Decoder spaced/bass output is not finite\n";
             return 1;
         }
     }
@@ -566,7 +773,7 @@ int main()
         ambiStereo.setParams(ambiStereoParams);
         ambiStereo.processFrame(ambiStereoIn, ambiStereoLeft, ambiStereoRight);
         if (!std::isfinite(ambiStereoLeft) || !std::isfinite(ambiStereoRight)) {
-            std::cerr << "Ambisonic Stereo Decoder mic-pattern output is not finite\n";
+            std::cerr << "Ambi Stereo Decoder mic-pattern output is not finite\n";
             return 1;
         }
     }
@@ -583,11 +790,11 @@ int main()
     float headRight = 0.0f;
     headDecoder.processFrame(ambiStereoIn, headLeft, headRight);
     if (!std::isfinite(headLeft) || !std::isfinite(headRight)) {
-        std::cerr << "Ambisonic Head Decoder binaural output is not finite\n";
+        std::cerr << "Ambi Head Decoder binaural output is not finite\n";
         return 1;
     }
     if (std::max(std::abs(headLeft), std::abs(headRight)) <= 0.000001f) {
-        std::cerr << "Ambisonic Head Decoder binaural output is silent\n";
+        std::cerr << "Ambi Head Decoder binaural output is silent\n";
         return 1;
     }
     headParams.mode = s3g::AmbiHeadMode::Transaural;
@@ -599,7 +806,7 @@ int main()
         ambiStereoIn[3] = std::cos(static_cast<float>(i) * 0.013f) * 0.06f;
         headDecoder.processFrame(ambiStereoIn, headLeft, headRight);
         if (!std::isfinite(headLeft) || !std::isfinite(headRight)) {
-            std::cerr << "Ambisonic Head Decoder transaural output is not finite\n";
+            std::cerr << "Ambi Head Decoder transaural output is not finite\n";
             return 1;
         }
     }
@@ -783,7 +990,7 @@ int main()
     }
     orderBand.process(ambiUtilityIn, ambiUtilityOut, s3g::kAmbiUtilityChannels, s3g::kAmbiUtilityChannels, 16);
     if (!std::isfinite(ambiUtilityOutBuffers[0][0]) || std::abs(ambiUtilityOutBuffers[0][0]) < 0.0001f) {
-        std::cerr << "Ambisonic Order / Band output failed\n";
+        std::cerr << "Ambi Order / Band output failed\n";
         return 1;
     }
 
@@ -798,9 +1005,143 @@ int main()
     rotate.process(ambiUtilityIn, ambiUtilityOut, s3g::kAmbiUtilityChannels, s3g::kAmbiUtilityChannels, 16);
     for (uint32_t ch = 0; ch < s3g::ambiUtilityChannelsForOrder(rotateParams.order); ++ch) {
         if (!std::isfinite(ambiUtilityOutBuffers[ch][0])) {
-            std::cerr << "Ambisonic Rotate output is not finite\n";
+            std::cerr << "Ambi Rotate output is not finite\n";
             return 1;
         }
+    }
+
+    auto ambiGrainSample = std::make_shared<s3g::AmbiGrainSample>();
+    ambiGrainSample->frames = 96000;
+    ambiGrainSample->channels = s3g::kAmbiGrainChannels;
+    ambiGrainSample->sampleRate = 48000.0;
+    ambiGrainSample->path = "synthetic-ambi-grain";
+    ambiGrainSample->audio.assign(static_cast<size_t>(ambiGrainSample->frames) * ambiGrainSample->channels, 0.0f);
+    for (uint32_t frame = 0; frame < ambiGrainSample->frames; ++frame) {
+        const float t = static_cast<float>(frame) / static_cast<float>(ambiGrainSample->sampleRate);
+        for (uint32_t ch = 0; ch < ambiGrainSample->channels; ++ch) {
+            const float hz = 90.0f + static_cast<float>(ch) * 11.0f;
+            ambiGrainSample->audio[static_cast<size_t>(frame) * ambiGrainSample->channels + ch] =
+                std::sin(6.28318530718f * hz * t) * (0.08f + 0.004f * static_cast<float>(ch));
+        }
+    }
+    s3g::AmbiGrainProcessor ambiGrain;
+    ambiGrain.prepare(48000.0);
+    s3g::AmbiGrainParams ambiGrainParams;
+    ambiGrainParams.density = 240.0f;
+    ambiGrainParams.grainMs = 4000.0f;
+    const auto safeAmbiGrainParams = s3g::sanitizeAmbiGrainParams(ambiGrainParams);
+    if (safeAmbiGrainParams.density > 8.001f) {
+        std::cerr << "Ambi Grain density/GMS safety cap failed\n";
+        return 1;
+    }
+    ambiGrainParams.order = 3;
+    ambiGrainParams.mode = s3g::AmbiGrainMode::Cloud;
+    ambiGrainParams.density = 80.0f;
+    ambiGrainParams.grainMs = 55.0f;
+    ambiGrainParams.positionJitter = 0.25f;
+    ambiGrainParams.rateJitterOct = 0.08f;
+    ambiGrainParams.outputGainDb = -18.0f;
+    ambiGrain.setParams(ambiGrainParams);
+    std::array<std::array<float, 256>, s3g::kAmbiGrainChannels> ambiGrainBuffers {};
+    float* ambiGrainOut[s3g::kAmbiGrainChannels] {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiGrainChannels; ++ch) {
+        ambiGrainOut[ch] = ambiGrainBuffers[ch].data();
+    }
+    float ambiGrainPeak = 0.0f;
+    for (int block = 0; block < 48; ++block) {
+        ambiGrain.process(ambiGrainSample, ambiGrainOut, s3g::kAmbiGrainChannels, static_cast<uint32_t>(ambiGrainBuffers[0].size()), true);
+        for (const auto& channel : ambiGrainBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi Grain output is not finite\n";
+                    return 1;
+                }
+                ambiGrainPeak = std::max(ambiGrainPeak, std::abs(value));
+            }
+        }
+    }
+    if (ambiGrainPeak <= 0.00001f || ambiGrainPeak > 1.0f) {
+        std::cerr << "Ambi Grain peak outside expected range: " << ambiGrainPeak << "\n";
+        return 1;
+    }
+    ambiGrainParams.sync = false;
+    ambiGrainParams.envelope = s3g::AmbiGrainEnvelope::Gauss;
+    ambiGrainParams.density = 120.0f;
+    ambiGrainParams.grainMs = 35.0f;
+    ambiGrain.setParams(ambiGrainParams);
+    float ambiGrainAsyncPeak = 0.0f;
+    for (int block = 0; block < 48; ++block) {
+        ambiGrain.process(ambiGrainSample, ambiGrainOut, s3g::kAmbiGrainChannels, static_cast<uint32_t>(ambiGrainBuffers[0].size()), true);
+        for (const auto& channel : ambiGrainBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi Grain async/env output is not finite\n";
+                    return 1;
+                }
+                ambiGrainAsyncPeak = std::max(ambiGrainAsyncPeak, std::abs(value));
+            }
+        }
+    }
+    if (ambiGrainAsyncPeak <= 0.00001f || ambiGrainAsyncPeak > 1.0f) {
+        std::cerr << "Ambi Grain async/env peak outside expected range: " << ambiGrainAsyncPeak << "\n";
+        return 1;
+    }
+    ambiGrain.reset();
+    ambiGrainParams.sync = true;
+    ambiGrainParams.envelope = s3g::AmbiGrainEnvelope::Hann;
+    ambiGrainParams.density = 3.0f;
+    ambiGrainParams.grainMs = 1200.0f;
+    ambiGrainParams.positionJitter = 0.4f;
+    ambiGrainParams.rateJitterOct = 0.02f;
+    ambiGrainParams.outputGainDb = -24.0f;
+    ambiGrain.setParams(ambiGrainParams);
+    float ambiGrainLongPeak = 0.0f;
+    for (int block = 0; block < 300; ++block) {
+        ambiGrain.process(ambiGrainSample, ambiGrainOut, s3g::kAmbiGrainChannels, static_cast<uint32_t>(ambiGrainBuffers[0].size()), true);
+        for (const auto& channel : ambiGrainBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi Grain long-window output is not finite\n";
+                    return 1;
+                }
+                ambiGrainLongPeak = std::max(ambiGrainLongPeak, std::abs(value));
+            }
+        }
+    }
+    if (ambiGrainLongPeak <= 0.00001f || ambiGrainLongPeak > 1.0f) {
+        std::cerr << "Ambi Grain long-window peak outside expected range: " << ambiGrainLongPeak << "\n";
+        return 1;
+    }
+    auto ambiGrainOneOaSample = std::make_shared<s3g::AmbiGrainSample>(*ambiGrainSample);
+    ambiGrainOneOaSample->channels = 4u;
+    ambiGrainOneOaSample->audio.assign(static_cast<size_t>(ambiGrainOneOaSample->frames) * ambiGrainOneOaSample->channels, 0.0f);
+    for (uint32_t frame = 0; frame < ambiGrainOneOaSample->frames; ++frame) {
+        for (uint32_t ch = 0; ch < ambiGrainOneOaSample->channels; ++ch) {
+            ambiGrainOneOaSample->audio[static_cast<size_t>(frame) * ambiGrainOneOaSample->channels + ch] =
+                ambiGrainSample->audio[static_cast<size_t>(frame) * ambiGrainSample->channels + ch];
+        }
+    }
+    ambiGrain.reset();
+    ambiGrainParams.order = 3;
+    ambiGrainParams.density = 48.0f;
+    ambiGrainParams.grainMs = 120.0f;
+    ambiGrain.setParams(ambiGrainParams);
+    float ambiGrainLowerOrderPeak = 0.0f;
+    for (int block = 0; block < 48; ++block) {
+        ambiGrain.process(ambiGrainOneOaSample, ambiGrainOut, s3g::kAmbiGrainChannels, static_cast<uint32_t>(ambiGrainBuffers[0].size()), true);
+        for (uint32_t ch = 0; ch < ambiGrainOneOaSample->channels; ++ch) {
+            for (float value : ambiGrainBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi Grain lower-order output is not finite\n";
+                    return 1;
+                }
+                ambiGrainLowerOrderPeak = std::max(ambiGrainLowerOrderPeak, std::abs(value));
+            }
+        }
+    }
+    if (ambiGrainLowerOrderPeak <= 0.00001f || ambiGrainLowerOrderPeak > 1.0f) {
+        std::cerr << "Ambi Grain lower-order peak outside expected range: " << ambiGrainLowerOrderPeak << "\n";
+        return 1;
     }
 
     std::cout << "s3g-dsp smoke test passed\n";
@@ -816,9 +1157,13 @@ int main()
     std::cout << "macro delay peak: " << macroPeak << "\n";
     std::cout << "macro delay tail peak: " << macroTailPeak << "\n";
     std::cout << "macro pitch peak: " << macroPitchPeak << "\n";
-    std::cout << "3OAFX point encoder peak: " << pointEncoderPeak << "\n";
-    std::cout << "3OAFX speaker decoder peak: " << speakerDecoderPeak << "\n";
+    std::cout << "Ambi point encoder peak: " << pointEncoderPeak << "\n";
+    std::cout << "Ambi speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";
-    std::cout << "ambisonic order/band W: " << ambiUtilityOutBuffers[0][0] << "\n";
+    std::cout << "Ambi order/band W: " << ambiUtilityOutBuffers[0][0] << "\n";
+    std::cout << "Ambi grain peak: " << ambiGrainPeak << "\n";
+    std::cout << "Ambi grain async/env peak: " << ambiGrainAsyncPeak << "\n";
+    std::cout << "Ambi grain long peak: " << ambiGrainLongPeak << "\n";
+    std::cout << "Ambi grain lower-order peak: " << ambiGrainLowerOrderPeak << "\n";
     return 0;
 }

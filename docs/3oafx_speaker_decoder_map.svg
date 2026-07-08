@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 430" role="img" aria-labelledby="title desc">
-  <title id="title">3OAFX Speaker Decoder map</title>
+  <title id="title">Ambi Speaker Decoder map</title>
   <desc id="desc">Diagram showing ambisonic input, decoder matrix, speaker layout, and 64-channel speaker output.</desc>
   <defs>
     <style>

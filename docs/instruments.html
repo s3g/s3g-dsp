@@ -15,7 +15,7 @@
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
         <a href="effects.html">Effects</a>
-        <a href="3oafx.html">3OAFX</a>
+        <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Instruments</h1>
 
-        <p>Instruments generate sound internally, respond to MIDI, or use loaded audio as their source. Loop Processor and Multi Loop Processor live here because they are CLAP instrument plugins.</p>
+        <p>Instruments generate sound internally, respond to MIDI, or use loaded audio as their source. Loop Processor and Multi Loop Processor live here because they are CLAP instrument plugins. Ambi Grain Processor is also a CLAP instrument, with its main reference under Ambisonics because it assumes encoded media.</p>
 
         <div class="status-strip" aria-label="Instruments summary">
           <div><span>source</span><strong>loaded audio</strong></div>
@@ -48,6 +48,11 @@
             <strong>Multi Loop Processor</strong>
             <em>8-channel CLAP instrument plugin for up to four loaded files, source-to-lane rules, source rate spread, source crossblend, and shared lane relationship controls.</em>
           </a>
+          <a class="category-card" href="ambi-grain-processor.html">
+            <span>ambisonic instrument</span>
+            <strong>Ambi Grain Processor</strong>
+            <em>16-channel CLAP instrument plugin for loaded ACN/SN3D ambisonic media with channel-locked grain events.</em>
+          </a>
         </div>
 
         <nav class="page-nav" aria-label="Page navigation">
@@ -68,6 +73,7 @@
           <a href="instruments.html">Instruments Overview</a>
           <a href="loop-processor.html">Loop Processor</a>
           <a href="multi-loop-processor.html">Multi Loop Processor</a>
+          <a href="ambi-grain-processor.html">Ambi Grain Processor</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>

@@ -460,7 +460,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
             info->flags |= CLAP_PARAM_IS_STEPPED;
         }
         std::strncpy(info->name, def.name, sizeof(info->name));
-        std::strncpy(info->module, "3OAFX Point Encoder", sizeof(info->module));
+        std::strncpy(info->module, "Ambi Point Encoder", sizeof(info->module));
         info->min_value = def.min;
         info->max_value = def.max;
         info->default_value = def.def;
@@ -483,7 +483,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     case PerPointParamKind::Solo: suffix = "Solo"; info->flags |= CLAP_PARAM_IS_STEPPED; min = 0.0; max = 1.0; def = 0.0; break;
     }
     std::snprintf(info->name, sizeof(info->name), "P%02u %s", pointIndex + 1u, suffix);
-    std::snprintf(info->module, sizeof(info->module), "3OAFX Points");
+    std::snprintf(info->module, sizeof(info->module), "Ambi Points");
     info->min_value = min;
     info->max_value = max;
     info->default_value = def;
@@ -1271,7 +1271,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
     NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
 
-    [@"s3g 3OAFX POINT ENCODER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
+    [@"s3g AMBI POINT ENCODER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
     [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))] drawAtPoint:NSMakePoint(716,14) withAttributes:small];
     [@"16PT > 3OA" drawAtPoint:NSMakePoint(810,14) withAttributes:small];
@@ -1548,7 +1548,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.3oafx-point-encoder-16pt",
-    "s3g 3OAFX Point Encoder 16pt",
+    "s3g Ambi Point Encoder",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
