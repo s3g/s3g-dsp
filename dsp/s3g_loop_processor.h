@@ -187,10 +187,17 @@ public:
                 if (playing) {
                     state.pos += rate;
                     if (state.pos >= period) {
-                        state.pos -= period;
+                        const double overshoot = state.pos - period;
+                        const bool stableWindow = std::fabs(state.pendingWindowStart - state.windowStart) < 0.5
+                            && std::fabs(state.pendingWindowLength - state.windowLength) < 0.5;
                         commitPendingWindow(state, fullPeriod);
                         period = std::clamp(state.windowLength, 2.0, fullPeriod);
                         state.period = period;
+                        if (stableWindow && activeXfadeFrames > 1u) {
+                            state.pos = std::min(period - 1.0, static_cast<double>(activeXfadeFrames) + overshoot);
+                        } else {
+                            state.pos = overshoot;
+                        }
                     }
                     while (state.pos >= period) {
                         state.pos -= period;
@@ -298,7 +305,7 @@ private:
             const float fadeOut = 1.0f - fadeIn;
             const float duck = 1.0f - clamp(seamDuck, 0.0f, 0.75f) * std::sin(3.14159265359f * u);
             const float tail = readLinear(sample, ch, phase);
-            const float head = readLinear(sample, ch, seamPhase - static_cast<double>(xfadeFrames));
+            const float head = readLinear(sample, ch, seamPhase);
             value = (tail * fadeOut + head * fadeIn) * duck;
         }
         return value;
@@ -334,7 +341,7 @@ private:
         const float fadeOut = 1.0f - fadeIn;
         const float duck = 1.0f - clamp(seamDuck, 0.0f, 0.75f) * std::sin(3.14159265359f * clamp(u, 0.0f, 1.0f));
         const float tail = readLinear(sample, ch, absolutePos);
-        const float head = readLinear(sample, ch, wrapPosition(loopStart + seamPhase - static_cast<double>(fadeFrames), fullPeriod));
+        const float head = readLinear(sample, ch, wrapPosition(loopStart + seamPhase, fullPeriod));
         return (tail * fadeOut + head * fadeIn) * duck;
     }
 

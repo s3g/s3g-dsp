@@ -40,11 +40,14 @@ struct OutputDeviceInfo {
 struct AppState {
     AVAudioEngine* audioEngine = nil;
     AVAudioSourceNode* sourceNode = nil;
+    AudioUnit directOutputUnit = nullptr;
+    AudioDeviceID directOutputDevice = kAudioObjectUnknown;
     MIDIClientRef midiClient = 0;
     MIDIPortRef midiPort = 0;
     std::vector<OutputDeviceInfo> outputDevices;
     std::atomic<uint32_t> selectedDeviceIndex { 0u };
     std::atomic<uint32_t> outputChannelCount { 0u };
+    std::atomic<bool> directOutputEnabled { false };
 
     s3g::LoopProcessorEngine engine;
     std::shared_ptr<const s3g::LoopProcessorSample> sample;
@@ -67,6 +70,7 @@ struct AppState {
     std::atomic<float> sourceBlend { 1.0f };
 
     std::atomic<bool> playing { false };
+    std::atomic<bool> foldDownToAvailableOutputs { false };
     std::atomic<bool> resyncRequested { false };
     std::atomic<bool> rebuildRequested { false };
     std::atomic<int32_t> lastCc { -1 };
@@ -128,6 +132,79 @@ s3g::LoopProcessorParams snapshotParams(const AppState& state)
     params.laneMask = 0xffu;
     params.baseRate = std::clamp(params.baseRate, 0.125f, 4.0f);
     return params;
+}
+
+void clearAudioBuffers(AudioBufferList* outputData)
+{
+    if (!outputData) return;
+    for (uint32_t b = 0; b < outputData->mNumberBuffers; ++b) {
+        const size_t samples = outputData->mBuffers[b].mDataByteSize / sizeof(float);
+        if (outputData->mBuffers[b].mData && samples > 0u) {
+            std::fill_n(static_cast<float*>(outputData->mBuffers[b].mData), samples, 0.0f);
+        }
+    }
+}
+
+OSStatus renderAppAudio(AppState& state, AudioBufferList* outputData, AVAudioFrameCount frameCount)
+{
+    if (!outputData) return noErr;
+    if (frameCount > kMaxRenderFrames) {
+        clearAudioBuffers(outputData);
+        return noErr;
+    }
+
+    float* lanes[kChannels] {};
+    for (uint32_t ch = 0; ch < kChannels; ++ch) {
+        lanes[ch] = state.scratch[ch].data();
+        std::fill_n(lanes[ch], frameCount, 0.0f);
+    }
+    auto sample = std::atomic_load_explicit(&state.sample, std::memory_order_acquire);
+    const bool playing = state.playing.load(std::memory_order_acquire);
+    state.engine.setParams(snapshotParams(state));
+    if (state.resyncRequested.exchange(false, std::memory_order_acq_rel)) state.engine.resync();
+    state.engine.process(sample, lanes, frameCount, playing);
+
+    float phases[kChannels] {};
+    state.engine.lanePhases(phases, kChannels);
+    for (uint32_t ch = 0; ch < kChannels; ++ch) {
+        state.lanePhases[ch].store(phases[ch], std::memory_order_relaxed);
+    }
+
+    float peak = 0.0f;
+    const uint32_t outBuffers = std::max<uint32_t>(1u, outputData->mNumberBuffers);
+    const bool foldDown = state.foldDownToAvailableOutputs.load(std::memory_order_acquire);
+    for (uint32_t b = 0; b < outputData->mNumberBuffers; ++b) {
+        float* out = static_cast<float*>(outputData->mBuffers[b].mData);
+        const size_t writableSamples = outputData->mBuffers[b].mDataByteSize / sizeof(float);
+        if (!out || writableSamples == 0u) continue;
+        std::fill_n(out, writableSamples, 0.0f);
+        const uint32_t bufferChannels = std::max<uint32_t>(
+            1u,
+            static_cast<uint32_t>(writableSamples / std::max<AVAudioFrameCount>(1u, frameCount)));
+        for (uint32_t i = 0; i < frameCount; ++i) {
+            for (uint32_t c = 0; c < bufferChannels; ++c) {
+                const size_t index = static_cast<size_t>(i) * bufferChannels + c;
+                if (index >= writableSamples) continue;
+                const uint32_t outCh = b + c;
+                float value = 0.0f;
+                if (!foldDown) {
+                    value = outCh < kChannels ? lanes[outCh][i] : 0.0f;
+                } else {
+                    float sum = 0.0f;
+                    uint32_t count = 0u;
+                    for (uint32_t lane = outCh; lane < kChannels; lane += outBuffers) {
+                        sum += lanes[lane][i];
+                        ++count;
+                    }
+                    value = count > 0u ? sum / static_cast<float>(count) : 0.0f;
+                }
+                out[index] = value;
+                peak = std::max(peak, std::fabs(value));
+            }
+        }
+    }
+    state.outputPeak.store(std::max(state.outputPeak.load(std::memory_order_relaxed) * 0.92f, peak), std::memory_order_relaxed);
+    return noErr;
 }
 
 const char* ruleName(uint32_t rule)
@@ -220,7 +297,9 @@ std::vector<OutputDeviceInfo> enumerateOutputDevices()
 void refreshOutputDevices(AppState& state)
 {
     state.outputDevices = enumerateOutputDevices();
-    const AudioDeviceID current = currentDefaultOutputDevice();
+    const AudioDeviceID current = state.directOutputEnabled.load(std::memory_order_acquire) && state.directOutputDevice != kAudioObjectUnknown
+        ? state.directOutputDevice
+        : currentDefaultOutputDevice();
     uint32_t selected = 0u;
     for (uint32_t i = 0; i < state.outputDevices.size(); ++i) {
         if (state.outputDevices[i].id == current) {
@@ -234,8 +313,132 @@ void refreshOutputDevices(AppState& state)
     }
 }
 
+OSStatus directOutputRenderCallback(void* refCon,
+                                    AudioUnitRenderActionFlags* ioActionFlags,
+                                    const AudioTimeStamp* inTimeStamp,
+                                    UInt32 inBusNumber,
+                                    UInt32 inNumberFrames,
+                                    AudioBufferList* ioData)
+{
+    (void)ioActionFlags;
+    (void)inTimeStamp;
+    (void)inBusNumber;
+    auto* state = static_cast<AppState*>(refCon);
+    if (!state) return noErr;
+    return renderAppAudio(*state, ioData, inNumberFrames);
+}
+
+double nominalSampleRateForDevice(AudioDeviceID device)
+{
+    Float64 sampleRate = 48000.0;
+    UInt32 size = sizeof(sampleRate);
+    AudioObjectPropertyAddress address {
+        kAudioDevicePropertyNominalSampleRate,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    AudioObjectGetPropertyData(device, &address, 0, nullptr, &size, &sampleRate);
+    return sampleRate > 0.0 ? sampleRate : 48000.0;
+}
+
+void stopDirectOutput(AppState& state)
+{
+    if (!state.directOutputUnit) {
+        state.directOutputEnabled.store(false, std::memory_order_release);
+        return;
+    }
+    AudioOutputUnitStop(state.directOutputUnit);
+    AudioUnitUninitialize(state.directOutputUnit);
+    AudioComponentInstanceDispose(state.directOutputUnit);
+    state.directOutputUnit = nullptr;
+    state.directOutputEnabled.store(false, std::memory_order_release);
+}
+
+bool startDirectOutput(AppState& state, AudioDeviceID device)
+{
+    if (device == kAudioObjectUnknown) return false;
+    if (state.audioEngine && [state.audioEngine isRunning]) [state.audioEngine stop];
+    stopDirectOutput(state);
+
+    AudioComponentDescription desc {};
+    desc.componentType = kAudioUnitType_Output;
+    desc.componentSubType = kAudioUnitSubType_HALOutput;
+    desc.componentManufacturer = kAudioUnitManufacturer_Apple;
+    AudioComponent component = AudioComponentFindNext(nullptr, &desc);
+    if (!component) return false;
+
+    AudioUnit unit = nullptr;
+    if (AudioComponentInstanceNew(component, &unit) != noErr || !unit) return false;
+
+    UInt32 enable = 1;
+    OSStatus err = AudioUnitSetProperty(unit,
+                                        kAudioOutputUnitProperty_EnableIO,
+                                        kAudioUnitScope_Output,
+                                        0,
+                                        &enable,
+                                        sizeof(enable));
+    if (err == noErr) {
+        err = AudioUnitSetProperty(unit,
+                                   kAudioOutputUnitProperty_CurrentDevice,
+                                   kAudioUnitScope_Global,
+                                   0,
+                                   &device,
+                                   sizeof(device));
+    }
+
+    const uint32_t hardwareChannels = outputChannelCountForDevice(device);
+    const uint32_t outChannels = std::clamp<uint32_t>(hardwareChannels, 1u, kChannels);
+    const double sampleRate = nominalSampleRateForDevice(device);
+    AudioStreamBasicDescription asbd {};
+    asbd.mSampleRate = sampleRate;
+    asbd.mFormatID = kAudioFormatLinearPCM;
+    asbd.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved | kAudioFormatFlagsNativeEndian;
+    asbd.mBitsPerChannel = 32;
+    asbd.mChannelsPerFrame = outChannels;
+    asbd.mFramesPerPacket = 1;
+    asbd.mBytesPerFrame = sizeof(float);
+    asbd.mBytesPerPacket = sizeof(float);
+    if (err == noErr) {
+        err = AudioUnitSetProperty(unit,
+                                   kAudioUnitProperty_StreamFormat,
+                                   kAudioUnitScope_Input,
+                                   0,
+                                   &asbd,
+                                   sizeof(asbd));
+    }
+
+    AURenderCallbackStruct callback {};
+    callback.inputProc = directOutputRenderCallback;
+    callback.inputProcRefCon = &state;
+    if (err == noErr) {
+        err = AudioUnitSetProperty(unit,
+                                   kAudioUnitProperty_SetRenderCallback,
+                                   kAudioUnitScope_Input,
+                                   0,
+                                   &callback,
+                                   sizeof(callback));
+    }
+    if (err == noErr) err = AudioUnitInitialize(unit);
+    if (err == noErr) err = AudioOutputUnitStart(unit);
+    if (err != noErr) {
+        AudioUnitUninitialize(unit);
+        AudioComponentInstanceDispose(unit);
+        return false;
+    }
+
+    state.directOutputUnit = unit;
+    state.directOutputDevice = device;
+    state.directOutputEnabled.store(true, std::memory_order_release);
+    state.outputChannelCount.store(outChannels, std::memory_order_release);
+    state.engine.prepare(sampleRate);
+    state.resyncRequested.store(true, std::memory_order_release);
+    refreshOutputDevices(state);
+    return true;
+}
+
 bool configureAudioGraph(AppState& state)
 {
+    stopDirectOutput(state);
     if (!state.audioEngine || !state.sourceNode) return false;
     NSError* error = nil;
     const bool wasRunning = [state.audioEngine isRunning];
@@ -251,27 +454,6 @@ bool configureAudioGraph(AppState& state)
         state.resyncRequested.store(true, std::memory_order_release);
     }
     return ok;
-}
-
-bool setSystemDefaultOutputDevice(AudioDeviceID device)
-{
-    if (device == kAudioObjectUnknown) return false;
-    AudioObjectPropertyAddress address {
-        kAudioHardwarePropertyDefaultOutputDevice,
-        kAudioObjectPropertyScopeGlobal,
-        kAudioObjectPropertyElementMain
-    };
-    AudioDeviceID value = device;
-    return AudioObjectSetPropertyData(kAudioObjectSystemObject, &address, 0, nullptr, sizeof(value), &value) == noErr;
-}
-
-bool selectOutputDevice(AppState& state, uint32_t index)
-{
-    if (!state.audioEngine || index >= state.outputDevices.size()) return false;
-    if (!setSystemDefaultOutputDevice(state.outputDevices[index].id)) return false;
-    refreshOutputDevices(state);
-    state.selectedDeviceIndex.store(index, std::memory_order_release);
-    return configureAudioGraph(state);
 }
 
 std::shared_ptr<s3g::LoopProcessorSample> readSampleFromPath(const std::string& path)
@@ -603,7 +785,8 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
         const auto& device = _state->outputDevices[selectedDevice];
         deviceText = [NSString stringWithFormat:@"%s / %uCH", device.name.c_str(), device.channels];
     }
-    [[NSString stringWithFormat:@"SYS %@", deviceText] drawInRect:NSMakeRect(316, 92, 242, 18) withAttributes:small];
+    NSString* modeText = _state->directOutputEnabled.load(std::memory_order_acquire) ? @"DIRECT" : @"SYS";
+    [[NSString stringWithFormat:@"%@ %@", modeText, deviceText] drawInRect:NSMakeRect(316, 92, 242, 18) withAttributes:small];
 
     auto sample = std::atomic_load_explicit(&_state->sample, std::memory_order_acquire);
     NSString* sourceText = sample ? [NSString stringWithFormat:@"%u files -> %u frames / %u lanes", _state->sourceCount.load(), sample->frames, sample->channels] : @"no sources loaded";
@@ -614,10 +797,11 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
         : [NSString stringWithFormat:@"PK %.3f   CC --", _state->outputPeak.load()];
     [ccText drawAtPoint:NSMakePoint(28, 150) withAttributes:small];
     if (sample) {
-        [[NSString stringWithFormat:@"%s / %.0f Hz / OUT %uCH",
+        [[NSString stringWithFormat:@"%s / %.0f Hz / OUT %uCH / %@",
             ruleName(_state->rule.load(std::memory_order_acquire)),
             sample->sampleRate,
-            _state->outputChannelCount.load(std::memory_order_acquire)]
+            _state->outputChannelCount.load(std::memory_order_acquire),
+            _state->foldDownToAvailableOutputs.load(std::memory_order_acquire) ? @"FOLD" : @"DISC"]
             drawAtPoint:NSMakePoint(28, 168)
             withAttributes:small];
     }
@@ -769,10 +953,73 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
 @interface S3GAppDelegate : NSObject <NSApplicationDelegate> {
     AppState* _state;
     NSWindow* _window;
+    NSMenu* _audioMenu;
 }
 @end
 
 @implementation S3GAppDelegate
+- (void)rebuildAudioMenu
+{
+    if (!_audioMenu || !_state) return;
+    [_audioMenu removeAllItems];
+    NSMenuItem* refresh = [[[NSMenuItem alloc] initWithTitle:@"Refresh Output Devices"
+                                                      action:@selector(refreshOutputDevicesFromMenu:)
+                                               keyEquivalent:@""] autorelease];
+    [refresh setTarget:self];
+    [_audioMenu addItem:refresh];
+
+    NSMenuItem* setup = [[[NSMenuItem alloc] initWithTitle:@"Open Audio MIDI Setup"
+                                                    action:@selector(openAudioMIDISetup:)
+                                             keyEquivalent:@""] autorelease];
+    [setup setTarget:self];
+    [_audioMenu addItem:setup];
+    [_audioMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem* direct = [[[NSMenuItem alloc] initWithTitle:@"Direct CoreAudio Output"
+                                                     action:@selector(toggleDirectOutputFromMenu:)
+                                              keyEquivalent:@""] autorelease];
+    [direct setTarget:self];
+    [direct setState:_state->directOutputEnabled.load(std::memory_order_acquire) ? NSControlStateValueOn : NSControlStateValueOff];
+    [_audioMenu addItem:direct];
+
+    NSMenuItem* fold = [[[NSMenuItem alloc] initWithTitle:@"Fold 8 Lanes To Available Outputs"
+                                                   action:@selector(toggleFoldDownFromMenu:)
+                                            keyEquivalent:@""] autorelease];
+    [fold setTarget:self];
+    [fold setState:_state->foldDownToAvailableOutputs.load(std::memory_order_acquire) ? NSControlStateValueOn : NSControlStateValueOff];
+    [_audioMenu addItem:fold];
+    [_audioMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem* defaultLabel = [[[NSMenuItem alloc] initWithTitle:(_state->directOutputEnabled.load(std::memory_order_acquire) ? @"Direct Device Selection" : @"Using macOS System Default Output")
+                                                           action:nil
+                                                    keyEquivalent:@""] autorelease];
+    [defaultLabel setEnabled:NO];
+    [_audioMenu addItem:defaultLabel];
+
+    refreshOutputDevices(*_state);
+    const uint32_t selected = _state->selectedDeviceIndex.load(std::memory_order_acquire);
+    if (_state->outputDevices.empty()) {
+        NSMenuItem* none = [[[NSMenuItem alloc] initWithTitle:@"No Output Devices"
+                                                       action:nil
+                                                keyEquivalent:@""] autorelease];
+        [none setEnabled:NO];
+        [_audioMenu addItem:none];
+        return;
+    }
+
+    for (uint32_t i = 0; i < _state->outputDevices.size(); ++i) {
+        const auto& device = _state->outputDevices[i];
+        NSString* title = [NSString stringWithFormat:@"%s / %uCH", device.name.c_str(), device.channels];
+        NSMenuItem* item = [[[NSMenuItem alloc] initWithTitle:title
+                                                       action:@selector(selectOutputDeviceFromMenu:)
+                                                keyEquivalent:@""] autorelease];
+        [item setTarget:self];
+        [item setTag:static_cast<NSInteger>(i)];
+        [item setState:i == selected ? NSControlStateValueOn : NSControlStateValueOff];
+        [item setEnabled:_state->directOutputEnabled.load(std::memory_order_acquire) ? YES : NO];
+        [_audioMenu addItem:item];
+    }
+}
 - (void)installApplicationMenu
 {
     NSMenu* menubar = [[[NSMenu alloc] initWithTitle:@""] autorelease];
@@ -787,77 +1034,87 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
                                             keyEquivalent:@"q"] autorelease];
     [appMenu addItem:quit];
     [appMenuItem setSubmenu:appMenu];
+
+    NSMenuItem* audioMenuItem = [[[NSMenuItem alloc] initWithTitle:@"Audio" action:nil keyEquivalent:@""] autorelease];
+    [menubar addItem:audioMenuItem];
+    _audioMenu = [[NSMenu alloc] initWithTitle:@"Audio"];
+    [audioMenuItem setSubmenu:_audioMenu];
+    [self rebuildAudioMenu];
+}
+- (void)refreshOutputDevicesFromMenu:(id)sender
+{
+    (void)sender;
+    if (_state) {
+        refreshOutputDevices(*_state);
+        if (_state->directOutputEnabled.load(std::memory_order_acquire)) {
+            const uint32_t selected = _state->selectedDeviceIndex.load(std::memory_order_acquire);
+            if (selected < _state->outputDevices.size()) startDirectOutput(*_state, _state->outputDevices[selected].id);
+        } else {
+            configureAudioGraph(*_state);
+        }
+    }
+    [self rebuildAudioMenu];
+    [_window.contentView setNeedsDisplay:YES];
+}
+- (void)openAudioMIDISetup:(id)sender
+{
+    (void)sender;
+    NSURL* url = [NSURL fileURLWithPath:@"/System/Applications/Utilities/Audio MIDI Setup.app"];
+    NSWorkspaceOpenConfiguration* config = [NSWorkspaceOpenConfiguration configuration];
+    [[NSWorkspace sharedWorkspace] openApplicationAtURL:url configuration:config completionHandler:nil];
+}
+- (void)toggleFoldDownFromMenu:(id)sender
+{
+    (void)sender;
+    if (_state) {
+        const bool now = !_state->foldDownToAvailableOutputs.load(std::memory_order_acquire);
+        _state->foldDownToAvailableOutputs.store(now, std::memory_order_release);
+    }
+    [self rebuildAudioMenu];
+    [_window.contentView setNeedsDisplay:YES];
+}
+- (void)toggleDirectOutputFromMenu:(id)sender
+{
+    (void)sender;
+    if (_state) {
+        if (_state->directOutputEnabled.load(std::memory_order_acquire)) {
+            configureAudioGraph(*_state);
+        } else {
+            refreshOutputDevices(*_state);
+            const uint32_t selected = _state->selectedDeviceIndex.load(std::memory_order_acquire);
+            AudioDeviceID device = currentDefaultOutputDevice();
+            if (selected < _state->outputDevices.size()) device = _state->outputDevices[selected].id;
+            startDirectOutput(*_state, device);
+        }
+    }
+    [self rebuildAudioMenu];
+    [_window.contentView setNeedsDisplay:YES];
+}
+- (void)selectOutputDeviceFromMenu:(id)sender
+{
+    if (!_state || !_state->directOutputEnabled.load(std::memory_order_acquire)) return;
+    const NSInteger index = [sender tag];
+    if (index >= 0 && static_cast<uint32_t>(index) < _state->outputDevices.size()) {
+        _state->selectedDeviceIndex.store(static_cast<uint32_t>(index), std::memory_order_release);
+        startDirectOutput(*_state, _state->outputDevices[static_cast<uint32_t>(index)].id);
+    }
+    [self rebuildAudioMenu];
+    [_window.contentView setNeedsDisplay:YES];
 }
 - (void)applicationDidFinishLaunching:(NSNotification*)notification
 {
     (void)notification;
-    [self installApplicationMenu];
     _state = new AppState();
     _state->engine.prepare(48000.0);
     _state->audioEngine = [[AVAudioEngine alloc] init];
     refreshOutputDevices(*_state);
+    [self installApplicationMenu];
     AVAudioFormat* outputFormat = [[_state->audioEngine outputNode] outputFormatForBus:0];
     const double sampleRate = outputFormat ? [outputFormat sampleRate] : 48000.0;
     _state->engine.prepare(sampleRate);
     AVAudioSourceNode* source = [[AVAudioSourceNode alloc] initWithRenderBlock:^OSStatus(BOOL* isSilence, const AudioTimeStamp*, AVAudioFrameCount frameCount, AudioBufferList* outputData) {
         if (isSilence) *isSilence = NO;
-        if (frameCount > kMaxRenderFrames) {
-            for (uint32_t b = 0; b < outputData->mNumberBuffers; ++b) {
-                const size_t samples = outputData->mBuffers[b].mDataByteSize / sizeof(float);
-                if (outputData->mBuffers[b].mData && samples > 0u) {
-                    std::fill_n(static_cast<float*>(outputData->mBuffers[b].mData), samples, 0.0f);
-                }
-            }
-            return noErr;
-        }
-        float* lanes[kChannels] {};
-        for (uint32_t ch = 0; ch < kChannels; ++ch) {
-            lanes[ch] = _state->scratch[ch].data();
-            std::fill_n(lanes[ch], frameCount, 0.0f);
-        }
-        auto sample = std::atomic_load_explicit(&_state->sample, std::memory_order_acquire);
-        const bool playing = _state->playing.load(std::memory_order_acquire);
-        _state->engine.setParams(snapshotParams(*_state));
-        if (_state->resyncRequested.exchange(false, std::memory_order_acq_rel)) _state->engine.resync();
-        _state->engine.process(sample, lanes, frameCount, playing);
-        float phases[kChannels] {};
-        _state->engine.lanePhases(phases, kChannels);
-        for (uint32_t ch = 0; ch < kChannels; ++ch) _state->lanePhases[ch].store(phases[ch], std::memory_order_relaxed);
-
-        float peak = 0.0f;
-        const uint32_t outBuffers = std::max<uint32_t>(1u, outputData->mNumberBuffers);
-        for (uint32_t b = 0; b < outputData->mNumberBuffers; ++b) {
-            float* out = static_cast<float*>(outputData->mBuffers[b].mData);
-            const size_t writableSamples = outputData->mBuffers[b].mDataByteSize / sizeof(float);
-            if (!out || writableSamples == 0u) continue;
-            std::fill_n(out, writableSamples, 0.0f);
-            const uint32_t bufferChannels = std::max<uint32_t>(
-                1u,
-                static_cast<uint32_t>(writableSamples / std::max<AVAudioFrameCount>(1u, frameCount)));
-            for (uint32_t i = 0; i < frameCount; ++i) {
-                for (uint32_t c = 0; c < bufferChannels; ++c) {
-                    const size_t index = static_cast<size_t>(i) * bufferChannels + c;
-                    if (index >= writableSamples) continue;
-                    const uint32_t outCh = b + c;
-                    float value = 0.0f;
-                    if (outBuffers >= kChannels) {
-                        value = outCh < kChannels ? lanes[outCh][i] : 0.0f;
-                    } else {
-                        float sum = 0.0f;
-                        uint32_t count = 0u;
-                        for (uint32_t lane = outCh; lane < kChannels; lane += outBuffers) {
-                            sum += lanes[lane][i];
-                            ++count;
-                        }
-                        value = count > 0u ? sum / static_cast<float>(count) : 0.0f;
-                    }
-                    out[index] = value;
-                    peak = std::max(peak, std::fabs(value));
-                }
-            }
-        }
-        _state->outputPeak.store(std::max(_state->outputPeak.load(std::memory_order_relaxed) * 0.92f, peak), std::memory_order_relaxed);
-        return noErr;
+        return renderAppAudio(*_state, outputData, frameCount);
     }];
     _state->sourceNode = [source retain];
     [_state->audioEngine attachNode:_state->sourceNode];
@@ -886,9 +1143,11 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     if (_state) {
         if (_state->midiPort) MIDIPortDispose(_state->midiPort);
         if (_state->midiClient) MIDIClientDispose(_state->midiClient);
+        stopDirectOutput(*_state);
         [_state->audioEngine stop];
         [_state->sourceNode release];
         [_state->audioEngine release];
+        [_audioMenu release];
         delete _state;
         _state = nullptr;
     }
