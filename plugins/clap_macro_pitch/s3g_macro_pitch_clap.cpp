@@ -21,7 +21,24 @@
 
 namespace {
 
-constexpr uint32_t kChannelCount = s3g::kMacroPitchChannels;
+#ifndef S3G_MACRO_PITCH_CHANNEL_COUNT
+#define S3G_MACRO_PITCH_CHANNEL_COUNT 8
+#endif
+
+constexpr uint32_t kChannelCount = S3G_MACRO_PITCH_CHANNEL_COUNT;
+static_assert(kChannelCount > 0 && kChannelCount <= s3g::kMacroPitchChannels,
+    "S3G_MACRO_PITCH_CHANNEL_COUNT must be in the supported Macro Pitch range.");
+
+#ifndef S3G_MACRO_PITCH_PLUGIN_ID
+#define S3G_MACRO_PITCH_PLUGIN_ID "org.s3g.s3g-dsp.macro-pitch-8ch"
+#endif
+#ifndef S3G_MACRO_PITCH_PLUGIN_NAME
+#define S3G_MACRO_PITCH_PLUGIN_NAME "s3g Macro Pitch 8ch"
+#endif
+#ifndef S3G_MACRO_PITCH_DESCRIPTION
+#define S3G_MACRO_PITCH_DESCRIPTION "8-channel macro pitch shifter with smoothed dual-reader time-domain pitch and lane relationship controls."
+#endif
+
 constexpr uint32_t kStateVersion = 2;
 
 constexpr clap_id kPitchParamId = 1;
@@ -167,7 +184,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 {
     if (index != 0 || !info) return false;
     info->id = isInput ? 10 : 20;
-    std::strncpy(info->name, isInput ? "8ch In" : "8ch Out", sizeof(info->name));
+    std::snprintf(info->name, sizeof(info->name), "%uch %s", kChannelCount, isInput ? "In" : "Out");
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = kChannelCount;
     info->port_type = CLAP_PORT_SURROUND;
@@ -309,14 +326,14 @@ static NSColor* mpColor(int rgb) { return s3g::clap_gui::color(rgb); }
     [mpColor(0x111111) setFill]; NSRectFill(rect);
     [mpColor(0x444444) setStroke]; NSFrameRect(rect);
     const CGFloat baseY = rect.origin.y + 32.0;
-    const CGFloat rowH = (rect.size.height - 46.0) / static_cast<CGFloat>(std::max<uint32_t>(1u, s3g::kMacroPitchChannels - 1u));
+    const CGFloat rowH = (rect.size.height - 46.0) / static_cast<CGFloat>(std::max<uint32_t>(1u, kChannelCount - 1u));
     const CGFloat labelX = rect.origin.x + 10.0;
     const CGFloat barX = rect.origin.x + 48.0;
     const CGFloat barW = rect.size.width - 66.0;
-    std::array<float, s3g::kMacroPitchChannels> ratios {};
+    std::array<float, kChannelCount> ratios {};
     float maxRatio = 0.001f;
-    for (uint32_t ch = 0; ch < s3g::kMacroPitchChannels; ++ch) {
-        const float u = static_cast<float>(ch) / static_cast<float>(std::max<uint32_t>(1u, s3g::kMacroPitchChannels - 1u));
+    for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
+        const float u = static_cast<float>(ch) / static_cast<float>(std::max<uint32_t>(1u, kChannelCount - 1u));
         const float centered = std::clamp((u - params.center) * 2.0f, -1.0f, 1.0f);
         uint32_t x = ch * 747796405u + 2891336453u;
         x = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
@@ -326,7 +343,7 @@ static NSColor* mpColor(int rgb) { return s3g::clap_gui::color(rgb); }
         ratios[ch] = std::pow(2.0f, std::clamp(semis, -24.0f, 24.0f) / 12.0f);
         maxRatio = std::max(maxRatio, ratios[ch]);
     }
-    for (uint32_t ch = 0; ch < s3g::kMacroPitchChannels; ++ch) {
+    for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
         const CGFloat y = baseY + static_cast<CGFloat>(ch) * rowH;
         [[NSString stringWithFormat:@"L%u", ch + 1u] drawAtPoint:NSMakePoint(labelX, y - 4.0) withAttributes:attrs];
         NSRect track = NSMakeRect(barX, y, barW, 6.0);
@@ -352,7 +369,7 @@ static NSColor* mpColor(int rgb) { return s3g::clap_gui::color(rgb); }
     [@"s3g MACRO PITCH" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
     [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))] drawAtPoint:NSMakePoint(604,14) withAttributes:small];
-    [@"8CH" drawAtPoint:NSMakePoint(704,14) withAttributes:small];
+    [[NSString stringWithFormat:@"%uCH", kChannelCount] drawAtPoint:NSMakePoint(704,14) withAttributes:small];
 
     s3g::clap_gui::drawPanelFrame(18, 42, 352, 112, style);
     s3g::clap_gui::drawPanelHeader(@"ENGINE", true, 18, 42, 352, 21, lab, style);
@@ -472,14 +489,14 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
-    "org.s3g.s3g-dsp.macro-pitch-8ch",
-    "s3g Macro Pitch 8ch",
+    S3G_MACRO_PITCH_PLUGIN_ID,
+    S3G_MACRO_PITCH_PLUGIN_NAME,
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
     "0.1.0",
-    "8-channel macro pitch shifter with smoothed dual-reader time-domain pitch and lane relationship controls.",
+    S3G_MACRO_PITCH_DESCRIPTION,
     features
 };
 

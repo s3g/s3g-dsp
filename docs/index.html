@@ -52,18 +52,23 @@
           <li><a href="delay-processor.html"><code>s3g Delay Processor 8ch</code></a>: main topology-driven delay processor.</li>
           <li><a href="delay-processor.html"><code>s3g Delay Processor 24ch</code></a>: wider delay build for 24-channel insert work.</li>
           <li><a href="loop-processor.html"><code>s3g Loop Processor 8ch</code></a>: CLAP instrument plugin for loaded audio loops, lane playheads, waveform display, and phase relationship controls.</li>
-          <li><code>s3g Macro Delay 8ch</code>: compact multichannel delay macro with relationship controls.</li>
-          <li><code>s3g Macro Pitch 8ch</code>: compact multichannel pitch macro with the shared Macro control layout.</li>
+          <li><a href="multi-loop-processor.html"><code>s3g Multi Loop Processor 8ch</code></a>: CLAP instrument plugin for up to four loaded files, source-to-lane rules, source rate spread, and source crossblend.</li>
+          <li><code>s3g Macro Delay 8ch</code> / <code>s3g Macro Delay 24ch</code>: compact multichannel delay macros with relationship controls.</li>
+          <li><code>s3g Macro Pitch 8ch</code> / <code>s3g Macro Pitch 24ch</code>: compact multichannel pitch macros with the shared Macro control layout.</li>
           <li><a href="mc-to-stereo-autogain.html"><code>s3g MC to Stereo Autogain</code></a>: 128-channel input to true stereo output fold-down prototype.</li>
           <li><code>s3g Multichannel Meter 64</code>: fixed 64-in/64-out passthrough meter with grid, spatial layout, and energy history views.</li>
           <li><a href="ambisonic-energy-visualizer.html"><code>s3g Ambisonic Energy Visualizer 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> passthrough analyzer with a high-resolution energy heatmap.</li>
           <li><a href="3oafx-point-encoder.html"><code>s3g 3OAFX Point Encoder</code></a>: 16 point-source input to 3OA <code>ACN/SN3D</code> output with AED placement, point mixer, physics scenes, and Geist-driven bond breaking.</li>
           <li><a href="3oafx-speaker-decoder.html"><code>s3g 3OAFX Speaker Decoder 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> speaker decoder with curated layouts, custom speaker editing, and a stable 64-channel speaker bus.</li>
           <li><a href="3oafx-layout-panner.html"><code>s3g Layout Panner</code></a>: direct 16-source to 64-speaker spatial panner with source mixing, speaker presets, and custom layout design.</li>
+          <li><a href="ambisonic-rotate.html"><code>s3g Ambisonic Rotate 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> field rotation utility with yaw, pitch, roll, and order-width trim.</li>
+          <li><a href="ambisonic-order-band-tool.html"><code>s3g Ambisonic Order / Band Tool 64</code></a>: 1OA to 7OA order-band gain and weighting utility with Flat, MaxRE, In-phase, and Custom modes.</li>
+          <li><a href="ambisonic-stereo-decoder.html"><code>s3g Ambisonic Stereo Decoder</code></a>: 1OA to 7OA <code>ACN/SN3D</code> to true stereo with virtual fields and stereo pickup models.</li>
+          <li><a href="ambisonic-head-decoder.html"><code>s3g Ambisonic Head Decoder</code></a>: synthetic binaural/transaural stereo decoder with no external SOFA files.</li>
           <li><a href="3oafx-insert-workflow.html"><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code></a>: work-in-progress boundary plugins for the 3OAFX insert workflow.</li>
         </ul>
 
-        <p><a href="delay-processor.html">Delay Processor</a> is the main topology effect. <a href="loop-processor.html">Loop Processor</a> is the first loaded-audio instrument. <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a> is a practical fold-down tool for auditioning multichannel work in stereo.</p>
+        <p><a href="delay-processor.html">Delay Processor</a> is the main topology effect. <a href="loop-processor.html">Loop Processor</a> and <a href="multi-loop-processor.html">Multi Loop Processor</a> are loaded-audio instruments. <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a> is a practical fold-down tool for auditioning multichannel work in stereo.</p>
 
         <h2 id="plugin-groups">Plugin Groups</h2>
 
@@ -78,12 +83,12 @@
           <a class="category-card" href="3oafx.html">
             <span>ambisonics</span>
             <strong>3OAFX</strong>
-            <em>Point Encoder, Speaker Decoder, Layout Panner, Send Decoder, Return Encoder, and ambisonic insert workflow notes.</em>
+            <em>Point Encoder, Speaker Decoder, Layout Panner, ambisonic utilities, stereo/head decoders, energy visualizer, and insert workflow notes.</em>
           </a>
           <a class="category-card" href="instruments.html">
             <span>CLAP instruments</span>
             <strong>Instruments</strong>
-            <em>Loop Processor and loaded-audio instrument workflows.</em>
+            <em>Loop Processor, Multi Loop Processor, and loaded-audio instrument workflows.</em>
           </a>
         </div>
 

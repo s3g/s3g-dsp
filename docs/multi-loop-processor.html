@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Multi Loop Processor - s3g-dsp</title>
+    <meta name="description" content="Multi Loop Processor documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="effects.html">Effects</a>
+        <a href="3oafx.html">3OAFX</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Multi Loop Processor</h1>
+
+        <p><code>s3g Multi Loop Processor 8ch</code> is a CLAP instrument plugin for combining up to four loaded audio files into one eight-lane loop instrument.</p>
+
+        <p>It shares the stable loop engine model with <a href="loop-processor.html">Loop Processor</a>: lane playheads, loop region controls, seam crossfade, lane relationship controls, and an eight-channel output bus. The difference is the source layer. Multi Loop builds an internal eight-channel composite from several files before the loop engine plays it.</p>
+
+        <div class="status-strip" aria-label="Multi Loop Processor status">
+          <div><span>format</span><strong>CLAP instrument</strong></div>
+          <div><span>width</span><strong>8ch out</strong></div>
+          <div><span>sources</span><strong>up to 4 files</strong></div>
+          <div><span>state</span><strong>pre-release</strong></div>
+        </div>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ul>
+          <li>Insert <code>s3g Multi Loop Processor 8ch</code> on an 8-channel REAPER track.</li>
+          <li>Click <code>LOAD</code> and select up to four files in the file picker.</li>
+          <li>Choose a <code>RULE</code> to decide how files feed the eight lanes.</li>
+          <li>Use <code>SRAT</code> and <code>XBLD</code> to shape the source layer.</li>
+          <li>Use the shared loop engine controls to set rate, loop region, seam crossfade, and output gain.</li>
+          <li>Use <code>SYNC</code> to realign lane playheads after editing loop timing.</li>
+        </ul>
+
+        <p>When a lower-channel file is loaded, its channels repeat across the eight lanes. Stereo maps as odd/even, quad repeats channels 1-4, and 8-channel files map directly. Files wider than eight channels are spread across the source channel range so the eight lanes sample the wider file rather than only reading channels 1-8.</p>
+
+        <h2 id="source-display">Source Display</h2>
+
+        <p>The <code>SOURCES</code> panel shows four source slots. Each loaded source has a compact waveform drawn from the most energetic channel in that file. The row also shows the file channel count, sample rate, and displayed channel number.</p>
+
+        <p>The larger waveform below the source slots shows the generated eight-lane composite. Loop markers and lane playheads are drawn on that composite view.</p>
+
+        <h2 id="source-rules">Source Rules</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>ORDER</td><td>Groups lanes by loaded-file order. Useful when each file should occupy a clear lane region.</td></tr>
+            <tr><td>INTER</td><td>Interleaves sources across lanes. This is the default and often gives the most immediate multichannel spread.</td></tr>
+            <tr><td>RND</td><td>Uses a deterministic shuffled assignment. It sounds random but recalls consistently with the same loaded sources.</td></tr>
+            <tr><td>MORPH</td><td>Blends from one source to the next across the eight lanes. Use <code>XBLD</code> to make the transitions hard or smooth.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="source-controls">Source Controls</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr>
+              <th>Control</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>RULE</td><td>Chooses the source-to-lane assignment rule.</td></tr>
+            <tr><td>SRAT</td><td>Source rate spread. Each loaded file receives a deterministic rate offset before the loop engine plays the composite.</td></tr>
+            <tr><td>XBLD</td><td>Source crossblend. In <code>MORPH</code>, low values make sharper source zones and high values make smoother interpolation.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>SRAT</code> and <code>XBLD</code> rebuild the source composite after the control is released. This keeps the audio thread stable while still allowing audible source-layer changes.</p>
+
+        <h2 id="loop-engine">Loop Engine</h2>
+
+        <p>The remaining controls match the single-file Loop Processor model.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr>
+              <th>Control</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>RATE</td><td>Base playback rate for all lanes after the source composite is built.</td></tr>
+            <tr><td>XFD</td><td>Loop seam crossfade as a percentage of the active loop length.</td></tr>
+            <tr><td>DUCK</td><td>Optional seam ducking inside the crossfade window.</td></tr>
+            <tr><td>STRT</td><td>Loop start position inside the composite.</td></tr>
+            <tr><td>LEN</td><td>Loop length. The default is the full composite.</td></tr>
+            <tr><td>OUT</td><td>Output gain after lane playback.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="relationships">Relationships</h2>
+
+        <p>Relationship controls shape per-lane timing after the source composite is built. This lets one source rule produce several different motion feels without changing the loaded files.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr>
+              <th>Control</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>SPRD</td><td>Bipolar lane-rate spread.</td></tr>
+            <tr><td>DRFT</td><td>Bipolar slow drift amount.</td></tr>
+            <tr><td>CTR</td><td>Relationship center for the lane spread.</td></tr>
+            <tr><td>GLD</td><td>Glide time for relationship changes.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="notes">Current Notes</h2>
+
+        <p>Multi Loop Processor is separate from topology plugins. It is a loaded-audio instrument with source rules and lane relationships, not a point-field processor.</p>
+
+        <p>For a simpler single-file workflow, use <a href="loop-processor.html">Loop Processor</a>. Use Multi Loop when several loops, textures, or multichannel files should be arranged into one eight-lane playable instrument.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="loop-processor.html">
+            <span>Previous</span>
+            Loop Processor
+          </a>
+          <a class="page-nav-link next" href="topology-framework.html">
+            <span>Next</span>
+            Topology Framework
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instrument Pages</h2>
+          <a href="instruments.html">Instruments Overview</a>
+          <a href="loop-processor.html">Loop Processor</a>
+          <a href="multi-loop-processor.html">Multi Loop Processor</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#source-display">Source Display</a>
+          <a href="#source-rules">Source Rules</a>
+          <a href="#source-controls">Source Controls</a>
+          <a href="#loop-engine">Loop Engine</a>
+          <a href="#relationships">Relationships</a>
+          <a href="#notes">Current Notes</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

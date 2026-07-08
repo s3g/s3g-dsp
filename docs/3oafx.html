@@ -28,7 +28,7 @@
 
         <p>3OAFX pages cover ambisonics-specific plugins and infrastructure. These tools are separate from the general multichannel effects and instruments because channel order, spatial format, and host routing are part of the instrument.</p>
 
-        <p>The current target is REAPER on macOS, using <code>ACN/SN3D</code> ambisonics and fixed-width buses where predictable routing matters. The point encoder is third-order; the speaker decoder prototype allows first through seventh order.</p>
+        <p>The current target is REAPER on macOS, using <code>ACN/SN3D</code> ambisonics and fixed-width buses where predictable routing matters. The point encoder is third-order; decoder and utility prototypes allow first through seventh order.</p>
 
         <div class="status-strip" aria-label="3OAFX status">
           <div><span>format</span><strong>3OA ACN/SN3D</strong></div>
@@ -54,6 +54,26 @@
             <span>direct panner</span>
             <strong>Layout Panner</strong>
             <em>16-source to 64-speaker direct spatial panner with speaker presets, source mixer, and custom layout design.</em>
+          </a>
+          <a class="category-card" href="ambisonic-rotate.html">
+            <span>field utility</span>
+            <strong>Ambisonic Rotate 64</strong>
+            <em>First-through-seventh-order ACN/SN3D field rotation with yaw, pitch, roll, and order-width trim.</em>
+          </a>
+          <a class="category-card" href="ambisonic-order-band-tool.html">
+            <span>order utility</span>
+            <strong>Ambisonic Order / Band Tool 64</strong>
+            <em>Order-band trims and common weighting curves such as Flat, MaxRE, and In-phase.</em>
+          </a>
+          <a class="category-card" href="ambisonic-stereo-decoder.html">
+            <span>stereo decoder</span>
+            <strong>Ambisonic Stereo Decoder</strong>
+            <em>First-through-seventh-order ACN/SN3D to true stereo using virtual speaker fields and stereo pickup models.</em>
+          </a>
+          <a class="category-card" href="ambisonic-head-decoder.html">
+            <span>head decoder</span>
+            <strong>Ambisonic Head Decoder</strong>
+            <em>Synthetic binaural and transaural stereo decoder with code-generated head models and no external SOFA files.</em>
           </a>
           <a class="category-card" href="ambisonic-energy-visualizer.html">
             <span>field analyzer</span>
@@ -102,6 +122,10 @@
           <a href="3oafx-point-encoder.html">Point Encoder</a>
           <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
           <a href="3oafx-layout-panner.html">Layout Panner</a>
+          <a href="ambisonic-rotate.html">Rotate</a>
+          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
+          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
+          <a href="ambisonic-head-decoder.html">Head Decoder</a>
           <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
           <a href="3oafx-insert-workflow.html">Insert Workflow</a>
         </div>

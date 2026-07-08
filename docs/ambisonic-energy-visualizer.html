@@ -44,8 +44,7 @@
         <h2 id="controls">Controls</h2>
 
         <ul>
-          <li><code>ORDER</code> chooses how many ambisonic channels are interpreted, from <code>1OA</code> to <code>7OA</code>.</li>
-          <li><code>SCALE</code> adjusts heatmap sensitivity. Raise it for quiet or diffuse material; lower it when the map saturates.</li>
+          <li><code>MAP</code> chooses the visual color map. The current visual assumes a 7OA-capable 64-channel input shape and emphasizes readable field motion over scientific measurement.</li>
         </ul>
 
         <h2 id="routing">Routing</h2>
@@ -53,9 +52,9 @@
         <p>The plugin exposes one 64-channel input bus and one 64-channel output bus. Audio passes through channel-for-channel, and unused output lanes are cleared. Insert it after an ambisonic encoder, after an ambisonic processor, or before a speaker decoder to inspect field behavior without changing the chain.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="3oafx-layout-panner.html">
+          <a class="page-nav-link" href="ambisonic-head-decoder.html">
             <span>Previous</span>
-            Layout Panner
+            Head Decoder
           </a>
           <a class="page-nav-link next" href="3oafx-insert-workflow.html">
             <span>Next</span>
@@ -71,6 +70,10 @@
           <a href="3oafx-point-encoder.html">Point Encoder</a>
           <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
           <a href="3oafx-layout-panner.html">Layout Panner</a>
+          <a href="ambisonic-rotate.html">Rotate</a>
+          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
+          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
+          <a href="ambisonic-head-decoder.html">Head Decoder</a>
           <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
           <a href="3oafx-insert-workflow.html">Insert Workflow</a>
         </div>

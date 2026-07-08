@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambisonic Head Decoder - s3g-dsp</title>
+    <meta name="description" content="Ambisonic Head Decoder documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="effects.html">Effects</a>
+        <a href="3oafx.html">3OAFX</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambisonic Head Decoder</h1>
+
+        <p><code>s3g Ambisonic Head Decoder</code> decodes <code>ACN/SN3D</code> ambisonic input to stereo using a code-generated synthetic head model. It can run as a headphone-style binaural monitor or add a transaural crosstalk-cancellation stage for stereo loudspeakers.</p>
+
+        <div class="status-strip" aria-label="Ambisonic Head Decoder status">
+          <div><span>input</span><strong>1OA..7OA</strong></div>
+          <div><span>format</span><strong>ACN/SN3D</strong></div>
+          <div><span>output</span><strong>true stereo</strong></div>
+          <div><span>data</span><strong>no SOFA files</strong></div>
+        </div>
+
+        <h2 id="model">Model</h2>
+
+        <p>The first version does not embed measured HRTF datasets and does not require external SOFA files. The decoder uses short interaural delays, head-shadow filtering, and simple pinna/width controls to create a lightweight synthetic head response.</p>
+
+        <p><code>DIRECT</code> mode maps ambisonics to an internal spherical head grid without exposing a named speaker layout. <code>Virtual field</code> mode keeps the earlier approach: ambisonics are sampled through a selected virtual field before the head model. The field path is useful for matching the visual language of the speaker decoder; it is not required for binaural decoding.</p>
+
+        <p>This keeps the pre-release build simple: no external HRTF file paths, no dataset redistribution, and no extra license files. Measured HRTF or SOFA loading can be added later as a separate advanced layer.</p>
+
+        <h2 id="head-profiles">Head Profiles</h2>
+
+        <ul>
+          <li><code>Medium head</code>: default synthetic profile.</li>
+          <li><code>Small head</code> and <code>Large head</code>: change the broad shadow/pinna profile without implying a measured listener.</li>
+          <li><code>EAR</code>: independent ear-width control in centimeters. This affects interaural delay and the GUI head/ear spacing separately from the selected head profile.</li>
+        </ul>
+
+        <h2 id="modes">Modes</h2>
+
+        <p><code>Binaural</code> is intended for headphones. <code>Transaural</code> starts with the same stereo ear signal, then applies a crosstalk-cancellation stage for loudspeaker playback. Transaural mode depends strongly on speaker angle, listener position, and room acoustics.</p>
+
+        <p>The transaural stage is based on the same practical model as the <code>s3g-mc</code> JSFX crosstalk canceller: delayed and filtered opposite-channel cancellation, optional matrix-inverse-style compensation, low-frequency protection, stereo preserve, and output safety gain.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <ul>
+          <li><code>ORD</code>: ambisonic order, from <code>1OA</code> to <code>7OA</code>.</li>
+          <li><code>DEC</code>: decoder path. <code>DIRECT</code> uses an internal spherical head grid; <code>Virtual field</code> uses the selected field layout.</li>
+          <li><code>FIELD</code>: virtual field layout, active when <code>DEC</code> is set to <code>Virtual field</code>.</li>
+          <li><code>WGT</code> and <code>AGN</code>: ambisonic order weighting and output autogain.</li>
+          <li><code>HEAD</code>: synthetic head profile in the <code>BINAURAL</code> toolbox.</li>
+          <li><code>MODE</code>: binaural or transaural.</li>
+          <li><code>YAW</code> and <code>PIT</code>: listening direction.</li>
+          <li><code>WID</code>, <code>PIN</code>, and <code>EAR</code>: stereo width, pinna influence, and ear-width spacing for the synthetic head model.</li>
+          <li><code>ROOM</code>, <code>XTC</code>, <code>XMOD</code>, <code>SPK</code>, <code>LOW</code>, and <code>KEEP</code>: room/diffuse blend, transaural cancellation amount, mode, speaker half-angle, low-frequency protection, and stereo preserve.</li>
+          <li><code>OUT</code>: final output gain.</li>
+        </ul>
+
+        <h2 id="reaper-routing">REAPER Routing</h2>
+
+        <p>This plugin exposes a true stereo output bus. On wide REAPER tracks, higher track channels may still pass around a true stereo CLAP plugin unless the host pin connector clears them. If a following meter shows channels above 2, open the plugin pin connector and enable <code>Zero out unmapped output channels</code>.</p>
+
+        <p>This appears to be a host pin-routing behavior with true stereo CLAP outputs on wider REAPER tracks. Fixed-width s3g-dsp plugins can clear their own unused lanes because those lanes remain part of the plugin output bus. A true stereo decoder cannot reliably clear channels that REAPER routes around the plugin.</p>
+
+        <p>Use <a href="ambisonic-stereo-decoder.html">Ambisonic Stereo Decoder</a> for loudspeaker-style stereo pickup models. Use this Head Decoder when the monitoring target is headphones or a transaural loudspeaker setup.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambisonic-stereo-decoder.html">
+            <span>Previous</span>
+            Stereo Decoder
+          </a>
+          <a class="page-nav-link next" href="ambisonic-energy-visualizer.html">
+            <span>Next</span>
+            Energy Visualizer
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>3OAFX Pages</h2>
+          <a href="3oafx.html">3OAFX Overview</a>
+          <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
+          <a href="3oafx-layout-panner.html">Layout Panner</a>
+          <a href="ambisonic-rotate.html">Rotate</a>
+          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
+          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
+          <a href="ambisonic-head-decoder.html">Head Decoder</a>
+          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
+          <a href="3oafx-insert-workflow.html">Insert Workflow</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#model">Model</a>
+          <a href="#head-profiles">Head Profiles</a>
+          <a href="#modes">Modes</a>
+          <a href="#controls">Controls</a>
+          <a href="#reaper-routing">REAPER Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

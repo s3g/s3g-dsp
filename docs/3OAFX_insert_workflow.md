@@ -7,6 +7,13 @@ Current HTML docs:
 
 - [`3oafx.html`](3oafx.html): 3OAFX and ambisonics-specific plugin overview
 - [`3oafx-point-encoder.html`](3oafx-point-encoder.html): 16-point AED encoder
+- [`3oafx-speaker-decoder.html`](3oafx-speaker-decoder.html): 1OA to 7OA speaker decoder
+- [`3oafx-layout-panner.html`](3oafx-layout-panner.html): direct source-to-speaker panner
+- [`ambisonic-rotate.html`](ambisonic-rotate.html): 1OA to 7OA ACN/SN3D field rotation utility
+- [`ambisonic-order-band-tool.html`](ambisonic-order-band-tool.html): order-band gain and weighting utility
+- [`ambisonic-stereo-decoder.html`](ambisonic-stereo-decoder.html): ACN/SN3D to true stereo decoder
+- [`ambisonic-head-decoder.html`](ambisonic-head-decoder.html): synthetic binaural/transaural decoder
+- [`ambisonic-energy-visualizer.html`](ambisonic-energy-visualizer.html): ambisonic field analyzer
 - [`3oafx-insert-workflow.html`](3oafx-insert-workflow.html): Send/return insert notes
 
 Related `s3g-mc` docs:

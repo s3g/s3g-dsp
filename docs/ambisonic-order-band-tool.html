@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambisonic Order / Band Tool 64 - s3g-dsp</title>
+    <meta name="description" content="Ambisonic Order / Band Tool documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="effects.html">Effects</a>
+        <a href="3oafx.html">3OAFX</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambisonic Order / Band Tool 64</h1>
+
+        <p><code>s3g Ambisonic Order / Band Tool 64</code> is a fixed 64-in/64-out <code>ACN/SN3D</code> utility for trimming ambisonic orders and applying common order-weighting curves. It is useful before a decoder, before a stereo/head monitor, or between ambisonic effects.</p>
+
+        <div class="status-strip" aria-label="Ambisonic Order Band status">
+          <div><span>input</span><strong>1OA..7OA</strong></div>
+          <div><span>format</span><strong>ACN/SN3D</strong></div>
+          <div><span>routing</span><strong>64 in / 64 out</strong></div>
+          <div><span>weights</span><strong>Flat/MaxRE/IP</strong></div>
+        </div>
+
+        <h2 id="model">Model</h2>
+
+        <p>Ambisonic channels are grouped by order. Order 0 is the omnidirectional component. Higher orders carry progressively finer directional detail. This plugin scales whole order bands rather than individual channels, so the spatial format stays coherent.</p>
+
+        <p>The order map in the GUI shows the resulting order gain after the selected weighting preset, weighting amount, and per-order trims are combined.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <ul>
+          <li><code>ORD</code>: active ambisonic order, from <code>1OA</code> to <code>7OA</code>. Channels above the selected order are muted.</li>
+          <li><code>WGT</code>: weighting preset. <code>Flat</code> leaves orders level, <code>MaxRE</code> applies max-rE-style order weighting, <code>In-phase</code> applies a more conservative taper, and <code>Custom</code> uses only the order trims.</li>
+          <li><code>AMT</code>: weighting amount. At <code>0%</code>, only per-order trims are heard. At <code>100%</code>, the selected preset is fully applied.</li>
+          <li><code>O0</code> through <code>O7</code>: per-order gain trims. These are useful for comparing localization, diffuse energy, and decoder stability.</li>
+          <li><code>OUT</code>: final output gain.</li>
+        </ul>
+
+        <h2 id="starting-points">Starting Points</h2>
+
+        <ul>
+          <li><code>Flat</code>: best for checking whether a chain passes the original ambisonic signal without extra order shaping.</li>
+          <li><code>MaxRE</code>: a useful default before speaker decoding when localization should remain clear without pushing the highest orders too hard.</li>
+          <li><code>In-phase</code>: useful when the layout is irregular, the decoder feels too sharp, or a safer diffuse field is more important than tight localization.</li>
+          <li><code>Custom</code>: use the order sliders as a manual spectral/spatial tilt across ambisonic order bands.</li>
+        </ul>
+
+        <h2 id="routing">Routing</h2>
+
+        <p>The plugin exposes one 64-channel input bus and one 64-channel output bus. Unused lanes are cleared. Keep it on a 64-channel REAPER track when using it in a 7OA-capable chain.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambisonic-rotate.html">
+            <span>Previous</span>
+            Rotate
+          </a>
+          <a class="page-nav-link next" href="ambisonic-stereo-decoder.html">
+            <span>Next</span>
+            Stereo Decoder
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>3OAFX Pages</h2>
+          <a href="3oafx.html">3OAFX Overview</a>
+          <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
+          <a href="3oafx-layout-panner.html">Layout Panner</a>
+          <a href="ambisonic-rotate.html">Rotate</a>
+          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
+          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
+          <a href="ambisonic-head-decoder.html">Head Decoder</a>
+          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
+          <a href="3oafx-insert-workflow.html">Insert Workflow</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#model">Model</a>
+          <a href="#controls">Controls</a>
+          <a href="#starting-points">Starting Points</a>
+          <a href="#routing">Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

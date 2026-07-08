@@ -1,7 +1,10 @@
 #include "s3g_24ch_layout.h"
 #include "s3g_3oafx.h"
 #include "s3g_ambisonic_point_encoder.h"
+#include "s3g_ambisonic_head_decoder.h"
+#include "s3g_ambisonic_utilities.h"
 #include "s3g_ambisonic_speaker_decoder.h"
+#include "s3g_ambisonic_stereo_decoder.h"
 #include "s3g_delay_processor.h"
 #include "s3g_gain.h"
 #include "s3g_lane_patch.h"
@@ -510,6 +513,97 @@ int main()
         return 1;
     }
 
+    s3g::AmbiStereoDecoder ambiStereo;
+    ambiStereo.prepare(48000.0);
+    s3g::AmbiStereoParams ambiStereoParams;
+    ambiStereoParams.order = 7;
+    ambiStereoParams.layout = s3g::AmbiStereoVirtualLayout::Dome24;
+    ambiStereoParams.method = s3g::AmbiStereoMethod::XyCardioid;
+    ambiStereoParams.weighting = s3g::AmbiStereoWeighting::EnergyNormalized;
+    ambiStereoParams.outputGainDb = -6.0f;
+    ambiStereo.setParams(ambiStereoParams);
+    float ambiStereoIn[s3g::kAmbiStereoDecoderMaxChannels] {};
+    float ambiStereoLeft = 0.0f;
+    float ambiStereoRight = 0.0f;
+    ambiStereoIn[0] = 0.25f;
+    ambiStereoIn[1] = 0.04f;
+    ambiStereoIn[3] = 0.06f;
+    ambiStereoIn[15] = -0.02f;
+    ambiStereoIn[63] = 0.01f;
+    ambiStereo.processFrame(ambiStereoIn, ambiStereoLeft, ambiStereoRight);
+    if (!std::isfinite(ambiStereoLeft) || !std::isfinite(ambiStereoRight)) {
+        std::cerr << "Ambisonic Stereo Decoder output is not finite\n";
+        return 1;
+    }
+    if (std::max(std::abs(ambiStereoLeft), std::abs(ambiStereoRight)) <= 0.000001f) {
+        std::cerr << "Ambisonic Stereo Decoder output is silent\n";
+        return 1;
+    }
+    ambiStereoParams.layout = s3g::AmbiStereoVirtualLayout::Sphere32;
+    ambiStereoParams.method = s3g::AmbiStereoMethod::SpacedOmni;
+    ambiStereoParams.bassMonoHz = 90.0f;
+    ambiStereo.setParams(ambiStereoParams);
+    for (int i = 0; i < 4096; ++i) {
+        ambiStereoIn[0] = std::sin(static_cast<float>(i) * 0.017f) * 0.12f;
+        ambiStereoIn[3] = std::sin(static_cast<float>(i) * 0.023f) * 0.08f;
+        ambiStereo.processFrame(ambiStereoIn, ambiStereoLeft, ambiStereoRight);
+        if (!std::isfinite(ambiStereoLeft) || !std::isfinite(ambiStereoRight)) {
+            std::cerr << "Ambisonic Stereo Decoder spaced/bass output is not finite\n";
+            return 1;
+        }
+    }
+    ambiStereoParams.bassMonoHz = 0.0f;
+    ambiStereoParams.directivityPercent = 100.0f;
+    const s3g::AmbiStereoMethod ambiStereoMethods[] = {
+        s3g::AmbiStereoMethod::DualShotgun,
+        s3g::AmbiStereoMethod::WideCardioid,
+        s3g::AmbiStereoMethod::SupercardioidXy,
+        s3g::AmbiStereoMethod::HypercardioidXy,
+        s3g::AmbiStereoMethod::HeightFocus,
+    };
+    for (const auto method : ambiStereoMethods) {
+        ambiStereoParams.method = method;
+        ambiStereo.setParams(ambiStereoParams);
+        ambiStereo.processFrame(ambiStereoIn, ambiStereoLeft, ambiStereoRight);
+        if (!std::isfinite(ambiStereoLeft) || !std::isfinite(ambiStereoRight)) {
+            std::cerr << "Ambisonic Stereo Decoder mic-pattern output is not finite\n";
+            return 1;
+        }
+    }
+
+    s3g::AmbiHeadDecoder headDecoder;
+    headDecoder.prepare(48000.0);
+    s3g::AmbiHeadParams headParams;
+    headParams.order = 7;
+    headParams.layout = s3g::AmbiStereoVirtualLayout::Dome24;
+    headParams.head = s3g::AmbiHeadProfile::SyntheticMedium;
+    headParams.mode = s3g::AmbiHeadMode::Binaural;
+    headDecoder.updateParams(headParams);
+    float headLeft = 0.0f;
+    float headRight = 0.0f;
+    headDecoder.processFrame(ambiStereoIn, headLeft, headRight);
+    if (!std::isfinite(headLeft) || !std::isfinite(headRight)) {
+        std::cerr << "Ambisonic Head Decoder binaural output is not finite\n";
+        return 1;
+    }
+    if (std::max(std::abs(headLeft), std::abs(headRight)) <= 0.000001f) {
+        std::cerr << "Ambisonic Head Decoder binaural output is silent\n";
+        return 1;
+    }
+    headParams.mode = s3g::AmbiHeadMode::Transaural;
+    headParams.xtcAmountPercent = 80.0f;
+    headDecoder.updateParams(headParams);
+    for (int i = 0; i < 256; ++i) {
+        ambiStereoIn[0] = std::sin(static_cast<float>(i) * 0.011f) * 0.10f;
+        ambiStereoIn[1] = std::sin(static_cast<float>(i) * 0.019f) * 0.07f;
+        ambiStereoIn[3] = std::cos(static_cast<float>(i) * 0.013f) * 0.06f;
+        headDecoder.processFrame(ambiStereoIn, headLeft, headRight);
+        if (!std::isfinite(headLeft) || !std::isfinite(headRight)) {
+            std::cerr << "Ambisonic Head Decoder transaural output is not finite\n";
+            return 1;
+        }
+    }
+
     s3g::LayoutPanner layoutPanner;
     layoutPanner.prepare(48000.0);
     s3g::LayoutPannerParams layoutPannerParams;
@@ -670,6 +764,45 @@ int main()
         }
     }
 
+    s3g::AmbiOrderBandParams orderBandParams;
+    orderBandParams.order = 7;
+    orderBandParams.weighting = s3g::AmbiUtilityWeighting::MaxRe;
+    orderBandParams.blend = 1.0f;
+    orderBandParams.orderGain.fill(1.0f);
+    s3g::AmbiOrderBandProcessor orderBand;
+    orderBand.setParams(orderBandParams);
+    orderBand.reset();
+    std::array<std::array<float, 16>, s3g::kAmbiUtilityChannels> ambiUtilityInBuffers {};
+    std::array<std::array<float, 16>, s3g::kAmbiUtilityChannels> ambiUtilityOutBuffers {};
+    float* ambiUtilityIn[s3g::kAmbiUtilityChannels] {};
+    float* ambiUtilityOut[s3g::kAmbiUtilityChannels] {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiUtilityChannels; ++ch) {
+        ambiUtilityIn[ch] = ambiUtilityInBuffers[ch].data();
+        ambiUtilityOut[ch] = ambiUtilityOutBuffers[ch].data();
+        ambiUtilityInBuffers[ch][0] = ch == 0 ? 0.25f : 0.01f * std::sin(static_cast<float>(ch));
+    }
+    orderBand.process(ambiUtilityIn, ambiUtilityOut, s3g::kAmbiUtilityChannels, s3g::kAmbiUtilityChannels, 16);
+    if (!std::isfinite(ambiUtilityOutBuffers[0][0]) || std::abs(ambiUtilityOutBuffers[0][0]) < 0.0001f) {
+        std::cerr << "Ambisonic Order / Band output failed\n";
+        return 1;
+    }
+
+    s3g::AmbiRotateParams rotateParams;
+    rotateParams.order = 3;
+    rotateParams.yawDeg = 35.0f;
+    rotateParams.pitchDeg = 12.0f;
+    rotateParams.rollDeg = -8.0f;
+    s3g::AmbiRotateProcessor rotate;
+    rotate.setParams(rotateParams);
+    rotate.reset();
+    rotate.process(ambiUtilityIn, ambiUtilityOut, s3g::kAmbiUtilityChannels, s3g::kAmbiUtilityChannels, 16);
+    for (uint32_t ch = 0; ch < s3g::ambiUtilityChannelsForOrder(rotateParams.order); ++ch) {
+        if (!std::isfinite(ambiUtilityOutBuffers[ch][0])) {
+            std::cerr << "Ambisonic Rotate output is not finite\n";
+            return 1;
+        }
+    }
+
     std::cout << "s3g-dsp smoke test passed\n";
     std::cout << "layout speakers: " << s3g::kVirtualSpeakerCount << "\n";
     std::cout << "gain ch1 sample4: " << samples[0][3] << "\n";
@@ -686,5 +819,6 @@ int main()
     std::cout << "3OAFX point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "3OAFX speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";
+    std::cout << "ambisonic order/band W: " << ambiUtilityOutBuffers[0][0] << "\n";
     return 0;
 }

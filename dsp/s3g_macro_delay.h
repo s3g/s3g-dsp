@@ -11,7 +11,7 @@
 
 namespace s3g {
 
-constexpr uint32_t kMacroDelayChannels = 8;
+constexpr uint32_t kMacroDelayChannels = 24;
 
 struct MacroDelayParams {
     float timeMs = 260.0f;

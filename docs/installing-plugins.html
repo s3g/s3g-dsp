@@ -69,13 +69,13 @@
           </a>
           <div class="category-card muted-card">
             <span>delay macro</span>
-            <strong>s3g Macro Delay 8ch</strong>
-            <em>Compact multichannel delay macro with shared engine controls and lane relationship controls.</em>
+            <strong>s3g Macro Delay 8ch / 24ch</strong>
+            <em>Compact multichannel delay macro with shared engine controls, lane relationship controls, and wider 24-channel builds.</em>
           </div>
           <div class="category-card muted-card">
             <span>pitch macro</span>
-            <strong>s3g Macro Pitch 8ch</strong>
-            <em>Compact multichannel pitch macro with the shared Macro layout.</em>
+            <strong>s3g Macro Pitch 8ch / 24ch</strong>
+            <em>Compact multichannel pitch macro with the shared Macro layout and wider 24-channel builds.</em>
           </div>
         </div>
 
@@ -97,6 +97,16 @@
             <strong>s3g Ambisonic Energy Visualizer 64</strong>
             <em>Fixed 64-in/64-out passthrough analyzer for ACN/SN3D energy heatmap views.</em>
           </a>
+          <a class="category-card" href="ambisonic-rotate.html">
+            <span>ambisonic utility</span>
+            <strong>s3g Ambisonic Rotate 64</strong>
+            <em>Fixed 64-in/64-out ACN/SN3D field rotation utility up to 7OA.</em>
+          </a>
+          <a class="category-card" href="ambisonic-order-band-tool.html">
+            <span>ambisonic utility</span>
+            <strong>s3g Ambisonic Order / Band Tool 64</strong>
+            <em>Fixed 64-in/64-out order-band gain and weighting utility with MaxRE and In-phase starting points.</em>
+          </a>
           <div class="category-card muted-card">
             <span>host test</span>
             <strong>s3g 24ch Passthrough Test</strong>
@@ -111,6 +121,11 @@
             <span>sample instrument</span>
             <strong>s3g Loop Processor 8ch</strong>
             <em>CLAP instrument plugin for loaded audio loops, repeated source channels, lane playheads, and phase relationship controls.</em>
+          </a>
+          <a class="category-card" href="multi-loop-processor.html">
+            <span>multi-source instrument</span>
+            <strong>s3g Multi Loop Processor 8ch</strong>
+            <em>CLAP instrument plugin for combining up to four loaded files into an eight-lane loop instrument.</em>
           </a>
         </div>
 
@@ -132,6 +147,26 @@
             <strong>s3g Layout Panner</strong>
             <em>16-source to 64-speaker direct panner with source mixer and custom layout design.</em>
           </a>
+          <a class="category-card" href="ambisonic-rotate.html">
+            <span>field utility</span>
+            <strong>s3g Ambisonic Rotate 64</strong>
+            <em>1OA to 7OA ACN/SN3D field rotation with yaw, pitch, roll, and order-width trim.</em>
+          </a>
+          <a class="category-card" href="ambisonic-order-band-tool.html">
+            <span>order utility</span>
+            <strong>s3g Ambisonic Order / Band Tool 64</strong>
+            <em>Order-band trims and common weighting curves such as Flat, MaxRE, and In-phase.</em>
+          </a>
+          <a class="category-card" href="ambisonic-stereo-decoder.html">
+            <span>stereo decoder</span>
+            <strong>s3g Ambisonic Stereo Decoder</strong>
+            <em>1OA to 7OA ACN/SN3D to true stereo using virtual fields and stereo pickup models.</em>
+          </a>
+          <a class="category-card" href="ambisonic-head-decoder.html">
+            <span>head decoder</span>
+            <strong>s3g Ambisonic Head Decoder</strong>
+            <em>Synthetic binaural/transaural stereo decoder with no external SOFA files.</em>
+          </a>
           <a class="category-card" href="3oafx-insert-workflow.html">
             <span>3OAFX boundary</span>
             <strong>s3g 3OAFX Send Decoder / Return Encoder</strong>
@@ -145,7 +180,7 @@
 
         <p>For multichannel testing, set the track channel count before inserting the plugin.</p>
 
-        <p>For <code>s3g MC to Stereo Autogain</code>, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code>. The CLAP plugin has a true stereo output bus, but REAPER can still pass unmapped track channels around the effect unless this option is enabled.</p>
+        <p>For true stereo-output plugins on wide REAPER tracks, including <code>s3g MC to Stereo Autogain</code>, <code>s3g Ambisonic Stereo Decoder</code>, and <code>s3g Ambisonic Head Decoder</code>, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code> if a following meter still shows channels above 2. These CLAP plugins expose stereo output buses, but REAPER can still pass unmapped track channels around the effect unless this option is enabled.</p>
 
         <p>For ambisonics-specific tools in this package, see <a href="3oafx.html">3OAFX</a>. For the larger REAPER package workflow, see the <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX Send Return Controller guide</a>.</p>
 

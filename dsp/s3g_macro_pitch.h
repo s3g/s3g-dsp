@@ -11,7 +11,7 @@
 
 namespace s3g {
 
-constexpr uint32_t kMacroPitchChannels = 8;
+constexpr uint32_t kMacroPitchChannels = 24;
 
 struct MacroPitchParams {
     float pitchSemitones = 0.0f;

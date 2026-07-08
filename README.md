@@ -26,10 +26,12 @@ Current plugins:
 - `s3g Delay Processor 24ch`: wider delay build for 24-channel insert work.
 - `s3g Loop Processor 8ch`: CLAP instrument plugin for loaded audio loops,
   lane playheads, waveform display, and phase relationship controls.
-- `s3g Macro Delay 8ch`: compact multichannel delay macro with relationship
-  controls.
-- `s3g Macro Pitch 8ch`: compact multichannel pitch macro with the shared Macro
-  control layout.
+- `s3g Multi Loop Processor 8ch`: CLAP instrument plugin for combining up to
+  four loaded audio files into one eight-lane loop instrument.
+- `s3g Macro Delay 8ch` / `s3g Macro Delay 24ch`: compact multichannel delay
+  macros with relationship controls.
+- `s3g Macro Pitch 8ch` / `s3g Macro Pitch 24ch`: compact multichannel pitch
+  macros with the shared Macro control layout.
 - `s3g MC to Stereo Autogain`: 128-channel input to true stereo output
   fold-down prototype.
 - `s3g Multichannel Meter 64`: fixed 64-in/64-out passthrough meter with
@@ -44,12 +46,21 @@ Current plugins:
   64-channel output bus.
 - `s3g Layout Panner`: direct 16-source to 64-speaker spatial panner with
   speaker presets, source mixer, and custom layout design.
+- `s3g Ambisonic Rotate 64`: first-through-seventh-order `ACN/SN3D` field
+  rotation utility with yaw, pitch, roll, and order-width trim.
+- `s3g Ambisonic Order / Band Tool 64`: first-through-seventh-order
+  order-band gain and weighting utility with Flat, MaxRE, In-phase, and
+  Custom modes.
+- `s3g Ambisonic Stereo Decoder`: first-through-seventh-order `ACN/SN3D` to
+  true stereo using virtual fields and stereo pickup models.
+- `s3g Ambisonic Head Decoder`: synthetic binaural/transaural stereo decoder
+  with no external SOFA files.
 - `s3g 3OAFX Send Decoder` / `s3g 3OAFX Return Encoder`: work-in-progress
   boundary plugins for the 3OAFX insert workflow.
 
-Delay Processor is the main topology effect. Loop Processor is the first
-loaded-audio instrument. MC to Stereo Autogain is a practical fold-down tool
-for auditioning multichannel work in stereo.
+Delay Processor is the main topology effect. Loop Processor and Multi Loop
+Processor are loaded-audio instruments. MC to Stereo Autogain is a practical
+fold-down tool for auditioning multichannel work in stereo.
 
 ## Design
 
@@ -81,12 +92,18 @@ Useful local docs:
 - `docs/topology-framework.html`: shared topology framework overview.
 - `docs/delay-processor.html`: Delay Processor overview and topology map.
 - `docs/loop-processor.html`: Loop Processor workflow and control reference.
+- `docs/multi-loop-processor.html`: Multi Loop Processor source rules,
+  multi-file loading, and loop control reference.
 - `docs/mc-to-stereo-autogain.html`: MC to Stereo Autogain fold-down reference.
 - `docs/multichannel-meter.html`: Multichannel Meter view modes and routing notes.
 - `docs/ambisonic-energy-visualizer.html`: Ambisonic Energy Visualizer reference.
 - `docs/3oafx-point-encoder.html`: 3OAFX Point Encoder reference.
 - `docs/3oafx-speaker-decoder.html`: 3OAFX Speaker Decoder reference.
 - `docs/3oafx-layout-panner.html`: Layout Panner reference.
+- `docs/ambisonic-rotate.html`: Ambisonic Rotate reference.
+- `docs/ambisonic-order-band-tool.html`: Ambisonic Order / Band Tool reference.
+- `docs/ambisonic-stereo-decoder.html`: Ambisonic Stereo Decoder reference.
+- `docs/ambisonic-head-decoder.html`: Ambisonic Head Decoder reference.
 - `docs/gui-style-guide.md`: working style guide for custom plugin GUIs.
 - `docs/*_gui.png`: plugin GUI screenshots used by the documentation pages.
 - `docs/topology_framework.svg`: shared topology framework diagram.
