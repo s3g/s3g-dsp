@@ -30,7 +30,7 @@
 
         <p>The current focus is predictable multichannel routing, compact automation, and clear multichannel control models. Some plugins use topology; others use simpler relationship controls when that better fits the sound.</p>
 
-        <p>The supported development target is macOS + REAPER. Other operating systems and DAWs are not support targets at this stage.</p>
+        <p>The supported target is macOS + REAPER. Other operating systems and DAWs are not support targets at this stage.</p>
 
         <ul>
           <li><a href="building-from-source.html">Build from source</a></li>
@@ -56,7 +56,7 @@
           <li><a href="ambi-grain-processor.html"><code>s3g Ambi Grain Processor</code></a>: CLAP instrument plugin for loaded <code>ACN/SN3D</code> ambisonic media with channel-locked grain events.</li>
           <li><code>s3g Macro Delay 8ch</code> / <code>s3g Macro Delay 24ch</code>: compact multichannel delay macros with relationship controls.</li>
           <li><code>s3g Macro Pitch 8ch</code> / <code>s3g Macro Pitch 24ch</code>: compact multichannel pitch macros with the shared Macro control layout.</li>
-          <li><a href="mc-to-stereo-autogain.html"><code>s3g MC to Stereo Autogain</code></a>: 128-channel input to true stereo output fold-down prototype.</li>
+          <li><a href="mc-to-stereo-autogain.html"><code>s3g MC to Stereo Autogain</code></a>: 128-channel input to true stereo output fold-down tool.</li>
           <li><code>s3g Multichannel Meter 64</code>: fixed 64-in/64-out passthrough meter with grid, spatial layout, and energy history views.</li>
           <li><a href="ambisonic-energy-visualizer.html"><code>s3g Ambi Energy Visualizer 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> passthrough analyzer with a high-resolution energy heatmap.</li>
           <li><a href="3oafx-point-encoder.html"><code>s3g Ambi Point Encoder</code></a>: 16 point-source input to 3OA <code>ACN/SN3D</code> output with AED placement, point mixer, physics scenes, and Geist-driven bond breaking.</li>
@@ -79,7 +79,7 @@
           <a class="category-card" href="effects.html">
             <span>audio processors</span>
             <strong>Effects</strong>
-            <em>Delay Processor, Macro Delay, Macro Pitch, fold-down, metering, and routing-test plugins.</em>
+            <em>Delay Processor, Macro Delay, Macro Pitch, fold-down, metering, and routing tools.</em>
           </a>
           <a class="category-card" href="3oafx.html">
             <span>ambisonics</span>
@@ -121,7 +121,7 @@
 
         <p><a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code></a> is the main REAPER package. <code>s3g-dsp</code> is a sibling plugin project for general multichannel effects, instruments, utilities, ambisonics tools, and 3OAFX processors. It can also be used independently in matching macOS + REAPER sessions.</p>
 
-        <p><a href="https://github.com/s3g/s3g-rnbo-clap" target="_blank" rel="noopener noreferrer"><code>s3g-rnbo-clap</code></a> is a separate wrapper lab for testing RNBO C++ exports as CLAP plugins in the same visual and release style. RNBO-generated source is kept out of <code>s3g-dsp</code> so the core package stays focused on hand-built C++ DSP.</p>
+        <p><a href="https://github.com/s3g/s3g-rnbo-clap" target="_blank" rel="noopener noreferrer"><code>s3g-rnbo-clap</code></a> is a separate wrapper lab for adapting RNBO C++ exports as CLAP plugins in the same visual and release style. RNBO-generated source is kept out of <code>s3g-dsp</code> so the core package stays focused on hand-built C++ DSP.</p>
         <h2 id="license">License and Attribution</h2>
 
         <p>BSD-3-Clause for the code in this repository unless a subdirectory states otherwise. CLAP headers are MIT licensed and are fetched at build time unless an existing SDK path is supplied.</p>

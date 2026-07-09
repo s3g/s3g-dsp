@@ -26,32 +26,40 @@
       <main class="content" id="content">
         <h1>Ambi Grain Processor</h1>
 
-        <p><code>s3g Ambi Grain Processor</code> is a CLAP instrument plugin for loaded <code>ACN/SN3D</code> ambisonic media. It creates grain events in source time and writes those grains into a circular multichannel tape buffer, so every encoded channel follows the same grain timing.</p>
+        <p><code>s3g Ambi Grain Processor</code> is a CLAP instrument for granulating loaded <code>ACN/SN3D</code> ambisonic files. It treats the file as one encoded sound field: grain position, duration, rate, direction, and envelope are shared across all active ambisonic channels.</p>
+
+        <p>Use it when you want clouds, freezes, scans, or stepped cuts from an already encoded 1OA, 2OA, or 3OA file while keeping the spatial image locked together.</p>
 
         <div class="status-strip" aria-label="Ambi Grain Processor status">
           <div><span>format</span><strong>ACN/SN3D</strong></div>
           <div><span>output</span><strong>16ch 3OA</strong></div>
           <div><span>type</span><strong>CLAP instrument</strong></div>
-          <div><span>state</span><strong>prototype</strong></div>
+          <div><span>state</span><strong>pre-release</strong></div>
         </div>
 
-        <h2 id="workflow">Workflow</h2>
+        <h2 id="workflow">Basic Workflow</h2>
 
         <ul>
           <li>Insert <code>s3g Ambi Grain Processor</code> on a 16-channel REAPER track.</li>
-          <li>Click <code>LOAD</code> and choose an ambisonic audio file.</li>
+          <li>Click <code>LOAD</code> and choose an <code>ACN/SN3D</code> ambisonic audio file.</li>
           <li>Use the transport icons to play, pause/resume, or stop and return the scan/grain state to the start.</li>
           <li>Use <code>ORD</code> to choose whether the loaded file is treated as 1OA, 2OA, or 3OA.</li>
           <li>Follow the plugin with an ambisonic decoder, stereo decoder, head decoder, or energy visualizer.</li>
         </ul>
 
-        <p>The output bus is fixed at 16 channels. First-order and second-order settings fill the active ambisonic channels and leave higher-order channels silent.</p>
+        <p>The output bus is fixed at 16 channels for third-order ambisonics. First-order and second-order modes use the matching lower channel counts and leave higher-order channels silent.</p>
 
         <h2 id="grain-model">Grain Model</h2>
 
-        <p>The processor uses one shared event stream. A grain has one source position, duration, rate, direction, and window. That event reads every active ambisonic channel at the matching sample time, applies a Parzen-style grain envelope, and accumulates the result into a circular 16-channel tape buffer before playback.</p>
+        <p>The processor uses one shared event stream. Each grain reads the same source time across every active ambisonic channel, applies the selected envelope, and writes into a circular multichannel tape layer before output.</p>
 
-        <p>This follows the older Max Gen patch model more closely than direct live grain summing. The tape layer lets overlapping grains build a field while preserving encoded channel relationships. This is different from independent per-channel granulation, which can smear or destabilize the spatial image.</p>
+        <p>This matters for ambisonics: the W, X, Y, Z, and higher-order channels are not independent audio stems. Keeping the grain timing shared helps preserve the encoded spatial relationships while still allowing dense granular motion.</p>
+
+        <h2 id="display">Display</h2>
+
+        <p>The waveform shows the loaded file as a source-time map. Grain markers show where events are being drawn from, and the jitter window shows the active source area used by modes that randomize grain position.</p>
+
+        <p>In <code>SCAN</code>, the source position moves through the file. In <code>FREEZE</code>, grains gather around a fixed source point. In <code>JUMP</code>, source position moves between stepped regions.</p>
 
         <h2 id="controls">Controls</h2>
 
@@ -82,11 +90,23 @@
           </tbody>
         </table>
 
-        <h2 id="testing">Testing Notes</h2>
+        <h2 id="routing">Routing</h2>
 
-        <p>This is a fresh prototype rebuilt from the Max Gen/HOA granular direction and the current CLAP package framework, not a restored committed plugin. The first test target is simple: load known 1OA, 2OA, or 3OA media, confirm the following decoder receives coherent motion, and check that mode and density changes do not produce runaway levels or broken channel order.</p>
+        <p>Use a 16-channel REAPER track for 3OA work. Place the grain processor before an ambisonic decoder or visualizer:</p>
 
-        <p>If REAPER routing behaves strangely after prior unstable projects, test in a new REAPER project first. That keeps host-state issues separate from plugin behavior.</p>
+        <pre><code>s3g Ambi Grain Processor
+-&gt; s3g Ambi Energy Visualizer 64
+-&gt; s3g Ambi Speaker Decoder 64</code></pre>
+
+        <p>For stereo monitoring, follow it with <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a> or <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>.</p>
+
+        <h2 id="practical-notes">Practical Notes</h2>
+
+        <ul>
+          <li>Set <code>ORD</code> to match the loaded file. A wrong order will usually sound spatially wrong even if audio is present.</li>
+          <li>High <code>DENS</code> with long <code>GMS</code> can create heavy overlap, so the plugin limits the available density range for stable playback.</li>
+          <li><code>SCAN</code> is best for moving through a full file; <code>FREEZE</code> is best for sustained texture; <code>JUMP</code> is best for rhythmic cuts between regions.</li>
+        </ul>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambisonic-energy-visualizer.html">
@@ -117,10 +137,12 @@
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
-          <a href="#workflow">Workflow</a>
+          <a href="#workflow">Basic Workflow</a>
           <a href="#grain-model">Grain Model</a>
+          <a href="#display">Display</a>
           <a href="#controls">Controls</a>
-          <a href="#testing">Testing Notes</a>
+          <a href="#routing">Routing</a>
+          <a href="#practical-notes">Practical Notes</a>
         </div>
       </aside>
     </div>

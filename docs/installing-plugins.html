@@ -28,7 +28,7 @@
 
         <p>These notes are for installing a packaged macOS CLAP zip from a GitHub pre-release. Plugin names, parameters, saved states, and included plugins may change.</p>
 
-        <p>The supported development target is macOS + REAPER.</p>
+        <p>The supported target is macOS + REAPER.</p>
         <div class="status-strip" aria-label="Install status">
           <div><span>state</span><strong>pre-release</strong></div>
           <div><span>format</span><strong>CLAP</strong></div>
@@ -57,7 +57,7 @@
 
         <h2 id="current-plugins">Current Plugins</h2>
 
-        <p>The current source tree builds general effects/macros, utilities, CLAP instruments, and 3OAFX ambisonics tools.</p>
+        <p>The current package includes general effects/macros, utilities, CLAP instruments, and 3OAFX ambisonics tools.</p>
 
         <h3>Processors and Macros</h3>
 
@@ -85,7 +85,7 @@
           <a class="category-card" href="mc-to-stereo-autogain.html">
             <span>fold-down</span>
             <strong>s3g MC to Stereo Autogain</strong>
-            <em>128-channel input to true stereo output fold-down prototype.</em>
+            <em>128-channel input to true stereo output fold-down tool.</em>
           </a>
           <div class="category-card muted-card">
             <span>meter</span>
@@ -108,9 +108,9 @@
             <em>Fixed 64-in/64-out order-band gain and weighting utility with MaxRE and In-phase starting points.</em>
           </a>
           <div class="category-card muted-card">
-            <span>host test</span>
+            <span>routing check</span>
             <strong>s3g 24ch Passthrough Test</strong>
-            <em>Fixed 24-in/24-out passthrough/gain plugin for host testing.</em>
+            <em>Fixed 24-in/24-out passthrough/gain plugin for checking multichannel host routing.</em>
           </div>
         </div>
 
@@ -183,7 +183,7 @@
 
         <p>After installing, open REAPER and rescan CLAP plugins if the new builds do not appear automatically. Search for <code>s3g</code> in the FX browser.</p>
 
-        <p>For multichannel testing, set the track channel count before inserting the plugin.</p>
+        <p>For multichannel sessions, set the track channel count before inserting the plugin.</p>
 
         <p>For true stereo-output plugins on wide REAPER tracks, including <code>s3g MC to Stereo Autogain</code>, <code>s3g Ambi Stereo Decoder</code>, and <code>s3g Ambi Head Decoder</code>, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code> if a following meter still shows channels above 2. These CLAP plugins expose stereo output buses, but REAPER can still pass unmapped track channels around the effect unless this option is enabled.</p>
 
@@ -191,7 +191,7 @@
 
         <h2 id="cleanup">Cleanup</h2>
 
-        <p>If older pre-release test plugins appear in REAPER, remove stale bundles from the user CLAP folder and rescan:</p>
+        <p>If older pre-release plugins appear in REAPER, remove stale bundles from the user CLAP folder and rescan:</p>
 
         <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
 

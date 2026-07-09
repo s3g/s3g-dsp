@@ -35,7 +35,7 @@ Current plugins:
 - `s3g Macro Pitch 8ch` / `s3g Macro Pitch 24ch`: compact multichannel pitch
   macros with the shared Macro control layout.
 - `s3g MC to Stereo Autogain`: 128-channel input to true stereo output
-  fold-down prototype.
+  fold-down tool.
 - `s3g Multichannel Meter 64`: fixed 64-in/64-out passthrough meter with
   selectable visual width, level grid, spatial layout view, and energy history.
 - `s3g Ambi Energy Visualizer 64`: fixed 64-in/64-out passthrough analyzer

@@ -28,7 +28,7 @@
 
         <p>Ambisonics pages cover ambisonics-specific plugins and infrastructure. These tools are separate from the general multichannel effects and instruments because channel order, spatial format, and host routing are part of the instrument.</p>
 
-        <p>The current target is REAPER on macOS, using <code>ACN/SN3D</code> ambisonics and fixed-width buses where predictable routing matters. The point encoder and 3OAFX effects are third-order; decoder and utility prototypes allow first through seventh order.</p>
+        <p>The supported target is REAPER on macOS, using <code>ACN/SN3D</code> ambisonics and fixed-width buses where predictable routing matters. The point encoder and 3OAFX effects are third-order; decoders and utilities support first through seventh order.</p>
 
         <div class="status-strip" aria-label="Ambisonics status">
           <div><span>format</span><strong>3OA ACN/SN3D</strong></div>
@@ -101,7 +101,7 @@
           <li>Speaker decoders expose layout, order, matrix mode, and custom speaker placement.</li>
           <li>Direct layout panners route sources to speaker layouts without an ambisonic encode/decode stage.</li>
           <li>3OAFX effects use a one-effect-per-plugin model so masking and gain staging stay predictable.</li>
-          <li>The 24-point virtual speaker layer is internal to the 3OAFX effects, not exposed as a 72-channel send/return chain.</li>
+          <li>The 24-point virtual speaker layer is internal to the 3OAFX effects.</li>
         </ul>
 
         <h2 id="processing-flow">3OAFX Processing Flow</h2>

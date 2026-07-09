@@ -39,7 +39,7 @@
 
         <p>Place Rotate between an ambisonic source and a decoder or visualizer when the field needs to turn without changing the speaker layout. For example, it can rotate a captured or generated scene before the <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>.</p>
 
-        <p>The current implementation uses a precomputed spherical projection matrix for the selected order. It is practical for testing the workflow now; a later pass may replace it with a more exact rotation implementation if needed.</p>
+        <p>The rotation uses a precomputed spherical projection matrix for the selected order. It is designed for practical field-orientation work in REAPER while keeping a stable 64-channel bus.</p>
 
         <h2 id="controls">Controls</h2>
 

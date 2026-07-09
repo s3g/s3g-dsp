@@ -134,25 +134,23 @@
           </tbody>
         </table>
 
-        <h2 id="standalone-app">Standalone Prototype</h2>
+        <h2 id="standalone-app">Standalone App</h2>
 
-        <p>The macOS standalone prototype uses the same shared DSP engine, but runs outside REAPER with <code>AVAudioEngine</code> and <code>CoreMIDI</code>. For this app, the MIDI map follows the nanoKONTROL2 control layout used in the Max controller patch.</p>
+        <p>The macOS standalone app uses the same shared DSP engine, but runs outside REAPER with <code>AVAudioEngine</code> and <code>CoreMIDI</code>. Its MIDI map follows the nanoKONTROL2 control layout.</p>
 
         <p>Sliders <code>CC0-CC7</code> control rate, spread, drift, center, glide, start, length, and output. Knobs <code>CC16</code> and <code>CC17</code> control crossfade and ducking. SOLO buttons <code>CC32-CC35</code> choose the source rule. Transport buttons control play, stop, sync, rule advance, rebuild, and toggle play. MIDI notes are ignored in the standalone app.</p>
 
         <p>If the active audio device has fewer than eight outputs, the app folds the eight internal lanes down across the available output channels for auditioning.</p>
 
-        <h2 id="notes">Current Notes</h2>
+        <h2 id="practical-notes">Practical Notes</h2>
 
         <p>Multi Loop Processor is separate from topology plugins. It is a loaded-audio instrument with source rules and lane relationships, not a point-field processor.</p>
 
         <p>For a simpler single-file workflow, use <a href="loop-processor.html">Loop Processor</a>. Use Multi Loop when several loops, textures, or multichannel files should be arranged into one eight-lane playable instrument.</p>
 
-        <h2 id="testing">Testing</h2>
+        <h2 id="session-checks">Session Checks</h2>
 
-        <p>The shared DSP smoke test checks the Multi Loop source-composite layer with synthetic sources. It verifies mono, stereo, quad, 8-channel, 24-channel, and 64-channel source mapping; <code>ORDER</code>, <code>INTER</code>, <code>RND</code>, and <code>MORPH</code> rules; deterministic random assignment; source-rate spread bounds; and a playback stress pass through the shared Loop Processor engine.</p>
-
-        <p>For listening tests in REAPER, use a multichannel meter after the plugin and try combinations such as mono plus stereo, stereo plus quad, stereo plus 8-channel, and stereo plus 24-channel files. Confirm the eight output lanes match the selected rule and that loop-region, crossfade, ducking, rate, spread, drift, and center changes do not produce clipping, skipped silence, or unwanted discontinuities.</p>
+        <p>For multichannel sessions, place a meter after the plugin and try combinations such as mono plus stereo, stereo plus quad, stereo plus 8-channel, and stereo plus 24-channel files. The eight output lanes should match the selected source rule while loop-region, crossfade, ducking, rate, spread, drift, and center changes remain smooth.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="loop-processor.html">
@@ -181,9 +179,9 @@
           <a href="#source-controls">Source Controls</a>
           <a href="#loop-engine">Loop Engine</a>
           <a href="#relationships">Relationships</a>
-          <a href="#standalone-app">Standalone Prototype</a>
-          <a href="#notes">Current Notes</a>
-          <a href="#testing">Testing</a>
+          <a href="#standalone-app">Standalone App</a>
+          <a href="#practical-notes">Practical Notes</a>
+          <a href="#session-checks">Session Checks</a>
         </div>
       </aside>
     </div>

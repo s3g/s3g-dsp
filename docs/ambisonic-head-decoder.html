@@ -39,7 +39,7 @@
 
         <p>The first version does not embed measured HRTF datasets and does not require external SOFA files. The decoder uses short interaural delays, head-shadow filtering, and simple pinna/width controls to create a lightweight synthetic head response.</p>
 
-        <p><code>DIRECT</code> mode maps ambisonics to an internal spherical head grid without exposing a named speaker layout. <code>Virtual field</code> mode keeps the earlier approach: ambisonics are sampled through a selected virtual field before the head model. The field path is useful for matching the visual language of the speaker decoder; it is not required for binaural decoding.</p>
+        <p><code>DIRECT</code> mode maps ambisonics to an internal spherical head grid without exposing a named speaker layout. <code>Virtual field</code> mode samples ambisonics through a selected virtual field before the head model. The field path is useful for matching the visual language of the speaker decoder; it is not required for binaural decoding.</p>
 
         <p>This keeps the pre-release build simple: no external HRTF file paths, no dataset redistribution, and no extra license files. Measured HRTF or SOFA loading can be added later as a separate advanced layer.</p>
 

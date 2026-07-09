@@ -26,9 +26,9 @@
       <main class="content" id="content">
         <h1>Ambi Speaker Decoder</h1>
 
-        <p><code>s3g Ambi Speaker Decoder 64</code> decodes ambisonic <code>ACN/SN3D</code> input to a 64-channel speaker output bus. It is built for REAPER sessions where the speaker layout is part of the composition or 3OAFX test chain.</p>
+        <p><code>s3g Ambi Speaker Decoder 64</code> decodes ambisonic <code>ACN/SN3D</code> input to a 64-channel speaker output bus. It is built for REAPER sessions where the speaker layout is part of the composition, installation, or 3OAFX chain.</p>
 
-        <p>The prototype supports first through seventh order. The output bus stays 64 channels so routing is predictable; the active speaker count decides which output lanes are used.</p>
+        <p>The decoder supports first through seventh order. The output bus stays 64 channels so routing is predictable; the active speaker count decides which output lanes are used.</p>
 
         <div class="status-strip" aria-label="Speaker Decoder status">
           <div><span>input</span><strong>1OA..7OA</strong></div>
@@ -56,7 +56,7 @@
 
         <h2 id="layouts">Layouts</h2>
 
-        <p>The layout menu is intentionally limited to common s3g testing shapes plus custom editing.</p>
+        <p>The layout menu provides common speaker shapes plus custom editing.</p>
 
         <p>For room-style presets, speaker numbering starts at the stereo-right position and moves clockwise around each elevation layer, then continues upward. <code>DOME24</code> and <code>DOME25</code> follow the s3g-mc dome panner structure: 12 lower speakers, 8 middle speakers, 4 upper speakers, and a top point for <code>DOME25</code>. <code>SPHERE24</code> keeps the fixed 3OAFX virtual-speaker order because that order is part of the insert workflow.</p>
 
@@ -109,13 +109,13 @@
 
         <ul>
           <li><code>ORDER</code> selects the ambisonic order from <code>1OA</code> to <code>7OA</code>.</li>
-          <li><code>MODE</code> chooses the prototype decoder matrix style: <code>BASIC</code>, <code>EPAD</code>, or <code>MMD</code>.</li>
+          <li><code>MODE</code> chooses the decoder matrix style: <code>BASIC</code>, <code>EPAD</code>, or <code>MMD</code>.</li>
           <li><code>COUNT</code> sets how many output lanes are used, from 2 to 64. In <code>CUSTOM</code>, this also generates a new speaker field.</li>
           <li><code>FIELD</code> chooses how <code>CUSTOM</code> layouts are generated: <code>SPHERE</code> distributes speakers over a full sphere, and <code>HEMI</code> keeps them in the upper hemisphere.</li>
           <li><code>WGT</code> chooses ambisonic order weighting: <code>NONE</code>, <code>MAXRE</code>, or <code>INPHASE</code>.</li>
           <li><code>WIDTH</code> is the broad decoder matrix trim.</li>
-          <li><code>MIXER</code> switches the large left view to per-speaker <code>GAIN</code> trims, diagnostic mute/solo buttons, and the final <code>OUT</code> gain. Speaker gains are shown 16 at a time, with more pages as needed.</li>
-          <li><code>MAP</code> switches the large left view to a decoder diagnostic. It uses the current selected-speaker <code>AZ</code>/<code>EL</code> direction as a probe and shows which speakers receive energy from the current order, weighting, mode, gains, and layout.</li>
+          <li><code>MIXER</code> switches the large left view to per-speaker <code>GAIN</code> trims, mute/solo buttons, and the final <code>OUT</code> gain. Speaker gains are shown 16 at a time, with more pages as needed.</li>
+          <li><code>MAP</code> switches the large left view to a decoder map. It uses the current selected-speaker <code>AZ</code>/<code>EL</code> direction as a probe and shows which speakers receive energy from the current order, weighting, mode, gains, and layout.</li>
         </ul>
 
         <p>Changing <code>COUNT</code> or <code>FIELD</code> creates a new <code>CUSTOM</code> layout automatically. <code>SELECTED SPEAKER</code>, <code>AZIMUTH</code>, <code>ELEVATION</code>, and <code>DISTANCE</code> edit one speaker at a time. <code>AZIMUTH</code>, <code>ELEVATION</code>, and <code>DISTANCE</code> have sliders for quick movement and text boxes for exact entry. Any position edit keeps the layout in <code>CUSTOM</code>.</p>
@@ -130,7 +130,7 @@
 
         <h2 id="mode-notes">Mode Notes</h2>
 
-        <p><code>BASIC</code> uses direct speaker basis weighting and is useful as a clear, simple reference. <code>EPAD</code> uses a regularized matrix solve inspired by energy-preserving speaker decoding. <code>MMD</code> is a first prototype blend that points toward multi-mode decoder behavior; it is not yet a finished multiband MMD implementation.</p>
+        <p><code>BASIC</code> uses direct speaker basis weighting and is useful as a clear, simple reference. <code>EPAD</code> uses a regularized matrix solve inspired by energy-preserving speaker decoding. <code>MMD</code> is a multi-mode-inspired blend for comparing direct and energy-weighted behavior.</p>
 
         <p><code>WGT</code> is separate from <code>MODE</code>. It tapers ambisonic orders before the signal reaches the speaker outputs. <code>MAXRE</code> is the default because it usually gives a useful balance of localization and stability. <code>INPHASE</code> is more conservative and can help with irregular layouts. <code>NONE</code> leaves the orders unweighted for comparison.</p>
 
