@@ -7,9 +7,9 @@ project to the `s3g-mc` multichannel REAPER package. It can be used with
 Project documentation for `s3g-dsp` is available at
 <https://s3g.github.io/s3g-dsp/>.
 
-The current focus is predictable multichannel routing, compact automation, and
-clear multichannel control models. Some plugins use topology; others use
-simpler relationship controls when that better fits the sound.
+The project focuses on predictable multichannel routing, compact automation,
+and clear control models. Some plugins use topology; others use simpler
+relationship controls when that better fits the sound.
 
 The supported development target is macOS + REAPER. Other operating systems and
 DAWs are not support targets at this stage.
@@ -22,7 +22,7 @@ change.
 Current plugins:
 
 - `s3g 24ch Passthrough Test`: fixed 24-in/24-out CLAP passthrough/gain plugin.
-- `s3g Delay Processor 8ch`: main topology-driven delay processor.
+- `s3g Delay Processor 8ch`: multichannel delay processor with topology controls.
 - `s3g Delay Processor 24ch`: wider fixed-width delay build.
 - `s3g Loop Processor 8ch`: CLAP instrument plugin for loaded audio loops,
   lane playheads, waveform display, and phase relationship controls.
@@ -61,10 +61,6 @@ Current plugins:
   `s3g 3OAFX Gain`: single-effect third-order processors with internal
   24-point virtual speaker masking.
 
-Delay Processor is the main topology effect. Loop Processor and Multi Loop
-Processor are loaded-audio instruments. MC to Stereo Autogain is a practical
-fold-down tool for auditioning multichannel work in stereo.
-
 ## Design
 
 - Reusable DSP lives in `dsp/`.
@@ -84,38 +80,6 @@ GitHub Pages documentation:
 https://s3g.github.io/s3g-dsp/
 ```
 
-Useful local docs:
-
-- `docs/index.html`: documentation site home page.
-- `docs/building-from-source.html`: source build, local install, and validation notes.
-- `docs/installing-plugins.html`: installing packaged pre-release CLAP bundles.
-- `docs/effects.html`: effect plugin index.
-- `docs/3oafx.html`: Ambisonics plugin index.
-- `docs/instruments.html`: instrument plugin index.
-- `docs/topology-framework.html`: shared topology framework overview.
-- `docs/delay-processor.html`: Delay Processor overview and topology map.
-- `docs/loop-processor.html`: Loop Processor workflow and control reference.
-- `docs/multi-loop-processor.html`: Multi Loop Processor source rules,
-  multi-file loading, and loop control reference.
-- `docs/ambi-grain-processor.html`: Ambi Grain Processor loaded ambisonic
-  media workflow.
-- `docs/mc-to-stereo-autogain.html`: MC to Stereo Autogain fold-down reference.
-- `docs/multichannel-meter.html`: Multichannel Meter view modes and routing notes.
-- `docs/ambisonic-energy-visualizer.html`: Ambi Energy Visualizer reference.
-- `docs/3oafx-effects.html`: 3OAFX single-effect processor overview.
-- `docs/3oafx-point-encoder.html`: Ambi Point Encoder reference.
-- `docs/3oafx-speaker-decoder.html`: Ambi Speaker Decoder reference.
-- `docs/3oafx-layout-panner.html`: Layout Panner reference.
-- `docs/ambisonic-rotate.html`: Ambi Rotate reference.
-- `docs/ambisonic-order-band-tool.html`: Ambi Order / Band reference.
-- `docs/ambisonic-stereo-decoder.html`: Ambi Stereo Decoder reference.
-- `docs/ambisonic-head-decoder.html`: Ambi Head Decoder reference.
-- `docs/gui-style-guide.md`: working style guide for custom plugin GUIs.
-- `docs/*_gui.png`: plugin GUI screenshots used by the documentation pages.
-- `docs/topology_framework.svg`: shared topology framework diagram.
-- `docs/topology_effect_map.svg`: generic topology-to-effect mapping diagram.
-- `docs/topology_heatmap_example.svg`: topology heatmap visualization example.
-
 ## Build
 
 Requirements:
@@ -124,7 +88,7 @@ Requirements:
 - A C++17 compiler
 - macOS for the current CLAP GUI/plugin bundle targets
 - REAPER as the primary tested DAW/host
-- Optional docs tooling: use an active Node.js LTS release newer than Node.js 20 if a docs build reports that Node.js 20 is deprecated
+- Optional docs tooling: an active Node.js LTS release newer than Node.js 20
 
 Build the DSP smoke test:
 
@@ -195,12 +159,16 @@ clap-validator validate \
   ~/Library/Audio/Plug-Ins/CLAP/s3g_mc_to_stereo_autogain.clap --only-failed
 ```
 
-## Relationship to s3g-mc
+## Related Projects
 
 `s3g-mc` is the main REAPER package. `s3g-dsp` is a sibling plugin project for
 general multichannel effects, instruments, utilities, and ambisonics-specific
 3OAFX tools. It can also be used independently in matching macOS + REAPER
 sessions.
+
+`s3g-rnbo-clap` is a separate experimental wrapper for RNBO/Max-generated C++
+exports. It is useful for testing RNBO-based plugin ideas in the same CLAP
+workflow, but it is not required to build or use `s3g-dsp`.
 
 Useful `s3g-mc` references:
 
