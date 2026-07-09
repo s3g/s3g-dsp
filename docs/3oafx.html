@@ -40,15 +40,15 @@
         <h2 id="plugins">Plugins</h2>
 
         <div class="category-grid">
-          <a class="category-card feature-card" href="3oafx-point-encoder.html">
-            <span>point encoder</span>
-            <strong>Ambi Point Encoder</strong>
-            <em>16 mono point-source inputs encoded to third-order ACN/SN3D, with AED placement, point mixer, physics scenes, and Geist-driven bond breaking.</em>
-          </a>
           <a class="category-card feature-card" href="3oafx-effects.html">
             <span>3OAFX effects</span>
             <strong>3OAFX Delay / Pitch / Filter / Gain</strong>
             <em>Single-effect 3OA processors that decode to a 24-point virtual speaker layer, apply one AED return mask, and encode back to 3OA.</em>
+          </a>
+          <a class="category-card feature-card" href="3oafx-point-encoder.html">
+            <span>point encoder</span>
+            <strong>Ambi Point Encoder</strong>
+            <em>16 mono point-source inputs encoded to third-order ACN/SN3D, with AED placement, point mixer, physics scenes, and Geist-driven bond breaking.</em>
           </a>
           <a class="category-card" href="3oafx-speaker-decoder.html">
             <span>speaker decoder</span>
@@ -104,6 +104,26 @@
           <li>The 24-point virtual speaker layer is internal to the 3OAFX effects, not exposed as a 72-channel send/return chain.</li>
         </ul>
 
+        <h2 id="processing-flow">3OAFX Processing Flow</h2>
+
+        <p>The current CLAP 3OAFX path uses ordinary third-order <code>ACN/SN3D</code> plugin inserts. Each effect handles the 24-point virtual speaker layer internally, then returns a 3OA output.</p>
+
+        <pre><code>3OA source
+-&gt; s3g 3OAFX Delay / Pitch / Filter / Gain
+-&gt; optional additional 3OAFX effects
+-&gt; Ambi Speaker Decoder, Ambi Stereo Decoder, or Ambi Head Decoder</code></pre>
+
+        <p>Inside each 3OAFX effect, the signal path is:</p>
+
+        <pre><code>3OA input
+-&gt; decode to 24 virtual speaker points
+-&gt; dry copy path
+-&gt; one effect return and one AED return mask
+-&gt; mixer
+-&gt; encode back to 3OA output</code></pre>
+
+        <p>The dry copy stays separate from the effect return until the mixer. Stack separate plugin instances in series when the order matters. For parallel combinations, use REAPER routing rather than an internal rack mixer.</p>
+
         <h2 id="s3g-mc">s3g-mc Context</h2>
 
         <p>The larger 3OAFX workflow is documented in <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html" target="_blank" rel="noopener noreferrer">the s3g-mc 3OAFX process guide</a>. The CLAP plugins here are being developed as a sibling path for native DSP and ambisonic infrastructure.</p>
@@ -133,13 +153,13 @@
           <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
           <a href="ambisonic-head-decoder.html">Head Decoder</a>
           <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
-          <a href="ambi-grain-processor.html">Ambi Grain Processor</a>
-          <a href="3oafx-insert-workflow.html">3OAFX Processing Workflow</a>
+          <a href="ambi-grain-processor.html">Grain Processor</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#plugins">Plugins</a>
           <a href="#categories">How This Differs</a>
+          <a href="#processing-flow">3OAFX Processing Flow</a>
           <a href="#s3g-mc">s3g-mc Context</a>
         </div>
       </aside>

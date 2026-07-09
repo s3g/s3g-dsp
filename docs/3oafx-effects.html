@@ -28,7 +28,7 @@
 
         <p>The 3OAFX effects are single-purpose ambisonic processors for third-order <code>ACN/SN3D</code> material. Each plugin decodes the input to the fixed 24-point virtual speaker layer, applies one spatial effect with a return mask, then encodes back to 3OA.</p>
 
-        <p>This replaces the earlier rack experiment. The rack source remains in the repository as a development checkpoint, but current builds favor separate effects so there is no multi-effect summing inside one plugin.</p>
+        <p>Current builds use one effect per plugin instance. Stack separate instances in REAPER when several 3OAFX effects are needed.</p>
 
         <div class="status-strip" aria-label="3OAFX effect status">
           <div><span>input</span><strong>3OA</strong></div>
@@ -58,7 +58,7 @@
           <div class="category-card">
             <span>spatial gain</span>
             <strong>s3g 3OAFX Gain</strong>
-            <em>Masked level shaping. Gain above <code>1.0</code> boosts the area, below <code>1.0</code> reduces it, and <code>0.0</code> cuts a hole in the sound field.</em>
+            <em>Masked level shaping with a <code>0.0</code> to <code>2.0</code> range. <code>1.0</code> is neutral, values below <code>1.0</code> reduce the masked area, <code>0.0</code> cuts a hole, and values above <code>1.0</code> boost it.</em>
           </div>
         </div>
 
@@ -73,12 +73,6 @@
 
         <p>The dry copy does not pass through the effect. It is decoded to the same 24-point layer so the masked return can replace, duck, boost, or cut a spatial area before the final 3OA encode.</p>
 
-        <h2 id="why-separate">Why Separate Effects</h2>
-
-        <p>A single plugin with several internal effects can create useful sounds, but it also creates level and masking interactions that are hard to diagnose. The separate-effect design keeps each processor predictable. Stack multiple plugins in REAPER when several 3OAFX effects are needed.</p>
-
-        <p>For parallel combinations, use separate REAPER routing or future utility plugins rather than a hidden internal rack mixer.</p>
-
         <h2 id="controls">Shared Controls</h2>
 
         <table>
@@ -91,7 +85,7 @@
             <tr><td>Dry</td><td>Decoded dry copy level in the mixer.</td></tr>
             <tr><td>Mix</td><td>Wet return level for Delay, Pitch, and Filter.</td></tr>
             <tr><td>Output</td><td>Final level after the 24-point mixer and 3OA encode.</td></tr>
-            <tr><td>Gain</td><td>Spatial level amount for 3OAFX Gain. <code>1.0</code> is neutral.</td></tr>
+            <tr><td>Gain</td><td>3OAFX Gain amount from <code>0.0</code> to <code>2.0</code>. <code>1.0</code> is neutral; lower values reduce the masked area, <code>0.0</code> cuts a hole, and higher values boost it.</td></tr>
           </tbody>
         </table>
 
@@ -126,14 +120,12 @@
           <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
           <a href="ambisonic-head-decoder.html">Head Decoder</a>
           <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
-          <a href="ambi-grain-processor.html">Ambi Grain Processor</a>
-          <a href="3oafx-insert-workflow.html">3OAFX Insert Workflow</a>
+          <a href="ambi-grain-processor.html">Grain Processor</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#plugins">Plugins</a>
           <a href="#signal-flow">Signal Flow</a>
-          <a href="#why-separate">Why Separate Effects</a>
           <a href="#controls">Shared Controls</a>
           <a href="#routing">REAPER Routing</a>
         </div>

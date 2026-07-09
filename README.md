@@ -104,7 +104,6 @@ Useful local docs:
 - `docs/ambisonic-energy-visualizer.html`: Ambi Energy Visualizer reference.
 - `docs/3oafx-effects.html`: 3OAFX single-effect processor overview.
 - `docs/3oafx-point-encoder.html`: Ambi Point Encoder reference.
-- `docs/3oafx-insert-workflow.html`: 3OAFX processing workflow notes.
 - `docs/3oafx-speaker-decoder.html`: Ambi Speaker Decoder reference.
 - `docs/3oafx-layout-panner.html`: Layout Panner reference.
 - `docs/ambisonic-rotate.html`: Ambi Rotate reference.
