@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>3OAFX Insert Workflow - s3g-dsp</title>
-    <meta name="description" content="3OAFX insert workflow notes for s3g-dsp.">
+    <title>3OAFX Processing Workflow - s3g-dsp</title>
+    <meta name="description" content="3OAFX processing workflow notes for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,56 +24,39 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>3OAFX Insert Workflow</h1>
+        <h1>3OAFX Processing Workflow</h1>
 
-        <p>The 3OAFX tests target the 24-channel virtual speaker layer used by the <a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code></a> workflow. This page is a work-in-progress note for the CLAP boundary plugins.</p>
-        <p>For the broader ambisonics plugin group, see the <a href="3oafx.html">Ambisonics overview</a>. For point-source encoding and AED automation, see <a href="3oafx-point-encoder.html">Ambi Point Encoder</a>. For speaker playback and virtual layout testing, see <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder</a>. For direct source-to-speaker routing, see <a href="3oafx-layout-panner.html">Layout Panner</a>. For field utilities, see <a href="ambisonic-rotate.html">Ambi Rotate</a> and <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>.</p>
+        <p>The current CLAP 3OAFX path uses ordinary third-order <code>ACN/SN3D</code> plugin inserts. Each 3OAFX effect handles the 24-point virtual speaker layer internally, then returns a 3OA output.</p>
+        <p>For the current effect set, see <a href="3oafx-effects.html">3OAFX Effects</a>. For point-source encoding and AED automation, see <a href="3oafx-point-encoder.html">Ambi Point Encoder</a>. For speaker playback and virtual layout testing, see <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder</a>. For direct source-to-speaker routing, see <a href="3oafx-layout-panner.html">Layout Panner</a>.</p>
         <h2 id="signal-path">Signal Path</h2>
 
         <pre><code>3OA source
--&gt; s3g 3OAFX Send Decoder
--&gt; 24-channel insert plugin
--&gt; s3g 3OAFX Return Encoder
--&gt; 3OA output</code></pre>
+-&gt; s3g 3OAFX Delay / Pitch / Filter / Gain
+-&gt; optional additional 3OAFX effects
+-&gt; Ambi Speaker Decoder, Ambi Stereo Decoder, or Ambi Head Decoder</code></pre>
 
-        <p><code>s3g 3OAFX Send Decoder</code> decodes a 3OA <code>ACN/SN3D</code> input to the fixed 24-point virtual speaker layer and outputs a 72-channel bus.</p>
+        <p>Inside each 3OAFX effect, the signal path is:</p>
 
-        <ul>
-          <li><code>1-24</code>: wet/effect lane.</li>
-          <li><code>25-48</code>: decoded dry copy.</li>
-          <li><code>49-72</code>: mask signal.</li>
-        </ul>
+        <pre><code>3OA input
+-&gt; decode to 24 virtual speaker points
+-&gt; dry copy path
+-&gt; one effect return and one AED return mask
+-&gt; mixer
+-&gt; encode back to 3OA output</code></pre>
 
-        <p><code>s3g 3OAFX Return Encoder</code> reads the same 72-channel bus, applies the return mask/mixer, and encodes the result back to 3OA <code>ACN/SN3D</code>.</p>
+        <p>The dry copy stays separate from the effect return until the mixer. This follows the useful part of the JSFX send/return model without exposing a 72-channel bus in REAPER.</p>
 
-        <p>The mask signal on <code>49-72</code> syncs the two boundary plugins. REAPER parameter links are still recommended so the Return Encoder GUI follows the Send Decoder.</p>
+        <h2 id="stacking">Stacking Effects</h2>
 
-        <h2 id="parameter-links">REAPER Parameter Links</h2>
+        <p>Use separate plugin instances for separate effects. This keeps gain staging and mask behavior readable: one delay mask, one pitch mask, one filter mask, or one gain/cut mask per plugin.</p>
 
-        <p>After inserting the boundary pair, link the Return Encoder direction parameters to the Send Decoder.</p>
-
-        <ol>
-          <li>Put the plugins on a 72-channel REAPER track in this order: <code>s3g 3OAFX Send Decoder</code>, a 24-channel insert effect, then <code>s3g 3OAFX Return Encoder</code>.</li>
-          <li>Open <code>s3g 3OAFX Return Encoder</code>.</li>
-          <li>Use REAPER's <code>Param</code> menu for <code>Azimuth</code>, then choose <code>Parameter modulation/MIDI link</code>.</li>
-          <li>Enable parameter linking from another FX parameter.</li>
-          <li>Set the source FX to <code>s3g 3OAFX Send Decoder</code>.</li>
-          <li>Set the source parameter to <code>Azimuth</code>.</li>
-          <li>Use a neutral 1:1 scale and offset.</li>
-          <li>Repeat the same link for <code>Elevation</code>.</li>
-        </ol>
-
-        <p>Useful optional links include <code>Width</code>, <code>Focus</code>, and <code>Rear Reject</code>.</p>
-
-        <p>When these links are active, moving the Send Decoder direction controls should also move the Return Encoder GUI. If REAPER still has an older bundle loaded, reload the plugin instances or restart REAPER.</p>
+        <p>Stack plugins in series on the same 3OA track when the order matters. For parallel combinations, use REAPER routing rather than an internal rack mixer.</p>
 
         <h2 id="plugin-shape">Plugin Shape</h2>
 
-        <p><code>s3g 24ch Passthrough Test</code> should only change gain. It exists to confirm that REAPER preserves 24-channel audio correctly.</p>
+        <p>The current 3OAFX effects expose 16-channel 3OA input and output buses. Put them on a 16-channel 3OA track before a decoder or visualizer.</p>
 
-        <p><code>s3g Delay Processor 24ch</code> is the current wide insert effect for testing this boundary.</p>
-
-        <p>3OAFX-specific processors should stay 24-in/24-out when they sit directly on the virtual speaker layer. There, channel count and speaker order are part of the instrument.</p>
+        <p>The older rack and boundary-pair experiments remain source checkpoints only. They are not part of current CLAP builds.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambisonic-energy-visualizer.html">
@@ -91,6 +74,7 @@
         <div class="toc-section">
           <h2>Ambisonics Pages</h2>
           <a href="3oafx.html">Ambisonics Overview</a>
+          <a href="3oafx-effects.html">3OAFX Effects</a>
           <a href="3oafx-point-encoder.html">Point Encoder</a>
           <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
           <a href="3oafx-layout-panner.html">Layout Panner</a>
@@ -99,12 +83,12 @@
           <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
           <a href="ambisonic-head-decoder.html">Head Decoder</a>
           <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
-          <a href="3oafx-insert-workflow.html">3OAFX Insert Workflow</a>
+          <a href="3oafx-insert-workflow.html">3OAFX Processing Workflow</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#signal-path">Signal Path</a>
-          <a href="#parameter-links">Parameter Links</a>
+          <a href="#stacking">Stacking Effects</a>
           <a href="#plugin-shape">Plugin Shape</a>
         </div>
       </aside>

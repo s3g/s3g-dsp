@@ -50,7 +50,7 @@
         <ul>
           <li><code>s3g 24ch Passthrough Test</code>: fixed 24-in/24-out CLAP passthrough/gain plugin.</li>
           <li><a href="delay-processor.html"><code>s3g Delay Processor 8ch</code></a>: main topology-driven delay processor.</li>
-          <li><a href="delay-processor.html"><code>s3g Delay Processor 24ch</code></a>: wider delay build for 24-channel insert work.</li>
+          <li><a href="delay-processor.html"><code>s3g Delay Processor 24ch</code></a>: wider fixed-width delay build.</li>
           <li><a href="loop-processor.html"><code>s3g Loop Processor 8ch</code></a>: CLAP instrument plugin for loaded audio loops, lane playheads, waveform display, and phase relationship controls.</li>
           <li><a href="multi-loop-processor.html"><code>s3g Multi Loop Processor 8ch</code></a>: CLAP instrument plugin for up to four loaded files, source-to-lane rules, source rate spread, and source crossblend.</li>
           <li><a href="ambi-grain-processor.html"><code>s3g Ambi Grain Processor</code></a>: CLAP instrument plugin for loaded <code>ACN/SN3D</code> ambisonic media with channel-locked grain events.</li>
@@ -66,7 +66,7 @@
           <li><a href="ambisonic-order-band-tool.html"><code>s3g Ambi Order / Band 64</code></a>: 1OA to 7OA order-band gain and weighting utility with Flat, MaxRE, In-phase, and Custom modes.</li>
           <li><a href="ambisonic-stereo-decoder.html"><code>s3g Ambi Stereo Decoder</code></a>: 1OA to 7OA <code>ACN/SN3D</code> to true stereo with virtual fields and stereo pickup models.</li>
           <li><a href="ambisonic-head-decoder.html"><code>s3g Ambi Head Decoder</code></a>: synthetic binaural/transaural stereo decoder with no external SOFA files.</li>
-          <li><a href="3oafx-insert-workflow.html"><code>s3g 3OAFX Send Decoder</code> / <code>s3g 3OAFX Return Encoder</code></a>: work-in-progress boundary plugins for the 3OAFX insert workflow.</li>
+          <li><a href="3oafx-effects.html"><code>s3g 3OAFX Delay</code> / <code>Pitch</code> / <code>Filter</code> / <code>Gain</code></a>: single-effect 3OA processors with internal 24-point virtual speaker masking.</li>
         </ul>
 
         <p><a href="delay-processor.html">Delay Processor</a> is the main topology effect. <a href="loop-processor.html">Loop Processor</a>, <a href="multi-loop-processor.html">Multi Loop Processor</a>, and <a href="ambi-grain-processor.html">Ambi Grain Processor</a> are loaded-audio instruments. <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a> is a practical fold-down tool for auditioning multichannel work in stereo.</p>
@@ -84,7 +84,7 @@
           <a class="category-card" href="3oafx.html">
             <span>ambisonics</span>
             <strong>Ambisonics</strong>
-            <em>Point Encoder, Speaker Decoder, Layout Panner, ambisonic utilities, stereo/head decoders, energy visualizer, and insert workflow notes.</em>
+            <em>Point Encoder, Speaker Decoder, Layout Panner, ambisonic utilities, stereo/head decoders, energy visualizer, and single-effect 3OAFX processors.</em>
           </a>
           <a class="category-card" href="instruments.html">
             <span>CLAP instruments</span>
@@ -119,7 +119,7 @@
 
         <h2 id="relationship">Relationship to s3g-mc</h2>
 
-        <p><a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code></a> is the main REAPER package. <code>s3g-dsp</code> is a sibling plugin project for general multichannel effects, instruments, utilities, and ambisonics tools and 3OAFX boundary tools. It can also be used independently in matching macOS + REAPER sessions.</p>
+        <p><a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code></a> is the main REAPER package. <code>s3g-dsp</code> is a sibling plugin project for general multichannel effects, instruments, utilities, ambisonics tools, and 3OAFX processors. It can also be used independently in matching macOS + REAPER sessions.</p>
         <h2 id="license">License and Attribution</h2>
 
         <p>BSD-3-Clause for the code in this repository unless a subdirectory states otherwise. CLAP headers are MIT licensed and are fetched at build time unless an existing SDK path is supplied.</p>

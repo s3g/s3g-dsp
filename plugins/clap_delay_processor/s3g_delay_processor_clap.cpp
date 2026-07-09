@@ -1198,9 +1198,31 @@ void readParamEvents(Plugin& p, const clap_input_events_t* in)
     }
 }
 
-void clearExtraOutputs(const clap_audio_buffer_t& output, uint32_t channels, uint32_t frames)
+void finishExtraOutputs(const clap_audio_buffer_t& input, const clap_audio_buffer_t& output, uint32_t channels, uint32_t frames, bool passThrough)
 {
     for (uint32_t ch = channels; ch < output.channel_count; ++ch) {
+        if (passThrough && ch < input.channel_count) {
+            if (output.data32 && output.data32[ch]) {
+                if (input.data32 && input.data32[ch]) {
+                    std::memcpy(output.data32[ch], input.data32[ch], sizeof(float) * frames);
+                    continue;
+                }
+                if (input.data64 && input.data64[ch]) {
+                    for (uint32_t i = 0; i < frames; ++i) output.data32[ch][i] = static_cast<float>(input.data64[ch][i]);
+                    continue;
+                }
+            }
+            if (output.data64 && output.data64[ch]) {
+                if (input.data64 && input.data64[ch]) {
+                    std::memcpy(output.data64[ch], input.data64[ch], sizeof(double) * frames);
+                    continue;
+                }
+                if (input.data32 && input.data32[ch]) {
+                    for (uint32_t i = 0; i < frames; ++i) output.data64[ch][i] = static_cast<double>(input.data32[ch][i]);
+                    continue;
+                }
+            }
+        }
         if (output.data32 && output.data32[ch]) {
             std::fill(output.data32[ch], output.data32[ch] + frames, 0.0f);
         }
@@ -1406,7 +1428,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         copyAvailableChannels(input, output, channels, frames);
     }
 
-    clearExtraOutputs(output, channels, frames);
+    finishExtraOutputs(input, output, channels, frames, !p->clearUnused || kLockUnusedChannelsToPassThrough);
     return CLAP_PROCESS_CONTINUE;
 }
 

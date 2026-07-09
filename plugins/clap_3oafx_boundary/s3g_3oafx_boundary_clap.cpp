@@ -62,7 +62,7 @@ struct __attribute__((packed)) SavedState {
     double gamma = 1.25;
     double mode = 1.0;
     double wet = 1.0;
-    double dry = 0.65;
+    double dry = 0.0;
     double out = 0.90;
     double contrast = 0.10;
     double ceiling = 0.92;
@@ -183,7 +183,7 @@ s3g::MixerParams mixerParams(const Plugin& p)
     out.maskCeiling = static_cast<float>(p.params.ceiling);
     out.duckCurve = static_cast<float>(p.params.duck);
     out.wetLimiter = static_cast<float>(p.params.limiter);
-    out.insertDuck = true;
+    out.insertDuck = p.params.dry > 0.0001;
     out.useIncomingMask = p.params.mode >= 0.5;
     return out;
 }
@@ -509,7 +509,7 @@ constexpr ParamDef kParams[] = {
     { kGammaParamId, "Mask Gamma", "Mask", 0.25, 4.0, 1.25 },
     { kModeParamId, "Dry Copy / Incoming Mask", "Routing", 0.0, 1.0, 1.0 },
     { kWetTrimParamId, "Wet Trim", "Mixer", 0.0, 1.0, 1.0 },
-    { kDryTrimParamId, "Dry Trim", "Mixer", 0.0, 1.0, 0.65 },
+    { kDryTrimParamId, "Dry Trim", "Mixer", 0.0, 1.0, 0.0 },
     { kOutTrimParamId, "Output Trim", "Mixer", 0.0, 1.0, 0.90 },
     { kContrastParamId, "Mask Contrast", "Mixer", 0.0, 1.0, 0.10 },
     { kCeilingParamId, "Mask Ceiling", "Mixer", 0.5, 1.0, 0.92 },
@@ -821,7 +821,8 @@ static NSColor* color(int rgb, double alpha = 1.0)
         [[NSString stringWithFormat:@"%u", i + 1] drawAtPoint:NSMakePoint(points[i].x + 7, points[i].y - 6) withAttributes:dim];
     }
     [[NSString stringWithFormat:@"AZ %+5.1f   EL %+5.1f", p->params.azimuth, p->params.elevation] drawAtPoint:NSMakePoint(34, 516) withAttributes:dim];
-    [@"MASK PASSES AS AUDIO ON LANES 49-72" drawAtPoint:NSMakePoint(326, 516) withAttributes:dim];
+    [p->mode == PluginMode::Send ? @"LANES 1-24 WET / 25-48 DRY / 49-72 MASK" : @"LNK OFF: LOCAL MASK FROM LINKED AZ/EL"
+        drawAtPoint:NSMakePoint(300, 516) withAttributes:dim];
 
     s3g::clap_gui::drawPanelFrame(584, 42, 304, 500, style);
     s3g::clap_gui::drawPanelHeader(@"CONTROL", true, 584, 42, 304, 21, head, style);
@@ -1097,6 +1098,10 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     p->host = host;
     p->hostParams = host && host->get_extension ? static_cast<const clap_host_params_t*>(host->get_extension(host, CLAP_EXT_PARAMS)) : nullptr;
     p->mode = mode;
+    if (mode == PluginMode::Return) {
+        p->params.mode = 0.0;
+        p->params.dry = 0.0;
+    }
     p->plugin.desc = desc;
     p->plugin.plugin_data = p;
     p->plugin.init = init;

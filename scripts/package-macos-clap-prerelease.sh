@@ -13,7 +13,10 @@ bundles=(
   "$src_root/clap_delay_processor/s3g_8ch_delay_processor.clap"
   "$src_root/clap_delay_processor/s3g_24ch_delay_processor.clap"
   "$src_root/clap_mc_to_stereo_autogain/s3g_mc_to_stereo_autogain.clap"
-  "$src_root/clap_3oafx_boundary/s3g_3oafx_boundary.clap"
+  "$src_root/clap_3oafx_single_effects/s3g_3oafx_delay.clap"
+  "$src_root/clap_3oafx_single_effects/s3g_3oafx_pitch.clap"
+  "$src_root/clap_3oafx_single_effects/s3g_3oafx_filter.clap"
+  "$src_root/clap_3oafx_single_effects/s3g_3oafx_gain.clap"
   "$src_root/clap_3oafx_point_encoder/s3g_3oafx_point_encoder.clap"
   "$src_root/clap_3oafx_speaker_decoder/s3g_3oafx_speaker_decoder.clap"
   "$src_root/clap_layout_panner/s3g_layout_panner.clap"
@@ -66,7 +69,10 @@ Included plugins:
 - s3g Delay Processor 8ch
 - s3g Delay Processor 24ch
 - s3g MC to Stereo Autogain
-- s3g 3OAFX Send Decoder / Return Encoder
+- s3g 3OAFX Delay
+- s3g 3OAFX Pitch
+- s3g 3OAFX Filter
+- s3g 3OAFX Gain
 - s3g Ambi Point Encoder
 - s3g Ambi Speaker Decoder 64
 - s3g Layout Panner

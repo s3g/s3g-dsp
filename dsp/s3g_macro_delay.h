@@ -79,6 +79,27 @@ public:
         }
     }
 
+    void processWetFrame(const float* input, float* output)
+    {
+        if (!input || !output || channels_ == 0u) {
+            return;
+        }
+
+        updateRelationshipSmoothing();
+        applyLaneParams();
+
+        std::array<float, kMacroDelayChannels> wet {};
+        delay_.processFrame(input, wet.data());
+
+        const float mixTarget = params_.mix;
+        const float gainTarget = dbToGain(params_.outputGainDb);
+        for (uint32_t ch = 0; ch < channels_; ++ch) {
+            mixSmoothed_ += (mixTarget - mixSmoothed_) * 0.0015f;
+            gainSmoothed_ += (gainTarget - gainSmoothed_) * 0.0015f;
+            output[ch] = softLimit(flushDenormal(wet[ch] * mixSmoothed_ * gainSmoothed_));
+        }
+    }
+
     uint32_t channels() const { return channels_; }
 
 private:

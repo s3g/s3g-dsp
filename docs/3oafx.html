@@ -28,7 +28,7 @@
 
         <p>Ambisonics pages cover ambisonics-specific plugins and infrastructure. These tools are separate from the general multichannel effects and instruments because channel order, spatial format, and host routing are part of the instrument.</p>
 
-        <p>The current target is REAPER on macOS, using <code>ACN/SN3D</code> ambisonics and fixed-width buses where predictable routing matters. The point encoder is third-order; decoder and utility prototypes allow first through seventh order.</p>
+        <p>The current target is REAPER on macOS, using <code>ACN/SN3D</code> ambisonics and fixed-width buses where predictable routing matters. The point encoder and 3OAFX effects are third-order; decoder and utility prototypes allow first through seventh order.</p>
 
         <div class="status-strip" aria-label="Ambisonics status">
           <div><span>format</span><strong>3OA ACN/SN3D</strong></div>
@@ -44,6 +44,11 @@
             <span>point encoder</span>
             <strong>Ambi Point Encoder</strong>
             <em>16 mono point-source inputs encoded to third-order ACN/SN3D, with AED placement, point mixer, physics scenes, and Geist-driven bond breaking.</em>
+          </a>
+          <a class="category-card feature-card" href="3oafx-effects.html">
+            <span>3OAFX effects</span>
+            <strong>3OAFX Delay / Pitch / Filter / Gain</strong>
+            <em>Single-effect 3OA processors that decode to a 24-point virtual speaker layer, apply one AED return mask, and encode back to 3OA.</em>
           </a>
           <a class="category-card" href="3oafx-speaker-decoder.html">
             <span>speaker decoder</span>
@@ -85,23 +90,18 @@
             <strong>Ambi Grain Processor</strong>
             <em>Loaded ACN/SN3D media granulator with one shared grain event stream across all encoded channels.</em>
           </a>
-          <a class="category-card" href="3oafx-insert-workflow.html">
-            <span>insert boundary</span>
-            <strong>Send Decoder / Return Encoder</strong>
-            <em>Work-in-progress boundary pair for inserting 24-channel processors into the 3OAFX virtual speaker layer.</em>
-          </a>
         </div>
 
         <h2 id="categories">How This Differs</h2>
 
-        <p>General effects in <a href="effects.html">Effects</a> process multichannel lanes without assuming an ambisonic format. Instruments in <a href="instruments.html">Instruments</a> generate or play sound internally. Ambisonics plugins assume a spatial format or a 3OAFX workflow boundary.</p>
+        <p>General effects in <a href="effects.html">Effects</a> process multichannel lanes without assuming an ambisonic format. Instruments in <a href="instruments.html">Instruments</a> generate or play sound internally. Ambisonics plugins assume a spatial format or a 3OAFX virtual speaker workflow.</p>
 
         <ul>
           <li>Point-source encoders expose per-point AED/gain automation.</li>
           <li>Speaker decoders expose layout, order, matrix mode, and custom speaker placement.</li>
           <li>Direct layout panners route sources to speaker layouts without an ambisonic encode/decode stage.</li>
-          <li>Boundary plugins keep fixed bus layouts so REAPER pin routing stays predictable.</li>
-          <li>24-channel virtual speaker inserts are treated as spatial infrastructure, not generic channel counts.</li>
+          <li>3OAFX effects use a one-effect-per-plugin model so masking and gain staging stay predictable.</li>
+          <li>The 24-point virtual speaker layer is internal to the 3OAFX effects, not exposed as a 72-channel send/return chain.</li>
         </ul>
 
         <h2 id="s3g-mc">s3g-mc Context</h2>
@@ -113,9 +113,9 @@
             <span>Previous</span>
             MC to Stereo Autogain
           </a>
-          <a class="page-nav-link next" href="3oafx-point-encoder.html">
+          <a class="page-nav-link next" href="3oafx-effects.html">
             <span>Next</span>
-            Point Encoder
+            3OAFX Effects
           </a>
         </nav>
       </main>
@@ -124,6 +124,7 @@
         <div class="toc-section">
           <h2>Ambisonics Pages</h2>
           <a href="3oafx.html">Ambisonics Overview</a>
+          <a href="3oafx-effects.html">3OAFX Effects</a>
           <a href="3oafx-point-encoder.html">Point Encoder</a>
           <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
           <a href="3oafx-layout-panner.html">Layout Panner</a>
@@ -133,7 +134,7 @@
           <a href="ambisonic-head-decoder.html">Head Decoder</a>
           <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
           <a href="ambi-grain-processor.html">Ambi Grain Processor</a>
-          <a href="3oafx-insert-workflow.html">Insert Workflow</a>
+          <a href="3oafx-insert-workflow.html">3OAFX Processing Workflow</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>

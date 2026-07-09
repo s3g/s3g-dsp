@@ -1,5 +1,6 @@
 #include "s3g_24ch_layout.h"
 #include "s3g_3oafx.h"
+#include "s3g_3oafx_single_effect.h"
 #include "s3g_ambi_grain_processor.h"
 #include "s3g_ambisonic_point_encoder.h"
 #include "s3g_ambisonic_head_decoder.h"
@@ -1022,6 +1023,209 @@ int main()
             return 1;
         }
     }
+    for (uint32_t ch = s3g::k3OafxVirtualSpeakers; ch < s3g::k3OafxBusChannels; ++ch) {
+        bus[ch] = (ch & 1u) ? 12.0f : -12.0f;
+    }
+    mixParams.useIncomingMask = false;
+    mixParams.dryTrim = 0.0f;
+    s3g::process3OafxReturnFrame(bus, hoaOut, retState, mixState, maskParams, mixParams);
+    for (uint32_t ch = 0; ch < s3g::k3OaChannels; ++ch) {
+        if (!std::isfinite(hoaOut[ch]) || std::abs(hoaOut[ch]) > 4.0f) {
+            std::cerr << "3OAFX return local-mask mode failed carrier corruption test\n";
+            return 1;
+        }
+    }
+
+    float single3OafxPeak[4] {};
+    for (uint32_t kind = 0; kind < 4u; ++kind) {
+        s3g::ThreeOafxSingleEffect fx;
+        fx.prepare(48000.0);
+        s3g::ThreeOafxSingleEffectParams fxParams;
+        fxParams.kind = static_cast<s3g::ThreeOafxEffectKind>(kind);
+        fxParams.dry = kind == 3u ? 1.0f : 0.65f;
+        fxParams.output = 1.0f;
+        fxParams.mask.azimuthDeg = -45.0f + static_cast<float>(kind) * 30.0f;
+        fxParams.mask.elevationDeg = -8.0f + static_cast<float>(kind) * 5.0f;
+        fxParams.mask.width = 0.72f;
+        fxParams.mask.smoothing = 0.20f;
+        fxParams.mask.level = 1.0f;
+        fxParams.mix = kind == 3u ? 0.0f : 0.65f;
+        fxParams.delayTimeMs = 120.0f;
+        fxParams.delayFeedback = 0.22f;
+        fxParams.pitchSemitones = 7.0f;
+        fxParams.filterTone = 0.82f;
+        fxParams.gain = kind == 3u ? 0.25f : 1.0f;
+        fx.setParams(fxParams);
+        fx.reset();
+        float fxOut[s3g::k3OaChannels] {};
+        for (uint32_t i = 0; i < 12000u; ++i) {
+            hoaIn[0] = std::sin(static_cast<float>(i) * 0.019f) * 0.12f;
+            hoaIn[1] = std::cos(static_cast<float>(i) * 0.013f) * 0.05f;
+            hoaIn[2] = std::sin(static_cast<float>(i) * 0.011f + 0.3f) * 0.04f;
+            hoaIn[3] = std::cos(static_cast<float>(i) * 0.017f + 0.7f) * 0.03f;
+            for (uint32_t ch = 4; ch < s3g::k3OaChannels; ++ch) hoaIn[ch] = 0.0f;
+            fx.processFrame(hoaIn, fxOut);
+            for (float value : fxOut) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "3OAFX single effect output is not finite for kind " << kind << "\n";
+                    return 1;
+                }
+                single3OafxPeak[kind] = std::max(single3OafxPeak[kind], std::abs(value));
+            }
+        }
+        if (single3OafxPeak[kind] <= 0.000001f || single3OafxPeak[kind] > 2.0f) {
+            std::cerr << "3OAFX single effect peak outside expected range for kind " << kind << ": " << single3OafxPeak[kind] << "\n";
+            return 1;
+        }
+    }
+    s3g::ThreeOafxSingleEffect gainSpot;
+    gainSpot.prepare(48000.0);
+    s3g::ThreeOafxSingleEffectParams gainSpotParams;
+    gainSpotParams.kind = s3g::ThreeOafxEffectKind::Gain;
+    gainSpotParams.dry = 0.0f;
+    gainSpotParams.output = 1.0f;
+    gainSpotParams.gain = 1.0f;
+    gainSpotParams.mask.azimuthDeg = 0.0f;
+    gainSpotParams.mask.elevationDeg = 0.0f;
+    gainSpotParams.mask.width = 0.80f;
+    gainSpot.setParams(gainSpotParams);
+    gainSpot.reset();
+    for (uint32_t ch = 0; ch < s3g::k3OaChannels; ++ch) hoaIn[ch] = 0.0f;
+    hoaIn[0] = 0.25f;
+    gainSpot.processFrame(hoaIn, hoaOut);
+    float gainSpotPeak = 0.0f;
+    for (float value : hoaOut) {
+        if (!std::isfinite(value)) {
+            std::cerr << "3OAFX gain spotlight output is not finite\n";
+            return 1;
+        }
+        gainSpotPeak = std::max(gainSpotPeak, std::abs(value));
+    }
+    if (gainSpotPeak <= 0.000001f) {
+        std::cerr << "3OAFX gain spotlight did not open a masked dry window\n";
+        return 1;
+    }
+    const float gainAzimuths[] = { -179.0f, -135.0f, -90.0f, -45.0f, 0.0f, 45.0f, 90.0f, 135.0f, 179.0f };
+    float gainAzMinPeak = 1000.0f;
+    float gainAzMaxPeak = 0.0f;
+    for (float azimuth : gainAzimuths) {
+        s3g::ThreeOafxSingleEffect azGain;
+        azGain.prepare(48000.0);
+        s3g::ThreeOafxSingleEffectParams azGainParams;
+        azGainParams.kind = s3g::ThreeOafxEffectKind::Gain;
+        azGainParams.dry = 0.0f;
+        azGainParams.output = 1.0f;
+        azGainParams.gain = 1.0f;
+        azGainParams.mask.azimuthDeg = azimuth;
+        azGainParams.mask.elevationDeg = 0.0f;
+        azGainParams.mask.width = 0.80f;
+        azGainParams.mask.smoothing = 0.0f;
+        azGain.setParams(azGainParams);
+        azGain.reset();
+        float azPeak = 0.0f;
+        for (uint32_t i = 0; i < 18000u; ++i) {
+            for (uint32_t ch = 0; ch < s3g::k3OaChannels; ++ch) hoaIn[ch] = 0.0f;
+            hoaIn[0] = 0.25f;
+            azGain.processFrame(hoaIn, hoaOut);
+            if (i > 12000u) {
+                for (float value : hoaOut) {
+                    if (!std::isfinite(value)) {
+                        std::cerr << "3OAFX gain azimuth output is not finite\n";
+                        return 1;
+                    }
+                    azPeak = std::max(azPeak, std::abs(value));
+                }
+            }
+        }
+        gainAzMinPeak = std::min(gainAzMinPeak, azPeak);
+        gainAzMaxPeak = std::max(gainAzMaxPeak, azPeak);
+    }
+    if (gainAzMinPeak <= 0.002f || gainAzMaxPeak / std::max(0.000001f, gainAzMinPeak) > 10.0f) {
+        std::cerr << "3OAFX gain azimuth coverage collapsed: min/max "
+                  << gainAzMinPeak << " / " << gainAzMaxPeak << "\n";
+        return 1;
+    }
+    float gainHoleMinDrop = 1000.0f;
+    for (float azimuth : gainAzimuths) {
+        s3g::ThreeOafxSingleEffect azGain;
+        azGain.prepare(48000.0);
+        s3g::ThreeOafxSingleEffectParams azGainParams;
+        azGainParams.kind = s3g::ThreeOafxEffectKind::Gain;
+        azGainParams.dry = 1.0f;
+        azGainParams.output = 1.0f;
+        azGainParams.gain = 0.0f;
+        azGainParams.mask.azimuthDeg = azimuth;
+        azGainParams.mask.elevationDeg = 0.0f;
+        azGainParams.mask.width = 0.72f;
+        azGainParams.mask.smoothing = 0.0f;
+        azGain.setParams(azGainParams);
+        azGain.reset();
+        const auto sourceBasis = s3g::acnSn3dBasis(s3g::directionFromAed(azimuth, 0.0f));
+        float dryEnergy = 0.0f;
+        float wetEnergy = 0.0f;
+        for (uint32_t i = 0; i < 18000u; ++i) {
+            for (uint32_t ch = 0; ch < s3g::k3OaChannels; ++ch) {
+                hoaIn[ch] = sourceBasis[ch] * 0.12f;
+            }
+            azGain.processFrame(hoaIn, hoaOut);
+            if (i > 12000u) {
+                for (uint32_t ch = 0; ch < s3g::k3OaChannels; ++ch) {
+                    if (!std::isfinite(hoaOut[ch])) {
+                        std::cerr << "3OAFX gain hole output is not finite\n";
+                        return 1;
+                    }
+                    dryEnergy += hoaIn[ch] * hoaIn[ch];
+                    wetEnergy += hoaOut[ch] * hoaOut[ch];
+                }
+            }
+        }
+        const float drop = 1.0f - wetEnergy / std::max(0.000001f, dryEnergy);
+        gainHoleMinDrop = std::min(gainHoleMinDrop, drop);
+    }
+    if (gainHoleMinDrop <= 0.10f) {
+        std::cerr << "3OAFX gain hole did not affect all azimuths; min drop "
+                  << gainHoleMinDrop << "\n";
+        return 1;
+    }
+
+    s3g::ThreeOafxSingleEffect delayNoBypass;
+    delayNoBypass.prepare(48000.0);
+    s3g::ThreeOafxSingleEffectParams delayNoBypassParams;
+    delayNoBypassParams.kind = s3g::ThreeOafxEffectKind::Delay;
+    delayNoBypassParams.dry = 0.0f;
+    delayNoBypassParams.output = 1.0f;
+    delayNoBypassParams.mix = 0.0f;
+    delayNoBypassParams.delayTimeMs = 40.0f;
+    delayNoBypassParams.delayFeedback = 0.25f;
+    delayNoBypassParams.mask.azimuthDeg = 0.0f;
+    delayNoBypassParams.mask.elevationDeg = 0.0f;
+    delayNoBypassParams.mask.width = 1.0f;
+    delayNoBypassParams.mask.level = 1.0f;
+    delayNoBypass.setParams(delayNoBypassParams);
+    delayNoBypass.reset();
+    for (uint32_t i = 0; i < 512u; ++i) {
+        for (uint32_t ch = 0; ch < s3g::k3OaChannels; ++ch) hoaIn[ch] = 0.0f;
+        if (i == 0u) hoaIn[0] = 0.35f;
+        delayNoBypass.processFrame(hoaIn, hoaOut);
+    }
+    delayNoBypassParams.mix = 1.0f;
+    delayNoBypass.setParams(delayNoBypassParams);
+    float delayNoBypassPeak = 0.0f;
+    for (uint32_t i = 0; i < 3600u; ++i) {
+        for (uint32_t ch = 0; ch < s3g::k3OaChannels; ++ch) hoaIn[ch] = 0.0f;
+        delayNoBypass.processFrame(hoaIn, hoaOut);
+        for (float value : hoaOut) {
+            if (!std::isfinite(value)) {
+                std::cerr << "3OAFX delay mix-zero state output is not finite\n";
+                return 1;
+            }
+            delayNoBypassPeak = std::max(delayNoBypassPeak, std::abs(value));
+        }
+    }
+    if (delayNoBypassPeak <= 0.000001f) {
+        std::cerr << "3OAFX delay did not keep processing while MIX was zero\n";
+        return 1;
+    }
 
     s3g::AmbiOrderBandParams orderBandParams;
     orderBandParams.order = 7;
@@ -1212,6 +1416,11 @@ int main()
     std::cout << "Ambi point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "Ambi speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";
+    std::cout << "3OAFX single peaks: "
+              << single3OafxPeak[0] << " / "
+              << single3OafxPeak[1] << " / "
+              << single3OafxPeak[2] << " / "
+              << single3OafxPeak[3] << "\n";
     std::cout << "Ambi order/band W: " << ambiUtilityOutBuffers[0][0] << "\n";
     std::cout << "Ambi grain peak: " << ambiGrainPeak << "\n";
     std::cout << "Ambi grain async/env peak: " << ambiGrainAsyncPeak << "\n";

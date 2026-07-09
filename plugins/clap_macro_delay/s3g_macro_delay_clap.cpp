@@ -29,6 +29,7 @@ namespace {
 constexpr uint32_t kChannelCount = S3G_MACRO_DELAY_CHANNEL_COUNT;
 static_assert(kChannelCount > 0 && kChannelCount <= s3g::kMacroDelayChannels,
     "S3G_MACRO_DELAY_CHANNEL_COUNT must be in the supported Macro Delay range.");
+constexpr bool kPassExtraHostChannels = kChannelCount >= 24;
 
 #ifndef S3G_MACRO_DELAY_PLUGIN_ID
 #define S3G_MACRO_DELAY_PLUGIN_ID "org.s3g.s3g-dsp.macro-delay-8ch"
@@ -161,6 +162,42 @@ void readParamEvents(Plugin& p, const clap_input_events_t* in)
     }
 }
 
+void finishExtraChannels(const clap_audio_buffer_t& input, const clap_audio_buffer_t& output, uint32_t channels, uint32_t frames)
+{
+    for (uint32_t ch = channels; ch < output.channel_count; ++ch) {
+        if constexpr (kPassExtraHostChannels) {
+            if (ch < input.channel_count) {
+                if (output.data32 && output.data32[ch]) {
+                    if (input.data32 && input.data32[ch]) {
+                        std::memcpy(output.data32[ch], input.data32[ch], sizeof(float) * frames);
+                        continue;
+                    }
+                    if (input.data64 && input.data64[ch]) {
+                        for (uint32_t i = 0; i < frames; ++i) output.data32[ch][i] = static_cast<float>(input.data64[ch][i]);
+                        continue;
+                    }
+                }
+                if (output.data64 && output.data64[ch]) {
+                    if (input.data64 && input.data64[ch]) {
+                        std::memcpy(output.data64[ch], input.data64[ch], sizeof(double) * frames);
+                        continue;
+                    }
+                    if (input.data32 && input.data32[ch]) {
+                        for (uint32_t i = 0; i < frames; ++i) output.data64[ch][i] = static_cast<double>(input.data32[ch][i]);
+                        continue;
+                    }
+                }
+            }
+        }
+        if (output.data32 && output.data32[ch]) {
+            std::fill(output.data32[ch], output.data32[ch] + frames, 0.0f);
+        }
+        if (output.data64 && output.data64[ch]) {
+            std::fill(output.data64[ch], output.data64[ch] + frames, 0.0);
+        }
+    }
+}
+
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
@@ -175,10 +212,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     const uint32_t channels = std::min({ input.channel_count, output.channel_count, kChannelCount });
     const uint32_t frames = proc->frames_count;
 
-    if (output.data32) {
-        s3g::clearAudioBufferFromChannel(output, 0, frames);
-    }
-    if (!input.data32 || !output.data32 || channels == 0u) {
+    if (channels == 0u || (!output.data32 && !output.data64)) {
         return CLAP_PROCESS_CONTINUE;
     }
 
@@ -189,17 +223,29 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 
     for (uint32_t i = 0; i < frames; ++i) {
         for (uint32_t ch = 0; ch < channels; ++ch) {
-            frameIn[ch] = input.data32[ch] ? input.data32[ch][i] : 0.0f;
+            if (input.data32 && input.data32[ch]) {
+                frameIn[ch] = input.data32[ch][i];
+            } else if (input.data64 && input.data64[ch]) {
+                frameIn[ch] = static_cast<float>(input.data64[ch][i]);
+            } else {
+                frameIn[ch] = 0.0f;
+            }
+        }
+        for (uint32_t ch = channels; ch < kChannelCount; ++ch) {
+            frameIn[ch] = 0.0f;
         }
         p->delay.processFrame(frameIn.data(), frameOut.data());
         for (uint32_t ch = 0; ch < channels; ++ch) {
-            if (output.data32[ch]) {
+            if (output.data32 && output.data32[ch]) {
                 output.data32[ch][i] = frameOut[ch];
-                blockPeak = std::max(blockPeak, std::fabs(frameOut[ch]));
             }
+            if (output.data64 && output.data64[ch]) {
+                output.data64[ch][i] = static_cast<double>(frameOut[ch]);
+            }
+            blockPeak = std::max(blockPeak, std::fabs(frameOut[ch]));
         }
     }
-    s3g::clearAudioBufferFromChannel(output, channels, frames);
+    finishExtraChannels(input, output, channels, frames);
     p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak), std::memory_order_relaxed);
     return CLAP_PROCESS_CONTINUE;
 }

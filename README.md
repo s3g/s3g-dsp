@@ -23,7 +23,7 @@ Current plugins:
 
 - `s3g 24ch Passthrough Test`: fixed 24-in/24-out CLAP passthrough/gain plugin.
 - `s3g Delay Processor 8ch`: main topology-driven delay processor.
-- `s3g Delay Processor 24ch`: wider delay build for 24-channel insert work.
+- `s3g Delay Processor 24ch`: wider fixed-width delay build.
 - `s3g Loop Processor 8ch`: CLAP instrument plugin for loaded audio loops,
   lane playheads, waveform display, and phase relationship controls.
 - `s3g Multi Loop Processor 8ch`: CLAP instrument plugin for combining up to
@@ -57,8 +57,9 @@ Current plugins:
   true stereo using virtual fields and stereo pickup models.
 - `s3g Ambi Head Decoder`: synthetic binaural/transaural stereo decoder
   with no external SOFA files.
-- `s3g 3OAFX Send Decoder` / `s3g 3OAFX Return Encoder`: work-in-progress
-  boundary plugins for the 3OAFX insert workflow.
+- `s3g 3OAFX Delay` / `s3g 3OAFX Pitch` / `s3g 3OAFX Filter` /
+  `s3g 3OAFX Gain`: single-effect third-order processors with internal
+  24-point virtual speaker masking.
 
 Delay Processor is the main topology effect. Loop Processor and Multi Loop
 Processor are loaded-audio instruments. MC to Stereo Autogain is a practical
@@ -101,7 +102,9 @@ Useful local docs:
 - `docs/mc-to-stereo-autogain.html`: MC to Stereo Autogain fold-down reference.
 - `docs/multichannel-meter.html`: Multichannel Meter view modes and routing notes.
 - `docs/ambisonic-energy-visualizer.html`: Ambi Energy Visualizer reference.
+- `docs/3oafx-effects.html`: 3OAFX single-effect processor overview.
 - `docs/3oafx-point-encoder.html`: Ambi Point Encoder reference.
+- `docs/3oafx-insert-workflow.html`: 3OAFX processing workflow notes.
 - `docs/3oafx-speaker-decoder.html`: Ambi Speaker Decoder reference.
 - `docs/3oafx-layout-panner.html`: Layout Panner reference.
 - `docs/ambisonic-rotate.html`: Ambi Rotate reference.
@@ -113,7 +116,6 @@ Useful local docs:
 - `docs/topology_framework.svg`: shared topology framework diagram.
 - `docs/topology_effect_map.svg`: generic topology-to-effect mapping diagram.
 - `docs/topology_heatmap_example.svg`: topology heatmap visualization example.
-- `docs/3oafx-insert-workflow.html`: current 3OAFX boundary workflow notes.
 
 ## Build
 

@@ -61,7 +61,7 @@ struct AedMaskParams {
 
 struct MixerParams {
     float wetTrim = 1.0f;
-    float dryTrim = 0.65f;
+    float dryTrim = 0.0f;
     float outputTrim = 0.90f;
     float maskContrast = 0.10f;
     float maskCeiling = 0.92f;
@@ -69,8 +69,8 @@ struct MixerParams {
     float wetLimiter = 0.15f;
     float attackLag = 0.15f;
     float releaseLag = 0.35f;
-    bool insertDuck = true;
-    bool useIncomingMask = true;
+    bool insertDuck = false;
+    bool useIncomingMask = false;
 };
 
 struct AedMaskState {
