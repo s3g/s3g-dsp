@@ -161,14 +161,15 @@ clap-validator validate \
 
 ## Related Projects
 
-`s3g-mc` is the main REAPER package. `s3g-dsp` is a sibling plugin project for
-general multichannel effects, instruments, utilities, and ambisonics-specific
-3OAFX tools. It can also be used independently in matching macOS + REAPER
-sessions.
+[`s3g-mc`](https://github.com/s3g/s3g-mc) is the main REAPER package.
+`s3g-dsp` is a sibling plugin project for general multichannel effects,
+instruments, utilities, and ambisonics-specific 3OAFX tools. It can also be
+used independently in matching macOS + REAPER sessions.
 
-`s3g-rnbo-clap` is a separate experimental wrapper for RNBO/Max-generated C++
-exports. It is useful for testing RNBO-based plugin ideas in the same CLAP
-workflow, but it is not required to build or use `s3g-dsp`.
+[`s3g-rnbo-clap`](https://github.com/s3g/s3g-rnbo-clap) is a separate
+experimental wrapper for RNBO/Max-generated C++ exports. It is useful for
+testing RNBO-based plugin ideas in the same CLAP workflow, but it is not
+required to build or use `s3g-dsp`.
 
 Useful `s3g-mc` references:
 
