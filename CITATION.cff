@@ -4,8 +4,8 @@ title: "s3g-dsp"
 authors:
   - family-names: "Greenlee"
     given-names: "Shawn"
-version: "0.2.0-pre"
-date-released: 2026-07-08
+version: "0.3.0-pre"
+date-released: 2026-07-09
 repository-code: "https://github.com/s3g/s3g-dsp"
 url: "https://s3g.github.io/s3g-dsp/"
 license: "BSD-3-Clause"
