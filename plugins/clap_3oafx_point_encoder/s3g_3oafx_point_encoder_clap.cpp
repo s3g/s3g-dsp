@@ -755,7 +755,16 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     const CGFloat w = 124.0;
     NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, w, itemH * static_cast<CGFloat>(_menuItemCount));
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawDropdownMenu(menuRect, itemH, items, _menuItemCount, -1, _hoverMenuItem, attrs, style);
+    auto* p = static_cast<Plugin*>(_plugin);
+    int selected = -1;
+    if (p) {
+        const auto prm = p->encoder.params();
+        if (_openMenu == 1) selected = prm.selectedEnabled ? 0 : 1;
+        else if (_openMenu == 2) selected = prm.upperHemisphereOnly ? 1 : 0;
+        else if (_openMenu == 3) selected = static_cast<int>(prm.motionMode);
+        else if (_openMenu == 4) selected = static_cast<int>(prm.motionScene);
+    }
+    s3g::clap_gui::drawDropdownMenu(menuRect, itemH, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
 - (void)updateMenuHover:(NSPoint)point
 {

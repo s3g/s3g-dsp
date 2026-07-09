@@ -678,6 +678,7 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     void* _plugin;
     int _dragSlider;
     int _openMenu;
+    int _hoverMenuItem;
     NSPoint _menuOrigin;
     uint32_t _menuItems;
     NSTimer* _refreshTimer;
@@ -687,6 +688,7 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
 - (void)stopRefreshTimer;
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
+- (void)updateMenuHover:(NSPoint)point;
 @end
 
 @implementation S3GMcStereoView
@@ -698,6 +700,7 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
         _plugin = plugin;
         _dragSlider = -1;
         _openMenu = 0;
+        _hoverMenuItem = -1;
         _menuOrigin = NSMakePoint(0, 0);
         _menuItems = 0;
         _refreshTimer = nil;
@@ -712,6 +715,17 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
 }
 
 - (BOOL)isFlipped { return YES; }
+
+- (void)updateTrackingAreas
+{
+    for (NSTrackingArea* area in [self trackingAreas]) {
+        [self removeTrackingArea:area];
+    }
+    [super updateTrackingAreas];
+    NSTrackingAreaOptions options = NSTrackingMouseMoved | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+    NSTrackingArea* area = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:options owner:self userInfo:nil];
+    [self addTrackingArea:[area autorelease]];
+}
 
 - (void)startRefreshTimer
 {
@@ -952,19 +966,38 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     if (_openMenu > 0 && _menuItems > 0) {
         const CGFloat itemH = 18;
         NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 160, itemH * _menuItems);
-        [s3gMcColor(0x080808) setFill]; NSRectFill(NSInsetRect(menu, -2, -2));
-        [style.cellBg setFill]; NSRectFill(menu);
-        [style.grid setStroke]; NSFrameRect(menu);
-        for (uint32_t i = 0; i < _menuItems; ++i) {
-            NSRect row = NSMakeRect(menu.origin.x, menu.origin.y + i * itemH, menu.size.width, itemH);
-            const bool selected = (_openMenu == 1) ? i == layout : i == static_cast<uint32_t>(p->params.autogain);
-            if (selected) {
-                [s3gMcColor(0x2c2c2c) setFill]; NSRectFill(NSInsetRect(row, 1, 1));
-                [style.fill setFill]; NSRectFill(NSMakeRect(row.origin.x + 2, row.origin.y + 2, 3, row.size.height - 4));
-            }
-            NSString* rowText = _openMenu == 1 ? [NSString stringWithUTF8String:layoutName(i)] : [NSString stringWithUTF8String:autogainName(i)];
-            [rowText drawAtPoint:NSMakePoint(row.origin.x + 9, row.origin.y + 3) withAttributes:small];
+        NSString* layoutItems[] = {
+            [NSString stringWithUTF8String:layoutName(0)],
+            [NSString stringWithUTF8String:layoutName(1)],
+            [NSString stringWithUTF8String:layoutName(2)],
+            [NSString stringWithUTF8String:layoutName(3)],
+            [NSString stringWithUTF8String:layoutName(4)],
+            [NSString stringWithUTF8String:layoutName(5)],
+            [NSString stringWithUTF8String:layoutName(6)],
+            [NSString stringWithUTF8String:layoutName(7)],
+        };
+        NSString* autogainItems[] = {
+            [NSString stringWithUTF8String:autogainName(0)],
+            [NSString stringWithUTF8String:autogainName(1)],
+            [NSString stringWithUTF8String:autogainName(2)],
+        };
+        if (_openMenu == 1) {
+            s3g::clap_gui::drawDropdownMenu(menu, itemH, layoutItems, _menuItems, static_cast<int>(layout), _hoverMenuItem, small, style);
+        } else {
+            s3g::clap_gui::drawDropdownMenu(menu, itemH, autogainItems, _menuItems, static_cast<int>(p->params.autogain), _hoverMenuItem, small, style);
         }
+    }
+}
+
+- (void)updateMenuHover:(NSPoint)point
+{
+    if (_openMenu <= 0 || _menuItems == 0) return;
+    const CGFloat itemH = 18;
+    const NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 160, itemH * _menuItems);
+    const int next = s3g::clap_gui::dropdownHitIndex(point, menu, itemH, _menuItems);
+    if (next != _hoverMenuItem) {
+        _hoverMenuItem = next;
+        [self setNeedsDisplay:YES];
     }
 }
 
@@ -998,8 +1031,9 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     if (_openMenu > 0) {
         const CGFloat itemH = 18;
         NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 160, itemH * _menuItems);
-        if (NSPointInRect(pt, menu)) {
-            const uint32_t i = std::min<uint32_t>(_menuItems - 1, static_cast<uint32_t>((pt.y - menu.origin.y) / itemH));
+        const int hit = s3g::clap_gui::dropdownHitIndex(pt, menu, itemH, _menuItems);
+        if (hit >= 0) {
+            const uint32_t i = static_cast<uint32_t>(hit);
             if (_openMenu == 1) {
                 [self setParam:kParamLayout value:i];
             } else {
@@ -1007,6 +1041,7 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
             }
         }
         _openMenu = 0;
+        _hoverMenuItem = -1;
         _menuItems = 0;
         [self setNeedsDisplay:YES];
         return;
@@ -1019,6 +1054,7 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
                 _openMenu = 1;
                 _menuItems = 8;
                 _menuOrigin = NSMakePoint(710, rows[i] + 17);
+                _hoverMenuItem = -1;
                 [self setNeedsDisplay:YES];
                 return;
             }
@@ -1026,6 +1062,7 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
                 _openMenu = 2;
                 _menuItems = 3;
                 _menuOrigin = NSMakePoint(710, rows[i] + 17);
+                _hoverMenuItem = -1;
                 [self setNeedsDisplay:YES];
                 return;
             }
@@ -1039,9 +1076,15 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     }
 }
 
+- (void)mouseMoved:(NSEvent*)event
+{
+    [self updateMenuHover:[self convertPoint:[event locationInWindow] fromView:nil]];
+}
+
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    [self updateMenuHover:pt];
     [self updateSliderAtPoint:pt];
 }
 

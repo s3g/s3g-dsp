@@ -697,6 +697,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     BOOL _engineOpen;
     BOOL _relationshipsOpen;
     int _openMenu;
+    int _hoverMenuItem;
     NSPoint _menuOrigin;
     uint32_t _menuItemCount;
     CGFloat _waveZoom;
@@ -714,6 +715,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)drawRelationshipPreview:(NSRect)rect attrs:(NSDictionary*)attrs;
 - (void)drawLaneStrip:(NSRect)rect attrs:(NSDictionary*)attrs;
 - (void)updateSlider:(NSPoint)pt;
+- (void)updateMenuHover:(NSPoint)point;
 @end
 
 static NSColor* c(int rgb) { return s3g::clap_gui::color(rgb); }
@@ -806,6 +808,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
         _engineOpen = YES;
         _relationshipsOpen = YES;
         _openMenu = 0;
+        _hoverMenuItem = -1;
         _menuOrigin = NSMakePoint(0, 0);
         _menuItemCount = 0;
         _waveZoom = 1.0;
@@ -814,6 +817,16 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     return self;
 }
 - (BOOL)isFlipped { return YES; }
+- (void)updateTrackingAreas
+{
+    for (NSTrackingArea* area in [self trackingAreas]) {
+        [self removeTrackingArea:area];
+    }
+    [super updateTrackingAreas];
+    NSTrackingAreaOptions options = NSTrackingMouseMoved | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+    NSTrackingArea* area = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:options owner:self userInfo:nil];
+    [self addTrackingArea:[area autorelease]];
+}
 - (void)dealloc { [self stopRefreshTimer]; [super dealloc]; }
 - (void)startRefreshTimer { if (_timer) return; _timer = [NSTimer timerWithTimeInterval:1.0/20.0 target:self selector:@selector(refresh:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
@@ -1183,12 +1196,25 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
         NSString* items[] = { @"ORDER", @"INTER", @"RND", @"MORPH" };
         s3g::clap_gui::Style style;
         const int selected = static_cast<int>(p->targets.rule.load(std::memory_order_acquire));
-        s3g::clap_gui::drawDropdownMenu(NSMakeRect(_menuOrigin.x, _menuOrigin.y, 150, 18.0 * 4.0), 18.0, items, 4, selected, -1, small, style);
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(_menuOrigin.x, _menuOrigin.y, 150, 18.0 * 4.0), 18.0, items, 4, selected, _hoverMenuItem, small, style);
     } else if (_openMenu == 2) {
         NSString* items[] = { @"OFF", @"GATE", @"TRIG" };
         s3g::clap_gui::Style style;
         const int selected = static_cast<int>(p->targets.midiMode.load(std::memory_order_acquire));
-        s3g::clap_gui::drawDropdownMenu(NSMakeRect(_menuOrigin.x, _menuOrigin.y, 150, 18.0 * 3.0), 18.0, items, 3, selected, -1, small, style);
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(_menuOrigin.x, _menuOrigin.y, 150, 18.0 * 3.0), 18.0, items, 3, selected, _hoverMenuItem, small, style);
+    }
+}
+- (void)updateMenuHover:(NSPoint)point
+{
+    if (!(_openMenu == 1 || _openMenu == 2)) return;
+    const uint32_t menuCount = _openMenu == 1 ? 4u : 3u;
+    const int next = s3g::clap_gui::dropdownHitIndex(point,
+                                                     NSMakeRect(_menuOrigin.x, _menuOrigin.y, 150, 18.0 * static_cast<CGFloat>(menuCount)),
+                                                     18.0,
+                                                     menuCount);
+    if (next != _hoverMenuItem) {
+        _hoverMenuItem = next;
+        [self setNeedsDisplay:YES];
     }
 }
 - (void)updateSlider:(NSPoint)pt
@@ -1233,11 +1259,13 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
             }
         }
         _openMenu = 0;
+        _hoverMenuItem = -1;
         _menuItemCount = 0;
         [self setNeedsDisplay:YES];
         return;
     }
     _openMenu = 0;
+    _hoverMenuItem = -1;
     _menuItemCount = 0;
     if (NSPointInRect(pt, NSMakeRect(516,46,18,15))) {
         _waveZoom = std::max<CGFloat>(1.0, _waveZoom * 0.5);
@@ -1333,6 +1361,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     }
     if (_engineOpen && NSPointInRect(pt, NSMakeRect(kSliderLabelX - 4.0, engineY + 28 - 8, 296, 24))) {
         _openMenu = 1;
+        _hoverMenuItem = -1;
         _menuItemCount = 4;
         _menuOrigin = NSMakePoint(kSliderTrackX, engineY + 45);
         [self setNeedsDisplay:YES];
@@ -1340,6 +1369,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     }
     if (_engineOpen && NSPointInRect(pt, NSMakeRect(kSliderLabelX - 4.0, engineY + 244 - 8, 296, 24))) {
         _openMenu = 2;
+        _hoverMenuItem = -1;
         _menuItemCount = 3;
         _menuOrigin = NSMakePoint(kSliderTrackX, engineY + 261);
         [self setNeedsDisplay:YES];
@@ -1369,9 +1399,14 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
         }
     }
 }
+- (void)mouseMoved:(NSEvent*)event
+{
+    [self updateMenuHover:[self convertPoint:[event locationInWindow] fromView:nil]];
+}
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    [self updateMenuHover:pt];
     if (_dragSlider > 0) {
         [self updateSlider:pt];
     } else if (_dragSlider == -2) {
