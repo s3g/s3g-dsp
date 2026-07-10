@@ -23,7 +23,7 @@
 
 namespace {
 
-constexpr uint32_t kChannelCount = 2;
+constexpr uint32_t kChannelCount = 8;
 constexpr uint32_t kStateVersion = 1;
 constexpr uint32_t kGuiWidth = 760;
 constexpr uint32_t kGuiHeight = 376;
@@ -181,10 +181,10 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 {
     if (index != 0 || !info) return false;
     info->id = isInput ? 10 : 20;
-    std::snprintf(info->name, sizeof(info->name), "Stereo %s", isInput ? "In" : "Out");
+    std::snprintf(info->name, sizeof(info->name), "8ch %s", isInput ? "In" : "Out");
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = kChannelCount;
-    info->port_type = CLAP_PORT_STEREO;
+    info->port_type = CLAP_PORT_SURROUND;
     info->in_place_pair = isInput ? 20 : 10;
     return true;
 }
@@ -286,7 +286,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 } // namespace
 
 #if defined(__APPLE__)
-@interface S3GSpectralSprayView : NSView { void* _plugin; int _dragSlider; NSTimer* _timer; }
+@interface S3G8chSpectralSprayView : NSView { void* _plugin; int _dragSlider; NSTimer* _timer; }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
@@ -294,7 +294,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 - (void)updateSlider:(NSPoint)point;
 @end
 
-@implementation S3GSpectralSprayView
+@implementation S3G8chSpectralSprayView
 - (id)initWithPlugin:(void*)plugin { self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)]; if (self) { _plugin = plugin; _dragSlider = -1; _timer = nil; } return self; }
 - (BOOL)isFlipped { return YES; }
 - (void)dealloc { [self stopRefreshTimer]; [super dealloc]; }
@@ -316,10 +316,10 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     NSFont* bold = [NSFont fontWithName:@"Menlo-Bold" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightBold];
     NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:bold };
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    [@"s3g SPECTRAL SPRAY 2CH" drawAtPoint:NSMakePoint(18,14) withAttributes:lab];
+    [@"s3g SPECTRAL SPRAY 8CH" drawAtPoint:NSMakePoint(18,14) withAttributes:lab];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
     [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))] drawAtPoint:NSMakePoint(606,14) withAttributes:small];
-    [@"2CH" drawAtPoint:NSMakePoint(704,14) withAttributes:small];
+    [@"8CH" drawAtPoint:NSMakePoint(704,14) withAttributes:small];
     s3g::clap_gui::drawPanelFrame(18, 42, 354, 286, style);
     s3g::clap_gui::drawPanelHeader(@"SPECTRAL MOTION", true, 18, 42, 354, 21, lab, style);
     s3g::clap_gui::drawPanelFrame(388, 42, 354, 286, style);
@@ -383,8 +383,8 @@ namespace {
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GSpectralSprayView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3GSpectralSprayView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3G8chSpectralSprayView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3G8chSpectralSprayView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
 bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
 bool guiCanResize(const clap_plugin_t*) { return false; }
@@ -394,8 +394,8 @@ bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p =
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,kGuiWidth,kGuiHeight)]; return true; }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GSpectralSprayView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GSpectralSprayView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3G8chSpectralSprayView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3G8chSpectralSprayView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 
@@ -411,17 +411,17 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     return nullptr;
 }
 
-const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEATURE_STEREO, nullptr };
+const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, nullptr };
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
-    "org.s3g.s3g-dsp.spectral-spray",
-    "s3g Spectral Spray 2ch",
+    "org.s3g.s3g-dsp.8ch-spectral-spray",
+    "s3g Spectral Spray 8ch",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
     "0.1.0",
-    "2-channel C++ FFT spectral spray effect with bin displacement, spectral memory, freeze, and dry/wet alignment.",
+    "8-channel C++ FFT spectral spray effect with bin displacement, spectral memory, freeze, and dry/wet alignment.",
     features
 };
 

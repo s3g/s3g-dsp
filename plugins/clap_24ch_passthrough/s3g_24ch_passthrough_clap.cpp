@@ -283,7 +283,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.24ch-passthrough-test",
-    "s3g 24ch Passthrough Test",
+    "s3g Passthrough Test 24ch",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

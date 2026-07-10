@@ -2020,6 +2020,61 @@ int main()
                   << " step=" << spectralSprayAutomationMaxStep << "\n";
         return 1;
     }
+
+    s3g::SpectralSpray spectralSpray8;
+    if (!spectralSpray8.prepare(48000.0, 8u, 1024u, 4u, 512u)) {
+        std::cerr << "8ch Spectral Spray prepare failed\n";
+        return 1;
+    }
+    s3g::SpectralSprayParams spray8Params;
+    spray8Params.mix = 1.0f;
+    spray8Params.gainDb = -9.0f;
+    spray8Params.sprayBins = 28.0f;
+    spray8Params.drift = 0.42f;
+    spray8Params.hold = 0.76f;
+    spray8Params.feedback = 0.20f;
+    spray8Params.smear = 0.52f;
+    spray8Params.phaseBlur = 0.30f;
+    spray8Params.safety = 0.76f;
+    spectralSpray8.setParams(spray8Params);
+    std::array<std::array<float, 512>, 8> spray8InBuffers {};
+    std::array<std::array<float, 512>, 8> spray8OutBuffers {};
+    std::array<const float*, 8> spray8In {};
+    std::array<float*, 8> spray8Out {};
+    for (uint32_t ch = 0; ch < 8u; ++ch) {
+        spray8In[ch] = spray8InBuffers[ch].data();
+        spray8Out[ch] = spray8OutBuffers[ch].data();
+    }
+    float spectralSpray8Peak = 0.0f;
+    float spectralSpray8MaxStep = 0.0f;
+    std::array<float, 8> spectralSpray8Last {};
+    for (uint32_t block = 0; block < 56u; ++block) {
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const float t = static_cast<float>(block * 512u + i) / 48000.0f;
+            for (uint32_t ch = 0; ch < 8u; ++ch) {
+                const float base = 111.0f + static_cast<float>(ch) * 53.0f;
+                spray8InBuffers[ch][i] = (std::sin(6.28318530718f * base * t + static_cast<float>(ch) * 0.31f)
+                    + std::sin(6.28318530718f * (base * 3.17f) * t) * 0.38f) * 0.09f;
+            }
+        }
+        spectralSpray8.process(spray8In.data(), spray8Out.data(), 512u);
+        for (uint32_t ch = 0; ch < 8u; ++ch) {
+            for (float value : spray8OutBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "8ch Spectral Spray output is not finite\n";
+                    return 1;
+                }
+                spectralSpray8Peak = std::max(spectralSpray8Peak, std::abs(value));
+                spectralSpray8MaxStep = std::max(spectralSpray8MaxStep, std::abs(value - spectralSpray8Last[ch]));
+                spectralSpray8Last[ch] = value;
+            }
+        }
+    }
+    if (spectralSpray8Peak <= 0.00001f || spectralSpray8Peak > 1.0f || spectralSpray8MaxStep > 0.65f) {
+        std::cerr << "8ch Spectral Spray stress outside expected range: peak=" << spectralSpray8Peak
+                  << " step=" << spectralSpray8MaxStep << "\n";
+        return 1;
+    }
 #endif
 
     std::cout << "s3g-dsp smoke test passed\n";
@@ -2061,6 +2116,7 @@ int main()
     std::cout << "spectral spray peak: " << spectralSprayPeak << "\n";
     std::cout << "spectral spray high-feedback peak: " << spectralSprayFeedbackPeak << "\n";
     std::cout << "spectral spray automation peak/step: " << spectralSprayAutomationPeak << " / " << spectralSprayAutomationMaxStep << "\n";
+    std::cout << "8ch spectral spray peak/step: " << spectralSpray8Peak << " / " << spectralSpray8MaxStep << "\n";
 #endif
     return 0;
 }
