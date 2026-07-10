@@ -59,7 +59,7 @@ Current plugins:
   true stereo using virtual fields and stereo pickup models.
 - `s3g Ambi Head Decoder`: synthetic binaural/transaural stereo decoder
   with no external SOFA files.
-- `s3g Spectral Spray`: native C++ spectral processor for FFT-bin scatter,
+- `s3g Spectral Spray`: C++ spectral processor for FFT-bin scatter,
   smear, feedback, hold, freeze, and frequency-window experiments.
 - `s3g Shard Scatter`: 2-in/16-out grain-shard spatial scatter effect with
   density, guard, scatter, pitch, feedback, and de-click safeguards.
@@ -81,9 +81,9 @@ Current plugins:
   global controls, not one parameter list per channel.
 - 24-channel 3OAFX-specific work is kept separate from general multichannel
   lane processors.
-- Native C++ spectral processors live in `s3g-dsp`; RNBO/Max experiments are
-  useful prototypes, but generated RNBO source belongs in the separate wrapper
-  workflow rather than this source tree.
+- C++ effects live in `s3g-dsp`; RNBO/Max experiments are useful
+  prototypes, but generated RNBO source belongs in the separate wrapper workflow
+  rather than this source tree.
 
 ## Documentation
 
@@ -160,8 +160,8 @@ The local smoke test exercises shared DSP code:
 The smoke test includes Loop Processor and Multi Loop Processor checks for
 loop playback stability, source-to-lane mapping, mixed source channel counts,
 source rules, source-rate spread bounds, and non-finite/clipping guardrails. It
-also exercises newer spectral, scatter, orbit, cascade, and multichannel
-fold-down DSP paths for finite output, bounded peaks, and de-click stress cases.
+also exercises newer effect and multichannel fold-down DSP paths for finite
+output, bounded peaks, and de-click stress cases.
 
 If `clap-validator` is installed, validate installed bundles with:
 

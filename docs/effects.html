@@ -36,7 +36,10 @@
             <li><strong>Macro Pitch</strong>: compact 8-channel pitch macro using the shared Macro control layout.</li>
             <li><a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a>: multichannel-to-stereo audition fold-down.</li>
             <li><a href="mc-to-quad-autogain.html">MC to Quad Autogain</a>: multichannel-to-quad audition fold-down.</li>
-            <li><a href="spectral-processors.html">Spectral Processors</a>: Spectral Spray, Shard Scatter, Orbit Delay, and Cascade Taps.</li>
+            <li><strong>Spectral Spray</strong>: FFT-bin scatter, smear, hold, freeze, and feedback effect.</li>
+            <li><strong>Shard Scatter</strong>: 2-in/16-out grain-shard spatial scatter effect.</li>
+            <li><strong>Orbit Delay</strong>: 2-in/16-out orbiting delay effect.</li>
+            <li><strong>Cascade Taps</strong>: 2-in/16-out stepped tap-ring effect with cascade handoff softening.</li>
             <li><a href="multichannel-meter.html">Multichannel Meter 64</a>: fixed-width multichannel passthrough meter.</li>
           </ul>
         </div>
@@ -56,11 +59,26 @@
             <strong>Delay Processor</strong>
             <em>Main topology effect. Covers 8ch and 24ch lane processors, REAPER pin routing, the internal patch matrix, topology mapping, delay engine controls, and the current GUI.</em>
           </a>
-          <a class="category-card feature-card" href="spectral-processors.html">
-            <span>native spectral / spatial</span>
-            <strong>Spectral Processors</strong>
-            <em>Spectral Spray, Shard Scatter, Orbit Delay, and Cascade Taps. These are hand-built C++ CLAP processors shaped by earlier Gen/RNBO experiments, without RNBO-generated source in this repo.</em>
-          </a>
+          <div class="category-card feature-card">
+            <span>FFT scatter</span>
+            <strong>Spectral Spray</strong>
+            <em>Stereo FFT-bin scatter, drift, smear, hold, freeze, holes, phase blur, feedback, and frequency-window effect.</em>
+          </div>
+          <div class="category-card feature-card">
+            <span>grain scatter</span>
+            <strong>Shard Scatter</strong>
+            <em>2-in/16-out grain-shard scatter with density, guard time, scatter range, pitch spread, rotation, width, and feedback safeguards.</em>
+          </div>
+          <div class="category-card feature-card">
+            <span>orbiting delay</span>
+            <strong>Orbit Delay</strong>
+            <em>2-in/16-out orbiting delay field with spread, focus, feedback, damping, and transport-stop de-click behavior.</em>
+          </div>
+          <div class="category-card feature-card">
+            <span>tap cascade</span>
+            <strong>Cascade Taps</strong>
+            <em>2-in/16-out stepped tap-ring processor with base/step timing, decay, damping, direction, and a SOFT handoff control.</em>
+          </div>
         </div>
 
         <h2 id="macros">Macros</h2>
@@ -132,7 +150,6 @@
           <a href="delay-processor.html">Delay Processor</a>
           <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a>
           <a href="mc-to-quad-autogain.html">MC to Quad Autogain</a>
-          <a href="spectral-processors.html">Spectral Processors</a>
           <a href="multichannel-meter.html">Multichannel Meter 64</a>
         </div>
         <div class="toc-section">

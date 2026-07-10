@@ -67,11 +67,14 @@
           <li><a href="ambisonic-order-band-tool.html"><code>s3g Ambi Order / Band 64</code></a>: 1OA to 7OA order-band gain and weighting utility with Flat, MaxRE, In-phase, and Custom modes.</li>
           <li><a href="ambisonic-stereo-decoder.html"><code>s3g Ambi Stereo Decoder</code></a>: 1OA to 7OA <code>ACN/SN3D</code> to true stereo with virtual fields and stereo pickup models.</li>
           <li><a href="ambisonic-head-decoder.html"><code>s3g Ambi Head Decoder</code></a>: synthetic binaural/transaural stereo decoder with no external SOFA files.</li>
-          <li><a href="spectral-processors.html"><code>s3g Spectral Spray</code>, <code>Shard Scatter</code>, <code>Orbit Delay</code>, and <code>Cascade Taps</code></a>: native C++ spectral/spatial processors for FFT-bin scatter, grain-shard scattering, orbiting delay, and stepped tap cascades.</li>
+          <li><code>s3g Spectral Spray</code>: C++ FFT-bin scatter, smear, hold, freeze, and feedback effect.</li>
+          <li><code>s3g Shard Scatter</code>: 2-in/16-out grain-shard spatial scatter effect.</li>
+          <li><code>s3g Orbit Delay</code>: 2-in/16-out orbiting delay effect with transport-stop de-click behavior.</li>
+          <li><code>s3g Cascade Taps</code>: 2-in/16-out stepped tap-ring effect with a <code>SOFT</code> control for safer cascade handoffs.</li>
           <li><a href="3oafx-effects.html"><code>s3g 3OAFX Delay</code> / <code>Pitch</code> / <code>Filter</code> / <code>Gain</code></a>: single-effect 3OA processors with internal 24-point virtual speaker masking.</li>
         </ul>
 
-        <p><a href="delay-processor.html">Delay Processor</a> is the main topology effect. <a href="loop-processor.html">Loop Processor</a>, <a href="multi-loop-processor.html">Multi Loop Processor</a>, and <a href="ambi-grain-processor.html">Ambi Grain Processor</a> are loaded-audio instruments. <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a> and <a href="mc-to-quad-autogain.html">MC to Quad Autogain</a> are practical fold-down tools for auditioning multichannel work. <a href="spectral-processors.html">Spectral Processors</a> collect the new native spectral and multichannel scatter experiments.</p>
+        <p><a href="delay-processor.html">Delay Processor</a> is the main topology effect. <a href="loop-processor.html">Loop Processor</a>, <a href="multi-loop-processor.html">Multi Loop Processor</a>, and <a href="ambi-grain-processor.html">Ambi Grain Processor</a> are loaded-audio instruments. <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a> and <a href="mc-to-quad-autogain.html">MC to Quad Autogain</a> are practical fold-down tools for auditioning multichannel work. The newer effects add spectral spray, shard scatter, orbit delay, and cascade tap-ring processing.</p>
 
         <h2 id="plugin-groups">Plugin Groups</h2>
 
@@ -81,7 +84,7 @@
           <a class="category-card" href="effects.html">
             <span>audio processors</span>
             <strong>Effects</strong>
-            <em>Delay Processor, Macro Delay, Macro Pitch, native spectral/spatial processors, fold-down, metering, and routing tools.</em>
+            <em>Delay Processor, Macro Delay, Macro Pitch, spectral spray, scatter, orbit delay, cascade taps, fold-down, metering, and routing tools.</em>
           </a>
           <a class="category-card" href="3oafx.html">
             <span>ambisonics</span>
@@ -103,7 +106,7 @@
           <li>Fixed-width CLAP plugins are used where REAPER pin routing needs to be predictable.</li>
           <li>Per-channel settings are generated inside the plugin. REAPER sees compact global controls, not one parameter list per channel.</li>
           <li>24-channel 3OAFX-specific work is kept separate from general multichannel lane processors.</li>
-          <li>Native C++ spectral processors live here; RNBO/Max-generated source stays in the separate wrapper workflow.</li>
+          <li>C++ effects live here; RNBO/Max-generated source stays in the separate wrapper workflow.</li>
         </ul>
 
         <h2 id="topology-layer">Topology Layer</h2>

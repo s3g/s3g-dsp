@@ -53,7 +53,7 @@ drawPanelHeader(@"ENGINE", open, panelX, panelY, panelW, headerH, attrs, style);
   motion modes, layout modes, shape choices, neighbor counts, launch modes,
   mute/on-off states, and global mode toggles.
 - Menus should use the same dark fill, gray border, and compact type as sliders.
-- Do not use native-looking popup controls inside the plugin canvas.
+- Do not use system-style popup controls inside the plugin canvas.
 - Dropdown lists should use the shared custom renderer where possible:
   selected rows get a quiet left strip, rollover rows get a slightly lighter
   gray fill, and click hit-testing should follow the visible row rectangles.
