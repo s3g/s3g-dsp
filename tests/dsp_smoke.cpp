@@ -12,13 +12,20 @@
 #include "s3g_lane_patch.h"
 #include "s3g_loop_processor.h"
 #include "s3g_multi_loop_processor.h"
+#include "s3g_orbit_delay.h"
+#include "s3g_cascade_taps.h"
+#include "s3g_spectral_fft.h"
+#include "s3g_spectral_spray.h"
+#include "s3g_shard_scatter.h"
 #include "s3g_layout_panner.h"
 #include "s3g_mc_to_stereo.h"
+#include "s3g_mc_to_quad.h"
 #include "s3g_macro_delay.h"
 #include "s3g_macro_pitch.h"
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -142,6 +149,48 @@ int main()
     if (!std::isfinite(stereoOut[0]) || !std::isfinite(stereoOut[1])) {
         std::cerr << "MC to Stereo 128ch fold-down is not finite\n";
         return 1;
+    }
+
+    s3g::McQuadParams quadParams;
+    quadParams.inputChannels = 4;
+    quadParams.layout = s3g::McStereoLayout::RingProjection;
+    quadParams.autogain = s3g::McStereoAutogain::Off;
+    quadParams.widthPercent = 100.0f;
+    float quadIn[s3g::kMcToStereoMaxInputChannels] {};
+    float quadOut[s3g::kMcToQuadOutputChannels] {};
+    quadIn[0] = 1.0f;
+    quadIn[1] = 2.0f;
+    quadIn[2] = 3.0f;
+    quadIn[3] = 4.0f;
+    s3g::processMcToQuadFrame(quadIn, 4u, quadOut, quadParams);
+    const uint32_t quadMaxIndex = static_cast<uint32_t>(std::max_element(quadOut, quadOut + s3g::kMcToQuadOutputChannels) - quadOut);
+    if (quadMaxIndex >= s3g::kMcToQuadOutputChannels || !std::isfinite(quadOut[0]) || !std::isfinite(quadOut[1]) || !std::isfinite(quadOut[2]) || !std::isfinite(quadOut[3])) {
+        std::cerr << "MC to Quad 4ch fold-down is not finite\n";
+        return 1;
+    }
+    std::array<s3g::McQuadChannelGains, s3g::kMcToStereoMaxInputChannels> quadGains {};
+    s3g::makeMcToQuadGains(quadGains.data(), 4u, quadParams);
+    if (quadGains[0].left <= quadGains[0].right || quadGains[1].right <= quadGains[1].left
+        || quadGains[1].right <= quadGains[1].rightBack || quadGains[2].rightBack <= quadGains[2].right
+        || quadGains[3].leftBack <= quadGains[3].left) {
+        std::cerr << "MC to Quad output order/gains changed unexpectedly\n";
+        return 1;
+    }
+    quadParams.inputChannels = 128;
+    quadParams.layout = s3g::McStereoLayout::SphereProjection;
+    quadParams.autogain = s3g::McStereoAutogain::PowerSqrtN;
+    quadParams.rotationDegrees = -23.0f;
+    quadParams.layoutWeightPercent = 85.0f;
+    quadParams.attenuation3dPercent = 55.0f;
+    for (uint32_t ch = 0; ch < s3g::kMcToStereoMaxInputChannels; ++ch) {
+        quadIn[ch] = std::sin(static_cast<float>(ch) * 0.21f) * 0.08f;
+    }
+    s3g::processMcToQuadFrame(quadIn, s3g::kMcToStereoMaxInputChannels, quadOut, quadParams);
+    for (float value : quadOut) {
+        if (!std::isfinite(value)) {
+            std::cerr << "MC to Quad 128ch fold-down is not finite\n";
+            return 1;
+        }
     }
 
     s3g::DelayProcessor delay;
@@ -1400,11 +1449,585 @@ int main()
         return 1;
     }
 
+
+
+    s3g::ShardScatter shardScatter;
+    if (!shardScatter.prepare(48000.0, 512u)) {
+        std::cerr << "Shard Scatter prepare failed\n";
+        return 1;
+    }
+    s3g::ShardScatterParams shardParams;
+    shardParams.density = 14.0f;
+    shardParams.grainMs = 120.0f;
+    shardParams.guardMs = 90.0f;
+    shardParams.scatterMs = 320.0f;
+    shardParams.pitchSpread = 0.55f;
+    shardParams.rotate = 0.8f;
+    shardParams.width = 0.35f;
+    shardParams.feedback = 0.28f;
+    shardParams.gainDb = -8.0f;
+    shardScatter.setParams(shardParams);
+    std::array<float, 512> shardInL {};
+    std::array<float, 512> shardInR {};
+    std::array<std::array<float, 512>, s3g::kShardScatterChannels> shardOutBuffers {};
+    std::array<float*, s3g::kShardScatterChannels> shardOut {};
+    for (uint32_t ch = 0; ch < s3g::kShardScatterChannels; ++ch) shardOut[ch] = shardOutBuffers[ch].data();
+    float shardPeak = 0.0f;
+    float shardMaxStep = 0.0f;
+    std::array<float, s3g::kShardScatterChannels> shardLast {};
+    for (uint32_t block = 0; block < 240u; ++block) {
+        if ((block % 24u) == 0u) {
+            const bool alt = ((block / 24u) % 2u) != 0u;
+            shardParams.density = alt ? 22.0f : 4.0f;
+            shardParams.grainMs = alt ? 65.0f : 240.0f;
+            shardParams.scatterMs = alt ? 1600.0f : 120.0f;
+            shardParams.pitch = alt ? -0.65f : 1.0f;
+            shardParams.rotate = alt ? -2.2f : 0.6f;
+            shardParams.width = alt ? 0.85f : 0.12f;
+            shardParams.feedback = alt ? 0.68f : 0.08f;
+            shardParams.freeze = alt ? 0.35f : 0.0f;
+            shardScatter.setParams(shardParams);
+        }
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const float t = static_cast<float>(block * 512u + i) / 48000.0f;
+            shardInL[i] = (std::sin(6.28318530718f * 91.0f * t) + std::sin(6.28318530718f * 677.0f * t) * 0.35f) * 0.16f;
+            shardInR[i] = (std::sin(6.28318530718f * 137.0f * t) + std::sin(6.28318530718f * 991.0f * t) * 0.30f) * 0.15f;
+        }
+        shardScatter.process(shardInL.data(), shardInR.data(), shardOut.data(), 512u);
+        for (uint32_t ch = 0; ch < s3g::kShardScatterChannels; ++ch) {
+            for (float value : shardOutBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Shard Scatter output is not finite\n";
+                    return 1;
+                }
+                shardPeak = std::max(shardPeak, std::abs(value));
+                shardMaxStep = std::max(shardMaxStep, std::abs(value - shardLast[ch]));
+                shardLast[ch] = value;
+            }
+        }
+    }
+    if (shardPeak <= 0.00001f || shardPeak > 1.0f || shardMaxStep > 0.75f) {
+        std::cerr << "Shard Scatter peak/step outside expected range: " << shardPeak << " / " << shardMaxStep << "\n";
+        return 1;
+    }
+
+    s3g::ShardScatter shardSparse;
+    if (!shardSparse.prepare(48000.0, 512u)) {
+        std::cerr << "Shard Scatter sparse prepare failed\n";
+        return 1;
+    }
+    s3g::ShardScatterParams shardSparseParams;
+    shardSparseParams.density = 0.45f;
+    shardSparseParams.grainMs = 55.0f;
+    shardSparseParams.guardMs = 80.0f;
+    shardSparseParams.scatterMs = 2400.0f;
+    shardSparseParams.pitch = -0.85f;
+    shardSparseParams.pitchSpread = 1.1f;
+    shardSparseParams.rotate = 1.8f;
+    shardSparseParams.width = 0.92f;
+    shardSparseParams.feedback = 0.42f;
+    shardSparseParams.dry = 0.0f;
+    shardSparseParams.wet = 1.0f;
+    shardSparseParams.gainDb = -5.0f;
+    shardSparse.setParams(shardSparseParams);
+    float shardSparsePeak = 0.0f;
+    float shardSparseMaxStep = 0.0f;
+    std::array<float, s3g::kShardScatterChannels> shardSparseLast {};
+    for (uint32_t block = 0; block < 300u; ++block) {
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const float t = static_cast<float>(block * 512u + i) / 48000.0f;
+            const float gate = ((block + (i / 64u)) % 9u) == 0u ? 1.0f : 0.28f;
+            shardInL[i] = (std::sin(6.28318530718f * 97.0f * t) + std::sin(6.28318530718f * 1447.0f * t) * 0.42f) * 0.18f * gate;
+            shardInR[i] = (std::sin(6.28318530718f * 139.0f * t) + std::sin(6.28318530718f * 1133.0f * t) * 0.37f) * 0.17f * gate;
+        }
+        shardSparse.process(shardInL.data(), shardInR.data(), shardOut.data(), 512u);
+        for (uint32_t ch = 0; ch < s3g::kShardScatterChannels; ++ch) {
+            for (float value : shardOutBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Shard Scatter sparse output is not finite\n";
+                    return 1;
+                }
+                shardSparsePeak = std::max(shardSparsePeak, std::abs(value));
+                shardSparseMaxStep = std::max(shardSparseMaxStep, std::abs(value - shardSparseLast[ch]));
+                shardSparseLast[ch] = value;
+            }
+        }
+    }
+    if (shardSparsePeak <= 0.00001f || shardSparsePeak > 1.0f || shardSparseMaxStep > 0.20f) {
+        std::cerr << "Shard Scatter sparse high-SCAT de-click outside expected range: " << shardSparsePeak
+                  << " / " << shardSparseMaxStep << "\n";
+        return 1;
+    }
+
+    s3g::ShardScatter shardStop;
+    if (!shardStop.prepare(48000.0, 512u)) {
+        std::cerr << "Shard Scatter stop prepare failed\n";
+        return 1;
+    }
+    s3g::ShardScatterParams shardStopParams;
+    shardStopParams.density = 22.0f;
+    shardStopParams.grainMs = 70.0f;
+    shardStopParams.guardMs = 70.0f;
+    shardStopParams.scatterMs = 1400.0f;
+    shardStopParams.pitch = -0.55f;
+    shardStopParams.pitchSpread = 0.75f;
+    shardStopParams.rotate = -2.0f;
+    shardStopParams.width = 0.80f;
+    shardStopParams.feedback = 0.62f;
+    shardStopParams.dry = 0.02f;
+    shardStopParams.wet = 0.95f;
+    shardStopParams.gainDb = -7.0f;
+    shardStop.setParams(shardStopParams);
+    float shardStopPeak = 0.0f;
+    float shardStopMaxStep = 0.0f;
+    float shardStopTailPeak = 0.0f;
+    std::array<float, s3g::kShardScatterChannels> shardStopLast {};
+    for (uint32_t block = 0; block < 132u; ++block) {
+        const bool running = block < 72u;
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const float t = static_cast<float>(block * 512u + i) / 48000.0f;
+            shardInL[i] = running ? (std::sin(6.28318530718f * 123.0f * t) + std::sin(6.28318530718f * 971.0f * t) * 0.36f) * 0.18f : 0.0f;
+            shardInR[i] = running ? (std::sin(6.28318530718f * 181.0f * t) + std::sin(6.28318530718f * 701.0f * t) * 0.31f) * 0.17f : 0.0f;
+        }
+        shardStop.process(shardInL.data(), shardInR.data(), shardOut.data(), 512u);
+        for (uint32_t ch = 0; ch < s3g::kShardScatterChannels; ++ch) {
+            for (float value : shardOutBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Shard Scatter stop output is not finite\n";
+                    return 1;
+                }
+                shardStopPeak = std::max(shardStopPeak, std::abs(value));
+                if (!running) {
+                    shardStopMaxStep = std::max(shardStopMaxStep, std::abs(value - shardStopLast[ch]));
+                    if (block >= 120u) shardStopTailPeak = std::max(shardStopTailPeak, std::abs(value));
+                }
+                shardStopLast[ch] = value;
+            }
+        }
+    }
+    if (shardStopPeak <= 0.00001f || shardStopPeak > 1.0f || shardStopMaxStep > 0.25f || shardStopTailPeak > 0.015f) {
+        std::cerr << "Shard Scatter stop de-click outside expected range: peak=" << shardStopPeak
+                  << " step=" << shardStopMaxStep << " tail=" << shardStopTailPeak << "\n";
+        return 1;
+    }
+
+    s3g::OrbitDelay orbitDelay;
+    if (!orbitDelay.prepare(48000.0, 512u)) {
+        std::cerr << "Orbit Delay prepare failed\n";
+        return 1;
+    }
+    s3g::OrbitDelayParams orbitParams;
+    orbitParams.pos = 3.0f;
+    orbitParams.spread = 5.5f;
+    orbitParams.rotate = 0.18f;
+    orbitParams.width = 4.0f;
+    orbitParams.focus = 1.8f;
+    orbitParams.delayMs = 95.0f;
+    orbitParams.feedback = 0.42f;
+    orbitParams.orbit = 1.5f;
+    orbitParams.damp = 0.45f;
+    orbitParams.wet = 0.72f;
+    orbitParams.gainDb = -9.0f;
+    orbitParams.stereo = 0.65f;
+    orbitDelay.setParams(orbitParams);
+    std::array<float, 512> orbitInL {};
+    std::array<float, 512> orbitInR {};
+    std::array<std::array<float, 512>, s3g::kOrbitDelayChannels> orbitOutBuffers {};
+    std::array<float*, s3g::kOrbitDelayChannels> orbitOut {};
+    for (uint32_t ch = 0; ch < s3g::kOrbitDelayChannels; ++ch) orbitOut[ch] = orbitOutBuffers[ch].data();
+    float orbitPeak = 0.0f;
+    float orbitMaxStep = 0.0f;
+    std::array<float, s3g::kOrbitDelayChannels> orbitLast {};
+    for (uint32_t block = 0; block < 260u; ++block) {
+        if ((block % 26u) == 0u) {
+            const bool alt = ((block / 26u) % 2u) != 0u;
+            orbitParams.pos = alt ? 13.0f : 2.0f;
+            orbitParams.spread = alt ? 10.0f : 2.5f;
+            orbitParams.rotate = alt ? -1.4f : 0.55f;
+            orbitParams.width = alt ? 9.5f : 1.2f;
+            orbitParams.focus = alt ? 3.2f : 1.1f;
+            orbitParams.delayMs = alt ? 420.0f : 55.0f;
+            orbitParams.feedback = alt ? 0.72f : 0.16f;
+            orbitParams.orbit = alt ? -3.0f : 2.0f;
+            orbitParams.damp = alt ? 0.70f : 0.18f;
+            orbitParams.wet = alt ? 0.92f : 0.42f;
+            orbitParams.gainDb = alt ? -12.0f : -7.0f;
+            orbitParams.stereo = alt ? 1.0f : 0.2f;
+            orbitDelay.setParams(orbitParams);
+        }
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const float t = static_cast<float>(block * 512u + i) / 48000.0f;
+            orbitInL[i] = (std::sin(6.28318530718f * 113.0f * t) + std::sin(6.28318530718f * 523.0f * t) * 0.33f) * 0.14f;
+            orbitInR[i] = (std::sin(6.28318530718f * 151.0f * t) + std::sin(6.28318530718f * 739.0f * t) * 0.27f) * 0.13f;
+        }
+        orbitDelay.process(orbitInL.data(), orbitInR.data(), orbitOut.data(), 512u);
+        for (uint32_t ch = 0; ch < s3g::kOrbitDelayChannels; ++ch) {
+            for (float value : orbitOutBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Orbit Delay output is not finite\n";
+                    return 1;
+                }
+                orbitPeak = std::max(orbitPeak, std::abs(value));
+                orbitMaxStep = std::max(orbitMaxStep, std::abs(value - orbitLast[ch]));
+                orbitLast[ch] = value;
+            }
+        }
+    }
+    if (orbitPeak <= 0.00001f || orbitPeak > 1.0f || orbitMaxStep > 0.75f) {
+        std::cerr << "Orbit Delay peak/step outside expected range: " << orbitPeak << " / " << orbitMaxStep << "\n";
+        return 1;
+    }
+
+    s3g::OrbitDelay orbitStop;
+    if (!orbitStop.prepare(48000.0, 512u)) {
+        std::cerr << "Orbit Delay stop prepare failed\n";
+        return 1;
+    }
+    s3g::OrbitDelayParams orbitStopParams;
+    orbitStopParams.pos = 5.0f;
+    orbitStopParams.spread = 8.0f;
+    orbitStopParams.rotate = 1.1f;
+    orbitStopParams.width = 7.5f;
+    orbitStopParams.focus = 2.4f;
+    orbitStopParams.delayMs = 360.0f;
+    orbitStopParams.feedback = 0.76f;
+    orbitStopParams.orbit = -2.5f;
+    orbitStopParams.damp = 0.28f;
+    orbitStopParams.wet = 0.92f;
+    orbitStopParams.gainDb = -10.0f;
+    orbitStopParams.stereo = 1.0f;
+    orbitStop.setParams(orbitStopParams);
+    float orbitStopPeak = 0.0f;
+    float orbitStopMaxStep = 0.0f;
+    float orbitStopTailPeak = 0.0f;
+    std::array<float, s3g::kOrbitDelayChannels> orbitStopLast {};
+    for (uint32_t block = 0; block < 160u; ++block) {
+        const bool running = block < 84u;
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const float t = static_cast<float>(block * 512u + i) / 48000.0f;
+            orbitInL[i] = running ? (std::sin(6.28318530718f * 107.0f * t) + std::sin(6.28318530718f * 619.0f * t) * 0.38f) * 0.16f : 0.0f;
+            orbitInR[i] = running ? (std::sin(6.28318530718f * 149.0f * t) + std::sin(6.28318530718f * 887.0f * t) * 0.32f) * 0.15f : 0.0f;
+        }
+        orbitStop.process(orbitInL.data(), orbitInR.data(), orbitOut.data(), 512u);
+        for (uint32_t ch = 0; ch < s3g::kOrbitDelayChannels; ++ch) {
+            for (float value : orbitOutBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Orbit Delay stop output is not finite\n";
+                    return 1;
+                }
+                orbitStopPeak = std::max(orbitStopPeak, std::abs(value));
+                if (!running) {
+                    orbitStopMaxStep = std::max(orbitStopMaxStep, std::abs(value - orbitStopLast[ch]));
+                    if (block >= 148u) orbitStopTailPeak = std::max(orbitStopTailPeak, std::abs(value));
+                }
+                orbitStopLast[ch] = value;
+            }
+        }
+    }
+    if (orbitStopPeak <= 0.00001f || orbitStopPeak > 1.0f || orbitStopMaxStep > 0.20f || orbitStopTailPeak > 0.02f) {
+        std::cerr << "Orbit Delay stop de-click outside expected range: peak=" << orbitStopPeak
+                  << " step=" << orbitStopMaxStep << " tail=" << orbitStopTailPeak << "\n";
+        return 1;
+    }
+
+    s3g::CascadeTaps cascadeTaps;
+    if (!cascadeTaps.prepare(48000.0, 512u)) {
+        std::cerr << "Cascade Taps prepare failed\n";
+        return 1;
+    }
+    s3g::CascadeTapsParams cascadeParams;
+    cascadeParams.pos = 4.0f;
+    cascadeParams.rotate = 0.12f;
+    cascadeParams.direction = 1.0f;
+    cascadeParams.baseMs = 18.0f;
+    cascadeParams.stepMs = 42.0f;
+    cascadeParams.decay = 0.74f;
+    cascadeParams.damp = 0.35f;
+    cascadeParams.dry = 0.18f;
+    cascadeParams.wet = 0.82f;
+    cascadeParams.gainDb = -8.5f;
+    cascadeParams.stereo = 0.5f;
+    cascadeParams.soft = 0.62f;
+    cascadeTaps.setParams(cascadeParams);
+    std::array<float, 512> cascadeInL {};
+    std::array<float, 512> cascadeInR {};
+    std::array<std::array<float, 512>, s3g::kCascadeTapsChannels> cascadeOutBuffers {};
+    std::array<float*, s3g::kCascadeTapsChannels> cascadeOut {};
+    for (uint32_t ch = 0; ch < s3g::kCascadeTapsChannels; ++ch) cascadeOut[ch] = cascadeOutBuffers[ch].data();
+    float cascadePeak = 0.0f;
+    float cascadeMaxStep = 0.0f;
+    std::array<float, s3g::kCascadeTapsChannels> cascadeLast {};
+    for (uint32_t block = 0; block < 220u; ++block) {
+        if ((block % 22u) == 0u) {
+            const bool alt = ((block / 22u) % 2u) != 0u;
+            cascadeParams.pos = alt ? 15.0f : 3.0f;
+            cascadeParams.rotate = alt ? -0.9f : 0.35f;
+            cascadeParams.direction = alt ? -1.0f : 1.0f;
+            cascadeParams.baseMs = alt ? 70.0f : 12.0f;
+            cascadeParams.stepMs = alt ? 118.0f : 26.0f;
+            cascadeParams.decay = alt ? 0.92f : 0.58f;
+            cascadeParams.damp = alt ? 0.62f : 0.12f;
+            cascadeParams.dry = alt ? 0.06f : 0.28f;
+            cascadeParams.wet = alt ? 0.95f : 0.58f;
+            cascadeParams.gainDb = alt ? -12.0f : -6.0f;
+            cascadeParams.stereo = alt ? 1.0f : 0.0f;
+            cascadeParams.soft = alt ? 0.78f : 0.58f;
+            cascadeTaps.setParams(cascadeParams);
+        }
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const float t = static_cast<float>(block * 512u + i) / 48000.0f;
+            cascadeInL[i] = (std::sin(6.28318530718f * 83.0f * t) + std::sin(6.28318530718f * 611.0f * t) * 0.40f) * 0.13f;
+            cascadeInR[i] = (std::sin(6.28318530718f * 127.0f * t) + std::sin(6.28318530718f * 887.0f * t) * 0.32f) * 0.12f;
+        }
+        cascadeTaps.process(cascadeInL.data(), cascadeInR.data(), cascadeOut.data(), 512u);
+        for (uint32_t ch = 0; ch < s3g::kCascadeTapsChannels; ++ch) {
+            for (float value : cascadeOutBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Cascade Taps output is not finite\n";
+                    return 1;
+                }
+                cascadePeak = std::max(cascadePeak, std::abs(value));
+                cascadeMaxStep = std::max(cascadeMaxStep, std::abs(value - cascadeLast[ch]));
+                cascadeLast[ch] = value;
+            }
+        }
+    }
+    if (cascadePeak <= 0.00001f || cascadePeak > 1.0f || cascadeMaxStep > 0.75f) {
+        std::cerr << "Cascade Taps peak/step outside expected range: " << cascadePeak << " / " << cascadeMaxStep << "\n";
+        return 1;
+    }
+
+    s3g::CascadeTaps cascadeImpulse;
+    if (!cascadeImpulse.prepare(48000.0, 512u)) {
+        std::cerr << "Cascade Taps impulse prepare failed\n";
+        return 1;
+    }
+    s3g::CascadeTapsParams cascadeImpulseParams;
+    cascadeImpulseParams.pos = 1.0f;
+    cascadeImpulseParams.rotate = 1.3f;
+    cascadeImpulseParams.direction = -1.0f;
+    cascadeImpulseParams.baseMs = 6.0f;
+    cascadeImpulseParams.stepMs = 18.0f;
+    cascadeImpulseParams.decay = 0.90f;
+    cascadeImpulseParams.damp = 0.04f;
+    cascadeImpulseParams.dry = 0.0f;
+    cascadeImpulseParams.wet = 1.0f;
+    cascadeImpulseParams.gainDb = -5.0f;
+    cascadeImpulseParams.stereo = 1.0f;
+    cascadeImpulseParams.soft = 0.88f;
+    cascadeImpulse.setParams(cascadeImpulseParams);
+    float cascadeImpulsePeak = 0.0f;
+    float cascadeImpulseMaxStep = 0.0f;
+    std::array<float, s3g::kCascadeTapsChannels> cascadeImpulseLast {};
+    for (uint32_t block = 0; block < 180u; ++block) {
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const uint32_t sample = block * 512u + i;
+            const bool hit = (sample % 4096u) == 0u || (sample % 6173u) == 0u;
+            cascadeInL[i] = hit ? 0.82f : 0.0f;
+            cascadeInR[i] = hit ? -0.74f : 0.0f;
+        }
+        cascadeImpulse.process(cascadeInL.data(), cascadeInR.data(), cascadeOut.data(), 512u);
+        for (uint32_t ch = 0; ch < s3g::kCascadeTapsChannels; ++ch) {
+            for (float value : cascadeOutBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Cascade Taps impulse output is not finite\n";
+                    return 1;
+                }
+                cascadeImpulsePeak = std::max(cascadeImpulsePeak, std::abs(value));
+                cascadeImpulseMaxStep = std::max(cascadeImpulseMaxStep, std::abs(value - cascadeImpulseLast[ch]));
+                cascadeImpulseLast[ch] = value;
+            }
+        }
+    }
+    if (cascadeImpulsePeak <= 0.00001f || cascadeImpulsePeak > 1.0f || cascadeImpulseMaxStep > 0.08f) {
+        std::cerr << "Cascade Taps impulse suppression outside expected range: " << cascadeImpulsePeak
+                  << " / " << cascadeImpulseMaxStep << "\n";
+        return 1;
+    }
+
+#if S3G_HAS_ACCELERATE_FFT
+    s3g::SpectralFftProcessor spectral;
+    if (!spectral.prepare(2u, 1024u, 4u)) {
+        std::cerr << "Spectral FFT prepare failed\n";
+        return 1;
+    }
+    if (spectral.hopSize() != 256u || spectral.bins() != 513u) {
+        std::cerr << "Spectral FFT geometry failed\n";
+        return 1;
+    }
+
+    constexpr uint32_t spectralFrames = 8192u;
+    std::array<float, spectralFrames> spectralInL {};
+    std::array<float, spectralFrames> spectralInR {};
+    std::array<float, spectralFrames> spectralOutL {};
+    std::array<float, spectralFrames> spectralOutR {};
+    for (uint32_t i = 0; i < spectralFrames; ++i) {
+        const float t = static_cast<float>(i) / 48000.0f;
+        spectralInL[i] = std::sin(6.28318530718f * 440.0f * t) * 0.2f;
+        spectralInR[i] = std::sin(6.28318530718f * 713.0f * t) * 0.17f;
+    }
+    const float* spectralIn[2] = { spectralInL.data(), spectralInR.data() };
+    float* spectralOut[2] = { spectralOutL.data(), spectralOutR.data() };
+    uint32_t spectralKernelCalls = 0u;
+    spectral.process(spectralIn, spectralOut, spectralFrames, [&](s3g::SpectralFrameView frame) {
+        if (frame.bins != 513u || frame.fftSize != 1024u || frame.channel > 1u) {
+            std::cerr << "Spectral FFT frame metadata failed\n";
+            std::exit(1);
+        }
+        ++spectralKernelCalls;
+    });
+    if (spectralKernelCalls == 0u) {
+        std::cerr << "Spectral FFT kernel was not called\n";
+        return 1;
+    }
+
+    float spectralErr = 0.0f;
+    float spectralPeak = 0.0f;
+    const uint32_t spectralLatency = spectral.fftSize();
+    for (uint32_t i = 2048u; i + spectralLatency < spectralFrames - 1024u; ++i) {
+        const uint32_t outIndex = i + spectralLatency;
+        if (!std::isfinite(spectralOutL[outIndex]) || !std::isfinite(spectralOutR[outIndex])) {
+            std::cerr << "Spectral FFT output is not finite\n";
+            return 1;
+        }
+        spectralPeak = std::max(spectralPeak, std::abs(spectralOutL[outIndex]));
+        spectralPeak = std::max(spectralPeak, std::abs(spectralOutR[outIndex]));
+        spectralErr = std::max(spectralErr, std::abs(spectralOutL[outIndex] - spectralInL[i]));
+        spectralErr = std::max(spectralErr, std::abs(spectralOutR[outIndex] - spectralInR[i]));
+    }
+    if (spectralPeak <= 0.00001f || spectralErr > 0.02f) {
+        std::cerr << "Spectral FFT passthrough outside expected range: peak=" << spectralPeak << " err=" << spectralErr << "\n";
+        return 1;
+    }
+#endif
+
+#if S3G_HAS_ACCELERATE_FFT
+    s3g::SpectralSpray spectralSpray;
+    if (!spectralSpray.prepare(48000.0, 2u, 1024u, 4u, 512u)) {
+        std::cerr << "Spectral Spray prepare failed\n";
+        return 1;
+    }
+    s3g::SpectralSprayParams sprayParams;
+    sprayParams.mix = 1.0f;
+    sprayParams.gainDb = -6.0f;
+    sprayParams.sprayBins = 18.0f;
+    sprayParams.drift = 0.35f;
+    sprayParams.feedback = 0.22f;
+    sprayParams.smear = 0.45f;
+    sprayParams.phaseBlur = 0.25f;
+    spectralSpray.setParams(sprayParams);
+    std::array<float, 512> sprayInL {};
+    std::array<float, 512> sprayInR {};
+    std::array<float, 512> sprayOutL {};
+    std::array<float, 512> sprayOutR {};
+    const float* sprayIn[2] = { sprayInL.data(), sprayInR.data() };
+    float* sprayOut[2] = { sprayOutL.data(), sprayOutR.data() };
+    float spectralSprayPeak = 0.0f;
+    for (uint32_t block = 0; block < 40u; ++block) {
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const float t = static_cast<float>(block * 512u + i) / 48000.0f;
+            sprayInL[i] = std::sin(6.28318530718f * 220.0f * t) * 0.12f + std::sin(6.28318530718f * 810.0f * t) * 0.06f;
+            sprayInR[i] = std::sin(6.28318530718f * 330.0f * t) * 0.11f + std::sin(6.28318530718f * 1210.0f * t) * 0.05f;
+        }
+        spectralSpray.process(sprayIn, sprayOut, 512u);
+        for (uint32_t i = 0; i < 512u; ++i) {
+            if (!std::isfinite(sprayOutL[i]) || !std::isfinite(sprayOutR[i])) {
+                std::cerr << "Spectral Spray output is not finite\n";
+                return 1;
+            }
+            spectralSprayPeak = std::max(spectralSprayPeak, std::abs(sprayOutL[i]));
+            spectralSprayPeak = std::max(spectralSprayPeak, std::abs(sprayOutR[i]));
+        }
+    }
+    if (spectralSprayPeak <= 0.00001f || spectralSprayPeak > 1.0f) {
+        std::cerr << "Spectral Spray peak outside expected range: " << spectralSprayPeak << "\n";
+        return 1;
+    }
+
+    sprayParams.feedback = 0.85f;
+    sprayParams.freeze = 0.35f;
+    sprayParams.hold = 0.92f;
+    sprayParams.gainDb = -9.0f;
+    spectralSpray.setParams(sprayParams);
+    float spectralSprayFeedbackPeak = 0.0f;
+    for (uint32_t block = 0; block < 80u; ++block) {
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const float t = static_cast<float>(block * 512u + i) / 48000.0f;
+            sprayInL[i] = std::sin(6.28318530718f * 147.0f * t) * 0.18f;
+            sprayInR[i] = std::sin(6.28318530718f * 311.0f * t) * 0.16f;
+        }
+        spectralSpray.process(sprayIn, sprayOut, 512u);
+        for (uint32_t i = 0; i < 512u; ++i) {
+            if (!std::isfinite(sprayOutL[i]) || !std::isfinite(sprayOutR[i])) {
+                std::cerr << "Spectral Spray high-feedback output is not finite\n";
+                return 1;
+            }
+            spectralSprayFeedbackPeak = std::max(spectralSprayFeedbackPeak, std::abs(sprayOutL[i]));
+            spectralSprayFeedbackPeak = std::max(spectralSprayFeedbackPeak, std::abs(sprayOutR[i]));
+        }
+    }
+    if (spectralSprayFeedbackPeak <= 0.00001f || spectralSprayFeedbackPeak > 1.0f) {
+        std::cerr << "Spectral Spray high-feedback peak outside expected range: " << spectralSprayFeedbackPeak << "\n";
+        return 1;
+    }
+
+    spectralSpray.reset();
+    sprayParams = s3g::SpectralSprayParams {};
+    sprayParams.gainDb = -6.0f;
+    spectralSpray.setParams(sprayParams);
+    float spectralSprayAutomationPeak = 0.0f;
+    float spectralSprayAutomationMaxStep = 0.0f;
+    float lastAutoL = 0.0f;
+    float lastAutoR = 0.0f;
+    for (uint32_t block = 0; block < 96u; ++block) {
+        if ((block % 6u) == 0u) {
+            const bool high = ((block / 6u) % 2u) != 0u;
+            sprayParams.sprayBins = high ? 192.0f : 2.0f;
+            sprayParams.drift = high ? 1.0f : 0.0f;
+            sprayParams.hold = high ? 0.94f : 0.15f;
+            sprayParams.freeze = high ? 0.55f : 0.0f;
+            sprayParams.feedback = high ? 0.85f : 0.0f;
+            sprayParams.smear = high ? 1.0f : 0.0f;
+            sprayParams.holes = high ? 0.72f : 0.0f;
+            sprayParams.phaseBlur = high ? 1.0f : 0.0f;
+            sprayParams.loFreq = high ? 900.0f : 0.0f;
+            sprayParams.hiFreq = high ? 4200.0f : 20000.0f;
+            sprayParams.mix = high ? 1.0f : 0.18f;
+            sprayParams.safety = high ? 0.38f : 0.92f;
+            spectralSpray.setParams(sprayParams);
+        }
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const float t = static_cast<float>(block * 512u + i) / 48000.0f;
+            sprayInL[i] = (std::sin(6.28318530718f * 173.0f * t) + std::sin(6.28318530718f * 1301.0f * t) * 0.45f) * 0.12f;
+            sprayInR[i] = (std::sin(6.28318530718f * 257.0f * t) + std::sin(6.28318530718f * 1733.0f * t) * 0.40f) * 0.12f;
+        }
+        spectralSpray.process(sprayIn, sprayOut, 512u);
+        for (uint32_t i = 0; i < 512u; ++i) {
+            if (!std::isfinite(sprayOutL[i]) || !std::isfinite(sprayOutR[i])) {
+                std::cerr << "Spectral Spray automation output is not finite\n";
+                return 1;
+            }
+            spectralSprayAutomationPeak = std::max(spectralSprayAutomationPeak, std::abs(sprayOutL[i]));
+            spectralSprayAutomationPeak = std::max(spectralSprayAutomationPeak, std::abs(sprayOutR[i]));
+            spectralSprayAutomationMaxStep = std::max(spectralSprayAutomationMaxStep, std::abs(sprayOutL[i] - lastAutoL));
+            spectralSprayAutomationMaxStep = std::max(spectralSprayAutomationMaxStep, std::abs(sprayOutR[i] - lastAutoR));
+            lastAutoL = sprayOutL[i];
+            lastAutoR = sprayOutR[i];
+        }
+    }
+    if (spectralSprayAutomationPeak <= 0.00001f || spectralSprayAutomationPeak > 1.0f || spectralSprayAutomationMaxStep > 0.65f) {
+        std::cerr << "Spectral Spray automation stress outside expected range: peak=" << spectralSprayAutomationPeak
+                  << " step=" << spectralSprayAutomationMaxStep << "\n";
+        return 1;
+    }
+#endif
+
     std::cout << "s3g-dsp smoke test passed\n";
     std::cout << "layout speakers: " << s3g::kVirtualSpeakerCount << "\n";
     std::cout << "gain ch1 sample4: " << samples[0][3] << "\n";
     std::cout << "lane patch row8: " << patch.rowMask(7) << "\n";
     std::cout << "mc stereo L/R: " << stereoOut[0] << " / " << stereoOut[1] << "\n";
+    std::cout << "mc quad L/R/RB/LB: " << quadOut[0] << " / " << quadOut[1] << " / " << quadOut[2] << " / " << quadOut[3] << "\n";
     std::cout << "delay processor impulse: " << delayOut[0] << "\n";
     std::cout << "delay processor stress peak: " << delayStressPeak << "\n";
     std::cout << "loop processor peak: " << loopPeak << "\n";
@@ -1426,5 +2049,18 @@ int main()
     std::cout << "Ambi grain async/env peak: " << ambiGrainAsyncPeak << "\n";
     std::cout << "Ambi grain long peak: " << ambiGrainLongPeak << "\n";
     std::cout << "Ambi grain lower-order peak: " << ambiGrainLowerOrderPeak << "\n";
+    std::cout << "shard scatter peak/step: " << shardPeak << " / " << shardMaxStep << "\n";
+    std::cout << "shard scatter sparse peak/step: " << shardSparsePeak << " / " << shardSparseMaxStep << "\n";
+    std::cout << "shard scatter stop step/tail: " << shardStopMaxStep << " / " << shardStopTailPeak << "\n";
+    std::cout << "orbit delay peak/step: " << orbitPeak << " / " << orbitMaxStep << "\n";
+    std::cout << "orbit delay stop step/tail: " << orbitStopMaxStep << " / " << orbitStopTailPeak << "\n";
+    std::cout << "cascade taps peak/step: " << cascadePeak << " / " << cascadeMaxStep << "\n";
+    std::cout << "cascade taps impulse peak/step: " << cascadeImpulsePeak << " / " << cascadeImpulseMaxStep << "\n";
+#if S3G_HAS_ACCELERATE_FFT
+    std::cout << "spectral FFT passthrough err: " << spectralErr << "\n";
+    std::cout << "spectral spray peak: " << spectralSprayPeak << "\n";
+    std::cout << "spectral spray high-feedback peak: " << spectralSprayFeedbackPeak << "\n";
+    std::cout << "spectral spray automation peak/step: " << spectralSprayAutomationPeak << " / " << spectralSprayAutomationMaxStep << "\n";
+#endif
     return 0;
 }

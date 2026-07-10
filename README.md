@@ -36,6 +36,8 @@ Current plugins:
   macros with the shared Macro control layout.
 - `s3g MC to Stereo Autogain`: 128-channel input to true stereo output
   fold-down tool.
+- `s3g MC to Quad Autogain`: 128-channel input to quad output fold-down
+  with output order `L`, `R`, `RB`, `LB`.
 - `s3g Multichannel Meter 64`: fixed 64-in/64-out passthrough meter with
   selectable visual width, level grid, spatial layout view, and energy history.
 - `s3g Ambi Energy Visualizer 64`: fixed 64-in/64-out passthrough analyzer
@@ -57,6 +59,14 @@ Current plugins:
   true stereo using virtual fields and stereo pickup models.
 - `s3g Ambi Head Decoder`: synthetic binaural/transaural stereo decoder
   with no external SOFA files.
+- `s3g Spectral Spray`: native C++ spectral processor for FFT-bin scatter,
+  smear, feedback, hold, freeze, and frequency-window experiments.
+- `s3g Shard Scatter`: 2-in/16-out grain-shard spatial scatter effect with
+  density, guard, scatter, pitch, feedback, and de-click safeguards.
+- `s3g Orbit Delay`: 2-in/16-out orbiting delay effect with spread, focus,
+  feedback, damping, and transport-stop de-click behavior.
+- `s3g Cascade Taps`: 2-in/16-out stepped tap-ring processor with cascade
+  timing, decay, damping, and a `SOFT` control for safer handoff behavior.
 - `s3g 3OAFX Delay` / `s3g 3OAFX Pitch` / `s3g 3OAFX Filter` /
   `s3g 3OAFX Gain`: single-effect third-order processors with internal
   24-point virtual speaker masking.
@@ -71,6 +81,9 @@ Current plugins:
   global controls, not one parameter list per channel.
 - 24-channel 3OAFX-specific work is kept separate from general multichannel
   lane processors.
+- Native C++ spectral processors live in `s3g-dsp`; RNBO/Max experiments are
+  useful prototypes, but generated RNBO source belongs in the separate wrapper
+  workflow rather than this source tree.
 
 ## Documentation
 
@@ -146,7 +159,9 @@ The local smoke test exercises shared DSP code:
 
 The smoke test includes Loop Processor and Multi Loop Processor checks for
 loop playback stability, source-to-lane mapping, mixed source channel counts,
-source rules, source-rate spread bounds, and non-finite/clipping guardrails.
+source rules, source-rate spread bounds, and non-finite/clipping guardrails. It
+also exercises newer spectral, scatter, orbit, cascade, and multichannel
+fold-down DSP paths for finite output, bounded peaks, and de-click stress cases.
 
 If `clap-validator` is installed, validate installed bundles with:
 
@@ -157,6 +172,10 @@ clap-validator validate \
   ~/Library/Audio/Plug-Ins/CLAP/s3g_24ch_delay_processor.clap --only-failed
 clap-validator validate \
   ~/Library/Audio/Plug-Ins/CLAP/s3g_mc_to_stereo_autogain.clap --only-failed
+clap-validator validate \
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_mc_to_quad_autogain.clap --only-failed
+clap-validator validate \
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_spectral_spray.clap --only-failed
 ```
 
 ## Related Projects

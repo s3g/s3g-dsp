@@ -77,6 +77,11 @@
             <strong>s3g Macro Pitch 8ch / 24ch</strong>
             <em>Compact multichannel pitch macro with the shared Macro layout and wider 24-channel builds.</em>
           </div>
+          <a class="category-card" href="spectral-processors.html">
+            <span>spectral / spatial</span>
+            <strong>s3g Spectral Processors</strong>
+            <em>Spectral Spray, Shard Scatter, Orbit Delay, and Cascade Taps native C++ CLAP processors.</em>
+          </a>
         </div>
 
         <h3>Utilities</h3>
@@ -86,6 +91,11 @@
             <span>fold-down</span>
             <strong>s3g MC to Stereo Autogain</strong>
             <em>128-channel input to true stereo output fold-down tool.</em>
+          </a>
+          <a class="category-card" href="mc-to-quad-autogain.html">
+            <span>fold-down</span>
+            <strong>s3g MC to Quad Autogain</strong>
+            <em>128-channel input to quad output fold-down with output order L, R, RB, LB.</em>
           </a>
           <div class="category-card muted-card">
             <span>meter</span>
@@ -186,6 +196,8 @@
         <p>For multichannel sessions, set the track channel count before inserting the plugin.</p>
 
         <p>For true stereo-output plugins on wide REAPER tracks, including <code>s3g MC to Stereo Autogain</code>, <code>s3g Ambi Stereo Decoder</code>, and <code>s3g Ambi Head Decoder</code>, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code> if a following meter still shows channels above 2. These CLAP plugins expose stereo output buses, but REAPER can still pass unmapped track channels around the effect unless this option is enabled.</p>
+
+        <p><code>s3g MC to Quad Autogain</code> exposes a four-channel output bus ordered <code>L</code>, <code>R</code>, <code>RB</code>, <code>LB</code>. <code>s3g Shard Scatter</code>, <code>s3g Orbit Delay</code>, and <code>s3g Cascade Taps</code> expose sixteen output channels, so set the REAPER track channel count and plugin pins before auditioning those processors.</p>
 
         <p>For ambisonics-specific tools in this package, see <a href="3oafx.html">Ambisonics</a>. For the larger REAPER package workflow, see the <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX Send Return Controller guide</a>.</p>
 

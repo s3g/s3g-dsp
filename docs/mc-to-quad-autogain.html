@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MC to Quad Autogain - s3g-dsp</title>
+    <meta name="description" content="MC to Quad Autogain documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="effects.html">Effects</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>MC to Quad Autogain</h1>
+
+        <p><code>s3g MC to Quad Autogain</code> folds a multichannel REAPER track down to a four-channel quad output. It is a monitoring and audition utility for sessions where a quad speaker check is more useful than stereo, but a full decoder or speaker-layout workflow would be too much setup.</p>
+
+        <p>The plugin accepts up to 128 input channels and writes outputs 1-4 as <code>L</code>, <code>R</code>, <code>RB</code>, <code>LB</code>. It shares the same layout, rotation, width, 3D weighting, and autogain ideas as MC to Stereo Autogain, adapted to a quad field.</p>
+
+        <div class="status-strip" aria-label="MC to Quad summary">
+          <div><span>input</span><strong>2-128ch</strong></div>
+          <div><span>output</span><strong>L R RB LB</strong></div>
+          <div><span>use</span><strong>quad fold-down</strong></div>
+          <div><span>host</span><strong>REAPER CLAP</strong></div>
+        </div>
+
+        <h2 id="output-order">Output Order</h2>
+
+        <p>The quad bus is intentionally ordered for straightforward REAPER routing:</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Plugin output</th><th>Speaker</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td>Left</td></tr>
+            <tr><td>2</td><td>Right</td></tr>
+            <tr><td>3</td><td>Right Back</td></tr>
+            <tr><td>4</td><td>Left Back</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>IN</td><td>How many plugin input channels are included in the fold-down.</td></tr>
+            <tr><td>WDTH</td><td>Quad field width. Low values collapse inward; high values exaggerate the field.</td></tr>
+            <tr><td>ROT</td><td>Rotates ring and 3D layouts before they are folded to quad.</td></tr>
+            <tr><td>AGN</td><td>Dropdown menu for autogain: Off, Power/sqrt(N), or Energy sum.</td></tr>
+            <tr><td>OUT</td><td>Final quad output gain trim.</td></tr>
+            <tr><td>LAY</td><td>Dropdown menu for the layout model.</td></tr>
+            <tr><td>WGT</td><td>Controls how strongly the layout shape affects channel placement.</td></tr>
+            <tr><td>ATT</td><td>3D attenuation for layouts with height and rear relationships.</td></tr>
+            <tr><td>DST</td><td>3D distance spread for sphere, hemisphere, and cube layouts.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="layout-models">Layout Models</h2>
+
+        <p><code>LAY</code> uses the same layout names as the stereo fold-down: Ring projection, Linear left-right, Odd/even stereo, Center-out, Pair-preserving, Sphere projection, Hemisphere projection, and Cube projection. In the quad version, the channel positions are projected toward four speakers instead of a stereo pair.</p>
+
+        <p><code>AGN</code> and <code>LAY</code> are discrete controls, so the GUI presents them as dropdown menus instead of continuous sliders.</p>
+
+        <h2 id="reaper-pins">REAPER Pins</h2>
+
+        <p>The plugin has a four-channel output bus. For a clean fold-down insert, set the REAPER track channel count high enough for the source material, then route outputs 1-4 to the intended quad destination. If downstream channels still show unrelated audio, use REAPER's plugin pin connector to zero unmapped output channels.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="mc-to-stereo-autogain.html">
+            <span>Previous</span>
+            MC to Stereo Autogain
+          </a>
+          <a class="page-nav-link next" href="spectral-processors.html">
+            <span>Next</span>
+            Spectral Processors
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Effect Pages</h2>
+          <a href="effects.html">Effects Overview</a>
+          <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a>
+          <a href="mc-to-quad-autogain.html">MC to Quad Autogain</a>
+          <a href="spectral-processors.html">Spectral Processors</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#output-order">Output Order</a>
+          <a href="#controls">Controls</a>
+          <a href="#layout-models">Layout Models</a>
+          <a href="#reaper-pins">REAPER Pins</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

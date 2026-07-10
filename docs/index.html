@@ -57,6 +57,7 @@
           <li><code>s3g Macro Delay 8ch</code> / <code>s3g Macro Delay 24ch</code>: compact multichannel delay macros with relationship controls.</li>
           <li><code>s3g Macro Pitch 8ch</code> / <code>s3g Macro Pitch 24ch</code>: compact multichannel pitch macros with the shared Macro control layout.</li>
           <li><a href="mc-to-stereo-autogain.html"><code>s3g MC to Stereo Autogain</code></a>: 128-channel input to true stereo output fold-down tool.</li>
+          <li><a href="mc-to-quad-autogain.html"><code>s3g MC to Quad Autogain</code></a>: 128-channel input to quad output fold-down with output order <code>L</code>, <code>R</code>, <code>RB</code>, <code>LB</code>.</li>
           <li><code>s3g Multichannel Meter 64</code>: fixed 64-in/64-out passthrough meter with grid, spatial layout, and energy history views.</li>
           <li><a href="ambisonic-energy-visualizer.html"><code>s3g Ambi Energy Visualizer 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> passthrough analyzer with a high-resolution energy heatmap.</li>
           <li><a href="3oafx-point-encoder.html"><code>s3g Ambi Point Encoder</code></a>: 16 point-source input to 3OA <code>ACN/SN3D</code> output with AED placement, point mixer, physics scenes, and Geist-driven bond breaking.</li>
@@ -66,10 +67,11 @@
           <li><a href="ambisonic-order-band-tool.html"><code>s3g Ambi Order / Band 64</code></a>: 1OA to 7OA order-band gain and weighting utility with Flat, MaxRE, In-phase, and Custom modes.</li>
           <li><a href="ambisonic-stereo-decoder.html"><code>s3g Ambi Stereo Decoder</code></a>: 1OA to 7OA <code>ACN/SN3D</code> to true stereo with virtual fields and stereo pickup models.</li>
           <li><a href="ambisonic-head-decoder.html"><code>s3g Ambi Head Decoder</code></a>: synthetic binaural/transaural stereo decoder with no external SOFA files.</li>
+          <li><a href="spectral-processors.html"><code>s3g Spectral Spray</code>, <code>Shard Scatter</code>, <code>Orbit Delay</code>, and <code>Cascade Taps</code></a>: native C++ spectral/spatial processors for FFT-bin scatter, grain-shard scattering, orbiting delay, and stepped tap cascades.</li>
           <li><a href="3oafx-effects.html"><code>s3g 3OAFX Delay</code> / <code>Pitch</code> / <code>Filter</code> / <code>Gain</code></a>: single-effect 3OA processors with internal 24-point virtual speaker masking.</li>
         </ul>
 
-        <p><a href="delay-processor.html">Delay Processor</a> is the main topology effect. <a href="loop-processor.html">Loop Processor</a>, <a href="multi-loop-processor.html">Multi Loop Processor</a>, and <a href="ambi-grain-processor.html">Ambi Grain Processor</a> are loaded-audio instruments. <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a> is a practical fold-down tool for auditioning multichannel work in stereo.</p>
+        <p><a href="delay-processor.html">Delay Processor</a> is the main topology effect. <a href="loop-processor.html">Loop Processor</a>, <a href="multi-loop-processor.html">Multi Loop Processor</a>, and <a href="ambi-grain-processor.html">Ambi Grain Processor</a> are loaded-audio instruments. <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a> and <a href="mc-to-quad-autogain.html">MC to Quad Autogain</a> are practical fold-down tools for auditioning multichannel work. <a href="spectral-processors.html">Spectral Processors</a> collect the new native spectral and multichannel scatter experiments.</p>
 
         <h2 id="plugin-groups">Plugin Groups</h2>
 
@@ -79,7 +81,7 @@
           <a class="category-card" href="effects.html">
             <span>audio processors</span>
             <strong>Effects</strong>
-            <em>Delay Processor, Macro Delay, Macro Pitch, fold-down, metering, and routing tools.</em>
+            <em>Delay Processor, Macro Delay, Macro Pitch, native spectral/spatial processors, fold-down, metering, and routing tools.</em>
           </a>
           <a class="category-card" href="3oafx.html">
             <span>ambisonics</span>
@@ -101,6 +103,7 @@
           <li>Fixed-width CLAP plugins are used where REAPER pin routing needs to be predictable.</li>
           <li>Per-channel settings are generated inside the plugin. REAPER sees compact global controls, not one parameter list per channel.</li>
           <li>24-channel 3OAFX-specific work is kept separate from general multichannel lane processors.</li>
+          <li>Native C++ spectral processors live here; RNBO/Max-generated source stays in the separate wrapper workflow.</li>
         </ul>
 
         <h2 id="topology-layer">Topology Layer</h2>
