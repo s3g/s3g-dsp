@@ -48,33 +48,37 @@
         <h3>Current Plugins</h3>
 
         <ul>
-          <li><code>s3g 24ch Passthrough Test</code>: fixed 24-in/24-out CLAP passthrough/gain plugin.</li>
-          <li><a href="delay-processor.html"><code>s3g Delay Processor 8ch</code></a>: main topology-driven delay processor.</li>
-          <li><a href="delay-processor.html"><code>s3g Delay Processor 24ch</code></a>: wider fixed-width delay build.</li>
-          <li><a href="loop-processor.html"><code>s3g Loop Processor 8ch</code></a>: CLAP instrument plugin for loaded audio loops, lane playheads, waveform display, and phase relationship controls.</li>
-          <li><a href="multi-loop-processor.html"><code>s3g Multi Loop Processor 8ch</code></a>: CLAP instrument plugin for up to four loaded files, source-to-lane rules, source rate spread, and source crossblend.</li>
-          <li><a href="ambi-grain-processor.html"><code>s3g Ambi Grain Processor</code></a>: CLAP instrument plugin for loaded <code>ACN/SN3D</code> ambisonic media with channel-locked grain events.</li>
-          <li><code>s3g Macro Delay 8ch</code> / <code>s3g Macro Delay 24ch</code>: compact multichannel delay macros with relationship controls.</li>
-          <li><code>s3g Macro Pitch 8ch</code> / <code>s3g Macro Pitch 24ch</code>: compact multichannel pitch macros with the shared Macro control layout.</li>
-          <li><a href="mc-to-stereo-autogain.html"><code>s3g MC to Stereo Autogain</code></a>: 128-channel input to true stereo output fold-down tool.</li>
-          <li><a href="mc-to-quad-autogain.html"><code>s3g MC to Quad Autogain</code></a>: 128-channel input to quad output fold-down with output order <code>L</code>, <code>R</code>, <code>RB</code>, <code>LB</code>.</li>
-          <li><code>s3g Multichannel Meter 64</code>: fixed 64-in/64-out passthrough meter with grid, spatial layout, and energy history views.</li>
+          <li><a href="3oafx-effects.html"><code>s3g 3OAFX Delay</code></a>: single-effect third-order delay processor with internal 24-point virtual speaker masking.</li>
+          <li><a href="3oafx-effects.html"><code>s3g 3OAFX Filter</code></a>: single-effect third-order filter processor with internal 24-point virtual speaker masking.</li>
+          <li><a href="3oafx-effects.html"><code>s3g 3OAFX Gain</code></a>: single-effect third-order gain/cut processor with internal 24-point virtual speaker masking.</li>
+          <li><a href="3oafx-effects.html"><code>s3g 3OAFX Pitch</code></a>: single-effect third-order pitch processor with internal 24-point virtual speaker masking.</li>
           <li><a href="ambisonic-energy-visualizer.html"><code>s3g Ambi Energy Visualizer 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> passthrough analyzer with a high-resolution energy heatmap.</li>
-          <li><a href="3oafx-point-encoder.html"><code>s3g Ambi Point Encoder</code></a>: 16 point-source input to 3OA <code>ACN/SN3D</code> output with AED placement, point mixer, physics scenes, and Geist-driven bond breaking.</li>
-          <li><a href="3oafx-speaker-decoder.html"><code>s3g Ambi Speaker Decoder 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> speaker decoder with curated layouts, custom speaker editing, and a stable 64-channel speaker bus.</li>
-          <li><a href="3oafx-layout-panner.html"><code>s3g Layout Panner</code></a>: direct 16-source to 64-speaker spatial panner with source mixing, speaker presets, and custom layout design.</li>
-          <li><a href="ambisonic-rotate.html"><code>s3g Ambi Rotate 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> field rotation utility with yaw, pitch, roll, and order-width trim.</li>
-          <li><a href="ambisonic-order-band-tool.html"><code>s3g Ambi Order / Band 64</code></a>: 1OA to 7OA order-band gain and weighting utility with Flat, MaxRE, In-phase, and Custom modes.</li>
-          <li><a href="ambisonic-stereo-decoder.html"><code>s3g Ambi Stereo Decoder</code></a>: 1OA to 7OA <code>ACN/SN3D</code> to true stereo with virtual fields and stereo pickup models.</li>
+          <li><a href="ambi-grain-processor.html"><code>s3g Ambi Grain Processor</code></a>: CLAP instrument plugin for loaded <code>ACN/SN3D</code> ambisonic media with channel-locked grain events.</li>
           <li><a href="ambisonic-head-decoder.html"><code>s3g Ambi Head Decoder</code></a>: synthetic binaural/transaural stereo decoder with no external SOFA files.</li>
-          <li><code>s3g Spectral Spray</code>: C++ FFT-bin scatter, smear, hold, freeze, and feedback effect.</li>
-          <li><code>s3g Shard Scatter</code>: 2-in/16-out grain-shard spatial scatter effect.</li>
-          <li><code>s3g Orbit Delay</code>: 2-in/16-out orbiting delay effect with transport-stop de-click behavior.</li>
+          <li><a href="ambisonic-order-band-tool.html"><code>s3g Ambi Order / Band 64</code></a>: 1OA to 7OA order-band gain and weighting utility with Flat, MaxRE, In-phase, and Custom modes.</li>
+          <li><a href="3oafx-point-encoder.html"><code>s3g Ambi Point Encoder</code></a>: 16 point-source input to 3OA <code>ACN/SN3D</code> output with AED placement, point mixer, physics scenes, and Geist-driven bond breaking.</li>
+          <li><a href="ambisonic-rotate.html"><code>s3g Ambi Rotate 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> field rotation utility with yaw, pitch, roll, and order-width trim.</li>
+          <li><a href="3oafx-speaker-decoder.html"><code>s3g Ambi Speaker Decoder 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> speaker decoder with curated layouts, custom speaker editing, and a stable 64-channel speaker bus.</li>
+          <li><a href="ambisonic-stereo-decoder.html"><code>s3g Ambi Stereo Decoder</code></a>: 1OA to 7OA <code>ACN/SN3D</code> to true stereo with virtual fields and stereo pickup models.</li>
           <li><code>s3g Cascade Taps</code>: 2-in/16-out stepped tap-ring effect with a <code>SOFT</code> control for safer cascade handoffs.</li>
-          <li><a href="3oafx-effects.html"><code>s3g 3OAFX Delay</code> / <code>Pitch</code> / <code>Filter</code> / <code>Gain</code></a>: single-effect 3OA processors with internal 24-point virtual speaker masking.</li>
+          <li><a href="delay-processor.html"><code>s3g Delay Processor 24ch</code></a>: wider fixed-width delay build.</li>
+          <li><a href="delay-processor.html"><code>s3g Delay Processor 8ch</code></a>: main topology-driven delay processor.</li>
+          <li><a href="3oafx-layout-panner.html"><code>s3g Layout Panner</code></a>: direct 16-source to 64-speaker spatial panner with source mixing, speaker presets, and custom layout design.</li>
+          <li><a href="loop-processor.html"><code>s3g Loop Processor 8ch</code></a>: CLAP instrument plugin for loaded audio loops, lane playheads, waveform display, and phase relationship controls.</li>
+          <li><code>s3g Macro Delay 24ch</code>: compact 24-channel delay macro with relationship controls.</li>
+          <li><code>s3g Macro Delay 8ch</code>: compact 8-channel delay macro with relationship controls.</li>
+          <li><code>s3g Macro Pitch 24ch</code>: compact 24-channel pitch macro with the shared Macro control layout.</li>
+          <li><code>s3g Macro Pitch 8ch</code>: compact 8-channel pitch macro with the shared Macro control layout.</li>
+          <li><a href="mc-to-quad-autogain.html"><code>s3g MC to Quad Autogain</code></a>: 128-channel input to quad output fold-down with output order <code>L</code>, <code>R</code>, <code>RB</code>, <code>LB</code>.</li>
+          <li><a href="mc-to-stereo-autogain.html"><code>s3g MC to Stereo Autogain</code></a>: 128-channel input to true stereo output fold-down tool.</li>
+          <li><a href="multi-loop-processor.html"><code>s3g Multi Loop Processor 8ch</code></a>: CLAP instrument plugin for up to four loaded files, source-to-lane rules, source rate spread, and source crossblend.</li>
+          <li><code>s3g Multichannel Meter 64</code>: fixed 64-in/64-out passthrough meter with grid, spatial layout, and energy history views.</li>
+          <li><code>s3g Orbit Delay</code>: 2-in/16-out orbiting delay effect with transport-stop de-click behavior.</li>
+          <li><code>s3g Passthrough Test 24ch</code>: fixed 24-in/24-out CLAP passthrough/gain plugin.</li>
+          <li><code>s3g Shard Scatter</code>: 2-in/16-out grain-shard spatial scatter effect.</li>
+          <li><code>s3g Spectral Spray 2ch</code>: stereo C++ FFT-bin scatter, smear, hold, freeze, and feedback effect.</li>
+          <li><code>s3g Spectral Spray 8ch</code>: 8-channel C++ FFT-bin scatter, smear, hold, freeze, and feedback effect.</li>
         </ul>
-
-        <p><a href="delay-processor.html">Delay Processor</a> is the main topology effect. <a href="loop-processor.html">Loop Processor</a>, <a href="multi-loop-processor.html">Multi Loop Processor</a>, and <a href="ambi-grain-processor.html">Ambi Grain Processor</a> are loaded-audio instruments. <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a> and <a href="mc-to-quad-autogain.html">MC to Quad Autogain</a> are practical fold-down tools for auditioning multichannel work. The newer effects add spectral spray, shard scatter, orbit delay, and cascade tap-ring processing.</p>
 
         <h2 id="plugin-groups">Plugin Groups</h2>
 

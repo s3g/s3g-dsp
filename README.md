@@ -21,7 +21,7 @@ change.
 
 Current plugins:
 
-- `s3g 24ch Passthrough Test`: fixed 24-in/24-out CLAP passthrough/gain plugin.
+- `s3g Passthrough Test 24ch`: fixed 24-in/24-out CLAP passthrough/gain plugin.
 - `s3g Delay Processor 8ch`: multichannel delay processor with topology controls.
 - `s3g Delay Processor 24ch`: wider fixed-width delay build.
 - `s3g Loop Processor 8ch`: CLAP instrument plugin for loaded audio loops,
@@ -59,7 +59,7 @@ Current plugins:
   true stereo using virtual fields and stereo pickup models.
 - `s3g Ambi Head Decoder`: synthetic binaural/transaural stereo decoder
   with no external SOFA files.
-- `s3g Spectral Spray`: C++ spectral processor for FFT-bin scatter,
+- `s3g Spectral Spray 2ch` / `s3g Spectral Spray 8ch`: C++ spectral processors for FFT-bin scatter,
   smear, feedback, hold, freeze, and frequency-window experiments.
 - `s3g Shard Scatter`: 2-in/16-out grain-shard spatial scatter effect with
   density, guard, scatter, pitch, feedback, and de-click safeguards.
@@ -67,8 +67,8 @@ Current plugins:
   feedback, damping, and transport-stop de-click behavior.
 - `s3g Cascade Taps`: 2-in/16-out stepped tap-ring processor with cascade
   timing, decay, damping, and a `SOFT` control for safer handoff behavior.
-- `s3g 3OAFX Delay` / `s3g 3OAFX Pitch` / `s3g 3OAFX Filter` /
-  `s3g 3OAFX Gain`: single-effect third-order processors with internal
+- `s3g 3OAFX Delay` / `s3g 3OAFX Filter` / `s3g 3OAFX Gain` /
+  `s3g 3OAFX Pitch`: single-effect third-order processors with internal
   24-point virtual speaker masking.
 
 ## Design

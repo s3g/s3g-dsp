@@ -420,10 +420,21 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     NSTimer* _timer;
     bool _binauralOpen;
     bool _transauralOpen;
+    int _viewMode;
+    double _viewYawDeg;
+    double _viewPitchDeg;
+    double _viewZoom;
+    bool _dragView;
+    NSPoint _lastDragPoint;
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
+- (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect;
+- (NSRect)zoomButtonRect:(int)index inRect:(NSRect)rect;
+- (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs;
+- (void)drawZoomButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs;
+- (void)setViewPreset:(int)mode;
 @end
 
 @implementation S3GAmbisonicHeadDecoderView
@@ -440,6 +451,12 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         _timer = nil;
         _binauralOpen = true;
         _transauralOpen = true;
+        _viewMode = 0;
+        _viewYawDeg = 0.0;
+        _viewPitchDeg = 0.0;
+        _viewZoom = 1.0;
+        _dragView = false;
+        _lastDragPoint = NSMakePoint(0, 0);
         [[self window] setAcceptsMouseMovedEvents:YES];
     }
     return self;
@@ -476,6 +493,54 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
 {
     s3g::clap_gui::drawMenu(name, value, y, attrs, attrs, style, 606, 724, 176);
 }
+- (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect
+{
+    const CGFloat w = 38.0;
+    const CGFloat h = 13.0;
+    const CGFloat gap = 5.0;
+    const CGFloat x = NSMaxX(rect) - 10.0 - (3.0 - static_cast<CGFloat>(index)) * w - (2.0 - static_cast<CGFloat>(index)) * gap;
+    return NSMakeRect(x, rect.origin.y + 4.0, w, h);
+}
+- (NSRect)zoomButtonRect:(int)index inRect:(NSRect)rect
+{
+    const CGFloat w = 18.0;
+    const CGFloat h = 13.0;
+    const CGFloat gap = 4.0;
+    const CGFloat viewStart = [self viewButtonRect:0 inRect:rect].origin.x;
+    const CGFloat x = viewStart - 12.0 - (2.0 - static_cast<CGFloat>(index)) * w - (1.0 - static_cast<CGFloat>(index)) * gap;
+    return NSMakeRect(x, rect.origin.y + 4.0, w, h);
+}
+- (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
+{
+    static NSString* labels[] = { @"TOP", @"BACK", @"3/4" };
+    s3g::clap_gui::Style style;
+    for (int i = 0; i < 3; ++i) {
+        s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
+    }
+}
+- (void)drawZoomButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
+{
+    static NSString* labels[] = { @"-", @"+" };
+    s3g::clap_gui::Style style;
+    for (int i = 0; i < 2; ++i) {
+        s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i inRect:rect], rect, labels[i], false, attrs, style);
+    }
+}
+- (void)setViewPreset:(int)mode
+{
+    _viewMode = mode;
+    if (mode == 0) {
+        _viewYawDeg = 0.0;
+        _viewPitchDeg = 0.0;
+    } else if (mode == 1) {
+        _viewYawDeg = 180.0;
+        _viewPitchDeg = 82.0;
+    } else {
+        _viewYawDeg = 135.0;
+        _viewPitchDeg = 42.0;
+    }
+    [self setNeedsDisplay:YES];
+}
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
@@ -491,36 +556,123 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     NSRect fieldPanel = NSMakeRect(12, 34, 568, 664);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"HEAD FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
+    [self drawZoomButtonsInRect:fieldPanel attrs:small];
+    [self drawViewButtonsInRect:fieldPanel attrs:small];
     NSRect field = NSMakeRect(28, 82, 536, 502);
     [c(0x101010) setFill]; NSRectFill(field);
     [style.grid setStroke]; NSFrameRect(field);
     const CGFloat cx = field.origin.x + field.size.width * 0.50;
     const CGFloat cy = field.origin.y + field.size.height * 0.56;
-    const CGFloat r = std::min(field.size.width, field.size.height) * 0.26;
+    const CGFloat r = std::min(field.size.width, field.size.height) * 0.26 * std::clamp<CGFloat>(_viewZoom, 0.65, 1.80);
     [c(0x686868, 0.22) setStroke];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(field.origin.x + 28, cy) toPoint:NSMakePoint(NSMaxX(field) - 28, cy)];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(cx, field.origin.y + 28) toPoint:NSMakePoint(cx, NSMaxY(field) - 28)];
 
-    const auto spec = s3g::ambiHeadProfileSpec(p->params.head);
-    const CGFloat shapeScale = std::clamp<CGFloat>(spec.widthCm / 18.0f, 0.86, 1.18);
-    const CGFloat earScale = 0.85 + (p->params.headWidthCm - 15.0) / 12.0;
-    NSRect head = NSMakeRect(cx - r * 0.52 * shapeScale, cy - r * 0.66 * (0.96 + shapeScale * 0.04), r * 1.04 * shapeScale, r * 1.32 * (0.96 + shapeScale * 0.04));
-    [c(0x0e0e0e, 0.94) setFill]; [[NSBezierPath bezierPathWithOvalInRect:head] fill];
-    [c(spec.shadow > 0.60f ? 0xf0f0f0 : (spec.shadow < 0.48f ? 0x9c9c9c : 0xd0d0d0), 0.38 + spec.shadow * 0.18) setStroke];
-    [[NSBezierPath bezierPathWithOvalInRect:head] stroke];
-    const CGFloat earX = r * 0.66 * earScale;
-    [c(0xd8d8d8, 0.74) setFill];
-    NSRectFill(NSMakeRect(cx - earX - 5, cy - 16, 8, 32));
-    NSRectFill(NSMakeRect(cx + earX - 3, cy - 16, 8, 32));
-    [@"L" drawAtPoint:NSMakePoint(cx - earX - 20, cy - 7) withAttributes:small];
-    [@"R" drawAtPoint:NSMakePoint(cx + earX + 10, cy - 7) withAttributes:small];
-
+    auto project3 = [&](double x, double y, double z, CGFloat radius) -> NSPoint {
+        if (_viewMode == 0) return NSMakePoint(cx + x * radius, cy + y * radius);
+        if (_viewMode == 1) return NSMakePoint(cx - x * radius * 0.94, cy - z * radius * 0.94);
+        const double yaw = _viewYawDeg * s3g::kPi / 180.0;
+        const double pitch = _viewPitchDeg * s3g::kPi / 180.0;
+        const double x1 = x * std::cos(yaw) - y * std::sin(yaw);
+        const double y1 = x * std::sin(yaw) + y * std::cos(yaw);
+        const double y2 = y1 * std::cos(pitch) - z * std::sin(pitch);
+        return NSMakePoint(cx + x1 * radius, cy + y2 * radius * 0.86);
+    };
     auto project = [&](float azDeg, float elDeg, CGFloat radius) -> NSPoint {
         const float az = (azDeg - p->params.yawDeg) * s3g::kPi / 180.0f;
         const float el = (elDeg - p->params.pitchDeg) * s3g::kPi / 180.0f;
-        return NSMakePoint(cx - std::sin(az) * std::cos(el) * radius,
-            cy - std::cos(az) * std::cos(el) * radius);
+        const double x = -std::sin(az) * std::cos(el);
+        const double y = -std::cos(az) * std::cos(el);
+        const double z = std::sin(el);
+        return project3(x, y, z, radius);
     };
+
+    const auto spec = s3g::ambiHeadProfileSpec(p->params.head);
+    const CGFloat shapeScale = std::clamp<CGFloat>(spec.widthCm / 18.0f, 0.86, 1.18);
+    const CGFloat earScale = 0.85 + (p->params.headWidthCm - 15.0) / 12.0;
+    const CGFloat pin = std::clamp<CGFloat>(p->params.pinnaPercent / 100.0f, 0.0, 1.0);
+    const CGFloat headW = r * 0.44 * shapeScale;
+    const CGFloat headD = r * 0.40 * (0.96 + shapeScale * 0.04);
+    const CGFloat headH = r * 0.88 * (0.96 + shapeScale * 0.04);
+    auto headPoint = [&](double lateral, double forward, double height) -> NSPoint {
+        return project3(lateral * headW / r, forward * headD / r, height * headH / r, r);
+    };
+    auto pathMove = [](NSBezierPath* path, NSPoint p0) { [path moveToPoint:p0]; };
+    auto drawFacet = [&](int rgb, CGFloat alpha, std::initializer_list<NSPoint> pts) {
+        NSBezierPath* facet = [NSBezierPath bezierPath];
+        bool first = true;
+        for (NSPoint pt : pts) {
+            if (first) { [facet moveToPoint:pt]; first = false; }
+            else [facet lineToPoint:pt];
+        }
+        [facet closePath];
+        [c(rgb, alpha) setStroke];
+        [facet setLineWidth:0.95];
+        [facet stroke];
+    };
+    constexpr int ovalRings = 6;
+    constexpr int ovalSegments = 8;
+    const double ringH[ovalRings] = { -0.82, -0.54, -0.20, 0.16, 0.50, 0.80 };
+    const double ringW[ovalRings] = { 0.22, 0.52, 0.76, 0.72, 0.48, 0.18 };
+    const double ringD[ovalRings] = { 0.16, 0.34, 0.48, 0.46, 0.30, 0.12 };
+    auto ovalPoint = [&](int ring, int segment) -> NSPoint {
+        const double a = (2.0 * s3g::kPi * static_cast<double>(segment)) / static_cast<double>(ovalSegments);
+        return headPoint(std::sin(a) * ringW[ring], -std::cos(a) * ringD[ring], ringH[ring]);
+    };
+    for (int ri = 0; ri < ovalRings - 1; ++ri) {
+        for (int si = 0; si < ovalSegments; ++si) {
+            const int sj = (si + 1) % ovalSegments;
+            const bool front = (si == 0 || si == 7);
+            const bool sideLight = (si == 5 || si == 6);
+            const int rgb = front ? 0xd8d8d8 : sideLight ? 0xaaaaaa : 0x767676;
+            const CGFloat alpha = front ? 0.92 : 0.58;
+            drawFacet(rgb, alpha, { ovalPoint(ri, si), ovalPoint(ri, sj), ovalPoint(ri + 1, sj), ovalPoint(ri + 1, si) });
+        }
+    }
+    drawFacet(0xe8e8e8, 0.88, { headPoint(-0.42, -0.50, 0.18), headPoint(0.42, -0.50, 0.18), headPoint(0.26, -0.58, -0.02), headPoint(-0.26, -0.58, -0.02) });
+    drawFacet(0xd6d6d6, 0.90, { headPoint(-0.10, -0.62, 0.00), headPoint(0.10, -0.62, 0.00), headPoint(0.06, -0.72, -0.22), headPoint(-0.06, -0.72, -0.22) });
+    drawFacet(0xcfcfcf, 0.82, { headPoint(-0.30, -0.52, -0.36), headPoint(0.30, -0.52, -0.36), headPoint(0.18, -0.42, -0.62), headPoint(-0.18, -0.42, -0.62) });
+    const CGFloat earX = r * 0.66 * earScale;
+    const CGFloat earRadius = earX / r;
+    auto drawEar = [&](bool leftSide) {
+        const double sign = leftSide ? -1.0 : 1.0;
+        const CGFloat line = 1.0 + pin * 1.0;
+        NSBezierPath* socket = [NSBezierPath bezierPath];
+        pathMove(socket, project3(sign * (earRadius - 0.03), -0.01, -0.34, r));
+        [socket lineToPoint:project3(sign * (earRadius - 0.08), 0.01, -0.02, r)];
+        [socket lineToPoint:project3(sign * (earRadius - 0.01), 0.02, 0.42, r)];
+        [socket setLineWidth:7.0 + pin * 2.0];
+        [c(0x000000, 0.20) setStroke]; [socket stroke];
+        NSBezierPath* outer = [NSBezierPath bezierPath];
+        pathMove(outer, project3(sign * earRadius, -0.02, -0.32, r));
+        [outer lineToPoint:project3(sign * (earRadius + 0.16 + pin * 0.04), -0.02, -0.22, r)];
+        [outer lineToPoint:project3(sign * (earRadius + 0.24 + pin * 0.06), 0.00, 0.08, r)];
+        [outer lineToPoint:project3(sign * (earRadius + 0.15 + pin * 0.04), 0.02, 0.36, r)];
+        [outer lineToPoint:project3(sign * earRadius, 0.01, 0.44, r)];
+        [outer closePath];
+        [c(0x151515, 0.98) setFill]; [outer fill];
+        [c(0xd8d8d8, 0.42 + pin * 0.30) setStroke]; [outer setLineWidth:line]; [outer stroke];
+        NSBezierPath* cup = [NSBezierPath bezierPath];
+        pathMove(cup, project3(sign * (earRadius + 0.05), -0.01, -0.18, r));
+        [cup lineToPoint:project3(sign * (earRadius + 0.16 + pin * 0.05), 0.00, -0.02, r)];
+        [cup lineToPoint:project3(sign * (earRadius + 0.08), 0.02, 0.28, r)];
+        [cup lineToPoint:project3(sign * (earRadius + 0.01 - pin * 0.03), 0.01, 0.10, r)];
+        [cup closePath];
+        [c(0xe8b486, 0.07 + pin * 0.14) setFill]; [cup fill];
+        [c(0xe8b486, 0.26 + pin * 0.42) setStroke]; [cup setLineWidth:0.8 + pin * 1.8]; [cup stroke];
+        NSBezierPath* fold = [NSBezierPath bezierPath];
+        pathMove(fold, project3(sign * (earRadius + 0.04), 0.00, -0.02, r));
+        [fold lineToPoint:project3(sign * (earRadius + 0.17 + pin * 0.05), 0.01, 0.16, r)];
+        [fold lineToPoint:project3(sign * (earRadius + 0.02 - pin * 0.03), 0.01, 0.18, r)];
+        [fold setLineWidth:0.8 + pin * 1.2];
+        [c(0xffd4a8, 0.20 + pin * 0.38) setStroke]; [fold stroke];
+    };
+    drawEar(true);
+    drawEar(false);
+    const NSPoint leftLabel = project3(-earRadius - 0.16, 0.0, 0.02, r);
+    const NSPoint rightLabel = project3(earRadius + 0.08, 0.0, 0.02, r);
+    [@"L" drawAtPoint:NSMakePoint(leftLabel.x, leftLabel.y - 7) withAttributes:small];
+    [@"R" drawAtPoint:NSMakePoint(rightLabel.x, rightLabel.y - 7) withAttributes:small];
     const bool directDecode = p->params.decodeMode == s3g::AmbiHeadDecodeMode::Direct;
     const uint32_t vcount = directDecode ? s3g::kAmbiHeadMaxVirtualSpeakers : s3g::ambiStereoVirtualCount(p->params.layout);
     for (uint32_t i = 0; i < vcount; ++i) {
@@ -533,37 +685,43 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     }
 
     if (p->params.mode == s3g::AmbiHeadMode::Transaural) {
-        const float angle = p->params.speakerHalfAngleDeg * s3g::kPi / 180.0f;
+        const float angleDeg = p->params.speakerHalfAngleDeg;
         const CGFloat amount = std::clamp<CGFloat>(p->params.xtcAmountPercent / 140.0f, 0.0, 1.0);
         const CGFloat preserve = std::clamp<CGFloat>(p->params.stereoPreservePercent / 100.0f, 0.0, 1.0);
         const CGFloat sr = r * 1.90;
-        const NSPoint sl = NSMakePoint(cx - std::sin(angle) * sr, cy - std::cos(angle) * sr);
-        const NSPoint srp = NSMakePoint(cx + std::sin(angle) * sr, cy - std::cos(angle) * sr);
+        const NSPoint sl = project(angleDeg, 0.0f, sr);
+        const NSPoint srp = project(-angleDeg, 0.0f, sr);
+        const NSPoint earL = project3(-earRadius, 0.0, 0.02, r);
+        const NSPoint earR = project3(earRadius, 0.0, 0.02, r);
         [c(0xcfcfcf, 0.84) setFill];
         NSRectFill(NSMakeRect(sl.x - 10, sl.y - 10, 20, 20));
         NSRectFill(NSMakeRect(srp.x - 10, srp.y - 10, 20, 20));
         NSBezierPath* directL = [NSBezierPath bezierPath];
-        [directL moveToPoint:sl]; [directL lineToPoint:NSMakePoint(cx - earX, cy)];
+        [directL moveToPoint:sl]; [directL lineToPoint:earL];
         [directL setLineWidth:1.2 + 1.8 * (1.0 - preserve)];
         [c(0x9ecf9c, 0.34 + 0.34 * (1.0 - preserve)) setStroke]; [directL stroke];
         NSBezierPath* directR = [NSBezierPath bezierPath];
-        [directR moveToPoint:srp]; [directR lineToPoint:NSMakePoint(cx + earX, cy)];
+        [directR moveToPoint:srp]; [directR lineToPoint:earR];
         [directR setLineWidth:1.2 + 1.8 * (1.0 - preserve)];
         [c(0x9ecf9c, 0.34 + 0.34 * (1.0 - preserve)) setStroke]; [directR stroke];
         NSBezierPath* crossL = [NSBezierPath bezierPath];
-        [crossL moveToPoint:sl]; [crossL curveToPoint:NSMakePoint(cx + earX, cy) controlPoint1:NSMakePoint(sl.x + 62, sl.y + 52) controlPoint2:NSMakePoint(cx + earX - 70, cy - 32)];
+        const NSPoint crossLC1 = NSMakePoint(sl.x + (earR.x - sl.x) * 0.33, sl.y + (earR.y - sl.y) * 0.18 - 34.0);
+        const NSPoint crossLC2 = NSMakePoint(sl.x + (earR.x - sl.x) * 0.70, sl.y + (earR.y - sl.y) * 0.86 + 34.0);
+        [crossL moveToPoint:sl]; [crossL curveToPoint:earR controlPoint1:crossLC1 controlPoint2:crossLC2];
         [crossL setLineWidth:0.8 + 4.2 * amount];
         CGFloat dash[] = { 5.0, 4.0 };
         [crossL setLineDash:dash count:2 phase:0.0];
         [c(0xe08f72, 0.18 + 0.58 * amount) setStroke]; [crossL stroke];
         NSBezierPath* crossR = [NSBezierPath bezierPath];
-        [crossR moveToPoint:srp]; [crossR curveToPoint:NSMakePoint(cx - earX, cy) controlPoint1:NSMakePoint(srp.x - 62, srp.y + 52) controlPoint2:NSMakePoint(cx - earX + 70, cy - 32)];
+        const NSPoint crossRC1 = NSMakePoint(srp.x + (earL.x - srp.x) * 0.33, srp.y + (earL.y - srp.y) * 0.18 - 34.0);
+        const NSPoint crossRC2 = NSMakePoint(srp.x + (earL.x - srp.x) * 0.70, srp.y + (earL.y - srp.y) * 0.86 + 34.0);
+        [crossR moveToPoint:srp]; [crossR curveToPoint:earL controlPoint1:crossRC1 controlPoint2:crossRC2];
         [crossR setLineWidth:0.8 + 4.2 * amount];
         [crossR setLineDash:dash count:2 phase:0.0];
         [c(0xe08f72, 0.18 + 0.58 * amount) setStroke]; [crossR stroke];
         [c(0xe08f72, 0.06 + 0.16 * amount) setFill];
-        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(cx - earX - 18 - amount * 8, cy - 28 - amount * 8, 36 + amount * 16, 56 + amount * 16)] fill];
-        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(cx + earX - 18 - amount * 8, cy - 28 - amount * 8, 36 + amount * 16, 56 + amount * 16)] fill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(earL.x - 18 - amount * 8, earL.y - 28 - amount * 8, 36 + amount * 16, 56 + amount * 16)] fill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(earR.x - 18 - amount * 8, earR.y - 28 - amount * 8, 36 + amount * 16, 56 + amount * 16)] fill];
     }
     [[NSString stringWithFormat:@"%@ / %@ / %@",
       [NSString stringWithUTF8String:modeName(static_cast<uint32_t>(p->params.mode))],
@@ -686,6 +844,24 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         _openMenu = 0; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; return;
     }
     const NSRect side = NSMakeRect(592, 34, 336, 664);
+    const NSRect fieldPanel = NSMakeRect(12, 34, 568, 664);
+    const NSRect field = NSMakeRect(28, 82, 536, 502);
+    for (int i = 0; i < 2; ++i) {
+        if (!NSPointInRect(pt, [self zoomButtonRect:i inRect:fieldPanel])) continue;
+        _viewZoom = std::clamp(_viewZoom * (i == 0 ? 0.84 : 1.19), 0.65, 1.80);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    for (int i = 0; i < 3; ++i) {
+        if (!NSPointInRect(pt, [self viewButtonRect:i inRect:fieldPanel])) continue;
+        [self setViewPreset:i];
+        return;
+    }
+    if (NSPointInRect(pt, field)) {
+        _dragView = true;
+        _lastDragPoint = pt;
+        return;
+    }
     const NSRect decoder = NSMakeRect(side.origin.x, 34, side.size.width, 156);
     const NSRect binaural = NSMakeRect(side.origin.x, 202, side.size.width, _binauralOpen ? 198 : 24);
     const NSRect transaural = NSMakeRect(side.origin.x, _binauralOpen ? 412 : 238, side.size.width, _transauralOpen ? 154 : 24);
@@ -747,10 +923,36 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     [self updateMenuHover:pt];
+    if (_dragView) {
+        const CGFloat dx = pt.x - _lastDragPoint.x;
+        const CGFloat dy = pt.y - _lastDragPoint.y;
+        if (_viewMode == 0) {
+            _viewYawDeg = 0.0;
+            _viewPitchDeg = 0.0;
+        } else if (_viewMode == 1) {
+            _viewYawDeg = 180.0;
+            _viewPitchDeg = 82.0;
+        }
+        _viewYawDeg += dx * 0.36;
+        _viewPitchDeg = std::clamp(_viewPitchDeg - dy * 0.26, -82.0, 82.0);
+        _viewMode = 2;
+        _lastDragPoint = pt;
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_dragSlider >= 0) [self updateSliderAtPoint:pt];
 }
 - (void)mouseMoved:(NSEvent*)event { [self updateMenuHover:[self convertPoint:[event locationInWindow] fromView:nil]]; }
-- (void)mouseUp:(NSEvent*)event { (void)event; _dragSlider = -1; }
+- (void)mouseUp:(NSEvent*)event { (void)event; _dragSlider = -1; _dragView = false; }
+- (void)scrollWheel:(NSEvent*)event
+{
+    NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    const NSRect field = NSMakeRect(28, 82, 536, 502);
+    if (!NSPointInRect(pt, field)) { [super scrollWheel:event]; return; }
+    const double delta = [event scrollingDeltaY];
+    _viewZoom = std::clamp(_viewZoom * (1.0 + delta * 0.018), 0.65, 1.80);
+    [self setNeedsDisplay:YES];
+}
 @end
 
 namespace {

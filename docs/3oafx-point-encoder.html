@@ -123,6 +123,10 @@
 
         <p>Per-point azimuth, elevation, distance, gain, mute, and solo are exposed to REAPER automation. GUI-only selection is not meant to be an automation target.</p>
 
+        <h3 id="spatial-score">Spatial Score Automation</h3>
+
+        <p>The <a href="https://s3g.github.io/s3g-mc/utilities-spatial-score.html" target="_blank" rel="noopener noreferrer">Spatial Score</a> browser utility in <code>s3g-mc</code> can compose larger point-motion scores outside REAPER. Export the Spatial Score JSON, focus an instance of <code>s3g Ambi Point Encoder</code>, set its scene to <code>MANUAL</code>, then run <code>Load Spatial Score JSON</code> from <code>s3g-mc</code>. The loader writes the score's azimuth, elevation, and distance lanes to the matching Point Encoder parameters; if the score contains more point paths than the plugin exposes, the first available points are used.</p>
+
         <h2 id="physics">Physics Controls</h2>
 
         <p>The PHYSICS panel shapes internal motion scenes. Physics scenes use a persistent point world with boundary rebound, collision events, optional nearest-neighbor springs, and an automatable <code>POLTER</code> / Poltergeist cue-ball source.</p>
@@ -180,6 +184,7 @@
           <a href="#field">Field View</a>
           <a href="#point-editing">Point Editing</a>
           <a href="#scenes">Scenes and Automation</a>
+          <a href="#spatial-score">Spatial Score Automation</a>
           <a href="#physics">Physics Controls</a>
           <a href="#geist">Reading Geist Motion</a>
         </div>
