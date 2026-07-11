@@ -65,6 +65,7 @@ copy_bundle "$src_root/clap_ambisonic_order_band_tool/s3g_ambisonic_order_band_t
 copy_bundle "$src_root/clap_ambi_group_matrix/s3g_ambi_group_matrix.clap"
 copy_bundle "$src_root/clap_ambi_group_matrix_128/s3g_ambi_group_matrix_128.clap"
 copy_bundle "$src_root/clap_group_matrix/s3g_group_matrix.clap"
+copy_bundle "$src_root/clap_group_matrix_32/s3g_group_matrix_32.clap"
 copy_bundle "$src_root/clap_spectral_spray/s3g_spectral_spray.clap"
 copy_bundle "$src_root/clap_8ch_spectral_spray/s3g_8ch_spectral_spray.clap"
 copy_bundle "$src_root/clap_shard_scatter/s3g_shard_scatter.clap"

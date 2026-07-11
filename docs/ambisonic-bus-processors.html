@@ -55,8 +55,8 @@
           </div>
           <div class="category-card muted-card">
             <span>general matrix</span>
-            <strong>Group Matrix 64</strong>
-            <em>General 64-channel group matrix for non-ambisonic 4ch, 8ch, or 16ch blocks. It uses the same matrix and flow model without assuming 3OA format.</em>
+            <strong>Group Matrix 32 / 64</strong>
+            <em>General group matrix mixers for non-ambisonic blocks. The 32-channel version supports 2ch, 4ch, and 8ch groups; the 64-channel version supports 4ch, 8ch, and 16ch groups.</em>
           </div>
         </div>
 
@@ -65,7 +65,8 @@
         <p>The matrix processors route one complete group into another complete group. In the Ambi versions, a crosspoint routes all 16 channels of a 3OA feed together. This keeps the spatial encoding intact while still allowing a bus-level mix between feeds.</p>
 
         <ul>
-          <li><code>MODE</code>: manual, free, or transport-aware flow behavior, depending on the build.</li>
+          <li><code>SHAPE</code>: generated gain pattern. Current choices include flow, pulse, chase, swirl, scatter, and hold.</li>
+          <li><code>MODE</code>: free-running or transport-synced timing for animated flow.</li>
           <li><code>FLOW</code>: how strongly the generated flow layer enters the matrix.</li>
           <li><code>SPRD</code>, <code>MOT</code>, and related flow controls: how wide, animated, or patterned the active matrix layer becomes.</li>
           <li>Gray matrix cells show the manual ceiling. Green activity shows the current flow inside that ceiling.</li>
@@ -103,7 +104,7 @@
 
         <p>The 64-channel versions are intended for four 3OA groups. The 128-channel versions are intended for eight 3OA groups. In REAPER, set the track channel count before inserting the plugin so the pin connector matches the intended width.</p>
 
-        <p>Use <code>Group Matrix 64</code> for non-ambisonic bus work where groups are 4ch, 8ch, or 16ch blocks rather than 3OA feeds.</p>
+        <p>Use <code>Group Matrix 32</code> for stereo, quad, or octo groups. Use <code>Group Matrix 64</code> for larger non-ambisonic 4ch, 8ch, or 16ch blocks. Both use the same matrix and flow model without assuming 3OA format.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambisonic-rotate.html">

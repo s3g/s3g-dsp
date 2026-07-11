@@ -21,7 +21,7 @@
 
 namespace {
 
-constexpr uint32_t kStateVersion = 1;
+constexpr uint32_t kStateVersion = 2;
 constexpr uint32_t kGuiWidth = 1040;
 constexpr uint32_t kGuiHeight = 612;
 constexpr uint32_t kCrosspointCount = s3g::kAmbiGroupMatrix128Groups * s3g::kAmbiGroupMatrix128Groups;
@@ -37,6 +37,7 @@ constexpr clap_id kParamDivision = 1006;
 constexpr clap_id kParamPhase = 1007;
 constexpr clap_id kParamSmoothing = 1008;
 constexpr clap_id kParamOutput = 1009;
+constexpr clap_id kParamShape = 1010;
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -83,6 +84,7 @@ double defaultValueForParam(clap_id id)
     case kParamVortex: return 0.0;
     case kParamMotion: return 0.0;
     case kParamMode: return 0.0;
+    case kParamShape: return 0.0;
     case kParamRate: return 0.15;
     case kParamDivision: return 16.0;
     case kParamPhase: return 0.0;
@@ -102,6 +104,7 @@ void applyParam(Plugin& p, clap_id id, double value)
         case kParamSpread: p.params.spread = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
         case kParamVortex: p.params.vortex = static_cast<float>(std::clamp(value, -1.0, 1.0)); break;
         case kParamMotion: p.params.motion = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+        case kParamShape: p.params.shape = s3g::matrixFlowShapeFromIndex(static_cast<uint32_t>(std::round(std::clamp(value, 0.0, 5.0)))); break;
         case kParamMode: p.params.mode = value >= 0.5 ? s3g::AmbiGroupMatrix128FlowMode::Sync : s3g::AmbiGroupMatrix128FlowMode::Free; break;
         case kParamRate: p.params.rate = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
         case kParamDivision: p.params.divisionBeats = static_cast<float>(std::clamp(value, 0.25, 64.0)); break;
@@ -245,7 +248,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
-uint32_t paramsCount(const clap_plugin_t*) { return kCrosspointCount + 10; }
+uint32_t paramsCount(const clap_plugin_t*) { return kCrosspointCount + 11; }
 
 clap_id paramIdForIndex(uint32_t index)
 {
@@ -257,12 +260,13 @@ clap_id paramIdForIndex(uint32_t index)
     case 1: return kParamSpread;
     case 2: return kParamVortex;
     case 3: return kParamMotion;
-    case 4: return kParamMode;
-    case 5: return kParamRate;
-    case 6: return kParamDivision;
-    case 7: return kParamPhase;
-    case 8: return kParamSmoothing;
-    case 9: return kParamOutput;
+    case 4: return kParamShape;
+    case 5: return kParamMode;
+    case 6: return kParamRate;
+    case 7: return kParamDivision;
+    case 8: return kParamPhase;
+    case 9: return kParamSmoothing;
+    case 10: return kParamOutput;
     default: return CLAP_INVALID_ID;
     }
 }
@@ -303,6 +307,9 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     case kParamMotion:
         std::strncpy(info->name, "Motion", sizeof(info->name));
         info->min_value = 0.0; info->max_value = 1.0; break;
+    case kParamShape:
+        std::strncpy(info->name, "Shape", sizeof(info->name));
+        info->min_value = 0.0; info->max_value = 5.0; break;
     case kParamMode:
         std::strncpy(info->name, "Mode", sizeof(info->name));
         info->min_value = 0.0; info->max_value = 1.0; break;
@@ -344,6 +351,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
     case kParamSpread: *value = p.spread; return true;
     case kParamVortex: *value = p.vortex; return true;
     case kParamMotion: *value = p.motion; return true;
+    case kParamShape: *value = static_cast<double>(static_cast<uint32_t>(p.shape)); return true;
     case kParamMode: *value = p.mode == s3g::AmbiGroupMatrix128FlowMode::Sync ? 1.0 : 0.0; return true;
     case kParamRate: *value = p.rate; return true;
     case kParamDivision: *value = p.divisionBeats; return true;
@@ -369,6 +377,11 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
     }
     if (paramId == kParamMode) {
         std::snprintf(display, size, "%s", value >= 0.5 ? "SYNC" : "FREE");
+        return true;
+    }
+    if (paramId == kParamShape) {
+        const auto shape = s3g::matrixFlowShapeFromIndex(static_cast<uint32_t>(std::round(std::clamp(value, 0.0, 5.0))));
+        std::snprintf(display, size, "%s", s3g::matrixFlowShapeName(shape));
         return true;
     }
     if (paramId == kParamDivision) {
@@ -442,6 +455,8 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 - (NSDictionary*)attrs:(NSColor*)color size:(CGFloat)size;
+- (NSRect)shapeMenuBoxRect;
+- (NSRect)shapeDropdownRect;
 - (NSRect)modeMenuBoxRect;
 - (NSRect)modeDropdownRect;
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
@@ -505,28 +520,44 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 }
 - (NSRect)modeMenuBoxRect
 {
-    return NSMakeRect(838.0, 185.0, 118.0, 17.0);
+    return NSMakeRect(838.0, 211.0, 118.0, 17.0);
 }
 - (NSRect)modeDropdownRect
 {
-    return NSMakeRect(838.0, 203.0, 118.0, 40.0);
+    return NSMakeRect(838.0, 229.0, 118.0, 40.0);
+}
+- (NSRect)shapeMenuBoxRect
+{
+    return NSMakeRect(838.0, 185.0, 118.0, 17.0);
+}
+- (NSRect)shapeDropdownRect
+{
+    return NSMakeRect(838.0, 203.0, 118.0, 120.0);
 }
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
-    if (_openMenu != 1) {
+    if (_openMenu <= 0) {
         return;
     }
     auto* p = static_cast<Plugin*>(_plugin);
+    static NSString* const shapeItems[] = { @"FLOW", @"PULSE", @"CHASE", @"SWIRL", @"SCAT", @"HOLD" };
     static NSString* const modeItems[] = { @"FREE", @"SYNC" };
-    const int selected = p->params.mode == s3g::AmbiGroupMatrix128FlowMode::Sync ? 1 : 0;
-    s3g::clap_gui::drawDropdownMenu([self modeDropdownRect], 20.0, modeItems, 2, selected, _hoverMenuItem, attrs, style);
+    if (_openMenu == 1) {
+        const int selected = p->params.mode == s3g::AmbiGroupMatrix128FlowMode::Sync ? 1 : 0;
+        s3g::clap_gui::drawDropdownMenu([self modeDropdownRect], 20.0, modeItems, 2, selected, _hoverMenuItem, attrs, style);
+    } else if (_openMenu == 2) {
+        const int selected = static_cast<int>(static_cast<uint32_t>(p->params.shape));
+        s3g::clap_gui::drawDropdownMenu([self shapeDropdownRect], 20.0, shapeItems, 6, selected, _hoverMenuItem, attrs, style);
+    }
 }
 - (void)updateMenuHover:(NSPoint)pt
 {
-    if (_openMenu != 1) {
+    if (_openMenu <= 0) {
         return;
     }
-    const int next = s3g::clap_gui::dropdownHitIndex(pt, [self modeDropdownRect], 20.0, 2);
+    const NSRect rect = _openMenu == 1 ? [self modeDropdownRect] : [self shapeDropdownRect];
+    const uint32_t count = _openMenu == 1 ? 2u : 6u;
+    const int next = s3g::clap_gui::dropdownHitIndex(pt, rect, 20.0, count);
     if (next != _hoverMenuItem) {
         _hoverMenuItem = next;
         [self setNeedsDisplay:YES];
@@ -634,7 +665,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     [@"MODE   FREE runs internally; SYNC follows transport" drawAtPoint:NSMakePoint(col3, y1) withAttributes:attrs];
     [@"RATE   free-running cycle speed" drawAtPoint:NSMakePoint(col3, y2) withAttributes:attrs];
     [@"DIV    synced cycle length in beats" drawAtPoint:NSMakePoint(col3, y3) withAttributes:attrs];
-    [@"OUT    global output trim" drawAtPoint:NSMakePoint(col3, y4) withAttributes:attrs];
+    [@"SHAPE  generated gain pattern" drawAtPoint:NSMakePoint(col3, y4) withAttributes:attrs];
 }
 - (void)drawRect:(NSRect)dirty
 {
@@ -713,11 +744,12 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     s3g::clap_gui::drawSlider(@"SPRD", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.spread * 100.0f)], prm.spread, 108, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"VORT", [NSString stringWithFormat:@"%+.2f", static_cast<double>(prm.vortex)], (prm.vortex + 1.0f) * 0.5f, 134, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"MOTN", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.motion * 100.0f)], prm.motion, 160, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawMenu(@"MODE", prm.mode == s3g::AmbiGroupMatrix128FlowMode::Sync ? @"SYNC" : @"FREE", 186, small, small, style, 752, 838, 118);
-    s3g::clap_gui::drawSlider(@"RATE", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.rate * 100.0f)], prm.rate, 212, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"DIV", [NSString stringWithFormat:@"%.2g", static_cast<double>(prm.divisionBeats)], (prm.divisionBeats - 0.25f) / 63.75f, 238, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"PHAS", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.phaseOffset * 100.0f)], prm.phaseOffset, 264, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"SMTH", [NSString stringWithFormat:@"%.0f", static_cast<double>(prm.smoothingMs)], (prm.smoothingMs - 1.0f) / 499.0f, 290, small, small, style, 752, 838, 978, 118);
+    s3g::clap_gui::drawMenu(@"SHAPE", [NSString stringWithUTF8String:s3g::matrixFlowShapeName(prm.shape)], 186, small, small, style, 752, 838, 118);
+    s3g::clap_gui::drawMenu(@"MODE", prm.mode == s3g::AmbiGroupMatrix128FlowMode::Sync ? @"SYNC" : @"FREE", 212, small, small, style, 752, 838, 118);
+    s3g::clap_gui::drawSlider(@"RATE", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.rate * 100.0f)], prm.rate, 238, small, small, style, 752, 838, 978, 118);
+    s3g::clap_gui::drawSlider(@"DIV", [NSString stringWithFormat:@"%.2g", static_cast<double>(prm.divisionBeats)], (prm.divisionBeats - 0.25f) / 63.75f, 264, small, small, style, 752, 838, 978, 118);
+    s3g::clap_gui::drawSlider(@"PHAS", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.phaseOffset * 100.0f)], prm.phaseOffset, 290, small, small, style, 752, 838, 978, 118);
+    s3g::clap_gui::drawSlider(@"SMTH", [NSString stringWithFormat:@"%.0f", static_cast<double>(prm.smoothingMs)], (prm.smoothingMs - 1.0f) / 499.0f, 316, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", static_cast<double>(prm.outputGainDb)], (prm.outputGainDb + 60.0f) / 72.0f, 386, small, small, style, 752, 838, 978, 118);
     const CGFloat glossaryH = _showGlossary ? 132.0 : 21.0;
     [self drawGlossary:NSMakeRect(18, 464, 1004, glossaryH) attrs:small style:style];
@@ -765,12 +797,17 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         [[self window] makeFirstResponder:self];
     }
     auto* p = static_cast<Plugin*>(_plugin);
-    if (_openMenu == 1) {
-        const NSRect menuRect = [self modeDropdownRect];
+    if (_openMenu > 0) {
+        const NSRect menuRect = _openMenu == 1 ? [self modeDropdownRect] : [self shapeDropdownRect];
+        const uint32_t count = _openMenu == 1 ? 2u : 6u;
         if (NSPointInRect(pt, menuRect)) {
-            const int hit = s3g::clap_gui::dropdownHitIndex(pt, menuRect, 20.0, 2);
+            const int hit = s3g::clap_gui::dropdownHitIndex(pt, menuRect, 20.0, count);
             if (hit >= 0) {
-                applyParam(*p, kParamMode, hit == 1 ? 1.0 : 0.0);
+                if (_openMenu == 1) {
+                    applyParam(*p, kParamMode, hit == 1 ? 1.0 : 0.0);
+                } else {
+                    applyParam(*p, kParamShape, static_cast<double>(hit));
+                }
             }
             _openMenu = 0;
             _hoverMenuItem = -1;
@@ -805,7 +842,13 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         [self setNeedsDisplay:YES];
         return;
     }
-    const CGFloat ys[] = { 82, 108, 134, 160, 212, 238, 264, 290, 386 };
+    if (NSPointInRect(pt, [self shapeMenuBoxRect])) {
+        _openMenu = 2;
+        _hoverMenuItem = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    const CGFloat ys[] = { 82, 108, 134, 160, 238, 264, 290, 316, 386 };
     for (int i = 0; i < 9; ++i) {
         if (NSPointInRect(pt, NSMakeRect(744, ys[i] - 9, 276, 24))) {
             _dragSlider = i;

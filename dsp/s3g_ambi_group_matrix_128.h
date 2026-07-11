@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstdint>
 
+#include "s3g_matrix_flow_shapes.h"
+
 namespace s3g {
 
 constexpr uint32_t kAmbiGroupMatrix128Groups = 8;
@@ -22,6 +24,7 @@ struct AmbiGroupMatrix128Params {
     float spread = 0.0f;
     float vortex = 0.0f;
     float motion = 0.0f;
+    MatrixFlowShape shape = MatrixFlowShape::Flow;
     AmbiGroupMatrix128FlowMode mode = AmbiGroupMatrix128FlowMode::Free;
     float rate = 0.15f;
     float divisionBeats = 16.0f;
@@ -169,6 +172,7 @@ private:
         p.spread = AmbiGroupMatrix128Clamp(p.spread, 0.0f, 1.0f);
         p.vortex = AmbiGroupMatrix128Clamp(p.vortex, -1.0f, 1.0f);
         p.motion = AmbiGroupMatrix128Clamp(p.motion, 0.0f, 1.0f);
+        p.shape = matrixFlowShapeFromIndex(static_cast<uint32_t>(p.shape));
         p.mode = static_cast<AmbiGroupMatrix128FlowMode>(
             std::min<uint32_t>(static_cast<uint32_t>(p.mode), static_cast<uint32_t>(AmbiGroupMatrix128FlowMode::Sync)));
         p.rate = AmbiGroupMatrix128Clamp(p.rate, 0.0f, 1.0f);
@@ -197,11 +201,69 @@ private:
     std::array<float, kAmbiGroupMatrix128Groups * kAmbiGroupMatrix128Groups> generatedFlowMatrix(float phase) const
     {
         std::array<float, kAmbiGroupMatrix128Groups * kAmbiGroupMatrix128Groups> g {};
+        const float phaseForShape = params_.shape == MatrixFlowShape::Hold ? 0.0f : phase;
         const float width = 0.08f + params_.spread * 1.55f + params_.flow * 0.72f;
-        const float vortex = params_.vortex;
-        const float angle = phase * 6.28318530718f;
-        const float orbitX = std::cos(angle) * params_.flow;
-        const float orbitY = std::sin(angle) * params_.flow;
+        const float angle = phaseForShape * 6.28318530718f;
+
+        if (params_.shape == MatrixFlowShape::Pulse) {
+            for (uint32_t src = 0; src < kAmbiGroupMatrix128Groups; ++src) {
+                for (uint32_t dst = 0; dst < kAmbiGroupMatrix128Groups; ++dst) {
+                    const float offset = (static_cast<float>(src + dst) / static_cast<float>(kAmbiGroupMatrix128Groups)) * params_.spread;
+                    g[AmbiGroupMatrix128Index(src, dst)] = matrixFlowPulse(phaseForShape + offset);
+                }
+            }
+            return g;
+        }
+
+        if (params_.shape == MatrixFlowShape::Chase) {
+            const float chaseWidth = 0.35f + params_.spread * 2.4f;
+            const float pos = phaseForShape * static_cast<float>(kAmbiGroupMatrix128Groups);
+            for (uint32_t src = 0; src < kAmbiGroupMatrix128Groups; ++src) {
+                float sum = 0.0f;
+                const float center = std::fmod(static_cast<float>(src) + pos, static_cast<float>(kAmbiGroupMatrix128Groups));
+                for (uint32_t dst = 0; dst < kAmbiGroupMatrix128Groups; ++dst) {
+                    const float w = matrixFlowRingWeight(kAmbiGroupMatrix128Groups, dst, center, chaseWidth);
+                    g[AmbiGroupMatrix128Index(src, dst)] = w;
+                    sum += w;
+                }
+                if (sum > 0.000001f) {
+                    for (uint32_t dst = 0; dst < kAmbiGroupMatrix128Groups; ++dst) {
+                        g[AmbiGroupMatrix128Index(src, dst)] /= sum;
+                    }
+                }
+            }
+            return g;
+        }
+
+        if (params_.shape == MatrixFlowShape::Scatter) {
+            const float step = phaseForShape * 12.0f;
+            const uint32_t seedA = static_cast<uint32_t>(std::floor(step));
+            const uint32_t seedB = seedA + 1u;
+            const float t = 0.5f - 0.5f * std::cos((step - std::floor(step)) * 3.14159265359f);
+            const float threshold = 0.74f - params_.spread * 0.42f;
+            for (uint32_t src = 0; src < kAmbiGroupMatrix128Groups; ++src) {
+                float sum = 0.0f;
+                for (uint32_t dst = 0; dst < kAmbiGroupMatrix128Groups; ++dst) {
+                    const float a = matrixFlowHash01(src, dst, seedA);
+                    const float b = matrixFlowHash01(src, dst, seedB);
+                    const float h = a + (b - a) * t;
+                    const float w = std::max(0.0f, (h - threshold) / std::max(0.05f, 1.0f - threshold));
+                    g[AmbiGroupMatrix128Index(src, dst)] = 0.04f + w;
+                    sum += g[AmbiGroupMatrix128Index(src, dst)];
+                }
+                if (sum > 0.000001f) {
+                    for (uint32_t dst = 0; dst < kAmbiGroupMatrix128Groups; ++dst) {
+                        g[AmbiGroupMatrix128Index(src, dst)] /= sum;
+                    }
+                }
+            }
+            return g;
+        }
+
+        const bool swirlShape = params_.shape == MatrixFlowShape::Swirl;
+        const float vortex = params_.vortex + (swirlShape ? 0.75f : 0.0f);
+        const float orbitX = std::cos(angle) * params_.flow * (swirlShape ? 0.74f : 1.0f);
+        const float orbitY = std::sin(angle) * params_.flow * (swirlShape ? 0.74f : 1.0f);
         for (uint32_t src = 0; src < kAmbiGroupMatrix128Groups; ++src) {
             const float srcAngle = static_cast<float>(src) / static_cast<float>(kAmbiGroupMatrix128Groups) * 6.28318530718f;
             float cx = std::cos(srcAngle);
@@ -209,8 +271,9 @@ private:
             const float swirlX = -cy * vortex * params_.flow;
             const float swirlY = cx * vortex * params_.flow;
             const float sourcePhase = angle + srcAngle;
-            cx = cx * (1.0f - 0.32f * params_.flow) + swirlX + orbitX * 0.46f + std::cos(sourcePhase) * params_.flow * 0.20f;
-            cy = cy * (1.0f - 0.32f * params_.flow) + swirlY + orbitY * 0.46f + std::sin(sourcePhase) * params_.flow * 0.20f;
+            const float swirlAmp = swirlShape ? 0.36f : 0.20f;
+            cx = cx * (1.0f - 0.32f * params_.flow) + swirlX + orbitX * 0.46f + std::cos(sourcePhase) * params_.flow * swirlAmp;
+            cy = cy * (1.0f - 0.32f * params_.flow) + swirlY + orbitY * 0.46f + std::sin(sourcePhase) * params_.flow * swirlAmp;
 
             float sum = 0.0f;
             for (uint32_t dst = 0; dst < kAmbiGroupMatrix128Groups; ++dst) {

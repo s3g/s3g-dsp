@@ -9,30 +9,30 @@
 
 namespace s3g {
 
-constexpr uint32_t kGroupMatrixChannels = 64;
-constexpr uint32_t kGroupMatrixMaxGroups = 16;
-constexpr uint32_t kGroupMatrixMaxCrosspoints = kGroupMatrixMaxGroups * kGroupMatrixMaxGroups;
+constexpr uint32_t kGroupMatrix32Channels = 32;
+constexpr uint32_t kGroupMatrix32MaxGroups = 16;
+constexpr uint32_t kGroupMatrix32MaxCrosspoints = kGroupMatrix32MaxGroups * kGroupMatrix32MaxGroups;
 
-enum class GroupMatrixSize : uint32_t {
-    Ch4 = 0,
-    Ch8 = 1,
-    Ch16 = 2,
+enum class GroupMatrix32Size : uint32_t {
+    Ch2 = 0,
+    Ch4 = 1,
+    Ch8 = 2,
 };
 
-enum class GroupMatrixFlowMode : uint32_t {
+enum class GroupMatrix32FlowMode : uint32_t {
     Free = 0,
     Sync = 1,
 };
 
-struct GroupMatrixParams {
-    std::array<float, kGroupMatrixMaxCrosspoints> crosspointDb {};
-    GroupMatrixSize groupSize = GroupMatrixSize::Ch8;
+struct GroupMatrix32Params {
+    std::array<float, kGroupMatrix32MaxCrosspoints> crosspointDb {};
+    GroupMatrix32Size groupSize = GroupMatrix32Size::Ch2;
     float flow = 0.0f;
     float spread = 0.0f;
     float vortex = 0.0f;
     float motion = 0.0f;
     MatrixFlowShape shape = MatrixFlowShape::Flow;
-    GroupMatrixFlowMode mode = GroupMatrixFlowMode::Free;
+    GroupMatrix32FlowMode mode = GroupMatrix32FlowMode::Free;
     float rate = 0.15f;
     float divisionBeats = 16.0f;
     float phaseOffset = 0.0f;
@@ -40,12 +40,12 @@ struct GroupMatrixParams {
     float outputGainDb = 0.0f;
 };
 
-inline float groupMatrixClamp(float v, float lo, float hi)
+inline float groupMatrix32Clamp(float v, float lo, float hi)
 {
     return std::max(lo, std::min(v, hi));
 }
 
-inline float groupMatrixDbToGain(float db)
+inline float groupMatrix32DbToGain(float db)
 {
     if (db <= -79.9f) {
         return 0.0f;
@@ -53,52 +53,52 @@ inline float groupMatrixDbToGain(float db)
     return std::pow(10.0f, db / 20.0f);
 }
 
-inline uint32_t groupMatrixGroupChannels(GroupMatrixSize size)
+inline uint32_t groupMatrix32GroupChannels(GroupMatrix32Size size)
 {
     switch (size) {
-    case GroupMatrixSize::Ch4: return 4;
-    case GroupMatrixSize::Ch8: return 8;
-    case GroupMatrixSize::Ch16: return 16;
-    default: return 8;
+    case GroupMatrix32Size::Ch2: return 2;
+    case GroupMatrix32Size::Ch4: return 4;
+    case GroupMatrix32Size::Ch8: return 8;
+    default: return 2;
     }
 }
 
-inline const char* groupMatrixSizeName(GroupMatrixSize size)
+inline const char* groupMatrix32SizeName(GroupMatrix32Size size)
 {
     switch (size) {
-    case GroupMatrixSize::Ch4: return "4CH";
-    case GroupMatrixSize::Ch8: return "8CH";
-    case GroupMatrixSize::Ch16: return "16CH";
-    default: return "8CH";
+    case GroupMatrix32Size::Ch2: return "2CH";
+    case GroupMatrix32Size::Ch4: return "4CH";
+    case GroupMatrix32Size::Ch8: return "8CH";
+    default: return "2CH";
     }
 }
 
-inline uint32_t groupMatrixActiveGroups(GroupMatrixSize size)
+inline uint32_t groupMatrix32ActiveGroups(GroupMatrix32Size size)
 {
-    return kGroupMatrixChannels / groupMatrixGroupChannels(size);
+    return kGroupMatrix32Channels / groupMatrix32GroupChannels(size);
 }
 
-inline uint32_t groupMatrixIndex(uint32_t srcGroup, uint32_t dstGroup)
+inline uint32_t groupMatrix32Index(uint32_t srcGroup, uint32_t dstGroup)
 {
-    return srcGroup * kGroupMatrixMaxGroups + dstGroup;
+    return srcGroup * kGroupMatrix32MaxGroups + dstGroup;
 }
 
-inline GroupMatrixParams makeDefaultGroupMatrixParams()
+inline GroupMatrix32Params makeDefaultGroupMatrix32Params()
 {
-    GroupMatrixParams p {};
-    for (uint32_t src = 0; src < kGroupMatrixMaxGroups; ++src) {
-        for (uint32_t dst = 0; dst < kGroupMatrixMaxGroups; ++dst) {
-            p.crosspointDb[groupMatrixIndex(src, dst)] = src == dst ? 0.0f : -80.0f;
+    GroupMatrix32Params p {};
+    for (uint32_t src = 0; src < kGroupMatrix32MaxGroups; ++src) {
+        for (uint32_t dst = 0; dst < kGroupMatrix32MaxGroups; ++dst) {
+            p.crosspointDb[groupMatrix32Index(src, dst)] = src == dst ? 0.0f : -80.0f;
         }
     }
     return p;
 }
 
-class GroupMatrix {
+class GroupMatrix32 {
 public:
-    GroupMatrix()
+    GroupMatrix32()
     {
-        params_ = makeDefaultGroupMatrixParams();
+        params_ = makeDefaultGroupMatrix32Params();
         currentGain_.fill(0.0f);
         targetGain_.fill(0.0f);
         rebuildTargets();
@@ -118,17 +118,17 @@ public:
         freePhase_ = 0.0f;
     }
 
-    void setParams(const GroupMatrixParams& params)
+    void setParams(const GroupMatrix32Params& params)
     {
         params_ = sanitize(params);
         rebuildTargets();
     }
 
-    const GroupMatrixParams& params() const { return params_; }
-    uint32_t activeGroups() const { return groupMatrixActiveGroups(params_.groupSize); }
-    uint32_t groupChannels() const { return groupMatrixGroupChannels(params_.groupSize); }
-    const std::array<float, kGroupMatrixMaxCrosspoints>& targetGain() const { return targetGain_; }
-    std::array<float, kGroupMatrixMaxCrosspoints> generatedFlowPreview(float phase = 0.0f) const { return generatedFlowMatrix(phase); }
+    const GroupMatrix32Params& params() const { return params_; }
+    uint32_t activeGroups() const { return groupMatrix32ActiveGroups(params_.groupSize); }
+    uint32_t groupChannels() const { return groupMatrix32GroupChannels(params_.groupSize); }
+    const std::array<float, kGroupMatrix32MaxCrosspoints>& targetGain() const { return targetGain_; }
+    std::array<float, kGroupMatrix32MaxCrosspoints> generatedFlowPreview(float phase = 0.0f) const { return generatedFlowMatrix(phase); }
     float previewPhase() const { return wrapPhase((useExternalPhase_ ? externalPhase_ : freePhase_) + params_.phaseOffset); }
 
     void setExternalPhase(float phase)
@@ -150,7 +150,7 @@ public:
             return;
         }
 
-        const uint32_t channels = std::min<uint32_t>(kGroupMatrixChannels, outputChannels);
+        const uint32_t channels = std::min<uint32_t>(kGroupMatrix32Channels, outputChannels);
         for (uint32_t ch = 0; ch < channels; ++ch) {
             if (outputs[ch]) {
                 std::fill(outputs[ch], outputs[ch] + frames, Sample { 0 });
@@ -174,7 +174,7 @@ public:
 
             for (uint32_t src = 0; src < groups; ++src) {
                 for (uint32_t dst = 0; dst < groups; ++dst) {
-                    const float gain = currentGain_[groupMatrixIndex(src, dst)];
+                    const float gain = currentGain_[groupMatrix32Index(src, dst)];
                     if (gain <= 0.000001f) {
                         continue;
                     }
@@ -191,48 +191,48 @@ public:
     }
 
 private:
-    static GroupMatrixParams sanitize(GroupMatrixParams p)
+    static GroupMatrix32Params sanitize(GroupMatrix32Params p)
     {
         for (float& db : p.crosspointDb) {
-            db = groupMatrixClamp(db, -80.0f, 12.0f);
+            db = groupMatrix32Clamp(db, -80.0f, 12.0f);
         }
-        p.groupSize = static_cast<GroupMatrixSize>(
-            std::min<uint32_t>(static_cast<uint32_t>(p.groupSize), static_cast<uint32_t>(GroupMatrixSize::Ch16)));
-        p.flow = groupMatrixClamp(p.flow, 0.0f, 1.0f);
-        p.spread = groupMatrixClamp(p.spread, 0.0f, 1.0f);
-        p.vortex = groupMatrixClamp(p.vortex, -1.0f, 1.0f);
-        p.motion = groupMatrixClamp(p.motion, 0.0f, 1.0f);
+        p.groupSize = static_cast<GroupMatrix32Size>(
+            std::min<uint32_t>(static_cast<uint32_t>(p.groupSize), static_cast<uint32_t>(GroupMatrix32Size::Ch8)));
+        p.flow = groupMatrix32Clamp(p.flow, 0.0f, 1.0f);
+        p.spread = groupMatrix32Clamp(p.spread, 0.0f, 1.0f);
+        p.vortex = groupMatrix32Clamp(p.vortex, -1.0f, 1.0f);
+        p.motion = groupMatrix32Clamp(p.motion, 0.0f, 1.0f);
         p.shape = matrixFlowShapeFromIndex(static_cast<uint32_t>(p.shape));
-        p.mode = static_cast<GroupMatrixFlowMode>(
-            std::min<uint32_t>(static_cast<uint32_t>(p.mode), static_cast<uint32_t>(GroupMatrixFlowMode::Sync)));
-        p.rate = groupMatrixClamp(p.rate, 0.0f, 1.0f);
-        p.divisionBeats = groupMatrixClamp(p.divisionBeats, 0.25f, 64.0f);
-        p.phaseOffset = groupMatrixClamp(p.phaseOffset, 0.0f, 1.0f);
-        p.smoothingMs = groupMatrixClamp(p.smoothingMs, 1.0f, 500.0f);
-        p.outputGainDb = groupMatrixClamp(p.outputGainDb, -60.0f, 12.0f);
+        p.mode = static_cast<GroupMatrix32FlowMode>(
+            std::min<uint32_t>(static_cast<uint32_t>(p.mode), static_cast<uint32_t>(GroupMatrix32FlowMode::Sync)));
+        p.rate = groupMatrix32Clamp(p.rate, 0.0f, 1.0f);
+        p.divisionBeats = groupMatrix32Clamp(p.divisionBeats, 0.25f, 64.0f);
+        p.phaseOffset = groupMatrix32Clamp(p.phaseOffset, 0.0f, 1.0f);
+        p.smoothingMs = groupMatrix32Clamp(p.smoothingMs, 1.0f, 500.0f);
+        p.outputGainDb = groupMatrix32Clamp(p.outputGainDb, -60.0f, 12.0f);
         return p;
     }
 
     void rebuildTargets()
     {
         targetGain_.fill(0.0f);
-        const float out = groupMatrixDbToGain(params_.outputGainDb);
+        const float out = groupMatrix32DbToGain(params_.outputGainDb);
         const float phase = wrapPhase((useExternalPhase_ ? externalPhase_ : freePhase_) + params_.phaseOffset);
         const auto generated = generatedFlowMatrix(phase);
         const uint32_t groups = activeGroups();
         for (uint32_t src = 0; src < groups; ++src) {
             for (uint32_t dst = 0; dst < groups; ++dst) {
-                const uint32_t idx = groupMatrixIndex(src, dst);
-                const float manual = groupMatrixDbToGain(params_.crosspointDb[idx]);
+                const uint32_t idx = groupMatrix32Index(src, dst);
+                const float manual = groupMatrix32DbToGain(params_.crosspointDb[idx]);
                 const float flowShape = 1.0f - params_.motion + generated[idx] * params_.motion;
                 targetGain_[idx] = manual * flowShape * out;
             }
         }
     }
 
-    std::array<float, kGroupMatrixMaxCrosspoints> generatedFlowMatrix(float phase) const
+    std::array<float, kGroupMatrix32MaxCrosspoints> generatedFlowMatrix(float phase) const
     {
-        std::array<float, kGroupMatrixMaxCrosspoints> g {};
+        std::array<float, kGroupMatrix32MaxCrosspoints> g {};
         const uint32_t groups = activeGroups();
         const float phaseForShape = params_.shape == MatrixFlowShape::Hold ? 0.0f : phase;
         const float width = 0.045f + params_.spread * 1.25f + params_.flow * 0.58f;
@@ -242,7 +242,7 @@ private:
             for (uint32_t src = 0; src < groups; ++src) {
                 for (uint32_t dst = 0; dst < groups; ++dst) {
                     const float offset = (static_cast<float>(src + dst) / static_cast<float>(std::max<uint32_t>(1u, groups))) * params_.spread;
-                    g[groupMatrixIndex(src, dst)] = matrixFlowPulse(phaseForShape + offset);
+                    g[groupMatrix32Index(src, dst)] = matrixFlowPulse(phaseForShape + offset);
                 }
             }
             return g;
@@ -256,12 +256,12 @@ private:
                 const float center = std::fmod(static_cast<float>(src) + pos, static_cast<float>(groups));
                 for (uint32_t dst = 0; dst < groups; ++dst) {
                     const float w = matrixFlowRingWeight(groups, dst, center, chaseWidth);
-                    g[groupMatrixIndex(src, dst)] = w;
+                    g[groupMatrix32Index(src, dst)] = w;
                     sum += w;
                 }
                 if (sum > 0.000001f) {
                     for (uint32_t dst = 0; dst < groups; ++dst) {
-                        g[groupMatrixIndex(src, dst)] /= sum;
+                        g[groupMatrix32Index(src, dst)] /= sum;
                     }
                 }
             }
@@ -281,12 +281,12 @@ private:
                     const float b = matrixFlowHash01(src, dst, seedB);
                     const float h = a + (b - a) * t;
                     const float w = std::max(0.0f, (h - threshold) / std::max(0.05f, 1.0f - threshold));
-                    g[groupMatrixIndex(src, dst)] = 0.04f + w;
-                    sum += g[groupMatrixIndex(src, dst)];
+                    g[groupMatrix32Index(src, dst)] = 0.04f + w;
+                    sum += g[groupMatrix32Index(src, dst)];
                 }
                 if (sum > 0.000001f) {
                     for (uint32_t dst = 0; dst < groups; ++dst) {
-                        g[groupMatrixIndex(src, dst)] /= sum;
+                        g[groupMatrix32Index(src, dst)] /= sum;
                     }
                 }
             }
@@ -316,12 +316,12 @@ private:
                 const float dy = std::sin(dstAngle) - cy;
                 const float d2 = dx * dx + dy * dy;
                 const float w = std::exp(-d2 / std::max(0.001f, width * width));
-                g[groupMatrixIndex(src, dst)] = w;
+                g[groupMatrix32Index(src, dst)] = w;
                 sum += w;
             }
             if (sum > 0.000001f) {
                 for (uint32_t dst = 0; dst < groups; ++dst) {
-                    g[groupMatrixIndex(src, dst)] /= sum;
+                    g[groupMatrix32Index(src, dst)] /= sum;
                 }
             }
         }
@@ -341,9 +341,9 @@ private:
     }
 
     double sampleRate_ = 48000.0;
-    GroupMatrixParams params_ {};
-    std::array<float, kGroupMatrixMaxCrosspoints> currentGain_ {};
-    std::array<float, kGroupMatrixMaxCrosspoints> targetGain_ {};
+    GroupMatrix32Params params_ {};
+    std::array<float, kGroupMatrix32MaxCrosspoints> currentGain_ {};
+    std::array<float, kGroupMatrix32MaxCrosspoints> targetGain_ {};
     float freePhase_ = 0.0f;
     float externalPhase_ = 0.0f;
     bool useExternalPhase_ = false;

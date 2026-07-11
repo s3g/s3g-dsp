@@ -14,6 +14,7 @@
 #include "s3g_delay_processor.h"
 #include "s3g_gain.h"
 #include "s3g_group_matrix.h"
+#include "s3g_group_matrix_32.h"
 #include "s3g_lane_patch.h"
 #include "s3g_loop_processor.h"
 #include "s3g_multi_loop_processor.h"
@@ -182,6 +183,26 @@ int main()
         std::cerr << "Ambi group matrix motion ignored a closed manual ceiling\n";
         return 1;
     }
+    for (uint32_t shape = 0; shape <= static_cast<uint32_t>(s3g::MatrixFlowShape::Hold); ++shape) {
+        matrixParams.shape = s3g::matrixFlowShapeFromIndex(shape);
+        matrixParams.flow = 0.8f;
+        matrixParams.spread = 0.55f;
+        matrixParams.motion = 1.0f;
+        groupMatrix.setParams(matrixParams);
+        const auto preview = groupMatrix.generatedFlowPreview(0.37f);
+        float sum = 0.0f;
+        for (float v : preview) {
+            if (!std::isfinite(v) || v < 0.0f) {
+                std::cerr << "Ambi group matrix generated shape is invalid\n";
+                return 1;
+            }
+            sum += v;
+        }
+        if (sum <= 0.0f) {
+            std::cerr << "Ambi group matrix generated shape is silent\n";
+            return 1;
+        }
+    }
 
     s3g::AmbiGroupMatrix128 groupMatrix128;
     groupMatrix128.prepare(48000.0);
@@ -237,6 +258,26 @@ int main()
         std::cerr << "Ambi group matrix 128 motion ignored a closed manual ceiling\n";
         return 1;
     }
+    for (uint32_t shape = 0; shape <= static_cast<uint32_t>(s3g::MatrixFlowShape::Hold); ++shape) {
+        matrix128Params.shape = s3g::matrixFlowShapeFromIndex(shape);
+        matrix128Params.flow = 0.8f;
+        matrix128Params.spread = 0.55f;
+        matrix128Params.motion = 1.0f;
+        groupMatrix128.setParams(matrix128Params);
+        const auto preview = groupMatrix128.generatedFlowPreview(0.37f);
+        float sum = 0.0f;
+        for (float v : preview) {
+            if (!std::isfinite(v) || v < 0.0f) {
+                std::cerr << "Ambi group matrix 128 generated shape is invalid\n";
+                return 1;
+            }
+            sum += v;
+        }
+        if (sum <= 0.0f) {
+            std::cerr << "Ambi group matrix 128 generated shape is silent\n";
+            return 1;
+        }
+    }
 
     s3g::GroupMatrix generalMatrix;
     generalMatrix.prepare(48000.0);
@@ -289,6 +330,99 @@ int main()
     if (!near(generalOut[16][0], generalIn[0][0]) || !near(generalOut[31][2], generalIn[15][2])) {
         std::cerr << "Group matrix 16ch group routing failed\n";
         return 1;
+    }
+    for (uint32_t shape = 0; shape <= static_cast<uint32_t>(s3g::MatrixFlowShape::Hold); ++shape) {
+        generalParams.shape = s3g::matrixFlowShapeFromIndex(shape);
+        generalParams.flow = 0.8f;
+        generalParams.spread = 0.55f;
+        generalParams.motion = 1.0f;
+        generalMatrix.setParams(generalParams);
+        const auto preview = generalMatrix.generatedFlowPreview(0.37f);
+        float sum = 0.0f;
+        for (float v : preview) {
+            if (!std::isfinite(v) || v < 0.0f) {
+                std::cerr << "Group matrix generated shape is invalid\n";
+                return 1;
+            }
+            sum += v;
+        }
+        if (sum <= 0.0f) {
+            std::cerr << "Group matrix generated shape is silent\n";
+            return 1;
+        }
+    }
+
+    s3g::GroupMatrix32 generalMatrix32;
+    generalMatrix32.prepare(48000.0);
+    float general32In[s3g::kGroupMatrix32Channels][matrixFrames] {};
+    float general32Out[s3g::kGroupMatrix32Channels][matrixFrames] {};
+    float* general32InPtrs[s3g::kGroupMatrix32Channels] {};
+    float* general32OutPtrs[s3g::kGroupMatrix32Channels] {};
+    for (uint32_t ch = 0; ch < s3g::kGroupMatrix32Channels; ++ch) {
+        general32InPtrs[ch] = general32In[ch];
+        general32OutPtrs[ch] = general32Out[ch];
+        for (uint32_t frame = 0; frame < matrixFrames; ++frame) {
+            general32In[ch][frame] = static_cast<float>(ch + 1u) * 0.025f + static_cast<float>(frame) * 0.001f;
+        }
+    }
+    auto general32Params = s3g::makeDefaultGroupMatrix32Params();
+    general32Params.groupSize = s3g::GroupMatrix32Size::Ch2;
+    general32Params.crosspointDb[s3g::groupMatrix32Index(0, 1)] = 0.0f;
+    general32Params.crosspointDb[s3g::groupMatrix32Index(1, 1)] = -80.0f;
+    generalMatrix32.setParams(general32Params);
+    generalMatrix32.reset();
+    generalMatrix32.process(general32InPtrs, s3g::kGroupMatrix32Channels, general32OutPtrs, s3g::kGroupMatrix32Channels, matrixFrames);
+    if (!near(general32Out[2][0], general32In[0][0]) || !near(general32Out[3][3], general32In[1][3])) {
+        std::cerr << "Group matrix 32 2ch group routing failed\n";
+        return 1;
+    }
+    general32Params = s3g::makeDefaultGroupMatrix32Params();
+    general32Params.groupSize = s3g::GroupMatrix32Size::Ch4;
+    general32Params.crosspointDb[s3g::groupMatrix32Index(0, 1)] = 0.0f;
+    general32Params.crosspointDb[s3g::groupMatrix32Index(1, 1)] = -80.0f;
+    generalMatrix32.setParams(general32Params);
+    generalMatrix32.reset();
+    for (auto& ch : general32Out) {
+        std::fill(ch, ch + matrixFrames, 0.0f);
+    }
+    generalMatrix32.process(general32InPtrs, s3g::kGroupMatrix32Channels, general32OutPtrs, s3g::kGroupMatrix32Channels, matrixFrames);
+    if (!near(general32Out[4][0], general32In[0][0]) || !near(general32Out[7][2], general32In[3][2])) {
+        std::cerr << "Group matrix 32 4ch group routing failed\n";
+        return 1;
+    }
+    general32Params = s3g::makeDefaultGroupMatrix32Params();
+    general32Params.groupSize = s3g::GroupMatrix32Size::Ch8;
+    general32Params.crosspointDb[s3g::groupMatrix32Index(0, 1)] = 0.0f;
+    general32Params.crosspointDb[s3g::groupMatrix32Index(1, 1)] = -80.0f;
+    generalMatrix32.setParams(general32Params);
+    generalMatrix32.reset();
+    for (auto& ch : general32Out) {
+        std::fill(ch, ch + matrixFrames, 0.0f);
+    }
+    generalMatrix32.process(general32InPtrs, s3g::kGroupMatrix32Channels, general32OutPtrs, s3g::kGroupMatrix32Channels, matrixFrames);
+    if (!near(general32Out[8][0], general32In[0][0]) || !near(general32Out[15][2], general32In[7][2])) {
+        std::cerr << "Group matrix 32 8ch group routing failed\n";
+        return 1;
+    }
+    for (uint32_t shape = 0; shape <= static_cast<uint32_t>(s3g::MatrixFlowShape::Hold); ++shape) {
+        general32Params.shape = s3g::matrixFlowShapeFromIndex(shape);
+        general32Params.flow = 0.8f;
+        general32Params.spread = 0.55f;
+        general32Params.motion = 1.0f;
+        generalMatrix32.setParams(general32Params);
+        const auto preview = generalMatrix32.generatedFlowPreview(0.37f);
+        float sum = 0.0f;
+        for (float v : preview) {
+            if (!std::isfinite(v) || v < 0.0f) {
+                std::cerr << "Group matrix 32 generated shape is invalid\n";
+                return 1;
+            }
+            sum += v;
+        }
+        if (sum <= 0.0f) {
+            std::cerr << "Group matrix 32 generated shape is silent\n";
+            return 1;
+        }
     }
 
     s3g::McStereoParams stereoParams;

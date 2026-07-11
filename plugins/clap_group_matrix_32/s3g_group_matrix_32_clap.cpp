@@ -1,4 +1,4 @@
-#include "s3g_group_matrix.h"
+#include "s3g_group_matrix_32.h"
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
@@ -24,7 +24,7 @@ namespace {
 constexpr uint32_t kStateVersion = 2;
 constexpr uint32_t kGuiWidth = 1040;
 constexpr uint32_t kGuiHeight = 612;
-constexpr uint32_t kCrosspointCount = s3g::kGroupMatrixMaxCrosspoints;
+constexpr uint32_t kCrosspointCount = s3g::kGroupMatrix32MaxCrosspoints;
 
 constexpr clap_id kCrosspointBase = 100;
 constexpr clap_id kParamFlow = 1000;
@@ -42,7 +42,7 @@ constexpr clap_id kParamShape = 1011;
 
 struct SavedState {
     uint32_t version = kStateVersion;
-    s3g::GroupMatrixParams params {};
+    s3g::GroupMatrix32Params params {};
 };
 
 struct Plugin {
@@ -50,8 +50,8 @@ struct Plugin {
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0;
-    s3g::GroupMatrixParams params = s3g::makeDefaultGroupMatrixParams();
-    s3g::GroupMatrix matrix;
+    s3g::GroupMatrix32Params params = s3g::makeDefaultGroupMatrix32Params();
+    s3g::GroupMatrix32 matrix;
     std::atomic<float> outputPeak { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -75,8 +75,8 @@ double defaultValueForParam(clap_id id)
 {
     if (isCrosspointParam(id)) {
         const uint32_t idx = crosspointIndexFromParam(id);
-        const uint32_t src = idx / s3g::kGroupMatrixMaxGroups;
-        const uint32_t dst = idx % s3g::kGroupMatrixMaxGroups;
+        const uint32_t src = idx / s3g::kGroupMatrix32MaxGroups;
+        const uint32_t dst = idx % s3g::kGroupMatrix32MaxGroups;
         return src == dst ? 0.0 : -80.0;
     }
     switch (id) {
@@ -91,7 +91,7 @@ double defaultValueForParam(clap_id id)
     case kParamPhase: return 0.0;
     case kParamSmoothing: return 35.0;
     case kParamOutput: return 0.0;
-    case kParamGroupSize: return 1.0;
+    case kParamGroupSize: return 0.0;
     default: return 0.0;
     }
 }
@@ -107,13 +107,13 @@ void applyParam(Plugin& p, clap_id id, double value)
         case kParamVortex: p.params.vortex = static_cast<float>(std::clamp(value, -1.0, 1.0)); break;
         case kParamMotion: p.params.motion = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
         case kParamShape: p.params.shape = s3g::matrixFlowShapeFromIndex(static_cast<uint32_t>(std::round(std::clamp(value, 0.0, 5.0)))); break;
-        case kParamMode: p.params.mode = value >= 0.5 ? s3g::GroupMatrixFlowMode::Sync : s3g::GroupMatrixFlowMode::Free; break;
+        case kParamMode: p.params.mode = value >= 0.5 ? s3g::GroupMatrix32FlowMode::Sync : s3g::GroupMatrix32FlowMode::Free; break;
         case kParamRate: p.params.rate = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
         case kParamDivision: p.params.divisionBeats = static_cast<float>(std::clamp(value, 0.25, 64.0)); break;
         case kParamPhase: p.params.phaseOffset = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
         case kParamSmoothing: p.params.smoothingMs = static_cast<float>(std::clamp(value, 1.0, 500.0)); break;
         case kParamOutput: p.params.outputGainDb = static_cast<float>(std::clamp(value, -60.0, 12.0)); break;
-        case kParamGroupSize: p.params.groupSize = static_cast<s3g::GroupMatrixSize>(std::min<uint32_t>(2u, static_cast<uint32_t>(std::round(std::clamp(value, 0.0, 2.0))))); break;
+        case kParamGroupSize: p.params.groupSize = static_cast<s3g::GroupMatrix32Size>(std::min<uint32_t>(2u, static_cast<uint32_t>(std::round(std::clamp(value, 0.0, 2.0))))); break;
         default: break;
         }
     }
@@ -122,7 +122,7 @@ void applyParam(Plugin& p, clap_id id, double value)
 
 void updateTransportPhase(Plugin& p, const clap_event_transport_t* transport)
 {
-    if (p.params.mode != s3g::GroupMatrixFlowMode::Sync) {
+    if (p.params.mode != s3g::GroupMatrix32FlowMode::Sync) {
         p.matrix.useFreePhase();
         return;
     }
@@ -221,13 +221,13 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 
     if (input.data32 && output.data32) {
         p->matrix.process(input.data32, input.channel_count, output.data32, outChannels, frames);
-        s3g::clearAudioBufferFromChannel(output, s3g::kGroupMatrixChannels, frames);
-        p->outputPeak.store(peakForBuffer(output.data32, std::min<uint32_t>(outChannels, s3g::kGroupMatrixChannels), frames),
+        s3g::clearAudioBufferFromChannel(output, s3g::kGroupMatrix32Channels, frames);
+        p->outputPeak.store(peakForBuffer(output.data32, std::min<uint32_t>(outChannels, s3g::kGroupMatrix32Channels), frames),
             std::memory_order_relaxed);
     } else if (input.data64 && output.data64) {
         p->matrix.process(input.data64, input.channel_count, output.data64, outChannels, frames);
-        s3g::clearAudioBufferFromChannel(output, s3g::kGroupMatrixChannels, frames);
-        p->outputPeak.store(peakForBuffer(output.data64, std::min<uint32_t>(outChannels, s3g::kGroupMatrixChannels), frames),
+        s3g::clearAudioBufferFromChannel(output, s3g::kGroupMatrix32Channels, frames);
+        p->outputPeak.store(peakForBuffer(output.data64, std::min<uint32_t>(outChannels, s3g::kGroupMatrix32Channels), frames),
             std::memory_order_relaxed);
     }
     return CLAP_PROCESS_CONTINUE;
@@ -241,9 +241,9 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
         return false;
     }
     info->id = isInput ? 10 : 20;
-    std::strncpy(info->name, isInput ? "64ch In" : "64ch Out", sizeof(info->name));
+    std::strncpy(info->name, isInput ? "32ch In" : "32ch Out", sizeof(info->name));
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-    info->channel_count = s3g::kGroupMatrixChannels;
+    info->channel_count = s3g::kGroupMatrix32Channels;
     info->port_type = CLAP_PORT_SURROUND;
     info->in_place_pair = isInput ? 20 : 10;
     return true;
@@ -289,8 +289,8 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     std::memset(info->module, 0, sizeof(info->module));
     if (isCrosspointParam(id)) {
         const uint32_t idx = crosspointIndexFromParam(id);
-        const uint32_t src = idx / s3g::kGroupMatrixMaxGroups + 1u;
-        const uint32_t dst = idx % s3g::kGroupMatrixMaxGroups + 1u;
+        const uint32_t src = idx / s3g::kGroupMatrix32MaxGroups + 1u;
+        const uint32_t dst = idx % s3g::kGroupMatrix32MaxGroups + 1u;
         std::snprintf(info->name, sizeof(info->name), "S%u to D%u", src, dst);
         std::strncpy(info->module, "Group Matrix", sizeof(info->module));
         info->min_value = -80.0;
@@ -359,7 +359,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
     case kParamVortex: *value = p.vortex; return true;
     case kParamMotion: *value = p.motion; return true;
     case kParamShape: *value = static_cast<double>(static_cast<uint32_t>(p.shape)); return true;
-    case kParamMode: *value = p.mode == s3g::GroupMatrixFlowMode::Sync ? 1.0 : 0.0; return true;
+    case kParamMode: *value = p.mode == s3g::GroupMatrix32FlowMode::Sync ? 1.0 : 0.0; return true;
     case kParamRate: *value = p.rate; return true;
     case kParamDivision: *value = p.divisionBeats; return true;
     case kParamPhase: *value = p.phaseOffset; return true;
@@ -393,8 +393,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
         return true;
     }
     if (paramId == kParamGroupSize) {
-        const auto groupSize = static_cast<s3g::GroupMatrixSize>(std::min<uint32_t>(2u, static_cast<uint32_t>(std::round(std::clamp(value, 0.0, 2.0)))));
-        std::snprintf(display, size, "%s", s3g::groupMatrixSizeName(groupSize));
+        const auto groupSize = static_cast<s3g::GroupMatrix32Size>(std::min<uint32_t>(2u, static_cast<uint32_t>(std::round(std::clamp(value, 0.0, 2.0)))));
+        std::snprintf(display, size, "%s", s3g::groupMatrix32SizeName(groupSize));
         return true;
     }
     if (paramId == kParamDivision) {
@@ -454,7 +454,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 } // namespace
 
 #if defined(__APPLE__)
-@interface S3GGroupMatrixView : NSView {
+@interface S3GGroupMatrix32View : NSView {
 @private
     void* _plugin;
     NSTimer* _timer;
@@ -482,7 +482,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)updateSlider:(NSPoint)pt;
 @end
 
-@implementation S3GGroupMatrixView
+@implementation S3GGroupMatrix32View
 - (instancetype)initWithPlugin:(void*)plugin
 {
     self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
@@ -563,14 +563,14 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         return;
     }
     auto* p = static_cast<Plugin*>(_plugin);
-    static NSString* const groupItems[] = { @"4CH", @"8CH", @"16CH" };
+    static NSString* const groupItems[] = { @"2CH", @"4CH", @"8CH" };
     static NSString* const shapeItems[] = { @"FLOW", @"PULSE", @"CHASE", @"SWIRL", @"SCAT", @"HOLD" };
     static NSString* const modeItems[] = { @"FREE", @"SYNC" };
     if (_openMenu == 1) {
         const int selected = static_cast<int>(static_cast<uint32_t>(p->params.groupSize));
         s3g::clap_gui::drawDropdownMenu([self groupDropdownRect], 20.0, groupItems, 3, selected, _hoverMenuItem, attrs, style);
     } else if (_openMenu == 2) {
-        const int selected = p->params.mode == s3g::GroupMatrixFlowMode::Sync ? 1 : 0;
+        const int selected = p->params.mode == s3g::GroupMatrix32FlowMode::Sync ? 1 : 0;
         s3g::clap_gui::drawDropdownMenu([self modeDropdownRect], 20.0, modeItems, 2, selected, _hoverMenuItem, attrs, style);
     } else if (_openMenu == 3) {
         const int selected = static_cast<int>(static_cast<uint32_t>(p->params.shape));
@@ -614,8 +614,8 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     for (uint32_t src = 0; src < groups; ++src) {
         const NSPoint a = pointFor(false, src);
         for (uint32_t dst = 0; dst < groups; ++dst) {
-            const uint32_t idx = s3g::groupMatrixIndex(src, dst);
-            const float manual = s3g::groupMatrixDbToGain(p->params.crosspointDb[idx]);
+            const uint32_t idx = s3g::groupMatrix32Index(src, dst);
+            const float manual = s3g::groupMatrix32DbToGain(p->params.crosspointDb[idx]);
             if (manual <= 0.000001f) {
                 continue;
             }
@@ -709,11 +709,11 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     NSDictionary* small = [self attrs:style.dim size:10.0];
     NSDictionary* title = [self attrs:style.text size:10.5];
 
-    [@"s3g GROUP MATRIX 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:title];
+    [@"s3g GROUP MATRIX 32" drawAtPoint:NSMakePoint(18, 14) withAttributes:title];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
     [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))]
         drawAtPoint:NSMakePoint(846, 14) withAttributes:small];
-    [[NSString stringWithFormat:@"%s GROUPS / 64CH", s3g::groupMatrixSizeName(p->params.groupSize)] drawAtPoint:NSMakePoint(870, 14) withAttributes:small];
+    [[NSString stringWithFormat:@"%s GROUPS / 32CH", s3g::groupMatrix32SizeName(p->params.groupSize)] drawAtPoint:NSMakePoint(870, 14) withAttributes:small];
 
     s3g::clap_gui::drawPanelFrame(18, 42, 430, 404, style);
     s3g::clap_gui::drawPanelHeader(@"GROUP MATRIX", true, 18, 42, 430, 21, text, style);
@@ -739,7 +739,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
     for (uint32_t src = 0; src < groups; ++src) {
         for (uint32_t dst = 0; dst < groups; ++dst) {
-            const uint32_t idx = s3g::groupMatrixIndex(src, dst);
+            const uint32_t idx = s3g::groupMatrix32Index(src, dst);
             const float db = p->params.crosspointDb[idx];
             NSRect r = NSMakeRect(matrixRect.origin.x + dst * cell, matrixRect.origin.y + src * cell, cell - gap, cell - gap);
             [style.strip setFill];
@@ -776,13 +776,13 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     [self drawFlowPreview:NSMakeRect(486, 78, 214, 342) attrs:small style:style];
 
     const auto& prm = p->params;
-    s3g::clap_gui::drawMenu(@"GROUP", [NSString stringWithUTF8String:s3g::groupMatrixSizeName(prm.groupSize)], 82, small, small, style, 752, 838, 118);
+    s3g::clap_gui::drawMenu(@"GROUP", [NSString stringWithUTF8String:s3g::groupMatrix32SizeName(prm.groupSize)], 82, small, small, style, 752, 838, 118);
     s3g::clap_gui::drawSlider(@"FLOW", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.flow * 100.0f)], prm.flow, 108, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"SPRD", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.spread * 100.0f)], prm.spread, 134, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"VORT", [NSString stringWithFormat:@"%+.2f", static_cast<double>(prm.vortex)], (prm.vortex + 1.0f) * 0.5f, 160, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"MOTN", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.motion * 100.0f)], prm.motion, 186, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawMenu(@"SHAPE", [NSString stringWithUTF8String:s3g::matrixFlowShapeName(prm.shape)], 212, small, small, style, 752, 838, 118);
-    s3g::clap_gui::drawMenu(@"MODE", prm.mode == s3g::GroupMatrixFlowMode::Sync ? @"SYNC" : @"FREE", 238, small, small, style, 752, 838, 118);
+    s3g::clap_gui::drawMenu(@"MODE", prm.mode == s3g::GroupMatrix32FlowMode::Sync ? @"SYNC" : @"FREE", 238, small, small, style, 752, 838, 118);
     s3g::clap_gui::drawSlider(@"RATE", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.rate * 100.0f)], prm.rate, 264, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"DIV", [NSString stringWithFormat:@"%.2g", static_cast<double>(prm.divisionBeats)], (prm.divisionBeats - 0.25f) / 63.75f, 290, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"PHAS", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.phaseOffset * 100.0f)], prm.phaseOffset, 316, small, small, style, 752, 838, 978, 118);
@@ -800,7 +800,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     auto* p = static_cast<Plugin*>(_plugin);
     const uint32_t idx = static_cast<uint32_t>(_dragCell);
     const uint32_t groups = p->matrix.activeGroups();
-    const uint32_t src = idx / s3g::kGroupMatrixMaxGroups;
+    const uint32_t src = idx / s3g::kGroupMatrix32MaxGroups;
     const NSRect matrixRect = NSMakeRect(86.0, 92.0, 336.0, 336.0);
     const CGFloat cell = matrixRect.size.width / static_cast<CGFloat>(groups);
     const double n = std::clamp(1.0 - (pt.y - (matrixRect.origin.y + static_cast<CGFloat>(src) * cell)) / cell, 0.0, 1.0);
@@ -871,7 +871,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         for (uint32_t dst = 0; dst < groups; ++dst) {
             NSRect r = NSMakeRect(matrixRect.origin.x + dst * cell, matrixRect.origin.y + src * cell, cell - gap, cell - gap);
             if (NSPointInRect(pt, r)) {
-                _dragCell = s3g::groupMatrixIndex(src, dst);
+                _dragCell = s3g::groupMatrix32Index(src, dst);
                 [self updateCell:pt];
                 return;
             }
@@ -935,7 +935,7 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     if (!guiIsApiSupported(plugin, api, isFloating)) return false;
     auto* p = self(plugin);
     if (p->guiView) return true;
-    p->guiView = [[S3GGroupMatrixView alloc] initWithPlugin:p];
+    p->guiView = [[S3GGroupMatrix32View alloc] initWithPlugin:p];
     return p->guiView != nullptr;
 }
 void guiDestroy(const clap_plugin_t* plugin)
@@ -943,7 +943,7 @@ void guiDestroy(const clap_plugin_t* plugin)
     auto* p = self(plugin);
     if (p->guiView) {
         p->guiVisible = false;
-        auto* v = static_cast<S3GGroupMatrixView*>(p->guiView);
+        auto* v = static_cast<S3GGroupMatrix32View*>(p->guiView);
         [v stopRefreshTimer];
         [v removeFromSuperview];
         [v release];
@@ -969,8 +969,8 @@ bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win)
 }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GGroupMatrixView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GGroupMatrixView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GGroupMatrix32View*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GGroupMatrix32View*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 
@@ -989,14 +989,14 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
-    "org.s3g.s3g-dsp.group-matrix",
-    "s3g Group Matrix 64",
+    "org.s3g.s3g-dsp.group-matrix-32",
+    "s3g Group Matrix 32",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
     "0.1.0",
-    "64-channel group matrix mixer with 4ch, 8ch, and 16ch group modes.",
+    "32-channel group matrix mixer with 2ch, 4ch, and 8ch group modes.",
     features
 };
 
