@@ -34,9 +34,23 @@ struct AmbiRotateParams {
     float yawDeg = 0.0f;
     float pitchDeg = 0.0f;
     float rollDeg = 0.0f;
+    float spread = 0.0f;
+    float tilt = 0.0f;
+    float twist = 0.0f;
     float width = 1.0f;
     float outputGainDb = 0.0f;
 };
+
+inline float wrapAmbiRotateDeg(float deg)
+{
+    while (deg > 180.0f) {
+        deg -= 360.0f;
+    }
+    while (deg < -180.0f) {
+        deg += 360.0f;
+    }
+    return deg;
+}
 
 inline uint32_t ambiUtilityChannelsForOrder(uint32_t order)
 {
@@ -95,9 +109,12 @@ inline AmbiOrderBandParams sanitizeAmbiOrderBandParams(AmbiOrderBandParams param
 inline AmbiRotateParams sanitizeAmbiRotateParams(AmbiRotateParams params)
 {
     params.order = std::clamp<uint32_t>(params.order, 1u, kAmbiUtilityMaxOrder);
-    params.yawDeg = clamp(params.yawDeg, -180.0f, 180.0f);
+    params.yawDeg = wrapAmbiRotateDeg(params.yawDeg);
     params.pitchDeg = clamp(params.pitchDeg, -90.0f, 90.0f);
-    params.rollDeg = clamp(params.rollDeg, -180.0f, 180.0f);
+    params.rollDeg = wrapAmbiRotateDeg(params.rollDeg);
+    params.spread = clamp(params.spread, -1.0f, 1.0f);
+    params.tilt = clamp(params.tilt, -1.0f, 1.0f);
+    params.twist = clamp(params.twist, -1.0f, 1.0f);
     params.width = clamp(params.width, 0.0f, 1.5f);
     params.outputGainDb = clamp(params.outputGainDb, -60.0f, 12.0f);
     return params;
@@ -231,7 +248,16 @@ private:
         const float invDirs = 1.0f / static_cast<float>(kAmbiRotateDirections);
         for (uint32_t d = 0; d < kAmbiRotateDirections; ++d) {
             const auto outBasis = acnSn3dBasis7(dirs_[d]);
-            const Vec3 srcDir = ambiUtilityRotate(dirs_[d], -params_.yawDeg, -params_.pitchDeg, -params_.rollDeg);
+            const float az = std::atan2(dirs_[d].y, dirs_[d].x);
+            const float side = std::sin(az);
+            const float frontBack = std::cos(az);
+            const float yawOffset = side * params_.spread * 54.0f;
+            const float pitchOffset = side * params_.tilt * 42.0f;
+            const float rollOffset = frontBack * params_.twist * 90.0f;
+            const Vec3 srcDir = ambiUtilityRotate(dirs_[d],
+                -wrapAmbiRotateDeg(params_.yawDeg + yawOffset),
+                -clamp(params_.pitchDeg + pitchOffset, -90.0f, 90.0f),
+                -wrapAmbiRotateDeg(params_.rollDeg + rollOffset));
             const auto inBasis = acnSn3dBasis7(srcDir);
             for (uint32_t row = 0; row < n; ++row) {
                 const uint32_t order = ambiUtilityOrderForChannel(row);

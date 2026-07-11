@@ -49,6 +49,8 @@ drawPanelHeader(@"ENGINE", open, panelX, panelY, panelW, headerH, attrs, style);
 
 - Sliders are square, horizontal, and text-labeled with short all-caps names.
 - Use three-letter abbreviations when possible: `OUT`, `CTR`, `LEN`, `SMR`.
+- Double-clicking a slider should return that parameter to its default value.
+  This is a package-wide interaction convention, not a plugin-specific feature.
 - Parameters with discrete named states must be menus, not sliders. Examples:
   motion modes, layout modes, shape choices, neighbor counts, launch modes,
   mute/on-off states, and global mode toggles.

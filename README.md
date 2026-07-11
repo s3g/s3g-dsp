@@ -52,6 +52,8 @@ Current plugins:
   speaker presets, source mixer, and custom layout design.
 - `s3g Ambi Rotate 64`: first-through-seventh-order `ACN/SN3D` field
   rotation utility with yaw, pitch, roll, and order-width trim.
+- `s3g Ambi Depth 16`: third-order `ACN/SN3D` field depth utility with
+  order shaping, air damping, and a distance-tail layer.
 - `s3g Ambi Group Matrix 64` / `s3g Ambi Group Matrix 128`: bus-level
   matrix mixers for four or eight lane-locked 3OA feeds.
 - `s3g Ambi Group Rotate 64` / `s3g Ambi Group Rotate 128`: bus-level
@@ -185,25 +187,24 @@ clap-validator validate \
 clap-validator validate \
   ~/Library/Audio/Plug-Ins/CLAP/s3g_mc_to_quad_autogain.clap --only-failed
 clap-validator validate \
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_ambi_depth_16.clap --only-failed
+clap-validator validate \
   ~/Library/Audio/Plug-Ins/CLAP/s3g_spectral_spray.clap --only-failed
 ```
 
 ## Related Projects
 
-[`s3g-mc`](https://github.com/s3g/s3g-mc) is the main REAPER package.
-`s3g-dsp` is a sibling plugin project for general multichannel effects,
-instruments, utilities, and ambisonics-specific 3OAFX tools. It can also be
-used independently in matching macOS + REAPER sessions.
+[`s3g-mc`](https://github.com/s3g/s3g-mc) is the related REAPER package for
+scripts, JSFX, process guides, and multichannel workflow tools. `s3g-dsp` can
+be used alongside it or independently in matching macOS + REAPER sessions.
 
 [`s3g-rnbo-clap`](https://github.com/s3g/s3g-rnbo-clap) is a separate
 experimental wrapper for RNBO/Max-generated C++ exports. It is useful for
 testing RNBO-based plugin ideas in the same CLAP workflow, but it is not
 required to build or use `s3g-dsp`.
 
-Useful `s3g-mc` references:
-
-- <https://s3g.github.io/s3g-mc/installation.html>
-- <https://s3g.github.io/s3g-mc/process-guides-3oafx.html>
+The 3OAFX workflow guide is maintained with `s3g-mc`:
+<https://s3g.github.io/s3g-mc/process-guides-3oafx.html>.
 
 ## License
 

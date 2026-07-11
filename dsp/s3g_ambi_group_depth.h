@@ -2,11 +2,13 @@
 
 #include "s3g_ambisonic_utilities.h"
 #include "s3g_math.h"
+#include "s3g_realtime.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace s3g {
 
@@ -19,6 +21,7 @@ struct AmbiGroupDepthParams {
     float spread = 0.0f;
     float focus = 0.0f;
     float air = 0.0f;
+    float tail = 0.0f;
     float low = 0.0f;
     float width = 1.0f;
     float outputGainDb = 0.0f;
@@ -36,6 +39,7 @@ inline AmbiGroupDepthParams sanitizeAmbiGroupDepthParams(AmbiGroupDepthParams pa
     params.spread = clamp(params.spread, -1.0f, 1.0f);
     params.focus = clamp(params.focus, -1.0f, 1.0f);
     params.air = clamp(params.air, -1.0f, 1.0f);
+    params.tail = clamp(params.tail, 0.0f, 1.0f);
     params.low = clamp(params.low, -1.0f, 1.0f);
     params.width = clamp(params.width, 0.0f, 1.5f);
     params.outputGainDb = clamp(params.outputGainDb, -60.0f, 12.0f);
@@ -71,6 +75,7 @@ public:
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1000.0, sampleRate);
+        buildFdnBuffers();
         reset();
         rebuildTargets();
     }
@@ -84,7 +89,13 @@ public:
     void reset()
     {
         currentGain_ = targetGain_;
+        currentTail_ = targetTail_;
         lpState_.fill(0.0f);
+        fdnLp_.fill(0.0f);
+        fdnPos_.fill(0u);
+        for (auto& delay : fdnDelay_) {
+            std::fill(delay.begin(), delay.end(), 0.0f);
+        }
     }
 
     const AmbiGroupDepthParams& params() const { return params_; }
@@ -110,18 +121,29 @@ public:
 
         constexpr float kGainSmooth = 0.0012f;
         constexpr float kFilterSmooth = 0.0020f;
+        constexpr float kTailSmooth = 0.0009f;
+        const uint32_t n = std::min<uint32_t>({ inputChannels, outputChannels, kChannels });
         for (uint32_t i = 0; i < frames; ++i) {
-            for (uint32_t ch = 0; ch < std::min<uint32_t>({ inputChannels, outputChannels, kChannels }); ++ch) {
-                if (!outputs[ch]) {
-                    continue;
+            for (uint32_t group = 0; group < Groups; ++group) {
+                const uint32_t base = group * kAmbiGroupDepthGroupChannels;
+                currentTail_[group] += (targetTail_[group] - currentTail_[group]) * kTailSmooth;
+                const float tail = processFdnGroup(group, inputs, inputChannels, i, currentTail_[group]);
+                for (uint32_t lane = 0; lane < kAmbiGroupDepthGroupChannels; ++lane) {
+                    const uint32_t ch = base + lane;
+                    if (ch >= n || !outputs[ch]) {
+                        continue;
+                    }
+                    const float dry = inputs[ch] ? static_cast<float>(inputs[ch][i]) : 0.0f;
+                    currentGain_[ch] += (targetGain_[ch] - currentGain_[ch]) * kGainSmooth;
+                    currentLp_[ch] += (targetLp_[ch] - currentLp_[ch]) * kFilterSmooth;
+                    lpState_[ch] += (dry - lpState_[ch]) * currentLp_[ch];
+                    const float dampMix = targetAirMix_[ch];
+                    const float orderTail = tailOrderGain(lane);
+                    const float sign = (((lane * 13u + group * 7u) & 1u) == 0u) ? 1.0f : -1.0f;
+                    const float shaped = lerp(dry, lpState_[ch], dampMix) * currentGain_[ch]
+                        + tail * orderTail * sign;
+                    outputs[ch][i] = static_cast<Sample>(std::clamp(shaped, -8.0f, 8.0f));
                 }
-                const float dry = inputs[ch] ? static_cast<float>(inputs[ch][i]) : 0.0f;
-                currentGain_[ch] += (targetGain_[ch] - currentGain_[ch]) * kGainSmooth;
-                currentLp_[ch] += (targetLp_[ch] - currentLp_[ch]) * kFilterSmooth;
-                lpState_[ch] += (dry - lpState_[ch]) * currentLp_[ch];
-                const float dampMix = targetAirMix_[ch];
-                const float shaped = lerp(dry, lpState_[ch], dampMix) * currentGain_[ch];
-                outputs[ch][i] = static_cast<Sample>(std::clamp(shaped, -8.0f, 8.0f));
             }
         }
     }
@@ -143,6 +165,7 @@ private:
             const float airPresence = std::max(0.0f, -params_.air) * (0.25f + nearAmount * 0.75f);
             const float cutoff = lerp(19000.0f, 2200.0f, airDamping);
             const float lp = onePoleCoeff(cutoff);
+            targetTail_[group] = params_.tail * farSoft * lerp(0.30f, 1.0f, focusNorm);
 
             for (uint32_t lane = 0; lane < kAmbiGroupDepthGroupChannels; ++lane) {
                 const uint32_t ch = group * kAmbiGroupDepthGroupChannels + lane;
@@ -161,6 +184,81 @@ private:
         }
     }
 
+    void buildFdnBuffers()
+    {
+        static constexpr float kTimesSec[4] { 0.0371f, 0.0533f, 0.0719f, 0.0897f };
+        for (uint32_t group = 0; group < Groups; ++group) {
+            for (uint32_t line = 0; line < 4u; ++line) {
+                const uint32_t index = group * 4u + line;
+                const float groupOffset = 1.0f + 0.031f * static_cast<float>(group);
+                const uint32_t size = std::max<uint32_t>(
+                    32u,
+                    static_cast<uint32_t>(std::ceil(kTimesSec[line] * groupOffset * static_cast<float>(sampleRate_))));
+                fdnDelay_[index].assign(size, 0.0f);
+                fdnPos_[index] = 0u;
+                fdnLp_[index] = 0.0f;
+            }
+        }
+    }
+
+    template <typename Sample>
+    float processFdnGroup(uint32_t group, Sample* const* inputs, uint32_t inputChannels, uint32_t frame, float amount)
+    {
+        if (amount <= 0.000001f) {
+            return 0.0f;
+        }
+        const uint32_t base = group * kAmbiGroupDepthGroupChannels;
+        auto sampleAt = [&](uint32_t lane) -> float {
+            const uint32_t ch = base + lane;
+            return ch < inputChannels && inputs[ch] ? static_cast<float>(inputs[ch][frame]) : 0.0f;
+        };
+        const float input = (sampleAt(0u) * 0.55f
+            + sampleAt(1u) * 0.16f
+            + sampleAt(2u) * 0.16f
+            + sampleAt(3u) * 0.16f) * amount * 0.20f;
+
+        float y[4] {};
+        for (uint32_t line = 0; line < 4u; ++line) {
+            const uint32_t index = group * 4u + line;
+            auto& delay = fdnDelay_[index];
+            if (delay.empty()) {
+                continue;
+            }
+            y[line] = delay[fdnPos_[index]];
+        }
+
+        const float h[4] {
+            (y[0] + y[1] + y[2] + y[3]) * 0.5f,
+            (y[0] - y[1] + y[2] - y[3]) * 0.5f,
+            (y[0] + y[1] - y[2] - y[3]) * 0.5f,
+            (y[0] - y[1] - y[2] + y[3]) * 0.5f,
+        };
+        const float airDamp = std::max(0.0f, params_.air) * 0.55f;
+        const float feedback = 0.42f + amount * 0.26f;
+        const float dampCoeff = onePoleCoeff(lerp(7600.0f, 2600.0f, airDamp));
+        for (uint32_t line = 0; line < 4u; ++line) {
+            const uint32_t index = group * 4u + line;
+            auto& delay = fdnDelay_[index];
+            if (delay.empty()) {
+                continue;
+            }
+            fdnLp_[index] += (h[line] - fdnLp_[index]) * dampCoeff;
+            const float signedInput = (line & 1u) == 0u ? input : -input;
+            delay[fdnPos_[index]] = flushDenormal(std::clamp(signedInput + fdnLp_[index] * feedback, -2.0f, 2.0f));
+            fdnPos_[index] = (fdnPos_[index] + 1u) % static_cast<uint32_t>(delay.size());
+        }
+        return flushDenormal((y[0] + y[1] + y[2] + y[3]) * 0.25f * amount * 0.72f);
+    }
+
+    float tailOrderGain(uint32_t lane) const
+    {
+        const uint32_t order = ambiUtilityOrderForChannel(lane);
+        if (order == 0u) return 0.42f;
+        if (order == 1u) return 0.22f;
+        if (order == 2u) return 0.12f;
+        return 0.075f;
+    }
+
     float onePoleCoeff(float cutoffHz) const
     {
         const float hz = clamp(cutoffHz, 20.0f, static_cast<float>(sampleRate_ * 0.45));
@@ -175,6 +273,11 @@ private:
     std::array<float, kChannels> targetLp_ {};
     std::array<float, kChannels> targetAirMix_ {};
     std::array<float, kChannels> lpState_ {};
+    std::array<float, Groups> currentTail_ {};
+    std::array<float, Groups> targetTail_ {};
+    std::array<std::vector<float>, Groups * 4u> fdnDelay_ {};
+    std::array<uint32_t, Groups * 4u> fdnPos_ {};
+    std::array<float, Groups * 4u> fdnLp_ {};
 };
 
 } // namespace s3g

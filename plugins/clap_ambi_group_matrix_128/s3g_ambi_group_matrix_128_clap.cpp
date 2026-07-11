@@ -23,7 +23,7 @@ namespace {
 
 constexpr uint32_t kStateVersion = 2;
 constexpr uint32_t kGuiWidth = 1040;
-constexpr uint32_t kGuiHeight = 612;
+constexpr uint32_t kGuiHeight = 648;
 constexpr uint32_t kCrosspointCount = s3g::kAmbiGroupMatrix128Groups * s3g::kAmbiGroupMatrix128Groups;
 
 constexpr clap_id kCrosspointBase = 100;
@@ -296,7 +296,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     }
     switch (id) {
     case kParamFlow:
-        std::strncpy(info->name, "Flow", sizeof(info->name));
+        std::strncpy(info->name, "Depth", sizeof(info->name));
         info->min_value = 0.0; info->max_value = 1.0; break;
     case kParamSpread:
         std::strncpy(info->name, "Spread", sizeof(info->name));
@@ -331,7 +331,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     default:
         return false;
     }
-    std::strncpy(info->module, "Flow", sizeof(info->module));
+    std::strncpy(info->module, "Motion", sizeof(info->module));
     info->default_value = defaultValueForParam(id);
     return true;
 }
@@ -450,6 +450,9 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     int _openMenu;
     int _hoverMenuItem;
     bool _showGlossary;
+    bool _dragRandomDev;
+    CGFloat _randomDev;
+    uint32_t _randomState;
 }
 - (instancetype)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
@@ -463,6 +466,11 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)updateMenuHover:(NSPoint)pt;
 - (void)drawFlowPreview:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)drawGlossary:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
+- (NSRect)randomButtonRect;
+- (NSRect)randomDevSliderRect;
+- (float)randomUnit;
+- (void)randomizeMatrix;
+- (void)updateRandomDev:(NSPoint)pt;
 - (void)updateCell:(NSPoint)pt;
 - (void)updateSlider:(NSPoint)pt;
 @end
@@ -479,6 +487,9 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         _openMenu = 0;
         _hoverMenuItem = -1;
         _showGlossary = true;
+        _dragRandomDev = false;
+        _randomDev = 0.50;
+        _randomState = 0x1285137u;
     }
     return self;
 }
@@ -520,19 +531,60 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 }
 - (NSRect)modeMenuBoxRect
 {
-    return NSMakeRect(838.0, 211.0, 118.0, 17.0);
+    return NSMakeRect(838.0, 107.0, 118.0, 17.0);
 }
 - (NSRect)modeDropdownRect
 {
-    return NSMakeRect(838.0, 229.0, 118.0, 40.0);
+    return NSMakeRect(838.0, 125.0, 118.0, 40.0);
 }
 - (NSRect)shapeMenuBoxRect
 {
-    return NSMakeRect(838.0, 185.0, 118.0, 17.0);
+    return NSMakeRect(838.0, 81.0, 118.0, 17.0);
 }
 - (NSRect)shapeDropdownRect
 {
-    return NSMakeRect(838.0, 203.0, 118.0, 120.0);
+    return NSMakeRect(838.0, 99.0, 118.0, 120.0);
+}
+- (NSRect)randomButtonRect
+{
+    return NSMakeRect(390.0, 45.0, 48.0, 15.0);
+}
+- (NSRect)randomDevSliderRect
+{
+    return NSMakeRect(286.0, 454.0, 92.0, 14.0);
+}
+- (float)randomUnit
+{
+    _randomState = _randomState * 1664525u + 1013904223u;
+    return static_cast<float>((_randomState >> 8) & 0x00ffffffu) / 16777215.0f;
+}
+- (void)randomizeMatrix
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    for (uint32_t i = 0; i < kCrosspointCount; ++i) {
+        applyParam(*p, kCrosspointBase + i, -80.0);
+    }
+    for (uint32_t src = 0; src < s3g::kAmbiGroupMatrix128Groups; ++src) {
+        for (uint32_t dst = 0; dst < s3g::kAmbiGroupMatrix128Groups; ++dst) {
+            const bool diagonal = src == dst;
+            const float chance = diagonal ? (0.95f - 0.35f * static_cast<float>(_randomDev))
+                                          : (0.10f + 0.65f * static_cast<float>(_randomDev));
+            if ([self randomUnit] > chance) {
+                continue;
+            }
+            const float r = [self randomUnit];
+            const double db = diagonal
+                ? -12.0 + r * 12.0
+                : -42.0 + r * (36.0 + 6.0 * static_cast<float>(_randomDev));
+            applyParam(*p, kCrosspointBase + s3g::AmbiGroupMatrix128Index(src, dst), db);
+        }
+    }
+    [self setNeedsDisplay:YES];
+}
+- (void)updateRandomDev:(NSPoint)pt
+{
+    _randomDev = std::clamp<CGFloat>((pt.x - [self randomDevSliderRect].origin.x) / [self randomDevSliderRect].size.width, 0.0, 1.0);
+    [self setNeedsDisplay:YES];
 }
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
@@ -634,12 +686,11 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         ? @"MOTN 0: static matrix"
         : [NSString stringWithFormat:@"MOTN %.0f%% inside ceiling", static_cast<double>(p->params.motion * 100.0f)];
     [caption drawAtPoint:NSMakePoint(rect.origin.x + 12.0, rect.origin.y + rect.size.height - 24.0) withAttributes:attrs];
-    [@"gray = ceiling; green = active flow" drawAtPoint:NSMakePoint(rect.origin.x + 12.0, rect.origin.y + 10.0) withAttributes:attrs];
 }
 - (void)drawGlossary:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     s3g::clap_gui::drawPanelFrame(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"FLOW TERMS", _showGlossary, rect.origin.x, rect.origin.y, rect.size.width, 21.0, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"PATTERN TERMS", _showGlossary, rect.origin.x, rect.origin.y, rect.size.width, 21.0, attrs, style);
     if (!_showGlossary) {
         return;
     }
@@ -653,13 +704,13 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     const CGFloat y4 = rect.origin.y + 108.0;
 
     [@"CEIL   manual cell is the max/permission for a route" drawAtPoint:NSMakePoint(col1, y1) withAttributes:attrs];
-    [@"-INF   closed cell: flow cannot pass" drawAtPoint:NSMakePoint(col1, y2) withAttributes:attrs];
+    [@"-INF   closed cell: motion cannot pass" drawAtPoint:NSMakePoint(col1, y2) withAttributes:attrs];
     [@"MOTN   movement depth; 0 = normal matrix" drawAtPoint:NSMakePoint(col1, y3) withAttributes:attrs];
-    [@"PHAS   offsets the visible/audio flow cycle" drawAtPoint:NSMakePoint(col1, y4) withAttributes:attrs];
+    [@"PHAS   offsets the visible/audio motion cycle" drawAtPoint:NSMakePoint(col1, y4) withAttributes:attrs];
 
-    [@"FLOW   drift away from identity routing" drawAtPoint:NSMakePoint(col2, y1) withAttributes:attrs];
+    [@"DPTH   generated pattern depth" drawAtPoint:NSMakePoint(col2, y1) withAttributes:attrs];
     [@"SPRD   widens allowed route distribution" drawAtPoint:NSMakePoint(col2, y2) withAttributes:attrs];
-    [@"VORT   rotates the generated flow shape" drawAtPoint:NSMakePoint(col2, y3) withAttributes:attrs];
+    [@"VORT   rotates the generated motion shape" drawAtPoint:NSMakePoint(col2, y3) withAttributes:attrs];
     [@"SMTH   gain smoothing for route changes" drawAtPoint:NSMakePoint(col2, y4) withAttributes:attrs];
 
     [@"MODE   FREE runs internally; SYNC follows transport" drawAtPoint:NSMakePoint(col3, y1) withAttributes:attrs];
@@ -684,12 +735,13 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         drawAtPoint:NSMakePoint(846, 14) withAttributes:small];
     [@"8 x 3OA / 128CH" drawAtPoint:NSMakePoint(926, 14) withAttributes:small];
 
-    s3g::clap_gui::drawPanelFrame(18, 42, 430, 404, style);
+    s3g::clap_gui::drawPanelFrame(18, 42, 430, 440, style);
     s3g::clap_gui::drawPanelHeader(@"GROUP MATRIX", true, 18, 42, 430, 21, text, style);
-    s3g::clap_gui::drawPanelFrame(466, 42, 254, 404, style);
-    s3g::clap_gui::drawPanelHeader(@"FLOW PREVIEW", true, 466, 42, 254, 21, text, style);
+    s3g::clap_gui::drawHeaderActionButton([self randomButtonRect], NSMakeRect(18, 42, 430, 21), @"RAND", small, style);
+    s3g::clap_gui::drawPanelFrame(466, 42, 254, 440, style);
+    s3g::clap_gui::drawPanelHeader(@"PATTERN PREVIEW", true, 466, 42, 254, 21, text, style);
     s3g::clap_gui::drawPanelFrame(738, 42, 284, 288, style);
-    s3g::clap_gui::drawPanelHeader(@"FLOW", true, 738, 42, 284, 21, text, style);
+    s3g::clap_gui::drawPanelHeader(@"PATTERN", true, 738, 42, 284, 21, text, style);
     s3g::clap_gui::drawPanelFrame(738, 346, 284, 96, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 738, 346, 284, 21, text, style);
 
@@ -736,23 +788,24 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
             [label drawAtPoint:NSMakePoint(r.origin.x + 5.0, r.origin.y + r.size.height * 0.42) withAttributes:text];
         }
     }
-    [@"Gray = manual ceiling. Green = current flow level." drawAtPoint:NSMakePoint(42, 420) withAttributes:small];
-    [self drawFlowPreview:NSMakeRect(486, 78, 214, 342) attrs:small style:style];
+    s3g::clap_gui::drawSlider(@"DEV", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(_randomDev * 100.0)],
+                              _randomDev, 454, small, small, style, 244, 286, 390, 92);
+    [self drawFlowPreview:NSMakeRect(486, 78, 214, 378) attrs:small style:style];
 
     const auto& prm = p->params;
-    s3g::clap_gui::drawSlider(@"FLOW", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.flow * 100.0f)], prm.flow, 82, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"SPRD", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.spread * 100.0f)], prm.spread, 108, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"VORT", [NSString stringWithFormat:@"%+.2f", static_cast<double>(prm.vortex)], (prm.vortex + 1.0f) * 0.5f, 134, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"MOTN", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.motion * 100.0f)], prm.motion, 160, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawMenu(@"SHAPE", [NSString stringWithUTF8String:s3g::matrixFlowShapeName(prm.shape)], 186, small, small, style, 752, 838, 118);
-    s3g::clap_gui::drawMenu(@"MODE", prm.mode == s3g::AmbiGroupMatrix128FlowMode::Sync ? @"SYNC" : @"FREE", 212, small, small, style, 752, 838, 118);
+    s3g::clap_gui::drawMenu(@"SHAPE", [NSString stringWithUTF8String:s3g::matrixFlowShapeName(prm.shape)], 82, small, small, style, 752, 838, 118);
+    s3g::clap_gui::drawMenu(@"MODE", prm.mode == s3g::AmbiGroupMatrix128FlowMode::Sync ? @"SYNC" : @"FREE", 108, small, small, style, 752, 838, 118);
+    s3g::clap_gui::drawSlider(@"DPTH", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.flow * 100.0f)], prm.flow, 134, small, small, style, 752, 838, 978, 118);
+    s3g::clap_gui::drawSlider(@"SPRD", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.spread * 100.0f)], prm.spread, 160, small, small, style, 752, 838, 978, 118);
+    s3g::clap_gui::drawSlider(@"VORT", [NSString stringWithFormat:@"%+.2f", static_cast<double>(prm.vortex)], (prm.vortex + 1.0f) * 0.5f, 186, small, small, style, 752, 838, 978, 118);
+    s3g::clap_gui::drawSlider(@"MOTN", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.motion * 100.0f)], prm.motion, 212, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"RATE", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.rate * 100.0f)], prm.rate, 238, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"DIV", [NSString stringWithFormat:@"%.2g", static_cast<double>(prm.divisionBeats)], (prm.divisionBeats - 0.25f) / 63.75f, 264, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"PHAS", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.phaseOffset * 100.0f)], prm.phaseOffset, 290, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"SMTH", [NSString stringWithFormat:@"%.0f", static_cast<double>(prm.smoothingMs)], (prm.smoothingMs - 1.0f) / 499.0f, 316, small, small, style, 752, 838, 978, 118);
     s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", static_cast<double>(prm.outputGainDb)], (prm.outputGainDb + 60.0f) / 72.0f, 386, small, small, style, 752, 838, 978, 118);
     const CGFloat glossaryH = _showGlossary ? 132.0 : 21.0;
-    [self drawGlossary:NSMakeRect(18, 464, 1004, glossaryH) attrs:small style:style];
+    [self drawGlossary:NSMakeRect(18, 500, 1004, glossaryH) attrs:small style:style];
     [self drawOpenMenu:small style:style];
 }
 - (void)updateCell:(NSPoint)pt
@@ -818,9 +871,18 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         _hoverMenuItem = -1;
         [self setNeedsDisplay:YES];
     }
-    if (NSPointInRect(pt, NSMakeRect(18, 464, 1004, 21))) {
+    if (NSPointInRect(pt, NSMakeRect(18, 500, 1004, 21))) {
         _showGlossary = !_showGlossary;
         [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, [self randomButtonRect])) {
+        [self randomizeMatrix];
+        return;
+    }
+    if (NSPointInRect(pt, NSInsetRect([self randomDevSliderRect], -40.0, -8.0))) {
+        _dragRandomDev = true;
+        [self updateRandomDev:pt];
         return;
     }
     const NSRect matrixRect = NSMakeRect(72.0, 90.0, 344.0, 344.0);
@@ -848,7 +910,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         [self setNeedsDisplay:YES];
         return;
     }
-    const CGFloat ys[] = { 82, 108, 134, 160, 238, 264, 290, 316, 386 };
+    const CGFloat ys[] = { 134, 160, 186, 212, 238, 264, 290, 316, 386 };
     for (int i = 0; i < 9; ++i) {
         if (NSPointInRect(pt, NSMakeRect(744, ys[i] - 9, 276, 24))) {
             _dragSlider = i;
@@ -869,6 +931,8 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         [self updateCell:pt];
     } else if (_dragSlider >= 0) {
         [self updateSlider:pt];
+    } else if (_dragRandomDev) {
+        [self updateRandomDev:pt];
     }
 }
 - (void)mouseUp:(NSEvent*)event
@@ -876,6 +940,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     (void)event;
     _dragCell = -1;
     _dragSlider = -1;
+    _dragRandomDev = false;
 }
 @end
 

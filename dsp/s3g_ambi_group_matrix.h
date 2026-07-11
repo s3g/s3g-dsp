@@ -202,7 +202,9 @@ private:
     {
         std::array<float, kAmbiGroupMatrixGroups * kAmbiGroupMatrixGroups> g {};
         const float phaseForShape = params_.shape == MatrixFlowShape::Hold ? 0.0f : phase;
-        const float width = 0.08f + params_.spread * 1.55f + params_.flow * 0.72f;
+        const bool swirlShape = params_.shape == MatrixFlowShape::Swirl;
+        const float flowAmt = swirlShape ? std::max(0.24f, params_.flow) : params_.flow;
+        const float width = 0.08f + params_.spread * 1.55f + flowAmt * 0.72f;
         const float angle = phaseForShape * 6.28318530718f;
         const float coords[kAmbiGroupMatrixGroups][2] {
             { -1.0f, 1.0f },
@@ -266,20 +268,19 @@ private:
             return g;
         }
 
-        const bool swirlShape = params_.shape == MatrixFlowShape::Swirl;
-        const float vortex = params_.vortex + (swirlShape ? 0.75f : 0.0f);
-        const float orbitX = std::cos(angle) * params_.flow * (swirlShape ? 0.74f : 1.0f);
-        const float orbitY = std::sin(angle) * params_.flow * (swirlShape ? 0.74f : 1.0f);
+        const float vortex = params_.vortex + (swirlShape ? 1.35f : 0.0f);
+        const float orbitX = std::cos(angle) * flowAmt * (swirlShape ? 1.12f : 1.0f);
+        const float orbitY = std::sin(angle) * flowAmt * (swirlShape ? 1.12f : 1.0f);
 
         for (uint32_t src = 0; src < kAmbiGroupMatrixGroups; ++src) {
             float cx = coords[src][0];
             float cy = coords[src][1];
-            const float swirlX = -cy * vortex * params_.flow;
-            const float swirlY = cx * vortex * params_.flow;
+            const float swirlX = -cy * vortex * flowAmt;
+            const float swirlY = cx * vortex * flowAmt;
             const float sourcePhase = angle + static_cast<float>(src) * 1.57079632679f;
-            const float swirlAmp = swirlShape ? 0.36f : 0.20f;
-            cx = cx * (1.0f - 0.32f * params_.flow) + swirlX + orbitX * 0.46f + std::cos(sourcePhase) * params_.flow * swirlAmp;
-            cy = cy * (1.0f - 0.32f * params_.flow) + swirlY + orbitY * 0.46f + std::sin(sourcePhase) * params_.flow * swirlAmp;
+            const float swirlAmp = swirlShape ? 0.54f : 0.20f;
+            cx = cx * (1.0f - 0.32f * flowAmt) + swirlX + orbitX * 0.46f + std::cos(sourcePhase) * flowAmt * swirlAmp;
+            cy = cy * (1.0f - 0.32f * flowAmt) + swirlY + orbitY * 0.46f + std::sin(sourcePhase) * flowAmt * swirlAmp;
 
             float sum = 0.0f;
             for (uint32_t dst = 0; dst < kAmbiGroupMatrixGroups; ++dst) {

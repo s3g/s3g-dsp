@@ -1620,6 +1620,33 @@ int main()
         return true;
     };
 
+    {
+        s3g::AmbiGroupRotateParams seamParams {};
+        seamParams.yawDeg = 180.0f;
+        if (std::abs(s3g::sanitizeAmbiGroupRotateParams(seamParams).yawDeg - 180.0f) > 0.0001f) {
+            std::cerr << "Ambi Group Rotate yaw endpoint wrapped too early\n";
+            return 1;
+        }
+        seamParams.yawDeg = 181.0f;
+        if (std::abs(s3g::sanitizeAmbiGroupRotateParams(seamParams).yawDeg + 179.0f) > 0.0001f) {
+            std::cerr << "Ambi Group Rotate yaw did not wrap past +180\n";
+            return 1;
+        }
+        seamParams.yawDeg = 170.0f;
+        seamParams.spread = 1.0f;
+        const auto spreadGroup = s3g::ambiGroupRotateParamsForGroup(seamParams, 3u, 4u);
+        if (std::abs(spreadGroup.yawDeg + 70.0f) > 0.0001f) {
+            std::cerr << "Ambi Group Rotate spread yaw clamped instead of wrapping\n";
+            return 1;
+        }
+        seamParams.spread = -1.0f;
+        const auto inverseSpreadGroup = s3g::ambiGroupRotateParamsForGroup(seamParams, 3u, 4u);
+        if (std::abs(inverseSpreadGroup.yawDeg - 50.0f) > 0.0001f) {
+            std::cerr << "Ambi Group Rotate negative spread did not invert group yaw\n";
+            return 1;
+        }
+    }
+
     s3g::AmbiGroupRotateProcessor<4> groupRotate64;
     if (!runGroupRotateSmoke(groupRotate64, 64u, "Ambi Group Rotate 64")) {
         return 1;
@@ -1648,6 +1675,7 @@ int main()
         params.spread = 0.72f;
         params.focus = 0.18f;
         params.air = 0.65f;
+        params.tail = 0.45f;
         params.low = 0.25f;
         params.width = 0.85f;
         processor.prepare(48000.0);
@@ -1687,6 +1715,10 @@ int main()
         return true;
     };
 
+    s3g::AmbiGroupDepthProcessor<1> ambiDepth16;
+    if (!runGroupDepthSmoke(ambiDepth16, 16u, "Ambi Depth 16")) {
+        return 1;
+    }
     s3g::AmbiGroupDepthProcessor<4> groupDepth64;
     if (!runGroupDepthSmoke(groupDepth64, 64u, "Ambi Group Depth 64")) {
         return 1;

@@ -34,6 +34,7 @@ bundles=(
   "$src_root/clap_ambisonic_rotate/s3g_ambisonic_rotate.clap"
   "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_64.clap"
   "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_128.clap"
+  "$src_root/clap_ambi_group_depth/s3g_ambi_depth_16.clap"
   "$src_root/clap_ambi_group_depth/s3g_ambi_group_depth_64.clap"
   "$src_root/clap_ambi_group_depth/s3g_ambi_group_depth_128.clap"
   "$src_root/clap_ambisonic_order_band_tool/s3g_ambisonic_order_band_tool.clap"
@@ -96,6 +97,7 @@ Included plugins:
 - s3g Ambi Stereo Decoder
 - s3g Ambi Head Decoder
 - s3g Ambi Rotate 64
+- s3g Ambi Depth 16
 - s3g Ambi Group Rotate 64
 - s3g Ambi Group Rotate 128
 - s3g Ambi Group Depth 64

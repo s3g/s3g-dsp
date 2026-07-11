@@ -25,12 +25,23 @@ struct AmbiGroupRotateParams {
     float outputGainDb = 0.0f;
 };
 
+inline float wrapAmbiGroupRotateDeg(float deg)
+{
+    while (deg > 180.0f) {
+        deg -= 360.0f;
+    }
+    while (deg < -180.0f) {
+        deg += 360.0f;
+    }
+    return deg;
+}
+
 inline AmbiGroupRotateParams sanitizeAmbiGroupRotateParams(AmbiGroupRotateParams params)
 {
-    params.yawDeg = clamp(params.yawDeg, -180.0f, 180.0f);
+    params.yawDeg = wrapAmbiGroupRotateDeg(params.yawDeg);
     params.pitchDeg = clamp(params.pitchDeg, -90.0f, 90.0f);
     params.rollDeg = clamp(params.rollDeg, -180.0f, 180.0f);
-    params.spread = clamp(params.spread, 0.0f, 1.0f);
+    params.spread = clamp(params.spread, -1.0f, 1.0f);
     params.tilt = clamp(params.tilt, -1.0f, 1.0f);
     params.twist = clamp(params.twist, -1.0f, 1.0f);
     params.width = clamp(params.width, 0.0f, 1.5f);
@@ -49,7 +60,7 @@ inline AmbiRotateParams ambiGroupRotateParamsForGroup(const AmbiGroupRotateParam
 
     AmbiRotateParams out {};
     out.order = 3u;
-    out.yawDeg = clamp(params.yawDeg + centered * params.spread * 120.0f, -180.0f, 180.0f);
+    out.yawDeg = wrapAmbiGroupRotateDeg(params.yawDeg + centered * params.spread * 120.0f);
     out.pitchDeg = clamp(params.pitchDeg + std::sin(ring) * params.tilt * 45.0f, -90.0f, 90.0f);
     out.rollDeg = clamp(params.rollDeg + centered * params.twist * 180.0f, -180.0f, 180.0f);
     out.width = params.width;

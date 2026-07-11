@@ -24,20 +24,39 @@
 namespace {
 
 constexpr uint32_t kChannels = s3g::kAmbiUtilityChannels;
-constexpr uint32_t kStateVersion = 1;
+constexpr uint32_t kGuiWidth = 820;
+constexpr uint32_t kGuiHeight = 456;
+constexpr uint32_t kStateVersion = 2;
 
 enum ParamId : clap_id {
     kParamOrder = 1,
     kParamYaw = 2,
     kParamPitch = 3,
     kParamRoll = 4,
-    kParamWidth = 5,
-    kParamOutput = 6,
+    kParamSpread = 5,
+    kParamTilt = 6,
+    kParamTwist = 7,
+    kParamWidth = 8,
+    kParamOutput = 9,
 };
 
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiRotateParams params {};
+};
+
+struct OldAmbiRotateParamsV1 {
+    uint32_t order = 7;
+    float yawDeg = 0.0f;
+    float pitchDeg = 0.0f;
+    float rollDeg = 0.0f;
+    float width = 1.0f;
+    float outputGainDb = 0.0f;
+};
+
+struct OldSavedStateV1 {
+    uint32_t version = 1;
+    OldAmbiRotateParamsV1 params {};
 };
 
 struct Plugin {
@@ -62,6 +81,9 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kParamYaw: p.params.yawDeg = static_cast<float>(value); break;
     case kParamPitch: p.params.pitchDeg = static_cast<float>(value); break;
     case kParamRoll: p.params.rollDeg = static_cast<float>(value); break;
+    case kParamSpread: p.params.spread = static_cast<float>(value); break;
+    case kParamTilt: p.params.tilt = static_cast<float>(value); break;
+    case kParamTwist: p.params.twist = static_cast<float>(value); break;
     case kParamWidth: p.params.width = static_cast<float>(value); break;
     case kParamOutput: p.params.outputGainDb = static_cast<float>(value); break;
     default: return;
@@ -77,6 +99,9 @@ double getParam(const Plugin& p, clap_id id)
     case kParamYaw: return p.params.yawDeg;
     case kParamPitch: return p.params.pitchDeg;
     case kParamRoll: return p.params.rollDeg;
+    case kParamSpread: return p.params.spread;
+    case kParamTilt: return p.params.tilt;
+    case kParamTwist: return p.params.twist;
     case kParamWidth: return p.params.width;
     case kParamOutput: return p.params.outputGainDb;
     default: return 0.0;
@@ -165,7 +190,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 }
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
-uint32_t paramsCount(const clap_plugin_t*) { return 6; }
+uint32_t paramsCount(const clap_plugin_t*) { return 9; }
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
     if (!info) return false;
@@ -176,8 +201,11 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     case 1: info->id = kParamYaw; std::strncpy(info->name, "Yaw / azimuth", sizeof(info->name)); info->min_value = -180; info->max_value = 180; info->default_value = 0; return true;
     case 2: info->id = kParamPitch; std::strncpy(info->name, "Pitch / elevation", sizeof(info->name)); info->min_value = -90; info->max_value = 90; info->default_value = 0; return true;
     case 3: info->id = kParamRoll; std::strncpy(info->name, "Roll", sizeof(info->name)); info->min_value = -180; info->max_value = 180; info->default_value = 0; return true;
-    case 4: info->id = kParamWidth; std::strncpy(info->name, "Order width", sizeof(info->name)); info->min_value = 0; info->max_value = 1.5; info->default_value = 1; return true;
-    case 5: info->id = kParamOutput; std::strncpy(info->name, "Output gain", sizeof(info->name)); info->min_value = -60; info->max_value = 12; info->default_value = 0; return true;
+    case 4: info->id = kParamSpread; std::strncpy(info->name, "Dispersion spread", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
+    case 5: info->id = kParamTilt; std::strncpy(info->name, "Dispersion tilt", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
+    case 6: info->id = kParamTwist; std::strncpy(info->name, "Dispersion twist", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
+    case 7: info->id = kParamWidth; std::strncpy(info->name, "Order width", sizeof(info->name)); info->min_value = 0; info->max_value = 1.5; info->default_value = 1; return true;
+    case 8: info->id = kParamOutput; std::strncpy(info->name, "Output gain", sizeof(info->name)); info->min_value = -60; info->max_value = 12; info->default_value = 0; return true;
     default: return false;
     }
 }
@@ -195,6 +223,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
     case kParamYaw:
     case kParamPitch:
     case kParamRoll: std::snprintf(display, size, "%+.0f deg", value); return true;
+    case kParamSpread: std::snprintf(display, size, "%+.0f%%", value * 100.0); return true;
+    case kParamTilt:
+    case kParamTwist: std::snprintf(display, size, "%+.0f%%", value * 100.0); return true;
     case kParamWidth: std::snprintf(display, size, "%.2f", value); return true;
     case kParamOutput: std::snprintf(display, size, "%+.1f dB", value); return true;
     default: return false;
@@ -220,9 +251,26 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!stream || !stream->read) return false;
     SavedState state {};
     const int64_t got = stream->read(stream, &state, sizeof(state));
-    if (got != static_cast<int64_t>(sizeof(state)) || state.version != kStateVersion) return false;
     auto* p = self(plugin);
-    p->params = s3g::sanitizeAmbiRotateParams(state.params);
+    if (got == static_cast<int64_t>(sizeof(state)) && state.version == kStateVersion) {
+        p->params = s3g::sanitizeAmbiRotateParams(state.params);
+    } else if (got == static_cast<int64_t>(sizeof(OldSavedStateV1))) {
+        const auto* old = reinterpret_cast<const OldSavedStateV1*>(&state);
+        if (old->version != 1u) return false;
+        p->params = s3g::sanitizeAmbiRotateParams({
+            old->params.order,
+            old->params.yawDeg,
+            old->params.pitchDeg,
+            old->params.rollDeg,
+            0.0f,
+            0.0f,
+            0.0f,
+            old->params.width,
+            old->params.outputGainDb,
+        });
+    } else {
+        return false;
+    }
     p->processor.setParams(p->params);
     return true;
 }
@@ -234,6 +282,11 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 @interface S3GAmbisonicRotateView : NSView {
     void* _plugin;
     int _dragSlider;
+    int _viewMode;
+    BOOL _dragView;
+    NSPoint _lastDragPoint;
+    double _viewAzDeg;
+    double _viewElDeg;
     NSTimer* _refreshTimer;
 }
 - (id)initWithPlugin:(void*)plugin;
@@ -241,15 +294,28 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)stopRefreshTimer;
 - (void)setParam:(clap_id)param value:(double)value;
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style;
+- (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect;
+- (void)setViewPreset:(int)mode;
+- (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs;
 - (NSPoint)project:(s3g::Vec3)v rect:(NSRect)rect scale:(CGFloat)scale;
+- (void)resetSlider:(int)index;
 - (void)updateSliderAtPoint:(NSPoint)pt;
 @end
 
 @implementation S3GAmbisonicRotateView
 - (id)initWithPlugin:(void*)plugin
 {
-    self = [super initWithFrame:NSMakeRect(0, 0, 760, 430)];
-    if (self) { _plugin = plugin; _dragSlider = -1; _refreshTimer = nil; }
+    self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
+    if (self) {
+        _plugin = plugin;
+        _dragSlider = -1;
+        _viewMode = 2;
+        _dragView = NO;
+        _lastDragPoint = NSZeroPoint;
+        _viewAzDeg = -45.0;
+        _viewElDeg = 26.0;
+        _refreshTimer = nil;
+    }
     return self;
 }
 - (void)dealloc { [self stopRefreshTimer]; [super dealloc]; }
@@ -270,13 +336,61 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 }
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, attrs, style, 496, 570, 698, 112);
+    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, attrs, style, 552, 632, 760, 128);
+}
+- (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect
+{
+    const CGFloat w = 38.0;
+    const CGFloat h = 13.0;
+    const CGFloat gap = 5.0;
+    const CGFloat x = NSMaxX(rect) - 10.0 - (3.0 - static_cast<CGFloat>(index)) * w - (2.0 - static_cast<CGFloat>(index)) * gap;
+    return NSMakeRect(x, rect.origin.y + 4.0, w, h);
+}
+- (void)setViewPreset:(int)mode
+{
+    _viewMode = mode;
+    if (mode == 0) {
+        _viewAzDeg = 0.0;
+        _viewElDeg = 90.0;
+    } else if (mode == 1) {
+        _viewAzDeg = 180.0;
+        _viewElDeg = 0.0;
+    } else {
+        _viewAzDeg = -45.0;
+        _viewElDeg = 26.0;
+    }
+    [self setNeedsDisplay:YES];
+}
+- (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
+{
+    static NSString* labels[] = { @"TOP", @"BACK", @"3/4" };
+    s3g::clap_gui::Style style;
+    for (int i = 0; i < 3; ++i) {
+        s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
+    }
 }
 - (NSPoint)project:(s3g::Vec3)v rect:(NSRect)rect scale:(CGFloat)scale
 {
     const CGFloat cx = rect.origin.x + rect.size.width * 0.5;
     const CGFloat cy = rect.origin.y + rect.size.height * 0.54;
-    return NSMakePoint(cx - v.y * scale + v.x * scale * 0.42, cy - v.z * scale - v.x * scale * 0.28);
+    if (_viewMode == 0) {
+        return NSMakePoint(cx - v.y * scale, cy - v.x * scale);
+    }
+    if (_viewMode == 1) {
+        return NSMakePoint(cx - v.y * scale, cy - v.z * scale);
+    }
+    const double az = _viewAzDeg * s3g::kPi / 180.0;
+    const double el = _viewElDeg * s3g::kPi / 180.0;
+    const double ca = std::cos(az);
+    const double sa = std::sin(az);
+    const double ce = std::cos(el);
+    const double se = std::sin(el);
+    const double x1 = static_cast<double>(v.x) * ca - static_cast<double>(v.y) * sa;
+    const double y1 = static_cast<double>(v.x) * sa + static_cast<double>(v.y) * ca;
+    const double z1 = static_cast<double>(v.z);
+    const double x2 = x1 * ce + z1 * se;
+    const double z2 = -x1 * se + z1 * ce;
+    return NSMakePoint(cx - y1 * scale + x2 * scale * 0.14, cy - z2 * scale - x2 * scale * 0.10);
 }
 - (void)drawRect:(NSRect)dirtyRect
 {
@@ -288,12 +402,13 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
     NSDictionary* text = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
     [@"s3g AMBI ROTATE 64" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
-    [[NSString stringWithFormat:@"%uOA ACN/SN3D / 64CH", p->params.order] drawAtPoint:NSMakePoint(590, 13) withAttributes:small];
+    [[NSString stringWithFormat:@"%uOA ACN/SN3D / 64CH", p->params.order] drawAtPoint:NSMakePoint(650, 13) withAttributes:small];
 
-    NSRect fieldPanel = NSMakeRect(12, 34, 456, 366);
+    NSRect fieldPanel = NSMakeRect(12, 34, 506, 370);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"ROTATION FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
-    NSRect field = NSMakeRect(28, 70, 424, 304);
+    [self drawViewButtonsInRect:fieldPanel attrs:small];
+    NSRect field = NSMakeRect(28, 70, 474, 306);
     [s3g::clap_gui::color(0x101010) setFill]; NSRectFill(field);
     [style.grid setStroke]; NSFrameRect(field);
     const CGFloat scale = std::min(field.size.width, field.size.height) * 0.36;
@@ -304,7 +419,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     [NSBezierPath strokeLineFromPoint:NSMakePoint(cx, field.origin.y + 18) toPoint:NSMakePoint(cx, NSMaxY(field) - 18)];
 
     const s3g::Vec3 axes[3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
-    NSString* labels[3] = { @"FRONT", @"LEFT", @"UP" };
+    NSString* labels[3] = { @"0deg", @"+90", @"+EL" };
     for (int i = 0; i < 3; ++i) {
         const NSPoint a = [self project:axes[i] rect:field scale:scale];
         [s3g::clap_gui::color(0xbdbdbd, 0.46) setStroke];
@@ -321,7 +436,14 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     NSPoint projected[8];
     for (int i = 0; i < 8; ++i) {
         s3g::Vec3 v = s3g::normalize({ pts[i][0], pts[i][1], pts[i][2] });
-        v = s3g::ambiUtilityRotate(v, p->params.yawDeg, p->params.pitchDeg, p->params.rollDeg);
+        const float az = std::atan2(v.y, v.x);
+        const float yawOffset = std::sin(az) * p->params.spread * 54.0f;
+        const float pitchOffset = std::sin(az) * p->params.tilt * 42.0f;
+        const float rollOffset = std::cos(az) * p->params.twist * 90.0f;
+        v = s3g::ambiUtilityRotate(v,
+            p->params.yawDeg + yawOffset,
+            p->params.pitchDeg + pitchOffset,
+            p->params.rollDeg + rollOffset);
         projected[i] = [self project:v rect:field scale:scale * 0.88];
     }
     [s3g::clap_gui::color(0xd0d0d0, 0.48) setStroke];
@@ -332,55 +454,112 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
       static_cast<double>(p->params.yawDeg), static_cast<double>(p->params.pitchDeg), static_cast<double>(p->params.rollDeg)]
         drawAtPoint:NSMakePoint(28, 382) withAttributes:small];
 
-    NSRect rotate = NSMakeRect(482, 34, 258, 184);
-    NSRect output = NSMakeRect(482, 230, 258, 96);
+    NSRect rotate = NSMakeRect(532, 34, 270, 250);
+    NSRect output = NSMakeRect(532, 300, 270, 96);
     s3g::clap_gui::drawPanelFrame(rotate.origin.x, rotate.origin.y, rotate.size.width, rotate.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"ROTATE", true, rotate.origin.x, rotate.origin.y, rotate.size.width, 21, text, style);
     [self drawSlider:@"ORD" value:[NSString stringWithFormat:@"%uOA", p->params.order] norm:(p->params.order - 1.0) / 6.0 y:74 attrs:small style:style];
-    [self drawSlider:@"YAW" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.yawDeg)] norm:(p->params.yawDeg + 180.0) / 360.0 y:96 attrs:small style:style];
-    [self drawSlider:@"PIT" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.pitchDeg)] norm:(p->params.pitchDeg + 90.0) / 180.0 y:118 attrs:small style:style];
-    [self drawSlider:@"ROL" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.rollDeg)] norm:(p->params.rollDeg + 180.0) / 360.0 y:140 attrs:small style:style];
-    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.width)] norm:p->params.width / 1.5 y:162 attrs:small style:style];
+    [self drawSlider:@"YAW" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.yawDeg)] norm:(p->params.yawDeg + 180.0) / 360.0 y:98 attrs:small style:style];
+    [self drawSlider:@"PIT" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.pitchDeg)] norm:(p->params.pitchDeg + 90.0) / 180.0 y:122 attrs:small style:style];
+    [self drawSlider:@"ROL" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.rollDeg)] norm:(p->params.rollDeg + 180.0) / 360.0 y:146 attrs:small style:style];
+    [self drawSlider:@"SPRD" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.spread * 100.0f)] norm:(p->params.spread + 1.0) * 0.5 y:170 attrs:small style:style];
+    [self drawSlider:@"TILT" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.tilt * 100.0f)] norm:(p->params.tilt + 1.0) * 0.5 y:194 attrs:small style:style];
+    [self drawSlider:@"TWST" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.twist * 100.0f)] norm:(p->params.twist + 1.0) * 0.5 y:218 attrs:small style:style];
+    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.width)] norm:p->params.width / 1.5 y:242 attrs:small style:style];
 
     s3g::clap_gui::drawPanelFrame(output.origin.x, output.origin.y, output.size.width, output.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, output.origin.x, output.origin.y, output.size.width, 21, text, style);
-    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 60.0) / 72.0 y:270 attrs:small style:style];
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 60.0) / 72.0 y:340 attrs:small style:style];
     const float pk = p->outputPeak.exchange(p->outputPeak.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
     const double db = 20.0 * std::log10(std::max(0.000001f, pk));
     const CGFloat norm = std::clamp<CGFloat>((db + 60.0) / 60.0, 0.0, 1.0);
-    [@"PK" drawAtPoint:NSMakePoint(496, 296) withAttributes:small];
-    [style.strip setFill]; NSRectFill(NSMakeRect(570, 298, 112, 12));
-    [style.fill setFill]; NSRectFill(NSMakeRect(571, 299, 110 * norm, 10));
-    [style.grid setStroke]; NSFrameRect(NSMakeRect(570, 298, 112, 12));
-    [[NSString stringWithFormat:@"%+4.1f", db] drawAtPoint:NSMakePoint(698, 294) withAttributes:small];
+    [@"PK" drawAtPoint:NSMakePoint(552, 366) withAttributes:small];
+    [style.strip setFill]; NSRectFill(NSMakeRect(632, 368, 128, 12));
+    [style.fill setFill]; NSRectFill(NSMakeRect(633, 369, 126 * norm, 10));
+    [style.grid setStroke]; NSFrameRect(NSMakeRect(632, 368, 128, 12));
+    [[NSString stringWithFormat:@"%+4.1f", db] drawAtPoint:NSMakePoint(764, 364) withAttributes:small];
+}
+- (void)resetSlider:(int)index
+{
+    switch (index) {
+    case 0: [self setParam:kParamOrder value:7.0]; break;
+    case 1: [self setParam:kParamYaw value:0.0]; break;
+    case 2: [self setParam:kParamPitch value:0.0]; break;
+    case 3: [self setParam:kParamRoll value:0.0]; break;
+    case 4: [self setParam:kParamSpread value:0.0]; break;
+    case 5: [self setParam:kParamTilt value:0.0]; break;
+    case 6: [self setParam:kParamTwist value:0.0]; break;
+    case 7: [self setParam:kParamWidth value:1.0]; break;
+    case 8: [self setParam:kParamOutput value:0.0]; break;
+    default: break;
+    }
 }
 - (void)updateSliderAtPoint:(NSPoint)pt
 {
-    const double norm = std::clamp((pt.x - 570.0) / 112.0, 0.0, 1.0);
+    const double norm = std::clamp((pt.x - 632.0) / 128.0, 0.0, 1.0);
     switch (_dragSlider) {
     case 0: [self setParam:kParamOrder value:1.0 + norm * 6.0]; break;
     case 1: [self setParam:kParamYaw value:-180.0 + norm * 360.0]; break;
     case 2: [self setParam:kParamPitch value:-90.0 + norm * 180.0]; break;
     case 3: [self setParam:kParamRoll value:-180.0 + norm * 360.0]; break;
-    case 4: [self setParam:kParamWidth value:norm * 1.5]; break;
-    case 5: [self setParam:kParamOutput value:-60.0 + norm * 72.0]; break;
+    case 4: [self setParam:kParamSpread value:-1.0 + norm * 2.0]; break;
+    case 5: [self setParam:kParamTilt value:-1.0 + norm * 2.0]; break;
+    case 6: [self setParam:kParamTwist value:-1.0 + norm * 2.0]; break;
+    case 7: [self setParam:kParamWidth value:norm * 1.5]; break;
+    case 8: [self setParam:kParamOutput value:-60.0 + norm * 72.0]; break;
     default: break;
     }
 }
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
-    const CGFloat ys[] = { 74, 96, 118, 140, 162, 270 };
-    for (int i = 0; i < 6; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(486, ys[i] - 6, 238, 22))) {
+    const NSRect fieldPanel = NSMakeRect(12, 34, 506, 370);
+    const NSRect field = NSMakeRect(28, 70, 474, 306);
+    for (int i = 0; i < 3; ++i) {
+        if (NSPointInRect(pt, [self viewButtonRect:i inRect:fieldPanel])) {
+            [self setViewPreset:i];
+            return;
+        }
+    }
+    const CGFloat ys[] = { 74, 98, 122, 146, 170, 194, 218, 242, 340 };
+    for (int i = 0; i < 9; ++i) {
+        if (NSPointInRect(pt, NSMakeRect(538, ys[i] - 8, 246, 24))) {
+            if ([event clickCount] >= 2) {
+                [self resetSlider:i];
+                return;
+            }
             _dragSlider = i;
             [self updateSliderAtPoint:pt];
             return;
         }
     }
+    if (NSPointInRect(pt, field)) {
+        _dragView = YES;
+        _lastDragPoint = pt;
+        if (_viewMode != 2) {
+            _viewMode = -1;
+        }
+        return;
+    }
 }
-- (void)mouseDragged:(NSEvent*)event { if (_dragSlider >= 0) [self updateSliderAtPoint:[self convertPoint:[event locationInWindow] fromView:nil]]; }
-- (void)mouseUp:(NSEvent*)event { (void)event; _dragSlider = -1; }
+- (void)mouseDragged:(NSEvent*)event
+{
+    NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (_dragSlider >= 0) {
+        [self updateSliderAtPoint:pt];
+        return;
+    }
+    if (_dragView) {
+        const CGFloat dx = pt.x - _lastDragPoint.x;
+        const CGFloat dy = pt.y - _lastDragPoint.y;
+        _viewAzDeg += dx * 0.35;
+        _viewElDeg = std::clamp(_viewElDeg + dy * 0.35, -85.0, 85.0);
+        _viewMode = -1;
+        _lastDragPoint = pt;
+        [self setNeedsDisplay:YES];
+    }
+}
+- (void)mouseUp:(NSEvent*)event { (void)event; _dragSlider = -1; _dragView = NO; }
 @end
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
@@ -388,12 +567,12 @@ bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating
 bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GAmbisonicRotateView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
 void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); auto* v = static_cast<S3GAmbisonicRotateView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = 760; *h = 430; return true; }
+bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
 bool guiCanResize(const clap_plugin_t*) { return false; }
 bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { if (!hints) return false; hints->can_resize_horizontally = false; hints->can_resize_vertically = false; hints->preserve_aspect_ratio = false; hints->aspect_ratio_width = 0; hints->aspect_ratio_height = 0; return true; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = 760; *h = 430; return true; }
+bool guiAdjustSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0, 0, 760, 430)]; return true; }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)]; return true; }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GAmbisonicRotateView*>(p->guiView) startRefreshTimer]; return true; }

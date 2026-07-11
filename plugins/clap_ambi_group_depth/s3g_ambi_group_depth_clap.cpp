@@ -23,7 +23,16 @@
 
 namespace {
 
-#if defined(S3G_AMBI_GROUP_DEPTH_128)
+#if defined(S3G_AMBI_DEPTH_16)
+constexpr uint32_t kGroups = 1;
+constexpr uint32_t kChannels = 16;
+constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-depth-16";
+constexpr const char* kPluginName = "s3g Ambi Depth 16";
+constexpr const char* kPluginDesc = "16-channel 3OA ambisonic depth utility.";
+constexpr const char* kHeaderTitle = "s3g AMBI DEPTH 16";
+constexpr const char* kHeaderInfo = "3OA / 16CH";
+constexpr bool kSingleField = true;
+#elif defined(S3G_AMBI_GROUP_DEPTH_128)
 constexpr uint32_t kGroups = 8;
 constexpr uint32_t kChannels = 128;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-group-depth-128";
@@ -31,6 +40,7 @@ constexpr const char* kPluginName = "s3g Ambi Group Depth 128";
 constexpr const char* kPluginDesc = "128-channel lane-locked 8x3OA group depth utility.";
 constexpr const char* kHeaderTitle = "s3g AMBI GROUP DEPTH 128";
 constexpr const char* kHeaderInfo = "8 x 3OA / 128CH";
+constexpr bool kSingleField = false;
 #else
 constexpr uint32_t kGroups = 4;
 constexpr uint32_t kChannels = 64;
@@ -39,11 +49,12 @@ constexpr const char* kPluginName = "s3g Ambi Group Depth 64";
 constexpr const char* kPluginDesc = "64-channel lane-locked 4x3OA group depth utility.";
 constexpr const char* kHeaderTitle = "s3g AMBI GROUP DEPTH 64";
 constexpr const char* kHeaderInfo = "4 x 3OA / 64CH";
+constexpr bool kSingleField = false;
 #endif
 
 constexpr uint32_t kGuiWidth = 820;
 constexpr uint32_t kGuiHeight = 456;
-constexpr uint32_t kStateVersion = 1;
+constexpr uint32_t kStateVersion = 2;
 
 enum ParamId : clap_id {
     kParamDepth = 1,
@@ -53,6 +64,7 @@ enum ParamId : clap_id {
     kParamLow = 5,
     kParamWidth = 6,
     kParamOutput = 7,
+    kParamTail = 8,
 };
 
 using Processor = s3g::AmbiGroupDepthProcessor<kGroups>;
@@ -60,6 +72,21 @@ using Processor = s3g::AmbiGroupDepthProcessor<kGroups>;
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiGroupDepthParams params {};
+};
+
+struct OldAmbiGroupDepthParamsV1 {
+    float depth = 0.0f;
+    float spread = 0.0f;
+    float focus = 0.0f;
+    float air = 0.0f;
+    float low = 0.0f;
+    float width = 1.0f;
+    float outputGainDb = 0.0f;
+};
+
+struct OldSavedStateV1 {
+    uint32_t version = 1;
+    OldAmbiGroupDepthParamsV1 params {};
 };
 
 struct Plugin {
@@ -83,6 +110,7 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kParamSpread: p.params.spread = static_cast<float>(value); break;
     case kParamFocus: p.params.focus = static_cast<float>(value); break;
     case kParamAir: p.params.air = static_cast<float>(value); break;
+    case kParamTail: p.params.tail = static_cast<float>(value); break;
     case kParamLow: p.params.low = static_cast<float>(value); break;
     case kParamWidth: p.params.width = static_cast<float>(value); break;
     case kParamOutput: p.params.outputGainDb = static_cast<float>(value); break;
@@ -99,6 +127,7 @@ double getParam(const Plugin& p, clap_id id)
     case kParamSpread: return p.params.spread;
     case kParamFocus: return p.params.focus;
     case kParamAir: return p.params.air;
+    case kParamTail: return p.params.tail;
     case kParamLow: return p.params.low;
     case kParamWidth: return p.params.width;
     case kParamOutput: return p.params.outputGainDb;
@@ -193,7 +222,11 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 {
     if (index != 0 || !info) return false;
     info->id = isInput ? 10 : 20;
-    std::strncpy(info->name, isInput ? "Group Depth In" : "Group Depth Out", sizeof(info->name));
+    std::strncpy(info->name,
+        isInput
+            ? (kSingleField ? "Ambi Depth In" : "Group Depth In")
+            : (kSingleField ? "Ambi Depth Out" : "Group Depth Out"),
+        sizeof(info->name));
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = kChannels;
     info->port_type = CLAP_PORT_SURROUND;
@@ -202,20 +235,47 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 }
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
-uint32_t paramsCount(const clap_plugin_t*) { return 7; }
+bool isParamId(clap_id paramId)
+{
+    if constexpr (kSingleField) {
+        return paramId == kParamDepth
+            || paramId == kParamFocus
+            || paramId == kParamAir
+            || paramId == kParamTail
+            || paramId == kParamLow
+            || paramId == kParamWidth
+            || paramId == kParamOutput;
+    }
+    return paramId >= kParamDepth && paramId <= kParamTail;
+}
+
+uint32_t paramsCount(const clap_plugin_t*) { return kSingleField ? 7u : 8u; }
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
     if (!info) return false;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
-    std::strncpy(info->module, "Ambi Group Depth", sizeof(info->module));
+    std::strncpy(info->module, kSingleField ? "Ambi Depth" : "Ambi Group Depth", sizeof(info->module));
+    if constexpr (kSingleField) {
+        switch (index) {
+        case 0: info->id = kParamDepth; std::strncpy(info->name, "Depth", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
+        case 1: info->id = kParamFocus; std::strncpy(info->name, "Focus", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
+        case 2: info->id = kParamAir; std::strncpy(info->name, "Air damping", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
+        case 3: info->id = kParamTail; std::strncpy(info->name, "Distance tail", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0; return true;
+        case 4: info->id = kParamLow; std::strncpy(info->name, "Low body", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
+        case 5: info->id = kParamWidth; std::strncpy(info->name, "Order width", sizeof(info->name)); info->min_value = 0; info->max_value = 1.5; info->default_value = 1; return true;
+        case 6: info->id = kParamOutput; std::strncpy(info->name, "Output gain", sizeof(info->name)); info->min_value = -60; info->max_value = 12; info->default_value = 0; return true;
+        default: return false;
+        }
+    }
     switch (index) {
     case 0: info->id = kParamDepth; std::strncpy(info->name, "Depth", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
     case 1: info->id = kParamSpread; std::strncpy(info->name, "Group spread", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
     case 2: info->id = kParamFocus; std::strncpy(info->name, "Focus", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
     case 3: info->id = kParamAir; std::strncpy(info->name, "Air damping", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
-    case 4: info->id = kParamLow; std::strncpy(info->name, "Low body", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
-    case 5: info->id = kParamWidth; std::strncpy(info->name, "Order width", sizeof(info->name)); info->min_value = 0; info->max_value = 1.5; info->default_value = 1; return true;
-    case 6: info->id = kParamOutput; std::strncpy(info->name, "Output gain", sizeof(info->name)); info->min_value = -60; info->max_value = 12; info->default_value = 0; return true;
+    case 4: info->id = kParamTail; std::strncpy(info->name, "Distance tail", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0; return true;
+    case 5: info->id = kParamLow; std::strncpy(info->name, "Low body", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
+    case 6: info->id = kParamWidth; std::strncpy(info->name, "Order width", sizeof(info->name)); info->min_value = 0; info->max_value = 1.5; info->default_value = 1; return true;
+    case 7: info->id = kParamOutput; std::strncpy(info->name, "Output gain", sizeof(info->name)); info->min_value = -60; info->max_value = 12; info->default_value = 0; return true;
     default: return false;
     }
 }
@@ -224,7 +284,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
 {
     if (!value) return false;
     *value = getParam(*self(plugin), paramId);
-    return paramId >= kParamDepth && paramId <= kParamOutput;
+    return isParamId(paramId);
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char* display, uint32_t size)
@@ -236,6 +296,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
     case kParamFocus:
     case kParamAir:
     case kParamLow: std::snprintf(display, size, "%+.0f%%", value * 100.0); return true;
+    case kParamTail: std::snprintf(display, size, "%.0f%%", value * 100.0); return true;
     case kParamWidth: std::snprintf(display, size, "%.2f", value); return true;
     case kParamOutput: std::snprintf(display, size, "%+.1f dB", value); return true;
     default: return false;
@@ -246,7 +307,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* displa
 {
     if (!display || !value) return false;
     *value = std::atof(display);
-    return paramId >= kParamDepth && paramId <= kParamOutput;
+    return isParamId(paramId);
 }
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
@@ -263,9 +324,25 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!stream || !stream->read) return false;
     SavedState state {};
     const int64_t got = stream->read(stream, &state, sizeof(state));
-    if (got != static_cast<int64_t>(sizeof(state)) || state.version != kStateVersion) return false;
     auto* p = self(plugin);
-    p->params = s3g::sanitizeAmbiGroupDepthParams(state.params);
+    if (got == static_cast<int64_t>(sizeof(state)) && state.version == kStateVersion) {
+        p->params = s3g::sanitizeAmbiGroupDepthParams(state.params);
+    } else if (got == static_cast<int64_t>(sizeof(OldSavedStateV1))) {
+        const auto* old = reinterpret_cast<const OldSavedStateV1*>(&state);
+        if (old->version != 1u) return false;
+        p->params = s3g::sanitizeAmbiGroupDepthParams({
+            old->params.depth,
+            old->params.spread,
+            old->params.focus,
+            old->params.air,
+            0.0f,
+            old->params.low,
+            old->params.width,
+            old->params.outputGainDb,
+        });
+    } else {
+        return false;
+    }
     p->processor.setParams(p->params);
     return true;
 }
@@ -284,6 +361,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)stopRefreshTimer;
 - (void)setParam:(clap_id)param value:(double)value;
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style;
+- (void)resetSlider:(int)index;
 - (void)updateSliderAtPoint:(NSPoint)pt;
 @end
 
@@ -327,7 +405,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
     NSRect fieldPanel = NSMakeRect(12, 34, 506, 370);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"GROUP DEPTH FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
+    s3g::clap_gui::drawPanelHeader(kSingleField ? @"DEPTH FIELD" : @"GROUP DEPTH FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
     NSRect field = NSMakeRect(28, 70, 474, 306);
     [s3g::clap_gui::color(0x101010) setFill]; NSRectFill(field);
     [style.grid setStroke]; NSFrameRect(field);
@@ -348,6 +426,35 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         const CGFloat y = field.origin.y + 42.0 + static_cast<CGFloat>(state.depth) * (field.size.height - 86.0);
         const CGFloat wobble = std::sin((static_cast<double>(group) + 0.25) * 1.9) * 18.0 * std::abs(p->params.spread);
         points[group] = NSMakePoint(field.origin.x + 34.0 + u * (field.size.width - 68.0), y + wobble);
+    }
+    const CGFloat airAmount = static_cast<CGFloat>(std::abs(p->params.air));
+    if (airAmount > 0.01) {
+        [[NSColor colorWithCalibratedWhite:(p->params.air >= 0.0f ? 0.72 : 0.92) alpha:0.07 + 0.18 * airAmount] setStroke];
+        for (int band = 0; band < 4; ++band) {
+            const CGFloat t = static_cast<CGFloat>(band) / 3.0;
+            const CGFloat y = field.origin.y + 34.0 + t * (field.size.height - 68.0);
+            NSBezierPath* haze = [NSBezierPath bezierPath];
+            [haze moveToPoint:NSMakePoint(field.origin.x + 22.0, y)];
+            [haze curveToPoint:NSMakePoint(NSMaxX(field) - 22.0, y + std::sin(t * 4.5 + p->params.air) * 10.0 * airAmount)
+                 controlPoint1:NSMakePoint(field.origin.x + field.size.width * 0.35, y - 18.0 * airAmount)
+                 controlPoint2:NSMakePoint(field.origin.x + field.size.width * 0.65, y + 18.0 * airAmount)];
+            [haze setLineWidth:0.35 + 1.2 * airAmount];
+            CGFloat pattern[] = { 2.0, 4.0 + 5.0 * (1.0 - airAmount) };
+            [haze setLineDash:pattern count:2 phase:static_cast<CGFloat>(band) * 1.5];
+            [haze stroke];
+        }
+    }
+    const CGFloat tailAmount = static_cast<CGFloat>(p->params.tail * std::max(0.0f, p->params.depth));
+    if (tailAmount > 0.01) {
+        [[NSColor colorWithCalibratedWhite:0.78 alpha:0.06 + 0.20 * tailAmount] setStroke];
+        for (uint32_t group = 0; group < kGroups; ++group) {
+            const NSPoint p0 = points[group];
+            const CGFloat w = 28.0 + 52.0 * tailAmount;
+            const CGFloat h = 12.0 + 24.0 * tailAmount;
+            NSBezierPath* wake = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p0.x - w * 0.5, p0.y - h * 0.5, w, h)];
+            [wake setLineWidth:0.5 + 1.1 * tailAmount];
+            [wake stroke];
+        }
     }
     [s3g::clap_gui::color(0x666666, 0.38) setStroke];
     for (uint32_t group = 0; group + 1u < kGroups; ++group) {
@@ -374,53 +481,106 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         NSRectFill(NSMakeRect(x, meter.origin.y - 3.0, 3.0, 16.0));
     }
 
-    NSRect depth = NSMakeRect(532, 34, 270, 224);
-    NSRect output = NSMakeRect(532, 274, 270, 96);
-    NSRect note = NSMakeRect(532, 386, 270, 18);
+    NSRect depth = NSMakeRect(532, 34, 270, 250);
+    NSRect output = NSMakeRect(532, 300, 270, 96);
     s3g::clap_gui::drawPanelFrame(depth.origin.x, depth.origin.y, depth.size.width, depth.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"DEPTH", true, depth.origin.x, depth.origin.y, depth.size.width, 21, text, style);
     [self drawSlider:@"DEP" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.depth * 100.0f)] norm:(p->params.depth + 1.0) * 0.5 y:74 attrs:small style:style];
-    [self drawSlider:@"SPRD" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.spread * 100.0f)] norm:(p->params.spread + 1.0) * 0.5 y:100 attrs:small style:style];
-    [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.focus * 100.0f)] norm:(p->params.focus + 1.0) * 0.5 y:126 attrs:small style:style];
-    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.air * 100.0f)] norm:(p->params.air + 1.0) * 0.5 y:152 attrs:small style:style];
-    [self drawSlider:@"LOW" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.low * 100.0f)] norm:(p->params.low + 1.0) * 0.5 y:178 attrs:small style:style];
-    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.width)] norm:p->params.width / 1.5 y:204 attrs:small style:style];
+    if constexpr (!kSingleField) {
+        [self drawSlider:@"SPRD" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.spread * 100.0f)] norm:(p->params.spread + 1.0) * 0.5 y:100 attrs:small style:style];
+        [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.focus * 100.0f)] norm:(p->params.focus + 1.0) * 0.5 y:126 attrs:small style:style];
+        [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.air * 100.0f)] norm:(p->params.air + 1.0) * 0.5 y:152 attrs:small style:style];
+        [self drawSlider:@"TAIL" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.tail * 100.0f)] norm:p->params.tail y:178 attrs:small style:style];
+        [self drawSlider:@"LOW" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.low * 100.0f)] norm:(p->params.low + 1.0) * 0.5 y:204 attrs:small style:style];
+        [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.width)] norm:p->params.width / 1.5 y:230 attrs:small style:style];
+    } else {
+        [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.focus * 100.0f)] norm:(p->params.focus + 1.0) * 0.5 y:100 attrs:small style:style];
+        [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.air * 100.0f)] norm:(p->params.air + 1.0) * 0.5 y:126 attrs:small style:style];
+        [self drawSlider:@"TAIL" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.tail * 100.0f)] norm:p->params.tail y:152 attrs:small style:style];
+        [self drawSlider:@"LOW" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.low * 100.0f)] norm:(p->params.low + 1.0) * 0.5 y:178 attrs:small style:style];
+        [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.width)] norm:p->params.width / 1.5 y:204 attrs:small style:style];
+    }
 
     s3g::clap_gui::drawPanelFrame(output.origin.x, output.origin.y, output.size.width, output.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, output.origin.x, output.origin.y, output.size.width, 21, text, style);
-    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 60.0) / 72.0 y:314 attrs:small style:style];
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 60.0) / 72.0 y:340 attrs:small style:style];
     const float pk = p->outputPeak.exchange(p->outputPeak.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
     const double db = 20.0 * std::log10(std::max(0.000001f, pk));
     const CGFloat norm = std::clamp<CGFloat>((db + 60.0) / 60.0, 0.0, 1.0);
-    [@"PK" drawAtPoint:NSMakePoint(552, 340) withAttributes:small];
-    [style.strip setFill]; NSRectFill(NSMakeRect(632, 342, 128, 12));
-    [style.fill setFill]; NSRectFill(NSMakeRect(633, 343, 126 * norm, 10));
-    [style.grid setStroke]; NSFrameRect(NSMakeRect(632, 342, 128, 12));
-    [[NSString stringWithFormat:@"%+4.1f", db] drawAtPoint:NSMakePoint(764, 338) withAttributes:small];
-
-    s3g::clap_gui::drawPanelFrame(note.origin.x, note.origin.y, note.size.width, note.size.height, style);
-    [@"ORDER SHAPE + AIR DAMPING" drawAtPoint:NSMakePoint(note.origin.x + 8, note.origin.y + 4) withAttributes:small];
+    [@"PK" drawAtPoint:NSMakePoint(552, 366) withAttributes:small];
+    [style.strip setFill]; NSRectFill(NSMakeRect(632, 368, 128, 12));
+    [style.fill setFill]; NSRectFill(NSMakeRect(633, 369, 126 * norm, 10));
+    [style.grid setStroke]; NSFrameRect(NSMakeRect(632, 368, 128, 12));
+    [[NSString stringWithFormat:@"%+4.1f", db] drawAtPoint:NSMakePoint(764, 364) withAttributes:small];
+}
+- (void)resetSlider:(int)index
+{
+    if constexpr (kSingleField) {
+        switch (index) {
+        case 0: [self setParam:kParamDepth value:0.0]; break;
+        case 1: [self setParam:kParamFocus value:0.0]; break;
+        case 2: [self setParam:kParamAir value:0.0]; break;
+        case 3: [self setParam:kParamTail value:0.0]; break;
+        case 4: [self setParam:kParamLow value:0.0]; break;
+        case 5: [self setParam:kParamWidth value:1.0]; break;
+        case 6: [self setParam:kParamOutput value:0.0]; break;
+        default: break;
+        }
+    } else {
+        switch (index) {
+        case 0: [self setParam:kParamDepth value:0.0]; break;
+        case 1: [self setParam:kParamSpread value:0.0]; break;
+        case 2: [self setParam:kParamFocus value:0.0]; break;
+        case 3: [self setParam:kParamAir value:0.0]; break;
+        case 4: [self setParam:kParamTail value:0.0]; break;
+        case 5: [self setParam:kParamLow value:0.0]; break;
+        case 6: [self setParam:kParamWidth value:1.0]; break;
+        case 7: [self setParam:kParamOutput value:0.0]; break;
+        default: break;
+        }
+    }
 }
 - (void)updateSliderAtPoint:(NSPoint)pt
 {
     const double norm = std::clamp((pt.x - 632.0) / 128.0, 0.0, 1.0);
+    if constexpr (kSingleField) {
+        switch (_dragSlider) {
+        case 0: [self setParam:kParamDepth value:-1.0 + norm * 2.0]; break;
+        case 1: [self setParam:kParamFocus value:-1.0 + norm * 2.0]; break;
+        case 2: [self setParam:kParamAir value:-1.0 + norm * 2.0]; break;
+        case 3: [self setParam:kParamTail value:norm]; break;
+        case 4: [self setParam:kParamLow value:-1.0 + norm * 2.0]; break;
+        case 5: [self setParam:kParamWidth value:norm * 1.5]; break;
+        case 6: [self setParam:kParamOutput value:-60.0 + norm * 72.0]; break;
+        default: break;
+        }
+        return;
+    }
     switch (_dragSlider) {
     case 0: [self setParam:kParamDepth value:-1.0 + norm * 2.0]; break;
     case 1: [self setParam:kParamSpread value:-1.0 + norm * 2.0]; break;
     case 2: [self setParam:kParamFocus value:-1.0 + norm * 2.0]; break;
     case 3: [self setParam:kParamAir value:-1.0 + norm * 2.0]; break;
-    case 4: [self setParam:kParamLow value:-1.0 + norm * 2.0]; break;
-    case 5: [self setParam:kParamWidth value:norm * 1.5]; break;
-    case 6: [self setParam:kParamOutput value:-60.0 + norm * 72.0]; break;
+    case 4: [self setParam:kParamTail value:norm]; break;
+    case 5: [self setParam:kParamLow value:-1.0 + norm * 2.0]; break;
+    case 6: [self setParam:kParamWidth value:norm * 1.5]; break;
+    case 7: [self setParam:kParamOutput value:-60.0 + norm * 72.0]; break;
     default: break;
     }
 }
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
-    const CGFloat ys[] = { 74, 100, 126, 152, 178, 204, 314 };
-    for (int i = 0; i < 7; ++i) {
+    const CGFloat groupYs[] = { 74, 100, 126, 152, 178, 204, 230, 340 };
+    const CGFloat singleYs[] = { 74, 100, 126, 152, 178, 204, 340 };
+    const CGFloat* ys = kSingleField ? singleYs : groupYs;
+    const int count = kSingleField ? 7 : 8;
+    for (int i = 0; i < count; ++i) {
         if (NSPointInRect(pt, NSMakeRect(538, ys[i] - 8, 246, 24))) {
+            if ([event clickCount] >= 2) {
+                [self resetSlider:i];
+                return;
+            }
             _dragSlider = i;
             [self updateSliderAtPoint:pt];
             return;

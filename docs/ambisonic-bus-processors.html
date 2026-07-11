@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Bus Processors - s3g-dsp</title>
-    <meta name="description" content="Ambisonic bus processor documentation for s3g-dsp.">
+    <title>Ambi Field / Bus Processors - s3g-dsp</title>
+    <meta name="description" content="Ambisonic field and bus processor documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,15 +24,15 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Bus Processors</h1>
+        <h1>Ambi Field / Bus Processors</h1>
 
-        <p>The Ambi Group processors work on several complete third-order ambisonic feeds at once. Each feed is treated as one locked 16-channel <code>ACN/SN3D</code> block, so routing, rotation, and depth shaping do not break the internal channel relationships of the ambisonic signal.</p>
+        <p>The Ambi bus processors work on complete ambisonic feeds without breaking their internal channel relationships. <code>s3g Ambi Depth 16</code> shapes one third-order field. The group processors work on several complete third-order feeds at once, treating each 16-channel <code>ACN/SN3D</code> block as one locked group.</p>
 
         <div class="status-strip" aria-label="Ambi Bus Processor status">
           <div><span>group</span><strong>3OA / 16ch</strong></div>
+          <div><span>single</span><strong>1 group</strong></div>
           <div><span>64ch</span><strong>4 groups</strong></div>
           <div><span>128ch</span><strong>8 groups</strong></div>
-          <div><span>role</span><strong>bus tools</strong></div>
         </div>
 
         <h2 id="plugins">Plugins</h2>
@@ -41,7 +41,7 @@
           <div class="category-card feature-card">
             <span>group routing</span>
             <strong>Ambi Group Matrix 64 / 128</strong>
-            <em>Matrix mixing between four or eight 3OA feeds. Manual matrix levels set the ceiling; flow controls can create active movement inside that ceiling.</em>
+            <em>Matrix mixing between four or eight 3OA feeds. Manual matrix levels set the ceiling; pattern controls can create active movement inside that ceiling.</em>
           </div>
           <div class="category-card feature-card">
             <span>group motion</span>
@@ -49,9 +49,14 @@
             <em>Rotates each 3OA group coherently. Global yaw, pitch, and roll define the base motion; spread, tilt, and twist distribute offsets across groups.</em>
           </div>
           <div class="category-card feature-card">
+            <span>field depth</span>
+            <strong>Ambi Depth 16</strong>
+            <em>Shapes one 3OA field using bipolar depth, order focus, air damping, distance tail, low-body, order-width, and output controls.</em>
+          </div>
+          <div class="category-card feature-card">
             <span>group depth</span>
             <strong>Ambi Group Depth 64 / 128</strong>
-            <em>Shapes apparent depth across 3OA groups using bipolar depth, spread, focus, air, low-body, order-width, and output controls.</em>
+            <em>Shapes apparent depth across 3OA groups using bipolar depth, spread, focus, air, distance tail, low-body, order-width, and output controls.</em>
           </div>
           <div class="category-card muted-card">
             <span>general matrix</span>
@@ -66,15 +71,15 @@
 
         <ul>
           <li><code>SHAPE</code>: generated gain pattern. Current choices include flow, pulse, chase, swirl, scatter, and hold.</li>
-          <li><code>MODE</code>: free-running or transport-synced timing for animated flow.</li>
-          <li><code>FLOW</code>: how strongly the generated flow layer enters the matrix.</li>
-          <li><code>SPRD</code>, <code>MOT</code>, and related flow controls: how wide, animated, or patterned the active matrix layer becomes.</li>
-          <li>Gray matrix cells show the manual ceiling. Green activity shows the current flow inside that ceiling.</li>
+          <li><code>MODE</code>: free-running or transport-synced timing for animated patterns.</li>
+          <li><code>DPTH</code>: how strongly the generated pattern enters the matrix.</li>
+          <li><code>SPRD</code>, <code>MOT</code>, and related pattern controls: how wide, animated, or patterned the active matrix layer becomes.</li>
+          <li>Gray matrix cells show the manual ceiling. Green activity shows the current pattern inside that ceiling.</li>
         </ul>
 
         <h2 id="rotate">Rotate Model</h2>
 
-        <p>Rotate applies a coherent ambisonic rotation to each group. It is useful when several 3OA beds or stems need related movement without building separate automation for every feed.</p>
+        <p>Rotate applies a coherent ambisonic rotation to each group. It is useful when several 3OA beds or stems need related movement without building separate automation for every feed. In the group version, spread, tilt, and twist describe relationships between complete ambisonic fields rather than tearing one field apart.</p>
 
         <ul>
           <li><code>YAW</code>: horizontal rotation for all groups.</li>
@@ -86,25 +91,35 @@
           <li><code>WID</code>: order-width trim for the rotated groups.</li>
         </ul>
 
-        <h2 id="depth">Depth Model</h2>
+        <h2 id="field-depth">Field Depth Model</h2>
 
-        <p>Depth is a bipolar bus-shaping tool. Center is neutral. Positive values push groups farther and softer by reducing higher-order spatial detail and applying optional air damping. Negative values push toward a nearer, more present image.</p>
+        <p><code>s3g Ambi Depth 16</code> is the single-field version. Center is neutral. Positive values push the field farther and softer by reducing higher-order spatial detail and applying optional air damping. Negative values push toward a nearer, more present image. The distance tail adds a diffuse FDN layer behind positive depth settings.</p>
 
         <ul>
           <li><code>DEP</code>: near/presence to far/soft depth transform.</li>
-          <li><code>SPRD</code>: bipolar distribution of depth offsets across groups.</li>
           <li><code>FOC</code>: diffuse to focused order behavior.</li>
           <li><code>AIR</code>: negative values add presence; positive values add distance damping.</li>
+          <li><code>TAIL</code>: a diffuse distance tail that blooms behind positive depth settings.</li>
           <li><code>LOW</code>: low-body compensation or reduction.</li>
           <li><code>WID</code>: order-width trim.</li>
           <li><code>OUT</code>: final output gain.</li>
         </ul>
 
+        <h2 id="depth">Group Depth Model</h2>
+
+        <p><code>s3g Ambi Group Depth 64/128</code> applies the same depth model to four or eight lane-locked 3OA feeds. <code>SPRD</code> distributes bipolar depth offsets across groups, while the field display shows each group's depth position, air haze, and distance-tail wake.</p>
+
+        <ul>
+          <li><code>DEP</code>: shared near/far depth transform.</li>
+          <li><code>SPRD</code>: bipolar distribution of depth offsets across groups.</li>
+          <li><code>FOC</code>, <code>AIR</code>, <code>TAIL</code>, <code>LOW</code>, and <code>WID</code>: shared order and distance shaping applied per group.</li>
+        </ul>
+
         <h2 id="routing">Routing</h2>
 
-        <p>The 64-channel versions are intended for four 3OA groups. The 128-channel versions are intended for eight 3OA groups. In REAPER, set the track channel count before inserting the plugin so the pin connector matches the intended width.</p>
+        <p><code>s3g Ambi Depth 16</code> is intended for one 3OA field on a 16-channel track. The 64-channel group versions are intended for four 3OA groups. The 128-channel group versions are intended for eight 3OA groups. In REAPER, set the track channel count before inserting the plugin so the pin connector matches the intended width.</p>
 
-        <p>Use <code>Group Matrix 32</code> for stereo, quad, or octo groups. Use <code>Group Matrix 64</code> for larger non-ambisonic 4ch, 8ch, or 16ch blocks. Both use the same matrix and flow model without assuming 3OA format.</p>
+        <p>Use <code>Group Matrix 32</code> for stereo, quad, or octo groups. Use <code>Group Matrix 64</code> for larger non-ambisonic 4ch, 8ch, or 16ch blocks. Both use the same matrix and pattern model without assuming 3OA format.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambisonic-rotate.html">
@@ -127,7 +142,8 @@
           <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
           <a href="3oafx-layout-panner.html">Layout Panner</a>
           <a href="ambisonic-rotate.html">Rotate</a>
-          <a href="ambisonic-bus-processors.html">Bus Processors</a>
+          <a href="ambisonic-bus-processors.html#field-depth">Depth</a>
+          <a href="ambisonic-bus-processors.html">Field / Bus</a>
           <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
           <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
           <a href="ambisonic-head-decoder.html">Head Decoder</a>
@@ -139,7 +155,8 @@
           <a href="#plugins">Plugins</a>
           <a href="#matrix">Matrix Model</a>
           <a href="#rotate">Rotate Model</a>
-          <a href="#depth">Depth Model</a>
+          <a href="#field-depth">Field Depth Model</a>
+          <a href="#depth">Group Depth Model</a>
           <a href="#routing">Routing</a>
         </div>
       </aside>

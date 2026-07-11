@@ -59,6 +59,7 @@ copy_bundle "$src_root/clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder.cl
 copy_bundle "$src_root/clap_ambisonic_rotate/s3g_ambisonic_rotate.clap"
 copy_bundle "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_64.clap"
 copy_bundle "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_128.clap"
+copy_bundle "$src_root/clap_ambi_group_depth/s3g_ambi_depth_16.clap"
 copy_bundle "$src_root/clap_ambi_group_depth/s3g_ambi_group_depth_64.clap"
 copy_bundle "$src_root/clap_ambi_group_depth/s3g_ambi_group_depth_128.clap"
 copy_bundle "$src_root/clap_ambisonic_order_band_tool/s3g_ambisonic_order_band_tool.clap"

@@ -221,6 +221,25 @@ inline void drawHeaderButton(NSRect button,
         withAttributes:attrs];
 }
 
+inline void drawHeaderActionButton(NSRect button,
+                                   NSRect headerRect,
+                                   NSString* label,
+                                   NSDictionary* attrs,
+                                   const Style& style)
+{
+    [color(0x202020) setFill];
+    NSRectFill(button);
+    [color(0xb8b8b8) setStroke];
+    NSFrameRect(button);
+    [color(0x343434) setStroke];
+    NSFrameRect(NSInsetRect(button, 1.0, 1.0));
+    const NSSize size = [label sizeWithAttributes:attrs];
+    [label drawAtPoint:NSMakePoint(button.origin.x + (button.size.width - size.width) * 0.5,
+                                   headerTextY(headerRect))
+        withAttributes:attrs];
+    (void)style;
+}
+
 struct TopologyUiValues {
     const char* shape = "";
     double amount = 0.0;
