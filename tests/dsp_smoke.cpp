@@ -4,11 +4,16 @@
 #include "s3g_ambi_grain_processor.h"
 #include "s3g_ambisonic_point_encoder.h"
 #include "s3g_ambisonic_head_decoder.h"
+#include "s3g_ambi_group_depth.h"
+#include "s3g_ambi_group_matrix.h"
+#include "s3g_ambi_group_matrix_128.h"
+#include "s3g_ambi_group_rotate.h"
 #include "s3g_ambisonic_utilities.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_ambisonic_stereo_decoder.h"
 #include "s3g_delay_processor.h"
 #include "s3g_gain.h"
+#include "s3g_group_matrix.h"
 #include "s3g_lane_patch.h"
 #include "s3g_loop_processor.h"
 #include "s3g_multi_loop_processor.h"
@@ -119,6 +124,170 @@ int main()
     patch.toggle(7, 0);
     if (!patch.connected(7, 0)) {
         std::cerr << "LanePatch toggle failed\n";
+        return 1;
+    }
+
+    s3g::AmbiGroupMatrix groupMatrix;
+    groupMatrix.prepare(48000.0);
+    constexpr uint32_t matrixFrames = 4;
+    float matrixIn[s3g::kAmbiGroupMatrixChannels][matrixFrames] {};
+    float matrixOut[s3g::kAmbiGroupMatrixChannels][matrixFrames] {};
+    float* matrixInPtrs[s3g::kAmbiGroupMatrixChannels] {};
+    float* matrixOutPtrs[s3g::kAmbiGroupMatrixChannels] {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiGroupMatrixChannels; ++ch) {
+        matrixInPtrs[ch] = matrixIn[ch];
+        matrixOutPtrs[ch] = matrixOut[ch];
+        for (uint32_t frame = 0; frame < matrixFrames; ++frame) {
+            matrixIn[ch][frame] = static_cast<float>(ch + 1u) * 0.01f + static_cast<float>(frame) * 0.001f;
+        }
+    }
+    groupMatrix.process(matrixInPtrs, s3g::kAmbiGroupMatrixChannels, matrixOutPtrs, s3g::kAmbiGroupMatrixChannels, matrixFrames);
+    if (!near(matrixOut[0][0], matrixIn[0][0]) || !near(matrixOut[17][2], matrixIn[17][2]) || !near(matrixOut[63][3], matrixIn[63][3])) {
+        std::cerr << "Ambi group matrix identity routing failed\n";
+        return 1;
+    }
+    auto matrixParams = s3g::makeDefaultAmbiGroupMatrixParams();
+    matrixParams.crosspointDb[s3g::ambiGroupMatrixIndex(0, 1)] = 0.0f;
+    matrixParams.crosspointDb[s3g::ambiGroupMatrixIndex(1, 1)] = -80.0f;
+    groupMatrix.setParams(matrixParams);
+    groupMatrix.reset();
+    for (auto& ch : matrixOut) {
+        std::fill(ch, ch + matrixFrames, 0.0f);
+    }
+    groupMatrix.process(matrixInPtrs, s3g::kAmbiGroupMatrixChannels, matrixOutPtrs, s3g::kAmbiGroupMatrixChannels, matrixFrames);
+    if (!near(matrixOut[16][0], matrixIn[0][0]) || !near(matrixOut[31][3], matrixIn[15][3])) {
+        std::cerr << "Ambi group matrix 3OA block routing failed\n";
+        return 1;
+    }
+    matrixParams = s3g::makeDefaultAmbiGroupMatrixParams();
+    for (float& db : matrixParams.crosspointDb) {
+        db = -80.0f;
+    }
+    matrixParams.crosspointDb[s3g::ambiGroupMatrixIndex(0, 0)] = 0.0f;
+    matrixParams.flow = 1.0f;
+    matrixParams.spread = 1.0f;
+    matrixParams.motion = 1.0f;
+    groupMatrix.setParams(matrixParams);
+    groupMatrix.setExternalPhase(0.25f);
+    groupMatrix.reset();
+    for (auto& ch : matrixIn) {
+        std::fill(ch, ch + matrixFrames, 0.0f);
+    }
+    for (auto& ch : matrixOut) {
+        std::fill(ch, ch + matrixFrames, 0.0f);
+    }
+    matrixIn[0][0] = 1.0f;
+    groupMatrix.process(matrixInPtrs, s3g::kAmbiGroupMatrixChannels, matrixOutPtrs, s3g::kAmbiGroupMatrixChannels, matrixFrames);
+    if (std::abs(matrixOut[16][0]) > 0.0001f) {
+        std::cerr << "Ambi group matrix motion ignored a closed manual ceiling\n";
+        return 1;
+    }
+
+    s3g::AmbiGroupMatrix128 groupMatrix128;
+    groupMatrix128.prepare(48000.0);
+    float matrix128In[s3g::kAmbiGroupMatrix128Channels][matrixFrames] {};
+    float matrix128Out[s3g::kAmbiGroupMatrix128Channels][matrixFrames] {};
+    float* matrix128InPtrs[s3g::kAmbiGroupMatrix128Channels] {};
+    float* matrix128OutPtrs[s3g::kAmbiGroupMatrix128Channels] {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiGroupMatrix128Channels; ++ch) {
+        matrix128InPtrs[ch] = matrix128In[ch];
+        matrix128OutPtrs[ch] = matrix128Out[ch];
+        for (uint32_t frame = 0; frame < matrixFrames; ++frame) {
+            matrix128In[ch][frame] = static_cast<float>(ch + 1u) * 0.005f + static_cast<float>(frame) * 0.0005f;
+        }
+    }
+    groupMatrix128.process(matrix128InPtrs, s3g::kAmbiGroupMatrix128Channels, matrix128OutPtrs, s3g::kAmbiGroupMatrix128Channels, matrixFrames);
+    if (!near(matrix128Out[0][0], matrix128In[0][0]) || !near(matrix128Out[80][2], matrix128In[80][2]) || !near(matrix128Out[127][3], matrix128In[127][3])) {
+        std::cerr << "Ambi group matrix 128 identity routing failed\n";
+        return 1;
+    }
+    auto matrix128Params = s3g::makeDefaultAmbiGroupMatrix128Params();
+    matrix128Params.crosspointDb[s3g::AmbiGroupMatrix128Index(0, 7)] = 0.0f;
+    matrix128Params.crosspointDb[s3g::AmbiGroupMatrix128Index(7, 7)] = -80.0f;
+    groupMatrix128.setParams(matrix128Params);
+    groupMatrix128.reset();
+    for (auto& ch : matrix128Out) {
+        std::fill(ch, ch + matrixFrames, 0.0f);
+    }
+    groupMatrix128.process(matrix128InPtrs, s3g::kAmbiGroupMatrix128Channels, matrix128OutPtrs, s3g::kAmbiGroupMatrix128Channels, matrixFrames);
+    if (!near(matrix128Out[112][0], matrix128In[0][0]) || !near(matrix128Out[127][3], matrix128In[15][3])) {
+        std::cerr << "Ambi group matrix 128 3OA block routing failed\n";
+        return 1;
+    }
+    matrix128Params = s3g::makeDefaultAmbiGroupMatrix128Params();
+    for (float& db : matrix128Params.crosspointDb) {
+        db = -80.0f;
+    }
+    matrix128Params.crosspointDb[s3g::AmbiGroupMatrix128Index(0, 0)] = 0.0f;
+    matrix128Params.flow = 1.0f;
+    matrix128Params.spread = 1.0f;
+    matrix128Params.motion = 1.0f;
+    groupMatrix128.setParams(matrix128Params);
+    groupMatrix128.setExternalPhase(0.25f);
+    groupMatrix128.reset();
+    for (auto& ch : matrix128In) {
+        std::fill(ch, ch + matrixFrames, 0.0f);
+    }
+    for (auto& ch : matrix128Out) {
+        std::fill(ch, ch + matrixFrames, 0.0f);
+    }
+    matrix128In[0][0] = 1.0f;
+    groupMatrix128.process(matrix128InPtrs, s3g::kAmbiGroupMatrix128Channels, matrix128OutPtrs, s3g::kAmbiGroupMatrix128Channels, matrixFrames);
+    if (std::abs(matrix128Out[112][0]) > 0.0001f) {
+        std::cerr << "Ambi group matrix 128 motion ignored a closed manual ceiling\n";
+        return 1;
+    }
+
+    s3g::GroupMatrix generalMatrix;
+    generalMatrix.prepare(48000.0);
+    float generalIn[s3g::kGroupMatrixChannels][matrixFrames] {};
+    float generalOut[s3g::kGroupMatrixChannels][matrixFrames] {};
+    float* generalInPtrs[s3g::kGroupMatrixChannels] {};
+    float* generalOutPtrs[s3g::kGroupMatrixChannels] {};
+    for (uint32_t ch = 0; ch < s3g::kGroupMatrixChannels; ++ch) {
+        generalInPtrs[ch] = generalIn[ch];
+        generalOutPtrs[ch] = generalOut[ch];
+        for (uint32_t frame = 0; frame < matrixFrames; ++frame) {
+            generalIn[ch][frame] = static_cast<float>(ch + 1u) * 0.02f + static_cast<float>(frame) * 0.001f;
+        }
+    }
+    auto generalParams = s3g::makeDefaultGroupMatrixParams();
+    generalParams.groupSize = s3g::GroupMatrixSize::Ch4;
+    generalParams.crosspointDb[s3g::groupMatrixIndex(0, 1)] = 0.0f;
+    generalParams.crosspointDb[s3g::groupMatrixIndex(1, 1)] = -80.0f;
+    generalMatrix.setParams(generalParams);
+    generalMatrix.reset();
+    generalMatrix.process(generalInPtrs, s3g::kGroupMatrixChannels, generalOutPtrs, s3g::kGroupMatrixChannels, matrixFrames);
+    if (!near(generalOut[4][0], generalIn[0][0]) || !near(generalOut[7][3], generalIn[3][3])) {
+        std::cerr << "Group matrix 4ch group routing failed\n";
+        return 1;
+    }
+    generalParams = s3g::makeDefaultGroupMatrixParams();
+    generalParams.groupSize = s3g::GroupMatrixSize::Ch8;
+    generalParams.crosspointDb[s3g::groupMatrixIndex(0, 1)] = 0.0f;
+    generalParams.crosspointDb[s3g::groupMatrixIndex(1, 1)] = -80.0f;
+    generalMatrix.setParams(generalParams);
+    generalMatrix.reset();
+    for (auto& ch : generalOut) {
+        std::fill(ch, ch + matrixFrames, 0.0f);
+    }
+    generalMatrix.process(generalInPtrs, s3g::kGroupMatrixChannels, generalOutPtrs, s3g::kGroupMatrixChannels, matrixFrames);
+    if (!near(generalOut[8][0], generalIn[0][0]) || !near(generalOut[15][2], generalIn[7][2])) {
+        std::cerr << "Group matrix 8ch group routing failed\n";
+        return 1;
+    }
+    generalParams = s3g::makeDefaultGroupMatrixParams();
+    generalParams.groupSize = s3g::GroupMatrixSize::Ch16;
+    generalParams.crosspointDb[s3g::groupMatrixIndex(0, 1)] = 0.0f;
+    generalParams.crosspointDb[s3g::groupMatrixIndex(1, 1)] = -80.0f;
+    generalMatrix.setParams(generalParams);
+    generalMatrix.reset();
+    for (auto& ch : generalOut) {
+        std::fill(ch, ch + matrixFrames, 0.0f);
+    }
+    generalMatrix.process(generalInPtrs, s3g::kGroupMatrixChannels, generalOutPtrs, s3g::kGroupMatrixChannels, matrixFrames);
+    if (!near(generalOut[16][0], generalIn[0][0]) || !near(generalOut[31][2], generalIn[15][2])) {
+        std::cerr << "Group matrix 16ch group routing failed\n";
         return 1;
     }
 
@@ -1273,6 +1442,123 @@ int main()
     }
     if (delayNoBypassPeak <= 0.000001f) {
         std::cerr << "3OAFX delay did not keep processing while MIX was zero\n";
+        return 1;
+    }
+
+    auto runGroupRotateSmoke = [](auto& processor, uint32_t channels, const char* label) -> bool {
+        constexpr uint32_t frames = 32u;
+        std::array<std::array<float, frames>, s3g::kAmbiGroupRotateMaxChannels> inBuffers {};
+        std::array<std::array<float, frames>, s3g::kAmbiGroupRotateMaxChannels> outBuffers {};
+        std::array<float*, s3g::kAmbiGroupRotateMaxChannels> inPtrs {};
+        std::array<float*, s3g::kAmbiGroupRotateMaxChannels> outPtrs {};
+        for (uint32_t ch = 0; ch < channels; ++ch) {
+            inPtrs[ch] = inBuffers[ch].data();
+            outPtrs[ch] = outBuffers[ch].data();
+            for (uint32_t i = 0; i < frames; ++i) {
+                inBuffers[ch][i] = std::sin(static_cast<float>(ch + 1u) * 0.11f + static_cast<float>(i) * 0.03f) * 0.06f;
+            }
+        }
+        s3g::AmbiGroupRotateParams params;
+        params.yawDeg = 31.0f;
+        params.pitchDeg = -11.0f;
+        params.rollDeg = 17.0f;
+        params.spread = 0.65f;
+        params.tilt = 0.35f;
+        params.twist = -0.25f;
+        params.width = 0.90f;
+        processor.setParams(params);
+        processor.reset();
+        processor.process(inPtrs.data(), channels, outPtrs.data(), channels, frames);
+        float peak = 0.0f;
+        for (uint32_t ch = 0; ch < channels; ++ch) {
+            for (float value : outBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << label << " output is not finite\n";
+                    return false;
+                }
+                peak = std::max(peak, std::abs(value));
+            }
+        }
+        if (peak <= 0.000001f || peak > 2.0f) {
+            std::cerr << label << " peak outside expected range: " << peak << "\n";
+            return false;
+        }
+        return true;
+    };
+
+    s3g::AmbiGroupRotateProcessor<4> groupRotate64;
+    if (!runGroupRotateSmoke(groupRotate64, 64u, "Ambi Group Rotate 64")) {
+        return 1;
+    }
+    s3g::AmbiGroupRotateProcessor<8> groupRotate128;
+    if (!runGroupRotateSmoke(groupRotate128, 128u, "Ambi Group Rotate 128")) {
+        return 1;
+    }
+
+    auto runGroupDepthSmoke = [](auto& processor, uint32_t channels, const char* label) -> bool {
+        constexpr uint32_t frames = 128u;
+        std::array<std::array<float, frames>, s3g::kAmbiGroupDepthMaxChannels> inBuffers {};
+        std::array<std::array<float, frames>, s3g::kAmbiGroupDepthMaxChannels> outBuffers {};
+        std::array<float*, s3g::kAmbiGroupDepthMaxChannels> inPtrs {};
+        std::array<float*, s3g::kAmbiGroupDepthMaxChannels> outPtrs {};
+        for (uint32_t ch = 0; ch < channels; ++ch) {
+            inPtrs[ch] = inBuffers[ch].data();
+            outPtrs[ch] = outBuffers[ch].data();
+            const uint32_t order = s3g::ambiUtilityOrderForChannel(ch % s3g::kAmbiGroupDepthGroupChannels);
+            for (uint32_t i = 0; i < frames; ++i) {
+                inBuffers[ch][i] = std::sin(static_cast<float>(i) * 0.09f + static_cast<float>(ch) * 0.19f) * (0.04f + 0.01f * static_cast<float>(order));
+            }
+        }
+        s3g::AmbiGroupDepthParams params;
+        params.depth = 0.88f;
+        params.spread = 0.72f;
+        params.focus = 0.18f;
+        params.air = 0.65f;
+        params.low = 0.25f;
+        params.width = 0.85f;
+        processor.prepare(48000.0);
+        processor.setParams(params);
+        processor.reset();
+        processor.process(inPtrs.data(), channels, outPtrs.data(), channels, frames);
+        float peak = 0.0f;
+        float wEnergy = 0.0f;
+        float highEnergy = 0.0f;
+        uint32_t wCount = 0u;
+        uint32_t highCount = 0u;
+        for (uint32_t ch = 0; ch < channels; ++ch) {
+            const uint32_t lane = ch % s3g::kAmbiGroupDepthGroupChannels;
+            const uint32_t order = s3g::ambiUtilityOrderForChannel(lane);
+            for (float value : outBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << label << " output is not finite\n";
+                    return false;
+                }
+                peak = std::max(peak, std::abs(value));
+                if (order == 0u) wEnergy += value * value;
+                if (order == 3u) highEnergy += value * value;
+            }
+            if (order == 0u) wCount += frames;
+            if (order == 3u) highCount += frames;
+        }
+        if (peak <= 0.000001f || peak > 1.5f) {
+            std::cerr << label << " peak outside expected range: " << peak << "\n";
+            return false;
+        }
+        const float wAverage = wEnergy / static_cast<float>(std::max(1u, wCount));
+        const float highAverage = highEnergy / static_cast<float>(std::max(1u, highCount));
+        if (!(highAverage < wAverage * 0.85f)) {
+            std::cerr << label << " did not soften high-order energy enough\n";
+            return false;
+        }
+        return true;
+    };
+
+    s3g::AmbiGroupDepthProcessor<4> groupDepth64;
+    if (!runGroupDepthSmoke(groupDepth64, 64u, "Ambi Group Depth 64")) {
+        return 1;
+    }
+    s3g::AmbiGroupDepthProcessor<8> groupDepth128;
+    if (!runGroupDepthSmoke(groupDepth128, 128u, "Ambi Group Depth 128")) {
         return 1;
     }
 

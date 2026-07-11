@@ -52,6 +52,12 @@ Current plugins:
   speaker presets, source mixer, and custom layout design.
 - `s3g Ambi Rotate 64`: first-through-seventh-order `ACN/SN3D` field
   rotation utility with yaw, pitch, roll, and order-width trim.
+- `s3g Ambi Group Matrix 64` / `s3g Ambi Group Matrix 128`: bus-level
+  matrix mixers for four or eight lane-locked 3OA feeds.
+- `s3g Ambi Group Rotate 64` / `s3g Ambi Group Rotate 128`: bus-level
+  rotation utilities for four or eight lane-locked 3OA feeds.
+- `s3g Ambi Group Depth 64` / `s3g Ambi Group Depth 128`: bus-level
+  depth/order-shaping utilities for four or eight lane-locked 3OA feeds.
 - `s3g Ambi Order / Band 64`: first-through-seventh-order
   order-band gain and weighting utility with Flat, MaxRE, In-phase, and
   Custom modes.
@@ -67,6 +73,8 @@ Current plugins:
   feedback, damping, and transport-stop de-click behavior.
 - `s3g Cascade Taps`: 2-in/16-out stepped tap-ring processor with cascade
   timing, decay, damping, and a `SOFT` control for safer handoff behavior.
+- `s3g Group Matrix 64`: general 64-channel group matrix with 4ch, 8ch, and
+  16ch group modes.
 - `s3g 3OAFX Delay` / `s3g 3OAFX Filter` / `s3g 3OAFX Gain` /
   `s3g 3OAFX Pitch`: single-effect third-order processors with internal
   24-point virtual speaker masking.

@@ -32,7 +32,14 @@ bundles=(
   "$src_root/clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder.clap"
   "$src_root/clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder.clap"
   "$src_root/clap_ambisonic_rotate/s3g_ambisonic_rotate.clap"
+  "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_64.clap"
+  "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_128.clap"
+  "$src_root/clap_ambi_group_depth/s3g_ambi_group_depth_64.clap"
+  "$src_root/clap_ambi_group_depth/s3g_ambi_group_depth_128.clap"
   "$src_root/clap_ambisonic_order_band_tool/s3g_ambisonic_order_band_tool.clap"
+  "$src_root/clap_ambi_group_matrix/s3g_ambi_group_matrix.clap"
+  "$src_root/clap_ambi_group_matrix_128/s3g_ambi_group_matrix_128.clap"
+  "$src_root/clap_group_matrix/s3g_group_matrix.clap"
 )
 
 for bundle in "${bundles[@]}"; do
@@ -88,7 +95,14 @@ Included plugins:
 - s3g Ambi Stereo Decoder
 - s3g Ambi Head Decoder
 - s3g Ambi Rotate 64
+- s3g Ambi Group Rotate 64
+- s3g Ambi Group Rotate 128
+- s3g Ambi Group Depth 64
+- s3g Ambi Group Depth 128
 - s3g Ambi Order / Band 64
+- s3g Ambi Group Matrix 64
+- s3g Ambi Group Matrix 128
+- s3g Group Matrix 64
 
 Docs:
 
