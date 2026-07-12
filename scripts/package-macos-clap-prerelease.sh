@@ -13,6 +13,7 @@ bundles=(
   "$src_root/clap_delay_processor/s3g_8ch_delay_processor.clap"
   "$src_root/clap_delay_processor/s3g_24ch_delay_processor.clap"
   "$src_root/clap_mc_to_stereo_autogain/s3g_mc_to_stereo_autogain.clap"
+  "$src_root/clap_mc_to_quad_autogain/s3g_mc_to_quad_autogain.clap"
   "$src_root/clap_3oafx_single_effects/s3g_3oafx_delay.clap"
   "$src_root/clap_3oafx_single_effects/s3g_3oafx_pitch.clap"
   "$src_root/clap_3oafx_single_effects/s3g_3oafx_filter.clap"
@@ -45,8 +46,12 @@ bundles=(
   "$src_root/clap_group_matrix_32/s3g_group_matrix_32.clap"
   "$src_root/clap_node_track_mixer/s3g_node_bus_mixer.clap"
   "$src_root/clap_node_track_mixer/s3g_ambi_node_bus_mixer.clap"
+  "$src_root/clap_spectral_spray/s3g_spectral_spray.clap"
   "$src_root/clap_8ch_spectral_spray/s3g_8ch_spectral_spray.clap"
   "$src_root/clap_spectral_topology_processor/s3g_spectral_topology_processor.clap"
+  "$src_root/clap_shard_scatter/s3g_shard_scatter.clap"
+  "$src_root/clap_orbit_delay/s3g_orbit_delay.clap"
+  "$src_root/clap_cascade_taps/s3g_cascade_taps.clap"
 )
 
 for bundle in "${bundles[@]}"; do
@@ -83,6 +88,7 @@ Included plugins:
 - s3g Delay Processor 8ch
 - s3g Delay Processor 24ch
 - s3g MC to Stereo Autogain
+- s3g MC to Quad Autogain
 - s3g 3OAFX Delay
 - s3g 3OAFX Pitch
 - s3g 3OAFX Filter
@@ -115,8 +121,12 @@ Included plugins:
 - s3g Group Matrix 32
 - s3g Node Bus Mixer 128
 - s3g Ambi Node Bus Mixer 128
+- s3g Spectral Spray 2ch
 - s3g Spectral Spray 8ch
 - s3g Spectral Topology Processor 8ch
+- s3g Shard Scatter
+- s3g Orbit Delay
+- s3g Cascade Taps
 
 Docs:
 

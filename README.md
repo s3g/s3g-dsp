@@ -19,6 +19,8 @@ DAWs are not support targets at this stage.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
+The current macOS CLAP package includes 43 plugin bundles.
+
 Current plugins:
 
 - `s3g Passthrough Test 24ch`: fixed 24-in/24-out CLAP passthrough/gain plugin.
@@ -34,6 +36,8 @@ Current plugins:
   macros with relationship controls.
 - `s3g Macro Pitch 8ch` / `s3g Macro Pitch 24ch`: compact multichannel pitch
   macros with the shared Macro control layout.
+- `s3g Buffer Processor 8ch`: multichannel buffer processor for skip, reverse,
+  crush, error-path, and corrupted-window experiments.
 - `s3g MC to Stereo Autogain`: 128-channel input to true stereo output
   fold-down tool.
 - `s3g MC to Quad Autogain`: 128-channel input to quad output fold-down
@@ -72,6 +76,8 @@ Current plugins:
   with no external SOFA files.
 - `s3g Spectral Spray 2ch` / `s3g Spectral Spray 8ch`: C++ spectral processors for FFT-bin scatter,
   smear, feedback, hold, freeze, and frequency-window experiments.
+- `s3g Spectral Topology Processor 8ch`: topology-shaped spectral processor
+  for multichannel spectral-path experiments.
 - `s3g Shard Scatter`: 2-in/16-out grain-shard spatial scatter effect with
   density, guard, scatter, pitch, feedback, and de-click safeguards.
 - `s3g Orbit Delay`: 2-in/16-out orbiting delay effect with spread, focus,
