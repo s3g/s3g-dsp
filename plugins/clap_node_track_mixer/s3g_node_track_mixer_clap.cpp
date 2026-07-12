@@ -1172,16 +1172,19 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
     const uint32_t columns = meterNodes > 8u ? 4u : 2u;
     const uint32_t rows = (meterNodes + columns - 1u) / columns;
     const CGFloat meterW = columns > 2u ? 124.0 : 252.0;
-    [@"NODE GAIN / POST CURSOR" drawAtPoint:NSMakePoint(28, kAmbi ? 624 : 690) withAttributes:text];
+    const CGFloat nodeGainTitleY = 624.0;
+    const CGFloat nodeGainRowsY = 647.0;
+    const CGFloat peakBaseY = 674.0;
+    [@"NODE GAIN / POST CURSOR" drawAtPoint:NSMakePoint(28, nodeGainTitleY) withAttributes:text];
     for (uint32_t nodeIndex = 0; nodeIndex < meterNodes; ++nodeIndex) {
         const uint32_t col = nodeIndex / rows;
         const uint32_t row = nodeIndex % rows;
         const CGFloat x = 28.0 + static_cast<CGFloat>(col) * (meterW + 16.0);
-        const CGFloat y = (kAmbi ? 647.0 : 713.0) + static_cast<CGFloat>(row) * 20.0;
+        const CGFloat y = nodeGainRowsY + static_cast<CGFloat>(row) * 20.0;
         const float w = std::clamp<float>(weights[nodeIndex], 0.0f, 1.0f);
         [self drawWeightSlider:[NSString stringWithFormat:@"N%02u", nodeIndex + 1u] weight:w rect:NSMakeRect(x, y, meterW, 13) attrs:small style:style];
     }
-    const CGFloat peakY = (kAmbi ? 674.0 : 740.0) + static_cast<CGFloat>(rows) * 20.0;
+    const CGFloat peakY = peakBaseY + static_cast<CGFloat>(rows) * 20.0;
     const float pk = p->outputPeak.exchange(p->outputPeak.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
     [@"PEAK METER / POST CURSOR" drawAtPoint:NSMakePoint(28, peakY) withAttributes:text];
     [self drawPeakMeter:@"OUT" peak:pk rect:NSMakeRect(28, peakY + 23.0, 520, 13) attrs:small style:style];
