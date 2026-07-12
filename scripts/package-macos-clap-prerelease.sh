@@ -27,6 +27,7 @@ bundles=(
   "$src_root/clap_macro_delay/s3g_24ch_macro_delay.clap"
   "$src_root/clap_macro_pitch/s3g_macro_pitch.clap"
   "$src_root/clap_macro_pitch/s3g_24ch_macro_pitch.clap"
+  "$src_root/clap_buffer_processor/s3g_buffer_processor.clap"
   "$src_root/clap_multichannel_meter/s3g_multichannel_meter.clap"
   "$src_root/clap_ambisonic_energy_visualizer/s3g_ambisonic_energy_visualizer.clap"
   "$src_root/clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder.clap"
@@ -44,6 +45,8 @@ bundles=(
   "$src_root/clap_group_matrix_32/s3g_group_matrix_32.clap"
   "$src_root/clap_node_track_mixer/s3g_node_bus_mixer.clap"
   "$src_root/clap_node_track_mixer/s3g_ambi_node_bus_mixer.clap"
+  "$src_root/clap_8ch_spectral_spray/s3g_8ch_spectral_spray.clap"
+  "$src_root/clap_spectral_topology_processor/s3g_spectral_topology_processor.clap"
 )
 
 for bundle in "${bundles[@]}"; do
@@ -94,6 +97,7 @@ Included plugins:
 - s3g Macro Delay 24ch
 - s3g Macro Pitch 8ch
 - s3g Macro Pitch 24ch
+- s3g Buffer Processor 8ch
 - s3g Multichannel Meter 64
 - s3g Ambi Energy Visualizer 64
 - s3g Ambi Stereo Decoder
@@ -111,6 +115,8 @@ Included plugins:
 - s3g Group Matrix 32
 - s3g Node Bus Mixer 128
 - s3g Ambi Node Bus Mixer 128
+- s3g Spectral Spray 8ch
+- s3g Spectral Topology Processor 8ch
 
 Docs:
 

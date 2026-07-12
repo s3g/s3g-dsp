@@ -11,6 +11,7 @@
 #include "s3g_ambisonic_utilities.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_ambisonic_stereo_decoder.h"
+#include "s3g_buffer_processor.h"
 #include "s3g_delay_processor.h"
 #include "s3g_gain.h"
 #include "s3g_group_matrix.h"
@@ -23,6 +24,7 @@
 #include "s3g_cascade_taps.h"
 #include "s3g_spectral_fft.h"
 #include "s3g_spectral_spray.h"
+#include "s3g_spectral_topology_processor.h"
 #include "s3g_shard_scatter.h"
 #include "s3g_layout_panner.h"
 #include "s3g_mc_to_stereo.h"
@@ -950,6 +952,101 @@ int main()
     }
     if (macroPitchPeak <= 0.00001f || macroPitchPeak > 1.0f) {
         std::cerr << "Macro Pitch peak outside expected range: " << macroPitchPeak << "\n";
+        return 1;
+    }
+
+    s3g::BufferProcessor bufferProcessor;
+    bufferProcessor.prepare(48000.0, s3g::kBufferProcessorChannels, 4.0);
+    s3g::BufferProcessorParams bufferParams;
+    bufferParams.sizeMs = 70.0f;
+    bufferParams.rate = 1.35f;
+    bufferParams.crossfade = 0.18f;
+    bufferParams.repeat = 0.82f;
+    bufferParams.skip = 0.55f;
+    bufferParams.skipGrid = 3.0f;
+    bufferParams.skipJam = 0.44f;
+    bufferParams.skipChase = 0.36f;
+    bufferParams.skipSync = 1.0f;
+    bufferParams.reverse = 0.35f;
+    bufferParams.crush = 0.18f;
+    bufferParams.error = 0.28f;
+    bufferParams.errorMode = 1.0f;
+    bufferParams.memory = 0.0f;
+    bufferParams.spread = 0.42f;
+    bufferParams.deviation = 0.35f;
+    bufferParams.skew = -0.18f;
+    bufferParams.center = 0.48f;
+    bufferParams.glideMs = 90.0f;
+    bufferParams.mix = 0.72f;
+    bufferParams.outputGainDb = -6.0f;
+    bufferProcessor.setTransport(96.0, true);
+    bufferProcessor.setParams(bufferParams);
+    float bufferIn[s3g::kBufferProcessorChannels] {};
+    float bufferOut[s3g::kBufferProcessorChannels] {};
+    float bufferPeak = 0.0f;
+    float bufferMaxStep = 0.0f;
+    std::array<float, s3g::kBufferProcessorChannels> bufferLast {};
+    for (int i = 0; i < 48000; ++i) {
+        if (i == 18000) {
+            bufferParams.sizeMs = 34.0f;
+            bufferParams.rate = -0.85f;
+            bufferParams.skip = 0.82f;
+            bufferParams.skipGrid = 4.0f;
+            bufferParams.skipJam = 0.70f;
+            bufferParams.skipChase = 0.68f;
+            bufferParams.reverse = 0.70f;
+            bufferParams.crush = 0.34f;
+            bufferParams.error = 0.52f;
+            bufferParams.errorMode = 4.0f;
+            bufferParams.memory = 0.24f;
+            bufferParams.deviation = 0.58f;
+            bufferProcessor.captureMemory();
+            bufferProcessor.setParams(bufferParams);
+        }
+        for (uint32_t ch = 0; ch < s3g::kBufferProcessorChannels; ++ch) {
+            const float t = static_cast<float>(i) / 48000.0f;
+            bufferIn[ch] = (std::sin(6.28318530718f * (83.0f + static_cast<float>(ch) * 29.0f) * t)
+                + 0.35f * std::sin(6.28318530718f * (670.0f + static_cast<float>(ch) * 47.0f) * t)) * 0.16f;
+        }
+        bufferProcessor.processFrame(bufferIn, bufferOut);
+        for (uint32_t ch = 0; ch < s3g::kBufferProcessorChannels; ++ch) {
+            const float value = bufferOut[ch];
+            if (!std::isfinite(value)) {
+                std::cerr << "Buffer Processor output is not finite\n";
+                return 1;
+            }
+            bufferPeak = std::max(bufferPeak, std::abs(value));
+            bufferMaxStep = std::max(bufferMaxStep, std::abs(value - bufferLast[ch]));
+            bufferLast[ch] = value;
+        }
+    }
+    if (bufferPeak <= 0.00001f || bufferPeak > 1.0f || bufferMaxStep > 0.90f) {
+        std::cerr << "Buffer Processor peak/step outside expected range: " << bufferPeak << " / " << bufferMaxStep << "\n";
+        return 1;
+    }
+    bufferProcessor.reset();
+    bufferParams.skip = 0.0f;
+    bufferParams.skipJam = 0.0f;
+    bufferParams.skipChase = 0.0f;
+    bufferParams.error = 1.0f;
+    bufferParams.errorMode = 4.0f;
+    bufferParams.memory = 0.0f;
+    bufferParams.mix = 1.0f;
+    bufferProcessor.setParams(bufferParams);
+    float bufferSilencePeak = 0.0f;
+    std::fill(std::begin(bufferIn), std::end(bufferIn), 0.0f);
+    for (int i = 0; i < 12000; ++i) {
+        bufferProcessor.processFrame(bufferIn, bufferOut);
+        for (float value : bufferOut) {
+            if (!std::isfinite(value)) {
+                std::cerr << "Buffer Processor silence output is not finite\n";
+                return 1;
+            }
+            bufferSilencePeak = std::max(bufferSilencePeak, std::abs(value));
+        }
+    }
+    if (bufferSilencePeak > 0.000001f) {
+        std::cerr << "Buffer Processor ERR produced a silence noise floor: " << bufferSilencePeak << "\n";
         return 1;
     }
 
@@ -2617,6 +2714,88 @@ int main()
                   << " step=" << spectralSpray8MaxStep << "\n";
         return 1;
     }
+
+    s3g::SpectralTopologyProcessor spectralTopology;
+    if (!spectralTopology.prepare(48000.0, s3g::kSpectralTopologyChannels, 1024u, 4u, 512u)) {
+        std::cerr << "Spectral Topology prepare failed\n";
+        return 1;
+    }
+    s3g::SpectralTopologySettings spectralTopologySettings;
+    spectralTopologySettings.base = s3g::SpectralSprayParams {};
+    spectralTopologySettings.base.mix = 1.0f;
+    spectralTopologySettings.base.gainDb = -9.0f;
+    spectralTopologySettings.base.sprayBins = 22.0f;
+    spectralTopologySettings.base.drift = 0.30f;
+    spectralTopologySettings.base.hold = 0.70f;
+    spectralTopologySettings.base.feedback = 0.18f;
+    spectralTopologySettings.base.smear = 0.45f;
+    spectralTopologySettings.base.phaseBlur = 0.24f;
+    spectralTopologySettings.base.safety = 0.76f;
+    spectralTopologySettings.topology.amount = 0.65;
+    spectralTopologySettings.topology.jitter = 0.22;
+    spectralTopologySettings.topology.collapse = 0.18;
+    spectralTopologySettings.topology.dirX = 0.30;
+    spectralTopologySettings.topology.dirY = -0.18;
+    spectralTopologySettings.topology.dirZ = 0.90;
+    spectralTopologySettings.topology.twist = 0.24;
+    spectralTopologySettings.topology.flare = 0.12;
+    spectralTopologySettings.topology.shape = 11;
+    spectralTopologySettings.topology.neighborCount = 2;
+    spectralTopologySettings.topology.neighborRadius = 0.68;
+    spectralTopologySettings.topology.centroidAmount = 0.24;
+    for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+        spectralTopology.setLaneParams(ch, s3g::spectralTopologyLaneParams(spectralTopologySettings, ch, s3g::kSpectralTopologyChannels));
+    }
+    std::array<std::array<float, 512>, s3g::kSpectralTopologyChannels> spectralTopologyInBuffers {};
+    std::array<std::array<float, 512>, s3g::kSpectralTopologyChannels> spectralTopologyOutBuffers {};
+    std::array<const float*, s3g::kSpectralTopologyChannels> spectralTopologyIn {};
+    std::array<float*, s3g::kSpectralTopologyChannels> spectralTopologyOut {};
+    for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+        spectralTopologyIn[ch] = spectralTopologyInBuffers[ch].data();
+        spectralTopologyOut[ch] = spectralTopologyOutBuffers[ch].data();
+    }
+    float spectralTopologyPeak = 0.0f;
+    float spectralTopologyMaxStep = 0.0f;
+    std::array<float, s3g::kSpectralTopologyChannels> spectralTopologyLast {};
+    for (uint32_t block = 0; block < 64u; ++block) {
+        if ((block % 8u) == 0u) {
+            spectralTopologySettings.topology.motionPhase = static_cast<double>(block) * 0.027;
+            spectralTopologySettings.topology.motionMode = 1;
+            spectralTopologySettings.topology.motionDepth = 0.55;
+            for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                spectralTopology.setLaneParams(ch, s3g::spectralTopologyLaneParams(spectralTopologySettings, ch, s3g::kSpectralTopologyChannels));
+            }
+        }
+        for (uint32_t i = 0; i < 512u; ++i) {
+            const float t = static_cast<float>(block * 512u + i) / 48000.0f;
+            for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                const float base = 97.0f + static_cast<float>(ch) * 41.0f;
+                spectralTopologyInBuffers[ch][i] = (std::sin(6.28318530718f * base * t)
+                    + std::sin(6.28318530718f * (base * 4.23f) * t + static_cast<float>(ch) * 0.19f) * 0.32f) * 0.08f;
+            }
+        }
+        spectralTopology.process(spectralTopologyIn.data(),
+            s3g::kSpectralTopologyChannels,
+            spectralTopologyOut.data(),
+            s3g::kSpectralTopologyChannels,
+            512u);
+        for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+            for (float value : spectralTopologyOutBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Spectral Topology output is not finite\n";
+                    return 1;
+                }
+                spectralTopologyPeak = std::max(spectralTopologyPeak, std::abs(value));
+                spectralTopologyMaxStep = std::max(spectralTopologyMaxStep, std::abs(value - spectralTopologyLast[ch]));
+                spectralTopologyLast[ch] = value;
+            }
+        }
+    }
+    if (spectralTopologyPeak <= 0.00001f || spectralTopologyPeak > 1.0f || spectralTopologyMaxStep > 0.70f) {
+        std::cerr << "Spectral Topology stress outside expected range: peak=" << spectralTopologyPeak
+                  << " step=" << spectralTopologyMaxStep << "\n";
+        return 1;
+    }
 #endif
 
     {
@@ -2778,6 +2957,7 @@ int main()
     std::cout << "macro delay peak: " << macroPeak << "\n";
     std::cout << "macro delay tail peak: " << macroTailPeak << "\n";
     std::cout << "macro pitch peak: " << macroPitchPeak << "\n";
+    std::cout << "buffer processor peak/step: " << bufferPeak << " / " << bufferMaxStep << "\n";
     std::cout << "Ambi point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "Ambi speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";
@@ -2804,6 +2984,7 @@ int main()
     std::cout << "spectral spray high-feedback peak: " << spectralSprayFeedbackPeak << "\n";
     std::cout << "spectral spray automation peak/step: " << spectralSprayAutomationPeak << " / " << spectralSprayAutomationMaxStep << "\n";
     std::cout << "8ch spectral spray peak/step: " << spectralSpray8Peak << " / " << spectralSpray8MaxStep << "\n";
+    std::cout << "spectral topology peak/step: " << spectralTopologyPeak << " / " << spectralTopologyMaxStep << "\n";
 #endif
     return 0;
 }
