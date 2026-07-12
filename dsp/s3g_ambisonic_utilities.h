@@ -58,6 +58,16 @@ inline uint32_t ambiUtilityChannelsForOrder(uint32_t order)
     return (order + 1u) * (order + 1u);
 }
 
+inline uint32_t ambiUtilityOrderForChannels(uint32_t channels)
+{
+    channels = std::max<uint32_t>(1u, channels);
+    uint32_t order = 1u;
+    while (order < kAmbiUtilityMaxOrder && ambiUtilityChannelsForOrder(order + 1u) <= channels) {
+        ++order;
+    }
+    return order;
+}
+
 inline uint32_t ambiUtilityOrderForChannel(uint32_t acn)
 {
     return std::min<uint32_t>(kAmbiUtilityMaxOrder, static_cast<uint32_t>(std::sqrt(static_cast<float>(acn))));
@@ -207,7 +217,28 @@ public:
     template <typename Sample>
     void process(Sample** in, Sample** out, uint32_t inChannels, uint32_t outChannels, uint32_t frames)
     {
-        const uint32_t n = std::min<uint32_t>({ inChannels, outChannels, ambiUtilityChannelsForOrder(params_.order), kAmbiUtilityChannels });
+        const uint32_t requestedChannels = std::min<uint32_t>({ inChannels, outChannels, ambiUtilityChannelsForOrder(params_.order), kAmbiUtilityChannels });
+        uint32_t highestActive = 0u;
+        float blockPeak = 0.0f;
+        for (uint32_t ch = 0; ch < requestedChannels; ++ch) {
+            if (!in[ch]) continue;
+            float channelPeak = 0.0f;
+            for (uint32_t i = 0; i < frames; ++i) {
+                channelPeak = std::max(channelPeak, std::abs(static_cast<float>(in[ch][i])));
+            }
+            if (channelPeak > 0.0000003f) {
+                highestActive = ch + 1u;
+                blockPeak = std::max(blockPeak, channelPeak);
+            }
+        }
+        if (blockPeak <= 0.0000003f) {
+            for (uint32_t ch = 0; ch < outChannels; ++ch) {
+                if (out[ch]) std::fill(out[ch], out[ch] + frames, Sample {});
+            }
+            return;
+        }
+        const uint32_t effectiveOrder = std::min<uint32_t>(params_.order, ambiUtilityOrderForChannels(highestActive));
+        const uint32_t n = std::min<uint32_t>({ requestedChannels, ambiUtilityChannelsForOrder(effectiveOrder), kAmbiUtilityChannels });
         std::array<double, kAmbiUtilityChannels> acc {};
         for (uint32_t i = 0; i < frames; ++i) {
             for (uint32_t row = 0; row < n; ++row) {

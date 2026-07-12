@@ -18,6 +18,7 @@
 #include "s3g_lane_patch.h"
 #include "s3g_loop_processor.h"
 #include "s3g_multi_loop_processor.h"
+#include "s3g_node_track_mixer.h"
 #include "s3g_orbit_delay.h"
 #include "s3g_cascade_taps.h"
 #include "s3g_spectral_fft.h"
@@ -1766,6 +1767,95 @@ int main()
             return 1;
         }
     }
+    rotateParams.order = 7;
+    rotate.setParams(rotateParams);
+    rotate.reset();
+    for (auto& ch : ambiUtilityInBuffers) {
+        std::fill(ch.begin(), ch.end(), 0.0f);
+    }
+    for (auto& ch : ambiUtilityOutBuffers) {
+        std::fill(ch.begin(), ch.end(), 0.0f);
+    }
+    for (uint32_t ch = 0; ch < s3g::ambiUtilityChannelsForOrder(3); ++ch) {
+        ambiUtilityInBuffers[ch][0] = ch == 0u ? 0.20f : 0.006f * std::sin(static_cast<float>(ch));
+    }
+    rotate.process(ambiUtilityIn, ambiUtilityOut, s3g::kAmbiUtilityChannels, s3g::kAmbiUtilityChannels, 16);
+    for (uint32_t ch = 0; ch < s3g::kAmbiUtilityChannels; ++ch) {
+        for (float value : ambiUtilityOutBuffers[ch]) {
+            if (!std::isfinite(value)) {
+                std::cerr << "Ambi Rotate protected 7OA output is not finite\n";
+                return 1;
+            }
+            if (ch >= s3g::ambiUtilityChannelsForOrder(3) && std::abs(value) > 0.000001f) {
+                std::cerr << "Ambi Rotate generated higher-order output from 3OA input\n";
+                return 1;
+            }
+        }
+    }
+    for (auto& ch : ambiUtilityInBuffers) {
+        std::fill(ch.begin(), ch.end(), 0.0f);
+    }
+    for (auto& ch : ambiUtilityOutBuffers) {
+        std::fill(ch.begin(), ch.end(), 1.0f);
+    }
+    rotate.process(ambiUtilityIn, ambiUtilityOut, s3g::kAmbiUtilityChannels, s3g::kAmbiUtilityChannels, 16);
+    for (const auto& ch : ambiUtilityOutBuffers) {
+        for (float value : ch) {
+            if (std::abs(value) > 0.000001f) {
+                std::cerr << "Ambi Rotate silent block was not cleared\n";
+                return 1;
+            }
+        }
+    }
+
+    {
+        s3g::AmbiGroupDepthProcessor<1> tailDepth;
+        tailDepth.prepare(48000.0);
+        s3g::AmbiGroupDepthParams tailParams {};
+        tailParams.depth = 0.85f;
+        tailParams.tail = 1.0f;
+        tailParams.air = 0.20f;
+        tailDepth.setParams(tailParams);
+        tailDepth.reset();
+        constexpr uint32_t tailFrames = 64u;
+        std::array<std::array<float, tailFrames>, s3g::kAmbiGroupDepthGroupChannels> tailInBuffers {};
+        std::array<std::array<float, tailFrames>, s3g::kAmbiGroupDepthGroupChannels> tailOutBuffers {};
+        std::array<float*, s3g::kAmbiGroupDepthGroupChannels> tailIn {};
+        std::array<float*, s3g::kAmbiGroupDepthGroupChannels> tailOut {};
+        for (uint32_t ch = 0; ch < s3g::kAmbiGroupDepthGroupChannels; ++ch) {
+            tailIn[ch] = tailInBuffers[ch].data();
+            tailOut[ch] = tailOutBuffers[ch].data();
+        }
+        tailInBuffers[0][0] = 0.9f;
+        tailInBuffers[1][0] = 0.25f;
+        tailInBuffers[2][0] = -0.2f;
+        tailDepth.process(tailIn.data(), s3g::kAmbiGroupDepthGroupChannels, tailOut.data(), s3g::kAmbiGroupDepthGroupChannels, tailFrames);
+        for (auto& ch : tailInBuffers) {
+            std::fill(ch.begin(), ch.end(), 0.0f);
+        }
+        float tailPeak = 0.0f;
+        for (uint32_t block = 0; block < 120u; ++block) {
+            for (auto& ch : tailOutBuffers) {
+                std::fill(ch.begin(), ch.end(), 0.0f);
+            }
+            tailDepth.process(tailIn.data(), s3g::kAmbiGroupDepthGroupChannels, tailOut.data(), s3g::kAmbiGroupDepthGroupChannels, tailFrames);
+            if (block > 8u) {
+                for (const auto& ch : tailOutBuffers) {
+                    for (float value : ch) {
+                        if (!std::isfinite(value)) {
+                            std::cerr << "Ambi Depth FDN tail output is not finite\n";
+                            return 1;
+                        }
+                        tailPeak = std::max(tailPeak, std::abs(value));
+                    }
+                }
+            }
+        }
+        if (tailPeak <= 0.000001f || tailPeak > 1.0f) {
+            std::cerr << "Ambi Depth FDN tail peak outside expected range: " << tailPeak << "\n";
+            return 1;
+        }
+    }
 
     auto ambiGrainSample = std::make_shared<s3g::AmbiGrainSample>();
     ambiGrainSample->frames = 96000;
@@ -2528,6 +2618,151 @@ int main()
         return 1;
     }
 #endif
+
+    {
+        auto nodeMixer = std::make_unique<s3g::NodeTrackMixer>();
+        nodeMixer->prepare(48000.0);
+        s3g::NodeTrackMixerParams nodeParams {};
+        nodeParams.outputLayout = s3g::NodeTrackLayout::Octo;
+        nodeParams.outputChannels = 8;
+        nodeParams.nodeCount = 2;
+        nodeParams.nodes[0].sourceLayout = s3g::NodeTrackLayout::Quad;
+        nodeParams.nodes[0].sourceChannels = 4;
+        nodeParams.nodes[0].inputStart = 1;
+        nodeParams.nodes[0].levelDb = -3.0f;
+        nodeParams.nodes[1].sourceLayout = s3g::NodeTrackLayout::Cube;
+        nodeParams.nodes[1].sourceChannels = 8;
+        nodeParams.nodes[1].inputStart = 5;
+        nodeParams.nodes[1].levelDb = -9.0f;
+        nodeParams.nodes[1].x = 0.4f;
+        nodeParams.nodes[1].z = 0.3f;
+        nodeParams.cursorInfluence = 0.35f;
+        nodeParams.cursorRadius = 2.0f;
+        nodeParams.cursorX = 0.25f;
+        nodeMixer->setParams(nodeParams);
+
+        constexpr uint32_t nodeFrames = 8;
+        std::array<std::array<float, nodeFrames>, s3g::kNodeTrackMixerMaxChannels> nodeIn {};
+        std::array<std::array<float, nodeFrames>, s3g::kNodeTrackMixerMaxChannels> nodeOut {};
+        std::array<float*, s3g::kNodeTrackMixerMaxChannels> nodeInPtrs {};
+        std::array<float*, s3g::kNodeTrackMixerMaxChannels> nodeOutPtrs {};
+        for (uint32_t ch = 0; ch < s3g::kNodeTrackMixerMaxChannels; ++ch) {
+            nodeInPtrs[ch] = nodeIn[ch].data();
+            nodeOutPtrs[ch] = nodeOut[ch].data();
+            for (uint32_t frame = 0; frame < nodeFrames; ++frame) {
+                nodeIn[ch][frame] = static_cast<float>(ch + 1u) * 0.002f + static_cast<float>(frame) * 0.0003f;
+            }
+        }
+        nodeMixer->process(nodeInPtrs.data(), s3g::kNodeTrackMixerMaxChannels, nodeOutPtrs.data(), s3g::kNodeTrackMixerMaxChannels, nodeFrames);
+        float nodePeak = 0.0f;
+        for (uint32_t ch = 0; ch < 8u; ++ch) {
+            for (float value : nodeOut[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Node track mixer output is not finite\n";
+                    return 1;
+                }
+                nodePeak = std::max(nodePeak, std::abs(value));
+            }
+        }
+        if (nodePeak <= 0.000001f || nodePeak > 1.0f) {
+            std::cerr << "Node track mixer peak outside expected range: " << nodePeak << "\n";
+            return 1;
+        }
+        {
+            s3g::NodeTrackMixer hillMixer;
+            hillMixer.prepare(48000.0);
+            s3g::NodeTrackMixerParams hillParams {};
+            hillParams.nodeCount = 1;
+            hillParams.nodes[0].scale = 1.0f;
+            hillParams.nodes[0].focus = 1.0f;
+            hillParams.cursorInfluence = 1.0f;
+            hillParams.cursorX = 1.01f;
+            hillMixer.setParams(hillParams);
+            const float outside = hillMixer.nodeWeights()[0];
+            hillParams.cursorX = 0.99f;
+            hillMixer.setParams(hillParams);
+            const float edge = hillMixer.nodeWeights()[0];
+            hillParams.cursorX = 0.50f;
+            hillMixer.setParams(hillParams);
+            const float inner = hillMixer.nodeWeights()[0];
+            if (outside != 0.0f || !(edge > 0.0f && edge < inner && inner < 1.0f)) {
+                std::cerr << "Node track mixer cursor hill is not smooth at node edge\n";
+                return 1;
+            }
+
+            const auto base = s3g::nodeTrackLayoutPoint(0, 4, s3g::NodeTrackLayout::Quad);
+            const auto spun = s3g::nodeTrackRotatePoint(base, 90.0f, 30.0f);
+            const float baseLen = std::sqrt(base.x * base.x + base.y * base.y + base.z * base.z);
+            const float spunLen = std::sqrt(spun.x * spun.x + spun.y * spun.y + spun.z * spun.z);
+            const float delta = std::abs(base.x - spun.x) + std::abs(base.y - spun.y) + std::abs(base.z - spun.z);
+            if (std::abs(baseLen - spunLen) > 0.0001f || delta < 0.2f) {
+                std::cerr << "Node track mixer az/el source rotation is not geometric\n";
+                return 1;
+            }
+
+            hillParams.cursorZ = 1.5f;
+            hillParams.nodes[0].z = -1.25f;
+            hillParams.lockZ = true;
+            const auto locked = s3g::sanitizeNodeTrackMixerParams(hillParams);
+            hillParams.lockZ = false;
+            const auto unlocked = s3g::sanitizeNodeTrackMixerParams(hillParams);
+            if (locked.cursorZ != 0.0f || locked.nodes[0].z != 0.0f
+                || std::abs(unlocked.cursorZ - 1.5f) > 0.0001f
+                || std::abs(unlocked.nodes[0].z + 1.25f) > 0.0001f) {
+                std::cerr << "Node track mixer Z lock did not preserve the flat mix plane\n";
+                return 1;
+            }
+        }
+
+        s3g::AmbiNodeTrackMixer ambiNodeMixer;
+        ambiNodeMixer.prepare(48000.0);
+        s3g::AmbiNodeTrackMixerParams ambiClampParams {};
+        ambiClampParams.order = s3g::AmbiNodeTrackOrder::O1;
+        ambiClampParams.nodeCount = 12;
+        ambiClampParams.nodes[7].inputStart = 3;
+        ambiNodeMixer.setParams(ambiClampParams);
+        if (ambiNodeMixer.ambiChannels() != 16u
+            || ambiNodeMixer.params().order != s3g::AmbiNodeTrackOrder::O3
+            || ambiNodeMixer.params().nodeCount != s3g::kAmbiNodeBusMixerMaxNodes
+            || ambiNodeMixer.params().nodes[7].inputStart != 113u) {
+            std::cerr << "Ambi node bus mixer did not lock to 8 fixed 3OA nodes\n";
+            return 1;
+        }
+        s3g::AmbiNodeTrackMixerParams ambiNodeParams {};
+        ambiNodeParams.order = s3g::AmbiNodeTrackOrder::O3;
+        ambiNodeParams.nodeCount = 2;
+        ambiNodeParams.nodes[0].inputStart = 1;
+        ambiNodeParams.nodes[0].levelDb = -3.0f;
+        ambiNodeParams.nodes[0].x = -0.4f;
+        ambiNodeParams.nodes[1].inputStart = 17;
+        ambiNodeParams.nodes[1].levelDb = -9.0f;
+        ambiNodeParams.nodes[1].x = 0.7f;
+        ambiNodeParams.cursorInfluence = 0.4f;
+        ambiNodeParams.cursorX = 0.6f;
+        ambiNodeParams.cursorRadius = 2.0f;
+        ambiNodeMixer.setParams(ambiNodeParams);
+
+        std::array<std::array<float, nodeFrames>, s3g::kNodeTrackMixerMaxChannels> ambiNodeOut {};
+        std::array<float*, s3g::kNodeTrackMixerMaxChannels> ambiNodeOutPtrs {};
+        for (uint32_t ch = 0; ch < s3g::kNodeTrackMixerMaxChannels; ++ch) {
+            ambiNodeOutPtrs[ch] = ambiNodeOut[ch].data();
+        }
+        ambiNodeMixer.process(nodeInPtrs.data(), s3g::kNodeTrackMixerMaxChannels, ambiNodeOutPtrs.data(), s3g::kNodeTrackMixerMaxChannels, nodeFrames);
+        float ambiNodePeak = 0.0f;
+        for (uint32_t ch = 0; ch < 16u; ++ch) {
+            for (float value : ambiNodeOut[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi node track mixer output is not finite\n";
+                    return 1;
+                }
+                ambiNodePeak = std::max(ambiNodePeak, std::abs(value));
+            }
+        }
+        if (ambiNodePeak <= 0.000001f || ambiNodePeak > 1.0f) {
+            std::cerr << "Ambi node track mixer peak outside expected range: " << ambiNodePeak << "\n";
+            return 1;
+        }
+    }
 
     std::cout << "s3g-dsp smoke test passed\n";
     std::cout << "layout speakers: " << s3g::kVirtualSpeakerCount << "\n";

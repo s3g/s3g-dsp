@@ -44,6 +44,11 @@
             <em>Matrix mixing between four or eight 3OA feeds. Manual matrix levels set the ceiling; pattern controls can create active movement inside that ceiling.</em>
           </div>
           <div class="category-card feature-card">
+            <span>node routing</span>
+            <strong>Ambi Node Bus Mixer 128</strong>
+            <em>Mixes up to eight fixed 3OA feeds as spatial nodes. Each node owns one 16-channel block, and the cursor emphasizes nodes by position on a flat Z-locked mix plane by default.</em>
+          </div>
+          <div class="category-card feature-card">
             <span>group motion</span>
             <strong>Ambi Group Rotate 64 / 128</strong>
             <em>Rotates each 3OA group coherently. Global yaw, pitch, and roll define the base motion; spread, tilt, and twist distribute offsets across groups.</em>
@@ -63,6 +68,11 @@
             <strong>Group Matrix 32 / 64</strong>
             <em>General group matrix mixers for non-ambisonic blocks. The 32-channel version supports 2ch, 4ch, and 8ch groups; the 64-channel version supports 4ch, 8ch, and 16ch groups.</em>
           </div>
+          <div class="category-card muted-card">
+            <span>general node mixer</span>
+            <strong>Node Bus Mixer 128</strong>
+            <em>General node/cursor bus mixer for source blocks that are routed into a 128-channel track. It maps source shapes into a selected output bed, with optional 3D placement when Z lock is disabled.</em>
+          </div>
         </div>
 
         <h2 id="matrix">Matrix Model</h2>
@@ -76,6 +86,25 @@
           <li><code>SPRD</code>, <code>MOT</code>, and related pattern controls: how wide, animated, or patterned the active matrix layer becomes.</li>
           <li>Gray matrix cells show the manual ceiling. Green activity shows the current pattern inside that ceiling.</li>
         </ul>
+
+        <h2 id="node">Node Bus Mixer Model</h2>
+
+        <p>The Node Bus Mixers adapt the s3g-mc node-track concept to a CLAP bus insert. Instead of selecting source tracks from a script, route source blocks into one wide REAPER track. The Ambi version is locked to 3OA: node 1 uses channels 1-16, node 2 uses 17-32, through node 8 on 113-128. The general version maps user-assigned source blocks into the selected output bed.</p>
+
+        <p>Both Node Bus Mixers default to a flat relationship plane. With <code>LOCK Z</code> checked, all nodes and the cursor stay at <code>Z = 0</code>, so the top view becomes the normal mixing view. Uncheck <code>LOCK Z</code> when a mix needs full 3D node placement and side or 3/4 camera work.</p>
+
+        <ul>
+          <li><code>NODE COUNT</code>: number of source blocks used by the mixer.</li>
+          <li><code>INPUT START</code>: first bus channel for a node's source block in the general Node Bus Mixer. The Ambi version fixes this automatically in 16-channel 3OA blocks.</li>
+          <li><code>X</code>, <code>Y</code>, <code>Z</code>: node position in the relationship field. <code>Z</code> is locked at zero while <code>LOCK Z</code> is checked.</li>
+          <li><code>LOCK Z</code>: checkbox that locks nodes and cursor to the flat mix plane.</li>
+          <li><code>RAD</code>: node radius, or how far from a node the cursor begins fading that node in.</li>
+          <li><code>FOC</code>: node focus, or the curve from the radius edge to the node center. Lower values are broader; higher values are tighter.</li>
+          <li><code>INFL</code>: how strongly cursor position affects node gain. At low values, node levels behave more like static bus levels. At high values, the cursor determines the active blend.</li>
+          <li><code>CURSOR</code>: movable emphasis point for fading between nodes by position. The cursor has no radius control in the GUI; node radius defines each node's hill.</li>
+        </ul>
+
+        <p>In the general Node Bus Mixer, each node also has a source shape. <code>SRC</code> chooses the source format, <code>BUS</code> shows the required input-channel range, and <code>AZR</code>/<code>ELR</code> rotate that source shape in azimuth and elevation degrees before it is mapped to the output bed. This rotation changes the geometry of the source block; it is not a channel-order shift.</p>
 
         <h2 id="rotate">Rotate Model</h2>
 
@@ -154,6 +183,7 @@
           <h2>On This Page</h2>
           <a href="#plugins">Plugins</a>
           <a href="#matrix">Matrix Model</a>
+          <a href="#node">Node Bus Mixer Model</a>
           <a href="#rotate">Rotate Model</a>
           <a href="#field-depth">Field Depth Model</a>
           <a href="#depth">Group Depth Model</a>

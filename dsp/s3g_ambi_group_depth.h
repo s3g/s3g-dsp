@@ -165,7 +165,7 @@ private:
             const float airPresence = std::max(0.0f, -params_.air) * (0.25f + nearAmount * 0.75f);
             const float cutoff = lerp(19000.0f, 2200.0f, airDamping);
             const float lp = onePoleCoeff(cutoff);
-            targetTail_[group] = params_.tail * farSoft * lerp(0.30f, 1.0f, focusNorm);
+            targetTail_[group] = params_.tail * lerp(0.18f, 1.0f, farSoft) * lerp(0.45f, 1.0f, focusNorm);
 
             for (uint32_t lane = 0; lane < kAmbiGroupDepthGroupChannels; ++lane) {
                 const uint32_t ch = group * kAmbiGroupDepthGroupChannels + lane;
@@ -212,10 +212,10 @@ private:
             const uint32_t ch = base + lane;
             return ch < inputChannels && inputs[ch] ? static_cast<float>(inputs[ch][frame]) : 0.0f;
         };
-        const float input = (sampleAt(0u) * 0.55f
-            + sampleAt(1u) * 0.16f
-            + sampleAt(2u) * 0.16f
-            + sampleAt(3u) * 0.16f) * amount * 0.20f;
+        const float input = (sampleAt(0u) * 0.58f
+            + sampleAt(1u) * 0.18f
+            + sampleAt(2u) * 0.18f
+            + sampleAt(3u) * 0.18f) * amount * 0.32f;
 
         float y[4] {};
         for (uint32_t line = 0; line < 4u; ++line) {
@@ -234,7 +234,7 @@ private:
             (y[0] - y[1] - y[2] + y[3]) * 0.5f,
         };
         const float airDamp = std::max(0.0f, params_.air) * 0.55f;
-        const float feedback = 0.42f + amount * 0.26f;
+        const float feedback = 0.48f + amount * 0.34f;
         const float dampCoeff = onePoleCoeff(lerp(7600.0f, 2600.0f, airDamp));
         for (uint32_t line = 0; line < 4u; ++line) {
             const uint32_t index = group * 4u + line;
@@ -247,7 +247,7 @@ private:
             delay[fdnPos_[index]] = flushDenormal(std::clamp(signedInput + fdnLp_[index] * feedback, -2.0f, 2.0f));
             fdnPos_[index] = (fdnPos_[index] + 1u) % static_cast<uint32_t>(delay.size());
         }
-        return flushDenormal((y[0] + y[1] + y[2] + y[3]) * 0.25f * amount * 0.72f);
+        return flushDenormal((y[0] + y[1] + y[2] + y[3]) * 0.25f * amount * 1.10f);
     }
 
     float tailOrderGain(uint32_t lane) const

@@ -5,6 +5,7 @@
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
+#include <clap/ext/tail.h>
 
 #if defined(__APPLE__)
 #include <clap/ext/gui.h>
@@ -92,8 +93,10 @@ struct OldSavedStateV1 {
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_tail_t* hostTail = nullptr;
     s3g::AmbiGroupDepthParams params {};
     Processor processor {};
+    double sampleRate = 48000.0;
     std::atomic<float> outputPeak { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -118,6 +121,9 @@ void applyParam(Plugin& p, clap_id id, double value)
     }
     p.params = s3g::sanitizeAmbiGroupDepthParams(p.params);
     p.processor.setParams(p.params);
+    if (p.hostTail && p.host) {
+        p.hostTail->changed(p.host);
+    }
 }
 
 double getParam(const Plugin& p, clap_id id)
@@ -153,6 +159,7 @@ void destroy(const clap_plugin_t* plugin)
 bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t)
 {
     auto* p = self(plugin);
+    p->sampleRate = sampleRate;
     p->params = s3g::sanitizeAmbiGroupDepthParams(p->params);
     p->processor.prepare(sampleRate);
     p->processor.setParams(p->params);
@@ -347,6 +354,18 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     return true;
 }
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
+
+uint32_t tailGet(const clap_plugin_t* plugin)
+{
+    const auto* p = self(plugin);
+    if (!p || p->params.tail <= 0.0001f) return 0u;
+    const double amount = std::clamp(static_cast<double>(p->params.tail), 0.0, 1.0);
+    const double far = std::max(0.0, static_cast<double>(p->params.depth));
+    const double tailSeconds = std::clamp(1.5 + amount * 7.0 + far * 3.0, 1.0, 12.0);
+    return static_cast<uint32_t>(std::ceil(tailSeconds * p->sampleRate));
+}
+
+const clap_plugin_tail_t tailExt { tailGet };
 
 } // namespace
 
@@ -616,6 +635,7 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
+    if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
 #if defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
@@ -642,6 +662,7 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
     p->host = host;
+    p->hostTail = host && host->get_extension ? static_cast<const clap_host_tail_t*>(host->get_extension(host, CLAP_EXT_TAIL)) : nullptr;
     p->params = s3g::sanitizeAmbiGroupDepthParams(p->params);
     p->processor.prepare(48000.0);
     p->processor.setParams(p->params);

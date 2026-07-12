@@ -42,6 +42,8 @@ bundles=(
   "$src_root/clap_ambi_group_matrix_128/s3g_ambi_group_matrix_128.clap"
   "$src_root/clap_group_matrix/s3g_group_matrix.clap"
   "$src_root/clap_group_matrix_32/s3g_group_matrix_32.clap"
+  "$src_root/clap_node_track_mixer/s3g_node_bus_mixer.clap"
+  "$src_root/clap_node_track_mixer/s3g_ambi_node_bus_mixer.clap"
 )
 
 for bundle in "${bundles[@]}"; do
@@ -107,6 +109,8 @@ Included plugins:
 - s3g Ambi Group Matrix 128
 - s3g Group Matrix 64
 - s3g Group Matrix 32
+- s3g Node Bus Mixer 128
+- s3g Ambi Node Bus Mixer 128
 
 Docs:
 

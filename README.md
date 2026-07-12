@@ -56,6 +56,9 @@ Current plugins:
   order shaping, air damping, and a distance-tail layer.
 - `s3g Ambi Group Matrix 64` / `s3g Ambi Group Matrix 128`: bus-level
   matrix mixers for four or eight lane-locked 3OA feeds.
+- `s3g Ambi Node Bus Mixer 128`: fixed 3OA bus mixer for up to eight
+  16-channel ambisonic feeds using node positions and a movable cursor instead
+  of a crosspoint matrix. Nodes default to a flat Z-locked mix plane.
 - `s3g Ambi Group Rotate 64` / `s3g Ambi Group Rotate 128`: bus-level
   rotation utilities for four or eight lane-locked 3OA feeds.
 - `s3g Ambi Group Depth 64` / `s3g Ambi Group Depth 128`: bus-level
@@ -79,6 +82,9 @@ Current plugins:
   8ch group modes.
 - `s3g Group Matrix 64`: general 64-channel group matrix with 4ch, 8ch, and
   16ch group modes.
+- `s3g Node Bus Mixer 128`: general 128-channel node/cursor mixer for
+  routing source blocks into a layout-aware output bed, with optional 3D node
+  placement when Z lock is disabled.
 - `s3g 3OAFX Delay` / `s3g 3OAFX Filter` / `s3g 3OAFX Gain` /
   `s3g 3OAFX Pitch`: single-effect third-order processors with internal
   24-point virtual speaker masking.
