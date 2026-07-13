@@ -11,7 +11,11 @@
 
 namespace s3g {
 
-constexpr uint32_t kSpectralTopologyChannels = 8;
+#ifndef S3G_SPECTRAL_TOPOLOGY_CHANNEL_COUNT
+#define S3G_SPECTRAL_TOPOLOGY_CHANNEL_COUNT 8
+#endif
+
+constexpr uint32_t kSpectralTopologyChannels = S3G_SPECTRAL_TOPOLOGY_CHANNEL_COUNT;
 
 struct SpectralTopologySettings {
     SpectralSprayParams base {};
@@ -83,6 +87,16 @@ inline SpectralSprayParams spectralTopologyLaneParams(const SpectralTopologySett
             amount * (std::fabs(point.z) * 0.42 + std::fabs(point.lane) * 0.22 + centroid * 0.10),
         0.0,
         1.0));
+    p.damage = static_cast<float>(std::clamp(
+        static_cast<double>(p.damage) +
+            amount * (outward * 0.34 + seed * 0.22 + std::fabs(point.x - point.y) * 0.16),
+        0.0,
+        0.78));
+    p.repeat = static_cast<float>(std::clamp(
+        static_cast<double>(p.repeat) +
+            amount * (centroid * 0.32 + neighbor * 0.18 + std::max(0.0, point.z) * 0.22),
+        0.0,
+        0.82));
     p.tilt = static_cast<float>(std::clamp(
         static_cast<double>(p.tilt) + amount * point.x * 0.82,
         -1.0,

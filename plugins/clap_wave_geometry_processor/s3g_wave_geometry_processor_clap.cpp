@@ -1,6 +1,6 @@
 #include "s3g_lane_patch.h"
 #include "s3g_realtime.h"
-#include "s3g_spectral_topology_processor.h"
+#include "s3g_wave_geometry_processor.h"
 #include "s3g_topology_heatmap.h"
 
 #include <clap/clap.h>
@@ -26,36 +26,38 @@
 
 namespace {
 
-#ifndef S3G_SPECTRAL_TOPOLOGY_PLUGIN_ID
-#define S3G_SPECTRAL_TOPOLOGY_PLUGIN_ID "org.s3g.s3g-dsp.spectral-topology-processor"
+#ifndef S3G_WAVE_GEOMETRY_PLUGIN_ID
+#define S3G_WAVE_GEOMETRY_PLUGIN_ID "org.s3g.s3g-dsp.wave-geometry-processor"
 #endif
 
-#ifndef S3G_SPECTRAL_TOPOLOGY_PLUGIN_NAME
-#define S3G_SPECTRAL_TOPOLOGY_PLUGIN_NAME "s3g Spectral Topology Processor 8ch"
+#ifndef S3G_WAVE_GEOMETRY_PLUGIN_NAME
+#define S3G_WAVE_GEOMETRY_PLUGIN_NAME "s3g Wave Geometry Processor 8ch"
 #endif
 
-constexpr uint32_t kChannelCount = s3g::kSpectralTopologyChannels;
-constexpr uint32_t kStateVersion = 2;
+constexpr uint32_t kChannelCount = s3g::kWaveGeometryChannels;
+constexpr uint32_t kStateVersion = 3;
 constexpr uint32_t kGuiWidth = 1000;
-constexpr uint32_t kGuiHeight = 720;
-constexpr uint32_t kScopeFrames = 131072;
+constexpr uint32_t kGuiHeight = 760;
+constexpr uint32_t kScopeFrames = 128;
 constexpr double kMotionRateMinHz = 0.01;
 constexpr double kMotionRateMaxHz = 1.0;
 
-constexpr clap_id kSprayBinsParamId = 1;
-constexpr clap_id kDriftParamId = 2;
+constexpr clap_id kFoldParamId = 1;
+constexpr clap_id kDriveParamId = 2;
 constexpr clap_id kHoldParamId = 3;
-constexpr clap_id kFreezeParamId = 4;
-constexpr clap_id kFeedbackParamId = 5;
-constexpr clap_id kSmearParamId = 6;
-constexpr clap_id kHolesParamId = 7;
-constexpr clap_id kPhaseBlurParamId = 8;
-constexpr clap_id kTiltParamId = 9;
+constexpr clap_id kClipParamId = 4;
+constexpr clap_id kRectifyParamId = 5;
+constexpr clap_id kEdgeParamId = 6;
+constexpr clap_id kZeroParamId = 7;
+constexpr clap_id kPolarParamId = 8;
+constexpr clap_id kTransParamId = 9;
 constexpr clap_id kMixParamId = 10;
 constexpr clap_id kGainParamId = 11;
 constexpr clap_id kSafetyParamId = 12;
-constexpr clap_id kDamageParamId = 13;
-constexpr clap_id kRepeatParamId = 14;
+constexpr clap_id kBitsParamId = 13;
+constexpr clap_id kStepParamId = 14;
+constexpr clap_id kTapeParamId = 15;
+constexpr clap_id kSpeedParamId = 16;
 
 constexpr clap_id kTopologyShapeParamId = 30;
 constexpr clap_id kTopologyAmountParamId = 31;
@@ -76,13 +78,42 @@ constexpr clap_id kTopologyCentroidParamId = 45;
 
 struct SavedState {
     uint32_t version = kStateVersion;
-    s3g::SpectralTopologySettings settings {};
+    s3g::WaveGeometrySettings settings {};
+    uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
+};
+
+
+struct LegacyWaveGeometryParamsV2 {
+    float fold = 0.22f;
+    float drive = 0.18f;
+    float hold = 0.0f;
+    float clip = 0.18f;
+    float rectify = 0.0f;
+    float edge = 0.0f;
+    float zero = 0.0f;
+    float polar = 0.0f;
+    float bits = 0.0f;
+    float step = 0.0f;
+    float trans = 0.0f;
+    float mix = 0.72f;
+    float gainDb = -3.0f;
+    float safety = 0.82f;
+};
+
+struct LegacyWaveGeometrySettingsV2 {
+    LegacyWaveGeometryParamsV2 base {};
+    s3g::TopologyState topology {};
+};
+
+struct SavedStateV2 {
+    uint32_t version = 2;
+    LegacyWaveGeometrySettingsV2 settings {};
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
 };
 
 struct SavedStateV1 {
     uint32_t version = 1;
-    s3g::SpectralTopologySettings settings {};
+    s3g::WaveGeometrySettings settings {};
 };
 
 struct Plugin {
@@ -90,8 +121,8 @@ struct Plugin {
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0;
-    s3g::SpectralTopologySettings settings {};
-    s3g::SpectralTopologyProcessor processor;
+    s3g::WaveGeometrySettings settings {};
+    s3g::WaveGeometryProcessor processor;
     s3g::LanePatch patch;
     std::vector<std::vector<float>> input32;
     std::vector<std::vector<float>> output32;
@@ -122,7 +153,7 @@ s3g::TopologyState topologyStateForPlugin(const Plugin& p)
 void applyLaneParams(Plugin& p)
 {
     for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
-        p.processor.setLaneParams(ch, s3g::spectralTopologyLaneParams(p.settings, ch, kChannelCount));
+        p.processor.setLaneParams(ch, s3g::waveGeometryLaneParams(p.settings, ch, kChannelCount));
     }
 }
 
@@ -145,17 +176,19 @@ void applyParam(Plugin& p, clap_id id, double value)
     auto& prm = p.settings.base;
     auto& t = p.settings.topology;
     switch (id) {
-    case kSprayBinsParamId: prm.sprayBins = static_cast<float>(std::clamp(value, 0.0, 192.0)); break;
-    case kDriftParamId: prm.drift = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kFoldParamId: prm.fold = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kDriveParamId: prm.drive = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kHoldParamId: prm.hold = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
-    case kFreezeParamId: prm.freeze = static_cast<float>(std::clamp(value, 0.0, 0.92)); break;
-    case kFeedbackParamId: prm.feedback = static_cast<float>(std::clamp(value, 0.0, 0.72)); break;
-    case kSmearParamId: prm.smear = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
-    case kHolesParamId: prm.holes = static_cast<float>(std::clamp(value, 0.0, 0.60)); break;
-    case kPhaseBlurParamId: prm.phaseBlur = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
-    case kDamageParamId: prm.damage = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
-    case kRepeatParamId: prm.repeat = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
-    case kTiltParamId: prm.tilt = static_cast<float>(std::clamp(value, -1.0, 1.0)); break;
+    case kClipParamId: prm.clip = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kRectifyParamId: prm.rectify = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kEdgeParamId: prm.edge = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kZeroParamId: prm.zero = static_cast<float>(std::clamp(value, 0.0, 0.78)); break;
+    case kPolarParamId: prm.polar = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kBitsParamId: prm.bits = static_cast<float>(std::clamp(value, 0.0, 0.92)); break;
+    case kStepParamId: prm.step = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kTransParamId: prm.trans = static_cast<float>(std::clamp(value, -1.0, 1.0)); break;
+    case kTapeParamId: prm.tape = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kSpeedParamId: prm.speed = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kMixParamId: prm.mix = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kGainParamId: prm.gainDb = static_cast<float>(std::clamp(value, -60.0, 12.0)); break;
     case kSafetyParamId: prm.safety = static_cast<float>(std::clamp(value, 0.12, 0.92)); break;
@@ -247,7 +280,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
         p->outputPtrs[ch] = p->output32[ch].data();
     }
     preparePatch(*p);
-    if (!p->processor.prepare(sampleRate, kChannelCount, 2048u, 4u, p->maxFrames)) return false;
+    if (!p->processor.prepare(sampleRate, kChannelCount, 0u, 0u, p->maxFrames)) return false;
     applyLaneParams(*p);
     return true;
 }
@@ -346,19 +379,21 @@ const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; };
 constexpr ParamDef kParamDefs[] {
-    { kSprayBinsParamId, "Spray Bins", 0.0, 192.0, 18.0 },
-    { kDriftParamId, "Drift", 0.0, 1.0, 0.18 },
-    { kHoldParamId, "Hold", 0.0, 1.0, 0.72 },
-    { kFreezeParamId, "Freeze", 0.0, 0.92, 0.0 },
-    { kFeedbackParamId, "Feedback", 0.0, 0.72, 0.18 },
-    { kSmearParamId, "Smear", 0.0, 1.0, 0.25 },
-    { kHolesParamId, "Holes", 0.0, 0.60, 0.05 },
-    { kPhaseBlurParamId, "Phase Blur", 0.0, 1.0, 0.28 },
-    { kDamageParamId, "Spectral Damage", 0.0, 1.0, 0.0 },
-    { kRepeatParamId, "Spectral Repeat", 0.0, 1.0, 0.0 },
-    { kTiltParamId, "Tilt", -1.0, 1.0, 0.0 },
+    { kFoldParamId, "Fold", 0.0, 1.0, 0.22 },
+    { kDriveParamId, "Drive", 0.0, 1.0, 0.18 },
+    { kHoldParamId, "Hold", 0.0, 1.0, 0.0 },
+    { kClipParamId, "Clip", 0.0, 1.0, 0.18 },
+    { kRectifyParamId, "Rectify", 0.0, 1.0, 0.0 },
+    { kEdgeParamId, "Edge", 0.0, 1.0, 0.0 },
+    { kZeroParamId, "Zero Drop", 0.0, 0.78, 0.0 },
+    { kPolarParamId, "Polarity", 0.0, 1.0, 0.0 },
+    { kBitsParamId, "Bit Collapse", 0.0, 0.92, 0.0 },
+    { kStepParamId, "Sample Step", 0.0, 1.0, 0.0 },
+    { kTransParamId, "Transform", -1.0, 1.0, 0.0 },
+    { kTapeParamId, "Dual Tape Heads", 0.0, 1.0, 0.0 },
+    { kSpeedParamId, "Tape Head Speed", 0.0, 1.0, 0.25 },
     { kMixParamId, "Mix", 0.0, 1.0, 1.0 },
-    { kGainParamId, "Output", -60.0, 12.0, -2.5 },
+    { kGainParamId, "Output", -60.0, 12.0, -3.0 },
     { kSafetyParamId, "Safety", 0.12, 0.92, 0.82 },
     { kTopologyShapeParamId, "Topology Shape", 0.0, static_cast<double>(s3g::kTopologyShapeCount - 1u), 0.0 },
     { kTopologyAmountParamId, "Topology Amount", 0.0, 1.0, 0.35 },
@@ -386,7 +421,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->id = def.id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, def.id < kTopologyShapeParamId ? "Spectral Engine" : "Topology", sizeof(info->module));
+    std::strncpy(info->module, def.id < kTopologyShapeParamId ? "Wave Engine" : "Topology", sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -400,17 +435,19 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     const auto& prm = p.settings.base;
     const auto& t = p.settings.topology;
     switch (id) {
-    case kSprayBinsParamId: *value = prm.sprayBins; return true;
-    case kDriftParamId: *value = prm.drift; return true;
+    case kFoldParamId: *value = prm.fold; return true;
+    case kDriveParamId: *value = prm.drive; return true;
     case kHoldParamId: *value = prm.hold; return true;
-    case kFreezeParamId: *value = prm.freeze; return true;
-    case kFeedbackParamId: *value = prm.feedback; return true;
-    case kSmearParamId: *value = prm.smear; return true;
-    case kHolesParamId: *value = prm.holes; return true;
-    case kPhaseBlurParamId: *value = prm.phaseBlur; return true;
-    case kDamageParamId: *value = prm.damage; return true;
-    case kRepeatParamId: *value = prm.repeat; return true;
-    case kTiltParamId: *value = prm.tilt; return true;
+    case kClipParamId: *value = prm.clip; return true;
+    case kRectifyParamId: *value = prm.rectify; return true;
+    case kEdgeParamId: *value = prm.edge; return true;
+    case kZeroParamId: *value = prm.zero; return true;
+    case kPolarParamId: *value = prm.polar; return true;
+    case kBitsParamId: *value = prm.bits; return true;
+    case kStepParamId: *value = prm.step; return true;
+    case kTransParamId: *value = prm.trans; return true;
+    case kTapeParamId: *value = prm.tape; return true;
+    case kSpeedParamId: *value = prm.speed; return true;
     case kMixParamId: *value = prm.mix; return true;
     case kGainParamId: *value = prm.gainDb; return true;
     case kSafetyParamId: *value = prm.safety; return true;
@@ -437,10 +474,10 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
 {
     if (!display || size == 0) return false;
-    if (id == kSprayBinsParamId) std::snprintf(display, size, "%.0f bins", value);
-    else if (id == kGainParamId) std::snprintf(display, size, "%+.1f dB", value);
-    else if (id == kTiltParamId || id == kTopologyXParamId || id == kTopologyYParamId ||
+    if (id == kGainParamId) std::snprintf(display, size, "%+.1f dB", value);
+    else if (id == kTransParamId || id == kTopologyXParamId || id == kTopologyYParamId ||
              id == kTopologyZParamId || id == kTopologyTwistParamId || id == kTopologyFlareParamId) std::snprintf(display, size, "%+.2f", value);
+    else if (id == kTapeParamId || id == kSpeedParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
     else if (id == kTopologyShapeParamId) std::snprintf(display, size, "%s", s3g::topologyShapeName(static_cast<uint32_t>(std::floor(value + 0.5))));
     else if (id == kTopologyMotionParamId) std::snprintf(display, size, "%s", s3g::topologyMotionModeName(static_cast<uint32_t>(std::floor(value + 0.5))));
     else if (id == kTopologyVariantParamId) std::snprintf(display, size, "%s", s3g::topologyVariantName(static_cast<uint32_t>(std::floor(value + 0.5))));
@@ -487,6 +524,33 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             p->patch.setRowMask(row, s.patchRows[row]);
         }
         preparePatch(*p);
+    } else if (version == 2u) {
+        SavedStateV2 s {};
+        s.version = version;
+        auto* cursor = reinterpret_cast<uint8_t*>(&s) + sizeof(s.version);
+        const int64_t remaining = static_cast<int64_t>(sizeof(s) - sizeof(s.version));
+        if (stream->read(stream, cursor, remaining) != remaining) return false;
+        p->settings = {};
+        p->settings.base.fold = s.settings.base.fold;
+        p->settings.base.drive = s.settings.base.drive;
+        p->settings.base.hold = s.settings.base.hold;
+        p->settings.base.clip = s.settings.base.clip;
+        p->settings.base.rectify = s.settings.base.rectify;
+        p->settings.base.edge = s.settings.base.edge;
+        p->settings.base.zero = s.settings.base.zero;
+        p->settings.base.polar = s.settings.base.polar;
+        p->settings.base.bits = s.settings.base.bits;
+        p->settings.base.step = s.settings.base.step;
+        p->settings.base.trans = s.settings.base.trans;
+        p->settings.base.mix = s.settings.base.mix;
+        p->settings.base.gainDb = s.settings.base.gainDb;
+        p->settings.base.safety = s.settings.base.safety;
+        p->settings.topology = s.settings.topology;
+        p->patch.setWidth(kChannelCount);
+        for (uint32_t row = 0; row < kChannelCount; ++row) {
+            p->patch.setRowMask(row, s.patchRows[row]);
+        }
+        preparePatch(*p);
     } else if (version == 1u) {
         SavedStateV1 s {};
         s.version = version;
@@ -508,7 +572,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 } // namespace
 
 #if defined(__APPLE__)
-@interface S3GSpectralTopologyView : NSView {
+@interface S3GWaveGeometryView : NSView {
     void* _plugin;
     int _dragParam;
     bool _dragTopologyView;
@@ -537,7 +601,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 - (void)updateMenuHover:(NSPoint)point;
 @end
 
-@implementation S3GSpectralTopologyView
+@implementation S3GWaveGeometryView
 - (id)initWithPlugin:(void*)plugin
 {
     self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
@@ -598,7 +662,6 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     const CGFloat x = rect.origin.x + (rect.size.width - totalW) * 0.5 + static_cast<CGFloat>(index) * (buttonW + buttonGap);
     return NSMakeRect(x, rect.origin.y + 3.0, buttonW, 15.0);
 }
-
 - (NSPoint)projectPoint:(s3g::TopologyPoint)point inRect:(NSRect)rect
 {
     const double cyaw = std::cos(_viewYaw);
@@ -622,7 +685,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     [style.strip setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 21.0));
     [style.accent setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 2.0));
     [@"TOPOLOGY" drawAtPoint:NSMakePoint(rect.origin.x + 12, rect.origin.y + 5) withAttributes:attrs];
-    NSString* pageLabels[2] = { @"TOPO", @"SONO" };
+    NSString* pageLabels[2] = { @"TOPO", @"SCOPE" };
     for (int i = 0; i < 2; ++i) {
         NSRect button = [self fieldPageButtonRect:rect index:i];
         s3g::clap_gui::drawHeaderButton(button, rect, pageLabels[i], _fieldPage == i, small, style);
@@ -696,7 +759,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     [[NSString stringWithFormat:@"SHAPE = %@", [NSString stringWithUTF8String:s3g::topologyShapeName(state.shape)]]
         drawAtPoint:NSMakePoint(fieldRect.origin.x + fieldRect.size.width - 188.0, fieldRect.origin.y + 25.0)
       withAttributes:small];
-    NSString* xyzText = state.shape == 0u ? @"XYZ = TILT FRZ PHAS" : @"XYZ = BIN DROP RPT";
+    NSString* xyzText = state.shape == 0u ? @"XYZ = FOLD STEP POL" : @"XYZ = FOLD ZERO BITS";
     [xyzText drawAtPoint:NSMakePoint(fieldRect.origin.x + fieldRect.size.width - 188.0, fieldRect.origin.y + 40.0) withAttributes:small];
 
     NSRect readoutButton = NSMakeRect(fieldRect.origin.x + fieldRect.size.width - 42.0, fieldRect.origin.y + 54.0, 32.0, 15.0);
@@ -706,15 +769,15 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     NSFrameRect(readoutButton);
     if (_showReadout) {
         [@"X" drawAtPoint:NSMakePoint(readoutButton.origin.x + 12.0, readoutButton.origin.y + 1.0) withAttributes:small];
-        [@"BIN FRZ DMG RPT" drawAtPoint:NSMakePoint(fieldRect.origin.x + fieldRect.size.width - 188.0, fieldRect.origin.y + 55.0) withAttributes:small];
+        [@"FLD STP BIT POL" drawAtPoint:NSMakePoint(fieldRect.origin.x + fieldRect.size.width - 188.0, fieldRect.origin.y + 55.0) withAttributes:small];
         for (uint32_t lane = 0; lane < visualLanes; ++lane) {
-            const auto laneParams = s3g::spectralTopologyLaneParams(p->settings, lane, visualLanes);
+            const auto laneParams = s3g::waveGeometryLaneParams(p->settings, lane, visualLanes);
             NSString* line = [NSString stringWithFormat:@"L%u %3.0f %.2f %.2f %.2f",
                                         lane + 1u,
-                                        laneParams.sprayBins,
-                                        laneParams.freeze,
-                                        laneParams.damage,
-                                        laneParams.repeat];
+                                        laneParams.fold,
+                                        laneParams.step,
+                                        laneParams.bits,
+                                        laneParams.polar];
             [line drawAtPoint:NSMakePoint(fieldRect.origin.x + fieldRect.size.width - 188.0,
                                           fieldRect.origin.y + 70.0 + lane * 15.0)
                 withAttributes:small];
@@ -722,87 +785,58 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     } else {
         [@"LST" drawAtPoint:NSMakePoint(readoutButton.origin.x + 6.0, readoutButton.origin.y + 1.0) withAttributes:small];
     }
+
 }
 - (void)drawScope:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
     (void)attrs;
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
-    const NSRect sonoRect = NSMakeRect(rect.origin.x + 10.0, rect.origin.y + 28.0, rect.size.width - 20.0, rect.size.height - 38.0);
+    const NSRect scopeRect = NSMakeRect(rect.origin.x + 20.0, rect.origin.y + 36.0, rect.size.width - 40.0, rect.size.height - 56.0);
     [style.strip setFill];
-    NSRectFill(sonoRect);
+    NSRectFill(scopeRect);
     [style.grid setStroke];
-    NSFrameRect(sonoRect);
-    [@"POST PROCESSING SONOGRAM" drawAtPoint:NSMakePoint(sonoRect.origin.x + 10.0, sonoRect.origin.y + 8.0) withAttributes:small];
+    NSFrameRect(scopeRect);
+    [@"POST PROCESSING OSCILLOSCOPE" drawAtPoint:NSMakePoint(scopeRect.origin.x + 10.0, scopeRect.origin.y + 8.0) withAttributes:small];
 
     const uint32_t lanes = kChannelCount;
-    const uint32_t cols = lanes <= 8u ? 2u : 4u;
-    const uint32_t rows = (lanes + cols - 1u) / cols;
-    const CGFloat gap = lanes <= 8u ? 7.0 : 4.0;
-    const CGFloat labelH = 24.0;
-    const CGFloat cellW = (sonoRect.size.width - gap * static_cast<CGFloat>(cols + 1u)) / static_cast<CGFloat>(cols);
-    const CGFloat cellH = (sonoRect.size.height - labelH - gap * static_cast<CGFloat>(rows + 1u)) / static_cast<CGFloat>(rows);
+    const uint32_t rows = 4u;
+    const uint32_t cols = 2u;
+    const CGFloat gap = 10.0;
+    const CGFloat cellW = (scopeRect.size.width - gap * 3.0) / static_cast<CGFloat>(cols);
+    const CGFloat cellH = (scopeRect.size.height - 34.0 - gap * 5.0) / static_cast<CGFloat>(rows);
     const uint32_t write = p->scopeWrite.load(std::memory_order_relaxed);
-    constexpr uint32_t kTimeBins = 96u;
-    constexpr uint32_t kFreqBins = 24u;
-    constexpr uint32_t kWindow = 48u;
-    const uint32_t oneSecondFrames = static_cast<uint32_t>(std::clamp(p->sampleRate, 8000.0, static_cast<double>(kScopeFrames - kWindow)));
-    const uint32_t historyFrames = std::min<uint32_t>(kScopeFrames - kWindow, std::max<uint32_t>(kWindow, oneSecondFrames));
-    constexpr double kTau = 6.28318530717958647692;
-
     for (uint32_t lane = 0; lane < lanes; ++lane) {
         const uint32_t col = lane % cols;
         const uint32_t row = lane / cols;
-        const NSRect laneRect = NSMakeRect(sonoRect.origin.x + gap + static_cast<CGFloat>(col) * (cellW + gap),
-                                          sonoRect.origin.y + labelH + gap + static_cast<CGFloat>(row) * (cellH + gap),
+        const NSRect laneRect = NSMakeRect(scopeRect.origin.x + gap + static_cast<CGFloat>(col) * (cellW + gap),
+                                          scopeRect.origin.y + 30.0 + gap + static_cast<CGFloat>(row) * (cellH + gap),
                                           cellW,
                                           cellH);
-        [s3g::clap_gui::color(0x090b0d, 1.0) setFill];
+        [s3g::clap_gui::color(0x101010, 1.0) setFill];
         NSRectFill(laneRect);
         [style.grid setStroke];
         NSFrameRect(laneRect);
+        [s3g::clap_gui::color(0x2f2f2f, 0.8) setStroke];
+        [NSBezierPath strokeLineFromPoint:NSMakePoint(laneRect.origin.x, NSMidY(laneRect))
+                                  toPoint:NSMakePoint(NSMaxX(laneRect), NSMidY(laneRect))];
 
-        std::array<float, kTimeBins * kFreqBins> mags {};
-        float peak = 0.000001f;
-        for (uint32_t t = 0; t < kTimeBins; ++t) {
-            const uint32_t age = static_cast<uint32_t>((static_cast<double>(kTimeBins - 1u - t) / static_cast<double>(kTimeBins - 1u))
-                                                       * static_cast<double>(historyFrames));
-            const uint32_t center = (write + kScopeFrames - 1u - age) % kScopeFrames;
-            for (uint32_t bin = 0; bin < kFreqBins; ++bin) {
-                const uint32_t k = bin + 1u;
-                double re = 0.0;
-                double im = 0.0;
-                for (uint32_t n = 0; n < kWindow; ++n) {
-                    const uint32_t offset = (kWindow - 1u) - n;
-                    const uint32_t index = (center + kScopeFrames - offset) % kScopeFrames;
-                    const double window = 0.5 - 0.5 * std::cos(kTau * static_cast<double>(n) / static_cast<double>(kWindow - 1u));
-                    const double sample = static_cast<double>(p->scope[lane][index].load(std::memory_order_relaxed)) * window;
-                    const double phase = kTau * static_cast<double>(k) * static_cast<double>(n) / static_cast<double>(kWindow);
-                    re += sample * std::cos(phase);
-                    im -= sample * std::sin(phase);
-                }
-                const float mag = static_cast<float>(std::sqrt(re * re + im * im) / static_cast<double>(kWindow));
-                mags[t * kFreqBins + bin] = mag;
-                peak = std::max(peak, mag);
-            }
+        float peak = 0.0001f;
+        for (uint32_t i = 0; i < kScopeFrames; ++i) {
+            peak = std::max(peak, std::fabs(p->scope[lane][i].load(std::memory_order_relaxed)));
         }
-
-        const CGFloat pixelW = laneRect.size.width / static_cast<CGFloat>(kTimeBins);
-        const CGFloat pixelH = laneRect.size.height / static_cast<CGFloat>(kFreqBins);
-        for (uint32_t t = 0; t < kTimeBins; ++t) {
-            for (uint32_t bin = 0; bin < kFreqBins; ++bin) {
-                const float raw = mags[t * kFreqBins + bin] / peak;
-                const double norm = std::pow(std::clamp(static_cast<double>(raw), 0.0, 1.0), 0.36);
-                const uint8_t gray = static_cast<uint8_t>(std::clamp(10.0 + norm * 220.0, 10.0, 230.0));
-                const uint32_t rgb = (static_cast<uint32_t>(gray) << 16u) | (static_cast<uint32_t>(gray) << 8u) | static_cast<uint32_t>(gray);
-                [s3g::clap_gui::color(rgb, 0.98) setFill];
-                NSRectFill(NSMakeRect(laneRect.origin.x + static_cast<CGFloat>(t) * pixelW,
-                                      laneRect.origin.y + laneRect.size.height - static_cast<CGFloat>(bin + 1u) * pixelH,
-                                      pixelW + 0.20,
-                                      pixelH + 0.20));
-            }
+        const float scale = std::min(4.0f, 0.92f / peak);
+        NSBezierPath* path = [NSBezierPath bezierPath];
+        for (uint32_t i = 0; i < kScopeFrames; ++i) {
+            const uint32_t index = (write + i) % kScopeFrames;
+            const float sample = p->scope[lane][index].load(std::memory_order_relaxed);
+            const CGFloat x = laneRect.origin.x + (static_cast<CGFloat>(i) / static_cast<CGFloat>(kScopeFrames - 1u)) * laneRect.size.width;
+            const CGFloat y = NSMidY(laneRect) - static_cast<CGFloat>(std::clamp(sample * scale, -1.0f, 1.0f)) * laneRect.size.height * 0.42;
+            if (i == 0u) [path moveToPoint:NSMakePoint(x, y)];
+            else [path lineToPoint:NSMakePoint(x, y)];
         }
-
+        [style.text setStroke];
+        [path stroke];
         [[NSString stringWithFormat:@"L%u", lane + 1u] drawAtPoint:NSMakePoint(laneRect.origin.x + 5.0, laneRect.origin.y + 4.0) withAttributes:small];
     }
 }
@@ -816,10 +850,10 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
     NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    [@"s3g SPECTRAL TOPOLOGY PROCESSOR" drawAtPoint:NSMakePoint(18, 14) withAttributes:lab];
+    [@"s3g WAVE GEOMETRY PROCESSOR" drawAtPoint:NSMakePoint(18, 14) withAttributes:lab];
     [[NSString stringWithFormat:@"%uCH", kChannelCount] drawAtPoint:NSMakePoint(936, 14) withAttributes:small];
 
-    [self drawField:NSMakeRect(12, 34, 620, 654) attrs:lab small:small];
+    [self drawField:NSMakeRect(12, 34, 620, 694) attrs:lab small:small];
 
     const CGFloat panelX = 644.0;
     const CGFloat panelW = 344.0;
@@ -836,24 +870,26 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         [title drawAtPoint:NSMakePoint(panelX + 24.0, y + 5.0) withAttributes:lab];
     };
 
-    const CGFloat engineH = _showEngine ? 292.0 : headerH;
+    const CGFloat engineH = _showEngine ? 328.0 : headerH;
     s3g::clap_gui::drawPanelFrame(panelX, panelY, panelW, engineH, style);
-    drawHeader(@"SPECTRAL ENGINE", _showEngine, panelY);
+    drawHeader(@"WAVE ENGINE", _showEngine, panelY);
     const auto& prm = p->settings.base;
     if (_showEngine) {
-        [self drawEngineRow:@"BINS" value:[NSString stringWithFormat:@"%.0f", prm.sprayBins] norm:prm.sprayBins / 192.0f y:panelY + 42.0 attrs:small small:small];
-        [self drawEngineRow:@"DRFT" value:[NSString stringWithFormat:@"%.0f%%", prm.drift * 100.0f] norm:prm.drift y:panelY + 60.0 attrs:small small:small];
+        [self drawEngineRow:@"FOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.fold * 100.0f] norm:prm.fold y:panelY + 42.0 attrs:small small:small];
+        [self drawEngineRow:@"DRIV" value:[NSString stringWithFormat:@"%.0f%%", prm.drive * 100.0f] norm:prm.drive y:panelY + 60.0 attrs:small small:small];
         [self drawEngineRow:@"HOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.hold * 100.0f] norm:prm.hold y:panelY + 78.0 attrs:small small:small];
-        [self drawEngineRow:@"FRZ" value:[NSString stringWithFormat:@"%.0f%%", prm.freeze * 100.0f] norm:prm.freeze / 0.92f y:panelY + 96.0 attrs:small small:small];
-        [self drawEngineRow:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback / 0.72f y:panelY + 114.0 attrs:small small:small];
-        [self drawEngineRow:@"SMR" value:[NSString stringWithFormat:@"%.0f%%", prm.smear * 100.0f] norm:prm.smear y:panelY + 132.0 attrs:small small:small];
-        [self drawEngineRow:@"HOLE" value:[NSString stringWithFormat:@"%.0f%%", prm.holes * 100.0f] norm:prm.holes / 0.60f y:panelY + 150.0 attrs:small small:small];
-        [self drawEngineRow:@"PHAS" value:[NSString stringWithFormat:@"%.0f%%", prm.phaseBlur * 100.0f] norm:prm.phaseBlur y:panelY + 168.0 attrs:small small:small];
-        [self drawEngineRow:@"DMG" value:[NSString stringWithFormat:@"%.0f%%", prm.damage * 100.0f] norm:prm.damage y:panelY + 186.0 attrs:small small:small];
-        [self drawEngineRow:@"RPT" value:[NSString stringWithFormat:@"%.0f%%", prm.repeat * 100.0f] norm:prm.repeat y:panelY + 204.0 attrs:small small:small];
-        [self drawEngineRow:@"TILT" value:[NSString stringWithFormat:@"%+.2f", prm.tilt] norm:(prm.tilt + 1.0f) * 0.5f y:panelY + 222.0 attrs:small small:small];
-        [self drawEngineRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:panelY + 240.0 attrs:small small:small];
-        [self drawEngineRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", prm.gainDb] norm:(prm.gainDb + 60.0f) / 72.0f y:panelY + 258.0 attrs:small small:small];
+        [self drawEngineRow:@"CLIP" value:[NSString stringWithFormat:@"%.0f%%", prm.clip * 100.0f] norm:prm.clip y:panelY + 96.0 attrs:small small:small];
+        [self drawEngineRow:@"RECT" value:[NSString stringWithFormat:@"%.0f%%", prm.rectify * 100.0f] norm:prm.rectify y:panelY + 114.0 attrs:small small:small];
+        [self drawEngineRow:@"EDGE" value:[NSString stringWithFormat:@"%.0f%%", prm.edge * 100.0f] norm:prm.edge y:panelY + 132.0 attrs:small small:small];
+        [self drawEngineRow:@"ZERO" value:[NSString stringWithFormat:@"%.0f%%", prm.zero * 100.0f] norm:prm.zero / 0.78f y:panelY + 150.0 attrs:small small:small];
+        [self drawEngineRow:@"POL" value:[NSString stringWithFormat:@"%.0f%%", prm.polar * 100.0f] norm:prm.polar y:panelY + 168.0 attrs:small small:small];
+        [self drawEngineRow:@"BITS" value:[NSString stringWithFormat:@"%.0f%%", prm.bits * 100.0f] norm:prm.bits / 0.92f y:panelY + 186.0 attrs:small small:small];
+        [self drawEngineRow:@"STEP" value:[NSString stringWithFormat:@"%.0f%%", prm.step * 100.0f] norm:prm.step y:panelY + 204.0 attrs:small small:small];
+        [self drawEngineRow:@"TRNS" value:[NSString stringWithFormat:@"%+.2f", prm.trans] norm:(prm.trans + 1.0f) * 0.5f y:panelY + 222.0 attrs:small small:small];
+        [self drawEngineRow:@"TAPE" value:[NSString stringWithFormat:@"%.0f%%", prm.tape * 100.0f] norm:prm.tape y:panelY + 240.0 attrs:small small:small];
+        [self drawEngineRow:@"SPED" value:[NSString stringWithFormat:@"%.0f%%", prm.speed * 100.0f] norm:prm.speed y:panelY + 258.0 attrs:small small:small];
+        [self drawEngineRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:panelY + 276.0 attrs:small small:small];
+        [self drawEngineRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", prm.gainDb] norm:(prm.gainDb + 60.0f) / 72.0f y:panelY + 294.0 attrs:small small:small];
     }
     panelY += engineH + gap;
 
@@ -953,18 +989,21 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     auto* p = static_cast<Plugin*>(_plugin);
     const double n = std::clamp((point.x - 750.0) / 150.0, 0.0, 1.0);
     switch (_dragParam) {
-    case kSprayBinsParamId: applyParam(*p, kSprayBinsParamId, n * 192.0); break;
-    case kDriftParamId: applyParam(*p, kDriftParamId, n); break;
+    case kFoldParamId: applyParam(*p, kFoldParamId, n); break;
+    case kDriveParamId: applyParam(*p, kDriveParamId, n); break;
     case kHoldParamId: applyParam(*p, kHoldParamId, n); break;
-    case kFreezeParamId: applyParam(*p, kFreezeParamId, n * 0.92); break;
-    case kFeedbackParamId: applyParam(*p, kFeedbackParamId, n * 0.72); break;
-    case kSmearParamId: applyParam(*p, kSmearParamId, n); break;
-    case kHolesParamId: applyParam(*p, kHolesParamId, n * 0.60); break;
-    case kPhaseBlurParamId: applyParam(*p, kPhaseBlurParamId, n); break;
-    case kDamageParamId: applyParam(*p, kDamageParamId, n); break;
-    case kRepeatParamId: applyParam(*p, kRepeatParamId, n); break;
-    case kTiltParamId: applyParam(*p, kTiltParamId, -1.0 + n * 2.0); break;
+    case kClipParamId: applyParam(*p, kClipParamId, n); break;
+    case kRectifyParamId: applyParam(*p, kRectifyParamId, n); break;
+    case kEdgeParamId: applyParam(*p, kEdgeParamId, n); break;
+    case kZeroParamId: applyParam(*p, kZeroParamId, n * 0.78); break;
+    case kPolarParamId: applyParam(*p, kPolarParamId, n); break;
+    case kBitsParamId: applyParam(*p, kBitsParamId, n * 0.92); break;
+    case kStepParamId: applyParam(*p, kStepParamId, n); break;
+    case kTransParamId: applyParam(*p, kTransParamId, -1.0 + n * 2.0); break;
+    case kTapeParamId: applyParam(*p, kTapeParamId, n); break;
+    case kSpeedParamId: applyParam(*p, kSpeedParamId, n); break;
     case kMixParamId: applyParam(*p, kMixParamId, n); break;
+    case kGainParamId: applyParam(*p, kGainParamId, -60.0 + n * 72.0); break;
     case kTopologyAmountParamId: applyParam(*p, kTopologyAmountParamId, n); break;
     case kTopologyPullParamId: applyParam(*p, kTopologyPullParamId, n); break;
     case kTopologyXParamId: applyParam(*p, kTopologyXParamId, -1.0 + n * 2.0); break;
@@ -997,7 +1036,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     auto* p = static_cast<Plugin*>(_plugin);
 
-    const NSRect fieldPanel = NSMakeRect(12.0, 34.0, 620.0, 654.0);
+    const NSRect fieldPanel = NSMakeRect(12.0, 34.0, 620.0, 694.0);
     if (NSPointInRect(pt, fieldPanel)) {
         for (int i = 0; i < 2; ++i) {
             NSRect button = [self fieldPageButtonRect:fieldPanel index:i];
@@ -1010,7 +1049,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     }
 
     const bool shiftDown = ([event modifierFlags] & NSEventModifierFlagShift) != 0;
-    const NSRect topologyView = NSMakeRect(22.0, 62.0, 600.0, 600.0);
+    const NSRect topologyView = NSMakeRect(22.0, 62.0, 600.0, 640.0);
     if (_fieldPage == 0 && shiftDown && NSPointInRect(pt, topologyView)) {
         _dragTopologyView = true;
         _lastDragPoint = pt;
@@ -1059,7 +1098,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     };
 
     CGFloat panelY = 34.0;
-    const CGFloat engineH = _showEngine ? 292.0 : headerH;
+    const CGFloat engineH = _showEngine ? 328.0 : headerH;
     if (NSPointInRect(pt, headerRect(panelY))) {
         _showEngine = !_showEngine;
         [self setNeedsDisplay:YES];
@@ -1070,10 +1109,10 @@ const clap_plugin_latency_t latencyExt { latencyGet };
             panelY + 42.0, panelY + 60.0, panelY + 78.0, panelY + 96.0,
             panelY + 114.0, panelY + 132.0, panelY + 150.0, panelY + 168.0,
             panelY + 186.0, panelY + 204.0, panelY + 222.0, panelY + 240.0,
-            panelY + 258.0
+            panelY + 258.0, panelY + 276.0, panelY + 294.0
         };
-        const clap_id engineIds[] = {kSprayBinsParamId,kDriftParamId,kHoldParamId,kFreezeParamId,kFeedbackParamId,kSmearParamId,kHolesParamId,kPhaseBlurParamId,kDamageParamId,kRepeatParamId,kTiltParamId,kMixParamId,kGainParamId};
-        for (uint32_t i = 0; i < 13u; ++i) {
+        const clap_id engineIds[] = {kFoldParamId,kDriveParamId,kHoldParamId,kClipParamId,kRectifyParamId,kEdgeParamId,kZeroParamId,kPolarParamId,kBitsParamId,kStepParamId,kTransParamId,kTapeParamId,kSpeedParamId,kMixParamId,kGainParamId};
+        for (uint32_t i = 0; i < 15u; ++i) {
             if (NSPointInRect(pt, NSMakeRect(648, engineRows[i] - 7, 324, 18))) {
                 _dragParam = static_cast<int>(engineIds[i]);
                 [self updateDrag:pt];
@@ -1197,8 +1236,8 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 namespace {
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GSpectralTopologyView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3GSpectralTopologyView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GWaveGeometryView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3GWaveGeometryView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
 bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
 bool guiCanResize(const clap_plugin_t*) { return false; }
@@ -1208,8 +1247,8 @@ bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p =
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,kGuiWidth,kGuiHeight)]; return true; }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GSpectralTopologyView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GSpectralTopologyView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GWaveGeometryView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GWaveGeometryView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 } // namespace
 #endif
@@ -1231,14 +1270,14 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, nullptr };
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
-    S3G_SPECTRAL_TOPOLOGY_PLUGIN_ID,
-    S3G_SPECTRAL_TOPOLOGY_PLUGIN_NAME,
+    S3G_WAVE_GEOMETRY_PLUGIN_ID,
+    S3G_WAVE_GEOMETRY_PLUGIN_NAME,
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
     "0.1.0",
-    "Topology-driven multichannel spectral processor built around the Spectral Spray engine.",
+    "Topology-driven waveform geometry processor for fold, polarity, step, edge, and sample-domain bits.",
     features
 };
 
@@ -1248,19 +1287,19 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
     p->host = host;
-    p->settings.base.sprayBins = 18.0f;
-    p->settings.base.drift = 0.18f;
-    p->settings.base.hold = 0.72f;
-    p->settings.base.freeze = 0.0f;
-    p->settings.base.feedback = 0.18f;
-    p->settings.base.smear = 0.25f;
-    p->settings.base.holes = 0.05f;
-    p->settings.base.phaseBlur = 0.28f;
-    p->settings.base.damage = 0.0f;
-    p->settings.base.repeat = 0.0f;
-    p->settings.base.gainDb = -2.5f;
+    p->settings.base.fold = 0.22f;
+    p->settings.base.drive = 0.18f;
+    p->settings.base.hold = 0.0f;
+    p->settings.base.clip = 0.18f;
+    p->settings.base.rectify = 0.0f;
+    p->settings.base.edge = 0.0f;
+    p->settings.base.zero = 0.0f;
+    p->settings.base.polar = 0.0f;
+    p->settings.base.bits = 0.0f;
+    p->settings.base.step = 0.0f;
+    p->settings.base.gainDb = -3.0f;
     p->settings.base.mix = 1.0f;
-    p->settings.base.tilt = 0.0f;
+    p->settings.base.trans = 0.0f;
     p->settings.base.safety = 0.82f;
     p->settings.topology.amount = 0.35;
     p->settings.topology.jitter = 0.08;

@@ -25,6 +25,7 @@
 #include "s3g_spectral_fft.h"
 #include "s3g_spectral_spray.h"
 #include "s3g_spectral_topology_processor.h"
+#include "s3g_wave_geometry_processor.h"
 #include "s3g_shard_scatter.h"
 #include "s3g_layout_panner.h"
 #include "s3g_mc_to_stereo.h"
@@ -2943,6 +2944,52 @@ int main()
         }
     }
 
+
+    s3g::WaveGeometryProcessor waveGeometry;
+    waveGeometry.prepare(48000.0, s3g::kWaveGeometryChannels, 0u, 0u, 128u);
+    s3g::WaveGeometrySettings waveGeometrySettings {};
+    waveGeometrySettings.base.fold = 0.55f;
+    waveGeometrySettings.base.drive = 0.45f;
+    waveGeometrySettings.base.edge = 0.25f;
+    waveGeometrySettings.base.bits = 0.25f;
+    waveGeometrySettings.base.mix = 1.0f;
+    waveGeometrySettings.topology.amount = 0.75;
+    waveGeometrySettings.topology.dirX = 0.4;
+    waveGeometrySettings.topology.dirY = 0.6;
+    waveGeometrySettings.topology.dirZ = 0.2;
+    for (uint32_t ch = 0; ch < s3g::kWaveGeometryChannels; ++ch) {
+        waveGeometry.setLaneParams(ch, s3g::waveGeometryLaneParams(waveGeometrySettings, ch, s3g::kWaveGeometryChannels));
+    }
+    constexpr uint32_t waveFrames = 128u;
+    std::array<std::array<float, waveFrames>, s3g::kWaveGeometryChannels> waveIn {};
+    std::array<std::array<float, waveFrames>, s3g::kWaveGeometryChannels> waveOut {};
+    std::array<const float*, s3g::kWaveGeometryChannels> waveInPtrs {};
+    std::array<float*, s3g::kWaveGeometryChannels> waveOutPtrs {};
+    for (uint32_t ch = 0; ch < s3g::kWaveGeometryChannels; ++ch) {
+        waveInPtrs[ch] = waveIn[ch].data();
+        waveOutPtrs[ch] = waveOut[ch].data();
+        for (uint32_t frame = 0; frame < waveFrames; ++frame) {
+            waveIn[ch][frame] = std::sin(static_cast<float>(frame) * 0.071f + static_cast<float>(ch) * 0.19f) * 0.25f;
+        }
+    }
+    waveGeometry.process(waveInPtrs.data(), s3g::kWaveGeometryChannels, waveOutPtrs.data(), s3g::kWaveGeometryChannels, waveFrames);
+    float waveGeometryPeak = 0.0f;
+    float waveGeometryDelta = 0.0f;
+    for (uint32_t ch = 0; ch < s3g::kWaveGeometryChannels; ++ch) {
+        for (uint32_t frame = 0; frame < waveFrames; ++frame) {
+            if (!std::isfinite(waveOut[ch][frame])) {
+                std::cerr << "Wave geometry output is not finite\n";
+                return 1;
+            }
+            waveGeometryPeak = std::max(waveGeometryPeak, std::abs(waveOut[ch][frame]));
+            waveGeometryDelta = std::max(waveGeometryDelta, std::abs(waveOut[ch][frame] - waveIn[ch][frame]));
+        }
+    }
+    if (waveGeometryPeak <= 0.000001f || waveGeometryPeak > 1.0f || waveGeometryDelta <= 0.00001f) {
+        std::cerr << "Wave geometry peak/delta outside expected range: " << waveGeometryPeak << " / " << waveGeometryDelta << "\n";
+        return 1;
+    }
+
     std::cout << "s3g-dsp smoke test passed\n";
     std::cout << "layout speakers: " << s3g::kVirtualSpeakerCount << "\n";
     std::cout << "gain ch1 sample4: " << samples[0][3] << "\n";
@@ -2958,6 +3005,7 @@ int main()
     std::cout << "macro delay tail peak: " << macroTailPeak << "\n";
     std::cout << "macro pitch peak: " << macroPitchPeak << "\n";
     std::cout << "buffer processor peak/step: " << bufferPeak << " / " << bufferMaxStep << "\n";
+    std::cout << "wave geometry peak/delta: " << waveGeometryPeak << " / " << waveGeometryDelta << "\n";
     std::cout << "Ambi point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "Ambi speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";

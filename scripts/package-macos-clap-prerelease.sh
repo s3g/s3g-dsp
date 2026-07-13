@@ -104,6 +104,7 @@ Included plugins:
 - s3g Macro Pitch 8ch
 - s3g Macro Pitch 24ch
 - s3g Buffer Processor 8ch
+- s3g Wave Geometry Processor 8ch
 - s3g Multichannel Meter 64
 - s3g Ambi Energy Visualizer 64
 - s3g Ambi Stereo Decoder
@@ -124,6 +125,7 @@ Included plugins:
 - s3g Spectral Spray 2ch
 - s3g Spectral Spray 8ch
 - s3g Spectral Topology Processor 8ch
+- s3g Spectral Topology Processor 24ch
 - s3g Shard Scatter
 - s3g Orbit Delay
 - s3g Cascade Taps

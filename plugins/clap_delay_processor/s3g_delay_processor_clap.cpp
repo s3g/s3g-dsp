@@ -49,7 +49,8 @@ constexpr const char* kPluginDescription =
 #endif
 
 constexpr bool kLockUnusedChannelsToPassThrough = kChannelCount >= 24;
-constexpr uint32_t kVisiblePatchChannels = kChannelCount < 8 ? kChannelCount : 8;
+constexpr uint32_t kVisiblePatchChannels = kChannelCount < 24 ? kChannelCount : 24;
+constexpr uint32_t kScopeFrames = 128;
 constexpr uint32_t kStateVersion = 10;
 constexpr uint32_t kV9StateVersion = 9;
 constexpr uint32_t kV8StateVersion = 8;
@@ -382,6 +383,8 @@ struct Plugin {
     const clap_host_tail_t* hostTail = nullptr;
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<bool> outputClip { false };
+    std::array<std::array<std::atomic<float>, kScopeFrames>, kChannelCount> scope {};
+    std::atomic<uint32_t> scopeWrite { 0u };
     uint32_t meterRedrawCountdown = 0;
     s3g::LanePatch patch;
     s3g::DelayProcessor delay;
@@ -1291,6 +1294,7 @@ void processFloatSegment(Plugin& p, const clap_audio_buffer_t& input, const clap
     std::array<float, kChannelCount> inFrame {};
     std::array<float, kChannelCount> wetFrame {};
     float blockPeak = 0.0f;
+    const uint32_t scopeBase = p.scopeWrite.load(std::memory_order_relaxed);
     bool blockClip = false;
 
     const uint32_t endFrame = startFrame + frames;
@@ -1313,10 +1317,13 @@ void processFloatSegment(Plugin& p, const clap_audio_buffer_t& input, const clap
                 sum += s3g::lerp(inFrame[inCh], wetFrame[inCh], static_cast<float>(p.mix));
             }
             if (hasConnection) {
-                output.data32[outCh][i] = applyOutputStage(p, sum, blockPeak, blockClip);
+                const float out = applyOutputStage(p, sum, blockPeak, blockClip);
+                output.data32[outCh][i] = out;
+                p.scope[outCh][(scopeBase + (i - startFrame)) % kScopeFrames].store(out, std::memory_order_relaxed);
             }
         }
     }
+    p.scopeWrite.store((scopeBase + frames) % kScopeFrames, std::memory_order_relaxed);
     publishOutputMeter(p, blockPeak, blockClip, frames);
 }
 
@@ -1326,6 +1333,7 @@ void processDoubleSegment(Plugin& p, const clap_audio_buffer_t& input, const cla
     std::array<float, kChannelCount> inFrame {};
     std::array<float, kChannelCount> wetFrame {};
     float blockPeak = 0.0f;
+    const uint32_t scopeBase = p.scopeWrite.load(std::memory_order_relaxed);
     bool blockClip = false;
 
     const uint32_t endFrame = startFrame + frames;
@@ -1348,10 +1356,13 @@ void processDoubleSegment(Plugin& p, const clap_audio_buffer_t& input, const cla
                 sum += s3g::lerp(inFrame[inCh], wetFrame[inCh], static_cast<float>(p.mix));
             }
             if (hasConnection) {
-                output.data64[outCh][i] = static_cast<double>(applyOutputStage(p, sum, blockPeak, blockClip));
+                const float out = applyOutputStage(p, sum, blockPeak, blockClip);
+                output.data64[outCh][i] = static_cast<double>(out);
+                p.scope[outCh][(scopeBase + (i - startFrame)) % kScopeFrames].store(out, std::memory_order_relaxed);
             }
         }
     }
+    p.scopeWrite.store((scopeBase + frames) % kScopeFrames, std::memory_order_relaxed);
     publishOutputMeter(p, blockPeak, blockClip, frames);
 }
 
@@ -2344,6 +2355,7 @@ const clap_plugin_state_t state {
     bool _showDisplace;
     bool _showMatrix;
     bool _showReadout;
+    int _fieldPage;
     int _openMenu;
     int _hoverMenuItem;
     NSPoint _menuOrigin;
@@ -2352,6 +2364,8 @@ const clap_plugin_state_t state {
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)updateSliderAtPoint:(NSPoint)pt;
+- (NSRect)fieldPageButtonRect:(NSRect)rect index:(int)index;
+- (void)drawScope:(NSRect)rect small:(NSDictionary*)small;
 - (void)resetTopology;
 - (void)setTopologyView:(uint32_t)view;
 - (void)startRefreshTimer;
@@ -2382,6 +2396,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         _showDisplace = true;
         _showMatrix = false;
         _showReadout = false;
+        _fieldPage = 0;
         _openMenu = 0;
         _hoverMenuItem = -1;
         _menuOrigin = NSMakePoint(0, 0);
@@ -2446,6 +2461,68 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     [self addTrackingArea:[area autorelease]];
 }
 
+- (NSRect)fieldPageButtonRect:(NSRect)rect index:(int)index
+{
+    const CGFloat buttonW = 58.0;
+    const CGFloat buttonGap = 8.0;
+    const CGFloat totalW = buttonW * 2.0 + buttonGap;
+    const CGFloat x = rect.origin.x + (rect.size.width - totalW) * 0.5 + static_cast<CGFloat>(index) * (buttonW + buttonGap);
+    return NSMakeRect(x, rect.origin.y + 3.0, buttonW, 15.0);
+}
+
+- (void)drawScope:(NSRect)rect small:(NSDictionary*)small
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    s3g::clap_gui::Style style;
+    const NSRect scopeRect = NSMakeRect(rect.origin.x + 20.0, rect.origin.y + 28.0, rect.size.width - 40.0, rect.size.height - 56.0);
+    [style.strip setFill];
+    NSRectFill(scopeRect);
+    [style.grid setStroke];
+    NSFrameRect(scopeRect);
+    [@"POST PROCESSING OSCILLOSCOPE" drawAtPoint:NSMakePoint(scopeRect.origin.x + 10.0, scopeRect.origin.y + 8.0) withAttributes:small];
+
+    const uint32_t lanes = kChannelCount;
+    const uint32_t cols = lanes <= 8u ? 2u : 4u;
+    const uint32_t rows = (lanes + cols - 1u) / cols;
+    const CGFloat gap = lanes <= 8u ? 10.0 : 7.0;
+    const CGFloat cellW = (scopeRect.size.width - gap * static_cast<CGFloat>(cols + 1u)) / static_cast<CGFloat>(cols);
+    const CGFloat cellH = (scopeRect.size.height - 34.0 - gap * static_cast<CGFloat>(rows + 1u)) / static_cast<CGFloat>(rows);
+    const uint32_t write = p->scopeWrite.load(std::memory_order_relaxed);
+    for (uint32_t lane = 0; lane < lanes; ++lane) {
+        const uint32_t col = lane % cols;
+        const uint32_t row = lane / cols;
+        const NSRect laneRect = NSMakeRect(scopeRect.origin.x + gap + static_cast<CGFloat>(col) * (cellW + gap),
+                                          scopeRect.origin.y + 30.0 + gap + static_cast<CGFloat>(row) * (cellH + gap),
+                                          cellW,
+                                          cellH);
+        [s3g::clap_gui::color(0x101010, 1.0) setFill];
+        NSRectFill(laneRect);
+        [style.grid setStroke];
+        NSFrameRect(laneRect);
+        [s3g::clap_gui::color(0x2f2f2f, 0.8) setStroke];
+        [NSBezierPath strokeLineFromPoint:NSMakePoint(laneRect.origin.x, NSMidY(laneRect))
+                                  toPoint:NSMakePoint(NSMaxX(laneRect), NSMidY(laneRect))];
+
+        float peak = 0.0001f;
+        for (uint32_t i = 0; i < kScopeFrames; ++i) {
+            peak = std::max(peak, std::fabs(p->scope[lane][i].load(std::memory_order_relaxed)));
+        }
+        const float scale = std::min(4.0f, 0.92f / peak);
+        NSBezierPath* path = [NSBezierPath bezierPath];
+        for (uint32_t i = 0; i < kScopeFrames; ++i) {
+            const uint32_t index = (write + i) % kScopeFrames;
+            const float sample = p->scope[lane][index].load(std::memory_order_relaxed);
+            const CGFloat x = laneRect.origin.x + (static_cast<CGFloat>(i) / static_cast<CGFloat>(kScopeFrames - 1u)) * laneRect.size.width;
+            const CGFloat y = NSMidY(laneRect) - static_cast<CGFloat>(std::clamp(sample * scale, -1.0f, 1.0f)) * laneRect.size.height * 0.42;
+            if (i == 0u) [path moveToPoint:NSMakePoint(x, y)];
+            else [path lineToPoint:NSMakePoint(x, y)];
+        }
+        [style.text setStroke];
+        [path stroke];
+        [[NSString stringWithFormat:@"L%u", lane + 1u] drawAtPoint:NSMakePoint(laneRect.origin.x + 5.0, laneRect.origin.y + 3.0) withAttributes:small];
+    }
+}
+
 - (void)drawSlider:(NSString*)name
              value:(NSString*)value
               norm:(CGFloat)norm
@@ -2501,9 +2578,11 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
 
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
     NSFont* monoBold = [NSFont fontWithName:@"Menlo-Bold" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightBold];
+    NSFont* monoTiny = [NSFont fontWithName:@"Menlo" size:7.0] ?: [NSFont monospacedSystemFontOfSize:7.0 weight:NSFontWeightRegular];
     NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
     NSDictionary* labelAttrs = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: monoBold };
     NSDictionary* smallAttrs = @{ NSForegroundColorAttributeName: dim, NSFontAttributeName: mono };
+    NSDictionary* tinyAttrs = @{ NSForegroundColorAttributeName: dim, NSFontAttributeName: monoTiny };
     NSDictionary* sectionAttrs = @{ NSForegroundColorAttributeName: accent, NSFontAttributeName: mono };
     NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: titleFont };
 
@@ -2527,6 +2606,12 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     [accent setFill];
     NSRectFill(NSMakeRect(12, 34, 620, 2));
     [@"TOPOLOGY" drawAtPoint:NSMakePoint(18, 39) withAttributes:sectionAttrs];
+    s3g::clap_gui::Style pageStyle;
+    NSString* pageLabels[2] = { @"TOPO", @"SCOPE" };
+    for (int i = 0; i < 2; ++i) {
+        NSRect button = [self fieldPageButtonRect:topologyPanel index:i];
+        s3g::clap_gui::drawHeaderButton(button, topologyPanel, pageLabels[i], _fieldPage == i, smallAttrs, pageStyle);
+    }
     const char* viewNames[] = { "TOP", "SIDE", "3/4" };
     for (uint32_t i = 0; i < 3; ++i) {
         NSRect viewRect = NSMakeRect(478 + i * 48, 38, 42, 14);
@@ -2541,6 +2626,9 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     const CGFloat fieldY = 62.0;
     const CGFloat fieldW = 600.0;
     const CGFloat fieldH = 600.0;
+    if (_fieldPage == 1) {
+        [self drawScope:NSMakeRect(fieldX, fieldY, fieldW, fieldH) small:smallAttrs];
+    } else {
     [strip setFill];
     NSRectFill(NSMakeRect(fieldX, fieldY, fieldW, fieldH));
     [grid setStroke];
@@ -2699,6 +2787,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     } else {
         [@"LST" drawAtPoint:NSMakePoint(readoutButton.origin.x + 6, readoutButton.origin.y + 1) withAttributes:smallAttrs];
     }
+    }
 
     const CGFloat panelX = 644.0;
     const CGFloat panelW = 344.0;
@@ -2803,11 +2892,14 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     }
     panelY += metaH + gap;
 
-    const CGFloat left = 718.0;
-    const CGFloat cell = 24.0;
+    const bool compactMatrix = kVisiblePatchChannels > 8;
+    const CGFloat left = compactMatrix ? 686.0 : 718.0;
+    const CGFloat cell = compactMatrix ? 12.0 : 24.0;
+    const CGFloat cellGap = compactMatrix ? 2.0 : 4.0;
+    const CGFloat activeInset = compactMatrix ? 2.0 : 5.0;
     const CGFloat rowLabelX = 654.0;
-    const CGFloat matrixTopPad = 42.0;
-    const CGFloat matrixH = _showMatrix ? 248.0 : headerH;
+    const CGFloat matrixTopPad = compactMatrix ? 34.0 : 42.0;
+    const CGFloat matrixH = _showMatrix ? (compactMatrix ? 354.0 : 248.0) : headerH;
     drawPanelFrame(panelY, matrixH);
     NSString* matrixTitle = kChannelCount > kVisiblePatchChannels
         ? [NSString stringWithFormat:@"PATCH MATRIX 1-%u", kVisiblePatchChannels]
@@ -2815,24 +2907,25 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     drawHeader(matrixTitle, _showMatrix, panelY);
     if (_showMatrix) {
         const CGFloat top = panelY + matrixTopPad;
+        NSDictionary* matrixAttrs = compactMatrix ? tinyAttrs : smallAttrs;
         for (uint32_t i = 0; i < kVisiblePatchChannels; ++i) {
             NSString* outLabel = [NSString stringWithFormat:@"%u", i + 1];
-            [outLabel drawAtPoint:NSMakePoint(left + i * cell + 8, top - 18) withAttributes:smallAttrs];
+            [outLabel drawAtPoint:NSMakePoint(left + i * cell + (compactMatrix ? 0.0 : 8.0), top - (compactMatrix ? 13.0 : 18.0)) withAttributes:matrixAttrs];
             NSString* inLabel = [NSString stringWithFormat:@"I%u", i + 1];
-            [inLabel drawAtPoint:NSMakePoint(rowLabelX, top + i * cell + 6) withAttributes:smallAttrs];
+            [inLabel drawAtPoint:NSMakePoint(rowLabelX, top + i * cell + (compactMatrix ? 2.0 : 6.0)) withAttributes:matrixAttrs];
         }
 
         for (uint32_t in = 0; in < kVisiblePatchChannels; ++in) {
             for (uint32_t out = 0; out < kVisiblePatchChannels; ++out) {
                 const bool connected = p->patch.connected(in, out);
-                NSRect r = NSMakeRect(left + out * cell, top + in * cell, cell - 4, cell - 4);
+                NSRect r = NSMakeRect(left + out * cell, top + in * cell, cell - cellGap, cell - cellGap);
                 [strip setFill];
                 NSRectFill(r);
                 [grid setStroke];
                 NSFrameRect(r);
                 if (connected) {
                     [accent setFill];
-                    NSRectFill(NSInsetRect(r, 5, 5));
+                    NSRectFill(NSInsetRect(r, activeInset, activeInset));
                 }
             }
         }
@@ -3068,8 +3161,20 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         return;
     }
 
+    const NSRect topologyPanel = NSMakeRect(12.0, 34.0, 620.0, 654.0);
+    if (NSPointInRect(pt, topologyPanel)) {
+        for (int i = 0; i < 2; ++i) {
+            NSRect button = [self fieldPageButtonRect:topologyPanel index:i];
+            if (NSPointInRect(pt, button)) {
+                _fieldPage = i;
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+    }
+
     for (uint32_t i = 0; i < 3; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(478 + i * 48, 38, 42, 14))) {
+        if (_fieldPage == 0 && NSPointInRect(pt, NSMakeRect(478 + i * 48, 38, 42, 14))) {
             [self setTopologyView:i];
             return;
         }
@@ -3187,9 +3292,10 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         return;
     }
     if (_showMatrix) {
-        const CGFloat left = 718.0;
-        const CGFloat top = panelY + 42.0;
-        const CGFloat cell = 24.0;
+        const bool compactMatrix = kVisiblePatchChannels > 8;
+        const CGFloat left = compactMatrix ? 686.0 : 718.0;
+        const CGFloat top = panelY + (compactMatrix ? 34.0 : 42.0);
+        const CGFloat cell = compactMatrix ? 12.0 : 24.0;
         if (pt.x >= left && pt.y >= top
             && pt.x < left + cell * kVisiblePatchChannels
             && pt.y < top + cell * kVisiblePatchChannels) {
@@ -3209,7 +3315,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     }
 
     NSRect topologyView = NSMakeRect(22.0, 62.0, 600.0, 600.0);
-    if (NSPointInRect(pt, topologyView)) {
+    if (_fieldPage == 0 && NSPointInRect(pt, topologyView)) {
         _dragTopologyView = true;
         _lastDragPoint = pt;
         return;

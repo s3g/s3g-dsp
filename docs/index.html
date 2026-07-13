@@ -43,7 +43,7 @@
 
         <h2 id="status">Status</h2>
 
-        <p>This is a pre-release project. Plugin names, parameters, and saved states may change. The current macOS CLAP package includes 43 plugin bundles.</p>
+        <p>This is a pre-release project. Plugin names, parameters, and saved states may change. The current macOS CLAP package includes 45 plugin bundles.</p>
 
         <h3>Current Plugins</h3>
 
@@ -66,18 +66,15 @@
           <li><a href="3oafx-speaker-decoder.html"><code>s3g Ambi Speaker Decoder 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> speaker decoder with curated layouts, custom speaker editing, and a stable 64-channel speaker bus.</li>
           <li><a href="ambisonic-stereo-decoder.html"><code>s3g Ambi Stereo Decoder</code></a>: 1OA to 7OA <code>ACN/SN3D</code> to true stereo with virtual fields and stereo pickup models.</li>
           <li><code>s3g Buffer Processor 8ch</code>: multichannel buffer processor for skip, reverse, crush, error-path, and corrupted-window experiments.</li>
+          <li><a href="wave-geometry-processor.html"><code>s3g Wave Geometry Processor 8ch</code></a>: topology-shaped wave processor with folding, rectification, clipping, sample-step motion, bit collapse, post-processing scope view, and dual tape-head loop playback.</li>
           <li><code>s3g Cascade Taps</code>: 2-in/16-out stepped tap-ring effect with a <code>SOFT</code> control for safer cascade handoffs.</li>
-          <li><a href="delay-processor.html"><code>s3g Delay Processor 24ch</code></a>: wider fixed-width delay build.</li>
-          <li><a href="delay-processor.html"><code>s3g Delay Processor 8ch</code></a>: main topology-driven delay processor.</li>
-          <li><code>s3g Group Matrix 32</code>: general 32-channel group matrix with 2ch, 4ch, and 8ch group modes.</li>
-          <li><code>s3g Group Matrix 64</code>: general 64-channel group matrix with 4ch, 8ch, and 16ch group modes.</li>
+          <li><a href="delay-processor.html"><code>s3g Delay Processor 8ch/24ch</code></a>: topology-driven delay processors with fixed-width lane builds.</li>
+          <li><code>s3g Group Matrix 32/64</code>: general group matrix mixers for 32- or 64-channel buses.</li>
           <li><a href="ambisonic-bus-processors.html#node"><code>s3g Node Bus Mixer 128</code></a>: general node/cursor bus mixer for source blocks routed into a wide track and mapped into a selected output bed.</li>
           <li><a href="3oafx-layout-panner.html"><code>s3g Layout Panner</code></a>: direct 16-source to 64-speaker spatial panner with source mixing, speaker presets, and custom layout design.</li>
           <li><a href="loop-processor.html"><code>s3g Loop Processor 8ch</code></a>: CLAP instrument plugin for loaded audio loops, lane playheads, waveform display, and phase relationship controls.</li>
-          <li><code>s3g Macro Delay 24ch</code>: compact 24-channel delay macro with relationship controls.</li>
-          <li><code>s3g Macro Delay 8ch</code>: compact 8-channel delay macro with relationship controls.</li>
-          <li><code>s3g Macro Pitch 24ch</code>: compact 24-channel pitch macro with the shared Macro control layout.</li>
-          <li><code>s3g Macro Pitch 8ch</code>: compact 8-channel pitch macro with the shared Macro control layout.</li>
+          <li><code>s3g Macro Delay 8ch/24ch</code>: compact multichannel delay macros with relationship controls.</li>
+          <li><code>s3g Macro Pitch 8ch/24ch</code>: compact multichannel pitch macros with the shared Macro control layout.</li>
           <li><a href="mc-to-quad-autogain.html"><code>s3g MC to Quad Autogain</code></a>: 128-channel input to quad output fold-down with output order <code>L</code>, <code>R</code>, <code>RB</code>, <code>LB</code>.</li>
           <li><a href="mc-to-stereo-autogain.html"><code>s3g MC to Stereo Autogain</code></a>: 128-channel input to true stereo output fold-down tool.</li>
           <li><a href="multi-loop-processor.html"><code>s3g Multi Loop Processor 8ch</code></a>: CLAP instrument plugin for up to four loaded files, source-to-lane rules, source rate spread, and source crossblend.</li>
@@ -85,9 +82,8 @@
           <li><code>s3g Orbit Delay</code>: 2-in/16-out orbiting delay effect with transport-stop de-click behavior.</li>
           <li><code>s3g Passthrough Test 24ch</code>: fixed 24-in/24-out CLAP passthrough/gain plugin.</li>
           <li><code>s3g Shard Scatter</code>: 2-in/16-out grain-shard spatial scatter effect.</li>
-          <li><code>s3g Spectral Spray 2ch</code>: stereo C++ FFT-bin scatter, smear, hold, freeze, and feedback effect.</li>
-          <li><code>s3g Spectral Spray 8ch</code>: 8-channel C++ FFT-bin scatter, smear, hold, freeze, and feedback effect.</li>
-          <li><code>s3g Spectral Topology Processor 8ch</code>: topology-shaped spectral processor for multichannel spectral-path experiments.</li>
+          <li><code>s3g Spectral Spray 2ch/8ch</code>: C++ FFT-bin scatter, smear, hold, freeze, and feedback effects.</li>
+          <li><a href="spectral-topology-processor.html"><code>s3g Spectral Topology Processor 8ch/24ch</code></a>: topology-shaped spectral processor with lane patching and a grayscale one-second sonogram view.</li>
         </ul>
 
         <h2 id="plugin-groups">Plugin Groups</h2>
@@ -98,7 +94,7 @@
           <a class="category-card" href="effects.html">
             <span>audio processors</span>
             <strong>Effects</strong>
-            <em>Delay Processor, Macro Delay, Macro Pitch, spectral spray, scatter, orbit delay, cascade taps, fold-down, metering, and routing tools.</em>
+            <em>Delay Processor, Wave Geometry Processor, Spectral Topology Processor, Macro Delay, Macro Pitch, spectral spray, scatter, orbit delay, cascade taps, fold-down, metering, and routing tools.</em>
           </a>
           <a class="category-card" href="3oafx.html">
             <span>ambisonics</span>

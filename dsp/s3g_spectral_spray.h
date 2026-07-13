@@ -22,6 +22,8 @@ struct SpectralSprayParams {
     float smear = 0.25f;
     float holes = 0.05f;
     float phaseBlur = 0.28f;
+    float damage = 0.0f;
+    float repeat = 0.0f;
     float loFreq = 0.0f;
     float hiFreq = 20000.0f;
     float gainDb = -2.5f;
@@ -141,6 +143,8 @@ private:
         p.smear = clamp(p.smear, 0.0f, 1.0f);
         p.holes = clamp(p.holes, 0.0f, 0.95f);
         p.phaseBlur = clamp(p.phaseBlur, 0.0f, 1.0f);
+        p.damage = clamp(p.damage, 0.0f, 1.0f);
+        p.repeat = clamp(p.repeat, 0.0f, 1.0f);
         p.loFreq = clamp(p.loFreq, 0.0f, 24000.0f);
         p.hiFreq = clamp(p.hiFreq, 20.0f, 24000.0f);
         if (p.hiFreq < p.loFreq + 20.0f) p.hiFreq = p.loFreq + 20.0f;
@@ -191,6 +195,8 @@ private:
         smoothedParams_.smear = smoothToward(smoothedParams_.smear, params_.smear, medium);
         smoothedParams_.holes = smoothToward(smoothedParams_.holes, params_.holes, medium);
         smoothedParams_.phaseBlur = smoothToward(smoothedParams_.phaseBlur, params_.phaseBlur, medium);
+        smoothedParams_.damage = smoothToward(smoothedParams_.damage, params_.damage, slow);
+        smoothedParams_.repeat = smoothToward(smoothedParams_.repeat, params_.repeat, medium);
         smoothedParams_.loFreq = smoothToward(smoothedParams_.loFreq, params_.loFreq, slow);
         smoothedParams_.hiFreq = smoothToward(smoothedParams_.hiFreq, params_.hiFreq, slow);
         smoothedParams_.tilt = smoothToward(smoothedParams_.tilt, params_.tilt, medium);
@@ -211,6 +217,10 @@ private:
         const float spray = prm.sprayBins;
         const float motion = static_cast<float>(frameCounter_) * prm.drift * 0.03125f;
         const float feedback = 0.82f * prm.feedback * prm.feedback;
+        const float damage = prm.damage * prm.damage;
+        const float repeat = prm.repeat * (0.20f + damage * 0.80f);
+        const uint32_t damageFrame = frameCounter_ / std::max<uint32_t>(1u, static_cast<uint32_t>(std::floor(9.0f - damage * 7.0f)));
+        const uint32_t damageCell = std::max<uint32_t>(1u, static_cast<uint32_t>(std::floor(30.0f - damage * 24.0f)));
 
         for (uint32_t bin = 0; bin < frame.bins; ++bin) {
             const float cr = frame.real[bin];
@@ -232,16 +242,30 @@ private:
             const uint32_t spread = std::max<uint32_t>(1u, static_cast<uint32_t>(std::floor(spray * 0.12f)));
             const uint32_t lo = src > spread ? src - spread : 0u;
             const uint32_t hi = std::min<uint32_t>(frame.bins - 1u, src + spread);
+            const uint32_t cell = bin / damageCell;
+            const int brokenOffset = static_cast<int>(std::floor(hashSigned(cell * 3511u + damageFrame * 1777u + frame.channel * 97u) * damage * 112.0f + 0.5f));
+            const uint32_t damagedSrc = static_cast<uint32_t>(std::clamp<int>(static_cast<int>(src) + brokenOffset, 0, static_cast<int>(frame.bins - 1u)));
 
             float sprayMag = memory.mag[src];
+            sprayMag = lerp(sprayMag, memory.mag[damagedSrc], damage * 0.58f);
             const float wideMag = (memory.mag[lo] + sprayMag + memory.mag[hi]) * 0.33333334f;
             sprayMag = lerp(sprayMag, wideMag, prm.smear);
 
             float targetMag = lerp(sprayMag, memory.outMag[bin], feedback);
+            const float repeatGate = static_cast<float>(hash(cell * 8191u + damageFrame * 131u + frame.channel * 29u) & 0xffffu) / 65535.0f;
+            if (repeatGate < repeat * 0.70f) {
+                const uint32_t repeatSrc = static_cast<uint32_t>(std::clamp<int>(static_cast<int>(bin) - brokenOffset, 0, static_cast<int>(frame.bins - 1u)));
+                const float heldMag = 0.68f * memory.outMag[repeatSrc] + 0.32f * memory.mag[damagedSrc];
+                targetMag = lerp(targetMag, heldMag, 0.22f + repeat * 0.58f);
+            }
             const float holePat = 0.5f + 0.5f * std::sin(static_cast<float>(bin) * 1.618f + static_cast<float>(frameCounter_) * std::abs(prm.drift) * 0.017f);
             const float holeThresh = lerp(1.01f, 0.32f, prm.holes);
             if (holePat >= holeThresh) {
                 targetMag *= lerp(0.18f, 0.65f, prm.smear);
+            }
+            const float dropPat = static_cast<float>(hash(cell * 4567u + damageFrame * 733u + frame.channel * 53u) & 0xffffu) / 65535.0f;
+            if (dropPat < damage * prm.holes * 0.72f) {
+                targetMag *= lerp(1.0f, 0.08f, damage);
             }
 
             if (bin < loBin || bin > hiBin) {
@@ -257,8 +281,9 @@ private:
             targetMag = clamp(targetMag, 0.0f, 12.0f);
             memory.outMag[bin] = targetMag;
 
-            float sprayR = lerp(unitR, memory.phaseR[src], prm.phaseBlur);
-            float sprayI = lerp(unitI, memory.phaseI[src], prm.phaseBlur);
+            const float phaseMix = std::min(1.0f, prm.phaseBlur + damage * 0.28f);
+            float sprayR = lerp(unitR, memory.phaseR[damagedSrc], phaseMix);
+            float sprayI = lerp(unitI, memory.phaseI[damagedSrc], phaseMix);
             const float phaseLen = std::sqrt(sprayR * sprayR + sprayI * sprayI) + eps;
             sprayR /= phaseLen;
             sprayI /= phaseLen;
@@ -267,8 +292,8 @@ private:
             memory.phaseI[bin] = unitI;
 
             const float outMag = lerp(mag, targetMag, prm.mix);
-            frame.real[bin] = lerp(unitR, sprayR, prm.phaseBlur) * outMag;
-            frame.imag[bin] = lerp(unitI, sprayI, prm.phaseBlur) * outMag;
+            frame.real[bin] = lerp(unitR, sprayR, phaseMix) * outMag;
+            frame.imag[bin] = lerp(unitI, sprayI, phaseMix) * outMag;
         }
         if (frame.channel + 1u >= channels_) ++frameCounter_;
     }
