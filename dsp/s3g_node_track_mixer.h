@@ -67,7 +67,7 @@ struct NodeTrackMixerParams {
     uint32_t nodeCount = 4;
     NodeTrackMixMode mixMode = NodeTrackMixMode::SpatialObjects;
     std::array<NodeTrackNode, kNodeTrackMixerMaxNodes> nodes {};
-    float cursorInfluence = 0.0f;
+    float cursorInfluence = 1.0f;
     float cursorX = 0.0f;
     float cursorY = 0.0f;
     float cursorZ = 0.0f;

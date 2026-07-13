@@ -461,7 +461,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     case 0: fillInfo(info, kParamLayoutOrOrder, "Mix bed shape", 0, s3g::kNodeTrackRegularLayoutCount - 1u, 5); info->flags |= CLAP_PARAM_IS_STEPPED; return true;
     case 1: fillInfo(info, kParamOutputChannels, "Output channels", 2, 128, 8); info->flags &= ~CLAP_PARAM_IS_AUTOMATABLE; return true;
     case 2: fillInfo(info, kParamNodeCount, "Node count", 1, 16, 4); return true;
-    case 3: fillInfo(info, kParamCursorInfluence, "Cursor influence", 0, 1, 0); return true;
+    case 3: fillInfo(info, kParamCursorInfluence, "Cursor influence", 0, 1, 1); return true;
     case 4: fillInfo(info, kParamCursorX, "Cursor X", -2, 2, 0); return true;
     case 5: fillInfo(info, kParamCursorY, "Cursor Y", -2, 2, 0); return true;
     case 6: fillInfo(info, kParamCursorZ, "Cursor Z", -2, 2, 0); return true;

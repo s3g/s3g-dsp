@@ -50,7 +50,7 @@ constexpr const char* kPluginDescription =
 
 constexpr bool kLockUnusedChannelsToPassThrough = kChannelCount >= 24;
 constexpr uint32_t kVisiblePatchChannels = kChannelCount < 24 ? kChannelCount : 24;
-constexpr uint32_t kScopeFrames = 128;
+constexpr uint32_t kScopeFrames = 131072;
 constexpr uint32_t kStateVersion = 10;
 constexpr uint32_t kV9StateVersion = 9;
 constexpr uint32_t kV8StateVersion = 8;
@@ -2474,7 +2474,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
 {
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
-    const NSRect scopeRect = NSMakeRect(rect.origin.x + 20.0, rect.origin.y + 28.0, rect.size.width - 40.0, rect.size.height - 56.0);
+    const NSRect scopeRect = NSMakeRect(rect.origin.x + 10.0, rect.origin.y + 28.0, rect.size.width - 20.0, rect.size.height - 38.0);
     [style.strip setFill];
     NSRectFill(scopeRect);
     [style.grid setStroke];
@@ -2484,15 +2484,20 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     const uint32_t lanes = kChannelCount;
     const uint32_t cols = lanes <= 8u ? 2u : 4u;
     const uint32_t rows = (lanes + cols - 1u) / cols;
-    const CGFloat gap = lanes <= 8u ? 10.0 : 7.0;
+    const CGFloat gap = lanes <= 8u ? 8.0 : 5.0;
+    const CGFloat labelH = 24.0;
     const CGFloat cellW = (scopeRect.size.width - gap * static_cast<CGFloat>(cols + 1u)) / static_cast<CGFloat>(cols);
-    const CGFloat cellH = (scopeRect.size.height - 34.0 - gap * static_cast<CGFloat>(rows + 1u)) / static_cast<CGFloat>(rows);
+    const CGFloat cellH = (scopeRect.size.height - labelH - gap * static_cast<CGFloat>(rows + 1u)) / static_cast<CGFloat>(rows);
     const uint32_t write = p->scopeWrite.load(std::memory_order_relaxed);
+    constexpr uint32_t kDrawFrames = 512u;
+    const uint32_t oneSecondFrames = static_cast<uint32_t>(std::clamp(p->sampleRate, 8000.0, static_cast<double>(kScopeFrames - 1u)));
+    const uint32_t historyFrames = std::min<uint32_t>(kScopeFrames - 1u, std::max<uint32_t>(kDrawFrames, oneSecondFrames));
+
     for (uint32_t lane = 0; lane < lanes; ++lane) {
         const uint32_t col = lane % cols;
         const uint32_t row = lane / cols;
         const NSRect laneRect = NSMakeRect(scopeRect.origin.x + gap + static_cast<CGFloat>(col) * (cellW + gap),
-                                          scopeRect.origin.y + 30.0 + gap + static_cast<CGFloat>(row) * (cellH + gap),
+                                          scopeRect.origin.y + labelH + gap + static_cast<CGFloat>(row) * (cellH + gap),
                                           cellW,
                                           cellH);
         [s3g::clap_gui::color(0x101010, 1.0) setFill];
@@ -2504,15 +2509,20 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
                                   toPoint:NSMakePoint(NSMaxX(laneRect), NSMidY(laneRect))];
 
         float peak = 0.0001f;
-        for (uint32_t i = 0; i < kScopeFrames; ++i) {
-            peak = std::max(peak, std::fabs(p->scope[lane][i].load(std::memory_order_relaxed)));
+        for (uint32_t i = 0; i < kDrawFrames; ++i) {
+            const uint32_t age = static_cast<uint32_t>((static_cast<double>(kDrawFrames - 1u - i) / static_cast<double>(kDrawFrames - 1u))
+                                                       * static_cast<double>(historyFrames));
+            const uint32_t index = (write + kScopeFrames - 1u - age) % kScopeFrames;
+            peak = std::max(peak, std::fabs(p->scope[lane][index].load(std::memory_order_relaxed)));
         }
         const float scale = std::min(4.0f, 0.92f / peak);
         NSBezierPath* path = [NSBezierPath bezierPath];
-        for (uint32_t i = 0; i < kScopeFrames; ++i) {
-            const uint32_t index = (write + i) % kScopeFrames;
+        for (uint32_t i = 0; i < kDrawFrames; ++i) {
+            const uint32_t age = static_cast<uint32_t>((static_cast<double>(kDrawFrames - 1u - i) / static_cast<double>(kDrawFrames - 1u))
+                                                       * static_cast<double>(historyFrames));
+            const uint32_t index = (write + kScopeFrames - 1u - age) % kScopeFrames;
             const float sample = p->scope[lane][index].load(std::memory_order_relaxed);
-            const CGFloat x = laneRect.origin.x + (static_cast<CGFloat>(i) / static_cast<CGFloat>(kScopeFrames - 1u)) * laneRect.size.width;
+            const CGFloat x = laneRect.origin.x + (static_cast<CGFloat>(i) / static_cast<CGFloat>(kDrawFrames - 1u)) * laneRect.size.width;
             const CGFloat y = NSMidY(laneRect) - static_cast<CGFloat>(std::clamp(sample * scale, -1.0f, 1.0f)) * laneRect.size.height * 0.42;
             if (i == 0u) [path moveToPoint:NSMakePoint(x, y)];
             else [path lineToPoint:NSMakePoint(x, y)];

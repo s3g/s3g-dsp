@@ -2803,6 +2803,10 @@ int main()
         auto nodeMixer = std::make_unique<s3g::NodeTrackMixer>();
         nodeMixer->prepare(48000.0);
         s3g::NodeTrackMixerParams nodeParams {};
+        if (std::abs(nodeParams.cursorInfluence - 1.0f) > 0.0001f) {
+            std::cerr << "Node track mixer cursor influence should default to 100%\n";
+            return 1;
+        }
         nodeParams.outputLayout = s3g::NodeTrackLayout::Octo;
         nodeParams.outputChannels = 8;
         nodeParams.nodeCount = 2;
