@@ -1151,9 +1151,9 @@ int main()
     }
     speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::QuadOverhead6;
     speakerDecoder.setParams(speakerParams);
-    if (std::abs(speakerDecoder.speaker(0).azimuthDeg - -45.0f) > 0.001f
-        || std::abs(speakerDecoder.speaker(4).azimuthDeg - -90.0f) > 0.001f
-        || std::abs(speakerDecoder.speaker(5).azimuthDeg - 90.0f) > 0.001f) {
+    if (std::abs(speakerDecoder.speaker(0).azimuthDeg - 45.0f) > 0.001f
+        || std::abs(speakerDecoder.speaker(4).azimuthDeg - 90.0f) > 0.001f
+        || std::abs(speakerDecoder.speaker(5).azimuthDeg - -90.0f) > 0.001f) {
         std::cerr << "Ambi Speaker Decoder quad+overhead order changed unexpectedly\n";
         return 1;
     }

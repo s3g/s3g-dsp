@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 namespace s3g {
@@ -31,6 +32,9 @@ enum class AmbiSpeakerLayoutPreset : uint32_t {
     Dome25 = 5,
     QuadOverhead6 = 6,
     Sphere24 = 7,
+    Dodeca12 = 8,
+    Icosahedron20 = 9,
+    OctophonicRing = 10,
 };
 
 enum class AmbiSpeakerDecoderWeighting : uint32_t {
@@ -341,6 +345,102 @@ private:
         }
     }
 
+    void setSrstDome(bool includeZenith)
+    {
+        static constexpr float lower[12] {
+            -30.0f, -60.0f, -90.0f, -120.0f, -150.0f, 180.0f,
+            150.0f, 120.0f, 90.0f, 60.0f, 30.0f, 0.0f
+        };
+        static constexpr float middle[8] {
+            -45.0f, -90.0f, -135.0f, 180.0f, 135.0f, 90.0f, 45.0f, 0.0f
+        };
+        static constexpr float upper[4] {
+            -90.0f, 180.0f, 90.0f, 0.0f
+        };
+        params_.activeSpeakers = includeZenith ? 25u : 24u;
+        for (uint32_t i = 0; i < 12u; ++i) addSpeaker(i, lower[i], 0.0f);
+        for (uint32_t i = 0; i < 8u; ++i) addSpeaker(12u + i, middle[i], 32.0f);
+        for (uint32_t i = 0; i < 4u; ++i) addSpeaker(20u + i, upper[i], 66.6f);
+        if (includeZenith) addSpeaker(24u, 0.0f, 90.0f);
+    }
+
+    static Vec3 normalized(Vec3 v)
+    {
+        const float d = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+        if (d <= 0.000001f) return {};
+        const float inv = 1.0f / d;
+        return { v.x * inv, v.y * inv, v.z * inv };
+    }
+
+    static float distanceSquared(Vec3 a, Vec3 b)
+    {
+        const float dx = a.x - b.x;
+        const float dy = a.y - b.y;
+        const float dz = a.z - b.z;
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    static float vecAzimuthDeg(Vec3 v)
+    {
+        return wrapSignedDeg(std::atan2(v.y, v.x) * 180.0f / kPi);
+    }
+
+    static float vecElevationDeg(Vec3 v)
+    {
+        const float h = std::sqrt(v.x * v.x + v.y * v.y);
+        return std::atan2(v.z, h) * 180.0f / kPi;
+    }
+
+    void setIcosahedronFaceCenterLayout()
+    {
+        constexpr float phi = 1.61803398875f;
+        const std::array<Vec3, 12> vertices {{
+            { 0.0f, 1.0f, phi }, { 0.0f, -1.0f, phi }, { 0.0f, 1.0f, -phi }, { 0.0f, -1.0f, -phi },
+            { 1.0f, phi, 0.0f }, { -1.0f, phi, 0.0f }, { 1.0f, -phi, 0.0f }, { -1.0f, -phi, 0.0f },
+            { phi, 0.0f, 1.0f }, { -phi, 0.0f, 1.0f }, { phi, 0.0f, -1.0f }, { -phi, 0.0f, -1.0f },
+        }};
+        std::array<Vec3, 12> verts {};
+        for (uint32_t i = 0; i < vertices.size(); ++i) verts[i] = normalized(vertices[i]);
+
+        float minD2 = 999999.0f;
+        for (uint32_t a = 0; a < verts.size(); ++a) {
+            for (uint32_t b = a + 1; b < verts.size(); ++b) {
+                const float d2 = distanceSquared(verts[a], verts[b]);
+                if (d2 > 0.0001f && d2 < minD2) minD2 = d2;
+            }
+        }
+
+        std::array<Vec3, 20> centers {};
+        uint32_t count = 0;
+        const float maxD2 = minD2 * 1.08f;
+        for (uint32_t a = 0; a < verts.size(); ++a) {
+            for (uint32_t b = a + 1; b < verts.size(); ++b) {
+                if (distanceSquared(verts[a], verts[b]) > maxD2) continue;
+                for (uint32_t c = b + 1; c < verts.size(); ++c) {
+                    if (distanceSquared(verts[a], verts[c]) > maxD2 || distanceSquared(verts[b], verts[c]) > maxD2) continue;
+                    if (count < centers.size()) {
+                        centers[count++] = normalized({ verts[a].x + verts[b].x + verts[c].x,
+                            verts[a].y + verts[b].y + verts[c].y,
+                            verts[a].z + verts[b].z + verts[c].z });
+                    }
+                }
+            }
+        }
+
+        std::sort(centers.begin(), centers.begin() + static_cast<std::ptrdiff_t>(count), [](Vec3 a, Vec3 b) {
+            const float ea = vecElevationDeg(a);
+            const float eb = vecElevationDeg(b);
+            if (std::fabs(ea - eb) > 0.001f) return ea < eb;
+            return vecAzimuthDeg(a) < vecAzimuthDeg(b);
+        });
+
+        params_.activeSpeakers = std::min<uint32_t>(20u, count);
+        for (uint32_t i = 0; i < params_.activeSpeakers; ++i) {
+            speakers_[i] = fromXyz(centers[i].x, centers[i].y, centers[i].z);
+            speakers_[i].distance = 1.0f;
+        }
+    }
+
     void generateCustomLayout(AmbiSpeakerCustomField field, uint32_t count)
     {
         clearSpeakers();
@@ -373,10 +473,10 @@ private:
         switch (preset) {
         case AmbiSpeakerLayoutPreset::Quad:
             params_.activeSpeakers = 4;
-            addSpeaker(0, -45.0f, 0.0f);
-            addSpeaker(1, -135.0f, 0.0f);
-            addSpeaker(2, 135.0f, 0.0f);
-            addSpeaker(3, 45.0f, 0.0f);
+            addSpeaker(0, 45.0f, 0.0f);
+            addSpeaker(1, -45.0f, 0.0f);
+            addSpeaker(2, -135.0f, 0.0f);
+            addSpeaker(3, 135.0f, 0.0f);
             break;
         case AmbiSpeakerLayoutPreset::Cube8: {
             params_.activeSpeakers = 8;
@@ -400,26 +500,41 @@ private:
             break;
         }
         case AmbiSpeakerLayoutPreset::Dome24:
-            params_.activeSpeakers = 24;
-            addRingClockwise(0, 12, -30.0f, 0.0f);
-            addRingClockwise(12, 8, -45.0f, 32.0f);
-            addRingClockwise(20, 4, -90.0f, 66.6f);
+            setSrstDome(false);
             break;
         case AmbiSpeakerLayoutPreset::Dome25:
-            params_.activeSpeakers = 25;
-            addRingClockwise(0, 12, -30.0f, 0.0f);
-            addRingClockwise(12, 8, -45.0f, 32.0f);
-            addRingClockwise(20, 4, -90.0f, 66.6f);
-            addSpeaker(24, 0.0f, 90.0f);
+            setSrstDome(true);
             break;
         case AmbiSpeakerLayoutPreset::QuadOverhead6:
             params_.activeSpeakers = 6;
-            addSpeaker(0, -45.0f, 0.0f);
-            addSpeaker(1, -135.0f, 0.0f);
-            addSpeaker(2, 135.0f, 0.0f);
-            addSpeaker(3, 45.0f, 0.0f);
-            addSpeaker(4, -90.0f, 60.0f);
-            addSpeaker(5, 90.0f, 60.0f);
+            addSpeaker(0, 45.0f, 0.0f);
+            addSpeaker(1, -45.0f, 0.0f);
+            addSpeaker(2, -135.0f, 0.0f);
+            addSpeaker(3, 135.0f, 0.0f);
+            addSpeaker(4, 90.0f, 60.0f);
+            addSpeaker(5, -90.0f, 60.0f);
+            break;
+        case AmbiSpeakerLayoutPreset::Dodeca12:
+            params_.activeSpeakers = 12;
+            addSpeaker(0, -31.717474f, 0.0f);
+            addSpeaker(1, -90.0f, -31.717474f);
+            addSpeaker(2, -90.0f, 31.717474f);
+            addSpeaker(3, -148.282526f, 0.0f);
+            addSpeaker(4, 180.0f, -58.282526f);
+            addSpeaker(5, 180.0f, 58.282526f);
+            addSpeaker(6, 148.282526f, 0.0f);
+            addSpeaker(7, 90.0f, -31.717474f);
+            addSpeaker(8, 90.0f, 31.717474f);
+            addSpeaker(9, 31.717474f, 0.0f);
+            addSpeaker(10, 0.0f, -58.282526f);
+            addSpeaker(11, 0.0f, 58.282526f);
+            break;
+        case AmbiSpeakerLayoutPreset::Icosahedron20:
+            setIcosahedronFaceCenterLayout();
+            break;
+        case AmbiSpeakerLayoutPreset::OctophonicRing:
+            params_.activeSpeakers = 8;
+            addRingClockwise(0, 8, -45.0f, 0.0f);
             break;
         case AmbiSpeakerLayoutPreset::Sphere24:
         default:
