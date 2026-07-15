@@ -1,8 +1,8 @@
 # s3g-dsp
 
 CLAP audio plugins for multichannel work in REAPER. `s3g-dsp` is a sibling
-project to the `s3g-mc` multichannel REAPER package. It can be used with
-`s3g-mc` or on its own.
+project to the `s3g-mc` multichannel REAPER package and the `s3g-max` Max/MSP
+externals package. It can be used with those projects or on its own.
 
 Project documentation for `s3g-dsp` is available at
 <https://s3g.github.io/s3g-dsp/>.
@@ -234,6 +234,11 @@ clap-validator validate \
 [`s3g-mc`](https://github.com/s3g/s3g-mc) is the related REAPER package for
 scripts, JSFX, process guides, and multichannel workflow tools. `s3g-dsp` can
 be used alongside it or independently in matching macOS + REAPER sessions.
+
+[`s3g-max`](https://github.com/s3g/s3g-max) is the related Max/MSP package for
+`.mxo` externals, help patches, V8UI displays, and Max package workflows. It
+wraps selected shared C++ DSP engines from this repository where that makes
+sense for Max.
 
 [`s3g-rnbo-clap`](https://github.com/s3g/s3g-rnbo-clap) is a separate
 experimental wrapper for RNBO/Max-generated C++ exports. It is useful for

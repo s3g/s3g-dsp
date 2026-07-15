@@ -91,6 +91,9 @@ done
 cat > "$staging/README.txt" <<'EOF'
 s3g-dsp pre-release macOS CLAP builds for REAPER testing.
 
+Version: 0.4.0-pre
+Release date: 2026-07-15
+
 These binaries are provided for early testing only. Plugin names, parameter
 mappings, state compatibility, and the included plugin set may change before a
 stable release.
