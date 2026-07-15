@@ -24,6 +24,7 @@ bundles=(
   "$src_root/clap_dbap_panner/s3g_dbap_panner.clap"
   "$src_root/clap_lbap_panner/s3g_lbap_panner.clap"
   "$src_root/clap_vbap_panner/s3g_vbap_panner.clap"
+  "$src_root/clap_sub_crossover/s3g_sub_crossover.clap"
   "$src_root/clap_loop_processor/s3g_loop_processor.clap"
   "$src_root/clap_multi_loop_processor/s3g_multi_loop_processor.clap"
   "$src_root/clap_ambi_grain_processor/s3g_ambi_grain_processor.clap"
@@ -32,6 +33,7 @@ bundles=(
   "$src_root/clap_macro_pitch/s3g_macro_pitch.clap"
   "$src_root/clap_macro_pitch/s3g_24ch_macro_pitch.clap"
   "$src_root/clap_buffer_processor/s3g_buffer_processor.clap"
+  "$src_root/clap_wave_geometry_processor/s3g_wave_geometry_processor.clap"
   "$src_root/clap_multichannel_meter/s3g_multichannel_meter.clap"
   "$src_root/clap_ambisonic_energy_visualizer/s3g_ambisonic_energy_visualizer.clap"
   "$src_root/clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder.clap"
@@ -41,6 +43,14 @@ bundles=(
   "$src_root/clap_array_hpf/s3g_array_hpf_26.clap"
   "$src_root/clap_array_hpf/s3g_array_hpf_32.clap"
   "$src_root/clap_array_hpf/s3g_array_hpf_64.clap"
+  "$src_root/clap_array_delay/s3g_array_delay_16.clap"
+  "$src_root/clap_array_delay/s3g_array_delay_26.clap"
+  "$src_root/clap_array_delay/s3g_array_delay_32.clap"
+  "$src_root/clap_array_delay/s3g_array_delay_64.clap"
+  "$src_root/clap_array_trim/s3g_array_trim_16.clap"
+  "$src_root/clap_array_trim/s3g_array_trim_26.clap"
+  "$src_root/clap_array_trim/s3g_array_trim_32.clap"
+  "$src_root/clap_array_trim/s3g_array_trim_64.clap"
   "$src_root/clap_ambisonic_rotate/s3g_ambisonic_rotate.clap"
   "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_64.clap"
   "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_128.clap"
@@ -57,6 +67,7 @@ bundles=(
   "$src_root/clap_spectral_spray/s3g_spectral_spray.clap"
   "$src_root/clap_8ch_spectral_spray/s3g_8ch_spectral_spray.clap"
   "$src_root/clap_spectral_topology_processor/s3g_spectral_topology_processor.clap"
+  "$src_root/clap_spectral_topology_processor/s3g_24ch_spectral_topology_processor.clap"
   "$src_root/clap_shard_scatter/s3g_shard_scatter.clap"
   "$src_root/clap_orbit_delay/s3g_orbit_delay.clap"
   "$src_root/clap_cascade_taps/s3g_cascade_taps.clap"
@@ -104,6 +115,10 @@ Included plugins:
 - s3g Ambi Point Encoder
 - s3g Ambi Speaker Decoder 64
 - s3g Layout Panner
+- s3g DBAP Panner
+- s3g LBAP Panner
+- s3g VBAP Panner
+- s3g Sub Crossover
 - s3g Loop Processor 8ch
 - s3g Multi Loop Processor 8ch
 - s3g Ambi Grain Processor
@@ -119,8 +134,17 @@ Included plugins:
 - s3g Ambi Head Decoder
 - s3g Ambisonic Sub Decoder
 - s3g Array HPF 16
+- s3g Array HPF 26
 - s3g Array HPF 32
 - s3g Array HPF 64
+- s3g Array Delay 16
+- s3g Array Delay 26
+- s3g Array Delay 32
+- s3g Array Delay 64
+- s3g Array Trim 16
+- s3g Array Trim 26
+- s3g Array Trim 32
+- s3g Array Trim 64
 - s3g Ambi Rotate 64
 - s3g Ambi Depth 16
 - s3g Ambi Group Rotate 64

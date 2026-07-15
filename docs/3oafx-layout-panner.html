@@ -91,7 +91,7 @@
 
         <h2 id="panner-variants">Panner Variants</h2>
 
-        <p>The direct panner family uses the same source mixer, speaker layout language, and 64-channel output convention, but offers different gain laws for different musical and calibration needs.</p>
+        <p>The direct panner family uses the same source mixer, speaker layout language, camera controls, inside-source modes, and 64-channel output convention, but offers different gain laws for different musical and calibration needs.</p>
 
         <div class="table-wrap">
           <table>
@@ -106,12 +106,12 @@
               <tr>
                 <td><code>s3g Layout Panner</code></td>
                 <td>distance / cosine</td>
-                <td>General direct panning with a design page for custom layouts.</td>
+                <td>General direct panning with a design page for custom layouts. When a layout has no lower speakers, negative elevation smoothly rolls down toward silence.</td>
               </tr>
               <tr>
                 <td><code>s3g DBAP Panner</code></td>
                 <td>distance-based amplitude panning</td>
-                <td>Smooth distance-weighted distribution across the selected layout.</td>
+                <td>Smooth distance-weighted distribution across the selected layout, with the same lower-hemisphere rolloff as Layout Panner.</td>
               </tr>
               <tr>
                 <td><code>s3g LBAP Panner</code></td>
@@ -130,6 +130,12 @@
         <p>LBAP and VBAP use an internal solver topology derived from the speaker layout. The GUI overlay draws the actual topology used by the solver: faint cyan for LBAP and faint yellow for VBAP. Imaginary solver speakers may be added where the layout has weak or incomplete topology. These points help the solver but do not add output channels.</p>
 
         <p>For flat 2D layouts, LBAP and VBAP add silent imaginary top and bottom speakers. Moving source elevation away from the speaker plane therefore becomes a smooth level change rather than a meaningless control. For partial 3D layouts, such as quad plus overheads, imaginary support points and pole-cap blending stabilize motion near <code>+90</code> and <code>-90</code> degrees elevation.</p>
+
+        <p>All direct panners treat unsupported negative elevation as a musical rolloff case. If the selected layout has no real lower-elevation speakers, steering downward preserves the panner's normal speaker distribution first, then applies a smooth attenuation toward silence at <code>-90</code> degrees. This keeps lower-hemisphere motion meaningful for upper-only and 2D arrays without inventing extra output channels.</p>
+
+        <p><code>IN</code> selects how source distances inside the unit speaker perimeter behave: <code>HOLD</code> keeps level stable and is the default, <code>ATTENUATE</code> reduces level as the point moves inward, <code>DIFFUSE</code> spreads energy more evenly, and <code>CENTER</code> blends inward positions toward the center response.</p>
+
+        <p>The <code>TOP</code>, <code>SIDE</code>, <code>3/4</code>, manual rotation, and zoom state are saved with the plugin state in the host project. A panner saved in top view should reopen in top view.</p>
 
         <h2 id="design-page">Design Page</h2>
 

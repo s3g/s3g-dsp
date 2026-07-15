@@ -84,6 +84,9 @@ grammar:
 
 - Put compact `TOP`, `SIDE`, and `3/4` view buttons in the primary visual
   header when a point scene can be reoriented.
+- When camera position is part of the normal editing workflow, save view mode,
+  manual rotation, and zoom with plugin state so reopening a project preserves
+  the user's inspection angle.
 - Put compact `-` / `+` camera zoom buttons near the view buttons when point
   density can obscure the spatial read. Camera zoom changes only the view
   projection, never AED distance values.
@@ -204,6 +207,9 @@ Speaker decoder views are spatial infrastructure, not physics instruments:
   the actual solver topology. Use distinct quiet colors for the methods
   (`LBAP` cyan, `VBAP` yellow), and show imaginary solver support points
   faintly so topology lines do not appear to terminate in empty space.
+- If a direct panner layout has no real lower-elevation speakers, negative
+  elevation should remain meaningful as a smooth rolloff toward `-90` degrees
+  rather than being clamped to the perimeter.
 - Keep spatial control panels separate from view controls. View changes are
   inspection tools; automation-relevant controls remain in the toolbox stack.
 - Prefer readable full parameter names in spatial infrastructure panels when

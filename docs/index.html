@@ -63,7 +63,7 @@
           <li><a href="ambisonic-bus-processors.html#node"><code>s3g Ambi Node Bus Mixer 128</code></a>: fixed 3OA node/cursor mixer for up to eight 16-channel ambisonic feeds, flat by default with optional 3D node placement.</li>
           <li><a href="ambisonic-bus-processors.html"><code>s3g Ambi Group Rotate 64/128</code></a>: bus-level rotation utilities for four or eight lane-locked 3OA feeds.</li>
           <li><a href="ambisonic-bus-processors.html"><code>s3g Ambi Group Depth 64/128</code></a>: bus-level depth/order-shaping utilities for four or eight lane-locked 3OA feeds.</li>
-          <li><a href="3oafx-speaker-decoder.html"><code>s3g Ambi Speaker Decoder 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> speaker decoder with curated layouts, custom speaker editing, and a stable 64-channel speaker bus.</li>
+          <li><a href="3oafx-speaker-decoder.html"><code>s3g Ambi Speaker Decoder 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> speaker decoder with curated layouts, custom speaker editing, saved camera view state, and a stable 64-channel speaker bus.</li>
           <li><a href="ambisonic-stereo-decoder.html"><code>s3g Ambi Stereo Decoder</code></a>: 1OA to 7OA <code>ACN/SN3D</code> to true stereo with virtual fields and stereo pickup models.</li>
           <li><code>s3g Buffer Processor 8ch</code>: multichannel buffer processor for skip, reverse, crush, error-path, and corrupted-window experiments.</li>
           <li><a href="wave-geometry-processor.html"><code>s3g Wave Geometry Processor 8ch</code></a>: topology-shaped wave processor with folding, rectification, clipping, sample-step motion, bit collapse, post-processing scope view, and dual tape-head loop playback.</li>
@@ -71,8 +71,8 @@
           <li><a href="delay-processor.html"><code>s3g Delay Processor 8ch/24ch</code></a>: topology-driven delay processors with fixed-width lane builds.</li>
           <li><code>s3g Group Matrix 32/64</code>: general group matrix mixers for 32- or 64-channel buses.</li>
           <li><a href="ambisonic-bus-processors.html#node"><code>s3g Node Bus Mixer 128</code></a>: general node/cursor bus mixer for source blocks routed into a wide track and mapped into a selected output bed.</li>
-          <li><a href="3oafx-layout-panner.html"><code>s3g Layout Panner</code></a>: direct 64-source to 64-speaker spatial panner with source mixing, speaker presets, and custom layout design.</li>
-          <li><a href="3oafx-layout-panner.html#panner-variants"><code>s3g DBAP / LBAP / VBAP Panner</code></a>: direct-panner variants using distance-based, layer/local-lobe, and vector-base amplitude panning. LBAP and VBAP use topology-aware solver overlays and imaginary speaker support.</li>
+          <li><a href="3oafx-layout-panner.html"><code>s3g Layout Panner</code></a>: direct 64-source to 64-speaker spatial panner with source mixing, speaker presets, custom layout design, inside-source modes, saved camera views, and lower-hemisphere rolloff for layouts without lower speakers.</li>
+          <li><a href="3oafx-layout-panner.html#panner-variants"><code>s3g DBAP / LBAP / VBAP Panner</code></a>: direct-panner variants using distance-based, layer/local-lobe, and vector-base amplitude panning. DBAP shares the lower-hemisphere rolloff behavior; LBAP and VBAP use topology-aware solver overlays and imaginary speaker support.</li>
           <li><code>s3g Sub Crossover</code>: layout-aware subwoofer crossover/send utility for up to eight subwoofer channels.</li>
           <li><code>s3g Array HPF / Delay / Trim</code>: fixed-width speaker-array calibration utilities for high-pass filtering, arrival-time alignment, trims, mutes, and polarity checks.</li>
           <li><a href="loop-processor.html"><code>s3g Loop Processor 8ch</code></a>: CLAP instrument plugin for loaded audio loops, lane playheads, waveform display, and phase relationship controls.</li>

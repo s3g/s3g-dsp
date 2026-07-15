@@ -55,11 +55,14 @@ Current plugins:
   and Geist-driven bond breaking.
 - `s3g Ambi Speaker Decoder 64`: first-through-seventh-order `ACN/SN3D`
   speaker decoder with curated layouts, custom speaker editing, and a stable
-  64-channel output bus.
+  64-channel output bus. The speaker field camera view is saved with the host
+  project.
 - `s3g Layout Panner`: direct 64-source to 64-speaker spatial panner with
-  speaker presets, source mixer, and custom layout design.
+  speaker presets, source mixer, custom layout design, inside-source modes,
+  and project-saved field views.
 - `s3g DBAP Panner`: distance-based amplitude panner variant using the same
-  curated speaker layouts and custom layout design surface as Layout Panner.
+  curated speaker layouts, inside-source modes, and custom layout design
+  surface as Layout Panner.
 - `s3g LBAP Panner`: layer/local-lobe amplitude panner variant with
   topology-aware speaker relationships, imaginary solver support, and 2D
   elevation-as-level behavior.
@@ -122,6 +125,9 @@ Current plugins:
   predictable.
 - Per-channel settings are generated inside the plugin. REAPER sees compact
   global controls, not one parameter list per channel.
+- Spatial plugin camera state is saved with the plugin state where it is part
+  of the editing workflow. For example, a top-view panner or decoder display
+  should reopen that way with the project.
 - 24-channel 3OAFX-specific work is kept separate from general multichannel
   lane processors.
 - C++ effects live in `s3g-dsp`; RNBO/Max experiments are useful
