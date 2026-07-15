@@ -91,7 +91,7 @@ private:
     void applyParams(SubCrossoverParams params)
     {
         params.layout = static_cast<LayoutPannerPreset>(
-            std::min<uint32_t>(static_cast<uint32_t>(params.layout), static_cast<uint32_t>(LayoutPannerPreset::Icosahedron20)));
+            std::min<uint32_t>(static_cast<uint32_t>(params.layout), static_cast<uint32_t>(LayoutPannerPreset::Srst25)));
         params.mode = static_cast<SubCrossoverMode>(
             std::min<uint32_t>(static_cast<uint32_t>(params.mode), static_cast<uint32_t>(SubCrossoverMode::Send)));
         params.highChannels = std::clamp<uint32_t>(params.highChannels, 1u, kSubCrossoverMaxChannels);

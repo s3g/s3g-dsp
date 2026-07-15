@@ -2,6 +2,7 @@
 
 #include "s3g_24ch_layout.h"
 #include "s3g_3oafx.h"
+#include "s3g_cube41_layout.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
 
@@ -35,6 +36,9 @@ enum class AmbiSpeakerLayoutPreset : uint32_t {
     Dodeca12 = 8,
     Icosahedron20 = 9,
     OctophonicRing = 10,
+    Cube41 = 11,
+    Lpac41 = 12,
+    Srst25 = 13,
 };
 
 enum class AmbiSpeakerDecoderWeighting : uint32_t {
@@ -316,6 +320,19 @@ private:
         };
     }
 
+    static AmbiSpeaker fromRoomXyz(float x, float y, float z)
+    {
+        const float r = std::sqrt(std::max(0.000001f, x * x + y * y + z * z));
+        return {
+            wrapSignedDeg(-std::atan2(x, y) * 180.0f / kPi),
+            clamp(std::asin(clamp(z / r, -1.0f, 1.0f)) * 180.0f / kPi, -90.0f, 90.0f),
+            std::max(0.15f, r),
+            1.0f,
+            true,
+            false
+        };
+    }
+
     void clearSpeakers()
     {
         for (auto& speaker : speakers_) {
@@ -499,11 +516,33 @@ private:
             for (uint32_t i = 0; i < 17; ++i) speakers_[i] = fromXyz(pts[i][0], pts[i][1], pts[i][2]);
             break;
         }
+        case AmbiSpeakerLayoutPreset::Cube41:
+            params_.activeSpeakers = kCube41SpeakerCount;
+            for (uint32_t i = 0; i < kCube41SpeakerCount; ++i) {
+                const auto& p = kCube41Points[i];
+                speakers_[i] = fromXyz(p.x, p.y, p.z);
+            }
+            break;
+        case AmbiSpeakerLayoutPreset::Lpac41:
+            params_.activeSpeakers = kCube41SpeakerCount;
+            for (uint32_t i = 0; i < kCube41SpeakerCount; ++i) {
+                const auto& p = kLpac41Points[i];
+                speakers_[i] = fromXyz(p.x, p.y, p.z);
+            }
+            break;
         case AmbiSpeakerLayoutPreset::Dome24:
             setSrstDome(false);
             break;
         case AmbiSpeakerLayoutPreset::Dome25:
             setSrstDome(true);
+            break;
+        case AmbiSpeakerLayoutPreset::Srst25:
+            params_.activeSpeakers = kSrst25SpeakerCount;
+            for (uint32_t i = 0; i < kSrst25SpeakerCount; ++i) {
+                const auto& p = kSrst25Points[i];
+                speakers_[i] = fromRoomXyz(p.x, p.y, p.z);
+                speakers_[i].distance = 1.0f;
+            }
             break;
         case AmbiSpeakerLayoutPreset::QuadOverhead6:
             params_.activeSpeakers = 6;

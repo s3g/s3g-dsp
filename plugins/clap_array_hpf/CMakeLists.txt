@@ -28,5 +28,6 @@ function(add_s3g_array_hpf_target CHANNELS)
 endfunction()
 
 add_s3g_array_hpf_target(16)
+add_s3g_array_hpf_target(26)
 add_s3g_array_hpf_target(32)
 add_s3g_array_hpf_target(64)

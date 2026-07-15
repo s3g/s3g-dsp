@@ -513,6 +513,7 @@ const char* pluginId()
 {
     switch (kChannelCount) {
     case 16: return "org.s3g.s3g-dsp.array-hpf-16";
+    case 26: return "org.s3g.s3g-dsp.array-hpf-26";
     case 32: return "org.s3g.s3g-dsp.array-hpf-32";
     default: return "org.s3g.s3g-dsp.array-hpf-64";
     }
@@ -522,6 +523,7 @@ const char* pluginName()
 {
     switch (kChannelCount) {
     case 16: return "s3g Array HPF 16";
+    case 26: return "s3g Array HPF 26";
     case 32: return "s3g Array HPF 32";
     default: return "s3g Array HPF 64";
     }

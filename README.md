@@ -19,7 +19,8 @@ DAWs are not support targets at this stage.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-The current macOS CLAP package includes 45 plugin bundles.
+The current macOS CLAP package includes more than sixty plugin bundles,
+including fixed-width variants for several calibration and bus utilities.
 
 Current plugins:
 
@@ -57,6 +58,22 @@ Current plugins:
   64-channel output bus.
 - `s3g Layout Panner`: direct 64-source to 64-speaker spatial panner with
   speaker presets, source mixer, and custom layout design.
+- `s3g DBAP Panner`: distance-based amplitude panner variant using the same
+  curated speaker layouts and custom layout design surface as Layout Panner.
+- `s3g LBAP Panner`: layer/local-lobe amplitude panner variant with
+  topology-aware speaker relationships, imaginary solver support, and 2D
+  elevation-as-level behavior.
+- `s3g VBAP Panner`: vector-base amplitude panner variant with solver
+  topology overlays, imaginary speakers for weak hulls, pole-cap blending, and
+  2D elevation-as-level behavior.
+- `s3g Sub Crossover`: layout-aware subwoofer crossover/send utility for up to
+  eight subwoofer channels.
+- `s3g Array HPF 16/26/32/64`: post-decoder high-pass filters for main speaker
+  arrays.
+- `s3g Array Delay 16/26/32/64`: per-channel speaker calibration delay
+  utilities for arrival-time alignment.
+- `s3g Array Trim 16/26/32/64`: per-channel speaker trim, mute, and polarity
+  utilities for speaker-system calibration.
 - `s3g Ambi Rotate 64`: first-through-seventh-order `ACN/SN3D` field
   rotation utility with yaw, pitch, roll, and order-width trim.
 - `s3g Ambi Depth 16`: third-order `ACN/SN3D` field depth utility with

@@ -23,11 +23,11 @@ namespace {
 
 constexpr uint32_t kChannelCount = s3g::kSubCrossoverMaxChannels;
 constexpr uint32_t kStateVersion = 1;
-constexpr uint32_t kLayoutCount = 27;
+constexpr uint32_t kLayoutCount = 30;
 
 constexpr std::array<uint32_t, kLayoutCount> kLayoutMenuOrder {
-    1u, 2u, 0u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u,
-    26u, 13u, 16u, 18u, 14u, 15u, 17u, 19u, 24u, 20u, 21u, 22u, 23u, 25u
+    1u, 2u, 27u, 0u, 3u, 4u, 5u, 6u, 7u, 26u, 28u, 8u, 9u, 10u, 11u, 12u, 29u,
+    13u, 16u, 18u, 14u, 15u, 17u, 19u, 24u, 20u, 21u, 22u, 23u, 25u
 };
 
 constexpr uint32_t layoutPresetForMenuIndex(uint32_t index)

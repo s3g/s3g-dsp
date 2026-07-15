@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Layout Panner</h1>
 
-        <p><code>s3g Layout Panner</code> is a direct spatial panner: 16 source inputs are distributed across a fixed 64-channel speaker output bus. It does not encode to ambisonics internally. It is useful when the speaker layout itself is the target.</p>
+        <p><code>s3g Layout Panner</code> is a direct spatial panner: 64 source inputs are distributed across a fixed 64-channel speaker output bus. It does not encode to ambisonics internally. It is useful when the speaker layout itself is the target.</p>
 
         <p>The plugin is grouped with 3OAFX tools because it shares the same spatial layout language, camera controls, and custom speaker-design workflow as the ambisonic plugins. It can also be used independently for multichannel panning in REAPER.</p>
 
@@ -88,6 +88,48 @@
         <p>The layout menu provides common speaker shapes such as quad, rings, cube layouts, dodeca, domes, and custom. Presets are starting points. Switch to <code>CUSTOM</code> or edit a speaker to build a layout for a specific room or format.</p>
 
         <p>Speaker markers use the same square AED color strategy as the Ambi Point Encoder and Speaker Decoder. Geometry lines show the intended layout mesh, not nearest-neighbor analysis.</p>
+
+        <h2 id="panner-variants">Panner Variants</h2>
+
+        <p>The direct panner family uses the same source mixer, speaker layout language, and 64-channel output convention, but offers different gain laws for different musical and calibration needs.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Plugin</th>
+                <th>Method</th>
+                <th>Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>s3g Layout Panner</code></td>
+                <td>distance / cosine</td>
+                <td>General direct panning with a design page for custom layouts.</td>
+              </tr>
+              <tr>
+                <td><code>s3g DBAP Panner</code></td>
+                <td>distance-based amplitude panning</td>
+                <td>Smooth distance-weighted distribution across the selected layout.</td>
+              </tr>
+              <tr>
+                <td><code>s3g LBAP Panner</code></td>
+                <td>layer/local-lobe amplitude panning</td>
+                <td>Topology-aware lobe panning that follows layout tiers and local speaker neighborhoods.</td>
+              </tr>
+              <tr>
+                <td><code>s3g VBAP Panner</code></td>
+                <td>vector-base amplitude panning</td>
+                <td>Sharper vector panning against the selected layout topology.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>LBAP and VBAP use an internal solver topology derived from the speaker layout. The GUI overlay draws the actual topology used by the solver: faint cyan for LBAP and faint yellow for VBAP. Imaginary solver speakers may be added where the layout has weak or incomplete topology. These points help the solver but do not add output channels.</p>
+
+        <p>For flat 2D layouts, LBAP and VBAP add silent imaginary top and bottom speakers. Moving source elevation away from the speaker plane therefore becomes a smooth level change rather than a meaningless control. For partial 3D layouts, such as quad plus overheads, imaginary support points and pole-cap blending stabilize motion near <code>+90</code> and <code>-90</code> degrees elevation.</p>
 
         <h2 id="design-page">Design Page</h2>
 
@@ -156,6 +198,7 @@
           <a href="#signal-shape">Signal Shape</a>
           <a href="#pages">Pages</a>
           <a href="#layout-presets">Layout Presets</a>
+          <a href="#panner-variants">Panner Variants</a>
           <a href="#design-page">Design Page</a>
           <a href="#json">Custom Layout JSON</a>
           <a href="#reaper">REAPER Notes</a>

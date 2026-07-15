@@ -27,6 +27,7 @@ constexpr uint32_t kInputChannels = s3g::kLayoutPannerSources;
 constexpr uint32_t kOutputChannels = s3g::kLayoutPannerMaxSpeakers;
 constexpr uint32_t kStateVersion = 7;
 constexpr uint32_t kLayoutCount = 30;
+constexpr auto kFixedMethod = s3g::LayoutPannerMethod::Dbap;
 
 constexpr clap_id kLayoutParamId = 1;
 constexpr clap_id kMethodParamId = 2;
@@ -150,6 +151,11 @@ struct Plugin {
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
 
+void forceFixedMethod(Plugin& p)
+{
+    p.params.method = kFixedMethod;
+}
+
 void setSelectedSourceValue(Plugin& p, clap_id id, double value)
 {
     const uint32_t index = p.params.selectedSource;
@@ -181,6 +187,7 @@ void applyParam(Plugin& p, clap_id id, double value)
         }
         p.panner.setSource(sourceIndex, source);
         p.params.selectedSource = sourceIndex;
+        forceFixedMethod(p);
         p.panner.setParams(p.params);
         p.params = p.panner.params();
         return;
@@ -188,7 +195,7 @@ void applyParam(Plugin& p, clap_id id, double value)
 
     switch (id) {
     case kLayoutParamId: p.params.layout = static_cast<s3g::LayoutPannerPreset>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, kLayoutCount - 1u)); break;
-    case kMethodParamId: p.params.method = static_cast<s3g::LayoutPannerMethod>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 1u)); break;
+    case kMethodParamId: p.params.method = kFixedMethod; break;
     case kFocusParamId: p.params.focus = static_cast<float>(std::clamp(value, 0.25, 4.0)); break;
     case kRolloffParamId: p.params.distanceRolloffDb = static_cast<float>(std::clamp(value, 0.0, 48.0)); break;
     case kSmoothingParamId: p.params.smoothingMs = static_cast<float>(std::clamp(value, 1.0, 250.0)); break;
@@ -211,6 +218,7 @@ void applyParam(Plugin& p, clap_id id, double value)
         break;
     default: break;
     }
+    forceFixedMethod(p);
     p.panner.setParams(p.params);
     p.params = p.panner.params();
 }
@@ -235,6 +243,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     p->sampleRate = sampleRate;
     p->maxFrames = maxFrames;
     p->panner.prepare(sampleRate);
+    forceFixedMethod(*p);
     p->panner.setParams(p->params);
     p->params = p->panner.params();
     return true;
@@ -287,6 +296,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         return CLAP_PROCESS_CONTINUE;
     }
 
+    forceFixedMethod(*p);
     p->panner.setParams(p->params);
     p->params = p->panner.params();
 
@@ -360,7 +370,7 @@ bool fillBaseParam(uint32_t index, ParamDef& def)
 {
     static constexpr ParamDef defs[kBaseParamCount] {
         { kLayoutParamId, "Layout", 0.0, static_cast<double>(kLayoutCount - 1u), static_cast<double>(static_cast<uint32_t>(s3g::LayoutPannerPreset::Dome24NoOverhead)), true },
-        { kMethodParamId, "Method", 0.0, 1.0, 0.0, true },
+        { kMethodParamId, "Method", static_cast<double>(static_cast<uint32_t>(kFixedMethod)), static_cast<double>(static_cast<uint32_t>(kFixedMethod)), static_cast<double>(static_cast<uint32_t>(kFixedMethod)), true },
         { kFocusParamId, "Focus", 0.25, 4.0, 1.0, false },
         { kRolloffParamId, "Distance Rolloff", 0.0, 48.0, 6.0, false },
         { kSmoothingParamId, "Smoothing", 1.0, 250.0, 35.0, false },
@@ -404,7 +414,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         info->id = def.id;
         info->flags = CLAP_PARAM_IS_AUTOMATABLE | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0);
         std::strncpy(info->name, name, sizeof(info->name));
-        std::strncpy(info->module, "Layout Panner Sources", sizeof(info->module));
+        std::strncpy(info->module, "DBAP Panner Sources", sizeof(info->module));
         info->min_value = def.min;
         info->max_value = def.max;
         info->default_value = def.def;
@@ -413,7 +423,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->id = def.id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0);
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, "Layout Panner", sizeof(info->module));
+    std::strncpy(info->module, "DBAP Panner", sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -443,7 +453,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     const auto& selected = sources[params.selectedSource];
     switch (id) {
     case kLayoutParamId: *value = static_cast<double>(static_cast<uint32_t>(params.layout)); return true;
-    case kMethodParamId: *value = static_cast<double>(static_cast<uint32_t>(params.method)); return true;
+    case kMethodParamId: *value = static_cast<double>(static_cast<uint32_t>(kFixedMethod)); return true;
     case kFocusParamId: *value = params.focus; return true;
     case kRolloffParamId: *value = params.distanceRolloffDb; return true;
     case kSmoothingParamId: *value = params.smoothingMs; return true;
@@ -467,7 +477,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
 {
     if (!display || size == 0) return false;
     if (id == kLayoutParamId) std::snprintf(display, size, "%s", s3g::layoutPannerPresetName(static_cast<s3g::LayoutPannerPreset>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, kLayoutCount - 1u))));
-    else if (id == kMethodParamId) std::snprintf(display, size, "%s", s3g::layoutPannerMethodName(static_cast<s3g::LayoutPannerMethod>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 1u))));
+    else if (id == kMethodParamId) std::snprintf(display, size, "%s", s3g::layoutPannerMethodName(kFixedMethod));
     else if (id == kInsideModeParamId) std::snprintf(display, size, "%s", s3g::layoutPannerInsideModeName(static_cast<s3g::LayoutPannerInsideMode>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 3u))));
     else if (id == kSelectedSourceParamId) std::snprintf(display, size, "S%.0f", value);
     else if (id == kActiveSourcesParamId) std::snprintf(display, size, "%.0f sources", value);
@@ -532,7 +542,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         const size_t restSize = sizeof(legacy) - sizeof(legacy.version);
         if (stream->read(stream, rest, restSize) != static_cast<int64_t>(restSize)) return false;
         s.params.layout = legacy.params.layout;
-        s.params.method = legacy.params.method;
+        s.params.method = kFixedMethod;
         s.params.activeSources = s3g::kLayoutPannerSources;
         s.params.selectedSource = legacy.params.selectedSource;
         s.params.activeSpeakers = legacy.params.activeSpeakers;
@@ -553,6 +563,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     auto* p = self(plugin);
     p->params = s.params;
+    forceFixedMethod(*p);
     p->panner.setParams(p->params);
     for (uint32_t i = 0; i < s3g::kLayoutPannerSources; ++i) p->panner.setSource(i, s.sources[i]);
     if (s.params.layout == s3g::LayoutPannerPreset::Custom) {
@@ -751,12 +762,11 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
 - (void)drawOpenMenu:(NSDictionary*)attrs
 {
     if (_openMenu <= 0 || _menuItemCount == 0) return;
-    static NSString* methodItems[] = { @"DIST", @"COS" };
     static NSString* insideItems[] = { @"HOLD", @"ATTENUATE", @"DIFFUSE", @"CENTER" };
     static NSString* shapeItems[] = { @"AUTO", @"RING", @"DOME", @"GEO", @"STACK" };
     std::array<NSString*, kLayoutCount> layoutItems {};
     for (uint32_t i = 0; i < kLayoutCount; ++i) layoutItems[i] = layoutMenuItem(i);
-    NSString** items = _openMenu == 1 ? layoutItems.data() : (_openMenu == 3 ? shapeItems : (_openMenu == 4 ? insideItems : methodItems));
+    NSString** items = _openMenu == 1 ? layoutItems.data() : (_openMenu == 4 ? insideItems : shapeItems);
     const CGFloat itemH = 18.0;
     const CGFloat w = _openMenu == 1 ? 148.0 : (_openMenu == 3 ? 92.0 : (_openMenu == 4 ? 102.0 : 78.0));
     NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, w, itemH * static_cast<CGFloat>(_menuItemCount));
@@ -765,7 +775,6 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         auto* p = static_cast<Plugin*>(_plugin);
         const auto params = p->panner.params();
         if (_openMenu == 1) selected = static_cast<int>(menuIndexForLayoutPreset(static_cast<uint32_t>(params.layout)));
-        else if (_openMenu == 2) selected = static_cast<int>(static_cast<uint32_t>(params.method));
         else if (_openMenu == 3) selected = static_cast<int>(static_cast<uint32_t>(params.customShape));
         else if (_openMenu == 4) selected = static_cast<int>(static_cast<uint32_t>(params.insideMode));
     }
@@ -1582,7 +1591,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         }];
     }
     return @{
-        @"format": @"s3g-layout-panner-speakers-v1",
+        @"format": @"s3g-dbap-panner-speakers-v1",
         @"shape": [NSString stringWithUTF8String:s3g::layoutPannerCustomShapeName(params.customShape)],
         @"speaker_count": @(params.activeSpeakers),
         @"speakers": list
@@ -1711,7 +1720,6 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", speaker.elevationDeg] norm:(speaker.elevationDeg + 90.0f) / 180.0f y:472 attrs:small style:style];
         [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", speaker.distance] norm:(speaker.distance - 0.1f) / 2.9f y:498 attrs:small style:style];
     } else {
-        [self drawMenu:@"METHOD" value:[NSString stringWithUTF8String:s3g::layoutPannerMethodName(params.method)] y:104 attrs:small style:style];
         [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%.2f", params.focus] norm:(params.focus - 0.25f) / 3.75f y:130 attrs:small style:style];
         [self drawSlider:@"ROLL" value:[NSString stringWithFormat:@"%.1f", params.distanceRolloffDb] norm:params.distanceRolloffDb / 48.0f y:156 attrs:small style:style];
         [self drawSlider:@"SMTH" value:[NSString stringWithFormat:@"%.0f", params.smoothingMs] norm:(params.smoothingMs - 1.0f) / 249.0f y:182 attrs:small style:style];
@@ -1821,8 +1829,6 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
                 p->params = p->panner.params();
             } else if (_openMenu == 4) {
                 applyParam(*p, kInsideModeParamId, index);
-            } else {
-                applyParam(*p, kMethodParamId, index);
             }
             _openMenu = 0;
             _hoverMenuItem = -1;
@@ -1974,7 +1980,6 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         }
     }
     if (NSPointInRect(pt, NSMakeRect(738, 77, 102, 17))) { openMenu(1, kLayoutCount, 96); return; }
-    if (_page != 2 && NSPointInRect(pt, NSMakeRect(738, 103, 102, 17))) { openMenu(2, 2, 122); return; }
     if (_page == 2 && NSPointInRect(pt, NSMakeRect(738, 103, 102, 17))) { openMenu(3, kDesignShapeMenuCount, 122); return; }
     if (_page != 2 && NSPointInRect(pt, NSMakeRect(738, 311, 102, 17))) { openMenu(4, 4, 330); return; }
     if (_page == 2) {
@@ -2109,14 +2114,14 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
-    "org.s3g.s3g-dsp.layout-panner",
-    "s3g Layout Panner",
+    "org.s3g.s3g-dsp.dbap-panner",
+    "s3g DBAP Panner",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
     "0.1.0",
-    "64-source direct layout panner with selectable multichannel speaker fields.",
+    "64-source DBAP panner with selectable multichannel speaker fields.",
     features
 };
 
@@ -2127,6 +2132,7 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     if (!p) return nullptr;
     p->host = host;
     p->panner.prepare(48000.0);
+    forceFixedMethod(*p);
     p->panner.setParams(p->params);
     p->params = p->panner.params();
     p->plugin.desc = &descriptor;

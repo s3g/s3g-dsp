@@ -43,7 +43,7 @@
 
         <h2 id="status">Status</h2>
 
-        <p>This is a pre-release project. Plugin names, parameters, and saved states may change. The current macOS CLAP package includes 45 plugin bundles.</p>
+        <p>This is a pre-release project. Plugin names, parameters, and saved states may change. The current macOS CLAP package includes more than sixty plugin bundles, including fixed-width variants for several calibration and bus utilities.</p>
 
         <h3>Current Plugins</h3>
 
@@ -72,6 +72,9 @@
           <li><code>s3g Group Matrix 32/64</code>: general group matrix mixers for 32- or 64-channel buses.</li>
           <li><a href="ambisonic-bus-processors.html#node"><code>s3g Node Bus Mixer 128</code></a>: general node/cursor bus mixer for source blocks routed into a wide track and mapped into a selected output bed.</li>
           <li><a href="3oafx-layout-panner.html"><code>s3g Layout Panner</code></a>: direct 64-source to 64-speaker spatial panner with source mixing, speaker presets, and custom layout design.</li>
+          <li><a href="3oafx-layout-panner.html#panner-variants"><code>s3g DBAP / LBAP / VBAP Panner</code></a>: direct-panner variants using distance-based, layer/local-lobe, and vector-base amplitude panning. LBAP and VBAP use topology-aware solver overlays and imaginary speaker support.</li>
+          <li><code>s3g Sub Crossover</code>: layout-aware subwoofer crossover/send utility for up to eight subwoofer channels.</li>
+          <li><code>s3g Array HPF / Delay / Trim</code>: fixed-width speaker-array calibration utilities for high-pass filtering, arrival-time alignment, trims, mutes, and polarity checks.</li>
           <li><a href="loop-processor.html"><code>s3g Loop Processor 8ch</code></a>: CLAP instrument plugin for loaded audio loops, lane playheads, waveform display, and phase relationship controls.</li>
           <li><code>s3g Macro Delay 8ch/24ch</code>: compact multichannel delay macros with relationship controls.</li>
           <li><code>s3g Macro Pitch 8ch/24ch</code>: compact multichannel pitch macros with the shared Macro control layout.</li>
@@ -99,7 +102,7 @@
           <a class="category-card" href="3oafx.html">
             <span>ambisonics</span>
             <strong>Ambisonics</strong>
-            <em>Point Encoder, Speaker Decoder, Layout Panner, bus processors, ambisonic utilities, stereo/head decoders, energy visualizer, and single-effect 3OAFX processors.</em>
+            <em>Point Encoder, Speaker Decoder, direct panner variants, bus processors, ambisonic utilities, stereo/head decoders, energy visualizer, and single-effect 3OAFX processors.</em>
           </a>
           <a class="category-card" href="instruments.html">
             <span>CLAP instruments</span>

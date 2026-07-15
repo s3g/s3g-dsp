@@ -24,9 +24,9 @@ namespace {
 
 constexpr uint32_t kInputChannels = s3g::kAmbiSpeakerDecoderMaxChannels;
 constexpr uint32_t kOutputChannels = s3g::kAmbiSpeakerDecoderMaxSpeakers;
-constexpr uint32_t kStateVersion = 4;
-constexpr uint32_t kMaxLayoutParamValue = static_cast<uint32_t>(s3g::AmbiSpeakerLayoutPreset::OctophonicRing);
-constexpr uint32_t kLayoutMenuCount = 11;
+constexpr uint32_t kStateVersion = 5;
+constexpr uint32_t kMaxLayoutParamValue = static_cast<uint32_t>(s3g::AmbiSpeakerLayoutPreset::Srst25);
+constexpr uint32_t kLayoutMenuCount = 14;
 
 constexpr clap_id kLayoutParamId = 1;
 constexpr clap_id kModeParamId = 2;
@@ -50,6 +50,16 @@ struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiSpeakerDecoderParams params {};
     std::array<s3g::AmbiSpeaker, s3g::kAmbiSpeakerDecoderMaxSpeakers> speakers {};
+    int32_t guiViewMode = 2;
+    double guiViewAzDeg = 35.0;
+    double guiViewElDeg = 34.0;
+    double guiViewZoom = 1.0;
+};
+
+struct SavedStateV4 {
+    uint32_t version = 4;
+    s3g::AmbiSpeakerDecoderParams params {};
+    std::array<s3g::AmbiSpeaker, s3g::kAmbiSpeakerDecoderMaxSpeakers> speakers {};
 };
 
 struct Plugin {
@@ -63,6 +73,10 @@ struct Plugin {
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
+    int guiViewMode = 2;
+    double guiViewAzDeg = 35.0;
+    double guiViewElDeg = 34.0;
+    double guiViewZoom = 1.0;
 #endif
 };
 
@@ -74,13 +88,16 @@ const char* layoutName(uint32_t value)
     case 1: return "QUAD";
     case 2: return "CUBE 8";
     case 3: return "CUBE 17";
+    case 11: return "CUBE 41";
     case 4: return "DOME 24";
     case 5: return "DOME 25";
     case 6: return "QUAD+OH";
     case 7: return "3OAFX 24";
     case 8: return "DODECA 12";
     case 9: return "ICOSAHEDRON 20";
+    case 12: return "LPAC 41";
     case 10: return "OCTO RING";
+    case 13: return "SRST 25";
     default: return "CUSTOM";
     }
 }
@@ -91,13 +108,16 @@ uint32_t layoutPresetForMenuIndex(uint32_t index)
         0u, // CUSTOM
         2u, // CUBE 8
         3u, // CUBE 17
+        11u, // CUBE 41
         8u, // DODECA 12
         4u, // DOME 24
         5u, // DOME 25
         9u, // ICOSAHEDRON 20
+        12u, // LPAC 41
         10u, // OCTO RING
         1u, // QUAD
         6u, // QUAD+OH
+        13u, // SRST 25
         7u, // 3OAFX 24
     };
     return values[std::min<uint32_t>(index, static_cast<uint32_t>(std::size(values) - 1u))];
@@ -332,19 +352,48 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     auto* p = self(plugin);
     s.params = p->params;
     s.speakers = p->decoder.speakers();
+#if defined(__APPLE__)
+    s.guiViewMode = p->guiViewMode;
+    s.guiViewAzDeg = p->guiViewAzDeg;
+    s.guiViewElDeg = p->guiViewElDeg;
+    s.guiViewZoom = p->guiViewZoom;
+#endif
     return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
+    uint32_t version = 0;
+    if (stream->read(stream, &version, sizeof(version)) != static_cast<int64_t>(sizeof(version))) return false;
     SavedState s {};
-    if (stream->read(stream, &s, sizeof(s)) != static_cast<int64_t>(sizeof(s)) || s.version != kStateVersion) return false;
+    s.version = version;
+    if (version == kStateVersion) {
+        char* rest = reinterpret_cast<char*>(&s) + sizeof(s.version);
+        const size_t restSize = sizeof(s) - sizeof(s.version);
+        if (stream->read(stream, rest, restSize) != static_cast<int64_t>(restSize)) return false;
+    } else if (version == 4u) {
+        SavedStateV4 legacy {};
+        legacy.version = version;
+        char* rest = reinterpret_cast<char*>(&legacy) + sizeof(legacy.version);
+        const size_t restSize = sizeof(legacy) - sizeof(legacy.version);
+        if (stream->read(stream, rest, restSize) != static_cast<int64_t>(restSize)) return false;
+        s.params = legacy.params;
+        s.speakers = legacy.speakers;
+    } else {
+        return false;
+    }
     auto* p = self(plugin);
     p->params = s.params;
     p->decoder.setParams(p->params);
     p->decoder.setSpeakers(s.speakers);
     p->params = p->decoder.params();
+#if defined(__APPLE__)
+    p->guiViewMode = std::clamp<int>(s.guiViewMode, 0, 2);
+    p->guiViewAzDeg = std::clamp(s.guiViewAzDeg, -180.0, 180.0);
+    p->guiViewElDeg = std::clamp(s.guiViewElDeg, -90.0, 90.0);
+    p->guiViewZoom = std::clamp(s.guiViewZoom, 0.25, 4.0);
+#endif
     return true;
 }
 
@@ -385,6 +434,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (BOOL)acceptsFirstResponder;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
+- (void)storeViewState;
 - (NSTextField*)makeValueField:(NSInteger)tag;
 - (NSTextField*)makeMixerGainField:(NSInteger)tag;
 - (void)updateValueFields;
@@ -459,11 +509,18 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         _plugin = plugin;
         _dragSlider = -1;
         _timer = nil;
-        _viewMode = 2;
         _rightPage = 0;
-        _viewAzDeg = 35.0;
-        _viewElDeg = 34.0;
-        _viewZoom = 1.0;
+        if (auto* p = static_cast<Plugin*>(_plugin)) {
+            _viewMode = p->guiViewMode;
+            _viewAzDeg = p->guiViewAzDeg;
+            _viewElDeg = p->guiViewElDeg;
+            _viewZoom = p->guiViewZoom;
+        } else {
+            _viewMode = 2;
+            _viewAzDeg = 35.0;
+            _viewElDeg = 34.0;
+            _viewZoom = 1.0;
+        }
         _dragView = NO;
         _lastDragPoint = NSMakePoint(0, 0);
         _openMenu = 0;
@@ -504,7 +561,16 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     NSTrackingArea* area = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:options owner:self userInfo:nil];
     [self addTrackingArea:[area autorelease]];
 }
-- (void)dealloc { [self stopRefreshTimer]; [super dealloc]; }
+- (void)dealloc { [self storeViewState]; [self stopRefreshTimer]; [super dealloc]; }
+- (void)storeViewState
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    if (!p) return;
+    p->guiViewMode = _viewMode;
+    p->guiViewAzDeg = _viewAzDeg;
+    p->guiViewElDeg = _viewElDeg;
+    p->guiViewZoom = _viewZoom;
+}
 - (void)startRefreshTimer { if (_timer) return; _timer = [NSTimer timerWithTimeInterval:1.0/20.0 target:self selector:@selector(refresh:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
 - (void)refresh:(NSTimer*)timer
@@ -654,12 +720,13 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 - (void)drawOpenMenu:(NSDictionary*)attrs
 {
     if (_openMenu <= 0 || _menuItemCount == 0) return;
-    static NSString* layoutItems[] = { @"CUSTOM", @"CUBE 8", @"CUBE 17", @"DODECA 12", @"DOME 24", @"DOME 25", @"ICOSAHEDRON 20", @"OCTO RING", @"QUAD", @"QUAD+OH", @"3OAFX 24" };
+    std::array<NSString*, kLayoutMenuCount> layoutItems {};
+    for (uint32_t i = 0; i < kLayoutMenuCount; ++i) layoutItems[i] = [NSString stringWithUTF8String:layoutName(layoutPresetForMenuIndex(i))];
     static NSString* modeItems[] = { @"BASIC", @"EPAD", @"MMD" };
     static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
     static NSString* weightItems[] = { @"NONE", @"MAXRE", @"INPHASE" };
     static NSString* fieldItems[] = { @"SPHERE", @"HEMI" };
-    NSString** items = layoutItems;
+    NSString** items = layoutItems.data();
     if (_openMenu == 2) items = modeItems;
     else if (_openMenu == 3) items = orderItems;
     else if (_openMenu == 4) items = weightItems;
@@ -760,6 +827,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         _viewAzDeg = 35.0;
         _viewElDeg = 34.0;
     }
+    [self storeViewState];
     [self setNeedsDisplay:YES];
 }
 - (CGFloat)viewScaleForRect:(NSRect)rect
@@ -898,7 +966,12 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         edge(0, 4); edge(1, 6); edge(2, 8); edge(3, 10);
         edge(4, 12); edge(6, 13); edge(8, 14); edge(10, 15);
         edge(12, 16); edge(13, 16); edge(14, 16); edge(15, 16);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dome24 || layout == s3g::AmbiSpeakerLayoutPreset::Dome25) {
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube41 || layout == s3g::AmbiSpeakerLayoutPreset::Lpac41) {
+        ring(0, 16);
+        ring(16, 12);
+        ring(28, 8);
+        ring(36, 4);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dome24 || layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
         ring(0, 12);
         ring(12, 8);
         ring(20, 4);
@@ -912,7 +985,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
             edge(20u + i, 12u + i * 2u);
             edge(20u + i, 12u + ((i * 2u + 1u) % 8u));
         }
-        if (layout == s3g::AmbiSpeakerLayoutPreset::Dome25) {
+        if (layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
             for (uint32_t i = 0; i < 4; ++i) edge(24, 20u + i);
         }
     } else if (layout == s3g::AmbiSpeakerLayoutPreset::QuadOverhead6) {
@@ -998,7 +1071,12 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         edge(0, 4); edge(1, 6); edge(2, 8); edge(3, 10);
         edge(4, 12); edge(6, 13); edge(8, 14); edge(10, 15);
         edge(12, 16); edge(13, 16); edge(14, 16); edge(15, 16);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dome24 || layout == s3g::AmbiSpeakerLayoutPreset::Dome25) {
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube41 || layout == s3g::AmbiSpeakerLayoutPreset::Lpac41) {
+        ring(0, 16);
+        ring(16, 12);
+        ring(28, 8);
+        ring(36, 4);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dome24 || layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
         ring(0, 12); ring(12, 8); ring(20, 4);
         for (uint32_t i = 0; i < 8; ++i) {
             const uint32_t lowerA = (i * 3u) / 2u;
@@ -1009,7 +1087,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
             edge(20u + i, 12u + i * 2u);
             edge(20u + i, 12u + ((i * 2u + 1u) % 8u));
         }
-        if (layout == s3g::AmbiSpeakerLayoutPreset::Dome25) {
+        if (layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
             for (uint32_t i = 0; i < 4; ++i) edge(24, 20u + i);
         }
     } else if (layout == s3g::AmbiSpeakerLayoutPreset::QuadOverhead6) {
@@ -1054,13 +1132,11 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
             [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(square), NSMidY(square) - 13.0)
                                       toPoint:NSMakePoint(NSMidX(square), NSMidY(square) + 13.0)];
         }
-        if (n <= 32) {
-            NSString* label = [NSString stringWithFormat:@"%u", i + 1u];
-            NSSize labelSize = [label sizeWithAttributes:small];
-            [label drawAtPoint:NSMakePoint(NSMidX(square) - labelSize.width * 0.5,
-                                           NSMidY(square) - labelSize.height * 0.5 - 0.5)
-                withAttributes:small];
-        }
+        NSString* label = [NSString stringWithFormat:@"%u", i + 1u];
+        NSSize labelSize = [label sizeWithAttributes:small];
+        [label drawAtPoint:NSMakePoint(NSMidX(square) - labelSize.width * 0.5,
+                                       NSMidY(square) - labelSize.height * 0.5 - 0.5)
+            withAttributes:small];
     }
     [sdColor(0xd0d0d0, 0.76) setStroke];
     [links setLineWidth:1.15];
@@ -1449,6 +1525,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
             if (NSPointInRect(pt, [self zoomButtonRect:i inRect:fieldPanel])) {
                 const CGFloat step = i == 0 ? -0.15 : 0.15;
                 _viewZoom = std::clamp(_viewZoom + step, 0.55, 2.20);
+                [self storeViewState];
                 [self setNeedsDisplay:YES];
                 return;
             }
@@ -1512,6 +1589,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         _viewElDeg = std::clamp(_viewElDeg + dy * 0.35, -85.0, 85.0);
         _viewMode = -1;
         _lastDragPoint = pt;
+        [self storeViewState];
         [self setNeedsDisplay:YES];
         return;
     }

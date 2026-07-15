@@ -200,6 +200,10 @@ Speaker decoder views are spatial infrastructure, not physics instruments:
 - Draw nearest-neighbor links as a quiet analysis overlay behind spatial
   points. These links show geometric proximity and should not imply audio
   routing unless the plugin explicitly uses them for DSP.
+- For LBAP and VBAP panners, topology overlays are not just decoration: draw
+  the actual solver topology. Use distinct quiet colors for the methods
+  (`LBAP` cyan, `VBAP` yellow), and show imaginary solver support points
+  faintly so topology lines do not appear to terminate in empty space.
 - Keep spatial control panels separate from view controls. View changes are
   inspection tools; automation-relevant controls remain in the toolbox stack.
 - Prefer readable full parameter names in spatial infrastructure panels when

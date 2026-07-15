@@ -12,7 +12,9 @@
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_ambisonic_stereo_decoder.h"
 #include "s3g_ambisonic_sub_decoder.h"
+#include "s3g_array_delay.h"
 #include "s3g_array_hpf.h"
+#include "s3g_array_trim.h"
 #include "s3g_buffer_processor.h"
 #include "s3g_delay_processor.h"
 #include "s3g_gain.h"
@@ -1375,6 +1377,146 @@ int main()
             return 1;
         }
     }
+    auto insideModeStats = [](s3g::LayoutPannerInsideMode mode) {
+        s3g::LayoutPanner panner;
+        panner.prepare(48000.0);
+        auto params = panner.params();
+        params.layout = s3g::LayoutPannerPreset::Quad;
+        params.method = s3g::LayoutPannerMethod::Distance;
+        params.activeSources = 1;
+        params.insideMode = mode;
+        params.outputGainDb = 0.0f;
+        params.smoothingMs = 1.0f;
+        panner.setParams(params);
+        auto source = panner.source(0);
+        source.azimuthDeg = -30.0f;
+        source.elevationDeg = 0.0f;
+        source.distance = 0.1f;
+        panner.setSource(0, source);
+        float in[s3g::kLayoutPannerSources] {};
+        float out[s3g::kLayoutPannerMaxSpeakers] {};
+        for (uint32_t frame = 0; frame < 512u; ++frame) {
+            std::fill(std::begin(in), std::end(in), 0.0f);
+            in[0] = 1.0f;
+            panner.processFrame(in, out, 1u, 4u);
+        }
+        float peak = 0.0f;
+        float mean = 0.0f;
+        for (uint32_t ch = 0; ch < 4u; ++ch) {
+            peak = std::max(peak, std::abs(out[ch]));
+            mean += std::abs(out[ch]) * 0.25f;
+        }
+        float spread = 0.0f;
+        for (uint32_t ch = 0; ch < 4u; ++ch) {
+            const float d = std::abs(out[ch]) - mean;
+            spread += d * d;
+        }
+        return std::array<float, 2> { peak, std::sqrt(spread * 0.25f) };
+    };
+    const auto holdInside = insideModeStats(s3g::LayoutPannerInsideMode::Hold);
+    const auto attenInside = insideModeStats(s3g::LayoutPannerInsideMode::Attenuate);
+    const auto centerInside = insideModeStats(s3g::LayoutPannerInsideMode::CenterBlend);
+    if (attenInside[0] >= holdInside[0] * 0.5f) {
+        std::cerr << "Layout Panner inside attenuate mode did not reduce level: "
+                  << holdInside[0] << " -> " << attenInside[0] << "\n";
+        return 1;
+    }
+    if (centerInside[1] >= holdInside[1] * 0.5f) {
+        std::cerr << "Layout Panner inside center mode did not even speaker distribution: "
+                  << holdInside[1] << " -> " << centerInside[1] << "\n";
+        return 1;
+    }
+    auto planarElevationPeak = [](s3g::LayoutPannerMethod method, float elevationDeg) {
+        s3g::LayoutPanner panner;
+        panner.prepare(48000.0);
+        auto params = panner.params();
+        params.layout = s3g::LayoutPannerPreset::Quad;
+        params.method = method;
+        params.activeSources = 1;
+        params.smoothingMs = 1.0f;
+        panner.setParams(params);
+        auto source = panner.source(0);
+        source.azimuthDeg = 0.0f;
+        source.elevationDeg = elevationDeg;
+        source.distance = 1.0f;
+        panner.setSource(0, source);
+        float in[s3g::kLayoutPannerSources] {};
+        float out[s3g::kLayoutPannerMaxSpeakers] {};
+        float peak = 0.0f;
+        for (uint32_t frame = 0; frame < 512u; ++frame) {
+            std::fill(std::begin(in), std::end(in), 0.0f);
+            in[0] = 1.0f;
+            panner.processFrame(in, out, 1u, 4u);
+        }
+        for (uint32_t ch = 0; ch < 4u; ++ch) peak = std::max(peak, std::abs(out[ch]));
+        return peak;
+    };
+    const float vbapFlatPeak = planarElevationPeak(s3g::LayoutPannerMethod::Vbap, 0.0f);
+    const float vbapHighPeak = planarElevationPeak(s3g::LayoutPannerMethod::Vbap, 60.0f);
+    const float lbapFlatPeak = planarElevationPeak(s3g::LayoutPannerMethod::Lbap, 0.0f);
+    const float lbapHighPeak = planarElevationPeak(s3g::LayoutPannerMethod::Lbap, 60.0f);
+    if (vbapHighPeak >= vbapFlatPeak * 0.75f || lbapHighPeak >= lbapFlatPeak * 0.75f) {
+        std::cerr << "2D VBAP/LBAP elevation did not attenuate: VBAP "
+                  << vbapFlatPeak << " -> " << vbapHighPeak
+                  << ", LBAP " << lbapFlatPeak << " -> " << lbapHighPeak << "\n";
+        return 1;
+    }
+    auto overheadPoleStats = [](s3g::LayoutPannerMethod method, float elevationDeg) {
+        s3g::LayoutPanner panner;
+        panner.prepare(48000.0);
+        auto params = panner.params();
+        params.layout = s3g::LayoutPannerPreset::QuadOverhead6;
+        params.method = method;
+        params.activeSources = 1;
+        params.outputGainDb = 0.0f;
+        params.smoothingMs = 1.0f;
+        panner.setParams(params);
+        auto source = panner.source(0);
+        source.azimuthDeg = 0.0f;
+        source.elevationDeg = elevationDeg;
+        source.distance = 1.0f;
+        panner.setSource(0, source);
+        float in[s3g::kLayoutPannerSources] {};
+        float out[s3g::kLayoutPannerMaxSpeakers] {};
+        float peak = 0.0f;
+        for (uint32_t frame = 0; frame < 512u; ++frame) {
+            std::fill(std::begin(in), std::end(in), 0.0f);
+            in[0] = 1.0f;
+            panner.processFrame(in, out, 1u, 6u);
+        }
+        for (uint32_t ch = 0; ch < 6u; ++ch) peak = std::max(peak, std::abs(out[ch]));
+        return std::array<float, 3> { peak, std::abs(out[4]), std::abs(out[5]) };
+    };
+    const auto vbapUpperPole = overheadPoleStats(s3g::LayoutPannerMethod::Vbap, 90.0f);
+    const auto vbapLowerMid = overheadPoleStats(s3g::LayoutPannerMethod::Vbap, -45.0f);
+    const auto vbapLowerDeep = overheadPoleStats(s3g::LayoutPannerMethod::Vbap, -75.0f);
+    const auto vbapLowerPole = overheadPoleStats(s3g::LayoutPannerMethod::Vbap, -90.0f);
+    const auto lbapUpperPole = overheadPoleStats(s3g::LayoutPannerMethod::Lbap, 90.0f);
+    const auto lbapLowerMid = overheadPoleStats(s3g::LayoutPannerMethod::Lbap, -45.0f);
+    const auto lbapLowerDeep = overheadPoleStats(s3g::LayoutPannerMethod::Lbap, -75.0f);
+    const auto lbapLowerPole = overheadPoleStats(s3g::LayoutPannerMethod::Lbap, -90.0f);
+    const auto distLowerMid = overheadPoleStats(s3g::LayoutPannerMethod::Distance, -45.0f);
+    const auto distLowerDeep = overheadPoleStats(s3g::LayoutPannerMethod::Distance, -75.0f);
+    const auto distLowerPole = overheadPoleStats(s3g::LayoutPannerMethod::Distance, -90.0f);
+    const auto dbapLowerMid = overheadPoleStats(s3g::LayoutPannerMethod::Dbap, -45.0f);
+    const auto dbapLowerDeep = overheadPoleStats(s3g::LayoutPannerMethod::Dbap, -75.0f);
+    const auto dbapLowerPole = overheadPoleStats(s3g::LayoutPannerMethod::Dbap, -90.0f);
+    if (vbapUpperPole[0] <= 0.1f || lbapUpperPole[0] <= 0.1f
+        || std::fabs(vbapUpperPole[1] - vbapUpperPole[2]) > 0.0001f
+        || std::fabs(lbapUpperPole[1] - lbapUpperPole[2]) > 0.0001f
+        || vbapLowerMid[0] <= vbapLowerDeep[0] || lbapLowerMid[0] <= lbapLowerDeep[0]
+        || vbapLowerDeep[0] <= vbapLowerPole[0] || lbapLowerDeep[0] <= lbapLowerPole[0]
+        || distLowerMid[0] <= distLowerDeep[0] || dbapLowerMid[0] <= dbapLowerDeep[0]
+        || distLowerDeep[0] <= distLowerPole[0] || dbapLowerDeep[0] <= dbapLowerPole[0]
+        || vbapLowerPole[0] > 0.000001f || lbapLowerPole[0] > 0.000001f
+        || distLowerPole[0] > 0.000001f || dbapLowerPole[0] > 0.000001f) {
+        std::cerr << "LBAP/VBAP overhead layout pole behavior failed: VBAP +"
+                  << vbapUpperPole[0] << " / mid-" << vbapLowerMid[0] << " / deep-" << vbapLowerDeep[0] << " / -" << vbapLowerPole[0]
+                  << ", LBAP +" << lbapUpperPole[0] << " / mid-" << lbapLowerMid[0] << " / deep-" << lbapLowerDeep[0] << " / -" << lbapLowerPole[0]
+                  << ", DIST mid-" << distLowerMid[0] << " / deep-" << distLowerDeep[0] << " / -" << distLowerPole[0]
+                  << ", DBAP mid-" << dbapLowerMid[0] << " / deep-" << dbapLowerDeep[0] << " / -" << dbapLowerPole[0] << "\n";
+        return 1;
+    }
     layoutPannerParams.layout = s3g::LayoutPannerPreset::QuadOverhead6;
     layoutPanner.setParams(layoutPannerParams);
     if (layoutPanner.activeSpeakers() != 6u
@@ -1388,6 +1530,36 @@ int main()
         || std::abs(layoutPanner.speakers()[5].elevationDeg - 60.0f) > 0.001f) {
         std::cerr << "Layout Panner quad+overhead layout changed unexpectedly\n";
         return 1;
+    }
+    {
+        s3g::LayoutPanner polePanner;
+        polePanner.prepare(48000.0);
+        auto poleParams = polePanner.params();
+        poleParams.layout = s3g::LayoutPannerPreset::QuadOverhead6;
+        poleParams.method = s3g::LayoutPannerMethod::Vbap;
+        poleParams.activeSources = 1;
+        poleParams.smoothingMs = 1.0f;
+        polePanner.setParams(poleParams);
+        auto poleSource = polePanner.source(0);
+        poleSource.azimuthDeg = 0.0f;
+        poleSource.elevationDeg = 90.0f;
+        poleSource.distance = 1.0f;
+        polePanner.setSource(0, poleSource);
+        float poleIn[s3g::kLayoutPannerSources] {};
+        float poleOut[s3g::kLayoutPannerMaxSpeakers] {};
+        for (uint32_t frame = 0; frame < 512u; ++frame) {
+            std::fill(std::begin(poleIn), std::end(poleIn), 0.0f);
+            poleIn[0] = 1.0f;
+            polePanner.processFrame(poleIn, poleOut, 1u, 6u);
+        }
+        const float overheadL = std::abs(poleOut[4]);
+        const float overheadR = std::abs(poleOut[5]);
+        const float floorPeak = std::max({ std::abs(poleOut[0]), std::abs(poleOut[1]), std::abs(poleOut[2]), std::abs(poleOut[3]) });
+        if (std::abs(overheadL - overheadR) > 0.01f || overheadL <= floorPeak || overheadR <= floorPeak) {
+            std::cerr << "VBAP pole cap did not settle to balanced overheads: "
+                      << overheadL << " / " << overheadR << " floor " << floorPeak << "\n";
+            return 1;
+        }
     }
     layoutPannerParams.activeSources = 2;
     layoutPanner.setParams(layoutPannerParams);
@@ -3302,6 +3474,90 @@ int main()
         return 1;
     }
 
+    s3g::ArrayDelay arrayDelay;
+    arrayDelay.prepare(48000.0);
+    s3g::ArrayDelayParams arrayDelayParams {};
+    arrayDelayParams.activeChannels = 2;
+    arrayDelayParams.delayMs[0] = 1.0f;
+    arrayDelayParams.delayMs[1] = 0.0f;
+    arrayDelay.setParams(arrayDelayParams);
+    constexpr uint32_t arrayDelayFrames = 96u;
+    std::array<std::array<float, arrayDelayFrames>, s3g::kArrayDelayMaxChannels> arrayDelayIn {};
+    std::array<std::array<float, arrayDelayFrames>, s3g::kArrayDelayMaxChannels> arrayDelayOut {};
+    std::array<const float*, s3g::kArrayDelayMaxChannels> arrayDelayInPtrs {};
+    std::array<float*, s3g::kArrayDelayMaxChannels> arrayDelayOutPtrs {};
+    for (uint32_t ch = 0; ch < s3g::kArrayDelayMaxChannels; ++ch) {
+        arrayDelayInPtrs[ch] = arrayDelayIn[ch].data();
+        arrayDelayOutPtrs[ch] = arrayDelayOut[ch].data();
+    }
+    arrayDelayIn[0][0] = 1.0f;
+    arrayDelayIn[1][0] = 1.0f;
+    arrayDelay.processBlock(arrayDelayInPtrs.data(), arrayDelayOutPtrs.data(), 2u, 2u, arrayDelayFrames);
+    if (std::abs(arrayDelayOut[0][48] - 1.0f) > 0.0001f || std::abs(arrayDelayOut[1][0] - 1.0f) > 0.0001f) {
+        std::cerr << "Array Delay impulse timing failed: " << arrayDelayOut[0][48] << " / " << arrayDelayOut[1][0] << "\n";
+        return 1;
+    }
+    arrayDelayParams.bypass = true;
+    arrayDelay.setParams(arrayDelayParams);
+    arrayDelay.reset();
+    for (auto& row : arrayDelayOut) row.fill(0.0f);
+    arrayDelay.processBlock(arrayDelayInPtrs.data(), arrayDelayOutPtrs.data(), 2u, 2u, arrayDelayFrames);
+    if (std::abs(arrayDelayOut[0][0] - 1.0f) > 0.0001f) {
+        std::cerr << "Array Delay bypass did not pass through immediately\n";
+        return 1;
+    }
+
+    s3g::ArrayTrim arrayTrim;
+    arrayTrim.prepare(48000.0);
+    s3g::ArrayTrimParams arrayTrimParams {};
+    arrayTrimParams.activeChannels = 4;
+    arrayTrimParams.gainDb[0] = -6.0f;
+    arrayTrimParams.mute[1] = 1u;
+    arrayTrimParams.invert[2] = 1u;
+    arrayTrim.setParams(arrayTrimParams);
+    constexpr uint32_t arrayTrimFrames = 8u;
+    std::array<std::array<float, arrayTrimFrames>, s3g::kArrayTrimMaxChannels> arrayTrimIn {};
+    std::array<std::array<float, arrayTrimFrames>, s3g::kArrayTrimMaxChannels> arrayTrimOut {};
+    std::array<const float*, s3g::kArrayTrimMaxChannels> arrayTrimInPtrs {};
+    std::array<float*, s3g::kArrayTrimMaxChannels> arrayTrimOutPtrs {};
+    for (uint32_t ch = 0; ch < s3g::kArrayTrimMaxChannels; ++ch) {
+        arrayTrimInPtrs[ch] = arrayTrimIn[ch].data();
+        arrayTrimOutPtrs[ch] = arrayTrimOut[ch].data();
+        std::fill(arrayTrimIn[ch].begin(), arrayTrimIn[ch].end(), 1.0f);
+    }
+    arrayTrim.processBlock(arrayTrimInPtrs.data(), arrayTrimOutPtrs.data(), 5u, 5u, arrayTrimFrames);
+    if (std::abs(arrayTrimOut[0][0] - s3g::dbToGain(-6.0f)) > 0.0001f || std::abs(arrayTrimOut[1][0]) > 0.0001f || std::abs(arrayTrimOut[2][0] + 1.0f) > 0.0001f || std::abs(arrayTrimOut[4][0]) > 0.0001f) {
+        std::cerr << "Array Trim gain/mute/invert/active behavior failed\n";
+        return 1;
+    }
+    arrayTrimParams.bypass = true;
+    arrayTrim.setParams(arrayTrimParams);
+    for (auto& row : arrayTrimOut) row.fill(0.0f);
+    arrayTrim.processBlock(arrayTrimInPtrs.data(), arrayTrimOutPtrs.data(), 5u, 5u, arrayTrimFrames);
+    if (std::abs(arrayTrimOut[0][0] - 1.0f) > 0.0001f || std::abs(arrayTrimOut[1][0] - 1.0f) > 0.0001f || std::abs(arrayTrimOut[2][0] - 1.0f) > 0.0001f) {
+        std::cerr << "Array Trim bypass did not pass active channels through\n";
+        return 1;
+    }
+
+    s3g::LayoutPanner cube41Panner;
+    cube41Panner.prepare(48000.0);
+    auto cube41PannerParams = cube41Panner.params();
+    cube41PannerParams.layout = s3g::LayoutPannerPreset::Cube41;
+    cube41Panner.setParams(cube41PannerParams);
+    if (cube41Panner.params().activeSpeakers != s3g::kCube41SpeakerCount) {
+        std::cerr << "Layout Panner cube41 speaker count failed\n";
+        return 1;
+    }
+    s3g::AmbiSpeakerDecoder cube41Decoder;
+    cube41Decoder.prepare(48000.0);
+    auto cube41DecoderParams = cube41Decoder.params();
+    cube41DecoderParams.layout = s3g::AmbiSpeakerLayoutPreset::Cube41;
+    cube41Decoder.setParams(cube41DecoderParams);
+    if (cube41Decoder.params().activeSpeakers != s3g::kCube41SpeakerCount) {
+        std::cerr << "Ambi decoder cube41 speaker count failed\n";
+        return 1;
+    }
+
     std::cout << "s3g-dsp smoke test passed\n";
     std::cout << "layout speakers: " << s3g::kVirtualSpeakerCount << "\n";
     std::cout << "gain ch1 sample4: " << samples[0][3] << "\n";
@@ -3320,6 +3576,9 @@ int main()
     std::cout << "wave geometry peak/delta: " << waveGeometryPeak << " / " << waveGeometryDelta << "\n";
     std::cout << "ambi sub decoder peak/spread: " << ambiSubPeak << " / " << ambiSubSpread << "\n";
     std::cout << "array HPF low/high: " << arrayHpfLowTail << " / " << arrayHpfHighPeak << "\n";
+    std::cout << "array delay impulse: " << arrayDelayOut[0][0] << "\n";
+    std::cout << "array trim ch1/ch3: " << arrayTrimOut[0][0] << " / " << arrayTrimOut[2][0] << "\n";
+    std::cout << "cube41 speakers: " << cube41Decoder.params().activeSpeakers << "\n";
     std::cout << "Ambi point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "Ambi speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";
