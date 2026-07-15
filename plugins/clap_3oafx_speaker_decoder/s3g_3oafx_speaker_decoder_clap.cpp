@@ -25,6 +25,8 @@ namespace {
 constexpr uint32_t kInputChannels = s3g::kAmbiSpeakerDecoderMaxChannels;
 constexpr uint32_t kOutputChannels = s3g::kAmbiSpeakerDecoderMaxSpeakers;
 constexpr uint32_t kStateVersion = 4;
+constexpr uint32_t kMaxLayoutParamValue = static_cast<uint32_t>(s3g::AmbiSpeakerLayoutPreset::OctophonicRing);
+constexpr uint32_t kLayoutMenuCount = 11;
 
 constexpr clap_id kLayoutParamId = 1;
 constexpr clap_id kModeParamId = 2;
@@ -76,6 +78,9 @@ const char* layoutName(uint32_t value)
     case 5: return "DOME 25";
     case 6: return "QUAD+OH";
     case 7: return "3OAFX 24";
+    case 8: return "DODECA 12";
+    case 9: return "ICOSAHEDRON 20";
+    case 10: return "OCTO RING";
     default: return "CUSTOM";
     }
 }
@@ -86,8 +91,11 @@ uint32_t layoutPresetForMenuIndex(uint32_t index)
         0u, // CUSTOM
         2u, // CUBE 8
         3u, // CUBE 17
+        8u, // DODECA 12
         4u, // DOME 24
         5u, // DOME 25
+        9u, // ICOSAHEDRON 20
+        10u, // OCTO RING
         1u, // QUAD
         6u, // QUAD+OH
         7u, // 3OAFX 24
@@ -121,7 +129,7 @@ const char* customFieldName(uint32_t value)
 void applyParam(Plugin& p, clap_id id, double value)
 {
     switch (id) {
-    case kLayoutParamId: p.params.layout = static_cast<s3g::AmbiSpeakerLayoutPreset>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 7u)); break;
+    case kLayoutParamId: p.params.layout = static_cast<s3g::AmbiSpeakerLayoutPreset>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, kMaxLayoutParamValue)); break;
     case kModeParamId: p.params.mode = static_cast<s3g::AmbiSpeakerDecoderMode>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 2u)); break;
     case kOrderParamId: p.params.order = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiSpeakerDecoderMaxOrder); break;
     case kActiveSpeakersParamId: p.params.activeSpeakers = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 2u, s3g::kAmbiSpeakerDecoderMaxSpeakers); p.params.layout = s3g::AmbiSpeakerLayoutPreset::Custom; break;
@@ -235,7 +243,7 @@ const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; bool stepped; };
 constexpr ParamDef kParamDefs[] {
-    { kLayoutParamId, "Layout", 0.0, 7.0, 7.0, true },
+    { kLayoutParamId, "Layout", 0.0, static_cast<double>(kMaxLayoutParamValue), 7.0, true },
     { kModeParamId, "Mode", 0.0, 2.0, 1.0, true },
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
     { kActiveSpeakersParamId, "Active Speakers", 2.0, 64.0, 24.0, true },
@@ -646,7 +654,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 - (void)drawOpenMenu:(NSDictionary*)attrs
 {
     if (_openMenu <= 0 || _menuItemCount == 0) return;
-    static NSString* layoutItems[] = { @"CUSTOM", @"CUBE 8", @"CUBE 17", @"DOME 24", @"DOME 25", @"QUAD", @"QUAD+OH", @"3OAFX 24" };
+    static NSString* layoutItems[] = { @"CUSTOM", @"CUBE 8", @"CUBE 17", @"DODECA 12", @"DOME 24", @"DOME 25", @"ICOSAHEDRON 20", @"OCTO RING", @"QUAD", @"QUAD+OH", @"3OAFX 24" };
     static NSString* modeItems[] = { @"BASIC", @"EPAD", @"MMD" };
     static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
     static NSString* weightItems[] = { @"NONE", @"MAXRE", @"INPHASE" };
@@ -657,7 +665,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     else if (_openMenu == 4) items = weightItems;
     else if (_openMenu == 5) items = fieldItems;
     const CGFloat itemH = 18.0;
-    const CGFloat w = 124.0;
+    const CGFloat w = _openMenu == 1 ? 150.0 : 124.0;
     NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, w, itemH * static_cast<CGFloat>(_menuItemCount));
     int selected = 0;
     if (_plugin) {
@@ -784,6 +792,66 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     if (depth) *depth = static_cast<CGFloat>(z2);
     return NSMakePoint(cx + static_cast<CGFloat>(x1) * scale, cy - static_cast<CGFloat>(y2) * scale);
 }
+- (void)addPolyhedronShellToPath:(NSBezierPath*)links dodecaShell:(BOOL)dodecaShell rect:(NSRect)rect
+{
+    if (!links) return;
+    constexpr float phi = 1.61803398875f;
+    constexpr float invPhi = 1.0f / phi;
+    std::array<s3g::Vec3, 20> verts {};
+    const uint32_t count = dodecaShell ? 20u : 12u;
+    if (dodecaShell) {
+        const float pts[20][3] {
+            { 1, 1, 1 }, { 1, 1, -1 }, { 1, -1, 1 }, { 1, -1, -1 },
+            { -1, 1, 1 }, { -1, 1, -1 }, { -1, -1, 1 }, { -1, -1, -1 },
+            { 0, invPhi, phi }, { 0, invPhi, -phi }, { 0, -invPhi, phi }, { 0, -invPhi, -phi },
+            { invPhi, phi, 0 }, { invPhi, -phi, 0 }, { -invPhi, phi, 0 }, { -invPhi, -phi, 0 },
+            { phi, 0, invPhi }, { phi, 0, -invPhi }, { -phi, 0, invPhi }, { -phi, 0, -invPhi },
+        };
+        for (uint32_t i = 0; i < count; ++i) verts[i] = { pts[i][0], pts[i][1], pts[i][2] };
+    } else {
+        const float pts[12][3] {
+            { 0, 1, phi }, { 0, -1, phi }, { 0, 1, -phi }, { 0, -1, -phi },
+            { 1, phi, 0 }, { -1, phi, 0 }, { 1, -phi, 0 }, { -1, -phi, 0 },
+            { phi, 0, 1 }, { -phi, 0, 1 }, { phi, 0, -1 }, { -phi, 0, -1 },
+        };
+        for (uint32_t i = 0; i < count; ++i) verts[i] = { pts[i][0], pts[i][1], pts[i][2] };
+    }
+
+    std::array<NSPoint, 20> points {};
+    for (uint32_t i = 0; i < count; ++i) {
+        const float d = std::sqrt(verts[i].x * verts[i].x + verts[i].y * verts[i].y + verts[i].z * verts[i].z);
+        if (d > 0.000001f) {
+            verts[i].x /= d;
+            verts[i].y /= d;
+            verts[i].z /= d;
+        }
+        points[i] = [self projectWorldPoint:verts[i] rect:rect depth:nil];
+    }
+
+    float minD2 = 999999.0f;
+    for (uint32_t a = 0; a < count; ++a) {
+        for (uint32_t b = a + 1u; b < count; ++b) {
+            const float dx = verts[a].x - verts[b].x;
+            const float dy = verts[a].y - verts[b].y;
+            const float dz = verts[a].z - verts[b].z;
+            const float d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 > 0.0001f) minD2 = std::min(minD2, d2);
+        }
+    }
+    const float maxD2 = minD2 * 1.08f;
+    for (uint32_t a = 0; a < count; ++a) {
+        for (uint32_t b = a + 1u; b < count; ++b) {
+            const float dx = verts[a].x - verts[b].x;
+            const float dy = verts[a].y - verts[b].y;
+            const float dz = verts[a].z - verts[b].z;
+            const float d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 <= maxD2) {
+                [links moveToPoint:points[a]];
+                [links lineToPoint:points[b]];
+            }
+        }
+    }
+}
 - (void)drawSpeakerField:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style
 {
     auto* p = static_cast<Plugin*>(_plugin);
@@ -852,6 +920,12 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         edge(4, 0); edge(4, 3);
         edge(5, 1); edge(5, 2);
         edge(4, 5);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::OctophonicRing) {
+        ring(0, 8);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dodeca12) {
+        [self addPolyhedronShellToPath:links dodecaShell:YES rect:rect];
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Icosahedron20) {
+        [self addPolyhedronShellToPath:links dodecaShell:NO rect:rect];
     }
     [links setLineWidth:1.0];
     [links stroke];
@@ -941,6 +1015,12 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     } else if (layout == s3g::AmbiSpeakerLayoutPreset::QuadOverhead6) {
         ring(0, 4);
         edge(4, 0); edge(4, 3); edge(5, 1); edge(5, 2); edge(4, 5);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::OctophonicRing) {
+        ring(0, 8);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dodeca12) {
+        [self addPolyhedronShellToPath:links dodecaShell:YES rect:rect];
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Icosahedron20) {
+        [self addPolyhedronShellToPath:links dodecaShell:NO rect:rect];
     }
     const uint32_t probeIndex = std::min<uint32_t>(prm.selectedSpeaker, n > 0u ? n - 1u : 0u);
     const auto& probeSpeaker = speakers[probeIndex];
@@ -1276,7 +1356,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     }
     if (_openMenu > 0) {
         const CGFloat itemH = 18.0;
-        const CGFloat menuW = 124.0;
+        const CGFloat menuW = _openMenu == 1 ? 150.0 : 124.0;
         const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, menuW, itemH * static_cast<CGFloat>(_menuItemCount));
         if (NSPointInRect(pt, menuRect)) {
             const uint32_t index = std::min<uint32_t>(_menuItemCount - 1u,
@@ -1401,7 +1481,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
             return;
         }
     }
-    if (NSPointInRect(pt, NSMakeRect(738, 77, 102, 17))) { openMenu(1, 8, 96); return; }
+    if (NSPointInRect(pt, NSMakeRect(738, 77, 102, 17))) { openMenu(1, kLayoutMenuCount, 96); return; }
     if (NSPointInRect(pt, NSMakeRect(738, 103, 102, 17))) { openMenu(2, 3, 122); return; }
     if (NSPointInRect(pt, NSMakeRect(738, 129, 102, 17))) { openMenu(3, 7, 148); return; }
     if (NSPointInRect(pt, NSMakeRect(738, 155, 102, 17))) { openMenu(4, 3, 174); return; }
