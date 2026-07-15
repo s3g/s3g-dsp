@@ -71,6 +71,8 @@ struct Plugin {
     uint32_t maxFrames = 0;
     s3g::MacroDelayParams params {};
     s3g::MacroDelay delay;
+    std::array<float, kChannelCount> frameIn {};
+    std::array<float, kChannelCount> frameOut {};
     std::atomic<float> outputPeak { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -216,33 +218,31 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         return CLAP_PROCESS_CONTINUE;
     }
 
-    std::array<float, kChannelCount> frameIn {};
-    std::array<float, kChannelCount> frameOut {};
     p->delay.setParams(p->params);
     float blockPeak = 0.0f;
 
     for (uint32_t i = 0; i < frames; ++i) {
         for (uint32_t ch = 0; ch < channels; ++ch) {
             if (input.data32 && input.data32[ch]) {
-                frameIn[ch] = input.data32[ch][i];
+                p->frameIn[ch] = input.data32[ch][i];
             } else if (input.data64 && input.data64[ch]) {
-                frameIn[ch] = static_cast<float>(input.data64[ch][i]);
+                p->frameIn[ch] = static_cast<float>(input.data64[ch][i]);
             } else {
-                frameIn[ch] = 0.0f;
+                p->frameIn[ch] = 0.0f;
             }
         }
         for (uint32_t ch = channels; ch < kChannelCount; ++ch) {
-            frameIn[ch] = 0.0f;
+            p->frameIn[ch] = 0.0f;
         }
-        p->delay.processFrame(frameIn.data(), frameOut.data());
+        p->delay.processFrame(p->frameIn.data(), p->frameOut.data());
         for (uint32_t ch = 0; ch < channels; ++ch) {
             if (output.data32 && output.data32[ch]) {
-                output.data32[ch][i] = frameOut[ch];
+                output.data32[ch][i] = p->frameOut[ch];
             }
             if (output.data64 && output.data64[ch]) {
-                output.data64[ch][i] = static_cast<double>(frameOut[ch]);
+                output.data64[ch][i] = static_cast<double>(p->frameOut[ch]);
             }
-            blockPeak = std::max(blockPeak, std::fabs(frameOut[ch]));
+            blockPeak = std::max(blockPeak, std::fabs(p->frameOut[ch]));
         }
     }
     finishExtraChannels(input, output, channels, frames);

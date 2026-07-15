@@ -201,19 +201,13 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         return CLAP_PROCESS_CONTINUE;
     }
 
-    std::array<float, kInputChannels> frameIn {};
-    std::array<float, kOutputChannels> frameOut {};
     float blockPeak = 0.0f;
-    for (uint32_t i = 0; i < frames; ++i) {
-        for (uint32_t ch = 0; ch < inChannels; ++ch) {
-            frameIn[ch] = input.data32[ch] ? input.data32[ch][i] : 0.0f;
-        }
-        p->decoder.processFrame(frameIn.data(), frameOut.data());
-        for (uint32_t ch = 0; ch < outChannels; ++ch) {
-            if (output.data32[ch]) {
-                output.data32[ch][i] = frameOut[ch];
-                blockPeak = std::max(blockPeak, std::fabs(frameOut[ch]));
-            }
+    p->decoder.processBlock(input.data32, output.data32, inChannels, outChannels, frames);
+    const uint32_t peakChannels = std::min<uint32_t>(outChannels, p->decoder.params().activeSpeakers);
+    for (uint32_t ch = 0; ch < peakChannels; ++ch) {
+        if (!output.data32[ch]) continue;
+        for (uint32_t i = 0; i < frames; ++i) {
+            blockPeak = std::max(blockPeak, std::fabs(output.data32[ch][i]));
         }
     }
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);

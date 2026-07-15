@@ -55,7 +55,7 @@ Current plugins:
 - `s3g Ambi Speaker Decoder 64`: first-through-seventh-order `ACN/SN3D`
   speaker decoder with curated layouts, custom speaker editing, and a stable
   64-channel output bus.
-- `s3g Layout Panner`: direct 16-source to 64-speaker spatial panner with
+- `s3g Layout Panner`: direct 64-source to 64-speaker spatial panner with
   speaker presets, source mixer, and custom layout design.
 - `s3g Ambi Rotate 64`: first-through-seventh-order `ACN/SN3D` field
   rotation utility with yaw, pitch, roll, and order-width trim.

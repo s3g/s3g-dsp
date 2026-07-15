@@ -33,6 +33,10 @@ bundles=(
   "$src_root/clap_ambisonic_energy_visualizer/s3g_ambisonic_energy_visualizer.clap"
   "$src_root/clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder.clap"
   "$src_root/clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder.clap"
+  "$src_root/clap_ambisonic_sub_decoder/s3g_ambisonic_sub_decoder.clap"
+  "$src_root/clap_array_hpf/s3g_array_hpf_16.clap"
+  "$src_root/clap_array_hpf/s3g_array_hpf_32.clap"
+  "$src_root/clap_array_hpf/s3g_array_hpf_64.clap"
   "$src_root/clap_ambisonic_rotate/s3g_ambisonic_rotate.clap"
   "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_64.clap"
   "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_128.clap"
@@ -109,6 +113,10 @@ Included plugins:
 - s3g Ambi Energy Visualizer 64
 - s3g Ambi Stereo Decoder
 - s3g Ambi Head Decoder
+- s3g Ambisonic Sub Decoder
+- s3g Array HPF 16
+- s3g Array HPF 32
+- s3g Array HPF 64
 - s3g Ambi Rotate 64
 - s3g Ambi Depth 16
 - s3g Ambi Group Rotate 64

@@ -65,8 +65,8 @@ public:
         updateRelationshipSmoothing();
         applyLaneParams();
 
-        std::array<float, kMacroDelayChannels> wet {};
-        delay_.processFrame(input, wet.data());
+        wet_.fill(0.0f);
+        delay_.processFrame(input, wet_.data());
 
         const float mixTarget = params_.mix;
         const float gainTarget = dbToGain(params_.outputGainDb);
@@ -74,7 +74,7 @@ public:
             mixSmoothed_ += (mixTarget - mixSmoothed_) * 0.0015f;
             gainSmoothed_ += (gainTarget - gainSmoothed_) * 0.0015f;
             const float dry = input[ch];
-            const float value = dry + (wet[ch] - dry) * mixSmoothed_;
+            const float value = dry + (wet_[ch] - dry) * mixSmoothed_;
             output[ch] = softLimit(flushDenormal(value * gainSmoothed_));
         }
     }
@@ -88,15 +88,15 @@ public:
         updateRelationshipSmoothing();
         applyLaneParams();
 
-        std::array<float, kMacroDelayChannels> wet {};
-        delay_.processFrame(input, wet.data());
+        wet_.fill(0.0f);
+        delay_.processFrame(input, wet_.data());
 
         const float mixTarget = params_.mix;
         const float gainTarget = dbToGain(params_.outputGainDb);
         for (uint32_t ch = 0; ch < channels_; ++ch) {
             mixSmoothed_ += (mixTarget - mixSmoothed_) * 0.0015f;
             gainSmoothed_ += (gainTarget - gainSmoothed_) * 0.0015f;
-            output[ch] = softLimit(flushDenormal(wet[ch] * mixSmoothed_ * gainSmoothed_));
+            output[ch] = softLimit(flushDenormal(wet_[ch] * mixSmoothed_ * gainSmoothed_));
         }
     }
 
@@ -171,6 +171,7 @@ private:
     float smoothedCenter_ = 0.5f;
     float mixSmoothed_ = 0.35f;
     float gainSmoothed_ = 1.0f;
+    std::array<float, kMacroDelayChannels> wet_ {};
 };
 
 } // namespace s3g

@@ -18,14 +18,15 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <new>
 
 namespace {
 
 constexpr uint32_t kInputChannels = s3g::kLayoutPannerSources;
 constexpr uint32_t kOutputChannels = s3g::kLayoutPannerMaxSpeakers;
-constexpr uint32_t kStateVersion = 5;
-constexpr uint32_t kLayoutCount = 13;
+constexpr uint32_t kStateVersion = 6;
+constexpr uint32_t kLayoutCount = 27;
 
 constexpr clap_id kLayoutParamId = 1;
 constexpr clap_id kMethodParamId = 2;
@@ -42,6 +43,7 @@ constexpr clap_id kSelectedAzimuthParamId = 12;
 constexpr clap_id kSelectedElevationParamId = 13;
 constexpr clap_id kSelectedDistanceParamId = 14;
 constexpr clap_id kSelectedGainParamId = 15;
+constexpr clap_id kActiveSourcesParamId = 16;
 constexpr clap_id kSourceParamBase = 100;
 
 enum SourceParamOffset : clap_id {
@@ -59,9 +61,57 @@ constexpr clap_id sourceParamId(uint32_t source, SourceParamOffset offset)
     return kSourceParamBase + source * kSourceParamStride + offset;
 }
 
+constexpr std::array<uint32_t, kLayoutCount> kLayoutMenuOrder {
+    1u, 2u, 0u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u,
+    26u, 13u, 16u, 18u, 14u, 15u, 17u, 19u, 24u, 20u, 21u, 22u, 23u, 25u
+};
+
+constexpr uint32_t layoutPresetForMenuIndex(uint32_t index)
+{
+    return kLayoutMenuOrder[index < kLayoutMenuOrder.size() ? index : 0u];
+}
+
+constexpr uint32_t menuIndexForLayoutPreset(uint32_t preset)
+{
+    for (uint32_t i = 0; i < kLayoutMenuOrder.size(); ++i) {
+        if (kLayoutMenuOrder[i] == preset) return i;
+    }
+    return 0u;
+}
+
+static NSString* layoutMenuItem(uint32_t index)
+{
+    return [NSString stringWithUTF8String:s3g::layoutPannerPresetName(
+        static_cast<s3g::LayoutPannerPreset>(layoutPresetForMenuIndex(index)))];
+}
+
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::LayoutPannerParams params {};
+    std::array<s3g::LayoutPannerSource, s3g::kLayoutPannerSources> sources {};
+    std::array<s3g::LayoutPannerSpeaker, s3g::kLayoutPannerMaxSpeakers> speakers {};
+};
+
+struct LegacyLayoutPannerParamsV5 {
+    s3g::LayoutPannerPreset layout = s3g::LayoutPannerPreset::Dome24NoOverhead;
+    s3g::LayoutPannerMethod method = s3g::LayoutPannerMethod::Distance;
+    uint32_t selectedSource = 0;
+    uint32_t activeSpeakers = 24;
+    uint32_t selectedSpeaker = 0;
+    s3g::LayoutPannerCustomShape customShape = s3g::LayoutPannerCustomShape::Auto;
+    float focus = 1.0f;
+    float distanceRolloffDb = 6.0f;
+    float smoothingMs = 35.0f;
+    float globalAzimuthDeg = 0.0f;
+    float globalElevationDeg = 0.0f;
+    float globalDistanceOffset = 0.0f;
+    float distanceDiffusion = 0.35f;
+    float outputGainDb = -6.0f;
+};
+
+struct SavedStateV5 {
+    uint32_t version = 5;
+    LegacyLayoutPannerParamsV5 params {};
     std::array<s3g::LayoutPannerSource, s3g::kLayoutPannerSources> sources {};
     std::array<s3g::LayoutPannerSpeaker, s3g::kLayoutPannerMaxSpeakers> speakers {};
 };
@@ -73,6 +123,8 @@ struct Plugin {
     uint32_t maxFrames = 0;
     s3g::LayoutPannerParams params {};
     s3g::LayoutPanner panner;
+    std::array<float, kInputChannels> frameIn {};
+    std::array<float, kOutputChannels> frameOut {};
     std::atomic<float> outputPeak { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -129,7 +181,11 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kGlobalDistanceParamId: p.params.globalDistanceOffset = static_cast<float>(std::clamp(value, -3.0, 3.0)); break;
     case kDiffusionParamId: p.params.distanceDiffusion = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kOutputParamId: p.params.outputGainDb = static_cast<float>(std::clamp(value, -60.0, 12.0)); break;
-    case kSelectedSourceParamId: p.params.selectedSource = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kLayoutPannerSources) - 1u; break;
+    case kSelectedSourceParamId: p.params.selectedSource = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, std::max<uint32_t>(1u, p.params.activeSources)) - 1u; break;
+    case kActiveSourcesParamId:
+        p.params.activeSources = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kLayoutPannerSources);
+        p.params.selectedSource = std::min<uint32_t>(p.params.selectedSource, p.params.activeSources - 1u);
+        break;
     case kSelectedAzimuthParamId:
     case kSelectedElevationParamId:
     case kSelectedDistanceParamId:
@@ -185,6 +241,20 @@ void readParamEvents(Plugin& p, const clap_input_events_t* in)
     }
 }
 
+float peakForChannels(float* const* output, uint32_t channels, uint32_t frames)
+{
+    float peak = 0.0f;
+    if (!output) return peak;
+    for (uint32_t ch = 0; ch < channels; ++ch) {
+        const float* channel = output[ch];
+        if (!channel) continue;
+        for (uint32_t i = 0; i < frames; ++i) {
+            peak = std::max(peak, std::fabs(channel[i]));
+        }
+    }
+    return peak;
+}
+
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
@@ -195,34 +265,53 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     const auto& input = proc->audio_inputs[0];
     auto& output = proc->audio_outputs[0];
     const uint32_t frames = proc->frames_count;
-    const uint32_t inChannels = std::min<uint32_t>(input.channel_count, kInputChannels);
-    const uint32_t outChannels = std::min<uint32_t>(output.channel_count, kOutputChannels);
-
-    if (output.data32) {
-        s3g::clearAudioBufferFromChannel(output, 0, frames);
-    }
-    if (!input.data32 || !output.data32 || outChannels == 0u) {
+    if (!input.data32 || !output.data32 || frames == 0u) {
+        if (output.data32) s3g::clearAudioBufferFromChannel(output, 0, frames);
         return CLAP_PROCESS_CONTINUE;
     }
 
-    std::array<float, kInputChannels> frameIn {};
-    std::array<float, kOutputChannels> frameOut {};
     p->panner.setParams(p->params);
     p->params = p->panner.params();
+
+    const uint32_t inChannels = std::min<uint32_t>(input.channel_count, kInputChannels);
+    const uint32_t outChannels = std::min<uint32_t>(output.channel_count, kOutputChannels);
+    const uint32_t activeInputs = std::min<uint32_t>(inChannels, p->params.activeSources);
+    const uint32_t activeOutputs = std::min<uint32_t>(outChannels, p->panner.activeSpeakers());
+    if (activeOutputs == 0u) {
+        s3g::clearAudioBufferFromChannel(output, 0, frames);
+        return CLAP_PROCESS_CONTINUE;
+    }
+
+    if (p->panner.canProcessQuadOverhead2x6(activeInputs, activeOutputs)) {
+        p->panner.processQuadOverhead2x6Block(input.data32, output.data32, frames);
+        s3g::clearAudioBufferFromChannel(output, activeOutputs, frames);
+        const float blockPeak = peakForChannels(output.data32, activeOutputs, frames);
+        p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak), std::memory_order_relaxed);
+        return CLAP_PROCESS_CONTINUE;
+    }
+
+    if (p->panner.canProcessPresetLayoutKernel(activeInputs, activeOutputs)) {
+        p->panner.processPresetLayoutBlock(input.data32, output.data32, activeInputs, activeOutputs, frames);
+        s3g::clearAudioBufferFromChannel(output, activeOutputs, frames);
+        const float blockPeak = peakForChannels(output.data32, activeOutputs, frames);
+        p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak), std::memory_order_relaxed);
+        return CLAP_PROCESS_CONTINUE;
+    }
+
     float blockPeak = 0.0f;
     for (uint32_t i = 0; i < frames; ++i) {
-        for (uint32_t ch = 0; ch < inChannels; ++ch) {
-            frameIn[ch] = input.data32[ch] ? input.data32[ch][i] : 0.0f;
+        for (uint32_t ch = 0; ch < activeInputs; ++ch) {
+            p->frameIn[ch] = input.data32[ch] ? input.data32[ch][i] : 0.0f;
         }
-        p->panner.processFrame(frameIn.data(), frameOut.data(), inChannels);
-        for (uint32_t ch = 0; ch < outChannels; ++ch) {
+        p->panner.processFrame(p->frameIn.data(), p->frameOut.data(), activeInputs, activeOutputs);
+        for (uint32_t ch = 0; ch < activeOutputs; ++ch) {
             if (output.data32[ch]) {
-                output.data32[ch][i] = frameOut[ch];
-                blockPeak = std::max(blockPeak, std::fabs(frameOut[ch]));
+                output.data32[ch][i] = p->frameOut[ch];
+                blockPeak = std::max(blockPeak, std::fabs(p->frameOut[ch]));
             }
         }
     }
-    s3g::clearAudioBufferFromChannel(output, outChannels, frames);
+    s3g::clearAudioBufferFromChannel(output, activeOutputs, frames);
     p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak), std::memory_order_relaxed);
     return CLAP_PROCESS_CONTINUE;
 }
@@ -247,7 +336,7 @@ const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; bool stepped; };
 
-constexpr uint32_t kBaseParamCount = 15;
+constexpr uint32_t kBaseParamCount = 16;
 uint32_t paramsCount(const clap_plugin_t*) { return kBaseParamCount + s3g::kLayoutPannerSources * kSourceParamStride; }
 
 bool fillBaseParam(uint32_t index, ParamDef& def)
@@ -263,6 +352,7 @@ bool fillBaseParam(uint32_t index, ParamDef& def)
         { kGlobalDistanceParamId, "Global Distance", -3.0, 3.0, 0.0, false },
         { kDiffusionParamId, "Distance Diffusion", 0.0, 1.0, 0.35, false },
         { kOutputParamId, "Output", -60.0, 12.0, -6.0, false },
+        { kActiveSourcesParamId, "Active Sources", 1.0, static_cast<double>(s3g::kLayoutPannerSources), static_cast<double>(s3g::kLayoutPannerSources), true },
         { kSelectedSourceParamId, "Selected Source", 1.0, static_cast<double>(s3g::kLayoutPannerSources), 1.0, true },
         { kSelectedAzimuthParamId, "Selected Azimuth", -180.0, 180.0, -30.0, false },
         { kSelectedElevationParamId, "Selected Elevation", -90.0, 90.0, 0.0, false },
@@ -344,6 +434,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kGlobalDistanceParamId: *value = params.globalDistanceOffset; return true;
     case kDiffusionParamId: *value = params.distanceDiffusion; return true;
     case kOutputParamId: *value = params.outputGainDb; return true;
+    case kActiveSourcesParamId: *value = params.activeSources; return true;
     case kSelectedSourceParamId: *value = params.selectedSource + 1u; return true;
     case kSelectedAzimuthParamId: *value = selected.azimuthDeg; return true;
     case kSelectedElevationParamId: *value = selected.elevationDeg; return true;
@@ -359,6 +450,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     if (id == kLayoutParamId) std::snprintf(display, size, "%s", s3g::layoutPannerPresetName(static_cast<s3g::LayoutPannerPreset>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, kLayoutCount - 1u))));
     else if (id == kMethodParamId) std::snprintf(display, size, "%s", s3g::layoutPannerMethodName(static_cast<s3g::LayoutPannerMethod>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 1u))));
     else if (id == kSelectedSourceParamId) std::snprintf(display, size, "S%.0f", value);
+    else if (id == kActiveSourcesParamId) std::snprintf(display, size, "%.0f sources", value);
     else if (id == kOutputParamId || id == kSelectedGainParamId || (id >= kSourceParamBase && ((id - kSourceParamBase) % kSourceParamStride) == kSourceGainOffset)) std::snprintf(display, size, "%+.1f dB", value);
     else if (id == kGlobalAzimuthParamId || id == kGlobalElevationParamId || id == kSelectedAzimuthParamId || id == kSelectedElevationParamId || (id >= kSourceParamBase && ((id - kSourceParamBase) % kSourceParamStride <= kSourceElOffset))) std::snprintf(display, size, "%+.1f deg", value);
     else if (id >= kSourceParamBase && (((id - kSourceParamBase) % kSourceParamStride) == kSourceMuteOffset || ((id - kSourceParamBase) % kSourceParamStride) == kSourceSoloOffset)) std::snprintf(display, size, "%s", value >= 0.5 ? "ON" : "OFF");
@@ -390,8 +482,40 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
+    uint32_t version = 0;
+    if (stream->read(stream, &version, sizeof(version)) != static_cast<int64_t>(sizeof(version))) return false;
     SavedState s {};
-    if (stream->read(stream, &s, sizeof(s)) != static_cast<int64_t>(sizeof(s)) || s.version != kStateVersion) return false;
+    s.version = version;
+    if (version == kStateVersion) {
+        char* rest = reinterpret_cast<char*>(&s) + sizeof(s.version);
+        const size_t restSize = sizeof(s) - sizeof(s.version);
+        if (stream->read(stream, rest, restSize) != static_cast<int64_t>(restSize)) return false;
+    } else if (version == 5u) {
+        SavedStateV5 legacy {};
+        legacy.version = version;
+        char* rest = reinterpret_cast<char*>(&legacy) + sizeof(legacy.version);
+        const size_t restSize = sizeof(legacy) - sizeof(legacy.version);
+        if (stream->read(stream, rest, restSize) != static_cast<int64_t>(restSize)) return false;
+        s.params.layout = legacy.params.layout;
+        s.params.method = legacy.params.method;
+        s.params.activeSources = s3g::kLayoutPannerSources;
+        s.params.selectedSource = legacy.params.selectedSource;
+        s.params.activeSpeakers = legacy.params.activeSpeakers;
+        s.params.selectedSpeaker = legacy.params.selectedSpeaker;
+        s.params.customShape = legacy.params.customShape;
+        s.params.focus = legacy.params.focus;
+        s.params.distanceRolloffDb = legacy.params.distanceRolloffDb;
+        s.params.smoothingMs = legacy.params.smoothingMs;
+        s.params.globalAzimuthDeg = legacy.params.globalAzimuthDeg;
+        s.params.globalElevationDeg = legacy.params.globalElevationDeg;
+        s.params.globalDistanceOffset = legacy.params.globalDistanceOffset;
+        s.params.distanceDiffusion = legacy.params.distanceDiffusion;
+        s.params.outputGainDb = legacy.params.outputGainDb;
+        s.sources = legacy.sources;
+        s.speakers = legacy.speakers;
+    } else {
+        return false;
+    }
     auto* p = self(plugin);
     p->params = s.params;
     p->panner.setParams(p->params);
@@ -421,6 +545,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     BOOL _dragSpeaker;
     NSPoint _lastDragPoint;
     int _dragSlider;
+    uint32_t _mixerPage;
     int _dragMixerSource;
     BOOL _dragMixerOutput;
     int _openMenu;
@@ -438,6 +563,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (NSRect)pageButtonRect:(int)index inRect:(NSRect)rect;
 - (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect;
 - (NSRect)zoomButtonRect:(int)index inRect:(NSRect)rect;
+- (NSRect)mixerPageButtonRect:(int)index inRect:(NSRect)rect;
 - (void)setViewPreset:(int)mode;
 - (NSPoint)projectWorldPoint:(s3g::Vec3)point rect:(NSRect)rect depth:(CGFloat*)depth;
 - (s3g::Vec3)worldFromPoint:(NSPoint)point rect:(NSRect)rect previous:(s3g::Vec3)previous;
@@ -516,7 +642,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
 @implementation S3GLayoutPannerView
 - (id)initWithPlugin:(void*)plugin
 {
-    self = [super initWithFrame:NSMakeRect(0, 0, 900, 620)];
+    self = [super initWithFrame:NSMakeRect(0, 0, 900, 680)];
     if (self) {
         _plugin = plugin;
         _timer = nil;
@@ -530,6 +656,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         _dragSpeaker = NO;
         _lastDragPoint = NSMakePoint(0, 0);
         _dragSlider = -1;
+        _mixerPage = 0;
         _dragMixerSource = -1;
         _dragMixerOutput = NO;
         _openMenu = 0;
@@ -566,10 +693,11 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
 - (void)drawOpenMenu:(NSDictionary*)attrs
 {
     if (_openMenu <= 0 || _menuItemCount == 0) return;
-    static NSString* layoutItems[] = { @"CUSTOM", @"CUBE 8", @"CUBE 17", @"DODECA 12", @"DOME 24", @"DOME 25", @"DBL RING 16", @"DBL RING 20", @"OCTO RING", @"QUAD", @"QUAD+OH", @"RING 12", @"RING 16" };
     static NSString* methodItems[] = { @"DIST", @"COS" };
     static NSString* shapeItems[] = { @"AUTO", @"RING", @"DOME", @"GEO", @"STACK" };
-    NSString** items = _openMenu == 1 ? layoutItems : (_openMenu == 3 ? shapeItems : methodItems);
+    std::array<NSString*, kLayoutCount> layoutItems {};
+    for (uint32_t i = 0; i < kLayoutCount; ++i) layoutItems[i] = layoutMenuItem(i);
+    NSString** items = _openMenu == 1 ? layoutItems.data() : (_openMenu == 3 ? shapeItems : methodItems);
     const CGFloat itemH = 18.0;
     const CGFloat w = _openMenu == 1 ? 148.0 : (_openMenu == 3 ? 92.0 : 78.0);
     NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, w, itemH * static_cast<CGFloat>(_menuItemCount));
@@ -577,7 +705,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     if (_plugin) {
         auto* p = static_cast<Plugin*>(_plugin);
         const auto params = p->panner.params();
-        if (_openMenu == 1) selected = static_cast<int>(static_cast<uint32_t>(params.layout));
+        if (_openMenu == 1) selected = static_cast<int>(menuIndexForLayoutPreset(static_cast<uint32_t>(params.layout)));
         else if (_openMenu == 2) selected = static_cast<int>(static_cast<uint32_t>(params.method));
         else if (_openMenu == 3) selected = static_cast<int>(static_cast<uint32_t>(params.customShape));
     }
@@ -618,6 +746,10 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     const CGFloat gap = 4.0;
     const CGFloat viewStart = [self viewButtonRect:0 inRect:rect].origin.x;
     return NSMakeRect(viewStart - 12.0 - (2.0 - static_cast<CGFloat>(index)) * w - (1.0 - static_cast<CGFloat>(index)) * gap, rect.origin.y + 4.0, w, h);
+}
+- (NSRect)mixerPageButtonRect:(int)index inRect:(NSRect)rect
+{
+    return NSMakeRect(rect.origin.x + 12.0 + static_cast<CGFloat>(index) * 28.0, rect.origin.y + 12.0, 24.0, 18.0);
 }
 - (void)setViewPreset:(int)mode
 {
@@ -709,15 +841,283 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     }
     [lpColor(0x6e6e6e, 0.68) setStroke];
     NSBezierPath* links = [NSBezierPath bezierPath];
+    std::array<std::array<bool, s3g::kLayoutPannerMaxSpeakers>, s3g::kLayoutPannerMaxSpeakers> edgeSeen {};
     auto edge = [&](uint32_t a, uint32_t b) {
         if (a >= n || b >= n) return;
+        if (a == b) return;
+        const uint32_t lo = std::min(a, b);
+        const uint32_t hi = std::max(a, b);
+        if (edgeSeen[lo][hi]) return;
+        edgeSeen[lo][hi] = true;
         [links moveToPoint:spPts[a]];
         [links lineToPoint:spPts[b]];
     };
+    auto drawPolyhedronShell = [&](bool dodecaShell) {
+        constexpr float phi = 1.61803398875f;
+        constexpr float invPhi = 1.0f / phi;
+        std::array<s3g::Vec3, 20> verts {};
+        const uint32_t count = dodecaShell ? 20u : 12u;
+        if (dodecaShell) {
+            const float pts[20][3] {
+                { 1, 1, 1 }, { 1, 1, -1 }, { 1, -1, 1 }, { 1, -1, -1 },
+                { -1, 1, 1 }, { -1, 1, -1 }, { -1, -1, 1 }, { -1, -1, -1 },
+                { 0, invPhi, phi }, { 0, invPhi, -phi }, { 0, -invPhi, phi }, { 0, -invPhi, -phi },
+                { invPhi, phi, 0 }, { invPhi, -phi, 0 }, { -invPhi, phi, 0 }, { -invPhi, -phi, 0 },
+                { phi, 0, invPhi }, { phi, 0, -invPhi }, { -phi, 0, invPhi }, { -phi, 0, -invPhi },
+            };
+            for (uint32_t i = 0; i < count; ++i) verts[i] = { pts[i][0], pts[i][1], pts[i][2] };
+        } else {
+            const float pts[12][3] {
+                { 0, 1, phi }, { 0, -1, phi }, { 0, 1, -phi }, { 0, -1, -phi },
+                { 1, phi, 0 }, { -1, phi, 0 }, { 1, -phi, 0 }, { -1, -phi, 0 },
+                { phi, 0, 1 }, { -phi, 0, 1 }, { phi, 0, -1 }, { -phi, 0, -1 },
+            };
+            for (uint32_t i = 0; i < count; ++i) verts[i] = { pts[i][0], pts[i][1], pts[i][2] };
+        }
+        std::array<NSPoint, 20> pts {};
+        for (uint32_t i = 0; i < count; ++i) {
+            const float d = std::sqrt(verts[i].x * verts[i].x + verts[i].y * verts[i].y + verts[i].z * verts[i].z);
+            if (d > 0.000001f) {
+                verts[i].x /= d;
+                verts[i].y /= d;
+                verts[i].z /= d;
+            }
+            pts[i] = [self projectWorldPoint:verts[i] rect:rect depth:nil];
+        }
+        float minD2 = 999999.0f;
+        for (uint32_t a = 0; a < count; ++a) {
+            for (uint32_t b = a + 1u; b < count; ++b) {
+                const float dx = verts[a].x - verts[b].x;
+                const float dy = verts[a].y - verts[b].y;
+                const float dz = verts[a].z - verts[b].z;
+                const float d2 = dx * dx + dy * dy + dz * dz;
+                if (d2 > 0.0001f) minD2 = std::min(minD2, d2);
+            }
+        }
+        const float maxD2 = minD2 * 1.08f;
+        for (uint32_t a = 0; a < count; ++a) {
+            for (uint32_t b = a + 1u; b < count; ++b) {
+                const float dx = verts[a].x - verts[b].x;
+                const float dy = verts[a].y - verts[b].y;
+                const float dz = verts[a].z - verts[b].z;
+                const float d2 = dx * dx + dy * dy + dz * dz;
+                if (d2 <= maxD2) {
+                    [links moveToPoint:pts[a]];
+                    [links lineToPoint:pts[b]];
+                }
+            }
+        }
+    };
+    auto drawElevationPerimeters = [&]() {
+        struct Band {
+            float el = 0.0f;
+            std::array<uint32_t, s3g::kLayoutPannerMaxSpeakers> ids {};
+            uint32_t count = 0;
+        };
+        std::array<Band, 8> bands {};
+        uint32_t bandCount = 0;
+        for (uint32_t i = 0; i < n; ++i) {
+            uint32_t band = bandCount;
+            for (uint32_t b = 0; b < bandCount; ++b) {
+                if (std::fabs(bands[b].el - speakers[i].elevationDeg) < 8.0f) {
+                    band = b;
+                    break;
+                }
+            }
+            if (band == bandCount && bandCount < bands.size()) bands[bandCount++].el = speakers[i].elevationDeg;
+            if (band < bandCount) bands[band].ids[bands[band].count++] = i;
+        }
+        std::sort(bands.begin(), bands.begin() + bandCount, [](const Band& a, const Band& b) { return a.el < b.el; });
+        for (uint32_t b = 0; b < bandCount; ++b) {
+            std::sort(bands[b].ids.begin(), bands[b].ids.begin() + bands[b].count, [&](uint32_t a, uint32_t bIndex) {
+                float aAz = s3g::layoutPannerWrapDeg(speakers[a].azimuthDeg);
+                float bAz = s3g::layoutPannerWrapDeg(speakers[bIndex].azimuthDeg);
+                if (aAz < 0.0f) aAz += 360.0f;
+                if (bAz < 0.0f) bAz += 360.0f;
+                return aAz < bAz;
+            });
+            if (bands[b].count < 2u) continue;
+            for (uint32_t i = 0; i < bands[b].count; ++i) {
+                edge(bands[b].ids[i], bands[b].ids[(i + 1u) % bands[b].count]);
+            }
+        }
+    };
+    if (params.layout == s3g::LayoutPannerPreset::Dodeca12) drawPolyhedronShell(true);
+    else if (params.layout == s3g::LayoutPannerPreset::Icosahedron20) drawPolyhedronShell(false);
+    else drawElevationPerimeters();
+#if 0
     auto ring = [&](uint32_t base, uint32_t count) {
         if (count < 2u || base >= n) return;
         const uint32_t end = std::min<uint32_t>(n, base + count);
         for (uint32_t i = base; i < end; ++i) edge(i, i + 1u < end ? i + 1u : base);
+    };
+    auto closedPath = [&](std::initializer_list<uint32_t> ids) {
+        if (ids.size() < 2u) return;
+        const uint32_t* first = ids.begin();
+        const uint32_t* prev = first;
+        for (const uint32_t* it = first + 1; it != ids.end(); ++it) {
+            edge(*prev, *it);
+            prev = it;
+        }
+        edge(*prev, *first);
+    };
+    auto drawSurroundBed = [&](uint32_t bed) {
+        switch (bed) {
+        case 5: closedPath({ 0, 1, 2, 3 }); edge(4, 0); edge(4, 3); break;
+        case 6: closedPath({ 4, 0, 1, 2, 3 }); edge(5, 0); edge(5, 4); break;
+        case 7: closedPath({ 5, 0, 1, 2, 3, 4 }); edge(6, 0); edge(6, 5); break;
+        case 9: closedPath({ 7, 0, 1, 2, 3, 4, 5, 6 }); edge(8, 0); edge(8, 7); break;
+        case 11: closedPath({ 9, 0, 1, 2, 3, 4, 5, 6, 7, 8 }); edge(10, 0); edge(10, 9); break;
+        default: ring(0, bed); break;
+        }
+    };
+    auto drawSurroundHeight = [&](uint32_t bed, std::initializer_list<std::initializer_list<uint32_t>> patches) {
+        const uint32_t height = static_cast<uint32_t>(patches.size());
+        if (height == 0u) return;
+        ring(bed, height);
+        uint32_t i = 0;
+        for (auto patch : patches) {
+            for (uint32_t anchor : patch) edge(bed + i, anchor);
+            ++i;
+        }
+    };
+    auto drawTriangulatedSurface = [&]() {
+        std::array<NSPoint, s3g::kLayoutPannerMaxSpeakers> stablePts {};
+        for (uint32_t i = 0; i < n; ++i) stablePts[i] = NSMakePoint(spWorld[i].x, spWorld[i].y);
+        struct Band {
+            float el = 0.0f;
+            std::array<uint32_t, s3g::kLayoutPannerMaxSpeakers> ids {};
+            uint32_t count = 0;
+        };
+        std::array<Band, 8> bands {};
+        uint32_t bandCount = 0;
+        for (uint32_t i = 0; i < n; ++i) {
+            uint32_t band = bandCount;
+            for (uint32_t b = 0; b < bandCount; ++b) {
+                if (std::fabs(bands[b].el - speakers[i].elevationDeg) < 8.0f) {
+                    band = b;
+                    break;
+                }
+            }
+            if (band == bandCount && bandCount < bands.size()) bands[bandCount++].el = speakers[i].elevationDeg;
+            if (band < bandCount) bands[band].ids[bands[band].count++] = i;
+        }
+        std::sort(bands.begin(), bands.begin() + bandCount, [](const Band& a, const Band& b) { return a.el < b.el; });
+        for (uint32_t b = 0; b < bandCount; ++b) {
+            std::sort(bands[b].ids.begin(), bands[b].ids.begin() + bands[b].count, [&](uint32_t a, uint32_t bIndex) {
+                return s3g::layoutPannerWrapDeg(speakers[a].azimuthDeg) < s3g::layoutPannerWrapDeg(speakers[bIndex].azimuthDeg);
+            });
+        }
+        struct AcceptedEdge { uint32_t a; uint32_t b; };
+        std::array<AcceptedEdge, s3g::kLayoutPannerMaxSpeakers * 4> accepted {};
+        uint32_t acceptedCount = 0;
+        auto orient = [](NSPoint a, NSPoint b, NSPoint c) {
+            return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        };
+        auto intersects = [&](uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
+            const CGFloat o1 = orient(stablePts[a], stablePts[b], stablePts[c]);
+            const CGFloat o2 = orient(stablePts[a], stablePts[b], stablePts[d]);
+            const CGFloat o3 = orient(stablePts[c], stablePts[d], stablePts[a]);
+            const CGFloat o4 = orient(stablePts[c], stablePts[d], stablePts[b]);
+            return o1 * o2 < -0.000001 && o3 * o4 < -0.000001;
+        };
+        auto clearEdge = [&](uint32_t a, uint32_t b) {
+            if (a >= n || b >= n || a == b) return;
+            if (std::fabs(stablePts[a].x - stablePts[b].x) < 0.000001 && std::fabs(stablePts[a].y - stablePts[b].y) < 0.000001) return;
+            for (uint32_t i = 0; i < acceptedCount; ++i) {
+                const auto e = accepted[i];
+                if (e.a == a || e.a == b || e.b == a || e.b == b) continue;
+                if (intersects(a, b, e.a, e.b)) return;
+            }
+            edge(a, b);
+            if (acceptedCount < accepted.size()) accepted[acceptedCount++] = { a, b };
+        };
+        auto bracket = [&](uint32_t upper, const Band& lower, std::array<uint32_t, 3>& out) {
+            uint32_t outCount = 0;
+            if (lower.count == 0u) return outCount;
+            if (lower.count == 1u) {
+                out[outCount++] = lower.ids[0];
+                return outCount;
+            }
+            float upperAz = s3g::layoutPannerWrapDeg(speakers[upper].azimuthDeg);
+            if (upperAz < 0.0f) upperAz += 360.0f;
+            for (uint32_t i = 0; i < lower.count; ++i) {
+                float az = s3g::layoutPannerWrapDeg(speakers[lower.ids[i]].azimuthDeg);
+                if (az < 0.0f) az += 360.0f;
+                if (std::fabs(az - upperAz) < 0.01f) {
+                    out[outCount++] = lower.ids[(i + lower.count - 1u) % lower.count];
+                    out[outCount++] = lower.ids[i];
+                    out[outCount++] = lower.ids[(i + 1u) % lower.count];
+                    return outCount;
+                }
+            }
+            for (uint32_t i = 0; i < lower.count; ++i) {
+                const uint32_t a = lower.ids[i];
+                const uint32_t b = lower.ids[(i + 1u) % lower.count];
+                float aAz = s3g::layoutPannerWrapDeg(speakers[a].azimuthDeg);
+                float bAz = s3g::layoutPannerWrapDeg(speakers[b].azimuthDeg);
+                if (aAz < 0.0f) aAz += 360.0f;
+                if (bAz < 0.0f) bAz += 360.0f;
+                if (bAz < aAz) bAz += 360.0f;
+                const float testAz = upperAz < aAz ? upperAz + 360.0f : upperAz;
+                if (testAz > aAz && testAz < bAz) {
+                    out[outCount++] = a;
+                    out[outCount++] = b;
+                    return outCount;
+                }
+            }
+            out[outCount++] = lower.ids[0];
+            out[outCount++] = lower.ids[1];
+            return outCount;
+        };
+        auto splitBand = [&](const Band& band, std::array<uint32_t, s3g::kLayoutPannerMaxSpeakers>& perimeter, uint32_t& perimeterCount, std::array<uint32_t, s3g::kLayoutPannerMaxSpeakers>& centers, uint32_t& centerCount) {
+            perimeterCount = 0;
+            centerCount = 0;
+            for (uint32_t i = 0; i < band.count; ++i) {
+                float az = s3g::layoutPannerWrapDeg(speakers[band.ids[i]].azimuthDeg);
+                if (band.count > 4u && std::fabs(az) < 1.0f) centers[centerCount++] = band.ids[i];
+                else perimeter[perimeterCount++] = band.ids[i];
+            }
+        };
+        for (uint32_t b = 0; b < bandCount; ++b) {
+            std::array<uint32_t, s3g::kLayoutPannerMaxSpeakers> perimeter {};
+            std::array<uint32_t, s3g::kLayoutPannerMaxSpeakers> centers {};
+            uint32_t perimeterCount = 0;
+            uint32_t centerCount = 0;
+            splitBand(bands[b], perimeter, perimeterCount, centers, centerCount);
+            if (perimeterCount > 1u) {
+                for (uint32_t i = 0; i < perimeterCount; ++i) clearEdge(perimeter[i], perimeter[(i + 1u) % perimeterCount]);
+            }
+            Band perimeterBand {};
+            perimeterBand.count = perimeterCount;
+            for (uint32_t i = 0; i < perimeterCount; ++i) perimeterBand.ids[i] = perimeter[i];
+            for (uint32_t c = 0; c < centerCount; ++c) {
+                std::array<uint32_t, 3> lower {};
+                const uint32_t count = bracket(centers[c], perimeterBand, lower);
+                for (uint32_t i = 0; i < count; ++i) clearEdge(centers[c], lower[i]);
+            }
+        }
+        for (uint32_t b = 0; b + 1u < bandCount; ++b) {
+            std::array<uint32_t, s3g::kLayoutPannerMaxSpeakers> lowerPerimeter {};
+            std::array<uint32_t, s3g::kLayoutPannerMaxSpeakers> lowerCenters {};
+            uint32_t lowerCount = 0;
+            uint32_t lowerCenterCount = 0;
+            splitBand(bands[b], lowerPerimeter, lowerCount, lowerCenters, lowerCenterCount);
+            Band lowerBand {};
+            lowerBand.count = lowerCount;
+            for (uint32_t i = 0; i < lowerCount; ++i) lowerBand.ids[i] = lowerPerimeter[i];
+            std::array<uint32_t, s3g::kLayoutPannerMaxSpeakers> upperPerimeter {};
+            std::array<uint32_t, s3g::kLayoutPannerMaxSpeakers> upperCenters {};
+            uint32_t upperCount = 0;
+            uint32_t upperCenterCount = 0;
+            splitBand(bands[b + 1u], upperPerimeter, upperCount, upperCenters, upperCenterCount);
+            for (uint32_t u = 0; u < upperCount + upperCenterCount; ++u) {
+                const uint32_t upperId = u < upperCount ? upperPerimeter[u] : upperCenters[u - upperCount];
+                std::array<uint32_t, 3> lower {};
+                const uint32_t count = bracket(upperId, lowerBand, lower);
+                for (uint32_t i = 0; i < count; ++i) clearEdge(upperId, lower[i]);
+            }
+        }
     };
     auto meshEqualDistanceEdges = [&](uint32_t count) {
         if (count < 3u || count > n) return;
@@ -900,8 +1300,35 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         ring(0, 4); edge(4, 0); edge(4, 3); edge(5, 1); edge(5, 2); edge(4, 5); break;
     case s3g::LayoutPannerPreset::Ring12: ring(0, 12); break;
     case s3g::LayoutPannerPreset::Ring16: ring(0, 16); break;
+    case s3g::LayoutPannerPreset::FiveZero:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::SixZero:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::SevenZero:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::FiveZeroTwo:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::SevenZeroTwo:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::FiveZeroFour:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::SevenZeroFour:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::NineZero:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::NineZeroTwo:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::NineZeroFour:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::NineZeroSix:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::SevenZeroSix:
+        drawTriangulatedSurface(); break;
+    case s3g::LayoutPannerPreset::ElevenZeroEight:
+        drawTriangulatedSurface(); break;
     default: ring(0, n); break;
     }
+#endif
     [links setLineWidth:1.0];
     [links stroke];
 
@@ -925,7 +1352,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         }
     }
 
-    if (_page != 2) for (uint32_t i = 0; i < s3g::kLayoutPannerSources; ++i) {
+    if (_page != 2) for (uint32_t i = 0; i < params.activeSources; ++i) {
         const auto& s = sources[i];
         if (s.muted) continue;
         NSPoint pt = [self projectWorldPoint:s3g::layoutPannerSourcePosition(s) rect:rect depth:nil];
@@ -980,6 +1407,23 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     auto* p = static_cast<Plugin*>(_plugin);
     const auto params = p->panner.params();
     const auto sources = p->panner.sources();
+    constexpr uint32_t kMixerSourcesPerPage = 16;
+    const uint32_t pageCount = std::max<uint32_t>(1u, (params.activeSources + kMixerSourcesPerPage - 1u) / kMixerSourcesPerPage);
+    if (_mixerPage >= pageCount) _mixerPage = pageCount - 1u;
+    const uint32_t pageStart = _mixerPage * kMixerSourcesPerPage;
+    const uint32_t visibleCount = std::min<uint32_t>(kMixerSourcesPerPage, params.activeSources - pageStart);
+    if (pageCount > 1u) {
+        const NSRect prevButton = [self mixerPageButtonRect:0 inRect:rect];
+        const NSRect nextButton = [self mixerPageButtonRect:1 inRect:rect];
+        s3g::clap_gui::drawHeaderButton(prevButton, prevButton, @"<", _mixerPage > 0u, attrs, style);
+        s3g::clap_gui::drawHeaderButton(nextButton, nextButton, @">", _mixerPage + 1u < pageCount, attrs, style);
+        NSString* pageText = [NSString stringWithFormat:@"PAGE %u/%u   S%u-%u",
+                              _mixerPage + 1u,
+                              pageCount,
+                              pageStart + 1u,
+                              pageStart + visibleCount];
+        [pageText drawAtPoint:NSMakePoint(rect.origin.x + 78.0, rect.origin.y + 15.0) withAttributes:attrs];
+    }
     s3g::clap_gui::drawSlider(@"OUT",
                                [NSString stringWithFormat:@"%+.1f", params.outputGainDb],
                                (params.outputGainDb + 60.0f) / 72.0f,
@@ -989,13 +1433,14 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
                                rect.origin.x + rect.size.width - 70.0,
                                rect.size.width - 178.0);
     bool anySolo = false;
-    for (const auto& source : sources) anySolo = anySolo || source.solo;
-    for (uint32_t i = 0; i < s3g::kLayoutPannerSources; ++i) {
+    for (uint32_t i = 0; i < params.activeSources; ++i) anySolo = anySolo || sources[i].solo;
+    for (uint32_t lane = 0; lane < visibleCount; ++lane) {
+        const uint32_t i = pageStart + lane;
         const auto& s = sources[i];
         const bool selected = i == params.selectedSource;
         const bool audible = !s.muted && (!anySolo || s.solo);
         const CGFloat laneW = 34.0;
-        const CGFloat laneX = rect.origin.x + 13.0 + static_cast<CGFloat>(i) * laneW;
+        const CGFloat laneX = rect.origin.x + 13.0 + static_cast<CGFloat>(lane) * laneW;
         if (selected) {
             [lpColor(0x242424) setFill];
             NSRectFill(NSMakeRect(laneX, rect.origin.y + 92.0, laneW - 2.0, rect.size.height - 108.0));
@@ -1005,7 +1450,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         NSString* label = [NSString stringWithFormat:@"S%u", i + 1u];
         NSSize labelSize = [label sizeWithAttributes:attrs];
         [label drawAtPoint:NSMakePoint(laneX + (laneW - labelSize.width) * 0.5 - 1.0, rect.origin.y + 96.0) withAttributes:attrs];
-        NSRect slot = [self mixerSourceRect:i inRect:rect];
+        NSRect slot = [self mixerSourceRect:lane inRect:rect];
         [lpColor(audible ? 0x181818 : 0x0d0d0d) setFill];
         NSRectFill(slot);
         [lpColor(audible ? 0x545454 : 0x333333) setStroke];
@@ -1019,11 +1464,11 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         NSRectFill(fill);
         [lpColor(selected ? 0xf2f2f2 : 0x9a9a9a) setFill];
         NSRectFill(NSMakeRect(slot.origin.x - 2.0, slot.origin.y + slot.size.height * (1.0 - norm) - 1.0, slot.size.width + 4.0, 3.0));
-        NSRect mute = [self mixerMuteRect:i inRect:rect];
+        NSRect mute = [self mixerMuteRect:lane inRect:rect];
         [lpColor(s.muted ? 0x3a3a3a : 0x151515) setFill]; NSRectFill(mute);
         [lpColor(s.muted ? 0xd1d1d1 : 0x5a5a5a) setStroke]; NSFrameRect(mute);
         [@"M" drawAtPoint:NSMakePoint(mute.origin.x + 3.0, mute.origin.y + 2.0) withAttributes:attrs];
-        NSRect solo = [self mixerSoloRect:i inRect:rect];
+        NSRect solo = [self mixerSoloRect:lane inRect:rect];
         [lpColor(s.solo ? 0xd1d1d1 : 0x151515) setFill]; NSRectFill(solo);
         [lpColor(s.solo ? 0xf2f2f2 : 0x5a5a5a) setStroke]; NSFrameRect(solo);
         NSDictionary* soloAttrs = s.solo ? @{ NSForegroundColorAttributeName:lpColor(0x111111), NSFontAttributeName:[attrs objectForKey:NSFontAttributeName] } : attrs;
@@ -1151,8 +1596,8 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))] drawAtPoint:NSMakePoint(728,14) withAttributes:small];
     [@"16x64" drawAtPoint:NSMakePoint(832,14) withAttributes:small];
 
-    const NSRect mainPanel = NSMakeRect(18, 42, 596, 556);
-    const NSRect fieldRect = NSMakeRect(34, 76, 564, 506);
+    const NSRect mainPanel = NSMakeRect(18, 42, 596, 616);
+    const NSRect fieldRect = NSMakeRect(34, 76, 564, 566);
     s3g::clap_gui::drawPanelFrame(mainPanel.origin.x, mainPanel.origin.y, mainPanel.size.width, mainPanel.size.height, style);
     NSString* panelTitle = _page == 0 ? @"LAYOUT FIELD" : (_page == 1 ? @"SOURCE MIXER" : @"LAYOUT DESIGN");
     s3g::clap_gui::drawPanelHeader(panelTitle, true, mainPanel.origin.x, mainPanel.origin.y, mainPanel.size.width, 21, lab, style);
@@ -1174,10 +1619,10 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         [self drawMixer:fieldRect attrs:small style:style];
     }
 
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 270, style);
+    s3g::clap_gui::drawPanelFrame(630, 42, 250, 310, style);
     s3g::clap_gui::drawPanelHeader(@"PANNER", true, 630, 42, 250, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(630, 324, 250, 274, style);
-    s3g::clap_gui::drawPanelHeader(_page == 2 ? @"SPEAKER" : @"SOURCE", true, 630, 324, 250, 21, lab, style);
+    s3g::clap_gui::drawPanelFrame(630, 364, 250, 294, style);
+    s3g::clap_gui::drawPanelHeader(_page == 2 ? @"SPEAKER" : @"SOURCE", true, 630, 364, 250, 21, lab, style);
 
     const auto params = p->panner.params();
     const auto source = p->panner.source(params.selectedSource);
@@ -1192,11 +1637,11 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         const CGFloat speakerNorm = params.activeSpeakers > 1u
             ? static_cast<CGFloat>(params.selectedSpeaker) / static_cast<CGFloat>(params.activeSpeakers - 1u)
             : 0.0;
-        [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"%u", params.selectedSpeaker + 1u] norm:speakerNorm y:360 attrs:small style:style];
-        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", speaker.azimuthDeg] norm:(speaker.azimuthDeg + 180.0f) / 360.0f y:386 attrs:small style:style];
-        [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", speaker.elevationDeg] norm:(speaker.elevationDeg + 90.0f) / 180.0f y:412 attrs:small style:style];
-        [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", speaker.distance] norm:(speaker.distance - 0.1f) / 2.9f y:438 attrs:small style:style];
-        [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.outputGainDb] norm:(params.outputGainDb + 60.0f) / 72.0f y:490 attrs:small style:style];
+        [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"%u", params.selectedSpeaker + 1u] norm:speakerNorm y:400 attrs:small style:style];
+        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", speaker.azimuthDeg] norm:(speaker.azimuthDeg + 180.0f) / 360.0f y:426 attrs:small style:style];
+        [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", speaker.elevationDeg] norm:(speaker.elevationDeg + 90.0f) / 180.0f y:452 attrs:small style:style];
+        [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", speaker.distance] norm:(speaker.distance - 0.1f) / 2.9f y:478 attrs:small style:style];
+        [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.outputGainDb] norm:(params.outputGainDb + 60.0f) / 72.0f y:530 attrs:small style:style];
     } else {
         [self drawMenu:@"METHOD" value:[NSString stringWithUTF8String:s3g::layoutPannerMethodName(params.method)] y:104 attrs:small style:style];
         [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%.2f", params.focus] norm:(params.focus - 0.25f) / 3.75f y:130 attrs:small style:style];
@@ -1206,13 +1651,17 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         [self drawSlider:@"GEL" value:[NSString stringWithFormat:@"%+.0f", params.globalElevationDeg] norm:(params.globalElevationDeg + 90.0f) / 180.0f y:234 attrs:small style:style];
         [self drawSlider:@"GDST" value:[NSString stringWithFormat:@"%+.2f", params.globalDistanceOffset] norm:(params.globalDistanceOffset + 3.0f) / 6.0f y:260 attrs:small style:style];
         [self drawSlider:@"DIF" value:[NSString stringWithFormat:@"%.2f", params.distanceDiffusion] norm:params.distanceDiffusion y:286 attrs:small style:style];
+        [self drawSlider:@"SRC" value:[NSString stringWithFormat:@"%u", params.activeSources] norm:static_cast<CGFloat>(params.activeSources - 1u) / static_cast<CGFloat>(s3g::kLayoutPannerSources - 1u) y:312 attrs:small style:style];
 
-        [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"S%u", params.selectedSource + 1u] norm:static_cast<CGFloat>(params.selectedSource) / static_cast<CGFloat>(s3g::kLayoutPannerSources - 1u) y:360 attrs:small style:style];
-        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", source.azimuthDeg] norm:(source.azimuthDeg + 180.0f) / 360.0f y:386 attrs:small style:style];
-        [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", source.elevationDeg] norm:(source.elevationDeg + 90.0f) / 180.0f y:412 attrs:small style:style];
-        [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", source.distance] norm:(source.distance - 0.1f) / 2.9f y:438 attrs:small style:style];
-        [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%+.1f", source.gainDb] norm:(source.gainDb + 60.0f) / 84.0f y:464 attrs:small style:style];
-        [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.outputGainDb] norm:(params.outputGainDb + 60.0f) / 72.0f y:490 attrs:small style:style];
+        const CGFloat selectedNorm = params.activeSources > 1u
+            ? static_cast<CGFloat>(params.selectedSource) / static_cast<CGFloat>(params.activeSources - 1u)
+            : 0.0;
+        [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"S%u", params.selectedSource + 1u] norm:selectedNorm y:400 attrs:small style:style];
+        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", source.azimuthDeg] norm:(source.azimuthDeg + 180.0f) / 360.0f y:426 attrs:small style:style];
+        [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", source.elevationDeg] norm:(source.elevationDeg + 90.0f) / 180.0f y:452 attrs:small style:style];
+        [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", source.distance] norm:(source.distance - 0.1f) / 2.9f y:478 attrs:small style:style];
+        [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%+.1f", source.gainDb] norm:(source.gainDb + 60.0f) / 84.0f y:504 attrs:small style:style];
+        [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.outputGainDb] norm:(params.outputGainDb + 60.0f) / 72.0f y:530 attrs:small style:style];
     }
     [self drawOpenMenu:small];
 }
@@ -1268,7 +1717,12 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     case 7: applyParam(*p, kGlobalElevationParamId, -90.0 + n * 180.0); break;
     case 8: applyParam(*p, kGlobalDistanceParamId, -3.0 + n * 6.0); break;
     case 9: applyParam(*p, kDiffusionParamId, n); break;
-    case 11: applyParam(*p, kSelectedSourceParamId, 1.0 + n * static_cast<double>(s3g::kLayoutPannerSources - 1u)); break;
+    case 10: applyParam(*p, kActiveSourcesParamId, 1.0 + n * static_cast<double>(s3g::kLayoutPannerSources - 1u)); break;
+    case 11: {
+        const auto params = p->panner.params();
+        applyParam(*p, kSelectedSourceParamId, 1.0 + n * static_cast<double>(std::max<uint32_t>(1u, params.activeSources) - 1u));
+        break;
+    }
     case 12: applyParam(*p, kSelectedAzimuthParamId, -180.0 + n * 360.0); break;
     case 13: applyParam(*p, kSelectedElevationParamId, -90.0 + n * 180.0); break;
     case 14: applyParam(*p, kSelectedDistanceParamId, 0.1 + n * 2.9); break;
@@ -1291,7 +1745,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
             const int hit = s3g::clap_gui::dropdownHitIndex(pt, menuRect, itemH, _menuItemCount);
             const uint32_t index = static_cast<uint32_t>(std::max(0, hit));
             if (_openMenu == 1) {
-                applyParam(*p, kLayoutParamId, index);
+                applyParam(*p, kLayoutParamId, layoutPresetForMenuIndex(index));
             } else if (_openMenu == 3) {
                 auto params = p->panner.params();
                 params.layout = s3g::LayoutPannerPreset::Custom;
@@ -1317,11 +1771,11 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         _openMenu = menu;
         _hoverMenuItem = -1;
         _menuItemCount = count;
-        _menuOrigin = NSMakePoint(738.0, std::clamp(preferredY, 28.0, 616.0 - itemH * static_cast<CGFloat>(count)));
+        _menuOrigin = NSMakePoint(738.0, std::clamp(preferredY, 28.0, 676.0 - itemH * static_cast<CGFloat>(count)));
         [self setNeedsDisplay:YES];
     };
-    const NSRect mainPanel = NSMakeRect(18, 42, 596, 556);
-    const NSRect fieldRect = NSMakeRect(34, 76, 564, 506);
+    const NSRect mainPanel = NSMakeRect(18, 42, 596, 616);
+    const NSRect fieldRect = NSMakeRect(34, 76, 564, 566);
     if (NSPointInRect(pt, mainPanel)) {
         for (int i = 0; i < 3; ++i) {
             if (NSPointInRect(pt, [self pageButtonRect:i inRect:mainPanel])) {
@@ -1381,7 +1835,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
             const auto sources = p->panner.sources();
             CGFloat bestD = 999999.0;
             uint32_t best = params.selectedSource;
-            for (uint32_t i = 0; i < s3g::kLayoutPannerSources; ++i) {
+            for (uint32_t i = 0; i < params.activeSources; ++i) {
                 const auto& s = sources[i];
                 NSPoint spt = [self projectWorldPoint:s3g::layoutPannerSourcePosition(s) rect:fieldRect depth:nil];
                 const CGFloat d = std::hypot(pt.x - spt.x, pt.y - spt.y);
@@ -1400,6 +1854,24 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         }
     }
     if (_page == 1 && NSPointInRect(pt, fieldRect)) {
+        const auto params = p->panner.params();
+        constexpr uint32_t kMixerSourcesPerPage = 16;
+        const uint32_t pageCount = std::max<uint32_t>(1u, (params.activeSources + kMixerSourcesPerPage - 1u) / kMixerSourcesPerPage);
+        if (_mixerPage >= pageCount) _mixerPage = pageCount - 1u;
+        if (pageCount > 1u) {
+            if (NSPointInRect(pt, [self mixerPageButtonRect:0 inRect:fieldRect])) {
+                if (_mixerPage > 0u) --_mixerPage;
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(pt, [self mixerPageButtonRect:1 inRect:fieldRect])) {
+                if (_mixerPage + 1u < pageCount) ++_mixerPage;
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+        const uint32_t pageStart = _mixerPage * kMixerSourcesPerPage;
+        const uint32_t visibleCount = std::min<uint32_t>(kMixerSourcesPerPage, params.activeSources - pageStart);
         if (NSPointInRect(pt, NSInsetRect([self mixerOutputTrackRect:fieldRect], -8.0, -8.0))) {
             _dragMixerOutput = YES;
             const double n = std::clamp((pt.x - [self mixerOutputTrackRect:fieldRect].origin.x) / [self mixerOutputTrackRect:fieldRect].size.width, 0.0, 1.0);
@@ -1407,22 +1879,23 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
             [self setNeedsDisplay:YES];
             return;
         }
-        for (uint32_t i = 0; i < s3g::kLayoutPannerSources; ++i) {
-            if (NSPointInRect(pt, NSInsetRect([self mixerMuteRect:i inRect:fieldRect], -4.0, -4.0))) {
+        for (uint32_t lane = 0; lane < visibleCount; ++lane) {
+            const uint32_t i = pageStart + lane;
+            if (NSPointInRect(pt, NSInsetRect([self mixerMuteRect:lane inRect:fieldRect], -4.0, -4.0))) {
                 const auto source = p->panner.source(i);
                 applyParam(*p, sourceParamId(i, kSourceMuteOffset), source.muted ? 0.0 : 1.0);
                 [self setNeedsDisplay:YES];
                 return;
             }
-            if (NSPointInRect(pt, NSInsetRect([self mixerSoloRect:i inRect:fieldRect], -4.0, -4.0))) {
+            if (NSPointInRect(pt, NSInsetRect([self mixerSoloRect:lane inRect:fieldRect], -4.0, -4.0))) {
                 const auto source = p->panner.source(i);
                 applyParam(*p, sourceParamId(i, kSourceSoloOffset), source.solo ? 0.0 : 1.0);
                 [self setNeedsDisplay:YES];
                 return;
             }
-            if (NSPointInRect(pt, NSInsetRect([self mixerSourceRect:i inRect:fieldRect], -8.0, -7.0))) {
+            if (NSPointInRect(pt, NSInsetRect([self mixerSourceRect:lane inRect:fieldRect], -8.0, -7.0))) {
                 _dragMixerSource = static_cast<int>(i);
-                const NSRect track = [self mixerSourceRect:i inRect:fieldRect];
+                const NSRect track = [self mixerSourceRect:lane inRect:fieldRect];
                 const double n = std::clamp((NSMaxY(track) - pt.y) / track.size.height, 0.0, 1.0);
                 applyParam(*p, sourceParamId(i, kSourceGainOffset), -60.0 + n * 84.0);
                 [self setNeedsDisplay:YES];
@@ -1442,7 +1915,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
                 return;
             }
         }
-        const CGFloat rows[] = { 130, 360, 386, 412, 438, 490 };
+        const CGFloat rows[] = { 130, 400, 426, 452, 478, 530 };
         const int ids[] = { 21, 24, 25, 26, 27, 28 };
         for (int i = 0; i < 6; ++i) {
             if (NSPointInRect(pt, NSMakeRect(638, rows[i] - 8, 230, 24))) {
@@ -1452,9 +1925,9 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
             }
         }
     }
-    const CGFloat rows[] = { 130, 156, 182, 208, 234, 260, 286, 360, 386, 412, 438, 464, 490 };
-    const int ids[] = { 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16 };
-    for (int i = 0; i < 13; ++i) {
+    const CGFloat rows[] = { 130, 156, 182, 208, 234, 260, 286, 312, 400, 426, 452, 478, 504, 530 };
+    const int ids[] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+    for (int i = 0; i < 14; ++i) {
         if (NSPointInRect(pt, NSMakeRect(638, rows[i] - 8, 230, 24))) {
             _dragSlider = ids[i];
             [self updateSlider:pt];
@@ -1482,7 +1955,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         return;
     }
     if (_dragSource) {
-        const NSRect fieldRect = NSMakeRect(34, 76, 564, 506);
+        const NSRect fieldRect = NSMakeRect(34, 76, 564, 566);
         const auto prm = p->panner.params();
         auto source = p->panner.source(prm.selectedSource);
         s3g::Vec3 v = [self worldFromPoint:pt rect:fieldRect previous:s3g::layoutPannerSourcePosition(source)];
@@ -1492,7 +1965,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         return;
     }
     if (_dragSpeaker) {
-        const NSRect fieldRect = NSMakeRect(34, 76, 564, 506);
+        const NSRect fieldRect = NSMakeRect(34, 76, 564, 566);
         const auto prm = p->panner.params();
         const auto sp = p->panner.speaker(prm.selectedSpeaker);
         const auto dir = s3g::directionFromAed(sp.azimuthDeg, sp.elevationDeg);
@@ -1504,7 +1977,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         return;
     }
     if (_dragMixerOutput) {
-        const NSRect fieldRect = NSMakeRect(34, 76, 564, 506);
+        const NSRect fieldRect = NSMakeRect(34, 76, 564, 566);
         const NSRect track = [self mixerOutputTrackRect:fieldRect];
         const double n = std::clamp((pt.x - track.origin.x) / track.size.width, 0.0, 1.0);
         applyParam(*p, kOutputParamId, -60.0 + n * 72.0);
@@ -1512,10 +1985,15 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         return;
     }
     if (_dragMixerSource >= 0) {
-        const NSRect fieldRect = NSMakeRect(34, 76, 564, 506);
-        const NSRect track = [self mixerSourceRect:static_cast<uint32_t>(_dragMixerSource) inRect:fieldRect];
+        const NSRect fieldRect = NSMakeRect(34, 76, 564, 566);
+        constexpr uint32_t kMixerSourcesPerPage = 16;
+        const uint32_t sourceIndex = static_cast<uint32_t>(_dragMixerSource);
+        const uint32_t pageStart = _mixerPage * kMixerSourcesPerPage;
+        if (sourceIndex < pageStart || sourceIndex >= pageStart + kMixerSourcesPerPage) return;
+        const uint32_t lane = sourceIndex - pageStart;
+        const NSRect track = [self mixerSourceRect:lane inRect:fieldRect];
         const double n = std::clamp((NSMaxY(track) - pt.y) / track.size.height, 0.0, 1.0);
-        applyParam(*p, sourceParamId(static_cast<uint32_t>(_dragMixerSource), kSourceGainOffset), -60.0 + n * 84.0);
+        applyParam(*p, sourceParamId(sourceIndex, kSourceGainOffset), -60.0 + n * 84.0);
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1531,12 +2009,12 @@ bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating
 bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GLayoutPannerView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
 void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3GLayoutPannerView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = 900; *h = 620; return true; }
+bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = 900; *h = 680; return true; }
 bool guiCanResize(const clap_plugin_t*) { return false; }
 bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
 bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,900,620)]; return true; }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,900,680)]; return true; }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GLayoutPannerView*>(p->guiView) startRefreshTimer]; return true; }
@@ -1566,7 +2044,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.1.0",
-    "16-source direct layout panner with selectable multichannel speaker fields.",
+    "64-source direct layout panner with selectable multichannel speaker fields.",
     features
 };
 

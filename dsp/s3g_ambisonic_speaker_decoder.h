@@ -258,6 +258,39 @@ public:
         }
     }
 
+    template <typename Sample>
+    void processBlock(const Sample* const* input3Oa, Sample* const* output64, uint32_t inputChannels, uint32_t outputChannels, uint32_t frames) const
+    {
+        if (!output64 || frames == 0u) return;
+        outputChannels = std::min<uint32_t>(outputChannels, kAmbiSpeakerDecoderMaxSpeakers);
+        for (uint32_t spk = 0; spk < outputChannels; ++spk) {
+            if (output64[spk]) std::fill(output64[spk], output64[spk] + frames, static_cast<Sample>(0));
+        }
+        if (!input3Oa) return;
+
+        const uint32_t n = std::min<uint32_t>({ params_.activeSpeakers, outputChannels, kAmbiSpeakerDecoderMaxSpeakers });
+        const uint32_t channels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), inputChannels);
+        const float outGain = dbToGain(params_.outputGainDb);
+        bool anySolo = false;
+        for (uint32_t spk = 0; spk < n; ++spk) anySolo = anySolo || speakers_[spk].solo;
+
+        for (uint32_t spk = 0; spk < n; ++spk) {
+            Sample* out = output64[spk];
+            if (!out) continue;
+            const bool audible = speakers_[spk].enabled && (!anySolo || speakers_[spk].solo);
+            if (!audible) continue;
+            const float speakerGain = speakers_[spk].gain * outGain;
+            for (uint32_t frame = 0; frame < frames; ++frame) {
+                float value = 0.0f;
+                for (uint32_t ch = 0; ch < channels; ++ch) {
+                    const Sample* in = input3Oa[ch];
+                    value += (in ? static_cast<float>(in[frame]) : 0.0f) * matrix_[spk][ch];
+                }
+                out[frame] = static_cast<Sample>(flushDenormal(value * speakerGain));
+            }
+        }
+    }
+
 private:
     static float wrapSignedDeg(float value)
     {

@@ -107,6 +107,8 @@ struct Plugin {
     double sampleRate = 48000.0;
     s3g::ThreeOafxRack rack {};
     s3g::ThreeOafxRackParams params {};
+    std::array<float, s3g::k3OaChannels> inFrame {};
+    std::array<float, s3g::k3OaChannels> outFrame {};
     std::atomic<float> peak { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -307,19 +309,17 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     const auto& output = proc->audio_outputs[0];
     const uint32_t frames = proc->frames_count;
     const uint32_t channels = std::min({ input.channel_count, output.channel_count, s3g::k3OaChannels });
-    float inFrame[s3g::k3OaChannels] {};
-    float outFrame[s3g::k3OaChannels] {};
     float blockPeak = 0.0f;
     for (uint32_t i = 0; i < frames; ++i) {
-        std::fill(inFrame, inFrame + s3g::k3OaChannels, 0.0f);
-        std::fill(outFrame, outFrame + s3g::k3OaChannels, 0.0f);
         for (uint32_t ch = 0; ch < channels; ++ch) {
-            if (input.data32 && input.data32[ch]) inFrame[ch] = input.data32[ch][i];
-            else if (input.data64 && input.data64[ch]) inFrame[ch] = static_cast<float>(input.data64[ch][i]);
+            if (input.data32 && input.data32[ch]) p->inFrame[ch] = input.data32[ch][i];
+            else if (input.data64 && input.data64[ch]) p->inFrame[ch] = static_cast<float>(input.data64[ch][i]);
+            else p->inFrame[ch] = 0.0f;
         }
-        p->rack.processFrame(inFrame, outFrame);
+        for (uint32_t ch = channels; ch < s3g::k3OaChannels; ++ch) p->inFrame[ch] = 0.0f;
+        p->rack.processFrame(p->inFrame.data(), p->outFrame.data());
         for (uint32_t ch = 0; ch < output.channel_count; ++ch) {
-            const float value = ch < s3g::k3OaChannels ? outFrame[ch] : 0.0f;
+            const float value = ch < s3g::k3OaChannels ? p->outFrame[ch] : 0.0f;
             if (output.data32 && output.data32[ch]) output.data32[ch][i] = value;
             if (output.data64 && output.data64[ch]) output.data64[ch][i] = static_cast<double>(value);
             if (ch < s3g::k3OaChannels) blockPeak = std::max(blockPeak, std::fabs(value));

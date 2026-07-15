@@ -11,6 +11,8 @@
 #include "s3g_ambisonic_utilities.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_ambisonic_stereo_decoder.h"
+#include "s3g_ambisonic_sub_decoder.h"
+#include "s3g_array_hpf.h"
 #include "s3g_buffer_processor.h"
 #include "s3g_delay_processor.h"
 #include "s3g_gain.h"
@@ -25,6 +27,7 @@
 #include "s3g_spectral_fft.h"
 #include "s3g_spectral_spray.h"
 #include "s3g_spectral_topology_processor.h"
+#include "s3g_sub_crossover.h"
 #include "s3g_wave_geometry_processor.h"
 #include "s3g_shard_scatter.h"
 #include "s3g_layout_panner.h"
@@ -1338,6 +1341,20 @@ int main()
         std::cerr << "Layout Panner peak outside expected range: " << pannerPeak << "\n";
         return 1;
     }
+    layoutPannerParams.activeSources = 1;
+    layoutPanner.setParams(layoutPannerParams);
+    for (float& sample : pannerIn) sample = 0.0f;
+    for (float& sample : pannerOut) sample = 0.0f;
+    pannerIn[1] = 0.75f;
+    layoutPanner.processFrame(pannerIn, pannerOut, s3g::kLayoutPannerSources);
+    float gatedPeak = 0.0f;
+    for (float sample : pannerOut) gatedPeak = std::max(gatedPeak, std::abs(sample));
+    if (gatedPeak > 0.000001f) {
+        std::cerr << "Layout Panner active source gate leaked source 2: " << gatedPeak << "\n";
+        return 1;
+    }
+    layoutPannerParams.activeSources = s3g::kLayoutPannerSources;
+    layoutPanner.setParams(layoutPannerParams);
     layoutPannerParams.layout = s3g::LayoutPannerPreset::Quad;
     layoutPanner.setParams(layoutPannerParams);
     if (layoutPanner.activeSpeakers() != 4u
@@ -1372,6 +1389,177 @@ int main()
         std::cerr << "Layout Panner quad+overhead layout changed unexpectedly\n";
         return 1;
     }
+    layoutPannerParams.activeSources = 2;
+    layoutPanner.setParams(layoutPannerParams);
+    constexpr uint32_t layoutBlockFrames = 512;
+    std::array<std::array<double, layoutBlockFrames>, 2> layoutBlockIn {};
+    std::array<std::array<double, layoutBlockFrames>, 6> layoutBlockOut {};
+    std::array<const double*, 2> layoutBlockInPtrs {};
+    std::array<double*, 6> layoutBlockOutPtrs {};
+    for (uint32_t ch = 0; ch < 2u; ++ch) layoutBlockInPtrs[ch] = layoutBlockIn[ch].data();
+    for (uint32_t ch = 0; ch < 6u; ++ch) layoutBlockOutPtrs[ch] = layoutBlockOut[ch].data();
+    for (uint32_t frame = 0; frame < layoutBlockFrames; ++frame) {
+        layoutBlockIn[0][frame] = 0.25;
+        layoutBlockIn[1][frame] = frame & 1u ? -0.10 : 0.10;
+    }
+    layoutPanner.processBlock(layoutBlockInPtrs.data(), layoutBlockOutPtrs.data(), 2u, 6u, layoutBlockFrames);
+    float layoutBlockPeak = 0.0f;
+    for (const auto& channel : layoutBlockOut) {
+        for (double sample : channel) layoutBlockPeak = std::max(layoutBlockPeak, static_cast<float>(std::abs(sample)));
+    }
+    if (layoutBlockPeak <= 0.000001f || layoutBlockPeak > 1.0f) {
+        std::cerr << "Layout Panner block peak outside expected range: " << layoutBlockPeak << "\n";
+        return 1;
+    }
+    std::array<float, 2> layoutVectorIn {};
+    std::array<float, 6> layoutVectorOut {};
+    layoutPanner.beginVector(2u, 6u, layoutBlockFrames);
+    float layoutVectorPeak = 0.0f;
+    for (uint32_t frame = 0; frame < layoutBlockFrames; ++frame) {
+        layoutVectorIn[0] = 0.25f;
+        layoutVectorIn[1] = frame & 1u ? -0.10f : 0.10f;
+        layoutPanner.processVectorFrame(layoutVectorIn.data(), layoutVectorOut.data());
+        for (float sample : layoutVectorOut) layoutVectorPeak = std::max(layoutVectorPeak, std::abs(sample));
+    }
+    if (layoutVectorPeak <= 0.000001f || layoutVectorPeak > 1.0f) {
+        std::cerr << "Layout Panner vector peak outside expected range: " << layoutVectorPeak << "\n";
+        return 1;
+    }
+    for (auto& channel : layoutBlockOut) channel.fill(0.0);
+    layoutPanner.beginVector(2u, 6u, layoutBlockFrames);
+    float layoutChannelPeak = 0.0f;
+    for (uint32_t frame = 0; frame < layoutBlockFrames; ++frame) {
+        layoutPanner.processVectorFrameChannels(layoutBlockInPtrs.data(), layoutBlockOutPtrs.data(), frame);
+    }
+    for (const auto& channel : layoutBlockOut) {
+        for (double sample : channel) layoutChannelPeak = std::max(layoutChannelPeak, static_cast<float>(std::abs(sample)));
+    }
+    if (layoutChannelPeak <= 0.000001f || layoutChannelPeak > 1.0f) {
+        std::cerr << "Layout Panner channel-vector peak outside expected range: " << layoutChannelPeak << "\n";
+        return 1;
+    }
+    if (!layoutPanner.canProcessQuadOverhead2x6(2u, 6u)) {
+        std::cerr << "Layout Panner quad+oh 2x6 fast kernel did not activate\n";
+        return 1;
+    }
+    for (auto& channel : layoutBlockOut) channel.fill(0.0);
+    layoutPanner.processQuadOverhead2x6Block(layoutBlockInPtrs.data(), layoutBlockOutPtrs.data(), layoutBlockFrames);
+    float layoutFastPeak = 0.0f;
+    for (const auto& channel : layoutBlockOut) {
+        for (double sample : channel) layoutFastPeak = std::max(layoutFastPeak, static_cast<float>(std::abs(sample)));
+    }
+    if (layoutFastPeak <= 0.000001f || layoutFastPeak > 1.0f) {
+        std::cerr << "Layout Panner quad+oh 2x6 fast peak outside expected range: " << layoutFastPeak << "\n";
+        return 1;
+    }
+    {
+        const s3g::LayoutPannerPreset presets[] {
+            s3g::LayoutPannerPreset::Cube8,
+            s3g::LayoutPannerPreset::Cube17,
+            s3g::LayoutPannerPreset::Dodeca12,
+            s3g::LayoutPannerPreset::Dome24NoOverhead,
+            s3g::LayoutPannerPreset::Dome25,
+            s3g::LayoutPannerPreset::DoubleRing16,
+            s3g::LayoutPannerPreset::DoubleRing20,
+            s3g::LayoutPannerPreset::Icosahedron20,
+            s3g::LayoutPannerPreset::OctophonicRing,
+            s3g::LayoutPannerPreset::Quad,
+            s3g::LayoutPannerPreset::QuadOverhead6,
+            s3g::LayoutPannerPreset::Ring12,
+            s3g::LayoutPannerPreset::Ring16,
+            s3g::LayoutPannerPreset::FiveZero,
+            s3g::LayoutPannerPreset::SixZero,
+            s3g::LayoutPannerPreset::SevenZero,
+            s3g::LayoutPannerPreset::FiveZeroTwo,
+            s3g::LayoutPannerPreset::SevenZeroTwo,
+            s3g::LayoutPannerPreset::FiveZeroFour,
+            s3g::LayoutPannerPreset::SevenZeroFour,
+            s3g::LayoutPannerPreset::NineZero,
+            s3g::LayoutPannerPreset::NineZeroTwo,
+            s3g::LayoutPannerPreset::NineZeroFour,
+            s3g::LayoutPannerPreset::NineZeroSix,
+            s3g::LayoutPannerPreset::SevenZeroSix,
+            s3g::LayoutPannerPreset::ElevenZeroEight,
+        };
+        std::array<std::array<double, layoutBlockFrames>, s3g::kLayoutPannerSources> presetIn {};
+        std::array<std::array<double, layoutBlockFrames>, s3g::kLayoutPannerMaxSpeakers> presetOut {};
+        std::array<const double*, s3g::kLayoutPannerSources> presetInPtrs {};
+        std::array<double*, s3g::kLayoutPannerMaxSpeakers> presetOutPtrs {};
+        for (uint32_t ch = 0; ch < s3g::kLayoutPannerSources; ++ch) {
+            presetInPtrs[ch] = presetIn[ch].data();
+            for (uint32_t frame = 0; frame < layoutBlockFrames; ++frame) {
+                presetIn[ch][frame] = 0.02 * static_cast<double>((ch % 5u) + 1u);
+            }
+        }
+        for (uint32_t ch = 0; ch < s3g::kLayoutPannerMaxSpeakers; ++ch) presetOutPtrs[ch] = presetOut[ch].data();
+
+        for (const auto preset : presets) {
+            s3g::LayoutPanner presetPanner;
+            presetPanner.prepare(48000.0);
+            auto presetParams = presetPanner.params();
+            presetParams.layout = preset;
+            presetParams.activeSources = std::min<uint32_t>(4u, s3g::layoutPannerPresetSpeakerCount(preset, 4u));
+            presetPanner.setParams(presetParams);
+            const uint32_t inputs = presetParams.activeSources;
+            const uint32_t outputs = presetPanner.activeSpeakers();
+            if (!presetPanner.canProcessPresetLayoutKernel(inputs, outputs)) {
+                std::cerr << "Layout Panner preset kernel did not activate for " << s3g::layoutPannerPresetName(preset) << "\n";
+                return 1;
+            }
+            for (auto& channel : presetOut) channel.fill(0.0);
+            presetPanner.processPresetLayoutBlock(presetInPtrs.data(), presetOutPtrs.data(), inputs, outputs, layoutBlockFrames);
+            float presetPeak = 0.0f;
+            for (uint32_t ch = 0; ch < outputs; ++ch) {
+                for (double sample : presetOut[ch]) presetPeak = std::max(presetPeak, static_cast<float>(std::abs(sample)));
+            }
+            if (presetPeak <= 0.000001f || presetPeak > 1.0f) {
+                std::cerr << "Layout Panner preset kernel peak outside expected range for "
+                          << s3g::layoutPannerPresetName(preset) << ": " << presetPeak << "\n";
+                return 1;
+            }
+        }
+    }
+    layoutPannerParams.activeSources = s3g::kLayoutPannerSources;
+    layoutPanner.setParams(layoutPannerParams);
+    layoutPannerParams.layout = s3g::LayoutPannerPreset::Ring12;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 12u
+        || std::abs(layoutPanner.speakers()[0].azimuthDeg - -30.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[1].azimuthDeg - -60.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[11].azimuthDeg - 0.0f) > 0.001f) {
+        std::cerr << "Layout Panner ring12 ordering changed unexpectedly\n";
+        return 1;
+    }
+    layoutPannerParams.layout = s3g::LayoutPannerPreset::OctophonicRing;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 8u
+        || std::abs(layoutPanner.speakers()[0].azimuthDeg - -45.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[1].azimuthDeg - -90.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[7].azimuthDeg - 0.0f) > 0.001f) {
+        std::cerr << "Layout Panner octo layout changed unexpectedly\n";
+        return 1;
+    }
+    layoutPannerParams.layout = s3g::LayoutPannerPreset::FiveZero;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 5u
+        || std::abs(layoutPanner.speakers()[0].azimuthDeg - -30.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[1].azimuthDeg - -110.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[2].azimuthDeg - 110.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[3].azimuthDeg - 30.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[4].azimuthDeg - 0.0f) > 0.001f) {
+        std::cerr << "Layout Panner 5.0 layout changed unexpectedly\n";
+        return 1;
+    }
+    layoutPannerParams.layout = s3g::LayoutPannerPreset::SevenZeroFour;
+    layoutPanner.setParams(layoutPannerParams);
+    if (layoutPanner.activeSpeakers() != 11u
+        || std::abs(layoutPanner.speakers()[0].azimuthDeg - -30.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[6].azimuthDeg - 0.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[7].elevationDeg - 55.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[10].azimuthDeg - 45.0f) > 0.001f) {
+        std::cerr << "Layout Panner 7.0.4 layout changed unexpectedly\n";
+        return 1;
+    }
     layoutPannerParams.layout = s3g::LayoutPannerPreset::Cube17;
     layoutPanner.setParams(layoutPannerParams);
     if (layoutPanner.activeSpeakers() != 17u
@@ -1383,7 +1571,8 @@ int main()
     layoutPanner.setParams(layoutPannerParams);
     if (layoutPanner.activeSpeakers() != 12u
         || std::abs(layoutPanner.speakers()[0].azimuthDeg - -31.717474f) > 0.001f
-        || std::abs(layoutPanner.speakers()[11].elevationDeg - 31.717474f) > 0.001f) {
+        || std::abs(layoutPanner.speakers()[11].azimuthDeg - 0.0f) > 0.001f
+        || std::abs(layoutPanner.speakers()[11].elevationDeg - 58.282526f) > 0.001f) {
         std::cerr << "Layout Panner dodeca12 layout changed unexpectedly\n";
         return 1;
     }
@@ -1447,6 +1636,44 @@ int main()
             std::cerr << "Layout Panner cosine output is not finite\n";
             return 1;
         }
+    }
+
+    s3g::SubCrossover subXover;
+    subXover.prepare(48000.0);
+    s3g::SubCrossoverParams subXoverParams;
+    subXoverParams.layout = s3g::LayoutPannerPreset::Quad;
+    subXoverParams.mode = s3g::SubCrossoverMode::Split;
+    subXoverParams.highChannels = 4;
+    subXoverParams.subCount = 2;
+    subXoverParams.subOffset = 5;
+    subXoverParams.cutoffHz = 120.0f;
+    subXover.setParams(subXoverParams);
+    float subXoverIn[s3g::kSubCrossoverMaxChannels] {};
+    float subXoverOut[s3g::kSubCrossoverMaxChannels] {};
+    subXoverIn[0] = 1.0f;
+    float highEnergy = 0.0f;
+    float subEnergy = 0.0f;
+    for (uint32_t i = 0; i < 512u; ++i) {
+        subXover.processFrame(subXoverIn, subXoverOut, 8);
+        highEnergy += std::abs(subXoverOut[0]);
+        subEnergy += std::abs(subXoverOut[4]) + std::abs(subXoverOut[5]);
+        subXoverIn[0] = 0.0f;
+    }
+    if (highEnergy <= 0.001f || subEnergy <= 0.001f || std::abs(subXoverOut[6]) > 0.000001f) {
+        std::cerr << "Sub Crossover split did not route high/sub bands as expected\n";
+        return 1;
+    }
+    subXoverParams.bypass = true;
+    subXoverParams.foldSubsOnBypass = true;
+    subXover.setParams(subXoverParams);
+    for (float& value : subXoverIn) value = 0.0f;
+    subXoverIn[4] = 0.5f;
+    subXoverIn[5] = 0.5f;
+    subXover.processFrame(subXoverIn, subXoverOut, 8);
+    if (std::abs(subXoverOut[4]) > 0.000001f || std::abs(subXoverOut[5]) > 0.000001f
+        || std::abs(subXoverOut[0]) + std::abs(subXoverOut[1]) + std::abs(subXoverOut[2]) + std::abs(subXoverOut[3]) <= 0.0001f) {
+        std::cerr << "Sub Crossover bypass foldback did not return sub channels to the high layout\n";
+        return 1;
     }
 
     s3g::AedMaskState sendState;
@@ -2994,6 +3221,87 @@ int main()
         return 1;
     }
 
+    s3g::AmbiSubDecoder ambiSubDecoder;
+    ambiSubDecoder.prepare(48000.0);
+    s3g::AmbiSubDecoderParams ambiSubParams {};
+    ambiSubParams.order = 3;
+    ambiSubParams.subCount = 4;
+    ambiSubParams.cutoffHz = 140.0f;
+    ambiSubParams.directionWidth = 1.0f;
+    ambiSubDecoder.setParams(ambiSubParams);
+    constexpr uint32_t ambiSubFrames = 256u;
+    std::array<std::array<float, ambiSubFrames>, s3g::kAmbiSpeakerDecoderMaxChannels> ambiSubIn {};
+    std::array<std::array<float, ambiSubFrames>, s3g::kAmbiSubDecoderMaxSubs> ambiSubOut {};
+    std::array<const float*, s3g::kAmbiSpeakerDecoderMaxChannels> ambiSubInPtrs {};
+    std::array<float*, s3g::kAmbiSubDecoderMaxSubs> ambiSubOutPtrs {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxChannels; ++ch) ambiSubInPtrs[ch] = ambiSubIn[ch].data();
+    for (uint32_t ch = 0; ch < s3g::kAmbiSubDecoderMaxSubs; ++ch) ambiSubOutPtrs[ch] = ambiSubOut[ch].data();
+    for (uint32_t frame = 0; frame < ambiSubFrames; ++frame) {
+        ambiSubIn[0][frame] = 0.25f;
+        ambiSubIn[3][frame] = 0.20f;
+    }
+    ambiSubDecoder.processBlock(ambiSubInPtrs.data(), ambiSubOutPtrs.data(), 16u, 4u, ambiSubFrames);
+    float ambiSubPeak = 0.0f;
+    float ambiSubSpread = 0.0f;
+    for (uint32_t ch = 0; ch < 4u; ++ch) {
+        for (uint32_t frame = 0; frame < ambiSubFrames; ++frame) {
+            if (!std::isfinite(ambiSubOut[ch][frame])) {
+                std::cerr << "Ambi sub decoder output is not finite\n";
+                return 1;
+            }
+            ambiSubPeak = std::max(ambiSubPeak, std::abs(ambiSubOut[ch][frame]));
+        }
+        ambiSubSpread = std::max(ambiSubSpread, std::abs(ambiSubOut[ch][ambiSubFrames - 1u] - ambiSubOut[(ch + 1u) % 4u][ambiSubFrames - 1u]));
+    }
+    if (ambiSubPeak <= 0.000001f || ambiSubPeak > 1.0f || ambiSubSpread <= 0.000001f) {
+        std::cerr << "Ambi sub decoder peak/spread outside expected range: " << ambiSubPeak << " / " << ambiSubSpread << "\n";
+        return 1;
+    }
+    ambiSubParams.subCount = 1;
+    ambiSubParams.order = 0;
+    ambiSubDecoder.setParams(ambiSubParams);
+    for (auto& channel : ambiSubOut) channel.fill(0.0f);
+    ambiSubDecoder.reset();
+    ambiSubDecoder.processBlock(ambiSubInPtrs.data(), ambiSubOutPtrs.data(), 16u, 1u, ambiSubFrames);
+    if (std::abs(ambiSubOut[0][ambiSubFrames - 1u]) <= 0.000001f) {
+        std::cerr << "Ambi sub decoder mono W output is silent\n";
+        return 1;
+    }
+
+    s3g::ArrayHpf arrayHpf;
+    arrayHpf.prepare(48000.0);
+    s3g::ArrayHpfParams arrayHpfParams {};
+    arrayHpfParams.activeChannels = 4;
+    arrayHpfParams.cutoffHz = 120.0f;
+    arrayHpfParams.poles = 2;
+    arrayHpf.setParams(arrayHpfParams);
+    constexpr uint32_t arrayHpfFrames = 512u;
+    std::array<std::array<float, arrayHpfFrames>, s3g::kArrayHpfMaxChannels> arrayHpfIn {};
+    std::array<std::array<float, arrayHpfFrames>, s3g::kArrayHpfMaxChannels> arrayHpfOut {};
+    std::array<const float*, s3g::kArrayHpfMaxChannels> arrayHpfInPtrs {};
+    std::array<float*, s3g::kArrayHpfMaxChannels> arrayHpfOutPtrs {};
+    for (uint32_t ch = 0; ch < s3g::kArrayHpfMaxChannels; ++ch) {
+        arrayHpfInPtrs[ch] = arrayHpfIn[ch].data();
+        arrayHpfOutPtrs[ch] = arrayHpfOut[ch].data();
+    }
+    for (uint32_t frame = 0; frame < arrayHpfFrames; ++frame) {
+        const float low = std::sin(static_cast<float>(frame) * 2.0f * s3g::kPi * 20.0f / 48000.0f);
+        const float high = std::sin(static_cast<float>(frame) * 2.0f * s3g::kPi * 2200.0f / 48000.0f);
+        arrayHpfIn[0][frame] = low;
+        arrayHpfIn[1][frame] = high;
+    }
+    arrayHpf.processBlock(arrayHpfInPtrs.data(), arrayHpfOutPtrs.data(), 4u, 4u, arrayHpfFrames);
+    float arrayHpfLowTail = 0.0f;
+    float arrayHpfHighPeak = 0.0f;
+    for (uint32_t frame = arrayHpfFrames / 2u; frame < arrayHpfFrames; ++frame) {
+        arrayHpfLowTail = std::max(arrayHpfLowTail, std::abs(arrayHpfOut[0][frame]));
+        arrayHpfHighPeak = std::max(arrayHpfHighPeak, std::abs(arrayHpfOut[1][frame]));
+    }
+    if (arrayHpfLowTail >= 0.45f || arrayHpfHighPeak <= 0.10f) {
+        std::cerr << "Array HPF low/high response outside expected range: " << arrayHpfLowTail << " / " << arrayHpfHighPeak << "\n";
+        return 1;
+    }
+
     std::cout << "s3g-dsp smoke test passed\n";
     std::cout << "layout speakers: " << s3g::kVirtualSpeakerCount << "\n";
     std::cout << "gain ch1 sample4: " << samples[0][3] << "\n";
@@ -3010,6 +3318,8 @@ int main()
     std::cout << "macro pitch peak: " << macroPitchPeak << "\n";
     std::cout << "buffer processor peak/step: " << bufferPeak << " / " << bufferMaxStep << "\n";
     std::cout << "wave geometry peak/delta: " << waveGeometryPeak << " / " << waveGeometryDelta << "\n";
+    std::cout << "ambi sub decoder peak/spread: " << ambiSubPeak << " / " << ambiSubSpread << "\n";
+    std::cout << "array HPF low/high: " << arrayHpfLowTail << " / " << arrayHpfHighPeak << "\n";
     std::cout << "Ambi point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "Ambi speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";
