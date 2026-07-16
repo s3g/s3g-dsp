@@ -12,6 +12,8 @@
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_ambisonic_stereo_decoder.h"
 #include "s3g_ambisonic_sub_decoder.h"
+#include "s3g_ambi_object_decoder.h"
+#include "s3g_ambi_adaptive_decoder.h"
 #include "s3g_array_delay.h"
 #include "s3g_array_hpf.h"
 #include "s3g_array_trim.h"
@@ -1132,6 +1134,75 @@ int main()
         std::cerr << "Ambi Speaker Decoder peak outside expected range: " << speakerDecoderPeak << "\n";
         return 1;
     }
+
+    s3g::AmbiObjectDecoder objectDecoder;
+    objectDecoder.prepare(48000.0);
+    s3g::AmbiObjectDecoderParams objectParams;
+    objectParams.decoder.layout = s3g::AmbiSpeakerLayoutPreset::QuadOverhead6;
+    objectParams.decoder.mode = s3g::AmbiSpeakerDecoderMode::Epad;
+    objectParams.decoder.weighting = s3g::AmbiSpeakerDecoderWeighting::MaxRe;
+    objectParams.decoder.order = 3;
+    objectParams.decoder.outputGainDb = -12.0f;
+    objectParams.objectMethod = s3g::AmbiObjectMethod::Vbap;
+    objectParams.objectBlend = 0.0f;
+    objectDecoder.setParams(objectParams);
+    float objectIn[s3g::kAmbiSpeakerDecoderMaxChannels] {};
+    float objectFieldOut[s3g::kAmbiSpeakerDecoderMaxSpeakers] {};
+    float objectHybridOut[s3g::kAmbiSpeakerDecoderMaxSpeakers] {};
+    objectIn[0] = 0.22f;
+    objectIn[1] = -0.10f;
+    objectIn[2] = 0.07f;
+    objectIn[3] = 0.16f;
+    objectDecoder.processFrame(objectIn, objectFieldOut, 16u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    objectParams.objectBlend = 0.65f;
+    objectDecoder.setParams(objectParams);
+    objectDecoder.processFrame(objectIn, objectHybridOut, 16u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    float objectDecoderPeak = 0.0f;
+    float objectDiff = 0.0f;
+    for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
+        if (!std::isfinite(objectHybridOut[ch])) {
+            std::cerr << "Ambi Object Decoder output is not finite\n";
+            return 1;
+        }
+        objectDecoderPeak = std::max(objectDecoderPeak, std::abs(objectHybridOut[ch]));
+        objectDiff += std::abs(objectHybridOut[ch] - objectFieldOut[ch]);
+    }
+    if (objectDecoderPeak <= 0.000001f || objectDecoderPeak > 1.5f || objectDiff <= 0.000001f) {
+        std::cerr << "Ambi Object Decoder failed peak/diff check: " << objectDecoderPeak << " / " << objectDiff << "\n";
+        return 1;
+    }
+
+    s3g::AmbiAdaptiveDecoder adaptiveDecoder;
+    adaptiveDecoder.prepare(48000.0);
+    s3g::AmbiAdaptiveDecoderParams adaptiveParams;
+    adaptiveParams.decoder.layout = s3g::AmbiSpeakerLayoutPreset::QuadOverhead6;
+    adaptiveParams.decoder.mode = s3g::AmbiSpeakerDecoderMode::Epad;
+    adaptiveParams.decoder.weighting = s3g::AmbiSpeakerDecoderWeighting::MaxRe;
+    adaptiveParams.decoder.order = 3;
+    adaptiveParams.decoder.outputGainDb = -12.0f;
+    adaptiveParams.focus = 0.85f;
+    adaptiveParams.diffuse = 0.35f;
+    adaptiveParams.confidence = 0.75f;
+    adaptiveParams.transient = 0.50f;
+    adaptiveParams.crossoverHz = 650.0f;
+    adaptiveDecoder.setParams(adaptiveParams);
+    float adaptiveOut[s3g::kAmbiSpeakerDecoderMaxSpeakers] {};
+    adaptiveDecoder.processFrame(objectIn, adaptiveOut, 16u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    float adaptivePeak = 0.0f;
+    float adaptiveDiff = 0.0f;
+    for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
+        if (!std::isfinite(adaptiveOut[ch])) {
+            std::cerr << "Ambi Adaptive Decoder output is not finite\n";
+            return 1;
+        }
+        adaptivePeak = std::max(adaptivePeak, std::abs(adaptiveOut[ch]));
+        adaptiveDiff += std::abs(adaptiveOut[ch] - objectFieldOut[ch]);
+    }
+    if (adaptivePeak <= 0.000001f || adaptivePeak > 1.5f || adaptiveDiff <= 0.000001f) {
+        std::cerr << "Ambi Adaptive Decoder failed peak/diff check: " << adaptivePeak << " / " << adaptiveDiff << "\n";
+        return 1;
+    }
+
     speakerParams.weighting = s3g::AmbiSpeakerDecoderWeighting::InPhase;
     speakerDecoder.setParams(speakerParams);
     speakerDecoder.processFrame(decoderIn, decoderOut);
@@ -3581,6 +3652,7 @@ int main()
     std::cout << "cube41 speakers: " << cube41Decoder.params().activeSpeakers << "\n";
     std::cout << "Ambi point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "Ambi speaker decoder peak: " << speakerDecoderPeak << "\n";
+    std::cout << "Ambi object decoder peak: " << objectDecoderPeak << "\n";
     std::cout << "3OAFX return W: " << hoaOut[0] << "\n";
     std::cout << "3OAFX single peaks: "
               << single3OafxPeak[0] << " / "

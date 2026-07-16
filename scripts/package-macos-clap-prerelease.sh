@@ -39,6 +39,8 @@ bundles=(
   "$src_root/clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder.clap"
   "$src_root/clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder.clap"
   "$src_root/clap_ambisonic_sub_decoder/s3g_ambisonic_sub_decoder.clap"
+  "$src_root/clap_ambi_object_decoder/s3g_ambi_object_decoder.clap"
+  "$src_root/clap_ambi_adaptive_decoder/s3g_ambi_adaptive_decoder.clap"
   "$src_root/clap_array_hpf/s3g_array_hpf_16.clap"
   "$src_root/clap_array_hpf/s3g_array_hpf_26.clap"
   "$src_root/clap_array_hpf/s3g_array_hpf_32.clap"
@@ -136,6 +138,8 @@ Included plugins:
 - s3g Ambi Stereo Decoder
 - s3g Ambi Head Decoder
 - s3g Ambisonic Sub Decoder
+- s3g Ambi Object Decoder 64
+- s3g Ambi Adaptive Decoder 64
 - s3g Array HPF 16
 - s3g Array HPF 26
 - s3g Array HPF 32

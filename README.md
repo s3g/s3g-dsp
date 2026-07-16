@@ -57,6 +57,11 @@ Current plugins:
   speaker decoder with curated layouts, custom speaker editing, and a stable
   64-channel output bus. The speaker field camera view is saved with the host
   project.
+- `s3g Ambi Object Decoder 64`: hybrid ambisonic speaker decoder that blends a
+  normal decoded field with a directional object-panning path using VBAP, LBAP,
+  or DBAP.
+- `s3g Ambi Adaptive Decoder 64`: dual-band ambisonic speaker decoder that
+  blends diffuse and focused decode paths using confidence and transient cues.
 - `s3g Layout Panner`: direct 64-source to 64-speaker spatial panner with
   speaker presets, source mixer, custom layout design, inside-source modes,
   and project-saved field views.

@@ -65,6 +65,8 @@ copy_bundle "$src_root/clap_ambisonic_energy_visualizer/s3g_ambisonic_energy_vis
 copy_bundle "$src_root/clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder.clap"
 copy_bundle "$src_root/clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder.clap"
 copy_bundle "$src_root/clap_ambisonic_sub_decoder/s3g_ambisonic_sub_decoder.clap"
+copy_bundle "$src_root/clap_ambi_object_decoder/s3g_ambi_object_decoder.clap"
+copy_bundle "$src_root/clap_ambi_adaptive_decoder/s3g_ambi_adaptive_decoder.clap"
 copy_bundle "$src_root/clap_array_hpf/s3g_array_hpf_16.clap"
 copy_bundle "$src_root/clap_array_hpf/s3g_array_hpf_26.clap"
 copy_bundle "$src_root/clap_array_hpf/s3g_array_hpf_32.clap"
