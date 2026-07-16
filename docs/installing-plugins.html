@@ -14,7 +14,8 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="effects.html">Effects</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
@@ -29,12 +30,6 @@
         <p>These notes are for installing a packaged macOS CLAP zip from a GitHub pre-release. Plugin names, parameters, saved states, and included plugins may change.</p>
 
         <p>The supported target is macOS + REAPER.</p>
-        <div class="status-strip" aria-label="Install status">
-          <div><span>state</span><strong>pre-release</strong></div>
-          <div><span>format</span><strong>CLAP</strong></div>
-          <div><span>platform</span><strong>macOS</strong></div>
-          <div><span>host</span><strong>REAPER</strong></div>
-        </div>
 
         <h2 id="requirements">Requirements</h2>
 
@@ -55,199 +50,16 @@
 
         <p>Replace older bundles with the same names if prompted. REAPER may need a plugin rescan after installation.</p>
 
-        <h2 id="current-plugins">Current Plugins</h2>
+        <h2 id="included">Included Groups</h2>
 
-        <p>The current package includes 45 CLAP bundles: general effects/macros, utilities, CLAP instruments, and 3OAFX ambisonics tools.</p>
+        <p>The pre-release package includes several families. Exact bundle counts can change between builds, so this page lists groups rather than every plugin variant.</p>
 
-        <h3>Processors and Macros</h3>
-
-        <div class="category-grid">
-          <a class="category-card" href="delay-processor.html">
-            <span>topology delay</span>
-            <strong>s3g Delay Processor 8ch/24ch</strong>
-            <em>Main topology-driven delay processor and wider fixed-width delay build.</em>
-          </a>
-          <div class="category-card muted-card">
-            <span>delay macro</span>
-            <strong>s3g Macro Delay 8ch/24ch</strong>
-            <em>Compact multichannel delay macro with shared engine controls, lane relationship controls, and wider 24-channel builds.</em>
-          </div>
-          <div class="category-card muted-card">
-            <span>pitch macro</span>
-            <strong>s3g Macro Pitch 8ch/24ch</strong>
-            <em>Compact multichannel pitch macro with the shared Macro layout and wider 24-channel builds.</em>
-          </div>
-          <a class="category-card" href="wave-geometry-processor.html">
-            <span>wave topology</span>
-            <strong>s3g Wave Geometry Processor 8ch</strong>
-            <em>Topology-shaped wave processor with folding, clipping, sample-step motion, scope view, and dual tape-head playback.</em>
-          </a>
-          <a class="category-card" href="spectral-topology-processor.html">
-            <span>spectral topology</span>
-            <strong>s3g Spectral Topology Processor 8ch/24ch</strong>
-            <em>Topology-shaped spectral processor with lane patching and a grayscale one-second sonogram view.</em>
-          </a>
-          <div class="category-card muted-card">
-            <span>FFT scatter</span>
-            <strong>s3g Spectral Spray 2ch/8ch</strong>
-            <em>FFT-bin scatter, smear, hold, freeze, and feedback effects.</em>
-          </div>
-          <div class="category-card muted-card">
-            <span>grain scatter</span>
-            <strong>s3g Shard Scatter</strong>
-            <em>2-in/16-out grain-shard spatial scatter effect.</em>
-          </div>
-          <div class="category-card muted-card">
-            <span>orbiting delay</span>
-            <strong>s3g Orbit Delay</strong>
-            <em>2-in/16-out orbiting delay effect.</em>
-          </div>
-          <div class="category-card muted-card">
-            <span>tap cascade</span>
-            <strong>s3g Cascade Taps</strong>
-            <em>2-in/16-out stepped tap-ring effect with cascade handoff softening.</em>
-          </div>
-        </div>
-
-        <h3>Utilities</h3>
-
-        <div class="category-grid">
-          <a class="category-card" href="mc-to-stereo-autogain.html">
-            <span>fold-down</span>
-            <strong>s3g MC to Stereo Autogain</strong>
-            <em>128-channel input to true stereo output fold-down tool.</em>
-          </a>
-          <a class="category-card" href="mc-to-quad-autogain.html">
-            <span>fold-down</span>
-            <strong>s3g MC to Quad Autogain</strong>
-            <em>128-channel input to quad output fold-down with output order L, R, RB, LB.</em>
-          </a>
-          <div class="category-card muted-card">
-            <span>meter</span>
-            <strong>s3g Multichannel Meter 64</strong>
-            <em>Fixed 64-in/64-out passthrough meter with selectable visual width, spatial layout, and energy history views.</em>
-          </div>
-          <a class="category-card" href="ambisonic-energy-visualizer.html">
-            <span>ambisonic analyzer</span>
-            <strong>s3g Ambi Energy Visualizer 64</strong>
-            <em>Fixed 64-in/64-out passthrough analyzer for ACN/SN3D energy heatmap views.</em>
-          </a>
-          <a class="category-card" href="ambisonic-rotate.html">
-            <span>ambisonic utility</span>
-            <strong>s3g Ambi Rotate 64</strong>
-            <em>Fixed 64-in/64-out ACN/SN3D field rotation utility up to 7OA.</em>
-          </a>
-          <a class="category-card" href="ambisonic-bus-processors.html#field-depth">
-            <span>ambisonic utility</span>
-            <strong>s3g Ambi Depth 16</strong>
-            <em>Fixed 16-in/16-out 3OA field depth utility with order shaping and distance tail.</em>
-          </a>
-          <a class="category-card" href="ambisonic-order-band-tool.html">
-            <span>ambisonic utility</span>
-            <strong>s3g Ambi Order / Band 64</strong>
-            <em>Fixed 64-in/64-out order-band gain and weighting utility with MaxRE and In-phase starting points.</em>
-          </a>
-          <div class="category-card muted-card">
-            <span>bus utility</span>
-            <strong>s3g Group Matrix 32/64</strong>
-            <em>General matrix mixers. The 32-channel version supports 2ch, 4ch, and 8ch groups; the 64-channel version supports 4ch, 8ch, and 16ch groups.</em>
-          </div>
-          <div class="category-card muted-card">
-            <span>bus utility</span>
-            <strong>s3g Node Bus Mixer 128 / s3g Ambi Node Bus Mixer 128</strong>
-            <em>Node/cursor bus mixers adapted from the s3g-mc node track mixers. Route source blocks into one wide REAPER track, then use node positions and the cursor to mix. <code>LOCK Z</code> keeps the default mix surface flat.</em>
-          </div>
-          <div class="category-card muted-card">
-            <span>routing check</span>
-            <strong>s3g Passthrough Test 24ch</strong>
-            <em>Fixed 24-in/24-out passthrough/gain plugin for checking multichannel host routing.</em>
-          </div>
-        </div>
-
-        <h3>Instruments</h3>
-
-        <div class="category-grid">
-          <a class="category-card" href="loop-processor.html">
-            <span>sample instrument</span>
-            <strong>s3g Loop Processor 8ch</strong>
-            <em>CLAP instrument plugin for loaded audio loops, repeated source channels, lane playheads, and phase relationship controls.</em>
-          </a>
-          <a class="category-card" href="multi-loop-processor.html">
-            <span>multi-source instrument</span>
-            <strong>s3g Multi Loop Processor 8ch</strong>
-            <em>CLAP instrument plugin for combining up to four loaded files into an eight-lane loop instrument.</em>
-          </a>
-        </div>
-
-        <h3>Ambisonics</h3>
-
-        <div class="category-grid">
-          <a class="category-card" href="3oafx-effects.html">
-            <span>3OAFX effects</span>
-            <strong>s3g 3OAFX Delay / s3g 3OAFX Filter / s3g 3OAFX Gain / s3g 3OAFX Pitch</strong>
-            <em>Single-effect third-order processors with internal 24-point virtual speaker masking.</em>
-          </a>
-          <a class="category-card" href="3oafx-point-encoder.html">
-            <span>point encoder</span>
-            <strong>s3g Ambi Point Encoder</strong>
-            <em>16 point-source input to third-order ACN/SN3D output with AED placement and motion scenes.</em>
-          </a>
-          <a class="category-card" href="3oafx-speaker-decoder.html">
-            <span>speaker decoder</span>
-            <strong>s3g Ambi Speaker Decoder 64</strong>
-            <em>1OA to 7OA ACN/SN3D speaker decoder with curated layouts, custom speaker editing, and saved camera views.</em>
-          </a>
-          <a class="category-card" href="3oafx-speaker-decoder.html">
-            <span>hybrid decoder</span>
-            <strong>s3g Ambi Object Decoder 64</strong>
-            <em>Hybrid ACN/SN3D speaker decoder with a blendable VBAP/LBAP/DBAP object path.</em>
-          </a>
-          <a class="category-card" href="3oafx-speaker-decoder.html">
-            <span>adaptive decoder</span>
-            <strong>s3g Ambi Adaptive Decoder 64</strong>
-            <em>Dual-band ACN/SN3D speaker decoder with diffuse/focused path blending.</em>
-          </a>
-          <a class="category-card" href="3oafx-layout-panner.html#panner-variants">
-            <span>direct panners</span>
-            <strong>s3g Layout / DBAP / LBAP / VBAP Panner</strong>
-            <em>64-source direct panners with curated speaker layouts, inside-source modes, saved camera views, topology-aware variants, and custom layout design where supported.</em>
-          </a>
-          <a class="category-card" href="ambisonic-rotate.html">
-            <span>field utility</span>
-            <strong>s3g Ambi Rotate 64</strong>
-            <em>1OA to 7OA ACN/SN3D field rotation with yaw, pitch, roll, and order-width trim.</em>
-          </a>
-          <a class="category-card" href="ambisonic-bus-processors.html#field-depth">
-            <span>field utility</span>
-            <strong>s3g Ambi Depth 16</strong>
-            <em>3OA ACN/SN3D depth shaping with order focus, air damping, and distance tail.</em>
-          </a>
-          <a class="category-card" href="ambisonic-bus-processors.html">
-            <span>bus processors</span>
-            <strong>s3g Ambi Group Matrix / Rotate / Depth 64 and 128</strong>
-            <em>Bus-level tools for mixing, rotating, and depth-shaping four or eight lane-locked 3OA feeds.</em>
-          </a>
-          <a class="category-card" href="ambisonic-order-band-tool.html">
-            <span>order utility</span>
-            <strong>s3g Ambi Order / Band 64</strong>
-            <em>Order-band trims and common weighting curves such as Flat, MaxRE, and In-phase.</em>
-          </a>
-          <a class="category-card" href="ambisonic-stereo-decoder.html">
-            <span>stereo decoder</span>
-            <strong>s3g Ambi Stereo Decoder</strong>
-            <em>1OA to 7OA ACN/SN3D to true stereo using virtual fields and stereo pickup models.</em>
-          </a>
-          <a class="category-card" href="ambisonic-head-decoder.html">
-            <span>head decoder</span>
-            <strong>s3g Ambi Head Decoder</strong>
-            <em>Synthetic binaural/transaural stereo decoder with no external SOFA files.</em>
-          </a>
-          <a class="category-card" href="ambi-grain-processor.html">
-            <span>grain instrument</span>
-            <strong>s3g Ambi Grain Processor</strong>
-            <em>Loaded ACN/SN3D media granulator with fixed 16-channel output.</em>
-          </a>
-        </div>
+        <ul>
+          <li><a href="processors.html">Processors</a>: Delay Processor, Wave Geometry Processor, Spectral Topology Processor, Macro Delay, Macro Pitch, Spectral Spray 2ch/8ch, Buffer Processor, Shard Scatter, Orbit Delay, and Cascade Taps.</li>
+          <li><a href="mix-pan.html">Mix / Pan</a>: MC to Stereo/Quad Autogain, Multichannel Meter, Layout/DBAP/LBAP/VBAP panners, Group Matrix 32/64, Node Bus Mixer 128, Sub Crossover, Array HPF/Delay/Trim 16/26/32/64, and Passthrough Test 24ch.</li>
+          <li><a href="3oafx.html">Ambisonics</a>: 3OAFX single-effect processors, Ambi Point/Cloud Encoder, Speaker/Object/Adaptive/Sub Decoder, Ambi Rotate, Depth, Group Matrix/Rotate/Depth, Order / Band, Stereo Decoder, Head Decoder, Energy Visualizer, and Ambi Grain Processor.</li>
+          <li><a href="instruments.html">Instruments</a>: Loop Processor and Multi Loop Processor.</li>
+        </ul>
 
         <h2 id="reaper">REAPER Setup</h2>
 
@@ -259,7 +71,7 @@
 
         <p><code>s3g MC to Quad Autogain</code> exposes a four-channel output bus ordered <code>L</code>, <code>R</code>, <code>RB</code>, <code>LB</code>. <code>s3g Shard Scatter</code>, <code>s3g Orbit Delay</code>, and <code>s3g Cascade Taps</code> expose sixteen output channels, so set the REAPER track channel count and plugin pins before auditioning those processors.</p>
 
-        <p>For ambisonics-specific tools in this package, see <a href="3oafx.html">Ambisonics</a>. For the larger REAPER package workflow, see the <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX Send Return Controller guide</a>.</p>
+        <p>For mix, route, pan, and monitoring tools, see <a href="mix-pan.html">Mix / Pan</a>. For ambisonics-specific tools, see <a href="3oafx.html">Ambisonics</a>. For the larger REAPER package workflow, see the <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html#3oafx-send-return-controller" target="_blank" rel="noopener noreferrer">s3g-mc 3OAFX Send Return Controller guide</a>.</p>
 
         <h2 id="cleanup">Cleanup</h2>
 
@@ -272,11 +84,11 @@
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="building-from-source.html">
             <span>Previous</span>
-            Building From Source
+            Build From Source
           </a>
-          <a class="page-nav-link next" href="effects.html">
+          <a class="page-nav-link next" href="processors.html">
             <span>Next</span>
-            Effects
+            Processors
           </a>
         </nav>
       </main>
@@ -293,7 +105,7 @@
           <a href="#requirements">Requirements</a>
           <a href="#download">Download</a>
           <a href="#install">Install</a>
-          <a href="#current-plugins">Current Plugins</a>
+          <a href="#included">Included Groups</a>
           <a href="#reaper">REAPER Setup</a>
           <a href="#cleanup">Cleanup</a>
         </div>

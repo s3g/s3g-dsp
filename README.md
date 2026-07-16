@@ -53,6 +53,9 @@ Current plugins:
 - `s3g Ambi Point Encoder`: 16 point-source input to third-order
   `ACN/SN3D` ambisonic output with AED placement, point mixer, physics scenes,
   and Geist-driven bond breaking.
+- `s3g Ambi Cloud Encoder 64`: 64-source input to first-through-seventh-order
+  `ACN/SN3D` ambisonic output with one to four cloud centers, spread, jitter,
+  drift, and source-cloud distribution controls.
 - `s3g Ambi Speaker Decoder 64`: first-through-seventh-order `ACN/SN3D`
   speaker decoder with curated layouts, custom speaker editing, and a stable
   64-channel output bus. The speaker field camera view is saved with the host
@@ -62,6 +65,8 @@ Current plugins:
   or DBAP.
 - `s3g Ambi Adaptive Decoder 64`: dual-band ambisonic speaker decoder that
   blends diffuse and focused decode paths using confidence and transient cues.
+- `s3g Ambi Sub Decoder`: ambisonic low-frequency decoder for deriving up to
+  eight sub feeds from `ACN/SN3D` input.
 - `s3g Layout Panner`: direct 64-source to 64-speaker spatial panner with
   speaker presets, source mixer, custom layout design, inside-source modes,
   and project-saved field views.

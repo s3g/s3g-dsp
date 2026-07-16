@@ -3,6 +3,7 @@
 #include "s3g_3oafx_single_effect.h"
 #include "s3g_ambi_grain_processor.h"
 #include "s3g_ambisonic_point_encoder.h"
+#include "s3g_ambi_cloud_encoder.h"
 #include "s3g_ambisonic_head_decoder.h"
 #include "s3g_ambi_group_depth.h"
 #include "s3g_ambi_group_matrix.h"
@@ -1102,6 +1103,48 @@ int main()
     }
     if (pointEncoderPeak <= 0.00001f || pointEncoderPeak > 1.0f) {
         std::cerr << "Ambi Point Encoder peak outside expected range: " << pointEncoderPeak << "\n";
+        return 1;
+    }
+
+    s3g::AmbiCloudEncoder cloudEncoder;
+    cloudEncoder.prepare(48000.0);
+    s3g::AmbiCloudEncoderParams cloudParams;
+    cloudParams.activeInputs = s3g::kAmbiCloudEncoderMaxInputs;
+    cloudParams.activeClouds = 4;
+    cloudParams.order = 7;
+    cloudParams.spread = 0.55f;
+    cloudParams.elevationSpread = 0.45f;
+    cloudParams.jitter = 0.18f;
+    cloudParams.drift = 0.65f;
+    cloudParams.rateHz = 0.08f;
+    cloudParams.outputGainDb = -18.0f;
+    cloudEncoder.setParams(cloudParams);
+    std::array<std::array<float, 256>, s3g::kAmbiCloudEncoderMaxInputs> cloudInputBuffers {};
+    std::array<std::array<float, 256>, s3g::kAmbiCloudEncoderMaxChannels> cloudOutputBuffers {};
+    std::array<const float*, s3g::kAmbiCloudEncoderMaxInputs> cloudInputs {};
+    std::array<float*, s3g::kAmbiCloudEncoderMaxChannels> cloudOutputs {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiCloudEncoderMaxInputs; ++ch) cloudInputs[ch] = cloudInputBuffers[ch].data();
+    for (uint32_t ch = 0; ch < s3g::kAmbiCloudEncoderMaxChannels; ++ch) cloudOutputs[ch] = cloudOutputBuffers[ch].data();
+    float cloudPeak = 0.0f;
+    for (int block = 0; block < 8; ++block) {
+        for (uint32_t ch = 0; ch < s3g::kAmbiCloudEncoderMaxInputs; ++ch) {
+            for (uint32_t i = 0; i < cloudInputBuffers[ch].size(); ++i) {
+                cloudInputBuffers[ch][i] = std::sin(6.28318530718f * (70.0f + ch * 3.0f) * static_cast<float>(block * 256 + i) / 48000.0f) * 0.004f;
+            }
+        }
+        cloudEncoder.processBlock(cloudInputs.data(), cloudOutputs.data(), s3g::kAmbiCloudEncoderMaxInputs, s3g::kAmbiCloudEncoderMaxChannels, static_cast<uint32_t>(cloudOutputBuffers[0].size()));
+        for (const auto& channel : cloudOutputBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi Cloud Encoder output is not finite\n";
+                    return 1;
+                }
+                cloudPeak = std::max(cloudPeak, std::abs(value));
+            }
+        }
+    }
+    if (cloudPeak <= 0.000001f || cloudPeak > 1.0f) {
+        std::cerr << "Ambi Cloud Encoder peak outside expected range: " << cloudPeak << "\n";
         return 1;
     }
 

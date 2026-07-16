@@ -3,8 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Effects - s3g-dsp</title>
-    <meta name="description" content="Effect plugin documentation for s3g-dsp.">
+    <title>Processors - s3g-dsp</title>
+    <meta name="description" content="Redirect to processor documentation for s3g-dsp.">
+    <meta http-equiv="refresh" content="0; url=processors.html">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -14,7 +15,8 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="effects.html">Effects</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
@@ -22,173 +24,11 @@
       </nav>
     </header>
 
-    <div class="page-shell">
-      <main class="content" id="content">
-        <h1>Effects</h1>
-
-        <p>Effects process incoming REAPER track audio without assuming an ambisonic format. Ambisonics-specific plugins now live in the <a href="3oafx.html">Ambisonics</a> section.</p>
-
-        <div class="related-links">
-          <h2>Effect Pages</h2>
-          <ul>
-            <li><a href="delay-processor.html">Delay Processor</a>: main topology-driven delay effect and the best starting point for topology controls.</li>
-            <li><strong>Macro Delay 8ch/24ch</strong>: compact delay macros with relationship controls.</li>
-            <li><strong>Macro Pitch 8ch/24ch</strong>: compact pitch macros using the shared Macro control layout.</li>
-            <li><a href="wave-geometry-processor.html">Wave Geometry Processor</a>: topology-shaped wave processor with post-processing scope and dual tape-head loop playback.</li>
-            <li><a href="spectral-topology-processor.html">Spectral Topology Processor</a>: topology-shaped spectral processor with a grayscale sonogram view.</li>
-            <li><a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a>: multichannel-to-stereo audition fold-down.</li>
-            <li><a href="mc-to-quad-autogain.html">MC to Quad Autogain</a>: multichannel-to-quad audition fold-down.</li>
-            <li><strong>Spectral Spray 2ch/8ch</strong>: FFT-bin scatter, smear, hold, freeze, and feedback effects.</li>
-            <li><strong>Shard Scatter</strong>: 2-in/16-out grain-shard spatial scatter effect.</li>
-            <li><strong>Orbit Delay</strong>: 2-in/16-out orbiting delay effect.</li>
-            <li><strong>Cascade Taps</strong>: 2-in/16-out stepped tap-ring effect with cascade handoff softening.</li>
-            <li><strong>Group Matrix 32/64</strong>: general group matrix mixers for 32- or 64-channel buses.</li>
-            <li><a href="multichannel-meter.html">Multichannel Meter 64</a>: fixed-width multichannel passthrough meter.</li>
-          </ul>
-        </div>
-
-        <div class="status-strip" aria-label="Effects summary">
-          <div><span>routing</span><strong>fixed CLAP widths</strong></div>
-          <div><span>control</span><strong>compact topology</strong></div>
-          <div><span>host</span><strong>REAPER</strong></div>
-          <div><span>state</span><strong>pre-release</strong></div>
-        </div>
-
-        <h2 id="processors">Processors</h2>
-
-        <div class="category-grid">
-          <a class="category-card feature-card" href="delay-processor.html">
-            <span>topology delay</span>
-            <strong>Delay Processor 8ch/24ch</strong>
-            <em>Main topology effect. Covers 8ch and 24ch lane processors, REAPER pin routing, the internal patch matrix, topology mapping, delay engine controls, and the current GUI.</em>
-          </a>
-          <a class="category-card feature-card" href="wave-geometry-processor.html">
-            <span>wave topology</span>
-            <strong>Wave Geometry Processor 8ch</strong>
-            <em>Topology-shaped non-FFT processor for folding, rectification, clipping, sample-step motion, bit collapse, scope viewing, and dual tape-head loop playback.</em>
-          </a>
-          <a class="category-card feature-card" href="spectral-topology-processor.html">
-            <span>spectral topology</span>
-            <strong>Spectral Topology Processor 8ch/24ch</strong>
-            <em>Topology-shaped spectral processor with patch matrix routing, broken-bin and repeat layers, and a one-second grayscale sonogram view.</em>
-          </a>
-          <div class="category-card feature-card">
-            <span>FFT scatter</span>
-            <strong>Spectral Spray 2ch/8ch</strong>
-            <em>FFT-bin scatter, drift, smear, hold, freeze, holes, phase blur, feedback, and frequency-window effects.</em>
-          </div>
-          <div class="category-card feature-card">
-            <span>grain scatter</span>
-            <strong>Shard Scatter</strong>
-            <em>2-in/16-out grain-shard scatter with density, guard time, scatter range, pitch spread, rotation, width, and feedback safeguards.</em>
-          </div>
-          <div class="category-card feature-card">
-            <span>orbiting delay</span>
-            <strong>Orbit Delay</strong>
-            <em>2-in/16-out orbiting delay field with spread, focus, feedback, damping, and transport-stop de-click behavior.</em>
-          </div>
-          <div class="category-card feature-card">
-            <span>tap cascade</span>
-            <strong>Cascade Taps</strong>
-            <em>2-in/16-out stepped tap-ring processor with base/step timing, decay, damping, direction, and a SOFT handoff control.</em>
-          </div>
-        </div>
-
-        <h2 id="macros">Macros</h2>
-
-        <div class="category-grid">
-          <div class="category-card muted-card">
-            <span>delay macro</span>
-            <strong>Macro Delay 8ch/24ch</strong>
-            <em>8-channel and 24-channel delay macros with shared engine controls and lane relationship controls such as spread, deviation, skew, center, and glide.</em>
-          </div>
-          <div class="category-card muted-card">
-            <span>pitch macro</span>
-            <strong>Macro Pitch 8ch/24ch</strong>
-            <em>8-channel and 24-channel pitch macros using the same Macro relationship panel style as Macro Delay.</em>
-          </div>
-        </div>
-
-        <div class="compact-grid">
-          <figure>
-            <div class="doc-graphic">
-              <button class="media-lightbox-trigger" type="button" data-lightbox-image="macro_pitch_gui.png" aria-label="Open Macro Pitch GUI screenshot">
-                <img src="macro_pitch_gui.png" alt="Screenshot of the s3g Macro Pitch plugin GUI">
-              </button>
-            </div>
-            <figcaption>Macro Pitch shows the shared Macro family layout.</figcaption>
-          </figure>
-        </div>
-
-        <h2 id="utilities">Utilities</h2>
-
-        <div class="category-grid">
-          <a class="category-card" href="mc-to-stereo-autogain.html">
-            <span>monitoring utility</span>
-            <strong>MC to Stereo Autogain</strong>
-            <em>128-channel input to true stereo fold-down for auditioning multichannel tracks.</em>
-          </a>
-          <a class="category-card" href="mc-to-quad-autogain.html">
-            <span>monitoring utility</span>
-            <strong>MC to Quad Autogain</strong>
-            <em>128-channel input to quad output fold-down with output order L, R, RB, LB.</em>
-          </a>
-          <a class="category-card" href="multichannel-meter.html">
-            <span>metering utility</span>
-            <strong>Multichannel Meter 64</strong>
-            <em>Fixed 64-in/64-out passthrough meter with grid, spatial layout, and energy-over-time views.</em>
-          </a>
-          <div class="category-card muted-card">
-            <span>bus utility</span>
-            <strong>Group Matrix 32/64</strong>
-            <em>General group matrix mixers. The 32-channel version supports 2ch, 4ch, and 8ch groups; the 64-channel version supports 4ch, 8ch, and 16ch groups. For 3OA buses, use the Ambi Group Matrix variants in <a href="ambisonic-bus-processors.html">Ambisonics</a>.</em>
-          </div>
-          <div class="category-card muted-card">
-            <span>bus utility</span>
-            <strong>Node Bus Mixer 128</strong>
-            <em>General node/cursor mixer for source blocks routed into a 128-channel bus. Nodes are flat by default with <code>LOCK Z</code> checked; unlock Z for 3D relationship work. For 3OA blocks, use the Ambi Node Bus Mixer variant in <a href="ambisonic-bus-processors.html#node">Ambisonics</a>.</em>
-          </div>
-          <div class="category-card muted-card">
-            <span>routing check</span>
-            <strong>Passthrough Test 24ch</strong>
-            <em>Fixed-width gain and routing check for REAPER and CLAP bundle validation.</em>
-          </div>
-        </div>
-
-        <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="installing-plugins.html">
-            <span>Previous</span>
-            Install Pre-release
-          </a>
-          <a class="page-nav-link next" href="delay-processor.html">
-            <span>Next</span>
-            Delay Processor
-          </a>
-        </nav>
-      </main>
-
-      <aside class="toc" aria-label="Page navigation">
-        <div class="toc-section">
-          <h2>Effect Pages</h2>
-          <a href="delay-processor.html">Delay Processor</a>
-          <a href="wave-geometry-processor.html">Wave Geometry Processor</a>
-          <a href="spectral-topology-processor.html">Spectral Topology Processor</a>
-          <a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a>
-          <a href="mc-to-quad-autogain.html">MC to Quad Autogain</a>
-          <a href="multichannel-meter.html">Multichannel Meter 64</a>
-        </div>
-        <div class="toc-section">
-          <h2>On This Page</h2>
-          <a href="#processors">Processors</a>
-          <a href="#macros">Macros</a>
-          <a href="#utilities">Utilities</a>
-        </div>
-      </aside>
-    </div>
-    <div class="media-lightbox" data-page-lightbox aria-hidden="true">
-      <button class="media-lightbox-close" type="button" data-page-lightbox-close aria-label="Close image">x</button>
-      <img data-page-lightbox-image src="" alt="">
-    </div>
-    <script src="lightbox.js"></script>
+    <main class="content" id="content">
+      <h1>Processors</h1>
+      <p>The old Effects page has moved to <a href="processors.html">Processors</a>.</p>
+      <p><a href="processors.html">Continue to Processors</a></p>
+    </main>
+    <script>window.location.replace('processors.html');</script>
   </body>
 </html>

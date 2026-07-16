@@ -14,7 +14,8 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="effects.html">Effects</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
@@ -29,13 +30,6 @@
         <p><code>s3g Ambi Speaker Decoder 64</code> decodes ambisonic <code>ACN/SN3D</code> input to a 64-channel speaker output bus. It is built for REAPER sessions where the speaker layout is part of the composition, installation, or 3OAFX chain.</p>
 
         <p>The decoder supports first through seventh order. The output bus stays 64 channels so routing is predictable; the active speaker count decides which output lanes are used.</p>
-
-        <div class="status-strip" aria-label="Speaker Decoder status">
-          <div><span>input</span><strong>1OA..7OA</strong></div>
-          <div><span>format</span><strong>ACN/SN3D</strong></div>
-          <div><span>output</span><strong>64 speakers</strong></div>
-          <div><span>weight</span><strong>NONE/MAXRE/IP</strong></div>
-        </div>
 
         <figure>
           <div class="doc-graphic">
@@ -53,6 +47,15 @@
         </figure>
 
         <p>The decoder reads ambisonic channels from the input bus, builds a speaker matrix from the selected order and layout, and writes one output lane per active speaker. Unused speaker lanes are silent.</p>
+
+        <h2 id="decoder-variants">Decoder Variants</h2>
+
+        <ul>
+          <li><code>s3g Ambi Speaker Decoder 64</code>: the main curated/custom speaker decoder.</li>
+          <li><code>s3g Ambi Object Decoder 64</code>: blends the decoded field with a directional object-panning path using <code>VBAP</code>, <code>LBAP</code>, or <code>DBAP</code>.</li>
+          <li><code>s3g Ambi Adaptive Decoder 64</code>: blends diffuse and focused decode paths using confidence and transient cues.</li>
+          <li><code>s3g Ambi Sub Decoder</code>: derives up to eight low-frequency sub feeds from <code>ACN/SN3D</code> input, with cutoff, directional width, sub count, and output trim controls.</li>
+        </ul>
 
         <h2 id="layouts">Layouts</h2>
 
@@ -141,13 +144,13 @@
         <p>For 3OAFX insert work, <code>SPHERE24</code> is the current virtual speaker reference. For real speaker playback, start with the layout closest to the room, then switch to <code>CUSTOM</code> for measured speaker positions.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="3oafx-point-encoder.html">
+          <a class="page-nav-link" href="ambi-cloud-encoder.html">
             <span>Previous</span>
-            Point Encoder
+            Ambi Cloud Encoder
           </a>
-          <a class="page-nav-link next" href="3oafx-layout-panner.html">
+          <a class="page-nav-link next" href="ambisonic-rotate.html">
             <span>Next</span>
-            Layout Panner
+            Ambi Rotate
           </a>
         </nav>
       </main>
@@ -156,10 +159,10 @@
         <div class="toc-section">
           <h2>Ambisonics Pages</h2>
           <a href="3oafx.html">Ambisonics Overview</a>
-          <a href="3oafx-effects.html">3OAFX Effects</a>
+          <a href="3oafx-effects.html">3OAFX Processors</a>
           <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
           <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
-          <a href="3oafx-layout-panner.html">Layout Panner</a>
           <a href="ambisonic-rotate.html">Rotate</a>
           <a href="ambisonic-bus-processors.html#field-depth">Depth</a>
           <a href="ambisonic-bus-processors.html">Field / Bus</a>
@@ -172,6 +175,7 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#signal-flow">Signal Flow</a>
+          <a href="#decoder-variants">Decoder Variants</a>
           <a href="#layouts">Layouts</a>
           <a href="#controls">Controls</a>
           <a href="#field-view">Field View</a>

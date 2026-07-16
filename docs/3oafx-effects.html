@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>3OAFX Effects - s3g-dsp</title>
+    <title>3OAFX Processors - s3g-dsp</title>
     <meta name="description" content="3OAFX single-effect processor documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -14,7 +14,8 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="effects.html">Effects</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
@@ -24,43 +25,20 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>3OAFX Effects</h1>
+        <h1>3OAFX Processors</h1>
 
         <p>The 3OAFX effects are single-purpose ambisonic processors for third-order <code>ACN/SN3D</code> material. Each plugin decodes the input to the fixed 24-point virtual speaker layer, applies one spatial effect with a return mask, then encodes back to 3OA.</p>
 
         <p>Current builds use one effect per plugin instance. Stack separate instances in REAPER when several 3OAFX effects are needed.</p>
 
-        <div class="status-strip" aria-label="3OAFX effect status">
-          <div><span>input</span><strong>3OA</strong></div>
-          <div><span>field</span><strong>24 points</strong></div>
-          <div><span>output</span><strong>3OA</strong></div>
-          <div><span>host</span><strong>REAPER</strong></div>
-        </div>
-
         <h2 id="plugins">Plugins</h2>
 
-        <div class="category-grid">
-          <div class="category-card">
-            <span>spatial delay</span>
-            <strong>s3g 3OAFX Delay</strong>
-            <em>Delay effect returned through one AED mask. Use Time, Feedback, Mix, Dry, Output, and the mask position/width controls.</em>
-          </div>
-          <div class="category-card">
-            <span>spatial filter</span>
-            <strong>s3g 3OAFX Filter</strong>
-            <em>Filtered return through one AED mask. Tone moves from darker body to brighter, more separated material.</em>
-          </div>
-          <div class="category-card">
-            <span>spatial gain</span>
-            <strong>s3g 3OAFX Gain</strong>
-            <em>Masked level shaping with a <code>0.0</code> to <code>2.0</code> range. <code>1.0</code> is neutral, values below <code>1.0</code> reduce the masked area, <code>0.0</code> cuts a hole, and values above <code>1.0</code> boost it.</em>
-          </div>
-          <div class="category-card">
-            <span>spatial pitch</span>
-            <strong>s3g 3OAFX Pitch</strong>
-            <em>Pitch-shifted return through one AED mask. Use Semitones, Mix, Dry, Output, and the mask controls.</em>
-          </div>
-        </div>
+        <ul>
+          <li><strong>s3g 3OAFX Delay</strong>: delay return through one AED mask.</li>
+          <li><strong>s3g 3OAFX Filter</strong>: filtered return through one AED mask.</li>
+          <li><strong>s3g 3OAFX Gain</strong>: masked level shaping from cut to boost; <code>1.0</code> is neutral.</li>
+          <li><strong>s3g 3OAFX Pitch</strong>: pitch-shifted return through one AED mask.</li>
+        </ul>
 
         <h2 id="signal-flow">Signal Flow</h2>
 
@@ -102,7 +80,7 @@
           </a>
           <a class="page-nav-link next" href="3oafx-point-encoder.html">
             <span>Next</span>
-            Point Encoder
+            Ambi Point Encoder
           </a>
         </nav>
       </main>
@@ -111,10 +89,10 @@
         <div class="toc-section">
           <h2>Ambisonics Pages</h2>
           <a href="3oafx.html">Ambisonics Overview</a>
-          <a href="3oafx-effects.html">3OAFX Effects</a>
+          <a href="3oafx-effects.html">3OAFX Processors</a>
           <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
           <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
-          <a href="3oafx-layout-panner.html">Layout Panner</a>
           <a href="ambisonic-rotate.html">Rotate</a>
           <a href="ambisonic-bus-processors.html#field-depth">Depth</a>
           <a href="ambisonic-bus-processors.html">Field / Bus</a>

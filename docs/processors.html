@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Processors - s3g-dsp</title>
+    <meta name="description" content="Processor plugin documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Processors</h1>
+
+        <p>Processors transform incoming REAPER track audio. They do not assume an ambisonic format. Use <a href="mix-pan.html">Mix / Pan</a> for routing, fold-down, metering, bus mixing, and direct speaker panning. Use <a href="3oafx.html">Ambisonics</a> for <code>ACN/SN3D</code> and 3OAFX tools.</p>
+
+        <h2 id="topology-processors">Topology Processors</h2>
+
+        <ul>
+          <li><a href="delay-processor.html">Delay Processor 8ch/24ch</a>: topology-driven multichannel delay and the best starting point for topology controls.</li>
+          <li><a href="wave-geometry-processor.html">Wave Geometry Processor 8ch</a>: non-FFT topology processor for fold, clip, sample-step, bit-collapse, scope, and tape-head loop behavior.</li>
+          <li><a href="spectral-topology-processor.html">Spectral Topology Processor 8ch/24ch</a>: topology-shaped spectral processing with lane patching and a grayscale sonogram view.</li>
+        </ul>
+
+        <h2 id="macro-processors">Macro Processors</h2>
+
+        <ul>
+          <li><strong>Macro Delay 8ch/24ch</strong>: compact multichannel delay with shared engine controls and lane relationship controls.</li>
+          <li><strong>Macro Pitch 8ch/24ch</strong>: compact multichannel pitch shifting using the shared Macro layout.</li>
+        </ul>
+
+        <h2 id="other-processors">Other Processors</h2>
+
+        <ul>
+          <li><strong>Spectral Spray 2ch/8ch</strong>: FFT-bin scatter, smear, hold, freeze, holes, phase blur, feedback, and frequency-window effects.</li>
+          <li><strong>Buffer Processor 8ch</strong>: skip, reverse, crush, error-path, and corrupted-window experiments.</li>
+          <li><strong>Shard Scatter</strong>: 2-in/16-out grain-shard spatial scatter.</li>
+          <li><strong>Orbit Delay</strong>: 2-in/16-out orbiting delay with transport-stop de-click behavior.</li>
+          <li><strong>Cascade Taps</strong>: 2-in/16-out stepped tap-ring processor with a soft handoff control.</li>
+        </ul>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="installing-plugins.html">
+            <span>Previous</span>
+            Install Pre-release
+          </a>
+          <a class="page-nav-link next" href="delay-processor.html">
+            <span>Next</span>
+            Delay Processor
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Processor Pages</h2>
+          <a href="delay-processor.html">Delay Processor</a>
+          <a href="wave-geometry-processor.html">Wave Geometry Processor</a>
+          <a href="spectral-topology-processor.html">Spectral Topology Processor</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#topology-processors">Topology Processors</a>
+          <a href="#macro-processors">Macro Processors</a>
+          <a href="#other-processors">Other Processors</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

@@ -14,7 +14,8 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="effects.html">Effects</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
@@ -32,119 +33,46 @@
 
         <p>The supported target is macOS + REAPER. Other operating systems and DAWs are not support targets at this stage.</p>
 
+        <h2 id="start-here">Start Here</h2>
+
         <ul>
-          <li><a href="building-from-source.html">Build from source</a></li>
-          <li><a href="installing-plugins.html">Install pre-release plugins</a></li>
-          <li><a href="effects.html">Effect docs</a></li>
-          <li><a href="3oafx.html">Ambisonics docs</a></li>
-          <li><a href="instruments.html">Instrument docs</a></li>
-          <li><a href="topology-framework.html">Topology framework docs</a></li>
+          <li><a href="installing-plugins.html">Install pre-release plugins</a> if you want to try the current macOS CLAP bundle.</li>
+          <li><a href="building-from-source.html">Build from source</a> if you want to compile locally.</li>
+          <li><a href="processors.html">Processors</a> covers effects that transform incoming audio.</li>
+          <li><a href="mix-pan.html">Mix / Pan</a> covers fold-down, metering, direct panning, and bus mixing.</li>
+          <li><a href="3oafx.html">Ambisonics</a> covers ACN/SN3D, 3OAFX, encoders, decoders, and field tools.</li>
+          <li><a href="instruments.html">Instruments</a> covers loaded-audio CLAP instruments.</li>
         </ul>
 
         <h2 id="status">Status</h2>
 
-        <p>This is a pre-release project. Plugin names, parameters, and saved states may change. The current macOS CLAP package includes more than sixty plugin bundles, including fixed-width variants for several calibration and bus utilities.</p>
+        <p>This is a pre-release project. Plugin names, parameters, included bundles, and saved states may change. The current package includes more than sixty CLAP bundles, including fixed-width variants for several tools.</p>
 
-        <h3>Current Plugins</h3>
-
-        <ul>
-          <li><a href="3oafx-effects.html"><code>s3g 3OAFX Delay</code></a>: single-effect third-order delay processor with internal 24-point virtual speaker masking.</li>
-          <li><a href="3oafx-effects.html"><code>s3g 3OAFX Filter</code></a>: single-effect third-order filter processor with internal 24-point virtual speaker masking.</li>
-          <li><a href="3oafx-effects.html"><code>s3g 3OAFX Gain</code></a>: single-effect third-order gain/cut processor with internal 24-point virtual speaker masking.</li>
-          <li><a href="3oafx-effects.html"><code>s3g 3OAFX Pitch</code></a>: single-effect third-order pitch processor with internal 24-point virtual speaker masking.</li>
-          <li><a href="ambisonic-energy-visualizer.html"><code>s3g Ambi Energy Visualizer 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> passthrough analyzer with a high-resolution energy heatmap.</li>
-          <li><a href="ambi-grain-processor.html"><code>s3g Ambi Grain Processor</code></a>: CLAP instrument plugin for loaded <code>ACN/SN3D</code> ambisonic media with channel-locked grain events.</li>
-          <li><a href="ambisonic-head-decoder.html"><code>s3g Ambi Head Decoder</code></a>: synthetic binaural/transaural stereo decoder with no external SOFA files.</li>
-          <li><a href="ambisonic-order-band-tool.html"><code>s3g Ambi Order / Band 64</code></a>: 1OA to 7OA order-band gain and weighting utility with Flat, MaxRE, In-phase, and Custom modes.</li>
-          <li><a href="3oafx-point-encoder.html"><code>s3g Ambi Point Encoder</code></a>: 16 point-source input to 3OA <code>ACN/SN3D</code> output with AED placement, point mixer, physics scenes, and Geist-driven bond breaking.</li>
-          <li><a href="ambisonic-rotate.html"><code>s3g Ambi Rotate 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> field rotation utility with yaw, pitch, roll, and order-width trim.</li>
-          <li><a href="ambisonic-bus-processors.html#field-depth"><code>s3g Ambi Depth 16</code></a>: 3OA field depth utility with order shaping, air damping, and a distance-tail layer.</li>
-          <li><a href="ambisonic-bus-processors.html"><code>s3g Ambi Group Matrix 64/128</code></a>: bus-level matrix mixers for four or eight lane-locked 3OA feeds.</li>
-          <li><a href="ambisonic-bus-processors.html#node"><code>s3g Ambi Node Bus Mixer 128</code></a>: fixed 3OA node/cursor mixer for up to eight 16-channel ambisonic feeds, flat by default with optional 3D node placement.</li>
-          <li><a href="ambisonic-bus-processors.html"><code>s3g Ambi Group Rotate 64/128</code></a>: bus-level rotation utilities for four or eight lane-locked 3OA feeds.</li>
-          <li><a href="ambisonic-bus-processors.html"><code>s3g Ambi Group Depth 64/128</code></a>: bus-level depth/order-shaping utilities for four or eight lane-locked 3OA feeds.</li>
-          <li><a href="3oafx-speaker-decoder.html"><code>s3g Ambi Speaker Decoder 64</code></a>: 1OA to 7OA <code>ACN/SN3D</code> speaker decoder with curated layouts, custom speaker editing, saved camera view state, and a stable 64-channel speaker bus.</li>
-          <li><code>s3g Ambi Object Decoder 64</code>: hybrid ambisonic speaker decoder that blends a normal decoded field with a directional object-panning path using VBAP, LBAP, or DBAP.</li>
-          <li><code>s3g Ambi Adaptive Decoder 64</code>: dual-band ambisonic speaker decoder that blends diffuse and focused decode paths using confidence and transient cues.</li>
-          <li><a href="ambisonic-stereo-decoder.html"><code>s3g Ambi Stereo Decoder</code></a>: 1OA to 7OA <code>ACN/SN3D</code> to true stereo with virtual fields and stereo pickup models.</li>
-          <li><code>s3g Buffer Processor 8ch</code>: multichannel buffer processor for skip, reverse, crush, error-path, and corrupted-window experiments.</li>
-          <li><a href="wave-geometry-processor.html"><code>s3g Wave Geometry Processor 8ch</code></a>: topology-shaped wave processor with folding, rectification, clipping, sample-step motion, bit collapse, post-processing scope view, and dual tape-head loop playback.</li>
-          <li><code>s3g Cascade Taps</code>: 2-in/16-out stepped tap-ring effect with a <code>SOFT</code> control for safer cascade handoffs.</li>
-          <li><a href="delay-processor.html"><code>s3g Delay Processor 8ch/24ch</code></a>: topology-driven delay processors with fixed-width lane builds.</li>
-          <li><code>s3g Group Matrix 32/64</code>: general group matrix mixers for 32- or 64-channel buses.</li>
-          <li><a href="ambisonic-bus-processors.html#node"><code>s3g Node Bus Mixer 128</code></a>: general node/cursor bus mixer for source blocks routed into a wide track and mapped into a selected output bed.</li>
-          <li><a href="3oafx-layout-panner.html"><code>s3g Layout Panner</code></a>: direct 64-source to 64-speaker spatial panner with source mixing, speaker presets, custom layout design, inside-source modes, saved camera views, and lower-hemisphere rolloff for layouts without lower speakers.</li>
-          <li><a href="3oafx-layout-panner.html#panner-variants"><code>s3g DBAP / LBAP / VBAP Panner</code></a>: direct-panner variants using distance-based, layer/local-lobe, and vector-base amplitude panning. DBAP shares the lower-hemisphere rolloff behavior; LBAP and VBAP use topology-aware solver overlays and imaginary speaker support.</li>
-          <li><code>s3g Sub Crossover</code>: layout-aware subwoofer crossover/send utility for up to eight subwoofer channels.</li>
-          <li><code>s3g Array HPF / Delay / Trim</code>: fixed-width speaker-array calibration utilities for high-pass filtering, arrival-time alignment, trims, mutes, and polarity checks.</li>
-          <li><a href="loop-processor.html"><code>s3g Loop Processor 8ch</code></a>: CLAP instrument plugin for loaded audio loops, lane playheads, waveform display, and phase relationship controls.</li>
-          <li><code>s3g Macro Delay 8ch/24ch</code>: compact multichannel delay macros with relationship controls.</li>
-          <li><code>s3g Macro Pitch 8ch/24ch</code>: compact multichannel pitch macros with the shared Macro control layout.</li>
-          <li><a href="mc-to-quad-autogain.html"><code>s3g MC to Quad Autogain</code></a>: 128-channel input to quad output fold-down with output order <code>L</code>, <code>R</code>, <code>RB</code>, <code>LB</code>.</li>
-          <li><a href="mc-to-stereo-autogain.html"><code>s3g MC to Stereo Autogain</code></a>: 128-channel input to true stereo output fold-down tool.</li>
-          <li><a href="multi-loop-processor.html"><code>s3g Multi Loop Processor 8ch</code></a>: CLAP instrument plugin for up to four loaded files, source-to-lane rules, source rate spread, and source crossblend.</li>
-          <li><code>s3g Multichannel Meter 64</code>: fixed 64-in/64-out passthrough meter with grid, spatial layout, and energy history views.</li>
-          <li><code>s3g Orbit Delay</code>: 2-in/16-out orbiting delay effect with transport-stop de-click behavior.</li>
-          <li><code>s3g Passthrough Test 24ch</code>: fixed 24-in/24-out CLAP passthrough/gain plugin.</li>
-          <li><code>s3g Shard Scatter</code>: 2-in/16-out grain-shard spatial scatter effect.</li>
-          <li><code>s3g Spectral Spray 2ch/8ch</code>: C++ FFT-bin scatter, smear, hold, freeze, and feedback effects.</li>
-          <li><a href="spectral-topology-processor.html"><code>s3g Spectral Topology Processor 8ch/24ch</code></a>: topology-shaped spectral processor with lane patching and a grayscale one-second sonogram view.</li>
-        </ul>
-
-        <h2 id="plugin-groups">Plugin Groups</h2>
-
-        <p>The docs are grouped by plugin role so the top navigation stays stable as the plugin list grows.</p>
-
-        <div class="category-grid">
-          <a class="category-card" href="effects.html">
-            <span>audio processors</span>
-            <strong>Effects</strong>
-            <em>Delay Processor, Wave Geometry Processor, Spectral Topology Processor, Macro Delay, Macro Pitch, spectral spray, scatter, orbit delay, cascade taps, fold-down, metering, and routing tools.</em>
-          </a>
-          <a class="category-card" href="3oafx.html">
-            <span>ambisonics</span>
-            <strong>Ambisonics</strong>
-            <em>Point Encoder, Speaker Decoder, direct panner variants, bus processors, ambisonic utilities, stereo/head decoders, energy visualizer, and single-effect 3OAFX processors.</em>
-          </a>
-          <a class="category-card" href="instruments.html">
-            <span>CLAP instruments</span>
-            <strong>Instruments</strong>
-            <em>Loop Processor, Multi Loop Processor, and loaded-audio instrument workflows.</em>
-          </a>
-        </div>
+        <p>For the current installable bundle list, use <a href="installing-plugins.html#included">Installing Pre-release Plugins</a>. The front page stays short so it remains useful as the package grows.</p>
 
         <h2 id="design">Design</h2>
 
         <ul>
-          <li>Reusable DSP lives in <code>dsp/</code>.</li>
-          <li>Plugin wrappers live in <code>plugins/</code>.</li>
-          <li>Fixed-width CLAP plugins are used where REAPER pin routing needs to be predictable.</li>
-          <li>Per-channel settings are generated inside the plugin. REAPER sees compact global controls, not one parameter list per channel.</li>
-          <li>24-channel 3OAFX-specific work is kept separate from general multichannel lane processors.</li>
-          <li>C++ effects live here; RNBO/Max-generated source stays in the separate wrapper workflow.</li>
+          <li>Reusable DSP lives in <code>dsp/</code>; CLAP wrappers live in <code>plugins/</code>.</li>
+          <li>Fixed-width plugins are used where REAPER pin routing needs to stay predictable.</li>
+          <li>Many plugins expose compact relationship controls instead of one automation lane for every channel.</li>
+          <li>3OAFX, ambisonics, general multichannel processors, mix/pan tools, and instruments are documented as separate groups.</li>
         </ul>
 
         <h2 id="topology-layer">Topology Layer</h2>
 
-        <p>The topology layer is used by plugins that benefit from point and network control. A patch matrix selects lanes, those lanes become points, and each topology plugin maps the point network to its own sound parameters.</p>
+        <p>Topology is used only where point and network control helps the sound. A patch matrix selects lanes, those lanes become points, and each topology plugin maps the point network to its own parameters.</p>
 
-        <p>See the <a href="topology-framework.html">Topology Framework</a> page for the generic model, including the heatmap visualization. See the <a href="delay-processor.html">Delay Processor</a> page for the delay-specific mapping.</p>
-
-        <h2 id="get-plugins">Get Plugins</h2>
-
-        <p>The local build uses the CLAP preset and installs bundles into the macOS CLAP plugin folder.</p>
-
-        <p>Requirements are CMake 3.20 or newer, a C++17 compiler, macOS, and REAPER.</p>
-
-        <p>See <a href="building-from-source.html">Building From Source</a> for CMake commands, local install scripts, and validation checks. See <a href="installing-plugins.html">Installing Pre-release Plugins</a> for installing a packaged macOS CLAP zip.</p>
+        <p>See <a href="topology-framework.html">Topology Framework</a> for the generic model and <a href="delay-processor.html">Delay Processor</a> for a concrete mapping.</p>
 
         <h2 id="related-projects">Related Projects</h2>
 
-        <p><a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code></a> is the main REAPER package. <code>s3g-dsp</code> is a sibling plugin project for general multichannel effects, instruments, utilities, ambisonics tools, and 3OAFX processors. It can also be used independently in matching macOS + REAPER sessions.</p>
+        <p><a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code></a> is the main REAPER package. <code>s3g-dsp</code> is a sibling plugin project that can be used alongside <code>s3g-mc</code> or independently in matching macOS + REAPER sessions.</p>
 
-        <p><a href="https://github.com/s3g/s3g-max" target="_blank" rel="noopener noreferrer"><code>s3g-max</code></a> is the related Max/MSP package for <code>.mxo</code> externals, help patches, V8UI displays, and Max package workflows. It wraps selected shared C++ DSP engines from this repository where that makes sense for Max.</p>
+        <p><a href="https://github.com/s3g/s3g-max" target="_blank" rel="noopener noreferrer"><code>s3g-max</code></a> is the related Max/MSP package for <code>.mxo</code> externals, help patches, V8UI displays, and Max package workflows.</p>
 
-        <p><a href="https://github.com/s3g/s3g-rnbo-clap" target="_blank" rel="noopener noreferrer"><code>s3g-rnbo-clap</code></a> is a separate wrapper lab for adapting RNBO C++ exports as CLAP plugins in the same visual and release style. RNBO-generated source is kept out of <code>s3g-dsp</code> so the core package stays focused on hand-built C++ DSP.</p>
+        <p><a href="https://github.com/s3g/s3g-rnbo-clap" target="_blank" rel="noopener noreferrer"><code>s3g-rnbo-clap</code></a> is a separate wrapper lab for adapting RNBO C++ exports as CLAP plugins in the same visual and release style.</p>
+
         <h2 id="license">License and Attribution</h2>
 
         <p>BSD-3-Clause for the code in this repository unless a subdirectory states otherwise. CLAP headers are MIT licensed and are fetched at build time unless an existing SDK path is supplied.</p>
@@ -152,10 +80,9 @@
         <p>Attribution is appreciated for software development, publications, research, teaching materials, and projects that build on or adapt this package. See <code>CITATION.cff</code>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <span></span>
           <a class="page-nav-link next" href="building-from-source.html">
             <span>Next</span>
-            Building From Source
+            Build From Source
           </a>
         </nav>
       </main>
@@ -163,11 +90,10 @@
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#start-here">Start Here</a>
           <a href="#status">Status</a>
-          <a href="#plugin-groups">Plugin Groups</a>
           <a href="#design">Design</a>
           <a href="#topology-layer">Topology Layer</a>
-          <a href="#get-plugins">Get Plugins</a>
           <a href="#related-projects">Related Projects</a>
           <a href="#license">License</a>
         </div>

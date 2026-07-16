@@ -19,6 +19,7 @@ bundles=(
   "$src_root/clap_3oafx_single_effects/s3g_3oafx_filter.clap"
   "$src_root/clap_3oafx_single_effects/s3g_3oafx_gain.clap"
   "$src_root/clap_3oafx_point_encoder/s3g_3oafx_point_encoder.clap"
+  "$src_root/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder.clap"
   "$src_root/clap_3oafx_speaker_decoder/s3g_3oafx_speaker_decoder.clap"
   "$src_root/clap_layout_panner/s3g_layout_panner.clap"
   "$src_root/clap_dbap_panner/s3g_dbap_panner.clap"
@@ -118,6 +119,7 @@ Included plugins:
 - s3g 3OAFX Filter
 - s3g 3OAFX Gain
 - s3g Ambi Point Encoder
+- s3g Ambi Cloud Encoder 64
 - s3g Ambi Speaker Decoder 64
 - s3g Layout Panner
 - s3g DBAP Panner

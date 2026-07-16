@@ -14,7 +14,8 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="effects.html">Effects</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
@@ -26,58 +27,21 @@
       <main class="content" id="content">
         <h1>Ambi Field / Bus Processors</h1>
 
-        <p>The Ambi bus processors work on complete ambisonic feeds without breaking their internal channel relationships. <code>s3g Ambi Depth 16</code> shapes one third-order field. The group processors work on several complete third-order feeds at once, treating each 16-channel <code>ACN/SN3D</code> block as one locked group.</p>
-
-        <div class="status-strip" aria-label="Ambi Bus Processor status">
-          <div><span>group</span><strong>3OA / 16ch</strong></div>
-          <div><span>single</span><strong>1 group</strong></div>
-          <div><span>64ch</span><strong>4 groups</strong></div>
-          <div><span>128ch</span><strong>8 groups</strong></div>
-        </div>
+        <p>Ambi field and bus processors work on complete ambisonic signals without breaking their channel relationships. Single-field processors expect one encoded field. Group processors treat each 16-channel third-order <code>ACN/SN3D</code> block as one locked feed.</p>
 
         <h2 id="plugins">Plugins</h2>
 
-        <div class="category-grid">
-          <div class="category-card feature-card">
-            <span>group routing</span>
-            <strong>Ambi Group Matrix 64/128</strong>
-            <em>Matrix mixing between four or eight 3OA feeds. Manual matrix levels set the ceiling; pattern controls can create active movement inside that ceiling.</em>
-          </div>
-          <div class="category-card feature-card">
-            <span>node routing</span>
-            <strong>Ambi Node Bus Mixer 128</strong>
-            <em>Mixes up to eight fixed 3OA feeds as spatial nodes. Each node owns one 16-channel block, and the cursor emphasizes nodes by position on a flat Z-locked mix plane by default.</em>
-          </div>
-          <div class="category-card feature-card">
-            <span>group motion</span>
-            <strong>Ambi Group Rotate 64/128</strong>
-            <em>Rotates each 3OA group coherently. Global yaw, pitch, and roll define the base motion; spread, tilt, and twist distribute offsets across groups.</em>
-          </div>
-          <div class="category-card feature-card">
-            <span>field depth</span>
-            <strong>Ambi Depth 16</strong>
-            <em>Shapes one 3OA field using bipolar depth, order focus, air damping, distance tail, low-body, order-width, and output controls.</em>
-          </div>
-          <div class="category-card feature-card">
-            <span>group depth</span>
-            <strong>Ambi Group Depth 64/128</strong>
-            <em>Shapes apparent depth across 3OA groups using bipolar depth, spread, focus, air, distance tail, low-body, order-width, and output controls.</em>
-          </div>
-          <div class="category-card muted-card">
-            <span>general matrix</span>
-            <strong>Group Matrix 32/64</strong>
-            <em>General group matrix mixers for non-ambisonic blocks. The 32-channel version supports 2ch, 4ch, and 8ch groups; the 64-channel version supports 4ch, 8ch, and 16ch groups.</em>
-          </div>
-          <div class="category-card muted-card">
-            <span>general node mixer</span>
-            <strong>Node Bus Mixer 128</strong>
-            <em>General node/cursor bus mixer for source blocks that are routed into a 128-channel track. It maps source shapes into a selected output bed, with optional 3D placement when Z lock is disabled.</em>
-          </div>
-        </div>
+        <ul>
+          <li><strong>Ambi Depth 16</strong>: single-field 3OA depth, focus, air, tail, low-body, width, and output controls.</li>
+          <li><strong>Ambi Group Matrix 64/128</strong>: matrix mixing between four or eight 3OA feeds.</li>
+          <li><strong>Ambi Node Bus Mixer 128</strong>: node/cursor mixing for up to eight fixed 3OA feeds.</li>
+          <li><strong>Ambi Group Rotate 64/128</strong>: coherent rotation per 3OA group, with relationship offsets across groups.</li>
+          <li><strong>Ambi Group Depth 64/128</strong>: depth and order shaping across four or eight 3OA feeds.</li>
+        </ul>
 
-        <h2 id="matrix">Matrix Model</h2>
+        <h2 id="matrix">Ambi Group Matrix Model</h2>
 
-        <p>The matrix processors route one complete group into another complete group. In the Ambi versions, a crosspoint routes all 16 channels of a 3OA feed together. This keeps the spatial encoding intact while still allowing a bus-level mix between feeds.</p>
+        <p>The matrix processors route one complete 3OA group into another complete 3OA group. A crosspoint routes all 16 channels together, preserving the spatial encoding while allowing bus-level mixing between feeds.</p>
 
         <ul>
           <li><code>SHAPE</code>: generated gain pattern. Current choices include flow, pulse, chase, swirl, scatter, and hold.</li>
@@ -87,28 +51,24 @@
           <li>Gray matrix cells show the manual ceiling. Green activity shows the current pattern inside that ceiling.</li>
         </ul>
 
-        <h2 id="node">Node Bus Mixer Model</h2>
+        <h2 id="node">Ambi Node Bus Mixer Model</h2>
 
-        <p>The Node Bus Mixers adapt the s3g-mc node-track concept to a CLAP bus insert. Instead of selecting source tracks from a script, route source blocks into one wide REAPER track. The Ambi version is locked to 3OA: node 1 uses channels 1-16, node 2 uses 17-32, through node 8 on 113-128. The general version maps user-assigned source blocks into the selected output bed.</p>
+        <p>The Ambi Node Bus Mixer adapts the s3g-mc node-track concept to a CLAP bus insert. Route up to eight complete 3OA feeds into one 128-channel REAPER track. Node 1 uses channels 1-16, node 2 uses 17-32, through node 8 on channels 113-128.</p>
 
-        <p>Both Node Bus Mixers default to a flat relationship plane. With <code>LOCK Z</code> checked, all nodes and the cursor stay at <code>Z = 0</code>, so the top view becomes the normal mixing view. Uncheck <code>LOCK Z</code> when a mix needs full 3D node placement and side or 3/4 camera work.</p>
+        <p>The mixer defaults to a flat relationship plane. With <code>LOCK Z</code> checked, all nodes and the cursor stay at <code>Z = 0</code>, so the top view becomes the normal mixing view. Uncheck <code>LOCK Z</code> when a mix needs full 3D node placement and side or 3/4 camera work.</p>
 
         <ul>
-          <li><code>NODE COUNT</code>: number of source blocks used by the mixer.</li>
-          <li><code>INPUT START</code>: first bus channel for a node's source block in the general Node Bus Mixer. The Ambi version fixes this automatically in 16-channel 3OA blocks.</li>
+          <li><code>NODE COUNT</code>: number of 3OA source blocks used by the mixer.</li>
           <li><code>X</code>, <code>Y</code>, <code>Z</code>: node position in the relationship field. <code>Z</code> is locked at zero while <code>LOCK Z</code> is checked.</li>
-          <li><code>LOCK Z</code>: checkbox that locks nodes and cursor to the flat mix plane.</li>
           <li><code>RAD</code>: node radius, or how far from a node the cursor begins fading that node in.</li>
           <li><code>FOC</code>: node focus, or the curve from the radius edge to the node center. Lower values are broader; higher values are tighter.</li>
-          <li><code>INFL</code>: how strongly cursor position affects node gain. At low values, node levels behave more like static bus levels. At high values, the cursor determines the active blend.</li>
-          <li><code>CURSOR</code>: movable emphasis point for fading between nodes by position. The cursor has no radius control in the GUI; node radius defines each node's hill.</li>
+          <li><code>INFL</code>: how strongly cursor position affects node gain.</li>
+          <li><code>CURSOR</code>: movable emphasis point for fading between nodes by position.</li>
         </ul>
 
-        <p>In the general Node Bus Mixer, each node also has a source shape. <code>SRC</code> chooses the source format, <code>BUS</code> shows the required input-channel range, and <code>AZR</code>/<code>ELR</code> rotate that source shape in azimuth and elevation degrees before it is mapped to the output bed. This rotation changes the geometry of the source block; it is not a channel-order shift.</p>
+        <h2 id="rotate">Ambi Group Rotate Model</h2>
 
-        <h2 id="rotate">Rotate Model</h2>
-
-        <p>Rotate applies a coherent ambisonic rotation to each group. It is useful when several 3OA beds or stems need related movement without building separate automation for every feed. In the group version, spread, tilt, and twist describe relationships between complete ambisonic fields rather than tearing one field apart.</p>
+        <p>Rotate applies a coherent ambisonic rotation to each group. It is useful when several 3OA beds or stems need related movement without building separate automation for every feed. Spread, tilt, and twist describe relationships between complete ambisonic fields rather than tearing one field apart.</p>
 
         <ul>
           <li><code>YAW</code>: horizontal rotation for all groups.</li>
@@ -120,7 +80,7 @@
           <li><code>WID</code>: order-width trim for the rotated groups.</li>
         </ul>
 
-        <h2 id="field-depth">Field Depth Model</h2>
+        <h2 id="field-depth">Ambi Depth Model</h2>
 
         <p><code>s3g Ambi Depth 16</code> is the single-field version. Center is neutral. Positive values push the field farther and softer by reducing higher-order spatial detail and applying optional air damping. Negative values push toward a nearer, more present image. The distance tail adds a diffuse FDN layer behind positive depth settings.</p>
 
@@ -134,7 +94,7 @@
           <li><code>OUT</code>: final output gain.</li>
         </ul>
 
-        <h2 id="depth">Group Depth Model</h2>
+        <h2 id="depth">Ambi Group Depth Model</h2>
 
         <p><code>s3g Ambi Group Depth 64/128</code> applies the same depth model to four or eight lane-locked 3OA feeds. <code>SPRD</code> distributes bipolar depth offsets across groups, while the field display shows each group's depth position, air haze, and distance-tail wake.</p>
 
@@ -148,16 +108,16 @@
 
         <p><code>s3g Ambi Depth 16</code> is intended for one 3OA field on a 16-channel track. The 64-channel group versions are intended for four 3OA groups. The 128-channel group versions are intended for eight 3OA groups. In REAPER, set the track channel count before inserting the plugin so the pin connector matches the intended width.</p>
 
-        <p>Use <code>Group Matrix 32/64</code> for non-ambisonic groups. The 32-channel build supports stereo, quad, or octo groups. The 64-channel build supports larger 4ch, 8ch, or 16ch blocks. Both use the same matrix and pattern model without assuming 3OA format.</p>
+        <p>For non-ambisonic group and node mixers, use <a href="mix-pan.html#bus-mixing">Mix / Pan Bus Mixing</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambisonic-rotate.html">
             <span>Previous</span>
-            Rotate
+            Ambi Rotate
           </a>
           <a class="page-nav-link next" href="ambisonic-order-band-tool.html">
             <span>Next</span>
-            Order / Band Tool
+            Ambi Order / Band
           </a>
         </nav>
       </main>
@@ -166,10 +126,10 @@
         <div class="toc-section">
           <h2>Ambisonics Pages</h2>
           <a href="3oafx.html">Ambisonics Overview</a>
-          <a href="3oafx-effects.html">3OAFX Effects</a>
+          <a href="3oafx-effects.html">3OAFX Processors</a>
           <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
           <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
-          <a href="3oafx-layout-panner.html">Layout Panner</a>
           <a href="ambisonic-rotate.html">Rotate</a>
           <a href="ambisonic-bus-processors.html#field-depth">Depth</a>
           <a href="ambisonic-bus-processors.html">Field / Bus</a>
@@ -182,11 +142,11 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#plugins">Plugins</a>
-          <a href="#matrix">Matrix Model</a>
-          <a href="#node">Node Bus Mixer Model</a>
-          <a href="#rotate">Rotate Model</a>
-          <a href="#field-depth">Field Depth Model</a>
-          <a href="#depth">Group Depth Model</a>
+          <a href="#matrix">Ambi Group Matrix Model</a>
+          <a href="#node">Ambi Node Bus Mixer Model</a>
+          <a href="#rotate">Ambi Group Rotate Model</a>
+          <a href="#field-depth">Ambi Depth Model</a>
+          <a href="#depth">Ambi Group Depth Model</a>
           <a href="#routing">Routing</a>
         </div>
       </aside>

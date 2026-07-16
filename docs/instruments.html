@@ -14,7 +14,8 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="effects.html">Effects</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="topology-framework.html">Framework</a>
@@ -28,32 +29,13 @@
 
         <p>Instruments generate sound internally, respond to MIDI, or use loaded audio as their source. Loop Processor and Multi Loop Processor live here because they are CLAP instrument plugins. Ambi Grain Processor is also a CLAP instrument, with its main reference under Ambisonics because it assumes encoded media.</p>
 
-        <div class="status-strip" aria-label="Instruments summary">
-          <div><span>source</span><strong>loaded audio</strong></div>
-          <div><span>width</span><strong>8ch</strong></div>
-          <div><span>control</span><strong>lane relations</strong></div>
-          <div><span>state</span><strong>pre-release</strong></div>
-        </div>
-
         <h2 id="loop-processor">Loop Processor</h2>
 
-        <div class="category-grid">
-          <a class="category-card" href="loop-processor.html">
-            <span>sample instrument</span>
-            <strong>Loop Processor</strong>
-            <em>8-channel CLAP instrument plugin for loaded audio loops, repeated source channels, lane playheads, waveform display, and phase relationship controls.</em>
-          </a>
-          <a class="category-card" href="multi-loop-processor.html">
-            <span>multi-source instrument</span>
-            <strong>Multi Loop Processor</strong>
-            <em>8-channel CLAP instrument plugin for up to four loaded files, source-to-lane rules, source rate spread, source crossblend, and shared lane relationship controls.</em>
-          </a>
-          <a class="category-card" href="ambi-grain-processor.html">
-            <span>ambisonic instrument</span>
-            <strong>Ambi Grain Processor</strong>
-            <em>16-channel CLAP instrument plugin for loaded ACN/SN3D ambisonic media with channel-locked grain events.</em>
-          </a>
-        </div>
+        <ul>
+          <li><a href="loop-processor.html">Loop Processor</a>: 8-channel loaded-audio loop instrument.</li>
+          <li><a href="multi-loop-processor.html">Multi Loop Processor</a>: 8-channel instrument for up to four loaded files.</li>
+          <li><a href="ambi-grain-processor.html">Ambi Grain Processor</a>: 16-channel instrument for loaded <code>ACN/SN3D</code> media with channel-locked grain events.</li>
+        </ul>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-grain-processor.html">
