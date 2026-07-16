@@ -424,15 +424,11 @@ static NSColor* s3gMcQuadColor(int rgb, CGFloat alpha = 1.0)
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
     NSColor* grid = style.grid;
-    NSColor* dim = style.dim;
-    NSColor* text = style.text;
     NSColor* fill = style.fill;
     [style.bg setFill]; NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSFont* bold = [NSFont fontWithName:@"Menlo-Bold" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightBold];
-    NSDictionary* lab = @{ NSForegroundColorAttributeName:text, NSFontAttributeName:bold };
-    NSDictionary* small = @{ NSForegroundColorAttributeName:dim, NSFontAttributeName:mono };
-    NSDictionary* title = @{ NSForegroundColorAttributeName:text, NSFontAttributeName:mono };
+    NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* title = s3g::clap_gui::softTitleAttrs();
     const auto& prm = p->params;
     const uint32_t count = s3g::clampInputChannels(prm.inputChannels);
     const uint32_t layout = static_cast<uint32_t>(prm.layout);

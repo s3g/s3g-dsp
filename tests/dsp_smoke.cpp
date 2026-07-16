@@ -4,6 +4,7 @@
 #include "s3g_ambi_grain_processor.h"
 #include "s3g_ambisonic_point_encoder.h"
 #include "s3g_ambi_cloud_encoder.h"
+#include "s3g_ambi_path_encoder.h"
 #include "s3g_ambisonic_head_decoder.h"
 #include "s3g_ambi_group_depth.h"
 #include "s3g_ambi_group_matrix.h"
@@ -1145,6 +1146,50 @@ int main()
     }
     if (cloudPeak <= 0.000001f || cloudPeak > 1.0f) {
         std::cerr << "Ambi Cloud Encoder peak outside expected range: " << cloudPeak << "\n";
+        return 1;
+    }
+
+    s3g::AmbiPathEncoder pathEncoder;
+    pathEncoder.prepare(48000.0);
+    s3g::AmbiPathEncoderParams pathParams;
+    pathParams.activeInputs = s3g::kAmbiPathEncoderMaxInputs;
+    pathParams.activePaths = 4;
+    pathParams.order = 7;
+    pathParams.assignMode = s3g::AmbiPathAssignMode::RoundRobin;
+    pathParams.playback = s3g::AmbiPathPlaybackMode::Run;
+    pathParams.loopMode = s3g::AmbiPathLoopMode::Loop;
+    pathParams.interpolation = s3g::AmbiPathInterpolation::Catmull;
+    pathParams.rateHz = 0.11f;
+    pathParams.phaseSpread = 0.35f;
+    pathParams.distanceScale = 1.25f;
+    pathParams.outputGainDb = -18.0f;
+    pathEncoder.setParams(pathParams);
+    std::array<std::array<float, 256>, s3g::kAmbiPathEncoderMaxInputs> pathInputBuffers {};
+    std::array<std::array<float, 256>, s3g::kAmbiPathEncoderMaxChannels> pathOutputBuffers {};
+    std::array<const float*, s3g::kAmbiPathEncoderMaxInputs> pathInputs {};
+    std::array<float*, s3g::kAmbiPathEncoderMaxChannels> pathOutputs {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiPathEncoderMaxInputs; ++ch) pathInputs[ch] = pathInputBuffers[ch].data();
+    for (uint32_t ch = 0; ch < s3g::kAmbiPathEncoderMaxChannels; ++ch) pathOutputs[ch] = pathOutputBuffers[ch].data();
+    float pathPeak = 0.0f;
+    for (int block = 0; block < 8; ++block) {
+        for (uint32_t ch = 0; ch < s3g::kAmbiPathEncoderMaxInputs; ++ch) {
+            for (uint32_t i = 0; i < pathInputBuffers[ch].size(); ++i) {
+                pathInputBuffers[ch][i] = std::sin(6.28318530718f * (55.0f + ch * 2.0f) * static_cast<float>(block * 256 + i) / 48000.0f) * 0.004f;
+            }
+        }
+        pathEncoder.processBlock(pathInputs.data(), pathOutputs.data(), s3g::kAmbiPathEncoderMaxInputs, s3g::kAmbiPathEncoderMaxChannels, static_cast<uint32_t>(pathOutputBuffers[0].size()));
+        for (const auto& channel : pathOutputBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi Path Encoder output is not finite\n";
+                    return 1;
+                }
+                pathPeak = std::max(pathPeak, std::abs(value));
+            }
+        }
+    }
+    if (pathPeak <= 0.000001f || pathPeak > 1.0f) {
+        std::cerr << "Ambi Path Encoder peak outside expected range: " << pathPeak << "\n";
         return 1;
     }
 

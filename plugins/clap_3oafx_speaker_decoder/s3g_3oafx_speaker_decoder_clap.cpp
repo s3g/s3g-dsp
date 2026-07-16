@@ -585,14 +585,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     NSTextField* field = [[NSTextField alloc] initWithFrame:NSMakeRect(812, 0, 54, 16)];
     [field setTag:tag];
     [field setDelegate:self];
-    [field setFont:[NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular]];
-    [field setTextColor:sdColor(0xf0f0f0)];
-    [field setBackgroundColor:sdColor(0x131313)];
-    [field setDrawsBackground:YES];
-    [field setBezeled:YES];
-    [field setBordered:YES];
-    [field setFocusRingType:NSFocusRingTypeNone];
-    [field setAlignment:NSTextAlignmentCenter];
+    s3g::clap_gui::styleNumberTextField(field, 10.0, NSTextAlignmentCenter);
     [field setFormatter:nil];
     return [field autorelease];
 }
@@ -601,14 +594,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     NSTextField* field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 38, 16)];
     [field setTag:tag];
     [field setDelegate:self];
-    [field setFont:[NSFont fontWithName:@"Menlo" size:8.5] ?: [NSFont monospacedSystemFontOfSize:8.5 weight:NSFontWeightRegular]];
-    [field setTextColor:sdColor(0xf0f0f0)];
-    [field setBackgroundColor:sdColor(0x131313)];
-    [field setDrawsBackground:YES];
-    [field setBezeled:YES];
-    [field setBordered:YES];
-    [field setFocusRingType:NSFocusRingTypeNone];
-    [field setAlignment:NSTextAlignmentCenter];
+    s3g::clap_gui::styleNumberTextField(field, 8.5, NSTextAlignmentCenter);
     [field setFormatter:nil];
     [field setHidden:YES];
     return [field autorelease];
@@ -1016,8 +1002,8 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
             NSFrameRect(NSMakeRect(points[i].x - 10.0, points[i].y - 10.0, 20.0, 20.0));
         }
         NSString* label = [NSString stringWithFormat:@"%u", i + 1u];
-        NSDictionary* idAttrs = @{ NSForegroundColorAttributeName:selected ? sdColor(0xf4f4f4) : sdColor(0x151515),
-                                   NSFontAttributeName:[NSFont fontWithName:@"Menlo-Bold" size:7.5] ?: [NSFont monospacedSystemFontOfSize:7.5 weight:NSFontWeightBold] };
+        NSDictionary* idAttrs = @{ NSForegroundColorAttributeName:selected ? sdColor(0xc8c8c8) : sdColor(0x151515),
+                                   NSFontAttributeName:s3g::clap_gui::uiFont(7.5) };
         NSSize labelSize = [label sizeWithAttributes:idAttrs];
         [label drawAtPoint:NSMakePoint(points[i].x - labelSize.width * 0.5,
                                        points[i].y - labelSize.height * 0.5 - 0.5)
@@ -1345,14 +1331,12 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
-    NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
-    NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     [@"s3g AMBI SPEAKER DECODER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))] drawAtPoint:NSMakePoint(728,14) withAttributes:small];
+    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(728,14) withAttributes:small];
     [@"64CH" drawAtPoint:NSMakePoint(838,14) withAttributes:small];
 
     s3g::clap_gui::drawPanelFrame(18, 42, 596, 556, style);

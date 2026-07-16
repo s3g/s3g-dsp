@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Path Encoder - s3g-dsp</title>
+    <meta name="description" content="Ambi Path Encoder documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Path Encoder</h1>
+
+        <p><code>s3g Ambi Path Encoder 64</code> encodes up to 64 source lanes into first-through-seventh-order <code>ACN/SN3D</code> ambisonics while each source follows a path trajectory.</p>
+
+        <p>Use it when spatial motion should be authored as a reusable shape or gesture rather than as only point automation or generative cloud motion.</p>
+
+        <h2 id="model">Model</h2>
+
+        <ul>
+          <li><code>INPUTS</code> sets the active source lanes.</li>
+          <li><code>ORDER</code> selects <code>1OA</code> through <code>7OA</code>.</li>
+          <li><code>PATHS</code> sets the number of active trajectories.</li>
+          <li><code>ASSIGN</code> maps sources to one path, round-robin paths, or source-indexed paths. Source-indexed mapping wraps across the active path count when there are more inputs than paths.</li>
+          <li><code>PLAY</code> switches between stopped, running, and phase-scrubbed playback.</li>
+        </ul>
+
+        <h2 id="trajectory">Trajectory</h2>
+
+        <p>The plugin field can define paths directly. Use <code>EDIT</code> to add, delete, or move path points. In <code>TOP</code> view, click empty field space to add a path point and drag handles to edit horizontal position. In <code>SIDE</code> view, click or drag handles to edit height against the side projection. <code>DEL PT</code> or the Delete key removes the selected point, and <code>CLEAR</code> empties the selected path so the next click starts a new drawing from scratch. Use <code>PLAY</code> when the field should act as a camera surface: click and drag in any view to inspect the path without editing it.</p>
+
+        <ul>
+          <li><code>RAND</code> generates editable paths for the active <code>PATHS</code> count.</li>
+          <li><code>DEV</code> sets how far generated paths deviate from an orderly orbit.</li>
+          <li><code>PTS</code> sets how many points each generated path receives.</li>
+          <li><code>MODE</code> selects one-shot, loop, or palindrome playback.</li>
+          <li><code>INTERP</code> selects linear, Catmull-Rom spline, or hold interpolation.</li>
+          <li><code>SYNC</code> switches between free-running internal motion and host-transport beat sync.</li>
+          <li><code>DIV</code> sets the beat length of one path cycle when sync is enabled.</li>
+          <li><code>SCRUB</code> in the <code>PLAY</code> menu freezes automatic motion and lets <code>PHASE</code> directly scan through the path. Automate <code>PHASE</code> when the path should behave like a drawable automation lane.</li>
+          <li><code>RATE</code>, <code>PHASE</code>, and <code>SPREAD</code> control free-running speed and source offsets. The plugin GUI gives the low end of <code>RATE</code> extra slider travel for slow path motion.</li>
+          <li><code>SMOOTH</code> slews source positions after path sampling.</li>
+          <li><code>EASE</code> bends path phase toward smoother in/out motion.</li>
+          <li><code>DIST</code> scales the path radius before encoding.</li>
+        </ul>
+
+        <h2 id="files">Files</h2>
+
+        <p>JSON is the canonical path format for saving and recalling encoder trajectories. SVG is an interchange format for importing or exporting geometric path drawings.</p>
+
+        <ul>
+          <li><code>LOAD JSON</code> reads <code>s3g_ambi_path</code> files containing one or more paths.</li>
+          <li><code>SAVE JSON</code> writes the active paths with 3D point coordinates.</li>
+          <li><code>IMPORT SVG</code> reads a practical subset of external SVG geometry: <code>path</code>, <code>polyline</code>, and <code>polygon</code> coordinate data.</li>
+          <li><code>EXPORT SVG</code> writes a simple 2D projection of the active paths for editing or documentation.</li>
+        </ul>
+
+        <p>SVG import treats the drawing as trajectory geometry, not as artwork. Stroke color, fills, effects, and layer styling are ignored.</p>
+
+        <h2 id="routing">Routing</h2>
+
+        <p>Place the plugin on a wide REAPER track carrying source lanes. Decode the encoded output with <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, or <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>.</p>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics Pages</h2>
+          <a href="3oafx.html">Ambisonics Overview</a>
+          <a href="3oafx-effects.html">3OAFX Processors</a>
+          <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-path-encoder.html">Path Encoder</a>
+          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
+          <a href="ambisonic-rotate.html">Rotate</a>
+          <a href="ambisonic-bus-processors.html">Field / Bus</a>
+          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
+          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
+          <a href="ambisonic-head-decoder.html">Head Decoder</a>
+          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
+          <a href="ambi-grain-processor.html">Grain Processor</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#model">Model</a>
+          <a href="#trajectory">Trajectory</a>
+          <a href="#files">Files</a>
+          <a href="#routing">Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

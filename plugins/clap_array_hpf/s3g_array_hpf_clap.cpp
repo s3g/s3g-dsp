@@ -8,6 +8,7 @@
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
+#include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
 #endif
 
@@ -291,6 +292,10 @@ constexpr uint32_t kGuiHeight = 300;
 @private
     Plugin* _plugin;
     int _dragControl;
+    int _openMenu;
+    int _hoverMenuItem;
+    NSPoint _menuOrigin;
+    uint32_t _menuItemCount;
     NSTimer* _timer;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
@@ -333,6 +338,10 @@ static double arrayHpfDbNorm(double db)
     if (self) {
         _plugin = plugin;
         _dragControl = -1;
+        _openMenu = 0;
+        _hoverMenuItem = -1;
+        _menuOrigin = NSZeroPoint;
+        _menuItemCount = 0;
         _timer = nil;
         [self setWantsLayer:YES];
     }
@@ -357,6 +366,7 @@ static double arrayHpfDbNorm(double db)
 - (void)refreshMeter:(NSTimer*)timer
 {
     (void)timer;
+    if (!_plugin || [self isHidden] || !s3g::clap_support::hostAppIsActive()) return;
     [self setNeedsDisplay:YES];
 }
 
@@ -365,6 +375,33 @@ static double arrayHpfDbNorm(double db)
     char buf[64] {};
     paramsValueToText(&_plugin->plugin, param, value, buf, sizeof(buf));
     return [NSString stringWithUTF8String:buf];
+}
+
+- (void)openPolesMenuAt:(NSPoint)origin
+{
+    _openMenu = 1;
+    _hoverMenuItem = -1;
+    _menuOrigin = origin;
+    _menuItemCount = 4;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)closeMenu
+{
+    _openMenu = 0;
+    _hoverMenuItem = -1;
+    _menuItemCount = 0;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
+{
+    if (_openMenu != 1 || _menuItemCount == 0) return;
+    static NSString* poleItems[] = { @"1P", @"2P", @"3P", @"4P" };
+    const CGFloat itemH = 18.0;
+    const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 86.0, itemH * static_cast<CGFloat>(_menuItemCount));
+    const int selected = static_cast<int>(std::clamp<uint32_t>(_plugin ? _plugin->params.poles : 1u, 1u, 4u) - 1u);
+    s3g::clap_gui::drawDropdownMenu(menuRect, itemH, poleItems, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
 
 - (void)drawFilterGraph:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -435,9 +472,10 @@ static double arrayHpfDbNorm(double db)
     s3g::clap_gui::drawPanelHeader(@"FILTER", true, 278, 66, 252, 21, attrs, style);
     s3g::clap_gui::drawSlider(@"ACTIVE", [self textForParam:kActiveParamId value:_plugin->params.activeChannels], (_plugin->params.activeChannels - 1.0) / std::max(1.0, static_cast<double>(kChannelCount - 1u)), 112, attrs, attrs, style, 298, 372, 472, 86);
     s3g::clap_gui::drawSlider(@"CUTOFF", [self textForParam:kCutoffParamId value:_plugin->params.cutoffHz], (_plugin->params.cutoffHz - 20.0f) / 220.0f, 146, attrs, attrs, style, 298, 372, 472, 86);
-    s3g::clap_gui::drawSlider(@"POLES", [self textForParam:kPolesParamId value:_plugin->params.poles], (_plugin->params.poles - 1.0) / 3.0, 180, attrs, attrs, style, 298, 372, 472, 86);
+    s3g::clap_gui::drawMenu(@"POLES", [self textForParam:kPolesParamId value:_plugin->params.poles], 180, attrs, attrs, style, 298, 372, 86);
     s3g::clap_gui::drawSlider(@"OUTPUT", [self textForParam:kOutputParamId value:_plugin->params.outputGainDb], (_plugin->params.outputGainDb + 60.0f) / 78.0f, 214, attrs, attrs, style, 298, 372, 472, 86);
-    s3g::clap_gui::drawSlider(@"BYPASS", (_plugin->params.bypass ? @"ON" : @"OFF"), _plugin->params.bypass ? 1.0 : 0.0, 248, attrs, attrs, style, 298, 372, 472, 86);
+    s3g::clap_gui::drawToggle(@"BYPASS", _plugin->params.bypass, 248, attrs, attrs, style, 298, 372, 86);
+    [self drawOpenMenu:attrs style:style];
 }
 
 - (void)updateDrag:(NSPoint)pt
@@ -457,15 +495,31 @@ static double arrayHpfDbNorm(double db)
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (_openMenu == 1) {
+        const CGFloat itemH = 18.0;
+        const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 86.0, itemH * static_cast<CGFloat>(_menuItemCount));
+        const int hit = s3g::clap_gui::dropdownHitIndex(pt, menuRect, itemH, _menuItemCount);
+        if (hit >= 0) {
+            applyParam(*_plugin, kPolesParamId, static_cast<double>(hit + 1));
+            [self closeMenu];
+            return;
+        }
+        [self closeMenu];
+    }
+    if (NSPointInRect(pt, NSMakeRect(372, 178, 86, 22))) {
+        [self openPolesMenuAt:NSMakePoint(372, 196)];
+        return;
+    }
     if (NSPointInRect(pt, NSMakeRect(372, 246, 86, 20))) {
         applyParam(*_plugin, kBypassParamId, _plugin->params.bypass ? 0.0 : 1.0);
         [self setNeedsDisplay:YES];
         return;
     }
-    const CGFloat ys[] = { 112, 146, 180, 214 };
-    for (int i = 0; i < 4; ++i) {
+    const CGFloat ys[] = { 112, 146, 214 };
+    const int controls[] = { 0, 1, 3 };
+    for (int i = 0; i < 3; ++i) {
         if (NSPointInRect(pt, NSMakeRect(372, ys[i] - 5, 86, 22))) {
-            _dragControl = i;
+            _dragControl = controls[i];
             [self updateDrag:pt];
             return;
         }

@@ -8,6 +8,7 @@
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
+#include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
 #endif
 
@@ -353,19 +354,9 @@ constexpr CGFloat kOutputTrackW = 90.0;
         _timer = nil;
         _fields = [[NSMutableArray alloc] initWithCapacity:kRowsPerPage];
         [self setWantsLayer:YES];
-        NSFont* font = [NSFont fontWithName:@"Menlo" size:11.0] ?: [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular];
         for (uint32_t row = 0; row < kRowsPerPage; ++row) {
             NSTextField* field = [[S3GNumberTextField alloc] initWithFrame:NSZeroRect];
-            [field setFont:font];
-            [field setAlignment:NSTextAlignmentRight];
-            [field setBezeled:YES];
-            [field setBordered:YES];
-            [field setEditable:YES];
-            [field setSelectable:YES];
-            [field setDrawsBackground:YES];
-            [field setBackgroundColor:s3g::clap_gui::color(0x202020)];
-            [field setTextColor:s3g::clap_gui::color(0xd0d0d0)];
-            [field setFocusRingType:NSFocusRingTypeNone];
+            s3g::clap_gui::styleNumberTextField(field);
             [field setTarget:self];
             [field setAction:@selector(delayFieldChanged:)];
             [field setDelegate:(id<NSTextFieldDelegate>)self];
@@ -384,6 +375,7 @@ constexpr CGFloat kOutputTrackW = 90.0;
 - (void)refreshMeter:(NSTimer*)timer
 {
     (void)timer;
+    if (!_plugin || [self isHidden] || !s3g::clap_support::hostAppIsActive()) return;
     for (NSTextField* field in _fields) {
         if ([self isEditingField:field]) return;
     }
@@ -442,22 +434,13 @@ constexpr CGFloat kOutputTrackW = 90.0;
 
 - (void)styleEditorForField:(NSTextField*)field
 {
-    NSText* editor = [field currentEditor];
-    if (!editor) return;
-    if ([editor respondsToSelector:@selector(setSelectedTextAttributes:)]) {
-        NSTextView* textView = (NSTextView*)editor;
-        [textView setSelectedTextAttributes:@{
-            NSBackgroundColorAttributeName: s3g::clap_gui::color(0x4a4a4a),
-            NSForegroundColorAttributeName: s3g::clap_gui::color(0xf0f0f0)
-        }];
-        [textView setInsertionPointColor:s3g::clap_gui::color(0xd8d8d8)];
-    }
+    s3g::clap_gui::styleNumberTextEditor(field);
 }
 
 - (void)controlTextDidBeginEditing:(NSNotification*)note
 {
     NSTextField* field = (NSTextField*)[note object];
-    [field setBackgroundColor:s3g::clap_gui::color(0x2a2a2a)];
+    s3g::clap_gui::styleActiveNumberTextField(field, true);
     [self styleEditorForField:field];
 }
 
@@ -469,7 +452,7 @@ constexpr CGFloat kOutputTrackW = 90.0;
 - (void)controlTextDidEndEditing:(NSNotification*)note
 {
     NSTextField* field = (NSTextField*)[note object];
-    [field setBackgroundColor:s3g::clap_gui::color(0x202020)];
+    s3g::clap_gui::styleActiveNumberTextField(field, false);
     [self delayFieldChanged:field];
 }
 

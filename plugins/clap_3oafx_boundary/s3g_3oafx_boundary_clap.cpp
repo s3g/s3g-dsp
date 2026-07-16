@@ -763,16 +763,13 @@ static NSColor* color(int rgb, double alpha = 1.0)
     s3g::clap_gui::Style style;
     [style.bg setFill];
     NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSFont* bold = [NSFont fontWithName:@"Menlo-Bold" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightBold];
-    NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
-    NSDictionary* attrs = @{ NSForegroundColorAttributeName: style.text, NSFontAttributeName: mono };
-    NSDictionary* dim = @{ NSForegroundColorAttributeName: style.dim, NSFontAttributeName: mono };
-    NSDictionary* head = @{ NSForegroundColorAttributeName: style.text, NSFontAttributeName: bold };
-    NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName: style.text, NSFontAttributeName: titleFont };
+    NSDictionary* attrs = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* dim = s3g::clap_gui::softValueAttrs();
+    NSDictionary* head = attrs;
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     NSString* title = p->mode == PluginMode::Send ? @"s3g 3OAFX SEND DECODER" : @"s3g 3OAFX RETURN ENCODER";
     [title drawAtPoint:NSMakePoint(18, 16) withAttributes:titleAttrs];
-    [[NSString stringWithFormat:@"PK %.3f", p->outputPeak.load(std::memory_order_relaxed)] drawAtPoint:NSMakePoint(782, 16) withAttributes:dim];
+    [s3g::clap_gui::peakDbText(p->outputPeak.load(std::memory_order_relaxed)) drawAtPoint:NSMakePoint(782, 16) withAttributes:dim];
 
     NSRect panel = NSMakeRect(12, 42, 560, 500);
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);

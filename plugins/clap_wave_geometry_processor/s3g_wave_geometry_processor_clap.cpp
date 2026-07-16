@@ -37,10 +37,13 @@ namespace {
 constexpr uint32_t kChannelCount = s3g::kWaveGeometryChannels;
 constexpr uint32_t kStateVersion = 3;
 constexpr uint32_t kGuiWidth = 1000;
-constexpr uint32_t kGuiHeight = 760;
+constexpr uint32_t kGuiHeight = 800;
 constexpr uint32_t kScopeFrames = 128;
 constexpr double kMotionRateMinHz = 0.01;
 constexpr double kMotionRateMaxHz = 1.0;
+constexpr double kEngineRowPitch = 22.0;
+constexpr double kEngineFirstRow = 42.0;
+constexpr double kEnginePanelHeight = 386.0;
 
 constexpr clap_id kFoldParamId = 1;
 constexpr clap_id kDriveParamId = 2;
@@ -148,6 +151,11 @@ double clampMotionRate(double value)
 s3g::TopologyState topologyStateForPlugin(const Plugin& p)
 {
     return p.settings.topology;
+}
+
+double engineRowY(double panelY, uint32_t index)
+{
+    return panelY + kEngineFirstRow + static_cast<double>(index) * kEngineRowPitch;
 }
 
 void applyLaneParams(Plugin& p)
@@ -748,7 +756,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     }
 
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"PK %+4.1f dB", 20.0 * std::log10(std::max(0.000001f, pk))]
+    [s3g::clap_gui::peakDbText(pk)
         drawAtPoint:NSMakePoint(NSMaxX(rect) - 92.0, rect.origin.y + 10.0) withAttributes:small];
 
     NSString* topologyName = visualLanes == 8 ? @"8PT NEIGHBOR MAP"
@@ -861,35 +869,29 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     const CGFloat gap = 8.0;
     CGFloat panelY = 34.0;
     auto drawHeader = [&](NSString* title, bool open, CGFloat y) {
-        [style.strip setFill];
-        NSRectFill(NSMakeRect(panelX, y, panelW, headerH));
-        [style.accent setFill];
-        NSRectFill(NSMakeRect(panelX, y, panelW, 2.0));
-        NSString* marker = open ? @"-" : @"+";
-        [marker drawAtPoint:NSMakePoint(panelX + 8.0, y + 5.0) withAttributes:lab];
-        [title drawAtPoint:NSMakePoint(panelX + 24.0, y + 5.0) withAttributes:lab];
+        s3g::clap_gui::drawDisclosurePanelHeader(title, open, panelX, y, panelW, headerH, lab, style);
     };
 
-    const CGFloat engineH = _showEngine ? 328.0 : headerH;
+    const CGFloat engineH = _showEngine ? static_cast<CGFloat>(kEnginePanelHeight) : headerH;
     s3g::clap_gui::drawPanelFrame(panelX, panelY, panelW, engineH, style);
     drawHeader(@"WAVE ENGINE", _showEngine, panelY);
     const auto& prm = p->settings.base;
     if (_showEngine) {
-        [self drawEngineRow:@"FOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.fold * 100.0f] norm:prm.fold y:panelY + 42.0 attrs:small small:small];
-        [self drawEngineRow:@"DRIV" value:[NSString stringWithFormat:@"%.0f%%", prm.drive * 100.0f] norm:prm.drive y:panelY + 60.0 attrs:small small:small];
-        [self drawEngineRow:@"HOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.hold * 100.0f] norm:prm.hold y:panelY + 78.0 attrs:small small:small];
-        [self drawEngineRow:@"CLIP" value:[NSString stringWithFormat:@"%.0f%%", prm.clip * 100.0f] norm:prm.clip y:panelY + 96.0 attrs:small small:small];
-        [self drawEngineRow:@"RECT" value:[NSString stringWithFormat:@"%.0f%%", prm.rectify * 100.0f] norm:prm.rectify y:panelY + 114.0 attrs:small small:small];
-        [self drawEngineRow:@"EDGE" value:[NSString stringWithFormat:@"%.0f%%", prm.edge * 100.0f] norm:prm.edge y:panelY + 132.0 attrs:small small:small];
-        [self drawEngineRow:@"ZERO" value:[NSString stringWithFormat:@"%.0f%%", prm.zero * 100.0f] norm:prm.zero / 0.78f y:panelY + 150.0 attrs:small small:small];
-        [self drawEngineRow:@"POL" value:[NSString stringWithFormat:@"%.0f%%", prm.polar * 100.0f] norm:prm.polar y:panelY + 168.0 attrs:small small:small];
-        [self drawEngineRow:@"BITS" value:[NSString stringWithFormat:@"%.0f%%", prm.bits * 100.0f] norm:prm.bits / 0.92f y:panelY + 186.0 attrs:small small:small];
-        [self drawEngineRow:@"STEP" value:[NSString stringWithFormat:@"%.0f%%", prm.step * 100.0f] norm:prm.step y:panelY + 204.0 attrs:small small:small];
-        [self drawEngineRow:@"TRNS" value:[NSString stringWithFormat:@"%+.2f", prm.trans] norm:(prm.trans + 1.0f) * 0.5f y:panelY + 222.0 attrs:small small:small];
-        [self drawEngineRow:@"TAPE" value:[NSString stringWithFormat:@"%.0f%%", prm.tape * 100.0f] norm:prm.tape y:panelY + 240.0 attrs:small small:small];
-        [self drawEngineRow:@"SPED" value:[NSString stringWithFormat:@"%.0f%%", prm.speed * 100.0f] norm:prm.speed y:panelY + 258.0 attrs:small small:small];
-        [self drawEngineRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:panelY + 276.0 attrs:small small:small];
-        [self drawEngineRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", prm.gainDb] norm:(prm.gainDb + 60.0f) / 72.0f y:panelY + 294.0 attrs:small small:small];
+        [self drawEngineRow:@"FOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.fold * 100.0f] norm:prm.fold y:engineRowY(panelY, 0) attrs:small small:small];
+        [self drawEngineRow:@"DRIV" value:[NSString stringWithFormat:@"%.0f%%", prm.drive * 100.0f] norm:prm.drive y:engineRowY(panelY, 1) attrs:small small:small];
+        [self drawEngineRow:@"HOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.hold * 100.0f] norm:prm.hold y:engineRowY(panelY, 2) attrs:small small:small];
+        [self drawEngineRow:@"CLIP" value:[NSString stringWithFormat:@"%.0f%%", prm.clip * 100.0f] norm:prm.clip y:engineRowY(panelY, 3) attrs:small small:small];
+        [self drawEngineRow:@"RECT" value:[NSString stringWithFormat:@"%.0f%%", prm.rectify * 100.0f] norm:prm.rectify y:engineRowY(panelY, 4) attrs:small small:small];
+        [self drawEngineRow:@"EDGE" value:[NSString stringWithFormat:@"%.0f%%", prm.edge * 100.0f] norm:prm.edge y:engineRowY(panelY, 5) attrs:small small:small];
+        [self drawEngineRow:@"ZERO" value:[NSString stringWithFormat:@"%.0f%%", prm.zero * 100.0f] norm:prm.zero / 0.78f y:engineRowY(panelY, 6) attrs:small small:small];
+        [self drawEngineRow:@"POL" value:[NSString stringWithFormat:@"%.0f%%", prm.polar * 100.0f] norm:prm.polar y:engineRowY(panelY, 7) attrs:small small:small];
+        [self drawEngineRow:@"BITS" value:[NSString stringWithFormat:@"%.0f%%", prm.bits * 100.0f] norm:prm.bits / 0.92f y:engineRowY(panelY, 8) attrs:small small:small];
+        [self drawEngineRow:@"STEP" value:[NSString stringWithFormat:@"%.0f%%", prm.step * 100.0f] norm:prm.step y:engineRowY(panelY, 9) attrs:small small:small];
+        [self drawEngineRow:@"TRNS" value:[NSString stringWithFormat:@"%+.2f", prm.trans] norm:(prm.trans + 1.0f) * 0.5f y:engineRowY(panelY, 10) attrs:small small:small];
+        [self drawEngineRow:@"TAPE" value:[NSString stringWithFormat:@"%.0f%%", prm.tape * 100.0f] norm:prm.tape y:engineRowY(panelY, 11) attrs:small small:small];
+        [self drawEngineRow:@"SPED" value:[NSString stringWithFormat:@"%.0f%%", prm.speed * 100.0f] norm:prm.speed y:engineRowY(panelY, 12) attrs:small small:small];
+        [self drawEngineRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:engineRowY(panelY, 13) attrs:small small:small];
+        [self drawEngineRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", prm.gainDb] norm:(prm.gainDb + 60.0f) / 72.0f y:engineRowY(panelY, 14) attrs:small small:small];
     }
     panelY += engineH + gap;
 
@@ -1098,22 +1100,17 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     };
 
     CGFloat panelY = 34.0;
-    const CGFloat engineH = _showEngine ? 328.0 : headerH;
+    const CGFloat engineH = _showEngine ? static_cast<CGFloat>(kEnginePanelHeight) : headerH;
     if (NSPointInRect(pt, headerRect(panelY))) {
         _showEngine = !_showEngine;
         [self setNeedsDisplay:YES];
         return;
     }
     if (_showEngine) {
-        const CGFloat engineRows[] = {
-            panelY + 42.0, panelY + 60.0, panelY + 78.0, panelY + 96.0,
-            panelY + 114.0, panelY + 132.0, panelY + 150.0, panelY + 168.0,
-            panelY + 186.0, panelY + 204.0, panelY + 222.0, panelY + 240.0,
-            panelY + 258.0, panelY + 276.0, panelY + 294.0
-        };
         const clap_id engineIds[] = {kFoldParamId,kDriveParamId,kHoldParamId,kClipParamId,kRectifyParamId,kEdgeParamId,kZeroParamId,kPolarParamId,kBitsParamId,kStepParamId,kTransParamId,kTapeParamId,kSpeedParamId,kMixParamId,kGainParamId};
         for (uint32_t i = 0; i < 15u; ++i) {
-            if (NSPointInRect(pt, NSMakeRect(648, engineRows[i] - 7, 324, 18))) {
+            const CGFloat rowY = static_cast<CGFloat>(engineRowY(panelY, i));
+            if (NSPointInRect(pt, NSMakeRect(648, rowY - 8.0, 324, 24.0))) {
                 _dragParam = static_cast<int>(engineIds[i]);
                 [self updateDrag:pt];
                 return;

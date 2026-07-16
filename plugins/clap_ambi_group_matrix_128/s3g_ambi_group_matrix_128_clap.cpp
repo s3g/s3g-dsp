@@ -690,7 +690,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)drawGlossary:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     s3g::clap_gui::drawPanelFrame(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"PATTERN TERMS", _showGlossary, rect.origin.x, rect.origin.y, rect.size.width, 21.0, attrs, style);
+    s3g::clap_gui::drawDisclosurePanelHeader(@"PATTERN TERMS", _showGlossary, rect.origin.x, rect.origin.y, rect.size.width, 21.0, attrs, style);
     if (!_showGlossary) {
         return;
     }
@@ -731,7 +731,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
     [@"s3g AMBI GROUP MATRIX 128" drawAtPoint:NSMakePoint(18, 14) withAttributes:title];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))]
+    [s3g::clap_gui::peakDbText(pk)
         drawAtPoint:NSMakePoint(846, 14) withAttributes:small];
     [@"8 x 3OA / 128CH" drawAtPoint:NSMakePoint(926, 14) withAttributes:small];
 

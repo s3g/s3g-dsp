@@ -456,15 +456,12 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSFont* bold = [NSFont fontWithName:@"Menlo-Bold" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightBold];
-    NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
-    NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:bold };
-    NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
+    NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     [@"s3g MACRO DELAY" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))] drawAtPoint:NSMakePoint(604,14) withAttributes:small];
+    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(604,14) withAttributes:small];
     [[NSString stringWithFormat:@"%uCH", kChannelCount] drawAtPoint:NSMakePoint(704,14) withAttributes:small];
 
     s3g::clap_gui::drawPanelFrame(18, 42, 352, 188, style);

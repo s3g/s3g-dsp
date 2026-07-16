@@ -565,7 +565,7 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
 - (void)drawSectionHeader:(NSString*)title open:(BOOL)open y:(CGFloat)y attrs:(NSDictionary*)attrs
 {
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawPanelHeader(title, open, kToolboxX, y, kToolboxW, 20.0, attrs, style);
+    s3g::clap_gui::drawDisclosurePanelHeader(title, open, kToolboxX, y, kToolboxW, 20.0, attrs, style);
 }
 - (void)drawText:(NSString*)text centeredInRect:(NSRect)rect attrs:(NSDictionary*)attrs
 {
@@ -797,15 +797,13 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
     auto* p = static_cast<Plugin*>(_plugin);
     const s3g::LoopProcessorParams params = snapshotParams(*p);
     [c(0x0c0c0c) setFill]; NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
-    NSDictionary* lab = @{ NSForegroundColorAttributeName:c(0xf0f0f0), NSFontAttributeName:mono };
-    NSDictionary* section = @{ NSForegroundColorAttributeName:c(0xd1d1d1), NSFontAttributeName:mono };
-    NSDictionary* small = @{ NSForegroundColorAttributeName:c(0xa0a0a0), NSFontAttributeName:mono };
-    NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:c(0xf0f0f0), NSFontAttributeName:titleFont };
+    NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* section = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     [@"s3g LOOP PROCESSOR" drawAtPoint:NSMakePoint(18,13) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))] drawAtPoint:NSMakePoint(720,14) withAttributes:small];
+    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(720,14) withAttributes:small];
     [@"8CH" drawAtPoint:NSMakePoint(866,14) withAttributes:small];
     NSRect samplePanel = NSMakeRect(18,42,560,572);
     [c(0x1d1d1d) setFill]; NSRectFill(samplePanel);

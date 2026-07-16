@@ -21,6 +21,11 @@ if(APPLE)
   target_link_libraries(s3g_dsp_smoke PRIVATE "-framework Accelerate")
 endif()
 
+add_custom_target(audit_gui_style
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/audit-gui-style.sh
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  COMMENT "Running advisory CLAP GUI style audit")
+
 option(S3G_BUILD_CLAP_PLUGIN "Build experimental CLAP plugin targets" OFF)
 option(S3G_BUILD_STANDALONE_APPS "Build experimental standalone app targets" OFF)
 option(S3G_FETCH_CLAP "Fetch the CLAP headers when S3G_CLAP_INCLUDE_DIR is not set" ON)
@@ -55,6 +60,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_3oafx_single_effects)
   add_subdirectory(plugins/clap_3oafx_point_encoder)
   add_subdirectory(plugins/clap_ambi_cloud_encoder)
+  add_subdirectory(plugins/clap_ambi_path_encoder)
   add_subdirectory(plugins/clap_3oafx_speaker_decoder)
   add_subdirectory(plugins/clap_layout_panner)
   add_subdirectory(plugins/clap_dbap_panner)

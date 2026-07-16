@@ -520,10 +520,10 @@ static const char* guiLabelForParam(clap_id id)
     s3g::clap_gui::Style style;
     [style.bg setFill];
     NSRectFill(self.bounds);
-    NSDictionary* text = @{ NSFontAttributeName:[NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular], NSForegroundColorAttributeName:style.text };
-    NSDictionary* dim = @{ NSFontAttributeName:[NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular], NSForegroundColorAttributeName:style.dim };
+    NSDictionary* text = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* dim = s3g::clap_gui::softValueAttrs();
     [@S3G_3OAFX_SINGLE_PLUGIN_NAME drawAtPoint:NSMakePoint(18, 16) withAttributes:text];
-    [[NSString stringWithFormat:@"PK %.3f", p->peak.load(std::memory_order_relaxed)] drawAtPoint:NSMakePoint(kViewW - 110.0, 16) withAttributes:dim];
+    [s3g::clap_gui::peakDbText(p->peak.load(std::memory_order_relaxed)) drawAtPoint:NSMakePoint(kViewW - 110.0, 16) withAttributes:dim];
 
     s3g::clap_gui::drawPanelFrame(18, 48, 480, 406, style);
     s3g::clap_gui::drawPanelHeader(@"POINT FIELD", true, 18, 48, 480, 21, text, style);

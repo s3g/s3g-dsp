@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_ambi_encoder_depth.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 
 #include <algorithm>
@@ -54,6 +55,8 @@ struct AmbiCloudEncoderParams {
     float selectedElevationDeg = 0.0f;
     float selectedDistance = 1.0f;
     float selectedGain = 1.0f;
+    float doppler = 0.0f;
+    float air = 0.0f;
     float outputGainDb = -12.0f;
 };
 
@@ -62,6 +65,7 @@ public:
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1.0, sampleRate);
+        depth_.prepare(sampleRate_);
         resetScene();
     }
 
@@ -69,6 +73,7 @@ public:
     {
         phase_ = 0.0f;
         seed_ = 0x45d9f3bu;
+        depth_.reset();
     }
 
     void resetScene()
@@ -99,8 +104,11 @@ public:
         params.selectedElevationDeg = clamp(params.selectedElevationDeg, -90.0f, 90.0f);
         params.selectedDistance = clamp(params.selectedDistance, 0.05f, 8.0f);
         params.selectedGain = clamp(params.selectedGain, 0.0f, 2.0f);
+        params.doppler = clamp(params.doppler, 0.0f, 1.0f);
+        params.air = clamp(params.air, 0.0f, 1.0f);
         const bool selectedChanged = params.selectedCloud != params_.selectedCloud;
         params_ = params;
+        depth_.setParams({ params_.doppler, params_.air });
         if (selectedChanged) {
             syncSelectedFromCloud();
         } else {
@@ -152,36 +160,48 @@ public:
         const uint32_t ambiChannels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), outputChannels);
         const uint32_t inputCount = std::min<uint32_t>({ inputChannels, params_.activeInputs, kAmbiCloudEncoderMaxInputs });
         const float outGain = dbToGain(params_.outputGainDb);
-        phase_ += static_cast<float>(frames) / static_cast<float>(sampleRate_) * params_.rateHz;
-        if (phase_ > 100000.0f) phase_ -= 100000.0f;
+        const float phaseStart = phase_;
+        const float phaseInc = params_.rateHz / static_cast<float>(sampleRate_);
+        constexpr uint32_t kMotionChunkFrames = 16;
 
-        std::array<std::array<float, kAmbiCloudEncoderMaxChannels>, kAmbiCloudEncoderMaxInputs> basis {};
-        std::array<float, kAmbiCloudEncoderMaxInputs> gains {};
-        for (uint32_t src = 0; src < inputCount; ++src) {
-            const uint32_t cloudIndex = src % params_.activeClouds;
-            const auto& cloud = clouds_[cloudIndex];
-            const Vec3 dir = normalize(sourcePosition(src, cloud, false));
-            basis[src] = acnSn3dBasis7(dir);
-            const float distGain = 1.0f / (0.35f + 0.65f * std::max(0.05f, cloud.distance));
-            const float cloudNorm = 1.0f / std::sqrt(static_cast<float>(std::max<uint32_t>(1u, (inputCount + params_.activeClouds - 1u) / params_.activeClouds)));
-            gains[src] = cloud.gain * distGain * outGain * cloudNorm;
-        }
-
-        for (uint32_t frame = 0; frame < frames; ++frame) {
+        for (uint32_t chunkStart = 0; chunkStart < frames; chunkStart += kMotionChunkFrames) {
+            const uint32_t chunkFrames = std::min<uint32_t>(kMotionChunkFrames, frames - chunkStart);
+            const float chunkPhase = phaseStart + phaseInc * static_cast<float>(chunkStart);
+            std::array<std::array<float, kAmbiCloudEncoderMaxChannels>, kAmbiCloudEncoderMaxInputs> basis {};
+            std::array<float, kAmbiCloudEncoderMaxInputs> gains {};
+            std::array<float, kAmbiCloudEncoderMaxInputs> distances {};
             for (uint32_t src = 0; src < inputCount; ++src) {
-                const Sample* in = inputs[src];
-                if (!in) continue;
-                float sample = static_cast<float>(in[frame]) * gains[src];
-                if (params_.decorrelate > 0.0001f) {
-                    const float sign = ((src + frame) & 1u) ? -1.0f : 1.0f;
-                    sample *= 1.0f - params_.decorrelate * 0.08f + sign * params_.decorrelate * 0.015f;
+                const uint32_t cloudIndex = src % params_.activeClouds;
+                const auto& cloud = clouds_[cloudIndex];
+                const Vec3 pos = sourcePosition(src, cloud, false, chunkPhase);
+                const Vec3 dir = normalize(pos);
+                basis[src] = acnSn3dBasis7(dir);
+                distances[src] = std::sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
+                const float distGain = 1.0f / (0.35f + 0.65f * std::max(0.05f, distances[src]));
+                const float cloudNorm = 1.0f / std::sqrt(static_cast<float>(std::max<uint32_t>(1u, (inputCount + params_.activeClouds - 1u) / params_.activeClouds)));
+                gains[src] = cloud.gain * distGain * outGain * cloudNorm;
+            }
+
+            for (uint32_t frame = chunkStart; frame < chunkStart + chunkFrames; ++frame) {
+                for (uint32_t src = 0; src < inputCount; ++src) {
+                    const Sample* in = inputs[src];
+                    if (!in) continue;
+                    float sample = static_cast<float>(in[frame]) * gains[src];
+                    if (params_.decorrelate > 0.0001f) {
+                        const float sign = ((src + frame) & 1u) ? -1.0f : 1.0f;
+                        sample *= 1.0f - params_.decorrelate * 0.08f + sign * params_.decorrelate * 0.015f;
+                    }
+                    sample = depth_.process(src, sample, distances[src]);
+                    if (sample == 0.0f) continue;
+                    for (uint32_t ch = 0; ch < ambiChannels; ++ch) {
+                        if (outputs[ch]) outputs[ch][frame] = static_cast<Sample>(flushDenormal(static_cast<float>(outputs[ch][frame]) + sample * basis[src][ch]));
+                    }
                 }
-                if (sample == 0.0f) continue;
-                for (uint32_t ch = 0; ch < ambiChannels; ++ch) {
-                    if (outputs[ch]) outputs[ch][frame] = static_cast<Sample>(flushDenormal(static_cast<float>(outputs[ch][frame]) + sample * basis[src][ch]));
-                }
+                depth_.advance();
             }
         }
+        phase_ += static_cast<float>(frames) / static_cast<float>(sampleRate_) * params_.rateHz;
+        if (phase_ > 100000.0f) phase_ -= 100000.0f;
     }
 
 private:
@@ -205,13 +225,18 @@ private:
 
     Vec3 sourcePosition(uint32_t src, const AmbiCloud& cloud, bool forDisplay) const
     {
+        return sourcePosition(src, cloud, forDisplay, phase_);
+    }
+
+    Vec3 sourcePosition(uint32_t src, const AmbiCloud& cloud, bool forDisplay, float phase) const
+    {
         const float golden = 137.507764f;
         const float local = static_cast<float>(src / std::max<uint32_t>(1u, params_.activeClouds));
         const float forceRate = params_.force == AmbiCloudForce::Calm ? 0.15f
             : (params_.force == AmbiCloudForce::Advection ? 0.65f
                 : (params_.force == AmbiCloudForce::Shear ? 0.95f
                     : (params_.force == AmbiCloudForce::Convection ? 1.25f : 1.70f)));
-        const float cycle = phase_ * forceRate;
+        const float cycle = phase * forceRate;
         const float driftPhase = (cycle + local * 0.037f) * 360.0f;
         float centerAz = cloud.azimuthDeg;
         float centerEl = cloud.elevationDeg;
@@ -323,6 +348,7 @@ private:
     float phase_ = 0.0f;
     AmbiCloudEncoderParams params_ {};
     std::array<AmbiCloud, kAmbiCloudEncoderMaxClouds> clouds_ {};
+    AmbiEncoderDepthProcessor<kAmbiCloudEncoderMaxInputs> depth_ {};
 };
 
 } // namespace s3g

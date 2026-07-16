@@ -10,6 +10,7 @@
 #if defined(__APPLE__)
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
+#include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
 #endif
 
@@ -26,7 +27,7 @@ namespace {
 constexpr uint32_t kChannels = s3g::kAmbiUtilityChannels;
 constexpr uint32_t kGuiWidth = 820;
 constexpr uint32_t kGuiHeight = 456;
-constexpr uint32_t kStateVersion = 2;
+constexpr uint32_t kStateVersion = 3;
 
 enum ParamId : clap_id {
     kParamOrder = 1,
@@ -42,6 +43,12 @@ enum ParamId : clap_id {
 
 struct SavedState {
     uint32_t version = kStateVersion;
+    s3g::AmbiRotateParams params {};
+    int32_t guiViewMode = 2;
+};
+
+struct SavedStateV2 {
+    uint32_t version = 2;
     s3g::AmbiRotateParams params {};
 };
 
@@ -65,6 +72,7 @@ struct Plugin {
     s3g::AmbiRotateParams params {};
     s3g::AmbiRotateProcessor processor {};
     std::atomic<float> outputPeak { 0.0f };
+    int32_t guiViewMode = 2;
 #if defined(__APPLE__)
     void* guiView = nullptr;
     std::atomic<bool> guiVisible { false };
@@ -243,7 +251,8 @@ const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValu
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
-    const SavedState state { kStateVersion, self(plugin)->params };
+    const auto* p = self(plugin);
+    const SavedState state { kStateVersion, p->params, p->guiViewMode };
     return stream->write(stream, &state, sizeof(state)) == static_cast<int64_t>(sizeof(state));
 }
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -254,6 +263,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     auto* p = self(plugin);
     if (got == static_cast<int64_t>(sizeof(state)) && state.version == kStateVersion) {
         p->params = s3g::sanitizeAmbiRotateParams(state.params);
+        p->guiViewMode = std::clamp<int32_t>(state.guiViewMode, -1, 2);
+    } else if (got == static_cast<int64_t>(sizeof(SavedStateV2))) {
+        const auto* old = reinterpret_cast<const SavedStateV2*>(&state);
+        if (old->version != 2u) return false;
+        p->params = s3g::sanitizeAmbiRotateParams(old->params);
+        p->guiViewMode = 2;
     } else if (got == static_cast<int64_t>(sizeof(OldSavedStateV1))) {
         const auto* old = reinterpret_cast<const OldSavedStateV1*>(&state);
         if (old->version != 1u) return false;
@@ -309,12 +324,16 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     if (self) {
         _plugin = plugin;
         _dragSlider = -1;
-        _viewMode = 2;
+        auto* p = static_cast<Plugin*>(_plugin);
+        _viewMode = p ? std::clamp<int>(p->guiViewMode, -1, 2) : 2;
         _dragView = NO;
         _lastDragPoint = NSZeroPoint;
         _viewAzDeg = -45.0;
         _viewElDeg = 26.0;
         _refreshTimer = nil;
+        if (_viewMode == 0) [self setViewPreset:0];
+        else if (_viewMode == 1) [self setViewPreset:1];
+        else if (_viewMode == 2) [self setViewPreset:2];
     }
     return self;
 }
@@ -328,7 +347,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     [[NSRunLoop mainRunLoop] addTimer:_refreshTimer forMode:NSRunLoopCommonModes];
 }
 - (void)stopRefreshTimer { if (_refreshTimer) { [_refreshTimer invalidate]; _refreshTimer = nil; } }
-- (void)refreshTimerFired:(NSTimer*)timer { (void)timer; if (![self isHidden]) [self setNeedsDisplay:YES]; }
+- (void)refreshTimerFired:(NSTimer*)timer { (void)timer; if (_plugin && ![self isHidden] && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
 - (void)setParam:(clap_id)param value:(double)value
 {
     applyParam(*static_cast<Plugin*>(_plugin), param, value);
@@ -349,6 +368,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)setViewPreset:(int)mode
 {
     _viewMode = mode;
+    if (_plugin) static_cast<Plugin*>(_plugin)->guiViewMode = mode;
     if (mode == 0) {
         _viewAzDeg = 0.0;
         _viewElDeg = 90.0;
@@ -398,11 +418,16 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
-    NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    NSDictionary* text = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* text = s3g::clap_gui::softLabelAttrs();
+    const float pk = p->outputPeak.exchange(p->outputPeak.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
+    NSString* peakText = s3g::clap_gui::peakDbText(pk);
+    const CGFloat peakX = static_cast<CGFloat>(kGuiWidth) - [peakText sizeWithAttributes:small].width - 18.0;
+    NSString* headerInfo = [NSString stringWithFormat:@"%uOA ACN/SN3D / 64CH", p->params.order];
+    const CGFloat infoX = peakX - [headerInfo sizeWithAttributes:small].width - 18.0;
     [@"s3g AMBI ROTATE 64" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
-    [[NSString stringWithFormat:@"%uOA ACN/SN3D / 64CH", p->params.order] drawAtPoint:NSMakePoint(650, 13) withAttributes:small];
+    [headerInfo drawAtPoint:NSMakePoint(infoX, 13) withAttributes:small];
+    [peakText drawAtPoint:NSMakePoint(peakX, 13) withAttributes:small];
 
     NSRect fieldPanel = NSMakeRect(12, 34, 506, 370);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
@@ -470,14 +495,6 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     s3g::clap_gui::drawPanelFrame(output.origin.x, output.origin.y, output.size.width, output.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, output.origin.x, output.origin.y, output.size.width, 21, text, style);
     [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 60.0) / 72.0 y:340 attrs:small style:style];
-    const float pk = p->outputPeak.exchange(p->outputPeak.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
-    const double db = 20.0 * std::log10(std::max(0.000001f, pk));
-    const CGFloat norm = std::clamp<CGFloat>((db + 60.0) / 60.0, 0.0, 1.0);
-    [@"PK" drawAtPoint:NSMakePoint(552, 366) withAttributes:small];
-    [style.strip setFill]; NSRectFill(NSMakeRect(632, 368, 128, 12));
-    [style.fill setFill]; NSRectFill(NSMakeRect(633, 369, 126 * norm, 10));
-    [style.grid setStroke]; NSFrameRect(NSMakeRect(632, 368, 128, 12));
-    [[NSString stringWithFormat:@"%+4.1f", db] drawAtPoint:NSMakePoint(764, 364) withAttributes:small];
 }
 - (void)resetSlider:(int)index
 {
@@ -538,6 +555,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         _lastDragPoint = pt;
         if (_viewMode != 2) {
             _viewMode = -1;
+            if (_plugin) static_cast<Plugin*>(_plugin)->guiViewMode = -1;
         }
         return;
     }
@@ -555,6 +573,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         _viewAzDeg += dx * 0.35;
         _viewElDeg = std::clamp(_viewElDeg + dy * 0.35, -85.0, 85.0);
         _viewMode = -1;
+        if (_plugin) static_cast<Plugin*>(_plugin)->guiViewMode = -1;
         _lastDragPoint = pt;
         [self setNeedsDisplay:YES];
     }

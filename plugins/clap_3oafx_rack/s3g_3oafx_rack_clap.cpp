@@ -697,10 +697,10 @@ static NSColor* rackColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::c
     s3g::clap_gui::Style style;
     [style.bg setFill];
     NSRectFill(self.bounds);
-    NSDictionary* text = @{ NSFontAttributeName:[NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular], NSForegroundColorAttributeName:style.text };
-    NSDictionary* dim = @{ NSFontAttributeName:[NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular], NSForegroundColorAttributeName:style.dim };
+    NSDictionary* text = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* dim = s3g::clap_gui::softValueAttrs();
     [@"s3g 3OAFX Rack" drawAtPoint:NSMakePoint(18, 16) withAttributes:text];
-    [[NSString stringWithFormat:@"PK %.3f", p->peak.load(std::memory_order_relaxed)] drawAtPoint:NSMakePoint(940, 16) withAttributes:dim];
+    [s3g::clap_gui::peakDbText(p->peak.load(std::memory_order_relaxed)) drawAtPoint:NSMakePoint(940, 16) withAttributes:dim];
     NSRect field = NSMakeRect(18, 48, 660, 566);
     s3g::clap_gui::drawPanelFrame(field.origin.x, field.origin.y, field.size.width, field.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"SLOT MAP", false, field.origin.x, field.origin.y, field.size.width, 21, text, style);

@@ -23,7 +23,7 @@ namespace {
 
 constexpr uint32_t kPointCount = s3g::kAmbiPointEncoderPrototypePoints;
 constexpr uint32_t kOutputChannels = s3g::k3OaChannels;
-constexpr uint32_t kStateVersion = 8;
+constexpr uint32_t kStateVersion = 10;
 
 constexpr clap_id kPointParamId = 1;
 constexpr clap_id kAzimuthParamId = 2;
@@ -50,6 +50,8 @@ constexpr clap_id kPoltergeistRateParamId = 22;
 constexpr clap_id kPoltergeistReachParamId = 23;
 constexpr clap_id kPoltergeistChaosParamId = 24;
 constexpr clap_id kPoltergeistRadiusParamId = 25;
+constexpr clap_id kDopplerParamId = 26;
+constexpr clap_id kAirParamId = 27;
 constexpr clap_id kPerPointParamBase = 1000;
 constexpr clap_id kPerPointParamStride = 8;
 
@@ -66,6 +68,16 @@ struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiPointEncoderParams params {};
     std::array<s3g::AmbiPoint, s3g::kAmbiPointEncoderMaxPoints> points {};
+    int32_t guiViewMode = 2;
+    double guiViewAzDeg = -35.0;
+    double guiViewElDeg = 34.0;
+    double guiViewZoom = 1.0;
+};
+
+struct SavedStateV9 {
+    uint32_t version = 9;
+    s3g::AmbiPointEncoderParams params {};
+    std::array<s3g::AmbiPoint, s3g::kAmbiPointEncoderMaxPoints> points {};
 };
 
 struct Plugin {
@@ -79,10 +91,26 @@ struct Plugin {
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
+    int guiViewMode = 2;
+    double guiViewAzDeg = -35.0;
+    double guiViewElDeg = 34.0;
+    double guiViewZoom = 1.0;
 #endif
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+bool readExact(const clap_istream_t* stream, void* data, size_t size)
+{
+    auto* bytes = static_cast<uint8_t*>(data);
+    size_t offset = 0;
+    while (offset < size) {
+        const int64_t got = stream->read(stream, bytes + offset, size - offset);
+        if (got <= 0) return false;
+        offset += static_cast<size_t>(got);
+    }
+    return true;
+}
 
 const char* motionName(uint32_t index)
 {
@@ -300,6 +328,8 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kPoltergeistReachParamId: p.params.poltergeistReach = static_cast<float>(std::clamp(value, 0.0, 1.0)); p.params.motionScene = 6; break;
     case kPoltergeistRadiusParamId: p.params.poltergeistRadius = static_cast<float>(std::clamp(value, 0.04, 1.0)); p.params.motionScene = 6; break;
     case kPoltergeistChaosParamId: p.params.poltergeistChaos = static_cast<float>(std::clamp(value, 0.0, 1.0)); p.params.motionScene = 6; break;
+    case kDopplerParamId: p.params.doppler = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kAirParamId: p.params.air = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     default: break;
     }
     p.params.activePoints = kPointCount;
@@ -442,6 +472,8 @@ constexpr ParamDef kParamDefs[] {
     { kPoltergeistReachParamId, "Poltergeist Reach", 0.0, 1.0, 0.55 },
     { kPoltergeistRadiusParamId, "Poltergeist Radius", 0.04, 1.0, 0.28 },
     { kPoltergeistChaosParamId, "Poltergeist Chaos", 0.0, 1.0, 0.0 },
+    { kDopplerParamId, "Doppler", 0.0, 1.0, 0.0 },
+    { kAirParamId, "Air", 0.0, 1.0, 0.0 },
 };
 
 constexpr uint32_t kBaseParamCount = static_cast<uint32_t>(sizeof(kParamDefs) / sizeof(kParamDefs[0]));
@@ -533,6 +565,8 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kPoltergeistReachParamId: *value = p.poltergeistReach; return true;
     case kPoltergeistRadiusParamId: *value = p.poltergeistRadius; return true;
     case kPoltergeistChaosParamId: *value = p.poltergeistChaos; return true;
+    case kDopplerParamId: *value = p.doppler; return true;
+    case kAirParamId: *value = p.air; return true;
     default: return false;
     }
 }
@@ -582,9 +616,16 @@ const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValu
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
+    auto* p = self(plugin);
     SavedState s {};
-    s.params = self(plugin)->params;
-    s.points = self(plugin)->encoder.editPoints();
+    s.params = p->params;
+    s.points = p->encoder.editPoints();
+#if defined(__APPLE__)
+    s.guiViewMode = p->guiViewMode;
+    s.guiViewAzDeg = p->guiViewAzDeg;
+    s.guiViewElDeg = p->guiViewElDeg;
+    s.guiViewZoom = p->guiViewZoom;
+#endif
     return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
 }
 
@@ -592,13 +633,32 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState s {};
-    if (stream->read(stream, &s, sizeof(s)) != static_cast<int64_t>(sizeof(s)) || s.version != kStateVersion) return false;
+    uint32_t version = 0;
+    if (!readExact(stream, &version, sizeof(version))) return false;
+    if (version == kStateVersion) {
+        s.version = version;
+        if (!readExact(stream, reinterpret_cast<char*>(&s) + sizeof(version), sizeof(s) - sizeof(version))) return false;
+    } else if (version == 9) {
+        SavedStateV9 old {};
+        old.version = version;
+        if (!readExact(stream, reinterpret_cast<char*>(&old) + sizeof(version), sizeof(old) - sizeof(version))) return false;
+        s.params = old.params;
+        s.points = old.points;
+    } else {
+        return false;
+    }
     auto* p = self(plugin);
     p->params = s.params;
     p->params.activePoints = kPointCount;
     p->encoder.setParams(p->params);
     p->encoder.setScene(s.points);
     p->params = p->encoder.params();
+#if defined(__APPLE__)
+    p->guiViewMode = std::clamp<int>(s.guiViewMode, -1, 2);
+    p->guiViewAzDeg = std::clamp(s.guiViewAzDeg, -180.0, 180.0);
+    p->guiViewElDeg = std::clamp(s.guiViewElDeg, -90.0, 90.0);
+    p->guiViewZoom = std::clamp(s.guiViewZoom, 0.55, 2.20);
+#endif
     return true;
 }
 
@@ -655,6 +715,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)updateMixerOutput:(NSPoint)point inRect:(NSRect)rect;
 - (void)updateDraggedPoint:(NSPoint)point inRect:(NSRect)rect;
 - (void)updateSlider:(NSPoint)point;
+- (void)storeViewState;
 @end
 
 static NSColor* c(int rgb, double alpha = 1.0) { return s3g::clap_gui::color(rgb, alpha); }
@@ -692,7 +753,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
 @implementation S3G3OAFXPointEncoderView
 - (id)initWithPlugin:(void*)plugin
 {
-    self = [super initWithFrame:NSMakeRect(0, 0, 900, 672)];
+    self = [super initWithFrame:NSMakeRect(0, 0, 900, 716)];
     if (self) {
         _plugin = plugin;
         _dragSlider = -1;
@@ -700,11 +761,12 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         _dragPoint = -1;
         _dragMixerOutput = NO;
         _timer = nil;
-        _viewMode = 2;
+        auto* p = static_cast<Plugin*>(plugin);
+        _viewMode = p ? p->guiViewMode : 2;
         _leftPage = 0;
-        _viewAzDeg = -35.0;
-        _viewElDeg = 34.0;
-        _viewZoom = 1.0;
+        _viewAzDeg = p ? p->guiViewAzDeg : -35.0;
+        _viewElDeg = p ? p->guiViewElDeg : 34.0;
+        _viewZoom = p ? p->guiViewZoom : 1.0;
         _hasPointSelection = NO;
         _dragView = NO;
         _lastDragPoint = NSMakePoint(0, 0);
@@ -726,18 +788,27 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     NSTrackingArea* area = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:options owner:self userInfo:nil];
     [self addTrackingArea:[area autorelease]];
 }
-- (void)dealloc { [self stopRefreshTimer]; [super dealloc]; }
-- (void)startRefreshTimer { if (_timer) return; _timer = [NSTimer timerWithTimeInterval:1.0/20.0 target:self selector:@selector(refresh:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; }
+- (void)dealloc { [self storeViewState]; [self stopRefreshTimer]; [super dealloc]; }
+- (void)storeViewState
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    if (!p) return;
+    p->guiViewMode = _viewMode;
+    p->guiViewAzDeg = _viewAzDeg;
+    p->guiViewElDeg = _viewElDeg;
+    p->guiViewZoom = _viewZoom;
+}
+- (void)startRefreshTimer { if (_timer) return; _timer = [NSTimer timerWithTimeInterval:1.0/60.0 target:self selector:@selector(refresh:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
 - (void)refresh:(NSTimer*)timer { (void)timer; if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
-    s3g::clap_gui::Style style;
+    s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
     s3g::clap_gui::drawSlider(name, value, norm, y, attrs, small, style, 640, 724, 832, 92);
 }
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
-    s3g::clap_gui::Style style;
+    s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
     s3g::clap_gui::drawMenu(name, value, y, attrs, small, style, 640, 724, 124);
 }
 - (void)drawOpenMenu:(NSDictionary*)attrs
@@ -842,6 +913,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         _viewAzDeg = -35.0;
         _viewElDeg = 34.0;
     }
+    [self storeViewState];
     [self setNeedsDisplay:YES];
 }
 - (NSPoint)projectWorldPoint:(s3g::Vec3)p rect:(NSRect)rect depth:(CGFloat*)depth
@@ -906,9 +978,9 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     const auto bondRelease = p->encoder.bondRelease();
     const auto params = p->params;
     [c(0x111111) setFill]; NSRectFill(rect);
-    [c(0x555555) setStroke]; NSFrameRect(rect);
-    [c(0x171717) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 21));
-    [c(0xd1d1d1) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 2));
+    [c(0x565656) setStroke]; NSFrameRect(rect);
+    [c(0x131313) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 21));
+    [c(0xb8b8b8) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 2));
     [@"POINT FIELD" drawAtPoint:NSMakePoint(rect.origin.x + 10, rect.origin.y + 5) withAttributes:attrs];
     [self drawPageButtonsInRect:rect attrs:attrs];
     [self drawZoomButtonsInRect:rect attrs:attrs];
@@ -1095,8 +1167,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
             NSFrameRect(NSMakeRect(x - 10.0, y - 10.0, 20.0, 20.0));
         }
         NSString* label = [NSString stringWithFormat:@"%u", i + 1u];
-        NSDictionary* idAttrs = @{ NSForegroundColorAttributeName:selected ? c(0xf4f4f4) : c(0x151515),
-                                   NSFontAttributeName:[NSFont fontWithName:@"Menlo-Bold" size:7.5] ?: [NSFont monospacedSystemFontOfSize:7.5 weight:NSFontWeightBold] };
+        NSDictionary* idAttrs = @{ NSForegroundColorAttributeName:selected ? c(0xc8c8c8) : c(0x151515),
+                                   NSFontAttributeName:s3g::clap_gui::uiFont(7.5) };
         NSSize size = [label sizeWithAttributes:idAttrs];
         [label drawAtPoint:NSMakePoint(x - size.width * 0.5, y - size.height * 0.5 - 0.5) withAttributes:idAttrs];
     }
@@ -1142,13 +1214,13 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     for (uint32_t i = 0; i < kPointCount; ++i) anySolo = anySolo || points[i].solo;
 
     [c(0x111111) setFill]; NSRectFill(rect);
-    [c(0x555555) setStroke]; NSFrameRect(rect);
-    [c(0x171717) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 21));
-    [c(0xd1d1d1) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 2));
+    [c(0x565656) setStroke]; NSFrameRect(rect);
+    [c(0x131313) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 21));
+    [c(0xb8b8b8) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 2));
     [@"POINT MIXER" drawAtPoint:NSMakePoint(rect.origin.x + 10, rect.origin.y + 5) withAttributes:labelAttrs];
     [self drawPageButtonsInRect:rect attrs:attrs];
 
-    s3g::clap_gui::Style style;
+    s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
     s3g::clap_gui::drawSlider(@"OUTPUT",
                                [NSString stringWithFormat:@"%+.1f", params.outputGainDb],
                                (params.outputGainDb + 60.0f) / 72.0f,
@@ -1272,20 +1344,18 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
 {
     (void)dirty;
     auto* p = static_cast<Plugin*>(_plugin);
-    s3g::clap_gui::Style style;
+    s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
     [style.bg setFill]; NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
-    NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
-    NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
+    NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
 
     [@"s3g AMBI POINT ENCODER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))] drawAtPoint:NSMakePoint(716,14) withAttributes:small];
+    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(716,14) withAttributes:small];
     [@"16PT > 3OA" drawAtPoint:NSMakePoint(810,14) withAttributes:small];
 
-    NSRect leftPage = NSMakeRect(18, 42, 590, 612);
+    NSRect leftPage = NSMakeRect(18, 42, 590, 656);
     if (_leftPage == 0) {
         [self drawPointField:leftPage attrs:small];
     } else {
@@ -1294,7 +1364,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
 
     s3g::clap_gui::drawPanelFrame(626, 42, 256, 180, style);
     s3g::clap_gui::drawPanelHeader(@"POINT", true, 626, 42, 256, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(626, 236, 256, 362, style);
+    s3g::clap_gui::drawPanelFrame(626, 236, 256, 406, style);
     s3g::clap_gui::drawPanelHeader(@"PHYSICS", true, 626, 236, 256, 21, lab, style);
 
     const auto prm = p->params;
@@ -1320,6 +1390,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     [self drawSlider:@"G-REACH" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistReach * 100.0f] norm:prm.poltergeistReach y:534 attrs:small small:small];
     [self drawSlider:@"G-RAD" value:[NSString stringWithFormat:@"%.2f", prm.poltergeistRadius] norm:(prm.poltergeistRadius - 0.04f) / 0.96f y:556 attrs:small small:small];
     [self drawSlider:@"G-CHAOS" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistChaos * 100.0f] norm:prm.poltergeistChaos y:578 attrs:small small:small];
+    [self drawSlider:@"DOPPLER" value:[NSString stringWithFormat:@"%.0f%%", prm.doppler * 100.0f] norm:prm.doppler y:600 attrs:small small:small];
+    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%.0f%%", prm.air * 100.0f] norm:prm.air y:622 attrs:small small:small];
 
     [self drawOpenMenu:small];
 }
@@ -1349,6 +1421,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     case 19: applyParam(*p, kPoltergeistReachParamId, n); break;
     case 20: applyParam(*p, kPoltergeistRadiusParamId, 0.04 + n * 0.96); break;
     case 21: applyParam(*p, kPoltergeistChaosParamId, n); break;
+    case 22: applyParam(*p, kDopplerParamId, n); break;
+    case 23: applyParam(*p, kAirParamId, n); break;
     default: break;
     }
     [self setNeedsDisplay:YES];
@@ -1385,7 +1459,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         return;
     }
 
-    const NSRect leftPage = NSMakeRect(18, 42, 590, 612);
+    const NSRect leftPage = NSMakeRect(18, 42, 590, 656);
     if (NSPointInRect(pt, leftPage)) {
         for (int i = 0; i < 2; ++i) {
             if (NSPointInRect(pt, [self pageButtonRect:i inRect:leftPage])) {
@@ -1437,6 +1511,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
             if (NSPointInRect(pt, [self zoomButtonRect:i inRect:leftPage])) {
                 const CGFloat step = i == 0 ? -0.15 : 0.15;
                 _viewZoom = std::clamp(_viewZoom + step, 0.55, 2.20);
+                [self storeViewState];
                 [self setNeedsDisplay:YES];
                 return;
             }
@@ -1468,8 +1543,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
             return;
         }
     }
-    const CGFloat rows[] = { 76, 101, 126, 151, 176, 201, 270, 292, 314, 336, 358, 380, 402, 424, 446, 468, 490, 512, 534, 556, 578 };
-    for (int i = 0; i < 21; ++i) {
+    const CGFloat rows[] = { 76, 101, 126, 151, 176, 201, 270, 292, 314, 336, 358, 380, 402, 424, 446, 468, 490, 512, 534, 556, 578, 600, 622 };
+    for (int i = 0; i < 23; ++i) {
         if (NSPointInRect(pt, NSMakeRect(636, rows[i] - 8, 236, 24))) {
             if (i == 5 || i == 6 || i == 7 || i == 8) {
                 _openMenu = i == 5 ? 1 : (i == 6 ? 4 : (i == 7 ? 2 : 3));
@@ -1495,15 +1570,15 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     [self updateMenuHover:pt];
     if (_dragPoint >= 0) {
-        [self updateDraggedPoint:pt inRect:NSMakeRect(18, 42, 590, 612)];
+        [self updateDraggedPoint:pt inRect:NSMakeRect(18, 42, 590, 656)];
         return;
     }
     if (_dragMixerPoint >= 0) {
-        [self updateMixerGain:pt inRect:NSMakeRect(18, 42, 590, 612)];
+        [self updateMixerGain:pt inRect:NSMakeRect(18, 42, 590, 656)];
         return;
     }
     if (_dragMixerOutput) {
-        [self updateMixerOutput:pt inRect:NSMakeRect(18, 42, 590, 612)];
+        [self updateMixerOutput:pt inRect:NSMakeRect(18, 42, 590, 656)];
         return;
     }
     if (_dragView) {
@@ -1513,6 +1588,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         _viewElDeg = std::clamp(_viewElDeg + dy * 0.35, -85.0, 85.0);
         _viewMode = -1;
         _lastDragPoint = pt;
+        [self storeViewState];
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1528,12 +1604,12 @@ bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating
 bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3G3OAFXPointEncoderView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
 void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3G3OAFXPointEncoderView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = 900; *h = 672; return true; }
+bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = 900; *h = 716; return true; }
 bool guiCanResize(const clap_plugin_t*) { return false; }
 bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
 bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,900,672)]; return true; }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,900,716)]; return true; }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3G3OAFXPointEncoderView*>(p->guiView) startRefreshTimer]; return true; }

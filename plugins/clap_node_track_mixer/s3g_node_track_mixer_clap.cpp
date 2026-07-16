@@ -9,6 +9,7 @@
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
+#include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
 #endif
 
@@ -780,7 +781,7 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
     [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
 }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
-- (void)refreshTimerFired:(NSTimer*)timer { (void)timer; if (![self isHidden]) [self setNeedsDisplay:YES]; }
+- (void)refreshTimerFired:(NSTimer*)timer { (void)timer; if (_plugin && ![self isHidden] && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
 - (void)setParam:(clap_id)param value:(double)value
 {
     applyParam(*static_cast<Plugin*>(_plugin), param, value);

@@ -61,9 +61,10 @@ struct Plugin {
     std::array<std::atomic<float>, kChannelCount> peak {};
     std::array<float, kEnergyMapPixels * kChannelCount> projectionBasis {};
     std::array<s3g::Vec3, kEnergyMapPixels> projectionDirection {};
-    std::atomic<float> dirX { 0.0f };
+    std::atomic<float> dirX { 1.0f };
     std::atomic<float> dirY { 0.0f };
     std::atomic<float> dirZ { 0.0f };
+    std::atomic<float> dirConfidence { 0.0f };
     std::atomic<float> inputLevel { 0.0f };
     std::atomic<uint32_t> activeChannels { 0 };
     std::atomic<uint32_t> mapMode { 0 };
@@ -81,11 +82,73 @@ void resetAnalysis(Plugin& p)
         p.rms[ch].store(0.0f, std::memory_order_relaxed);
         p.peak[ch].store(0.0f, std::memory_order_relaxed);
     }
-    p.dirX.store(0.0f, std::memory_order_relaxed);
+    p.dirX.store(1.0f, std::memory_order_relaxed);
     p.dirY.store(0.0f, std::memory_order_relaxed);
     p.dirZ.store(0.0f, std::memory_order_relaxed);
+    p.dirConfidence.store(0.0f, std::memory_order_relaxed);
     p.inputLevel.store(0.0f, std::memory_order_relaxed);
     p.activeChannels.store(0, std::memory_order_relaxed);
+}
+
+template <typename Sample>
+void updateDirectionTracker(Plugin& p, Sample* const* input, uint32_t channels, uint32_t frames)
+{
+    if (!input || channels < 4u || frames == 0u || !input[0] || !input[1] || !input[2] || !input[3]) {
+        p.dirConfidence.store(p.dirConfidence.load(std::memory_order_relaxed) * 0.86f, std::memory_order_relaxed);
+        return;
+    }
+
+    double ix = 0.0;
+    double iy = 0.0;
+    double iz = 0.0;
+    double confidenceSum = 0.0;
+    const Sample* wIn = input[0];
+    const Sample* yIn = input[1];
+    const Sample* zIn = input[2];
+    const Sample* xIn = input[3];
+    for (uint32_t i = 0; i < frames; ++i) {
+        const double w = static_cast<double>(wIn[i]);
+        const double x = static_cast<double>(xIn[i]);
+        const double y = static_cast<double>(yIn[i]);
+        const double z = static_cast<double>(zIn[i]);
+        const double directional = std::sqrt(x * x + y * y + z * z);
+        const double confidence = directional / std::max(0.000001, directional + 0.70710678 * std::abs(w));
+        const double threshold = 0.12;
+        const double t = std::clamp((confidence - threshold) / (1.0 - threshold), 0.0, 1.0);
+        const double gate = t * t * (3.0 - 2.0 * t);
+        ix += w * x * gate;
+        iy += w * y * gate;
+        iz += w * z * gate;
+        confidenceSum += confidence;
+    }
+
+    const double mag = std::sqrt(ix * ix + iy * iy + iz * iz);
+    const float confidence = static_cast<float>(std::clamp(confidenceSum / static_cast<double>(frames), 0.0, 1.0));
+    p.dirConfidence.store(p.dirConfidence.load(std::memory_order_relaxed) * 0.88f + confidence * 0.12f, std::memory_order_relaxed);
+    if (mag <= 0.000000001) return;
+
+    s3g::Vec3 target {
+        static_cast<float>(ix / mag),
+        static_cast<float>(iy / mag),
+        static_cast<float>(iz / mag),
+    };
+    s3g::Vec3 current {
+        p.dirX.load(std::memory_order_relaxed),
+        p.dirY.load(std::memory_order_relaxed),
+        p.dirZ.load(std::memory_order_relaxed),
+    };
+    const float currentMag = std::sqrt(current.x * current.x + current.y * current.y + current.z * current.z);
+    if (currentMag <= 0.000001f) current = target;
+    else current = s3g::normalize(current);
+
+    const float follow = 0.035f + 0.22f * confidence;
+    current.x += (target.x - current.x) * follow;
+    current.y += (target.y - current.y) * follow;
+    current.z += (target.z - current.z) * follow;
+    current = s3g::normalize(current);
+    p.dirX.store(current.x, std::memory_order_relaxed);
+    p.dirY.store(current.y, std::memory_order_relaxed);
+    p.dirZ.store(current.z, std::memory_order_relaxed);
 }
 
 void initProjection(Plugin& p)
@@ -174,41 +237,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         return CLAP_PROCESS_CONTINUE;
     }
 
-    float blockDirX = 0.0f;
-    float blockDirY = 0.0f;
-    float blockDirZ = 0.0f;
-    if (channels >= 4u && frames > 0u) {
-        if (input.data32 && input.data32[0] && input.data32[1] && input.data32[2] && input.data32[3]) {
-            double x = 0.0;
-            double y = 0.0;
-            double z = 0.0;
-            for (uint32_t i = 0; i < frames; ++i) {
-                const double w = input.data32[0][i];
-                y += w * input.data32[1][i];
-                z += w * input.data32[2][i];
-                x += w * input.data32[3][i];
-            }
-            blockDirX = static_cast<float>(x / static_cast<double>(frames));
-            blockDirY = static_cast<float>(y / static_cast<double>(frames));
-            blockDirZ = static_cast<float>(z / static_cast<double>(frames));
-        } else if (input.data64 && input.data64[0] && input.data64[1] && input.data64[2] && input.data64[3]) {
-            double x = 0.0;
-            double y = 0.0;
-            double z = 0.0;
-            for (uint32_t i = 0; i < frames; ++i) {
-                const double w = input.data64[0][i];
-                y += w * input.data64[1][i];
-                z += w * input.data64[2][i];
-                x += w * input.data64[3][i];
-            }
-            blockDirX = static_cast<float>(x / static_cast<double>(frames));
-            blockDirY = static_cast<float>(y / static_cast<double>(frames));
-            blockDirZ = static_cast<float>(z / static_cast<double>(frames));
-        }
-    }
-    p->dirX.store(p->dirX.load(std::memory_order_relaxed) * 0.86f + blockDirX * 0.14f, std::memory_order_relaxed);
-    p->dirY.store(p->dirY.load(std::memory_order_relaxed) * 0.86f + blockDirY * 0.14f, std::memory_order_relaxed);
-    p->dirZ.store(p->dirZ.load(std::memory_order_relaxed) * 0.86f + blockDirZ * 0.14f, std::memory_order_relaxed);
+    if (input.data32) updateDirectionTracker(*p, input.data32, channels, frames);
+    else if (input.data64) updateDirectionTracker(*p, input.data64, channels, frames);
 
     float maxInput = 0.0f;
     for (uint32_t ch = 0; ch < channels; ++ch) {
@@ -905,6 +935,7 @@ static void drawEnergyMenu(NSString* name,
         p->dirY.load(std::memory_order_relaxed),
         p->dirZ.load(std::memory_order_relaxed)
     };
+    const float dirConfidence = std::clamp(p->dirConfidence.load(std::memory_order_relaxed), 0.0f, 1.0f);
     const float dirMag = std::sqrt(energyDir.x * energyDir.x + energyDir.y * energyDir.y + energyDir.z * energyDir.z);
     if (dirMag > 0.000001f) {
         energyDir.x /= dirMag;
@@ -936,8 +967,8 @@ static void drawEnergyMenu(NSString* name,
             const float omniFloor = level[0] * level[0] * 0.035f;
             const s3g::Vec3& pixelDir = p->projectionDirection[i];
             const float dot = std::max(0.0f, pixelDir.x * energyDir.x + pixelDir.y * energyDir.y + pixelDir.z * energyDir.z);
-            const float focus = std::pow(dot, lobePower) * maxInput * maxInput;
-            const float halo = std::pow(dot, haloPower) * sceneEnergy * sceneEnergy * 0.36f;
+            const float focus = std::pow(dot, lobePower) * maxInput * maxInput * (0.18f + 0.82f * dirConfidence);
+            const float halo = std::pow(dot, haloPower) * sceneEnergy * sceneEnergy * (0.18f + 0.18f * dirConfidence);
             const float image = std::sqrt(std::max(0.0f, directional)) * sceneEnergy * 0.22f;
             const float next = focus * focusMix + halo * (1.0f - focusMix) + image * imageMix + omniFloor;
             _mapSmooth[i] = _mapSmooth[i] * 0.64f + next * 0.36f;

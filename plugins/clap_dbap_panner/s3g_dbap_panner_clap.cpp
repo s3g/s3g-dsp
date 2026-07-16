@@ -1422,8 +1422,8 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
             NSFrameRect(NSMakeRect(spPts[i].x - 8.0, spPts[i].y - 8.0, 16.0, 16.0));
         }
         NSString* label = [NSString stringWithFormat:@"%u", i + 1u];
-        NSDictionary* idAttrs = @{ NSForegroundColorAttributeName:selectedSpeaker ? lpColor(0xf4f4f4) : lpColor(0x151515),
-                                   NSFontAttributeName:[NSFont fontWithName:@"Menlo-Bold" size:7.0] ?: [NSFont monospacedSystemFontOfSize:7.0 weight:NSFontWeightBold] };
+        NSDictionary* idAttrs = @{ NSForegroundColorAttributeName:selectedSpeaker ? lpColor(0xc8c8c8) : lpColor(0x151515),
+                                   NSFontAttributeName:s3g::clap_gui::uiFont(7.0) };
         NSSize size = [label sizeWithAttributes:idAttrs];
         [label drawAtPoint:NSMakePoint(spPts[i].x - size.width * 0.5, spPts[i].y - size.height * 0.5 - 0.5) withAttributes:idAttrs];
     }
@@ -1443,8 +1443,8 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
             NSFrameRect(NSMakeRect(pt.x - 12.0, pt.y - 12.0, 24.0, 24.0));
         }
         NSString* label = [NSString stringWithFormat:@"S%u", i + 1u];
-        NSDictionary* idAttrs = @{ NSForegroundColorAttributeName:selected ? lpColor(0xf4f4f4) : lpColor(0x151515),
-                                   NSFontAttributeName:[NSFont fontWithName:@"Menlo-Bold" size:7.5] ?: [NSFont monospacedSystemFontOfSize:7.5 weight:NSFontWeightBold] };
+        NSDictionary* idAttrs = @{ NSForegroundColorAttributeName:selected ? lpColor(0xc8c8c8) : lpColor(0x151515),
+                                   NSFontAttributeName:s3g::clap_gui::uiFont(7.5) };
         NSSize labelSize = [label sizeWithAttributes:idAttrs];
         [label drawAtPoint:NSMakePoint(pt.x - labelSize.width * 0.5, pt.y - labelSize.height * 0.5 - 0.5) withAttributes:idAttrs];
     }
@@ -1671,7 +1671,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
     [@"s3g LAYOUT PANNER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, pk))] drawAtPoint:NSMakePoint(728,14) withAttributes:small];
+    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(728,14) withAttributes:small];
     [@"16x64" drawAtPoint:NSMakePoint(832,14) withAttributes:small];
 
     const NSRect mainPanel = NSMakeRect(18, 42, 596, 616);

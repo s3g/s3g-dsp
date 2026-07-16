@@ -37,10 +37,13 @@ namespace {
 constexpr uint32_t kChannelCount = s3g::kSpectralTopologyChannels;
 constexpr uint32_t kStateVersion = 2;
 constexpr uint32_t kGuiWidth = 1000;
-constexpr uint32_t kGuiHeight = 720;
+constexpr uint32_t kGuiHeight = 780;
 constexpr uint32_t kScopeFrames = 131072;
 constexpr double kMotionRateMinHz = 0.01;
 constexpr double kMotionRateMaxHz = 1.0;
+constexpr double kEngineRowPitch = 22.0;
+constexpr double kEngineFirstRow = 42.0;
+constexpr double kEnginePanelHeight = 342.0;
 
 constexpr clap_id kSprayBinsParamId = 1;
 constexpr clap_id kDriftParamId = 2;
@@ -117,6 +120,11 @@ double clampMotionRate(double value)
 s3g::TopologyState topologyStateForPlugin(const Plugin& p)
 {
     return p.settings.topology;
+}
+
+double engineRowY(double panelY, uint32_t index)
+{
+    return panelY + kEngineFirstRow + static_cast<double>(index) * kEngineRowPitch;
 }
 
 void applyLaneParams(Plugin& p)
@@ -685,7 +693,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     }
 
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"PK %+4.1f dB", 20.0 * std::log10(std::max(0.000001f, pk))]
+    [s3g::clap_gui::peakDbText(pk)
         drawAtPoint:NSMakePoint(NSMaxX(rect) - 92.0, rect.origin.y + 10.0) withAttributes:small];
 
     NSString* topologyName = visualLanes == 8 ? @"8PT NEIGHBOR MAP"
@@ -827,33 +835,27 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     const CGFloat gap = 8.0;
     CGFloat panelY = 34.0;
     auto drawHeader = [&](NSString* title, bool open, CGFloat y) {
-        [style.strip setFill];
-        NSRectFill(NSMakeRect(panelX, y, panelW, headerH));
-        [style.accent setFill];
-        NSRectFill(NSMakeRect(panelX, y, panelW, 2.0));
-        NSString* marker = open ? @"-" : @"+";
-        [marker drawAtPoint:NSMakePoint(panelX + 8.0, y + 5.0) withAttributes:lab];
-        [title drawAtPoint:NSMakePoint(panelX + 24.0, y + 5.0) withAttributes:lab];
+        s3g::clap_gui::drawDisclosurePanelHeader(title, open, panelX, y, panelW, headerH, lab, style);
     };
 
-    const CGFloat engineH = _showEngine ? 292.0 : headerH;
+    const CGFloat engineH = _showEngine ? static_cast<CGFloat>(kEnginePanelHeight) : headerH;
     s3g::clap_gui::drawPanelFrame(panelX, panelY, panelW, engineH, style);
     drawHeader(@"SPECTRAL ENGINE", _showEngine, panelY);
     const auto& prm = p->settings.base;
     if (_showEngine) {
-        [self drawEngineRow:@"BINS" value:[NSString stringWithFormat:@"%.0f", prm.sprayBins] norm:prm.sprayBins / 192.0f y:panelY + 42.0 attrs:small small:small];
-        [self drawEngineRow:@"DRFT" value:[NSString stringWithFormat:@"%.0f%%", prm.drift * 100.0f] norm:prm.drift y:panelY + 60.0 attrs:small small:small];
-        [self drawEngineRow:@"HOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.hold * 100.0f] norm:prm.hold y:panelY + 78.0 attrs:small small:small];
-        [self drawEngineRow:@"FRZ" value:[NSString stringWithFormat:@"%.0f%%", prm.freeze * 100.0f] norm:prm.freeze / 0.92f y:panelY + 96.0 attrs:small small:small];
-        [self drawEngineRow:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback / 0.72f y:panelY + 114.0 attrs:small small:small];
-        [self drawEngineRow:@"SMR" value:[NSString stringWithFormat:@"%.0f%%", prm.smear * 100.0f] norm:prm.smear y:panelY + 132.0 attrs:small small:small];
-        [self drawEngineRow:@"HOLE" value:[NSString stringWithFormat:@"%.0f%%", prm.holes * 100.0f] norm:prm.holes / 0.60f y:panelY + 150.0 attrs:small small:small];
-        [self drawEngineRow:@"PHAS" value:[NSString stringWithFormat:@"%.0f%%", prm.phaseBlur * 100.0f] norm:prm.phaseBlur y:panelY + 168.0 attrs:small small:small];
-        [self drawEngineRow:@"DMG" value:[NSString stringWithFormat:@"%.0f%%", prm.damage * 100.0f] norm:prm.damage y:panelY + 186.0 attrs:small small:small];
-        [self drawEngineRow:@"RPT" value:[NSString stringWithFormat:@"%.0f%%", prm.repeat * 100.0f] norm:prm.repeat y:panelY + 204.0 attrs:small small:small];
-        [self drawEngineRow:@"TILT" value:[NSString stringWithFormat:@"%+.2f", prm.tilt] norm:(prm.tilt + 1.0f) * 0.5f y:panelY + 222.0 attrs:small small:small];
-        [self drawEngineRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:panelY + 240.0 attrs:small small:small];
-        [self drawEngineRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", prm.gainDb] norm:(prm.gainDb + 60.0f) / 72.0f y:panelY + 258.0 attrs:small small:small];
+        [self drawEngineRow:@"BINS" value:[NSString stringWithFormat:@"%.0f", prm.sprayBins] norm:prm.sprayBins / 192.0f y:engineRowY(panelY, 0) attrs:small small:small];
+        [self drawEngineRow:@"DRFT" value:[NSString stringWithFormat:@"%.0f%%", prm.drift * 100.0f] norm:prm.drift y:engineRowY(panelY, 1) attrs:small small:small];
+        [self drawEngineRow:@"HOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.hold * 100.0f] norm:prm.hold y:engineRowY(panelY, 2) attrs:small small:small];
+        [self drawEngineRow:@"FRZ" value:[NSString stringWithFormat:@"%.0f%%", prm.freeze * 100.0f] norm:prm.freeze / 0.92f y:engineRowY(panelY, 3) attrs:small small:small];
+        [self drawEngineRow:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback / 0.72f y:engineRowY(panelY, 4) attrs:small small:small];
+        [self drawEngineRow:@"SMR" value:[NSString stringWithFormat:@"%.0f%%", prm.smear * 100.0f] norm:prm.smear y:engineRowY(panelY, 5) attrs:small small:small];
+        [self drawEngineRow:@"HOLE" value:[NSString stringWithFormat:@"%.0f%%", prm.holes * 100.0f] norm:prm.holes / 0.60f y:engineRowY(panelY, 6) attrs:small small:small];
+        [self drawEngineRow:@"PHAS" value:[NSString stringWithFormat:@"%.0f%%", prm.phaseBlur * 100.0f] norm:prm.phaseBlur y:engineRowY(panelY, 7) attrs:small small:small];
+        [self drawEngineRow:@"DMG" value:[NSString stringWithFormat:@"%.0f%%", prm.damage * 100.0f] norm:prm.damage y:engineRowY(panelY, 8) attrs:small small:small];
+        [self drawEngineRow:@"RPT" value:[NSString stringWithFormat:@"%.0f%%", prm.repeat * 100.0f] norm:prm.repeat y:engineRowY(panelY, 9) attrs:small small:small];
+        [self drawEngineRow:@"TILT" value:[NSString stringWithFormat:@"%+.2f", prm.tilt] norm:(prm.tilt + 1.0f) * 0.5f y:engineRowY(panelY, 10) attrs:small small:small];
+        [self drawEngineRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:engineRowY(panelY, 11) attrs:small small:small];
+        [self drawEngineRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", prm.gainDb] norm:(prm.gainDb + 60.0f) / 72.0f y:engineRowY(panelY, 12) attrs:small small:small];
     }
     panelY += engineH + gap;
 
@@ -1059,22 +1061,17 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     };
 
     CGFloat panelY = 34.0;
-    const CGFloat engineH = _showEngine ? 292.0 : headerH;
+    const CGFloat engineH = _showEngine ? static_cast<CGFloat>(kEnginePanelHeight) : headerH;
     if (NSPointInRect(pt, headerRect(panelY))) {
         _showEngine = !_showEngine;
         [self setNeedsDisplay:YES];
         return;
     }
     if (_showEngine) {
-        const CGFloat engineRows[] = {
-            panelY + 42.0, panelY + 60.0, panelY + 78.0, panelY + 96.0,
-            panelY + 114.0, panelY + 132.0, panelY + 150.0, panelY + 168.0,
-            panelY + 186.0, panelY + 204.0, panelY + 222.0, panelY + 240.0,
-            panelY + 258.0
-        };
         const clap_id engineIds[] = {kSprayBinsParamId,kDriftParamId,kHoldParamId,kFreezeParamId,kFeedbackParamId,kSmearParamId,kHolesParamId,kPhaseBlurParamId,kDamageParamId,kRepeatParamId,kTiltParamId,kMixParamId,kGainParamId};
         for (uint32_t i = 0; i < 13u; ++i) {
-            if (NSPointInRect(pt, NSMakeRect(648, engineRows[i] - 7, 324, 18))) {
+            const CGFloat rowY = static_cast<CGFloat>(engineRowY(panelY, i));
+            if (NSPointInRect(pt, NSMakeRect(648, rowY - 8.0, 324, 24.0))) {
                 _dragParam = static_cast<int>(engineIds[i]);
                 [self updateDrag:pt];
                 return;

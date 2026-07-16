@@ -909,7 +909,7 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
         NSFrameRect(NSMakeRect(p.x - r, p.y - r, r * 2.0, r * 2.0));
         NSString* number = [NSString stringWithFormat:@"%u", i + 1u];
         NSDictionary* idAttrs = @{ NSForegroundColorAttributeName:odColor(0x151515),
-                                   NSFontAttributeName:[NSFont fontWithName:@"Menlo-Bold" size:7.5] ?: [NSFont monospacedSystemFontOfSize:7.5 weight:NSFontWeightBold] };
+                                   NSFontAttributeName:s3g::clap_gui::uiFont(7.5) };
         NSSize labelSize = [number sizeWithAttributes:idAttrs];
         [number drawAtPoint:NSMakePoint(p.x - labelSize.width * 0.5,
                                        p.y - labelSize.height * 0.5 - 0.5)
@@ -939,7 +939,7 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
     [odColor(0xf0d35d, std::clamp<CGFloat>(0.20 + gainNorm * 0.60, 0.0, 0.92) * cue) setStroke];
     NSFrameRect(NSMakeRect(objectPt.x - objectRing, objectPt.y - objectRing, objectRing * 2.0, objectRing * 2.0));
     NSDictionary* objAttrs = @{ NSForegroundColorAttributeName:odColor(0x111111, alpha),
-                                NSFontAttributeName:[NSFont fontWithName:@"Menlo-Bold" size:7.5] ?: [NSFont monospacedSystemFontOfSize:7.5 weight:NSFontWeightBold] };
+                                NSFontAttributeName:s3g::clap_gui::uiFont(7.5) };
     [@"O" drawAtPoint:NSMakePoint(objectPt.x - 2.8, objectPt.y - 5.0) withAttributes:objAttrs];
 
     [labelAttrs release];
@@ -951,7 +951,7 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
 
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawMenu(name, value, y, attrs, attrs, style, 642, 738, 102);
+    s3g::clap_gui::drawMenu(name, value, y, attrs, s3g::clap_gui::softValueAttrs(), style, 642, 738, 102);
 }
 
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -1007,22 +1007,22 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
     else if (suffix && [suffix isEqualToString:@"%"]) text = [NSString stringWithFormat:@"%.0f%%", value * 100.0];
     else if (suffix && [suffix isEqualToString:@"dB"]) text = [NSString stringWithFormat:@"%+.1f", value];
     else text = [NSString stringWithFormat:@"%.2f", value];
-    s3g::clap_gui::drawSlider(name, text, norm, y, attrs, attrs, style, 642, 738, 826, 82);
+    s3g::clap_gui::drawSlider(name, text, norm, y, attrs, s3g::clap_gui::softValueAttrs(), style, 642, 738, 826, 82);
 }
 
 - (void)drawRect:(NSRect)dirty
 {
     (void)dirty;
-    const s3g::clap_gui::Style style {};
+    const s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
     [style.bg setFill];
     NSRectFill([self bounds]);
-    NSFont* font = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
-    NSDictionary* attrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:font };
-    NSDictionary* dimAttrs = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:font };
+    NSDictionary* attrs = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* dimAttrs = s3g::clap_gui::softValueAttrs();
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
 
-    [@"s3g AMBI OBJECT DECODER" drawAtPoint:NSMakePoint(18, 14) withAttributes:attrs];
+    [@"s3g AMBI OBJECT DECODER" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
     const float peak = _plugin->outputPeak.load(std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, peak))]
+    [s3g::clap_gui::peakDbText(peak)
         drawAtPoint:NSMakePoint(728, 14)
         withAttributes:dimAttrs];
     [@"64CH" drawAtPoint:NSMakePoint(838, 14) withAttributes:dimAttrs];

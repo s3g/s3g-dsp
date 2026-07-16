@@ -10,6 +10,7 @@
 #if defined(__APPLE__)
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
+#include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
 #endif
 
@@ -316,7 +317,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     [[NSRunLoop mainRunLoop] addTimer:_refreshTimer forMode:NSRunLoopCommonModes];
 }
 - (void)stopRefreshTimer { if (_refreshTimer) { [_refreshTimer invalidate]; _refreshTimer = nil; } }
-- (void)refreshTimerFired:(NSTimer*)timer { (void)timer; if (![self isHidden]) [self setNeedsDisplay:YES]; }
+- (void)refreshTimerFired:(NSTimer*)timer { (void)timer; if (_plugin && ![self isHidden] && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
 - (void)setParam:(clap_id)param value:(double)value
 {
     applyParam(*static_cast<Plugin*>(_plugin), param, value);

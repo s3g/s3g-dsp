@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_3oafx.h"
+#include "s3g_ambi_encoder_depth.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
 
@@ -58,6 +59,8 @@ struct AmbiPointEncoderParams {
     float poltergeistReach = 0.55f;
     float poltergeistRadius = 0.28f;
     float poltergeistChaos = 0.0f;
+    float doppler = 0.0f;
+    float air = 0.0f;
     float outputGainDb = -6.0f;
 };
 
@@ -68,6 +71,7 @@ public:
         sampleRate_ = std::max(1.0, sampleRate);
         pointCount_ = std::clamp<uint32_t>(pointCount, 1u, kAmbiPointEncoderMaxPoints);
         params_.activePoints = std::min(params_.activePoints, pointCount_);
+        depth_.prepare(sampleRate_);
         resetScene();
         resetMotion();
     }
@@ -104,6 +108,7 @@ public:
         perturbationSource_ = {};
         prevPerturbationSource_ = {};
         perturbationPrimed_ = false;
+        depth_.reset();
     }
 
     void setParams(const AmbiPointEncoderParams& params)
@@ -112,6 +117,7 @@ public:
         const uint32_t previousScene = params_.motionScene;
         const AmbiPointMotionMode previousMode = params_.motionMode;
         params_ = sanitize(params, pointCount_);
+        depth_.setParams({ params_.doppler, params_.air });
         const bool reseedMotion = previousScene != params_.motionScene || previousMode != params_.motionMode;
         if (params_.selectedPoint != previousSelected) {
             syncSelectedParamsFromPoint();
@@ -240,37 +246,46 @@ public:
             }
         }
 
-        advanceMotion(static_cast<float>(frames / sampleRate_));
-        smoothScene();
-
         const uint32_t active = std::min<uint32_t>(params_.activePoints, pointCount_);
         const float gain = dbToGain(params_.outputGainDb);
         bool anySolo = false;
         for (uint32_t p = 0; p < std::min<uint32_t>(active, kAmbiPointEncoderPrototypePoints); ++p) {
             anySolo = anySolo || smoothPoints_[p].solo;
         }
-        std::array<std::array<float, k3OaChannels>, kAmbiPointEncoderPrototypePoints> basis {};
-        std::array<float, kAmbiPointEncoderPrototypePoints> laneGain {};
-        for (uint32_t p = 0; p < std::min<uint32_t>(active, kAmbiPointEncoderPrototypePoints); ++p) {
-            const auto& point = smoothPoints_[p];
-            const Vec3 dir = directionFromAed(point.azimuthDeg, point.elevationDeg);
-            basis[p] = acnSn3dBasis(dir);
-            const float distanceGain = 1.0f / std::max(0.15f, point.distance);
-            const bool audible = point.enabled && (!anySolo || point.solo);
-            laneGain[p] = (audible ? point.gain : 0.0f) * distanceGain * gain;
-        }
+        constexpr uint32_t kMotionChunkFrames = 16;
 
-        for (uint32_t i = 0; i < frames; ++i) {
+        for (uint32_t chunkStart = 0; chunkStart < frames; chunkStart += kMotionChunkFrames) {
+            const uint32_t chunkFrames = std::min<uint32_t>(kMotionChunkFrames, frames - chunkStart);
+            advanceMotion(static_cast<float>(static_cast<double>(chunkFrames) / sampleRate_));
+            smoothScene();
+
+            std::array<std::array<float, k3OaChannels>, kAmbiPointEncoderPrototypePoints> basis {};
+            std::array<float, kAmbiPointEncoderPrototypePoints> laneGain {};
+            std::array<float, kAmbiPointEncoderPrototypePoints> distances {};
             for (uint32_t p = 0; p < std::min<uint32_t>(active, kAmbiPointEncoderPrototypePoints); ++p) {
-                const float sample = inputs && inputs[p] ? inputs[p][i] * laneGain[p] : 0.0f;
-                if (sample == 0.0f) {
-                    continue;
-                }
-                for (uint32_t ch = 0; ch < k3OaChannels; ++ch) {
-                    if (outputs[ch]) {
-                        outputs[ch][i] = flushDenormal(outputs[ch][i] + sample * basis[p][ch]);
+                const auto& point = smoothPoints_[p];
+                const Vec3 dir = directionFromAed(point.azimuthDeg, point.elevationDeg);
+                basis[p] = acnSn3dBasis(dir);
+                distances[p] = point.distance;
+                const float distanceGain = 1.0f / std::max(0.15f, distances[p]);
+                const bool audible = point.enabled && (!anySolo || point.solo);
+                laneGain[p] = (audible ? point.gain : 0.0f) * distanceGain * gain;
+            }
+
+            for (uint32_t i = chunkStart; i < chunkStart + chunkFrames; ++i) {
+                for (uint32_t p = 0; p < std::min<uint32_t>(active, kAmbiPointEncoderPrototypePoints); ++p) {
+                    const float raw = inputs && inputs[p] ? inputs[p][i] * laneGain[p] : 0.0f;
+                    const float sample = depth_.process(p, raw, distances[p]);
+                    if (sample == 0.0f) {
+                        continue;
+                    }
+                    for (uint32_t ch = 0; ch < k3OaChannels; ++ch) {
+                        if (outputs[ch]) {
+                            outputs[ch][i] = flushDenormal(outputs[ch][i] + sample * basis[p][ch]);
+                        }
                     }
                 }
+                depth_.advance();
             }
         }
     }
@@ -308,6 +323,8 @@ private:
         params.poltergeistReach = clamp(params.poltergeistReach, 0.0f, 1.0f);
         params.poltergeistRadius = clamp(params.poltergeistRadius, 0.04f, 1.0f);
         params.poltergeistChaos = clamp(params.poltergeistChaos, 0.0f, 1.0f);
+        params.doppler = clamp(params.doppler, 0.0f, 1.0f);
+        params.air = clamp(params.air, 0.0f, 1.0f);
         params.outputGainDb = clamp(params.outputGainDb, -60.0f, 12.0f);
         return params;
     }
@@ -1151,6 +1168,7 @@ private:
     float phase_ = 0.0f;
     float motionTime_ = 0.0f;
     uint32_t seed_ = 0x1234abcdU;
+    AmbiEncoderDepthProcessor<kAmbiPointEncoderPrototypePoints> depth_ {};
     bool perturbationPrimed_ = false;
 };
 

@@ -25,7 +25,7 @@ namespace {
 
 constexpr uint32_t kInputChannels = s3g::kAmbiCloudEncoderMaxInputs;
 constexpr uint32_t kOutputChannels = s3g::kAmbiCloudEncoderMaxChannels;
-constexpr uint32_t kStateVersion = 2;
+constexpr uint32_t kStateVersion = 4;
 
 constexpr clap_id kInputsParamId = 1;
 constexpr clap_id kCloudsParamId = 2;
@@ -44,6 +44,8 @@ constexpr clap_id kDecorrelateParamId = 14;
 constexpr clap_id kShapeParamId = 15;
 constexpr clap_id kForceParamId = 16;
 constexpr clap_id kOutputParamId = 17;
+constexpr clap_id kDopplerParamId = 18;
+constexpr clap_id kAirParamId = 19;
 constexpr clap_id kCloudParamBase = 100;
 constexpr clap_id kCloudParamStride = 4;
 
@@ -55,6 +57,16 @@ enum class CloudParamKind : uint32_t {
 
 struct SavedState {
     uint32_t version = kStateVersion;
+    s3g::AmbiCloudEncoderParams params {};
+    std::array<s3g::AmbiCloud, s3g::kAmbiCloudEncoderMaxClouds> clouds {};
+    int32_t guiViewMode = 0;
+    double guiViewAzDeg = 90.0;
+    double guiViewElDeg = 0.0;
+    double guiViewZoom = 1.0;
+};
+
+struct SavedStateV3 {
+    uint32_t version = 3;
     s3g::AmbiCloudEncoderParams params {};
     std::array<s3g::AmbiCloud, s3g::kAmbiCloudEncoderMaxClouds> clouds {};
 };
@@ -69,6 +81,10 @@ struct Plugin {
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
+    int guiViewMode = 0;
+    double guiViewAzDeg = 90.0;
+    double guiViewElDeg = 0.0;
+    double guiViewZoom = 1.0;
 #endif
 };
 
@@ -162,6 +178,8 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kShapeParamId: p.params.shape = static_cast<s3g::AmbiCloudShape>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 4u)); break;
     case kForceParamId: p.params.force = static_cast<s3g::AmbiCloudForce>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 4u)); break;
     case kOutputParamId: p.params.outputGainDb = static_cast<float>(value); break;
+    case kDopplerParamId: p.params.doppler = static_cast<float>(value); break;
+    case kAirParamId: p.params.air = static_cast<float>(value); break;
     default: break;
     }
     p.encoder.setParams(p.params);
@@ -284,6 +302,8 @@ constexpr ParamDef kParams[] {
     { kShapeParamId, "Shape", 0.0, 4.0, 0.0, true },
     { kForceParamId, "Force", 0.0, 4.0, 0.0, true },
     { kOutputParamId, "Output", -60.0, 12.0, -12.0, false },
+    { kDopplerParamId, "Doppler", 0.0, 1.0, 0.0, false },
+    { kAirParamId, "Air", 0.0, 1.0, 0.0, false },
 };
 
 constexpr uint32_t kBaseParamCount = static_cast<uint32_t>(std::size(kParams));
@@ -352,6 +372,8 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kShapeParamId: *value = static_cast<uint32_t>(p.shape); return true;
     case kForceParamId: *value = static_cast<uint32_t>(p.force); return true;
     case kOutputParamId: *value = p.outputGainDb; return true;
+    case kDopplerParamId: *value = p.doppler; return true;
+    case kAirParamId: *value = p.air; return true;
     default: return false;
     }
 }
@@ -371,7 +393,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kForceParamId) std::snprintf(display, size, "%s", forceName(static_cast<uint32_t>(std::lround(value))));
     else if (id == kAzimuthParamId || id == kElevationParamId) std::snprintf(display, size, "%+.1f deg", value);
     else if (id == kOutputParamId) std::snprintf(display, size, "%+.1f dB", value);
-    else if (id == kSpreadParamId || id == kElevationSpreadParamId || id == kJitterParamId || id == kDriftParamId || id == kDecorrelateParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
+    else if (id == kSpreadParamId || id == kElevationSpreadParamId || id == kJitterParamId || id == kDriftParamId || id == kDecorrelateParamId || id == kDopplerParamId || id == kAirParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
     else if (id == kRateParamId) std::snprintf(display, size, "%.3f Hz", value);
     else std::snprintf(display, size, "%.2f", value);
     return true;
@@ -392,20 +414,44 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     if (!stream || !stream->write) return false;
     auto* p = self(plugin);
     SavedState state { kStateVersion, p->params, p->encoder.clouds() };
+#if defined(__APPLE__)
+    state.guiViewMode = p->guiViewMode;
+    state.guiViewAzDeg = p->guiViewAzDeg;
+    state.guiViewElDeg = p->guiViewElDeg;
+    state.guiViewZoom = p->guiViewZoom;
+#endif
     return writeExact(stream, &state, sizeof(state));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
+    uint32_t version = 0;
+    if (!readExact(stream, &version, sizeof(version))) return false;
     SavedState state {};
-    if (!readExact(stream, &state, sizeof(state))) return false;
-    if (state.version != kStateVersion) return false;
+    state.version = version;
+    if (version == kStateVersion) {
+        if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(version), sizeof(state) - sizeof(version))) return false;
+    } else if (version == 3u) {
+        SavedStateV3 legacy {};
+        legacy.version = version;
+        if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
+        state.params = legacy.params;
+        state.clouds = legacy.clouds;
+    } else {
+        return false;
+    }
     auto* p = self(plugin);
     p->params = state.params;
     p->encoder.setClouds(state.clouds);
     p->encoder.setParams(p->params);
     p->params = p->encoder.params();
+#if defined(__APPLE__)
+    p->guiViewMode = std::clamp<int>(state.guiViewMode, -1, 2);
+    p->guiViewAzDeg = std::clamp(state.guiViewAzDeg, -180.0, 180.0);
+    p->guiViewElDeg = std::clamp(state.guiViewElDeg, -90.0, 90.0);
+    p->guiViewZoom = std::clamp(state.guiViewZoom, 0.55, 2.20);
+#endif
     return true;
 }
 
@@ -442,6 +488,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)drawSlider:(NSString*)name value:(double)value min:(double)min max:(double)max y:(CGFloat)y suffix:(NSString*)suffix attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)setParam:(clap_id)param fromPoint:(NSPoint)pt;
+- (void)storeViewState;
 @end
 
 static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::color(rgb, alpha); }
@@ -457,10 +504,10 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
         _hoverMenuItem = -1;
         _menuItemCount = 0;
         _dragParam = 0;
-        _viewMode = 0;
-        _viewAzDeg = 90.0;
-        _viewElDeg = 0.0;
-        _viewZoom = 1.0;
+        _viewMode = plugin ? plugin->guiViewMode : 0;
+        _viewAzDeg = plugin ? plugin->guiViewAzDeg : 90.0;
+        _viewElDeg = plugin ? plugin->guiViewElDeg : 0.0;
+        _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
         _dragView = NO;
         _lastDragPoint = NSMakePoint(0, 0);
         [self setWantsLayer:YES];
@@ -473,14 +520,24 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
 
 - (void)dealloc
 {
+    [self storeViewState];
     [self stopRefreshTimer];
     [super dealloc];
+}
+
+- (void)storeViewState
+{
+    if (!_plugin) return;
+    _plugin->guiViewMode = _viewMode;
+    _plugin->guiViewAzDeg = _viewAzDeg;
+    _plugin->guiViewElDeg = _viewElDeg;
+    _plugin->guiViewZoom = _viewZoom;
 }
 
 - (void)startRefreshTimer
 {
     if (_timer) return;
-    _timer = [NSTimer scheduledTimerWithTimeInterval:1.0 / 20.0
+    _timer = [NSTimer scheduledTimerWithTimeInterval:1.0 / 60.0
                                              target:self
                                            selector:@selector(timerTick:)
                                            userInfo:nil
@@ -567,12 +624,17 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
         _viewAzDeg = 35.0;
         _viewElDeg = 34.0;
     }
+    [self storeViewState];
     [self setNeedsDisplay:YES];
 }
 
 - (void)drawSlider:(NSString*)name value:(double)value min:(double)min max:(double)max y:(CGFloat)y suffix:(NSString*)suffix attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
-    const double norm = (value - min) / std::max(0.000001, max - min);
+    double norm = (value - min) / std::max(0.000001, max - min);
+    if ([name isEqualToString:@"RATE"]) {
+        const double safeMin = std::max(0.000001, min);
+        norm = std::log(std::max(safeMin, value) / safeMin) / std::log(max / safeMin);
+    }
     NSString* text = nil;
     if (suffix && [suffix isEqualToString:@"OA"]) text = [NSString stringWithFormat:@"%.0fOA", value];
     else if (suffix && [suffix isEqualToString:@"deg"]) text = [NSString stringWithFormat:@"%+.0f", value];
@@ -582,12 +644,12 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     else if (suffix && [suffix isEqualToString:@"shape"]) text = [NSString stringWithUTF8String:shapeName(static_cast<uint32_t>(std::lround(value)))];
     else if (suffix && [suffix isEqualToString:@"force"]) text = [NSString stringWithUTF8String:forceName(static_cast<uint32_t>(std::lround(value)))];
     else text = [NSString stringWithFormat:@"%.2f", value];
-    s3g::clap_gui::drawSlider(name, text, norm, y, attrs, attrs, style, 642, 738, 826, 82);
+    s3g::clap_gui::drawSlider(name, text, norm, y, attrs, s3g::clap_gui::softValueAttrs(), style, 642, 738, 826, 82);
 }
 
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawMenu(name, value, y, attrs, attrs, style, 642, 738, 102);
+    s3g::clap_gui::drawMenu(name, value, y, attrs, s3g::clap_gui::softValueAttrs(), style, 642, 738, 102);
 }
 
 - (CGFloat)menuY
@@ -684,12 +746,11 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
         NSFrameRect(NSMakeRect(std::round(p.x - r), std::round(p.y - r), r * 2.0, r * 2.0));
         NSString* label = [NSString stringWithFormat:@"%u", i + 1u];
         NSDictionary* idAttrs = @{ NSForegroundColorAttributeName:cloudColor(0x111111),
-                                   NSFontAttributeName:[NSFont fontWithName:@"Menlo-Bold" size:8.0] ?: [NSFont monospacedSystemFontOfSize:8.0 weight:NSFontWeightBold] };
+                                   NSFontAttributeName:s3g::clap_gui::uiFont(8.0) };
         NSSize sz = [label sizeWithAttributes:idAttrs];
         [label drawAtPoint:NSMakePoint(p.x - sz.width * 0.5, p.y - sz.height * 0.5 - 0.5) withAttributes:idAttrs];
     }
 
-    [@"CLOUD FIELD" drawAtPoint:NSMakePoint(rect.origin.x + 10, rect.origin.y + 8) withAttributes:attrs];
     NSString* viewText = _viewMode == 0 ? @"TOP VIEW" : (_viewMode == 1 ? @"SIDE VIEW" : @"3/4 VIEW");
     [viewText drawAtPoint:NSMakePoint(rect.origin.x + 10, NSMaxY(rect) - 22) withAttributes:attrs];
 }
@@ -697,46 +758,48 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
 - (void)drawRect:(NSRect)dirty
 {
     (void)dirty;
-    const s3g::clap_gui::Style style {};
+    const s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
     [style.bg setFill];
     NSRectFill([self bounds]);
-    NSFont* font = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
-    NSDictionary* attrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:font };
-    NSDictionary* dimAttrs = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:font };
-    [@"s3g AMBI CLOUD ENCODER" drawAtPoint:NSMakePoint(18, 14) withAttributes:attrs];
+    NSDictionary* labelAttrs = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
+    [@"s3g AMBI CLOUD ENCODER" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
     const float peak = _plugin->outputPeak.load(std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"PK %+4.1f", 20.0 * std::log10(std::max(0.000001f, peak))] drawAtPoint:NSMakePoint(728, 14) withAttributes:dimAttrs];
-    [@"64CH" drawAtPoint:NSMakePoint(838, 14) withAttributes:dimAttrs];
+    [s3g::clap_gui::peakDbText(peak) drawAtPoint:NSMakePoint(728, 14) withAttributes:valueAttrs];
+    [@"64CH" drawAtPoint:NSMakePoint(838, 14) withAttributes:valueAttrs];
 
     s3g::clap_gui::drawPanelFrame(18, 42, 596, 608, style);
-    s3g::clap_gui::drawPanelHeader(@"FIELD", true, 18, 42, 596, 21, attrs, style);
-    [self drawZoomButtonsInRect:NSMakeRect(18, 42, 596, 608) attrs:dimAttrs];
-    [self drawViewButtonsInRect:NSMakeRect(18, 42, 596, 608) attrs:dimAttrs];
-    [self drawField:NSMakeRect(34, 76, 564, 558) attrs:dimAttrs style:style];
+    s3g::clap_gui::drawPanelHeader(@"CLOUD FIELD", true, 18, 42, 596, 21, labelAttrs, style);
+    [self drawZoomButtonsInRect:NSMakeRect(18, 42, 596, 608) attrs:valueAttrs];
+    [self drawViewButtonsInRect:NSMakeRect(18, 42, 596, 608) attrs:valueAttrs];
+    [self drawField:NSMakeRect(34, 76, 564, 558) attrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 236, style);
-    s3g::clap_gui::drawPanelHeader(@"CLOUD", true, 630, 42, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"CLOUD", true, 630, 42, 250, 21, labelAttrs, style);
     s3g::clap_gui::drawPanelFrame(630, 290, 250, 360, style);
-    s3g::clap_gui::drawPanelHeader(@"MATERIAL", true, 630, 290, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"MATERIAL", true, 630, 290, 250, 21, labelAttrs, style);
     const auto p = _plugin->params;
-    [self drawSlider:@"INPUTS" value:p.activeInputs min:1 max:64 y:78 suffix:nil attrs:attrs style:style];
-    [self drawMenu:@"CLOUDS" value:[NSString stringWithFormat:@"%u", p.activeClouds] y:104 attrs:attrs style:style];
-    [self drawMenu:@"CLOUD" value:[NSString stringWithFormat:@"%u", p.selectedCloud + 1u] y:130 attrs:attrs style:style];
-    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:156 attrs:attrs style:style];
-    [self drawSlider:@"AZIM" value:p.selectedAzimuthDeg min:-180 max:180 y:182 suffix:@"deg" attrs:attrs style:style];
-    [self drawSlider:@"ELEV" value:p.selectedElevationDeg min:-90 max:90 y:208 suffix:@"deg" attrs:attrs style:style];
-    [self drawSlider:@"DIST" value:p.selectedDistance min:0.05 max:8.0 y:234 suffix:nil attrs:attrs style:style];
-    [self drawSlider:@"SPREAD" value:p.spread min:0 max:1 y:326 suffix:@"%" attrs:attrs style:style];
-    [self drawSlider:@"ELEVSP" value:p.elevationSpread min:0 max:1 y:352 suffix:@"%" attrs:attrs style:style];
-    [self drawMenu:@"SHAPE" value:[NSString stringWithUTF8String:shapeName(static_cast<uint32_t>(p.shape))] y:378 attrs:attrs style:style];
-    [self drawMenu:@"FORCE" value:[NSString stringWithUTF8String:forceName(static_cast<uint32_t>(p.force))] y:404 attrs:attrs style:style];
-    [self drawSlider:@"JITTER" value:p.jitter min:0 max:1 y:430 suffix:@"%" attrs:attrs style:style];
-    [self drawSlider:@"DRIFT" value:p.drift min:0 max:1 y:456 suffix:@"%" attrs:attrs style:style];
-    [self drawSlider:@"RATE" value:p.rateHz min:0.001 max:2.0 y:482 suffix:@"Hz" attrs:attrs style:style];
-    [self drawSlider:@"DECOR" value:p.decorrelate min:0 max:1 y:508 suffix:@"%" attrs:attrs style:style];
-    [self drawSlider:@"GAIN" value:p.selectedGain min:0 max:2 y:534 suffix:nil attrs:attrs style:style];
-    [self drawSlider:@"OUT" value:p.outputGainDb min:-60 max:12 y:586 suffix:@"dB" attrs:attrs style:style];
-    [self drawOpenMenu:attrs style:style];
+    [self drawSlider:@"INPUTS" value:p.activeInputs min:1 max:64 y:78 suffix:nil attrs:labelAttrs style:style];
+    [self drawMenu:@"CLOUDS" value:[NSString stringWithFormat:@"%u", p.activeClouds] y:104 attrs:labelAttrs style:style];
+    [self drawMenu:@"CLOUD" value:[NSString stringWithFormat:@"%u", p.selectedCloud + 1u] y:130 attrs:labelAttrs style:style];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:156 attrs:labelAttrs style:style];
+    [self drawSlider:@"AZIM" value:p.selectedAzimuthDeg min:-180 max:180 y:182 suffix:@"deg" attrs:labelAttrs style:style];
+    [self drawSlider:@"ELEV" value:p.selectedElevationDeg min:-90 max:90 y:208 suffix:@"deg" attrs:labelAttrs style:style];
+    [self drawSlider:@"DIST" value:p.selectedDistance min:0.05 max:8.0 y:234 suffix:nil attrs:labelAttrs style:style];
+    [self drawSlider:@"SPREAD" value:p.spread min:0 max:1 y:326 suffix:@"%" attrs:labelAttrs style:style];
+    [self drawSlider:@"ELEVSP" value:p.elevationSpread min:0 max:1 y:352 suffix:@"%" attrs:labelAttrs style:style];
+    [self drawMenu:@"SHAPE" value:[NSString stringWithUTF8String:shapeName(static_cast<uint32_t>(p.shape))] y:378 attrs:labelAttrs style:style];
+    [self drawMenu:@"FORCE" value:[NSString stringWithUTF8String:forceName(static_cast<uint32_t>(p.force))] y:404 attrs:labelAttrs style:style];
+    [self drawSlider:@"JITTER" value:p.jitter min:0 max:1 y:430 suffix:@"%" attrs:labelAttrs style:style];
+    [self drawSlider:@"DRIFT" value:p.drift min:0 max:1 y:456 suffix:@"%" attrs:labelAttrs style:style];
+    [self drawSlider:@"RATE" value:p.rateHz min:0.001 max:2.0 y:482 suffix:@"Hz" attrs:labelAttrs style:style];
+    [self drawSlider:@"DECOR" value:p.decorrelate min:0 max:1 y:508 suffix:@"%" attrs:labelAttrs style:style];
+    [self drawSlider:@"GAIN" value:p.selectedGain min:0 max:2 y:534 suffix:nil attrs:labelAttrs style:style];
+    [self drawSlider:@"DOPPLER" value:p.doppler min:0 max:1 y:560 suffix:@"%" attrs:labelAttrs style:style];
+    [self drawSlider:@"AIR" value:p.air min:0 max:1 y:586 suffix:@"%" attrs:labelAttrs style:style];
+    [self drawSlider:@"OUT" value:p.outputGainDb min:-60 max:12 y:612 suffix:@"dB" attrs:labelAttrs style:style];
+    [self drawOpenMenu:labelAttrs style:style];
 }
 
 - (void)setParam:(clap_id)param fromPoint:(NSPoint)pt
@@ -744,6 +807,10 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     auto slider = [&](double min, double max) {
         const double norm = std::clamp((static_cast<double>(pt.x) - 738.0) / 82.0, 0.0, 1.0);
         applyParam(*_plugin, param, min + norm * (max - min));
+    };
+    auto logSlider = [&](double min, double max) {
+        const double norm = std::clamp((static_cast<double>(pt.x) - 738.0) / 82.0, 0.0, 1.0);
+        applyParam(*_plugin, param, min * std::pow(max / min, norm));
     };
     switch (param) {
     case kInputsParamId: slider(1, 64); break;
@@ -759,9 +826,11 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     case kForceParamId: slider(0, 4); break;
     case kJitterParamId: slider(0, 1); break;
     case kDriftParamId: slider(0, 1); break;
-    case kRateParamId: slider(0.001, 2.0); break;
+    case kRateParamId: logSlider(0.001, 2.0); break;
     case kDecorrelateParamId: slider(0, 1); break;
     case kCloudGainParamId: slider(0, 2); break;
+    case kDopplerParamId: slider(0, 1); break;
+    case kAirParamId: slider(0, 1); break;
     case kOutputParamId: slider(-60, 12); break;
     default: break;
     }
@@ -797,6 +866,7 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
         for (int i = 0; i < 2; ++i) {
             if (NSPointInRect(pt, [self zoomButtonRect:i inRect:fieldPanel])) {
                 _viewZoom = std::clamp(_viewZoom + (i == 0 ? -0.15 : 0.15), 0.55, 2.20);
+                [self storeViewState];
                 [self setNeedsDisplay:YES];
                 return;
             }
@@ -811,6 +881,7 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
             _dragView = YES;
             _lastDragPoint = pt;
             _viewMode = -1;
+            [self storeViewState];
             return;
         }
     }
@@ -831,7 +902,9 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     else if (NSPointInRect(pt, NSMakeRect(638, 474, 230, 24))) _dragParam = kRateParamId;
     else if (NSPointInRect(pt, NSMakeRect(638, 500, 230, 24))) _dragParam = kDecorrelateParamId;
     else if (NSPointInRect(pt, NSMakeRect(638, 526, 230, 24))) _dragParam = kCloudGainParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 578, 230, 24))) _dragParam = kOutputParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 552, 230, 24))) _dragParam = kDopplerParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 578, 230, 24))) _dragParam = kAirParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 604, 230, 24))) _dragParam = kOutputParamId;
     if (_dragParam) [self setParam:static_cast<clap_id>(_dragParam) fromPoint:pt];
 }
 
@@ -845,6 +918,7 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
         _viewElDeg = std::clamp(_viewElDeg + dy * 0.35, -85.0, 85.0);
         _viewMode = -1;
         _lastDragPoint = pt;
+        [self storeViewState];
         [self setNeedsDisplay:YES];
         return;
     }

@@ -743,7 +743,7 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     [self drawMenu:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))] y:162 attrs:small style:style];
 
     s3g::clap_gui::drawPanelFrame(binaural.origin.x, binaural.origin.y, binaural.size.width, binaural.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"BINAURAL", _binauralOpen, binaural.origin.x, binaural.origin.y, binaural.size.width, 21, text, style);
+    s3g::clap_gui::drawDisclosurePanelHeader(@"BINAURAL", _binauralOpen, binaural.origin.x, binaural.origin.y, binaural.size.width, 21, text, style);
     if (_binauralOpen) {
         [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:modeName(static_cast<uint32_t>(p->params.mode))] y:binaural.origin.y + 40 attrs:small style:style];
         [self drawMenu:@"HEAD" value:[NSString stringWithUTF8String:headName(static_cast<uint32_t>(p->params.head))] y:binaural.origin.y + 62 attrs:small style:style];
@@ -755,7 +755,7 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     }
 
     s3g::clap_gui::drawPanelFrame(transaural.origin.x, transaural.origin.y, transaural.size.width, transaural.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"TRANSAURAL", _transauralOpen, transaural.origin.x, transaural.origin.y, transaural.size.width, 21, text, style);
+    s3g::clap_gui::drawDisclosurePanelHeader(@"TRANSAURAL", _transauralOpen, transaural.origin.x, transaural.origin.y, transaural.size.width, 21, text, style);
     if (_transauralOpen) {
         [self drawSlider:@"ROOM" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.roomPercent)] norm:p->params.roomPercent / 100.0 y:transaural.origin.y + 40 attrs:small style:style];
         [self drawSlider:@"XTC" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.xtcAmountPercent)] norm:p->params.xtcAmountPercent / 140.0 y:transaural.origin.y + 62 attrs:small style:style];

@@ -790,11 +790,9 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     [style.bg setFill];
     NSRectFill([self bounds]);
 
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
-    NSFont* bold = [NSFont fontWithName:@"Menlo-Bold" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightBold];
-    NSDictionary* small = @{ NSForegroundColorAttributeName: dim, NSFontAttributeName: mono };
-    NSDictionary* label = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: bold };
-    NSDictionary* title = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: mono };
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* label = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* title = s3g::clap_gui::softTitleAttrs();
 
     [@"s3g MC TO STEREO AUTOGAIN" drawAtPoint:NSMakePoint(18, 13) withAttributes:title];
     [@"128IN / 2OUT" drawAtPoint:NSMakePoint(824, 13) withAttributes:small];

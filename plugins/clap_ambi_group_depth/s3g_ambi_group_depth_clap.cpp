@@ -10,6 +10,7 @@
 #if defined(__APPLE__)
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
+#include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
 #endif
 
@@ -400,7 +401,7 @@ const clap_plugin_tail_t tailExt { tailGet };
     [[NSRunLoop mainRunLoop] addTimer:_refreshTimer forMode:NSRunLoopCommonModes];
 }
 - (void)stopRefreshTimer { if (_refreshTimer) { [_refreshTimer invalidate]; _refreshTimer = nil; } }
-- (void)refreshTimerFired:(NSTimer*)timer { (void)timer; if (![self isHidden]) [self setNeedsDisplay:YES]; }
+- (void)refreshTimerFired:(NSTimer*)timer { (void)timer; if (_plugin && ![self isHidden] && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
 - (void)setParam:(clap_id)param value:(double)value
 {
     applyParam(*static_cast<Plugin*>(_plugin), param, value);
@@ -416,11 +417,16 @@ const clap_plugin_tail_t tailExt { tailGet };
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
-    NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    NSDictionary* text = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* text = s3g::clap_gui::softLabelAttrs();
+    const float pk = p->outputPeak.exchange(p->outputPeak.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
+    NSString* peakText = s3g::clap_gui::peakDbText(pk);
+    const CGFloat peakX = static_cast<CGFloat>(kGuiWidth) - [peakText sizeWithAttributes:small].width - 18.0;
+    NSString* headerInfo = @(kHeaderInfo);
+    const CGFloat infoX = peakX - [headerInfo sizeWithAttributes:small].width - 18.0;
     [@(kHeaderTitle) drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
-    [@(kHeaderInfo) drawAtPoint:NSMakePoint(676, 13) withAttributes:small];
+    [headerInfo drawAtPoint:NSMakePoint(infoX, 13) withAttributes:small];
+    [peakText drawAtPoint:NSMakePoint(peakX, 13) withAttributes:small];
 
     NSRect fieldPanel = NSMakeRect(12, 34, 506, 370);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
@@ -523,14 +529,6 @@ const clap_plugin_tail_t tailExt { tailGet };
     s3g::clap_gui::drawPanelFrame(output.origin.x, output.origin.y, output.size.width, output.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, output.origin.x, output.origin.y, output.size.width, 21, text, style);
     [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 60.0) / 72.0 y:340 attrs:small style:style];
-    const float pk = p->outputPeak.exchange(p->outputPeak.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
-    const double db = 20.0 * std::log10(std::max(0.000001f, pk));
-    const CGFloat norm = std::clamp<CGFloat>((db + 60.0) / 60.0, 0.0, 1.0);
-    [@"PK" drawAtPoint:NSMakePoint(552, 366) withAttributes:small];
-    [style.strip setFill]; NSRectFill(NSMakeRect(632, 368, 128, 12));
-    [style.fill setFill]; NSRectFill(NSMakeRect(633, 369, 126 * norm, 10));
-    [style.grid setStroke]; NSFrameRect(NSMakeRect(632, 368, 128, 12));
-    [[NSString stringWithFormat:@"%+4.1f", db] drawAtPoint:NSMakePoint(764, 364) withAttributes:small];
 }
 - (void)resetSlider:(int)index
 {

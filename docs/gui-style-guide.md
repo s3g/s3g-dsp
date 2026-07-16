@@ -7,8 +7,17 @@ This is the working style reference for custom macOS CLAP plugin GUIs in
 
 - Use a flat grayscale interface on a near-black background.
 - Keep typography small, left-aligned, and monospaced.
+- Use regular-weight text by default. Avoid bold UI labels unless the glyph is
+  part of an icon-like marker. The shared Cocoa helpers use soft grays:
+  label text around `0xa8a8a8`, value/status text around `0x929292`, and
+  titles around `0xc8c8c8`.
+- New plugin GUIs should use the shared Cocoa helpers in
+  `plugins/common/s3g_cocoa_gui.h` for text, panels, sliders, menus, dropdowns,
+  peak text, and header buttons. A new one-off text dictionary or custom
+  control renderer should be treated as a deliberate exception and named in
+  review.
 - Prefer compact panels, square controls, thin linework, and high-contrast
-  white/gray accents.
+  gray accents. Avoid pure white text as the default visual voice.
 - Avoid nested panel containers. A panel should sit directly on the main
   window background unless it is a specific content view like a waveform,
   topology display, patch matrix, or meter.
@@ -24,7 +33,9 @@ This is the working style reference for custom macOS CLAP plugin GUIs in
   `x`, `y`, and `width`.
 - Do not inset the header relative to the panel frame.
 - Use a dark header strip with a 2 px light line at the top.
-- Use `+` / `-` at the left of collapsible headers.
+- Use `+` / `-` at the left of collapsible headers only. If a panel cannot be
+  toggled by clicking its header, draw a static header with no disclosure
+  marker. A `-` promises an open/close interaction.
 - Keep toolbox header titles normal weight. The header strip and top line are
   enough hierarchy; avoid bold or highlighted panel titles unless the title is
   an active status indicator.
@@ -42,18 +53,42 @@ Reference pattern:
 
 ```cpp
 drawPanelFrame(panelX, panelY, panelW, panelH, style);
-drawPanelHeader(@"ENGINE", open, panelX, panelY, panelW, headerH, attrs, style);
+drawPanelHeader(@"ENGINE", true, panelX, panelY, panelW, headerH, attrs, style);
+drawDisclosurePanelHeader(@"ENGINE", open, panelX, panelY, panelW, headerH, attrs, style);
 ```
+
+Use `drawPanelHeader()` for static panels and `drawDisclosurePanelHeader()`
+only when the header click handler actually toggles the panel body.
+
+The advisory script `scripts/audit-gui-style.sh` checks for common GUI drift:
+false disclosure markers, local bold/bright text, hand-formatted peak readouts,
+binary controls drawn as sliders, text-entry styling, timer redraw gates, saved
+view state, and obvious draw/hit geometry review points. Run it directly or via
+`cmake --build <build-dir> --target audit_gui_style`. It exits successfully by
+default and prints warnings; pass `--strict` when a release checklist should
+fail on any warning.
 
 ## Sliders And Menus
 
 - Sliders are square, horizontal, and text-labeled with short all-caps names.
 - Use three-letter abbreviations when possible: `OUT`, `CTR`, `LEN`, `SMR`.
+- Standard toolbox slider/menu rows should use a readable 22-26 px vertical
+  pitch. Use tighter 18 px rows only for explicitly compact matrix/topology
+  surfaces where the family reference already depends on that density.
+- Keep draw geometry and mouse geometry from the same row constants. If a row
+  pitch or panel height changes, update hit rectangles and dropdown origins in
+  the same pass.
+- `PK` / peak output status is a readout, not an editable control. Draw it in
+  the upper-right title/status area with other compact host/plugin status text,
+  not inside the right-side parameter toolbox or `OUTPUT` panel.
 - Double-clicking a slider should return that parameter to its default value.
   This is a package-wide interaction convention, not a plugin-specific feature.
 - Parameters with discrete named states must be menus, not sliders. Examples:
   motion modes, layout modes, shape choices, neighbor counts, launch modes,
   mute/on-off states, and global mode toggles.
+- Small discrete numeric sets such as ambisonic `ORD` or filter `POLES` should
+  also use menus. High-cardinality numeric counts such as `ACTIVE 1-64` may
+  stay sliders when a long menu would slow editing.
 - Menus should use the same dark fill, gray border, and compact type as sliders.
 - Do not use system-style popup controls inside the plugin canvas.
 - Dropdown lists should use the shared custom renderer where possible:
@@ -84,12 +119,24 @@ grammar:
 
 - Put compact `TOP`, `SIDE`, and `3/4` view buttons in the primary visual
   header when a point scene can be reoriented.
+- Put camera zoom `-` / `+` immediately to the left of `TOP`, `SIDE`, and
+  `3/4` when both are present. Keep this ordering consistent across encoders,
+  decoders, and panners.
+- Put mode buttons that affect interaction, such as `EDIT` / `PLAY`, in the
+  primary visual header just after the title when there is room. They should
+  read as part of the field mode, not as right-side parameter controls.
 - When camera position is part of the normal editing workflow, save view mode,
   manual rotation, and zoom with plugin state so reopening a project preserves
   the user's inspection angle.
+- Spatial tools with view buttons should either persist the view state or be
+  explicitly documented as momentary meters/diagnostics. Do not add unsaved
+  camera controls to a new creative/spatial plugin.
 - Put compact `-` / `+` camera zoom buttons near the view buttons when point
   density can obscure the spatial read. Camera zoom changes only the view
   projection, never AED distance values.
+- Speaker and source point numbers should use the shared regular UI font,
+  not `Menlo-Bold`. Selected labels can become slightly lighter, but should
+  stay in the muted gray family rather than jumping to bright white.
 - AED point displays follow the `s3g-mc` screen convention: in `TOP` view,
   azimuth `0` degrees draws at the top of the field, `180` degrees at the
   bottom, `-90` degrees to the right, and `+90` degrees to the left. In `SIDE`
@@ -289,6 +336,25 @@ read quickly:
   height for eight lanes to breathe, even if an effect-specific engine panel
   requires a taller window. Avoid effect-specific graph styles in the Macro
   family preview area unless the whole family adopts them.
+
+## New GUI Review Checklist
+
+Before adding or shipping a new custom plugin GUI, check these items:
+
+- Text uses shared regular-weight helpers; no local `Menlo-Bold` label blocks
+  unless there is a named visual exception.
+- Peak status uses `peakDbText()` and lives in the upper-right status area.
+- Timer-driven repainting is gated by view visibility and host foreground
+  activity; text fields are not repainted while the user is editing.
+- Discrete named choices and small discrete numeric sets use menus. Long
+  numeric ranges can stay sliders when they are faster to edit that way.
+- Sliders double-click to reset and share their draw/hit row geometry.
+- Numeric text fields use the shared number-field style so selection remains
+  readable and entry does not fight the redraw loop.
+- Static toolbox headers have no `+` / `-`; disclosure headers use
+  `drawDisclosurePanelHeader()` and have a working header click target.
+- Spatial camera buttons and zoom follow the package ordering and save view
+  state when the view is part of normal creative editing.
 
 ## Current Visual Reference
 

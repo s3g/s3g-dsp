@@ -2378,6 +2378,13 @@ const clap_plugin_state_t state {
 
 static NSColor* s3gTapeColor(int rgb) { return s3g::clap_gui::color(rgb); }
 static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui::heatColor(value, alpha); }
+static constexpr CGFloat kDelayGuiRowPitch = 22.0;
+static constexpr CGFloat kDelayGuiTopologyRowPitch = 22.0;
+
+static CGFloat delayEngineRowY(CGFloat panelY, uint32_t index)
+{
+    return panelY + 30.0 + static_cast<CGFloat>(index) * kDelayGuiRowPitch;
+}
 
 @implementation S3GDelayProcessorView
 
@@ -2582,15 +2589,15 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     NSColor* text = s3gTapeColor(0xf0f0f0);
     NSColor* accent = s3gTapeColor(0xd1d1d1);
     NSColor* fillColor = s3gTapeColor(0x8f8f8f);
+    s3g::clap_gui::Style style;
 
     [bg setFill];
     NSRectFill([self bounds]);
 
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
-    NSFont* monoBold = [NSFont fontWithName:@"Menlo-Bold" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightBold];
     NSFont* monoTiny = [NSFont fontWithName:@"Menlo" size:7.0] ?: [NSFont monospacedSystemFontOfSize:7.0 weight:NSFontWeightRegular];
     NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
-    NSDictionary* labelAttrs = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: monoBold };
+    NSDictionary* labelAttrs = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: mono };
     NSDictionary* smallAttrs = @{ NSForegroundColorAttributeName: dim, NSFontAttributeName: mono };
     NSDictionary* tinyAttrs = @{ NSForegroundColorAttributeName: dim, NSFontAttributeName: monoTiny };
     NSDictionary* sectionAttrs = @{ NSForegroundColorAttributeName: accent, NSFontAttributeName: mono };
@@ -2601,9 +2608,8 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     [channelText drawAtPoint:NSMakePoint(946, 14) withAttributes:smallAttrs];
     const float peak = p->outputPeak.load(std::memory_order_relaxed);
     const bool clipped = p->outputClip.exchange(false, std::memory_order_relaxed);
-    const double peakDb = 20.0 * std::log10(std::max(0.000001f, peak));
-    NSString* meterText = clipped ? [NSString stringWithFormat:@"PK %+4.1f CLIP", peakDb]
-                                  : [NSString stringWithFormat:@"PK %+4.1f", peakDb];
+    NSString* meterText = clipped ? [NSString stringWithFormat:@"%@ CLIP", s3g::clap_gui::peakDbText(peak)]
+                                  : s3g::clap_gui::peakDbText(peak);
     [meterText drawAtPoint:NSMakePoint(808, 14) withAttributes:clipped ? labelAttrs : smallAttrs];
 
     NSRect topologyPanel = NSMakeRect(12, 34, 620, 654);
@@ -2805,13 +2811,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     const CGFloat gap = 8.0;
     CGFloat panelY = 34.0;
     auto drawHeader = [&](NSString* title, bool open, CGFloat y) {
-        [strip setFill];
-        NSRectFill(NSMakeRect(panelX, y, panelW, headerH));
-        [accent setFill];
-        NSRectFill(NSMakeRect(panelX, y, panelW, 2));
-        NSString* marker = open ? @"-" : @"+";
-        [marker drawAtPoint:NSMakePoint(panelX + 8, y + 5) withAttributes:sectionAttrs];
-        [title drawAtPoint:NSMakePoint(panelX + 24, y + 5) withAttributes:sectionAttrs];
+        s3g::clap_gui::drawDisclosurePanelHeader(title, open, panelX, y, panelW, headerH, sectionAttrs, style);
     };
     auto drawPanelFrame = [&](CGFloat y, CGFloat h) {
         [cellBg setFill];
@@ -2820,54 +2820,54 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         NSFrameRect(NSMakeRect(panelX, y, panelW, h));
     };
 
-    const CGFloat engineH = _showEngine ? 182.0 : headerH;
+    const CGFloat engineH = _showEngine ? 212.0 : headerH;
     drawPanelFrame(panelY, engineH);
     drawHeader(@"ENGINE", _showEngine, panelY);
     if (_showEngine) {
         [self drawSlider:@"TIME"
-                   value:[NSString stringWithFormat:@"%4.0f", p->delayMs]
+                       value:[NSString stringWithFormat:@"%4.0f", p->delayMs]
                     norm:static_cast<CGFloat>((p->delayMs - kDelayMinMs) / (kDelayMaxMs - kDelayMinMs))
-                       y:panelY + 30.0
+                       y:delayEngineRowY(panelY, 0)
               labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
         [self drawSlider:@"FDBK"
                    value:[NSString stringWithFormat:@"%3.0f%%", (p->feedback / 0.95) * 100.0]
                     norm:static_cast<CGFloat>(p->feedback / 0.95)
-                       y:panelY + 48.0
+                       y:delayEngineRowY(panelY, 1)
               labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
         [self drawSlider:@"MIX"
                    value:[NSString stringWithFormat:@"%3.0f%%", p->mix * 100.0]
                     norm:static_cast<CGFloat>(p->mix)
-                       y:panelY + 66.0
+                       y:delayEngineRowY(panelY, 2)
               labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
         [self drawSlider:@"TONE"
                    value:[NSString stringWithFormat:@"%3.0f%%", p->tone * 100.0]
                     norm:static_cast<CGFloat>(p->tone)
-                       y:panelY + 84.0
+                       y:delayEngineRowY(panelY, 3)
               labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
         [self drawSlider:@"PITCH"
                    value:[NSString stringWithFormat:@"%+4.1f", p->pitchSemitones]
                     norm:static_cast<CGFloat>((p->pitchSemitones - kPitchMinSemitones) / (kPitchMaxSemitones - kPitchMinSemitones))
-                       y:panelY + 102.0
+                       y:delayEngineRowY(panelY, 4)
               labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
         [self drawSlider:@"CHAR"
                    value:[NSString stringWithFormat:@"%3.0f%%", p->character * 100.0]
                     norm:static_cast<CGFloat>(p->character)
-                       y:panelY + 120.0
+                       y:delayEngineRowY(panelY, 5)
               labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
         [self drawSlider:@"SMR"
                    value:[NSString stringWithFormat:@"%3.0f%%", p->tapAmount * 100.0]
                     norm:static_cast<CGFloat>(p->tapAmount)
-                       y:panelY + 138.0
+                       y:delayEngineRowY(panelY, 6)
               labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
         [self drawSlider:@"OUT"
                    value:[NSString stringWithFormat:@"%+4.1f", p->outputTrimDb]
                     norm:static_cast<CGFloat>((p->outputTrimDb - kOutputTrimMinDb) / (kOutputTrimMaxDb - kOutputTrimMinDb))
-                       y:panelY + 156.0
+                       y:delayEngineRowY(panelY, 7)
               labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
     }
     panelY += engineH + gap;
 
-    const CGFloat metaH = _showMeta ? 328.0 : headerH;
+    const CGFloat metaH = _showMeta ? 386.0 : headerH;
     drawPanelFrame(panelY, metaH);
     drawHeader(@"TOPOLOGY", _showMeta, panelY);
     NSRect resetRect = NSMakeRect(924, panelY + 4, 54, 15);
@@ -2898,7 +2898,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         topoValues.radius = p->topologyRadius;
         topoValues.centroid = p->topologyCentroid;
         s3g::clap_gui::Style style;
-        s3g::clap_gui::drawTopologyRows(topoValues, panelY, smallAttrs, smallAttrs, style);
+        s3g::clap_gui::drawTopologyRows(topoValues, panelY, smallAttrs, smallAttrs, style, kDelayGuiTopologyRowPitch);
     }
     panelY += metaH + gap;
 
@@ -3204,7 +3204,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         return NSMakePoint(x, std::max<CGFloat>(28.0, std::min<CGFloat>(preferredY, bottom - itemH * static_cast<CGFloat>(itemCount))));
     };
 
-    const CGFloat engineH = _showEngine ? 182.0 : headerH;
+    const CGFloat engineH = _showEngine ? 212.0 : headerH;
     if (NSPointInRect(pt, headerRect(panelY))) {
         _showEngine = !_showEngine;
         [self setNeedsDisplay:YES];
@@ -3212,7 +3212,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     }
     if (_showEngine) {
         for (uint32_t i = 0; i < 8; ++i) {
-            NSRect r = NSMakeRect(650, panelY + 24.0 + i * 18.0, 330, 20);
+            NSRect r = NSMakeRect(650, delayEngineRowY(panelY, i) - 8.0, 330, 24.0);
             if (NSPointInRect(pt, r)) {
                 _dragSlider = static_cast<int>(i);
                 [self updateSliderAtPoint:pt];
@@ -3222,7 +3222,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     }
     panelY += engineH + gap;
 
-    const CGFloat metaH = _showMeta ? 328.0 : headerH;
+    const CGFloat metaH = _showMeta ? 386.0 : headerH;
     if (NSPointInRect(pt, NSMakeRect(924, panelY + 4, 54, 15))) {
         [self resetTopology];
         return;
@@ -3233,12 +3233,12 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
         return;
     }
     if (_showMeta) {
-        const auto row = s3g::clap_gui::hitTopologyRow(pt, panelY);
+        const auto row = s3g::clap_gui::hitTopologyRow(pt, panelY, 650.0, 330.0, kDelayGuiTopologyRowPitch);
         if (row == s3g::clap_gui::TopologyRow::Shape) {
             _openMenu = 1;
             _hoverMenuItem = -1;
             _menuItemCount = kTopologyShapeCount;
-            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
+            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row, kDelayGuiTopologyRowPitch) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -3246,7 +3246,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
             _openMenu = 2;
             _hoverMenuItem = -1;
             _menuItemCount = kTopologyMotionModeCount;
-            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
+            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row, kDelayGuiTopologyRowPitch) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -3254,7 +3254,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
             _openMenu = 4;
             _hoverMenuItem = -1;
             _menuItemCount = kTopologyVariantCount;
-            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
+            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row, kDelayGuiTopologyRowPitch) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -3262,7 +3262,7 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
             _openMenu = 3;
             _hoverMenuItem = -1;
             _menuItemCount = 3;
-            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row) + 18.0, _menuItemCount);
+            _menuOrigin = menuOrigin(750, s3g::clap_gui::topologyRowY(panelY, row, kDelayGuiTopologyRowPitch) + 18.0, _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -3288,7 +3288,8 @@ static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui:
     }
     panelY += metaH + gap;
 
-    const CGFloat matrixH = _showMatrix ? 248.0 : headerH;
+    const bool compactMatrixForHeight = kVisiblePatchChannels > 8;
+    const CGFloat matrixH = _showMatrix ? (compactMatrixForHeight ? 354.0 : 248.0) : headerH;
     if (NSPointInRect(pt, headerRect(panelY))) {
         _showMatrix = !_showMatrix;
         if (_showMatrix) {

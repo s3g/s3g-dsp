@@ -792,9 +792,9 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill(self.bounds);
-    NSDictionary* small = @{ NSFontAttributeName:[NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular], NSForegroundColorAttributeName:style.text };
-    NSDictionary* text = small;
-    NSDictionary* title = @{ NSFontAttributeName:[NSFont fontWithName:@"Menlo" size:11] ?: [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular], NSForegroundColorAttributeName:c(0xf0f0f0) };
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* text = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* title = s3g::clap_gui::softTitleAttrs();
     const s3g::AmbiGrainParams prm = snapshotParams(*p);
     const BOOL isScan = prm.mode == s3g::AmbiGrainMode::Scan;
     const BOOL isFreeze = prm.mode == s3g::AmbiGrainMode::Freeze;
@@ -809,7 +809,7 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
     NSString* info = sample ? [NSString stringWithFormat:@"%u ch / %.1f sec / %.0f Hz", sample->channels, static_cast<double>(sample->frames) / sample->sampleRate, sample->sampleRate] : @"no ambisonic file loaded";
     [info drawAtPoint:NSMakePoint(202, 53) withAttributes:text];
     const float peak = p->outputPeak.load(std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"PK %.2f", peak] drawAtPoint:NSMakePoint(858, 16) withAttributes:text];
+    [s3g::clap_gui::peakDbText(peak) drawAtPoint:NSMakePoint(858, 16) withAttributes:text];
 
     s3g::clap_gui::drawPanelFrame(18, 92, 552, 458, style);
     s3g::clap_gui::drawPanelHeader(@"WAVEFORM", true, 18, 92, 552, 20, text, style);

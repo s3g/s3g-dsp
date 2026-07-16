@@ -292,6 +292,10 @@ constexpr uint32_t kGuiHeight = 330;
 @private
     Plugin* _plugin;
     int _dragControl;
+    int _openMenu;
+    int _hoverMenuItem;
+    NSPoint _menuOrigin;
+    uint32_t _menuItemCount;
     NSTimer* _timer;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
@@ -306,6 +310,10 @@ constexpr uint32_t kGuiHeight = 330;
     if (self) {
         _plugin = plugin;
         _dragControl = -1;
+        _openMenu = 0;
+        _hoverMenuItem = -1;
+        _menuOrigin = NSZeroPoint;
+        _menuItemCount = 0;
         _timer = nil;
         [self setWantsLayer:YES];
     }
@@ -338,6 +346,33 @@ constexpr uint32_t kGuiHeight = 330;
     char buf[64] {};
     paramsValueToText(&_plugin->plugin, param, value, buf, sizeof(buf));
     return [NSString stringWithUTF8String:buf];
+}
+
+- (void)openOrderMenuAt:(NSPoint)origin
+{
+    _openMenu = 1;
+    _hoverMenuItem = -1;
+    _menuOrigin = origin;
+    _menuItemCount = s3g::kAmbiSpeakerDecoderMaxOrder + 1u;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)closeMenu
+{
+    _openMenu = 0;
+    _hoverMenuItem = -1;
+    _menuItemCount = 0;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
+{
+    if (_openMenu != 1 || _menuItemCount == 0) return;
+    static NSString* orderItems[] = { @"0OA", @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
+    const CGFloat itemH = 18.0;
+    const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 92.0, itemH * static_cast<CGFloat>(_menuItemCount));
+    const int selected = static_cast<int>(std::clamp<uint32_t>(_plugin ? _plugin->params.order : 3u, 0u, s3g::kAmbiSpeakerDecoderMaxOrder));
+    s3g::clap_gui::drawDropdownMenu(menuRect, itemH, orderItems, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
 
 - (void)drawSubField:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -393,12 +428,13 @@ constexpr uint32_t kGuiHeight = 330;
     [self drawSubField:NSMakeRect(20, 66, 244, 230) attrs:attrs style:style];
     s3g::clap_gui::drawPanelFrame(286, 66, 284, 230, style);
     s3g::clap_gui::drawPanelHeader(@"DECODER", true, 286, 66, 284, 21, attrs, style);
-    s3g::clap_gui::drawSlider(@"ORDER", [self textForParam:kOrderParamId value:_plugin->params.order], static_cast<double>(_plugin->params.order) / static_cast<double>(s3g::kAmbiSpeakerDecoderMaxOrder), 112, attrs, attrs, style, 306, 402, 512, 92);
+    s3g::clap_gui::drawMenu(@"ORDER", [self textForParam:kOrderParamId value:_plugin->params.order], 112, attrs, attrs, style, 306, 402, 92);
     s3g::clap_gui::drawSlider(@"SUBS", [self textForParam:kSubCountParamId value:_plugin->params.subCount], (_plugin->params.subCount - 1.0) / 7.0, 146, attrs, attrs, style, 306, 402, 512, 92);
     s3g::clap_gui::drawSlider(@"CUTOFF", [self textForParam:kCutoffParamId value:_plugin->params.cutoffHz], (_plugin->params.cutoffHz - 20.0f) / 220.0f, 180, attrs, attrs, style, 306, 402, 512, 92);
     s3g::clap_gui::drawSlider(@"WIDTH", [self textForParam:kWidthParamId value:_plugin->params.directionWidth], _plugin->params.directionWidth / 2.0f, 214, attrs, attrs, style, 306, 402, 512, 92);
     s3g::clap_gui::drawSlider(@"OUTPUT", [self textForParam:kOutputParamId value:_plugin->params.outputGainDb], (_plugin->params.outputGainDb + 60.0f) / 78.0f, 248, attrs, attrs, style, 306, 402, 512, 92);
-    s3g::clap_gui::drawSlider(@"BYPASS", (_plugin->params.bypass ? @"ON" : @"OFF"), _plugin->params.bypass ? 1.0 : 0.0, 278, attrs, attrs, style, 306, 402, 512, 92);
+    s3g::clap_gui::drawToggle(@"BYPASS", _plugin->params.bypass, 278, attrs, attrs, style, 306, 402, 92);
+    [self drawOpenMenu:attrs style:style];
 
 }
 
@@ -407,7 +443,6 @@ constexpr uint32_t kGuiHeight = 330;
     if (!_plugin || _dragControl < 0) return;
     const double n = std::clamp((static_cast<double>(pt.x) - 402.0) / 92.0, 0.0, 1.0);
     switch (_dragControl) {
-    case 0: applyParam(*_plugin, kOrderParamId, n * static_cast<double>(s3g::kAmbiSpeakerDecoderMaxOrder)); break;
     case 1: applyParam(*_plugin, kSubCountParamId, 1.0 + n * 7.0); break;
     case 2: applyParam(*_plugin, kCutoffParamId, 20.0 + n * 220.0); break;
     case 3: applyParam(*_plugin, kWidthParamId, n * 2.0); break;
@@ -420,15 +455,31 @@ constexpr uint32_t kGuiHeight = 330;
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (_openMenu == 1) {
+        const CGFloat itemH = 18.0;
+        const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 92.0, itemH * static_cast<CGFloat>(_menuItemCount));
+        const int hit = s3g::clap_gui::dropdownHitIndex(pt, menuRect, itemH, _menuItemCount);
+        if (hit >= 0) {
+            applyParam(*_plugin, kOrderParamId, static_cast<double>(hit));
+            [self closeMenu];
+            return;
+        }
+        [self closeMenu];
+    }
+    if (NSPointInRect(pt, NSMakeRect(402, 110, 92, 22))) {
+        [self openOrderMenuAt:NSMakePoint(402, 128)];
+        return;
+    }
     if (NSPointInRect(pt, NSMakeRect(402, 276, 92, 20))) {
         applyParam(*_plugin, kBypassParamId, _plugin->params.bypass ? 0.0 : 1.0);
         [self setNeedsDisplay:YES];
         return;
     }
-    const CGFloat ys[] = { 112, 146, 180, 214, 248 };
-    for (int i = 0; i < 5; ++i) {
+    const CGFloat ys[] = { 146, 180, 214, 248 };
+    const int controls[] = { 1, 2, 3, 4 };
+    for (int i = 0; i < 4; ++i) {
         if (NSPointInRect(pt, NSMakeRect(402, ys[i] - 5, 92, 22))) {
-            _dragControl = i;
+            _dragControl = controls[i];
             [self updateDrag:pt];
             return;
         }

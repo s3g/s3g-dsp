@@ -56,6 +56,9 @@ Current plugins:
 - `s3g Ambi Cloud Encoder 64`: 64-source input to first-through-seventh-order
   `ACN/SN3D` ambisonic output with one to four cloud centers, spread, jitter,
   drift, and source-cloud distribution controls.
+- `s3g Ambi Path Encoder 64`: 64-source input to first-through-seventh-order
+  `ACN/SN3D` ambisonic output driven by drawable path trajectories, with JSON
+  path save/recall and SVG import/export for interchange.
 - `s3g Ambi Speaker Decoder 64`: first-through-seventh-order `ACN/SN3D`
   speaker decoder with curated layouts, custom speaker editing, and a stable
   64-channel output bus. The speaker field camera view is saved with the host
