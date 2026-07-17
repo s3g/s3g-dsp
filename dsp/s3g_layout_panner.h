@@ -291,6 +291,43 @@ inline void layoutPannerSyncSourceAedFromPosition(LayoutPannerSource& source)
     source.elevationDeg = clamp(std::asin(clamp(source.z * inv, -1.0f, 1.0f)) * 180.0f / kPi, -90.0f, 90.0f);
 }
 
+inline LayoutPannerSource layoutPannerEffectiveSource(const LayoutPannerSource& source, const LayoutPannerParams& params)
+{
+    LayoutPannerSource effective = source;
+    effective.azimuthDeg = layoutPannerWrapDeg(source.azimuthDeg + params.globalAzimuthDeg);
+    effective.elevationDeg = clamp(source.elevationDeg + params.globalElevationDeg, -90.0f, 90.0f);
+    effective.distance = std::max(0.1f, source.distance + params.globalDistanceOffset);
+    const Vec3 dir = directionFromAed(effective.azimuthDeg, effective.elevationDeg);
+    effective.x = dir.x * effective.distance;
+    effective.y = dir.y * effective.distance;
+    effective.z = dir.z * effective.distance;
+    return effective;
+}
+
+inline Vec3 layoutPannerEffectiveSourcePosition(const LayoutPannerSource& source, const LayoutPannerParams& params)
+{
+    return layoutPannerSourcePosition(layoutPannerEffectiveSource(source, params));
+}
+
+inline Vec3 layoutPannerRawSourcePositionFromEffectivePosition(Vec3 effectivePosition, const LayoutPannerParams& params)
+{
+    const float effectiveDistance = std::sqrt(
+        effectivePosition.x * effectivePosition.x
+        + effectivePosition.y * effectivePosition.y
+        + effectivePosition.z * effectivePosition.z);
+    const float inv = 1.0f / std::max(0.000001f, effectiveDistance);
+    const float effectiveAzimuth = layoutPannerWrapDeg(std::atan2(effectivePosition.y, effectivePosition.x) * 180.0f / kPi);
+    const float effectiveElevation = clamp(
+        std::asin(clamp(effectivePosition.z * inv, -1.0f, 1.0f)) * 180.0f / kPi,
+        -90.0f,
+        90.0f);
+    const float rawAzimuth = layoutPannerWrapDeg(effectiveAzimuth - params.globalAzimuthDeg);
+    const float rawElevation = clamp(effectiveElevation - params.globalElevationDeg, -90.0f, 90.0f);
+    const float rawDistance = clamp(effectiveDistance - params.globalDistanceOffset, 0.1f, 3.0f);
+    const Vec3 rawDir = directionFromAed(rawAzimuth, rawElevation);
+    return { rawDir.x * rawDistance, rawDir.y * rawDistance, rawDir.z * rawDistance };
+}
+
 class LayoutPanner {
 public:
     void prepare(double sampleRate)

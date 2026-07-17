@@ -1482,10 +1482,11 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     if (_page != 2) for (uint32_t i = 0; i < params.activeSources; ++i) {
         const auto& s = sources[i];
         if (s.muted) continue;
-        NSPoint pt = [self projectWorldPoint:s3g::layoutPannerSourcePosition(s) rect:rect depth:nil];
+        const auto effective = s3g::layoutPannerEffectiveSource(s, params);
+        NSPoint pt = [self projectWorldPoint:s3g::layoutPannerSourcePosition(effective) rect:rect depth:nil];
         const bool selected = i == params.selectedSource;
         const CGFloat r = selected ? 8.5 : 7.0;
-        [lpAedColor(s.azimuthDeg, s.elevationDeg, s.distance, selected) setFill];
+        [lpAedColor(effective.azimuthDeg, effective.elevationDeg, effective.distance, selected) setFill];
         NSRectFill(NSMakeRect(pt.x - r, pt.y - r, r * 2.0, r * 2.0));
         [lpColor(s.muted ? 0x222222 : 0x050505, 0.92) setStroke];
         NSFrameRect(NSMakeRect(pt.x - r, pt.y - r, r * 2.0, r * 2.0));
@@ -1587,7 +1588,8 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         const CGFloat fullH = fill.size.height;
         fill.origin.y += fullH * (1.0 - norm);
         fill.size.height = std::max<CGFloat>(1.0, fullH * norm);
-        [lpAedColor(s.azimuthDeg, s.elevationDeg, s.distance, selected) setFill];
+        const auto effective = s3g::layoutPannerEffectiveSource(s, params);
+        [lpAedColor(effective.azimuthDeg, effective.elevationDeg, effective.distance, selected) setFill];
         NSRectFill(fill);
         [lpColor(selected ? 0xf2f2f2 : 0x9a9a9a) setFill];
         NSRectFill(NSMakeRect(slot.origin.x - 2.0, slot.origin.y + slot.size.height * (1.0 - norm) - 1.0, slot.size.width + 4.0, 3.0));
@@ -1965,7 +1967,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
             uint32_t best = params.selectedSource;
             for (uint32_t i = 0; i < params.activeSources; ++i) {
                 const auto& s = sources[i];
-                NSPoint spt = [self projectWorldPoint:s3g::layoutPannerSourcePosition(s) rect:fieldRect depth:nil];
+                NSPoint spt = [self projectWorldPoint:s3g::layoutPannerEffectiveSourcePosition(s, params) rect:fieldRect depth:nil];
                 const CGFloat d = std::hypot(pt.x - spt.x, pt.y - spt.y);
                 if (d < bestD) { bestD = d; best = i; }
             }
@@ -2087,8 +2089,8 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         const NSRect fieldRect = NSMakeRect(34, 76, 564, 566);
         const auto prm = p->panner.params();
         auto source = p->panner.source(prm.selectedSource);
-        s3g::Vec3 v = [self worldFromPoint:pt rect:fieldRect previous:s3g::layoutPannerSourcePosition(source)];
-        p->panner.setSourcePosition(prm.selectedSource, v);
+        s3g::Vec3 v = [self worldFromPoint:pt rect:fieldRect previous:s3g::layoutPannerEffectiveSourcePosition(source, prm)];
+        p->panner.setSourcePosition(prm.selectedSource, s3g::layoutPannerRawSourcePositionFromEffectivePosition(v, prm));
         p->params = p->panner.params();
         [self setNeedsDisplay:YES];
         return;
