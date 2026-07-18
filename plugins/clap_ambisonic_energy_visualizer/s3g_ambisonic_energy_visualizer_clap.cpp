@@ -1,4 +1,5 @@
 #include "s3g_ambisonic_speaker_decoder.h"
+#include "s3g_ambisonic_utilities.h"
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
@@ -28,11 +29,17 @@ namespace {
 constexpr uint32_t kChannelCount = s3g::kAmbiSpeakerDecoderMaxChannels;
 constexpr uint32_t kGuiWidth = 980;
 constexpr uint32_t kGuiHeight = 560;
-constexpr uint32_t kEnergyMapCols = 128;
-constexpr uint32_t kEnergyMapRows = 64;
+constexpr uint32_t kLargeGuiWidth = 1600;
+constexpr uint32_t kLargeGuiHeight = 900;
+constexpr uint32_t kEnergyMapCols = 256;
+constexpr uint32_t kEnergyMapRows = 128;
 constexpr uint32_t kEnergyMapPixels = kEnergyMapCols * kEnergyMapRows;
+constexpr uint32_t kMapModeCount = 8;
 constexpr uint32_t kEnergyPeakCount = 4;
 constexpr uint32_t kEnergyTrailCount = 32;
+constexpr uint32_t kEnergySnapshotRingSize = 128;
+constexpr uint32_t kEnergySnapshotsPerBlock = 4;
+constexpr uint32_t kEnergyGpuSnapshotCount = 16;
 constexpr float kEnergySilenceThreshold = 0.00001f;
 constexpr float kEnergyBlackFloor = 0.0025f;
 constexpr uint32_t kStateVersion = 3;
@@ -52,6 +59,10 @@ struct SavedState {
     uint32_t viewMode = kEnergyViewField;
 };
 
+struct EnergySnapshot {
+    std::array<float, kChannelCount> channels {};
+};
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -68,6 +79,10 @@ struct Plugin {
     std::atomic<float> inputLevel { 0.0f };
     std::atomic<uint32_t> activeChannels { 0 };
     std::atomic<uint32_t> mapMode { 0 };
+    std::array<EnergySnapshot, kEnergySnapshotRingSize> snapshotRing {};
+    std::atomic<uint32_t> snapshotWrite { 0 };
+    std::atomic<uint32_t> snapshotRead { 0 };
+    uint32_t snapshotPhase = 0;
 #if defined(__APPLE__)
     void* guiView = nullptr;
     std::atomic<bool> guiVisible { false };
@@ -88,6 +103,38 @@ void resetAnalysis(Plugin& p)
     p.dirConfidence.store(0.0f, std::memory_order_relaxed);
     p.inputLevel.store(0.0f, std::memory_order_relaxed);
     p.activeChannels.store(0, std::memory_order_relaxed);
+    p.snapshotWrite.store(0, std::memory_order_relaxed);
+    p.snapshotRead.store(0, std::memory_order_relaxed);
+    p.snapshotPhase = 0;
+}
+
+template <typename Sample>
+void captureAnalysisSnapshots(Plugin& p, Sample* const* input, uint32_t channels, uint32_t frames)
+{
+    if (!input || channels == 0u || frames == 0u) return;
+    const uint32_t count = std::min<uint32_t>(kEnergySnapshotsPerBlock, frames);
+    const uint32_t phase = p.snapshotPhase++;
+    for (uint32_t sampleIndex = 0; sampleIndex < count; ++sampleIndex) {
+        const uint32_t write = p.snapshotWrite.load(std::memory_order_relaxed);
+        const uint32_t next = (write + 1u) % kEnergySnapshotRingSize;
+        if (next == p.snapshotRead.load(std::memory_order_acquire)) break;
+        const uint32_t frame = (phase + sampleIndex * frames / count) % frames;
+        auto& snapshot = p.snapshotRing[write].channels;
+        for (uint32_t ch = 0; ch < channels; ++ch) {
+            snapshot[ch] = input[ch] ? static_cast<float>(input[ch][frame]) : 0.0f;
+        }
+        std::fill(snapshot.begin() + channels, snapshot.end(), 0.0f);
+        p.snapshotWrite.store(next, std::memory_order_release);
+    }
+}
+
+bool popAnalysisSnapshot(Plugin& p, std::array<float, kChannelCount>& destination)
+{
+    const uint32_t read = p.snapshotRead.load(std::memory_order_relaxed);
+    if (read == p.snapshotWrite.load(std::memory_order_acquire)) return false;
+    destination = p.snapshotRing[read].channels;
+    p.snapshotRead.store((read + 1u) % kEnergySnapshotRingSize, std::memory_order_release);
+    return true;
 }
 
 template <typename Sample>
@@ -171,7 +218,8 @@ void initProjection(Plugin& p)
 void applyParam(Plugin& p, clap_id id, double value)
 {
     if (id == kMapParamId) {
-        p.mapMode.store(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 3u), std::memory_order_relaxed);
+        p.mapMode.store(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, kMapModeCount - 1u),
+                        std::memory_order_relaxed);
     }
 }
 
@@ -237,8 +285,12 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         return CLAP_PROCESS_CONTINUE;
     }
 
-    if (input.data32) updateDirectionTracker(*p, input.data32, channels, frames);
-    else if (input.data64) updateDirectionTracker(*p, input.data64, channels, frames);
+    bool analyze = true;
+#if defined(__APPLE__)
+    analyze = p->guiVisible.load(std::memory_order_relaxed);
+#endif
+    if (analyze && input.data32) updateDirectionTracker(*p, input.data32, channels, frames);
+    else if (analyze && input.data64) updateDirectionTracker(*p, input.data64, channels, frames);
 
     float maxInput = 0.0f;
     for (uint32_t ch = 0; ch < channels; ++ch) {
@@ -247,33 +299,47 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         if (input.data32 && output.data32 && input.data32[ch] && output.data32[ch]) {
             const float* in = input.data32[ch];
             float* out = output.data32[ch];
-            for (uint32_t i = 0; i < frames; ++i) {
-                const float sample = in[i];
-                out[i] = sample;
-                peak = std::max(peak, std::fabs(sample));
-                energy += static_cast<double>(sample) * static_cast<double>(sample);
+            if (analyze) {
+                for (uint32_t i = 0; i < frames; ++i) {
+                    const float sample = in[i];
+                    out[i] = sample;
+                    peak = std::max(peak, std::fabs(sample));
+                    energy += static_cast<double>(sample) * static_cast<double>(sample);
+                }
+            } else if (in != out) {
+                std::memcpy(out, in, sizeof(float) * frames);
             }
         } else if (input.data64 && output.data64 && input.data64[ch] && output.data64[ch]) {
             const double* in = input.data64[ch];
             double* out = output.data64[ch];
-            for (uint32_t i = 0; i < frames; ++i) {
-                const double sample = in[i];
-                out[i] = sample;
-                peak = std::max(peak, static_cast<float>(std::fabs(sample)));
-                energy += sample * sample;
+            if (analyze) {
+                for (uint32_t i = 0; i < frames; ++i) {
+                    const double sample = in[i];
+                    out[i] = sample;
+                    peak = std::max(peak, static_cast<float>(std::fabs(sample)));
+                    energy += sample * sample;
+                }
+            } else if (in != out) {
+                std::memcpy(out, in, sizeof(double) * frames);
             }
         }
-        const float blockRms = frames > 0 ? static_cast<float>(std::sqrt(energy / static_cast<double>(frames))) : 0.0f;
-        p->peak[ch].store(std::max(p->peak[ch].load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);
-        p->rms[ch].store(std::max(p->rms[ch].load(std::memory_order_relaxed) * 0.94f, blockRms), std::memory_order_relaxed);
-        maxInput = std::max(maxInput, std::max(blockRms, peak * 0.25f));
+        if (analyze) {
+            const float blockRms = frames > 0 ? static_cast<float>(std::sqrt(energy / static_cast<double>(frames))) : 0.0f;
+            p->peak[ch].store(std::max(p->peak[ch].load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);
+            p->rms[ch].store(std::max(p->rms[ch].load(std::memory_order_relaxed) * 0.94f, blockRms), std::memory_order_relaxed);
+            maxInput = std::max(maxInput, std::max(blockRms, peak * 0.25f));
+        }
     }
 
-    for (uint32_t ch = channels; ch < kChannelCount; ++ch) {
-        p->peak[ch].store(p->peak[ch].load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
-        p->rms[ch].store(p->rms[ch].load(std::memory_order_relaxed) * 0.94f, std::memory_order_relaxed);
+    if (analyze) {
+        if (input.data32) captureAnalysisSnapshots(*p, input.data32, channels, frames);
+        else if (input.data64) captureAnalysisSnapshots(*p, input.data64, channels, frames);
+        for (uint32_t ch = channels; ch < kChannelCount; ++ch) {
+            p->peak[ch].store(p->peak[ch].load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
+            p->rms[ch].store(p->rms[ch].load(std::memory_order_relaxed) * 0.94f, std::memory_order_relaxed);
+        }
+        p->inputLevel.store(std::max(p->inputLevel.load(std::memory_order_relaxed) * 0.86f, maxInput), std::memory_order_relaxed);
     }
-    p->inputLevel.store(std::max(p->inputLevel.load(std::memory_order_relaxed) * 0.86f, maxInput), std::memory_order_relaxed);
 
     s3g::clearAudioBufferFromChannel(output, channels, frames);
     return CLAP_PROCESS_CONTINUE;
@@ -308,7 +374,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         info->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_STEPPED;
         std::strncpy(info->name, "Map", sizeof(info->name));
         info->min_value = 0.0;
-        info->max_value = 3.0;
+        info->max_value = static_cast<double>(kMapModeCount - 1u);
         info->default_value = 0.0;
     }
     return true;
@@ -329,8 +395,12 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
 {
     if (!display || size == 0) return false;
     if (id == kMapParamId) {
-        static constexpr const char* names[] = { "FIELD", "BLUE", "INK", "VOLT" };
-        const uint32_t index = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 3u);
+        static constexpr const char* names[] = {
+            "FIELD", "BLUE", "INK", "VOLT", "CLASSIC", "INFERNO", "VIRIDIS", "MAGMA"
+        };
+        const uint32_t index = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                                                    0u,
+                                                    kMapModeCount - 1u);
         std::snprintf(display, size, "%s", names[index]);
     } else {
         return false;
@@ -345,6 +415,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         if (std::strstr(display, "BLUE") || std::strstr(display, "blue")) { *value = 1.0; return true; }
         if (std::strstr(display, "INK") || std::strstr(display, "ink")) { *value = 2.0; return true; }
         if (std::strstr(display, "VOLT") || std::strstr(display, "volt")) { *value = 3.0; return true; }
+        if (std::strstr(display, "CLASSIC") || std::strstr(display, "classic")) { *value = 4.0; return true; }
+        if (std::strstr(display, "INFERNO") || std::strstr(display, "inferno")) { *value = 5.0; return true; }
+        if (std::strstr(display, "VIRIDIS") || std::strstr(display, "viridis")) { *value = 6.0; return true; }
+        if (std::strstr(display, "MAGMA") || std::strstr(display, "magma")) { *value = 7.0; return true; }
         if (std::strstr(display, "FIELD") || std::strstr(display, "field")) { *value = 0.0; return true; }
     }
     *value = std::atof(display);
@@ -371,7 +445,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     SavedState s {};
     if (stream->read(stream, &s, sizeof(s)) != static_cast<int64_t>(sizeof(s)) || s.version != kStateVersion) return false;
     auto* p = self(plugin);
-    p->mapMode.store(std::clamp<uint32_t>(s.mapMode, 0u, 3u), std::memory_order_relaxed);
+    p->mapMode.store(std::clamp<uint32_t>(s.mapMode, 0u, kMapModeCount - 1u), std::memory_order_relaxed);
     return true;
 }
 
@@ -393,19 +467,56 @@ struct EnergyTrail {
     float life = 0.0f;
 };
 
+struct EnergyGpuParams {
+    uint32_t width = kEnergyMapCols;
+    uint32_t height = kEnergyMapRows;
+    uint32_t snapshotCount = 0;
+    uint32_t activeChannels = kChannelCount;
+    uint32_t bodyChannels = 9;
+    uint32_t mapMode = 0;
+    uint32_t resetHistory = 0;
+    uint32_t reserved = 0;
+    float inverseFullRms = 1.0f;
+    float inverseBodyRms = 1.0f;
+    float activity = 0.0f;
+    float directionFocus = 0.0f;
+    float motionX = 0.0f;
+    float motionY = 0.0f;
+    float bodyAttack = 0.22f;
+    float bodyRelease = 0.075f;
+    float detailAttack = 0.58f;
+    float detailRelease = 0.20f;
+    float wakeDecay = 0.968f;
+    float wakeGain = 1.35f;
+};
+
 @interface S3GEnergyMetalMapView : NSView {
     CAMetalLayer* _metalLayer;
     id<MTLDevice> _device;
     id<MTLCommandQueue> _commandQueue;
     id<MTLRenderPipelineState> _pipeline;
-    id<MTLTexture> _texture;
-    NSUInteger _textureWidth;
-    NSUInteger _textureHeight;
+    id<MTLComputePipelineState> _analysisPipeline;
+    id<MTLBuffer> _basisBuffer;
+    id<MTLBuffer> _weightsBuffer;
+    id<MTLBuffer> _snapshotBuffer;
+    id<MTLTexture> _fieldTextures[2];
+    NSUInteger _fieldIndex;
+    BOOL _historyReady;
     BOOL _ready;
 }
 - (BOOL)isReady;
 - (void)updateMetalLayerGeometry;
-- (void)renderPixels:(const uint8_t*)pixels width:(NSUInteger)width height:(NSUInteger)height;
+- (void)renderSnapshots:(const float*)snapshots
+           snapshotCount:(NSUInteger)snapshotCount
+          activeChannels:(NSUInteger)activeChannels
+                    basis:(const float*)basis
+                 fullRms:(float)fullRms
+                 bodyRms:(float)bodyRms
+                 activity:(float)activity
+            directionFocus:(float)directionFocus
+                  motionX:(float)motionX
+                  motionY:(float)motionY
+                   mapMode:(uint32_t)mapMode;
 @end
 
 @interface S3GEnergyOverlayView : NSView {
@@ -430,13 +541,20 @@ struct EnergyTrail {
     std::array<uint8_t, kEnergyMapCols * kEnergyMapRows * 4u> _pixels;
     std::array<EnergyTrail, kEnergyTrailCount> _trails;
     std::array<EnergyPeak, kEnergyPeakCount> _heldPeaks;
+    std::array<float, kEnergyGpuSnapshotCount * kChannelCount> _snapshotHistory;
+    uint32_t _snapshotHistoryCursor;
+    uint32_t _snapshotHistoryCount;
     uint32_t _trailCursor;
+    float _previousDirectionX;
+    float _previousDirectionY;
+    BOOL _hasPreviousDirection;
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 - (void)refresh:(NSTimer*)timer;
 - (void)updateMenuHover:(NSPoint)point;
+- (BOOL)requestLargeView:(BOOL)large;
 @end
 
 static NSRect energyHeatRect(NSRect bounds)
@@ -457,8 +575,17 @@ static CGFloat evNormDb(float value)
 
 static NSString* mapModeName(uint32_t mode)
 {
-    static NSString* names[] = { @"FIELD", @"BLUE", @"INK", @"VOLT" };
-    return names[std::min<uint32_t>(mode, 3u)];
+    static NSString* names[] = {
+        @"FIELD", @"BLUE", @"INK", @"VOLT", @"CLASSIC", @"INFERNO", @"VIRIDIS", @"MAGMA"
+    };
+    return names[std::min<uint32_t>(mode, kMapModeCount - 1u)];
+}
+
+static NSString* sizeModeName(NSRect bounds)
+{
+    const bool large = bounds.size.width > static_cast<CGFloat>(kGuiWidth + 120u)
+        || bounds.size.height > static_cast<CGFloat>(kGuiHeight + 100u);
+    return large ? @"LARGE" : @"NORMAL";
 }
 
 static CGFloat heatXFromMap(float x, NSRect heat)
@@ -555,11 +682,43 @@ static void mapRgb(float value, uint32_t mode, uint8_t& r, uint8_t& g, uint8_t& 
         { 0.78f, 238, 236, 98 },
         { 1.00f, 255, 255, 255 },
     };
+    static constexpr Stop classic[] = {
+        { 0.00f, 42, 70, 115 },
+        { 0.22f, 73, 144, 171 },
+        { 0.48f, 213, 168, 77 },
+        { 0.72f, 224, 108, 72 },
+        { 1.00f, 248, 224, 126 },
+    };
+    static constexpr Stop inferno[] = {
+        { 0.00f, 0, 0, 4 },
+        { 0.24f, 87, 15, 109 },
+        { 0.48f, 187, 55, 84 },
+        { 0.73f, 249, 142, 8 },
+        { 1.00f, 252, 255, 164 },
+    };
+    static constexpr Stop viridis[] = {
+        { 0.00f, 68, 1, 84 },
+        { 0.25f, 59, 82, 139 },
+        { 0.50f, 33, 145, 140 },
+        { 0.75f, 94, 201, 98 },
+        { 1.00f, 253, 231, 37 },
+    };
+    static constexpr Stop magma[] = {
+        { 0.00f, 0, 0, 4 },
+        { 0.25f, 80, 18, 123 },
+        { 0.50f, 183, 55, 121 },
+        { 0.75f, 251, 136, 97 },
+        { 1.00f, 252, 253, 191 },
+    };
     const Stop* stops = field;
     size_t count = sizeof(field) / sizeof(field[0]);
     if (mode == 1u) { stops = blue; count = sizeof(blue) / sizeof(blue[0]); }
     else if (mode == 2u) { stops = ink; count = sizeof(ink) / sizeof(ink[0]); }
     else if (mode == 3u) { stops = volt; count = sizeof(volt) / sizeof(volt[0]); }
+    else if (mode == 4u) { stops = classic; count = sizeof(classic) / sizeof(classic[0]); }
+    else if (mode == 5u) { stops = inferno; count = sizeof(inferno) / sizeof(inferno[0]); }
+    else if (mode == 6u) { stops = viridis; count = sizeof(viridis) / sizeof(viridis[0]); }
+    else if (mode == 7u) { stops = magma; count = sizeof(magma) / sizeof(magma[0]); }
     value = std::clamp(value, 0.0f, 1.0f);
     const Stop* a = &stops[0];
     const Stop* c = &stops[count - 1];
@@ -603,9 +762,14 @@ static void drawEnergyMenu(NSString* name,
         _device = MTLCreateSystemDefaultDevice();
         _commandQueue = nil;
         _pipeline = nil;
-        _texture = nil;
-        _textureWidth = 0;
-        _textureHeight = 0;
+        _analysisPipeline = nil;
+        _basisBuffer = nil;
+        _weightsBuffer = nil;
+        _snapshotBuffer = nil;
+        _fieldTextures[0] = nil;
+        _fieldTextures[1] = nil;
+        _fieldIndex = 0;
+        _historyReady = NO;
         _ready = NO;
         if (_device) {
             _metalLayer = [[CAMetalLayer layer] retain];
@@ -621,42 +785,156 @@ static void drawEnergyMenu(NSString* name,
             NSString* shaderSource =
                 @"#include <metal_stdlib>\n"
                  "using namespace metal;\n"
+                 "struct Params {\n"
+                 "  uint width; uint height; uint snapshotCount; uint activeChannels;\n"
+                 "  uint bodyChannels; uint mapMode; uint resetHistory; uint reserved;\n"
+                 "  float inverseFullRms; float inverseBodyRms; float activity; float directionFocus;\n"
+                 "  float motionX; float motionY; float bodyAttack; float bodyRelease;\n"
+                 "  float detailAttack; float detailRelease; float wakeDecay; float wakeGain;\n"
+                 "};\n"
                  "struct Out { float4 position [[position]]; float2 uv; };\n"
                  "vertex Out vertexMain(uint vid [[vertex_id]]) {\n"
                  "  float2 pos[4] = { float2(-1.0, 1.0), float2(1.0, 1.0), float2(-1.0, -1.0), float2(1.0, -1.0) };\n"
                  "  float2 uv[4] = { float2(0.0, 0.0), float2(1.0, 0.0), float2(0.0, 1.0), float2(1.0, 1.0) };\n"
                  "  Out out; out.position = float4(pos[vid], 0.0, 1.0); out.uv = uv[vid]; return out;\n"
                  "}\n"
-                 "fragment float4 fragmentMain(Out in [[stage_in]], texture2d<float> tex [[texture(0)]]) {\n"
+                 "float3 palette(float value, uint mode) {\n"
+                 "  value = clamp(value, 0.0, 1.0);\n"
+                 "  if (mode == 1) {\n"
+                 "    if (value < 0.30) return mix(float3(0.0), float3(0.063,0.204,0.408), value/0.30);\n"
+                 "    if (value < 0.62) return mix(float3(0.063,0.204,0.408), float3(0.133,0.627,0.808), (value-0.30)/0.32);\n"
+                 "    return mix(float3(0.133,0.627,0.808), float3(0.863,0.965,1.0), (value-0.62)/0.38);\n"
+                 "  }\n"
+                 "  if (mode == 2) {\n"
+                 "    if (value < 0.32) return mix(float3(0.0), float3(0.188,0.204,0.220), value/0.32);\n"
+                 "    if (value < 0.70) return mix(float3(0.188,0.204,0.220), float3(0.604,0.627,0.643), (value-0.32)/0.38);\n"
+                 "    return mix(float3(0.604,0.627,0.643), float3(0.949,0.949,0.933), (value-0.70)/0.30);\n"
+                 "  }\n"
+                 "  if (mode == 3) {\n"
+                 "    if (value < 0.24) return mix(float3(0.0), float3(0.165,0.125,0.408), value/0.24);\n"
+                 "    if (value < 0.54) return mix(float3(0.165,0.125,0.408), float3(0.0,0.831,0.839), (value-0.24)/0.30);\n"
+                 "    if (value < 0.78) return mix(float3(0.0,0.831,0.839), float3(0.933,0.925,0.384), (value-0.54)/0.24);\n"
+                 "    return mix(float3(0.933,0.925,0.384), float3(1.0), (value-0.78)/0.22);\n"
+                 "  }\n"
+                 "  if (mode == 4) {\n"
+                 "    if (value < 0.22) return mix(float3(0.165,0.275,0.451), float3(0.286,0.565,0.671), value/0.22);\n"
+                 "    if (value < 0.48) return mix(float3(0.286,0.565,0.671), float3(0.835,0.659,0.302), (value-0.22)/0.26);\n"
+                 "    if (value < 0.72) return mix(float3(0.835,0.659,0.302), float3(0.878,0.424,0.282), (value-0.48)/0.24);\n"
+                 "    return mix(float3(0.878,0.424,0.282), float3(0.973,0.878,0.494), (value-0.72)/0.28);\n"
+                 "  }\n"
+                 "  if (mode == 5) {\n"
+                 "    if (value < 0.24) return mix(float3(0.0,0.0,0.016), float3(0.341,0.059,0.427), value/0.24);\n"
+                 "    if (value < 0.48) return mix(float3(0.341,0.059,0.427), float3(0.733,0.216,0.329), (value-0.24)/0.24);\n"
+                 "    if (value < 0.73) return mix(float3(0.733,0.216,0.329), float3(0.976,0.557,0.031), (value-0.48)/0.25);\n"
+                 "    return mix(float3(0.976,0.557,0.031), float3(0.988,1.0,0.643), (value-0.73)/0.27);\n"
+                 "  }\n"
+                 "  if (mode == 6) {\n"
+                 "    if (value < 0.25) return mix(float3(0.267,0.004,0.329), float3(0.231,0.322,0.545), value/0.25);\n"
+                 "    if (value < 0.50) return mix(float3(0.231,0.322,0.545), float3(0.129,0.569,0.549), (value-0.25)/0.25);\n"
+                 "    if (value < 0.75) return mix(float3(0.129,0.569,0.549), float3(0.369,0.788,0.384), (value-0.50)/0.25);\n"
+                 "    return mix(float3(0.369,0.788,0.384), float3(0.992,0.906,0.145), (value-0.75)/0.25);\n"
+                 "  }\n"
+                 "  if (mode == 7) {\n"
+                 "    if (value < 0.25) return mix(float3(0.0,0.0,0.016), float3(0.314,0.071,0.482), value/0.25);\n"
+                 "    if (value < 0.50) return mix(float3(0.314,0.071,0.482), float3(0.718,0.216,0.475), (value-0.25)/0.25);\n"
+                 "    if (value < 0.75) return mix(float3(0.718,0.216,0.475), float3(0.984,0.533,0.380), (value-0.50)/0.25);\n"
+                 "    return mix(float3(0.984,0.533,0.380), float3(0.988,0.992,0.749), (value-0.75)/0.25);\n"
+                 "  }\n"
+                 "  if (value < 0.26) return mix(float3(0.094,0.141,0.306), float3(0.133,0.502,0.667), value/0.26);\n"
+                 "  if (value < 0.52) return mix(float3(0.133,0.502,0.667), float3(0.886,0.839,0.400), (value-0.26)/0.26);\n"
+                 "  if (value < 0.76) return mix(float3(0.886,0.839,0.400), float3(0.886,0.416,0.243), (value-0.52)/0.24);\n"
+                 "  return mix(float3(0.886,0.416,0.243), float3(0.808,0.149,0.157), (value-0.76)/0.24);\n"
+                 "}\n"
+                 "kernel void analysisMain(device const float* basis [[buffer(0)]],\n"
+                 "                         device const float* snapshots [[buffer(1)]],\n"
+                 "                         constant Params& p [[buffer(2)]],\n"
+                 "                         device const float* weights [[buffer(3)]],\n"
+                 "                         texture2d<half, access::read> previous [[texture(0)]],\n"
+                 "                         texture2d<half, access::write> next [[texture(1)]],\n"
+                 "                         uint2 gid [[thread_position_in_grid]]) {\n"
+                 "  if (gid.x >= p.width || gid.y >= p.height) return;\n"
+                 "  float bodySq = 0.0; float detailSq = 0.0;\n"
+                 "  uint basisOffset = (gid.y * p.width + gid.x) * 64;\n"
+                 "  for (uint s = 0; s < p.snapshotCount; ++s) {\n"
+                 "    float body = 0.0; float detail = 0.0; uint sampleOffset = s * 64;\n"
+                 "    for (uint ch = 0; ch < p.activeChannels; ++ch) {\n"
+                 "      float coefficient = snapshots[sampleOffset + ch];\n"
+                 "      float decoded = coefficient * basis[basisOffset + ch];\n"
+                 "      detail += decoded * weights[ch];\n"
+                 "      if (ch < p.bodyChannels) body += decoded * weights[64 + ch];\n"
+                 "    }\n"
+                 "    bodySq += body * body; detailSq += detail * detail;\n"
+                 "  }\n"
+                 "  float count = max(1.0, float(p.snapshotCount));\n"
+                 "  float body = sqrt(bodySq / count) * p.inverseBodyRms;\n"
+                 "  float detail = sqrt(detailSq / count) * p.inverseFullRms;\n"
+                 "  float bodyTarget = (1.0 - exp(-body * 0.95)) * p.activity;\n"
+                 "  float detailTarget = (1.0 - exp(-detail * 0.72)) * p.activity;\n"
+                 "  int shiftX = int(round(clamp(p.motionX * float(p.width) * 0.55, -2.0, 2.0)));\n"
+                 "  int shiftY = int(round(clamp(p.motionY * float(p.height) * 0.55, -2.0, 2.0)));\n"
+                 "  int oldX = (int(gid.x) - shiftX) % int(p.width); if (oldX < 0) oldX += int(p.width);\n"
+                 "  int oldY = clamp(int(gid.y) - shiftY, 0, int(p.height) - 1);\n"
+                 "  float4 history = p.resetHistory != 0 ? float4(0.0) : float4(previous.read(gid));\n"
+                 "  float wakeHistory = p.resetHistory != 0 ? 0.0 : float(previous.read(uint2(uint(oldX), uint(oldY))).b);\n"
+                 "  float bodyMix = bodyTarget > history.r ? p.bodyAttack : p.bodyRelease;\n"
+                 "  float detailMix = detailTarget > history.g ? p.detailAttack : p.detailRelease;\n"
+                 "  float bodySmooth = mix(history.r, bodyTarget, bodyMix);\n"
+                 "  float detailSmooth = mix(history.g, detailTarget, detailMix);\n"
+                 "  float departed = max(history.g - detailTarget, 0.0) + max(history.r - bodyTarget, 0.0) * 0.36;\n"
+                 "  float wake = max(wakeHistory * p.wakeDecay, departed * p.wakeGain);\n"
+                 "  next.write(half4(half(bodySmooth), half(detailSmooth), half(clamp(wake,0.0,1.0)), half(p.activity)), gid);\n"
+                 "}\n"
+                 "fragment float4 fragmentMain(Out in [[stage_in]], texture2d<float> tex [[texture(0)]], constant Params& p [[buffer(0)]]) {\n"
                  "  constexpr sampler s(address::clamp_to_edge, filter::linear);\n"
+                 "  float2 uv = float2(in.uv.x, 1.0 - in.uv.y);\n"
                  "  float2 texel = 1.0 / float2(tex.get_width(), tex.get_height());\n"
-                 "  float3 c = tex.sample(s, in.uv).rgb;\n"
-                 "  float3 blur = c * 0.40;\n"
-                 "  blur += tex.sample(s, in.uv + float2(texel.x, 0.0)).rgb * 0.12;\n"
-                 "  blur += tex.sample(s, in.uv - float2(texel.x, 0.0)).rgb * 0.12;\n"
-                 "  blur += tex.sample(s, in.uv + float2(0.0, texel.y)).rgb * 0.12;\n"
-                 "  blur += tex.sample(s, in.uv - float2(0.0, texel.y)).rgb * 0.12;\n"
-                 "  blur += tex.sample(s, in.uv + texel).rgb * 0.03;\n"
-                 "  blur += tex.sample(s, in.uv - texel).rgb * 0.03;\n"
-                 "  blur += tex.sample(s, in.uv + float2(texel.x, -texel.y)).rgb * 0.03;\n"
-                 "  blur += tex.sample(s, in.uv + float2(-texel.x, texel.y)).rgb * 0.03;\n"
-                 "  float3 color = mix(blur, c, 0.58);\n"
-                 "  color = pow(clamp(color * 1.10, 0.0, 1.0), float3(0.88));\n"
-                 "  color = smoothstep(float3(0.0), float3(1.0), color);\n"
+                 "  float4 field = tex.sample(s, uv);\n"
+                 "  float body = field.r; float detail = field.g; float wake = field.b;\n"
+                 "  float contrast = max(detail - body * 0.42, 0.0);\n"
+                 "  float value = clamp(body * 0.78 + detail * (0.42 + p.directionFocus * 0.16) + contrast * (0.22 + p.directionFocus * 0.28), 0.0, 1.0);\n"
+                 "  float dL = tex.sample(s, uv - float2(texel.x,0.0)).g; float dR = tex.sample(s, uv + float2(texel.x,0.0)).g;\n"
+                 "  float dD = tex.sample(s, uv - float2(0.0,texel.y)).g; float dU = tex.sample(s, uv + float2(0.0,texel.y)).g;\n"
+                 "  float ridge = smoothstep(0.018, 0.16, length(float2(dR-dL,dU-dD))) * detail;\n"
+                 "  float wakeOnly = max(wake - max(body, detail) * 0.46, 0.0);\n"
+                 "  if (value < 0.0015 && wakeOnly < 0.002) return float4(0.0,0.0,0.0,1.0);\n"
+                 "  float3 color = palette(pow(value, 0.76), p.mapMode);\n"
+                 "  color += ridge * (0.10 + p.directionFocus * 0.16);\n"
+                 "  float wakeAlpha = smoothstep(0.015, 0.52, wakeOnly) * 0.68;\n"
+                 "  float3 wakeColor = 0.12 + (1.0 - palette(pow(clamp(wake,0.0,1.0),0.70), p.mapMode)) * 0.82;\n"
+                 "  color = mix(color, wakeColor, wakeAlpha);\n"
+                 "  color = pow(clamp(color * 1.06, 0.0, 1.0), float3(0.90));\n"
                  "  return float4(color, 1.0);\n"
                  "}\n";
             NSError* error = nil;
             id<MTLLibrary> library = [_device newLibraryWithSource:shaderSource options:nil error:&error];
             if (library) {
+                id<MTLFunction> vertexFunction = [library newFunctionWithName:@"vertexMain"];
+                id<MTLFunction> fragmentFunction = [library newFunctionWithName:@"fragmentMain"];
+                id<MTLFunction> analysisFunction = [library newFunctionWithName:@"analysisMain"];
                 MTLRenderPipelineDescriptor* desc = [[[MTLRenderPipelineDescriptor alloc] init] autorelease];
-                desc.vertexFunction = [library newFunctionWithName:@"vertexMain"];
-                desc.fragmentFunction = [library newFunctionWithName:@"fragmentMain"];
+                desc.vertexFunction = vertexFunction;
+                desc.fragmentFunction = fragmentFunction;
                 desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
-                _pipeline = [_device newRenderPipelineStateWithDescriptor:desc error:&error];
-                [desc.vertexFunction release];
-                [desc.fragmentFunction release];
-                _ready = _pipeline != nil && _commandQueue != nil;
+                NSError* renderError = nil;
+                NSError* computeError = nil;
+                _pipeline = [_device newRenderPipelineStateWithDescriptor:desc error:&renderError];
+                _analysisPipeline = [_device newComputePipelineStateWithFunction:analysisFunction error:&computeError];
+                if (!_pipeline && renderError) {
+                    std::fprintf(stderr, "s3g Ambi Energy Metal render pipeline: %s\n",
+                                 [[renderError localizedDescription] UTF8String]);
+                }
+                if (!_analysisPipeline && computeError) {
+                    std::fprintf(stderr, "s3g Ambi Energy Metal analysis pipeline: %s\n",
+                                 [[computeError localizedDescription] UTF8String]);
+                }
+                [vertexFunction release];
+                [fragmentFunction release];
+                [analysisFunction release];
+                _ready = _pipeline != nil && _analysisPipeline != nil && _commandQueue != nil;
                 [library release];
+            } else if (error) {
+                std::fprintf(stderr, "s3g Ambi Energy Metal shader: %s\n",
+                             [[error localizedDescription] UTF8String]);
             }
         } else {
             _metalLayer = nil;
@@ -692,45 +970,104 @@ static void drawEnergyMenu(NSString* name,
     [super viewDidMoveToWindow];
     [self updateMetalLayerGeometry];
 }
-- (void)renderPixels:(const uint8_t*)pixels width:(NSUInteger)width height:(NSUInteger)height
+- (void)renderSnapshots:(const float*)snapshots
+           snapshotCount:(NSUInteger)snapshotCount
+          activeChannels:(NSUInteger)activeChannels
+                    basis:(const float*)basis
+                 fullRms:(float)fullRms
+                 bodyRms:(float)bodyRms
+                 activity:(float)activity
+            directionFocus:(float)directionFocus
+                  motionX:(float)motionX
+                  motionY:(float)motionY
+                   mapMode:(uint32_t)mapMode
 {
-    if (!_ready || !pixels || width == 0 || height == 0) return;
+    if (!_ready || !snapshots || !basis) return;
     [self updateMetalLayerGeometry];
-    if (!_texture || _textureWidth != width || _textureHeight != height) {
-        [_texture release];
-        MTLTextureDescriptor* textureDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-                                                                                                width:width
-                                                                                               height:height
-                                                                                            mipmapped:NO];
-        textureDesc.usage = MTLTextureUsageShaderRead;
-        textureDesc.storageMode = MTLStorageModeManaged;
-        _texture = [_device newTextureWithDescriptor:textureDesc];
-        _textureWidth = width;
-        _textureHeight = height;
+    if (!_basisBuffer) {
+        _basisBuffer = [_device newBufferWithLength:sizeof(float) * kEnergyMapPixels * kChannelCount
+                                            options:MTLResourceStorageModeShared];
+        std::memcpy([_basisBuffer contents], basis, sizeof(float) * kEnergyMapPixels * kChannelCount);
+        _weightsBuffer = [_device newBufferWithLength:sizeof(float) * kChannelCount * 2u
+                                              options:MTLResourceStorageModeShared];
+        auto* weights = static_cast<float*>([_weightsBuffer contents]);
+        for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
+            const uint32_t order = static_cast<uint32_t>(std::sqrt(static_cast<float>(ch)));
+            weights[ch] = s3g::ambiUtilityStandardOrderWeight(s3g::AmbiUtilityWeighting::MaxRe, order, 7u);
+            weights[kChannelCount + ch] = ch < 9u
+                ? s3g::ambiUtilityStandardOrderWeight(s3g::AmbiUtilityWeighting::MaxRe, order, 2u)
+                : 0.0f;
+        }
+        _snapshotBuffer = [_device newBufferWithLength:sizeof(float) * kEnergyGpuSnapshotCount * kChannelCount
+                                               options:MTLResourceStorageModeShared];
+        MTLTextureDescriptor* fieldDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float
+                                                                                              width:kEnergyMapCols
+                                                                                             height:kEnergyMapRows
+                                                                                          mipmapped:NO];
+        fieldDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+        fieldDesc.storageMode = MTLStorageModePrivate;
+        _fieldTextures[0] = [_device newTextureWithDescriptor:fieldDesc];
+        _fieldTextures[1] = [_device newTextureWithDescriptor:fieldDesc];
     }
-    MTLRegion region = MTLRegionMake2D(0, 0, width, height);
-    [_texture replaceRegion:region mipmapLevel:0 withBytes:pixels bytesPerRow:width * 4u];
+    if (!_basisBuffer || !_weightsBuffer || !_snapshotBuffer || !_fieldTextures[0] || !_fieldTextures[1]) return;
+    snapshotCount = std::min<NSUInteger>(snapshotCount, kEnergyGpuSnapshotCount);
+    std::memcpy([_snapshotBuffer contents], snapshots, sizeof(float) * snapshotCount * kChannelCount);
+
     id<CAMetalDrawable> drawable = [_metalLayer nextDrawable];
     if (!drawable) return;
+    EnergyGpuParams params {};
+    params.snapshotCount = static_cast<uint32_t>(snapshotCount);
+    params.activeChannels = std::clamp<uint32_t>(static_cast<uint32_t>(activeChannels), 1u, kChannelCount);
+    params.mapMode = std::min<uint32_t>(mapMode, kMapModeCount - 1u);
+    params.resetHistory = _historyReady ? 0u : 1u;
+    params.inverseFullRms = 1.0f / std::max(0.000001f, fullRms);
+    params.inverseBodyRms = 1.0f / std::max(0.000001f, bodyRms);
+    params.activity = std::clamp(activity, 0.0f, 1.0f);
+    params.directionFocus = std::clamp(directionFocus, 0.0f, 1.0f);
+    params.motionX = std::clamp(motionX, -0.04f, 0.04f);
+    params.motionY = std::clamp(motionY, -0.04f, 0.04f);
+
+    const NSUInteger nextIndex = (_fieldIndex + 1u) & 1u;
     MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = drawable.texture;
     pass.colorAttachments[0].loadAction = MTLLoadActionClear;
     pass.colorAttachments[0].storeAction = MTLStoreActionStore;
     pass.colorAttachments[0].clearColor = MTLClearColorMake(0.02, 0.02, 0.02, 1.0);
     id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
+    id<MTLComputeCommandEncoder> compute = [commandBuffer computeCommandEncoder];
+    [compute setComputePipelineState:_analysisPipeline];
+    [compute setBuffer:_basisBuffer offset:0 atIndex:0];
+    [compute setBuffer:_snapshotBuffer offset:0 atIndex:1];
+    [compute setBytes:&params length:sizeof(params) atIndex:2];
+    [compute setBuffer:_weightsBuffer offset:0 atIndex:3];
+    [compute setTexture:_fieldTextures[_fieldIndex] atIndex:0];
+    [compute setTexture:_fieldTextures[nextIndex] atIndex:1];
+    const MTLSize threadsPerGroup = MTLSizeMake(16, 8, 1);
+    const MTLSize threads = MTLSizeMake(kEnergyMapCols, kEnergyMapRows, 1);
+    [compute dispatchThreads:threads threadsPerThreadgroup:threadsPerGroup];
+    [compute endEncoding];
+
     id<MTLRenderCommandEncoder> encoder = [commandBuffer renderCommandEncoderWithDescriptor:pass];
     MTLViewport viewport { 0.0, 0.0, static_cast<double>(drawable.texture.width), static_cast<double>(drawable.texture.height), 0.0, 1.0 };
     [encoder setViewport:viewport];
     [encoder setRenderPipelineState:_pipeline];
-    [encoder setFragmentTexture:_texture atIndex:0];
+    [encoder setFragmentTexture:_fieldTextures[nextIndex] atIndex:0];
+    [encoder setFragmentBytes:&params length:sizeof(params) atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
     [encoder endEncoding];
     [commandBuffer presentDrawable:drawable];
     [commandBuffer commit];
+    _fieldIndex = nextIndex;
+    _historyReady = YES;
 }
 - (void)dealloc
 {
-    [_texture release];
+    [_fieldTextures[0] release];
+    [_fieldTextures[1] release];
+    [_snapshotBuffer release];
+    [_weightsBuffer release];
+    [_basisBuffer release];
+    [_analysisPipeline release];
     [_pipeline release];
     [_commandQueue release];
     [_metalLayer release];
@@ -849,7 +1186,13 @@ static void drawEnergyMenu(NSString* name,
         _hoverMenuItem = -1;
         _mapSmooth.fill(0.0f);
         _mapWake.fill(0.0f);
+        _snapshotHistory.fill(0.0f);
+        _snapshotHistoryCursor = 0;
+        _snapshotHistoryCount = 0;
         _trailCursor = 0;
+        _previousDirectionX = 0.5f;
+        _previousDirectionY = 0.5f;
+        _hasPreviousDirection = NO;
     }
     return self;
 }
@@ -866,9 +1209,37 @@ static void drawEnergyMenu(NSString* name,
     [self addTrackingArea:[area autorelease]];
 }
 - (void)dealloc { [self stopRefreshTimer]; [_overlayView release]; [_metalMapView release]; [super dealloc]; }
-- (void)startRefreshTimer { if (_timer) return; _timer = [NSTimer timerWithTimeInterval:1.0/24.0 target:self selector:@selector(refresh:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; }
+- (void)startRefreshTimer { if (_timer) return; _timer = [NSTimer timerWithTimeInterval:1.0/30.0 target:self selector:@selector(refresh:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
 - (void)refresh:(NSTimer*)timer { (void)timer; if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
+- (BOOL)requestLargeView:(BOOL)large
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    if (!p || !p->host || !p->host->get_extension) return NO;
+    const auto* hostGui = static_cast<const clap_host_gui_t*>(p->host->get_extension(p->host, CLAP_EXT_GUI));
+    if (!hostGui || !hostGui->request_resize) return NO;
+
+    uint32_t width = kGuiWidth;
+    uint32_t height = kGuiHeight;
+    if (large) {
+        NSScreen* screen = [[self window] screen] ?: [NSScreen mainScreen];
+        if (screen) {
+            const NSRect visible = [screen visibleFrame];
+            width = static_cast<uint32_t>(std::clamp<CGFloat>(std::floor(visible.size.width * 0.90),
+                                                               static_cast<CGFloat>(kGuiWidth),
+                                                               static_cast<CGFloat>(kLargeGuiWidth)));
+            height = static_cast<uint32_t>(std::clamp<CGFloat>(std::floor(visible.size.height * 0.86),
+                                                                static_cast<CGFloat>(kGuiHeight),
+                                                                static_cast<CGFloat>(kLargeGuiHeight)));
+        } else {
+            width = kLargeGuiWidth;
+            height = kLargeGuiHeight;
+        }
+    }
+    if (!hostGui->request_resize(p->host, width, height)) return NO;
+    [self setFrameSize:NSMakeSize(width, height)];
+    return YES;
+}
 - (void)drawRect:(NSRect)dirty
 {
     (void)dirty;
@@ -888,7 +1259,9 @@ static void drawEnergyMenu(NSString* name,
     const uint32_t order = s3g::kAmbiSpeakerDecoderMaxOrder;
     const uint32_t ambiCh = s3g::ambiChannelsForOrder(order);
     const uint32_t active = p->activeChannels.load(std::memory_order_relaxed);
-    const uint32_t mapMode = std::clamp<uint32_t>(p->mapMode.load(std::memory_order_relaxed), 0u, 3u);
+    const uint32_t mapMode = std::clamp<uint32_t>(p->mapMode.load(std::memory_order_relaxed),
+                                                  0u,
+                                                  kMapModeCount - 1u);
     const uint32_t viewMode = kEnergyViewField;
     const NSRect heat = energyHeatRect(bounds);
     if (_metalMapView) {
@@ -914,6 +1287,14 @@ static void drawEnergyMenu(NSString* name,
                    style,
                    bar.origin.x + 14.0,
                    bar.origin.x + 72.0,
+                   86.0);
+    drawEnergyMenu(@"SIZE",
+                   sizeModeName(bounds),
+                   bar.origin.y + 10.0,
+                   small,
+                   style,
+                   bar.origin.x + 188.0,
+                   bar.origin.x + 240.0,
                    86.0);
     const NSRect panel = NSMakeRect(18, 82, viewW - 36, viewH - 108);
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
@@ -945,6 +1326,73 @@ static void drawEnergyMenu(NSString* name,
         energyDir = { 1.0f, 0.0f, 0.0f };
     }
 
+    std::array<float, kChannelCount> incomingSnapshot {};
+    while (popAnalysisSnapshot(*p, incomingSnapshot)) {
+        float* destination = &_snapshotHistory[_snapshotHistoryCursor * kChannelCount];
+        std::copy(incomingSnapshot.begin(), incomingSnapshot.end(), destination);
+        _snapshotHistoryCursor = (_snapshotHistoryCursor + 1u) % kEnergyGpuSnapshotCount;
+        _snapshotHistoryCount = std::min<uint32_t>(_snapshotHistoryCount + 1u, kEnergyGpuSnapshotCount);
+    }
+
+    double fullEnergy = 0.0;
+    double bodyEnergy = 0.0;
+    for (uint32_t sample = 0; sample < _snapshotHistoryCount; ++sample) {
+        const float* snapshot = &_snapshotHistory[sample * kChannelCount];
+        for (uint32_t ch = 0; ch < ambiActive; ++ch) {
+            const uint32_t bandOrder = static_cast<uint32_t>(std::sqrt(static_cast<float>(ch)));
+            const double value = static_cast<double>(snapshot[ch]);
+            const double fullWeight = static_cast<double>(
+                s3g::ambiUtilityStandardOrderWeight(s3g::AmbiUtilityWeighting::MaxRe, bandOrder, 7u));
+            fullEnergy += value * value * fullWeight * fullWeight;
+            if (ch < 9u) {
+                const double bodyWeight = static_cast<double>(
+                    s3g::ambiUtilityStandardOrderWeight(s3g::AmbiUtilityWeighting::MaxRe, bandOrder, 2u));
+                bodyEnergy += value * value * bodyWeight * bodyWeight;
+            }
+        }
+    }
+    const double snapshotDivisor = static_cast<double>(std::max<uint32_t>(1u, _snapshotHistoryCount));
+    const float fullRms = static_cast<float>(std::sqrt(fullEnergy / snapshotDivisor));
+    const float bodyRms = static_cast<float>(std::sqrt(bodyEnergy / snapshotDivisor));
+    const float activity = silent ? 0.0f : static_cast<float>(evNormDb(maxInput));
+
+    float directionMapX = 0.5f;
+    float directionMapY = 0.5f;
+    float motionX = 0.0f;
+    float motionY = 0.0f;
+    if (!silent && dirConfidence >= 0.08f) {
+        const float azimuth = std::atan2(energyDir.y, energyDir.x);
+        const float elevation = std::asin(std::clamp(energyDir.z, -1.0f, 1.0f));
+        directionMapX = 0.5f - azimuth / (2.0f * s3g::kPi);
+        directionMapX -= std::floor(directionMapX);
+        directionMapY = std::clamp(0.5f + elevation / s3g::kPi, 0.0f, 1.0f);
+        if (_hasPreviousDirection) {
+            motionX = directionMapX - _previousDirectionX;
+            if (motionX > 0.5f) motionX -= 1.0f;
+            else if (motionX < -0.5f) motionX += 1.0f;
+            motionY = directionMapY - _previousDirectionY;
+        }
+        _previousDirectionX = directionMapX;
+        _previousDirectionY = directionMapY;
+        _hasPreviousDirection = YES;
+    } else {
+        _hasPreviousDirection = NO;
+    }
+
+    const bool useMetal = _metalMapView && [_metalMapView isReady] && _openMenu == 0;
+    if (useMetal) {
+        [_metalMapView renderSnapshots:_snapshotHistory.data()
+                         snapshotCount:_snapshotHistoryCount
+                        activeChannels:ambiActive
+                                  basis:p->projectionBasis.data()
+                               fullRms:fullRms
+                               bodyRms:bodyRms
+                               activity:activity
+                          directionFocus:dirConfidence
+                                motionX:motionX
+                                motionY:motionY
+                                 mapMode:mapMode];
+    } else {
     float maxMap = 0.000001f;
     if (!silent && ambiActive > 0u) {
         const float orderNorm = static_cast<float>(order - 1u) / static_cast<float>(std::max<uint32_t>(1u, s3g::kAmbiSpeakerDecoderMaxOrder - 1u));
@@ -980,7 +1428,6 @@ static void drawEnergyMenu(NSString* name,
             maxMap = std::max(maxMap, _mapSmooth[i]);
         }
     }
-    const float activity = silent ? 0.0f : static_cast<float>(evNormDb(maxInput));
     for (uint32_t y = 0; y < kEnergyMapRows; ++y) {
         for (uint32_t x = 0; x < kEnergyMapCols; ++x) {
             const uint32_t index = y * kEnergyMapCols + x;
@@ -1088,46 +1535,62 @@ static void drawEnergyMenu(NSString* name,
         [_overlayView setTrails:_trails peaks:_heldPeaks view:viewMode];
     }
 
-    if (_metalMapView && [_metalMapView isReady] && _openMenu == 0) {
-        [_metalMapView renderPixels:_pixels.data() width:kEnergyMapCols height:kEnergyMapRows];
-    } else {
-        NSBitmapImageRep* bitmap = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
-                                                                           pixelsWide:kEnergyMapCols
-                                                                           pixelsHigh:kEnergyMapRows
-                                                                        bitsPerSample:8
-                                                                      samplesPerPixel:4
-                                                                             hasAlpha:YES
-                                                                             isPlanar:NO
-                                                                       colorSpaceName:NSCalibratedRGBColorSpace
-                                                                          bytesPerRow:kEnergyMapCols * 4
-                                                                         bitsPerPixel:32];
-        std::memcpy([bitmap bitmapData], _pixels.data(), _pixels.size());
-        NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(kEnergyMapCols, kEnergyMapRows)];
-        [image addRepresentation:bitmap];
-        [bitmap release];
-        [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationNone];
-        [image drawInRect:heat fromRect:NSMakeRect(0, 0, kEnergyMapCols, kEnergyMapRows) operation:NSCompositingOperationSourceOver fraction:0.98];
-        [image release];
+    NSBitmapImageRep* bitmap = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
+                                                                       pixelsWide:kEnergyMapCols
+                                                                       pixelsHigh:kEnergyMapRows
+                                                                    bitsPerSample:8
+                                                                  samplesPerPixel:4
+                                                                         hasAlpha:YES
+                                                                         isPlanar:NO
+                                                                   colorSpaceName:NSCalibratedRGBColorSpace
+                                                                      bytesPerRow:kEnergyMapCols * 4
+                                                                     bitsPerPixel:32];
+    std::memcpy([bitmap bitmapData], _pixels.data(), _pixels.size());
+    NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(kEnergyMapCols, kEnergyMapRows)];
+    [image addRepresentation:bitmap];
+    [bitmap release];
+    [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationNone];
+    [image drawInRect:heat fromRect:NSMakeRect(0, 0, kEnergyMapCols, kEnergyMapRows) operation:NSCompositingOperationSourceOver fraction:0.98];
+    [image release];
     }
 
     [evColor(0x3a3a3a) setStroke]; NSFrameRect(heat);
 
     if (_openMenu == 1) {
         const CGFloat itemH = 20.0;
-        const NSRect menu = NSMakeRect(bar.origin.x + 72.0, NSMaxY(bar) + 3.0, 86.0, itemH * 4.0);
-        NSString* mapItems[] = { @"FIELD", @"BLUE", @"INK", @"VOLT" };
-        s3g::clap_gui::drawDropdownMenu(menu, itemH, mapItems, 4u, static_cast<int>(mapMode), _hoverMenuItem, small, style);
+        const NSRect menu = NSMakeRect(bar.origin.x + 72.0,
+                                       NSMaxY(bar) + 3.0,
+                                       86.0,
+                                       itemH * static_cast<CGFloat>(kMapModeCount));
+        NSString* mapItems[] = {
+            @"FIELD", @"BLUE", @"INK", @"VOLT", @"CLASSIC", @"INFERNO", @"VIRIDIS", @"MAGMA"
+        };
+        s3g::clap_gui::drawDropdownMenu(menu,
+                                        itemH,
+                                        mapItems,
+                                        kMapModeCount,
+                                        static_cast<int>(mapMode),
+                                        _hoverMenuItem,
+                                        small,
+                                        style);
+    } else if (_openMenu == 2) {
+        const CGFloat itemH = 20.0;
+        const NSRect menu = NSMakeRect(bar.origin.x + 240.0, NSMaxY(bar) + 3.0, 86.0, itemH * 2.0);
+        NSString* sizeItems[] = { @"NORMAL", @"LARGE" };
+        const int selected = [sizeModeName(bounds) isEqualToString:@"LARGE"] ? 1 : 0;
+        s3g::clap_gui::drawDropdownMenu(menu, itemH, sizeItems, 2u, selected, _hoverMenuItem, small, style);
     }
 }
 - (void)updateMenuHover:(NSPoint)point
 {
-    if (_openMenu != 1) return;
+    if (_openMenu == 0) return;
     const NSRect bounds = [self bounds];
     const CGFloat viewW = std::max<CGFloat>(720.0, bounds.size.width);
     const NSRect bar = NSMakeRect(18, 38, viewW - 36, 34);
     const CGFloat itemH = 20.0;
-    const uint32_t count = 4u;
-    NSRect menu = NSMakeRect(bar.origin.x + 72.0, NSMaxY(bar) + 3.0, 86.0, itemH * static_cast<CGFloat>(count));
+    const uint32_t count = _openMenu == 1 ? kMapModeCount : 2u;
+    const CGFloat menuX = _openMenu == 1 ? bar.origin.x + 72.0 : bar.origin.x + 240.0;
+    NSRect menu = NSMakeRect(menuX, NSMaxY(bar) + 3.0, 86.0, itemH * static_cast<CGFloat>(count));
     const int next = s3g::clap_gui::dropdownHitIndex(point, menu, itemH, count);
     if (next != _hoverMenuItem) {
         _hoverMenuItem = next;
@@ -1141,12 +1604,22 @@ static void drawEnergyMenu(NSString* name,
     const NSRect bounds = [self bounds];
     const CGFloat viewW = std::max<CGFloat>(720.0, bounds.size.width);
     const NSRect bar = NSMakeRect(18, 38, viewW - 36, 34);
-    if (_openMenu == 1) {
+    if (_openMenu > 0) {
         const CGFloat itemH = 20.0;
-        const NSRect menu = NSMakeRect(bar.origin.x + 72.0, NSMaxY(bar) + 3.0, 86.0, itemH * 4.0);
+        const uint32_t count = _openMenu == 1 ? kMapModeCount : 2u;
+        const CGFloat menuX = _openMenu == 1 ? bar.origin.x + 72.0 : bar.origin.x + 240.0;
+        const NSRect menu = NSMakeRect(menuX,
+                                       NSMaxY(bar) + 3.0,
+                                       86.0,
+                                       itemH * static_cast<CGFloat>(count));
         if (NSPointInRect(pt, menu)) {
-            const uint32_t index = std::min<uint32_t>(3u, static_cast<uint32_t>((pt.y - menu.origin.y) / itemH));
-            applyParam(*static_cast<Plugin*>(_plugin), kMapParamId, index);
+            const uint32_t index = std::min<uint32_t>(count - 1u,
+                                                      static_cast<uint32_t>((pt.y - menu.origin.y) / itemH));
+            if (_openMenu == 1) {
+                applyParam(*static_cast<Plugin*>(_plugin), kMapParamId, index);
+            } else {
+                [self requestLargeView:index == 1u];
+            }
             _openMenu = 0;
             _hoverMenuItem = -1;
             [self setNeedsDisplay:YES];
@@ -1158,8 +1631,14 @@ static void drawEnergyMenu(NSString* name,
         _hoverMenuItem = -1;
         [self setNeedsDisplay:YES];
     }
-    if (NSPointInRect(pt, NSMakeRect(bar.origin.x + 72.0, bar.origin.y + 8.0, 76.0, 19.0))) {
+    if (NSPointInRect(pt, NSMakeRect(bar.origin.x + 72.0, bar.origin.y + 8.0, 86.0, 19.0))) {
         _openMenu = 1;
+        _hoverMenuItem = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, NSMakeRect(bar.origin.x + 240.0, bar.origin.y + 8.0, 86.0, 19.0))) {
+        _openMenu = 2;
         _hoverMenuItem = -1;
         [self setNeedsDisplay:YES];
         return;
@@ -1187,12 +1666,12 @@ bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating
 bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GAmbisonicEnergyVisualizerView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
 void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); auto* v = static_cast<S3GAmbisonicEnergyVisualizerView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { if (!w || !h) return false; auto* p = self(plugin); if (p->guiView) { const NSSize size = [static_cast<NSView*>(p->guiView) frame].size; *w = static_cast<uint32_t>(std::lround(size.width)); *h = static_cast<uint32_t>(std::lround(size.height)); } else { *w = kGuiWidth; *h = kGuiHeight; } return true; }
 bool guiCanResize(const clap_plugin_t*) { return true; }
 bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { if (!hints) return false; hints->can_resize_horizontally = true; hints->can_resize_vertically = true; hints->preserve_aspect_ratio = false; hints->aspect_ratio_width = 0; hints->aspect_ratio_height = 0; return true; }
 bool guiAdjustSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = std::clamp<uint32_t>(*w, 720u, 1800u); *h = std::clamp<uint32_t>(*h, 430u, 1100u); return true; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,kGuiWidth,kGuiHeight)]; return true; }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; w = std::clamp<uint32_t>(w, 720u, 1800u); h = std::clamp<uint32_t>(h, 430u, 1100u); [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); const NSSize size = [v frame].size; [parent addSubview:v]; [v setFrame:NSMakeRect(0, 0, size.width, size.height)]; return true; }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GAmbisonicEnergyVisualizerView*>(p->guiView) startRefreshTimer]; return true; }

@@ -27,23 +27,36 @@
       <main class="content" id="content">
         <h1>Ambi Energy Visualizer 64</h1>
 
-        <p><code>s3g Ambi Energy Visualizer 64</code> is a fixed 64-in/64-out passthrough analyzer for <code>ACN/SN3D</code> ambisonic signals. It does not decode or alter audio. It estimates where energy appears in the ambisonic field and draws that as a high-resolution flattened heatmap.</p>
+        <p><code>s3g Ambi Energy Visualizer 64</code> is a fixed 64-in/64-out passthrough analyzer for <code>ACN/SN3D</code> ambisonic signals up to 7OA. It does not alter the audio. It reconstructs a high-resolution rectangular view of energy across the sphere.</p>
 
         <h2 id="what-it-shows">What It Shows</h2>
 
-        <p>The heatmap is not a speaker meter. It reads the ambisonic channel energy for the selected order, evaluates the ambisonic basis over a flattened sphere, and colors the map by estimated field energy. Use it to see broad directional concentration, motion, and spread in an ambisonic chain.</p>
+        <p>The display evaluates synchronized HOA snapshots over a <code>256 x 128</code> grid of virtual probe directions. This preserves relationships between ambisonic channels instead of treating each channel as an independent meter.</p>
+
+        <ul>
+          <li><strong>Body</strong> uses orders 0-2 to keep broad and diffuse field energy visible.</li>
+          <li><strong>Detail</strong> uses the full 7OA field to reveal tighter directional structure.</li>
+          <li><strong>Wake</strong> leaves a short inverse-color afterimage behind receding energy.</li>
+        </ul>
+
+        <p>A first-order direction estimate guides contrast and wake movement; it does not add energy to the map. The result is an interpretive field monitor for concentration, spread, and motion, not a calibrated SPL or localization measurement.</p>
 
         <p>For raw channel routing, use <a href="multichannel-meter.html">Multichannel Meter 64</a>. For speaker output after decoding, use the <code>MAP</code> page in <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder 64</a>.</p>
 
         <h2 id="controls">Controls</h2>
 
         <ul>
-          <li><code>MAP</code> chooses the visual color map. The current visual assumes a 7OA-capable 64-channel input shape and emphasizes readable field motion over scientific measurement.</li>
+          <li><code>MAP</code> chooses between <code>FIELD</code>, <code>BLUE</code>, <code>INK</code>, <code>VOLT</code>, <code>CLASSIC</code>, <code>INFERNO</code>, <code>VIRIDIS</code>, and <code>MAGMA</code>. It changes only the display.</li>
+          <li><code>SIZE</code> selects <code>NORMAL</code> or <code>LARGE</code>. <code>LARGE</code> asks REAPER to expand the embedded GUI near the available screen size; <code>NORMAL</code> restores the default <code>980 x 560</code> view.</li>
         </ul>
+
+        <p>The CLAP plugin controls its canvas size, while REAPER owns the surrounding FX window. For an OS-level fullscreen view, float or maximize that REAPER window after selecting <code>LARGE</code>.</p>
 
         <h2 id="routing">Routing</h2>
 
         <p>The plugin exposes one 64-channel input bus and one 64-channel output bus. Audio passes through channel-for-channel, and unused output lanes are cleared. Insert it after an ambisonic encoder, after an ambisonic processor, or before a speaker decoder to inspect field behavior without changing the chain.</p>
+
+        <p>Field analysis and GPU drawing run only while the custom GUI is open. Closing the window leaves the channel-for-channel passthrough active without visual-analysis work.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambisonic-head-decoder.html">
