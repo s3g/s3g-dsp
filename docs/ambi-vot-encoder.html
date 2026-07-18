@@ -119,12 +119,31 @@
 
         <ul>
           <li><code>WAVE</code> selects <code>SINE</code>, <code>CLASSIC</code>, <code>DIGITAL</code>, <code>FORMANT</code>, or <code>USER</code>.</li>
-          <li><code>LOAD</code> derives a 16-table user bank from a WAV file. Multichannel files are averaged into one analysis stream.</li>
+          <li><code>LOAD</code> imports a 16-table user bank from a WAV file. Purpose-built 4096-sample atlases map directly to the grid; other files are divided into sixteen equal regions. Multichannel files are averaged to mono.</li>
           <li><code>SCAN</code> and its rate move voices around their current vector position.</li>
           <li><code>MORPH</code> controls interpolation among neighboring waveform tables.</li>
           <li><code>ATTACK</code>, <code>DECAY</code>, <code>SUSTAIN</code>, and <code>RELEASE</code> shape note amplitude.</li>
           <li><code>OUT</code> trims the encoded output.</li>
         </ul>
+
+        <h2 id="wavetable-library">Wavetable Library</h2>
+
+        <p>The included library contains twenty-four 4 x 4 atlases. Neighboring cells are phase-aligned for smooth Gaussian interpolation, while pitch-dependent table bands reduce aliasing in higher registers. Most banks are RMS-matched; selected dynamic banks intentionally change level as the vector moves. A loaded USER atlas is saved with the REAPER project.</p>
+
+        <ul>
+          <li><strong>Foundation, Body / Bass, Pulse / Reed, Formant, Organ, Glass / Metal, Fold / Phase, Digital, and String</strong> cover tonal, harmonic, resonant, and early-digital materials.</li>
+          <li><strong>Rungler</strong> turns shift-register feedback and tap families into an energy-rising digital field.</li>
+          <li><strong>Barberpole</strong> wraps octave-weighted spectra across the grid edges for looping ascent and descent illusions.</li>
+          <li><strong>Harmonic Mirage</strong> moves between chord-like missing fundamentals and compact harmonic clusters.</li>
+          <li><strong>Wave Terrain</strong> samples rotated paths through a deformed mathematical surface, with a quiet center and louder perimeter.</li>
+          <li><strong>Codec Ghost</strong> treats prediction residuals, stale blocks, and packet substitution as cyclic oscillator material. Codec Conceal and Cascade extend it through lost-block reconstruction and repeated transcode generations. Codec Residual is joined by Delta, Comb, and Feedback variations that expose finite-difference order, delayed predictor memory, and bounded recursive error as pitched material.</li>
+          <li><strong>Cellular</strong> converts evolving cellular-automata generations into activity-shaped waveforms.</li>
+          <li><strong>Glitch / Address</strong> moves through cyclic repeats, reversals, skips, and reordered waveform addresses.</li>
+          <li><strong>Glitch / PCM</strong> explores held samples, reduced amplitude words, bit patterns, and deterministic data-like cycles.</li>
+          <li><strong>Glitch / Fracture</strong> introduces polarity blocks, dropouts, hard edges, and broken waveform continuity.</li>
+        </ul>
+
+        <p>Rungler and Cellular span approximately 11 dB across U. The Codec family spans approximately 9 to 12 dB; Residual Delta, Comb, and Feedback span approximately 9.4, 9.9, and 12 dB respectively. Wave Terrain follows a radial energy basin. These level changes are part of the instrument behavior rather than automatic gain compensation. The exact U/V and energy mapping is listed in the library manifest and preview graphics. The generated files and source format are available in the <a href="https://github.com/s3g/s3g-dsp/tree/main/wavetables/vot" target="_blank" rel="noopener noreferrer">VOT wavetable directory</a>.</p>
 
         <h2 id="motion">Spatial Motion</h2>
 
@@ -155,7 +174,7 @@
 
         <h2 id="automation">Automation and State</h2>
 
-        <p>The synthesis, tuning, motion, and high-level score controls are available to REAPER automation. Individual score nodes remain an internal composition layer and are saved with plugin state.</p>
+        <p>The synthesis, tuning, motion, and high-level score controls are available to REAPER automation. Individual score nodes and the loaded USER atlas remain internal composition layers and are saved with plugin state.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="multi-loop-processor.html">
@@ -186,6 +205,7 @@
           <a href="#vector-score">Vector Score</a>
           <a href="#tuning">Tuning</a>
           <a href="#synthesis">Synthesis</a>
+          <a href="#wavetable-library">Wavetable Library</a>
           <a href="#motion">Spatial Motion</a>
           <a href="#routing">Order and Routing</a>
           <a href="#automation">Automation and State</a>

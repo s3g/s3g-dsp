@@ -1,0 +1,254 @@
+{
+  "format": "s3g-vot-atlas-v1",
+  "sample_rate": 48000,
+  "channels": 1,
+  "sample_format": "PCM 24-bit",
+  "grid": [
+    4,
+    4
+  ],
+  "table_size": 256,
+  "table_order": "row-major, top-left to bottom-right",
+  "atlases": [
+    {
+      "id": "foundation",
+      "name": "Foundation",
+      "u_axis": "harmonic density",
+      "v_axis": "odd/even balance",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-foundation.wav",
+      "preview": "previews/s3g-vot-foundation.svg"
+    },
+    {
+      "id": "body-bass",
+      "name": "Body / Bass",
+      "u_axis": "brightness",
+      "v_axis": "body and asymmetry",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-body-bass.wav",
+      "preview": "previews/s3g-vot-body-bass.svg"
+    },
+    {
+      "id": "pulse-reed",
+      "name": "Pulse / Reed",
+      "u_axis": "edge brightness",
+      "v_axis": "pulse width",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-pulse-reed.wav",
+      "preview": "previews/s3g-vot-pulse-reed.svg"
+    },
+    {
+      "id": "formant",
+      "name": "Formant",
+      "u_axis": "formant center",
+      "v_axis": "bandwidth and vowel",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-formant.wav",
+      "preview": "previews/s3g-vot-formant.svg"
+    },
+    {
+      "id": "organ",
+      "name": "Organ",
+      "u_axis": "registration",
+      "v_axis": "drawbar family",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-organ.wav",
+      "preview": "previews/s3g-vot-organ.svg"
+    },
+    {
+      "id": "glass-metal",
+      "name": "Glass / Metal",
+      "u_axis": "partial density",
+      "v_axis": "harmonic lattice",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-glass-metal.wav",
+      "preview": "previews/s3g-vot-glass-metal.svg"
+    },
+    {
+      "id": "fold-phase",
+      "name": "Fold / Phase",
+      "u_axis": "fold intensity",
+      "v_axis": "phase geometry",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-fold-phase.wav",
+      "preview": "previews/s3g-vot-fold-phase.svg"
+    },
+    {
+      "id": "digital",
+      "name": "Digital",
+      "u_axis": "sample resolution",
+      "v_axis": "amplitude resolution",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-digital.wav",
+      "preview": "previews/s3g-vot-digital.svg"
+    },
+    {
+      "id": "string",
+      "name": "String",
+      "u_axis": "excitation brightness",
+      "v_axis": "pluck and bow balance",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-string.wav",
+      "preview": "previews/s3g-vot-string.svg"
+    },
+    {
+      "id": "rungler",
+      "name": "Rungler",
+      "u_axis": "feedback amount",
+      "v_axis": "register tap and seed",
+      "energy_surface": "feedback rise",
+      "energy_range_db": 11.06,
+      "wav": "s3g-vot-rungler.wav",
+      "preview": "previews/s3g-vot-rungler.svg"
+    },
+    {
+      "id": "barberpole",
+      "name": "Barberpole",
+      "u_axis": "cyclic spectral center",
+      "v_axis": "octave density",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-barberpole.wav",
+      "preview": "previews/s3g-vot-barberpole.svg"
+    },
+    {
+      "id": "harmonic-mirage",
+      "name": "Harmonic Mirage",
+      "u_axis": "consonance to cluster",
+      "v_axis": "registration and inversion",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-harmonic-mirage.wav",
+      "preview": "previews/s3g-vot-harmonic-mirage.svg"
+    },
+    {
+      "id": "wave-terrain",
+      "name": "Wave Terrain",
+      "u_axis": "traversal angle",
+      "v_axis": "terrain deformation",
+      "energy_surface": "quiet center, loud perimeter",
+      "energy_range_db": 9.19,
+      "wav": "s3g-vot-wave-terrain.wav",
+      "preview": "previews/s3g-vot-wave-terrain.svg"
+    },
+    {
+      "id": "codec-ghost",
+      "name": "Codec Ghost",
+      "u_axis": "prediction failure",
+      "v_axis": "packet block size",
+      "energy_surface": "prediction-failure rise",
+      "energy_range_db": 10.46,
+      "wav": "s3g-vot-codec-ghost.wav",
+      "preview": "previews/s3g-vot-codec-ghost.svg"
+    },
+    {
+      "id": "codec-conceal",
+      "name": "Codec Conceal",
+      "u_axis": "packet loss",
+      "v_axis": "concealment method",
+      "energy_surface": "packet-loss rise",
+      "energy_range_db": 9.37,
+      "wav": "s3g-vot-codec-conceal.wav",
+      "preview": "previews/s3g-vot-codec-conceal.svg"
+    },
+    {
+      "id": "codec-residual",
+      "name": "Codec Residual",
+      "u_axis": "residual emphasis",
+      "v_axis": "predictor memory",
+      "energy_surface": "residual-pressure rise",
+      "energy_range_db": 8.87,
+      "wav": "s3g-vot-codec-residual.wav",
+      "preview": "previews/s3g-vot-codec-residual.svg"
+    },
+    {
+      "id": "codec-residual-delta",
+      "name": "Residual Delta",
+      "u_axis": "difference emphasis",
+      "v_axis": "difference order",
+      "energy_surface": "difference-order rise",
+      "energy_range_db": 9.37,
+      "wav": "s3g-vot-codec-residual-delta.wav",
+      "preview": "previews/s3g-vot-codec-residual-delta.svg"
+    },
+    {
+      "id": "codec-residual-comb",
+      "name": "Residual Comb",
+      "u_axis": "comb memory",
+      "v_axis": "predictor lag",
+      "energy_surface": "comb-memory rise",
+      "energy_range_db": 9.9,
+      "wav": "s3g-vot-codec-residual-comb.wav",
+      "preview": "previews/s3g-vot-codec-residual-comb.svg"
+    },
+    {
+      "id": "codec-residual-feedback",
+      "name": "Residual Feedback",
+      "u_axis": "feedback amount",
+      "v_axis": "feedback lag",
+      "energy_surface": "recursive-pressure rise",
+      "energy_range_db": 12.04,
+      "wav": "s3g-vot-codec-residual-feedback.wav",
+      "preview": "previews/s3g-vot-codec-residual-feedback.svg"
+    },
+    {
+      "id": "codec-cascade",
+      "name": "Codec Cascade",
+      "u_axis": "transcode generations",
+      "v_axis": "packet block size",
+      "energy_surface": "generation-collapse rise",
+      "energy_range_db": 12.04,
+      "wav": "s3g-vot-codec-cascade.wav",
+      "preview": "previews/s3g-vot-codec-cascade.svg"
+    },
+    {
+      "id": "cellular",
+      "name": "Cellular",
+      "u_axis": "generation depth",
+      "v_axis": "rule family",
+      "energy_surface": "generation-activity rise",
+      "energy_range_db": 11.06,
+      "wav": "s3g-vot-cellular.wav",
+      "preview": "previews/s3g-vot-cellular.svg"
+    },
+    {
+      "id": "glitch-address",
+      "name": "Glitch / Address",
+      "u_axis": "address damage",
+      "v_axis": "repeat and reorder mode",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-glitch-address.wav",
+      "preview": "previews/s3g-vot-glitch-address.svg"
+    },
+    {
+      "id": "glitch-pcm",
+      "name": "Glitch / PCM",
+      "u_axis": "data corruption",
+      "v_axis": "bit pattern family",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-glitch-pcm.wav",
+      "preview": "previews/s3g-vot-glitch-pcm.svg"
+    },
+    {
+      "id": "glitch-fracture",
+      "name": "Glitch / Fracture",
+      "u_axis": "fracture depth",
+      "v_axis": "polarity and dropout mode",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-glitch-fracture.wav",
+      "preview": "previews/s3g-vot-glitch-fracture.svg"
+    }
+  ]
+}

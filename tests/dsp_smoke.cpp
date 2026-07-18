@@ -3747,16 +3747,52 @@ int main()
         return 1;
     }
 
-    std::vector<float> votSource(4096u);
-    for (uint32_t i = 0; i < votSource.size(); ++i) {
-        const float phase = static_cast<float>(i) / static_cast<float>(votSource.size());
-        votSource[i] = 0.65f * std::sin(6.28318530718f * phase * 19.0f)
-            + 0.25f * std::sin(6.28318530718f * phase * 47.0f + 0.3f);
+    std::vector<float> votSource(s3g::kAmbiVotAtlasSampleCount);
+    for (uint32_t table = 0; table < s3g::kAmbiVotTableCount; ++table) {
+        for (uint32_t i = 0; i < s3g::kAmbiVotTableSize; ++i) {
+            const float phase = static_cast<float>(i) / static_cast<float>(s3g::kAmbiVotTableSize);
+            votSource[table * s3g::kAmbiVotTableSize + i]
+                = 0.65f * std::sin(6.28318530718f * phase)
+                + (0.08f + 0.01f * static_cast<float>(table))
+                    * std::sin(6.28318530718f * phase * 32.0f + 0.3f);
+        }
     }
     const auto votBank = s3g::ambiVotBankFromWave(votSource);
-    for (const auto& table : votBank.tables) {
+    if (!votBank.user || !votBank.exactAtlas) {
+        std::cerr << "Ambi VOT exact atlas path failed\n";
+        return 1;
+    }
+    float votFullHighHarmonic = 0.0f;
+    float votLimitedHighHarmonic = 0.0f;
+    float votLimitedFundamental = 0.0f;
+    for (uint32_t i = 0; i < s3g::kAmbiVotTableSize; ++i) {
+        const float phase = static_cast<float>(i) / static_cast<float>(s3g::kAmbiVotTableSize);
+        const float highBasis = std::sin(6.28318530718f * phase * 32.0f + 0.3f);
+        const float fundamentalBasis = std::sin(6.28318530718f * phase);
+        votFullHighHarmonic += votBank.bandTables.back()[0][i] * highBasis;
+        votLimitedHighHarmonic += votBank.bandTables[3][0][i] * highBasis;
+        votLimitedFundamental += votBank.bandTables[3][0][i] * fundamentalBasis;
+    }
+    if (std::abs(votFullHighHarmonic) < 1.0f
+        || std::abs(votLimitedHighHarmonic) > 0.001f
+        || std::abs(votLimitedFundamental) < 10.0f
+        || s3g::ambiVotBandForFrequency(8000.0f, 48000.0) != 1u) {
+        std::cerr << "Ambi VOT pitch band limiting failed\n";
+        return 1;
+    }
+    std::vector<float> votArbitrarySource(5000u);
+    for (uint32_t i = 0; i < votArbitrarySource.size(); ++i) {
+        const float phase = static_cast<float>(i) / static_cast<float>(votArbitrarySource.size());
+        votArbitrarySource[i] = std::sin(6.28318530718f * phase * 23.7f);
+    }
+    const auto votDerivedBank = s3g::ambiVotBankFromWave(votArbitrarySource);
+    if (votDerivedBank.exactAtlas) {
+        std::cerr << "Ambi VOT arbitrary-wave fallback failed\n";
+        return 1;
+    }
+    for (const auto& table : votDerivedBank.tables) {
         if (std::abs(table.front() - table.back()) > 0.00001f) {
-            std::cerr << "Ambi VOT loaded table is not periodic\n";
+            std::cerr << "Ambi VOT derived table is not seam-corrected\n";
             return 1;
         }
     }

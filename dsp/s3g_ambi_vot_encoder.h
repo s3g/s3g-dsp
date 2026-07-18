@@ -18,7 +18,13 @@ constexpr uint32_t kAmbiVotMaxChannels = 64;
 constexpr uint32_t kAmbiVotTableCount = 16;
 constexpr uint32_t kAmbiVotTableSize = 256;
 constexpr uint32_t kAmbiVotGridSize = 4;
+constexpr uint32_t kAmbiVotAtlasSampleCount = kAmbiVotTableCount * kAmbiVotTableSize;
+constexpr uint32_t kAmbiVotBandCount = 8;
 constexpr uint32_t kAmbiVotMaxScoreNodes = 16;
+
+constexpr std::array<uint32_t, kAmbiVotBandCount> kAmbiVotBandHarmonics {{
+    1u, 2u, 4u, 8u, 16u, 32u, 64u, (kAmbiVotTableSize / 2u) - 1u,
+}};
 
 enum class AmbiVotMode : uint32_t {
     Free = 0,
@@ -112,14 +118,25 @@ struct AmbiVotParams {
     float scoreDepth = 1.0f;
 };
 
+using AmbiVotTable = std::array<float, kAmbiVotTableSize>;
+using AmbiVotTableSet = std::array<AmbiVotTable, kAmbiVotTableCount>;
+
 struct AmbiVotTableBank {
-    std::array<std::array<float, kAmbiVotTableSize>, kAmbiVotTableCount> tables {};
+    AmbiVotTableSet tables {};
+    std::array<AmbiVotTableSet, kAmbiVotBandCount> bandTables {};
     bool user = false;
+    bool exactAtlas = false;
 };
 
 struct AmbiVotVectorWeights {
     std::array<float, kAmbiVotTableCount> values {};
     float sigmaCells = 0.0f;
+};
+
+struct AmbiVotBandSelection {
+    uint32_t lower = 0u;
+    uint32_t upper = 0u;
+    float interpolation = 0.0f;
 };
 
 struct AmbiVotMotionPoint {
@@ -431,8 +448,71 @@ inline float ambiVotPulse(float phase, float width)
     return phase < width ? 1.0f : -1.0f;
 }
 
+struct AmbiVotDftBasis {
+    std::array<AmbiVotTable, kAmbiVotTableSize / 2u> cosine {};
+    std::array<AmbiVotTable, kAmbiVotTableSize / 2u> sine {};
+
+    AmbiVotDftBasis()
+    {
+        for (uint32_t harmonic = 0; harmonic < kAmbiVotTableSize / 2u; ++harmonic) {
+            for (uint32_t sample = 0; sample < kAmbiVotTableSize; ++sample) {
+                const float angle = 2.0f * kPi * static_cast<float>(harmonic * sample)
+                    / static_cast<float>(kAmbiVotTableSize);
+                cosine[harmonic][sample] = std::cos(angle);
+                sine[harmonic][sample] = std::sin(angle);
+            }
+        }
+    }
+};
+
+inline const AmbiVotDftBasis& ambiVotDftBasis()
+{
+    static const AmbiVotDftBasis basis;
+    return basis;
+}
+
+inline void ambiVotBuildBandTables(AmbiVotTableBank& bank)
+{
+    const auto& basis = ambiVotDftBasis();
+    constexpr uint32_t harmonicCount = kAmbiVotTableSize / 2u;
+    constexpr float coefficientScale = 2.0f / static_cast<float>(kAmbiVotTableSize);
+    for (uint32_t table = 0; table < kAmbiVotTableCount; ++table) {
+        std::array<float, harmonicCount> cosineCoefficients {};
+        std::array<float, harmonicCount> sineCoefficients {};
+        for (uint32_t harmonic = 1; harmonic < harmonicCount; ++harmonic) {
+            float cosineSum = 0.0f;
+            float sineSum = 0.0f;
+            for (uint32_t sample = 0; sample < kAmbiVotTableSize; ++sample) {
+                cosineSum += bank.tables[table][sample] * basis.cosine[harmonic][sample];
+                sineSum += bank.tables[table][sample] * basis.sine[harmonic][sample];
+            }
+            cosineCoefficients[harmonic] = cosineSum * coefficientScale;
+            sineCoefficients[harmonic] = sineSum * coefficientScale;
+        }
+
+        for (uint32_t band = 0; band + 1u < kAmbiVotBandCount; ++band) {
+            const uint32_t maximumHarmonic = kAmbiVotBandHarmonics[band];
+            for (uint32_t sample = 0; sample < kAmbiVotTableSize; ++sample) {
+                float value = 0.0f;
+                for (uint32_t harmonic = 1; harmonic <= maximumHarmonic; ++harmonic) {
+                    value += cosineCoefficients[harmonic] * basis.cosine[harmonic][sample]
+                        + sineCoefficients[harmonic] * basis.sine[harmonic][sample];
+                }
+                bank.bandTables[band][table][sample] = value;
+            }
+        }
+        bank.bandTables[kAmbiVotBandCount - 1u][table] = bank.tables[table];
+    }
+}
+
 inline void ambiVotNormalizeBank(AmbiVotTableBank& bank)
 {
+    for (auto& table : bank.tables) {
+        float mean = 0.0f;
+        for (float value : table) mean += value;
+        mean /= static_cast<float>(kAmbiVotTableSize);
+        for (float& value : table) value -= mean;
+    }
     float peak = 0.000001f;
     for (const auto& table : bank.tables) {
         for (float v : table) peak = std::max(peak, std::fabs(v));
@@ -484,6 +564,7 @@ inline AmbiVotTableBank ambiVotPresetBank(AmbiVotPreset preset)
         }
     }
     ambiVotNormalizeBank(bank);
+    ambiVotBuildBandTables(bank);
     return bank;
 }
 
@@ -494,6 +575,7 @@ inline AmbiVotTableBank ambiVotBankFromWave(const std::vector<float>& wave)
     if (wave.size() < 8u) return ambiVotPresetBank(AmbiVotPreset::Classic);
 
     const float segment = static_cast<float>(wave.size()) / static_cast<float>(kAmbiVotTableCount);
+    bank.exactAtlas = wave.size() == kAmbiVotAtlasSampleCount;
     for (uint32_t t = 0; t < kAmbiVotTableCount; ++t) {
         const float start = segment * static_cast<float>(t);
         const float len = std::max(2.0f, segment);
@@ -503,29 +585,70 @@ inline AmbiVotTableBank ambiVotBankFromWave(const std::vector<float>& wave)
             const uint32_t i1 = std::min<uint32_t>(i0 + 1u, static_cast<uint32_t>(wave.size() - 1u));
             bank.tables[t][i] = lerp(wave[i0], wave[i1], p - std::floor(p));
         }
-        const float first = bank.tables[t].front();
-        const float last = bank.tables[t].back();
-        float mean = 0.0f;
-        for (uint32_t i = 0; i < kAmbiVotTableSize; ++i) {
-            const float u = static_cast<float>(i) / static_cast<float>(kAmbiVotTableSize - 1u);
-            bank.tables[t][i] -= lerp(first, last, u);
-            mean += bank.tables[t][i];
+        if (!bank.exactAtlas) {
+            const float first = bank.tables[t].front();
+            const float last = bank.tables[t].back();
+            for (uint32_t i = 0; i < kAmbiVotTableSize; ++i) {
+                const float u = static_cast<float>(i) / static_cast<float>(kAmbiVotTableSize - 1u);
+                bank.tables[t][i] -= lerp(first, last, u);
+            }
         }
-        mean /= static_cast<float>(kAmbiVotTableSize);
-        for (float& value : bank.tables[t]) value -= mean;
     }
     ambiVotNormalizeBank(bank);
+    ambiVotBuildBandTables(bank);
     return bank;
 }
 
-inline float ambiVotTableSample(const AmbiVotTableBank& bank, uint32_t table, float phase)
+inline AmbiVotBandSelection ambiVotBandSelectionForFrequency(float frequency, double sampleRate)
+{
+    const float safeFrequency = std::max(1.0f, frequency);
+    const float maximumHarmonic = static_cast<float>(sampleRate) * 0.45f / safeFrequency;
+    for (uint32_t band = 1u; band < kAmbiVotBandCount; ++band) {
+        const float threshold = static_cast<float>(kAmbiVotBandHarmonics[band]);
+        if (maximumHarmonic >= threshold) continue;
+        const float transitionStart = threshold * 0.92f;
+        if (maximumHarmonic <= transitionStart) return { band - 1u, band - 1u, 0.0f };
+        const float amount = clamp((maximumHarmonic - transitionStart)
+                                       / std::max(0.000001f, threshold - transitionStart),
+                                   0.0f,
+                                   1.0f);
+        const float smoothAmount = amount * amount * (3.0f - 2.0f * amount);
+        return { band - 1u, band, smoothAmount };
+    }
+    return { kAmbiVotBandCount - 1u, kAmbiVotBandCount - 1u, 0.0f };
+}
+
+inline uint32_t ambiVotBandForFrequency(float frequency, double sampleRate)
+{
+    const auto selection = ambiVotBandSelectionForFrequency(frequency, sampleRate);
+    return selection.interpolation >= 0.5f ? selection.upper : selection.lower;
+}
+
+inline float ambiVotTableSample(const AmbiVotTableBank& bank,
+                                uint32_t table,
+                                float phase,
+                                uint32_t band = kAmbiVotBandCount - 1u)
 {
     table = std::min<uint32_t>(table, kAmbiVotTableCount - 1u);
+    band = std::min<uint32_t>(band, kAmbiVotBandCount - 1u);
     phase = ambiVotFract(phase);
     const float p = phase * static_cast<float>(kAmbiVotTableSize);
     const uint32_t i0 = static_cast<uint32_t>(std::floor(p)) & (kAmbiVotTableSize - 1u);
     const uint32_t i1 = (i0 + 1u) & (kAmbiVotTableSize - 1u);
-    return lerp(bank.tables[table][i0], bank.tables[table][i1], p - std::floor(p));
+    return lerp(bank.bandTables[band][table][i0],
+                bank.bandTables[band][table][i1],
+                p - std::floor(p));
+}
+
+inline float ambiVotTableSample(const AmbiVotTableBank& bank,
+                                uint32_t table,
+                                float phase,
+                                const AmbiVotBandSelection& selection)
+{
+    const float lower = ambiVotTableSample(bank, table, phase, selection.lower);
+    if (selection.lower == selection.upper || selection.interpolation <= 0.0f) return lower;
+    const float upper = ambiVotTableSample(bank, table, phase, selection.upper);
+    return lerp(lower, upper, selection.interpolation);
 }
 
 inline AmbiVotVectorWeights ambiVotVectorWeights(float x, float y, float morph)
@@ -563,11 +686,12 @@ inline AmbiVotVectorWeights ambiVotVectorWeights(float x, float y, float morph)
 
 inline float ambiVotVectorSample(const AmbiVotTableBank& bank,
                                  const AmbiVotVectorWeights& weights,
-                                 float phase)
+                                 float phase,
+                                 uint32_t band = kAmbiVotBandCount - 1u)
 {
     float sample = 0.0f;
     for (uint32_t table = 0; table < kAmbiVotTableCount; ++table) {
-        sample += weights.values[table] * ambiVotTableSample(bank, table, phase);
+        sample += weights.values[table] * ambiVotTableSample(bank, table, phase, band);
     }
     return sample;
 }
@@ -576,13 +700,30 @@ inline float ambiVotVectorSample(const AmbiVotTableBank& bank,
                                  const AmbiVotVectorWeights& from,
                                  const AmbiVotVectorWeights& to,
                                  float interpolation,
-                                 float phase)
+                                 float phase,
+                                 uint32_t band = kAmbiVotBandCount - 1u)
 {
     interpolation = clamp(interpolation, 0.0f, 1.0f);
     float sample = 0.0f;
     for (uint32_t table = 0; table < kAmbiVotTableCount; ++table) {
         const float weight = lerp(from.values[table], to.values[table], interpolation);
-        sample += weight * ambiVotTableSample(bank, table, phase);
+        sample += weight * ambiVotTableSample(bank, table, phase, band);
+    }
+    return sample;
+}
+
+inline float ambiVotVectorSample(const AmbiVotTableBank& bank,
+                                 const AmbiVotVectorWeights& from,
+                                 const AmbiVotVectorWeights& to,
+                                 float interpolation,
+                                 float phase,
+                                 const AmbiVotBandSelection& selection)
+{
+    interpolation = clamp(interpolation, 0.0f, 1.0f);
+    float sample = 0.0f;
+    for (uint32_t table = 0; table < kAmbiVotTableCount; ++table) {
+        const float weight = lerp(from.values[table], to.values[table], interpolation);
+        sample += weight * ambiVotTableSample(bank, table, phase, selection);
     }
     return sample;
 }
@@ -831,9 +972,17 @@ public:
         const float releaseCoef = ambiVotEnvelopeCoefficient(params_.releaseMs, sampleRate_);
         std::array<float, kAmbiVotMaxVoices> freeNotes {};
         std::array<float, kAmbiVotMaxVoices> midiNotes {};
+        std::array<float, kAmbiVotMaxVoices> freeFrequencies {};
+        std::array<float, kAmbiVotMaxVoices> midiFrequencies {};
+        std::array<AmbiVotBandSelection, kAmbiVotMaxVoices> freeBands {};
+        std::array<AmbiVotBandSelection, kAmbiVotMaxVoices> midiBands {};
         for (uint32_t i = 0; i < params_.voices; ++i) {
             freeNotes[i] = ambiVotTunedNote(params_, params_.baseNote, i, false);
             midiNotes[i] = ambiVotTunedNote(params_, static_cast<float>(voices_[i].note), i, true);
+            freeFrequencies[i] = std::min(ambiVotMidiToHz(freeNotes[i]), static_cast<float>(sampleRate_) * 0.45f);
+            midiFrequencies[i] = std::min(ambiVotMidiToHz(midiNotes[i]), static_cast<float>(sampleRate_) * 0.45f);
+            freeBands[i] = ambiVotBandSelectionForFrequency(freeFrequencies[i], sampleRate_);
+            midiBands[i] = ambiVotBandSelectionForFrequency(midiFrequencies[i], sampleRate_);
         }
         constexpr uint32_t kMotionChunkFrames = 16;
 
@@ -861,11 +1010,16 @@ public:
             for (uint32_t frame = chunkStart; frame < chunkStart + chunkFrames; ++frame) {
                 const float vectorInterpolation = static_cast<float>(frame - chunkStart + 1u)
                     / static_cast<float>(chunkFrames);
-                auto renderVoice = [&](uint32_t i, float& phase, float envelope, float tunedNote, float velocity) {
-                    const float freq = std::min(ambiVotMidiToHz(tunedNote), static_cast<float>(sampleRate_) * 0.45f);
+                auto renderVoice = [&](uint32_t i,
+                                       float& phase,
+                                       float envelope,
+                                       float frequency,
+                                       const AmbiVotBandSelection& band,
+                                       float velocity) {
+                    const float freq = frequency;
                     phase = ambiVotFract(phase + freq / static_cast<float>(sampleRate_));
                     float sample = ambiVotVectorSample(
-                        bank, vectorWeightsFrom[i], vectorWeightsTo[i], vectorInterpolation, phase);
+                        bank, vectorWeightsFrom[i], vectorWeightsTo[i], vectorInterpolation, phase, band);
                     sample = softSat(sample * 1.05f);
                     const float amp = sample * envelope * velocity * outGain * invVoices * distanceGain[i];
                     if (std::fabs(amp) < 0.0000001f) return;
@@ -879,7 +1033,7 @@ public:
                         freeEnvelopes_[i].setGate(neighborGates_[i] != 0u);
                         const float envelope = freeEnvelopes_[i].process(
                             attackCoef, decayCoef, params_.sustain, releaseCoef);
-                        renderVoice(i, freePhases_[i], envelope, freeNotes[i], 0.70f);
+                        renderVoice(i, freePhases_[i], envelope, freeFrequencies[i], freeBands[i], 0.70f);
                     }
                 }
                 if (midiMode) {
@@ -889,7 +1043,12 @@ public:
                             attackCoef, decayCoef, params_.sustain, releaseCoef);
                         if (voice.envelope.stage == AmbiVotEnvelopeStage::Idle) continue;
                         voice.age += 1.0f / static_cast<float>(sampleRate_);
-                        renderVoice(i, voice.phase, envelope, midiNotes[i], std::max(0.05f, voice.velocity));
+                        renderVoice(i,
+                                    voice.phase,
+                                    envelope,
+                                    midiFrequencies[i],
+                                    midiBands[i],
+                                    std::max(0.05f, voice.velocity));
                     }
                 }
             }

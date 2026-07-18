@@ -33,7 +33,8 @@ Current plugins:
   four loaded audio files into one eight-lane loop instrument.
 - `s3g Ambi VOT Encoder 64`: 64-voice vector-wavetable instrument with editable
   U/V scoring, scale and harmonic tuning, AED motion, and
-  first-through-seventh-order `ACN/SN3D` output.
+  first-through-seventh-order `ACN/SN3D` output. A reproducible twenty-four-atlas
+  library includes tonal, dynamic, algorithmic, and heavy-glitch surfaces.
 - `s3g Ambi Grain Processor`: CLAP instrument plugin for loaded `ACN/SN3D`
   ambisonic media with channel-locked grain events.
 - `s3g Macro Delay 8ch/24ch`: compact multichannel delay macros with

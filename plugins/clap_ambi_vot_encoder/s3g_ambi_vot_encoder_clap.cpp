@@ -30,7 +30,7 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiVotMaxChannels;
-constexpr uint32_t kStateVersion = 5;
+constexpr uint32_t kStateVersion = 6;
 constexpr uint32_t kGuiW = 1160;
 constexpr uint32_t kGuiH = 894;
 
@@ -228,6 +228,17 @@ struct SavedStateV4 {
     float guiViewZoom = 1.0f;
 };
 
+struct SavedStateV5 {
+    uint32_t version = 5;
+    s3g::AmbiVotParams params {};
+    s3g::AmbiVotVectorScore score = s3g::ambiVotDefaultScore();
+    int32_t guiPage = 0;
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+};
+
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiVotParams params {};
@@ -237,6 +248,8 @@ struct SavedState {
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
+    uint32_t hasUserAtlas = 0u;
+    std::array<float, s3g::kAmbiVotAtlasSampleCount> userAtlas {};
 };
 
 struct Plugin {
@@ -868,6 +881,15 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     SavedState saved {};
     saved.params = state->params;
     saved.score = loadScore(*state);
+    auto userBank = std::atomic_load_explicit(&state->userBank, std::memory_order_acquire);
+    if (userBank) {
+        saved.hasUserAtlas = 1u;
+        for (uint32_t table = 0; table < s3g::kAmbiVotTableCount; ++table) {
+            std::copy(userBank->tables[table].begin(),
+                      userBank->tables[table].end(),
+                      saved.userAtlas.begin() + table * s3g::kAmbiVotTableSize);
+        }
+    }
 #if defined(__APPLE__)
     saved.guiPage = state->guiPage;
     saved.guiViewMode = state->guiViewMode;
@@ -884,6 +906,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     uint32_t version = 0;
     if (!readExact(stream, &version, sizeof(version))) return false;
     auto* state = self(plugin);
+    std::shared_ptr<const s3g::AmbiVotTableBank> restoredUserBank;
     if (version == 1u) {
         SavedStateV1 legacy {};
         legacy.version = version;
@@ -925,12 +948,29 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state->guiViewElDeg = std::clamp(legacy.guiViewElDeg, -85.0f, 85.0f);
         state->guiViewZoom = std::clamp(legacy.guiViewZoom, 0.55f, 2.4f);
 #endif
+    } else if (version == 5u) {
+        SavedStateV5 legacy {};
+        legacy.version = version;
+        if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
+        state->params = legacy.params;
+        storeScore(*state, legacy.score);
+#if defined(__APPLE__)
+        state->guiPage = std::clamp(legacy.guiPage, 0, 2);
+        state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
+        state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
+        state->guiViewElDeg = std::clamp(legacy.guiViewElDeg, -85.0f, 85.0f);
+        state->guiViewZoom = std::clamp(legacy.guiViewZoom, 0.55f, 2.4f);
+#endif
     } else if (version == kStateVersion) {
         SavedState saved {};
         saved.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&saved) + sizeof(version), sizeof(saved) - sizeof(version))) return false;
         state->params = saved.params;
         storeScore(*state, saved.score);
+        if (saved.hasUserAtlas != 0u) {
+            std::vector<float> wave(saved.userAtlas.begin(), saved.userAtlas.end());
+            restoredUserBank = std::make_shared<s3g::AmbiVotTableBank>(s3g::ambiVotBankFromWave(wave));
+        }
 #if defined(__APPLE__)
         state->guiPage = std::clamp(saved.guiPage, 0, 2);
         state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
@@ -941,6 +981,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else {
         return false;
     }
+    std::atomic_store_explicit(&state->userBank, std::move(restoredUserBank), std::memory_order_release);
     state->engine.setParams(state->params);
     state->engine.setScore(loadScore(*state));
     state->params = state->engine.params();
