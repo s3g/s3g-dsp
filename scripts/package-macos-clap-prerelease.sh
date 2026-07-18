@@ -21,6 +21,7 @@ bundles=(
   "$src_root/clap_3oafx_point_encoder/s3g_3oafx_point_encoder.clap"
   "$src_root/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder.clap"
   "$src_root/clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap"
+  "$src_root/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap"
   "$src_root/clap_ambi_path_encoder/s3g_ambi_path_encoder.clap"
   "$src_root/clap_3oafx_speaker_decoder/s3g_3oafx_speaker_decoder.clap"
   "$src_root/clap_layout_panner/s3g_layout_panner.clap"
@@ -125,6 +126,7 @@ Included plugins:
 - s3g Ambi Point Encoder
 - s3g Ambi Cloud Encoder 64
 - s3g Ambi VOT Encoder 64
+- s3g Ambi Stochastic Encoder 64
 - s3g Ambi Path Encoder 64
 - s3g Ambi Speaker Decoder 64
 - s3g Layout Panner

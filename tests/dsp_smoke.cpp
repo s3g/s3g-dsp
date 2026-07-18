@@ -4,6 +4,7 @@
 #include "s3g_ambi_grain_processor.h"
 #include "s3g_ambisonic_point_encoder.h"
 #include "s3g_ambi_cloud_encoder.h"
+#include "s3g_ambi_stochastic_encoder.h"
 #include "s3g_ambi_vot_encoder.h"
 #include "s3g_ambi_path_encoder.h"
 #include "s3g_ambisonic_head_decoder.h"
@@ -4090,6 +4091,313 @@ int main()
         }
     }
 
+    constexpr uint32_t stochasticFrames = 256u;
+    s3g::AmbiStochasticEncoder stochasticEncoder;
+    stochasticEncoder.prepare(48000.0);
+    s3g::AmbiStochasticParams stochasticParams;
+    stochasticParams.order = 3u;
+    stochasticParams.voices = 12u;
+    stochasticParams.mode = s3g::AmbiStochasticMode::Free;
+    stochasticParams.system = s3g::AmbiStochasticSystem::Network;
+    stochasticParams.model = s3g::AmbiStochasticModel::Delta;
+    stochasticParams.amplitudeDistribution = s3g::AmbiStochasticDistribution::Gaussian;
+    stochasticParams.durationDistribution = s3g::AmbiStochasticDistribution::Gaussian;
+    stochasticParams.activity = 1.0f;
+    stochasticParams.attackMs = 5.0f;
+    stochasticParams.releaseMs = 20.0f;
+    stochasticParams.outputGainDb = -24.0f;
+    stochasticEncoder.setParams(stochasticParams);
+    stochasticEncoder.reset();
+    const auto stochasticInitialWave = stochasticEncoder.waveform(0u);
+    const auto stochasticSecondVoiceWave = stochasticEncoder.waveform(1u);
+    const auto stochasticInitialPoint = stochasticEncoder.points()[0u];
+    const auto stochasticInitialTopology = stochasticEncoder.topologyPosition(0u);
+    float stochasticVoiceCurveDelta = 0.0f;
+    for (uint32_t sample = 0; sample < s3g::kAmbiStochasticTableSize; ++sample) {
+        stochasticVoiceCurveDelta += std::abs(stochasticInitialWave[sample] - stochasticSecondVoiceWave[sample]);
+    }
+    if (stochasticVoiceCurveDelta < 0.01f) {
+        std::cerr << "Ambi Stochastic voices did not receive independent pressure curves\n";
+        return 1;
+    }
+    std::array<std::array<float, stochasticFrames>, s3g::kAmbiStochasticMaxChannels> stochasticBuffers {};
+    std::array<float*, s3g::kAmbiStochasticMaxChannels> stochasticOutputs {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiStochasticMaxChannels; ++ch) stochasticOutputs[ch] = stochasticBuffers[ch].data();
+    float stochasticPeak = 0.0f;
+    float stochasticMaxStep = 0.0f;
+    std::array<float, s3g::kAmbiStochasticMaxChannels> stochasticPrevious {};
+    for (uint32_t block = 0; block < 96u; ++block) {
+        for (auto& channel : stochasticBuffers) channel.fill(0.37f);
+        stochasticEncoder.process(stochasticOutputs.data(), s3g::kAmbiStochasticMaxChannels, stochasticFrames);
+        for (uint32_t ch = 0; ch < s3g::kAmbiStochasticMaxChannels; ++ch) {
+            for (float value : stochasticBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi Stochastic FREE output is not finite\n";
+                    return 1;
+                }
+                stochasticPeak = std::max(stochasticPeak, std::abs(value));
+                stochasticMaxStep = std::max(stochasticMaxStep, std::abs(value - stochasticPrevious[ch]));
+                stochasticPrevious[ch] = value;
+            }
+        }
+        for (uint32_t ch = 16u; ch < s3g::kAmbiStochasticMaxChannels; ++ch) {
+            for (float value : stochasticBuffers[ch]) {
+                if (value != 0.0f) {
+                    std::cerr << "Ambi Stochastic did not clear channels above selected order\n";
+                    return 1;
+                }
+            }
+        }
+    }
+    if (stochasticPeak <= 0.00001f || stochasticPeak > 1.01f || stochasticMaxStep > 0.35f) {
+        std::cerr << "Ambi Stochastic FREE peak/step outside expected range: "
+                  << stochasticPeak << " / " << stochasticMaxStep << "\n";
+        return 1;
+    }
+    float stochasticWaveDelta = 0.0f;
+    const auto& stochasticEvolvedWave = stochasticEncoder.waveform(0u);
+    for (uint32_t sample = 0; sample < s3g::kAmbiStochasticTableSize; ++sample) {
+        stochasticWaveDelta += std::abs(stochasticEvolvedWave[sample] - stochasticInitialWave[sample]);
+    }
+    if (stochasticWaveDelta < 0.01f) {
+        std::cerr << "Ambi Stochastic pressure curve did not evolve\n";
+        return 1;
+    }
+    const auto stochasticMovedPoint = stochasticEncoder.points()[0u];
+    const float stochasticMotionDelta = std::abs(stochasticMovedPoint.azimuthDeg - stochasticInitialPoint.azimuthDeg)
+        + std::abs(stochasticMovedPoint.elevationDeg - stochasticInitialPoint.elevationDeg)
+        + std::abs(stochasticMovedPoint.distance - stochasticInitialPoint.distance);
+    if (stochasticMotionDelta < 0.001f) {
+        std::cerr << "Ambi Stochastic FEEDBACK field did not move\n";
+        return 1;
+    }
+    float stochasticTopologyActivity = stochasticEncoder.globalKinetic();
+    for (uint32_t voice = 0u; voice < stochasticParams.voices; ++voice) {
+        stochasticTopologyActivity = std::max(stochasticTopologyActivity,
+            stochasticEncoder.voiceKinetic(voice)
+                + stochasticEncoder.voiceContact(voice)
+                + std::abs(stochasticEncoder.voiceNetworkPulse(voice))
+                + stochasticEncoder.voiceCrowding(voice)
+                + stochasticEncoder.voiceTension(voice));
+    }
+    if (!std::isfinite(stochasticTopologyActivity) || stochasticTopologyActivity < 0.01f) {
+        std::cerr << "Ambi Stochastic topology dynamics did not become active\n";
+        return 1;
+    }
+    const auto stochasticMovedTopology = stochasticEncoder.topologyPosition(0u);
+    const float stochasticTopologyMotion = std::abs(stochasticMovedTopology.x - stochasticInitialTopology.x)
+        + std::abs(stochasticMovedTopology.y - stochasticInitialTopology.y)
+        + std::abs(stochasticMovedTopology.z - stochasticInitialTopology.z);
+    float stochasticTopologyMin[3] { 1.0f, 1.0f, 1.0f };
+    float stochasticTopologyMax[3] { -1.0f, -1.0f, -1.0f };
+    for (uint32_t voice = 0u; voice < stochasticParams.voices; ++voice) {
+        const auto topology = stochasticEncoder.topologyPosition(voice);
+        const float coordinates[3] { topology.x, topology.y, topology.z };
+        for (uint32_t axis = 0u; axis < 3u; ++axis) {
+            stochasticTopologyMin[axis] = std::min(stochasticTopologyMin[axis], coordinates[axis]);
+            stochasticTopologyMax[axis] = std::max(stochasticTopologyMax[axis], coordinates[axis]);
+        }
+    }
+    if (stochasticTopologyMotion < 0.0001f
+        || stochasticTopologyMax[0] - stochasticTopologyMin[0] < 0.40f
+        || stochasticTopologyMax[1] - stochasticTopologyMin[1] < 0.40f
+        || stochasticTopologyMax[2] - stochasticTopologyMin[2] < 0.40f) {
+        std::cerr << "Ambi Stochastic persistent topology collapsed or remained static\n";
+        return 1;
+    }
+
+    stochasticParams.mode = s3g::AmbiStochasticMode::Midi;
+    stochasticParams.voices = 8u;
+    stochasticParams.order = 7u;
+    stochasticEncoder.setParams(stochasticParams);
+    stochasticEncoder.reset();
+    for (auto& channel : stochasticBuffers) channel.fill(0.0f);
+    stochasticEncoder.process(stochasticOutputs.data(), s3g::kAmbiStochasticMaxChannels, stochasticFrames);
+    float stochasticMidiSilentPeak = 0.0f;
+    for (const auto& channel : stochasticBuffers) {
+        for (float value : channel) stochasticMidiSilentPeak = std::max(stochasticMidiSilentPeak, std::abs(value));
+    }
+    if (stochasticMidiSilentPeak != 0.0f) {
+        std::cerr << "Ambi Stochastic MIDI mode was not silent before note-on\n";
+        return 1;
+    }
+    stochasticEncoder.noteOn(52, 0.82f);
+    float stochasticMidiPeak = 0.0f;
+    for (uint32_t block = 0; block < 24u; ++block) {
+        stochasticEncoder.process(stochasticOutputs.data(), s3g::kAmbiStochasticMaxChannels, stochasticFrames);
+        for (const auto& channel : stochasticBuffers) {
+            for (float value : channel) stochasticMidiPeak = std::max(stochasticMidiPeak, std::abs(value));
+        }
+    }
+    if (!std::isfinite(stochasticMidiPeak) || stochasticMidiPeak <= 0.00001f || stochasticMidiPeak > 1.01f) {
+        std::cerr << "Ambi Stochastic MIDI render failed: " << stochasticMidiPeak << "\n";
+        return 1;
+    }
+
+    stochasticParams.mode = s3g::AmbiStochasticMode::Free;
+    stochasticParams.voices = 64u;
+    stochasticParams.order = 7u;
+    stochasticParams.system = s3g::AmbiStochasticSystem::Network;
+    stochasticParams.model = s3g::AmbiStochasticModel::FreePeriod;
+    stochasticParams.amplitudeDistribution = s3g::AmbiStochasticDistribution::Cauchy;
+    stochasticParams.durationDistribution = s3g::AmbiStochasticDistribution::Exponential;
+    stochasticParams.breakpoints = 32u;
+    stochasticParams.amplitudeStep = 1.0f;
+    stochasticParams.timeStep = 1.0f;
+    stochasticParams.inertia = 0.98f;
+    stochasticParams.activity = 1.0f;
+    stochasticParams.coupling = 1.0f;
+    stochasticParams.reactivity = 1.0f;
+    stochasticParams.outputGainDb = -30.0f;
+    stochasticEncoder.setParams(stochasticParams);
+    stochasticEncoder.reset();
+    float stochasticStressPeak = 0.0f;
+    for (uint32_t block = 0; block < 48u; ++block) {
+        stochasticEncoder.process(stochasticOutputs.data(), s3g::kAmbiStochasticMaxChannels, stochasticFrames);
+        for (const auto& channel : stochasticBuffers) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi Stochastic 64-voice stress output is not finite\n";
+                    return 1;
+                }
+                stochasticStressPeak = std::max(stochasticStressPeak, std::abs(value));
+            }
+        }
+    }
+    if (stochasticStressPeak <= 0.00001f || stochasticStressPeak > 1.01f) {
+        std::cerr << "Ambi Stochastic 64-voice stress peak failed: " << stochasticStressPeak << "\n";
+        return 1;
+    }
+
+    s3g::AmbiStochasticEncoder stochasticLongEncoder;
+    stochasticLongEncoder.prepare(48000.0);
+    s3g::AmbiStochasticParams stochasticLongParams;
+    stochasticLongParams.order = 1u;
+    stochasticLongParams.voices = 64u;
+    stochasticLongParams.mode = s3g::AmbiStochasticMode::Free;
+    stochasticLongParams.system = s3g::AmbiStochasticSystem::Network;
+    stochasticLongParams.model = s3g::AmbiStochasticModel::FreePeriod;
+    stochasticLongParams.amplitudeDistribution = s3g::AmbiStochasticDistribution::Cauchy;
+    stochasticLongParams.durationDistribution = s3g::AmbiStochasticDistribution::Logistic;
+    stochasticLongParams.activity = 0.88f;
+    stochasticLongParams.dynamics = s3g::AmbiStochasticDynamics::Cascade;
+    stochasticLongParams.dynamicsDrive = 1.0f;
+    stochasticLongParams.dynamicsBounce = 1.0f;
+    stochasticLongParams.dynamicsDrag = 0.0f;
+    stochasticLongParams.dynamicsRadius = 0.72f;
+    stochasticLongParams.synthesisDepth = 1.0f;
+    stochasticLongParams.spatialDepth = 1.0f;
+    stochasticLongParams.outputGainDb = -34.0f;
+    stochasticLongEncoder.setParams(stochasticLongParams);
+    stochasticLongEncoder.reset();
+    float stochasticLongPeak = 0.0f;
+    float stochasticLongEvent = 0.0f;
+    for (uint32_t block = 0u; block < 1200u; ++block) {
+        stochasticLongEncoder.process(stochasticOutputs.data(), 4u, stochasticFrames);
+        for (uint32_t ch = 0u; ch < 4u; ++ch) {
+            for (float value : stochasticBuffers[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi Stochastic long dynamics output is not finite\n";
+                    return 1;
+                }
+                stochasticLongPeak = std::max(stochasticLongPeak, std::abs(value));
+            }
+        }
+        for (uint32_t voice = 0u; voice < stochasticLongParams.voices; ++voice) {
+            stochasticLongEvent = std::max(stochasticLongEvent,
+                stochasticLongEncoder.voiceContact(voice)
+                    + std::abs(stochasticLongEncoder.voiceNetworkPulse(voice)));
+        }
+    }
+    for (uint32_t voice = 0u; voice < stochasticLongParams.voices; ++voice) {
+        const auto point = stochasticLongEncoder.points()[voice];
+        if (!std::isfinite(point.azimuthDeg) || !std::isfinite(point.elevationDeg)
+            || !std::isfinite(point.distance) || point.distance < 0.149f || point.distance > 2.001f) {
+            std::cerr << "Ambi Stochastic long dynamics position escaped bounds\n";
+            return 1;
+        }
+    }
+    float stochasticLongTopologyMin[3] { 1.0f, 1.0f, 1.0f };
+    float stochasticLongTopologyMax[3] { -1.0f, -1.0f, -1.0f };
+    for (uint32_t voice = 0u; voice < stochasticLongParams.voices; ++voice) {
+        const auto topology = stochasticLongEncoder.topologyPosition(voice);
+        const float coordinates[3] { topology.x, topology.y, topology.z };
+        for (uint32_t axis = 0u; axis < 3u; ++axis) {
+            stochasticLongTopologyMin[axis] = std::min(stochasticLongTopologyMin[axis], coordinates[axis]);
+            stochasticLongTopologyMax[axis] = std::max(stochasticLongTopologyMax[axis], coordinates[axis]);
+        }
+    }
+    if (stochasticLongPeak <= 0.00001f || stochasticLongPeak > 1.01f
+        || stochasticLongEvent < 0.05f
+        || !std::isfinite(stochasticLongEncoder.globalKinetic())
+        || stochasticLongEncoder.globalKinetic() > 1.1f
+        || stochasticLongTopologyMax[0] - stochasticLongTopologyMin[0] < 0.35f
+        || stochasticLongTopologyMax[1] - stochasticLongTopologyMin[1] < 0.35f
+        || stochasticLongTopologyMax[2] - stochasticLongTopologyMin[2] < 0.35f) {
+        std::cerr << "Ambi Stochastic long dynamics failed: "
+                  << stochasticLongPeak << " / " << stochasticLongEvent << " / "
+                  << stochasticLongEncoder.globalKinetic() << "\n";
+        return 1;
+    }
+
+    s3g::AmbiStochasticEncoder stochasticFamilyEncoder;
+    stochasticFamilyEncoder.prepare(48000.0);
+    s3g::AmbiStochasticParams stochasticFamilyParams;
+    stochasticFamilyParams.order = 3u;
+    stochasticFamilyParams.voices = 8u;
+    stochasticFamilyParams.mode = s3g::AmbiStochasticMode::Free;
+    stochasticFamilyParams.system = s3g::AmbiStochasticSystem::Network;
+    stochasticFamilyParams.breakpoints = 12u;
+    stochasticFamilyParams.amplitudeStep = 0.78f;
+    stochasticFamilyParams.timeStep = 0.82f;
+    stochasticFamilyParams.inertia = 0.72f;
+    stochasticFamilyParams.activity = 1.0f;
+    stochasticFamilyParams.attackMs = 2.0f;
+    stochasticFamilyParams.outputGainDb = -30.0f;
+    std::array<std::array<float, s3g::kAmbiStochasticTableSize>, 4> stochasticModelWaves {};
+    float stochasticFamilyPeak = 0.0f;
+    float stochasticPeriodDelta = 0.0f;
+    for (uint32_t model = 0u; model < 4u; ++model) {
+        stochasticFamilyParams.model = static_cast<s3g::AmbiStochasticModel>(model);
+        for (uint32_t distribution = 0u; distribution < 7u; ++distribution) {
+            stochasticFamilyParams.amplitudeDistribution = static_cast<s3g::AmbiStochasticDistribution>(distribution);
+            stochasticFamilyParams.durationDistribution = static_cast<s3g::AmbiStochasticDistribution>(6u - distribution);
+            stochasticFamilyEncoder.setParams(stochasticFamilyParams);
+            stochasticFamilyEncoder.reset();
+            for (uint32_t block = 0u; block < 20u; ++block) {
+                stochasticFamilyEncoder.process(stochasticOutputs.data(), s3g::kAmbiStochasticMaxChannels, stochasticFrames);
+                for (const auto& channel : stochasticBuffers) {
+                    for (float value : channel) {
+                        if (!std::isfinite(value)) {
+                            std::cerr << "Ambi Stochastic model/distribution output is not finite\n";
+                            return 1;
+                        }
+                        stochasticFamilyPeak = std::max(stochasticFamilyPeak, std::abs(value));
+                    }
+                }
+            }
+            stochasticPeriodDelta = std::max(stochasticPeriodDelta,
+                std::abs(stochasticFamilyEncoder.voicePeriodRatio(0u) - 1.0f));
+        }
+        stochasticModelWaves[model] = stochasticFamilyEncoder.waveform(0u);
+    }
+    float stochasticCurvedDelta = 0.0f;
+    for (uint32_t sample = 0u; sample < s3g::kAmbiStochasticTableSize; ++sample) {
+        stochasticCurvedDelta += std::abs(stochasticModelWaves[1u][sample] - stochasticModelWaves[2u][sample]);
+    }
+    if (stochasticFamilyPeak <= 0.00001f || stochasticFamilyPeak > 1.01f) {
+        std::cerr << "Ambi Stochastic family peak failed: " << stochasticFamilyPeak << "\n";
+        return 1;
+    }
+    if (stochasticCurvedDelta < 0.01f) {
+        std::cerr << "Ambi Stochastic CURVED model did not alter the pressure curve\n";
+        return 1;
+    }
+    if (stochasticPeriodDelta < 0.001f) {
+        std::cerr << "Ambi Stochastic FREE PERIOD model did not alter oscillator period\n";
+        return 1;
+    }
+
     std::cout << "s3g-dsp smoke test passed\n";
     std::cout << "layout speakers: " << s3g::kVirtualSpeakerCount << "\n";
     std::cout << "gain ch1 sample4: " << samples[0][3] << "\n";
@@ -4120,6 +4428,16 @@ int main()
     std::cout << "Ambi VOT MIDI quantize/spread: "
               << votQuantizedMidiPitch << " / " << votSpreadPitch << "\n";
     std::cout << "Ambi VOT 64-voice constellation peak: " << vot64Peak << "\n";
+    std::cout << "Ambi Stochastic free/MIDI/stress peaks: "
+              << stochasticPeak << " / " << stochasticMidiPeak << " / " << stochasticStressPeak << "\n";
+    std::cout << "Ambi Stochastic curve/motion delta: "
+              << stochasticWaveDelta << " / " << stochasticMotionDelta << " / "
+              << stochasticVoiceCurveDelta << " / " << stochasticTopologyMotion << "\n";
+    std::cout << "Ambi Stochastic family peak/curve/period: "
+              << stochasticFamilyPeak << " / " << stochasticCurvedDelta << " / " << stochasticPeriodDelta << "\n";
+    std::cout << "Ambi Stochastic topology/long peak/event/kinetic: "
+              << stochasticTopologyActivity << " / " << stochasticLongPeak << " / "
+              << stochasticLongEvent << " / " << stochasticLongEncoder.globalKinetic() << "\n";
     std::cout << "Ambi point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "Ambi speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "Ambi object decoder peak: " << objectDecoderPeak << "\n";

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Stochastic Encoder - s3g-dsp</title>
+    <meta name="description" content="Ambi Stochastic Encoder dynamic-stochastic instrument documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Stochastic Encoder</h1>
+
+        <p><code>s3g Ambi Stochastic Encoder 64</code> is a 64-voice dynamic-stochastic CLAP instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. It can run freely, respond to MIDI, or combine both behaviors.</p>
+
+        <p>Each voice owns an evolving polygonal pressure curve with independent breakpoint amplitudes, timing, walk velocity, and rendered waveform state. A persistent nearest-neighbor topology gives every voice a distinct synthesis-space identity while energy, collisions, and delayed events pass between voices. The default <code>FREE PERIOD</code> configuration favors unstable, abrasive timbres and long-running variation.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Ambi Stochastic Encoder 64</code> on a 64-channel REAPER track.</li>
+          <li>Choose <code>FREE</code>, <code>MIDI</code>, or <code>BOTH</code>.</li>
+          <li>Select an ambisonic <code>ORDER</code>, voice count, stochastic system, and pitch range.</li>
+          <li>Choose a dynamics mode, shape its topology mapping, then choose a spatial motion mode.</li>
+          <li>Follow the instrument with an ambisonic decoder or meter.</li>
+        </ol>
+
+        <h2 id="pressure-curves">Pressure Curves</h2>
+
+        <p>The <code>PRESSURE CURVE</code> display shows the waveform and breakpoints currently used by the selected voice. Selecting another point reveals that voice's separate curve. Curve changes are prepared at cycle boundaries and crossfaded over the following cycle.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>PTS</td><td>Sets 4 to 32 pressure-curve breakpoints.</td></tr>
+            <tr><td>AMP</td><td>Sets the size of the reflected random walk applied to breakpoint amplitudes.</td></tr>
+            <tr><td>TIME</td><td>Sets the random walk applied to the duration between breakpoints.</td></tr>
+            <tr><td>INERT</td><td>Controls how strongly each walk retains its previous direction.</td></tr>
+            <tr><td>A-DIST</td><td>Selects the amplitude-step distribution.</td></tr>
+            <tr><td>T-DIST</td><td>Selects the timing-step distribution independently.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The distribution menus provide <code>UNIFORM</code>, <code>GAUSS</code>, <code>CAUCHY</code>, <code>LOGISTIC</code>, <code>ARCSINE</code>, <code>EXPON</code>, and <code>BINARY</code>. Pairing unlike distributions can make contour and rhythm evolve at very different rates.</p>
+
+        <h2 id="models">Models</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Model</th><th>Behavior</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>DIRECT</td><td>Applies first-order reflected steps directly to breakpoint amplitude and timing.</td></tr>
+            <tr><td>DELTA</td><td>Applies a second-order walk to the change between successive breakpoint states.</td></tr>
+            <tr><td>CURVED</td><td>Uses the delta walk with cubic interpolation between pressure points.</td></tr>
+            <tr><td>FREE PERIOD</td><td>Lets the accumulated timing walk and topology state bend oscillator period around its target pitch. This is the most unstable and overtly dynamic model.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="systems">Systems</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>System</th><th>Behavior</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>INDEPENDENT</td><td>Voices evolve without energy feedback from other voices.</td></tr>
+            <tr><td>NEIGHBOR</td><td>Each voice responds to the measured energy of its nearest spatial neighbor.</td></tr>
+            <tr><td>FIELD</td><td>The complete field responds to global sound and kinetic energy.</td></tr>
+            <tr><td>NETWORK</td><td>Combines local, global, kinetic, and delayed topology feedback.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>COUPLE</code> sets neighbor transfer and spring strength, <code>MEM</code> sets network persistence and cascade delay, and <code>REACT</code> sets how strongly topology affects waveform pressure, period, pitch, and voice gain.</p>
+
+        <h2 id="dynamics">Topology Dynamics</h2>
+
+        <p>The dynamics layer runs independently of the GUI. It evolves persistent points distributed through a bounded synthesis space, with per-point velocity, two stable nearest-neighbor relationships, collision state, edge tension, crowding, and delayed network pulses. Each point retains its own anchor, so the map does not collapse when a transient meter decays. Motion continues when the editor is closed.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Mode</th><th>Behavior</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>OFF</td><td>Uses the spatial motion engine without topology physics.</td></tr>
+            <tr><td>GAS</td><td>Uses free particles, elastic collisions, and boundary rebounds without spring bonds.</td></tr>
+            <tr><td>NET</td><td>Adds a two-neighbor elastic network whose bonds can stretch, break, and reform.</td></tr>
+            <tr><td>CASCADE</td><td>Uses a lighter network and passes delayed event pulses between neighboring voices.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>DRIVE</code> sets the target kinetic activity. <code>BOUNCE</code> sets collision restitution, <code>DRAG</code> dissipates motion, and <code>RADIUS</code> sets the point collision distance. Internal limits keep the system bounded without forcing it toward a static equilibrium.</p>
+
+        <h2 id="voices">Voices and Pitch</h2>
+
+        <p><code>BASE</code> sets the free-running center note. <code>RANGE</code> distributes active voices around it, while <code>DEV</code> adds deterministic per-voice tuning deviation. <code>ACT</code> changes the density of internally generated voice gates. MIDI notes use the shared ADSR envelope and their incoming velocity.</p>
+
+        <h2 id="space">Stochastic Field</h2>
+
+        <p>Each synthesis voice is also an ambisonic point. <code>FIELD</code> holds the starting distribution, <code>ORBIT</code> creates continuous circulation, <code>DRIFT</code> combines slow non-repeating trajectories, and <code>FEEDBACK</code> lets measured voice energy alter AED position and distance.</p>
+
+        <p><code>RATE</code>, <code>AMOUNT</code>, and <code>SPREAD</code> shape motion around the center <code>AZIMUTH</code>, <code>ELEV</code>, and <code>DIST</code>. <code>SPAT</code> sets how strongly topology motion changes the actual AED position. Set it to zero to keep the spatial image independent while the synthesis topology continues evolving.</p>
+
+        <h2 id="topology-map">Topology Map</h2>
+
+        <p><code>SYN</code> sets how strongly topology reshapes each voice's pressure curve and event behavior. X controls pressure-curve mutation, Y controls event density and duration, Z controls register and free-period behavior, and distance from the center controls intensity and deviation. Collision impulse, velocity, crowding, edge tension, and delayed pulses act as secondary modulation rather than replacing those persistent coordinates.</p>
+
+        <p>The main display provides three linked views:</p>
+
+        <ul>
+          <li><code>FIELD</code> shows the true AED positions, neighbor links, collisions, and broken bonds.</li>
+          <li><code>MAP</code> shows the persistent synthesis coordinates: X is mutation, Y is event behavior, Z is period and register, and radius is intensity and deviation.</li>
+          <li><code>LOOPS</code> shows the live causal cycle from local energy through motion, contact, neighbors, field state, and curve mutation.</li>
+        </ul>
+
+        <p>The spatial and synthesis views share one dynamics engine, but remain visually separate. <code>SPAT</code> projects the persistent topology into AED space without turning a spatial direction into a fixed timbral label.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <p>The output bus remains 64 channels wide. The selected order activates the corresponding ACN channels and zeroes all remaining outputs.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Order</th><th>Active channels</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
+
+        <p>Follow the instrument with an <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>.</p>
+
+        <h2 id="references">Technical References</h2>
+
+        <p>The model and distribution choices were informed by the documented behavior of <a href="https://csound.com/docs/manual/gendy.html" target="_blank" rel="noopener noreferrer">Csound dynamic-stochastic opcodes</a> and the <a href="https://doc.sccode.org/Classes/Gendy1.html" target="_blank" rel="noopener noreferrer">SuperCollider stochastic generator family</a>. The plugin uses its own bounded, cycle-crossfaded implementation for multichannel realtime operation.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-vot-encoder.html">
+            <span>Previous</span>
+            Ambi VOT Encoder
+          </a>
+          <a class="page-nav-link next" href="ambi-grain-processor.html">
+            <span>Next</span>
+            Ambi Grain Processor
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instrument Pages</h2>
+          <a href="instruments.html">Instruments Overview</a>
+          <a href="loop-processor.html">Loop Processor</a>
+          <a href="multi-loop-processor.html">Multi Loop Processor</a>
+          <a href="ambi-vot-encoder.html">VOT Encoder</a>
+          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
+          <a href="ambi-grain-processor.html">Grain Processor</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#pressure-curves">Pressure Curves</a>
+          <a href="#models">Models</a>
+          <a href="#systems">Systems</a>
+          <a href="#dynamics">Topology Dynamics</a>
+          <a href="#voices">Voices and Pitch</a>
+          <a href="#space">Stochastic Field</a>
+          <a href="#topology-map">Topology Map</a>
+          <a href="#routing">Order and Routing</a>
+          <a href="#references">Technical References</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>
