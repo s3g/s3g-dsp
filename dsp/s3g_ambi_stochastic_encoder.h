@@ -2,11 +2,13 @@
 
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_realtime.h"
+#include "s3g_topology.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace s3g {
 
@@ -15,7 +17,8 @@ constexpr uint32_t kAmbiStochasticMaxOrder = 7;
 constexpr uint32_t kAmbiStochasticMaxChannels = 64;
 constexpr uint32_t kAmbiStochasticMaxBreakpoints = 32;
 constexpr uint32_t kAmbiStochasticTableSize = 512;
-constexpr uint32_t kAmbiStochasticCascadeSlots = 64;
+constexpr uint32_t kAmbiStochasticGeneratorCount = 4;
+constexpr uint32_t kAmbiStochasticHistorySize = 32;
 
 enum class AmbiStochasticMode : uint32_t {
     Free = 0,
@@ -23,18 +26,19 @@ enum class AmbiStochasticMode : uint32_t {
     Both = 2,
 };
 
-enum class AmbiStochasticSystem : uint32_t {
-    Independent = 0,
-    Neighbor = 1,
-    Field = 2,
-    Network = 3,
+enum class AmbiStochasticSelection : uint32_t {
+    Random = 0,
+    Series = 1,
+    Weight = 2,
+    Tendency = 3,
+    Markov = 4,
+    Walk = 5,
 };
 
-enum class AmbiStochasticModel : uint32_t {
-    Direct = 0,
-    Delta = 1,
-    Curved = 2,
-    FreePeriod = 3,
+enum class AmbiStochasticTransition : uint32_t {
+    Link = 0,
+    Merge = 1,
+    Vary = 2,
 };
 
 enum class AmbiStochasticDistribution : uint32_t {
@@ -47,57 +51,44 @@ enum class AmbiStochasticDistribution : uint32_t {
     Binary = 6,
 };
 
-enum class AmbiStochasticMotion : uint32_t {
-    Field = 0,
-    Orbit = 1,
-    Drift = 2,
-    Feedback = 3,
-};
-
-enum class AmbiStochasticDynamics : uint32_t {
-    Off = 0,
-    Gas = 1,
-    Net = 2,
-    Cascade = 3,
-};
-
 struct AmbiStochasticParams {
     uint32_t order = 3;
     uint32_t voices = 12;
     AmbiStochasticMode mode = AmbiStochasticMode::Free;
-    AmbiStochasticSystem system = AmbiStochasticSystem::Network;
-    AmbiStochasticModel model = AmbiStochasticModel::FreePeriod;
+    AmbiStochasticSelection selection = AmbiStochasticSelection::Walk;
+    AmbiStochasticTransition transition = AmbiStochasticTransition::Link;
     AmbiStochasticDistribution amplitudeDistribution = AmbiStochasticDistribution::Cauchy;
     AmbiStochasticDistribution durationDistribution = AmbiStochasticDistribution::Logistic;
     float baseNote = 40.0f;
-    float pitchSpreadSemitones = 19.0f;
+    float seedSpreadSemitones = 19.0f;
     float detuneCents = 9.0f;
+    float frequencyFloorHz = 18.0f;
     uint32_t breakpoints = 16;
     float amplitudeStep = 0.58f;
-    float timeStep = 0.52f;
-    float inertia = 0.72f;
-    float activity = 0.74f;
-    float coupling = 0.58f;
-    float memory = 0.74f;
-    float reactivity = 0.64f;
-    float attackMs = 80.0f;
-    float decayMs = 480.0f;
-    float sustain = 0.72f;
-    float releaseMs = 1800.0f;
-    AmbiStochasticMotion motion = AmbiStochasticMotion::Feedback;
-    float motionRateHz = 0.028f;
-    float motionAmount = 0.72f;
-    float motionSpread = 0.82f;
+    float durationStep = 0.52f;
+    float amplitudeRange = 0.65f;
+    float durationRange = 0.78f;
+    float fieldDensity = 0.94f;
+    float neighborTransfer = 0.32f;
+    float selectionMemory = 0.82f;
+    float fieldDurationSeconds = 0.45f;
+    float fieldContrast = 0.58f;
+    float attackMs = 12.0f;
+    float decayMs = 180.0f;
+    float sustain = 0.82f;
+    float releaseMs = 420.0f;
+    uint32_t topologyShape = 11;
+    uint32_t topologyMotion = 1;
+    float topologyRateHz = 0.035f;
+    float topologyAmount = 0.82f;
+    float topologyDepth = 0.78f;
+    float topologyScale = 1.20f;
+    float topologyCollapse = 0.0f;
+    float topologyTwist = 0.0f;
     float centerAzimuthDeg = 0.0f;
     float centerElevationDeg = 0.0f;
     float centerDistance = 1.0f;
-    AmbiStochasticDynamics dynamics = AmbiStochasticDynamics::Cascade;
-    float dynamicsDrive = 0.72f;
-    float dynamicsBounce = 0.88f;
-    float dynamicsDrag = 0.16f;
-    float dynamicsRadius = 0.42f;
-    float synthesisDepth = 0.86f;
-    float spatialDepth = 0.68f;
+    float spatialFollow = 0.92f;
     float outputGainDb = -24.0f;
 };
 
@@ -172,23 +163,41 @@ struct AmbiStochasticEnvelope {
     }
 };
 
-struct AmbiStochasticVoice {
+struct AmbiStochasticGenerator {
     std::array<float, kAmbiStochasticMaxBreakpoints> amplitudes {};
     std::array<float, kAmbiStochasticMaxBreakpoints> durations {};
-    std::array<float, kAmbiStochasticMaxBreakpoints> amplitudeVelocity {};
-    std::array<float, kAmbiStochasticMaxBreakpoints> durationVelocity {};
+    std::array<float, kAmbiStochasticMaxBreakpoints> amplitudePrimary {};
+    std::array<float, kAmbiStochasticMaxBreakpoints> durationPrimary {};
+    std::array<float, kAmbiStochasticTableSize> table {};
+    uint32_t seed = 1u;
+    uint32_t renderedBreakpoints = 16u;
+    float frequency = 55.0f;
+};
+
+struct AmbiStochasticVoice {
+    std::array<AmbiStochasticGenerator, kAmbiStochasticGeneratorCount> generators {};
     std::array<float, kAmbiStochasticTableSize> currentTable {};
     std::array<float, kAmbiStochasticTableSize> nextTable {};
+    std::array<uint8_t, kAmbiStochasticGeneratorCount> seriesOrder { 0u, 1u, 2u, 3u };
+    std::array<uint8_t, kAmbiStochasticHistorySize> history {};
     AmbiStochasticEnvelope envelope {};
     uint32_t seed = 1u;
-    uint32_t renderedBreakpoints = 12u;
+    uint32_t seriesCursor = 0u;
+    uint32_t historyCursor = 0u;
+    uint32_t currentGenerator = 0u;
+    uint32_t nextGenerator = 0u;
+    uint32_t selectionHold = 0u;
+    float selectorPrimary = 0.0f;
+    float selectorSecondary = 1.5f;
+    float tendencyCenter = 1.5f;
     float phase = 0.0f;
-    float frequency = 55.0f;
-    float energy = 0.20f;
-    float activityOffset = 0.0f;
+    float currentFrequency = 55.0f;
+    float nextFrequency = 55.0f;
+    float energy = 0.0f;
     float velocity = 0.72f;
     float age = 0.0f;
-    float periodRatio = 1.0f;
+    float fieldRemainingSamples = 1.0f;
+    bool fieldActive = true;
     int note = 48;
     bool midiGate = false;
     bool midiRole = false;
@@ -204,25 +213,26 @@ inline const char* ambiStochasticModeName(AmbiStochasticMode mode)
     }
 }
 
-inline const char* ambiStochasticSystemName(AmbiStochasticSystem system)
+inline const char* ambiStochasticSelectionName(AmbiStochasticSelection selection)
 {
-    switch (system) {
-    case AmbiStochasticSystem::Neighbor: return "NEIGHBOR";
-    case AmbiStochasticSystem::Field: return "FIELD";
-    case AmbiStochasticSystem::Network: return "NETWORK";
-    case AmbiStochasticSystem::Independent:
-    default: return "INDEPENDENT";
+    switch (selection) {
+    case AmbiStochasticSelection::Series: return "SERIES";
+    case AmbiStochasticSelection::Weight: return "WEIGHT";
+    case AmbiStochasticSelection::Tendency: return "TENDENCY";
+    case AmbiStochasticSelection::Markov: return "MARKOV";
+    case AmbiStochasticSelection::Walk: return "WALK";
+    case AmbiStochasticSelection::Random:
+    default: return "RANDOM";
     }
 }
 
-inline const char* ambiStochasticModelName(AmbiStochasticModel model)
+inline const char* ambiStochasticTransitionName(AmbiStochasticTransition transition)
 {
-    switch (model) {
-    case AmbiStochasticModel::Delta: return "DELTA";
-    case AmbiStochasticModel::Curved: return "CURVED";
-    case AmbiStochasticModel::FreePeriod: return "FREE PERIOD";
-    case AmbiStochasticModel::Direct:
-    default: return "DIRECT";
+    switch (transition) {
+    case AmbiStochasticTransition::Merge: return "MERGE";
+    case AmbiStochasticTransition::Vary: return "VARY";
+    case AmbiStochasticTransition::Link:
+    default: return "LINK";
     }
 }
 
@@ -240,28 +250,6 @@ inline const char* ambiStochasticDistributionName(AmbiStochasticDistribution dis
     }
 }
 
-inline const char* ambiStochasticMotionName(AmbiStochasticMotion motion)
-{
-    switch (motion) {
-    case AmbiStochasticMotion::Orbit: return "ORBIT";
-    case AmbiStochasticMotion::Drift: return "DRIFT";
-    case AmbiStochasticMotion::Feedback: return "FEEDBACK";
-    case AmbiStochasticMotion::Field:
-    default: return "FIELD";
-    }
-}
-
-inline const char* ambiStochasticDynamicsName(AmbiStochasticDynamics dynamics)
-{
-    switch (dynamics) {
-    case AmbiStochasticDynamics::Gas: return "GAS";
-    case AmbiStochasticDynamics::Net: return "NET";
-    case AmbiStochasticDynamics::Cascade: return "CASCADE";
-    case AmbiStochasticDynamics::Off:
-    default: return "OFF";
-    }
-}
-
 class AmbiStochasticEncoder {
 public:
     void prepare(double sampleRate)
@@ -272,26 +260,29 @@ public:
 
     void reset()
     {
-        motionPhase_ = 0.0f;
-        activityPhase_ = 0.0f;
-        dynamicsAccumulator_ = 0.0f;
-        dynamicsTick_ = 0u;
-        cascadeCursor_ = 0u;
-        dynamicsSeed_ = 0x7f4a7c15u;
-        globalEnergy_ = 0.20f;
+        topologyPhase_ = 0.0f;
+        topologySeed_ = 0x7f4a7c15u;
+        globalEnergy_ = 0.0f;
         globalKinetic_ = 0.0f;
-        for (auto& lane : cascadeDelay_) lane.fill(0.0f);
-        for (uint32_t i = 0; i < kAmbiStochasticMaxVoices; ++i) {
-            initializeVoice(i);
-            points_[i] = basePoint(i);
-            neighborIndex_[i] = (i + 1u) % kAmbiStochasticMaxVoices;
-            secondaryNeighborIndex_[i] = (i + 2u) % kAmbiStochasticMaxVoices;
+        smoothedOutputGain_ = dbToGain(params_.outputGainDb)
+            / std::sqrt(static_cast<float>(std::max<uint32_t>(1u, params_.voices)));
+        for (uint32_t voice = 0u; voice < kAmbiStochasticMaxVoices; ++voice) {
+            initializeVoice(voice);
+            const auto base = baseTopologyPoint(voice, std::max<uint32_t>(1u, params_.voices));
+            topologySecondary_[voice] = {
+                static_cast<float>(base[0]), static_cast<float>(base[1]), static_cast<float>(base[2])
+            };
+            topologyPrimary_[voice] = {
+                deterministicSigned(voice * 17u + 1u) * 0.035f,
+                deterministicSigned(voice * 31u + 3u) * 0.035f,
+                deterministicSigned(voice * 47u + 5u) * 0.035f
+            };
+            topologyPosition_[voice] = topologySecondary_[voice];
+            topologyPrevious_[voice] = topologySecondary_[voice];
+            neighborIndex_[voice] = (voice + 1u) % kAmbiStochasticMaxVoices;
+            secondaryNeighborIndex_[voice] = (voice + 2u) % kAmbiStochasticMaxVoices;
         }
-        updateTopologyAnchors();
-        for (uint32_t i = 0; i < kAmbiStochasticMaxVoices; ++i) {
-            initializeDynamicsVoice(i);
-        }
-        updateNeighborGraph();
+        updateTopology(0.0f);
     }
 
     void setParams(AmbiStochasticParams params)
@@ -299,134 +290,164 @@ public:
         params.order = std::clamp<uint32_t>(params.order, 1u, kAmbiStochasticMaxOrder);
         params.voices = std::clamp<uint32_t>(params.voices, 1u, kAmbiStochasticMaxVoices);
         params.mode = static_cast<AmbiStochasticMode>(std::clamp<uint32_t>(static_cast<uint32_t>(params.mode), 0u, 2u));
-        params.system = static_cast<AmbiStochasticSystem>(std::clamp<uint32_t>(static_cast<uint32_t>(params.system), 0u, 3u));
-        params.model = static_cast<AmbiStochasticModel>(std::clamp<uint32_t>(static_cast<uint32_t>(params.model), 0u, 3u));
+        params.selection = static_cast<AmbiStochasticSelection>(std::clamp<uint32_t>(static_cast<uint32_t>(params.selection), 0u, 5u));
+        params.transition = static_cast<AmbiStochasticTransition>(std::clamp<uint32_t>(static_cast<uint32_t>(params.transition), 0u, 2u));
         params.amplitudeDistribution = static_cast<AmbiStochasticDistribution>(
             std::clamp<uint32_t>(static_cast<uint32_t>(params.amplitudeDistribution), 0u, 6u));
         params.durationDistribution = static_cast<AmbiStochasticDistribution>(
             std::clamp<uint32_t>(static_cast<uint32_t>(params.durationDistribution), 0u, 6u));
         params.baseNote = clamp(params.baseNote, 12.0f, 96.0f);
-        params.pitchSpreadSemitones = clamp(params.pitchSpreadSemitones, 0.0f, 48.0f);
+        params.seedSpreadSemitones = clamp(params.seedSpreadSemitones, 0.0f, 48.0f);
         params.detuneCents = clamp(params.detuneCents, 0.0f, 100.0f);
+        params.frequencyFloorHz = clamp(params.frequencyFloorHz, 2.0f, 240.0f);
         params.breakpoints = std::clamp<uint32_t>(params.breakpoints, 4u, kAmbiStochasticMaxBreakpoints);
         params.amplitudeStep = clamp(params.amplitudeStep, 0.0f, 1.0f);
-        params.timeStep = clamp(params.timeStep, 0.0f, 1.0f);
-        params.inertia = clamp(params.inertia, 0.0f, 1.0f);
-        params.activity = clamp(params.activity, 0.0f, 1.0f);
-        params.coupling = clamp(params.coupling, 0.0f, 1.0f);
-        params.memory = clamp(params.memory, 0.0f, 1.0f);
-        params.reactivity = clamp(params.reactivity, 0.0f, 1.0f);
+        params.durationStep = clamp(params.durationStep, 0.0f, 1.0f);
+        params.amplitudeRange = clamp(params.amplitudeRange, 0.0f, 1.0f);
+        params.durationRange = clamp(params.durationRange, 0.0f, 1.0f);
+        params.fieldDensity = clamp(params.fieldDensity, 0.0f, 1.0f);
+        params.neighborTransfer = clamp(params.neighborTransfer, 0.0f, 1.0f);
+        params.selectionMemory = clamp(params.selectionMemory, 0.0f, 1.0f);
+        params.fieldDurationSeconds = clamp(params.fieldDurationSeconds, 0.05f, 30.0f);
+        params.fieldContrast = clamp(params.fieldContrast, 0.0f, 1.0f);
         params.attackMs = clamp(params.attackMs, 1.0f, 4000.0f);
         params.decayMs = clamp(params.decayMs, 5.0f, 8000.0f);
         params.sustain = clamp(params.sustain, 0.0f, 1.0f);
         params.releaseMs = clamp(params.releaseMs, 5.0f, 12000.0f);
-        params.motion = static_cast<AmbiStochasticMotion>(std::clamp<uint32_t>(static_cast<uint32_t>(params.motion), 0u, 3u));
-        params.motionRateHz = clamp(params.motionRateHz, 0.001f, 1.0f);
-        params.motionAmount = clamp(params.motionAmount, 0.0f, 1.0f);
-        params.motionSpread = clamp(params.motionSpread, 0.0f, 1.0f);
+        params.topologyShape = std::min<uint32_t>(params.topologyShape, kTopologyShapeCount - 1u);
+        params.topologyMotion = std::min<uint32_t>(params.topologyMotion, kTopologyMotionModeCount - 1u);
+        params.topologyRateHz = clamp(params.topologyRateHz, 0.001f, 1.0f);
+        params.topologyAmount = clamp(params.topologyAmount, 0.0f, 1.0f);
+        params.topologyDepth = clamp(params.topologyDepth, 0.0f, 1.0f);
+        params.topologyScale = clamp(params.topologyScale, 0.25f, 2.0f);
+        params.topologyCollapse = clamp(params.topologyCollapse, 0.0f, 1.0f);
+        params.topologyTwist = clamp(params.topologyTwist, -1.0f, 1.0f);
         params.centerAzimuthDeg = wrapSignedDeg(params.centerAzimuthDeg);
         params.centerElevationDeg = clamp(params.centerElevationDeg, -90.0f, 90.0f);
         params.centerDistance = clamp(params.centerDistance, 0.15f, 2.0f);
-        params.dynamics = static_cast<AmbiStochasticDynamics>(
-            std::clamp<uint32_t>(static_cast<uint32_t>(params.dynamics), 0u, 3u));
-        params.dynamicsDrive = clamp(params.dynamicsDrive, 0.0f, 1.0f);
-        params.dynamicsBounce = clamp(params.dynamicsBounce, 0.0f, 1.0f);
-        params.dynamicsDrag = clamp(params.dynamicsDrag, 0.0f, 1.0f);
-        params.dynamicsRadius = clamp(params.dynamicsRadius, 0.0f, 1.0f);
-        params.synthesisDepth = clamp(params.synthesisDepth, 0.0f, 1.0f);
-        params.spatialDepth = clamp(params.spatialDepth, 0.0f, 1.0f);
+        params.spatialFollow = clamp(params.spatialFollow, 0.0f, 1.0f);
         params.outputGainDb = clamp(params.outputGainDb, -60.0f, 6.0f);
-        const uint32_t previousVoices = params_.voices;
+
+        const uint32_t oldVoices = params_.voices;
+        const uint32_t oldBreakpoints = params_.breakpoints;
         params_ = params;
-        if (params_.voices != previousVoices) updateTopologyAnchors();
-        if (params_.voices > previousVoices) {
-            for (uint32_t i = previousVoices; i < params_.voices; ++i) {
-                points_[i] = basePoint(i);
-                initializeDynamicsVoice(i);
+        if (params_.voices > oldVoices) {
+            for (uint32_t voice = oldVoices; voice < params_.voices; ++voice) {
+                initializeVoice(voice);
+                const auto base = baseTopologyPoint(voice, params_.voices);
+                topologySecondary_[voice] = {
+                    static_cast<float>(base[0]), static_cast<float>(base[1]), static_cast<float>(base[2])
+                };
+                topologyPrimary_[voice] = {
+                    deterministicSigned(voice * 17u + 1u) * 0.035f,
+                    deterministicSigned(voice * 31u + 3u) * 0.035f,
+                    deterministicSigned(voice * 47u + 5u) * 0.035f
+                };
+                topologyPosition_[voice] = topologySecondary_[voice];
+                topologyPrevious_[voice] = topologySecondary_[voice];
             }
         }
-        if (params_.voices != previousVoices) updateNeighborGraph();
+        if (params_.breakpoints != oldBreakpoints) {
+            for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+                initializeVoiceGenerators(voice, voices_[voice].midiRole
+                    ? midiToHz(static_cast<float>(voices_[voice].note)) : seedFrequencyForVoice(voice, 0u));
+            }
+        }
+        updateTopology(0.0f);
     }
 
     AmbiStochasticParams params() const { return params_; }
     const std::array<AmbiStochasticPoint, kAmbiStochasticMaxVoices>& points() const { return points_; }
     Vec3 topologyPosition(uint32_t voice) const
     {
-        const uint32_t index = std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u);
-        const float boundary = topologyBoundary();
-        return {
-            clamp(dynamicsPosition_[index].x / boundary, -1.0f, 1.0f),
-            clamp(dynamicsPosition_[index].y / boundary, -1.0f, 1.0f),
-            clamp(dynamicsPosition_[index].z / boundary, -1.0f, 1.0f)
-        };
+        return topologyPosition_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)];
     }
     const std::array<uint32_t, kAmbiStochasticMaxVoices>& neighborIndices() const { return neighborIndex_; }
     const std::array<uint32_t, kAmbiStochasticMaxVoices>& secondaryNeighborIndices() const { return secondaryNeighborIndex_; }
     float globalEnergy() const { return globalEnergy_; }
     float globalKinetic() const { return globalKinetic_; }
-    float voiceEnergy(uint32_t voice) const
-    {
-        return voices_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)].energy;
-    }
+    float voiceEnergy(uint32_t voice) const { return voiceState(voice).energy; }
+    float voiceFrequency(uint32_t voice) const { return voiceState(voice).currentFrequency; }
     float voicePeriodRatio(uint32_t voice) const
     {
-        return voices_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)].periodRatio;
+        const float seed = seedFrequencyForVoice(std::min<uint32_t>(voice, params_.voices - 1u), 0u);
+        return voiceFrequency(voice) / std::max(0.001f, seed);
     }
-    float voiceKinetic(uint32_t voice) const
+    float voiceKinetic(uint32_t voice) const { return kinetic_[safeVoice(voice)]; }
+    float voiceContact(uint32_t voice) const { return neighborInfluence_[safeVoice(voice)]; }
+    float voiceCrowding(uint32_t voice) const { return crowding_[safeVoice(voice)]; }
+    float voiceTension(uint32_t voice) const { return topologyRadius_[safeVoice(voice)]; }
+    float voiceNetworkPulse(uint32_t voice) const { return selectionPulse_[safeVoice(voice)]; }
+    float voiceBondStrength(uint32_t) const { return 1.0f; }
+    bool voiceFieldActive(uint32_t voice) const { return voiceState(voice).fieldActive; }
+    uint32_t currentGenerator(uint32_t voice) const { return voiceState(voice).currentGenerator; }
+    uint32_t nextGenerator(uint32_t voice) const { return voiceState(voice).nextGenerator; }
+    const std::array<uint8_t, kAmbiStochasticHistorySize>& selectionHistory(uint32_t voice) const
     {
-        return kinetic_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)];
+        return voiceState(voice).history;
     }
-    float voiceContact(uint32_t voice) const
-    {
-        return contact_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)];
-    }
-    float voiceCrowding(uint32_t voice) const
-    {
-        return crowding_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)];
-    }
-    float voiceTension(uint32_t voice) const
-    {
-        return tension_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)];
-    }
-    float voiceNetworkPulse(uint32_t voice) const
-    {
-        return networkPulse_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)];
-    }
-    float voiceBondStrength(uint32_t voice) const
-    {
-        return bondBreak_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)] > 0.0f ? 0.0f : 1.0f;
-    }
+    uint32_t selectionHistoryCursor(uint32_t voice) const { return voiceState(voice).historyCursor; }
     const std::array<float, kAmbiStochasticTableSize>& waveform(uint32_t voice) const
     {
-        return voices_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)].nextTable;
+        return voiceState(voice).currentTable;
+    }
+    const std::array<float, kAmbiStochasticTableSize>& nextWaveform(uint32_t voice) const
+    {
+        return voiceState(voice).nextTable;
     }
     uint32_t breakpointCount(uint32_t voice) const
     {
-        return voices_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)].renderedBreakpoints;
+        const auto& state = voiceState(voice);
+        return state.generators[state.nextGenerator].renderedBreakpoints;
     }
     float breakpointAmplitude(uint32_t voice, uint32_t point) const
     {
-        const auto& state = voices_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)];
-        return state.amplitudes[std::min<uint32_t>(point, kAmbiStochasticMaxBreakpoints - 1u)];
+        const auto& state = voiceState(voice);
+        const auto& generator = state.generators[state.nextGenerator];
+        return generator.amplitudes[std::min<uint32_t>(point, kAmbiStochasticMaxBreakpoints - 1u)];
     }
     float breakpointDuration(uint32_t voice, uint32_t point) const
     {
-        const auto& state = voices_[std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u)];
-        return state.durations[std::min<uint32_t>(point, kAmbiStochasticMaxBreakpoints - 1u)];
+        const auto& state = voiceState(voice);
+        const auto& generator = state.generators[state.nextGenerator];
+        return generator.durations[std::min<uint32_t>(point, kAmbiStochasticMaxBreakpoints - 1u)];
+    }
+    float generatorAmplitudePrimary(uint32_t voice, uint32_t generator, uint32_t point) const
+    {
+        const auto& state = voiceState(voice);
+        const auto& source = state.generators[std::min<uint32_t>(generator, kAmbiStochasticGeneratorCount - 1u)];
+        return source.amplitudePrimary[std::min<uint32_t>(point, kAmbiStochasticMaxBreakpoints - 1u)];
+    }
+    float generatorDurationPrimary(uint32_t voice, uint32_t generator, uint32_t point) const
+    {
+        const auto& state = voiceState(voice);
+        const auto& source = state.generators[std::min<uint32_t>(generator, kAmbiStochasticGeneratorCount - 1u)];
+        return source.durationPrimary[std::min<uint32_t>(point, kAmbiStochasticMaxBreakpoints - 1u)];
+    }
+    float amplitudePrimaryBarrier(uint32_t voice) const
+    {
+        const Vec3 p = topologyPosition(voice);
+        return amplitudePrimaryLimit(p);
+    }
+    float durationPrimaryBarrier(uint32_t voice) const
+    {
+        const Vec3 p = topologyPosition(voice);
+        const auto& state = voiceState(voice);
+        return durationPrimaryLimit(p, state.generators[state.nextGenerator]);
     }
 
     void noteOn(int note, float velocity)
     {
         uint32_t selected = 0u;
         float oldest = -1.0f;
-        for (uint32_t i = 0; i < params_.voices; ++i) {
-            if (!voices_[i].midiRole || voices_[i].envelope.stage == AmbiStochasticEnvelopeStage::Idle) {
-                selected = i;
+        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+            if (!voices_[voice].midiRole || voices_[voice].envelope.stage == AmbiStochasticEnvelopeStage::Idle) {
+                selected = voice;
                 break;
             }
-            if (voices_[i].age > oldest) {
-                oldest = voices_[i].age;
-                selected = i;
+            if (voices_[voice].age > oldest) {
+                oldest = voices_[voice].age;
+                selected = voice;
             }
         }
         auto& voice = voices_[selected];
@@ -436,7 +457,7 @@ public:
         voice.midiRole = true;
         voice.age = 0.0f;
         voice.phase = 0.0f;
-        voice.frequency = midiToHz(static_cast<float>(voice.note));
+        initializeVoiceGenerators(selected, midiToHz(static_cast<float>(voice.note)));
         voice.envelope.trigger();
     }
 
@@ -451,83 +472,82 @@ public:
     {
         if (!outputs || frames == 0u) return;
         outputChannels = std::min<uint32_t>(outputChannels, kAmbiStochasticMaxChannels);
-        for (uint32_t ch = 0; ch < outputChannels; ++ch) {
-            if (outputs[ch]) std::fill(outputs[ch], outputs[ch] + frames, 0.0f);
+        for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+            if (outputs[channel]) std::fill(outputs[channel], outputs[channel] + frames, 0.0f);
         }
 
         const uint32_t voices = params_.voices;
         const uint32_t ambiChannels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), outputChannels);
-        const float outputGain = dbToGain(params_.outputGainDb)
+        const float targetOutputGain = dbToGain(params_.outputGainDb)
             / std::sqrt(static_cast<float>(std::max<uint32_t>(1u, voices)));
         const float attackCoef = envelopeCoefficient(params_.attackMs);
         const float decayCoef = envelopeCoefficient(params_.decayMs);
         const float releaseCoef = envelopeCoefficient(params_.releaseMs);
         constexpr uint32_t kControlFrames = 16u;
 
-        for (uint32_t chunkStart = 0; chunkStart < frames; chunkStart += kControlFrames) {
+        for (uint32_t chunkStart = 0u; chunkStart < frames; chunkStart += kControlFrames) {
             const uint32_t chunkFrames = std::min<uint32_t>(kControlFrames, frames - chunkStart);
-            const float dt = static_cast<float>(chunkFrames) / static_cast<float>(sampleRate_);
-            updateActivity(dt);
-            updateMotion(dt);
+            const float dt = static_cast<float>(chunkFrames / sampleRate_);
+            updateTopology(dt);
+            updateTimeFields(static_cast<float>(chunkFrames));
 
             std::array<std::array<float, kAmbiStochasticMaxChannels>, kAmbiStochasticMaxVoices> basis {};
             std::array<float, kAmbiStochasticMaxVoices> distanceGain {};
             std::array<float, kAmbiStochasticMaxVoices> energySum {};
-            for (uint32_t i = 0; i < voices; ++i) {
-                basis[i] = acnSn3dBasis7(directionFromAed(points_[i].azimuthDeg, points_[i].elevationDeg));
-                distanceGain[i] = 1.0f / std::max(0.5f, points_[i].distance);
+            for (uint32_t voice = 0u; voice < voices; ++voice) {
+                basis[voice] = acnSn3dBasis7(directionFromAed(points_[voice].azimuthDeg, points_[voice].elevationDeg));
+                distanceGain[voice] = 1.0f / std::max(0.5f, points_[voice].distance);
             }
 
             for (uint32_t frame = chunkStart; frame < chunkStart + chunkFrames; ++frame) {
-                for (uint32_t i = 0; i < voices; ++i) {
-                    auto& voice = voices_[i];
-                    const bool midiOnly = params_.mode == AmbiStochasticMode::Midi;
-                    const bool freeOnly = params_.mode == AmbiStochasticMode::Free;
-                    const bool useMidi = !freeOnly && voice.midiRole;
-                    const bool freeGate = !midiOnly && activityGate(i);
-                    const bool gate = useMidi ? voice.midiGate : freeGate;
+                smoothedOutputGain_ += (targetOutputGain - smoothedOutputGain_) * 0.0015f;
+                for (uint32_t voiceIndex = 0u; voiceIndex < voices; ++voiceIndex) {
+                    auto& voice = voices_[voiceIndex];
+                    const bool midiGate = voice.midiRole && voice.midiGate;
+                    bool gate = false;
+                    if (params_.mode == AmbiStochasticMode::Midi) gate = midiGate;
+                    else if (params_.mode == AmbiStochasticMode::Both) gate = midiGate || voice.fieldActive;
+                    else gate = voice.fieldActive;
                     voice.envelope.setGate(gate);
                     const float envelope = voice.envelope.process(attackCoef, decayCoef, params_.sustain, releaseCoef);
-                    if (useMidi && !voice.midiGate && voice.envelope.stage == AmbiStochasticEnvelopeStage::Idle) {
+                    if (voice.midiRole && !voice.midiGate
+                        && voice.envelope.stage == AmbiStochasticEnvelopeStage::Idle) {
                         voice.midiRole = false;
                     }
                     if (envelope <= 0.000001f) continue;
 
-                    const float freeNote = freeVoiceNote(i);
-                    const float note = useMidi ? static_cast<float>(voice.note) : freeNote;
-                    const float detune = deterministicSigned(i * 0x45d9f3bu + 19u) * params_.detuneCents * 0.01f;
-                    const float periodRatio = params_.model == AmbiStochasticModel::FreePeriod
-                        ? voice.periodRatio : 1.0f;
-                    const float targetFrequency = std::min(
-                        midiToHz(note + detune) * periodRatio, static_cast<float>(sampleRate_) * 0.42f);
-                    const float pitchCoef = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.008));
-                    voice.frequency += (targetFrequency - voice.frequency) * pitchCoef;
-
-                    const float nextPhase = voice.phase + voice.frequency / static_cast<float>(sampleRate_);
+                    const float increment = std::min(voice.currentFrequency,
+                        static_cast<float>(sampleRate_) * 0.42f) / static_cast<float>(sampleRate_);
+                    const float nextPhase = voice.phase + increment;
                     const bool wrapped = nextPhase >= 1.0f;
                     voice.phase = nextPhase - std::floor(nextPhase);
-                    if (wrapped) advanceWave(i);
-                    float sample = tableSample(voice.currentTable, voice.phase);
-                    const float nextSample = tableSample(voice.nextTable, voice.phase);
-                    sample = lerp(sample, nextSample, voice.phase);
-                    const float systemGain = voiceSystemGain(i);
-                    const float velocity = useMidi ? std::max(0.04f, voice.velocity) : 0.74f;
-                    const float amplitude = std::tanh(sample * 1.12f) * envelope * velocity
-                        * systemGain * outputGain * distanceGain[i];
-                    energySum[i] += amplitude * amplitude;
+                    if (wrapped) advanceWave(voiceIndex);
+                    const float transitionPhase = clamp(voice.currentFrequency * 0.0015f, 0.03f, 0.22f);
+                    const float transition = clamp(voice.phase / transitionPhase, 0.0f, 1.0f);
+                    const float morph = transition * transition * (3.0f - 2.0f * transition);
+                    const float sample = lerp(tableSample(voice.currentTable, voice.phase),
+                        tableSample(voice.nextTable, voice.phase), morph);
+                    const float velocity = voice.midiRole ? std::max(0.04f, voice.velocity) : 0.78f;
+                    const float fieldGain = 0.72f + topologyRadius_[voiceIndex] * 0.28f;
+                    const float amplitude = std::tanh(sample * 1.18f) * envelope * velocity * fieldGain
+                        * smoothedOutputGain_ * distanceGain[voiceIndex];
+                    energySum[voiceIndex] += amplitude * amplitude;
                     voice.age += 1.0f / static_cast<float>(sampleRate_);
-                    for (uint32_t ch = 0; ch < ambiChannels; ++ch) {
-                        if (outputs[ch]) outputs[ch][frame] = flushDenormal(outputs[ch][frame] + amplitude * basis[i][ch]);
+                    for (uint32_t channel = 0u; channel < ambiChannels; ++channel) {
+                        if (outputs[channel]) {
+                            outputs[channel][frame] = flushDenormal(outputs[channel][frame]
+                                + amplitude * basis[voiceIndex][channel]);
+                        }
                     }
                 }
             }
             updateEnergy(energySum, chunkFrames);
         }
 
-        for (uint32_t ch = 0; ch < ambiChannels; ++ch) {
-            if (!outputs[ch]) continue;
-            for (uint32_t frame = 0; frame < frames; ++frame) {
-                outputs[ch][frame] = std::tanh(clamp(outputs[ch][frame], -6.0f, 6.0f));
+        for (uint32_t channel = 0u; channel < ambiChannels; ++channel) {
+            if (!outputs[channel]) continue;
+            for (uint32_t frame = 0u; frame < frames; ++frame) {
+                outputs[channel][frame] = std::tanh(clamp(outputs[channel][frame], -6.0f, 6.0f));
             }
         }
     }
@@ -540,21 +560,15 @@ private:
         return value;
     }
 
-    static float signedAngleDelta(float target, float current)
-    {
-        return wrapSignedDeg(target - current);
-    }
-
-    static float fract(float value) { return value - std::floor(value); }
-
     static float reflect(float value, float minimum, float maximum)
     {
-        for (uint32_t i = 0; i < 4u; ++i) {
-            if (value > maximum) value = maximum - (value - maximum);
-            else if (value < minimum) value = minimum + (minimum - value);
-            else break;
-        }
-        return clamp(value, minimum, maximum);
+        if (maximum <= minimum) return minimum;
+        if (!std::isfinite(value)) return (minimum + maximum) * 0.5f;
+        const float span = maximum - minimum;
+        float phase = std::fmod(value - minimum, span * 2.0f);
+        if (phase < 0.0f) phase += span * 2.0f;
+        if (phase > span) phase = span * 2.0f - phase;
+        return minimum + phase;
     }
 
     static uint32_t randomU32(uint32_t& state)
@@ -576,414 +590,6 @@ private:
         return randomUnit(state) * 2.0f - 1.0f;
     }
 
-    float randomSigned(AmbiStochasticVoice& voice, AmbiStochasticDistribution distribution)
-    {
-        switch (distribution) {
-        case AmbiStochasticDistribution::Gaussian: {
-            float sum = 0.0f;
-            for (uint32_t i = 0; i < 6u; ++i) sum += randomUnit(voice.seed);
-            return clamp((sum - 3.0f) * 0.78f, -1.0f, 1.0f);
-        }
-        case AmbiStochasticDistribution::Cauchy: {
-            const float u = clamp(randomUnit(voice.seed), 0.001f, 0.999f);
-            return clamp(std::tan(kPi * (u - 0.5f)) * 0.18f, -1.0f, 1.0f);
-        }
-        case AmbiStochasticDistribution::Logistic: {
-            const float u = clamp(randomUnit(voice.seed), 0.001f, 0.999f);
-            return clamp(std::log(u / (1.0f - u)) * 0.19f, -1.0f, 1.0f);
-        }
-        case AmbiStochasticDistribution::Arcsine:
-            return std::sin(kPi * (randomUnit(voice.seed) - 0.5f));
-        case AmbiStochasticDistribution::Exponential: {
-            const float u = clamp(randomUnit(voice.seed), 0.0f, 0.9995f);
-            const float magnitude = clamp(-std::log(1.0f - u) * 0.26f, 0.0f, 1.0f);
-            return randomUnit(voice.seed) < 0.5f ? -magnitude : magnitude;
-        }
-        case AmbiStochasticDistribution::Binary:
-            return randomUnit(voice.seed) < 0.5f ? -1.0f : 1.0f;
-        case AmbiStochasticDistribution::Uniform:
-        default:
-            return randomUnit(voice.seed) * 2.0f - 1.0f;
-        }
-    }
-
-    void initializeVoice(uint32_t index)
-    {
-        auto& voice = voices_[index];
-        voice = {};
-        voice.seed = 0x9e3779b9u ^ ((index + 1u) * 0x85ebca6bu);
-        voice.phase = fract(static_cast<float>(index) * 0.61803398875f);
-        voice.activityOffset = fract(static_cast<float>(index) * 0.754877666f);
-        voice.note = static_cast<int>(std::lround(params_.baseNote));
-        voice.frequency = midiToHz(params_.baseNote);
-        voice.energy = 0.20f;
-        voice.velocity = 0.72f;
-        voice.renderedBreakpoints = params_.breakpoints;
-        const float curvePhase = fract(static_cast<float>(index) * 0.173205081f);
-        const float harmonic = 2.0f + static_cast<float>(index % 5u);
-        const float harmonicGain = deterministicSigned(voice.seed ^ 0x68bc21ebu) * 0.18f;
-        for (uint32_t point = 0; point < kAmbiStochasticMaxBreakpoints; ++point) {
-            const float phase = fract(static_cast<float>(point) / static_cast<float>(params_.breakpoints)
-                + curvePhase);
-            voice.amplitudes[point] = clamp(
-                std::sin(2.0f * kPi * phase) * 0.78f
-                    + std::sin(2.0f * kPi * phase * harmonic) * harmonicGain
-                    + deterministicSigned(voice.seed + point * 41u) * 0.08f,
-                -1.0f, 1.0f);
-            voice.durations[point] = clamp(
-                1.0f + deterministicSigned(voice.seed ^ (point * 0x9e3779b9u)) * 0.16f,
-                0.72f, 1.28f);
-        }
-        renderTable(voice, voice.currentTable);
-        voice.nextTable = voice.currentTable;
-    }
-
-    static Vec3 pointVector(AmbiStochasticPoint point)
-    {
-        Vec3 value = directionFromAed(point.azimuthDeg, point.elevationDeg);
-        value.x *= point.distance;
-        value.y *= point.distance;
-        value.z *= point.distance;
-        return value;
-    }
-
-    static AmbiStochasticPoint pointFromVector(Vec3 value)
-    {
-        const float radius = std::sqrt(std::max(0.000001f,
-            value.x * value.x + value.y * value.y + value.z * value.z));
-        AmbiStochasticPoint point {};
-        point.azimuthDeg = wrapSignedDeg(std::atan2(value.y, value.x) * 180.0f / kPi);
-        point.elevationDeg = clamp(std::asin(clamp(value.z / radius, -1.0f, 1.0f)) * 180.0f / kPi,
-            -90.0f, 90.0f);
-        point.distance = clamp(radius, 0.15f, 2.0f);
-        return point;
-    }
-
-    static float vectorLength(Vec3 value)
-    {
-        return std::sqrt(std::max(0.0f, value.x * value.x + value.y * value.y + value.z * value.z));
-    }
-
-    static float vectorDistance(Vec3 a, Vec3 b)
-    {
-        return vectorLength({ b.x - a.x, b.y - a.y, b.z - a.z });
-    }
-
-    static Vec3 normalizedOr(Vec3 value, Vec3 fallback)
-    {
-        const float length = vectorLength(value);
-        if (length <= 0.000001f) return fallback;
-        return { value.x / length, value.y / length, value.z / length };
-    }
-
-    static constexpr float topologyBoundary() { return 1.12f; }
-
-    static Vec3 topologyAnchorFor(uint32_t index, uint32_t count)
-    {
-        count = std::clamp<uint32_t>(count, 1u, kAmbiStochasticMaxVoices);
-        if (count == 1u) return { 0.0f, 0.0f, 0.0f };
-        index = std::min<uint32_t>(index, count - 1u);
-        constexpr float goldenAngle = 2.39996322972865332f;
-        const float lane = (static_cast<float>(index) + 0.5f) / static_cast<float>(count);
-        const float z = 1.0f - 2.0f * lane;
-        const float ring = std::sqrt(std::max(0.0f, 1.0f - z * z));
-        const float theta = goldenAngle * static_cast<float>(index);
-        const float radius = 0.72f + 0.18f
-            * (0.5f + 0.5f * deterministicSigned(0x7f4a7c15u + index * 97u));
-        return {
-            std::cos(theta) * ring * radius,
-            std::sin(theta) * ring * radius,
-            z * radius
-        };
-    }
-
-    void updateTopologyAnchors()
-    {
-        for (uint32_t i = 0; i < kAmbiStochasticMaxVoices; ++i) {
-            topologyAnchor_[i] = topologyAnchorFor(i,
-                i < params_.voices ? params_.voices : kAmbiStochasticMaxVoices);
-        }
-    }
-
-    void initializeDynamicsVoice(uint32_t index)
-    {
-        dynamicsPosition_[index] = topologyAnchor_[index];
-        const Vec3 randomDirection = normalizedOr({
-            deterministicSigned(0x45d9f3bu + index * 17u),
-            deterministicSigned(0x27d4eb2du + index * 31u),
-            deterministicSigned(0x165667b1u + index * 47u)
-        }, { 0.0f, 1.0f, 0.0f });
-        const float speed = 0.045f + 0.055f * static_cast<float>((index * 37u) % 11u) / 10.0f;
-        dynamicsVelocity_[index] = {
-            randomDirection.x * speed,
-            randomDirection.y * speed,
-            randomDirection.z * speed
-        };
-        dynamicsNoise_[index] = randomDirection;
-        kinetic_[index] = speed;
-        contact_[index] = 0.0f;
-        crowding_[index] = 0.0f;
-        tension_[index] = 0.0f;
-        networkPulse_[index] = 0.0f;
-        eventHold_[index] = (index % 3u) == 0u ? 0.18f + static_cast<float>(index % 5u) * 0.055f : 0.0f;
-        eventRefractory_[index] = 0.0f;
-        bondBreak_[index] = 0.0f;
-        neighborRest_[index][0] = 0.45f;
-        neighborRest_[index][1] = 0.62f;
-    }
-
-    float topologyAmount(uint32_t index) const
-    {
-        const Vec3 position = topologyPosition(index);
-        const float mutation = std::fabs(position.x);
-        const float event = position.y * 0.5f + 0.5f;
-        const float radius = clamp(vectorLength(position), 0.0f, 1.0f);
-        const float targetSpeed = 0.035f + params_.dynamicsDrive * params_.dynamicsDrive * 0.36f;
-        const float kinetic = clamp(kinetic_[index] / std::max(0.02f, targetSpeed * 1.6f), 0.0f, 1.0f);
-        const float transient = contact_[index] * 0.30f
-            + std::fabs(networkPulse_[index]) * 0.28f
-            + tension_[index] * 0.18f
-            + crowding_[index] * 0.12f
-            + kinetic * 0.12f;
-        return clamp(mutation * 0.28f + event * 0.18f + radius * 0.30f + transient * 0.24f,
-            0.0f, 1.0f);
-    }
-
-    float topologySigned(uint32_t index) const
-    {
-        const Vec3 position = topologyPosition(index);
-        const float polarity = deterministicSigned(0x9e3779b9u + index * 101u);
-        return clamp(position.x * 0.54f + position.z * 0.24f
-                + networkPulse_[index] * 0.30f
-                + (crowding_[index] - 0.5f) * 0.48f
-                + (tension_[index] - 0.35f) * 0.24f
-                + contact_[index] * polarity * 0.24f,
-            -1.0f, 1.0f);
-    }
-
-    float topologyEvent(uint32_t index) const
-    {
-        return topologyPosition(index).y * 0.5f + 0.5f;
-    }
-
-    float topologyPeriod(uint32_t index) const
-    {
-        return topologyPosition(index).z;
-    }
-
-    float topologyRadius(uint32_t index) const
-    {
-        return clamp(vectorLength(topologyPosition(index)), 0.0f, 1.0f);
-    }
-
-    void scheduleCascade(uint32_t target, float pulse, uint32_t delayTicks)
-    {
-        if (target >= params_.voices || std::fabs(pulse) < 0.015f) return;
-        const uint32_t slot = (cascadeCursor_ + std::clamp<uint32_t>(delayTicks, 1u,
-            kAmbiStochasticCascadeSlots - 1u)) % kAmbiStochasticCascadeSlots;
-        cascadeDelay_[target][slot] = clamp(cascadeDelay_[target][slot] + pulse, -1.0f, 1.0f);
-    }
-
-    void triggerTopologyEvent(uint32_t index, float strength, uint32_t source, bool propagate = true)
-    {
-        if (index >= params_.voices) return;
-        strength = clamp(strength, 0.0f, 1.0f);
-        const float sign = deterministicSigned(dynamicsTick_ * 0x45d9f3bu + index * 131u + source * 17u);
-        contact_[index] = std::max(contact_[index], strength);
-        networkPulse_[index] = clamp(networkPulse_[index] + sign * strength * 0.78f, -1.0f, 1.0f);
-        const float holdBase = lerp(0.055f, 1.35f, params_.memory * params_.memory);
-        const float holdVariation = 0.55f + randomUnit(dynamicsSeed_) * 0.90f;
-        const float eventShape = lerp(0.62f, 1.38f, topologyEvent(index));
-        eventHold_[index] = std::max(eventHold_[index],
-            holdBase * holdVariation * eventShape
-                * lerp(0.50f, 1.0f, params_.activity) * (0.55f + strength * 0.75f));
-        eventRefractory_[index] = std::max(eventRefractory_[index], 0.035f + params_.memory * 0.18f);
-        if (params_.dynamics == AmbiStochasticDynamics::Net && strength > 0.64f) {
-            bondBreak_[index] = std::max(bondBreak_[index], 0.35f + strength * (0.8f + params_.memory * 1.8f));
-        }
-        if (!propagate || params_.dynamics != AmbiStochasticDynamics::Cascade || params_.voices < 2u) return;
-        const uint32_t baseDelay = 4u + static_cast<uint32_t>(params_.memory * 30.0f);
-        const uint32_t spread = 2u + static_cast<uint32_t>(randomUnit(dynamicsSeed_) * 12.0f);
-        const float transfer = strength * params_.coupling * 0.76f;
-        scheduleCascade(neighborIndex_[index], sign * transfer, baseDelay + spread);
-        scheduleCascade(secondaryNeighborIndex_[index], -sign * transfer * 0.72f, baseDelay + spread * 2u);
-    }
-
-    float systemPressure(uint32_t index) const
-    {
-        const auto& voice = voices_[index];
-        const float neighborEnergy = (voices_[neighborIndex_[index]].energy
-            + voices_[secondaryNeighborIndex_[index]].energy) * 0.5f;
-        const float neighborError = (neighborEnergy - voice.energy) * 2.0f;
-        const float targetEnergy = lerp(0.07f, 0.34f, params_.activity);
-        const float globalError = (targetEnergy - globalEnergy_) * 2.5f;
-        const float topology = topologySigned(index) * params_.synthesisDepth;
-        const float kineticTarget = 0.035f + params_.dynamicsDrive * params_.dynamicsDrive * 0.36f;
-        const float kineticError = clamp((kineticTarget - globalKinetic_)
-            / std::max(0.03f, kineticTarget), -1.0f, 1.0f);
-        switch (params_.system) {
-        case AmbiStochasticSystem::Neighbor:
-            return clamp((neighborError + topology * 0.85f) * params_.coupling, -1.0f, 1.0f);
-        case AmbiStochasticSystem::Field:
-            return clamp((globalError + kineticError * 0.42f + topology * 0.36f)
-                    * params_.coupling,
-                -1.0f, 1.0f);
-        case AmbiStochasticSystem::Network:
-            return clamp((neighborError * 0.46f + globalError * 0.52f
-                    + kineticError * 0.30f + topology * 0.95f)
-                    * params_.coupling,
-                -1.0f, 1.0f);
-        case AmbiStochasticSystem::Independent:
-        default:
-            return topology * 0.30f;
-        }
-    }
-
-    void advanceWave(uint32_t index)
-    {
-        auto& voice = voices_[index];
-        voice.currentTable = voice.nextTable;
-        if (voice.renderedBreakpoints != params_.breakpoints) {
-            for (uint32_t point = 0; point < params_.breakpoints; ++point) {
-                const float phase = static_cast<float>(point) / static_cast<float>(params_.breakpoints);
-                voice.amplitudes[point] = tableSample(voice.currentTable, phase);
-                voice.durations[point] = 1.0f;
-                voice.amplitudeVelocity[point] = 0.0f;
-                voice.durationVelocity[point] = 0.0f;
-            }
-            voice.renderedBreakpoints = params_.breakpoints;
-        }
-
-        const Vec3 topology = topologyPosition(index);
-        const float mappedTopology = topologyAmount(index) * params_.synthesisDepth;
-        const float mutation = std::fabs(topology.x) * params_.synthesisDepth;
-        const float eventShape = topologyEvent(index) * params_.synthesisDepth;
-        const float radius = topologyRadius(index) * params_.synthesisDepth;
-        const float periodShape = topologyPeriod(index) * params_.synthesisDepth;
-        const float pressure = systemPressure(index) * params_.reactivity;
-        const float inertia = lerp(0.38f, 0.985f, params_.inertia)
-            * lerp(1.0f, 0.72f, mappedTopology * params_.reactivity);
-        const float ampKick = (0.0015f + params_.amplitudeStep * params_.amplitudeStep * 0.115f)
-            * clamp(1.0f + pressure * 0.85f + mappedTopology * 0.85f
-                    + mutation * 1.55f + radius * 0.72f,
-                0.24f, 4.2f);
-        const float timeKick = (0.0010f + params_.timeStep * params_.timeStep * 0.085f)
-            * clamp(1.0f + pressure * 0.70f + mappedTopology * 0.75f
-                    + eventShape * 1.85f + radius * 0.62f,
-                0.25f, 4.6f);
-        const float ampVelocityLimit = (0.015f + params_.amplitudeStep * 0.18f)
-            * (1.0f + mutation * 0.82f + radius * 0.54f);
-        const float timeVelocityLimit = (0.010f + params_.timeStep * 0.13f)
-            * (1.0f + eventShape * 0.92f + radius * 0.58f);
-
-        for (uint32_t point = 0; point < params_.breakpoints; ++point) {
-            const float curvePolarity = (point & 1u) == 0u ? 1.0f : -0.62f;
-            const float ampNoise = clamp(randomSigned(voice, params_.amplitudeDistribution)
-                    + topology.x * curvePolarity * 0.18f * params_.synthesisDepth,
-                -1.0f, 1.0f);
-            const float timeNoise = randomSigned(voice, params_.durationDistribution);
-            if (params_.model == AmbiStochasticModel::Direct) {
-                const float stepMemory = params_.inertia * 0.42f;
-                voice.amplitudeVelocity[point] = clamp(
-                    lerp(ampNoise * ampKick, voice.amplitudeVelocity[point], stepMemory),
-                    -ampVelocityLimit, ampVelocityLimit);
-                voice.durationVelocity[point] = clamp(
-                    lerp(timeNoise * timeKick, voice.durationVelocity[point], stepMemory),
-                    -timeVelocityLimit, timeVelocityLimit);
-            } else {
-                voice.amplitudeVelocity[point] = clamp(
-                    voice.amplitudeVelocity[point] * inertia + ampNoise * ampKick * (1.12f - params_.inertia * 0.62f),
-                    -ampVelocityLimit, ampVelocityLimit);
-                voice.durationVelocity[point] = clamp(
-                    voice.durationVelocity[point] * inertia + timeNoise * timeKick * (1.12f - params_.inertia * 0.62f),
-                    -timeVelocityLimit, timeVelocityLimit);
-            }
-            voice.amplitudes[point] = reflect(
-                voice.amplitudes[point] + voice.amplitudeVelocity[point], -1.0f, 1.0f);
-            voice.durations[point] = reflect(
-                voice.durations[point] + voice.durationVelocity[point], 0.22f, 3.8f);
-        }
-        float durationTotal = 0.0f;
-        for (uint32_t point = 0; point < params_.breakpoints; ++point) {
-            durationTotal += voice.durations[point];
-        }
-        const float meanDuration = durationTotal / static_cast<float>(params_.breakpoints);
-        voice.periodRatio = params_.model == AmbiStochasticModel::FreePeriod
-            ? clamp(std::pow(1.0f / std::max(0.05f, meanDuration), 0.72f)
-                    * std::pow(2.0f, periodShape * 1.45f * params_.reactivity)
-                    * std::pow(2.0f, networkPulse_[index] * 0.32f * params_.reactivity),
-                0.25f, 4.0f)
-            : 1.0f;
-        renderTable(voice, voice.nextTable);
-    }
-
-    void renderTable(const AmbiStochasticVoice& voice, std::array<float, kAmbiStochasticTableSize>& table) const
-    {
-        const uint32_t points = std::clamp<uint32_t>(voice.renderedBreakpoints, 4u, kAmbiStochasticMaxBreakpoints);
-        float durationTotal = 0.0f;
-        for (uint32_t point = 0; point < points; ++point) durationTotal += std::max(0.01f, voice.durations[point]);
-        uint32_t segment = 0u;
-        float segmentStart = 0.0f;
-        float segmentEnd = voice.durations[0] / durationTotal;
-        for (uint32_t sample = 0; sample < kAmbiStochasticTableSize; ++sample) {
-            const float phase = static_cast<float>(sample) / static_cast<float>(kAmbiStochasticTableSize);
-            while (phase >= segmentEnd && segment + 1u < points) {
-                segmentStart = segmentEnd;
-                ++segment;
-                segmentEnd += voice.durations[segment] / durationTotal;
-            }
-            const float local = clamp((phase - segmentStart) / std::max(0.000001f, segmentEnd - segmentStart), 0.0f, 1.0f);
-            const uint32_t next = (segment + 1u) % points;
-            float value = lerp(voice.amplitudes[segment], voice.amplitudes[next], local);
-            if (params_.model == AmbiStochasticModel::Curved) {
-                const uint32_t previous = (segment + points - 1u) % points;
-                const uint32_t following = (next + 1u) % points;
-                const float p0 = voice.amplitudes[previous];
-                const float p1 = voice.amplitudes[segment];
-                const float p2 = voice.amplitudes[next];
-                const float p3 = voice.amplitudes[following];
-                const float local2 = local * local;
-                const float local3 = local2 * local;
-                value = 0.5f * ((2.0f * p1)
-                    + (-p0 + p2) * local
-                    + (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * local2
-                    + (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * local3);
-            }
-            table[sample] = value + std::sin(2.0f * kPi * phase) * 0.055f;
-        }
-        float mean = 0.0f;
-        for (float sample : table) mean += sample;
-        mean /= static_cast<float>(kAmbiStochasticTableSize);
-        float peak = 0.0f;
-        for (float& sample : table) {
-            sample -= mean;
-            peak = std::max(peak, std::fabs(sample));
-        }
-        const float scale = peak > 0.92f ? 0.92f / peak : 1.0f;
-        for (float& sample : table) sample *= scale;
-    }
-
-    static float tableSample(const std::array<float, kAmbiStochasticTableSize>& table, float phase)
-    {
-        const float position = fract(phase) * static_cast<float>(kAmbiStochasticTableSize);
-        const uint32_t first = static_cast<uint32_t>(position) % kAmbiStochasticTableSize;
-        const uint32_t second = (first + 1u) % kAmbiStochasticTableSize;
-        return lerp(table[first], table[second], position - std::floor(position));
-    }
-
-    float freeVoiceNote(uint32_t index) const
-    {
-        const float normalized = params_.voices <= 1u ? 0.0f
-            : static_cast<float>(index) / static_cast<float>(params_.voices - 1u) - 0.5f;
-        const Vec3 topology = topologyPosition(index);
-        const float topologyPitch = topology.z * params_.synthesisDepth
-            * std::min(14.0f, 3.0f + params_.pitchSpreadSemitones * 0.34f);
-        const float mutationPitch = topology.x * params_.synthesisDepth * 2.4f;
-        const float crowdingRegister = (crowding_[index] - 0.5f) * params_.synthesisDepth * 7.0f;
-        return params_.baseNote + normalized * params_.pitchSpreadSemitones
-            + topologyPitch + mutationPitch + crowdingRegister;
-    }
-
     static float midiToHz(float note)
     {
         return 440.0f * std::pow(2.0f, (note - 69.0f) / 12.0f);
@@ -991,524 +597,588 @@ private:
 
     float envelopeCoefficient(float milliseconds) const
     {
-        const float samples = std::max(1.0f, milliseconds * 0.001f * static_cast<float>(sampleRate_));
-        return 1.0f - std::exp(-4.605170186f / samples);
+        return 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * milliseconds * 0.001));
     }
 
-    bool activityGate(uint32_t index) const
+    uint32_t safeVoice(uint32_t voice) const
     {
-        if (params_.dynamics != AmbiStochasticDynamics::Off) {
-            return eventHold_[index] > 0.0f || std::fabs(networkPulse_[index]) > 0.18f;
+        return std::min<uint32_t>(voice, kAmbiStochasticMaxVoices - 1u);
+    }
+
+    const AmbiStochasticVoice& voiceState(uint32_t voice) const { return voices_[safeVoice(voice)]; }
+
+    float randomSigned(uint32_t& seed, AmbiStochasticDistribution distribution)
+    {
+        switch (distribution) {
+        case AmbiStochasticDistribution::Gaussian: {
+            float sum = 0.0f;
+            for (uint32_t i = 0u; i < 6u; ++i) sum += randomUnit(seed);
+            return clamp((sum - 3.0f) * 0.78f, -1.0f, 1.0f);
         }
-        if (params_.activity >= 0.999f) return true;
-        const float offset = voices_[index].activityOffset;
-        const float primary = 0.5f + 0.5f * std::sin(2.0f * kPi * (activityPhase_ + offset));
-        const float secondary = 0.5f + 0.5f * std::sin(2.0f * kPi * (activityPhase_ * 0.381966f + offset * 1.71f));
-        const float signal = primary * 0.68f + secondary * 0.32f + systemPressure(index) * 0.15f;
-        return signal > (1.0f - params_.activity);
-    }
-
-    void updateActivity(float dt)
-    {
-        const float activityRate = lerp(0.36f, 0.026f, params_.memory * params_.memory);
-        activityPhase_ = fract(activityPhase_ + dt * activityRate);
-    }
-
-    AmbiStochasticPoint basePoint(uint32_t index) const
-    {
-        const float count = static_cast<float>(std::max<uint32_t>(1u, params_.voices));
-        const float lane = static_cast<float>(index) / count;
-        AmbiStochasticPoint point {};
-        point.azimuthDeg = wrapSignedDeg(params_.centerAzimuthDeg - lane * 360.0f * params_.motionSpread);
-        point.elevationDeg = clamp(params_.centerElevationDeg
-            + std::sin(static_cast<float>(index) * 2.39996323f) * 52.0f * params_.motionSpread,
-            -90.0f, 90.0f);
-        point.distance = params_.centerDistance;
-        return point;
-    }
-
-    AmbiStochasticPoint motionTarget(uint32_t index) const
-    {
-        AmbiStochasticPoint point = basePoint(index);
-        const float lane = static_cast<float>(index) / static_cast<float>(std::max<uint32_t>(1u, params_.voices));
-        const float phase = fract(motionPhase_ + lane * (1.0f - params_.coupling) * 0.42f);
-        const float theta = 2.0f * kPi * phase;
-        const float seed = static_cast<float>(index) * 1.61803398875f;
-        const float amount = params_.motionAmount;
-        switch (params_.motion) {
-        case AmbiStochasticMotion::Orbit:
-            point.azimuthDeg = wrapSignedDeg(point.azimuthDeg - phase * 360.0f * amount);
-            point.elevationDeg = clamp(point.elevationDeg + std::sin(theta + seed) * 44.0f * amount, -90.0f, 90.0f);
-            point.distance = clamp(params_.centerDistance * (1.0f + std::cos(theta * 2.0f + seed) * 0.18f * amount), 0.15f, 2.0f);
-            break;
-        case AmbiStochasticMotion::Drift:
-            point.azimuthDeg = wrapSignedDeg(point.azimuthDeg
-                + (std::sin(theta + seed) * 0.68f + std::sin(theta * 0.47f + seed * 1.7f) * 0.32f) * 155.0f * amount);
-            point.elevationDeg = clamp(point.elevationDeg
-                + (std::cos(theta * 0.61f + seed) * 0.62f + std::sin(theta * 1.31f + seed * 0.3f) * 0.38f) * 58.0f * amount,
-                -90.0f, 90.0f);
-            point.distance = clamp(params_.centerDistance * (1.0f + std::sin(theta * 0.37f + seed) * 0.30f * amount), 0.15f, 2.0f);
-            break;
-        case AmbiStochasticMotion::Feedback: {
-            const float local = voices_[index].energy;
-            const float neighbor = voices_[neighborIndex_[index]].energy;
-            const float pressure = systemPressure(index);
-            point.azimuthDeg = wrapSignedDeg(point.azimuthDeg - phase * 240.0f * amount
-                + (neighbor - local) * 210.0f * params_.reactivity);
-            point.elevationDeg = clamp(point.elevationDeg
-                + pressure * 54.0f * amount
-                + std::sin(theta + seed) * 18.0f * amount, -90.0f, 90.0f);
-            point.distance = clamp(params_.centerDistance
-                * (1.0f + (local - globalEnergy_) * 1.6f * amount), 0.15f, 2.0f);
-            break;
+        case AmbiStochasticDistribution::Cauchy: {
+            const float u = clamp(randomUnit(seed), 0.001f, 0.999f);
+            return clamp(std::tan(kPi * (u - 0.5f)) * 0.18f, -1.0f, 1.0f);
         }
-        case AmbiStochasticMotion::Field:
+        case AmbiStochasticDistribution::Logistic: {
+            const float u = clamp(randomUnit(seed), 0.001f, 0.999f);
+            return clamp(std::log(u / (1.0f - u)) * 0.19f, -1.0f, 1.0f);
+        }
+        case AmbiStochasticDistribution::Arcsine:
+            return std::sin(kPi * (randomUnit(seed) - 0.5f));
+        case AmbiStochasticDistribution::Exponential: {
+            const float u = clamp(randomUnit(seed), 0.0f, 0.9995f);
+            const float magnitude = clamp(-std::log(1.0f - u) * 0.26f, 0.0f, 1.0f);
+            return randomUnit(seed) < 0.5f ? -magnitude : magnitude;
+        }
+        case AmbiStochasticDistribution::Binary:
+            return randomUnit(seed) < 0.5f ? -1.0f : 1.0f;
+        case AmbiStochasticDistribution::Uniform:
         default:
+            return randomUnit(seed) * 2.0f - 1.0f;
+        }
+    }
+
+    float seedFrequencyForVoice(uint32_t voice, uint32_t generator) const
+    {
+        const float lane = params_.voices <= 1u ? 0.0f
+            : static_cast<float>(voice) / static_cast<float>(params_.voices - 1u) * 2.0f - 1.0f;
+        static constexpr float generatorOffsets[kAmbiStochasticGeneratorCount] { -0.72f, -0.18f, 0.26f, 0.82f };
+        const float spread = lane * params_.seedSpreadSemitones * 0.50f
+            + generatorOffsets[std::min<uint32_t>(generator, kAmbiStochasticGeneratorCount - 1u)]
+                * params_.seedSpreadSemitones * 0.34f;
+        const float detune = deterministicSigned(voice * 0x45d9f3bu + generator * 97u + 19u)
+            * params_.detuneCents * 0.01f;
+        return clamp(midiToHz(params_.baseNote + spread + detune), 4.0f,
+            static_cast<float>(sampleRate_) * 0.35f);
+    }
+
+    void initializeVoice(uint32_t voiceIndex)
+    {
+        auto& voice = voices_[voiceIndex];
+        voice = {};
+        voice.seed = 0x9e3779b9u ^ ((voiceIndex + 1u) * 0x85ebca6bu);
+        if (voice.seed == 0u) voice.seed = 1u;
+        voice.phase = randomUnit(voice.seed);
+        voice.velocity = 0.72f;
+        voice.note = static_cast<int>(std::lround(params_.baseNote));
+        voice.fieldActive = true;
+        voice.fieldRemainingSamples = static_cast<float>(sampleRate_)
+            * params_.fieldDurationSeconds * (0.35f + 0.65f * randomUnit(voice.seed));
+        voice.selectorSecondary = static_cast<float>(voiceIndex % kAmbiStochasticGeneratorCount);
+        voice.tendencyCenter = voice.selectorSecondary;
+        initializeVoiceGenerators(voiceIndex, seedFrequencyForVoice(voiceIndex, 0u));
+        shuffleSeries(voice);
+    }
+
+    void initializeVoiceGenerators(uint32_t voiceIndex, float seedFrequency)
+    {
+        auto& voice = voices_[voiceIndex];
+        for (uint32_t generatorIndex = 0u; generatorIndex < kAmbiStochasticGeneratorCount; ++generatorIndex) {
+            initializeGenerator(voiceIndex, generatorIndex, seedFrequency);
+        }
+        voice.currentGenerator = 0u;
+        voice.nextGenerator = 1u;
+        voice.currentTable = voice.generators[0u].table;
+        voice.nextTable = voice.generators[1u].table;
+        voice.currentFrequency = voice.generators[0u].frequency;
+        voice.nextFrequency = voice.generators[1u].frequency;
+        voice.selectionHold = 0u;
+        voice.history.fill(0u);
+        voice.historyCursor = 0u;
+        pushHistory(voice, 0u);
+        pushHistory(voice, 1u);
+    }
+
+    void initializeGenerator(uint32_t voiceIndex, uint32_t generatorIndex, float requestedFrequency)
+    {
+        auto& voice = voices_[voiceIndex];
+        auto& generator = voice.generators[generatorIndex];
+        generator = {};
+        generator.seed = voice.seed ^ ((generatorIndex + 1u) * 0x27d4eb2du);
+        if (generator.seed == 0u) generator.seed = generatorIndex + 1u;
+        generator.renderedBreakpoints = params_.breakpoints;
+        const float naturalSeed = seedFrequencyForVoice(voiceIndex, generatorIndex);
+        const float ratio = requestedFrequency / std::max(0.001f, seedFrequencyForVoice(voiceIndex, 0u));
+        const float frequency = clamp(naturalSeed * ratio, 4.0f, static_cast<float>(sampleRate_) * 0.35f);
+        const float periodSamples = static_cast<float>(sampleRate_) / frequency;
+        float weightSum = 0.0f;
+        std::array<float, kAmbiStochasticMaxBreakpoints> weights {};
+        for (uint32_t point = 0u; point < generator.renderedBreakpoints; ++point) {
+            const float phase = static_cast<float>(point) / static_cast<float>(generator.renderedBreakpoints);
+            generator.amplitudes[point] = clamp(std::sin((phase + generatorIndex * 0.071f) * kPi * 2.0f) * 0.46f
+                    + randomSigned(generator.seed, params_.amplitudeDistribution) * 0.36f,
+                -1.0f, 1.0f);
+            generator.amplitudePrimary[point] = randomSigned(generator.seed, params_.amplitudeDistribution) * 0.018f;
+            generator.durationPrimary[point] = randomSigned(generator.seed, params_.durationDistribution)
+                * periodSamples / static_cast<float>(generator.renderedBreakpoints) * 0.05f;
+            weights[point] = 0.35f + randomUnit(generator.seed) * 1.30f;
+            weightSum += weights[point];
+        }
+        for (uint32_t point = 0u; point < generator.renderedBreakpoints; ++point) {
+            generator.durations[point] = std::max(1.0f, periodSamples * weights[point] / std::max(0.001f, weightSum));
+        }
+        renderGenerator(generator);
+    }
+
+    void shuffleSeries(AmbiStochasticVoice& voice)
+    {
+        voice.seriesOrder = { 0u, 1u, 2u, 3u };
+        for (uint32_t i = kAmbiStochasticGeneratorCount - 1u; i > 0u; --i) {
+            const uint32_t j = randomU32(voice.seed) % (i + 1u);
+            std::swap(voice.seriesOrder[i], voice.seriesOrder[j]);
+        }
+        voice.seriesCursor = 0u;
+    }
+
+    void pushHistory(AmbiStochasticVoice& voice, uint32_t generator)
+    {
+        voice.history[voice.historyCursor % kAmbiStochasticHistorySize] = static_cast<uint8_t>(generator);
+        voice.historyCursor = (voice.historyCursor + 1u) % kAmbiStochasticHistorySize;
+    }
+
+    float generatorDurationTotal(const AmbiStochasticGenerator& generator) const
+    {
+        float total = 0.0f;
+        for (uint32_t point = 0u; point < generator.renderedBreakpoints; ++point) {
+            total += std::max(1.0f, generator.durations[point]);
+        }
+        return std::max(1.0f, total);
+    }
+
+    float minimumFrequencyForGenerator(const Vec3& topology, uint32_t generatorIndex) const
+    {
+        static constexpr float kGeneratorRegister[kAmbiStochasticGeneratorCount] {
+            1.0f, 1.45f, 2.15f, 3.20f
+        };
+        generatorIndex = std::min<uint32_t>(generatorIndex, kAmbiStochasticGeneratorCount - 1u);
+        const float topologyRegister = std::pow(2.0f, (clamp(topology.z, -1.0f, 1.0f) + 1.0f) * 0.75f);
+        const float minimumFrequency = clamp(params_.frequencyFloorHz
+                * kGeneratorRegister[generatorIndex] * topologyRegister,
+            1.0f, static_cast<float>(sampleRate_) * 0.20f);
+        return minimumFrequency;
+    }
+
+    void constrainGeneratorPeriod(AmbiStochasticGenerator& generator, const Vec3& topology,
+        uint32_t generatorIndex)
+    {
+        const uint32_t points = std::max<uint32_t>(4u, generator.renderedBreakpoints);
+        const float total = generatorDurationTotal(generator);
+        const float minimumFrequency = minimumFrequencyForGenerator(topology, generatorIndex);
+        const float maximumFrequency = std::min(static_cast<float>(sampleRate_) * 0.20f,
+            std::max(1200.0f, minimumFrequency * 16.0f));
+        const float minimumPeriod = std::max(static_cast<float>(points),
+            static_cast<float>(sampleRate_) / maximumFrequency);
+        const float maximumPeriod = std::max(minimumPeriod + 1.0f,
+            static_cast<float>(sampleRate_) / minimumFrequency);
+        const float boundedTotal = reflect(total, minimumPeriod, maximumPeriod);
+        if (std::fabs(boundedTotal - total) < 0.0001f) return;
+
+        const float sourceExcess = std::max(0.0001f, total - static_cast<float>(points));
+        const float targetExcess = std::max(0.0f, boundedTotal - static_cast<float>(points));
+        const float scale = targetExcess / sourceExcess;
+        for (uint32_t point = 0u; point < generator.renderedBreakpoints; ++point) {
+            generator.durations[point] = 1.0f + std::max(0.0f, generator.durations[point] - 1.0f) * scale;
+            generator.durationPrimary[point] *= -0.82f;
+        }
+    }
+
+    float amplitudePrimaryLimit(const Vec3& topology) const
+    {
+        const float xBias = 0.72f + 0.36f * (topology.x * 0.5f + 0.5f);
+        return 0.002f + params_.amplitudeRange * params_.amplitudeRange * 0.19f * xBias;
+    }
+
+    float durationPrimaryLimit(const Vec3& topology, const AmbiStochasticGenerator& generator) const
+    {
+        const float average = generatorDurationTotal(generator)
+            / static_cast<float>(std::max<uint32_t>(4u, generator.renderedBreakpoints));
+        const float zBias = 0.62f + 0.76f * (topology.z * 0.5f + 0.5f);
+        return std::max(0.02f, average * (0.01f + params_.durationRange * params_.durationRange * 0.52f) * zBias);
+    }
+
+    void evolveGenerator(uint32_t voiceIndex, uint32_t generatorIndex)
+    {
+        auto& voice = voices_[voiceIndex];
+        auto& generator = voice.generators[generatorIndex];
+        const Vec3 topology = topologyPosition_[voiceIndex];
+        const float radius = topologyRadius_[voiceIndex];
+        const float amplitudeLimit = amplitudePrimaryLimit(topology);
+        const float durationLimit = durationPrimaryLimit(topology, generator);
+        const float amplitudeDrive = params_.amplitudeStep * (0.28f + radius * 0.92f);
+        const float durationDrive = params_.durationStep * (0.24f + radius * 0.96f);
+        const uint32_t neighbor = neighborIndex_[voiceIndex];
+        const auto& neighborGenerator = voices_[neighbor].generators[voices_[neighbor].currentGenerator];
+        const float transfer = params_.neighborTransfer * neighborInfluence_[voiceIndex] * 0.34f;
+        for (uint32_t point = 0u; point < generator.renderedBreakpoints; ++point) {
+            const float amplitudeAcceleration = randomSigned(generator.seed, params_.amplitudeDistribution)
+                    * amplitudeLimit * amplitudeDrive
+                + topology.x * amplitudeLimit * 0.055f * params_.amplitudeStep;
+            generator.amplitudePrimary[point] = reflect(generator.amplitudePrimary[point] + amplitudeAcceleration,
+                -amplitudeLimit, amplitudeLimit);
+            generator.amplitudePrimary[point] = lerp(generator.amplitudePrimary[point],
+                neighborGenerator.amplitudePrimary[point], transfer);
+            generator.amplitudes[point] = reflect(generator.amplitudes[point] + generator.amplitudePrimary[point],
+                -1.0f, 1.0f);
+
+            const float durationAcceleration = randomSigned(generator.seed, params_.durationDistribution)
+                    * durationLimit * durationDrive
+                + topology.z * durationLimit * 0.045f * params_.durationStep;
+            generator.durationPrimary[point] = reflect(generator.durationPrimary[point] + durationAcceleration,
+                -durationLimit, durationLimit);
+            generator.durationPrimary[point] = lerp(generator.durationPrimary[point],
+                neighborGenerator.durationPrimary[point], transfer * 0.72f);
+            generator.durations[point] = std::max(1.0f,
+                generator.durations[point] + generator.durationPrimary[point]);
+        }
+        constrainGeneratorPeriod(generator, topology, generatorIndex);
+        renderGenerator(generator);
+    }
+
+    void renderGenerator(AmbiStochasticGenerator& generator)
+    {
+        const uint32_t points = std::clamp<uint32_t>(generator.renderedBreakpoints, 4u, kAmbiStochasticMaxBreakpoints);
+        const float total = generatorDurationTotal(generator);
+        std::array<float, kAmbiStochasticMaxBreakpoints + 1u> cumulative {};
+        for (uint32_t point = 0u; point < points; ++point) {
+            cumulative[point + 1u] = cumulative[point] + generator.durations[point] / total;
+        }
+        cumulative[points] = 1.0f;
+        uint32_t segment = 0u;
+        float mean = 0.0f;
+        for (uint32_t sample = 0u; sample < kAmbiStochasticTableSize; ++sample) {
+            const float phase = static_cast<float>(sample) / static_cast<float>(kAmbiStochasticTableSize);
+            while (segment + 1u < points && phase >= cumulative[segment + 1u]) ++segment;
+            const float start = cumulative[segment];
+            const float end = cumulative[segment + 1u];
+            const float local = clamp((phase - start) / std::max(0.000001f, end - start), 0.0f, 1.0f);
+            const float value = lerp(generator.amplitudes[segment], generator.amplitudes[(segment + 1u) % points], local);
+            generator.table[sample] = value;
+            mean += value;
+        }
+        mean /= static_cast<float>(kAmbiStochasticTableSize);
+        float peak = 0.0f;
+        for (float& value : generator.table) {
+            value -= mean;
+            peak = std::max(peak, std::fabs(value));
+        }
+        const float normalizer = peak > 0.00001f ? std::min(1.0f, 0.94f / peak) : 1.0f;
+        for (float& value : generator.table) value *= normalizer;
+        generator.frequency = clamp(static_cast<float>(sampleRate_) / total, 1.0f,
+            static_cast<float>(sampleRate_) * 0.42f);
+    }
+
+    uint32_t weightedChoice(AmbiStochasticVoice& voice, const std::array<float, kAmbiStochasticGeneratorCount>& weights)
+    {
+        float total = 0.0f;
+        for (float value : weights) total += std::max(0.0f, value);
+        float target = randomUnit(voice.seed) * std::max(0.0001f, total);
+        for (uint32_t generator = 0u; generator < kAmbiStochasticGeneratorCount; ++generator) {
+            target -= std::max(0.0f, weights[generator]);
+            if (target <= 0.0f) return generator;
+        }
+        return kAmbiStochasticGeneratorCount - 1u;
+    }
+
+    uint32_t selectGenerator(uint32_t voiceIndex)
+    {
+        auto& voice = voices_[voiceIndex];
+        if (voice.selectionHold > 0u) {
+            --voice.selectionHold;
+            return voice.nextGenerator;
+        }
+        const Vec3 topology = topologyPosition_[voiceIndex];
+        uint32_t selected = voice.nextGenerator;
+        switch (params_.selection) {
+        case AmbiStochasticSelection::Series:
+            if (voice.seriesCursor >= kAmbiStochasticGeneratorCount) shuffleSeries(voice);
+            selected = voice.seriesOrder[voice.seriesCursor++];
+            break;
+        case AmbiStochasticSelection::Weight: {
+            std::array<float, kAmbiStochasticGeneratorCount> weights {};
+            const float target = (topology.x * 0.5f + 0.5f) * 3.0f;
+            for (uint32_t generator = 0u; generator < kAmbiStochasticGeneratorCount; ++generator) {
+                const float distance = std::fabs(static_cast<float>(generator) - target);
+                weights[generator] = 0.08f + std::exp(-distance * (1.4f + params_.selectionMemory * 3.8f));
+            }
+            selected = weightedChoice(voice, weights);
             break;
         }
-        return point;
+        case AmbiStochasticSelection::Tendency: {
+            const float target = (topology.y * 0.5f + 0.5f) * 3.0f;
+            const float follow = 0.04f + (1.0f - params_.selectionMemory) * 0.32f;
+            voice.tendencyCenter += (target - voice.tendencyCenter) * follow;
+            std::array<float, kAmbiStochasticGeneratorCount> weights {};
+            for (uint32_t generator = 0u; generator < kAmbiStochasticGeneratorCount; ++generator) {
+                const float distance = std::fabs(static_cast<float>(generator) - voice.tendencyCenter);
+                weights[generator] = 0.05f + std::exp(-distance * (1.1f + params_.selectionMemory * 5.0f));
+            }
+            selected = weightedChoice(voice, weights);
+            break;
+        }
+        case AmbiStochasticSelection::Markov: {
+            const uint32_t current = voice.nextGenerator;
+            std::array<float, kAmbiStochasticGeneratorCount> weights {};
+            weights[current] = 0.15f + params_.selectionMemory * 2.8f;
+            weights[(current + 1u) & 3u] = 0.45f + std::max(0.0f, topology.x) * 1.8f;
+            weights[(current + 3u) & 3u] = 0.45f + std::max(0.0f, -topology.x) * 1.8f;
+            weights[(current + 2u) & 3u] = 0.20f + std::fabs(topology.y) * 1.4f;
+            selected = weightedChoice(voice, weights);
+            break;
+        }
+        case AmbiStochasticSelection::Walk: {
+            const float acceleration = randomSigned(voice.seed, params_.durationDistribution)
+                    * (0.08f + (1.0f - params_.selectionMemory) * 0.72f)
+                + topology.x * 0.06f;
+            voice.selectorPrimary = reflect(voice.selectorPrimary + acceleration, -0.85f, 0.85f);
+            voice.selectorSecondary = reflect(voice.selectorSecondary + voice.selectorPrimary, 0.0f, 3.0f);
+            selected = static_cast<uint32_t>(std::lround(voice.selectorSecondary));
+            break;
+        }
+        case AmbiStochasticSelection::Random:
+        default:
+            selected = randomU32(voice.seed) % kAmbiStochasticGeneratorCount;
+            break;
+        }
+
+        const uint32_t neighbor = neighborIndex_[voiceIndex];
+        const float transferChance = params_.neighborTransfer * neighborInfluence_[voiceIndex] * 0.55f;
+        if (neighbor != voiceIndex && randomUnit(voice.seed) < transferChance) {
+            selected = voices_[neighbor].nextGenerator;
+        }
+        const float holdShape = params_.selectionMemory * params_.selectionMemory;
+        const uint32_t baseHold = static_cast<uint32_t>(std::lround(holdShape * 24.0f));
+        const uint32_t variation = static_cast<uint32_t>(randomUnit(voice.seed)
+            * (2.0f + holdShape * 8.0f));
+        voice.selectionHold = baseHold + variation;
+        return std::min<uint32_t>(selected, kAmbiStochasticGeneratorCount - 1u);
     }
 
-    void advanceDynamics(float dt)
+    void advanceWave(uint32_t voiceIndex)
     {
-        const uint32_t voices = params_.voices;
-        if (voices == 0u) return;
-        ++dynamicsTick_;
-        cascadeCursor_ = (cascadeCursor_ + 1u) % kAmbiStochasticCascadeSlots;
-        const float contactDecay = std::exp(-dt / 0.16f);
-        const float pulseDecay = std::exp(-dt / lerp(0.12f, 0.85f, params_.memory));
-        for (uint32_t i = 0; i < voices; ++i) {
-            contact_[i] *= contactDecay;
-            networkPulse_[i] *= pulseDecay;
-            tension_[i] *= 0.82f;
-            eventHold_[i] = std::max(0.0f, eventHold_[i] - dt);
-            eventRefractory_[i] = std::max(0.0f, eventRefractory_[i] - dt);
-            bondBreak_[i] = std::max(0.0f, bondBreak_[i] - dt);
+        auto& voice = voices_[voiceIndex];
+        voice.currentTable = voice.nextTable;
+        voice.currentFrequency = voice.nextFrequency;
+        voice.currentGenerator = voice.nextGenerator;
+        const uint32_t selected = selectGenerator(voiceIndex);
+        evolveGenerator(voiceIndex, selected);
+        const auto& selectedGenerator = voice.generators[selected];
+        const auto& previousGenerator = voice.generators[voice.currentGenerator];
+        const float topologyMix = clamp(0.35f + topologyRadius_[voiceIndex] * 0.50f, 0.0f, 1.0f);
 
-            const float incoming = cascadeDelay_[i][cascadeCursor_];
-            cascadeDelay_[i][cascadeCursor_] = 0.0f;
-            if (std::fabs(incoming) > 0.012f) {
-                networkPulse_[i] = clamp(networkPulse_[i] + incoming, -1.0f, 1.0f);
-                if (eventRefractory_[i] <= 0.0f) {
-                    const float strength = clamp(std::fabs(incoming), 0.0f, 1.0f);
-                    const float hold = lerp(0.06f, 1.15f, params_.memory * params_.memory)
-                        * (0.65f + strength * 0.70f);
-                    eventHold_[i] = std::max(eventHold_[i], hold);
-                    eventRefractory_[i] = 0.04f + params_.memory * 0.16f;
-                    const Vec3 kick = normalizedOr({
-                        deterministicSigned(dynamicsTick_ + i * 79u),
-                        deterministicSigned(dynamicsTick_ * 3u + i * 43u),
-                        deterministicSigned(dynamicsTick_ * 7u + i * 29u)
-                    }, { 1.0f, 0.0f, 0.0f });
-                    const float kickAmount = 0.035f + strength * 0.11f;
-                    dynamicsVelocity_[i].x += kick.x * kickAmount;
-                    dynamicsVelocity_[i].y += kick.y * kickAmount;
-                    dynamicsVelocity_[i].z += kick.z * kickAmount;
-                    if (params_.dynamics == AmbiStochasticDynamics::Cascade && strength > 0.08f) {
-                        const uint32_t delay = 5u + static_cast<uint32_t>(params_.memory * 26.0f)
-                            + static_cast<uint32_t>(randomUnit(dynamicsSeed_) * 9.0f);
-                        scheduleCascade(neighborIndex_[i], incoming * params_.coupling * 0.72f, delay);
-                        scheduleCascade(secondaryNeighborIndex_[i], -incoming * params_.coupling * 0.52f, delay + 7u);
-                    }
-                }
+        if (params_.transition == AmbiStochasticTransition::Merge) {
+            for (uint32_t sample = 0u; sample < kAmbiStochasticTableSize; ++sample) {
+                const float phase = static_cast<float>(sample) / static_cast<float>(kAmbiStochasticTableSize);
+                const float weave = 0.5f + 0.5f * std::sin((phase * (2.0f + selected) + topologyPosition_[voiceIndex].y) * kPi * 2.0f);
+                voice.nextTable[sample] = lerp(previousGenerator.table[sample], selectedGenerator.table[sample], weave);
             }
+            voice.nextFrequency = std::sqrt(std::max(1.0f, previousGenerator.frequency * selectedGenerator.frequency));
+        } else if (params_.transition == AmbiStochasticTransition::Vary) {
+            for (uint32_t sample = 0u; sample < kAmbiStochasticTableSize; ++sample) {
+                voice.nextTable[sample] = lerp(previousGenerator.table[sample], selectedGenerator.table[sample], topologyMix);
+            }
+            voice.nextFrequency = lerp(previousGenerator.frequency, selectedGenerator.frequency, topologyMix);
+        } else {
+            voice.nextTable = selectedGenerator.table;
+            voice.nextFrequency = selectedGenerator.frequency;
         }
+        voice.nextGenerator = selected;
+        selectionPulse_[voiceIndex] = selected == voice.currentGenerator ? 0.0f : 1.0f;
+        pushHistory(voice, selected);
+    }
 
-        if ((dynamicsTick_ % 6u) == 1u) updateNeighborGraph();
-        if (params_.dynamics == AmbiStochasticDynamics::Off) {
-            const float follow = 1.0f - std::exp(-dt / 0.28f);
-            float kineticSum = 0.0f;
-            for (uint32_t i = 0; i < voices; ++i) {
-                const Vec3 target = topologyAnchor_[i];
-                dynamicsPosition_[i].x += (target.x - dynamicsPosition_[i].x) * follow;
-                dynamicsPosition_[i].y += (target.y - dynamicsPosition_[i].y) * follow;
-                dynamicsPosition_[i].z += (target.z - dynamicsPosition_[i].z) * follow;
-                dynamicsVelocity_[i].x *= 0.90f;
-                dynamicsVelocity_[i].y *= 0.90f;
-                dynamicsVelocity_[i].z *= 0.90f;
-                kinetic_[i] = vectorLength(dynamicsVelocity_[i]);
-                kineticSum += kinetic_[i];
-            }
-            globalKinetic_ += (kineticSum / static_cast<float>(voices) - globalKinetic_) * 0.18f;
-            return;
+    static float tableSample(const std::array<float, kAmbiStochasticTableSize>& table, float phase)
+    {
+        const float position = phase * static_cast<float>(kAmbiStochasticTableSize);
+        const uint32_t index = static_cast<uint32_t>(position) % kAmbiStochasticTableSize;
+        const uint32_t next = (index + 1u) % kAmbiStochasticTableSize;
+        return lerp(table[index], table[next], position - std::floor(position));
+    }
+
+    void updateTimeFields(float frames)
+    {
+        for (uint32_t voiceIndex = 0u; voiceIndex < params_.voices; ++voiceIndex) {
+            auto& voice = voices_[voiceIndex];
+            voice.fieldRemainingSamples -= frames;
+            if (voice.fieldRemainingSamples > 0.0f) continue;
+            const Vec3 topology = topologyPosition_[voiceIndex];
+            const float neighborGate = voices_[neighborIndex_[voiceIndex]].fieldActive ? 1.0f : 0.0f;
+            const float probability = clamp(params_.fieldDensity
+                    + topology.y * params_.fieldContrast * 0.22f
+                    + (neighborGate - 0.5f) * params_.neighborTransfer * 0.16f,
+                0.01f, 0.99f);
+            voice.fieldActive = randomUnit(voice.seed) < probability;
+            const float u = clamp(randomUnit(voice.seed), 0.001f, 0.999f);
+            const float exponential = -std::log(1.0f - u);
+            const float topologyDuration = std::exp(-topology.y * params_.fieldContrast * 0.85f);
+            const float seconds = clamp(params_.fieldDurationSeconds
+                    * (0.18f + exponential * (0.45f + params_.fieldContrast * 0.70f)) * topologyDuration,
+                0.03f, 30.0f);
+            voice.fieldRemainingSamples += seconds * static_cast<float>(sampleRate_);
         }
+    }
 
-        std::array<Vec3, kAmbiStochasticMaxVoices> forces {};
-        const float targetSpeed = 0.035f + params_.dynamicsDrive * params_.dynamicsDrive * 0.36f;
-        const float kineticError = clamp((targetSpeed - globalKinetic_) / std::max(0.025f, targetSpeed), -1.0f, 1.0f);
-        const float underDrive = std::max(0.0f, kineticError);
-        const float overDrive = std::max(0.0f, -kineticError);
-        const float noiseSlew = 1.0f - std::exp(-dt / lerp(0.18f, 0.72f, params_.memory));
-        for (uint32_t i = 0; i < voices; ++i) {
-            const Vec3 noiseTarget = normalizedOr({
-                randomUnit(dynamicsSeed_) * 2.0f - 1.0f,
-                randomUnit(dynamicsSeed_) * 2.0f - 1.0f,
-                randomUnit(dynamicsSeed_) * 2.0f - 1.0f
-            }, { 0.0f, 1.0f, 0.0f });
-            dynamicsNoise_[i].x += (noiseTarget.x - dynamicsNoise_[i].x) * noiseSlew;
-            dynamicsNoise_[i].y += (noiseTarget.y - dynamicsNoise_[i].y) * noiseSlew;
-            dynamicsNoise_[i].z += (noiseTarget.z - dynamicsNoise_[i].z) * noiseSlew;
-            const Vec3 target = topologyAnchor_[i];
-            float tether = params_.dynamics == AmbiStochasticDynamics::Gas ? 0.010f : 0.026f;
-            float injection = 0.025f + params_.dynamicsDrive * 0.12f + underDrive * 0.38f;
-            if (params_.motion == AmbiStochasticMotion::Field) {
-                tether *= 1.85f;
-                injection *= 0.36f;
-            } else if (params_.motion == AmbiStochasticMotion::Drift) {
-                tether *= 0.62f;
-                injection *= 1.18f;
+    void updateTopology(float dt)
+    {
+        if (dt > 0.0f) topologyPhase_ = std::fmod(topologyPhase_ + params_.topologyRateHz * dt, 1.0f);
+        TopologyState state {};
+        state.amount = params_.topologyAmount;
+        state.jitter = params_.topologyDepth * 0.24f;
+        state.collapse = params_.topologyCollapse;
+        state.dirX = std::sin(topologyPhase_ * kPi * 2.0f);
+        state.dirY = std::sin(topologyPhase_ * kPi * 1.37f + 1.1f);
+        state.dirZ = std::cos(topologyPhase_ * kPi * 1.73f + 0.4f);
+        state.twist = params_.topologyTwist;
+        state.flare = (params_.topologyScale - 1.0f) * 0.42f;
+        state.shape = params_.topologyShape;
+        state.motionMode = params_.topologyMotion;
+        state.motionVariant = 0u;
+        state.motionRateHz = params_.topologyRateHz;
+        state.motionDepth = params_.topologyDepth;
+        state.motionPhase = topologyPhase_;
+        const TopologyControls controls = topologyControlsFromState(state);
+
+        const bool moving = params_.topologyMotion != 0u && params_.topologyDepth > 0.0001f && dt > 0.0f;
+        const float velocityLimit = 0.10f + params_.topologyDepth * 0.72f;
+        const float walkDrive = (0.35f + params_.topologyDepth * 1.85f)
+            * (0.28f + std::sqrt(params_.topologyRateHz));
+        const float smoothing = dt > 0.0f ? 1.0f - std::exp(-dt / 0.070f) : 1.0f;
+        float kineticTotal = 0.0f;
+        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+            if (moving) {
+                Vec3& primary = topologyPrimary_[voice];
+                Vec3& secondary = topologySecondary_[voice];
+                primary.x = reflect(primary.x + randomSigned(topologySeed_, AmbiStochasticDistribution::Cauchy) * walkDrive * dt,
+                    -velocityLimit, velocityLimit);
+                primary.y = reflect(primary.y + randomSigned(topologySeed_, AmbiStochasticDistribution::Logistic) * walkDrive * dt,
+                    -velocityLimit, velocityLimit);
+                primary.z = reflect(primary.z + randomSigned(topologySeed_, AmbiStochasticDistribution::Gaussian) * walkDrive * dt,
+                    -velocityLimit, velocityLimit);
+                const float travel = 0.80f + params_.topologyRateHz * 8.0f;
+                secondary.x = reflect(secondary.x + primary.x * dt * travel, -1.0f, 1.0f);
+                secondary.y = reflect(secondary.y + primary.y * dt * travel, -1.0f, 1.0f);
+                secondary.z = reflect(secondary.z + primary.z * dt * travel, -1.0f, 1.0f);
             }
-            forces[i] = {
-                (target.x - dynamicsPosition_[i].x) * tether + dynamicsNoise_[i].x * injection,
-                (target.y - dynamicsPosition_[i].y) * tether + dynamicsNoise_[i].y * injection,
-                (target.z - dynamicsPosition_[i].z) * tether + dynamicsNoise_[i].z * injection
+
+            const TopologyPoint anchor = topologyPointForLane(voice, params_.voices, controls);
+            const float depth = params_.topologyDepth;
+            Vec3 target {
+                static_cast<float>(anchor.x) * (1.0f - depth * 0.32f) + topologySecondary_[voice].x * depth * 0.88f,
+                static_cast<float>(anchor.y) * (1.0f - depth * 0.32f) + topologySecondary_[voice].y * depth * 0.88f,
+                static_cast<float>(anchor.z) * (1.0f - depth * 0.32f) + topologySecondary_[voice].z * depth * 0.88f
             };
-            const Vec3 radial = normalizedOr(dynamicsPosition_[i], { 1.0f, 0.0f, 0.0f });
-            const float energyForce = (voices_[i].energy - globalEnergy_) * params_.coupling
-                * params_.reactivity * 0.42f;
-            forces[i].x += radial.x * energyForce;
-            forces[i].y += radial.y * energyForce;
-            forces[i].z += radial.z * energyForce;
-
-            if (params_.motion == AmbiStochasticMotion::Orbit) {
-                const Vec3 tangent = normalizedOr({
-                    -dynamicsPosition_[i].y,
-                    dynamicsPosition_[i].x,
-                    std::sin(2.0f * kPi * motionPhase_ + static_cast<float>(i) * 1.618f) * 0.22f
-                }, { 0.0f, 1.0f, 0.0f });
-                const float orbitForce = params_.motionAmount * (0.055f + params_.dynamicsDrive * 0.16f);
-                forces[i].x += tangent.x * orbitForce;
-                forces[i].y += tangent.y * orbitForce;
-                forces[i].z += tangent.z * orbitForce;
-            } else if (params_.motion == AmbiStochasticMotion::Feedback) {
-                const Vec3 tangent = normalizedOr({
-                    -dynamicsPosition_[i].y,
-                    dynamicsPosition_[i].x,
-                    dynamicsPosition_[i].x - dynamicsPosition_[i].z
-                }, { 0.0f, 1.0f, 0.0f });
-                const float feedback = clamp(networkPulse_[i]
-                        + (voices_[i].energy - globalEnergy_) * 2.4f,
-                    -1.0f, 1.0f);
-                const float feedbackForce = params_.motionAmount * params_.reactivity
-                    * (0.035f + std::fabs(feedback) * 0.20f);
-                forces[i].x += tangent.x * feedbackForce * (feedback >= 0.0f ? 1.0f : -1.0f);
-                forces[i].y += tangent.y * feedbackForce * (feedback >= 0.0f ? 1.0f : -1.0f);
-                forces[i].z += tangent.z * feedbackForce * (feedback >= 0.0f ? 1.0f : -1.0f);
-            }
+            target.x = clamp(target.x * params_.topologyScale, -1.0f, 1.0f);
+            target.y = clamp(target.y * params_.topologyScale, -1.0f, 1.0f);
+            target.z = clamp(target.z * params_.topologyScale, -1.0f, 1.0f);
+            topologyPosition_[voice].x += (target.x - topologyPosition_[voice].x) * smoothing;
+            topologyPosition_[voice].y += (target.y - topologyPosition_[voice].y) * smoothing;
+            topologyPosition_[voice].z += (target.z - topologyPosition_[voice].z) * smoothing;
+            const float dx = topologyPosition_[voice].x - topologyPrevious_[voice].x;
+            const float dy = topologyPosition_[voice].y - topologyPrevious_[voice].y;
+            const float dz = topologyPosition_[voice].z - topologyPrevious_[voice].z;
+            kinetic_[voice] = dt > 0.0f ? clamp(std::sqrt(dx * dx + dy * dy + dz * dz) / std::max(0.0001f, dt) * 0.08f, 0.0f, 1.0f) : 0.0f;
+            topologyPrevious_[voice] = topologyPosition_[voice];
+            kineticTotal += kinetic_[voice];
+            topologyRadius_[voice] = clamp(std::sqrt(topologyPosition_[voice].x * topologyPosition_[voice].x
+                + topologyPosition_[voice].y * topologyPosition_[voice].y
+                + topologyPosition_[voice].z * topologyPosition_[voice].z) / 1.7320508f, 0.0f, 1.0f);
         }
-
-        if (params_.dynamics == AmbiStochasticDynamics::Net
-            || params_.dynamics == AmbiStochasticDynamics::Cascade) {
-            const float stiffness = params_.coupling
-                * (params_.dynamics == AmbiStochasticDynamics::Net ? 0.46f : 0.28f);
-            for (uint32_t i = 0; i < voices; ++i) {
-                if (bondBreak_[i] > 0.0f) continue;
-                const uint32_t neighbors[2] { neighborIndex_[i], secondaryNeighborIndex_[i] };
-                for (uint32_t edge = 0; edge < 2u; ++edge) {
-                    const uint32_t neighbor = neighbors[edge];
-                    if (neighbor == i || neighbor >= voices || bondBreak_[neighbor] > 0.0f) continue;
-                    const Vec3 delta {
-                        dynamicsPosition_[neighbor].x - dynamicsPosition_[i].x,
-                        dynamicsPosition_[neighbor].y - dynamicsPosition_[i].y,
-                        dynamicsPosition_[neighbor].z - dynamicsPosition_[i].z
-                    };
-                    const float distance = std::max(0.0001f, vectorLength(delta));
-                    const float rest = std::max(0.08f, neighborRest_[i][edge]);
-                    const float extension = (distance - rest) / rest;
-                    const float magnitude = clamp(extension * stiffness * (edge == 0u ? 1.0f : 0.72f), -0.64f, 0.64f);
-                    const Vec3 direction { delta.x / distance, delta.y / distance, delta.z / distance };
-                    forces[i].x += direction.x * magnitude;
-                    forces[i].y += direction.y * magnitude;
-                    forces[i].z += direction.z * magnitude;
-                    forces[neighbor].x -= direction.x * magnitude;
-                    forces[neighbor].y -= direction.y * magnitude;
-                    forces[neighbor].z -= direction.z * magnitude;
-                    const float edgeTension = clamp(std::fabs(extension), 0.0f, 1.0f);
-                    tension_[i] = std::max(tension_[i], edgeTension);
-                    tension_[neighbor] = std::max(tension_[neighbor], edgeTension);
-                    if (edgeTension > 0.82f && eventRefractory_[i] <= 0.0f) {
-                        bondBreak_[i] = 0.35f + edgeTension * (0.75f + params_.memory * 1.7f);
-                        triggerTopologyEvent(i, edgeTension, neighbor);
-                    }
-                }
-            }
-        }
-
-        const float damping = std::exp(-dt * (0.10f + params_.dynamicsDrag * 3.2f + overDrive * 2.1f));
-        const float maximumSpeed = 0.18f + params_.dynamicsDrive * 0.68f;
-        const float boundary = topologyBoundary();
-        for (uint32_t i = 0; i < voices; ++i) {
-            dynamicsVelocity_[i].x = (dynamicsVelocity_[i].x + forces[i].x * dt) * damping;
-            dynamicsVelocity_[i].y = (dynamicsVelocity_[i].y + forces[i].y * dt) * damping;
-            dynamicsVelocity_[i].z = (dynamicsVelocity_[i].z + forces[i].z * dt) * damping;
-            const float speed = vectorLength(dynamicsVelocity_[i]);
-            if (speed > maximumSpeed) {
-                const float scale = maximumSpeed / speed;
-                dynamicsVelocity_[i].x *= scale;
-                dynamicsVelocity_[i].y *= scale;
-                dynamicsVelocity_[i].z *= scale;
-            }
-            dynamicsPosition_[i].x += dynamicsVelocity_[i].x * dt;
-            dynamicsPosition_[i].y += dynamicsVelocity_[i].y * dt;
-            dynamicsPosition_[i].z += dynamicsVelocity_[i].z * dt;
-            const float radius = vectorLength(dynamicsPosition_[i]);
-            if (radius > boundary) {
-                const Vec3 normal {
-                    dynamicsPosition_[i].x / radius,
-                    dynamicsPosition_[i].y / radius,
-                    dynamicsPosition_[i].z / radius
-                };
-                dynamicsPosition_[i] = { normal.x * boundary, normal.y * boundary, normal.z * boundary };
-                const float outward = dynamicsVelocity_[i].x * normal.x
-                    + dynamicsVelocity_[i].y * normal.y + dynamicsVelocity_[i].z * normal.z;
-                if (outward > 0.0f) {
-                    const float restitution = 0.42f + params_.dynamicsBounce * 0.54f;
-                    dynamicsVelocity_[i].x -= normal.x * outward * (1.0f + restitution);
-                    dynamicsVelocity_[i].y -= normal.y * outward * (1.0f + restitution);
-                    dynamicsVelocity_[i].z -= normal.z * outward * (1.0f + restitution);
-                    if (eventRefractory_[i] <= 0.0f) {
-                        triggerTopologyEvent(i, clamp(outward / std::max(0.05f, maximumSpeed), 0.18f, 1.0f), i);
-                    }
-                }
-            }
-        }
-
-        const float collisionDistance = 0.10f + params_.dynamicsRadius * 0.35f;
-        for (uint32_t a = 0; a < voices; ++a) {
-            for (uint32_t b = a + 1u; b < voices; ++b) {
-                Vec3 delta {
-                    dynamicsPosition_[b].x - dynamicsPosition_[a].x,
-                    dynamicsPosition_[b].y - dynamicsPosition_[a].y,
-                    dynamicsPosition_[b].z - dynamicsPosition_[a].z
-                };
-                float distance = vectorLength(delta);
-                if (distance >= collisionDistance) continue;
-                Vec3 normal = distance > 0.0001f
-                    ? Vec3 { delta.x / distance, delta.y / distance, delta.z / distance }
-                    : normalizedOr({
-                        deterministicSigned(a * 71u + b * 19u),
-                        deterministicSigned(a * 31u + b * 53u),
-                        deterministicSigned(a * 43u + b * 29u)
-                    }, { 1.0f, 0.0f, 0.0f });
-                distance = std::max(0.0001f, distance);
-                const float overlap = collisionDistance - distance;
-                const float correction = overlap * 0.51f;
-                dynamicsPosition_[a].x -= normal.x * correction;
-                dynamicsPosition_[a].y -= normal.y * correction;
-                dynamicsPosition_[a].z -= normal.z * correction;
-                dynamicsPosition_[b].x += normal.x * correction;
-                dynamicsPosition_[b].y += normal.y * correction;
-                dynamicsPosition_[b].z += normal.z * correction;
-                const float relative = (dynamicsVelocity_[b].x - dynamicsVelocity_[a].x) * normal.x
-                    + (dynamicsVelocity_[b].y - dynamicsVelocity_[a].y) * normal.y
-                    + (dynamicsVelocity_[b].z - dynamicsVelocity_[a].z) * normal.z;
-                if (relative < 0.0f) {
-                    const float restitution = 0.52f + params_.dynamicsBounce * 0.46f;
-                    const float impulse = -(1.0f + restitution) * relative * 0.5f;
-                    dynamicsVelocity_[a].x -= normal.x * impulse;
-                    dynamicsVelocity_[a].y -= normal.y * impulse;
-                    dynamicsVelocity_[a].z -= normal.z * impulse;
-                    dynamicsVelocity_[b].x += normal.x * impulse;
-                    dynamicsVelocity_[b].y += normal.y * impulse;
-                    dynamicsVelocity_[b].z += normal.z * impulse;
-                }
-                const float impact = clamp((-relative) / std::max(0.04f, maximumSpeed)
-                        + overlap / collisionDistance * 0.55f,
-                    0.0f, 1.0f);
-                contact_[a] = std::max(contact_[a], impact);
-                contact_[b] = std::max(contact_[b], impact);
-                if (impact > 0.14f) {
-                    if (eventRefractory_[a] <= 0.0f) triggerTopologyEvent(a, impact, b);
-                    if (eventRefractory_[b] <= 0.0f) triggerTopologyEvent(b, impact, a);
-                }
-            }
-        }
-
-        const float autonomousRate = 0.035f + params_.activity * params_.activity
-            * (0.20f + params_.dynamicsDrive * 0.34f);
-        float kineticSum = 0.0f;
-        for (uint32_t i = 0; i < voices; ++i) {
-            const float voiceEventRate = autonomousRate * lerp(0.42f, 1.68f, topologyEvent(i));
-            if (eventRefractory_[i] <= 0.0f && randomUnit(dynamicsSeed_) < voiceEventRate * dt) {
-                const float strength = 0.26f + randomUnit(dynamicsSeed_) * 0.72f;
-                const Vec3 kick = normalizedOr({
-                    randomUnit(dynamicsSeed_) * 2.0f - 1.0f,
-                    randomUnit(dynamicsSeed_) * 2.0f - 1.0f,
-                    randomUnit(dynamicsSeed_) * 2.0f - 1.0f
-                }, { 0.0f, 1.0f, 0.0f });
-                const float kickAmount = (0.025f + params_.dynamicsDrive * 0.10f) * strength;
-                dynamicsVelocity_[i].x += kick.x * kickAmount;
-                dynamicsVelocity_[i].y += kick.y * kickAmount;
-                dynamicsVelocity_[i].z += kick.z * kickAmount;
-                triggerTopologyEvent(i, strength, i);
-            }
-            kinetic_[i] = vectorLength(dynamicsVelocity_[i]);
-            kineticSum += kinetic_[i];
-        }
-        const float measuredKinetic = kineticSum / static_cast<float>(voices);
-        globalKinetic_ += (measuredKinetic - globalKinetic_) * 0.16f;
-    }
-
-    void updateMotion(float dt)
-    {
-        motionPhase_ = fract(motionPhase_ + dt * params_.motionRateHz);
-        dynamicsAccumulator_ += std::max(0.0f, dt);
-        constexpr float dynamicsStep = 1.0f / 120.0f;
-        uint32_t steps = 0u;
-        while (dynamicsAccumulator_ >= dynamicsStep && steps < 8u) {
-            advanceDynamics(dynamicsStep);
-            dynamicsAccumulator_ -= dynamicsStep;
-            ++steps;
-        }
-        if (steps == 8u && dynamicsAccumulator_ > dynamicsStep) dynamicsAccumulator_ = dynamicsStep;
-
-        const float smoothTime = lerp(0.018f, 0.11f, params_.memory);
-        const float coefficient = 1.0f - std::exp(-dt / smoothTime);
-        const float spatial = params_.dynamics == AmbiStochasticDynamics::Off ? 0.0f : params_.spatialDepth;
-        for (uint32_t i = 0; i < params_.voices; ++i) {
-            const Vec3 base = pointVector(motionTarget(i));
-            const float baseDistance = std::max(0.0001f, vectorLength(base));
-            const Vec3 baseDirection = normalizedOr(base, { 1.0f, 0.0f, 0.0f });
-            const float topologyDistance = vectorLength(dynamicsPosition_[i]);
-            const Vec3 topologyDirection = normalizedOr(dynamicsPosition_[i], baseDirection);
-            const Vec3 direction = normalizedOr({
-                lerp(baseDirection.x, topologyDirection.x, spatial),
-                lerp(baseDirection.y, topologyDirection.y, spatial),
-                lerp(baseDirection.z, topologyDirection.z, spatial)
-            }, baseDirection);
-            const float topologyRadius = clamp(topologyDistance / topologyBoundary(), 0.0f, 1.0f);
-            const float mappedDistance = clamp(baseDistance * (0.72f + topologyRadius * 0.52f), 0.15f, 2.0f);
-            const float distance = lerp(baseDistance, mappedDistance, spatial);
-            const Vec3 target { direction.x * distance, direction.y * distance, direction.z * distance };
-            const auto mapped = pointFromVector(target);
-            points_[i].azimuthDeg = wrapSignedDeg(points_[i].azimuthDeg
-                + signedAngleDelta(mapped.azimuthDeg, points_[i].azimuthDeg) * coefficient);
-            points_[i].elevationDeg += (mapped.elevationDeg - points_[i].elevationDeg) * coefficient;
-            points_[i].distance += (mapped.distance - points_[i].distance) * coefficient;
-        }
+        globalKinetic_ += (kineticTotal / static_cast<float>(params_.voices) - globalKinetic_) * 0.08f;
+        updateNeighborGraph();
+        updateAedPoints();
     }
 
     void updateNeighborGraph()
     {
-        const uint32_t voices = params_.voices;
-        if (voices <= 1u) {
-            neighborIndex_[0] = 0u;
-            secondaryNeighborIndex_[0] = 0u;
-            crowding_[0] = 0.0f;
-            return;
-        }
-        if (voices == 2u) {
-            const float distance = vectorDistance(dynamicsPosition_[0], dynamicsPosition_[1]);
-            for (uint32_t i = 0u; i < 2u; ++i) {
-                neighborIndex_[i] = 1u - i;
-                secondaryNeighborIndex_[i] = 1u - i;
-                neighborRest_[i][0] = clamp(distance, 0.12f, 1.4f);
-                neighborRest_[i][1] = neighborRest_[i][0];
-                const float neighborhood = 0.38f + params_.dynamicsRadius * 0.86f;
-                const float targetCrowding = clamp(1.0f - distance / std::max(0.1f, neighborhood), 0.0f, 1.0f);
-                crowding_[i] += (targetCrowding - crowding_[i]) * 0.32f;
-            }
-            return;
-        }
-        for (uint32_t i = 0; i < voices; ++i) {
-            uint32_t nearest = i == 0u ? 1u : 0u;
-            uint32_t second = nearest;
-            float nearestDistance = 1.0e9f;
-            float secondDistance = 1.0e9f;
-            for (uint32_t j = 0; j < voices; ++j) {
-                if (i == j) continue;
-                const float distance = vectorDistance(dynamicsPosition_[i], dynamicsPosition_[j]);
-                if (distance < nearestDistance) {
-                    secondDistance = nearestDistance;
-                    second = nearest;
-                    nearestDistance = distance;
-                    nearest = j;
+        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+            float firstDistance = std::numeric_limits<float>::max();
+            float secondDistance = std::numeric_limits<float>::max();
+            uint32_t first = voice;
+            uint32_t second = voice;
+            for (uint32_t other = 0u; other < params_.voices; ++other) {
+                if (other == voice) continue;
+                const float dx = topologyPosition_[voice].x - topologyPosition_[other].x;
+                const float dy = topologyPosition_[voice].y - topologyPosition_[other].y;
+                const float dz = topologyPosition_[voice].z - topologyPosition_[other].z;
+                const float distance = dx * dx + dy * dy + dz * dz;
+                if (distance < firstDistance) {
+                    secondDistance = firstDistance;
+                    second = first;
+                    firstDistance = distance;
+                    first = other;
                 } else if (distance < secondDistance) {
                     secondDistance = distance;
-                    second = j;
+                    second = other;
                 }
             }
-            const uint32_t oldPrimary = neighborIndex_[i];
-            const uint32_t oldSecondary = secondaryNeighborIndex_[i];
-            if (oldPrimary < voices && oldPrimary != i) {
-                const float retained = vectorDistance(dynamicsPosition_[i], dynamicsPosition_[oldPrimary]);
-                if (retained <= nearestDistance * 1.24f) {
-                    nearest = oldPrimary;
-                    nearestDistance = retained;
-                    secondDistance = 1.0e9f;
-                    for (uint32_t j = 0; j < voices; ++j) {
-                        if (j == i || j == nearest) continue;
-                        const float distance = vectorDistance(dynamicsPosition_[i], dynamicsPosition_[j]);
-                        if (distance < secondDistance) {
-                            secondDistance = distance;
-                            second = j;
-                        }
-                    }
-                }
+            neighborIndex_[voice] = first;
+            secondaryNeighborIndex_[voice] = second;
+            const float nearest = std::sqrt(std::max(0.0f, firstDistance));
+            neighborInfluence_[voice] = clamp(1.0f - nearest / 1.45f, 0.0f, 1.0f);
+            uint32_t close = 0u;
+            for (uint32_t other = 0u; other < params_.voices; ++other) {
+                if (other == voice) continue;
+                const float dx = topologyPosition_[voice].x - topologyPosition_[other].x;
+                const float dy = topologyPosition_[voice].y - topologyPosition_[other].y;
+                const float dz = topologyPosition_[voice].z - topologyPosition_[other].z;
+                if (dx * dx + dy * dy + dz * dz < 0.75f) ++close;
             }
-            neighborIndex_[i] = nearest;
-            secondaryNeighborIndex_[i] = second;
-            if (dynamicsTick_ == 0u || nearest != oldPrimary) neighborRest_[i][0] = clamp(nearestDistance, 0.12f, 1.4f);
-            if (dynamicsTick_ == 0u || second != oldSecondary) neighborRest_[i][1] = clamp(secondDistance, 0.16f, 1.7f);
-            const float neighborhood = 0.38f + params_.dynamicsRadius * 0.86f;
-            const float targetCrowding = clamp(1.0f - (nearestDistance + secondDistance) * 0.5f
-                    / std::max(0.1f, neighborhood),
-                0.0f, 1.0f);
-            crowding_[i] += (targetCrowding - crowding_[i]) * 0.32f;
+            crowding_[voice] = params_.voices > 1u
+                ? static_cast<float>(close) / static_cast<float>(params_.voices - 1u) : 0.0f;
+            selectionPulse_[voice] *= 0.92f;
         }
     }
 
-    float voiceSystemGain(uint32_t index) const
+    void updateAedPoints()
     {
-        const float pressure = systemPressure(index);
-        const float topologyLift = topologyAmount(index) * params_.synthesisDepth * params_.reactivity;
-        return clamp(1.0f + pressure * params_.reactivity * 0.36f + topologyLift * 0.16f,
-            0.34f, 1.42f);
+        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+            const Vec3 topology = topologyPosition_[voice];
+            const float length = std::sqrt(topology.x * topology.x + topology.y * topology.y + topology.z * topology.z);
+            const float localAzimuth = length > 0.0001f
+                ? std::atan2(topology.x, topology.z) * 180.0f / kPi : 0.0f;
+            const float localElevation = length > 0.0001f
+                ? std::asin(clamp(topology.y / length, -1.0f, 1.0f)) * 180.0f / kPi : 0.0f;
+            points_[voice].azimuthDeg = wrapSignedDeg(params_.centerAzimuthDeg + localAzimuth * params_.spatialFollow);
+            points_[voice].elevationDeg = clamp(params_.centerElevationDeg + localElevation * params_.spatialFollow,
+                -90.0f, 90.0f);
+            const float localDistance = clamp(length, 0.15f, 2.0f);
+            points_[voice].distance = clamp(params_.centerDistance
+                    * lerp(1.0f, localDistance, params_.spatialFollow),
+                0.15f, 2.0f);
+        }
     }
 
-    void updateEnergy(const std::array<float, kAmbiStochasticMaxVoices>& energySum, uint32_t frames)
+    void updateEnergy(const std::array<float, kAmbiStochasticMaxVoices>& sum, uint32_t frames)
     {
-        const float dt = static_cast<float>(frames) / static_cast<float>(sampleRate_);
-        const float memoryTime = lerp(0.045f, 4.5f, params_.memory * params_.memory);
-        const float coefficient = 1.0f - std::exp(-dt / memoryTime);
-        float sum = 0.0f;
-        for (uint32_t i = 0; i < params_.voices; ++i) {
-            const float measured = std::sqrt(energySum[i] / static_cast<float>(std::max<uint32_t>(1u, frames)));
-            voices_[i].energy += (measured - voices_[i].energy) * coefficient;
-            sum += voices_[i].energy;
+        float total = 0.0f;
+        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+            const float rms = std::sqrt(sum[voice] / static_cast<float>(std::max<uint32_t>(1u, frames)));
+            voices_[voice].energy += (rms - voices_[voice].energy) * (rms > voices_[voice].energy ? 0.24f : 0.045f);
+            total += voices_[voice].energy;
         }
-        const float target = sum / static_cast<float>(std::max<uint32_t>(1u, params_.voices));
-        globalEnergy_ += (target - globalEnergy_) * coefficient;
+        const float average = total / static_cast<float>(params_.voices);
+        globalEnergy_ += (average - globalEnergy_) * 0.08f;
     }
 
     double sampleRate_ = 48000.0;
     AmbiStochasticParams params_ {};
     std::array<AmbiStochasticVoice, kAmbiStochasticMaxVoices> voices_ {};
     std::array<AmbiStochasticPoint, kAmbiStochasticMaxVoices> points_ {};
+    std::array<Vec3, kAmbiStochasticMaxVoices> topologyPrimary_ {};
+    std::array<Vec3, kAmbiStochasticMaxVoices> topologySecondary_ {};
+    std::array<Vec3, kAmbiStochasticMaxVoices> topologyPosition_ {};
+    std::array<Vec3, kAmbiStochasticMaxVoices> topologyPrevious_ {};
     std::array<uint32_t, kAmbiStochasticMaxVoices> neighborIndex_ {};
     std::array<uint32_t, kAmbiStochasticMaxVoices> secondaryNeighborIndex_ {};
-    std::array<Vec3, kAmbiStochasticMaxVoices> topologyAnchor_ {};
-    std::array<Vec3, kAmbiStochasticMaxVoices> dynamicsPosition_ {};
-    std::array<Vec3, kAmbiStochasticMaxVoices> dynamicsVelocity_ {};
-    std::array<Vec3, kAmbiStochasticMaxVoices> dynamicsNoise_ {};
-    std::array<std::array<float, 2>, kAmbiStochasticMaxVoices> neighborRest_ {};
     std::array<float, kAmbiStochasticMaxVoices> kinetic_ {};
-    std::array<float, kAmbiStochasticMaxVoices> contact_ {};
+    std::array<float, kAmbiStochasticMaxVoices> neighborInfluence_ {};
     std::array<float, kAmbiStochasticMaxVoices> crowding_ {};
-    std::array<float, kAmbiStochasticMaxVoices> tension_ {};
-    std::array<float, kAmbiStochasticMaxVoices> networkPulse_ {};
-    std::array<float, kAmbiStochasticMaxVoices> eventHold_ {};
-    std::array<float, kAmbiStochasticMaxVoices> eventRefractory_ {};
-    std::array<float, kAmbiStochasticMaxVoices> bondBreak_ {};
-    std::array<std::array<float, kAmbiStochasticCascadeSlots>, kAmbiStochasticMaxVoices> cascadeDelay_ {};
-    float motionPhase_ = 0.0f;
-    float activityPhase_ = 0.0f;
-    float dynamicsAccumulator_ = 0.0f;
-    float globalEnergy_ = 0.20f;
+    std::array<float, kAmbiStochasticMaxVoices> topologyRadius_ {};
+    std::array<float, kAmbiStochasticMaxVoices> selectionPulse_ {};
+    float topologyPhase_ = 0.0f;
+    uint32_t topologySeed_ = 0x7f4a7c15u;
+    float globalEnergy_ = 0.0f;
     float globalKinetic_ = 0.0f;
-    uint32_t dynamicsTick_ = 0u;
-    uint32_t cascadeCursor_ = 0u;
-    uint32_t dynamicsSeed_ = 0x7f4a7c15u;
+    float smoothedOutputGain_ = 0.0f;
 };
 
 } // namespace s3g

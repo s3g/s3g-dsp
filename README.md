@@ -35,10 +35,16 @@ Current plugins:
   U/V scoring, scale and harmonic tuning, AED motion, and
   first-through-seventh-order `ACN/SN3D` output. A reproducible twenty-four-atlas
   library includes tonal, dynamic, algorithmic, and heavy-glitch surfaces.
-- `s3g Ambi Stochastic Encoder 64`: 64-voice dynamic-stochastic instrument with
-  four pressure-curve models, independent amplitude/timing distributions,
-  elastic topology dynamics, autonomous event cascades, MIDI/free operation,
-  and first-through-seventh-order `ACN/SN3D` output.
+- `s3g Ambi Vox Encoder 64`: Ambi VOT-derived vocal vector-wavetable
+  instrument with a default black-metal source bank and a reproducible VOX
+  atlas library for choir, throat, creature, and rasp-driven source fields.
+- `s3g Ambi Stochastic Encoder 64`: 64-voice instrument with second-order
+  stochastic pressure walks, four-generator selection, autonomous time-fields,
+  topology-driven AED placement, MIDI/free operation, and first-through-seventh-
+  order `ACN/SN3D` output.
+- `s3g Ambi Environment Generator 64`: procedural field-recording instrument
+  combining spatial wind, rain, water, fire, insect, machine, and ambient-air
+  layers with first-through-seventh-order `ACN/SN3D` output.
 - `s3g Ambi Grain Processor`: CLAP instrument plugin for loaded `ACN/SN3D`
   ambisonic media with channel-locked grain events.
 - `s3g Macro Delay 8ch/24ch`: compact multichannel delay macros with

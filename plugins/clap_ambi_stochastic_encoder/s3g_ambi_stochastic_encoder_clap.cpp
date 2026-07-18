@@ -28,7 +28,7 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiStochasticMaxChannels;
-constexpr uint32_t kStateVersion = 3u;
+constexpr uint32_t kStateVersion = 6u;
 constexpr uint32_t kGuiWidth = 1160u;
 constexpr uint32_t kGuiHeight = 860u;
 constexpr uint32_t kGuiWaveSamples = 256u;
@@ -36,127 +36,45 @@ constexpr uint32_t kGuiWaveSamples = 256u;
 constexpr clap_id kOrderParamId = 1;
 constexpr clap_id kVoicesParamId = 2;
 constexpr clap_id kModeParamId = 3;
-constexpr clap_id kSystemParamId = 4;
-constexpr clap_id kAmplitudeDistributionParamId = 5;
-constexpr clap_id kBaseNoteParamId = 6;
-constexpr clap_id kPitchSpreadParamId = 7;
-constexpr clap_id kDetuneParamId = 8;
-constexpr clap_id kBreakpointsParamId = 9;
-constexpr clap_id kAmplitudeStepParamId = 10;
-constexpr clap_id kTimeStepParamId = 11;
-constexpr clap_id kInertiaParamId = 12;
-constexpr clap_id kActivityParamId = 13;
-constexpr clap_id kCouplingParamId = 14;
-constexpr clap_id kMemoryParamId = 15;
-constexpr clap_id kReactivityParamId = 16;
-constexpr clap_id kAttackParamId = 17;
-constexpr clap_id kDecayParamId = 18;
-constexpr clap_id kSustainParamId = 19;
-constexpr clap_id kReleaseParamId = 20;
-constexpr clap_id kMotionParamId = 21;
-constexpr clap_id kMotionRateParamId = 22;
-constexpr clap_id kMotionAmountParamId = 23;
-constexpr clap_id kMotionSpreadParamId = 24;
-constexpr clap_id kAzimuthParamId = 25;
-constexpr clap_id kElevationParamId = 26;
-constexpr clap_id kDistanceParamId = 27;
-constexpr clap_id kOutputParamId = 28;
-constexpr clap_id kDurationDistributionParamId = 29;
-constexpr clap_id kModelParamId = 30;
-constexpr clap_id kDynamicsParamId = 31;
-constexpr clap_id kDynamicsDriveParamId = 32;
-constexpr clap_id kDynamicsBounceParamId = 33;
-constexpr clap_id kDynamicsDragParamId = 34;
-constexpr clap_id kDynamicsRadiusParamId = 35;
-constexpr clap_id kSynthesisDepthParamId = 36;
-constexpr clap_id kSpatialDepthParamId = 37;
+constexpr clap_id kSelectionParamId = 4;
+constexpr clap_id kTransitionParamId = 5;
+constexpr clap_id kAmplitudeDistributionParamId = 6;
+constexpr clap_id kDurationDistributionParamId = 7;
+constexpr clap_id kBaseNoteParamId = 8;
+constexpr clap_id kSeedSpreadParamId = 9;
+constexpr clap_id kDetuneParamId = 10;
+constexpr clap_id kBreakpointsParamId = 11;
+constexpr clap_id kAmplitudeStepParamId = 12;
+constexpr clap_id kDurationStepParamId = 13;
+constexpr clap_id kAmplitudeRangeParamId = 14;
+constexpr clap_id kDurationRangeParamId = 15;
+constexpr clap_id kFieldDensityParamId = 16;
+constexpr clap_id kNeighborTransferParamId = 17;
+constexpr clap_id kSelectionMemoryParamId = 18;
+constexpr clap_id kFieldDurationParamId = 19;
+constexpr clap_id kFieldContrastParamId = 20;
+constexpr clap_id kAttackParamId = 21;
+constexpr clap_id kDecayParamId = 22;
+constexpr clap_id kSustainParamId = 23;
+constexpr clap_id kReleaseParamId = 24;
+constexpr clap_id kTopologyShapeParamId = 25;
+constexpr clap_id kTopologyMotionParamId = 26;
+constexpr clap_id kTopologyRateParamId = 27;
+constexpr clap_id kTopologyAmountParamId = 28;
+constexpr clap_id kTopologyDepthParamId = 29;
+constexpr clap_id kTopologyScaleParamId = 30;
+constexpr clap_id kTopologyCollapseParamId = 31;
+constexpr clap_id kTopologyTwistParamId = 32;
+constexpr clap_id kAzimuthParamId = 33;
+constexpr clap_id kElevationParamId = 34;
+constexpr clap_id kDistanceParamId = 35;
+constexpr clap_id kSpatialFollowParamId = 36;
+constexpr clap_id kOutputParamId = 37;
+constexpr clap_id kFrequencyFloorParamId = 38;
 
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiStochasticParams params {};
-    int32_t guiViewMode = 2;
-    float guiViewAzDeg = 38.0f;
-    float guiViewElDeg = 32.0f;
-    float guiViewZoom = 1.0f;
-    int32_t guiFieldPage = 0;
-};
-
-struct LegacyParamsV2 {
-    uint32_t order = 3;
-    uint32_t voices = 12;
-    s3g::AmbiStochasticMode mode = s3g::AmbiStochasticMode::Free;
-    s3g::AmbiStochasticSystem system = s3g::AmbiStochasticSystem::Network;
-    s3g::AmbiStochasticModel model = s3g::AmbiStochasticModel::Delta;
-    s3g::AmbiStochasticDistribution amplitudeDistribution = s3g::AmbiStochasticDistribution::Gaussian;
-    s3g::AmbiStochasticDistribution durationDistribution = s3g::AmbiStochasticDistribution::Gaussian;
-    float baseNote = 40.0f;
-    float pitchSpreadSemitones = 19.0f;
-    float detuneCents = 9.0f;
-    uint32_t breakpoints = 12;
-    float amplitudeStep = 0.34f;
-    float timeStep = 0.28f;
-    float inertia = 0.76f;
-    float activity = 0.82f;
-    float coupling = 0.58f;
-    float memory = 0.74f;
-    float reactivity = 0.64f;
-    float attackMs = 80.0f;
-    float decayMs = 480.0f;
-    float sustain = 0.72f;
-    float releaseMs = 1800.0f;
-    s3g::AmbiStochasticMotion motion = s3g::AmbiStochasticMotion::Feedback;
-    float motionRateHz = 0.028f;
-    float motionAmount = 0.72f;
-    float motionSpread = 0.82f;
-    float centerAzimuthDeg = 0.0f;
-    float centerElevationDeg = 0.0f;
-    float centerDistance = 1.0f;
-    float outputGainDb = -24.0f;
-};
-
-struct SavedStateV2 {
-    uint32_t version = 2u;
-    LegacyParamsV2 params {};
-    int32_t guiViewMode = 2;
-    float guiViewAzDeg = 38.0f;
-    float guiViewElDeg = 32.0f;
-    float guiViewZoom = 1.0f;
-};
-
-struct LegacyParamsV1 {
-    uint32_t order = 3;
-    uint32_t voices = 12;
-    s3g::AmbiStochasticMode mode = s3g::AmbiStochasticMode::Free;
-    s3g::AmbiStochasticSystem system = s3g::AmbiStochasticSystem::Network;
-    s3g::AmbiStochasticDistribution distribution = s3g::AmbiStochasticDistribution::Gaussian;
-    float baseNote = 40.0f;
-    float pitchSpreadSemitones = 19.0f;
-    float detuneCents = 9.0f;
-    uint32_t breakpoints = 12;
-    float amplitudeStep = 0.34f;
-    float timeStep = 0.28f;
-    float inertia = 0.76f;
-    float activity = 0.82f;
-    float coupling = 0.58f;
-    float memory = 0.74f;
-    float reactivity = 0.64f;
-    float attackMs = 80.0f;
-    float decayMs = 480.0f;
-    float sustain = 0.72f;
-    float releaseMs = 1800.0f;
-    s3g::AmbiStochasticMotion motion = s3g::AmbiStochasticMotion::Feedback;
-    float motionRateHz = 0.028f;
-    float motionAmount = 0.72f;
-    float motionSpread = 0.82f;
-    float centerAzimuthDeg = 0.0f;
-    float centerElevationDeg = 0.0f;
-    float centerDistance = 1.0f;
-    float outputGainDb = -24.0f;
-};
-
-struct SavedStateV1 {
-    uint32_t version = 1u;
-    LegacyParamsV1 params {};
     int32_t guiViewMode = 2;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
@@ -186,25 +104,30 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiTopologyY {};
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiTopologyZ {};
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiEnergy {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiKinetic {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiNeighborInfluence {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiSelectionPulse {};
     std::array<std::atomic<uint32_t>, s3g::kAmbiStochasticMaxVoices> guiNeighbor {};
     std::array<std::atomic<uint32_t>, s3g::kAmbiStochasticMaxVoices> guiSecondaryNeighbor {};
-    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiKinetic {};
-    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiContact {};
-    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiCrowding {};
-    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiTension {};
-    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiNetworkPulse {};
-    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiBondStrength {};
-    std::array<std::atomic<float>, kGuiWaveSamples> guiWaveform {};
+    std::array<std::atomic<uint32_t>, s3g::kAmbiStochasticMaxVoices> guiCurrentGenerator {};
+    std::array<std::atomic<uint32_t>, s3g::kAmbiStochasticMaxVoices> guiNextGenerator {};
+    std::array<std::atomic<uint32_t>, s3g::kAmbiStochasticMaxVoices> guiFieldActive {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiFrequency {};
+    std::array<std::atomic<float>, kGuiWaveSamples> guiCurrentWaveform {};
+    std::array<std::atomic<float>, kGuiWaveSamples> guiNextWaveform {};
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxBreakpoints> guiBreakpointPosition {};
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxBreakpoints> guiBreakpointAmplitude {};
+    std::array<std::atomic<uint32_t>, s3g::kAmbiStochasticHistorySize> guiHistory {};
     std::atomic<uint32_t> guiBreakpointCount { 0u };
+    std::atomic<uint32_t> guiHistoryCursor { 0u };
+    std::atomic<float> guiAmplitudeBarrier { 0.0f };
+    std::atomic<float> guiDurationBarrier { 0.0f };
     std::atomic<float> guiGlobalEnergy { 0.0f };
     std::atomic<float> guiGlobalKinetic { 0.0f };
     int guiViewMode = 2;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
-    int guiFieldPage = 0;
 #endif
 };
 
@@ -219,40 +142,41 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kOrderParamId: plugin.params.order = static_cast<uint32_t>(std::lround(value)); break;
     case kVoicesParamId: plugin.params.voices = static_cast<uint32_t>(std::lround(value)); break;
     case kModeParamId: plugin.params.mode = static_cast<s3g::AmbiStochasticMode>(static_cast<uint32_t>(std::lround(value))); break;
-    case kSystemParamId: plugin.params.system = static_cast<s3g::AmbiStochasticSystem>(static_cast<uint32_t>(std::lround(value))); break;
+    case kSelectionParamId: plugin.params.selection = static_cast<s3g::AmbiStochasticSelection>(static_cast<uint32_t>(std::lround(value))); break;
+    case kTransitionParamId: plugin.params.transition = static_cast<s3g::AmbiStochasticTransition>(static_cast<uint32_t>(std::lround(value))); break;
     case kAmplitudeDistributionParamId: plugin.params.amplitudeDistribution = static_cast<s3g::AmbiStochasticDistribution>(static_cast<uint32_t>(std::lround(value))); break;
     case kDurationDistributionParamId: plugin.params.durationDistribution = static_cast<s3g::AmbiStochasticDistribution>(static_cast<uint32_t>(std::lround(value))); break;
-    case kModelParamId: plugin.params.model = static_cast<s3g::AmbiStochasticModel>(static_cast<uint32_t>(std::lround(value))); break;
     case kBaseNoteParamId: plugin.params.baseNote = static_cast<float>(value); break;
-    case kPitchSpreadParamId: plugin.params.pitchSpreadSemitones = static_cast<float>(value); break;
+    case kSeedSpreadParamId: plugin.params.seedSpreadSemitones = static_cast<float>(value); break;
     case kDetuneParamId: plugin.params.detuneCents = static_cast<float>(value); break;
+    case kFrequencyFloorParamId: plugin.params.frequencyFloorHz = static_cast<float>(value); break;
     case kBreakpointsParamId: plugin.params.breakpoints = static_cast<uint32_t>(std::lround(value)); break;
     case kAmplitudeStepParamId: plugin.params.amplitudeStep = static_cast<float>(value); break;
-    case kTimeStepParamId: plugin.params.timeStep = static_cast<float>(value); break;
-    case kInertiaParamId: plugin.params.inertia = static_cast<float>(value); break;
-    case kActivityParamId: plugin.params.activity = static_cast<float>(value); break;
-    case kCouplingParamId: plugin.params.coupling = static_cast<float>(value); break;
-    case kMemoryParamId: plugin.params.memory = static_cast<float>(value); break;
-    case kReactivityParamId: plugin.params.reactivity = static_cast<float>(value); break;
+    case kDurationStepParamId: plugin.params.durationStep = static_cast<float>(value); break;
+    case kAmplitudeRangeParamId: plugin.params.amplitudeRange = static_cast<float>(value); break;
+    case kDurationRangeParamId: plugin.params.durationRange = static_cast<float>(value); break;
+    case kFieldDensityParamId: plugin.params.fieldDensity = static_cast<float>(value); break;
+    case kNeighborTransferParamId: plugin.params.neighborTransfer = static_cast<float>(value); break;
+    case kSelectionMemoryParamId: plugin.params.selectionMemory = static_cast<float>(value); break;
+    case kFieldDurationParamId: plugin.params.fieldDurationSeconds = static_cast<float>(value); break;
+    case kFieldContrastParamId: plugin.params.fieldContrast = static_cast<float>(value); break;
     case kAttackParamId: plugin.params.attackMs = static_cast<float>(value); break;
     case kDecayParamId: plugin.params.decayMs = static_cast<float>(value); break;
     case kSustainParamId: plugin.params.sustain = static_cast<float>(value); break;
     case kReleaseParamId: plugin.params.releaseMs = static_cast<float>(value); break;
-    case kMotionParamId: plugin.params.motion = static_cast<s3g::AmbiStochasticMotion>(static_cast<uint32_t>(std::lround(value))); break;
-    case kMotionRateParamId: plugin.params.motionRateHz = static_cast<float>(value); break;
-    case kMotionAmountParamId: plugin.params.motionAmount = static_cast<float>(value); break;
-    case kMotionSpreadParamId: plugin.params.motionSpread = static_cast<float>(value); break;
+    case kTopologyShapeParamId: plugin.params.topologyShape = static_cast<uint32_t>(std::lround(value)); break;
+    case kTopologyMotionParamId: plugin.params.topologyMotion = static_cast<uint32_t>(std::lround(value)); break;
+    case kTopologyRateParamId: plugin.params.topologyRateHz = static_cast<float>(value); break;
+    case kTopologyAmountParamId: plugin.params.topologyAmount = static_cast<float>(value); break;
+    case kTopologyDepthParamId: plugin.params.topologyDepth = static_cast<float>(value); break;
+    case kTopologyScaleParamId: plugin.params.topologyScale = static_cast<float>(value); break;
+    case kTopologyCollapseParamId: plugin.params.topologyCollapse = static_cast<float>(value); break;
+    case kTopologyTwistParamId: plugin.params.topologyTwist = static_cast<float>(value); break;
     case kAzimuthParamId: plugin.params.centerAzimuthDeg = static_cast<float>(value); break;
     case kElevationParamId: plugin.params.centerElevationDeg = static_cast<float>(value); break;
     case kDistanceParamId: plugin.params.centerDistance = static_cast<float>(value); break;
+    case kSpatialFollowParamId: plugin.params.spatialFollow = static_cast<float>(value); break;
     case kOutputParamId: plugin.params.outputGainDb = static_cast<float>(value); break;
-    case kDynamicsParamId: plugin.params.dynamics = static_cast<s3g::AmbiStochasticDynamics>(static_cast<uint32_t>(std::lround(value))); break;
-    case kDynamicsDriveParamId: plugin.params.dynamicsDrive = static_cast<float>(value); break;
-    case kDynamicsBounceParamId: plugin.params.dynamicsBounce = static_cast<float>(value); break;
-    case kDynamicsDragParamId: plugin.params.dynamicsDrag = static_cast<float>(value); break;
-    case kDynamicsRadiusParamId: plugin.params.dynamicsRadius = static_cast<float>(value); break;
-    case kSynthesisDepthParamId: plugin.params.synthesisDepth = static_cast<float>(value); break;
-    case kSpatialDepthParamId: plugin.params.spatialDepth = static_cast<float>(value); break;
     default: return;
     }
     plugin.engine.setParams(plugin.params);
@@ -263,7 +187,7 @@ void readEvents(Plugin& plugin, const clap_input_events_t* events)
 {
     if (!events) return;
     const uint32_t count = events->size(events);
-    for (uint32_t index = 0; index < count; ++index) {
+    for (uint32_t index = 0u; index < count; ++index) {
         const clap_event_header_t* event = events->get(events, index);
         if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID) continue;
         if (event->type == CLAP_EVENT_PARAM_VALUE) {
@@ -289,46 +213,55 @@ void publishGuiSnapshot(Plugin& plugin)
     if (!plugin.guiVisible.load(std::memory_order_relaxed)) return;
     const auto& points = plugin.engine.points();
     const auto& neighbors = plugin.engine.neighborIndices();
-    const auto& secondaryNeighbors = plugin.engine.secondaryNeighborIndices();
-    for (uint32_t i = 0; i < s3g::kAmbiStochasticMaxVoices; ++i) {
-        plugin.guiAzimuth[i].store(points[i].azimuthDeg, std::memory_order_relaxed);
-        plugin.guiElevation[i].store(points[i].elevationDeg, std::memory_order_relaxed);
-        plugin.guiDistance[i].store(points[i].distance, std::memory_order_relaxed);
-        const auto topology = plugin.engine.topologyPosition(i);
-        plugin.guiTopologyX[i].store(topology.x, std::memory_order_relaxed);
-        plugin.guiTopologyY[i].store(topology.y, std::memory_order_relaxed);
-        plugin.guiTopologyZ[i].store(topology.z, std::memory_order_relaxed);
-        plugin.guiEnergy[i].store(plugin.engine.voiceEnergy(i), std::memory_order_relaxed);
-        plugin.guiNeighbor[i].store(neighbors[i], std::memory_order_relaxed);
-        plugin.guiSecondaryNeighbor[i].store(secondaryNeighbors[i], std::memory_order_relaxed);
-        plugin.guiKinetic[i].store(plugin.engine.voiceKinetic(i), std::memory_order_relaxed);
-        plugin.guiContact[i].store(plugin.engine.voiceContact(i), std::memory_order_relaxed);
-        plugin.guiCrowding[i].store(plugin.engine.voiceCrowding(i), std::memory_order_relaxed);
-        plugin.guiTension[i].store(plugin.engine.voiceTension(i), std::memory_order_relaxed);
-        plugin.guiNetworkPulse[i].store(plugin.engine.voiceNetworkPulse(i), std::memory_order_relaxed);
-        plugin.guiBondStrength[i].store(plugin.engine.voiceBondStrength(i), std::memory_order_relaxed);
+    const auto& secondary = plugin.engine.secondaryNeighborIndices();
+    for (uint32_t voice = 0u; voice < s3g::kAmbiStochasticMaxVoices; ++voice) {
+        plugin.guiAzimuth[voice].store(points[voice].azimuthDeg, std::memory_order_relaxed);
+        plugin.guiElevation[voice].store(points[voice].elevationDeg, std::memory_order_relaxed);
+        plugin.guiDistance[voice].store(points[voice].distance, std::memory_order_relaxed);
+        const auto topology = plugin.engine.topologyPosition(voice);
+        plugin.guiTopologyX[voice].store(topology.x, std::memory_order_relaxed);
+        plugin.guiTopologyY[voice].store(topology.y, std::memory_order_relaxed);
+        plugin.guiTopologyZ[voice].store(topology.z, std::memory_order_relaxed);
+        plugin.guiEnergy[voice].store(plugin.engine.voiceEnergy(voice), std::memory_order_relaxed);
+        plugin.guiKinetic[voice].store(plugin.engine.voiceKinetic(voice), std::memory_order_relaxed);
+        plugin.guiNeighborInfluence[voice].store(plugin.engine.voiceContact(voice), std::memory_order_relaxed);
+        plugin.guiSelectionPulse[voice].store(plugin.engine.voiceNetworkPulse(voice), std::memory_order_relaxed);
+        plugin.guiNeighbor[voice].store(neighbors[voice], std::memory_order_relaxed);
+        plugin.guiSecondaryNeighbor[voice].store(secondary[voice], std::memory_order_relaxed);
+        plugin.guiCurrentGenerator[voice].store(plugin.engine.currentGenerator(voice), std::memory_order_relaxed);
+        plugin.guiNextGenerator[voice].store(plugin.engine.nextGenerator(voice), std::memory_order_relaxed);
+        plugin.guiFieldActive[voice].store(plugin.engine.voiceFieldActive(voice) ? 1u : 0u, std::memory_order_relaxed);
+        plugin.guiFrequency[voice].store(plugin.engine.voiceFrequency(voice), std::memory_order_relaxed);
     }
     plugin.guiGlobalEnergy.store(plugin.engine.globalEnergy(), std::memory_order_relaxed);
     plugin.guiGlobalKinetic.store(plugin.engine.globalKinetic(), std::memory_order_relaxed);
-    const uint32_t selected = std::min<uint32_t>(
-        plugin.guiSelectedVoice.load(std::memory_order_relaxed),
+    const uint32_t selected = std::min<uint32_t>(plugin.guiSelectedVoice.load(std::memory_order_relaxed),
         std::max<uint32_t>(1u, plugin.params.voices) - 1u);
-    const auto& waveform = plugin.engine.waveform(selected);
-    for (uint32_t sample = 0; sample < kGuiWaveSamples; ++sample) {
-        plugin.guiWaveform[sample].store(waveform[sample * 2u], std::memory_order_relaxed);
+    const auto& currentWave = plugin.engine.waveform(selected);
+    const auto& nextWave = plugin.engine.nextWaveform(selected);
+    for (uint32_t sample = 0u; sample < kGuiWaveSamples; ++sample) {
+        plugin.guiCurrentWaveform[sample].store(currentWave[sample * 2u], std::memory_order_relaxed);
+        plugin.guiNextWaveform[sample].store(nextWave[sample * 2u], std::memory_order_relaxed);
     }
     const uint32_t breakpointCount = plugin.engine.breakpointCount(selected);
     float durationTotal = 0.0f;
-    for (uint32_t point = 0; point < breakpointCount; ++point) {
+    for (uint32_t point = 0u; point < breakpointCount; ++point) {
         durationTotal += plugin.engine.breakpointDuration(selected, point);
     }
     float position = 0.0f;
-    for (uint32_t point = 0; point < breakpointCount; ++point) {
+    for (uint32_t point = 0u; point < breakpointCount; ++point) {
         plugin.guiBreakpointPosition[point].store(position / std::max(0.000001f, durationTotal), std::memory_order_relaxed);
         plugin.guiBreakpointAmplitude[point].store(plugin.engine.breakpointAmplitude(selected, point), std::memory_order_relaxed);
         position += plugin.engine.breakpointDuration(selected, point);
     }
     plugin.guiBreakpointCount.store(breakpointCount, std::memory_order_release);
+    const auto& history = plugin.engine.selectionHistory(selected);
+    for (uint32_t item = 0u; item < s3g::kAmbiStochasticHistorySize; ++item) {
+        plugin.guiHistory[item].store(history[item], std::memory_order_relaxed);
+    }
+    plugin.guiHistoryCursor.store(plugin.engine.selectionHistoryCursor(selected), std::memory_order_relaxed);
+    plugin.guiAmplitudeBarrier.store(plugin.engine.amplitudePrimaryBarrier(selected), std::memory_order_relaxed);
+    plugin.guiDurationBarrier.store(plugin.engine.durationPrimaryBarrier(selected), std::memory_order_relaxed);
 }
 
 void guiDestroy(const clap_plugin_t* plugin);
@@ -351,12 +284,13 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     auto* state = self(plugin);
     state->sampleRate = sampleRate;
     state->maxFrames = std::max<uint32_t>(1u, maxFrames);
-    for (uint32_t ch = 0; ch < kOutputChannels; ++ch) {
-        state->scratch[ch].assign(state->maxFrames, 0.0f);
-        state->scratchPointers[ch] = state->scratch[ch].data();
+    for (uint32_t channel = 0u; channel < kOutputChannels; ++channel) {
+        state->scratch[channel].assign(state->maxFrames, 0.0f);
+        state->scratchPointers[channel] = state->scratch[channel].data();
     }
     state->engine.prepare(sampleRate);
     state->engine.setParams(state->params);
+    state->engine.reset();
     return true;
 }
 
@@ -395,42 +329,39 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     if (!processData) return CLAP_PROCESS_CONTINUE;
     readEvents(*state, processData->in_events);
     if (processData->audio_outputs_count == 0u || !processData->audio_outputs) return CLAP_PROCESS_CONTINUE;
-
     auto& output = processData->audio_outputs[0];
     const uint32_t frames = processData->frames_count;
     const uint32_t outputChannels = std::min<uint32_t>(output.channel_count, kOutputChannels);
     if (frames == 0u) return CLAP_PROCESS_CONTINUE;
     if (frames > state->maxFrames) {
-        for (uint32_t ch = 0; ch < output.channel_count; ++ch) {
-            if (output.data32 && output.data32[ch]) std::fill(output.data32[ch], output.data32[ch] + frames, 0.0f);
-            if (output.data64 && output.data64[ch]) std::fill(output.data64[ch], output.data64[ch] + frames, 0.0);
+        for (uint32_t channel = 0u; channel < output.channel_count; ++channel) {
+            if (output.data32 && output.data32[channel]) std::fill(output.data32[channel], output.data32[channel] + frames, 0.0f);
+            if (output.data64 && output.data64[channel]) std::fill(output.data64[channel], output.data64[channel] + frames, 0.0);
         }
         return CLAP_PROCESS_CONTINUE;
     }
 
     std::array<float*, kOutputChannels> outputs {};
     const bool useScratch = output.data32 == nullptr;
-    for (uint32_t ch = 0; ch < outputChannels; ++ch) {
-        outputs[ch] = useScratch ? state->scratchPointers[ch] : output.data32[ch];
+    for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+        outputs[channel] = useScratch ? state->scratchPointers[channel] : output.data32[channel];
     }
-    state->engine.setParams(state->params);
     state->engine.process(outputs.data(), outputChannels, frames);
 
     float blockPeak = 0.0f;
-    for (uint32_t ch = 0; ch < outputChannels; ++ch) {
-        if (!outputs[ch]) continue;
-        for (uint32_t frame = 0; frame < frames; ++frame) {
-            const float value = outputs[ch][frame];
+    for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+        if (!outputs[channel]) continue;
+        for (uint32_t frame = 0u; frame < frames; ++frame) {
+            const float value = outputs[channel][frame];
             blockPeak = std::max(blockPeak, std::fabs(value));
-            if (useScratch && output.data64 && output.data64[ch]) output.data64[ch][frame] = static_cast<double>(value);
+            if (useScratch && output.data64 && output.data64[channel]) output.data64[channel][frame] = value;
         }
     }
-    for (uint32_t ch = outputChannels; ch < output.channel_count; ++ch) {
-        if (output.data32 && output.data32[ch]) std::fill(output.data32[ch], output.data32[ch] + frames, 0.0f);
-        if (output.data64 && output.data64[ch]) std::fill(output.data64[ch], output.data64[ch] + frames, 0.0);
+    for (uint32_t channel = outputChannels; channel < output.channel_count; ++channel) {
+        if (output.data32 && output.data32[channel]) std::fill(output.data32[channel], output.data32[channel] + frames, 0.0f);
+        if (output.data64 && output.data64[channel]) std::fill(output.data64[channel], output.data64[channel] + frames, 0.0);
     }
-    state->outputPeak.store(
-        std::max(state->outputPeak.load(std::memory_order_relaxed) * 0.92f, blockPeak),
+    state->outputPeak.store(std::max(state->outputPeak.load(std::memory_order_relaxed) * 0.92f, blockPeak),
         std::memory_order_relaxed);
 #if defined(__APPLE__)
     publishGuiSnapshot(*state);
@@ -483,40 +414,41 @@ constexpr ParamDef kParams[] {
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
     { kVoicesParamId, "Voices", 1.0, 64.0, 12.0, true },
     { kModeParamId, "Mode", 0.0, 2.0, 0.0, true },
-    { kSystemParamId, "System", 0.0, 3.0, 3.0, true },
+    { kSelectionParamId, "Selection", 0.0, 5.0, 5.0, true },
+    { kTransitionParamId, "Transition", 0.0, 2.0, 0.0, true },
     { kAmplitudeDistributionParamId, "Amplitude Distribution", 0.0, 6.0, 2.0, true },
-    { kBaseNoteParamId, "Base Note", 12.0, 96.0, 40.0, false },
-    { kPitchSpreadParamId, "Pitch Spread", 0.0, 48.0, 19.0, false },
-    { kDetuneParamId, "Deviation", 0.0, 100.0, 9.0, false },
+    { kDurationDistributionParamId, "Duration Distribution", 0.0, 6.0, 3.0, true },
+    { kBaseNoteParamId, "Base Seed", 12.0, 96.0, 40.0, false },
+    { kSeedSpreadParamId, "Seed Spread", 0.0, 48.0, 19.0, false },
+    { kDetuneParamId, "Seed Deviation", 0.0, 100.0, 9.0, false },
+    { kFrequencyFloorParamId, "Frequency Floor", 2.0, 240.0, 18.0, false },
     { kBreakpointsParamId, "Breakpoints", 4.0, 32.0, 16.0, true },
     { kAmplitudeStepParamId, "Amplitude Step", 0.0, 1.0, 0.58, false },
-    { kTimeStepParamId, "Time Step", 0.0, 1.0, 0.52, false },
-    { kInertiaParamId, "Inertia", 0.0, 1.0, 0.72, false },
-    { kActivityParamId, "Activity", 0.0, 1.0, 0.74, false },
-    { kCouplingParamId, "Coupling", 0.0, 1.0, 0.58, false },
-    { kMemoryParamId, "Memory", 0.0, 1.0, 0.74, false },
-    { kReactivityParamId, "Reactivity", 0.0, 1.0, 0.64, false },
-    { kAttackParamId, "Attack", 1.0, 4000.0, 80.0, false },
-    { kDecayParamId, "Decay", 5.0, 8000.0, 480.0, false },
-    { kSustainParamId, "Sustain", 0.0, 1.0, 0.72, false },
-    { kReleaseParamId, "Release", 5.0, 12000.0, 1800.0, false },
-    { kMotionParamId, "Motion", 0.0, 3.0, 3.0, true },
-    { kMotionRateParamId, "Motion Rate", 0.001, 1.0, 0.028, false },
-    { kMotionAmountParamId, "Motion Amount", 0.0, 1.0, 0.72, false },
-    { kMotionSpreadParamId, "Motion Spread", 0.0, 1.0, 0.82, false },
+    { kDurationStepParamId, "Duration Step", 0.0, 1.0, 0.52, false },
+    { kAmplitudeRangeParamId, "Amplitude Range", 0.0, 1.0, 0.65, false },
+    { kDurationRangeParamId, "Duration Range", 0.0, 1.0, 0.78, false },
+    { kFieldDensityParamId, "Field Density", 0.0, 1.0, 0.94, false },
+    { kNeighborTransferParamId, "Neighbor Transfer", 0.0, 1.0, 0.32, false },
+    { kSelectionMemoryParamId, "Selection Memory", 0.0, 1.0, 0.82, false },
+    { kFieldDurationParamId, "Field Duration", 0.05, 30.0, 0.45, false },
+    { kFieldContrastParamId, "Field Contrast", 0.0, 1.0, 0.58, false },
+    { kAttackParamId, "Attack", 1.0, 4000.0, 12.0, false },
+    { kDecayParamId, "Decay", 5.0, 8000.0, 180.0, false },
+    { kSustainParamId, "Sustain", 0.0, 1.0, 0.82, false },
+    { kReleaseParamId, "Release", 5.0, 12000.0, 420.0, false },
+    { kTopologyShapeParamId, "Topology Shape", 0.0, 11.0, 11.0, true },
+    { kTopologyMotionParamId, "Topology Animation", 0.0, 17.0, 1.0, true },
+    { kTopologyRateParamId, "Topology Rate", 0.001, 1.0, 0.035, false },
+    { kTopologyAmountParamId, "Topology Amount", 0.0, 1.0, 0.82, false },
+    { kTopologyDepthParamId, "Topology Depth", 0.0, 1.0, 0.78, false },
+    { kTopologyScaleParamId, "Topology Scale", 0.25, 2.0, 1.20, false },
+    { kTopologyCollapseParamId, "Topology Collapse", 0.0, 1.0, 0.0, false },
+    { kTopologyTwistParamId, "Topology Twist", -1.0, 1.0, 0.0, false },
     { kAzimuthParamId, "Center Azimuth", -180.0, 180.0, 0.0, false },
     { kElevationParamId, "Center Elevation", -90.0, 90.0, 0.0, false },
     { kDistanceParamId, "Center Distance", 0.15, 2.0, 1.0, false },
+    { kSpatialFollowParamId, "Spatial Follow", 0.0, 1.0, 0.92, false },
     { kOutputParamId, "Output", -60.0, 6.0, -24.0, false },
-    { kDurationDistributionParamId, "Timing Distribution", 0.0, 6.0, 3.0, true },
-    { kModelParamId, "Stochastic Model", 0.0, 3.0, 3.0, true },
-    { kDynamicsParamId, "Dynamics", 0.0, 3.0, 3.0, true },
-    { kDynamicsDriveParamId, "Dynamics Drive", 0.0, 1.0, 0.72, false },
-    { kDynamicsBounceParamId, "Dynamics Bounce", 0.0, 1.0, 0.88, false },
-    { kDynamicsDragParamId, "Dynamics Drag", 0.0, 1.0, 0.16, false },
-    { kDynamicsRadiusParamId, "Collision Radius", 0.0, 1.0, 0.42, false },
-    { kSynthesisDepthParamId, "Synthesis Map", 0.0, 1.0, 0.86, false },
-    { kSpatialDepthParamId, "Spatial Map", 0.0, 1.0, 0.68, false },
 };
 
 const ParamDef* paramDef(clap_id id)
@@ -551,40 +483,41 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kOrderParamId: *value = params.order; return true;
     case kVoicesParamId: *value = params.voices; return true;
     case kModeParamId: *value = static_cast<uint32_t>(params.mode); return true;
-    case kSystemParamId: *value = static_cast<uint32_t>(params.system); return true;
+    case kSelectionParamId: *value = static_cast<uint32_t>(params.selection); return true;
+    case kTransitionParamId: *value = static_cast<uint32_t>(params.transition); return true;
     case kAmplitudeDistributionParamId: *value = static_cast<uint32_t>(params.amplitudeDistribution); return true;
     case kDurationDistributionParamId: *value = static_cast<uint32_t>(params.durationDistribution); return true;
-    case kModelParamId: *value = static_cast<uint32_t>(params.model); return true;
     case kBaseNoteParamId: *value = params.baseNote; return true;
-    case kPitchSpreadParamId: *value = params.pitchSpreadSemitones; return true;
+    case kSeedSpreadParamId: *value = params.seedSpreadSemitones; return true;
     case kDetuneParamId: *value = params.detuneCents; return true;
+    case kFrequencyFloorParamId: *value = params.frequencyFloorHz; return true;
     case kBreakpointsParamId: *value = params.breakpoints; return true;
     case kAmplitudeStepParamId: *value = params.amplitudeStep; return true;
-    case kTimeStepParamId: *value = params.timeStep; return true;
-    case kInertiaParamId: *value = params.inertia; return true;
-    case kActivityParamId: *value = params.activity; return true;
-    case kCouplingParamId: *value = params.coupling; return true;
-    case kMemoryParamId: *value = params.memory; return true;
-    case kReactivityParamId: *value = params.reactivity; return true;
+    case kDurationStepParamId: *value = params.durationStep; return true;
+    case kAmplitudeRangeParamId: *value = params.amplitudeRange; return true;
+    case kDurationRangeParamId: *value = params.durationRange; return true;
+    case kFieldDensityParamId: *value = params.fieldDensity; return true;
+    case kNeighborTransferParamId: *value = params.neighborTransfer; return true;
+    case kSelectionMemoryParamId: *value = params.selectionMemory; return true;
+    case kFieldDurationParamId: *value = params.fieldDurationSeconds; return true;
+    case kFieldContrastParamId: *value = params.fieldContrast; return true;
     case kAttackParamId: *value = params.attackMs; return true;
     case kDecayParamId: *value = params.decayMs; return true;
     case kSustainParamId: *value = params.sustain; return true;
     case kReleaseParamId: *value = params.releaseMs; return true;
-    case kMotionParamId: *value = static_cast<uint32_t>(params.motion); return true;
-    case kMotionRateParamId: *value = params.motionRateHz; return true;
-    case kMotionAmountParamId: *value = params.motionAmount; return true;
-    case kMotionSpreadParamId: *value = params.motionSpread; return true;
+    case kTopologyShapeParamId: *value = params.topologyShape; return true;
+    case kTopologyMotionParamId: *value = params.topologyMotion; return true;
+    case kTopologyRateParamId: *value = params.topologyRateHz; return true;
+    case kTopologyAmountParamId: *value = params.topologyAmount; return true;
+    case kTopologyDepthParamId: *value = params.topologyDepth; return true;
+    case kTopologyScaleParamId: *value = params.topologyScale; return true;
+    case kTopologyCollapseParamId: *value = params.topologyCollapse; return true;
+    case kTopologyTwistParamId: *value = params.topologyTwist; return true;
     case kAzimuthParamId: *value = params.centerAzimuthDeg; return true;
     case kElevationParamId: *value = params.centerElevationDeg; return true;
     case kDistanceParamId: *value = params.centerDistance; return true;
+    case kSpatialFollowParamId: *value = params.spatialFollow; return true;
     case kOutputParamId: *value = params.outputGainDb; return true;
-    case kDynamicsParamId: *value = static_cast<uint32_t>(params.dynamics); return true;
-    case kDynamicsDriveParamId: *value = params.dynamicsDrive; return true;
-    case kDynamicsBounceParamId: *value = params.dynamicsBounce; return true;
-    case kDynamicsDragParamId: *value = params.dynamicsDrag; return true;
-    case kDynamicsRadiusParamId: *value = params.dynamicsRadius; return true;
-    case kSynthesisDepthParamId: *value = params.synthesisDepth; return true;
-    case kSpatialDepthParamId: *value = params.spatialDepth; return true;
     default: return false;
     }
 }
@@ -594,36 +527,42 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     if (!display || size == 0u) return false;
     if (id == kModeParamId) {
         std::snprintf(display, size, "%s", s3g::ambiStochasticModeName(static_cast<s3g::AmbiStochasticMode>(static_cast<uint32_t>(std::lround(value)))));
-    } else if (id == kSystemParamId) {
-        std::snprintf(display, size, "%s", s3g::ambiStochasticSystemName(static_cast<s3g::AmbiStochasticSystem>(static_cast<uint32_t>(std::lround(value)))));
+    } else if (id == kSelectionParamId) {
+        std::snprintf(display, size, "%s", s3g::ambiStochasticSelectionName(static_cast<s3g::AmbiStochasticSelection>(static_cast<uint32_t>(std::lround(value)))));
+    } else if (id == kTransitionParamId) {
+        std::snprintf(display, size, "%s", s3g::ambiStochasticTransitionName(static_cast<s3g::AmbiStochasticTransition>(static_cast<uint32_t>(std::lround(value)))));
     } else if (id == kAmplitudeDistributionParamId || id == kDurationDistributionParamId) {
         std::snprintf(display, size, "%s", s3g::ambiStochasticDistributionName(static_cast<s3g::AmbiStochasticDistribution>(static_cast<uint32_t>(std::lround(value)))));
-    } else if (id == kModelParamId) {
-        std::snprintf(display, size, "%s", s3g::ambiStochasticModelName(static_cast<s3g::AmbiStochasticModel>(static_cast<uint32_t>(std::lround(value)))));
-    } else if (id == kMotionParamId) {
-        std::snprintf(display, size, "%s", s3g::ambiStochasticMotionName(static_cast<s3g::AmbiStochasticMotion>(static_cast<uint32_t>(std::lround(value)))));
-    } else if (id == kDynamicsParamId) {
-        std::snprintf(display, size, "%s", s3g::ambiStochasticDynamicsName(static_cast<s3g::AmbiStochasticDynamics>(static_cast<uint32_t>(std::lround(value)))));
+    } else if (id == kTopologyShapeParamId) {
+        std::snprintf(display, size, "%s", s3g::topologyShapeName(static_cast<uint32_t>(std::lround(value))));
+    } else if (id == kTopologyMotionParamId) {
+        std::snprintf(display, size, "%s", s3g::topologyMotionModeName(static_cast<uint32_t>(std::lround(value))));
     } else if (id == kOrderParamId) {
         std::snprintf(display, size, "%.0fOA", value);
     } else if (id == kVoicesParamId || id == kBreakpointsParamId) {
         std::snprintf(display, size, "%.0f", value);
     } else if (id == kBaseNoteParamId) {
         std::snprintf(display, size, "M%.1f", value);
-    } else if (id == kPitchSpreadParamId) {
+    } else if (id == kSeedSpreadParamId) {
         std::snprintf(display, size, "%.1f ST", value);
     } else if (id == kDetuneParamId) {
         std::snprintf(display, size, "%.1f CT", value);
+    } else if (id == kFrequencyFloorParamId) {
+        std::snprintf(display, size, "%.1f HZ", value);
     } else if (id == kAttackParamId || id == kDecayParamId || id == kReleaseParamId) {
         std::snprintf(display, size, "%.0f MS", value);
-    } else if (id == kMotionRateParamId) {
+    } else if (id == kFieldDurationParamId) {
+        std::snprintf(display, size, "%.2f S", value);
+    } else if (id == kTopologyRateParamId) {
         std::snprintf(display, size, "%.3f HZ", value);
     } else if (id == kAzimuthParamId || id == kElevationParamId) {
         std::snprintf(display, size, "%+.0f DEG", value);
-    } else if (id == kDistanceParamId) {
+    } else if (id == kDistanceParamId || id == kTopologyScaleParamId) {
         std::snprintf(display, size, "%.2f", value);
     } else if (id == kOutputParamId) {
         std::snprintf(display, size, "%+.1f DB", value);
+    } else if (id == kTopologyTwistParamId) {
+        std::snprintf(display, size, "%+.0f%%", value * 100.0);
     } else {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
     }
@@ -664,7 +603,6 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     saved.guiViewAzDeg = state->guiViewAzDeg;
     saved.guiViewElDeg = state->guiViewElDeg;
     saved.guiViewZoom = state->guiViewZoom;
-    saved.guiFieldPage = state->guiFieldPage;
 #endif
     return stream->write(stream, &saved, sizeof(saved)) == static_cast<int64_t>(sizeof(saved));
 }
@@ -672,131 +610,25 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
-    auto readExact = [stream](void* destination, uint64_t bytes) {
-        auto* write = static_cast<uint8_t*>(destination);
-        uint64_t remaining = bytes;
-        while (remaining > 0u) {
-            const int64_t read = stream->read(stream, write, remaining);
-            if (read <= 0) return false;
-            write += read;
-            remaining -= static_cast<uint64_t>(read);
-        }
-        return true;
-    };
-    uint32_t version = 0u;
-    if (!readExact(&version, sizeof(version))) return false;
-
-    s3g::AmbiStochasticParams params {};
-    int32_t guiViewMode = 2;
-    float guiViewAzDeg = 38.0f;
-    float guiViewElDeg = 32.0f;
-    float guiViewZoom = 1.0f;
-    int32_t guiFieldPage = 0;
-    if (version == kStateVersion) {
-        SavedState saved {};
-        saved.version = version;
-        if (!readExact(reinterpret_cast<uint8_t*>(&saved) + sizeof(version), sizeof(saved) - sizeof(version))) return false;
-        params = saved.params;
-        guiViewMode = saved.guiViewMode;
-        guiViewAzDeg = saved.guiViewAzDeg;
-        guiViewElDeg = saved.guiViewElDeg;
-        guiViewZoom = saved.guiViewZoom;
-        guiFieldPage = saved.guiFieldPage;
-    } else if (version == 2u) {
-        SavedStateV2 saved {};
-        saved.version = version;
-        if (!readExact(reinterpret_cast<uint8_t*>(&saved) + sizeof(version), sizeof(saved) - sizeof(version))) return false;
-        const auto& old = saved.params;
-        params.order = old.order;
-        params.voices = old.voices;
-        params.mode = old.mode;
-        params.system = old.system;
-        params.model = old.model;
-        params.amplitudeDistribution = old.amplitudeDistribution;
-        params.durationDistribution = old.durationDistribution;
-        params.baseNote = old.baseNote;
-        params.pitchSpreadSemitones = old.pitchSpreadSemitones;
-        params.detuneCents = old.detuneCents;
-        params.breakpoints = old.breakpoints;
-        params.amplitudeStep = old.amplitudeStep;
-        params.timeStep = old.timeStep;
-        params.inertia = old.inertia;
-        params.activity = old.activity;
-        params.coupling = old.coupling;
-        params.memory = old.memory;
-        params.reactivity = old.reactivity;
-        params.attackMs = old.attackMs;
-        params.decayMs = old.decayMs;
-        params.sustain = old.sustain;
-        params.releaseMs = old.releaseMs;
-        params.motion = old.motion;
-        params.motionRateHz = old.motionRateHz;
-        params.motionAmount = old.motionAmount;
-        params.motionSpread = old.motionSpread;
-        params.centerAzimuthDeg = old.centerAzimuthDeg;
-        params.centerElevationDeg = old.centerElevationDeg;
-        params.centerDistance = old.centerDistance;
-        params.outputGainDb = old.outputGainDb;
-        params.dynamics = s3g::AmbiStochasticDynamics::Off;
-        guiViewMode = saved.guiViewMode;
-        guiViewAzDeg = saved.guiViewAzDeg;
-        guiViewElDeg = saved.guiViewElDeg;
-        guiViewZoom = saved.guiViewZoom;
-    } else if (version == 1u) {
-        SavedStateV1 saved {};
-        saved.version = version;
-        if (!readExact(reinterpret_cast<uint8_t*>(&saved) + sizeof(version), sizeof(saved) - sizeof(version))) return false;
-        const auto& old = saved.params;
-        params.order = old.order;
-        params.voices = old.voices;
-        params.mode = old.mode;
-        params.system = old.system;
-        params.model = s3g::AmbiStochasticModel::Delta;
-        const auto oldDistribution = static_cast<uint32_t>(old.distribution) == 3u
-            ? s3g::AmbiStochasticDistribution::Binary : old.distribution;
-        params.amplitudeDistribution = oldDistribution;
-        params.durationDistribution = oldDistribution;
-        params.baseNote = old.baseNote;
-        params.pitchSpreadSemitones = old.pitchSpreadSemitones;
-        params.detuneCents = old.detuneCents;
-        params.breakpoints = old.breakpoints;
-        params.amplitudeStep = old.amplitudeStep;
-        params.timeStep = old.timeStep;
-        params.inertia = old.inertia;
-        params.activity = old.activity;
-        params.coupling = old.coupling;
-        params.memory = old.memory;
-        params.reactivity = old.reactivity;
-        params.attackMs = old.attackMs;
-        params.decayMs = old.decayMs;
-        params.sustain = old.sustain;
-        params.releaseMs = old.releaseMs;
-        params.motion = old.motion;
-        params.motionRateHz = old.motionRateHz;
-        params.motionAmount = old.motionAmount;
-        params.motionSpread = old.motionSpread;
-        params.centerAzimuthDeg = old.centerAzimuthDeg;
-        params.centerElevationDeg = old.centerElevationDeg;
-        params.centerDistance = old.centerDistance;
-        params.outputGainDb = old.outputGainDb;
-        params.dynamics = s3g::AmbiStochasticDynamics::Off;
-        guiViewMode = saved.guiViewMode;
-        guiViewAzDeg = saved.guiViewAzDeg;
-        guiViewElDeg = saved.guiViewElDeg;
-        guiViewZoom = saved.guiViewZoom;
-    } else {
-        return false;
+    SavedState saved {};
+    auto* destination = reinterpret_cast<uint8_t*>(&saved);
+    uint64_t remaining = sizeof(saved);
+    while (remaining > 0u) {
+        const int64_t read = stream->read(stream, destination, remaining);
+        if (read <= 0) return false;
+        destination += read;
+        remaining -= static_cast<uint64_t>(read);
     }
+    if (saved.version != kStateVersion) return false;
     auto* state = self(plugin);
-    state->params = params;
+    state->params = saved.params;
     state->engine.setParams(state->params);
     state->params = state->engine.params();
 #if defined(__APPLE__)
-    state->guiViewMode = std::clamp(guiViewMode, -1, 2);
-    state->guiViewAzDeg = std::clamp(guiViewAzDeg, -180.0f, 180.0f);
-    state->guiViewElDeg = std::clamp(guiViewElDeg, -85.0f, 85.0f);
-    state->guiViewZoom = std::clamp(guiViewZoom, 0.55f, 2.4f);
-    state->guiFieldPage = std::clamp(guiFieldPage, 0, 2);
+    state->guiViewMode = saved.guiViewMode;
+    state->guiViewAzDeg = saved.guiViewAzDeg;
+    state->guiViewElDeg = saved.guiViewElDeg;
+    state->guiViewZoom = saved.guiViewZoom;
 #endif
     return true;
 }
@@ -819,35 +651,36 @@ struct GuiSliderSpec {
 };
 
 constexpr std::array<GuiSliderSpec, 30> kGuiSliders {{
-    { kVoicesParamId, 630, 156, 1.0, 64.0, false },
-    { kBaseNoteParamId, 630, 182, 12.0, 96.0, false },
-    { kPitchSpreadParamId, 630, 208, 0.0, 48.0, false },
-    { kDetuneParamId, 630, 234, 0.0, 100.0, false },
-    { kBreakpointsParamId, 630, 396, 4.0, 32.0, false },
-    { kAmplitudeStepParamId, 630, 422, 0.0, 1.0, false },
-    { kTimeStepParamId, 630, 448, 0.0, 1.0, false },
-    { kInertiaParamId, 630, 474, 0.0, 1.0, false },
-    { kActivityParamId, 630, 500, 0.0, 1.0, false },
-    { kAttackParamId, 630, 584, 1.0, 4000.0, true },
-    { kDecayParamId, 630, 610, 5.0, 8000.0, true },
-    { kSustainParamId, 630, 636, 0.0, 1.0, false },
-    { kReleaseParamId, 630, 662, 5.0, 12000.0, true },
-    { kOutputParamId, 630, 734, -60.0, 6.0, false },
-    { kDynamicsDriveParamId, 896, 104, 0.0, 1.0, false },
-    { kDynamicsBounceParamId, 896, 130, 0.0, 1.0, false },
-    { kDynamicsDragParamId, 896, 156, 0.0, 1.0, false },
-    { kDynamicsRadiusParamId, 896, 182, 0.0, 1.0, false },
-    { kCouplingParamId, 896, 208, 0.0, 1.0, false },
-    { kMemoryParamId, 896, 234, 0.0, 1.0, false },
-    { kReactivityParamId, 896, 260, 0.0, 1.0, false },
-    { kMotionRateParamId, 896, 360, 0.001, 1.0, true },
-    { kMotionAmountParamId, 896, 386, 0.0, 1.0, false },
-    { kMotionSpreadParamId, 896, 412, 0.0, 1.0, false },
-    { kAzimuthParamId, 896, 438, -180.0, 180.0, false },
-    { kElevationParamId, 896, 464, -90.0, 90.0, false },
-    { kDistanceParamId, 896, 490, 0.15, 2.0, false },
-    { kSynthesisDepthParamId, 896, 564, 0.0, 1.0, false },
-    { kSpatialDepthParamId, 896, 590, 0.0, 1.0, false },
+    { kVoicesParamId, 630, 130, 1.0, 64.0, false },
+    { kBaseNoteParamId, 630, 156, 12.0, 96.0, false },
+    { kSeedSpreadParamId, 630, 182, 0.0, 48.0, false },
+    { kDetuneParamId, 630, 208, 0.0, 100.0, false },
+    { kFrequencyFloorParamId, 630, 234, 2.0, 240.0, true },
+    { kBreakpointsParamId, 630, 370, 4.0, 32.0, false },
+    { kAmplitudeStepParamId, 630, 396, 0.0, 1.0, false },
+    { kDurationStepParamId, 630, 422, 0.0, 1.0, false },
+    { kAmplitudeRangeParamId, 630, 448, 0.0, 1.0, false },
+    { kDurationRangeParamId, 630, 474, 0.0, 1.0, false },
+    { kAttackParamId, 630, 558, 1.0, 4000.0, true },
+    { kDecayParamId, 630, 584, 5.0, 8000.0, true },
+    { kSustainParamId, 630, 610, 0.0, 1.0, false },
+    { kReleaseParamId, 630, 636, 5.0, 12000.0, true },
+    { kOutputParamId, 630, 720, -60.0, 6.0, false },
+    { kNeighborTransferParamId, 896, 130, 0.0, 1.0, false },
+    { kSelectionMemoryParamId, 896, 156, 0.0, 1.0, false },
+    { kFieldDensityParamId, 896, 240, 0.0, 1.0, false },
+    { kFieldDurationParamId, 896, 266, 0.05, 30.0, true },
+    { kFieldContrastParamId, 896, 292, 0.0, 1.0, false },
+    { kTopologyRateParamId, 896, 428, 0.001, 1.0, true },
+    { kTopologyAmountParamId, 896, 454, 0.0, 1.0, false },
+    { kTopologyDepthParamId, 896, 480, 0.0, 1.0, false },
+    { kTopologyScaleParamId, 896, 506, 0.25, 2.0, false },
+    { kTopologyCollapseParamId, 896, 532, 0.0, 1.0, false },
+    { kTopologyTwistParamId, 896, 558, -1.0, 1.0, false },
+    { kAzimuthParamId, 896, 642, -180.0, 180.0, false },
+    { kElevationParamId, 896, 668, -90.0, 90.0, false },
+    { kDistanceParamId, 896, 694, 0.15, 2.0, false },
+    { kSpatialFollowParamId, 896, 720, 0.0, 1.0, false },
 }};
 
 const GuiSliderSpec* guiSliderSpec(clap_id id)
@@ -861,9 +694,7 @@ const GuiSliderSpec* guiSliderSpec(clap_id id)
 double sliderNorm(const GuiSliderSpec& spec, double value)
 {
     value = std::clamp(value, spec.minimum, spec.maximum);
-    if (spec.logarithmic) {
-        return std::log(value / spec.minimum) / std::log(spec.maximum / spec.minimum);
-    }
+    if (spec.logarithmic) return std::log(value / spec.minimum) / std::log(spec.maximum / spec.minimum);
     return (value - spec.minimum) / (spec.maximum - spec.minimum);
 }
 
@@ -918,7 +749,6 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     CGFloat _viewAzDeg;
     CGFloat _viewElDeg;
     CGFloat _viewZoom;
-    int _fieldPage;
     BOOL _dragView;
     NSPoint _lastDragPoint;
 }
@@ -945,7 +775,6 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         _viewAzDeg = plugin ? plugin->guiViewAzDeg : 38.0;
         _viewElDeg = plugin ? plugin->guiViewElDeg : 32.0;
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
-        _fieldPage = plugin ? plugin->guiFieldPage : 0;
         _dragView = NO;
         _lastDragPoint = NSZeroPoint;
         [self setWantsLayer:YES];
@@ -971,7 +800,6 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     _plugin->guiViewAzDeg = static_cast<float>(_viewAzDeg);
     _plugin->guiViewElDeg = static_cast<float>(_viewElDeg);
     _plugin->guiViewZoom = static_cast<float>(_viewZoom);
-    _plugin->guiFieldPage = _fieldPage;
 }
 
 - (void)startRefreshTimer
@@ -1006,7 +834,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 - (NSRect)fieldPanelRect { return NSMakeRect(18, 42, 596, 500); }
 - (NSRect)fieldRect { return NSMakeRect(34, 72, 564, 454); }
 - (NSRect)wavePanelRect { return NSMakeRect(18, 554, 596, 288); }
-- (NSRect)waveRect { return NSMakeRect(34, 584, 564, 242); }
+- (NSRect)waveRect { return NSMakeRect(34, 584, 564, 174); }
+- (NSRect)historyRect { return NSMakeRect(34, 774, 564, 50); }
 
 - (NSRect)viewButtonRect:(int)index
 {
@@ -1016,11 +845,6 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 - (NSRect)zoomButtonRect:(int)index
 {
     return NSMakeRect(378.0 + static_cast<CGFloat>(index) * 23.0, 46.0, 18.0, 13.0);
-}
-
-- (NSRect)fieldPageButtonRect:(int)index
-{
-    return NSMakeRect(208.0 + static_cast<CGFloat>(index) * 54.0, 46.0, 49.0, 13.0);
 }
 
 - (void)setViewPreset:(int)mode
@@ -1043,7 +867,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 - (CGFloat)viewScale
 {
     const NSRect rect = [self fieldRect];
-    return std::min(rect.size.width, rect.size.height) * 0.22 * std::clamp(_viewZoom, 0.55, 2.20);
+    return std::min(rect.size.width, rect.size.height) * 0.36 * std::clamp(_viewZoom, 0.55, 2.20);
 }
 
 - (NSPoint)projectWorld:(s3g::Vec3)point depth:(CGFloat*)depth
@@ -1053,12 +877,12 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     const CGFloat centerY = NSMidY(rect);
     const CGFloat scale = [self viewScale];
     if (_viewMode == 0) {
-        if (depth) *depth = point.z;
-        return NSMakePoint(centerX - point.y * scale, centerY - point.x * scale);
+        if (depth) *depth = point.y;
+        return NSMakePoint(centerX - point.x * scale, centerY - point.z * scale);
     }
     if (_viewMode == 1) {
         if (depth) *depth = point.x;
-        return NSMakePoint(centerX - point.y * scale, centerY - point.z * scale);
+        return NSMakePoint(centerX - point.z * scale, centerY - point.y * scale);
     }
     const float azimuth = static_cast<float>(_viewAzDeg * M_PI / 180.0);
     const float elevation = static_cast<float>(_viewElDeg * M_PI / 180.0);
@@ -1066,12 +890,12 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     const float sa = std::sin(azimuth);
     const float ce = std::cos(elevation);
     const float se = std::sin(elevation);
-    const float x1 = ca * point.x - sa * point.y;
-    const float y1 = sa * point.x + ca * point.y;
-    const float y2 = ce * y1 - se * point.z;
-    const float z2 = se * y1 + ce * point.z;
+    const float x1 = ca * point.x - sa * point.z;
+    const float z1 = sa * point.x + ca * point.z;
+    const float y2 = ce * point.y - se * z1;
+    const float z2 = se * point.y + ce * z1;
     if (depth) *depth = z2;
-    return NSMakePoint(centerX + x1 * scale, centerY - y2 * scale);
+    return NSMakePoint(centerX - x1 * scale, centerY - y2 * scale);
 }
 
 - (s3g::AmbiStochasticPoint)snapshotPoint:(uint32_t)index
@@ -1084,13 +908,6 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     return point;
 }
 
-- (NSPoint)projectPoint:(uint32_t)index depth:(CGFloat*)depth
-{
-    const auto point = [self snapshotPoint:index];
-    const s3g::Vec3 direction = s3g::directionFromAed(point.azimuthDeg, point.elevationDeg);
-    return [self projectWorld:{ direction.x * point.distance, direction.y * point.distance, direction.z * point.distance } depth:depth];
-}
-
 - (s3g::Vec3)topologyWorld:(uint32_t)index
 {
     return {
@@ -1100,21 +917,19 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     };
 }
 
-- (NSPoint)projectTopologyPoint:(uint32_t)index depth:(CGFloat*)depth
+- (NSPoint)projectVoice:(uint32_t)index depth:(CGFloat*)depth
 {
     return [self projectWorld:[self topologyWorld:index] depth:depth];
 }
 
 - (int)hitPoint:(NSPoint)point
 {
-    if (_fieldPage == 2 || !NSPointInRect(point, [self fieldRect])) return -1;
+    if (!NSPointInRect(point, [self fieldRect])) return -1;
     const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiStochasticMaxVoices);
     int best = -1;
-    CGFloat bestDistance = 13.0;
-    for (uint32_t voice = 0; voice < voices; ++voice) {
-        const NSPoint projected = _fieldPage == 1
-            ? [self projectTopologyPoint:voice depth:nullptr]
-            : [self projectPoint:voice depth:nullptr];
+    CGFloat bestDistance = 14.0;
+    for (uint32_t voice = 0u; voice < voices; ++voice) {
+        const NSPoint projected = [self projectVoice:voice depth:nullptr];
         const CGFloat distance = std::hypot(point.x - projected.x, point.y - projected.y);
         if (distance < bestDistance) {
             bestDistance = distance;
@@ -1124,57 +939,72 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     return best;
 }
 
-- (void)drawTopologyMapInRect:(NSRect)field valueAttrs:(NSDictionary*)valueAttrs
+- (void)drawField:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
-    [NSGraphicsContext saveGraphicsState];
-    [[NSBezierPath bezierPathWithRect:NSInsetRect(field, 1, 1)] addClip];
-    [s3g::clap_gui::color(0x262626) setStroke];
-    const NSPoint origin = [self projectWorld:{ 0.0f, 0.0f, 0.0f } depth:nullptr];
-    const s3g::Vec3 axes[] = { { 0.95f, 0.0f, 0.0f }, { 0.0f, 0.82f, 0.0f }, { 0.0f, 0.0f, 0.82f } };
-    for (const auto& axis : axes) {
-        [NSBezierPath strokeLineFromPoint:origin toPoint:[self projectWorld:axis depth:nullptr]];
+    const NSRect panel = [self fieldPanelRect];
+    const NSRect field = [self fieldRect];
+    s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"VOICE FIELD", true, panel.origin.x, panel.origin.y, panel.size.width, 21, attrs, style);
+    const NSRect header = NSMakeRect(panel.origin.x, panel.origin.y, panel.size.width, 21);
+    static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
+    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
+    for (int index = 0; index < 3; ++index) {
+        s3g::clap_gui::drawHeaderButton([self viewButtonRect:index], header, viewLabels[index], index == _viewMode, attrs, style);
     }
 
+    [s3g::clap_gui::color(0x090909) setFill];
+    NSRectFill(field);
+    [s3g::clap_gui::color(0x555555) setStroke];
+    NSFrameRect(field);
+    [NSGraphicsContext saveGraphicsState];
+    [[NSBezierPath bezierPathWithRect:NSInsetRect(field, 1, 1)] addClip];
+    const CGFloat radius = [self viewScale];
+    [s3g::clap_gui::color(0x303030) setStroke];
+    NSBezierPath* sphere = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMidX(field) - radius,
+        NSMidY(field) - radius, radius * 2.0, radius * 2.0)];
+    [sphere setLineWidth:0.8];
+    [sphere stroke];
+
     const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiStochasticMaxVoices);
+    _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
+    _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
     std::array<NSPoint, s3g::kAmbiStochasticMaxVoices> projected {};
-    for (uint32_t voice = 0; voice < voices; ++voice) {
-        projected[voice] = [self projectTopologyPoint:voice depth:nullptr];
-    }
-    for (uint32_t voice = 0; voice < voices; ++voice) {
-        if (_plugin->guiBondStrength[voice].load(std::memory_order_relaxed) <= 0.0f) continue;
+    for (uint32_t voice = 0u; voice < voices; ++voice) projected[voice] = [self projectVoice:voice depth:nullptr];
+
+    for (uint32_t voice = 0u; voice < voices; ++voice) {
         const uint32_t neighbors[] {
             std::min<uint32_t>(_plugin->guiNeighbor[voice].load(std::memory_order_relaxed), voices - 1u),
             std::min<uint32_t>(_plugin->guiSecondaryNeighbor[voice].load(std::memory_order_relaxed), voices - 1u)
         };
-        const float transfer = std::clamp(std::fabs(_plugin->guiNetworkPulse[voice].load(std::memory_order_relaxed))
-                + _plugin->guiTension[voice].load(std::memory_order_relaxed) * 0.65f,
-            0.0f, 1.0f);
-        for (uint32_t edge = 0; edge < 2u; ++edge) {
-            if (neighbors[edge] == voice
-                || _plugin->guiBondStrength[neighbors[edge]].load(std::memory_order_relaxed) <= 0.0f) continue;
+        const float influence = _plugin->guiNeighborInfluence[voice].load(std::memory_order_relaxed);
+        const float pulse = _plugin->guiSelectionPulse[voice].load(std::memory_order_relaxed);
+        for (uint32_t edge = 0u; edge < 2u; ++edge) {
+            if (neighbors[edge] == voice || neighbors[edge] < voice) continue;
             NSBezierPath* link = [NSBezierPath bezierPath];
             [link moveToPoint:projected[voice]];
             [link lineToPoint:projected[neighbors[edge]]];
-            [s3g::clap_gui::color(edge == 0u ? 0xa0a0a0 : 0x737373,
-                (edge == 0u ? 0.17 : 0.10) + transfer * 0.58) setStroke];
-            [link setLineWidth:0.65 + transfer * 1.25];
+            [s3g::clap_gui::color(edge == 0u ? 0xa0a0a0 : 0x686868,
+                (edge == 0u ? 0.12 : 0.06) + influence * 0.32 + pulse * 0.22) setStroke];
+            [link setLineWidth:0.55 + influence * 0.75];
             [link stroke];
         }
     }
 
     NSDictionary* idAttrs = s3g::clap_gui::textAttrs(s3g::clap_gui::color(0x080808), voices > 32u ? 5.5 : 7.0);
-    for (uint32_t voice = 0; voice < voices; ++voice) {
+    for (uint32_t voice = 0u; voice < voices; ++voice) {
         const bool selected = voice == _selectedVoice;
-        const float contact = _plugin->guiContact[voice].load(std::memory_order_relaxed);
-        const float pulse = std::fabs(_plugin->guiNetworkPulse[voice].load(std::memory_order_relaxed));
-        const float tension = _plugin->guiTension[voice].load(std::memory_order_relaxed);
-        const CGFloat size = (voices > 32u ? 7.0 : 9.0) + std::clamp(contact + pulse + tension * 0.5f, 0.0f, 1.0f) * 7.0;
+        const bool active = _plugin->guiFieldActive[voice].load(std::memory_order_relaxed) != 0u;
+        const float energy = _plugin->guiEnergy[voice].load(std::memory_order_relaxed);
+        const float kinetic = _plugin->guiKinetic[voice].load(std::memory_order_relaxed);
+        const CGFloat baseSize = voices > 32u ? 7.0 : 9.0;
+        const CGFloat size = (selected ? baseSize + 5.0 : baseSize) + std::clamp(energy * 9.0f + kinetic * 2.0f, 0.0f, 6.0f);
         const NSRect marker = NSMakeRect(projected[voice].x - size * 0.5, projected[voice].y - size * 0.5, size, size);
         const auto point = [self snapshotPoint:voice];
         [[pointColor(point.azimuthDeg, point.elevationDeg, point.distance, selected)
-            colorWithAlphaComponent:selected ? 1.0 : 0.72] setFill];
+            colorWithAlphaComponent:active ? (selected ? 1.0 : 0.82) : 0.22] setFill];
         NSRectFill(marker);
-        [s3g::clap_gui::color(selected ? 0xe0e0e0 : 0x4a4a4a) setStroke];
+        [s3g::clap_gui::color(selected ? 0xe0e0e0 : (active ? 0x565656 : 0x2a2a2a)) setStroke];
         NSFrameRect(marker);
         NSString* label = [NSString stringWithFormat:@"%u", voice + 1u];
         const NSSize labelSize = [label sizeWithAttributes:idAttrs];
@@ -1183,195 +1013,40 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     }
     [NSGraphicsContext restoreGraphicsState];
 
-    [@"X MUTATION     Y EVENT     Z PERIOD" drawAtPoint:NSMakePoint(field.origin.x + 9, NSMaxY(field) - 19)
-        withAttributes:valueAttrs];
     const auto topology = [self topologyWorld:_selectedVoice];
-    const float radius = std::clamp(std::sqrt(topology.x * topology.x
-            + topology.y * topology.y + topology.z * topology.z),
-        0.0f, 1.0f);
-    NSString* readout = [NSString stringWithFormat:@"V%02u   X %+.2f   Y %+.2f   Z %+.2f   R %.2f",
-        _selectedVoice + 1u, topology.x, topology.y, topology.z, radius];
+    const uint32_t neighbor = std::min<uint32_t>(_plugin->guiNeighbor[_selectedVoice].load(std::memory_order_relaxed), voices - 1u);
+    const uint32_t current = _plugin->guiCurrentGenerator[_selectedVoice].load(std::memory_order_relaxed) + 1u;
+    const uint32_t next = _plugin->guiNextGenerator[_selectedVoice].load(std::memory_order_relaxed) + 1u;
+    const float frequency = _plugin->guiFrequency[_selectedVoice].load(std::memory_order_relaxed);
+    const bool active = _plugin->guiFieldActive[_selectedVoice].load(std::memory_order_relaxed) != 0u;
+    NSString* readout = [NSString stringWithFormat:@"V%02u  G%u>G%u  %.1fHZ  %@  N%02u",
+        _selectedVoice + 1u, current, next, frequency, active ? @"ON" : @"REST", neighbor + 1u];
     s3g::clap_gui::drawRightStatus(readout, NSMaxX(field), field.origin.y + 7, valueAttrs, 8.0);
+    [@"X PRESSURE     Y EVENTS     Z PERIOD     R DRIVE" drawAtPoint:NSMakePoint(field.origin.x + 9, NSMaxY(field) - 19)
+        withAttributes:valueAttrs];
+    NSString* coordinates = [NSString stringWithFormat:@"%+.2f  %+.2f  %+.2f", topology.x, topology.y, topology.z];
+    s3g::clap_gui::drawRightStatus(coordinates, NSMaxX(field), NSMaxY(field) - 22, valueAttrs, 8.0);
 }
 
-- (void)drawControlLoopsInRect:(NSRect)field valueAttrs:(NSDictionary*)valueAttrs
-{
-    const uint32_t voices = std::max<uint32_t>(1u, _plugin->params.voices);
-    const uint32_t neighbor = std::min<uint32_t>(
-        _plugin->guiNeighbor[_selectedVoice].load(std::memory_order_relaxed), voices - 1u);
-    const float local = std::clamp(_plugin->guiEnergy[_selectedVoice].load(std::memory_order_relaxed) * 4.0f, 0.0f, 1.0f);
-    const float targetSpeed = 0.035f + _plugin->params.dynamicsDrive
-        * _plugin->params.dynamicsDrive * 0.36f;
-    const float motion = std::clamp(_plugin->guiKinetic[_selectedVoice].load(std::memory_order_relaxed)
-            / std::max(0.03f, targetSpeed * 1.55f),
-        0.0f, 1.0f);
-    const float contact = std::clamp(_plugin->guiContact[_selectedVoice].load(std::memory_order_relaxed), 0.0f, 1.0f);
-    const float near = std::clamp(_plugin->guiEnergy[neighbor].load(std::memory_order_relaxed) * 4.0f
-            + std::fabs(_plugin->guiNetworkPulse[_selectedVoice].load(std::memory_order_relaxed)) * 0.55f,
-        0.0f, 1.0f);
-    const float global = std::clamp(_plugin->guiGlobalEnergy.load(std::memory_order_relaxed) * 4.0f, 0.0f, 1.0f);
-    const float curve = std::clamp(contact * 0.30f
-            + std::fabs(_plugin->guiNetworkPulse[_selectedVoice].load(std::memory_order_relaxed)) * 0.28f
-            + _plugin->guiTension[_selectedVoice].load(std::memory_order_relaxed) * 0.20f
-            + _plugin->guiCrowding[_selectedVoice].load(std::memory_order_relaxed) * 0.12f
-            + motion * 0.10f,
-        0.0f, 1.0f);
-    const float values[] { local, motion, contact, near, global, curve };
-    static NSString* labels[] { @"LOCAL", @"MOTION", @"CONTACT", @"NEAR", @"FIELD", @"CURVE" };
-    const NSPoint centers[] {
-        { field.origin.x + 88, field.origin.y + 150 },
-        { field.origin.x + 282, field.origin.y + 78 },
-        { field.origin.x + 476, field.origin.y + 150 },
-        { field.origin.x + 476, field.origin.y + 306 },
-        { field.origin.x + 282, field.origin.y + 378 },
-        { field.origin.x + 88, field.origin.y + 306 }
-    };
-    for (uint32_t node = 0; node < 6u; ++node) {
-        const uint32_t next = (node + 1u) % 6u;
-        NSBezierPath* edge = [NSBezierPath bezierPath];
-        [edge moveToPoint:centers[node]];
-        [edge lineToPoint:centers[next]];
-        [s3g::clap_gui::color(0x8a8a8a, 0.13 + values[node] * 0.72) setStroke];
-        [edge setLineWidth:0.7 + values[node] * 1.7];
-        [edge stroke];
-        const NSPoint marker {
-            centers[node].x + (centers[next].x - centers[node].x) * 0.58,
-            centers[node].y + (centers[next].y - centers[node].y) * 0.58
-        };
-        [s3g::clap_gui::color(0xb0b0b0, 0.20 + values[node] * 0.78) setFill];
-        NSRectFill(NSMakeRect(marker.x - 2.0, marker.y - 2.0, 4.0, 4.0));
-    }
-    const auto selectedPoint = [self snapshotPoint:_selectedVoice];
-    for (uint32_t node = 0; node < 6u; ++node) {
-        const NSRect box = NSMakeRect(centers[node].x - 42, centers[node].y - 19, 84, 38);
-        [s3g::clap_gui::color(0x0e0e0e) setFill];
-        NSRectFill(box);
-        [s3g::clap_gui::color(0x555555) setStroke];
-        NSFrameRect(box);
-        [[pointColor(selectedPoint.azimuthDeg, selectedPoint.elevationDeg, selectedPoint.distance, true)
-            colorWithAlphaComponent:0.78] setFill];
-        NSRectFill(NSMakeRect(box.origin.x + 2, NSMaxY(box) - 5, (box.size.width - 4) * values[node], 3));
-        const NSSize labelSize = [labels[node] sizeWithAttributes:valueAttrs];
-        [labels[node] drawAtPoint:NSMakePoint(NSMidX(box) - labelSize.width * 0.5, box.origin.y + 8)
-            withAttributes:valueAttrs];
-    }
-    NSString* status = [NSString stringWithFormat:@"%@   SYN %.0f%%   SPAT %.0f%%",
-        [NSString stringWithUTF8String:s3g::ambiStochasticDynamicsName(_plugin->params.dynamics)],
-        _plugin->params.synthesisDepth * 100.0f, _plugin->params.spatialDepth * 100.0f];
-    s3g::clap_gui::drawRightStatus(status, NSMaxX(field), field.origin.y + 7, valueAttrs, 8.0);
-}
-
-- (void)drawField:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
-{
-    const NSRect panel = [self fieldPanelRect];
-    const NSRect field = [self fieldRect];
-    s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"STOCHASTIC FIELD", true, panel.origin.x, panel.origin.y, panel.size.width, 21, attrs, style);
-    const NSRect header = NSMakeRect(panel.origin.x, panel.origin.y, panel.size.width, 21);
-    static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
-    static NSString* pageLabels[] = { @"FIELD", @"MAP", @"LOOPS" };
-    for (int index = 0; index < 3; ++index) {
-        s3g::clap_gui::drawHeaderButton([self fieldPageButtonRect:index], header, pageLabels[index], index == _fieldPage, attrs, style);
-    }
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
-    for (int index = 0; index < 3; ++index) {
-        s3g::clap_gui::drawHeaderButton([self viewButtonRect:index], header, viewLabels[index], index == _viewMode, attrs, style);
-    }
-
-    [s3g::clap_gui::color(0x0a0a0a) setFill];
-    NSRectFill(field);
-    [s3g::clap_gui::color(0x555555) setStroke];
-    NSFrameRect(field);
-    if (_fieldPage == 1) {
-        [self drawTopologyMapInRect:field valueAttrs:valueAttrs];
-        return;
-    }
-    if (_fieldPage == 2) {
-        [self drawControlLoopsInRect:field valueAttrs:valueAttrs];
-        return;
-    }
-    [NSGraphicsContext saveGraphicsState];
-    [[NSBezierPath bezierPathWithRect:NSInsetRect(field, 1, 1)] addClip];
-    const CGFloat radius = [self viewScale];
-    [s3g::clap_gui::color(0x303030) setStroke];
-    NSBezierPath* sphere = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMidX(field) - radius, NSMidY(field) - radius, radius * 2.0, radius * 2.0)];
-    [sphere setLineWidth:0.8];
-    [sphere stroke];
-
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiStochasticMaxVoices);
-    _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
-    _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
-    std::array<NSPoint, s3g::kAmbiStochasticMaxVoices> projected {};
-    for (uint32_t voice = 0; voice < voices; ++voice) projected[voice] = [self projectPoint:voice depth:nullptr];
-
-    if (_plugin->params.system != s3g::AmbiStochasticSystem::Independent && _plugin->params.coupling > 0.001f) {
-        for (uint32_t voice = 0; voice < voices; ++voice) {
-            if (_plugin->guiBondStrength[voice].load(std::memory_order_relaxed) <= 0.0f) continue;
-            const uint32_t neighbors[] {
-                std::min<uint32_t>(_plugin->guiNeighbor[voice].load(std::memory_order_relaxed), voices - 1u),
-                std::min<uint32_t>(_plugin->guiSecondaryNeighbor[voice].load(std::memory_order_relaxed), voices - 1u)
-            };
-            const float activity = std::clamp(std::fabs(_plugin->guiNetworkPulse[voice].load(std::memory_order_relaxed))
-                    + _plugin->guiTension[voice].load(std::memory_order_relaxed) * 0.6f,
-                0.0f, 1.0f);
-            for (uint32_t edge = 0; edge < 2u; ++edge) {
-                if (neighbors[edge] == voice
-                    || _plugin->guiBondStrength[neighbors[edge]].load(std::memory_order_relaxed) <= 0.0f) continue;
-                NSBezierPath* link = [NSBezierPath bezierPath];
-                [link moveToPoint:projected[voice]];
-                [link lineToPoint:projected[neighbors[edge]]];
-                const CGFloat alpha = (edge == 0u ? 0.12 : 0.07)
-                    + _plugin->params.coupling * 0.18 + activity * 0.48;
-                [s3g::clap_gui::color(edge == 0u ? 0xa0a0a0 : 0x737373, alpha) setStroke];
-                [link setLineWidth:0.55 + activity * 1.25];
-                [link stroke];
-            }
-        }
-    }
-
-    NSDictionary* idAttrs = s3g::clap_gui::textAttrs(s3g::clap_gui::color(0x0b0b0b), voices > 32u ? 5.5 : 7.0);
-    for (uint32_t voice = 0; voice < voices; ++voice) {
-        const bool selected = voice == _selectedVoice;
-        const auto point = [self snapshotPoint:voice];
-        const float energy = _plugin->guiEnergy[voice].load(std::memory_order_relaxed);
-        const float contact = _plugin->guiContact[voice].load(std::memory_order_relaxed);
-        const CGFloat size = selected ? 15.0 : (voices > 32u ? 8.0 + contact * 3.0 : 11.0 + contact * 4.0);
-        const NSRect marker = NSMakeRect(projected[voice].x - size * 0.5, projected[voice].y - size * 0.5, size, size);
-        [[pointColor(point.azimuthDeg, point.elevationDeg, point.distance, selected)
-            colorWithAlphaComponent:std::clamp(0.34f + energy * 4.0f, 0.38f, 0.98f)] setFill];
-        NSRectFill(marker);
-        [s3g::clap_gui::color(selected ? 0xd8d8d8 : (energy > 0.18f ? 0x777777 : 0x202020)) setStroke];
-        NSFrameRect(marker);
-        NSString* label = [NSString stringWithFormat:@"%u", voice + 1u];
-        const NSSize labelSize = [label sizeWithAttributes:idAttrs];
-        [label drawAtPoint:NSMakePoint(NSMidX(marker) - labelSize.width * 0.5, NSMidY(marker) - labelSize.height * 0.5 - 0.5)
-            withAttributes:idAttrs];
-    }
-    [NSGraphicsContext restoreGraphicsState];
-
-    const uint32_t neighbor = std::min<uint32_t>(
-        _plugin->guiNeighbor[_selectedVoice].load(std::memory_order_relaxed), voices - 1u);
-    const float energy = _plugin->guiEnergy[_selectedVoice].load(std::memory_order_relaxed);
-    NSString* readout = [NSString stringWithFormat:@"V%02u   E %.3f   N%02u", _selectedVoice + 1u, energy, neighbor + 1u];
-    s3g::clap_gui::drawRightStatus(readout, NSMaxX(field), field.origin.y + 7, valueAttrs, 8.0);
-}
-
-- (void)drawWaveform:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
+- (void)drawPressure:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const NSRect panel = [self wavePanelRect];
     const NSRect wave = [self waveRect];
+    const NSRect history = [self historyRect];
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"PRESSURE CURVE", true, panel.origin.x, panel.origin.y, panel.size.width, 21, attrs, style);
-    NSString* status = [NSString stringWithFormat:@"%u PTS   %@   A %@   T %@", _plugin->params.breakpoints,
-        [NSString stringWithUTF8String:s3g::ambiStochasticModelName(_plugin->params.model)],
-        [NSString stringWithUTF8String:s3g::ambiStochasticDistributionName(_plugin->params.amplitudeDistribution)],
-        [NSString stringWithUTF8String:s3g::ambiStochasticDistributionName(_plugin->params.durationDistribution)]];
+    const uint32_t current = _plugin->guiCurrentGenerator[_selectedVoice].load(std::memory_order_relaxed) + 1u;
+    const uint32_t next = _plugin->guiNextGenerator[_selectedVoice].load(std::memory_order_relaxed) + 1u;
+    NSString* status = [NSString stringWithFormat:@"G%u > G%u   A1 +/-%0.3f   T1 +/-%0.1f SAMP",
+        current, next, _plugin->guiAmplitudeBarrier.load(std::memory_order_relaxed),
+        _plugin->guiDurationBarrier.load(std::memory_order_relaxed)];
     s3g::clap_gui::drawRightStatus(status, NSMaxX(panel), panel.origin.y + 5, valueAttrs, 8.0);
-    [s3g::clap_gui::color(0x0a0a0a) setFill];
+    [s3g::clap_gui::color(0x090909) setFill];
     NSRectFill(wave);
+    NSRectFill(history);
     [s3g::clap_gui::color(0x555555) setStroke];
     NSFrameRect(wave);
+    NSFrameRect(history);
     [s3g::clap_gui::color(0x292929) setStroke];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(wave.origin.x + 1, NSMidY(wave))
                               toPoint:NSMakePoint(NSMaxX(wave) - 1, NSMidY(wave))];
@@ -1381,30 +1056,52 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
                                   toPoint:NSMakePoint(x, NSMaxY(wave) - 1)];
     }
 
-    NSBezierPath* curve = [NSBezierPath bezierPath];
-    for (uint32_t sample = 0; sample < kGuiWaveSamples; ++sample) {
-        const float value = _plugin->guiWaveform[sample].load(std::memory_order_relaxed);
-        const NSPoint point = NSMakePoint(
-            wave.origin.x + static_cast<CGFloat>(sample) / static_cast<CGFloat>(kGuiWaveSamples - 1u) * wave.size.width,
-            NSMidY(wave) - value * wave.size.height * 0.42);
-        if (sample == 0u) [curve moveToPoint:point];
-        else [curve lineToPoint:point];
+    NSBezierPath* currentCurve = [NSBezierPath bezierPath];
+    NSBezierPath* nextCurve = [NSBezierPath bezierPath];
+    for (uint32_t sample = 0u; sample < kGuiWaveSamples; ++sample) {
+        const CGFloat x = wave.origin.x + static_cast<CGFloat>(sample) / static_cast<CGFloat>(kGuiWaveSamples - 1u) * wave.size.width;
+        const NSPoint currentPoint = NSMakePoint(x, NSMidY(wave)
+            - _plugin->guiCurrentWaveform[sample].load(std::memory_order_relaxed) * wave.size.height * 0.42);
+        const NSPoint nextPoint = NSMakePoint(x, NSMidY(wave)
+            - _plugin->guiNextWaveform[sample].load(std::memory_order_relaxed) * wave.size.height * 0.42);
+        if (sample == 0u) {
+            [currentCurve moveToPoint:currentPoint];
+            [nextCurve moveToPoint:nextPoint];
+        } else {
+            [currentCurve lineToPoint:currentPoint];
+            [nextCurve lineToPoint:nextPoint];
+        }
     }
+    [s3g::clap_gui::color(0x686868, 0.72) setStroke];
+    [currentCurve setLineWidth:0.8];
+    [currentCurve stroke];
     const auto selectedPoint = [self snapshotPoint:_selectedVoice];
     [[pointColor(selectedPoint.azimuthDeg, selectedPoint.elevationDeg, selectedPoint.distance, true)
-        colorWithAlphaComponent:0.88] setStroke];
-    [curve setLineWidth:1.2];
-    [curve stroke];
+        colorWithAlphaComponent:0.92] setStroke];
+    [nextCurve setLineWidth:1.25];
+    [nextCurve stroke];
 
-    const uint32_t count = std::min<uint32_t>(
-        _plugin->guiBreakpointCount.load(std::memory_order_acquire), s3g::kAmbiStochasticMaxBreakpoints);
-    for (uint32_t pointIndex = 0; pointIndex < count; ++pointIndex) {
-        const float position = _plugin->guiBreakpointPosition[pointIndex].load(std::memory_order_relaxed);
-        const float amplitude = _plugin->guiBreakpointAmplitude[pointIndex].load(std::memory_order_relaxed);
-        const NSPoint point = NSMakePoint(wave.origin.x + position * wave.size.width,
+    const uint32_t count = std::min<uint32_t>(_plugin->guiBreakpointCount.load(std::memory_order_acquire),
+        s3g::kAmbiStochasticMaxBreakpoints);
+    for (uint32_t point = 0u; point < count; ++point) {
+        const float position = _plugin->guiBreakpointPosition[point].load(std::memory_order_relaxed);
+        const float amplitude = _plugin->guiBreakpointAmplitude[point].load(std::memory_order_relaxed);
+        const NSPoint marker = NSMakePoint(wave.origin.x + position * wave.size.width,
             NSMidY(wave) - amplitude * wave.size.height * 0.42);
         [s3g::clap_gui::color(0xc0c0c0, 0.82) setFill];
-        NSRectFill(NSMakeRect(point.x - 2.0, point.y - 2.0, 4.0, 4.0));
+        NSRectFill(NSMakeRect(marker.x - 1.5, marker.y - 1.5, 3.0, 3.0));
+    }
+
+    [@"SELECTION HISTORY" drawAtPoint:NSMakePoint(history.origin.x + 8, history.origin.y + 7) withAttributes:valueAttrs];
+    const CGFloat cellY = history.origin.y + 27;
+    const CGFloat cellWidth = (history.size.width - 16.0) / static_cast<CGFloat>(s3g::kAmbiStochasticHistorySize);
+    const uint32_t cursor = _plugin->guiHistoryCursor.load(std::memory_order_relaxed);
+    static const uint32_t shades[] { 0x4a4a4a, 0x707070, 0x999999, 0xc8c8c8 };
+    for (uint32_t offset = 0u; offset < s3g::kAmbiStochasticHistorySize; ++offset) {
+        const uint32_t index = (cursor + offset) % s3g::kAmbiStochasticHistorySize;
+        const uint32_t generator = std::min<uint32_t>(_plugin->guiHistory[index].load(std::memory_order_relaxed), 3u);
+        [s3g::clap_gui::color(shades[generator], 0.86) setFill];
+        NSRectFill(NSMakeRect(history.origin.x + 8.0 + offset * cellWidth, cellY, std::max<CGFloat>(1.0, cellWidth - 2.0), 12.0));
     }
 }
 
@@ -1418,9 +1115,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         attrs, valueAttrs, style, spec->panelX + 16, spec->panelX + 108, spec->panelX + 196, 82);
 }
 
-- (void)drawMenu:(NSString*)name value:(NSString*)value menu:(int)menu panelX:(CGFloat)panelX y:(CGFloat)y attrs:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
+- (void)drawMenu:(NSString*)name value:(NSString*)value panelX:(CGFloat)panelX y:(CGFloat)y attrs:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
-    (void)menu;
     s3g::clap_gui::drawMenu(name, value, y, attrs, valueAttrs, style, panelX + 16, panelX + 108, 124);
 }
 
@@ -1428,89 +1124,89 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 {
     const auto& params = _plugin->params;
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 228, style);
-    s3g::clap_gui::drawPanelHeader(@"GENERATOR", true, 630, 42, 250, 21, attrs, style);
-    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiStochasticModeName(params.mode)] menu:1 panelX:630 y:78 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"SYSTEM" value:[NSString stringWithUTF8String:s3g::ambiStochasticSystemName(params.system)] menu:2 panelX:630 y:104 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", params.order] menu:3 panelX:630 y:130 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelHeader(@"ENGINE", true, 630, 42, 250, 21, attrs, style);
+    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiStochasticModeName(params.mode)] panelX:630 y:78 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", params.order] panelX:630 y:104 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"VOICES" param:kVoicesParamId value:params.voices attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"BASE" param:kBaseNoteParamId value:params.baseNote attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RANGE" param:kPitchSpreadParamId value:params.pitchSpreadSemitones attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SPREAD" param:kSeedSpreadParamId value:params.seedSpreadSemitones attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DEV" param:kDetuneParamId value:params.detuneCents attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"LOW" param:kFrequencyFloorParamId value:params.frequencyFloorHz attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 282, 250, 254, style);
-    s3g::clap_gui::drawPanelHeader(@"STOCHASTIC", true, 630, 282, 250, 21, attrs, style);
-    [self drawMenu:@"MODEL" value:[NSString stringWithUTF8String:s3g::ambiStochasticModelName(params.model)] menu:4 panelX:630 y:318 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"A-DIST" value:[NSString stringWithUTF8String:s3g::ambiStochasticDistributionName(params.amplitudeDistribution)] menu:5 panelX:630 y:344 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"T-DIST" value:[NSString stringWithUTF8String:s3g::ambiStochasticDistributionName(params.durationDistribution)] menu:6 panelX:630 y:370 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(630, 282, 250, 228, style);
+    s3g::clap_gui::drawPanelHeader(@"SECOND-ORDER WALK", true, 630, 282, 250, 21, attrs, style);
+    [self drawMenu:@"A-DIST" value:[NSString stringWithUTF8String:s3g::ambiStochasticDistributionName(params.amplitudeDistribution)] panelX:630 y:318 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"T-DIST" value:[NSString stringWithUTF8String:s3g::ambiStochasticDistributionName(params.durationDistribution)] panelX:630 y:344 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"PTS" param:kBreakpointsParamId value:params.breakpoints attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"AMP" param:kAmplitudeStepParamId value:params.amplitudeStep attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"TIME" param:kTimeStepParamId value:params.timeStep attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"INERT" param:kInertiaParamId value:params.inertia attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"ACT" param:kActivityParamId value:params.activity attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"A-STEP" param:kAmplitudeStepParamId value:params.amplitudeStep attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"T-STEP" param:kDurationStepParamId value:params.durationStep attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"A-RANGE" param:kAmplitudeRangeParamId value:params.amplitudeRange attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"T-RANGE" param:kDurationRangeParamId value:params.durationRange attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 548, 250, 150, style);
-    s3g::clap_gui::drawPanelHeader(@"ENVELOPE", true, 630, 548, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 522, 250, 150, style);
+    s3g::clap_gui::drawPanelHeader(@"ENVELOPE", true, 630, 522, 250, 21, attrs, style);
     [self drawSlider:@"ATTACK" param:kAttackParamId value:params.attackMs attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DECAY" param:kDecayParamId value:params.decayMs attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SUSTAIN" param:kSustainParamId value:params.sustain attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RELEASE" param:kReleaseParamId value:params.releaseMs attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 710, 250, 48, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 710, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 684, 250, 72, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 684, 250, 21, attrs, style);
     [self drawSlider:@"OUT" param:kOutputParamId value:params.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(896, 42, 246, 244, style);
-    s3g::clap_gui::drawPanelHeader(@"DYNAMICS", true, 896, 42, 246, 21, attrs, style);
-    [self drawMenu:@"DYN" value:[NSString stringWithUTF8String:s3g::ambiStochasticDynamicsName(params.dynamics)] menu:8 panelX:896 y:78 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"DRIVE" param:kDynamicsDriveParamId value:params.dynamicsDrive attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"BOUNCE" param:kDynamicsBounceParamId value:params.dynamicsBounce attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"DRAG" param:kDynamicsDragParamId value:params.dynamicsDrag attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RADIUS" param:kDynamicsRadiusParamId value:params.dynamicsRadius attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"COUPLE" param:kCouplingParamId value:params.coupling attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"MEM" param:kMemoryParamId value:params.memory attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"REACT" param:kReactivityParamId value:params.reactivity attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(896, 42, 246, 150, style);
+    s3g::clap_gui::drawPanelHeader(@"SELECTION", true, 896, 42, 246, 21, attrs, style);
+    [self drawMenu:@"LAW" value:[NSString stringWithUTF8String:s3g::ambiStochasticSelectionName(params.selection)] panelX:896 y:78 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"JOIN" value:[NSString stringWithUTF8String:s3g::ambiStochasticTransitionName(params.transition)] panelX:896 y:104 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"XFER" param:kNeighborTransferParamId value:params.neighborTransfer attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"MEM" param:kSelectionMemoryParamId value:params.selectionMemory attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(896, 298, 246, 218, style);
-    s3g::clap_gui::drawPanelHeader(@"SPACE", true, 896, 298, 246, 21, attrs, style);
-    [self drawMenu:@"MOTION" value:[NSString stringWithUTF8String:s3g::ambiStochasticMotionName(params.motion)] menu:7 panelX:896 y:334 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RATE" param:kMotionRateParamId value:params.motionRateHz attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"AMOUNT" param:kMotionAmountParamId value:params.motionAmount attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"SPREAD" param:kMotionSpreadParamId value:params.motionSpread attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"AZIMUTH" param:kAzimuthParamId value:params.centerAzimuthDeg attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(896, 204, 246, 124, style);
+    s3g::clap_gui::drawPanelHeader(@"TIME FIELDS", true, 896, 204, 246, 21, attrs, style);
+    [self drawSlider:@"DENS" param:kFieldDensityParamId value:params.fieldDensity attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"DUR" param:kFieldDurationParamId value:params.fieldDurationSeconds attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"CONT" param:kFieldContrastParamId value:params.fieldContrast attrs:attrs valueAttrs:valueAttrs style:style];
+
+    s3g::clap_gui::drawPanelFrame(896, 340, 246, 254, style);
+    s3g::clap_gui::drawPanelHeader(@"TOPOLOGY", true, 896, 340, 246, 21, attrs, style);
+    [self drawMenu:@"SHAPE" value:[NSString stringWithUTF8String:s3g::topologyShapeName(params.topologyShape)] panelX:896 y:376 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"ANIM" value:[NSString stringWithUTF8String:s3g::topologyMotionModeName(params.topologyMotion)] panelX:896 y:402 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"RATE" param:kTopologyRateParamId value:params.topologyRateHz attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"AMT" param:kTopologyAmountParamId value:params.topologyAmount attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"DEPTH" param:kTopologyDepthParamId value:params.topologyDepth attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SCALE" param:kTopologyScaleParamId value:params.topologyScale attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"COLL" param:kTopologyCollapseParamId value:params.topologyCollapse attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"TWIST" param:kTopologyTwistParamId value:params.topologyTwist attrs:attrs valueAttrs:valueAttrs style:style];
+
+    s3g::clap_gui::drawPanelFrame(896, 606, 246, 150, style);
+    s3g::clap_gui::drawPanelHeader(@"PROJECTION", true, 896, 606, 246, 21, attrs, style);
+    [self drawSlider:@"AZIM" param:kAzimuthParamId value:params.centerAzimuthDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ELEV" param:kElevationParamId value:params.centerElevationDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DIST" param:kDistanceParamId value:params.centerDistance attrs:attrs valueAttrs:valueAttrs style:style];
-
-    s3g::clap_gui::drawPanelFrame(896, 528, 246, 126, style);
-    s3g::clap_gui::drawPanelHeader(@"TOPOLOGY MAP", true, 896, 528, 246, 21, attrs, style);
-    [self drawSlider:@"SYN" param:kSynthesisDepthParamId value:params.synthesisDepth attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"SPAT" param:kSpatialDepthParamId value:params.spatialDepth attrs:attrs valueAttrs:valueAttrs style:style];
-    NSString* energy = [NSString stringWithFormat:@"E %.3f   K %.3f",
-        _plugin->guiGlobalEnergy.load(std::memory_order_relaxed),
-        _plugin->guiGlobalKinetic.load(std::memory_order_relaxed)];
-    [energy drawAtPoint:NSMakePoint(912, 622) withAttributes:valueAttrs];
+    [self drawSlider:@"FOLLOW" param:kSpatialFollowParamId value:params.spatialFollow attrs:attrs valueAttrs:valueAttrs style:style];
 }
 
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     if (_openMenu <= 0 || _menuItemCount == 0u) return;
     static NSString* modeItems[] = { @"FREE", @"MIDI", @"BOTH" };
-    static NSString* systemItems[] = { @"INDEPENDENT", @"NEIGHBOR", @"FIELD", @"NETWORK" };
     static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
-    static NSString* modelItems[] = { @"DIRECT", @"DELTA", @"CURVED", @"FREE PERIOD" };
+    static NSString* selectionItems[] = { @"RANDOM", @"SERIES", @"WEIGHT", @"TENDENCY", @"MARKOV", @"WALK" };
+    static NSString* transitionItems[] = { @"LINK", @"MERGE", @"VARY" };
     static NSString* distributionItems[] = { @"UNIFORM", @"GAUSS", @"CAUCHY", @"LOGISTIC", @"ARCSINE", @"EXPON", @"BINARY" };
-    static NSString* motionItems[] = { @"FIELD", @"ORBIT", @"DRIFT", @"FEEDBACK" };
-    static NSString* dynamicsItems[] = { @"OFF", @"GAS", @"NET", @"CASCADE" };
+    static NSString* shapeItems[] = { @"AED", @"SHEAR", @"FOLD", @"VORTEX", @"PINCH", @"RUPTURE", @"SCATTER", @"MIRROR", @"WAVE", @"LINE", @"PLANE", @"FORSY" };
+    static NSString* motionItems[] = { @"OFF", @"FREE", @"DRIFT", @"PULSE", @"ORBIT", @"FOLD", @"WEAVE", @"GRID", @"TRACE", @"HOVER", @"LEAP", @"FIELD", @"PAIR", @"FLOW", @"GROUP", @"MARCH", @"PATH", @"SCAT" };
     NSString** items = modeItems;
     int selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.mode));
     if (_openMenu == 2) {
-        items = systemItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.system));
-    } else if (_openMenu == 3) {
         items = orderItems;
         selected = static_cast<int>(_plugin->params.order) - 1;
+    } else if (_openMenu == 3) {
+        items = selectionItems;
+        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.selection));
     } else if (_openMenu == 4) {
-        items = modelItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.model));
+        items = transitionItems;
+        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.transition));
     } else if (_openMenu == 5) {
         items = distributionItems;
         selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.amplitudeDistribution));
@@ -1518,11 +1214,11 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         items = distributionItems;
         selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.durationDistribution));
     } else if (_openMenu == 7) {
-        items = motionItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.motion));
+        items = shapeItems;
+        selected = static_cast<int>(_plugin->params.topologyShape);
     } else if (_openMenu == 8) {
-        items = dynamicsItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.dynamics));
+        items = motionItems;
+        selected = static_cast<int>(_plugin->params.topologyMotion);
     }
     s3g::clap_gui::drawDropdownMenu(_openMenuRect, 21.0, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
@@ -1538,9 +1234,10 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     [@"s3g AMBI STOCHASTIC ENCODER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
-    s3g::clap_gui::drawRightStatus(s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed)), kGuiWidth, 14, valueAttrs, 18);
+    s3g::clap_gui::drawRightStatus(s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed)),
+        kGuiWidth, 14, valueAttrs, 18);
     [self drawField:attrs valueAttrs:valueAttrs style:style];
-    [self drawWaveform:attrs valueAttrs:valueAttrs style:style];
+    [self drawPressure:attrs valueAttrs:valueAttrs style:style];
     [self drawPanels:attrs valueAttrs:valueAttrs style:style];
     [self drawOpenMenu:valueAttrs style:style];
 }
@@ -1550,12 +1247,12 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     switch (menu) {
     case 1: return NSMakeRect(738, 77, 124, 15);
     case 2: return NSMakeRect(738, 103, 124, 15);
-    case 3: return NSMakeRect(738, 129, 124, 15);
-    case 4: return NSMakeRect(738, 317, 124, 15);
-    case 5: return NSMakeRect(738, 343, 124, 15);
-    case 6: return NSMakeRect(738, 369, 124, 15);
-    case 7: return NSMakeRect(1004, 333, 124, 15);
-    case 8: return NSMakeRect(1004, 77, 124, 15);
+    case 3: return NSMakeRect(1004, 77, 124, 15);
+    case 4: return NSMakeRect(1004, 103, 124, 15);
+    case 5: return NSMakeRect(738, 317, 124, 15);
+    case 6: return NSMakeRect(738, 343, 124, 15);
+    case 7: return NSMakeRect(1004, 375, 124, 15);
+    case 8: return NSMakeRect(1004, 401, 124, 15);
     default: return NSZeroRect;
     }
 }
@@ -1564,13 +1261,13 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 {
     switch (menu) {
     case 1: return 3u;
-    case 2: return 4u;
-    case 3: return 7u;
-    case 4: return 4u;
-    case 5: return 7u;
+    case 2: return 7u;
+    case 3: return 6u;
+    case 4: return 3u;
+    case 5:
     case 6: return 7u;
-    case 7: return 4u;
-    case 8: return 4u;
+    case 7: return 12u;
+    case 8: return 18u;
     default: return 0u;
     }
 }
@@ -1581,7 +1278,10 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     _menuItemCount = [self menuCount:menu];
     _hoverMenuItem = -1;
     const NSRect box = [self menuBoxRect:menu];
-    _openMenuRect = NSMakeRect(box.origin.x, NSMaxY(box) + 2, box.size.width, 21.0 * _menuItemCount);
+    CGFloat y = NSMaxY(box) + 2.0;
+    const CGFloat height = 21.0 * _menuItemCount;
+    if (y + height > kGuiHeight - 8.0) y = box.origin.y - height - 2.0;
+    _openMenuRect = NSMakeRect(box.origin.x, y, box.size.width, height);
     [self setNeedsDisplay:YES];
 }
 
@@ -1590,13 +1290,13 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     if (item < 0) return;
     switch (_openMenu) {
     case 1: applyParam(*_plugin, kModeParamId, item); break;
-    case 2: applyParam(*_plugin, kSystemParamId, item); break;
-    case 3: applyParam(*_plugin, kOrderParamId, item + 1); break;
-    case 4: applyParam(*_plugin, kModelParamId, item); break;
+    case 2: applyParam(*_plugin, kOrderParamId, item + 1); break;
+    case 3: applyParam(*_plugin, kSelectionParamId, item); break;
+    case 4: applyParam(*_plugin, kTransitionParamId, item); break;
     case 5: applyParam(*_plugin, kAmplitudeDistributionParamId, item); break;
     case 6: applyParam(*_plugin, kDurationDistributionParamId, item); break;
-    case 7: applyParam(*_plugin, kMotionParamId, item); break;
-    case 8: applyParam(*_plugin, kDynamicsParamId, item); break;
+    case 7: applyParam(*_plugin, kTopologyShapeParamId, item); break;
+    case 8: applyParam(*_plugin, kTopologyMotionParamId, item); break;
     default: break;
     }
     _openMenu = 0;
@@ -1633,14 +1333,6 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
             return;
         }
     }
-    for (int index = 0; index < 3; ++index) {
-        if (NSPointInRect(point, [self fieldPageButtonRect:index])) {
-            _fieldPage = index;
-            [self storeViewState];
-            [self setNeedsDisplay:YES];
-            return;
-        }
-    }
     for (int index = 0; index < 2; ++index) {
         if (NSPointInRect(point, [self zoomButtonRect:index])) {
             _viewZoom = std::clamp(_viewZoom * (index == 0 ? 0.88 : 1.14), 0.55, 2.20);
@@ -1662,7 +1354,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         [self setNeedsDisplay:YES];
         return;
     }
-    if (_fieldPage != 2 && NSPointInRect(point, [self fieldRect])) {
+    if (NSPointInRect(point, [self fieldRect])) {
         _dragView = YES;
         _lastDragPoint = point;
         return;
@@ -1856,8 +1548,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.1.0",
-    "Dynamic stochastic synthesis with network feedback and first- through seventh-order ACN/SN3D output.",
+    "0.2.0",
+    "Second-order stochastic generator banks with topology-driven ACN/SN3D output.",
     features,
 };
 
