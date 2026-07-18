@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="540" viewBox="0 0 1040 540" role="img" aria-labelledby="title desc">
+  <title id="title">Ambi VOT Encoder signal and control model</title>
+  <desc id="desc">A four by four wavetable field is traversed by a U and V vector score, tuned as a scale and harmonic lattice, then positioned in an ambisonic AED field.</desc>
+  <defs>
+    <style>
+      text { font-family: Menlo, Consolas, monospace; letter-spacing: 0; }
+      .bg { fill: #080909; }
+      .panel { fill: #111313; stroke: #343a38; stroke-width: 1; }
+      .inner { fill: #0a0b0b; stroke: #303634; stroke-width: 1; }
+      .title { fill: #d8ddd8; font-size: 18px; }
+      .label { fill: #d8ddd8; font-size: 13px; }
+      .small { fill: #c4cbc7; font-size: 11px; }
+      .muted { fill: #87908c; font-size: 10px; }
+      .grid { fill: none; stroke: #2d3230; stroke-width: 1; }
+      .line { fill: none; stroke: #b8c0bc; stroke-width: 1.5; }
+      .dim { fill: none; stroke: #666f6b; stroke-width: 1; }
+      .active { fill: none; stroke: #66bb8d; stroke-width: 2; }
+      .node { fill: #cbd2ce; stroke: #0b0c0c; stroke-width: 1; }
+      .active-node { fill: #66bb8d; stroke: #dce2de; stroke-width: 1; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#87908c"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1040" height="540"/>
+  <text class="title" x="30" y="38">s3g AMBI VOT ENCODER 64</text>
+  <text class="small" x="30" y="59">waveform field + composed vector score + scale lattice + ACN/SN3D voice space</text>
+
+  <rect class="panel" x="30" y="82" width="300" height="348"/>
+  <text class="label" x="48" y="108">4 x 4 WAVEFORM FIELD</text>
+  <rect class="inner" x="50" y="126" width="260" height="260"/>
+  <path class="grid" d="M115 126V386 M180 126V386 M245 126V386 M50 191H310 M50 256H310 M50 321H310"/>
+  <path class="dim" d="M60 175 C73 143 88 205 105 155 M125 169 C140 139 154 202 170 151 M190 165 C203 145 221 195 235 157 M255 173 C271 139 286 202 301 151"/>
+  <path class="dim" d="M60 238 C76 214 89 279 105 219 M125 232 C139 210 155 273 170 218 M190 238 C205 211 219 272 235 220 M255 228 C270 211 287 274 301 220"/>
+  <path class="dim" d="M60 303 C74 274 89 340 105 283 M125 296 C140 278 155 335 170 284 M190 302 C205 276 220 339 235 282 M255 294 C271 279 286 333 301 284"/>
+  <path class="dim" d="M60 365 C73 340 89 401 105 347 M125 360 C141 337 155 400 170 348 M190 366 C204 338 220 401 235 346 M255 358 C270 341 287 397 301 348"/>
+  <polyline class="active" points="82,354 278,354 213,289 148,289 82,224 278,224 278,159 82,159"/>
+  <rect class="node" x="77" y="349" width="10" height="10"/>
+  <rect class="node" x="273" y="349" width="10" height="10"/>
+  <rect class="node" x="208" y="284" width="10" height="10"/>
+  <rect class="node" x="143" y="284" width="10" height="10"/>
+  <rect class="node" x="77" y="219" width="10" height="10"/>
+  <rect class="node" x="273" y="219" width="10" height="10"/>
+  <rect class="node" x="273" y="154" width="10" height="10"/>
+  <rect class="active-node" x="77" y="154" width="10" height="10"/>
+  <path class="dim" d="M64 403H296" marker-end="url(#arrow)"/>
+  <path class="dim" d="M50 411V397" marker-end="url(#arrow)"/>
+  <text class="muted" x="169" y="419">U  0 ... 1</text>
+  <text class="muted" x="48" y="419">V</text>
+
+  <rect class="panel" x="350" y="82" width="320" height="348"/>
+  <text class="label" x="368" y="108">VECTOR SCORE</text>
+  <rect class="inner" x="370" y="126" width="280" height="118"/>
+  <rect x="436" y="127" width="151" height="116" fill="#171a19"/>
+  <path class="grid" d="M440 126V244 M510 126V244 M580 126V244 M370 185H650"/>
+  <text class="muted" x="378" y="142">U</text>
+  <polyline class="line" points="378,224 416,152 456,170 496,207 536,191 576,145 616,162 642,211"/>
+  <circle class="node" cx="378" cy="224" r="4"/><circle class="node" cx="416" cy="152" r="4"/>
+  <circle class="node" cx="456" cy="170" r="4"/><circle class="node" cx="496" cy="207" r="4"/>
+  <circle class="node" cx="536" cy="191" r="4"/><circle class="node" cx="576" cy="145" r="4"/>
+  <circle class="node" cx="616" cy="162" r="4"/><circle class="active-node" cx="642" cy="211" r="5"/>
+  <rect class="inner" x="370" y="260" width="280" height="118"/>
+  <rect x="436" y="261" width="151" height="116" fill="#171a19"/>
+  <path class="grid" d="M440 260V378 M510 260V378 M580 260V378 M370 319H650"/>
+  <text class="muted" x="378" y="276">V</text>
+  <polyline class="line" points="378,356 416,342 456,286 496,304 536,351 576,326 616,280 642,298"/>
+  <circle class="node" cx="378" cy="356" r="4"/><circle class="node" cx="416" cy="342" r="4"/>
+  <circle class="node" cx="456" cy="286" r="4"/><circle class="node" cx="496" cy="304" r="4"/>
+  <circle class="node" cx="536" cy="351" r="4"/><circle class="node" cx="576" cy="326" r="4"/>
+  <circle class="node" cx="616" cy="280" r="4"/><circle class="active-node" cx="642" cy="298" r="5"/>
+  <text class="small" x="370" y="404">ONE   LOOP A-B   PING</text>
+  <text class="muted" x="370" y="420">time chooses when; U/V chooses timbre</text>
+
+  <rect class="panel" x="690" y="82" width="320" height="210"/>
+  <text class="label" x="708" y="108">PITCH RELATIONSHIP</text>
+  <line class="grid" x1="720" y1="185" x2="980" y2="185"/>
+  <line class="dim" x1="850" y1="132" x2="850" y2="257"/>
+  <circle class="node" cx="750" cy="208" r="4"/><circle class="node" cx="782" cy="199" r="4"/>
+  <circle class="node" cx="816" cy="191" r="4"/><circle class="active-node" cx="850" cy="185" r="6"/>
+  <circle class="node" cx="884" cy="176" r="4"/><circle class="node" cx="918" cy="160" r="4"/>
+  <circle class="node" cx="950" cy="139" r="4"/>
+  <path class="active" d="M850 185 C890 178 927 152 950 128"/>
+  <path class="line" d="M850 185 C810 192 773 218 750 246"/>
+  <text class="small" x="708" y="272">SUB  &lt;-  BASE / SCALE  -&gt;  HARM</text>
+
+  <rect class="panel" x="690" y="310" width="320" height="120"/>
+  <text class="label" x="708" y="336">AMBISONIC VOICE SPACE</text>
+  <circle class="grid" cx="754" cy="382" r="31"/>
+  <circle class="node" cx="754" cy="351" r="4"/><circle class="node" cx="779" cy="367" r="4"/>
+  <circle class="active-node" cx="766" cy="397" r="5"/><circle class="node" cx="731" cy="400" r="4"/>
+  <circle class="node" cx="729" cy="366" r="4"/>
+  <path class="dim" d="M801 382H856" marker-end="url(#arrow)"/>
+  <text class="small" x="870" y="370">AED POINTS</text>
+  <text class="small" x="870" y="388">1OA ... 7OA</text>
+  <text class="muted" x="870" y="406">ACN / SN3D</text>
+
+  <rect class="panel" x="30" y="452" width="980" height="60"/>
+  <text class="small" x="50" y="478">U/V is timbre position.  TIME is score traversal.  AZ / EL / DIST is spatial position.</text>
+  <text class="muted" x="50" y="497">The score can own the waveform path while the AED motion engine continues moving voices through space.</text>
+</svg>

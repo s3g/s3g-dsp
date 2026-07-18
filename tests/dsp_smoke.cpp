@@ -4,6 +4,7 @@
 #include "s3g_ambi_grain_processor.h"
 #include "s3g_ambisonic_point_encoder.h"
 #include "s3g_ambi_cloud_encoder.h"
+#include "s3g_ambi_vot_encoder.h"
 #include "s3g_ambi_path_encoder.h"
 #include "s3g_ambisonic_head_decoder.h"
 #include "s3g_ambi_group_depth.h"
@@ -3717,6 +3718,342 @@ int main()
         return 1;
     }
 
+    s3g::AmbiVotEnvelope votEnvelope;
+    const float votAttackCoefficient = s3g::ambiVotEnvelopeCoefficient(10.0f, 1000.0);
+    const float votDecayCoefficient = s3g::ambiVotEnvelopeCoefficient(20.0f, 1000.0);
+    const float votReleaseCoefficient = s3g::ambiVotEnvelopeCoefficient(30.0f, 1000.0);
+    votEnvelope.trigger();
+    for (uint32_t i = 0; i < 12u; ++i) {
+        votEnvelope.process(votAttackCoefficient, votDecayCoefficient, 0.4f, votReleaseCoefficient);
+    }
+    if (votEnvelope.stage != s3g::AmbiVotEnvelopeStage::Decay || votEnvelope.value <= 0.4f) {
+        std::cerr << "Ambi VOT ADSR attack stage failed\n";
+        return 1;
+    }
+    for (uint32_t i = 0; i < 28u; ++i) {
+        votEnvelope.process(votAttackCoefficient, votDecayCoefficient, 0.4f, votReleaseCoefficient);
+    }
+    if (votEnvelope.stage != s3g::AmbiVotEnvelopeStage::Sustain
+        || std::abs(votEnvelope.value - 0.4f) > 0.002f) {
+        std::cerr << "Ambi VOT ADSR decay/sustain stages failed\n";
+        return 1;
+    }
+    votEnvelope.releaseGate();
+    for (uint32_t i = 0; i < 60u; ++i) {
+        votEnvelope.process(votAttackCoefficient, votDecayCoefficient, 0.4f, votReleaseCoefficient);
+    }
+    if (votEnvelope.stage != s3g::AmbiVotEnvelopeStage::Idle || votEnvelope.value != 0.0f) {
+        std::cerr << "Ambi VOT ADSR release stage failed\n";
+        return 1;
+    }
+
+    std::vector<float> votSource(4096u);
+    for (uint32_t i = 0; i < votSource.size(); ++i) {
+        const float phase = static_cast<float>(i) / static_cast<float>(votSource.size());
+        votSource[i] = 0.65f * std::sin(6.28318530718f * phase * 19.0f)
+            + 0.25f * std::sin(6.28318530718f * phase * 47.0f + 0.3f);
+    }
+    const auto votBank = s3g::ambiVotBankFromWave(votSource);
+    for (const auto& table : votBank.tables) {
+        if (std::abs(table.front() - table.back()) > 0.00001f) {
+            std::cerr << "Ambi VOT loaded table is not periodic\n";
+            return 1;
+        }
+    }
+    const auto votCenterWeights = s3g::ambiVotVectorWeights(0.375f, 0.375f, 1.0f);
+    float votWeightSum = 0.0f;
+    for (float weight : votCenterWeights.values) {
+        if (!std::isfinite(weight) || weight < 0.0f) {
+            std::cerr << "Ambi VOT Gaussian table weight is invalid\n";
+            return 1;
+        }
+        votWeightSum += weight;
+    }
+    const uint32_t votDominantTable = static_cast<uint32_t>(std::distance(
+        votCenterWeights.values.begin(),
+        std::max_element(votCenterWeights.values.begin(), votCenterWeights.values.end())));
+    if (std::abs(votWeightSum - 1.0f) > 0.00001f || votDominantTable != 5u) {
+        std::cerr << "Ambi VOT Gaussian table field mapping failed\n";
+        return 1;
+    }
+    float votVectorBoundaryStep = 0.0f;
+    for (uint32_t i = 0; i < 128u; ++i) {
+        const float phase = static_cast<float>(i) / 128.0f;
+        const float before = s3g::ambiVotVectorSample(votBank, 0.2499f, 0.625f, phase, 0.0f);
+        const float after = s3g::ambiVotVectorSample(votBank, 0.2501f, 0.625f, phase, 0.0f);
+        votVectorBoundaryStep = std::max(votVectorBoundaryStep, std::abs(after - before));
+    }
+    if (!std::isfinite(votVectorBoundaryStep) || votVectorBoundaryStep > 0.01f) {
+        std::cerr << "Ambi VOT Gaussian table crossing is discontinuous: "
+                  << votVectorBoundaryStep << "\n";
+        return 1;
+    }
+
+    auto votScore = s3g::ambiVotDefaultScore();
+    s3g::ambiVotNormalizeScore(votScore);
+    const auto votScoreStart = s3g::ambiVotScorePoint(votScore, 0.0f);
+    const auto votScoreEnd = s3g::ambiVotScorePoint(votScore, 1.0f);
+    if (std::abs(votScoreStart[0] - votScore.nodes[0].u) > 0.00001f
+        || std::abs(votScoreStart[1] - votScore.nodes[0].v) > 0.00001f
+        || std::abs(votScoreEnd[0] - votScore.nodes[votScore.nodeCount - 1u].u) > 0.00001f
+        || std::abs(votScoreEnd[1] - votScore.nodes[votScore.nodeCount - 1u].v) > 0.00001f) {
+        std::cerr << "Ambi VOT vector score endpoints failed\n";
+        return 1;
+    }
+    s3g::AmbiVotScorePlayback votScorePlayback;
+    votScorePlayback.trigger();
+    votScorePlayback.advance(2.0f, 8.0f, 1.0f, s3g::AmbiVotScoreMode::OneShot, votScore);
+    const auto votScoreQuarter = votScorePlayback.point(votScore);
+    if (votScorePlayback.phase < 0.249f || votScorePlayback.phase > 0.251f
+        || !std::isfinite(votScoreQuarter[0]) || !std::isfinite(votScoreQuarter[1])) {
+        std::cerr << "Ambi VOT note-relative score advance failed\n";
+        return 1;
+    }
+    votScorePlayback.release(votScore);
+    votScorePlayback.advance(1.0f, 8.0f, 1.0f, s3g::AmbiVotScoreMode::OneShot, votScore);
+    const auto votScoreRelease = votScorePlayback.point(votScore);
+    if (std::abs(votScoreRelease[0] - votScoreEnd[0]) > 0.0001f
+        || std::abs(votScoreRelease[1] - votScoreEnd[1]) > 0.0001f) {
+        std::cerr << "Ambi VOT score release destination failed\n";
+        return 1;
+    }
+
+    s3g::AmbiVotParams votTuning {};
+    votTuning.voices = 5u;
+    votTuning.baseNote = 60.0f;
+    votTuning.scale = s3g::AmbiVotScale::Major;
+    votTuning.pitchSpread = 1.0f;
+    votTuning.detune = 0.0f;
+    const float votRootPitch = s3g::ambiVotTunedNote(votTuning, 60.0f, 2u, false);
+    const float votMajorSecondPitch = s3g::ambiVotTunedNote(votTuning, 60.0f, 3u, false);
+    const float votQuantizedMidiPitch = s3g::ambiVotTunedNote(votTuning, 63.7f, 0u, true);
+    votTuning.pitchSpread = 2.0f;
+    const float votSpreadPitch = s3g::ambiVotTunedNote(votTuning, 60.0f, 3u, false);
+    votTuning.pitchSpread = 1.0f;
+    votTuning.harmonicAmount = 1.0f;
+    const float votHarmonicPitch = s3g::ambiVotTunedNote(votTuning, 60.0f, 3u, false);
+    votTuning.harmonicAmount = 0.0f;
+    votTuning.subharmonicAmount = 1.0f;
+    const float votSubharmonicPitch = s3g::ambiVotTunedNote(votTuning, 60.0f, 1u, false);
+    if (std::abs(votRootPitch - 60.0f) > 0.0001f
+        || std::abs(votMajorSecondPitch - 62.0f) > 0.0001f
+        || std::abs(votQuantizedMidiPitch - 64.0f) > 0.0001f
+        || std::abs(votSpreadPitch - 64.0f) > 0.0001f
+        || std::abs(votHarmonicPitch - 72.0f) > 0.0001f
+        || std::abs(votSubharmonicPitch - 48.0f) > 0.0001f) {
+        std::cerr << "Ambi VOT scale/harmonic tuning failed: "
+                  << votRootPitch << " / " << votMajorSecondPitch << " / "
+                  << votQuantizedMidiPitch << " / " << votSpreadPitch << " / "
+                  << votHarmonicPitch << " / " << votSubharmonicPitch << "\n";
+        return 1;
+    }
+
+    s3g::AmbiVotEncoder votEncoder;
+    votEncoder.prepare(48000.0);
+    auto votParams = votEncoder.params();
+    votParams.order = 3;
+    votParams.voices = 4;
+    votParams.mode = s3g::AmbiVotMode::Both;
+    votParams.outputGainDb = -24.0f;
+    votEncoder.setParams(votParams);
+    constexpr uint32_t votFrames = 2048u;
+    std::array<std::array<float, votFrames>, s3g::kAmbiVotMaxChannels> votBuffers {};
+    std::array<float*, s3g::kAmbiVotMaxChannels> votOutputs {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiVotMaxChannels; ++ch) votOutputs[ch] = votBuffers[ch].data();
+    votEncoder.process(votBank, votOutputs.data(), s3g::kAmbiVotMaxChannels, votFrames);
+    float votFreePeak = 0.0f;
+    for (const auto& channel : votBuffers) for (float value : channel) votFreePeak = std::max(votFreePeak, std::abs(value));
+    if (!std::isfinite(votFreePeak) || votFreePeak < 0.00001f || votFreePeak > 1.1f) {
+        std::cerr << "Ambi VOT BOTH/free rendering failed: " << votFreePeak << "\n";
+        return 1;
+    }
+    for (auto& channel : votBuffers) channel.fill(0.0f);
+    votEncoder.noteOn(60, 0.8f);
+    votEncoder.process(votBank, votOutputs.data(), s3g::kAmbiVotMaxChannels, votFrames);
+    float votMidiPeak = 0.0f;
+    for (const auto& channel : votBuffers) for (float value : channel) votMidiPeak = std::max(votMidiPeak, std::abs(value));
+    if (!std::isfinite(votMidiPeak) || votMidiPeak < 0.00001f || votMidiPeak > 1.1f) {
+        std::cerr << "Ambi VOT MIDI overlay failed: " << votMidiPeak << "\n";
+        return 1;
+    }
+
+    s3g::AmbiVotEncoder votScoreEncoder;
+    votScoreEncoder.prepare(48000.0);
+    votScoreEncoder.setScore(votScore);
+    auto votScoreParams = votScoreEncoder.params();
+    votScoreParams.order = 1u;
+    votScoreParams.voices = 1u;
+    votScoreParams.mode = s3g::AmbiVotMode::Midi;
+    votScoreParams.motionScene = s3g::AmbiVotMotionScene::Manual;
+    votScoreParams.motionLink = 0.0f;
+    votScoreParams.scan = 0.0f;
+    votScoreParams.motionSmooth = 0.0f;
+    votScoreParams.scoreMode = s3g::AmbiVotScoreMode::OneShot;
+    votScoreParams.scoreDurationSec = 0.25f;
+    votScoreParams.scoreDepth = 1.0f;
+    votScoreEncoder.setParams(votScoreParams);
+    votScoreEncoder.reset();
+    const auto votScoreMotionStart = votScoreEncoder.motionPoints()[0];
+    votScoreEncoder.noteOn(60, 0.8f);
+    votScoreEncoder.process(votBank, votOutputs.data(), s3g::kAmbiVotMaxChannels, votFrames);
+    const auto votScoreMotionAfter = votScoreEncoder.motionPoints()[0];
+    const float votScoreMotionDelta = std::abs(votScoreMotionAfter.u - votScoreMotionStart.u)
+        + std::abs(votScoreMotionAfter.v - votScoreMotionStart.v);
+    if (!std::isfinite(votScoreMotionDelta) || votScoreMotionDelta < 0.01f) {
+        std::cerr << "Ambi VOT score did not drive the vector field: " << votScoreMotionDelta << "\n";
+        return 1;
+    }
+
+    votParams.mode = s3g::AmbiVotMode::Free;
+    votParams.motionScene = s3g::AmbiVotMotionScene::Flow;
+    votParams.motionClock = s3g::AmbiVotMotionClock::Free;
+    votParams.motionAmount = 1.0f;
+    votParams.motionRateHz = 1.0f;
+    votParams.motionSmooth = 0.0f;
+    votParams.motionLink = 0.65f;
+    votParams.scan = 0.8f;
+    votParams.scanRate = 1.0f;
+    votEncoder.setParams(votParams);
+    votEncoder.reset();
+    const auto votMotionBefore = votEncoder.motionPoints();
+    for (uint32_t pass = 0; pass < 8u; ++pass) {
+        for (auto& channel : votBuffers) channel.fill(0.0f);
+        votEncoder.process(votBank, votOutputs.data(), s3g::kAmbiVotMaxChannels, votFrames);
+    }
+    const auto votMotionAfter = votEncoder.motionPoints();
+    float votMotionDelta = 0.0f;
+    for (uint32_t voice = 0; voice < votParams.voices; ++voice) {
+        const auto& point = votMotionAfter[voice];
+        if (!std::isfinite(point.azimuthDeg) || !std::isfinite(point.elevationDeg)
+            || !std::isfinite(point.distance) || !std::isfinite(point.u) || !std::isfinite(point.v)
+            || point.azimuthDeg < -180.0f || point.azimuthDeg > 180.0f
+            || point.elevationDeg < -90.0f || point.elevationDeg > 90.0f
+            || point.distance < 0.15f || point.distance > 2.0f
+            || point.u < 0.0f || point.u > 1.0f || point.v < 0.0f || point.v > 1.0f) {
+            std::cerr << "Ambi VOT AED/UV motion bounds failed\n";
+            return 1;
+        }
+        votMotionDelta += std::abs(s3g::ambiVotWrapSignedDeg(point.azimuthDeg - votMotionBefore[voice].azimuthDeg));
+        votMotionDelta += std::abs(point.elevationDeg - votMotionBefore[voice].elevationDeg);
+        votMotionDelta += 100.0f * (std::abs(point.u - votMotionBefore[voice].u) + std::abs(point.v - votMotionBefore[voice].v));
+    }
+    if (votMotionDelta < 0.1f) {
+        std::cerr << "Ambi VOT motion engine did not move\n";
+        return 1;
+    }
+
+    votParams.voices = 1;
+    votParams.scoreMode = s3g::AmbiVotScoreMode::Off;
+    votParams.motionScene = s3g::AmbiVotMotionScene::Path;
+    votParams.motionAmount = 1.0f;
+    votParams.motionLink = 0.0f;
+    votParams.motionChaos = 0.0f;
+    votParams.motionSmooth = 0.0f;
+    votParams.scan = 1.0f;
+    votParams.scanRate = 1.0f;
+    votEncoder.setParams(votParams);
+    for (uint32_t step = 0; step < s3g::kAmbiVotTableCount; ++step) {
+        votEncoder.reset();
+        votEncoder.setExternalPhase(static_cast<float>(step) / static_cast<float>(s3g::kAmbiVotTableCount));
+        votEncoder.process(votBank, votOutputs.data(), s3g::kAmbiVotMaxChannels, 16u);
+        const uint32_t row = step / s3g::kAmbiVotGridSize;
+        const uint32_t positionInRow = step % s3g::kAmbiVotGridSize;
+        const uint32_t column = (row & 1u) != 0u
+            ? s3g::kAmbiVotGridSize - 1u - positionInRow
+            : positionInRow;
+        const float expectedU = (static_cast<float>(column) + 0.5f)
+            / static_cast<float>(s3g::kAmbiVotGridSize);
+        const float expectedV = (static_cast<float>(row) + 0.5f)
+            / static_cast<float>(s3g::kAmbiVotGridSize);
+        const auto& point = votEncoder.motionPoints()[0];
+        if (std::abs(point.u - expectedU) > 0.0001f || std::abs(point.v - expectedV) > 0.0001f) {
+            std::cerr << "Ambi VOT PATH did not visit table center " << step << "\n";
+            return 1;
+        }
+    }
+
+    votParams.voices = 4;
+    votParams.motionScene = s3g::AmbiVotMotionScene::Manual;
+    votParams.motionLink = 1.0f;
+    votParams.motionSpread = 1.0f;
+    votEncoder.setParams(votParams);
+    votEncoder.reset();
+    for (uint32_t voice = 0; voice < votParams.voices; ++voice) {
+        const auto& point = votEncoder.motionPoints()[voice];
+        const float expectedU = 0.5f + 0.5f * std::sin(point.azimuthDeg * s3g::kPi / 180.0f);
+        const float expectedV = std::clamp((point.elevationDeg + 90.0f) / 180.0f, 0.0f, 1.0f);
+        if (std::abs(point.u - expectedU) > 0.0001f || std::abs(point.v - expectedV) > 0.0001f) {
+            std::cerr << "Ambi VOT AED-to-wavetable LINK mapping failed\n";
+            return 1;
+        }
+    }
+
+    votParams.motionScene = s3g::AmbiVotMotionScene::Flow;
+    votParams.motionLink = 0.0f;
+    votParams.motionSmooth = 0.0f;
+    votEncoder.setParams(votParams);
+    votEncoder.reset();
+    votEncoder.setExternalPhase(0.999f);
+    for (uint32_t pass = 0; pass < 8u; ++pass) {
+        votEncoder.process(votBank, votOutputs.data(), s3g::kAmbiVotMaxChannels, votFrames);
+    }
+    const auto votWrapBefore = votEncoder.motionPoints();
+    votEncoder.setExternalPhase(0.001f);
+    for (uint32_t pass = 0; pass < 8u; ++pass) {
+        votEncoder.process(votBank, votOutputs.data(), s3g::kAmbiVotMaxChannels, votFrames);
+    }
+    const auto votWrapAfter = votEncoder.motionPoints();
+    float votWrapStep = 0.0f;
+    for (uint32_t voice = 0; voice < votParams.voices; ++voice) {
+        votWrapStep = std::max(votWrapStep, std::abs(s3g::ambiVotWrapSignedDeg(votWrapAfter[voice].azimuthDeg - votWrapBefore[voice].azimuthDeg)));
+        votWrapStep = std::max(votWrapStep, std::abs(votWrapAfter[voice].elevationDeg - votWrapBefore[voice].elevationDeg));
+        votWrapStep = std::max(votWrapStep, 100.0f * std::abs(votWrapAfter[voice].u - votWrapBefore[voice].u));
+        votWrapStep = std::max(votWrapStep, 100.0f * std::abs(votWrapAfter[voice].v - votWrapBefore[voice].v));
+    }
+    if (votWrapStep > 12.0f || std::abs(votEncoder.motionPhase() - 0.001f) > 0.0001f) {
+        std::cerr << "Ambi VOT transport phase wrap was discontinuous: " << votWrapStep << "\n";
+        return 1;
+    }
+
+    votParams.voices = 64;
+    votParams.order = 7;
+    votParams.mode = s3g::AmbiVotMode::Free;
+    votParams.motionScene = s3g::AmbiVotMotionScene::Manual;
+    votParams.motionSpread = 0.0f;
+    votParams.neighborRadius = 0.10f;
+    votParams.requiredNeighbors = 63u;
+    votParams.attackMs = 1.0f;
+    votParams.releaseMs = 5.0f;
+    votParams.outputGainDb = -36.0f;
+    votEncoder.setParams(votParams);
+    votEncoder.reset();
+    for (uint32_t voice = 0; voice < votParams.voices; ++voice) {
+        if (votEncoder.neighborCounts()[voice] != 63u || votEncoder.neighborGates()[voice] == 0u) {
+            std::cerr << "Ambi VOT 64-voice clustered neighbor gate failed\n";
+            return 1;
+        }
+    }
+    for (auto& channel : votBuffers) channel.fill(0.0f);
+    votEncoder.process(votBank, votOutputs.data(), s3g::kAmbiVotMaxChannels, votFrames);
+    float vot64Peak = 0.0f;
+    for (const auto& channel : votBuffers) for (float value : channel) vot64Peak = std::max(vot64Peak, std::abs(value));
+    if (!std::isfinite(vot64Peak) || vot64Peak < 0.000001f || vot64Peak > 1.1f) {
+        std::cerr << "Ambi VOT 64-voice render failed: " << vot64Peak << "\n";
+        return 1;
+    }
+
+    votParams.motionSpread = 1.0f;
+    votParams.neighborRadius = 0.05f;
+    votParams.requiredNeighbors = 1u;
+    votEncoder.setParams(votParams);
+    votEncoder.reset();
+    for (uint32_t voice = 0; voice < votParams.voices; ++voice) {
+        if (votEncoder.neighborCounts()[voice] != 0u || votEncoder.neighborGates()[voice] != 0u) {
+            std::cerr << "Ambi VOT separated constellation did not close FREE gate\n";
+            return 1;
+        }
+    }
+
     std::cout << "s3g-dsp smoke test passed\n";
     std::cout << "layout speakers: " << s3g::kVirtualSpeakerCount << "\n";
     std::cout << "gain ch1 sample4: " << samples[0][3] << "\n";
@@ -3738,6 +4075,15 @@ int main()
     std::cout << "array delay impulse: " << arrayDelayOut[0][0] << "\n";
     std::cout << "array trim ch1/ch3: " << arrayTrimOut[0][0] << " / " << arrayTrimOut[2][0] << "\n";
     std::cout << "cube41 speakers: " << cube41Decoder.params().activeSpeakers << "\n";
+    std::cout << "Ambi VOT free/MIDI peaks: " << votFreePeak << " / " << votMidiPeak << "\n";
+    std::cout << "Ambi VOT motion delta/wrap step: " << votMotionDelta << " / " << votWrapStep << "\n";
+    std::cout << "Ambi VOT score motion delta: " << votScoreMotionDelta << "\n";
+    std::cout << "Ambi VOT tuned root/second/harm/sub: "
+              << votRootPitch << " / " << votMajorSecondPitch << " / "
+              << votHarmonicPitch << " / " << votSubharmonicPitch << "\n";
+    std::cout << "Ambi VOT MIDI quantize/spread: "
+              << votQuantizedMidiPitch << " / " << votSpreadPitch << "\n";
+    std::cout << "Ambi VOT 64-voice constellation peak: " << vot64Peak << "\n";
     std::cout << "Ambi point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "Ambi speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "Ambi object decoder peak: " << objectDecoderPeak << "\n";

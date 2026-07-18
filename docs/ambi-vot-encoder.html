@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi VOT Encoder - s3g-dsp</title>
+    <meta name="description" content="Ambi VOT Encoder vector-wavetable instrument documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi VOT Encoder</h1>
+
+        <p><code>s3g Ambi VOT Encoder 64</code> is a 64-voice vector-wavetable CLAP instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. VOT stands for Vector Oscillator Transform.</p>
+
+        <p>Sixteen waveforms form a 4 x 4 timbre field. Voices move through that field under manual control, spatial motion, or an editable vector score, then occupy independent azimuth, elevation, and distance positions in the encoded sound field.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="ambi-vot-encoder.svg" alt="Ambi VOT Encoder waveform field, vector score, tuning relationships, and ambisonic voice space">
+          </div>
+          <figcaption>U/V controls timbre, score time controls traversal, and AED controls spatial position.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Ambi VOT Encoder 64</code> on a 64-channel REAPER track.</li>
+          <li>Choose <code>FREE</code>, <code>MIDI</code>, or <code>BOTH</code> for the voice source.</li>
+          <li>Select the ambisonic <code>ORDER</code>, active <code>VOICES</code>, wave set, and pitch relationship.</li>
+          <li>Use <code>FIELD</code> for spatial motion, <code>VECTOR</code> for the wavetable surface, and <code>SCORE</code> to compose a timbre path.</li>
+          <li>Place an ambisonic decoder or meter after the instrument.</li>
+        </ol>
+
+        <p><code>FREE</code> generates sustained voices internally. <code>MIDI</code> creates voices from incoming notes. <code>BOTH</code> combines both behaviors.</p>
+
+        <h2 id="control-model">Control Model</h2>
+
+        <p>The instrument keeps timbre and space independent:</p>
+
+        <ul>
+          <li><code>U</code> is horizontal position in the 4 x 4 waveform field.</li>
+          <li><code>V</code> is vertical position in the waveform field.</li>
+          <li><code>TIME</code> places a node along the vector score.</li>
+          <li><code>AZ</code>, <code>EL</code>, and <code>DIST</code> place a voice in ambisonic space.</li>
+        </ul>
+
+        <p>U and V are normalized from 0 to 1. They are timbre coordinates, not physical axes. The waveform at any position is a smooth Gaussian-weighted blend of nearby tables.</p>
+
+        <h2 id="views">Views</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>View</th><th>Purpose</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>FIELD</td><td>Shows voice positions, nearest-neighbor relationships, camera views, and AED motion.</td></tr>
+            <tr><td>VECTOR</td><td>Shows the 4 x 4 waveform bank, the current U/V route, and the interpolated waveform.</td></tr>
+            <tr><td>SCORE</td><td>Edits U and V as parallel timeline lanes and shows the resulting route through the waveform field.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="vector-score">Vector Score</h2>
+
+        <p>The score contains 2 to 16 nodes. Select a node in <code>SCORE</code> view, then edit its time, U/V position, and interpolation curve. Use the header <code>-</code> and <code>+</code> buttons to change the node count, or <code>RESET</code> to restore the default score.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>MODE</td><td><code>OFF</code> disables score traversal. <code>ONE</code> plays once, <code>LOOP</code> repeats the sustain region, and <code>PING</code> alternates direction.</td></tr>
+            <tr><td>DURATION</td><td>Sets the complete score duration.</td></tr>
+            <tr><td>DEPTH</td><td>Sets how strongly the score owns U/V. At 100%, the score supplies the full timbre path; lower values retain more spatial-scene and <code>LINK</code> influence.</td></tr>
+            <tr><td>LOOP A</td><td>Selects the first node in the sustain loop.</td></tr>
+            <tr><td>LOOP B</td><td>Selects the last node in the sustain loop.</td></tr>
+            <tr><td>TIME</td><td>Places the selected node within the score duration.</td></tr>
+            <tr><td>U / V</td><td>Places the selected node in the waveform field.</td></tr>
+            <tr><td>CURVE</td><td>Chooses <code>LINEAR</code>, <code>SMOOTH</code>, <code>EXP</code>, or <code>HOLD</code> interpolation into the next node.</td></tr>
+          </tbody>
+        </table>
+
+        <p>On trigger, score playback begins at the first node and advances into the sustain loop. On release, it moves from the current position toward the final score node. The score changes timbre only; the AED motion engine can continue moving voices through space.</p>
+
+        <h2 id="tuning">Tuning</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>BASE</td><td>Sets the root MIDI note for free-running voices and the scale lattice.</td></tr>
+            <tr><td>TUNE</td><td>Applies a global tuning offset in cents.</td></tr>
+            <tr><td>SCALE</td><td>Selects <code>CHROM</code>, <code>MAJOR</code>, <code>MINOR</code>, <code>PENTA</code>, <code>WHOLE</code>, or <code>HARM MIN</code>.</td></tr>
+            <tr><td>SPREAD</td><td>Scales intervals around <code>BASE</code>. 0% collapses voices to the root, 100% uses normal scale spacing, and 200% doubles the intervals.</td></tr>
+            <tr><td>DEV</td><td>Adds deterministic per-voice pitch deviation, up to approximately +/-100 cents.</td></tr>
+            <tr><td>HARM</td><td>Pulls upper scale degrees toward the harmonic series around <code>BASE</code>.</td></tr>
+            <tr><td>SUB</td><td>Pulls lower scale degrees toward the subharmonic series around <code>BASE</code>.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="synthesis">Synthesis</h2>
+
+        <ul>
+          <li><code>WAVE</code> selects <code>SINE</code>, <code>CLASSIC</code>, <code>DIGITAL</code>, <code>FORMANT</code>, or <code>USER</code>.</li>
+          <li><code>LOAD</code> derives a 16-table user bank from a WAV file. Multichannel files are averaged into one analysis stream.</li>
+          <li><code>SCAN</code> and its rate move voices around their current vector position.</li>
+          <li><code>MORPH</code> controls interpolation among neighboring waveform tables.</li>
+          <li><code>ATTACK</code>, <code>DECAY</code>, <code>SUSTAIN</code>, and <code>RELEASE</code> shape note amplitude.</li>
+          <li><code>OUT</code> trims the encoded output.</li>
+        </ul>
+
+        <h2 id="motion">Spatial Motion</h2>
+
+        <p>The AED engine provides <code>MANUAL</code>, <code>ORBIT</code>, <code>FLOW</code>, <code>PATH</code>, and <code>PULSE</code> scenes. Motion can run freely or follow host transport through <code>CLOCK</code> and <code>DIV</code>.</p>
+
+        <p><code>AMOUNT</code>, motion <code>SPREAD</code>, <code>COHERE</code>, <code>CHAOS</code>, and <code>SMOOTH</code> shape the group motion. <code>AZIMUTH</code>, <code>ELEV</code>, and <code>DISTANCE</code> position its center. <code>NEAR</code> and <code>NBR</code> define nearest-neighbor relationships. In free mode, those relationships can determine when voices become active; <code>LINK</code> lets the spatial state influence U/V while <code>DEPTH</code> decides how much control remains with the vector score.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <p>The output bus remains 64 channels wide. The selected order activates the corresponding ACN channels and zeroes the remainder.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Order</th><th>Active channels</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
+
+        <p>Use a 64-channel track when changing order during a session or working at 7OA. Follow the instrument with an <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>.</p>
+
+        <h2 id="automation">Automation and State</h2>
+
+        <p>The synthesis, tuning, motion, and high-level score controls are available to REAPER automation. Individual score nodes remain an internal composition layer and are saved with plugin state.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="multi-loop-processor.html">
+            <span>Previous</span>
+            Multi Loop Processor
+          </a>
+          <a class="page-nav-link next" href="topology-framework.html">
+            <span>Next</span>
+            Framework
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instrument Pages</h2>
+          <a href="instruments.html">Instruments Overview</a>
+          <a href="loop-processor.html">Loop Processor</a>
+          <a href="multi-loop-processor.html">Multi Loop Processor</a>
+          <a href="ambi-vot-encoder.html">VOT Encoder</a>
+          <a href="ambi-grain-processor.html">Grain Processor</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#control-model">Control Model</a>
+          <a href="#views">Views</a>
+          <a href="#vector-score">Vector Score</a>
+          <a href="#tuning">Tuning</a>
+          <a href="#synthesis">Synthesis</a>
+          <a href="#motion">Spatial Motion</a>
+          <a href="#routing">Order and Routing</a>
+          <a href="#automation">Automation and State</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>
