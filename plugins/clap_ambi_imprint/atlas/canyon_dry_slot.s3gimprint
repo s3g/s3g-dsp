@@ -1,0 +1,4039 @@
+{
+  "format": "s3g-ambi-imprint",
+  "version": 1,
+  "generator": {
+    "name": "s3g-mc Imprint Sketch",
+    "project_format": "s3g-imprint-sketch",
+    "project_version": 1
+  },
+  "interpretation": "procedural directional space sketch; spectral material curves are creative estimates, not measured coefficients",
+  "coordinate_system": {
+    "convention": "AED",
+    "azimuth_zero": "front",
+    "azimuth_positive": "counterclockwise",
+    "elevation_positive": "up",
+    "distance_unit": "metre",
+    "time_unit": "millisecond"
+  },
+  "ambisonics": {
+    "channel_order": "ACN",
+    "normalization": "SN3D",
+    "reference_order": 3,
+    "maximum_runtime_order": 7
+  },
+  "spectral_bands_hz": [
+    125,
+    250,
+    500,
+    1000,
+    2000,
+    4000,
+    8000,
+    16000
+  ],
+  "space": {
+    "family": "canyon",
+    "seed": 550101,
+    "topology": "connected_regions",
+    "branch_family_mode": "canyon",
+    "primary_polygon_xy_m": [
+      {
+        "x": 3.185,
+        "y": 0
+      },
+      {
+        "x": 0.654,
+        "y": 4.736
+      },
+      {
+        "x": 5.686,
+        "y": 9.473
+      },
+      {
+        "x": 6.845,
+        "y": 14.209
+      },
+      {
+        "x": 9.388,
+        "y": 18.945
+      },
+      {
+        "x": 6.902,
+        "y": 23.682
+      },
+      {
+        "x": 7.21,
+        "y": 28.418
+      },
+      {
+        "x": 5.13,
+        "y": 33.155
+      },
+      {
+        "x": 0.715,
+        "y": 37.891
+      },
+      {
+        "x": 0,
+        "y": 42.627
+      },
+      {
+        "x": 5.018,
+        "y": 47.364
+      },
+      {
+        "x": 3.369,
+        "y": 52.1
+      },
+      {
+        "x": 27.091,
+        "y": 52.1
+      },
+      {
+        "x": 22.877,
+        "y": 47.364
+      },
+      {
+        "x": 23.61,
+        "y": 42.627
+      },
+      {
+        "x": 23.006,
+        "y": 37.891
+      },
+      {
+        "x": 21.833,
+        "y": 33.155
+      },
+      {
+        "x": 24.903,
+        "y": 28.418
+      },
+      {
+        "x": 27.449,
+        "y": 23.682
+      },
+      {
+        "x": 26.04,
+        "y": 18.945
+      },
+      {
+        "x": 26.361,
+        "y": 14.209
+      },
+      {
+        "x": 22.785,
+        "y": 9.473
+      },
+      {
+        "x": 23.882,
+        "y": 4.736
+      },
+      {
+        "x": 19.705,
+        "y": 0
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": 0,
+        "z": 15.173
+      },
+      {
+        "x": 1.837,
+        "z": 14.904
+      },
+      {
+        "x": 3.675,
+        "z": 14.958
+      },
+      {
+        "x": 5.512,
+        "z": 15.307
+      },
+      {
+        "x": 7.349,
+        "z": 15.843
+      },
+      {
+        "x": 9.187,
+        "z": 16.416
+      },
+      {
+        "x": 11.024,
+        "z": 16.888
+      },
+      {
+        "x": 12.862,
+        "z": 17.173
+      },
+      {
+        "x": 14.699,
+        "z": 17.251
+      },
+      {
+        "x": 16.536,
+        "z": 17.166
+      },
+      {
+        "x": 18.374,
+        "z": 16.989
+      },
+      {
+        "x": 20.211,
+        "z": 16.786
+      },
+      {
+        "x": 22.048,
+        "z": 16.586
+      },
+      {
+        "x": 23.886,
+        "z": 16.384
+      },
+      {
+        "x": 25.723,
+        "z": 16.157
+      },
+      {
+        "x": 27.561,
+        "z": 15.887
+      },
+      {
+        "x": 29.398,
+        "z": 15.594
+      }
+    ],
+    "irregularity": 0.47,
+    "roughness": 0.88,
+    "vertical_variation": 0.52,
+    "openness": 0.79,
+    "acoustic_volume_m3": 16471.578,
+    "acoustic_surface_m2": 4174.16
+  },
+  "room": {
+    "dimensions_m": {
+      "x": 29.5,
+      "y": 52.1,
+      "z": 16.6
+    },
+    "polygon_xy_m": [
+      {
+        "x": 3.185,
+        "y": 0
+      },
+      {
+        "x": 0.654,
+        "y": 4.736
+      },
+      {
+        "x": 5.686,
+        "y": 9.473
+      },
+      {
+        "x": 6.845,
+        "y": 14.209
+      },
+      {
+        "x": 9.388,
+        "y": 18.945
+      },
+      {
+        "x": 6.902,
+        "y": 23.682
+      },
+      {
+        "x": 7.21,
+        "y": 28.418
+      },
+      {
+        "x": 5.13,
+        "y": 33.155
+      },
+      {
+        "x": 0.715,
+        "y": 37.891
+      },
+      {
+        "x": 0,
+        "y": 42.627
+      },
+      {
+        "x": 5.018,
+        "y": 47.364
+      },
+      {
+        "x": 3.369,
+        "y": 52.1
+      },
+      {
+        "x": 27.091,
+        "y": 52.1
+      },
+      {
+        "x": 22.877,
+        "y": 47.364
+      },
+      {
+        "x": 23.61,
+        "y": 42.627
+      },
+      {
+        "x": 23.006,
+        "y": 37.891
+      },
+      {
+        "x": 21.833,
+        "y": 33.155
+      },
+      {
+        "x": 24.903,
+        "y": 28.418
+      },
+      {
+        "x": 27.449,
+        "y": 23.682
+      },
+      {
+        "x": 26.04,
+        "y": 18.945
+      },
+      {
+        "x": 26.361,
+        "y": 14.209
+      },
+      {
+        "x": 22.785,
+        "y": 9.473
+      },
+      {
+        "x": 23.882,
+        "y": 4.736
+      },
+      {
+        "x": 19.705,
+        "y": 0
+      }
+    ],
+    "shape": "canyon",
+    "family": "canyon",
+    "seed": 550101,
+    "material": "earth",
+    "absorption": 0.65064,
+    "scattering": 0.76,
+    "tail_soften": 0.58,
+    "exterior_opening": {
+      "enabled": true,
+      "side": "back",
+      "count": 1,
+      "position": 0.99,
+      "spread": 0.21,
+      "width": 0.36,
+      "opening_m": 8.54,
+      "leak": 0.76,
+      "leak_factor": 0.846,
+      "interpretation": "energy escape boundary for late-tail thinning and reduced reflection density",
+      "openings": [
+        {
+          "index": 1,
+          "side": "back",
+          "opening_m": 8.54,
+          "opening_segment": {
+            "x1": 18.551,
+            "y1": 52.1,
+            "x2": 27.091,
+            "y2": 52.1
+          }
+        }
+      ],
+      "opening_segment": {
+        "x1": 18.551,
+        "y1": 52.1,
+        "x2": 27.091,
+        "y2": 52.1
+      }
+    },
+    "chamber": {
+      "family_mode": "canyon",
+      "material": "stone",
+      "material_mode": "alternating",
+      "material_mix": 0.49,
+      "width": 1.5,
+      "depth": 1.8,
+      "count": 1,
+      "position": 0.97,
+      "nested_chambers": 1,
+      "opening_width": 0.68,
+      "coupling": 0.22,
+      "chambers": [
+        {
+          "material_profile": {
+            "material": "stone",
+            "absorption": 0.546,
+            "scattering": 0.626,
+            "tail_soften": 0.288
+          },
+          "index": 1,
+          "level": 0,
+          "family": "canyon",
+          "height_m": 18.26,
+          "x": 26.069,
+          "y": 18.209,
+          "width": 2.098,
+          "depth": 2.273,
+          "opening_x": 26.429,
+          "opening_y": 20.252,
+          "opening": 1.02,
+          "polygon": [
+            {
+              "x": 26.497,
+              "y": 20.482
+            },
+            {
+              "x": 26.714,
+              "y": 20.31
+            },
+            {
+              "x": 26.97,
+              "y": 20.269
+            },
+            {
+              "x": 27.215,
+              "y": 20.189
+            },
+            {
+              "x": 27.451,
+              "y": 20.081
+            },
+            {
+              "x": 27.668,
+              "y": 19.909
+            },
+            {
+              "x": 27.935,
+              "y": 19.906
+            },
+            {
+              "x": 28.167,
+              "y": 19.783
+            },
+            {
+              "x": 27.703,
+              "y": 18.223
+            },
+            {
+              "x": 27.431,
+              "y": 18.209
+            },
+            {
+              "x": 27.226,
+              "y": 18.422
+            },
+            {
+              "x": 26.991,
+              "y": 18.535
+            },
+            {
+              "x": 26.779,
+              "y": 18.724
+            },
+            {
+              "x": 26.563,
+              "y": 18.902
+            },
+            {
+              "x": 26.342,
+              "y": 19.06
+            },
+            {
+              "x": 26.069,
+              "y": 19.044
+            }
+          ],
+          "opening_segment": {
+            "x1": 26.429,
+            "y1": 20.252,
+            "x2": 26.138,
+            "y2": 19.274
+          },
+          "side": "right",
+          "shape": "skew"
+        },
+        {
+          "material_profile": {
+            "material": "inherit",
+            "absorption": 0.735,
+            "scattering": 0.828,
+            "tail_soften": 0.503
+          },
+          "index": 2,
+          "level": 1,
+          "family": "canyon",
+          "height_m": 19.09,
+          "x": 27.781,
+          "y": 17.824,
+          "width": 1.617,
+          "depth": 1.697,
+          "opening_x": 28.054,
+          "opening_y": 19.404,
+          "opening": 0.836,
+          "polygon": [
+            {
+              "x": 28.089,
+              "y": 19.521
+            },
+            {
+              "x": 28.29,
+              "y": 19.494
+            },
+            {
+              "x": 28.451,
+              "y": 19.329
+            },
+            {
+              "x": 28.661,
+              "y": 19.333
+            },
+            {
+              "x": 28.842,
+              "y": 19.239
+            },
+            {
+              "x": 29.03,
+              "y": 19.167
+            },
+            {
+              "x": 29.204,
+              "y": 19.049
+            },
+            {
+              "x": 29.398,
+              "y": 18.997
+            },
+            {
+              "x": 29.049,
+              "y": 17.824
+            },
+            {
+              "x": 28.856,
+              "y": 17.878
+            },
+            {
+              "x": 28.665,
+              "y": 17.941
+            },
+            {
+              "x": 28.501,
+              "y": 18.093
+            },
+            {
+              "x": 28.33,
+              "y": 18.221
+            },
+            {
+              "x": 28.178,
+              "y": 18.413
+            },
+            {
+              "x": 27.963,
+              "y": 18.394
+            },
+            {
+              "x": 27.781,
+              "y": 18.486
+            }
+          ],
+          "opening_segment": {
+            "x1": 28.054,
+            "y1": 19.404,
+            "x2": 27.816,
+            "y2": 18.602
+          },
+          "side": "right",
+          "shape": "skew"
+        }
+      ]
+    }
+  },
+  "listener_position_m": {
+    "x": 13.817,
+    "y": 26.3105,
+    "z": 8.622
+  },
+  "direction_layout": "practical_8",
+  "direction_count": 8,
+  "duration_s": 3.6,
+  "profiles": [
+    {
+      "id": 1,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 16.1242,
+        "y": 28.6177,
+        "z": 10.9292
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 37.454,
+        "gain": 0.2502377
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 32.795,
+          "gain": 0.2056359,
+          "azimuth_deg": 162.117,
+          "elevation_deg": 72.988,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.6,
+          "gain": 0.1775951,
+          "azimuth_deg": 55.448,
+          "elevation_deg": 58.425,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.794,
+          "gain": 0.1669056,
+          "azimuth_deg": 169.707,
+          "elevation_deg": 57.903,
+          "kind": "surface",
+          "surface": "B1.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.977,
+          "gain": 0.1571385,
+          "azimuth_deg": 49.996,
+          "elevation_deg": 54.633,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.987,
+          "gain": 0.0158772,
+          "azimuth_deg": 0.989,
+          "elevation_deg": 28.402,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.879,
+          "gain": 0.1363102,
+          "azimuth_deg": 179.696,
+          "elevation_deg": 46.785,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.003,
+          "gain": 0.1295107,
+          "azimuth_deg": 48.563,
+          "elevation_deg": 46.871,
+          "kind": "surface",
+          "surface": "B2.6",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.123,
+          "gain": 0.1111969,
+          "azimuth_deg": 43.151,
+          "elevation_deg": 41.177,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.611,
+          "gain": 0.0936,
+          "azimuth_deg": -177.863,
+          "elevation_deg": 34.212,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.78,
+          "gain": 0.0888691,
+          "azimuth_deg": 42.826,
+          "elevation_deg": 33.839,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.253,
+          "gain": 0.0823409,
+          "azimuth_deg": -0.524,
+          "elevation_deg": 31.539,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.762,
+          "gain": 0.0207705,
+          "azimuth_deg": -15.905,
+          "elevation_deg": 13.888,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.21,
+          "gain": 0.0736426,
+          "azimuth_deg": 41.44,
+          "elevation_deg": 29.332,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 40.844,
+          "gain": 0.063221,
+          "azimuth_deg": -168.262,
+          "elevation_deg": 25.686,
+          "kind": "surface",
+          "surface": "B2.15",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 40.911,
+          "gain": 0.0606219,
+          "azimuth_deg": 46.733,
+          "elevation_deg": 25.319,
+          "kind": "surface",
+          "surface": "B2.11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.173,
+          "gain": 0.0538823,
+          "azimuth_deg": 47.965,
+          "elevation_deg": 25.075,
+          "kind": "surface",
+          "surface": "B1.10",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.787,
+          "gain": 0.0472372,
+          "azimuth_deg": -174.401,
+          "elevation_deg": 22.828,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 44.089,
+          "gain": 0.0447436,
+          "azimuth_deg": -167.633,
+          "elevation_deg": 22.757,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 44.228,
+          "gain": 0.0427694,
+          "azimuth_deg": -92.856,
+          "elevation_deg": 20.311,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.47,
+          "gain": 0.0385894,
+          "azimuth_deg": -175.793,
+          "elevation_deg": 19.22,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.548,
+          "gain": 0.004453,
+          "azimuth_deg": -108.382,
+          "elevation_deg": 8.055,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 57.723,
+          "gain": 0.0012473,
+          "azimuth_deg": -74.683,
+          "elevation_deg": 17.317,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 57.756,
+          "gain": 0.0316716,
+          "azimuth_deg": -11.417,
+          "elevation_deg": 38.369,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.163,
+          "gain": 0.0024719,
+          "azimuth_deg": -84.665,
+          "elevation_deg": 28.071,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 63.737,
+          "gain": 0.0027413,
+          "azimuth_deg": -96.551,
+          "elevation_deg": 23.538,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 75.763,
+          "gain": 0.0015278,
+          "azimuth_deg": -88.231,
+          "elevation_deg": 38.72,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 77.453,
+          "gain": 0.0084642,
+          "azimuth_deg": 23.927,
+          "elevation_deg": 24.92,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 85.467,
+          "gain": 0.011349,
+          "azimuth_deg": -160.449,
+          "elevation_deg": 53.961,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 115.351,
+          "gain": 0.0116231,
+          "azimuth_deg": -155.247,
+          "elevation_deg": 36.83,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 116.233,
+          "gain": 0.0164429,
+          "azimuth_deg": 173.128,
+          "elevation_deg": 25.624,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 161.778,
+          "gain": 0.0342088,
+          "azimuth_deg": 20.71,
+          "elevation_deg": 31.574,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 174.158,
+          "gain": 0.0143058,
+          "azimuth_deg": -168.397,
+          "elevation_deg": 30.777,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 180.028,
+          "gain": 0.0211721,
+          "azimuth_deg": 161.769,
+          "elevation_deg": 30.253,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 180.473,
+          "gain": 0.0221739,
+          "azimuth_deg": -165.116,
+          "elevation_deg": 23.029,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 207.15,
+          "gain": 0.0217915,
+          "azimuth_deg": -16.873,
+          "elevation_deg": 24.475,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 51.828,
+        "duration_s": 3.6,
+        "level": 0.0351065,
+        "diffusion": 0.69636,
+        "spread_deg": 61.694,
+        "high_frequency_damping": 0.6383,
+        "absorption_by_band": [
+          0.409184,
+          0.471016,
+          0.542849,
+          0.624681,
+          0.726513,
+          0.838346,
+          0.940178,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.451177,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834
+        ],
+        "seed": 55121196
+      }
+    },
+    {
+      "id": 2,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 11.4711,
+        "y": 28.6565,
+        "z": 10.9679
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 33.892,
+        "gain": 0.2461054
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 32.106,
+          "gain": 0.1329499,
+          "azimuth_deg": 98.93,
+          "elevation_deg": 43.244,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.551,
+          "gain": 0.1113203,
+          "azimuth_deg": -58.479,
+          "elevation_deg": 37.705,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.776,
+          "gain": 0.1045544,
+          "azimuth_deg": -44.908,
+          "elevation_deg": 34.095,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.932,
+          "gain": 0.0988022,
+          "azimuth_deg": -42.867,
+          "elevation_deg": 36.591,
+          "kind": "surface",
+          "surface": "B1.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.952,
+          "gain": 0.0944513,
+          "azimuth_deg": -89.431,
+          "elevation_deg": 33.563,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.527,
+          "gain": 0.0798761,
+          "azimuth_deg": -98.752,
+          "elevation_deg": 28.907,
+          "kind": "surface",
+          "surface": "B2.15",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.564,
+          "gain": 0.0762773,
+          "azimuth_deg": -21.283,
+          "elevation_deg": 30.254,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.229,
+          "gain": 0.0650313,
+          "azimuth_deg": -86.994,
+          "elevation_deg": 27.776,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.855,
+          "gain": 0.0598074,
+          "azimuth_deg": -112.526,
+          "elevation_deg": 26.746,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.082,
+          "gain": 0.0564603,
+          "azimuth_deg": -121.135,
+          "elevation_deg": 24.328,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.688,
+          "gain": 0.0520942,
+          "azimuth_deg": 0.363,
+          "elevation_deg": 25.072,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.803,
+          "gain": 0.0495431,
+          "azimuth_deg": -58.046,
+          "elevation_deg": 24.581,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.689,
+          "gain": 0.0450569,
+          "azimuth_deg": 3.457,
+          "elevation_deg": 24.403,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.737,
+          "gain": 0.0430299,
+          "azimuth_deg": -131.65,
+          "elevation_deg": 23.638,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.945,
+          "gain": 0.0407239,
+          "azimuth_deg": -0.762,
+          "elevation_deg": 24.141,
+          "kind": "surface",
+          "surface": "B2.6",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.557,
+          "gain": 0.0340303,
+          "azimuth_deg": 14.622,
+          "elevation_deg": 17.919,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.723,
+          "gain": 0.0308335,
+          "azimuth_deg": 12.58,
+          "elevation_deg": 19.09,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.174,
+          "gain": 0.0276731,
+          "azimuth_deg": 11.255,
+          "elevation_deg": 16.421,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.148,
+          "gain": 0.000971,
+          "azimuth_deg": -81.707,
+          "elevation_deg": 3.587,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 48.174,
+          "gain": 0.0174958,
+          "azimuth_deg": -154.84,
+          "elevation_deg": 30.522,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.161,
+          "gain": 0.0011333,
+          "azimuth_deg": -93.483,
+          "elevation_deg": 19.727,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 55.062,
+          "gain": 0.0012189,
+          "azimuth_deg": -71.755,
+          "elevation_deg": 8.539,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 66.188,
+          "gain": 0.0009346,
+          "azimuth_deg": -87.125,
+          "elevation_deg": -7.332,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 67.856,
+          "gain": 0.0103551,
+          "azimuth_deg": 154.207,
+          "elevation_deg": 40.423,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.201,
+          "gain": 0.0013042,
+          "azimuth_deg": -76.619,
+          "elevation_deg": 27.578,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 96.657,
+          "gain": 0.0364218,
+          "azimuth_deg": 177.373,
+          "elevation_deg": 43.134,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 103.622,
+          "gain": 0.0169406,
+          "azimuth_deg": -171.281,
+          "elevation_deg": 46.54,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 106.057,
+          "gain": 0.0101585,
+          "azimuth_deg": -21.011,
+          "elevation_deg": 27.529,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 107.427,
+          "gain": 0.0165612,
+          "azimuth_deg": -11.12,
+          "elevation_deg": 14.685,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 110.615,
+          "gain": 0.0131998,
+          "azimuth_deg": 16.795,
+          "elevation_deg": 44.129,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 119.691,
+          "gain": 0.0270163,
+          "azimuth_deg": 171.501,
+          "elevation_deg": 50.578,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 124.775,
+          "gain": 0.0115797,
+          "azimuth_deg": -7.723,
+          "elevation_deg": 30.949,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 134.925,
+          "gain": 0.0253993,
+          "azimuth_deg": -172.052,
+          "elevation_deg": 38.262,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 166.477,
+          "gain": 0.0169268,
+          "azimuth_deg": 4.428,
+          "elevation_deg": 19.716,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 193.091,
+          "gain": 0.0243658,
+          "azimuth_deg": -11.337,
+          "elevation_deg": 37.409,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 51.828,
+        "duration_s": 3.6,
+        "level": 0.0258422,
+        "diffusion": 0.78307,
+        "spread_deg": 70.286,
+        "high_frequency_damping": 0.56016,
+        "absorption_by_band": [
+          0.461732,
+          0.521108,
+          0.590485,
+          0.669861,
+          0.769238,
+          0.878614,
+          0.97799,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834
+        ],
+        "seed": 55129115
+      }
+    },
+    {
+      "id": 3,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 16.02,
+        "y": 24.1075,
+        "z": 10.825
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 34.859,
+        "gain": 0.2620735
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 34.561,
+          "gain": 0.1260778,
+          "azimuth_deg": 125.535,
+          "elevation_deg": 35.541,
+          "kind": "surface",
+          "surface": "B2.15",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.802,
+          "gain": 0.1182851,
+          "azimuth_deg": 95.498,
+          "elevation_deg": 35.024,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.885,
+          "gain": 0.1126101,
+          "azimuth_deg": 136.737,
+          "elevation_deg": 36.333,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.399,
+          "gain": 0.1032443,
+          "azimuth_deg": 142.437,
+          "elevation_deg": 32.431,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.433,
+          "gain": 0.0987383,
+          "azimuth_deg": 142.643,
+          "elevation_deg": 33.072,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.294,
+          "gain": 0.0882098,
+          "azimuth_deg": 79.757,
+          "elevation_deg": 31.203,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.848,
+          "gain": 0.0810331,
+          "azimuth_deg": -77.45,
+          "elevation_deg": 30.135,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.446,
+          "gain": 0.0743323,
+          "azimuth_deg": 71.853,
+          "elevation_deg": 29.033,
+          "kind": "surface",
+          "surface": "B1.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.443,
+          "gain": 0.0664572,
+          "azimuth_deg": 76.297,
+          "elevation_deg": 25.642,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.799,
+          "gain": 0.062238,
+          "azimuth_deg": -175.579,
+          "elevation_deg": 25.198,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.639,
+          "gain": 0.0565411,
+          "azimuth_deg": -142.014,
+          "elevation_deg": 24.053,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 40.243,
+          "gain": 0.0522442,
+          "azimuth_deg": 165.079,
+          "elevation_deg": 22.236,
+          "kind": "surface",
+          "surface": "B2.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.889,
+          "gain": 0.0455661,
+          "azimuth_deg": 71.086,
+          "elevation_deg": 20.556,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.07,
+          "gain": 0.0432717,
+          "azimuth_deg": 170.885,
+          "elevation_deg": 19.334,
+          "kind": "surface",
+          "surface": "B2.10",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.298,
+          "gain": 0.0409929,
+          "azimuth_deg": 72.236,
+          "elevation_deg": 19.09,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.67,
+          "gain": 0.0366124,
+          "azimuth_deg": 166.486,
+          "elevation_deg": 18.084,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 44.034,
+          "gain": 0.0344862,
+          "azimuth_deg": 60.673,
+          "elevation_deg": 19.364,
+          "kind": "surface",
+          "surface": "B2.6",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 44.736,
+          "gain": 0.0319706,
+          "azimuth_deg": 66.452,
+          "elevation_deg": 19.01,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 46.953,
+          "gain": 0.0034956,
+          "azimuth_deg": -69.655,
+          "elevation_deg": -11.483,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 51.118,
+          "gain": 0.0116509,
+          "azimuth_deg": 159.134,
+          "elevation_deg": -40.094,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.711,
+          "gain": 0.0201923,
+          "azimuth_deg": 10.532,
+          "elevation_deg": 11.138,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.128,
+          "gain": 0.0031709,
+          "azimuth_deg": -85.816,
+          "elevation_deg": 31.291,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 61.141,
+          "gain": 0.0032931,
+          "azimuth_deg": -82.557,
+          "elevation_deg": -2.07,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 67.154,
+          "gain": 0.0035092,
+          "azimuth_deg": -91.163,
+          "elevation_deg": 19.451,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 73.168,
+          "gain": 0.0034177,
+          "azimuth_deg": -95.112,
+          "elevation_deg": 36.774,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 76.54,
+          "gain": 0.0366052,
+          "azimuth_deg": -164.894,
+          "elevation_deg": 28.275,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 85.64,
+          "gain": 0.0256904,
+          "azimuth_deg": 162.544,
+          "elevation_deg": 30.556,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 102.677,
+          "gain": 0.0228354,
+          "azimuth_deg": 166.516,
+          "elevation_deg": 26.825,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 106.516,
+          "gain": 0.0151419,
+          "azimuth_deg": -14.992,
+          "elevation_deg": -34.96,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 126.711,
+          "gain": 0.019426,
+          "azimuth_deg": 9.208,
+          "elevation_deg": 53.84,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 144.198,
+          "gain": 0.013214,
+          "azimuth_deg": 24.343,
+          "elevation_deg": 41.814,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 150.606,
+          "gain": 0.0090291,
+          "azimuth_deg": -166.96,
+          "elevation_deg": 55.766,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 166.347,
+          "gain": 0.0160952,
+          "azimuth_deg": 22.064,
+          "elevation_deg": -40.407,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 169.328,
+          "gain": 0.0293647,
+          "azimuth_deg": 164.77,
+          "elevation_deg": 38.868,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 177.991,
+          "gain": 0.022701,
+          "azimuth_deg": -9.005,
+          "elevation_deg": 51.405,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 51.828,
+        "duration_s": 3.6,
+        "level": 0.0270489,
+        "diffusion": 0.68682,
+        "spread_deg": 60.749,
+        "high_frequency_damping": 0.59527,
+        "absorption_by_band": [
+          0.447715,
+          0.508195,
+          0.578675,
+          0.659155,
+          0.759635,
+          0.870115,
+          0.970595,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834
+        ],
+        "seed": 55137034
+      }
+    },
+    {
+      "id": 4,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 11.6177,
+        "y": 24.1112,
+        "z": 10.8213
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 31.648,
+        "gain": 0.2625124
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 27.009,
+          "gain": 0.2086757,
+          "azimuth_deg": -153.381,
+          "elevation_deg": 81.129,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 27.675,
+          "gain": 0.1813101,
+          "azimuth_deg": -50.163,
+          "elevation_deg": 65.029,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 27.994,
+          "gain": 0.1663074,
+          "azimuth_deg": -58.091,
+          "elevation_deg": 60.789,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 28.072,
+          "gain": 0.1577066,
+          "azimuth_deg": 157.404,
+          "elevation_deg": 57.455,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 28.271,
+          "gain": 0.147225,
+          "azimuth_deg": -90.855,
+          "elevation_deg": 55.694,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 28.889,
+          "gain": 0.1306344,
+          "azimuth_deg": -8.676,
+          "elevation_deg": 50.202,
+          "kind": "surface",
+          "surface": "B2.15",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 31.337,
+          "gain": 0.096793,
+          "azimuth_deg": -149.941,
+          "elevation_deg": 35.486,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 31.493,
+          "gain": 0.0914305,
+          "azimuth_deg": 2.747,
+          "elevation_deg": 34.501,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.006,
+          "gain": 0.0769819,
+          "azimuth_deg": -142.009,
+          "elevation_deg": 29.681,
+          "kind": "surface",
+          "surface": "B2.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.018,
+          "gain": 0.0682306,
+          "azimuth_deg": -141.531,
+          "elevation_deg": 26.905,
+          "kind": "surface",
+          "surface": "B2.10",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.717,
+          "gain": 0.0621541,
+          "azimuth_deg": 17.439,
+          "elevation_deg": 26.692,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.589,
+          "gain": 0.0526145,
+          "azimuth_deg": 17.818,
+          "elevation_deg": 22.399,
+          "kind": "surface",
+          "surface": "B1.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.628,
+          "gain": 0.0143113,
+          "azimuth_deg": 3.74,
+          "elevation_deg": 44.789,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.027,
+          "gain": 0.0462711,
+          "azimuth_deg": -148.659,
+          "elevation_deg": 21.222,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.092,
+          "gain": 0.0441748,
+          "azimuth_deg": -148.209,
+          "elevation_deg": 23.164,
+          "kind": "surface",
+          "surface": "B2.9",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.969,
+          "gain": 0.0403162,
+          "azimuth_deg": 34.542,
+          "elevation_deg": 19.194,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.177,
+          "gain": 0.0344995,
+          "azimuth_deg": -97.64,
+          "elevation_deg": 16.549,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.378,
+          "gain": 0.0298725,
+          "azimuth_deg": -155.881,
+          "elevation_deg": 14.797,
+          "kind": "surface",
+          "surface": "B2.1",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.586,
+          "gain": 0.0283674,
+          "azimuth_deg": -125.492,
+          "elevation_deg": 15.412,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.742,
+          "gain": 0.0009378,
+          "azimuth_deg": -99.515,
+          "elevation_deg": 8.571,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 48.28,
+          "gain": 0.0014451,
+          "azimuth_deg": -84.746,
+          "elevation_deg": 25.077,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 52.818,
+          "gain": 0.0013673,
+          "azimuth_deg": -108.174,
+          "elevation_deg": 15.26,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 57.186,
+          "gain": 0.0142915,
+          "azimuth_deg": 173.186,
+          "elevation_deg": 58.065,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.895,
+          "gain": 0.001673,
+          "azimuth_deg": -110.839,
+          "elevation_deg": -0.986,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 63.806,
+          "gain": 0.0193907,
+          "azimuth_deg": -173.797,
+          "elevation_deg": 74.735,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.944,
+          "gain": 0.0015138,
+          "azimuth_deg": -97.188,
+          "elevation_deg": -14.879,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 79.848,
+          "gain": 0.0113689,
+          "azimuth_deg": -160.738,
+          "elevation_deg": 44.108,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 92.714,
+          "gain": 0.021998,
+          "azimuth_deg": -172.443,
+          "elevation_deg": 28.624,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 136.116,
+          "gain": 0.0133898,
+          "azimuth_deg": -161.078,
+          "elevation_deg": 30.799,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 144.356,
+          "gain": 0.0275802,
+          "azimuth_deg": -22.16,
+          "elevation_deg": 19.419,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 147.26,
+          "gain": 0.0201671,
+          "azimuth_deg": 167.458,
+          "elevation_deg": 18.98,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 152.673,
+          "gain": 0.0171052,
+          "azimuth_deg": 20.607,
+          "elevation_deg": 49.205,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 164.863,
+          "gain": 0.0142744,
+          "azimuth_deg": -21.522,
+          "elevation_deg": 19.954,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 164.872,
+          "gain": 0.0185505,
+          "azimuth_deg": 5.053,
+          "elevation_deg": 81.576,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 189.895,
+          "gain": 0.01971,
+          "azimuth_deg": 0.496,
+          "elevation_deg": 58.247,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 51.828,
+        "duration_s": 3.6,
+        "level": 0.0331209,
+        "diffusion": 0.84195,
+        "spread_deg": 76.12,
+        "high_frequency_damping": 0.52889,
+        "absorption_by_band": [
+          0.455625,
+          0.514019,
+          0.582413,
+          0.660806,
+          0.7592,
+          0.867593,
+          0.965987,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834
+        ],
+        "seed": 55144953
+      }
+    },
+    {
+      "id": 5,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 16.1846,
+        "y": 28.678,
+        "z": 6.2545
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 33.223,
+        "gain": 0.2438624
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 28.48,
+          "gain": 0.1832136,
+          "azimuth_deg": 169.096,
+          "elevation_deg": -73.024,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 29.111,
+          "gain": 0.1611667,
+          "azimuth_deg": 56.662,
+          "elevation_deg": -61.973,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 29.457,
+          "gain": 0.1476711,
+          "azimuth_deg": 54.161,
+          "elevation_deg": -58.168,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 29.531,
+          "gain": 0.140001,
+          "azimuth_deg": 171.15,
+          "elevation_deg": -57.456,
+          "kind": "surface",
+          "surface": "B1.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 30.45,
+          "gain": 0.1205194,
+          "azimuth_deg": 53.057,
+          "elevation_deg": -48.528,
+          "kind": "surface",
+          "surface": "B2.6",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 30.638,
+          "gain": 0.1129844,
+          "azimuth_deg": 177.118,
+          "elevation_deg": -47.626,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 31.519,
+          "gain": 0.0987949,
+          "azimuth_deg": 47.546,
+          "elevation_deg": -40.89,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.146,
+          "gain": 0.0815609,
+          "azimuth_deg": 42.977,
+          "elevation_deg": -35.233,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.379,
+          "gain": 0.076523,
+          "azimuth_deg": -178.019,
+          "elevation_deg": -34.64,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.017,
+          "gain": 0.0695455,
+          "azimuth_deg": 1.247,
+          "elevation_deg": -32.169,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.555,
+          "gain": 0.0638333,
+          "azimuth_deg": 44.541,
+          "elevation_deg": -31.644,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.233,
+          "gain": 0.0542176,
+          "azimuth_deg": 43.911,
+          "elevation_deg": -28.619,
+          "kind": "surface",
+          "surface": "B2.11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.609,
+          "gain": 0.0505976,
+          "azimuth_deg": -165.681,
+          "elevation_deg": -27.67,
+          "kind": "surface",
+          "surface": "B2.15",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.485,
+          "gain": 0.0457871,
+          "azimuth_deg": 43.705,
+          "elevation_deg": -25.336,
+          "kind": "surface",
+          "surface": "B1.10",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.544,
+          "gain": 0.0388671,
+          "azimuth_deg": -174.449,
+          "elevation_deg": -21.21,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.558,
+          "gain": 0.0302484,
+          "azimuth_deg": -7.916,
+          "elevation_deg": -13.451,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.847,
+          "gain": 0.0365757,
+          "azimuth_deg": -166.866,
+          "elevation_deg": -21.41,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.983,
+          "gain": 0.0347352,
+          "azimuth_deg": -96.239,
+          "elevation_deg": -22.619,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.223,
+          "gain": 0.0311653,
+          "azimuth_deg": -176.532,
+          "elevation_deg": -19.572,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.317,
+          "gain": 0.0045827,
+          "azimuth_deg": -93.858,
+          "elevation_deg": -13.869,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 49.855,
+          "gain": 0.0041052,
+          "azimuth_deg": -105.405,
+          "elevation_deg": -11.276,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 54.393,
+          "gain": 0.0034292,
+          "azimuth_deg": -106.821,
+          "elevation_deg": 4.04,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 57.825,
+          "gain": 0.0130381,
+          "azimuth_deg": 17.089,
+          "elevation_deg": 48.798,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.268,
+          "gain": 0.0300796,
+          "azimuth_deg": -166.009,
+          "elevation_deg": -44.211,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.519,
+          "gain": 0.0030872,
+          "azimuth_deg": -110.144,
+          "elevation_deg": 4.111,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 67.68,
+          "gain": 0.0202528,
+          "azimuth_deg": 0.036,
+          "elevation_deg": -23.133,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 71.532,
+          "gain": 0.0029894,
+          "azimuth_deg": -96.025,
+          "elevation_deg": -30.327,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 84.154,
+          "gain": 0.0342861,
+          "azimuth_deg": 165.178,
+          "elevation_deg": -10.148,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.764,
+          "gain": 0.029312,
+          "azimuth_deg": 178.375,
+          "elevation_deg": -28.883,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 121.381,
+          "gain": 0.0219399,
+          "azimuth_deg": -20.053,
+          "elevation_deg": -33.206,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 136.485,
+          "gain": 0.0316994,
+          "azimuth_deg": -9.955,
+          "elevation_deg": -22.508,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 165.623,
+          "gain": 0.0201463,
+          "azimuth_deg": -163.132,
+          "elevation_deg": -23.204,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 184.555,
+          "gain": 0.011867,
+          "azimuth_deg": 174.535,
+          "elevation_deg": -13.426,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 185.877,
+          "gain": 0.0177129,
+          "azimuth_deg": -164.503,
+          "elevation_deg": 54.682,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 187.446,
+          "gain": 0.0295153,
+          "azimuth_deg": -13.687,
+          "elevation_deg": -34.834,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 51.828,
+        "duration_s": 3.6,
+        "level": 0.030739,
+        "diffusion": 0.70379,
+        "spread_deg": 62.431,
+        "high_frequency_damping": 0.54398,
+        "absorption_by_band": [
+          0.469875,
+          0.528744,
+          0.597612,
+          0.67648,
+          0.775348,
+          0.884216,
+          0.98,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834
+        ],
+        "seed": 55152872
+      }
+    },
+    {
+      "id": 6,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 11.4354,
+        "y": 28.6921,
+        "z": 6.2404
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 32.531,
+        "gain": 0.2424206
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 30.743,
+          "gain": 0.1370473,
+          "azimuth_deg": 98.217,
+          "elevation_deg": -40.783,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 32.181,
+          "gain": 0.115511,
+          "azimuth_deg": -54.992,
+          "elevation_deg": -37.22,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 32.373,
+          "gain": 0.1092397,
+          "azimuth_deg": -41.528,
+          "elevation_deg": -35.304,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 32.55,
+          "gain": 0.103465,
+          "azimuth_deg": -43.578,
+          "elevation_deg": -33.69,
+          "kind": "surface",
+          "surface": "B1.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 32.591,
+          "gain": 0.0991169,
+          "azimuth_deg": -86.959,
+          "elevation_deg": -34.192,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.158,
+          "gain": 0.0843382,
+          "azimuth_deg": -98.818,
+          "elevation_deg": -32.089,
+          "kind": "surface",
+          "surface": "B2.15",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.167,
+          "gain": 0.0810195,
+          "azimuth_deg": -19.859,
+          "elevation_deg": -31.202,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.612,
+          "gain": 0.0338273,
+          "azimuth_deg": -0.774,
+          "elevation_deg": -23.353,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.747,
+          "gain": 0.0357814,
+          "azimuth_deg": -10.24,
+          "elevation_deg": -23.026,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.826,
+          "gain": 0.0694473,
+          "azimuth_deg": -86.773,
+          "elevation_deg": -26.421,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.473,
+          "gain": 0.0640502,
+          "azimuth_deg": -112.62,
+          "elevation_deg": -23.859,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.702,
+          "gain": 0.0606968,
+          "azimuth_deg": -123.847,
+          "elevation_deg": -26.56,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.219,
+          "gain": 0.0565393,
+          "azimuth_deg": -60.3,
+          "elevation_deg": -23.904,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.259,
+          "gain": 0.0542177,
+          "azimuth_deg": -3.349,
+          "elevation_deg": -26.139,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.258,
+          "gain": 0.0491839,
+          "azimuth_deg": 2.365,
+          "elevation_deg": -24.092,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.352,
+          "gain": 0.047031,
+          "azimuth_deg": -131.993,
+          "elevation_deg": -23.339,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.5,
+          "gain": 0.0448356,
+          "azimuth_deg": -0.823,
+          "elevation_deg": -24.296,
+          "kind": "surface",
+          "surface": "B2.6",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.113,
+          "gain": 0.037633,
+          "azimuth_deg": 14.138,
+          "elevation_deg": -21.03,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.266,
+          "gain": 0.0342588,
+          "azimuth_deg": 11.762,
+          "elevation_deg": -19.106,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.355,
+          "gain": 0.0338799,
+          "azimuth_deg": -25.786,
+          "elevation_deg": -35.442,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.71,
+          "gain": 0.0308813,
+          "azimuth_deg": 14.747,
+          "elevation_deg": -17.693,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 44.625,
+          "gain": 0.0010048,
+          "azimuth_deg": -80.972,
+          "elevation_deg": 7.38,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 48.141,
+          "gain": 0.0268962,
+          "azimuth_deg": 2.514,
+          "elevation_deg": -14.154,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.163,
+          "gain": 0.0008879,
+          "azimuth_deg": -91.402,
+          "elevation_deg": -25.206,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 55.768,
+          "gain": 0.0280072,
+          "azimuth_deg": -172.187,
+          "elevation_deg": -51.117,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.239,
+          "gain": 0.0016091,
+          "azimuth_deg": -82.858,
+          "elevation_deg": -7.505,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 58.813,
+          "gain": 0.0010921,
+          "azimuth_deg": -112.61,
+          "elevation_deg": 3.958,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 70.84,
+          "gain": 0.0008884,
+          "azimuth_deg": -89.554,
+          "elevation_deg": -20.271,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 72.185,
+          "gain": 0.0236936,
+          "azimuth_deg": -157.913,
+          "elevation_deg": 19.177,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 85.715,
+          "gain": 0.0210595,
+          "azimuth_deg": -175.959,
+          "elevation_deg": -19.099,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 98.281,
+          "gain": 0.0357535,
+          "azimuth_deg": 157.866,
+          "elevation_deg": 62.338,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 110.942,
+          "gain": 0.0177919,
+          "azimuth_deg": 160.673,
+          "elevation_deg": -43.952,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 119.283,
+          "gain": 0.0305615,
+          "azimuth_deg": 162.098,
+          "elevation_deg": -12.717,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 135.435,
+          "gain": 0.0282545,
+          "azimuth_deg": 19.68,
+          "elevation_deg": -38.454,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 194.854,
+          "gain": 0.0073066,
+          "azimuth_deg": 11.941,
+          "elevation_deg": -56.712,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 51.828,
+        "duration_s": 3.6,
+        "level": 0.0280044,
+        "diffusion": 0.8205,
+        "spread_deg": 73.995,
+        "high_frequency_damping": 0.5281,
+        "absorption_by_band": [
+          0.427725,
+          0.486094,
+          0.554463,
+          0.632832,
+          0.731201,
+          0.83957,
+          0.937939,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.442606,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834
+        ],
+        "seed": 55160791
+      }
+    },
+    {
+      "id": 7,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 16.1588,
+        "y": 23.9687,
+        "z": 6.2802
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 35.542,
+        "gain": 0.246545
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 32.902,
+          "gain": 0.034335,
+          "azimuth_deg": -8.471,
+          "elevation_deg": -46.952,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.198,
+          "gain": 0.107059,
+          "azimuth_deg": 122.732,
+          "elevation_deg": -34.827,
+          "kind": "surface",
+          "surface": "B2.15",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.416,
+          "gain": 0.0999332,
+          "azimuth_deg": 135.227,
+          "elevation_deg": -36.876,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.485,
+          "gain": 0.0944881,
+          "azimuth_deg": 95.626,
+          "elevation_deg": -37.002,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.852,
+          "gain": 0.0871547,
+          "azimuth_deg": 137.426,
+          "elevation_deg": -33.044,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.964,
+          "gain": 0.0821352,
+          "azimuth_deg": 142.505,
+          "elevation_deg": -35.173,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.95,
+          "gain": 0.0723024,
+          "azimuth_deg": 81.745,
+          "elevation_deg": -31.63,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.526,
+          "gain": 0.0658967,
+          "azimuth_deg": -74.667,
+          "elevation_deg": -29.305,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.07,
+          "gain": 0.060303,
+          "azimuth_deg": 75.829,
+          "elevation_deg": -27.488,
+          "kind": "surface",
+          "surface": "B1.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.013,
+          "gain": 0.0538192,
+          "azimuth_deg": 78.304,
+          "elevation_deg": -26.825,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.318,
+          "gain": 0.0501863,
+          "azimuth_deg": -175.575,
+          "elevation_deg": -25.139,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 40.241,
+          "gain": 0.0450677,
+          "azimuth_deg": -143.856,
+          "elevation_deg": -23.333,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 40.408,
+          "gain": 0.0424352,
+          "azimuth_deg": 159.955,
+          "elevation_deg": -23.501,
+          "kind": "surface",
+          "surface": "B2.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.22,
+          "gain": 0.0364084,
+          "azimuth_deg": 171.181,
+          "elevation_deg": -21.73,
+          "kind": "surface",
+          "surface": "B2.10",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.366,
+          "gain": 0.0343592,
+          "azimuth_deg": 73.501,
+          "elevation_deg": -22.718,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.749,
+          "gain": 0.0320216,
+          "azimuth_deg": 75.166,
+          "elevation_deg": -22.288,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.673,
+          "gain": 0.0290461,
+          "azimuth_deg": 163.95,
+          "elevation_deg": -19.122,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 44.488,
+          "gain": 0.0265421,
+          "azimuth_deg": 66.387,
+          "elevation_deg": -19.871,
+          "kind": "surface",
+          "surface": "B2.6",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.124,
+          "gain": 0.0244947,
+          "azimuth_deg": 67.332,
+          "elevation_deg": -20.065,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.797,
+          "gain": 0.0018454,
+          "azimuth_deg": -103.799,
+          "elevation_deg": -26.342,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 52.174,
+          "gain": 0.0047215,
+          "azimuth_deg": -73.303,
+          "elevation_deg": 6.904,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 52.624,
+          "gain": 0.0168882,
+          "azimuth_deg": -169.317,
+          "elevation_deg": -37.351,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.25,
+          "gain": 0.0024724,
+          "azimuth_deg": -97.942,
+          "elevation_deg": -34.201,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 61.824,
+          "gain": 0.0030408,
+          "azimuth_deg": -77.602,
+          "elevation_deg": 2.15,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 70.612,
+          "gain": 0.0169835,
+          "azimuth_deg": -167.431,
+          "elevation_deg": -12.642,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.851,
+          "gain": 0.0019436,
+          "azimuth_deg": -99.274,
+          "elevation_deg": 16.169,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 98.723,
+          "gain": 0.0165147,
+          "azimuth_deg": -157.983,
+          "elevation_deg": -40.662,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 127.569,
+          "gain": 0.0123913,
+          "azimuth_deg": -167.829,
+          "elevation_deg": -28.058,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 134.394,
+          "gain": 0.0293105,
+          "azimuth_deg": -166.587,
+          "elevation_deg": -54.627,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 136.888,
+          "gain": 0.0246877,
+          "azimuth_deg": -10.455,
+          "elevation_deg": -58.489,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 142.309,
+          "gain": 0.0076546,
+          "azimuth_deg": -1.792,
+          "elevation_deg": -45.981,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 166.511,
+          "gain": 0.0187281,
+          "azimuth_deg": -17.738,
+          "elevation_deg": -12.38,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 195.531,
+          "gain": 0.0256746,
+          "azimuth_deg": 20.499,
+          "elevation_deg": 65.768,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 197.61,
+          "gain": 0.0265996,
+          "azimuth_deg": -4.888,
+          "elevation_deg": -42.722,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 203.691,
+          "gain": 0.00887,
+          "azimuth_deg": 163.534,
+          "elevation_deg": -37.616,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 51.828,
+        "duration_s": 3.6,
+        "level": 0.0223629,
+        "diffusion": 0.80311,
+        "spread_deg": 72.271,
+        "high_frequency_damping": 0.59491,
+        "absorption_by_band": [
+          0.514304,
+          0.574772,
+          0.64524,
+          0.725709,
+          0.826177,
+          0.936646,
+          0.98,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834
+        ],
+        "seed": 55168710
+      }
+    },
+    {
+      "id": 8,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 11.472,
+        "y": 23.9655,
+        "z": 6.277
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 37.045,
+        "gain": 0.2462012
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 32.051,
+          "gain": 0.2191066,
+          "azimuth_deg": 163.389,
+          "elevation_deg": -87.421,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 32.884,
+          "gain": 0.1887787,
+          "azimuth_deg": -41.652,
+          "elevation_deg": -63.28,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.213,
+          "gain": 0.1749548,
+          "azimuth_deg": -50.357,
+          "elevation_deg": -57.034,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.256,
+          "gain": 0.1681718,
+          "azimuth_deg": 151.288,
+          "elevation_deg": -57.407,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 33.355,
+          "gain": 0.1605417,
+          "azimuth_deg": -81.183,
+          "elevation_deg": -57.62,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.253,
+          "gain": 0.1397535,
+          "azimuth_deg": -6.398,
+          "elevation_deg": -49.25,
+          "kind": "surface",
+          "surface": "B2.15",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.718,
+          "gain": 0.1061511,
+          "azimuth_deg": -153.069,
+          "elevation_deg": -36.845,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.89,
+          "gain": 0.1010693,
+          "azimuth_deg": 2.011,
+          "elevation_deg": -36.237,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.612,
+          "gain": 0.0919982,
+          "azimuth_deg": -137.567,
+          "elevation_deg": -32.497,
+          "kind": "surface",
+          "surface": "B2.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.539,
+          "gain": 0.0827239,
+          "azimuth_deg": -141.652,
+          "elevation_deg": -29.546,
+          "kind": "surface",
+          "surface": "B2.10",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 40.105,
+          "gain": 0.0715444,
+          "azimuth_deg": 16.37,
+          "elevation_deg": -27.456,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.967,
+          "gain": 0.0614599,
+          "azimuth_deg": 16.773,
+          "elevation_deg": -25.31,
+          "kind": "surface",
+          "surface": "B1.7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.527,
+          "gain": 0.0574756,
+          "azimuth_deg": -147.263,
+          "elevation_deg": -24.179,
+          "kind": "surface",
+          "surface": "B2.9",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.538,
+          "gain": 0.0555101,
+          "azimuth_deg": -152.453,
+          "elevation_deg": -24.541,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 44.34,
+          "gain": 0.0485939,
+          "azimuth_deg": 33.469,
+          "elevation_deg": -20.278,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.904,
+          "gain": 0.0434149,
+          "azimuth_deg": -99.781,
+          "elevation_deg": -18,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 47.815,
+          "gain": 0.0384101,
+          "azimuth_deg": -157.994,
+          "elevation_deg": -18.636,
+          "kind": "surface",
+          "surface": "B2.1",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 47.873,
+          "gain": 0.0370244,
+          "azimuth_deg": -122.556,
+          "elevation_deg": -17.001,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.391,
+          "gain": 0.0393507,
+          "azimuth_deg": -10.014,
+          "elevation_deg": -16.407,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.301,
+          "gain": 0.0011982,
+          "azimuth_deg": -103.966,
+          "elevation_deg": -39.511,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 57.314,
+          "gain": 0.0009132,
+          "azimuth_deg": -98.031,
+          "elevation_deg": -17.051,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 62.753,
+          "gain": 0.0019915,
+          "azimuth_deg": -102.677,
+          "elevation_deg": -35.785,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 63.327,
+          "gain": 0.0012304,
+          "azimuth_deg": -91.3,
+          "elevation_deg": -0.942,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "canyon",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 66.912,
+          "gain": 0.0188808,
+          "azimuth_deg": -155.708,
+          "elevation_deg": -15.769,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.292,
+          "gain": 0.0011346,
+          "azimuth_deg": -102.696,
+          "elevation_deg": -1.976,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "stone",
+          "branch_family": "canyon",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 71.831,
+          "gain": 0.041363,
+          "azimuth_deg": -177.432,
+          "elevation_deg": -23.519,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 84.125,
+          "gain": 0.0271499,
+          "azimuth_deg": 24.248,
+          "elevation_deg": -56.335,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 110.074,
+          "gain": 0.0262612,
+          "azimuth_deg": 21.43,
+          "elevation_deg": 17.126,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 126.409,
+          "gain": 0.0265567,
+          "azimuth_deg": 155.336,
+          "elevation_deg": -37.316,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 134.718,
+          "gain": 0.0094655,
+          "azimuth_deg": -7.54,
+          "elevation_deg": -19.063,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 152.195,
+          "gain": 0.029948,
+          "azimuth_deg": 171.879,
+          "elevation_deg": -41.001,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 170.236,
+          "gain": 0.0309699,
+          "azimuth_deg": 171.56,
+          "elevation_deg": -8.097,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 191.853,
+          "gain": 0.013188,
+          "azimuth_deg": 9.258,
+          "elevation_deg": -20.076,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 196.213,
+          "gain": 0.0206969,
+          "azimuth_deg": -167.794,
+          "elevation_deg": -66.024,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 209.667,
+          "gain": 0.0172565,
+          "azimuth_deg": -17.522,
+          "elevation_deg": -26.22,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "earth",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 51.828,
+        "duration_s": 3.6,
+        "level": 0.0376293,
+        "diffusion": 0.74095,
+        "spread_deg": 66.113,
+        "high_frequency_damping": 0.62582,
+        "absorption_by_band": [
+          0.374362,
+          0.435802,
+          0.507243,
+          0.588683,
+          0.690123,
+          0.801563,
+          0.903003,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.468204,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834,
+          0.440834
+        ],
+        "seed": 55176629
+      }
+    }
+  ],
+  "atlas": {
+    "name": "Dry Slot",
+    "category": "Canyon",
+    "description": "A narrow dry slot with tall stone walls, open sky, and sparse delayed returns.",
+    "seed": 550101,
+    "source": "s3g-mc Imprint Sketch"
+  }
+}

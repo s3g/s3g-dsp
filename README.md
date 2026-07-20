@@ -45,6 +45,11 @@ Current plugins:
 - `s3g Ambi Environment Generator 64`: procedural field-recording instrument
   combining spatial wind, rain, water, fire, insect, machine, and ambient-air
   layers with first-through-seventh-order `ACN/SN3D` output.
+- `s3g Ambi Imprint 64`: fixed 64-channel directional convolution processor
+  for `.s3gimprint` architectural, natural, open, or imaginary responses
+  exported directly by `s3g-mc Imprint Sketch`, with an orbitable geometry
+  view, a bundled atlas of fourteen editable precomposed spaces, and first-
+  through-seventh-order `ACN/SN3D` operation.
 - `s3g Ambi Grain Processor`: CLAP instrument plugin for loaded `ACN/SN3D`
   ambisonic media with channel-locked grain events.
 - `s3g Macro Delay 8ch/24ch`: compact multichannel delay macros with

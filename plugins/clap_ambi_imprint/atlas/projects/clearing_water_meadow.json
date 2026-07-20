@@ -1,0 +1,910 @@
+{
+  "format": "s3g-imprint-sketch",
+  "version": 1,
+  "tool": "s3g-mc Imprint Sketch",
+  "target_process": "3OAFX Synthetic Ambisonic IR Bank",
+  "interpretation": "directional acoustic sketch for architectural, natural, open, or imaginary spaces",
+  "space_family": "clearing",
+  "space_seed": 660241,
+  "room_x": 58.8,
+  "room_y": 71.2,
+  "room_z": 14.8,
+  "material_preset": "water",
+  "absorption": 0.42,
+  "scattering": 0.7,
+  "tail_soften": 0.1,
+  "irregularity": 0.28,
+  "surface_roughness": 0.64,
+  "vertical_variation": 0.29,
+  "openness": 0.86,
+  "space_shape": "side_chamber",
+  "room_shape": "wedge",
+  "topology_bias": 0.52,
+  "branch_family": "mixed",
+  "room_polygon": [
+    {
+      "x": 29.4,
+      "y": 7.298
+    },
+    {
+      "x": 37.588,
+      "y": 8.36
+    },
+    {
+      "x": 44.491,
+      "y": 13.822
+    },
+    {
+      "x": 48.718,
+      "y": 22.095
+    },
+    {
+      "x": 51.246,
+      "y": 30.936
+    },
+    {
+      "x": 52.028,
+      "y": 40.431
+    },
+    {
+      "x": 50.215,
+      "y": 50.152
+    },
+    {
+      "x": 45.476,
+      "y": 58.799
+    },
+    {
+      "x": 37.768,
+      "y": 63.438
+    },
+    {
+      "x": 29.4,
+      "y": 63.267
+    },
+    {
+      "x": 21.893,
+      "y": 60.574
+    },
+    {
+      "x": 14.62,
+      "y": 56.928
+    },
+    {
+      "x": 8.547,
+      "y": 50.178
+    },
+    {
+      "x": 5.811,
+      "y": 40.637
+    },
+    {
+      "x": 6.252,
+      "y": 30.658
+    },
+    {
+      "x": 9.463,
+      "y": 21.662
+    },
+    {
+      "x": 15.149,
+      "y": 15.034
+    },
+    {
+      "x": 21.614,
+      "y": 9.695
+    }
+  ],
+  "space": {
+    "family": "clearing",
+    "seed": 660241,
+    "topology": "connected_regions",
+    "branch_family_mode": "mixed",
+    "primary_polygon_xy_m": [
+      {
+        "x": 29.4,
+        "y": 7.298
+      },
+      {
+        "x": 37.588,
+        "y": 8.36
+      },
+      {
+        "x": 44.491,
+        "y": 13.822
+      },
+      {
+        "x": 48.718,
+        "y": 22.095
+      },
+      {
+        "x": 51.246,
+        "y": 30.936
+      },
+      {
+        "x": 52.028,
+        "y": 40.431
+      },
+      {
+        "x": 50.215,
+        "y": 50.152
+      },
+      {
+        "x": 45.476,
+        "y": 58.799
+      },
+      {
+        "x": 37.768,
+        "y": 63.438
+      },
+      {
+        "x": 29.4,
+        "y": 63.267
+      },
+      {
+        "x": 21.893,
+        "y": 60.574
+      },
+      {
+        "x": 14.62,
+        "y": 56.928
+      },
+      {
+        "x": 8.547,
+        "y": 50.178
+      },
+      {
+        "x": 5.811,
+        "y": 40.637
+      },
+      {
+        "x": 6.252,
+        "y": 30.658
+      },
+      {
+        "x": 9.463,
+        "y": 21.662
+      },
+      {
+        "x": 15.149,
+        "y": 15.034
+      },
+      {
+        "x": 21.614,
+        "y": 9.695
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": 5.811,
+        "z": 14.192
+      },
+      {
+        "x": 8.699,
+        "z": 14.153
+      },
+      {
+        "x": 11.588,
+        "z": 14.131
+      },
+      {
+        "x": 14.477,
+        "z": 14.119
+      },
+      {
+        "x": 17.365,
+        "z": 14.116
+      },
+      {
+        "x": 20.254,
+        "z": 14.128
+      },
+      {
+        "x": 23.142,
+        "z": 14.165
+      },
+      {
+        "x": 26.031,
+        "z": 14.24
+      },
+      {
+        "x": 28.92,
+        "z": 14.357
+      },
+      {
+        "x": 31.808,
+        "z": 14.514
+      },
+      {
+        "x": 34.697,
+        "z": 14.696
+      },
+      {
+        "x": 37.585,
+        "z": 14.878
+      },
+      {
+        "x": 40.474,
+        "z": 15.03
+      },
+      {
+        "x": 43.363,
+        "z": 15.121
+      },
+      {
+        "x": 46.251,
+        "z": 15.127
+      },
+      {
+        "x": 49.14,
+        "z": 15.039
+      },
+      {
+        "x": 52.028,
+        "z": 14.864
+      }
+    ],
+    "irregularity": 0.28,
+    "roughness": 0.64,
+    "vertical_variation": 0.29,
+    "openness": 0.86,
+    "acoustic_volume_m3": 31481.581,
+    "acoustic_surface_m2": 5963.427
+  },
+  "chamber_shape": "skew",
+  "chamber_side": "back",
+  "exterior_opening": {
+    "enabled": true,
+    "side": "all",
+    "count": 4,
+    "position": 0.39,
+    "spread": 0.16,
+    "width": 0.39,
+    "opening_m": 14.096,
+    "leak": 0.72,
+    "leak_factor": 1,
+    "interpretation": "energy escape boundary for late-tail thinning and reduced reflection density",
+    "openings": [
+      {
+        "index": 1,
+        "side": "front",
+        "opening_m": 3.22,
+        "opening_segment": {
+          "x1": 30.342,
+          "y1": 7.42,
+          "x2": 33.535,
+          "y2": 7.834
+        }
+      },
+      {
+        "index": 2,
+        "side": "right",
+        "opening_m": 3.716,
+        "opening_segment": {
+          "x1": 51.378,
+          "y1": 32.534,
+          "x2": 51.683,
+          "y2": 36.237
+        }
+      },
+      {
+        "index": 3,
+        "side": "back",
+        "opening_m": 3.264,
+        "opening_segment": {
+          "x1": 35.913,
+          "y1": 63.4,
+          "x2": 32.649,
+          "y2": 63.334
+        }
+      },
+      {
+        "index": 4,
+        "side": "left",
+        "opening_m": 3.896,
+        "opening_segment": {
+          "x1": 5.932,
+          "y1": 37.892,
+          "x2": 6.104,
+          "y2": 34.001
+        }
+      }
+    ],
+    "opening_segment": {
+      "x1": 30.342,
+      "y1": 7.42,
+      "x2": 33.535,
+      "y2": 7.834
+    }
+  },
+  "chamber": {
+    "family_mode": "mixed",
+    "material": "vegetation",
+    "material_mode": "palette",
+    "material_mix": 0.63,
+    "width": 7.3,
+    "depth": 8.2,
+    "count": 2,
+    "position": 0.84,
+    "nested_chambers": 1,
+    "opening_width": 0.69,
+    "coupling": 0.39,
+    "chambers": [
+      {
+        "material_profile": {
+          "material": "wood",
+          "absorption": 0.57,
+          "scattering": 0.674,
+          "tail_soften": 0.09
+        },
+        "index": 1,
+        "level": 0,
+        "family": "clearing",
+        "height_m": 5.032,
+        "x": 30.469,
+        "y": 63.289,
+        "width": 7.298,
+        "depth": 6.48,
+        "opening_x": 36.636,
+        "opening_y": 63.415,
+        "opening": 5.037,
+        "polygon": [
+          {
+            "x": 37.768,
+            "y": 63.438
+          },
+          {
+            "x": 30.469,
+            "y": 63.289
+          },
+          {
+            "x": 30.531,
+            "y": 65.075
+          },
+          {
+            "x": 30.95,
+            "y": 66.701
+          },
+          {
+            "x": 31.567,
+            "y": 68.152
+          },
+          {
+            "x": 32.429,
+            "y": 69.249
+          },
+          {
+            "x": 33.473,
+            "y": 69.769
+          },
+          {
+            "x": 34.552,
+            "y": 69.719
+          },
+          {
+            "x": 35.582,
+            "y": 69.236
+          },
+          {
+            "x": 36.506,
+            "y": 68.31
+          },
+          {
+            "x": 37.215,
+            "y": 66.92
+          },
+          {
+            "x": 37.657,
+            "y": 65.24
+          }
+        ],
+        "opening_segment": {
+          "x1": 36.636,
+          "y1": 63.415,
+          "x2": 31.6,
+          "y2": 63.312
+        },
+        "side": "back",
+        "shape": "skew"
+      },
+      {
+        "material_profile": {
+          "material": "vegetation",
+          "absorption": 0.733,
+          "scattering": 0.941,
+          "tail_soften": 0.415
+        },
+        "index": 2,
+        "level": 1,
+        "family": "clearing",
+        "height_m": 5.772,
+        "x": 29.697,
+        "y": 69.591,
+        "width": 5.255,
+        "depth": 4.956,
+        "opening_x": 34.39,
+        "opening_y": 69.6,
+        "opening": 4.13,
+        "polygon": [
+          {
+            "x": 34.952,
+            "y": 69.591
+          },
+          {
+            "x": 29.697,
+            "y": 69.68
+          },
+          {
+            "x": 29.77,
+            "y": 71.057
+          },
+          {
+            "x": 29.992,
+            "y": 72.383
+          },
+          {
+            "x": 30.442,
+            "y": 73.498
+          },
+          {
+            "x": 31.102,
+            "y": 74.177
+          },
+          {
+            "x": 31.84,
+            "y": 74.474
+          },
+          {
+            "x": 32.605,
+            "y": 74.546
+          },
+          {
+            "x": 33.361,
+            "y": 74.164
+          },
+          {
+            "x": 33.995,
+            "y": 73.316
+          },
+          {
+            "x": 34.524,
+            "y": 72.273
+          },
+          {
+            "x": 34.862,
+            "y": 70.989
+          }
+        ],
+        "opening_segment": {
+          "x1": 34.39,
+          "y1": 69.6,
+          "x2": 30.26,
+          "y2": 69.671
+        },
+        "side": "back",
+        "shape": "skew"
+      },
+      {
+        "material_profile": {
+          "material": "earth",
+          "absorption": 0.548,
+          "scattering": 0.843,
+          "tail_soften": 0.32
+        },
+        "index": 3,
+        "level": 0,
+        "family": "canyon",
+        "height_m": 16.28,
+        "x": 29,
+        "y": 63.267,
+        "width": 8.988,
+        "depth": 8.377,
+        "opening_x": 35.567,
+        "opening_y": 63.393,
+        "opening": 5.037,
+        "polygon": [
+          {
+            "x": 36.698,
+            "y": 63.416
+          },
+          {
+            "x": 36.551,
+            "y": 64.585
+          },
+          {
+            "x": 36.637,
+            "y": 65.758
+          },
+          {
+            "x": 36.59,
+            "y": 66.929
+          },
+          {
+            "x": 37.539,
+            "y": 68.12
+          },
+          {
+            "x": 37.911,
+            "y": 69.299
+          },
+          {
+            "x": 37.732,
+            "y": 70.468
+          },
+          {
+            "x": 37.988,
+            "y": 71.644
+          },
+          {
+            "x": 29.763,
+            "y": 71.476
+          },
+          {
+            "x": 29.94,
+            "y": 70.308
+          },
+          {
+            "x": 29.257,
+            "y": 69.123
+          },
+          {
+            "x": 29,
+            "y": 67.946
+          },
+          {
+            "x": 29.488,
+            "y": 66.784
+          },
+          {
+            "x": 29.281,
+            "y": 65.608
+          },
+          {
+            "x": 29.442,
+            "y": 64.44
+          },
+          {
+            "x": 29.4,
+            "y": 63.267
+          }
+        ],
+        "opening_segment": {
+          "x1": 35.567,
+          "y1": 63.393,
+          "x2": 30.531,
+          "y2": 63.29
+        },
+        "side": "back",
+        "shape": "skew"
+      },
+      {
+        "material_profile": {
+          "material": "vegetation",
+          "absorption": 0.574,
+          "scattering": 0.985,
+          "tail_soften": 0.633
+        },
+        "index": 4,
+        "level": 1,
+        "family": "cave",
+        "height_m": 10.508,
+        "x": 31.248,
+        "y": 71.507,
+        "width": 5.255,
+        "depth": 5.868,
+        "opening_x": 35.94,
+        "opening_y": 71.603,
+        "opening": 4.13,
+        "polygon": [
+          {
+            "x": 36.503,
+            "y": 71.614
+          },
+          {
+            "x": 31.248,
+            "y": 71.507
+          },
+          {
+            "x": 31.507,
+            "y": 73.358
+          },
+          {
+            "x": 31.882,
+            "y": 74.953
+          },
+          {
+            "x": 32.394,
+            "y": 76.283
+          },
+          {
+            "x": 33.063,
+            "y": 77.055
+          },
+          {
+            "x": 33.775,
+            "y": 77.374
+          },
+          {
+            "x": 34.494,
+            "y": 77.104
+          },
+          {
+            "x": 35.18,
+            "y": 76.368
+          },
+          {
+            "x": 35.758,
+            "y": 75.1
+          },
+          {
+            "x": 36.076,
+            "y": 73.384
+          }
+        ],
+        "opening_segment": {
+          "x1": 35.94,
+          "y1": 71.603,
+          "x2": 31.811,
+          "y2": 71.518
+        },
+        "side": "back",
+        "shape": "skew"
+      }
+    ]
+  },
+  "field_offset": {
+    "x": 0.53,
+    "y": -0.25
+  },
+  "source_distance": 2.4,
+  "direction_spread_deg": 50,
+  "group_variation": 0.28,
+  "surface_contrast": 0.39,
+  "distance_variation": 0.45,
+  "order": 3,
+  "direction_set": "auto",
+  "effective_direction_layout": "practical_8",
+  "groups": [
+    {
+      "group": 1,
+      "azimuth": 45,
+      "elevation": 35.264,
+      "channels": "1-16",
+      "direct_time_ms": 26,
+      "first_reflection": {
+        "wall": "B3.12",
+        "time_ms": 27
+      },
+      "early_energy": 0.21356,
+      "chamber_energy": 0.00031,
+      "branch_energy": 0.00031,
+      "local_profile": {
+        "absorption": 0.399,
+        "scattering": 0.668,
+        "tail_soften": 0.129,
+        "source_distance": 2.396,
+        "direction_spread_deg": 46.39,
+        "pre_delay_ms": 19.18,
+        "rt60": 0.295
+      },
+      "source_position_m": {
+        "x": 42.551,
+        "y": 34.96,
+        "z": 8.892
+      }
+    },
+    {
+      "group": 2,
+      "azimuth": -45,
+      "elevation": 35.264,
+      "channels": "17-32",
+      "direct_time_ms": 23,
+      "first_reflection": {
+        "wall": "B3.1",
+        "time_ms": 22
+      },
+      "early_energy": 0.21617,
+      "chamber_energy": 0.00037,
+      "branch_energy": 0.00037,
+      "local_profile": {
+        "absorption": 0.426,
+        "scattering": 0.711,
+        "tail_soften": 0.09,
+        "source_distance": 2.463,
+        "direction_spread_deg": 51.31,
+        "pre_delay_ms": 16.26,
+        "rt60": 0.295
+      },
+      "source_position_m": {
+        "x": 39.745,
+        "y": 34.999,
+        "z": 8.931
+      }
+    },
+    {
+      "group": 3,
+      "azimuth": 135,
+      "elevation": 35.264,
+      "channels": "33-48",
+      "direct_time_ms": 24,
+      "first_reflection": {
+        "wall": "B3.1",
+        "time_ms": 27
+      },
+      "early_energy": 0.16773,
+      "chamber_energy": 0.00017,
+      "branch_energy": 0.00017,
+      "local_profile": {
+        "absorption": 0.419,
+        "scattering": 0.664,
+        "tail_soften": 0.108,
+        "source_distance": 2.216,
+        "direction_spread_deg": 45.85,
+        "pre_delay_ms": 17.57,
+        "rt60": 0.295
+      },
+      "source_position_m": {
+        "x": 42.447,
+        "y": 32.297,
+        "z": 8.788
+      }
+    },
+    {
+      "group": 4,
+      "azimuth": -135,
+      "elevation": 35.264,
+      "channels": "49-64",
+      "direct_time_ms": 22,
+      "first_reflection": {
+        "wall": "B3.1",
+        "time_ms": 20
+      },
+      "early_energy": 0.27969,
+      "chamber_energy": 0.00005,
+      "branch_energy": 0.00005,
+      "local_profile": {
+        "absorption": 0.422,
+        "scattering": 0.741,
+        "tail_soften": 0.075,
+        "source_distance": 2.209,
+        "direction_spread_deg": 54.64,
+        "pre_delay_ms": 15.09,
+        "rt60": 0.295
+      },
+      "source_position_m": {
+        "x": 39.892,
+        "y": 32.301,
+        "z": 8.784
+      }
+    },
+    {
+      "group": 5,
+      "azimuth": 45,
+      "elevation": -35.264,
+      "channels": "65-80",
+      "direct_time_ms": 23,
+      "first_reflection": {
+        "wall": "B3.12",
+        "time_ms": 24
+      },
+      "early_energy": 0.20422,
+      "chamber_energy": 0.00027,
+      "branch_energy": 0.00027,
+      "local_profile": {
+        "absorption": 0.43,
+        "scattering": 0.672,
+        "tail_soften": 0.082,
+        "source_distance": 2.501,
+        "direction_spread_deg": 46.81,
+        "pre_delay_ms": 15.65,
+        "rt60": 0.295
+      },
+      "source_position_m": {
+        "x": 42.611,
+        "y": 35.02,
+        "z": 6.065
+      }
+    },
+    {
+      "group": 6,
+      "azimuth": -45,
+      "elevation": -35.264,
+      "channels": "81-96",
+      "direct_time_ms": 22,
+      "first_reflection": {
+        "wall": "B3.1",
+        "time_ms": 21
+      },
+      "early_energy": 0.22277,
+      "chamber_energy": 0.00043,
+      "branch_energy": 0.00043,
+      "local_profile": {
+        "absorption": 0.409,
+        "scattering": 0.73,
+        "tail_soften": 0.074,
+        "source_distance": 2.525,
+        "direction_spread_deg": 53.43,
+        "pre_delay_ms": 15.06,
+        "rt60": 0.295
+      },
+      "source_position_m": {
+        "x": 39.709,
+        "y": 35.035,
+        "z": 6.051
+      }
+    },
+    {
+      "group": 7,
+      "azimuth": 135,
+      "elevation": -35.264,
+      "channels": "97-112",
+      "direct_time_ms": 25,
+      "first_reflection": {
+        "wall": "B3.1",
+        "time_ms": 27
+      },
+      "early_energy": 0.15053,
+      "chamber_energy": 0.00002,
+      "branch_energy": 0.00002,
+      "local_profile": {
+        "absorption": 0.452,
+        "scattering": 0.721,
+        "tail_soften": 0.107,
+        "source_distance": 2.456,
+        "direction_spread_deg": 52.44,
+        "pre_delay_ms": 17.56,
+        "rt60": 0.295
+      },
+      "source_position_m": {
+        "x": 42.585,
+        "y": 32.159,
+        "z": 6.091
+      }
+    },
+    {
+      "group": 8,
+      "azimuth": -135,
+      "elevation": -35.264,
+      "channels": "113-128",
+      "direct_time_ms": 26,
+      "first_reflection": {
+        "wall": "B3.1",
+        "time_ms": 24
+      },
+      "early_energy": 0.26898,
+      "chamber_energy": 0.00007,
+      "branch_energy": 0.00007,
+      "local_profile": {
+        "absorption": 0.382,
+        "scattering": 0.691,
+        "tail_soften": 0.123,
+        "source_distance": 2.462,
+        "direction_spread_deg": 48.92,
+        "pre_delay_ms": 18.71,
+        "rt60": 0.295
+      },
+      "source_position_m": {
+        "x": 39.746,
+        "y": 32.155,
+        "z": 6.088
+      }
+    }
+  ],
+  "duration": 2.1,
+  "pre_delay_ms": 17,
+  "early_reflections": 31,
+  "camera": {
+    "azimuth": 24,
+    "elevation": 21,
+    "zoom": 0.96
+  },
+  "estimated_rt60": 0.295,
+  "late_start_seconds": 0.046,
+  "atlas": {
+    "name": "Water Meadow",
+    "category": "Clearing",
+    "description": "A wet open field with water and vegetation boundaries plus a few cave-like hollows.",
+    "seed": 660241,
+    "source": "s3g-mc Imprint Sketch"
+  }
+}

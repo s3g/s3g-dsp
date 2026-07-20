@@ -1,0 +1,3631 @@
+{
+  "format": "s3g-ambi-imprint",
+  "version": 1,
+  "generator": {
+    "name": "s3g-mc Imprint Sketch",
+    "project_format": "s3g-imprint-sketch",
+    "project_version": 1
+  },
+  "interpretation": "procedural directional space sketch; spectral material curves are creative estimates, not measured coefficients",
+  "coordinate_system": {
+    "convention": "AED",
+    "azimuth_zero": "front",
+    "azimuth_positive": "counterclockwise",
+    "elevation_positive": "up",
+    "distance_unit": "metre",
+    "time_unit": "millisecond"
+  },
+  "ambisonics": {
+    "channel_order": "ACN",
+    "normalization": "SN3D",
+    "reference_order": 3,
+    "maximum_runtime_order": 7
+  },
+  "spectral_bands_hz": [
+    125,
+    250,
+    500,
+    1000,
+    2000,
+    4000,
+    8000,
+    16000
+  ],
+  "space": {
+    "family": "room",
+    "seed": 110207,
+    "topology": "connected_regions",
+    "branch_family_mode": "room",
+    "primary_polygon_xy_m": [
+      {
+        "x": -0.033,
+        "y": -0.016
+      },
+      {
+        "x": 25.194,
+        "y": 0.053
+      },
+      {
+        "x": 25.178,
+        "y": 12.539
+      },
+      {
+        "x": -0.04,
+        "y": 12.62
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": -0.04,
+        "z": 9.119
+      },
+      {
+        "x": 1.756,
+        "z": 9.151
+      },
+      {
+        "x": 3.552,
+        "z": 9.166
+      },
+      {
+        "x": 5.348,
+        "z": 9.153
+      },
+      {
+        "x": 7.143,
+        "z": 9.109
+      },
+      {
+        "x": 8.939,
+        "z": 9.044
+      },
+      {
+        "x": 10.735,
+        "z": 8.978
+      },
+      {
+        "x": 12.531,
+        "z": 8.934
+      },
+      {
+        "x": 14.326,
+        "z": 8.927
+      },
+      {
+        "x": 16.122,
+        "z": 8.958
+      },
+      {
+        "x": 17.918,
+        "z": 9.016
+      },
+      {
+        "x": 19.714,
+        "z": 9.08
+      },
+      {
+        "x": 21.509,
+        "z": 9.13
+      },
+      {
+        "x": 23.305,
+        "z": 9.154
+      },
+      {
+        "x": 25.101,
+        "z": 9.151
+      },
+      {
+        "x": 26.897,
+        "z": 9.13
+      },
+      {
+        "x": 28.692,
+        "z": 9.103
+      }
+    ],
+    "irregularity": 0.14,
+    "roughness": 0.2,
+    "vertical_variation": 0.09,
+    "openness": 0.02,
+    "acoustic_volume_m3": 3171.24,
+    "acoustic_surface_m2": 1671.667
+  },
+  "room": {
+    "dimensions_m": {
+      "x": 25.3,
+      "y": 12.6,
+      "z": 9
+    },
+    "polygon_xy_m": [
+      {
+        "x": -0.033,
+        "y": -0.016
+      },
+      {
+        "x": 25.194,
+        "y": 0.053
+      },
+      {
+        "x": 25.178,
+        "y": 12.539
+      },
+      {
+        "x": -0.04,
+        "y": 12.62
+      }
+    ],
+    "shape": "rect",
+    "family": "room",
+    "seed": 110207,
+    "material": "wood",
+    "absorption": 0.305248,
+    "scattering": 0.55,
+    "tail_soften": 0.36,
+    "exterior_opening": {
+      "enabled": false,
+      "leak": 0
+    },
+    "chamber": {
+      "family_mode": "room",
+      "material": "damped",
+      "material_mode": "uniform",
+      "material_mix": 0.21,
+      "width": 10.7,
+      "depth": 3.5,
+      "count": 1,
+      "position": 0.62,
+      "nested_chambers": 0,
+      "opening_width": 0.57,
+      "coupling": 0.28,
+      "chambers": [
+        {
+          "material_profile": {
+            "material": "damped",
+            "absorption": 0.389,
+            "scattering": 0.471,
+            "tail_soften": 0.424
+          },
+          "index": 1,
+          "level": 0,
+          "family": "room",
+          "height_m": 6.48,
+          "x": 25.179,
+          "y": 1.161,
+          "width": 3.513,
+          "depth": 10.704,
+          "opening_x": 25.19,
+          "opening_y": 3.461,
+          "opening": 6.099,
+          "polygon": [
+            {
+              "x": 25.192,
+              "y": 1.161
+            },
+            {
+              "x": 25.179,
+              "y": 11.861
+            },
+            {
+              "x": 28.679,
+              "y": 11.865
+            },
+            {
+              "x": 28.691,
+              "y": 2.145
+            },
+            {
+              "x": 28.692,
+              "y": 1.165
+            },
+            {
+              "x": 28.132,
+              "y": 1.164
+            }
+          ],
+          "opening_segment": {
+            "x1": 25.19,
+            "y1": 3.461,
+            "x2": 25.182,
+            "y2": 9.56
+          },
+          "side": "right",
+          "shape": "trapezoid"
+        }
+      ]
+    }
+  },
+  "listener_position_m": {
+    "x": 14.0391,
+    "y": 5.2276,
+    "z": 4.4539
+  },
+  "direction_layout": "practical_8",
+  "direction_count": 8,
+  "duration_s": 1.8,
+  "profiles": [
+    {
+      "id": 1,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 15.3377,
+        "y": 6.5263,
+        "z": 5.7525
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 36.648,
+        "gain": 0.4445774
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 37.239,
+          "gain": 0.0545669,
+          "azimuth_deg": 45.651,
+          "elevation_deg": 32.798,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.75,
+          "gain": 0.0719793,
+          "azimuth_deg": -110.451,
+          "elevation_deg": 13.888,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.112,
+          "gain": 0.0882353,
+          "azimuth_deg": 38.402,
+          "elevation_deg": 35.021,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.74,
+          "gain": 0.1134429,
+          "azimuth_deg": 37.487,
+          "elevation_deg": 36.38,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.13,
+          "gain": 0.1007414,
+          "azimuth_deg": 45.091,
+          "elevation_deg": 76.23,
+          "kind": "surface",
+          "surface": "U",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.181,
+          "gain": 0.0816304,
+          "azimuth_deg": 171.743,
+          "elevation_deg": 7.412,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.181,
+          "gain": 0.0804839,
+          "azimuth_deg": 172.545,
+          "elevation_deg": 7.903,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.266,
+          "gain": 0.1285396,
+          "azimuth_deg": 45.949,
+          "elevation_deg": 32.12,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.1,
+          "gain": 0.0313739,
+          "azimuth_deg": 60.745,
+          "elevation_deg": 31.547,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.324,
+          "gain": 0.0755869,
+          "azimuth_deg": 44.787,
+          "elevation_deg": -80.007,
+          "kind": "surface",
+          "surface": "D",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.315,
+          "gain": 0.0426573,
+          "azimuth_deg": 57.865,
+          "elevation_deg": 41.983,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.636,
+          "gain": 0.0636195,
+          "azimuth_deg": 173.63,
+          "elevation_deg": 6,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.316,
+          "gain": 0.0615162,
+          "azimuth_deg": 5.545,
+          "elevation_deg": 6.138,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 69.497,
+          "gain": 0.0542159,
+          "azimuth_deg": 4.994,
+          "elevation_deg": 5.651,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 69.509,
+          "gain": 0.0739925,
+          "azimuth_deg": 38.999,
+          "elevation_deg": 40.505,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.566,
+          "gain": 0.0175356,
+          "azimuth_deg": -123.616,
+          "elevation_deg": 8.763,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 77.251,
+          "gain": 0.1311924,
+          "azimuth_deg": 40.912,
+          "elevation_deg": 37.307,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 80.033,
+          "gain": 0.0460179,
+          "azimuth_deg": 61.289,
+          "elevation_deg": 35.827,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 80.496,
+          "gain": 0.0652002,
+          "azimuth_deg": 40.478,
+          "elevation_deg": 31.8,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 84.758,
+          "gain": 0.0063729,
+          "azimuth_deg": -65.835,
+          "elevation_deg": 15.921,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 90.556,
+          "gain": 0.133013,
+          "azimuth_deg": -46.876,
+          "elevation_deg": -60.202,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.538,
+          "gain": 0.0342812,
+          "azimuth_deg": 85.804,
+          "elevation_deg": 3.389,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.538,
+          "gain": 0.0337997,
+          "azimuth_deg": 85.865,
+          "elevation_deg": 3.441,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 96.951,
+          "gain": 0.0140138,
+          "azimuth_deg": -100.336,
+          "elevation_deg": 20.397,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 97.567,
+          "gain": 0.1377224,
+          "azimuth_deg": 39.871,
+          "elevation_deg": 35.911,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 104.451,
+          "gain": 0.1468267,
+          "azimuth_deg": 58.628,
+          "elevation_deg": 33.938,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 109.143,
+          "gain": 0.009711,
+          "azimuth_deg": -80.243,
+          "elevation_deg": 25.474,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 110.962,
+          "gain": 0.0627375,
+          "azimuth_deg": 80.574,
+          "elevation_deg": -11.993,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 114.05,
+          "gain": 0.0938026,
+          "azimuth_deg": 33.003,
+          "elevation_deg": 33.463,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 114.284,
+          "gain": 0.0983167,
+          "azimuth_deg": 103.364,
+          "elevation_deg": -34.514,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 115.47,
+          "gain": 0.0688868,
+          "azimuth_deg": 60.451,
+          "elevation_deg": 39.848,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 120.452,
+          "gain": 0.1073893,
+          "azimuth_deg": 53.927,
+          "elevation_deg": 40.418,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 121.335,
+          "gain": 0.0078192,
+          "azimuth_deg": -87.209,
+          "elevation_deg": 31.319,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 128.315,
+          "gain": 0.1012096,
+          "azimuth_deg": 33.897,
+          "elevation_deg": 31.387,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 99.508,
+        "duration_s": 1.8,
+        "level": 0.1438899,
+        "diffusion": 0.53864,
+        "spread_deg": 22.171,
+        "high_frequency_damping": 0.37041,
+        "absorption_by_band": [
+          0.217848,
+          0.248175,
+          0.278502,
+          0.308829,
+          0.349156,
+          0.419483,
+          0.49981,
+          0.580137
+        ],
+        "rt60_s_by_band": [
+          1.342837,
+          1.184853,
+          1.06013,
+          0.959163,
+          0.851345,
+          0.711809,
+          0.599567,
+          0.517901
+        ],
+        "seed": 11599484
+      }
+    },
+    {
+      "id": 2,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 12.7336,
+        "y": 6.5331,
+        "z": 5.7594
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 35.221,
+        "gain": 0.4422413
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 45.215,
+          "gain": 0.0656766,
+          "azimuth_deg": -27.425,
+          "elevation_deg": 33.692,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.376,
+          "gain": 0.1463308,
+          "azimuth_deg": 127.284,
+          "elevation_deg": 15.216,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.571,
+          "gain": 0.1004928,
+          "azimuth_deg": -44.318,
+          "elevation_deg": 76.527,
+          "kind": "surface",
+          "surface": "U",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.113,
+          "gain": 0.1293909,
+          "azimuth_deg": -64.143,
+          "elevation_deg": -54.298,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.567,
+          "gain": 0.0402122,
+          "azimuth_deg": -63.018,
+          "elevation_deg": 36.974,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.753,
+          "gain": 0.080945,
+          "azimuth_deg": -172.384,
+          "elevation_deg": 8.067,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.753,
+          "gain": 0.0797652,
+          "azimuth_deg": -172.638,
+          "elevation_deg": 7.409,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.888,
+          "gain": 0.074898,
+          "azimuth_deg": -44.716,
+          "elevation_deg": -79.41,
+          "kind": "surface",
+          "surface": "D",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.217,
+          "gain": 0.0629799,
+          "azimuth_deg": -174.324,
+          "elevation_deg": 5.966,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.472,
+          "gain": 0.0565818,
+          "azimuth_deg": -49.975,
+          "elevation_deg": 27.848,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.829,
+          "gain": 0.060984,
+          "azimuth_deg": -5.781,
+          "elevation_deg": 5.837,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 68.046,
+          "gain": 0.053665,
+          "azimuth_deg": -5.878,
+          "elevation_deg": 5.508,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.715,
+          "gain": 0.1486327,
+          "azimuth_deg": -46.835,
+          "elevation_deg": 37.873,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 71.139,
+          "gain": 0.0049248,
+          "azimuth_deg": -76.917,
+          "elevation_deg": 6.043,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 72.192,
+          "gain": 0.1281619,
+          "azimuth_deg": -62.02,
+          "elevation_deg": 29.228,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 74.379,
+          "gain": 0.0699668,
+          "azimuth_deg": -38.909,
+          "elevation_deg": 39.002,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.66,
+          "gain": 0.0421323,
+          "azimuth_deg": -59.677,
+          "elevation_deg": 32.7,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 76.38,
+          "gain": 0.0688495,
+          "azimuth_deg": -52.768,
+          "elevation_deg": 28.442,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 78.057,
+          "gain": 0.0551778,
+          "azimuth_deg": -33.268,
+          "elevation_deg": 38.203,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 79.708,
+          "gain": 0.0591495,
+          "azimuth_deg": -30.489,
+          "elevation_deg": 36.753,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.293,
+          "gain": 0.0893689,
+          "azimuth_deg": -43.584,
+          "elevation_deg": 42.906,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.83,
+          "gain": 0.1147131,
+          "azimuth_deg": -50.937,
+          "elevation_deg": 40.341,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 83.332,
+          "gain": 0.0057492,
+          "azimuth_deg": -95.495,
+          "elevation_deg": 17.655,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 85.504,
+          "gain": 0.0496007,
+          "azimuth_deg": -50.395,
+          "elevation_deg": 33.834,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 87.765,
+          "gain": 0.1325367,
+          "azimuth_deg": -57.8,
+          "elevation_deg": 42.346,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.843,
+          "gain": 0.1107153,
+          "azimuth_deg": -39.448,
+          "elevation_deg": 36.258,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 95.524,
+          "gain": 0.0047524,
+          "azimuth_deg": -56.636,
+          "elevation_deg": 9.167,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 97.646,
+          "gain": 0.0302029,
+          "azimuth_deg": 86.879,
+          "elevation_deg": 3.397,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 97.646,
+          "gain": 0.0297627,
+          "azimuth_deg": 87.254,
+          "elevation_deg": 3.422,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 107.437,
+          "gain": 0.0779053,
+          "azimuth_deg": -41.907,
+          "elevation_deg": 30.11,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 107.716,
+          "gain": 0.0047439,
+          "azimuth_deg": -85.465,
+          "elevation_deg": -1.812,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 119.909,
+          "gain": 0.0066217,
+          "azimuth_deg": -68.89,
+          "elevation_deg": 23.304,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 121.436,
+          "gain": 0.1174052,
+          "azimuth_deg": -52.919,
+          "elevation_deg": 35.975,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 127.357,
+          "gain": 0.1150963,
+          "azimuth_deg": -34.776,
+          "elevation_deg": 34.829,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 99.508,
+        "duration_s": 1.8,
+        "level": 0.1436732,
+        "diffusion": 0.55412,
+        "spread_deg": 23.301,
+        "high_frequency_damping": 0.35646,
+        "absorption_by_band": [
+          0.227228,
+          0.257117,
+          0.287005,
+          0.316894,
+          0.356783,
+          0.426671,
+          0.50656,
+          0.586449
+        ],
+        "rt60_s_by_band": [
+          1.289651,
+          1.145131,
+          1.029737,
+          0.93547,
+          0.833624,
+          0.700081,
+          0.591726,
+          0.512417
+        ],
+        "seed": 11607403
+      }
+    },
+    {
+      "id": 3,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 15.3193,
+        "y": 3.9474,
+        "z": 5.734
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 35.75,
+        "gain": 0.4509852
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 46.532,
+          "gain": 0.0431792,
+          "azimuth_deg": -144.905,
+          "elevation_deg": -40.094,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 47.896,
+          "gain": 0.0751701,
+          "azimuth_deg": 73.137,
+          "elevation_deg": 11.138,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.024,
+          "gain": 0.1115933,
+          "azimuth_deg": 169.57,
+          "elevation_deg": 10.128,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.024,
+          "gain": 0.1099827,
+          "azimuth_deg": 169.528,
+          "elevation_deg": 10.241,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.979,
+          "gain": 0.0988601,
+          "azimuth_deg": 135.368,
+          "elevation_deg": 76.88,
+          "kind": "surface",
+          "surface": "U",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.412,
+          "gain": 0.0816759,
+          "azimuth_deg": 172.05,
+          "elevation_deg": 7.631,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.227,
+          "gain": 0.1387868,
+          "azimuth_deg": 145.274,
+          "elevation_deg": 38.061,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.453,
+          "gain": 0.0742055,
+          "azimuth_deg": 134.5,
+          "elevation_deg": -79.988,
+          "kind": "surface",
+          "surface": "D",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.903,
+          "gain": 0.1417512,
+          "azimuth_deg": 144.874,
+          "elevation_deg": 32.728,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.689,
+          "gain": 0.1010602,
+          "azimuth_deg": 123.591,
+          "elevation_deg": 33.555,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 71.668,
+          "gain": 0.0136862,
+          "azimuth_deg": -52.796,
+          "elevation_deg": -7.55,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 71.947,
+          "gain": 0.0504449,
+          "azimuth_deg": 4.687,
+          "elevation_deg": 5.146,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.679,
+          "gain": 0.0393214,
+          "azimuth_deg": -2.823,
+          "elevation_deg": -83.025,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.65,
+          "gain": 0.0925118,
+          "azimuth_deg": 126.186,
+          "elevation_deg": 32.201,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.669,
+          "gain": 0.0617519,
+          "azimuth_deg": -104.113,
+          "elevation_deg": -34.96,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 76.146,
+          "gain": 0.0452615,
+          "azimuth_deg": 4.087,
+          "elevation_deg": 4.798,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 83.86,
+          "gain": 0.016115,
+          "azimuth_deg": -83.399,
+          "elevation_deg": 25.975,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 86.291,
+          "gain": 0.0820354,
+          "azimuth_deg": 141.018,
+          "elevation_deg": 42.005,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 86.364,
+          "gain": 0.0768585,
+          "azimuth_deg": 124.864,
+          "elevation_deg": 28.568,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.79,
+          "gain": 0.0339876,
+          "azimuth_deg": 92.836,
+          "elevation_deg": 3.791,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.79,
+          "gain": 0.0334971,
+          "azimuth_deg": 92.846,
+          "elevation_deg": 3.409,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.457,
+          "gain": 0.1333355,
+          "azimuth_deg": 128.487,
+          "elevation_deg": -39.915,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 95.488,
+          "gain": 0.0575134,
+          "azimuth_deg": 150.911,
+          "elevation_deg": 37.641,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 96.053,
+          "gain": 0.0167419,
+          "azimuth_deg": -78.257,
+          "elevation_deg": 1.974,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 97.232,
+          "gain": 0.084054,
+          "azimuth_deg": 123.458,
+          "elevation_deg": 42.404,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 98.859,
+          "gain": 0.0397362,
+          "azimuth_deg": 143.523,
+          "elevation_deg": 42.704,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 101.669,
+          "gain": 0.1029086,
+          "azimuth_deg": 138.872,
+          "elevation_deg": 35.127,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 104.812,
+          "gain": 0.0873474,
+          "azimuth_deg": 113.179,
+          "elevation_deg": 0.737,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 107.138,
+          "gain": 0.0727855,
+          "azimuth_deg": 153.224,
+          "elevation_deg": -40.407,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 108.245,
+          "gain": 0.0178467,
+          "azimuth_deg": -91.836,
+          "elevation_deg": 17.456,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 108.706,
+          "gain": 0.1334777,
+          "azimuth_deg": 125.045,
+          "elevation_deg": 36.572,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 113.262,
+          "gain": 0.1047435,
+          "azimuth_deg": 129.114,
+          "elevation_deg": 41.122,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 120.438,
+          "gain": 0.0173873,
+          "azimuth_deg": -98.065,
+          "elevation_deg": 29.92,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 128.504,
+          "gain": 0.0975521,
+          "azimuth_deg": 30.507,
+          "elevation_deg": 34.376,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 99.508,
+        "duration_s": 1.8,
+        "level": 0.1436715,
+        "diffusion": 0.53694,
+        "spread_deg": 22.046,
+        "high_frequency_damping": 0.36273,
+        "absorption_by_band": [
+          0.224726,
+          0.254812,
+          0.284897,
+          0.314983,
+          0.355069,
+          0.425154,
+          0.50524,
+          0.585326
+        ],
+        "rt60_s_by_band": [
+          1.303422,
+          1.155114,
+          1.037108,
+          0.940978,
+          0.837543,
+          0.702524,
+          0.593244,
+          0.513384
+        ],
+        "seed": 11615322
+      }
+    },
+    {
+      "id": 4,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 12.7595,
+        "y": 3.9481,
+        "z": 5.7334
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 34.506,
+        "gain": 0.4512151
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 37.986,
+          "gain": 0.1362489,
+          "azimuth_deg": -135.356,
+          "elevation_deg": 27.265,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.875,
+          "gain": 0.0523228,
+          "azimuth_deg": 25.971,
+          "elevation_deg": 44.789,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.795,
+          "gain": 0.1114177,
+          "azimuth_deg": -169.146,
+          "elevation_deg": 10.065,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.795,
+          "gain": 0.1098007,
+          "azimuth_deg": -169.716,
+          "elevation_deg": 10.57,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.161,
+          "gain": 0.0540427,
+          "azimuth_deg": -139.95,
+          "elevation_deg": 42.473,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.579,
+          "gain": 0.1306602,
+          "azimuth_deg": -139.166,
+          "elevation_deg": 31.664,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.919,
+          "gain": 0.09796,
+          "azimuth_deg": -134.969,
+          "elevation_deg": 76.966,
+          "kind": "surface",
+          "surface": "U",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.643,
+          "gain": 0.0741675,
+          "azimuth_deg": 43.076,
+          "elevation_deg": 74.735,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.194,
+          "gain": 0.0815001,
+          "azimuth_deg": -172.625,
+          "elevation_deg": 7.701,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.21,
+          "gain": 0.0741117,
+          "azimuth_deg": -135.063,
+          "elevation_deg": -80.004,
+          "kind": "surface",
+          "surface": "D",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 62.081,
+          "gain": 0.0447048,
+          "azimuth_deg": -121.008,
+          "elevation_deg": 38.06,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 68.848,
+          "gain": 0.0884416,
+          "azimuth_deg": -129.51,
+          "elevation_deg": 33.165,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.423,
+          "gain": 0.003651,
+          "azimuth_deg": -107.4,
+          "elevation_deg": 9.193,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 70.695,
+          "gain": 0.0503855,
+          "azimuth_deg": -5.823,
+          "elevation_deg": 5.02,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 74.924,
+          "gain": 0.0451747,
+          "azimuth_deg": -3.739,
+          "elevation_deg": 4.362,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 78.352,
+          "gain": 0.0906475,
+          "azimuth_deg": -119.324,
+          "elevation_deg": 43.571,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.616,
+          "gain": 0.00562,
+          "azimuth_deg": -80.391,
+          "elevation_deg": 22.975,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 83.454,
+          "gain": 0.1021213,
+          "azimuth_deg": -125.165,
+          "elevation_deg": 33.419,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 87.808,
+          "gain": 0.1288973,
+          "azimuth_deg": -136.616,
+          "elevation_deg": 38.844,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.675,
+          "gain": 0.0580171,
+          "azimuth_deg": -121.255,
+          "elevation_deg": 33.852,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 94.808,
+          "gain": 0.0053116,
+          "azimuth_deg": -123.235,
+          "elevation_deg": 14.779,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 96.009,
+          "gain": 0.1212136,
+          "azimuth_deg": -151.098,
+          "elevation_deg": 30.254,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 96.986,
+          "gain": 0.0302729,
+          "azimuth_deg": 92.898,
+          "elevation_deg": 2.818,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 96.986,
+          "gain": 0.0298336,
+          "azimuth_deg": 92.582,
+          "elevation_deg": 2.83,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 97.536,
+          "gain": 0.0890784,
+          "azimuth_deg": -144.11,
+          "elevation_deg": 30.115,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 99.537,
+          "gain": 0.0660742,
+          "azimuth_deg": -134.937,
+          "elevation_deg": 28.786,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 100.383,
+          "gain": 0.0762628,
+          "azimuth_deg": -120.031,
+          "elevation_deg": 39.672,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 103.993,
+          "gain": 0.0708042,
+          "azimuth_deg": 151.035,
+          "elevation_deg": 16.997,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 106.795,
+          "gain": 0.0649937,
+          "azimuth_deg": -150.634,
+          "elevation_deg": 30.423,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 106.8,
+          "gain": 0.0844652,
+          "azimuth_deg": 35.09,
+          "elevation_deg": 81.576,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 107.001,
+          "gain": 0.0076605,
+          "azimuth_deg": -101.34,
+          "elevation_deg": -7.241,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 107.999,
+          "gain": 0.0544767,
+          "azimuth_deg": -129.328,
+          "elevation_deg": 40.067,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 119.193,
+          "gain": 0.0064855,
+          "azimuth_deg": -128.109,
+          "elevation_deg": 1.214,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 119.96,
+          "gain": 0.0937023,
+          "azimuth_deg": -134.64,
+          "elevation_deg": 42.531,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 99.508,
+        "duration_s": 1.8,
+        "level": 0.1400123,
+        "diffusion": 0.56463,
+        "spread_deg": 24.068,
+        "high_frequency_damping": 0.35088,
+        "absorption_by_band": [
+          0.226138,
+          0.255851,
+          0.285564,
+          0.315278,
+          0.354991,
+          0.424704,
+          0.504417,
+          0.584131
+        ],
+        "rt60_s_by_band": [
+          1.295614,
+          1.15059,
+          1.034764,
+          0.940124,
+          0.837721,
+          0.703252,
+          0.594193,
+          0.514417
+        ],
+        "seed": 11623241
+      }
+    },
+    {
+      "id": 5,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 15.3484,
+        "y": 6.537,
+        "z": 3.1445
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 34.938,
+        "gain": 0.4409506
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 39.974,
+          "gain": 0.0694256,
+          "azimuth_deg": 44.963,
+          "elevation_deg": -33.368,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 40.79,
+          "gain": 0.1130929,
+          "azimuth_deg": 39.764,
+          "elevation_deg": -27.484,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.398,
+          "gain": 0.0503034,
+          "azimuth_deg": 118.674,
+          "elevation_deg": 48.798,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.128,
+          "gain": 0.1037622,
+          "azimuth_deg": 45.689,
+          "elevation_deg": -76.27,
+          "kind": "surface",
+          "surface": "D",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.787,
+          "gain": 0.1173453,
+          "azimuth_deg": 97.158,
+          "elevation_deg": -44.211,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.581,
+          "gain": 0.0794746,
+          "azimuth_deg": 0.247,
+          "elevation_deg": 33.723,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.456,
+          "gain": 0.0808357,
+          "azimuth_deg": 171.536,
+          "elevation_deg": -7.888,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.456,
+          "gain": 0.0796508,
+          "azimuth_deg": 172.724,
+          "elevation_deg": -7.996,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.629,
+          "gain": 0.0465826,
+          "azimuth_deg": 39.88,
+          "elevation_deg": -31.7,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.823,
+          "gain": 0.0722461,
+          "azimuth_deg": 45.494,
+          "elevation_deg": 79.584,
+          "kind": "surface",
+          "surface": "U",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 62.91,
+          "gain": 0.0629016,
+          "azimuth_deg": 173.792,
+          "elevation_deg": -6.279,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.528,
+          "gain": 0.0608917,
+          "azimuth_deg": 5.516,
+          "elevation_deg": -6.274,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.536,
+          "gain": 0.0710821,
+          "azimuth_deg": 53.015,
+          "elevation_deg": -31.886,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.246,
+          "gain": 0.138411,
+          "azimuth_deg": -102.931,
+          "elevation_deg": -10.148,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 66.056,
+          "gain": 0.1012553,
+          "azimuth_deg": 51.76,
+          "elevation_deg": -42.9,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.709,
+          "gain": 0.0536296,
+          "azimuth_deg": 6.192,
+          "elevation_deg": -5.169,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.722,
+          "gain": 0.1196838,
+          "azimuth_deg": -11.283,
+          "elevation_deg": -28.883,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.856,
+          "gain": 0.0178825,
+          "azimuth_deg": -97.054,
+          "elevation_deg": -13.617,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 83.048,
+          "gain": 0.0160006,
+          "azimuth_deg": -118.17,
+          "elevation_deg": -11.452,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 83.826,
+          "gain": 0.0944277,
+          "azimuth_deg": 31.736,
+          "elevation_deg": -34.53,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 89.747,
+          "gain": 0.0338829,
+          "azimuth_deg": 85.793,
+          "elevation_deg": -3.483,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 89.747,
+          "gain": 0.0333863,
+          "azimuth_deg": 85.742,
+          "elevation_deg": -3.535,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.77,
+          "gain": 0.1400239,
+          "azimuth_deg": 38.415,
+          "elevation_deg": -30.714,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 95.241,
+          "gain": 0.0133503,
+          "azimuth_deg": -120.761,
+          "elevation_deg": 1.335,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 107.095,
+          "gain": 0.0935653,
+          "azimuth_deg": 56.158,
+          "elevation_deg": -30.963,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 107.433,
+          "gain": 0.0156487,
+          "azimuth_deg": -121.781,
+          "elevation_deg": -0.505,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 113.584,
+          "gain": 0.0757047,
+          "azimuth_deg": 57.821,
+          "elevation_deg": -33.08,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 117.052,
+          "gain": 0.0569384,
+          "azimuth_deg": 41.385,
+          "elevation_deg": -27.475,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 117.748,
+          "gain": 0.0851809,
+          "azimuth_deg": 107.615,
+          "elevation_deg": 54.682,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 118.573,
+          "gain": 0.1423223,
+          "azimuth_deg": -95.051,
+          "elevation_deg": -34.834,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 119.626,
+          "gain": 0.0151563,
+          "azimuth_deg": -99.506,
+          "elevation_deg": -25.281,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 121.972,
+          "gain": 0.0291411,
+          "azimuth_deg": 50.239,
+          "elevation_deg": -31.529,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 122.176,
+          "gain": 0.0372604,
+          "azimuth_deg": 35.338,
+          "elevation_deg": 34.238,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 126.533,
+          "gain": 0.1199318,
+          "azimuth_deg": 28.33,
+          "elevation_deg": -29.661,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 99.508,
+        "duration_s": 1.8,
+        "level": 0.1423851,
+        "diffusion": 0.53997,
+        "spread_deg": 22.267,
+        "high_frequency_damping": 0.35357,
+        "absorption_by_band": [
+          0.228682,
+          0.25848,
+          0.288278,
+          0.318075,
+          0.357873,
+          0.427671,
+          0.507469,
+          0.587267
+        ],
+        "rt60_s_by_band": [
+          1.281783,
+          1.139309,
+          1.025339,
+          0.932097,
+          0.83115,
+          0.69848,
+          0.590686,
+          0.511714
+        ],
+        "seed": 11631160
+      }
+    },
+    {
+      "id": 6,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 12.7273,
+        "y": 6.5395,
+        "z": 3.1421
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 34.654,
+        "gain": 0.4401125
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 38.294,
+          "gain": 0.1188296,
+          "azimuth_deg": -45.555,
+          "elevation_deg": -31.435,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.365,
+          "gain": 0.1257236,
+          "azimuth_deg": -52.334,
+          "elevation_deg": -31.33,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.554,
+          "gain": 0.0652535,
+          "azimuth_deg": -58.807,
+          "elevation_deg": -29.136,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.366,
+          "gain": 0.1206225,
+          "azimuth_deg": -179.071,
+          "elevation_deg": -0.394,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.409,
+          "gain": 0.0967237,
+          "azimuth_deg": -43.199,
+          "elevation_deg": -28.477,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.421,
+          "gain": 0.1020593,
+          "azimuth_deg": -39.404,
+          "elevation_deg": -40.361,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.826,
+          "gain": 0.1043464,
+          "azimuth_deg": -44.541,
+          "elevation_deg": -75.854,
+          "kind": "surface",
+          "surface": "D",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.176,
+          "gain": 0.0812606,
+          "azimuth_deg": -171.5,
+          "elevation_deg": -7.971,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.176,
+          "gain": 0.0801041,
+          "azimuth_deg": -171.984,
+          "elevation_deg": -7.699,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.055,
+          "gain": 0.0888327,
+          "azimuth_deg": 153.38,
+          "elevation_deg": 19.177,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.447,
+          "gain": 0.0729228,
+          "azimuth_deg": -44.783,
+          "elevation_deg": 80.089,
+          "kind": "surface",
+          "surface": "U",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.383,
+          "gain": 0.1249544,
+          "azimuth_deg": -34.067,
+          "elevation_deg": -31.215,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 62.64,
+          "gain": 0.0633028,
+          "azimuth_deg": -173.725,
+          "elevation_deg": -6.153,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.215,
+          "gain": 0.0613824,
+          "azimuth_deg": -5.915,
+          "elevation_deg": -6.575,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.172,
+          "gain": 0.0808303,
+          "azimuth_deg": -42.106,
+          "elevation_deg": -30.067,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.432,
+          "gain": 0.0540326,
+          "azimuth_deg": -5.455,
+          "elevation_deg": -5.714,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.572,
+          "gain": 0.0039217,
+          "azimuth_deg": -73.491,
+          "elevation_deg": 4.125,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 71.781,
+          "gain": 0.1402502,
+          "azimuth_deg": -153.711,
+          "elevation_deg": 62.338,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.338,
+          "gain": 0.0528577,
+          "azimuth_deg": -48.696,
+          "elevation_deg": -35.005,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.598,
+          "gain": 0.0670157,
+          "azimuth_deg": -32.366,
+          "elevation_deg": -42.476,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 78.44,
+          "gain": 0.0713408,
+          "azimuth_deg": -134.216,
+          "elevation_deg": -19.602,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.764,
+          "gain": 0.0034626,
+          "azimuth_deg": -92.564,
+          "elevation_deg": -23.083,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 82.827,
+          "gain": 0.1243282,
+          "azimuth_deg": -124.319,
+          "elevation_deg": 60.527,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 83.947,
+          "gain": 0.0892301,
+          "azimuth_deg": -39.408,
+          "elevation_deg": -35.729,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 87.163,
+          "gain": 0.0344423,
+          "azimuth_deg": -58.735,
+          "elevation_deg": -34.818,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.322,
+          "gain": 0.1182066,
+          "azimuth_deg": -30.904,
+          "elevation_deg": -36.289,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 94.956,
+          "gain": 0.0055398,
+          "azimuth_deg": -125.671,
+          "elevation_deg": -0.615,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 97.067,
+          "gain": 0.0304002,
+          "azimuth_deg": 86.807,
+          "elevation_deg": -3.06,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 97.067,
+          "gain": 0.0299676,
+          "azimuth_deg": 87.122,
+          "elevation_deg": -2.755,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 107.149,
+          "gain": 0.0062634,
+          "azimuth_deg": -76.939,
+          "elevation_deg": -8.303,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 110.457,
+          "gain": 0.0480104,
+          "azimuth_deg": -51.323,
+          "elevation_deg": -32.566,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 119.341,
+          "gain": 0.0045106,
+          "azimuth_deg": -89.296,
+          "elevation_deg": -18.046,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 121.336,
+          "gain": 0.136764,
+          "azimuth_deg": -37.491,
+          "elevation_deg": -43.311,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 122.574,
+          "gain": 0.0338842,
+          "azimuth_deg": -36.448,
+          "elevation_deg": -42.159,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 99.508,
+        "duration_s": 1.8,
+        "level": 0.1445573,
+        "diffusion": 0.5608,
+        "spread_deg": 23.789,
+        "high_frequency_damping": 0.35074,
+        "absorption_by_band": [
+          0.221158,
+          0.250866,
+          0.280575,
+          0.310284,
+          0.349993,
+          0.419702,
+          0.499411,
+          0.57912
+        ],
+        "rt60_s_by_band": [
+          1.323577,
+          1.17261,
+          1.052555,
+          0.9548,
+          0.849364,
+          0.711447,
+          0.600037,
+          0.518796
+        ],
+        "seed": 11639079
+      }
+    },
+    {
+      "id": 7,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 15.3439,
+        "y": 3.9229,
+        "z": 3.1491
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 35.867,
+        "gain": 0.4424923
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 36.954,
+          "gain": 0.1355544,
+          "azimuth_deg": 129.003,
+          "elevation_deg": -39.075,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 47.327,
+          "gain": 0.0689568,
+          "azimuth_deg": 142.563,
+          "elevation_deg": -35.944,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.974,
+          "gain": 0.1108666,
+          "azimuth_deg": 169.024,
+          "elevation_deg": -10.216,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.974,
+          "gain": 0.1091912,
+          "azimuth_deg": 169.707,
+          "elevation_deg": -10.857,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.088,
+          "gain": 0.1000335,
+          "azimuth_deg": 135.146,
+          "elevation_deg": -76.707,
+          "kind": "surface",
+          "surface": "D",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.246,
+          "gain": 0.0336724,
+          "azimuth_deg": 117.96,
+          "elevation_deg": -42.848,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.354,
+          "gain": 0.0809582,
+          "azimuth_deg": 171.352,
+          "elevation_deg": -7.807,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.788,
+          "gain": 0.0715078,
+          "azimuth_deg": 87.285,
+          "elevation_deg": -12.642,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.368,
+          "gain": 0.071603,
+          "azimuth_deg": 135.115,
+          "elevation_deg": 79.408,
+          "kind": "surface",
+          "surface": "U",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.312,
+          "gain": 0.1476178,
+          "azimuth_deg": 134.553,
+          "elevation_deg": -39.645,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 71.573,
+          "gain": 0.0729513,
+          "azimuth_deg": 150.588,
+          "elevation_deg": -37.024,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 71.785,
+          "gain": 0.0093644,
+          "azimuth_deg": -111.77,
+          "elevation_deg": -22.414,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 72.024,
+          "gain": 0.0497419,
+          "azimuth_deg": 5.066,
+          "elevation_deg": -5.235,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 76.222,
+          "gain": 0.0446091,
+          "azimuth_deg": 4.975,
+          "elevation_deg": -4.574,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 77.312,
+          "gain": 0.0357902,
+          "azimuth_deg": 130.599,
+          "elevation_deg": -38.54,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 83.978,
+          "gain": 0.0184418,
+          "azimuth_deg": -59.467,
+          "elevation_deg": 3.727,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 86.745,
+          "gain": 0.0574991,
+          "azimuth_deg": 143.617,
+          "elevation_deg": -32.915,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.334,
+          "gain": 0.1376023,
+          "azimuth_deg": 144.496,
+          "elevation_deg": -41.577,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.72,
+          "gain": 0.0335677,
+          "azimuth_deg": 93.656,
+          "elevation_deg": -3.342,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.72,
+          "gain": 0.0330604,
+          "azimuth_deg": 93.153,
+          "elevation_deg": -3.621,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.955,
+          "gain": 0.0694048,
+          "azimuth_deg": -84.336,
+          "elevation_deg": -44.333,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.646,
+          "gain": 0.1163941,
+          "azimuth_deg": -72.602,
+          "elevation_deg": -58.489,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 94.497,
+          "gain": 0.0364242,
+          "azimuth_deg": 133.731,
+          "elevation_deg": -38.758,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 94.835,
+          "gain": 0.0332905,
+          "azimuth_deg": 137.439,
+          "elevation_deg": -35.943,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 96.17,
+          "gain": 0.0154296,
+          "azimuth_deg": -70.44,
+          "elevation_deg": -1.916,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 100.426,
+          "gain": 0.1086534,
+          "azimuth_deg": 139.811,
+          "elevation_deg": -28.133,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 107.226,
+          "gain": 0.0928754,
+          "azimuth_deg": 122.442,
+          "elevation_deg": -27.803,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 108.362,
+          "gain": 0.0096298,
+          "azimuth_deg": -104.524,
+          "elevation_deg": -30.593,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 116.318,
+          "gain": 0.0460294,
+          "azimuth_deg": 119.739,
+          "elevation_deg": -31.999,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 120.555,
+          "gain": 0.0098613,
+          "azimuth_deg": -104.632,
+          "elevation_deg": 8.17,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 120.911,
+          "gain": 0.0679248,
+          "azimuth_deg": 147.684,
+          "elevation_deg": -32.879,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 122.49,
+          "gain": 0.1337892,
+          "azimuth_deg": 142.351,
+          "elevation_deg": 65.768,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 123.583,
+          "gain": 0.1391021,
+          "azimuth_deg": -33.943,
+          "elevation_deg": -42.722,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 126.782,
+          "gain": 0.0468696,
+          "azimuth_deg": 123.342,
+          "elevation_deg": -36.031,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 99.508,
+        "duration_s": 1.8,
+        "level": 0.1410062,
+        "diffusion": 0.55769,
+        "spread_deg": 23.562,
+        "high_frequency_damping": 0.36266,
+        "absorption_by_band": [
+          0.236612,
+          0.266696,
+          0.29678,
+          0.326863,
+          0.366947,
+          0.43703,
+          0.517114,
+          0.597198
+        ],
+        "rt60_s_by_band": [
+          1.240496,
+          1.105428,
+          0.996886,
+          0.907753,
+          0.811122,
+          0.683844,
+          0.579869,
+          0.50334
+        ],
+        "seed": 11646998
+      }
+    },
+    {
+      "id": 8,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 12.7337,
+        "y": 3.9223,
+        "z": 3.1485
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 36.449,
+        "gain": 0.442296
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 44.897,
+          "gain": 0.1335755,
+          "azimuth_deg": -69.539,
+          "elevation_deg": 54.579,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.562,
+          "gain": 0.1128222,
+          "azimuth_deg": -169.692,
+          "elevation_deg": -10.754,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.562,
+          "gain": 0.1112769,
+          "azimuth_deg": -169.408,
+          "elevation_deg": -10.691,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.665,
+          "gain": 0.1021431,
+          "azimuth_deg": -134.713,
+          "elevation_deg": -75.952,
+          "kind": "surface",
+          "surface": "D",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.638,
+          "gain": 0.0662016,
+          "azimuth_deg": -118.511,
+          "elevation_deg": -28.555,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.955,
+          "gain": 0.0827126,
+          "azimuth_deg": -172.253,
+          "elevation_deg": -7.896,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.225,
+          "gain": 0.1462845,
+          "azimuth_deg": -133.257,
+          "elevation_deg": -31.222,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.133,
+          "gain": 0.0728678,
+          "azimuth_deg": -134.575,
+          "elevation_deg": 79.603,
+          "kind": "surface",
+          "surface": "U",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.691,
+          "gain": 0.0981064,
+          "azimuth_deg": -118.541,
+          "elevation_deg": -42.515,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.216,
+          "gain": 0.1363261,
+          "azimuth_deg": -150.89,
+          "elevation_deg": -32.592,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.366,
+          "gain": 0.0061224,
+          "azimuth_deg": -112.034,
+          "elevation_deg": -31.888,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 72.596,
+          "gain": 0.0510154,
+          "azimuth_deg": -5.829,
+          "elevation_deg": -5.156,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.28,
+          "gain": 0.0870498,
+          "azimuth_deg": -134.252,
+          "elevation_deg": -35.345,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 76.824,
+          "gain": 0.0457867,
+          "azimuth_deg": -4.237,
+          "elevation_deg": -4.755,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 77.339,
+          "gain": 0.0993027,
+          "azimuth_deg": 148.821,
+          "elevation_deg": 17.126,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 84.559,
+          "gain": 0.0046695,
+          "azimuth_deg": -102.67,
+          "elevation_deg": -15.73,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 85.543,
+          "gain": 0.1303327,
+          "azimuth_deg": -143.239,
+          "elevation_deg": -32.32,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 85.931,
+          "gain": 0.1033316,
+          "azimuth_deg": -151.742,
+          "elevation_deg": -35.97,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 87.349,
+          "gain": 0.1405689,
+          "azimuth_deg": 88.228,
+          "elevation_deg": 21.194,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 88.034,
+          "gain": 0.0322897,
+          "azimuth_deg": -151.439,
+          "elevation_deg": -31.109,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.301,
+          "gain": 0.0373695,
+          "azimuth_deg": -140.118,
+          "elevation_deg": -29.689,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 96.751,
+          "gain": 0.0062965,
+          "azimuth_deg": -92.051,
+          "elevation_deg": -4.14,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 98.882,
+          "gain": 0.0307283,
+          "azimuth_deg": 92.737,
+          "elevation_deg": -3.271,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 98.882,
+          "gain": 0.0303075,
+          "azimuth_deg": 92.989,
+          "elevation_deg": -2.923,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 99.493,
+          "gain": 0.1219048,
+          "azimuth_deg": -56.394,
+          "elevation_deg": -14.355,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 101.628,
+          "gain": 0.0586364,
+          "azimuth_deg": -125.958,
+          "elevation_deg": -43.558,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 108.944,
+          "gain": 0.0078325,
+          "azimuth_deg": -113.183,
+          "elevation_deg": -31.915,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 108.982,
+          "gain": 0.1301072,
+          "azimuth_deg": -58.612,
+          "elevation_deg": -8.097,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 115.269,
+          "gain": 0.0891049,
+          "azimuth_deg": 143.323,
+          "elevation_deg": 6.992,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 120.352,
+          "gain": 0.0575399,
+          "azimuth_deg": -128.716,
+          "elevation_deg": -30.037,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 121.136,
+          "gain": 0.0044595,
+          "azimuth_deg": -113.217,
+          "elevation_deg": -3.687,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "damped",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 122.645,
+          "gain": 0.090993,
+          "azimuth_deg": 84.766,
+          "elevation_deg": -66.024,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 124.183,
+          "gain": 0.1148279,
+          "azimuth_deg": -77.049,
+          "elevation_deg": 47.622,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 129.721,
+          "gain": 0.0776742,
+          "azimuth_deg": -146.893,
+          "elevation_deg": -32.152,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "wood",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 99.508,
+        "duration_s": 1.8,
+        "level": 0.1508937,
+        "diffusion": 0.5466,
+        "spread_deg": 22.752,
+        "high_frequency_damping": 0.36818,
+        "absorption_by_band": [
+          0.211632,
+          0.241889,
+          0.272146,
+          0.302403,
+          0.34266,
+          0.412917,
+          0.493174,
+          0.573431
+        ],
+        "rt60_s_by_band": [
+          1.380566,
+          1.214468,
+          1.084045,
+          0.978918,
+          0.867045,
+          0.722871,
+          0.60748,
+          0.523858
+        ],
+        "seed": 11654917
+      }
+    }
+  ],
+  "atlas": {
+    "name": "Wood Studio",
+    "category": "Architecture",
+    "description": "A compact wood room with a damped architectural annex and controlled tail.",
+    "seed": 110207,
+    "source": "s3g-mc Imprint Sketch"
+  }
+}

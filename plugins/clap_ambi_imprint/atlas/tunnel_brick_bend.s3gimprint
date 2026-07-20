@@ -1,0 +1,4317 @@
+{
+  "format": "s3g-ambi-imprint",
+  "version": 1,
+  "generator": {
+    "name": "s3g-mc Imprint Sketch",
+    "project_format": "s3g-imprint-sketch",
+    "project_version": 1
+  },
+  "interpretation": "procedural directional space sketch; spectral material curves are creative estimates, not measured coefficients",
+  "coordinate_system": {
+    "convention": "AED",
+    "azimuth_zero": "front",
+    "azimuth_positive": "counterclockwise",
+    "elevation_positive": "up",
+    "distance_unit": "metre",
+    "time_unit": "millisecond"
+  },
+  "ambisonics": {
+    "channel_order": "ACN",
+    "normalization": "SN3D",
+    "reference_order": 3,
+    "maximum_runtime_order": 7
+  },
+  "spectral_bands_hz": [
+    125,
+    250,
+    500,
+    1000,
+    2000,
+    4000,
+    8000,
+    16000
+  ],
+  "space": {
+    "family": "tunnel",
+    "seed": 440117,
+    "topology": "connected_regions",
+    "branch_family_mode": "room",
+    "primary_polygon_xy_m": [
+      {
+        "x": 1.034,
+        "y": 0
+      },
+      {
+        "x": 0.622,
+        "y": 8.544
+      },
+      {
+        "x": 0.628,
+        "y": 17.089
+      },
+      {
+        "x": 0.488,
+        "y": 25.633
+      },
+      {
+        "x": 1.017,
+        "y": 34.178
+      },
+      {
+        "x": 1.218,
+        "y": 42.722
+      },
+      {
+        "x": 1.423,
+        "y": 51.267
+      },
+      {
+        "x": 0.891,
+        "y": 59.811
+      },
+      {
+        "x": 0.502,
+        "y": 68.356
+      },
+      {
+        "x": 0.418,
+        "y": 76.9
+      },
+      {
+        "x": 1.967,
+        "y": 76.9
+      },
+      {
+        "x": 2.023,
+        "y": 68.356
+      },
+      {
+        "x": 2.443,
+        "y": 59.811
+      },
+      {
+        "x": 2.628,
+        "y": 51.267
+      },
+      {
+        "x": 2.79,
+        "y": 42.722
+      },
+      {
+        "x": 2.317,
+        "y": 34.178
+      },
+      {
+        "x": 2.022,
+        "y": 25.633
+      },
+      {
+        "x": 1.596,
+        "y": 17.089
+      },
+      {
+        "x": 2.024,
+        "y": 8.544
+      },
+      {
+        "x": 2.597,
+        "y": 0
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": 0.418,
+        "z": 6.874
+      },
+      {
+        "x": 0.722,
+        "z": 6.975
+      },
+      {
+        "x": 1.025,
+        "z": 7.041
+      },
+      {
+        "x": 1.328,
+        "z": 7.003
+      },
+      {
+        "x": 1.631,
+        "z": 6.847
+      },
+      {
+        "x": 1.934,
+        "z": 6.647
+      },
+      {
+        "x": 2.237,
+        "z": 6.524
+      },
+      {
+        "x": 2.54,
+        "z": 6.558
+      },
+      {
+        "x": 2.843,
+        "z": 6.726
+      },
+      {
+        "x": 3.146,
+        "z": 6.917
+      },
+      {
+        "x": 3.449,
+        "z": 7.025
+      },
+      {
+        "x": 3.752,
+        "z": 7.016
+      },
+      {
+        "x": 4.055,
+        "z": 6.936
+      },
+      {
+        "x": 4.358,
+        "z": 6.847
+      },
+      {
+        "x": 4.661,
+        "z": 6.776
+      },
+      {
+        "x": 4.964,
+        "z": 6.71
+      },
+      {
+        "x": 5.268,
+        "z": 6.643
+      }
+    ],
+    "irregularity": 0.55,
+    "roughness": 0.64,
+    "vertical_variation": 0.2,
+    "openness": 0.25,
+    "acoustic_volume_m3": 747.769,
+    "acoustic_surface_m2": 1492.265
+  },
+  "room": {
+    "dimensions_m": {
+      "x": 3.1,
+      "y": 76.9,
+      "z": 6.7
+    },
+    "polygon_xy_m": [
+      {
+        "x": 1.034,
+        "y": 0
+      },
+      {
+        "x": 0.622,
+        "y": 8.544
+      },
+      {
+        "x": 0.628,
+        "y": 17.089
+      },
+      {
+        "x": 0.488,
+        "y": 25.633
+      },
+      {
+        "x": 1.017,
+        "y": 34.178
+      },
+      {
+        "x": 1.218,
+        "y": 42.722
+      },
+      {
+        "x": 1.423,
+        "y": 51.267
+      },
+      {
+        "x": 0.891,
+        "y": 59.811
+      },
+      {
+        "x": 0.502,
+        "y": 68.356
+      },
+      {
+        "x": 0.418,
+        "y": 76.9
+      },
+      {
+        "x": 1.967,
+        "y": 76.9
+      },
+      {
+        "x": 2.023,
+        "y": 68.356
+      },
+      {
+        "x": 2.443,
+        "y": 59.811
+      },
+      {
+        "x": 2.628,
+        "y": 51.267
+      },
+      {
+        "x": 2.79,
+        "y": 42.722
+      },
+      {
+        "x": 2.317,
+        "y": 34.178
+      },
+      {
+        "x": 2.022,
+        "y": 25.633
+      },
+      {
+        "x": 1.596,
+        "y": 17.089
+      },
+      {
+        "x": 2.024,
+        "y": 8.544
+      },
+      {
+        "x": 2.597,
+        "y": 0
+      }
+    ],
+    "shape": "tunnel",
+    "family": "tunnel",
+    "seed": 440117,
+    "material": "brick",
+    "absorption": 0.296206,
+    "scattering": 0.62,
+    "tail_soften": 0.2,
+    "exterior_opening": {
+      "enabled": true,
+      "side": "all",
+      "count": 2,
+      "position": 0.74,
+      "spread": 0.45,
+      "width": 0.39,
+      "opening_m": 3.943,
+      "leak": 0.31,
+      "leak_factor": 0.426,
+      "interpretation": "energy escape boundary for late-tail thinning and reduced reflection density",
+      "openings": [
+        {
+          "index": 1,
+          "side": "front",
+          "opening_m": 0.61,
+          "opening_segment": {
+            "x1": 2.097,
+            "y1": 0,
+            "x2": 1.487,
+            "y2": 0
+          }
+        },
+        {
+          "index": 2,
+          "side": "right",
+          "opening_m": 3.333,
+          "opening_segment": {
+            "x1": 2.727,
+            "y1": 46.055,
+            "x2": 2.79,
+            "y2": 42.722
+          }
+        }
+      ],
+      "opening_segment": {
+        "x1": 2.097,
+        "y1": 0,
+        "x2": 1.487,
+        "y2": 0
+      }
+    },
+    "chamber": {
+      "family_mode": "room",
+      "material": "brick",
+      "material_mode": "uniform",
+      "material_mix": 0.69,
+      "width": 2.1,
+      "depth": 9.4,
+      "count": 1,
+      "position": 0.98,
+      "nested_chambers": 0,
+      "opening_width": 0.78,
+      "coupling": 0.54,
+      "chambers": [
+        {
+          "material_profile": {
+            "material": "brick",
+            "absorption": 0.209,
+            "scattering": 0.555,
+            "tail_soften": 0.183
+          },
+          "index": 1,
+          "level": 0,
+          "family": "room",
+          "height_m": 4.824,
+          "x": 2.748,
+          "y": 42.851,
+          "width": 2.52,
+          "depth": 2.147,
+          "opening_x": 2.752,
+          "opening_y": 44.72,
+          "opening": 1.638,
+          "polygon": [
+            {
+              "x": 2.748,
+              "y": 44.951
+            },
+            {
+              "x": 2.788,
+              "y": 42.851
+            },
+            {
+              "x": 5.268,
+              "y": 42.898
+            },
+            {
+              "x": 5.228,
+              "y": 44.998
+            }
+          ],
+          "opening_segment": {
+            "x1": 2.752,
+            "y1": 44.72,
+            "x2": 2.784,
+            "y2": 43.082
+          },
+          "side": "right",
+          "shape": "rect"
+        }
+      ]
+    }
+  },
+  "listener_position_m": {
+    "x": 3.4249,
+    "y": 43.833,
+    "z": 3.4577
+  },
+  "direction_layout": "practical_8",
+  "direction_count": 8,
+  "duration_s": 4.8,
+  "profiles": [
+    {
+      "id": 1,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 4.0593,
+        "y": 44.4674,
+        "z": 4.0921
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 16.02,
+        "gain": 0.9100433
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 16.814,
+          "gain": 0.5368282,
+          "azimuth_deg": -63.032,
+          "elevation_deg": 27.282,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 18.172,
+          "gain": 0.3962972,
+          "azimuth_deg": -64.745,
+          "elevation_deg": 19.927,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 18.275,
+          "gain": 0.3845159,
+          "azimuth_deg": 20.802,
+          "elevation_deg": 19.936,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 18.562,
+          "gain": 0.3612047,
+          "azimuth_deg": -66.009,
+          "elevation_deg": 18.604,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 18.988,
+          "gain": 0.3325455,
+          "azimuth_deg": -73.228,
+          "elevation_deg": 17.195,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 19.083,
+          "gain": 0.3238766,
+          "azimuth_deg": -73.955,
+          "elevation_deg": 17.138,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 19.083,
+          "gain": 0.3202819,
+          "azimuth_deg": -74.046,
+          "elevation_deg": 17.279,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 19.659,
+          "gain": 0.2900627,
+          "azimuth_deg": -71.646,
+          "elevation_deg": 15.562,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 20.737,
+          "gain": 0.2478325,
+          "azimuth_deg": 164.304,
+          "elevation_deg": 13.429,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 21.537,
+          "gain": 0.043543,
+          "azimuth_deg": 1.098,
+          "elevation_deg": 33.223,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 21.945,
+          "gain": 0.2126341,
+          "azimuth_deg": 77.393,
+          "elevation_deg": 11.421,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 22.28,
+          "gain": 0.2028414,
+          "azimuth_deg": -79.504,
+          "elevation_deg": 11.09,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 24.024,
+          "gain": 0.1693795,
+          "azimuth_deg": -85.068,
+          "elevation_deg": 9.296,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 25.012,
+          "gain": 0.0363071,
+          "azimuth_deg": -126.162,
+          "elevation_deg": 8.489,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 25.376,
+          "gain": 0.149459,
+          "azimuth_deg": -76.831,
+          "elevation_deg": 8.21,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 25.534,
+          "gain": 0.1459643,
+          "azimuth_deg": -83.957,
+          "elevation_deg": 8.549,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 27.485,
+          "gain": 0.0559363,
+          "azimuth_deg": -17.672,
+          "elevation_deg": 13.888,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 27.568,
+          "gain": 0.1244475,
+          "azimuth_deg": -81.561,
+          "elevation_deg": 7.402,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 27.571,
+          "gain": 0.1230405,
+          "azimuth_deg": -81.794,
+          "elevation_deg": 7.471,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 28.24,
+          "gain": 0.0131271,
+          "azimuth_deg": -64.004,
+          "elevation_deg": 16.195,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 31.467,
+          "gain": 0.0287181,
+          "azimuth_deg": -101.119,
+          "elevation_deg": 21.013,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 34.695,
+          "gain": 0.0197985,
+          "azimuth_deg": -79.504,
+          "elevation_deg": 26.479,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 37.922,
+          "gain": 0.0158597,
+          "azimuth_deg": -86.998,
+          "elevation_deg": 32.772,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 40.185,
+          "gain": 0.0647991,
+          "azimuth_deg": -11.141,
+          "elevation_deg": 35.063,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.15,
+          "gain": 0.028221,
+          "azimuth_deg": -113.18,
+          "elevation_deg": 20.469,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 44.378,
+          "gain": 0.0226362,
+          "azimuth_deg": -72.856,
+          "elevation_deg": 24.576,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 51.149,
+          "gain": 0.0793419,
+          "azimuth_deg": -12.686,
+          "elevation_deg": 36.187,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.688,
+          "gain": 0.0196717,
+          "azimuth_deg": 26.586,
+          "elevation_deg": 32.187,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 85.671,
+          "gain": 0.0255835,
+          "azimuth_deg": -158.277,
+          "elevation_deg": 40.825,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 97.973,
+          "gain": 0.0420111,
+          "azimuth_deg": 169.867,
+          "elevation_deg": 39.602,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 116.313,
+          "gain": 0.0686468,
+          "azimuth_deg": 173.098,
+          "elevation_deg": 36.955,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 122.902,
+          "gain": 0.0233828,
+          "azimuth_deg": -152.496,
+          "elevation_deg": 35.73,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 124,
+          "gain": 0.0329682,
+          "azimuth_deg": 172.364,
+          "elevation_deg": 32.397,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 180.741,
+          "gain": 0.0576667,
+          "azimuth_deg": 23.012,
+          "elevation_deg": 34.167,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 196.164,
+          "gain": 0.0230051,
+          "azimuth_deg": -167.108,
+          "elevation_deg": -11.993,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 203.477,
+          "gain": 0.0332942,
+          "azimuth_deg": 159.743,
+          "elevation_deg": 33.774,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 204.031,
+          "gain": 0.0348104,
+          "azimuth_deg": -163.462,
+          "elevation_deg": -34.514,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 206.842,
+          "gain": 0.024087,
+          "azimuth_deg": 26.09,
+          "elevation_deg": 39.058,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 218.643,
+          "gain": 0.0356277,
+          "azimuth_deg": 15.073,
+          "elevation_deg": 39.53,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 237.267,
+          "gain": 0.0309053,
+          "azimuth_deg": -18.748,
+          "elevation_deg": 32.055,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 61.631,
+        "duration_s": 4.8,
+        "level": 0.2074321,
+        "diffusion": 0.53906,
+        "spread_deg": 18.349,
+        "high_frequency_damping": 0.27415,
+        "absorption_by_band": [
+          0.133479,
+          0.14581,
+          0.16814,
+          0.210471,
+          0.262801,
+          0.335132,
+          0.427462,
+          0.519793
+        ],
+        "rt60_s_by_band": [
+          0.271616,
+          0.262072,
+          0.246394,
+          0.221298,
+          0.196549,
+          0.170235,
+          0.145388,
+          0.126871
+        ],
+        "seed": 44541221
+      }
+    },
+    {
+      "id": 2,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 2.7787,
+        "y": 44.4792,
+        "z": 4.1038
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 10.964,
+        "gain": 0.8935111
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 10.452,
+          "gain": 0.7029131,
+          "azimuth_deg": -23.279,
+          "elevation_deg": 43.332,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 10.506,
+          "gain": 0.6925445,
+          "azimuth_deg": 15.202,
+          "elevation_deg": 42.514,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 10.621,
+          "gain": 0.6812307,
+          "azimuth_deg": -34.503,
+          "elevation_deg": 39.767,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 10.981,
+          "gain": 0.5976454,
+          "azimuth_deg": -45.136,
+          "elevation_deg": 35.439,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 11.038,
+          "gain": 0.5787719,
+          "azimuth_deg": -47.462,
+          "elevation_deg": 33.988,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 11.038,
+          "gain": 0.5702346,
+          "azimuth_deg": -46.324,
+          "elevation_deg": 33.967,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 11.372,
+          "gain": 0.5107032,
+          "azimuth_deg": -53.306,
+          "elevation_deg": 30.844,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 13.067,
+          "gain": 0.3441955,
+          "azimuth_deg": -22.538,
+          "elevation_deg": 20.814,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 13.695,
+          "gain": 0.3036019,
+          "azimuth_deg": -70.362,
+          "elevation_deg": 18.608,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.401,
+          "gain": 0.2328398,
+          "azimuth_deg": -77.869,
+          "elevation_deg": 13.924,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.721,
+          "gain": 0.220256,
+          "azimuth_deg": -166.713,
+          "elevation_deg": 13.795,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.622,
+          "gain": 0.1950787,
+          "azimuth_deg": -75.032,
+          "elevation_deg": 12.319,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.847,
+          "gain": 0.1874698,
+          "azimuth_deg": -79.853,
+          "elevation_deg": 12.3,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 18.797,
+          "gain": 0.1522456,
+          "azimuth_deg": -79.423,
+          "elevation_deg": 10.007,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 18.8,
+          "gain": 0.1499562,
+          "azimuth_deg": -78.939,
+          "elevation_deg": 10.206,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 19.957,
+          "gain": 0.0103023,
+          "azimuth_deg": -75.926,
+          "elevation_deg": 5.561,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 20.474,
+          "gain": 0.1283881,
+          "azimuth_deg": 80.905,
+          "elevation_deg": 8.078,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 23.184,
+          "gain": 0.0119421,
+          "azimuth_deg": -95.911,
+          "elevation_deg": 18.062,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 26.412,
+          "gain": 0.0098019,
+          "azimuth_deg": -54.109,
+          "elevation_deg": 8.924,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 29.639,
+          "gain": 0.0097152,
+          "azimuth_deg": -85.121,
+          "elevation_deg": -2.895,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 32.867,
+          "gain": 0.0134653,
+          "azimuth_deg": -67.29,
+          "elevation_deg": 24.143,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 36.095,
+          "gain": 0.0117196,
+          "azimuth_deg": -131.626,
+          "elevation_deg": 0.434,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 38.777,
+          "gain": 0.0454534,
+          "azimuth_deg": -152.045,
+          "elevation_deg": 33.782,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.322,
+          "gain": 0.0068258,
+          "azimuth_deg": -58.835,
+          "elevation_deg": 27.215,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 51.002,
+          "gain": 0.095074,
+          "azimuth_deg": -159.634,
+          "elevation_deg": 15.216,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.116,
+          "gain": 0.0823,
+          "azimuth_deg": -10.263,
+          "elevation_deg": -54.298,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.298,
+          "gain": 0.0245186,
+          "azimuth_deg": 151.341,
+          "elevation_deg": 36.876,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.022,
+          "gain": 0.0313186,
+          "azimuth_deg": 172.086,
+          "elevation_deg": 28.275,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 99.178,
+          "gain": 0.0752913,
+          "azimuth_deg": 177.081,
+          "elevation_deg": 37.723,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 107.856,
+          "gain": 0.0338885,
+          "azimuth_deg": -170.312,
+          "elevation_deg": 38.787,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 110.89,
+          "gain": 0.0200894,
+          "azimuth_deg": -23.346,
+          "elevation_deg": 32.847,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 112.596,
+          "gain": 0.0325407,
+          "azimuth_deg": -12.355,
+          "elevation_deg": 28.834,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 116.568,
+          "gain": 0.0255491,
+          "azimuth_deg": 18.661,
+          "elevation_deg": 38.034,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 120.48,
+          "gain": 0.0268402,
+          "azimuth_deg": 23.082,
+          "elevation_deg": 36.667,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 127.875,
+          "gain": 0.050102,
+          "azimuth_deg": 170.556,
+          "elevation_deg": 40.049,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 134.209,
+          "gain": 0.0209661,
+          "azimuth_deg": -8.581,
+          "elevation_deg": 33.916,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 146.854,
+          "gain": 0.0438396,
+          "azimuth_deg": -171.169,
+          "elevation_deg": 36.201,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 186.161,
+          "gain": 0.0251784,
+          "azimuth_deg": 4.92,
+          "elevation_deg": 30.406,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 219.318,
+          "gain": 0.0319707,
+          "azimuth_deg": -12.596,
+          "elevation_deg": 35.934,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 233.344,
+          "gain": 0.0291512,
+          "azimuth_deg": 16.263,
+          "elevation_deg": 34.854,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 61.631,
+        "duration_s": 4.8,
+        "level": 0.2771122,
+        "diffusion": 0.64934,
+        "spread_deg": 21.961,
+        "high_frequency_damping": 0.17476,
+        "absorption_by_band": [
+          0.200313,
+          0.20952,
+          0.228727,
+          0.267934,
+          0.317141,
+          0.386348,
+          0.475554,
+          0.564761
+        ],
+        "rt60_s_by_band": [
+          0.226842,
+          0.221805,
+          0.211986,
+          0.194417,
+          0.176099,
+          0.155494,
+          0.135116,
+          0.11946
+        ],
+        "seed": 44549140
+      }
+    },
+    {
+      "id": 3,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 4.0277,
+        "y": 43.2301,
+        "z": 4.0605
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 13.044,
+        "gain": 0.9577055
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 13.791,
+          "gain": 0.5474485,
+          "azimuth_deg": -125.926,
+          "elevation_deg": 27.425,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 14.58,
+          "gain": 0.4469222,
+          "azimuth_deg": 154.959,
+          "elevation_deg": 22.462,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.309,
+          "gain": 0.3802319,
+          "azimuth_deg": -106.293,
+          "elevation_deg": 19.593,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.722,
+          "gain": 0.3479763,
+          "azimuth_deg": -104.411,
+          "elevation_deg": 17.666,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.986,
+          "gain": 0.3280318,
+          "azimuth_deg": -109.913,
+          "elevation_deg": 17.021,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.087,
+          "gain": 0.3181887,
+          "azimuth_deg": -109.208,
+          "elevation_deg": 16.884,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.087,
+          "gain": 0.3138153,
+          "azimuth_deg": -109.541,
+          "elevation_deg": 16.965,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.791,
+          "gain": 0.2773959,
+          "azimuth_deg": -103.476,
+          "elevation_deg": 15.247,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 18.736,
+          "gain": 0.2126858,
+          "azimuth_deg": 10.069,
+          "elevation_deg": 11.55,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 19.261,
+          "gain": 0.1978749,
+          "azimuth_deg": 100.08,
+          "elevation_deg": 10.931,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 19.321,
+          "gain": 0.1938883,
+          "azimuth_deg": -101.204,
+          "elevation_deg": 10.921,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 20.906,
+          "gain": 0.1634361,
+          "azimuth_deg": -103.267,
+          "elevation_deg": 9.124,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 22.036,
+          "gain": 0.0284284,
+          "azimuth_deg": -49.978,
+          "elevation_deg": -9.073,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 22.464,
+          "gain": 0.1410373,
+          "azimuth_deg": -100.664,
+          "elevation_deg": 8.069,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 22.63,
+          "gain": 0.137276,
+          "azimuth_deg": -93.835,
+          "elevation_deg": 7.733,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 24.713,
+          "gain": 0.1162244,
+          "azimuth_deg": -95.053,
+          "elevation_deg": 6.6,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 24.715,
+          "gain": 0.1146119,
+          "azimuth_deg": -95.312,
+          "elevation_deg": 6.699,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 25.264,
+          "gain": 0.0332543,
+          "azimuth_deg": -82.898,
+          "elevation_deg": 27.018,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 28.491,
+          "gain": 0.0343219,
+          "azimuth_deg": -77.368,
+          "elevation_deg": 1.18,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 31.719,
+          "gain": 0.0363473,
+          "azimuth_deg": -91.975,
+          "elevation_deg": 17.848,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 34.947,
+          "gain": 0.0351798,
+          "azimuth_deg": -98.676,
+          "elevation_deg": 31.265,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 38.174,
+          "gain": 0.0314545,
+          "azimuth_deg": -118.428,
+          "elevation_deg": 14.435,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 41.402,
+          "gain": 0.0294405,
+          "azimuth_deg": -99.178,
+          "elevation_deg": -6.259,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 42.639,
+          "gain": 0.0298406,
+          "azimuth_deg": 156.815,
+          "elevation_deg": -40.094,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.87,
+          "gain": 0.0511206,
+          "azimuth_deg": 11.702,
+          "elevation_deg": 11.138,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.341,
+          "gain": 0.0835632,
+          "azimuth_deg": 17.465,
+          "elevation_deg": 37.542,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 74.311,
+          "gain": 0.0836784,
+          "azimuth_deg": -163.215,
+          "elevation_deg": 33.199,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 85.648,
+          "gain": 0.0563855,
+          "azimuth_deg": 160.605,
+          "elevation_deg": 33.873,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 104.573,
+          "gain": 0.0199673,
+          "azimuth_deg": 179.548,
+          "elevation_deg": -83.025,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 106.873,
+          "gain": 0.0464424,
+          "azimuth_deg": 165.018,
+          "elevation_deg": 32.77,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 111.655,
+          "gain": 0.0302714,
+          "azimuth_deg": -16.658,
+          "elevation_deg": -34.96,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 136.816,
+          "gain": 0.0354822,
+          "azimuth_deg": 10.231,
+          "elevation_deg": 40.753,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 149.052,
+          "gain": 0.0542641,
+          "azimuth_deg": 20.558,
+          "elevation_deg": -39.915,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 158.601,
+          "gain": 0.0223203,
+          "azimuth_deg": 27.048,
+          "elevation_deg": 37.2,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 166.584,
+          "gain": 0.0148206,
+          "azimuth_deg": -165.511,
+          "elevation_deg": 41.322,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 173.241,
+          "gain": 0.0371315,
+          "azimuth_deg": 22.22,
+          "elevation_deg": 35.127,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 186.195,
+          "gain": 0.024623,
+          "azimuth_deg": 24.516,
+          "elevation_deg": -40.407,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 189.908,
+          "gain": 0.0443284,
+          "azimuth_deg": 163.078,
+          "elevation_deg": 36.329,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 200.701,
+          "gain": 0.0329668,
+          "azimuth_deg": -10.006,
+          "elevation_deg": 40.034,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 236.805,
+          "gain": 0.0256544,
+          "azimuth_deg": -175.119,
+          "elevation_deg": 34.376,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 61.631,
+        "duration_s": 4.8,
+        "level": 0.2031527,
+        "diffusion": 0.52693,
+        "spread_deg": 17.952,
+        "high_frequency_damping": 0.21942,
+        "absorption_by_band": [
+          0.182485,
+          0.193096,
+          0.213706,
+          0.254317,
+          0.304927,
+          0.375538,
+          0.466148,
+          0.556758
+        ],
+        "rt60_s_by_band": [
+          0.237276,
+          0.230953,
+          0.219588,
+          0.200179,
+          0.180316,
+          0.158389,
+          0.13701,
+          0.120715
+        ],
+        "seed": 44557059
+      }
+    },
+    {
+      "id": 4,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 2.8232,
+        "y": 43.2313,
+        "z": 4.0594
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 8.693,
+        "gain": 0.9594818
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 8.173,
+          "gain": 0.7068599,
+          "azimuth_deg": 154.952,
+          "elevation_deg": 43.783,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 8.473,
+          "gain": 0.6967452,
+          "azimuth_deg": -143.902,
+          "elevation_deg": 38.775,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 8.707,
+          "gain": 0.6558679,
+          "azimuth_deg": -134.514,
+          "elevation_deg": 35.466,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 8.772,
+          "gain": 0.6329976,
+          "azimuth_deg": -133.582,
+          "elevation_deg": 33.985,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 8.845,
+          "gain": 0.6097781,
+          "azimuth_deg": -131.392,
+          "elevation_deg": 33.26,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 8.845,
+          "gain": 0.6010526,
+          "azimuth_deg": -132.234,
+          "elevation_deg": 33.363,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 9.444,
+          "gain": 0.4987625,
+          "azimuth_deg": -119.87,
+          "elevation_deg": 27.314,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 10.317,
+          "gain": 0.3995718,
+          "azimuth_deg": -156.826,
+          "elevation_deg": 21.733,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 11.658,
+          "gain": 0.3059088,
+          "azimuth_deg": -108.634,
+          "elevation_deg": 16.639,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 13.147,
+          "gain": 0.2415978,
+          "azimuth_deg": -106.571,
+          "elevation_deg": 13.125,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 14.336,
+          "gain": 0.2055262,
+          "azimuth_deg": -12.518,
+          "elevation_deg": 11.603,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 14.681,
+          "gain": 0.1948348,
+          "azimuth_deg": -103.472,
+          "elevation_deg": 10.889,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 14.908,
+          "gain": 0.1873361,
+          "azimuth_deg": -97.389,
+          "elevation_deg": 10.848,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.933,
+          "gain": 0.1514987,
+          "azimuth_deg": -97.812,
+          "elevation_deg": 9.427,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.935,
+          "gain": 0.1493083,
+          "azimuth_deg": -96.891,
+          "elevation_deg": 8.624,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 17.686,
+          "gain": 0.0077361,
+          "azimuth_deg": -108.718,
+          "elevation_deg": 8.953,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 18.321,
+          "gain": 0.1310659,
+          "azimuth_deg": 97.313,
+          "elevation_deg": 7.532,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 20.913,
+          "gain": 0.0118267,
+          "azimuth_deg": -79.663,
+          "elevation_deg": 23.789,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 20.992,
+          "gain": 0.1040692,
+          "azimuth_deg": 179.455,
+          "elevation_deg": 27.15,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 24.141,
+          "gain": 0.0111013,
+          "azimuth_deg": -125.753,
+          "elevation_deg": 14.965,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 25.466,
+          "gain": 0.0390664,
+          "azimuth_deg": 4.155,
+          "elevation_deg": 44.789,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 27.368,
+          "gain": 0.015901,
+          "azimuth_deg": -102.2,
+          "elevation_deg": -8.74,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 30.596,
+          "gain": 0.0133701,
+          "azimuth_deg": -130.996,
+          "elevation_deg": 0.362,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 33.823,
+          "gain": 0.0137617,
+          "azimuth_deg": -56.589,
+          "elevation_deg": 4.999,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 37.051,
+          "gain": 0.0162858,
+          "azimuth_deg": -61.013,
+          "elevation_deg": -9.719,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 49.831,
+          "gain": 0.0356497,
+          "azimuth_deg": 172.429,
+          "elevation_deg": 42.577,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.821,
+          "gain": 0.0857584,
+          "azimuth_deg": -6.373,
+          "elevation_deg": 31.612,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.079,
+          "gain": 0.0469164,
+          "azimuth_deg": -173.108,
+          "elevation_deg": 74.735,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 78.064,
+          "gain": 0.0255472,
+          "azimuth_deg": -158.598,
+          "elevation_deg": 38.1,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 94.093,
+          "gain": 0.0465862,
+          "azimuth_deg": -171.603,
+          "elevation_deg": 33.135,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 139.004,
+          "gain": 0.0540372,
+          "azimuth_deg": -2.472,
+          "elevation_deg": 38.895,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 148.164,
+          "gain": 0.0232157,
+          "azimuth_deg": -158.976,
+          "elevation_deg": 33.832,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 158.43,
+          "gain": 0.0460377,
+          "azimuth_deg": -24.622,
+          "elevation_deg": 30.182,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 162.047,
+          "gain": 0.0332161,
+          "azimuth_deg": 166.065,
+          "elevation_deg": 30.041,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 166.785,
+          "gain": 0.0240518,
+          "azimuth_deg": -179.904,
+          "elevation_deg": 28.694,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 168.791,
+          "gain": 0.0274789,
+          "azimuth_deg": 22.896,
+          "elevation_deg": 39.735,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 183.978,
+          "gain": 0.0216785,
+          "azimuth_deg": -23.914,
+          "elevation_deg": 30.354,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 183.989,
+          "gain": 0.0281716,
+          "azimuth_deg": 5.614,
+          "elevation_deg": 81.576,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 186.83,
+          "gain": 0.0179091,
+          "azimuth_deg": 8.675,
+          "elevation_deg": 40.136,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 215.163,
+          "gain": 0.0266723,
+          "azimuth_deg": 0.551,
+          "elevation_deg": 42.635,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 61.631,
+        "duration_s": 4.8,
+        "level": 0.2819575,
+        "diffusion": 0.72423,
+        "spread_deg": 24.413,
+        "high_frequency_damping": 0.13499,
+        "absorption_by_band": [
+          0.192546,
+          0.200503,
+          0.21846,
+          0.256417,
+          0.304374,
+          0.372331,
+          0.460288,
+          0.548245
+        ],
+        "rt60_s_by_band": [
+          0.231273,
+          0.226736,
+          0.217124,
+          0.199268,
+          0.180512,
+          0.159269,
+          0.138216,
+          0.122079
+        ],
+        "seed": 44564978
+      }
+    },
+    {
+      "id": 5,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 4.0776,
+        "y": 44.4857,
+        "z": 2.805
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 9.939,
+        "gain": 0.8845604
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 10.731,
+          "gain": 0.4975129,
+          "azimuth_deg": -62.263,
+          "elevation_deg": -27.712,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 12.081,
+          "gain": 0.3682448,
+          "azimuth_deg": -64.523,
+          "elevation_deg": -20.557,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 12.093,
+          "gain": 0.3617887,
+          "azimuth_deg": 21.793,
+          "elevation_deg": -20.601,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 12.47,
+          "gain": 0.3332045,
+          "azimuth_deg": -65.053,
+          "elevation_deg": -19.247,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 12.896,
+          "gain": 0.3057406,
+          "azimuth_deg": -72.731,
+          "elevation_deg": -17.667,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 12.99,
+          "gain": 0.2965663,
+          "azimuth_deg": -73.725,
+          "elevation_deg": -17.486,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 12.99,
+          "gain": 0.2920149,
+          "azimuth_deg": -72.769,
+          "elevation_deg": -17.11,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 13.563,
+          "gain": 0.263726,
+          "azimuth_deg": -71.316,
+          "elevation_deg": -15.891,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 14.638,
+          "gain": 0.2247751,
+          "azimuth_deg": 163.92,
+          "elevation_deg": -13.744,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.741,
+          "gain": 0.1944857,
+          "azimuth_deg": 77.339,
+          "elevation_deg": -11.93,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.179,
+          "gain": 0.1827172,
+          "azimuth_deg": -78.596,
+          "elevation_deg": -11.591,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 17.922,
+          "gain": 0.1521094,
+          "azimuth_deg": -84.464,
+          "elevation_deg": -9.981,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 18.931,
+          "gain": 0.0375398,
+          "azimuth_deg": -97.589,
+          "elevation_deg": -13.715,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 19.269,
+          "gain": 0.1337999,
+          "azimuth_deg": -77.055,
+          "elevation_deg": -8.885,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 19.43,
+          "gain": 0.1300787,
+          "azimuth_deg": -84.742,
+          "elevation_deg": -8.592,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 21.459,
+          "gain": 0.1105434,
+          "azimuth_deg": -81.355,
+          "elevation_deg": -7.151,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 21.462,
+          "gain": 0.1088241,
+          "azimuth_deg": -81.408,
+          "elevation_deg": -7.284,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 22.159,
+          "gain": 0.0333421,
+          "azimuth_deg": -120.304,
+          "elevation_deg": -11.384,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 25.386,
+          "gain": 0.0276149,
+          "azimuth_deg": -123.091,
+          "elevation_deg": 2.382,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 26.021,
+          "gain": 0.0508561,
+          "azimuth_deg": 179.937,
+          "elevation_deg": -33.675,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 27.953,
+          "gain": 0.0820031,
+          "azimuth_deg": -8.795,
+          "elevation_deg": -28.745,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 28.614,
+          "gain": 0.0321309,
+          "azimuth_deg": -124.188,
+          "elevation_deg": 0.4,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 31.841,
+          "gain": 0.0308909,
+          "azimuth_deg": -100.226,
+          "elevation_deg": -26.271,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 35.069,
+          "gain": 0.0292974,
+          "azimuth_deg": -80.979,
+          "elevation_deg": -30.069,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 38.296,
+          "gain": 0.0274187,
+          "azimuth_deg": -58.016,
+          "elevation_deg": 0.489,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 50.712,
+          "gain": 0.032347,
+          "azimuth_deg": 18.988,
+          "elevation_deg": 48.798,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.738,
+          "gain": 0.0723285,
+          "azimuth_deg": -164.455,
+          "elevation_deg": -44.211,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 62.989,
+          "gain": 0.0478993,
+          "azimuth_deg": 0.039,
+          "elevation_deg": 33.723,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.471,
+          "gain": 0.02771,
+          "azimuth_deg": -8.601,
+          "elevation_deg": -32.277,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 83.512,
+          "gain": 0.0748575,
+          "azimuth_deg": 163.531,
+          "elevation_deg": -10.148,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 87.799,
+          "gain": 0.0535376,
+          "azimuth_deg": 11.354,
+          "elevation_deg": -41.662,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.747,
+          "gain": 0.0619766,
+          "azimuth_deg": 178.195,
+          "elevation_deg": -28.883,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 129.89,
+          "gain": 0.0399831,
+          "azimuth_deg": -22.281,
+          "elevation_deg": -34.649,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 148.708,
+          "gain": 0.0536849,
+          "azimuth_deg": -11.061,
+          "elevation_deg": -31.451,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 185.009,
+          "gain": 0.0296191,
+          "azimuth_deg": -161.258,
+          "elevation_deg": -31.66,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 208.594,
+          "gain": 0.0159151,
+          "azimuth_deg": 173.928,
+          "elevation_deg": -28.737,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 210.241,
+          "gain": 0.0236032,
+          "azimuth_deg": -162.782,
+          "elevation_deg": 54.682,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 212.196,
+          "gain": 0.039032,
+          "azimuth_deg": -15.208,
+          "elevation_deg": -34.834,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 220.247,
+          "gain": 0.0076596,
+          "azimuth_deg": -171.199,
+          "elevation_deg": -32.134,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 220.731,
+          "gain": 0.0097687,
+          "azimuth_deg": 5.654,
+          "elevation_deg": 34.238,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 61.631,
+        "duration_s": 4.8,
+        "level": 0.1903095,
+        "diffusion": 0.54851,
+        "spread_deg": 18.659,
+        "high_frequency_damping": 0.15419,
+        "absorption_by_band": [
+          0.210671,
+          0.219231,
+          0.237791,
+          0.276351,
+          0.324912,
+          0.393472,
+          0.482032,
+          0.570593
+        ],
+        "rt60_s_by_band": [
+          0.221192,
+          0.21673,
+          0.207648,
+          0.191018,
+          0.173518,
+          0.153644,
+          0.133842,
+          0.118562
+        ],
+        "seed": 44572897
+      }
+    },
+    {
+      "id": 6,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 2.7679,
+        "y": 44.49,
+        "z": 2.8007
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 8.921,
+        "gain": 0.8788159
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 8.384,
+          "gain": 0.7246185,
+          "azimuth_deg": -22.248,
+          "elevation_deg": -43.008,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 8.459,
+          "gain": 0.7156689,
+          "azimuth_deg": 16.719,
+          "elevation_deg": -42.312,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 8.547,
+          "gain": 0.7000662,
+          "azimuth_deg": -32.652,
+          "elevation_deg": -40.457,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 8.903,
+          "gain": 0.6168939,
+          "azimuth_deg": -44.233,
+          "elevation_deg": -35.08,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 8.958,
+          "gain": 0.5991813,
+          "azimuth_deg": -45.896,
+          "elevation_deg": -34.579,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 8.958,
+          "gain": 0.5917809,
+          "azimuth_deg": -45.455,
+          "elevation_deg": -35.226,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 9.283,
+          "gain": 0.5329385,
+          "azimuth_deg": -52.013,
+          "elevation_deg": -31.549,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 10.963,
+          "gain": 0.3613211,
+          "azimuth_deg": -23.057,
+          "elevation_deg": -20.796,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 11.589,
+          "gain": 0.319546,
+          "azimuth_deg": -70.038,
+          "elevation_deg": -18.145,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 13.292,
+          "gain": 0.2456941,
+          "azimuth_deg": -78.36,
+          "elevation_deg": -14.743,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 13.668,
+          "gain": 0.2313544,
+          "azimuth_deg": -168.196,
+          "elevation_deg": -13.566,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 14.505,
+          "gain": 0.2070058,
+          "azimuth_deg": -74.731,
+          "elevation_deg": -12.873,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 14.734,
+          "gain": 0.1993102,
+          "azimuth_deg": -79.778,
+          "elevation_deg": -12.397,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.678,
+          "gain": 0.162294,
+          "azimuth_deg": -79.42,
+          "elevation_deg": -10.079,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.682,
+          "gain": 0.1602426,
+          "azimuth_deg": -78.642,
+          "elevation_deg": -10.388,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 17.913,
+          "gain": 0.0083478,
+          "azimuth_deg": -72.24,
+          "elevation_deg": 5.385,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 18.415,
+          "gain": 0.1368463,
+          "azimuth_deg": 80.788,
+          "elevation_deg": -8.96,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 21.141,
+          "gain": 0.0073278,
+          "azimuth_deg": -92.759,
+          "elevation_deg": -23.905,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 21.704,
+          "gain": 0.0930966,
+          "azimuth_deg": -0.86,
+          "elevation_deg": -31.478,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 21.872,
+          "gain": 0.0984196,
+          "azimuth_deg": -11.378,
+          "elevation_deg": -31.374,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 24.368,
+          "gain": 0.0116556,
+          "azimuth_deg": -128.373,
+          "elevation_deg": 0.282,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 27.596,
+          "gain": 0.0131014,
+          "azimuth_deg": -75.95,
+          "elevation_deg": -7.994,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 30.824,
+          "gain": 0.0093801,
+          "azimuth_deg": -89.242,
+          "elevation_deg": -18.483,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 31.35,
+          "gain": 0.0903085,
+          "azimuth_deg": -28.651,
+          "elevation_deg": -35.321,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.051,
+          "gain": 0.018581,
+          "azimuth_deg": -67.175,
+          "elevation_deg": 3.076,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 37.279,
+          "gain": 0.0152794,
+          "azimuth_deg": -95.809,
+          "elevation_deg": -10.808,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 38.559,
+          "gain": 0.070001,
+          "azimuth_deg": 2.794,
+          "elevation_deg": -28.554,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.06,
+          "gain": 0.0706336,
+          "azimuth_deg": -171.319,
+          "elevation_deg": -40.303,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 68.513,
+          "gain": 0.0558397,
+          "azimuth_deg": -155.459,
+          "elevation_deg": 19.177,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 74.027,
+          "gain": 0.0765342,
+          "azimuth_deg": 16.961,
+          "elevation_deg": -31.26,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 85.369,
+          "gain": 0.0469359,
+          "azimuth_deg": -175.51,
+          "elevation_deg": -30.126,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 101.024,
+          "gain": 0.0756567,
+          "azimuth_deg": 155.406,
+          "elevation_deg": 62.338,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 104.712,
+          "gain": 0.0280232,
+          "azimuth_deg": -5.733,
+          "elevation_deg": -35.008,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 105.328,
+          "gain": 0.0354265,
+          "azimuth_deg": -160.4,
+          "elevation_deg": -42.395,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 116.797,
+          "gain": 0.0357319,
+          "azimuth_deg": 158.525,
+          "elevation_deg": -38.026,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 127.189,
+          "gain": 0.0593002,
+          "azimuth_deg": 160.109,
+          "elevation_deg": 60.527,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 147.312,
+          "gain": 0.0512877,
+          "azimuth_deg": 21.867,
+          "elevation_deg": -36.278,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 192.635,
+          "gain": 0.0168308,
+          "azimuth_deg": 170.191,
+          "elevation_deg": -32.597,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 218.404,
+          "gain": 0.0424708,
+          "azimuth_deg": 11.649,
+          "elevation_deg": -43.22,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 221.337,
+          "gain": 0.0103782,
+          "azimuth_deg": 13.268,
+          "elevation_deg": -42.081,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 61.631,
+        "duration_s": 4.8,
+        "level": 0.289548,
+        "diffusion": 0.69695,
+        "spread_deg": 23.52,
+        "high_frequency_damping": 0.134,
+        "absorption_by_band": [
+          0.157061,
+          0.164987,
+          0.182913,
+          0.220838,
+          0.268764,
+          0.336689,
+          0.424615,
+          0.512541
+        ],
+        "rt60_s_by_band": [
+          0.253931,
+          0.248493,
+          0.237014,
+          0.215912,
+          0.194076,
+          0.169746,
+          0.146046,
+          0.128153
+        ],
+        "seed": 44580816
+      }
+    },
+    {
+      "id": 7,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 4.0698,
+        "y": 43.1881,
+        "z": 2.8128
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 13.232,
+        "gain": 0.8952673
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 13.973,
+          "gain": 0.4871892,
+          "azimuth_deg": -126.935,
+          "elevation_deg": -27.618,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 14.548,
+          "gain": 0.41793,
+          "azimuth_deg": 153.282,
+          "elevation_deg": -24.592,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.478,
+          "gain": 0.3407906,
+          "azimuth_deg": -107.158,
+          "elevation_deg": -20.39,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.887,
+          "gain": 0.3112459,
+          "azimuth_deg": -105.687,
+          "elevation_deg": -18.229,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.146,
+          "gain": 0.2925986,
+          "azimuth_deg": -110.171,
+          "elevation_deg": -18.084,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.245,
+          "gain": 0.2825446,
+          "azimuth_deg": -109.753,
+          "elevation_deg": -17.601,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.245,
+          "gain": 0.2772437,
+          "azimuth_deg": -109.638,
+          "elevation_deg": -17.364,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.948,
+          "gain": 0.244638,
+          "azimuth_deg": -103.512,
+          "elevation_deg": -15.402,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 18.881,
+          "gain": 0.1879343,
+          "azimuth_deg": 10.742,
+          "elevation_deg": -12.272,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 19.171,
+          "gain": 0.1786008,
+          "azimuth_deg": 101.427,
+          "elevation_deg": -11.583,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 19.462,
+          "gain": 0.1698658,
+          "azimuth_deg": -101.951,
+          "elevation_deg": -11.147,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 19.943,
+          "gain": 0.0975895,
+          "azimuth_deg": -9.412,
+          "elevation_deg": -38.951,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 21.037,
+          "gain": 0.1429529,
+          "azimuth_deg": -104.578,
+          "elevation_deg": -9.616,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 22.224,
+          "gain": 0.0191009,
+          "azimuth_deg": -113.419,
+          "elevation_deg": -23.185,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 22.592,
+          "gain": 0.1229775,
+          "azimuth_deg": -100.862,
+          "elevation_deg": -8.591,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 22.766,
+          "gain": 0.1190252,
+          "azimuth_deg": -93.621,
+          "elevation_deg": -8.782,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 24.842,
+          "gain": 0.1004871,
+          "azimuth_deg": -95.019,
+          "elevation_deg": -7.601,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 24.844,
+          "gain": 0.0985892,
+          "azimuth_deg": -95.923,
+          "elevation_deg": -7.031,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 25.452,
+          "gain": 0.0372784,
+          "azimuth_deg": -57.154,
+          "elevation_deg": 4.957,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 28.68,
+          "gain": 0.0309093,
+          "azimuth_deg": -68.959,
+          "elevation_deg": -1.118,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 31.907,
+          "gain": 0.0191175,
+          "azimuth_deg": -105.625,
+          "elevation_deg": -31.99,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 35.135,
+          "gain": 0.0194013,
+          "azimuth_deg": -105.74,
+          "elevation_deg": 9.74,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 38.362,
+          "gain": 0.0287756,
+          "azimuth_deg": -94.667,
+          "elevation_deg": -1.669,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 41.59,
+          "gain": 0.0137413,
+          "azimuth_deg": -100.627,
+          "elevation_deg": -30.626,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 44.514,
+          "gain": 0.0429652,
+          "azimuth_deg": -168.13,
+          "elevation_deg": -35.922,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.271,
+          "gain": 0.0187893,
+          "azimuth_deg": -26.742,
+          "elevation_deg": -42.601,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 66.924,
+          "gain": 0.0390536,
+          "azimuth_deg": -166.034,
+          "elevation_deg": -12.642,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.853,
+          "gain": 0.0696276,
+          "azimuth_deg": 179.298,
+          "elevation_deg": -39.502,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 101.945,
+          "gain": 0.0324266,
+          "azimuth_deg": -155.537,
+          "elevation_deg": -36.967,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 137.882,
+          "gain": 0.0206896,
+          "azimuth_deg": -166.477,
+          "elevation_deg": -32.991,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 146.385,
+          "gain": 0.0470978,
+          "azimuth_deg": -165.097,
+          "elevation_deg": -41.371,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 147.856,
+          "gain": 0.023551,
+          "azimuth_deg": -13.494,
+          "elevation_deg": -44.333,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 149.492,
+          "gain": 0.0391175,
+          "azimuth_deg": -11.616,
+          "elevation_deg": -58.489,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 156.246,
+          "gain": 0.0117647,
+          "azimuth_deg": -1.991,
+          "elevation_deg": -38.644,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 170.288,
+          "gain": 0.0323127,
+          "azimuth_deg": -172.45,
+          "elevation_deg": -28.365,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 186.396,
+          "gain": 0.0251242,
+          "azimuth_deg": -19.709,
+          "elevation_deg": -28.046,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 218.812,
+          "gain": 0.0151857,
+          "azimuth_deg": 19.907,
+          "elevation_deg": -32.957,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 222.551,
+          "gain": 0.0292603,
+          "azimuth_deg": 22.776,
+          "elevation_deg": 65.768,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 225.141,
+          "gain": 0.0299624,
+          "azimuth_deg": -5.431,
+          "elevation_deg": -42.722,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 232.717,
+          "gain": 0.0096558,
+          "azimuth_deg": 161.705,
+          "elevation_deg": -36.006,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 61.631,
+        "duration_s": 4.8,
+        "level": 0.1809531,
+        "diffusion": 0.67482,
+        "spread_deg": 22.795,
+        "high_frequency_damping": 0.21896,
+        "absorption_by_band": [
+          0.267177,
+          0.277773,
+          0.298368,
+          0.338964,
+          0.38956,
+          0.460156,
+          0.550752,
+          0.641347
+        ],
+        "rt60_s_by_band": [
+          0.194728,
+          0.190456,
+          0.182665,
+          0.169036,
+          0.154655,
+          0.138244,
+          0.121674,
+          0.108652
+        ],
+        "seed": 44588735
+      }
+    },
+    {
+      "id": 8,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 2.779,
+        "y": 43.1871,
+        "z": 2.8118
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 15.261,
+        "gain": 0.8938935
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 14.726,
+          "gain": 0.7574257,
+          "azimuth_deg": 151.815,
+          "elevation_deg": -43.825,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 14.939,
+          "gain": 0.7444701,
+          "azimuth_deg": -148.26,
+          "elevation_deg": -39.925,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.148,
+          "gain": 0.6889508,
+          "azimuth_deg": -138.391,
+          "elevation_deg": -36.342,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.185,
+          "gain": 0.6749271,
+          "azimuth_deg": -137.293,
+          "elevation_deg": -36.061,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.252,
+          "gain": 0.6551912,
+          "azimuth_deg": -134.814,
+          "elevation_deg": -35.526,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.252,
+          "gain": 0.6493954,
+          "azimuth_deg": -135.83,
+          "elevation_deg": -35.419,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 15.826,
+          "gain": 0.5471242,
+          "azimuth_deg": -123.567,
+          "elevation_deg": -29.582,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 16.659,
+          "gain": 0.44528,
+          "azimuth_deg": -154.687,
+          "elevation_deg": -23.94,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 17.963,
+          "gain": 0.3448703,
+          "azimuth_deg": -109.779,
+          "elevation_deg": -18.175,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 19.422,
+          "gain": 0.2746411,
+          "azimuth_deg": -108.324,
+          "elevation_deg": -14.378,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 20.855,
+          "gain": 0.2281456,
+          "azimuth_deg": -13.475,
+          "elevation_deg": -12.312,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 20.946,
+          "gain": 0.2238272,
+          "azimuth_deg": -104.624,
+          "elevation_deg": -12.455,
+          "kind": "surface",
+          "surface": "S8",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 21.191,
+          "gain": 0.2159396,
+          "azimuth_deg": -99.336,
+          "elevation_deg": -12.051,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 23.198,
+          "gain": 0.1756693,
+          "azimuth_deg": -99.27,
+          "elevation_deg": -10.002,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 23.2,
+          "gain": 0.1740899,
+          "azimuth_deg": -98.01,
+          "elevation_deg": -9.518,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 24.253,
+          "gain": 0.0128466,
+          "azimuth_deg": -113.703,
+          "elevation_deg": -33.384,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 24.83,
+          "gain": 0.1506258,
+          "azimuth_deg": 97.642,
+          "elevation_deg": -8.123,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 27.481,
+          "gain": 0.0097602,
+          "azimuth_deg": -103.63,
+          "elevation_deg": -15.989,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 30.708,
+          "gain": 0.0131104,
+          "azimuth_deg": -92.206,
+          "elevation_deg": -3.512,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 33.936,
+          "gain": 0.0162458,
+          "azimuth_deg": -114.939,
+          "elevation_deg": -33.413,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 37.163,
+          "gain": 0.0092141,
+          "azimuth_deg": -114.975,
+          "elevation_deg": -3.025,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 39.411,
+          "gain": 0.1026796,
+          "azimuth_deg": -11.126,
+          "elevation_deg": 54.579,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 40.391,
+          "gain": 0.0068984,
+          "azimuth_deg": -59.919,
+          "elevation_deg": 9.203,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 43.619,
+          "gain": 0.0116644,
+          "azimuth_deg": -104.207,
+          "elevation_deg": -18.298,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "brick",
+          "branch_family": "room",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 62.486,
+          "gain": 0.0464241,
+          "azimuth_deg": -153.009,
+          "elevation_deg": -29.306,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 68.614,
+          "gain": 0.1001111,
+          "azimuth_deg": -177.147,
+          "elevation_deg": -31.674,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 83.93,
+          "gain": 0.0631696,
+          "azimuth_deg": 26.943,
+          "elevation_deg": -41.704,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 99.385,
+          "gain": 0.0825426,
+          "azimuth_deg": -26.011,
+          "elevation_deg": -32.891,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 111.381,
+          "gain": 0.0502497,
+          "azimuth_deg": 1.224,
+          "elevation_deg": -35.336,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 116.258,
+          "gain": 0.0562209,
+          "azimuth_deg": 23.811,
+          "elevation_deg": 17.126,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 135.689,
+          "gain": 0.0682976,
+          "azimuth_deg": 166.513,
+          "elevation_deg": -32.649,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 136.608,
+          "gain": 0.0539506,
+          "azimuth_deg": 152.595,
+          "elevation_deg": -35.891,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 141.589,
+          "gain": 0.0165279,
+          "azimuth_deg": -26.91,
+          "elevation_deg": -31.574,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 146.96,
+          "gain": 0.0187236,
+          "azimuth_deg": -8.378,
+          "elevation_deg": -30.312,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 168.733,
+          "gain": 0.0560092,
+          "azimuth_deg": 170.977,
+          "elevation_deg": -14.355,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 173.79,
+          "gain": 0.0264037,
+          "azimuth_deg": 159.847,
+          "elevation_deg": -43.558,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 191.209,
+          "gain": 0.0546629,
+          "azimuth_deg": 170.622,
+          "elevation_deg": -8.097,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 218.14,
+          "gain": 0.0217176,
+          "azimuth_deg": 10.287,
+          "elevation_deg": -30.622,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 223.572,
+          "gain": 0.0336095,
+          "azimuth_deg": -166.437,
+          "elevation_deg": -66.024,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 240.333,
+          "gain": 0.0268387,
+          "azimuth_deg": -19.469,
+          "elevation_deg": -32.5,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "brick",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 61.631,
+        "duration_s": 4.8,
+        "level": 0.3086462,
+        "diffusion": 0.59577,
+        "spread_deg": 20.207,
+        "high_frequency_damping": 0.25828,
+        "absorption_by_band": [
+          0.089191,
+          0.101023,
+          0.122855,
+          0.164686,
+          0.216518,
+          0.288349,
+          0.380181,
+          0.472013
+        ],
+        "rt60_s_by_band": [
+          0.312487,
+          0.300411,
+          0.280415,
+          0.248696,
+          0.218124,
+          0.186374,
+          0.157133,
+          0.135823
+        ],
+        "seed": 44596654
+      }
+    }
+  ],
+  "atlas": {
+    "name": "Brick Bend",
+    "category": "Tunnel",
+    "description": "A bent brick passage with narrow axial returns and one architectural side room.",
+    "seed": 440117,
+    "source": "s3g-mc Imprint Sketch"
+  }
+}

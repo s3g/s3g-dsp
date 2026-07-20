@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>.s3gimprint Format - s3g-dsp</title>
+    <meta name="description" content="Version 1 interchange format for s3g Ambi Imprint and s3g-mc Imprint Sketch.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+      </nav>
+    </header>
+
+    <main class="content" id="content">
+      <h1><code>.s3gimprint</code> Format</h1>
+
+      <p><code>.s3gimprint</code> is the interchange format between <code>s3g-mc Imprint Sketch</code> and <code>s3g Ambi Imprint 64</code>. It is UTF-8 JSON with a dedicated extension so a runtime imprint remains distinct from an editable Imprint Sketch project.</p>
+
+      <p>The format is sample-rate independent. Times are stored in milliseconds or seconds and frequencies in hertz. Ambi Imprint compiles the descriptor into FIR kernels at the host sample rate.</p>
+
+      <h2>Version 1</h2>
+
+      <p>The root object contains:</p>
+      <ul>
+        <li><code>format</code>: <code>s3g-ambi-imprint</code></li>
+        <li><code>version</code>: <code>1</code></li>
+        <li><code>ambisonics</code>: ACN/SN3D and reference-order metadata</li>
+        <li><code>spectral_bands_hz</code>: exactly eight band centers</li>
+        <li><code>space</code>: optional generalized family, seed, topology, polygon, ceiling profile, openness, and acoustic estimates</li>
+        <li><code>room</code>: compatibility dimensions, top-view polygon, and optional connected-region/opening provenance</li>
+        <li><code>listener_position_m</code>: listener XYZ position</li>
+        <li><code>direction_layout</code> and <code>direction_count</code></li>
+        <li><code>duration_s</code>: requested response duration</li>
+        <li><code>profiles</code>: one to eight directional response descriptors</li>
+      </ul>
+
+      <p>Each profile contains its input AED direction, source position, quadrature weight, direct arrival, discrete early reflections, and late response. The late response includes eight-band absorption and RT60 values, diffusion, spread, damping, level, and a deterministic seed. Ambi Imprint derives processing from these resolved profiles; generalized geometry remains useful provenance and drives the orbitable GUI scene rather than a realtime geometry simulation.</p>
+
+      <p>Optional display metadata includes the primary XY polygon, an XZ ceiling profile, connected-region polygons, branch family, branch level, and branch height. Readers must continue to derive sound from the resolved profiles, so geometry additions remain backward compatible within version 1.</p>
+
+      <h2>Runtime Limits</h2>
+
+      <p>Ambi Imprint version 1 accepts one to eight profiles and up to 128 early events per profile. The realtime kernel is currently capped at four seconds even when the authoring file retains a longer duration. The plugin reports 1024 samples of latency and embeds the imported JSON in CLAP project state.</p>
+
+      <p>Imprint Sketch material curves are creative acoustic estimates. They support procedural sound design and repeatable spatial response construction; they are not measured architectural coefficients.</p>
+
+      <h2>Compatibility</h2>
+
+      <p>The editable Imprint Sketch <code>.json</code> project and <code>.s3gimprint</code> runtime descriptor are different contracts. Ambi Imprint does not load project JSON, and Imprint Sketch does not require <code>s3g-field</code> to create the runtime file. Legacy <code>s3g-ir-room-sketch</code> projects remain importable by Imprint Sketch. <code>.s3genv</code> is a separate, incompatible format.</p>
+    </main>
+  </body>
+</html>

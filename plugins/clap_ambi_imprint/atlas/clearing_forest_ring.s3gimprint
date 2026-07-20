@@ -1,0 +1,3618 @@
+{
+  "format": "s3g-ambi-imprint",
+  "version": 1,
+  "generator": {
+    "name": "s3g-mc Imprint Sketch",
+    "project_format": "s3g-imprint-sketch",
+    "project_version": 1
+  },
+  "interpretation": "procedural directional space sketch; spectral material curves are creative estimates, not measured coefficients",
+  "coordinate_system": {
+    "convention": "AED",
+    "azimuth_zero": "front",
+    "azimuth_positive": "counterclockwise",
+    "elevation_positive": "up",
+    "distance_unit": "metre",
+    "time_unit": "millisecond"
+  },
+  "ambisonics": {
+    "channel_order": "ACN",
+    "normalization": "SN3D",
+    "reference_order": 3,
+    "maximum_runtime_order": 7
+  },
+  "spectral_bands_hz": [
+    125,
+    250,
+    500,
+    1000,
+    2000,
+    4000,
+    8000,
+    16000
+  ],
+  "space": {
+    "family": "clearing",
+    "seed": 660109,
+    "topology": "connected_regions",
+    "branch_family_mode": "clearing",
+    "primary_polygon_xy_m": [
+      {
+        "x": 11.95,
+        "y": 2.582
+      },
+      {
+        "x": 15.442,
+        "y": 2.346
+      },
+      {
+        "x": 18.38,
+        "y": 4.269
+      },
+      {
+        "x": 20.665,
+        "y": 6.889
+      },
+      {
+        "x": 20.942,
+        "y": 10.321
+      },
+      {
+        "x": 19.865,
+        "y": 13.29
+      },
+      {
+        "x": 19.567,
+        "y": 16.279
+      },
+      {
+        "x": 18.346,
+        "y": 19.49
+      },
+      {
+        "x": 15.329,
+        "y": 21.144
+      },
+      {
+        "x": 11.95,
+        "y": 21.303
+      },
+      {
+        "x": 8.829,
+        "y": 20.439
+      },
+      {
+        "x": 6.561,
+        "y": 18.295
+      },
+      {
+        "x": 4.374,
+        "y": 16.256
+      },
+      {
+        "x": 2.67,
+        "y": 13.53
+      },
+      {
+        "x": 2.554,
+        "y": 10.25
+      },
+      {
+        "x": 3.208,
+        "y": 6.874
+      },
+      {
+        "x": 5.612,
+        "y": 4.378
+      },
+      {
+        "x": 8.829,
+        "y": 3.36
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": 2.554,
+        "z": 18.134
+      },
+      {
+        "x": 3.703,
+        "z": 17.975
+      },
+      {
+        "x": 4.852,
+        "z": 17.724
+      },
+      {
+        "x": 6.002,
+        "z": 17.418
+      },
+      {
+        "x": 7.151,
+        "z": 17.105
+      },
+      {
+        "x": 8.3,
+        "z": 16.834
+      },
+      {
+        "x": 9.449,
+        "z": 16.642
+      },
+      {
+        "x": 10.599,
+        "z": 16.551
+      },
+      {
+        "x": 11.748,
+        "z": 16.566
+      },
+      {
+        "x": 12.897,
+        "z": 16.671
+      },
+      {
+        "x": 14.047,
+        "z": 16.84
+      },
+      {
+        "x": 15.196,
+        "z": 17.038
+      },
+      {
+        "x": 16.345,
+        "z": 17.235
+      },
+      {
+        "x": 17.495,
+        "z": 17.405
+      },
+      {
+        "x": 18.644,
+        "z": 17.537
+      },
+      {
+        "x": 19.793,
+        "z": 17.63
+      },
+      {
+        "x": 20.942,
+        "z": 17.691
+      }
+    ],
+    "irregularity": 0.51,
+    "roughness": 0.65,
+    "vertical_variation": 0.3,
+    "openness": 0.91,
+    "acoustic_volume_m3": 4978.764,
+    "acoustic_surface_m2": 1651.53
+  },
+  "room": {
+    "dimensions_m": {
+      "x": 23.9,
+      "y": 23.8,
+      "z": 17.7
+    },
+    "polygon_xy_m": [
+      {
+        "x": 11.95,
+        "y": 2.582
+      },
+      {
+        "x": 15.442,
+        "y": 2.346
+      },
+      {
+        "x": 18.38,
+        "y": 4.269
+      },
+      {
+        "x": 20.665,
+        "y": 6.889
+      },
+      {
+        "x": 20.942,
+        "y": 10.321
+      },
+      {
+        "x": 19.865,
+        "y": 13.29
+      },
+      {
+        "x": 19.567,
+        "y": 16.279
+      },
+      {
+        "x": 18.346,
+        "y": 19.49
+      },
+      {
+        "x": 15.329,
+        "y": 21.144
+      },
+      {
+        "x": 11.95,
+        "y": 21.303
+      },
+      {
+        "x": 8.829,
+        "y": 20.439
+      },
+      {
+        "x": 6.561,
+        "y": 18.295
+      },
+      {
+        "x": 4.374,
+        "y": 16.256
+      },
+      {
+        "x": 2.67,
+        "y": 13.53
+      },
+      {
+        "x": 2.554,
+        "y": 10.25
+      },
+      {
+        "x": 3.208,
+        "y": 6.874
+      },
+      {
+        "x": 5.612,
+        "y": 4.378
+      },
+      {
+        "x": 8.829,
+        "y": 3.36
+      }
+    ],
+    "shape": "clearing",
+    "family": "clearing",
+    "seed": 660109,
+    "material": "vegetation",
+    "absorption": 0.924731,
+    "scattering": 0.88,
+    "tail_soften": 0.82,
+    "exterior_opening": {
+      "enabled": true,
+      "side": "front",
+      "count": 2,
+      "position": 0.63,
+      "spread": 0.18,
+      "width": 0.18,
+      "opening_m": 1.26,
+      "leak": 0.84,
+      "leak_factor": 0.952,
+      "interpretation": "energy escape boundary for late-tail thinning and reduced reflection density",
+      "openings": [
+        {
+          "index": 1,
+          "side": "front",
+          "opening_m": 0.63,
+          "opening_segment": {
+            "x1": 13.521,
+            "y1": 2.476,
+            "x2": 14.15,
+            "y2": 2.433
+          }
+        },
+        {
+          "index": 2,
+          "side": "front",
+          "opening_m": 0.63,
+          "opening_segment": {
+            "x1": 14.15,
+            "y1": 2.433,
+            "x2": 14.778,
+            "y2": 2.391
+          }
+        }
+      ],
+      "opening_segment": {
+        "x1": 13.521,
+        "y1": 2.476,
+        "x2": 14.15,
+        "y2": 2.433
+      }
+    },
+    "chamber": {
+      "family_mode": "clearing",
+      "material": "earth",
+      "material_mode": "alternating",
+      "material_mix": 0.46,
+      "width": 6.5,
+      "depth": 4,
+      "count": 2,
+      "position": 0.56,
+      "nested_chambers": 0,
+      "opening_width": 0.49,
+      "coupling": 0.55,
+      "chambers": [
+        {
+          "material_profile": {
+            "material": "earth",
+            "absorption": 0.901,
+            "scattering": 0.881,
+            "tail_soften": 0.533
+          },
+          "index": 1,
+          "level": 0,
+          "family": "clearing",
+          "height_m": 6.018,
+          "x": 11.95,
+          "y": -0.579,
+          "width": 3.143,
+          "depth": 3.161,
+          "opening_x": 12.751,
+          "opening_y": 2.528,
+          "opening": 1.543,
+          "polygon": [
+            {
+              "x": 11.95,
+              "y": 2.582
+            },
+            {
+              "x": 15.093,
+              "y": 2.37
+            },
+            {
+              "x": 14.986,
+              "y": 1.51
+            },
+            {
+              "x": 14.758,
+              "y": 0.72
+            },
+            {
+              "x": 14.404,
+              "y": 0.111
+            },
+            {
+              "x": 14,
+              "y": -0.398
+            },
+            {
+              "x": 13.531,
+              "y": -0.579
+            },
+            {
+              "x": 13.087,
+              "y": -0.421
+            },
+            {
+              "x": 12.677,
+              "y": -0.189
+            },
+            {
+              "x": 12.293,
+              "y": 0.191
+            },
+            {
+              "x": 12.061,
+              "y": 0.894
+            },
+            {
+              "x": 11.992,
+              "y": 1.736
+            }
+          ],
+          "opening_segment": {
+            "x1": 12.751,
+            "y1": 2.528,
+            "x2": 14.291,
+            "y2": 2.424
+          },
+          "side": "front",
+          "shape": "skew"
+        },
+        {
+          "material_profile": {
+            "material": "inherit",
+            "absorption": 0.95,
+            "scattering": 1,
+            "tail_soften": 0.673
+          },
+          "index": 2,
+          "level": 0,
+          "family": "clearing",
+          "height_m": 6.018,
+          "x": 12.242,
+          "y": -0.678,
+          "width": 3.2,
+          "depth": 3.236,
+          "opening_x": 13.101,
+          "opening_y": 2.504,
+          "opening": 1.543,
+          "polygon": [
+            {
+              "x": 12.299,
+              "y": 2.558
+            },
+            {
+              "x": 15.442,
+              "y": 2.346
+            },
+            {
+              "x": 15.301,
+              "y": 1.503
+            },
+            {
+              "x": 15.061,
+              "y": 0.748
+            },
+            {
+              "x": 14.742,
+              "y": 0.122
+            },
+            {
+              "x": 14.366,
+              "y": -0.405
+            },
+            {
+              "x": 13.915,
+              "y": -0.678
+            },
+            {
+              "x": 13.458,
+              "y": -0.555
+            },
+            {
+              "x": 13.022,
+              "y": -0.31
+            },
+            {
+              "x": 12.624,
+              "y": 0.12
+            },
+            {
+              "x": 12.375,
+              "y": 0.84
+            },
+            {
+              "x": 12.242,
+              "y": 1.669
+            }
+          ],
+          "opening_segment": {
+            "x1": 13.101,
+            "y1": 2.504,
+            "x2": 14.641,
+            "y2": 2.4
+          },
+          "side": "front",
+          "shape": "skew"
+        }
+      ]
+    }
+  },
+  "listener_position_m": {
+    "x": 14.2306,
+    "y": 7.3453,
+    "z": 8.443
+  },
+  "direction_layout": "practical_8",
+  "direction_count": 8,
+  "duration_s": 1.6,
+  "profiles": [
+    {
+      "id": 1,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 19.1357,
+        "y": 12.2505,
+        "z": 13.3481
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 59.387,
+        "gain": 0.0866428
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 32.923,
+          "gain": 0.0056223,
+          "azimuth_deg": 45.644,
+          "elevation_deg": 33.217,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.514,
+          "gain": 0.0073217,
+          "azimuth_deg": -110.451,
+          "elevation_deg": 13.888,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 47.51,
+          "gain": 0.0364948,
+          "azimuth_deg": -6.376,
+          "elevation_deg": 40.634,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 47.547,
+          "gain": 0.0332816,
+          "azimuth_deg": 9.171,
+          "elevation_deg": 40.544,
+          "kind": "surface",
+          "surface": "B2.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.828,
+          "gain": 0.0287176,
+          "azimuth_deg": 29.064,
+          "elevation_deg": 38.471,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.717,
+          "gain": 0.0252616,
+          "azimuth_deg": 38.445,
+          "elevation_deg": 36.343,
+          "kind": "surface",
+          "surface": "B2.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.812,
+          "gain": 0.0197117,
+          "azimuth_deg": 52.454,
+          "elevation_deg": 30.248,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.294,
+          "gain": 0.0177032,
+          "azimuth_deg": 65.128,
+          "elevation_deg": 30.011,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.243,
+          "gain": 0.0156523,
+          "azimuth_deg": 69.972,
+          "elevation_deg": 29.17,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.277,
+          "gain": 0.0142825,
+          "azimuth_deg": 49.94,
+          "elevation_deg": 28.77,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.654,
+          "gain": 0.0124666,
+          "azimuth_deg": -53.389,
+          "elevation_deg": 27.436,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.027,
+          "gain": 0.0109043,
+          "azimuth_deg": 62.766,
+          "elevation_deg": 25.872,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.246,
+          "gain": 0.0095989,
+          "azimuth_deg": 52.464,
+          "elevation_deg": 24.983,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.806,
+          "gain": 0.0086248,
+          "azimuth_deg": 84.598,
+          "elevation_deg": 24.505,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.662,
+          "gain": 0.0076861,
+          "azimuth_deg": 90.216,
+          "elevation_deg": 23.771,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.341,
+          "gain": 0.0068876,
+          "azimuth_deg": -67.302,
+          "elevation_deg": 23.974,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 62.396,
+          "gain": 0.0061109,
+          "azimuth_deg": -72.469,
+          "elevation_deg": 23.27,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.584,
+          "gain": 0.0054074,
+          "azimuth_deg": 95.036,
+          "elevation_deg": 22.622,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 74.351,
+          "gain": 0.0008968,
+          "azimuth_deg": -71.275,
+          "elevation_deg": 6.548,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 77.069,
+          "gain": 0.0038086,
+          "azimuth_deg": 61.129,
+          "elevation_deg": 35.731,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 81.746,
+          "gain": 0.000233,
+          "azimuth_deg": 55.248,
+          "elevation_deg": 18.592,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 88.807,
+          "gain": 0.0005025,
+          "azimuth_deg": -23.63,
+          "elevation_deg": 26.407,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 93.835,
+          "gain": 0.0004689,
+          "azimuth_deg": 20.687,
+          "elevation_deg": 33.598,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 102.259,
+          "gain": 0.0107239,
+          "azimuth_deg": 58.495,
+          "elevation_deg": 34.163,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 102.928,
+          "gain": 0.0002698,
+          "azimuth_deg": 6.38,
+          "elevation_deg": 45.48,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 108.975,
+          "gain": 0.004432,
+          "azimuth_deg": 52.56,
+          "elevation_deg": 33.926,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 109.989,
+          "gain": 0.0004734,
+          "azimuth_deg": -49.263,
+          "elevation_deg": 25.524,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 112.16,
+          "gain": 0.0065226,
+          "azimuth_deg": 33.12,
+          "elevation_deg": 33.769,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 117.049,
+          "gain": 0.0003744,
+          "azimuth_deg": 36.435,
+          "elevation_deg": 32.186,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 124.11,
+          "gain": 0.0003184,
+          "azimuth_deg": 6.136,
+          "elevation_deg": 28.189,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 126.876,
+          "gain": 0.006542,
+          "azimuth_deg": 34.005,
+          "elevation_deg": 32.046,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 38.031,
+        "duration_s": 1.6,
+        "level": 0.0045435,
+        "diffusion": 0.83549,
+        "spread_deg": 18.403,
+        "high_frequency_damping": 0.86078,
+        "absorption_by_band": [
+          0.535735,
+          0.667016,
+          0.818298,
+          0.93958,
+          0.98,
+          0.98,
+          0.98,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389
+        ],
+        "seed": 64838364
+      }
+    },
+    {
+      "id": 2,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 9.3254,
+        "y": 12.2505,
+        "z": 13.3481
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 54.807,
+        "gain": 0.0855486
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 37.649,
+          "gain": 0.0053807,
+          "azimuth_deg": -24.808,
+          "elevation_deg": 33.784,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.118,
+          "gain": 0.0313551,
+          "azimuth_deg": 27.887,
+          "elevation_deg": 44.683,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.473,
+          "gain": 0.0276691,
+          "azimuth_deg": -7.172,
+          "elevation_deg": 44.019,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.924,
+          "gain": 0.0243128,
+          "azimuth_deg": -14.933,
+          "elevation_deg": 41.869,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.005,
+          "gain": 0.0207677,
+          "azimuth_deg": -25.102,
+          "elevation_deg": 40.458,
+          "kind": "surface",
+          "surface": "B2.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 47.663,
+          "gain": 0.0154208,
+          "azimuth_deg": -57.016,
+          "elevation_deg": 31.533,
+          "kind": "surface",
+          "surface": "B2.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.077,
+          "gain": 0.0136354,
+          "azimuth_deg": -56.69,
+          "elevation_deg": 30.963,
+          "kind": "surface",
+          "surface": "B1.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.328,
+          "gain": 0.0031254,
+          "azimuth_deg": -65.7,
+          "elevation_deg": 36.874,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.72,
+          "gain": 0.0108027,
+          "azimuth_deg": 69.499,
+          "elevation_deg": 27.43,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.496,
+          "gain": 0.0089013,
+          "azimuth_deg": 77.111,
+          "elevation_deg": 25.414,
+          "kind": "surface",
+          "surface": "B2.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.564,
+          "gain": 0.0075302,
+          "azimuth_deg": 89.545,
+          "elevation_deg": 23.916,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.949,
+          "gain": 0.0063387,
+          "azimuth_deg": 92.612,
+          "elevation_deg": 21.644,
+          "kind": "surface",
+          "surface": "B2.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.453,
+          "gain": 0.0010118,
+          "azimuth_deg": -44.078,
+          "elevation_deg": 59.684,
+          "kind": "surface",
+          "surface": "U",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.313,
+          "gain": 0.0045856,
+          "azimuth_deg": -102.797,
+          "elevation_deg": 19.798,
+          "kind": "surface",
+          "surface": "B2.9",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.607,
+          "gain": 0.0039955,
+          "azimuth_deg": 108.396,
+          "elevation_deg": 19.59,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.015,
+          "gain": 0.0035541,
+          "azimuth_deg": 112.351,
+          "elevation_deg": 19.158,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.804,
+          "gain": 0.003135,
+          "azimuth_deg": -106.964,
+          "elevation_deg": 19.096,
+          "kind": "surface",
+          "surface": "B1.9",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.119,
+          "gain": 0.0027348,
+          "azimuth_deg": -141.848,
+          "elevation_deg": 17.398,
+          "kind": "surface",
+          "surface": "S18",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 69.055,
+          "gain": 0.0029564,
+          "azimuth_deg": -61.862,
+          "elevation_deg": 32.849,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 69.797,
+          "gain": 0.0048134,
+          "azimuth_deg": -53.924,
+          "elevation_deg": 28.84,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.105,
+          "gain": 0.0003878,
+          "azimuth_deg": 29.911,
+          "elevation_deg": 1.343,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 77.166,
+          "gain": 0.0004442,
+          "azimuth_deg": -12.563,
+          "elevation_deg": 21.62,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 82.76,
+          "gain": 0.0004954,
+          "azimuth_deg": 70.74,
+          "elevation_deg": 7.203,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 84.717,
+          "gain": 0.0071911,
+          "azimuth_deg": -38.622,
+          "elevation_deg": 36.2,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.287,
+          "gain": 0.0003529,
+          "azimuth_deg": 10.369,
+          "elevation_deg": -12.374,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 98.348,
+          "gain": 0.0004834,
+          "azimuth_deg": 48.263,
+          "elevation_deg": 31.483,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 101.836,
+          "gain": 0.0046503,
+          "azimuth_deg": -41.446,
+          "elevation_deg": 30.41,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 105.409,
+          "gain": 0.0004158,
+          "azimuth_deg": -88.465,
+          "elevation_deg": -6.974,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 112.469,
+          "gain": 0.0002393,
+          "azimuth_deg": 66.233,
+          "elevation_deg": 36.467,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 116.277,
+          "gain": 0.0065262,
+          "azimuth_deg": -54.098,
+          "elevation_deg": 35.934,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 119.53,
+          "gain": 0.000411,
+          "azimuth_deg": 73.824,
+          "elevation_deg": 33.39,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        }
+      ],
+      "late": {
+        "start_ms": 38.031,
+        "duration_s": 1.6,
+        "level": 0.0032949,
+        "diffusion": 0.89614,
+        "spread_deg": 21.941,
+        "high_frequency_damping": 0.80612,
+        "absorption_by_band": [
+          0.57249,
+          0.702054,
+          0.851617,
+          0.971181,
+          0.98,
+          0.98,
+          0.98,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389
+        ],
+        "seed": 64846283
+      }
+    },
+    {
+      "id": 3,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 14.2306,
+        "y": 7.3453,
+        "z": 8.443
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 55.471,
+        "gain": 0.0897296
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 31.55,
+          "gain": 0.0798318,
+          "azimuth_deg": 97.303,
+          "elevation_deg": -0.303,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 32.438,
+          "gain": 0.0652918,
+          "azimuth_deg": -86.185,
+          "elevation_deg": -0.16,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.759,
+          "gain": 0.0473246,
+          "azimuth_deg": 99.969,
+          "elevation_deg": 0.416,
+          "kind": "surface",
+          "surface": "B2.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.645,
+          "gain": 0.0368231,
+          "azimuth_deg": 106.313,
+          "elevation_deg": -0.35,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.632,
+          "gain": 0.0310007,
+          "azimuth_deg": -93.461,
+          "elevation_deg": -0.081,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.67,
+          "gain": 0.026132,
+          "azimuth_deg": -95.05,
+          "elevation_deg": 0.16,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.225,
+          "gain": 0.0227833,
+          "azimuth_deg": 106.72,
+          "elevation_deg": 0.289,
+          "kind": "surface",
+          "surface": "B2.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.666,
+          "gain": 0.0200228,
+          "azimuth_deg": -99.845,
+          "elevation_deg": 0.394,
+          "kind": "surface",
+          "surface": "B2.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 40.581,
+          "gain": 0.0037173,
+          "azimuth_deg": -144.905,
+          "elevation_deg": -40.094,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.988,
+          "gain": 0.0064266,
+          "azimuth_deg": 73.137,
+          "elevation_deg": 11.138,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 44.755,
+          "gain": 0.0138497,
+          "azimuth_deg": 116.268,
+          "elevation_deg": -0.089,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.024,
+          "gain": 0.0123493,
+          "azimuth_deg": 119.827,
+          "elevation_deg": -0.014,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.605,
+          "gain": 0.0108611,
+          "azimuth_deg": -108.591,
+          "elevation_deg": 0.084,
+          "kind": "surface",
+          "surface": "B2.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 46.799,
+          "gain": 0.0093127,
+          "azimuth_deg": -107.876,
+          "elevation_deg": -0.236,
+          "kind": "surface",
+          "surface": "B1.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.913,
+          "gain": 0.0074344,
+          "azimuth_deg": 126.361,
+          "elevation_deg": -0.058,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.01,
+          "gain": 0.0066868,
+          "azimuth_deg": 128.751,
+          "elevation_deg": -0.419,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.239,
+          "gain": 0.0057734,
+          "azimuth_deg": 147.306,
+          "elevation_deg": -0.412,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.588,
+          "gain": 0.005148,
+          "azimuth_deg": -176.012,
+          "elevation_deg": -0.254,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.312,
+          "gain": 0.0079312,
+          "azimuth_deg": 123.907,
+          "elevation_deg": 33.868,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.434,
+          "gain": 0.001477,
+          "azimuth_deg": 78.882,
+          "elevation_deg": -19.856,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 77.829,
+          "gain": 0.0012416,
+          "azimuth_deg": 15.092,
+          "elevation_deg": 36.147,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 81.596,
+          "gain": 0.0057669,
+          "azimuth_deg": 140.852,
+          "elevation_deg": 40.772,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 84.89,
+          "gain": 0.0012656,
+          "azimuth_deg": 26.847,
+          "elevation_deg": -5.763,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 91.084,
+          "gain": 0.0038579,
+          "azimuth_deg": 150.47,
+          "elevation_deg": 37.206,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.951,
+          "gain": 0.0013237,
+          "azimuth_deg": -4.197,
+          "elevation_deg": 21.273,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 99.011,
+          "gain": 0.0012653,
+          "azimuth_deg": -18.438,
+          "elevation_deg": 43.036,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 104.718,
+          "gain": 0.0083701,
+          "azimuth_deg": 125.321,
+          "elevation_deg": 36.333,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 106.072,
+          "gain": 0.0011173,
+          "azimuth_deg": -60.417,
+          "elevation_deg": 15.736,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 109.419,
+          "gain": 0.0064175,
+          "azimuth_deg": 129.277,
+          "elevation_deg": 40.05,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 113.133,
+          "gain": 0.0010328,
+          "azimuth_deg": -19.506,
+          "elevation_deg": -17.831,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 120.193,
+          "gain": 0.00038,
+          "azimuth_deg": 59.279,
+          "elevation_deg": 18.69,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        }
+      ],
+      "late": {
+        "start_ms": 38.031,
+        "duration_s": 1.6,
+        "level": 0.0057915,
+        "diffusion": 0.82882,
+        "spread_deg": 18.014,
+        "high_frequency_damping": 0.83068,
+        "absorption_by_band": [
+          0.562685,
+          0.693021,
+          0.843357,
+          0.963693,
+          0.98,
+          0.98,
+          0.98,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389
+        ],
+        "seed": 64854202
+      }
+    },
+    {
+      "id": 4,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 9.5123,
+        "y": 3.1896,
+        "z": 13.3481
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 51.173,
+        "gain": 0.0898428
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 30.738,
+          "gain": 0.0045757,
+          "azimuth_deg": 25.971,
+          "elevation_deg": 44.789,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 35.603,
+          "gain": 0.0390562,
+          "azimuth_deg": -159.271,
+          "elevation_deg": 57.419,
+          "kind": "surface",
+          "surface": "B2.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.091,
+          "gain": 0.0341612,
+          "azimuth_deg": 177.484,
+          "elevation_deg": 55.782,
+          "kind": "surface",
+          "surface": "B2.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.173,
+          "gain": 0.0306009,
+          "azimuth_deg": -154.171,
+          "elevation_deg": 55.54,
+          "kind": "surface",
+          "surface": "B1.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.76,
+          "gain": 0.026645,
+          "azimuth_deg": 179.679,
+          "elevation_deg": 52.124,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.028,
+          "gain": 0.0236295,
+          "azimuth_deg": 178.648,
+          "elevation_deg": 51.247,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.342,
+          "gain": 0.0198419,
+          "azimuth_deg": 167.374,
+          "elevation_deg": 46.8,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.043,
+          "gain": 0.0156963,
+          "azimuth_deg": -130.199,
+          "elevation_deg": 39.505,
+          "kind": "surface",
+          "surface": "B2.9",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.349,
+          "gain": 0.0044849,
+          "azimuth_deg": -141.199,
+          "elevation_deg": 42.556,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.972,
+          "gain": 0.0135623,
+          "azimuth_deg": -131.598,
+          "elevation_deg": 37.484,
+          "kind": "surface",
+          "surface": "S18",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.145,
+          "gain": 0.0121158,
+          "azimuth_deg": -132.536,
+          "elevation_deg": 37.174,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.764,
+          "gain": 0.0106235,
+          "azimuth_deg": -131.546,
+          "elevation_deg": 35.964,
+          "kind": "surface",
+          "surface": "B1.9",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.509,
+          "gain": 0.0092737,
+          "azimuth_deg": -135.606,
+          "elevation_deg": 35.166,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.509,
+          "gain": 0.0083463,
+          "azimuth_deg": -136.493,
+          "elevation_deg": 34.827,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.509,
+          "gain": 0.0075117,
+          "azimuth_deg": -135.389,
+          "elevation_deg": 35.134,
+          "kind": "surface",
+          "surface": "B2.1",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 47.399,
+          "gain": 0.0058433,
+          "azimuth_deg": 130.716,
+          "elevation_deg": 30.531,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.233,
+          "gain": 0.0051103,
+          "azimuth_deg": -135.786,
+          "elevation_deg": 28.57,
+          "kind": "surface",
+          "surface": "B2.8",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.454,
+          "gain": 0.0045651,
+          "azimuth_deg": -136.493,
+          "elevation_deg": 28.197,
+          "kind": "surface",
+          "surface": "B1.8",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.626,
+          "gain": 0.0066733,
+          "azimuth_deg": -128.125,
+          "elevation_deg": 33.141,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 66.137,
+          "gain": 0.0008317,
+          "azimuth_deg": -36.892,
+          "elevation_deg": 7.246,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 72.632,
+          "gain": 0.0012563,
+          "azimuth_deg": 20.373,
+          "elevation_deg": 29.552,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 79.126,
+          "gain": 0.0011651,
+          "azimuth_deg": -70.467,
+          "elevation_deg": 16.285,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 87.654,
+          "gain": 0.0011977,
+          "azimuth_deg": -25.927,
+          "elevation_deg": -21.855,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 90.221,
+          "gain": 0.0058078,
+          "azimuth_deg": -146.41,
+          "elevation_deg": 30.056,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 92.115,
+          "gain": 0.0013698,
+          "azimuth_deg": -80.801,
+          "elevation_deg": -5.67,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 93.158,
+          "gain": 0.0049006,
+          "azimuth_deg": -116.253,
+          "elevation_deg": 39.722,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 99.772,
+          "gain": 0.0040423,
+          "azimuth_deg": -154.58,
+          "elevation_deg": 30.368,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 101.775,
+          "gain": 0.0010118,
+          "azimuth_deg": 71.005,
+          "elevation_deg": 0.431,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 108.836,
+          "gain": 0.0011829,
+          "azimuth_deg": 61.603,
+          "elevation_deg": -23.443,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 111.599,
+          "gain": 0.0014959,
+          "azimuth_deg": -15.498,
+          "elevation_deg": -20.487,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 113.353,
+          "gain": 0.00545,
+          "azimuth_deg": -134.549,
+          "elevation_deg": 42.614,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 38.031,
+        "duration_s": 1.6,
+        "level": 0.0039945,
+        "diffusion": 0.93732,
+        "spread_deg": 24.344,
+        "high_frequency_damping": 0.78425,
+        "absorption_by_band": [
+          0.568218,
+          0.697095,
+          0.845971,
+          0.964848,
+          0.98,
+          0.98,
+          0.98,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389
+        ],
+        "seed": 64862121
+      }
+    },
+    {
+      "id": 5,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 19.1357,
+        "y": 12.2505,
+        "z": 3.5379
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 54.01,
+        "gain": 0.0849511
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 32.359,
+          "gain": 0.0091182,
+          "azimuth_deg": 39.742,
+          "elevation_deg": -28.728,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.462,
+          "gain": 0.0281,
+          "azimuth_deg": -5.592,
+          "elevation_deg": -41.015,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.5,
+          "gain": 0.0250956,
+          "azimuth_deg": 8.964,
+          "elevation_deg": -41.09,
+          "kind": "surface",
+          "surface": "B2.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.781,
+          "gain": 0.021206,
+          "azimuth_deg": 29.38,
+          "elevation_deg": -38.526,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.67,
+          "gain": 0.0182679,
+          "azimuth_deg": 39.366,
+          "elevation_deg": -36.898,
+          "kind": "surface",
+          "surface": "B2.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.766,
+          "gain": 0.0088562,
+          "azimuth_deg": 54.293,
+          "elevation_deg": -39.83,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 47.617,
+          "gain": 0.0059435,
+          "azimuth_deg": 45.024,
+          "elevation_deg": -31.629,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 47.764,
+          "gain": 0.0139595,
+          "azimuth_deg": 52.729,
+          "elevation_deg": -30.548,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.247,
+          "gain": 0.0122777,
+          "azimuth_deg": 65.004,
+          "elevation_deg": -30.116,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.196,
+          "gain": 0.0106307,
+          "azimuth_deg": 71.46,
+          "elevation_deg": -28.478,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.229,
+          "gain": 0.0094996,
+          "azimuth_deg": 49.955,
+          "elevation_deg": -28.85,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.606,
+          "gain": 0.0081202,
+          "azimuth_deg": -53.52,
+          "elevation_deg": -27.516,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.98,
+          "gain": 0.0069556,
+          "azimuth_deg": 63.295,
+          "elevation_deg": -26.07,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.199,
+          "gain": 0.0059962,
+          "azimuth_deg": 53.481,
+          "elevation_deg": -25.388,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.759,
+          "gain": 0.0052762,
+          "azimuth_deg": 85.214,
+          "elevation_deg": -25.233,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.614,
+          "gain": 0.0046047,
+          "azimuth_deg": 89.524,
+          "elevation_deg": -24.506,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.293,
+          "gain": 0.0040409,
+          "azimuth_deg": -68.816,
+          "elevation_deg": -23.736,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.349,
+          "gain": 0.003511,
+          "azimuth_deg": -72.43,
+          "elevation_deg": -22.611,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.536,
+          "gain": 0.0030425,
+          "azimuth_deg": 95.355,
+          "elevation_deg": -22.059,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.142,
+          "gain": 0.0084148,
+          "azimuth_deg": -11.283,
+          "elevation_deg": -28.883,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 68.974,
+          "gain": 0.0009375,
+          "azimuth_deg": -14.957,
+          "elevation_deg": -14.406,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 75.468,
+          "gain": 0.0008232,
+          "azimuth_deg": -59.729,
+          "elevation_deg": -10.902,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 76.754,
+          "gain": 0.0061172,
+          "azimuth_deg": 31.681,
+          "elevation_deg": -34.647,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 81.963,
+          "gain": 0.000674,
+          "azimuth_deg": -65.221,
+          "elevation_deg": 9.796,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 90.49,
+          "gain": 0.0005637,
+          "azimuth_deg": -72.658,
+          "elevation_deg": 8.327,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 97.551,
+          "gain": 0.0005358,
+          "azimuth_deg": -21.733,
+          "elevation_deg": -34.936,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 104.611,
+          "gain": 0.0005023,
+          "azimuth_deg": 19.172,
+          "elevation_deg": -41.096,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 111.03,
+          "gain": 0.0031152,
+          "azimuth_deg": 41.37,
+          "elevation_deg": -28.72,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 111.672,
+          "gain": 0.0004647,
+          "azimuth_deg": 67.973,
+          "elevation_deg": 8.471,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 112.599,
+          "gain": 0.0077268,
+          "azimuth_deg": -95.051,
+          "elevation_deg": -34.834,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 118.733,
+          "gain": 0.0003937,
+          "azimuth_deg": 68.911,
+          "elevation_deg": -3.739,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        }
+      ],
+      "late": {
+        "start_ms": 38.031,
+        "duration_s": 1.6,
+        "level": 0.0030806,
+        "diffusion": 0.84069,
+        "spread_deg": 18.707,
+        "high_frequency_damping": 0.79481,
+        "absorption_by_band": [
+          0.578186,
+          0.707394,
+          0.856602,
+          0.975811,
+          0.98,
+          0.98,
+          0.98,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389
+        ],
+        "seed": 64870040
+      }
+    },
+    {
+      "id": 6,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 9.3254,
+        "y": 12.2505,
+        "z": 3.5379
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 53.148,
+        "gain": 0.0845656
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 29.071,
+          "gain": 0.0117671,
+          "azimuth_deg": -45.674,
+          "elevation_deg": -31.486,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.412,
+          "gain": 0.0092361,
+          "azimuth_deg": -42.812,
+          "elevation_deg": -28.569,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.063,
+          "gain": 0.0364628,
+          "azimuth_deg": 27.593,
+          "elevation_deg": -43.851,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.418,
+          "gain": 0.0325672,
+          "azimuth_deg": -5.807,
+          "elevation_deg": -43.84,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.868,
+          "gain": 0.0289643,
+          "azimuth_deg": -13.965,
+          "elevation_deg": -42.252,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 40.55,
+          "gain": 0.009548,
+          "azimuth_deg": -38.201,
+          "elevation_deg": -40.292,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 40.95,
+          "gain": 0.0250415,
+          "azimuth_deg": -25.183,
+          "elevation_deg": -39.397,
+          "kind": "surface",
+          "surface": "B2.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.608,
+          "gain": 0.0188201,
+          "azimuth_deg": -56.139,
+          "elevation_deg": -31.757,
+          "kind": "surface",
+          "surface": "B2.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 46.022,
+          "gain": 0.0168433,
+          "azimuth_deg": -56.8,
+          "elevation_deg": -32.07,
+          "kind": "surface",
+          "surface": "B1.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.458,
+          "gain": 0.0079519,
+          "azimuth_deg": 153.38,
+          "elevation_deg": 19.177,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.665,
+          "gain": 0.0135062,
+          "azimuth_deg": 70.187,
+          "elevation_deg": -27.714,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.44,
+          "gain": 0.0112642,
+          "azimuth_deg": 77.03,
+          "elevation_deg": -24.868,
+          "kind": "surface",
+          "surface": "B2.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.509,
+          "gain": 0.0096449,
+          "azimuth_deg": 89.403,
+          "elevation_deg": -22.836,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.894,
+          "gain": 0.0082174,
+          "azimuth_deg": 91.548,
+          "elevation_deg": -22.392,
+          "kind": "surface",
+          "surface": "B2.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.035,
+          "gain": 0.0077245,
+          "azimuth_deg": -46.292,
+          "elevation_deg": -59.7,
+          "kind": "surface",
+          "surface": "D",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.258,
+          "gain": 0.00609,
+          "azimuth_deg": -102.695,
+          "elevation_deg": -20.213,
+          "kind": "surface",
+          "surface": "B2.9",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 62.552,
+          "gain": 0.0053707,
+          "azimuth_deg": 108.164,
+          "elevation_deg": -19.402,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 62.959,
+          "gain": 0.0048354,
+          "azimuth_deg": 112.135,
+          "elevation_deg": -18.997,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.749,
+          "gain": 0.004317,
+          "azimuth_deg": -106.821,
+          "elevation_deg": -19.068,
+          "kind": "surface",
+          "surface": "B1.9",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.064,
+          "gain": 0.0038117,
+          "azimuth_deg": -141.885,
+          "elevation_deg": -18.433,
+          "kind": "surface",
+          "surface": "S18",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 68.112,
+          "gain": 0.000427,
+          "azimuth_deg": 35.004,
+          "elevation_deg": 14.311,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 74.607,
+          "gain": 0.0003699,
+          "azimuth_deg": -5.437,
+          "elevation_deg": -29.726,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 75.011,
+          "gain": 0.0098064,
+          "azimuth_deg": -60.579,
+          "elevation_deg": -28.113,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.568,
+          "gain": 0.0004221,
+          "azimuth_deg": -81.552,
+          "elevation_deg": 8.136,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 83.775,
+          "gain": 0.0089275,
+          "azimuth_deg": -27.873,
+          "elevation_deg": -36.276,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 87.596,
+          "gain": 0.000644,
+          "azimuth_deg": 27.692,
+          "elevation_deg": -5.805,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 96.689,
+          "gain": 0.0003307,
+          "azimuth_deg": 1.61,
+          "elevation_deg": -22.303,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 103.75,
+          "gain": 0.0006465,
+          "azimuth_deg": 48.507,
+          "elevation_deg": 12.667,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 110.81,
+          "gain": 0.0005246,
+          "azimuth_deg": -12.346,
+          "elevation_deg": -9.854,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 116.014,
+          "gain": 0.0021815,
+          "azimuth_deg": -34.608,
+          "elevation_deg": -42.066,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 117.871,
+          "gain": 0.0005641,
+          "azimuth_deg": 40.442,
+          "elevation_deg": -5.106,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        }
+      ],
+      "late": {
+        "start_ms": 38.031,
+        "duration_s": 1.6,
+        "level": 0.0042264,
+        "diffusion": 0.92232,
+        "spread_deg": 23.468,
+        "high_frequency_damping": 0.7837,
+        "absorption_by_band": [
+          0.548704,
+          0.677563,
+          0.826422,
+          0.945281,
+          0.98,
+          0.98,
+          0.98,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389
+        ],
+        "seed": 64877959
+      }
+    },
+    {
+      "id": 7,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 14.2306,
+        "y": 7.3453,
+        "z": 8.443
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 56.989,
+        "gain": 0.0856654
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 30.684,
+          "gain": 0.0099549,
+          "azimuth_deg": 127.897,
+          "elevation_deg": -38.945,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 31.526,
+          "gain": 0.0641993,
+          "azimuth_deg": 96.866,
+          "elevation_deg": 0.592,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 32.415,
+          "gain": 0.051599,
+          "azimuth_deg": -85.492,
+          "elevation_deg": -0.419,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 34.736,
+          "gain": 0.0367534,
+          "azimuth_deg": 99.735,
+          "elevation_deg": -0.55,
+          "kind": "surface",
+          "surface": "B2.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 36.622,
+          "gain": 0.0281034,
+          "azimuth_deg": 105.539,
+          "elevation_deg": 0.426,
+          "kind": "surface",
+          "surface": "B1.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 37.609,
+          "gain": 0.0232508,
+          "azimuth_deg": -92.649,
+          "elevation_deg": -0.462,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 38.647,
+          "gain": 0.0192605,
+          "azimuth_deg": -94.676,
+          "elevation_deg": -0.204,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.202,
+          "gain": 0.0165022,
+          "azimuth_deg": 107.776,
+          "elevation_deg": 0.116,
+          "kind": "surface",
+          "surface": "B2.3",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 39.642,
+          "gain": 0.0142521,
+          "azimuth_deg": -98.849,
+          "elevation_deg": 0.327,
+          "kind": "surface",
+          "surface": "B2.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.384,
+          "gain": 0.0048052,
+          "azimuth_deg": 143.959,
+          "elevation_deg": -35.921,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 44.732,
+          "gain": 0.0096877,
+          "azimuth_deg": 116.459,
+          "elevation_deg": -0.113,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.001,
+          "gain": 0.0084889,
+          "azimuth_deg": 120.431,
+          "elevation_deg": 0.29,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 45.582,
+          "gain": 0.0073368,
+          "azimuth_deg": -108.861,
+          "elevation_deg": 0.382,
+          "kind": "surface",
+          "surface": "B2.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 46.776,
+          "gain": 0.0061822,
+          "azimuth_deg": -108.938,
+          "elevation_deg": 0.229,
+          "kind": "surface",
+          "surface": "B1.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.89,
+          "gain": 0.00485,
+          "azimuth_deg": 126.655,
+          "elevation_deg": -0.028,
+          "kind": "surface",
+          "surface": "B2.5",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.986,
+          "gain": 0.0042869,
+          "azimuth_deg": 129.586,
+          "elevation_deg": -0.444,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.144,
+          "gain": 0.0047501,
+          "azimuth_deg": 87.285,
+          "elevation_deg": -12.642,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.216,
+          "gain": 0.0036373,
+          "azimuth_deg": 147.822,
+          "elevation_deg": -0.452,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.564,
+          "gain": 0.0031873,
+          "azimuth_deg": -176.309,
+          "elevation_deg": 0.315,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.287,
+          "gain": 0.0007325,
+          "azimuth_deg": -49.77,
+          "elevation_deg": -29.93,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 78.447,
+          "gain": 0.0019449,
+          "azimuth_deg": 64.738,
+          "elevation_deg": 13.668,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 82.047,
+          "gain": 0.0032825,
+          "azimuth_deg": 145.206,
+          "elevation_deg": -32.995,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 86.408,
+          "gain": 0.0011627,
+          "azimuth_deg": 44.718,
+          "elevation_deg": 5.865,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 90.045,
+          "gain": 0.0019994,
+          "azimuth_deg": 133.497,
+          "elevation_deg": -38.639,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.436,
+          "gain": 0.0009785,
+          "azimuth_deg": -30.795,
+          "elevation_deg": -41.882,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 100.529,
+          "gain": 0.0007159,
+          "azimuth_deg": -33.451,
+          "elevation_deg": 23.477,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 104.425,
+          "gain": 0.001445,
+          "azimuth_deg": -9.199,
+          "elevation_deg": 3.705,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 114.651,
+          "gain": 0.0004974,
+          "azimuth_deg": -22.585,
+          "elevation_deg": -41.999,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 118.922,
+          "gain": 0.0063745,
+          "azimuth_deg": 142.351,
+          "elevation_deg": 65.768,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 120.05,
+          "gain": 0.006591,
+          "azimuth_deg": -33.943,
+          "elevation_deg": -42.722,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 121.711,
+          "gain": 0.0008882,
+          "azimuth_deg": 20.718,
+          "elevation_deg": 23.083,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        }
+      ],
+      "late": {
+        "start_ms": 38.031,
+        "duration_s": 1.6,
+        "level": 0.0043218,
+        "diffusion": 0.91015,
+        "spread_deg": 22.759,
+        "high_frequency_damping": 0.83043,
+        "absorption_by_band": [
+          0.59,
+          0.720328,
+          0.870655,
+          0.98,
+          0.98,
+          0.98,
+          0.98,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389
+        ],
+        "seed": 64885878
+      }
+    },
+    {
+      "id": 8,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 9.5123,
+        "y": 3.1896,
+        "z": 3.5379
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 59.007,
+        "gain": 0.0855741
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 40.263,
+          "gain": 0.0146692,
+          "azimuth_deg": -142.292,
+          "elevation_deg": -29.496,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 41.818,
+          "gain": 0.0522805,
+          "azimuth_deg": -160.492,
+          "elevation_deg": -58.139,
+          "kind": "surface",
+          "surface": "B2.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.306,
+          "gain": 0.0468075,
+          "azimuth_deg": 177.621,
+          "elevation_deg": -55.563,
+          "kind": "surface",
+          "surface": "B2.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.388,
+          "gain": 0.0429188,
+          "azimuth_deg": -153.819,
+          "elevation_deg": -54.473,
+          "kind": "surface",
+          "surface": "B1.10",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 42.975,
+          "gain": 0.0382527,
+          "azimuth_deg": -179.927,
+          "elevation_deg": -52.203,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 43.243,
+          "gain": 0.0347242,
+          "azimuth_deg": 179.352,
+          "elevation_deg": -51.597,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 44.557,
+          "gain": 0.0298464,
+          "azimuth_deg": 167.686,
+          "elevation_deg": -46.862,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 47.258,
+          "gain": 0.0241679,
+          "azimuth_deg": -130.957,
+          "elevation_deg": -39.995,
+          "kind": "surface",
+          "surface": "B2.9",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.187,
+          "gain": 0.021375,
+          "azimuth_deg": -131.873,
+          "elevation_deg": -38.115,
+          "kind": "surface",
+          "surface": "S18",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.36,
+          "gain": 0.0195459,
+          "azimuth_deg": -131.924,
+          "elevation_deg": -37.294,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.979,
+          "gain": 0.017543,
+          "azimuth_deg": -132.374,
+          "elevation_deg": -36.038,
+          "kind": "surface",
+          "surface": "B1.9",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.724,
+          "gain": 0.0156756,
+          "azimuth_deg": -135.901,
+          "elevation_deg": -35.29,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.724,
+          "gain": 0.014441,
+          "azimuth_deg": -136.775,
+          "elevation_deg": -35.682,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.724,
+          "gain": 0.0133036,
+          "azimuth_deg": -136.612,
+          "elevation_deg": -35.572,
+          "kind": "surface",
+          "surface": "B2.1",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.312,
+          "gain": 0.0069152,
+          "azimuth_deg": -117.311,
+          "elevation_deg": -29.301,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.981,
+          "gain": 0.0150785,
+          "azimuth_deg": -133.13,
+          "elevation_deg": -31.671,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.614,
+          "gain": 0.0105932,
+          "azimuth_deg": 129.745,
+          "elevation_deg": -30.383,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.448,
+          "gain": 0.009483,
+          "azimuth_deg": -136.109,
+          "elevation_deg": -28.752,
+          "kind": "surface",
+          "surface": "B2.8",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.669,
+          "gain": 0.0086713,
+          "azimuth_deg": -136.631,
+          "elevation_deg": -28.291,
+          "kind": "surface",
+          "surface": "B1.8",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.731,
+          "gain": 0.0092304,
+          "azimuth_deg": -119.395,
+          "elevation_deg": -33.18,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 74.305,
+          "gain": 0.0009799,
+          "azimuth_deg": -50.374,
+          "elevation_deg": -46.473,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 81.366,
+          "gain": 0.000733,
+          "azimuth_deg": -28.967,
+          "elevation_deg": -18.257,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 87.102,
+          "gain": 0.0032497,
+          "azimuth_deg": -140.491,
+          "elevation_deg": -30.308,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 88.427,
+          "gain": 0.0009694,
+          "azimuth_deg": -4.689,
+          "elevation_deg": 1.98,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 93.455,
+          "gain": 0.0016235,
+          "azimuth_deg": -49.153,
+          "elevation_deg": -44.022,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 99.949,
+          "gain": 0.0009066,
+          "azimuth_deg": -49.225,
+          "elevation_deg": 1.667,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 109.609,
+          "gain": 0.0004868,
+          "azimuth_deg": 63.928,
+          "elevation_deg": 22.606,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 116.669,
+          "gain": 0.0008103,
+          "azimuth_deg": -30.194,
+          "elevation_deg": -22.002,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "clearing",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 119.433,
+          "gain": 0.0013595,
+          "azimuth_deg": 0.238,
+          "elevation_deg": 17.753,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "branch_family": "clearing",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 120.468,
+          "gain": 0.0067009,
+          "azimuth_deg": -126.111,
+          "elevation_deg": -41.731,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 127.767,
+          "gain": 0.0055158,
+          "azimuth_deg": -147.759,
+          "elevation_deg": -32.498,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "vegetation",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 38.031,
+        "duration_s": 1.6,
+        "level": 0.0062839,
+        "diffusion": 0.86668,
+        "spread_deg": 20.223,
+        "high_frequency_damping": 0.85205,
+        "absorption_by_band": [
+          0.511379,
+          0.642386,
+          0.793393,
+          0.914401,
+          0.98,
+          0.98,
+          0.98,
+          0.98
+        ],
+        "rt60_s_by_band": [
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389,
+          0.168389
+        ],
+        "seed": 64893797
+      }
+    }
+  ],
+  "atlas": {
+    "name": "Forest Ring",
+    "category": "Clearing",
+    "description": "An open vegetation ring with low boundary pockets and diffuse distant scatter.",
+    "seed": 660109,
+    "source": "s3g-mc Imprint Sketch"
+  }
+}

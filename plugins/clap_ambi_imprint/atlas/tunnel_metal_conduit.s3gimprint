@@ -1,0 +1,4771 @@
+{
+  "format": "s3g-ambi-imprint",
+  "version": 1,
+  "generator": {
+    "name": "s3g-mc Imprint Sketch",
+    "project_format": "s3g-imprint-sketch",
+    "project_version": 1
+  },
+  "interpretation": "procedural directional space sketch; spectral material curves are creative estimates, not measured coefficients",
+  "coordinate_system": {
+    "convention": "AED",
+    "azimuth_zero": "front",
+    "azimuth_positive": "counterclockwise",
+    "elevation_positive": "up",
+    "distance_unit": "metre",
+    "time_unit": "millisecond"
+  },
+  "ambisonics": {
+    "channel_order": "ACN",
+    "normalization": "SN3D",
+    "reference_order": 3,
+    "maximum_runtime_order": 7
+  },
+  "spectral_bands_hz": [
+    125,
+    250,
+    500,
+    1000,
+    2000,
+    4000,
+    8000,
+    16000
+  ],
+  "space": {
+    "family": "tunnel",
+    "seed": 440229,
+    "topology": "connected_regions",
+    "branch_family_mode": "tunnel",
+    "primary_polygon_xy_m": [
+      {
+        "x": 1.621,
+        "y": 0
+      },
+      {
+        "x": 2.299,
+        "y": 5.111
+      },
+      {
+        "x": 2.596,
+        "y": 10.222
+      },
+      {
+        "x": 2.227,
+        "y": 15.333
+      },
+      {
+        "x": 1.378,
+        "y": 20.444
+      },
+      {
+        "x": 1.406,
+        "y": 25.556
+      },
+      {
+        "x": 1.826,
+        "y": 30.667
+      },
+      {
+        "x": 2.476,
+        "y": 35.778
+      },
+      {
+        "x": 2.461,
+        "y": 40.889
+      },
+      {
+        "x": 1.427,
+        "y": 46
+      },
+      {
+        "x": 4.06,
+        "y": 46
+      },
+      {
+        "x": 4.152,
+        "y": 40.889
+      },
+      {
+        "x": 4.578,
+        "y": 35.778
+      },
+      {
+        "x": 4.073,
+        "y": 30.667
+      },
+      {
+        "x": 3.501,
+        "y": 25.556
+      },
+      {
+        "x": 3.395,
+        "y": 20.444
+      },
+      {
+        "x": 4.095,
+        "y": 15.333
+      },
+      {
+        "x": 4.454,
+        "y": 10.222
+      },
+      {
+        "x": 4.065,
+        "y": 5.111
+      },
+      {
+        "x": 3.339,
+        "y": 0
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": 1.378,
+        "z": 2.602
+      },
+      {
+        "x": 1.578,
+        "z": 2.572
+      },
+      {
+        "x": 1.778,
+        "z": 2.541
+      },
+      {
+        "x": 1.978,
+        "z": 2.51
+      },
+      {
+        "x": 2.178,
+        "z": 2.482
+      },
+      {
+        "x": 2.378,
+        "z": 2.46
+      },
+      {
+        "x": 2.578,
+        "z": 2.445
+      },
+      {
+        "x": 2.778,
+        "z": 2.437
+      },
+      {
+        "x": 2.978,
+        "z": 2.439
+      },
+      {
+        "x": 3.178,
+        "z": 2.448
+      },
+      {
+        "x": 3.378,
+        "z": 2.464
+      },
+      {
+        "x": 3.578,
+        "z": 2.485
+      },
+      {
+        "x": 3.778,
+        "z": 2.51
+      },
+      {
+        "x": 3.978,
+        "z": 2.536
+      },
+      {
+        "x": 4.178,
+        "z": 2.56
+      },
+      {
+        "x": 4.378,
+        "z": 2.582
+      },
+      {
+        "x": 4.578,
+        "z": 2.6
+      }
+    ],
+    "irregularity": 0.39,
+    "roughness": 0.51,
+    "vertical_variation": 0.22,
+    "openness": 0.08,
+    "acoustic_volume_m3": 241.458,
+    "acoustic_surface_m2": 541.241
+  },
+  "room": {
+    "dimensions_m": {
+      "x": 5.8,
+      "y": 46,
+      "z": 2.5
+    },
+    "polygon_xy_m": [
+      {
+        "x": 1.621,
+        "y": 0
+      },
+      {
+        "x": 2.299,
+        "y": 5.111
+      },
+      {
+        "x": 2.596,
+        "y": 10.222
+      },
+      {
+        "x": 2.227,
+        "y": 15.333
+      },
+      {
+        "x": 1.378,
+        "y": 20.444
+      },
+      {
+        "x": 1.406,
+        "y": 25.556
+      },
+      {
+        "x": 1.826,
+        "y": 30.667
+      },
+      {
+        "x": 2.476,
+        "y": 35.778
+      },
+      {
+        "x": 2.461,
+        "y": 40.889
+      },
+      {
+        "x": 1.427,
+        "y": 46
+      },
+      {
+        "x": 4.06,
+        "y": 46
+      },
+      {
+        "x": 4.152,
+        "y": 40.889
+      },
+      {
+        "x": 4.578,
+        "y": 35.778
+      },
+      {
+        "x": 4.073,
+        "y": 30.667
+      },
+      {
+        "x": 3.501,
+        "y": 25.556
+      },
+      {
+        "x": 3.395,
+        "y": 20.444
+      },
+      {
+        "x": 4.095,
+        "y": 15.333
+      },
+      {
+        "x": 4.454,
+        "y": 10.222
+      },
+      {
+        "x": 4.065,
+        "y": 5.111
+      },
+      {
+        "x": 3.339,
+        "y": 0
+      }
+    ],
+    "shape": "tunnel",
+    "family": "tunnel",
+    "seed": 440229,
+    "material": "metal",
+    "absorption": 0.111256,
+    "scattering": 0.18,
+    "tail_soften": 0.08,
+    "exterior_opening": {
+      "enabled": true,
+      "side": "front",
+      "count": 1,
+      "position": 0.07,
+      "spread": 0.42,
+      "width": 0.15,
+      "opening_m": 0.258,
+      "leak": 0.22,
+      "leak_factor": 0.098,
+      "interpretation": "energy escape boundary for late-tail thinning and reduced reflection density",
+      "openings": [
+        {
+          "index": 1,
+          "side": "front",
+          "opening_m": 0.258,
+          "opening_segment": {
+            "x1": 3.339,
+            "y1": 0,
+            "x2": 3.081,
+            "y2": 0
+          }
+        }
+      ],
+      "opening_segment": {
+        "x1": 3.339,
+        "y1": 0,
+        "x2": 3.081,
+        "y2": 0
+      }
+    },
+    "chamber": {
+      "family_mode": "tunnel",
+      "material": "metal",
+      "material_mode": "uniform",
+      "material_mix": 0.47,
+      "width": 1.3,
+      "depth": 1.8,
+      "count": 2,
+      "position": 0.32,
+      "nested_chambers": 2,
+      "opening_width": 0.51,
+      "coupling": 0.82,
+      "chambers": [
+        {
+          "material_profile": {
+            "material": "metal",
+            "absorption": 0.073,
+            "scattering": 0,
+            "tail_soften": 0.124
+          },
+          "index": 1,
+          "level": 0,
+          "family": "tunnel",
+          "height_m": 1.3,
+          "x": 1.427,
+          "y": 46,
+          "width": 1.356,
+          "depth": 1.8,
+          "opening_x": 1.746,
+          "opening_y": 46,
+          "opening": 0.663,
+          "polygon": [
+            {
+              "x": 1.427,
+              "y": 46
+            },
+            {
+              "x": 1.565,
+              "y": 46.3
+            },
+            {
+              "x": 1.529,
+              "y": 46.6
+            },
+            {
+              "x": 1.696,
+              "y": 46.9
+            },
+            {
+              "x": 1.752,
+              "y": 47.2
+            },
+            {
+              "x": 1.882,
+              "y": 47.5
+            },
+            {
+              "x": 1.86,
+              "y": 47.8
+            },
+            {
+              "x": 2.747,
+              "y": 47.8
+            },
+            {
+              "x": 2.783,
+              "y": 47.5
+            },
+            {
+              "x": 2.769,
+              "y": 47.2
+            },
+            {
+              "x": 2.612,
+              "y": 46.9
+            },
+            {
+              "x": 2.637,
+              "y": 46.6
+            },
+            {
+              "x": 2.574,
+              "y": 46.3
+            },
+            {
+              "x": 2.727,
+              "y": 46
+            }
+          ],
+          "opening_segment": {
+            "x1": 1.746,
+            "y1": 46,
+            "x2": 2.409,
+            "y2": 46
+          },
+          "side": "back",
+          "shape": "skew"
+        },
+        {
+          "material_profile": {
+            "material": "metal",
+            "absorption": 0.03,
+            "scattering": 0.069,
+            "tail_soften": 0.165
+          },
+          "index": 2,
+          "level": 1,
+          "family": "tunnel",
+          "height_m": 1.425,
+          "x": 1.86,
+          "y": 47.8,
+          "width": 0.936,
+          "depth": 1.404,
+          "opening_x": 2.056,
+          "opening_y": 47.8,
+          "opening": 0.544,
+          "polygon": [
+            {
+              "x": 1.86,
+              "y": 47.8
+            },
+            {
+              "x": 1.95,
+              "y": 48.034
+            },
+            {
+              "x": 1.978,
+              "y": 48.268
+            },
+            {
+              "x": 2.024,
+              "y": 48.502
+            },
+            {
+              "x": 1.987,
+              "y": 48.736
+            },
+            {
+              "x": 1.884,
+              "y": 48.97
+            },
+            {
+              "x": 1.9,
+              "y": 49.204
+            },
+            {
+              "x": 2.485,
+              "y": 49.204
+            },
+            {
+              "x": 2.567,
+              "y": 48.97
+            },
+            {
+              "x": 2.615,
+              "y": 48.736
+            },
+            {
+              "x": 2.692,
+              "y": 48.502
+            },
+            {
+              "x": 2.754,
+              "y": 48.268
+            },
+            {
+              "x": 2.735,
+              "y": 48.034
+            },
+            {
+              "x": 2.796,
+              "y": 47.8
+            }
+          ],
+          "opening_segment": {
+            "x1": 2.056,
+            "y1": 47.8,
+            "x2": 2.599,
+            "y2": 47.8
+          },
+          "side": "back",
+          "shape": "skew"
+        },
+        {
+          "material_profile": {
+            "material": "metal",
+            "absorption": 0.082,
+            "scattering": 0.046,
+            "tail_soften": 0.159
+          },
+          "index": 3,
+          "level": 2,
+          "family": "tunnel",
+          "height_m": 1.55,
+          "x": 1.9,
+          "y": 49.204,
+          "width": 0.674,
+          "depth": 1.095,
+          "opening_x": 2.014,
+          "opening_y": 49.204,
+          "opening": 0.446,
+          "polygon": [
+            {
+              "x": 1.9,
+              "y": 49.204
+            },
+            {
+              "x": 1.943,
+              "y": 49.387
+            },
+            {
+              "x": 2.024,
+              "y": 49.569
+            },
+            {
+              "x": 2.022,
+              "y": 49.752
+            },
+            {
+              "x": 2.033,
+              "y": 49.934
+            },
+            {
+              "x": 1.977,
+              "y": 50.117
+            },
+            {
+              "x": 1.93,
+              "y": 50.299
+            },
+            {
+              "x": 2.413,
+              "y": 50.299
+            },
+            {
+              "x": 2.448,
+              "y": 50.117
+            },
+            {
+              "x": 2.497,
+              "y": 49.934
+            },
+            {
+              "x": 2.555,
+              "y": 49.752
+            },
+            {
+              "x": 2.528,
+              "y": 49.569
+            },
+            {
+              "x": 2.555,
+              "y": 49.387
+            },
+            {
+              "x": 2.574,
+              "y": 49.204
+            }
+          ],
+          "opening_segment": {
+            "x1": 2.014,
+            "y1": 49.204,
+            "x2": 2.46,
+            "y2": 49.204
+          },
+          "side": "back",
+          "shape": "skew"
+        },
+        {
+          "material_profile": {
+            "material": "metal",
+            "absorption": 0.128,
+            "scattering": 0.048,
+            "tail_soften": 0.152
+          },
+          "index": 4,
+          "level": 0,
+          "family": "tunnel",
+          "height_m": 1.3,
+          "x": 2.47,
+          "y": 46,
+          "width": 1.342,
+          "depth": 1.8,
+          "opening_x": 2.83,
+          "opening_y": 46,
+          "opening": 0.663,
+          "polygon": [
+            {
+              "x": 2.512,
+              "y": 46
+            },
+            {
+              "x": 2.603,
+              "y": 46.3
+            },
+            {
+              "x": 2.597,
+              "y": 46.6
+            },
+            {
+              "x": 2.47,
+              "y": 46.9
+            },
+            {
+              "x": 2.556,
+              "y": 47.2
+            },
+            {
+              "x": 2.658,
+              "y": 47.5
+            },
+            {
+              "x": 2.786,
+              "y": 47.8
+            },
+            {
+              "x": 3.578,
+              "y": 47.8
+            },
+            {
+              "x": 3.499,
+              "y": 47.5
+            },
+            {
+              "x": 3.451,
+              "y": 47.2
+            },
+            {
+              "x": 3.548,
+              "y": 46.9
+            },
+            {
+              "x": 3.553,
+              "y": 46.6
+            },
+            {
+              "x": 3.677,
+              "y": 46.3
+            },
+            {
+              "x": 3.812,
+              "y": 46
+            }
+          ],
+          "opening_segment": {
+            "x1": 2.83,
+            "y1": 46,
+            "x2": 3.493,
+            "y2": 46
+          },
+          "side": "back",
+          "shape": "skew"
+        },
+        {
+          "material_profile": {
+            "material": "metal",
+            "absorption": 0.09,
+            "scattering": 0.113,
+            "tail_soften": 0.135
+          },
+          "index": 5,
+          "level": 1,
+          "family": "tunnel",
+          "height_m": 1.425,
+          "x": 2.786,
+          "y": 47.8,
+          "width": 0.958,
+          "depth": 1.404,
+          "opening_x": 2.982,
+          "opening_y": 47.8,
+          "opening": 0.544,
+          "polygon": [
+            {
+              "x": 2.786,
+              "y": 47.8
+            },
+            {
+              "x": 2.838,
+              "y": 48.034
+            },
+            {
+              "x": 2.813,
+              "y": 48.268
+            },
+            {
+              "x": 2.881,
+              "y": 48.502
+            },
+            {
+              "x": 2.952,
+              "y": 48.736
+            },
+            {
+              "x": 3.008,
+              "y": 48.97
+            },
+            {
+              "x": 3.039,
+              "y": 49.204
+            },
+            {
+              "x": 3.744,
+              "y": 49.204
+            },
+            {
+              "x": 3.711,
+              "y": 48.97
+            },
+            {
+              "x": 3.615,
+              "y": 48.736
+            },
+            {
+              "x": 3.571,
+              "y": 48.502
+            },
+            {
+              "x": 3.621,
+              "y": 48.268
+            },
+            {
+              "x": 3.64,
+              "y": 48.034
+            },
+            {
+              "x": 3.722,
+              "y": 47.8
+            }
+          ],
+          "opening_segment": {
+            "x1": 2.982,
+            "y1": 47.8,
+            "x2": 3.526,
+            "y2": 47.8
+          },
+          "side": "back",
+          "shape": "skew"
+        },
+        {
+          "material_profile": {
+            "material": "metal",
+            "absorption": 0.078,
+            "scattering": 0.077,
+            "tail_soften": 0.086
+          },
+          "index": 6,
+          "level": 2,
+          "family": "tunnel",
+          "height_m": 1.55,
+          "x": 3.047,
+          "y": 49.204,
+          "width": 0.681,
+          "depth": 1.095,
+          "opening_x": 3.169,
+          "opening_y": 49.204,
+          "opening": 0.446,
+          "polygon": [
+            {
+              "x": 3.055,
+              "y": 49.204
+            },
+            {
+              "x": 3.079,
+              "y": 49.387
+            },
+            {
+              "x": 3.093,
+              "y": 49.569
+            },
+            {
+              "x": 3.047,
+              "y": 49.752
+            },
+            {
+              "x": 3.085,
+              "y": 49.934
+            },
+            {
+              "x": 3.147,
+              "y": 50.117
+            },
+            {
+              "x": 3.214,
+              "y": 50.299
+            },
+            {
+              "x": 3.646,
+              "y": 50.299
+            },
+            {
+              "x": 3.615,
+              "y": 50.117
+            },
+            {
+              "x": 3.583,
+              "y": 49.934
+            },
+            {
+              "x": 3.6,
+              "y": 49.752
+            },
+            {
+              "x": 3.603,
+              "y": 49.569
+            },
+            {
+              "x": 3.68,
+              "y": 49.387
+            },
+            {
+              "x": 3.728,
+              "y": 49.204
+            }
+          ],
+          "opening_segment": {
+            "x1": 3.169,
+            "y1": 49.204,
+            "x2": 3.614,
+            "y2": 49.204
+          },
+          "side": "back",
+          "shape": "skew"
+        }
+      ]
+    }
+  },
+  "listener_position_m": {
+    "x": 3.7938,
+    "y": 35.4609,
+    "z": 1.2144
+  },
+  "direction_layout": "practical_8",
+  "direction_count": 8,
+  "duration_s": 1.5,
+  "profiles": [
+    {
+      "id": 1,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 4.4866,
+        "y": 36.1537,
+        "z": 1.9072
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 67.265,
+        "gain": 0.2446691
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 58.046,
+          "gain": 0.8515469,
+          "azimuth_deg": 2.307,
+          "elevation_deg": 48.31,
+          "kind": "surface",
+          "surface": "B1.8",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.06,
+          "gain": 0.8494963,
+          "azimuth_deg": -30.83,
+          "elevation_deg": 47.962,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.061,
+          "gain": 0.8474507,
+          "azimuth_deg": 3.464,
+          "elevation_deg": 48.223,
+          "kind": "surface",
+          "surface": "B5.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.243,
+          "gain": 0.8454101,
+          "azimuth_deg": 15.779,
+          "elevation_deg": 44.135,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.305,
+          "gain": 0.8317839,
+          "azimuth_deg": -5.249,
+          "elevation_deg": 42.932,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.331,
+          "gain": 0.8223743,
+          "azimuth_deg": -40.693,
+          "elevation_deg": 42.606,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.629,
+          "gain": 0.7460749,
+          "azimuth_deg": -41.36,
+          "elevation_deg": 38.094,
+          "kind": "surface",
+          "surface": "B6.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.062,
+          "gain": 0.6574114,
+          "azimuth_deg": -51.656,
+          "elevation_deg": 32.87,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.073,
+          "gain": 0.6538189,
+          "azimuth_deg": 48.797,
+          "elevation_deg": 32.787,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.137,
+          "gain": 0.6412099,
+          "azimuth_deg": 49.607,
+          "elevation_deg": 32.028,
+          "kind": "surface",
+          "surface": "B3.12",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.158,
+          "gain": 0.6361739,
+          "azimuth_deg": -49.54,
+          "elevation_deg": 31.894,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.284,
+          "gain": 0.6143796,
+          "azimuth_deg": 54.435,
+          "elevation_deg": 30.741,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.436,
+          "gain": 0.5900613,
+          "azimuth_deg": 54.335,
+          "elevation_deg": 29.433,
+          "kind": "surface",
+          "surface": "B5.12",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.124,
+          "gain": 0.0571919,
+          "azimuth_deg": 0.879,
+          "elevation_deg": 27.45,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.005,
+          "gain": 0.0752167,
+          "azimuth_deg": -14.138,
+          "elevation_deg": 13.888,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.291,
+          "gain": 0.0916169,
+          "azimuth_deg": -8.913,
+          "elevation_deg": 34.495,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 81.214,
+          "gain": 0.0695693,
+          "azimuth_deg": 172.7,
+          "elevation_deg": 11.024,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 82.444,
+          "gain": 0.1171431,
+          "azimuth_deg": -10.149,
+          "elevation_deg": 8.267,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.854,
+          "gain": 0.0535784,
+          "azimuth_deg": 177.822,
+          "elevation_deg": 15.22,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 84.84,
+          "gain": 0.0245453,
+          "azimuth_deg": -174.423,
+          "elevation_deg": 13.745,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 98.097,
+          "gain": 0.0225914,
+          "azimuth_deg": 175.312,
+          "elevation_deg": 15.515,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 98.338,
+          "gain": 0.0376838,
+          "azimuth_deg": -177.947,
+          "elevation_deg": 17.026,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 98.455,
+          "gain": 0.032,
+          "azimuth_deg": 21.269,
+          "elevation_deg": 23.486,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 99.209,
+          "gain": 0.054917,
+          "azimuth_deg": 175.027,
+          "elevation_deg": 15.3,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 99.666,
+          "gain": 0.0394194,
+          "azimuth_deg": -174.193,
+          "elevation_deg": 7.685,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 102.802,
+          "gain": 0.0444909,
+          "azimuth_deg": -176.322,
+          "elevation_deg": 16.795,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 103.226,
+          "gain": 0.0302531,
+          "azimuth_deg": -179.387,
+          "elevation_deg": 19.419,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 104.968,
+          "gain": 0.0432907,
+          "azimuth_deg": -162.622,
+          "elevation_deg": 56.554,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 116.673,
+          "gain": 0.0382083,
+          "azimuth_deg": -179.41,
+          "elevation_deg": 15.726,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 120.763,
+          "gain": 0.0420144,
+          "azimuth_deg": 173.232,
+          "elevation_deg": 9.085,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 124.961,
+          "gain": 0.1311052,
+          "azimuth_deg": 174.478,
+          "elevation_deg": 15.266,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 129.259,
+          "gain": 0.0458352,
+          "azimuth_deg": -157.997,
+          "elevation_deg": 37.047,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 129.976,
+          "gain": 0.0649056,
+          "azimuth_deg": 173.891,
+          "elevation_deg": 24.287,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 130.121,
+          "gain": 0.0522752,
+          "azimuth_deg": 172.884,
+          "elevation_deg": 10.841,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 166.997,
+          "gain": 0.1420525,
+          "azimuth_deg": 18.409,
+          "elevation_deg": 31.062,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 177.059,
+          "gain": 0.0602288,
+          "azimuth_deg": -169.686,
+          "elevation_deg": -11.993,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 181.831,
+          "gain": 0.0897211,
+          "azimuth_deg": 163.794,
+          "elevation_deg": -13.419,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 182.192,
+          "gain": 0.0940126,
+          "azimuth_deg": -166.769,
+          "elevation_deg": -34.514,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 184.026,
+          "gain": 0.065778,
+          "azimuth_deg": 20.872,
+          "elevation_deg": 36.214,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 203.877,
+          "gain": 0.0951752,
+          "azimuth_deg": -14.998,
+          "elevation_deg": 22.979,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 149.67,
+        "duration_s": 1.5,
+        "level": 0.4905071,
+        "diffusion": 0.099,
+        "spread_deg": 70.249,
+        "high_frequency_damping": 0.15421,
+        "absorption_by_band": [
+          0.108492,
+          0.080824,
+          0.053157,
+          0.035489,
+          0.037821,
+          0.060153,
+          0.092485,
+          0.144818
+        ],
+        "rt60_s_by_band": [
+          0.491991,
+          0.590091,
+          0.737055,
+          0.876443,
+          0.855096,
+          0.693386,
+          0.544346,
+          0.403846
+        ],
+        "seed": 43564752
+      }
+    },
+    {
+      "id": 2,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 3.1009,
+        "y": 36.1537,
+        "z": 1.9072
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 63.438,
+        "gain": 0.2318012
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 53.877,
+          "gain": 0.7931922,
+          "azimuth_deg": 9.453,
+          "elevation_deg": 42.162,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.99,
+          "gain": 0.7603576,
+          "azimuth_deg": -6.09,
+          "elevation_deg": 40.572,
+          "kind": "surface",
+          "surface": "S9",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.085,
+          "gain": 0.7340685,
+          "azimuth_deg": 38.772,
+          "elevation_deg": 38.288,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.174,
+          "gain": 0.7106383,
+          "azimuth_deg": 38.061,
+          "elevation_deg": 38.017,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.6,
+          "gain": 0.6263562,
+          "azimuth_deg": 47.465,
+          "elevation_deg": 32.228,
+          "kind": "surface",
+          "surface": "B6.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.943,
+          "gain": 0.570601,
+          "azimuth_deg": 46.36,
+          "elevation_deg": 29.159,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.383,
+          "gain": 0.5123315,
+          "azimuth_deg": 45.611,
+          "elevation_deg": 26.482,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.49,
+          "gain": 0.4977875,
+          "azimuth_deg": 66.367,
+          "elevation_deg": 26.179,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.502,
+          "gain": 0.4938424,
+          "azimuth_deg": -63.716,
+          "elevation_deg": 26.141,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.529,
+          "gain": 0.4883689,
+          "azimuth_deg": -61.648,
+          "elevation_deg": 25.347,
+          "kind": "surface",
+          "surface": "B4.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.945,
+          "gain": 0.4460152,
+          "azimuth_deg": -65.778,
+          "elevation_deg": 23.657,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.11,
+          "gain": 0.4296815,
+          "azimuth_deg": 55.23,
+          "elevation_deg": 22.781,
+          "kind": "surface",
+          "surface": "B1.8",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.121,
+          "gain": 0.4265674,
+          "azimuth_deg": 56.417,
+          "elevation_deg": 23.08,
+          "kind": "surface",
+          "surface": "B5.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.221,
+          "gain": 0.062606,
+          "azimuth_deg": -157.636,
+          "elevation_deg": 29.72,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.947,
+          "gain": 0.0365278,
+          "azimuth_deg": -177.243,
+          "elevation_deg": 10.092,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 76.487,
+          "gain": 0.0428411,
+          "azimuth_deg": 178.842,
+          "elevation_deg": 14.24,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 78.828,
+          "gain": 0.0365575,
+          "azimuth_deg": -173.453,
+          "elevation_deg": 11.287,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 81.197,
+          "gain": 0.1377562,
+          "azimuth_deg": -163.708,
+          "elevation_deg": 15.216,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 88.198,
+          "gain": 0.0358391,
+          "azimuth_deg": -178.953,
+          "elevation_deg": 6.797,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 89.22,
+          "gain": 0.0373828,
+          "azimuth_deg": 157.072,
+          "elevation_deg": 12.105,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.729,
+          "gain": 0.0456604,
+          "azimuth_deg": -173.195,
+          "elevation_deg": 16.648,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 95.839,
+          "gain": 0.0196524,
+          "azimuth_deg": 174.788,
+          "elevation_deg": 6.171,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 98.975,
+          "gain": 0.0258932,
+          "azimuth_deg": -173.314,
+          "elevation_deg": 17.755,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 99.399,
+          "gain": 0.0491878,
+          "azimuth_deg": -175.359,
+          "elevation_deg": 16.43,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 101.891,
+          "gain": 0.0303482,
+          "azimuth_deg": -178.301,
+          "elevation_deg": 18.46,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 103.881,
+          "gain": 0.043109,
+          "azimuth_deg": 171.494,
+          "elevation_deg": 8.217,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 104.906,
+          "gain": 0.0295125,
+          "azimuth_deg": -172.718,
+          "elevation_deg": 10.635,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 112.63,
+          "gain": 0.1331962,
+          "azimuth_deg": 177.665,
+          "elevation_deg": 44.465,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 118.292,
+          "gain": 0.0621463,
+          "azimuth_deg": -172.25,
+          "elevation_deg": 27.281,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 120.271,
+          "gain": 0.037307,
+          "azimuth_deg": -18.677,
+          "elevation_deg": 26.221,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 121.384,
+          "gain": 0.0608582,
+          "azimuth_deg": -9.884,
+          "elevation_deg": 11.205,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 123.976,
+          "gain": 0.0485755,
+          "azimuth_deg": 14.929,
+          "elevation_deg": 45.629,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 126.294,
+          "gain": 0.0568684,
+          "azimuth_deg": 171.895,
+          "elevation_deg": 12.539,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 126.528,
+          "gain": 0.0518641,
+          "azimuth_deg": 18.466,
+          "elevation_deg": 40.515,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 131.353,
+          "gain": 0.0998262,
+          "azimuth_deg": 172.445,
+          "elevation_deg": 53.168,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 135.485,
+          "gain": 0.0428851,
+          "azimuth_deg": -6.865,
+          "elevation_deg": 30.219,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 143.736,
+          "gain": 0.0944951,
+          "azimuth_deg": -172.935,
+          "elevation_deg": 38.769,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 169.382,
+          "gain": 0.0638719,
+          "azimuth_deg": 3.936,
+          "elevation_deg": 17.086,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 191.015,
+          "gain": 0.0930471,
+          "azimuth_deg": -10.077,
+          "elevation_deg": 37.772,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 200.166,
+          "gain": 0.0899181,
+          "azimuth_deg": 13.011,
+          "elevation_deg": 33.731,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 149.67,
+        "duration_s": 1.5,
+        "level": 0.4017987,
+        "diffusion": 0.20936,
+        "spread_deg": 82.172,
+        "high_frequency_damping": 0.05475,
+        "absorption_by_band": [
+          0.175374,
+          0.14458,
+          0.113787,
+          0.092993,
+          0.092199,
+          0.111406,
+          0.140612,
+          0.189818
+        ],
+        "rt60_s_by_band": [
+          0.350954,
+          0.404319,
+          0.476822,
+          0.542515,
+          0.545383,
+          0.483527,
+          0.4124,
+          0.330493
+        ],
+        "seed": 43572671
+      }
+    },
+    {
+      "id": 3,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 3.7938,
+        "y": 35.4609,
+        "z": 1.2144
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 63.014,
+        "gain": 0.2876139
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 53.225,
+          "gain": 0.8290727,
+          "azimuth_deg": -90.845,
+          "elevation_deg": -0.122,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.276,
+          "gain": 0.8253085,
+          "azimuth_deg": 89.013,
+          "elevation_deg": -0.064,
+          "kind": "surface",
+          "surface": "B6.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.386,
+          "gain": 0.8215613,
+          "azimuth_deg": -88.626,
+          "elevation_deg": 0.167,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.844,
+          "gain": 0.8178312,
+          "azimuth_deg": 84.325,
+          "elevation_deg": -0.14,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.207,
+          "gain": 0.814118,
+          "azimuth_deg": -95.013,
+          "elevation_deg": -0.033,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.226,
+          "gain": 0.8104217,
+          "azimuth_deg": -101.568,
+          "elevation_deg": 0.064,
+          "kind": "surface",
+          "surface": "S9",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.452,
+          "gain": 0.8067421,
+          "azimuth_deg": 92.978,
+          "elevation_deg": 0.116,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.519,
+          "gain": 0.8030793,
+          "azimuth_deg": 80.752,
+          "elevation_deg": 0.158,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.407,
+          "gain": 0.799433,
+          "azimuth_deg": 83.393,
+          "elevation_deg": -0.036,
+          "kind": "surface",
+          "surface": "B5.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.407,
+          "gain": 0.7958034,
+          "azimuth_deg": 83.026,
+          "elevation_deg": -0.006,
+          "kind": "surface",
+          "surface": "B1.8",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.537,
+          "gain": 0.7921902,
+          "azimuth_deg": 89.164,
+          "elevation_deg": 0.034,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.244,
+          "gain": 0.5264976,
+          "azimuth_deg": 95.804,
+          "elevation_deg": -0.095,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.585,
+          "gain": 0.4861348,
+          "azimuth_deg": 85.554,
+          "elevation_deg": -0.023,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 76.258,
+          "gain": 0.041954,
+          "azimuth_deg": 161.452,
+          "elevation_deg": -40.094,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 76.964,
+          "gain": 0.0252193,
+          "azimuth_deg": -171.921,
+          "elevation_deg": 5.016,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 78.366,
+          "gain": 0.0728288,
+          "azimuth_deg": 9.362,
+          "elevation_deg": 11.138,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 80.589,
+          "gain": 0.0287457,
+          "azimuth_deg": -178.476,
+          "elevation_deg": 17.684,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 81.144,
+          "gain": 0.0318248,
+          "azimuth_deg": 179.613,
+          "elevation_deg": 14.169,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 84.182,
+          "gain": 0.0299514,
+          "azimuth_deg": -177.29,
+          "elevation_deg": 8.28,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 91.305,
+          "gain": 0.0100615,
+          "azimuth_deg": -174.536,
+          "elevation_deg": 13.641,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 91.366,
+          "gain": 0.0312882,
+          "azimuth_deg": 178.139,
+          "elevation_deg": 19.229,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 94.332,
+          "gain": 0.1315864,
+          "azimuth_deg": 13.972,
+          "elevation_deg": 21.253,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 96.923,
+          "gain": 0.1339261,
+          "azimuth_deg": -166.572,
+          "elevation_deg": 27.333,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 98.551,
+          "gain": 0.0266853,
+          "azimuth_deg": 178.031,
+          "elevation_deg": 5.572,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 101.467,
+          "gain": 0.0225779,
+          "azimuth_deg": -172.389,
+          "elevation_deg": 5.11,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 103.457,
+          "gain": 0.0277176,
+          "azimuth_deg": 174.191,
+          "elevation_deg": 13.067,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 104.319,
+          "gain": 0.0945292,
+          "azimuth_deg": 164.484,
+          "elevation_deg": -12.793,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 112.92,
+          "gain": 0.0273303,
+          "azimuth_deg": -175.344,
+          "elevation_deg": 14.456,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 115.843,
+          "gain": 0.0325527,
+          "azimuth_deg": -174.987,
+          "elevation_deg": 7.274,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 116.667,
+          "gain": 0.0361701,
+          "azimuth_deg": 179.639,
+          "elevation_deg": -83.025,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 118.168,
+          "gain": 0.0849248,
+          "azimuth_deg": 168.014,
+          "elevation_deg": 25.687,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 121.288,
+          "gain": 0.0564483,
+          "azimuth_deg": -13.327,
+          "elevation_deg": -34.96,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 121.388,
+          "gain": 0.0188037,
+          "azimuth_deg": -177.223,
+          "elevation_deg": 7.062,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 137.704,
+          "gain": 0.0733403,
+          "azimuth_deg": 8.185,
+          "elevation_deg": 56.344,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 145.687,
+          "gain": 0.1179206,
+          "azimuth_deg": 16.446,
+          "elevation_deg": -39.915,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 151.917,
+          "gain": 0.0504367,
+          "azimuth_deg": 21.638,
+          "elevation_deg": 17.944,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 157.126,
+          "gain": 0.0346018,
+          "azimuth_deg": -168.408,
+          "elevation_deg": 58.529,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 169.921,
+          "gain": 0.0622914,
+          "azimuth_deg": 19.613,
+          "elevation_deg": -40.407,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 172.344,
+          "gain": 0.1138588,
+          "azimuth_deg": 166.462,
+          "elevation_deg": 39.354,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 179.385,
+          "gain": 0.0884996,
+          "azimuth_deg": -8.005,
+          "elevation_deg": 53.58,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 149.67,
+        "duration_s": 1.5,
+        "level": 0.4999659,
+        "diffusion": 0.08686,
+        "spread_deg": 68.938,
+        "high_frequency_damping": 0.09944,
+        "absorption_by_band": [
+          0.157533,
+          0.128144,
+          0.098755,
+          0.079366,
+          0.079977,
+          0.100588,
+          0.131199,
+          0.18181
+        ],
+        "rt60_s_by_band": [
+          0.380013,
+          0.440032,
+          0.522565,
+          0.596359,
+          0.593718,
+          0.516523,
+          0.432925,
+          0.341533
+        ],
+        "seed": 43580590
+      }
+    },
+    {
+      "id": 4,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 3.1009,
+        "y": 34.7681,
+        "z": 1.9072
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 59.138,
+        "gain": 0.2894096
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 51.828,
+          "gain": 0.8243829,
+          "azimuth_deg": 136.144,
+          "elevation_deg": 46.403,
+          "kind": "surface",
+          "surface": "S9",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.929,
+          "gain": 0.8202676,
+          "azimuth_deg": 150.126,
+          "elevation_deg": 45.231,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.302,
+          "gain": 0.7348393,
+          "azimuth_deg": 145.779,
+          "elevation_deg": 39.159,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.371,
+          "gain": 0.7160353,
+          "azimuth_deg": 137.564,
+          "elevation_deg": 37.281,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.811,
+          "gain": 0.628696,
+          "azimuth_deg": 127.744,
+          "elevation_deg": 32.474,
+          "kind": "surface",
+          "surface": "B6.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.114,
+          "gain": 0.5787745,
+          "azimuth_deg": -128.386,
+          "elevation_deg": 29.921,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.242,
+          "gain": 0.558298,
+          "azimuth_deg": 115.065,
+          "elevation_deg": 28.533,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.614,
+          "gain": 0.5100993,
+          "azimuth_deg": 124.637,
+          "elevation_deg": 25.822,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.632,
+          "gain": 0.5055262,
+          "azimuth_deg": -120.895,
+          "elevation_deg": 25.732,
+          "kind": "surface",
+          "surface": "B4.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.789,
+          "gain": 0.4863042,
+          "azimuth_deg": -120.076,
+          "elevation_deg": 24.706,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.81,
+          "gain": 0.4817503,
+          "azimuth_deg": 105.123,
+          "elevation_deg": 25.11,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.186,
+          "gain": 0.4441124,
+          "azimuth_deg": -117.44,
+          "elevation_deg": 22.764,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.534,
+          "gain": 0.4137975,
+          "azimuth_deg": 105.521,
+          "elevation_deg": 21.554,
+          "kind": "surface",
+          "surface": "B5.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.156,
+          "gain": 0.1336761,
+          "azimuth_deg": 179.564,
+          "elevation_deg": 5.262,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.075,
+          "gain": 0.0511142,
+          "azimuth_deg": 3.324,
+          "elevation_deg": 44.789,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 69.668,
+          "gain": 0.0136339,
+          "azimuth_deg": 176.586,
+          "elevation_deg": 11.296,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 76.528,
+          "gain": 0.0214843,
+          "azimuth_deg": -177.913,
+          "elevation_deg": 16.258,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 77.268,
+          "gain": 0.0282435,
+          "azimuth_deg": 177.61,
+          "elevation_deg": 5.346,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 79.967,
+          "gain": 0.0203668,
+          "azimuth_deg": 172.783,
+          "elevation_deg": 13.24,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 79.973,
+          "gain": 0.051571,
+          "azimuth_deg": 173.943,
+          "elevation_deg": 62.303,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 80.619,
+          "gain": 0.1245655,
+          "azimuth_deg": -5.098,
+          "elevation_deg": 21.76,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 85.354,
+          "gain": 0.0702159,
+          "azimuth_deg": -174.486,
+          "elevation_deg": 74.735,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 86.679,
+          "gain": 0.0289804,
+          "azimuth_deg": 178.566,
+          "elevation_deg": 5.603,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 86.847,
+          "gain": 0.0250189,
+          "azimuth_deg": 171.724,
+          "elevation_deg": 8.244,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 91.083,
+          "gain": 0.0250397,
+          "azimuth_deg": -172.832,
+          "elevation_deg": 9.67,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 94.675,
+          "gain": 0.0299118,
+          "azimuth_deg": -173.781,
+          "elevation_deg": 4.313,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 98.393,
+          "gain": 0.0415168,
+          "azimuth_deg": -162.878,
+          "elevation_deg": 45.752,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 108.851,
+          "gain": 0.0808774,
+          "azimuth_deg": -173.282,
+          "elevation_deg": 27.39,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 109.044,
+          "gain": 0.0214534,
+          "azimuth_deg": -172.199,
+          "elevation_deg": 4.958,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 111.967,
+          "gain": 0.0113097,
+          "azimuth_deg": 172.959,
+          "elevation_deg": 10.551,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 116.319,
+          "gain": 0.0200472,
+          "azimuth_deg": -172.405,
+          "elevation_deg": 5.885,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 125.021,
+          "gain": 0.0282592,
+          "azimuth_deg": -174.518,
+          "elevation_deg": 18.973,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 138.153,
+          "gain": 0.1128872,
+          "azimuth_deg": -1.978,
+          "elevation_deg": 48.689,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 144.13,
+          "gain": 0.050365,
+          "azimuth_deg": -163.181,
+          "elevation_deg": 29.969,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 150.828,
+          "gain": 0.1041919,
+          "azimuth_deg": -19.698,
+          "elevation_deg": 16.473,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 153.188,
+          "gain": 0.0763033,
+          "azimuth_deg": 168.852,
+          "elevation_deg": -37.677,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 157.588,
+          "gain": 0.064903,
+          "azimuth_deg": 18.317,
+          "elevation_deg": 51.796,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 167.497,
+          "gain": 0.0545101,
+          "azimuth_deg": -19.131,
+          "elevation_deg": 17.108,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 167.504,
+          "gain": 0.07084,
+          "azimuth_deg": 4.492,
+          "elevation_deg": 81.576,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 187.843,
+          "gain": 0.0762646,
+          "azimuth_deg": 0.441,
+          "elevation_deg": 62.518,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 149.67,
+        "duration_s": 1.5,
+        "level": 0.411549,
+        "diffusion": 0.2843,
+        "spread_deg": 90.268,
+        "high_frequency_damping": 0.01495,
+        "absorption_by_band": [
+          0.167602,
+          0.135557,
+          0.103512,
+          0.081468,
+          0.079423,
+          0.097379,
+          0.125334,
+          0.17329
+        ],
+        "rt60_s_by_band": [
+          0.363049,
+          0.423174,
+          0.507166,
+          0.587367,
+          0.59611,
+          0.527195,
+          0.446778,
+          0.354118
+        ],
+        "seed": 43588509
+      }
+    },
+    {
+      "id": 5,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 4.4866,
+        "y": 36.1537,
+        "z": 0.5216
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 62.877,
+        "gain": 0.225204
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 52.628,
+          "gain": 0.8158665,
+          "azimuth_deg": 2.697,
+          "elevation_deg": -48.48,
+          "kind": "surface",
+          "surface": "B1.8",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.643,
+          "gain": 0.8111197,
+          "azimuth_deg": -30.949,
+          "elevation_deg": -48.213,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.644,
+          "gain": 0.8064004,
+          "azimuth_deg": 3.642,
+          "elevation_deg": -48.257,
+          "kind": "surface",
+          "surface": "B5.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.826,
+          "gain": 0.8017086,
+          "azimuth_deg": 16.221,
+          "elevation_deg": -44.397,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.887,
+          "gain": 0.7860904,
+          "azimuth_deg": -5.107,
+          "elevation_deg": -43.064,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.914,
+          "gain": 0.7745408,
+          "azimuth_deg": -40.784,
+          "elevation_deg": -42.656,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.211,
+          "gain": 0.7002773,
+          "azimuth_deg": -40.664,
+          "elevation_deg": -37.761,
+          "kind": "surface",
+          "surface": "B6.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.644,
+          "gain": 0.614947,
+          "azimuth_deg": -51.678,
+          "elevation_deg": -32.903,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.656,
+          "gain": 0.609496,
+          "azimuth_deg": 48.706,
+          "elevation_deg": -32.822,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.72,
+          "gain": 0.5956983,
+          "azimuth_deg": 49.878,
+          "elevation_deg": -32.11,
+          "kind": "surface",
+          "surface": "B3.12",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.741,
+          "gain": 0.5889994,
+          "azimuth_deg": -49.074,
+          "elevation_deg": -32.081,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.866,
+          "gain": 0.5668768,
+          "azimuth_deg": 54.707,
+          "elevation_deg": -31.086,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.019,
+          "gain": 0.5425776,
+          "azimuth_deg": 54.029,
+          "elevation_deg": -29.778,
+          "kind": "surface",
+          "surface": "B5.12",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.66,
+          "gain": 0.0662343,
+          "azimuth_deg": 179.95,
+          "elevation_deg": -29.195,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.921,
+          "gain": 0.1076646,
+          "azimuth_deg": -7.036,
+          "elevation_deg": -10.363,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.408,
+          "gain": 0.0652289,
+          "azimuth_deg": 178.616,
+          "elevation_deg": -12.766,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 80.769,
+          "gain": 0.0467014,
+          "azimuth_deg": 15.19,
+          "elevation_deg": 48.798,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 83.706,
+          "gain": 0.0499396,
+          "azimuth_deg": 173.32,
+          "elevation_deg": -7.305,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 85.248,
+          "gain": 0.0573752,
+          "azimuth_deg": 174.073,
+          "elevation_deg": -12.025,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 86.006,
+          "gain": 0.1079824,
+          "azimuth_deg": -167.564,
+          "elevation_deg": -44.211,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 86.088,
+          "gain": 0.052564,
+          "azimuth_deg": -178.233,
+          "elevation_deg": -18.225,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 87.637,
+          "gain": 0.0565066,
+          "azimuth_deg": 172.665,
+          "elevation_deg": -7.705,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 88.78,
+          "gain": 0.0727911,
+          "azimuth_deg": 0.032,
+          "elevation_deg": 33.723,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.399,
+          "gain": 0.0425486,
+          "azimuth_deg": -6.881,
+          "elevation_deg": 27.214,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 93.709,
+          "gain": 0.057384,
+          "azimuth_deg": 173.18,
+          "elevation_deg": -17.274,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 95.278,
+          "gain": 0.0644098,
+          "azimuth_deg": -176.98,
+          "elevation_deg": -17.107,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 98.414,
+          "gain": 0.0495696,
+          "azimuth_deg": -173.138,
+          "elevation_deg": -7.672,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 98.838,
+          "gain": 0.0537148,
+          "azimuth_deg": 177.91,
+          "elevation_deg": -17.167,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 102.006,
+          "gain": 0.0428658,
+          "azimuth_deg": -173.043,
+          "elevation_deg": -10.412,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 102.17,
+          "gain": 0.1239329,
+          "azimuth_deg": 166.825,
+          "elevation_deg": -10.148,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 107.543,
+          "gain": 0.1061954,
+          "azimuth_deg": 178.556,
+          "elevation_deg": -28.883,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 125.733,
+          "gain": 0.0282912,
+          "azimuth_deg": -171.795,
+          "elevation_deg": -8.901,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 128.76,
+          "gain": 0.054277,
+          "azimuth_deg": -176.206,
+          "elevation_deg": -7.729,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 132.429,
+          "gain": 0.0803329,
+          "azimuth_deg": -17.825,
+          "elevation_deg": -32.914,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 144.707,
+          "gain": 0.1166753,
+          "azimuth_deg": -8.849,
+          "elevation_deg": -20.701,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 168.391,
+          "gain": 0.0749028,
+          "azimuth_deg": -165.007,
+          "elevation_deg": -21.497,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 183.78,
+          "gain": 0.0444107,
+          "azimuth_deg": 175.142,
+          "elevation_deg": 88.056,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 184.854,
+          "gain": 0.0663185,
+          "azimuth_deg": -166.225,
+          "elevation_deg": 54.682,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 186.13,
+          "gain": 0.1105678,
+          "azimuth_deg": -12.166,
+          "elevation_deg": -34.834,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 191.699,
+          "gain": 0.0286757,
+          "azimuth_deg": 4.523,
+          "elevation_deg": 34.238,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 149.67,
+        "duration_s": 1.5,
+        "level": 0.4605651,
+        "diffusion": 0.10846,
+        "spread_deg": 71.271,
+        "high_frequency_damping": 0.03416,
+        "absorption_by_band": [
+          0.185739,
+          0.154298,
+          0.122857,
+          0.101417,
+          0.099976,
+          0.118535,
+          0.147094,
+          0.195654
+        ],
+        "rt60_s_by_band": [
+          0.336026,
+          0.385806,
+          0.452899,
+          0.513837,
+          0.518525,
+          0.463992,
+          0.399361,
+          0.322888
+        ],
+        "seed": 43596428
+      }
+    },
+    {
+      "id": 6,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 3.1009,
+        "y": 36.1537,
+        "z": 0.5216
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 62.205,
+        "gain": 0.2210979
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 52.036,
+          "gain": 0.8125817,
+          "azimuth_deg": 9.316,
+          "elevation_deg": -41.324,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.149,
+          "gain": 0.7804508,
+          "azimuth_deg": -4.713,
+          "elevation_deg": -40.458,
+          "kind": "surface",
+          "surface": "S9",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.244,
+          "gain": 0.7549241,
+          "azimuth_deg": 39.675,
+          "elevation_deg": -38.594,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.333,
+          "gain": 0.7322416,
+          "azimuth_deg": 38.048,
+          "elevation_deg": -37.001,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.758,
+          "gain": 0.6466455,
+          "azimuth_deg": 48.25,
+          "elevation_deg": -32.374,
+          "kind": "surface",
+          "surface": "B6.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.102,
+          "gain": 0.5902235,
+          "azimuth_deg": 46.375,
+          "elevation_deg": -30.216,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.542,
+          "gain": 0.530975,
+          "azimuth_deg": 46.207,
+          "elevation_deg": -26.769,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.649,
+          "gain": 0.5168996,
+          "azimuth_deg": 66.312,
+          "elevation_deg": -25.67,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.661,
+          "gain": 0.5137946,
+          "azimuth_deg": -63.741,
+          "elevation_deg": -25.085,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.688,
+          "gain": 0.5090827,
+          "azimuth_deg": -62.712,
+          "elevation_deg": -26.069,
+          "kind": "surface",
+          "surface": "B4.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.104,
+          "gain": 0.4658317,
+          "azimuth_deg": -67.924,
+          "elevation_deg": -23.167,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.269,
+          "gain": 0.4496402,
+          "azimuth_deg": 55.281,
+          "elevation_deg": -23.239,
+          "kind": "surface",
+          "surface": "B1.8",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.279,
+          "gain": 0.4472447,
+          "azimuth_deg": 56.188,
+          "elevation_deg": -22.977,
+          "kind": "surface",
+          "surface": "B5.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.609,
+          "gain": 0.1215371,
+          "azimuth_deg": -0.688,
+          "elevation_deg": -21.208,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.719,
+          "gain": 0.1285733,
+          "azimuth_deg": -9.102,
+          "elevation_deg": -20.822,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.903,
+          "gain": 0.1225568,
+          "azimuth_deg": -22.921,
+          "elevation_deg": -0.394,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.606,
+          "gain": 0.0977898,
+          "azimuth_deg": 2.235,
+          "elevation_deg": -10.353,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.736,
+          "gain": 0.0310897,
+          "azimuth_deg": -176.76,
+          "elevation_deg": -6.871,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 77.795,
+          "gain": 0.0432068,
+          "azimuth_deg": 172.483,
+          "elevation_deg": -8.153,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 78.805,
+          "gain": 0.1025137,
+          "azimuth_deg": -173.055,
+          "elevation_deg": -53.972,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 84.576,
+          "gain": 0.0271462,
+          "azimuth_deg": 179.46,
+          "elevation_deg": -16.173,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 85.416,
+          "gain": 0.0713151,
+          "azimuth_deg": -175.529,
+          "elevation_deg": -7.226,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 90.558,
+          "gain": 0.0358265,
+          "azimuth_deg": -179.837,
+          "elevation_deg": -14.577,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 92.15,
+          "gain": 0.0879846,
+          "azimuth_deg": -160.367,
+          "elevation_deg": 19.177,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 92.177,
+          "gain": 0.0367653,
+          "azimuth_deg": 178.961,
+          "elevation_deg": -14.579,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 93.279,
+          "gain": 0.0493763,
+          "azimuth_deg": -177.252,
+          "elevation_deg": -10.902,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 95.748,
+          "gain": 0.1232941,
+          "azimuth_deg": 13.569,
+          "elevation_deg": -20.401,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 103.148,
+          "gain": 0.0791379,
+          "azimuth_deg": -176.408,
+          "elevation_deg": -16.188,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 107.132,
+          "gain": 0.058527,
+          "azimuth_deg": 178.813,
+          "elevation_deg": -11.811,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 108.519,
+          "gain": 0.0326291,
+          "azimuth_deg": -178.839,
+          "elevation_deg": -4.907,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 111.614,
+          "gain": 0.0642847,
+          "azimuth_deg": -176.111,
+          "elevation_deg": -10.797,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 113.362,
+          "gain": 0.1358465,
+          "azimuth_deg": 160.325,
+          "elevation_deg": 62.338,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 115.768,
+          "gain": 0.0510686,
+          "azimuth_deg": -4.587,
+          "elevation_deg": -34.312,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 123.653,
+          "gain": 0.0683569,
+          "azimuth_deg": 162.82,
+          "elevation_deg": -19.602,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 125.062,
+          "gain": 0.0640791,
+          "azimuth_deg": 176.81,
+          "elevation_deg": -15.014,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 129.544,
+          "gain": 0.0566326,
+          "azimuth_deg": 178.509,
+          "elevation_deg": -9.94,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 130.433,
+          "gain": 0.1182815,
+          "azimuth_deg": 164.087,
+          "elevation_deg": 60.527,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 143.562,
+          "gain": 0.1109154,
+          "azimuth_deg": 17.494,
+          "elevation_deg": -39.028,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 173.133,
+          "gain": 0.0436695,
+          "azimuth_deg": 172.153,
+          "elevation_deg": -25.362,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 191.86,
+          "gain": 0.0302194,
+          "azimuth_deg": 10.614,
+          "elevation_deg": -60.574,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 149.67,
+        "duration_s": 1.5,
+        "level": 0.418364,
+        "diffusion": 0.257,
+        "spread_deg": 87.319,
+        "high_frequency_damping": 0.01395,
+        "absorption_by_band": [
+          0.132091,
+          0.100015,
+          0.06794,
+          0.045864,
+          0.043788,
+          0.061712,
+          0.089636,
+          0.13756
+        ],
+        "rt60_s_by_band": [
+          0.430892,
+          0.518395,
+          0.650494,
+          0.788841,
+          0.804939,
+          0.684353,
+          0.554856,
+          0.418838
+        ],
+        "seed": 43604347
+      }
+    },
+    {
+      "id": 7,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 3.7938,
+        "y": 35.4609,
+        "z": 1.2144
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 65.362,
+        "gain": 0.2331251
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 53.204,
+          "gain": 0.7887249,
+          "azimuth_deg": -91.146,
+          "elevation_deg": 0.57,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.255,
+          "gain": 0.7820164,
+          "azimuth_deg": 89.771,
+          "elevation_deg": -0.404,
+          "kind": "surface",
+          "surface": "B6.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.365,
+          "gain": 0.775365,
+          "azimuth_deg": -88.591,
+          "elevation_deg": -0.53,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.823,
+          "gain": 0.7687702,
+          "azimuth_deg": 83.699,
+          "elevation_deg": 0.41,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.186,
+          "gain": 0.7622314,
+          "azimuth_deg": -94.586,
+          "elevation_deg": -0.445,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.205,
+          "gain": 0.7557482,
+          "azimuth_deg": -101.403,
+          "elevation_deg": -0.196,
+          "kind": "surface",
+          "surface": "S9",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.43,
+          "gain": 0.7493202,
+          "azimuth_deg": 93.503,
+          "elevation_deg": 0.112,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.498,
+          "gain": 0.7429469,
+          "azimuth_deg": 81.298,
+          "elevation_deg": 0.314,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.386,
+          "gain": 0.7366278,
+          "azimuth_deg": 83.17,
+          "elevation_deg": -0.109,
+          "kind": "surface",
+          "surface": "B5.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.386,
+          "gain": 0.7303624,
+          "azimuth_deg": 83.443,
+          "elevation_deg": 0.279,
+          "kind": "surface",
+          "surface": "B1.8",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.516,
+          "gain": 0.7241503,
+          "azimuth_deg": 89.182,
+          "elevation_deg": 0.368,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.223,
+          "gain": 0.4793606,
+          "azimuth_deg": 95.018,
+          "elevation_deg": 0.221,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.564,
+          "gain": 0.4408484,
+          "azimuth_deg": 86.277,
+          "elevation_deg": -0.027,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.445,
+          "gain": 0.1211749,
+          "azimuth_deg": -7.53,
+          "elevation_deg": -48.999,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.871,
+          "gain": 0.0151936,
+          "azimuth_deg": 175.412,
+          "elevation_deg": -15.941,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 77.476,
+          "gain": 0.0593488,
+          "azimuth_deg": -170.504,
+          "elevation_deg": -37.717,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 80.952,
+          "gain": 0.0251803,
+          "azimuth_deg": -175.878,
+          "elevation_deg": -8.617,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 82.752,
+          "gain": 0.0313234,
+          "azimuth_deg": -173.369,
+          "elevation_deg": -6.424,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 89.714,
+          "gain": 0.028154,
+          "azimuth_deg": -21.394,
+          "elevation_deg": -62.6,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.113,
+          "gain": 0.0117416,
+          "azimuth_deg": 177.918,
+          "elevation_deg": -18.41,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 92.097,
+          "gain": 0.0594527,
+          "azimuth_deg": -168.828,
+          "elevation_deg": -12.642,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 93.654,
+          "gain": 0.0214233,
+          "azimuth_deg": -178.09,
+          "elevation_deg": -5.095,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 93.715,
+          "gain": 0.0161034,
+          "azimuth_deg": 176.623,
+          "elevation_deg": -4.305,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 96.194,
+          "gain": 0.0231821,
+          "azimuth_deg": -177.862,
+          "elevation_deg": -13.276,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 96.435,
+          "gain": 0.0155833,
+          "azimuth_deg": 176.944,
+          "elevation_deg": -18.852,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 97.763,
+          "gain": 0.0089096,
+          "azimuth_deg": -179.649,
+          "elevation_deg": -8.316,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 102.624,
+          "gain": 0.0239389,
+          "azimuth_deg": -172.363,
+          "elevation_deg": -18.9,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 105.138,
+          "gain": 0.0237671,
+          "azimuth_deg": 179.087,
+          "elevation_deg": -8.806,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 108.362,
+          "gain": 0.1181007,
+          "azimuth_deg": 179.439,
+          "elevation_deg": -51.055,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 114.947,
+          "gain": 0.0574625,
+          "azimuth_deg": -160.429,
+          "elevation_deg": -41.607,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 115.268,
+          "gain": 0.0168384,
+          "azimuth_deg": -179.2,
+          "elevation_deg": -10.026,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 138.394,
+          "gain": 0.0428481,
+          "azimuth_deg": -169.182,
+          "elevation_deg": -26.796,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 143.942,
+          "gain": 0.1012042,
+          "azimuth_deg": -168.078,
+          "elevation_deg": -58.018,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 144.901,
+          "gain": 0.0509304,
+          "azimuth_deg": -10.795,
+          "elevation_deg": -44.333,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 145.969,
+          "gain": 0.0851965,
+          "azimuth_deg": -9.293,
+          "elevation_deg": -58.489,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 150.375,
+          "gain": 0.0263849,
+          "azimuth_deg": -1.593,
+          "elevation_deg": -47.857,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 170.047,
+          "gain": 0.0642188,
+          "azimuth_deg": -15.767,
+          "elevation_deg": -8.373,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 193.636,
+          "gain": 0.0874896,
+          "azimuth_deg": 18.221,
+          "elevation_deg": 65.768,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 195.326,
+          "gain": 0.090601,
+          "azimuth_deg": -4.345,
+          "elevation_deg": -42.722,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 200.269,
+          "gain": 0.0301727,
+          "azimuth_deg": 165.364,
+          "elevation_deg": -38.027,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 149.67,
+        "duration_s": 1.5,
+        "level": 0.4630639,
+        "diffusion": 0.23486,
+        "spread_deg": 84.927,
+        "high_frequency_damping": 0.09897,
+        "absorption_by_band": [
+          0.242285,
+          0.212882,
+          0.183478,
+          0.164074,
+          0.16467,
+          0.185267,
+          0.215863,
+          0.266459
+        ],
+        "rt60_s_by_band": [
+          0.272735,
+          0.302348,
+          0.339173,
+          0.368817,
+          0.367829,
+          0.336679,
+          0.299056,
+          0.252411
+        ],
+        "seed": 43612266
+      }
+    },
+    {
+      "id": 8,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 3.1009,
+        "y": 34.7681,
+        "z": 0.5216
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 67.194,
+        "gain": 0.2320886
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 57.396,
+          "gain": 0.8643358,
+          "azimuth_deg": 135.031,
+          "elevation_deg": -47.11,
+          "kind": "surface",
+          "surface": "S9",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.497,
+          "gain": 0.8632833,
+          "azimuth_deg": 150.361,
+          "elevation_deg": -44.923,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.87,
+          "gain": 0.7763087,
+          "azimuth_deg": 145.995,
+          "elevation_deg": -38.21,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.938,
+          "gain": 0.759313,
+          "azimuth_deg": 138.179,
+          "elevation_deg": -37.482,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.379,
+          "gain": 0.6692237,
+          "azimuth_deg": 128.269,
+          "elevation_deg": -32.768,
+          "kind": "surface",
+          "surface": "B6.11",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.682,
+          "gain": 0.6184211,
+          "azimuth_deg": -127.642,
+          "elevation_deg": -29.961,
+          "kind": "surface",
+          "surface": "B1.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.809,
+          "gain": 0.5988048,
+          "azimuth_deg": 114.069,
+          "elevation_deg": -29.016,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.181,
+          "gain": 0.5491844,
+          "azimuth_deg": 124.551,
+          "elevation_deg": -26.463,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.2,
+          "gain": 0.5463254,
+          "azimuth_deg": -120.142,
+          "elevation_deg": -26.017,
+          "kind": "surface",
+          "surface": "B4.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.356,
+          "gain": 0.5275456,
+          "azimuth_deg": -120.65,
+          "elevation_deg": -24.996,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.377,
+          "gain": 0.524588,
+          "azimuth_deg": 104.513,
+          "elevation_deg": -25.227,
+          "kind": "surface",
+          "surface": "B2.4",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.754,
+          "gain": 0.4854376,
+          "azimuth_deg": -117.644,
+          "elevation_deg": -23.527,
+          "kind": "surface",
+          "surface": "S17",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.102,
+          "gain": 0.4540176,
+          "azimuth_deg": 104.186,
+          "elevation_deg": -21.898,
+          "kind": "surface",
+          "surface": "B5.2",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 74.602,
+          "gain": 0.1438231,
+          "azimuth_deg": -8.901,
+          "elevation_deg": 54.579,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 81.177,
+          "gain": 0.0241038,
+          "azimuth_deg": 174.915,
+          "elevation_deg": -20.001,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 84.769,
+          "gain": 0.018492,
+          "azimuth_deg": 177.076,
+          "elevation_deg": -13.67,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 89.657,
+          "gain": 0.0708144,
+          "azimuth_deg": -158.408,
+          "elevation_deg": -12.741,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.463,
+          "gain": 0.0324873,
+          "azimuth_deg": 174.966,
+          "elevation_deg": -19.551,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 93.655,
+          "gain": 0.1562049,
+          "azimuth_deg": -177.718,
+          "elevation_deg": 30.502,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 94.19,
+          "gain": 0.0249914,
+          "azimuth_deg": 179.549,
+          "elevation_deg": -9.284,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 94.735,
+          "gain": 0.0296749,
+          "azimuth_deg": -179.978,
+          "elevation_deg": -6.165,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 94.903,
+          "gain": 0.0186107,
+          "azimuth_deg": 174.958,
+          "elevation_deg": -9.155,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 99.138,
+          "gain": 0.0135889,
+          "azimuth_deg": -173.546,
+          "elevation_deg": -4.501,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 103.649,
+          "gain": 0.1043043,
+          "azimuth_deg": 21.554,
+          "elevation_deg": -59.608,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 104.455,
+          "gain": 0.0137786,
+          "azimuth_deg": -174.971,
+          "elevation_deg": -6.865,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 108.662,
+          "gain": 0.0222001,
+          "azimuth_deg": 174.513,
+          "elevation_deg": -16.676,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 112.12,
+          "gain": 0.0230128,
+          "azimuth_deg": 177.097,
+          "elevation_deg": -14.405,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 6
+        },
+        {
+          "delay_ms": 113.732,
+          "gain": 0.1443031,
+          "azimuth_deg": -20.809,
+          "elevation_deg": -26.294,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 117.1,
+          "gain": 0.0349465,
+          "azimuth_deg": -171.709,
+          "elevation_deg": -18.386,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 5
+        },
+        {
+          "delay_ms": 124.374,
+          "gain": 0.0245454,
+          "azimuth_deg": -176.157,
+          "elevation_deg": -17.399,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "metal",
+          "branch_family": "tunnel",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 124.741,
+          "gain": 0.1046103,
+          "azimuth_deg": 19.049,
+          "elevation_deg": 17.126,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 138.018,
+          "gain": 0.1082265,
+          "azimuth_deg": 158.076,
+          "elevation_deg": -37.635,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 141.268,
+          "gain": 0.0337714,
+          "azimuth_deg": -21.528,
+          "elevation_deg": -21.316,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 144.772,
+          "gain": 0.0390247,
+          "azimuth_deg": -6.702,
+          "elevation_deg": -16.546,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 158.978,
+          "gain": 0.1265187,
+          "azimuth_deg": 172.782,
+          "elevation_deg": -14.355,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 162.278,
+          "gain": 0.0607682,
+          "azimuth_deg": 163.877,
+          "elevation_deg": -43.558,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 173.642,
+          "gain": 0.1341714,
+          "azimuth_deg": 172.498,
+          "elevation_deg": -8.097,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 191.214,
+          "gain": 0.0588847,
+          "azimuth_deg": 8.229,
+          "elevation_deg": -17.718,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 194.758,
+          "gain": 0.0929759,
+          "azimuth_deg": -169.15,
+          "elevation_deg": -66.024,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 205.694,
+          "gain": 0.0789896,
+          "azimuth_deg": -15.575,
+          "elevation_deg": -24.815,
+          "kind": "axial",
+          "surface": "AX",
+          "material": "metal",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 149.67,
+        "duration_s": 1.5,
+        "level": 0.4429609,
+        "diffusion": 0.15576,
+        "spread_deg": 76.381,
+        "high_frequency_damping": 0.13832,
+        "absorption_by_band": [
+          0.08,
+          0.051833,
+          0.023666,
+          0.02,
+          0.02,
+          0.029165,
+          0.060997,
+          0.11283
+        ],
+        "rt60_s_by_band": [
+          0.593618,
+          0.745944,
+          1.003429,
+          1.050627,
+          1.050627,
+          0.940081,
+          0.688464,
+          0.479493
+        ],
+        "seed": 43620185
+      }
+    }
+  ],
+  "atlas": {
+    "name": "Metal Conduit",
+    "category": "Tunnel",
+    "description": "A tight metallic conduit with nested tunnel continuations and focused axial energy.",
+    "seed": 440229,
+    "source": "s3g-mc Imprint Sketch"
+  }
+}

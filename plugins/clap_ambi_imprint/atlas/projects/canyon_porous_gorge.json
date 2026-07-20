@@ -1,0 +1,1806 @@
+{
+  "format": "s3g-imprint-sketch",
+  "version": 1,
+  "tool": "s3g-mc Imprint Sketch",
+  "target_process": "3OAFX Synthetic Ambisonic IR Bank",
+  "interpretation": "directional acoustic sketch for architectural, natural, open, or imaginary spaces",
+  "space_family": "canyon",
+  "space_seed": 550239,
+  "room_x": 25.7,
+  "room_y": 39.8,
+  "room_z": 13.9,
+  "material_preset": "porous_rock",
+  "absorption": 0.59,
+  "scattering": 0.84,
+  "tail_soften": 0.43,
+  "irregularity": 0.46,
+  "surface_roughness": 0.94,
+  "vertical_variation": 0.45,
+  "openness": 0.72,
+  "space_shape": "side_chamber",
+  "room_shape": "skew",
+  "topology_bias": 0.63,
+  "branch_family": "cave",
+  "room_polygon": [
+    {
+      "x": 4.57,
+      "y": 0
+    },
+    {
+      "x": 6.533,
+      "y": 3.618
+    },
+    {
+      "x": 6.213,
+      "y": 7.236
+    },
+    {
+      "x": 6.254,
+      "y": 10.855
+    },
+    {
+      "x": 0.54,
+      "y": 14.473
+    },
+    {
+      "x": 1.913,
+      "y": 18.091
+    },
+    {
+      "x": 2.817,
+      "y": 21.709
+    },
+    {
+      "x": 3.104,
+      "y": 25.327
+    },
+    {
+      "x": 8.233,
+      "y": 28.945
+    },
+    {
+      "x": 6.861,
+      "y": 32.564
+    },
+    {
+      "x": 6.529,
+      "y": 36.182
+    },
+    {
+      "x": 1.488,
+      "y": 39.8
+    },
+    {
+      "x": 21.069,
+      "y": 39.8
+    },
+    {
+      "x": 19.824,
+      "y": 36.182
+    },
+    {
+      "x": 22.68,
+      "y": 32.564
+    },
+    {
+      "x": 21.088,
+      "y": 28.945
+    },
+    {
+      "x": 24.161,
+      "y": 25.327
+    },
+    {
+      "x": 21.011,
+      "y": 21.709
+    },
+    {
+      "x": 19.243,
+      "y": 18.091
+    },
+    {
+      "x": 22.059,
+      "y": 14.473
+    },
+    {
+      "x": 19.871,
+      "y": 10.855
+    },
+    {
+      "x": 24.502,
+      "y": 7.236
+    },
+    {
+      "x": 22.4,
+      "y": 3.618
+    },
+    {
+      "x": 21.39,
+      "y": 0
+    }
+  ],
+  "space": {
+    "family": "canyon",
+    "seed": 550239,
+    "topology": "connected_regions",
+    "branch_family_mode": "cave",
+    "primary_polygon_xy_m": [
+      {
+        "x": 4.57,
+        "y": 0
+      },
+      {
+        "x": 6.533,
+        "y": 3.618
+      },
+      {
+        "x": 6.213,
+        "y": 7.236
+      },
+      {
+        "x": 6.254,
+        "y": 10.855
+      },
+      {
+        "x": 0.54,
+        "y": 14.473
+      },
+      {
+        "x": 1.913,
+        "y": 18.091
+      },
+      {
+        "x": 2.817,
+        "y": 21.709
+      },
+      {
+        "x": 3.104,
+        "y": 25.327
+      },
+      {
+        "x": 8.233,
+        "y": 28.945
+      },
+      {
+        "x": 6.861,
+        "y": 32.564
+      },
+      {
+        "x": 6.529,
+        "y": 36.182
+      },
+      {
+        "x": 1.488,
+        "y": 39.8
+      },
+      {
+        "x": 21.069,
+        "y": 39.8
+      },
+      {
+        "x": 19.824,
+        "y": 36.182
+      },
+      {
+        "x": 22.68,
+        "y": 32.564
+      },
+      {
+        "x": 21.088,
+        "y": 28.945
+      },
+      {
+        "x": 24.161,
+        "y": 25.327
+      },
+      {
+        "x": 21.011,
+        "y": 21.709
+      },
+      {
+        "x": 19.243,
+        "y": 18.091
+      },
+      {
+        "x": 22.059,
+        "y": 14.473
+      },
+      {
+        "x": 19.871,
+        "y": 10.855
+      },
+      {
+        "x": 24.502,
+        "y": 7.236
+      },
+      {
+        "x": 22.4,
+        "y": 3.618
+      },
+      {
+        "x": 21.39,
+        "y": 0
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": -2.836,
+        "z": 12.699
+      },
+      {
+        "x": -0.97,
+        "z": 13.138
+      },
+      {
+        "x": 0.897,
+        "z": 13.595
+      },
+      {
+        "x": 2.763,
+        "z": 13.93
+      },
+      {
+        "x": 4.63,
+        "z": 14.078
+      },
+      {
+        "x": 6.496,
+        "z": 14.061
+      },
+      {
+        "x": 8.363,
+        "z": 13.949
+      },
+      {
+        "x": 10.23,
+        "z": 13.807
+      },
+      {
+        "x": 12.096,
+        "z": 13.658
+      },
+      {
+        "x": 13.963,
+        "z": 13.483
+      },
+      {
+        "x": 15.829,
+        "z": 13.255
+      },
+      {
+        "x": 17.696,
+        "z": 12.983
+      },
+      {
+        "x": 19.562,
+        "z": 12.734
+      },
+      {
+        "x": 21.429,
+        "z": 12.617
+      },
+      {
+        "x": 23.296,
+        "z": 12.723
+      },
+      {
+        "x": 25.162,
+        "z": 13.073
+      },
+      {
+        "x": 27.029,
+        "z": 13.586
+      }
+    ],
+    "irregularity": 0.46,
+    "roughness": 0.94,
+    "vertical_variation": 0.45,
+    "openness": 0.72,
+    "acoustic_volume_m3": 10502.069,
+    "acoustic_surface_m2": 5421.73
+  },
+  "chamber_shape": "trapezoid",
+  "chamber_side": "all",
+  "exterior_opening": {
+    "enabled": true,
+    "side": "left",
+    "count": 4,
+    "position": 0.04,
+    "spread": 0.57,
+    "width": 0.32,
+    "opening_m": 4.953,
+    "leak": 0.68,
+    "leak_factor": 1,
+    "interpretation": "energy escape boundary for late-tail thinning and reduced reflection density",
+    "openings": [
+      {
+        "index": 1,
+        "side": "left",
+        "opening_m": 1.238,
+        "opening_segment": {
+          "x1": 0.54,
+          "y1": 14.473,
+          "x2": 0.979,
+          "y2": 15.631
+        }
+      },
+      {
+        "index": 2,
+        "side": "left",
+        "opening_m": 1.238,
+        "opening_segment": {
+          "x1": 0.54,
+          "y1": 14.473,
+          "x2": 0.979,
+          "y2": 15.631
+        }
+      },
+      {
+        "index": 3,
+        "side": "left",
+        "opening_m": 1.238,
+        "opening_segment": {
+          "x1": 0.54,
+          "y1": 14.473,
+          "x2": 0.979,
+          "y2": 15.631
+        }
+      },
+      {
+        "index": 4,
+        "side": "left",
+        "opening_m": 1.238,
+        "opening_segment": {
+          "x1": 0.766,
+          "y1": 15.07,
+          "x2": 1.206,
+          "y2": 16.228
+        }
+      }
+    ],
+    "opening_segment": {
+      "x1": 0.54,
+      "y1": 14.473,
+      "x2": 0.979,
+      "y2": 15.631
+    }
+  },
+  "chamber": {
+    "family_mode": "cave",
+    "material": "earth",
+    "material_mode": "palette",
+    "material_mix": 0.72,
+    "width": 5.5,
+    "depth": 2.7,
+    "count": 2,
+    "position": 0.56,
+    "nested_chambers": 1,
+    "opening_width": 0.55,
+    "coupling": 0.59,
+    "chambers": [
+      {
+        "material_profile": {
+          "material": "wood",
+          "absorption": 0.357,
+          "scattering": 0.714,
+          "tail_soften": 0.444
+        },
+        "index": 1,
+        "level": 0,
+        "family": "cave",
+        "height_m": 9.174,
+        "x": 12.713,
+        "y": -2.618,
+        "width": 5.5,
+        "depth": 2.618,
+        "opening_x": 16.976,
+        "opening_y": 0,
+        "opening": 3.025,
+        "polygon": [
+          {
+            "x": 18.213,
+            "y": 0
+          },
+          {
+            "x": 12.713,
+            "y": 0
+          },
+          {
+            "x": 12.978,
+            "y": -0.787
+          },
+          {
+            "x": 13.372,
+            "y": -1.461
+          },
+          {
+            "x": 13.883,
+            "y": -2.077
+          },
+          {
+            "x": 14.644,
+            "y": -2.43
+          },
+          {
+            "x": 15.493,
+            "y": -2.618
+          },
+          {
+            "x": 16.342,
+            "y": -2.474
+          },
+          {
+            "x": 17.038,
+            "y": -2.05
+          },
+          {
+            "x": 17.623,
+            "y": -1.518
+          },
+          {
+            "x": 17.988,
+            "y": -0.804
+          }
+        ],
+        "opening_segment": {
+          "x1": 16.976,
+          "y1": 0,
+          "x2": 13.951,
+          "y2": 0
+        },
+        "side": "front",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "vegetation",
+          "absorption": 0.546,
+          "scattering": 1,
+          "tail_soften": 0.814
+        },
+        "index": 2,
+        "level": 1,
+        "family": "cave",
+        "height_m": 9.869,
+        "x": 12.22,
+        "y": -4.466,
+        "width": 3.958,
+        "depth": 2.075,
+        "opening_x": 15.439,
+        "opening_y": -2.495,
+        "opening": 2.481,
+        "polygon": [
+          {
+            "x": 16.178,
+            "y": -2.519
+          },
+          {
+            "x": 12.22,
+            "y": -2.391
+          },
+          {
+            "x": 12.42,
+            "y": -3.015
+          },
+          {
+            "x": 12.786,
+            "y": -3.524
+          },
+          {
+            "x": 13.222,
+            "y": -3.914
+          },
+          {
+            "x": 13.671,
+            "y": -4.266
+          },
+          {
+            "x": 14.2,
+            "y": -4.466
+          },
+          {
+            "x": 14.762,
+            "y": -4.411
+          },
+          {
+            "x": 15.262,
+            "y": -4.105
+          },
+          {
+            "x": 15.648,
+            "y": -3.645
+          },
+          {
+            "x": 15.966,
+            "y": -3.127
+          }
+        ],
+        "opening_segment": {
+          "x1": 15.439,
+          "y1": -2.495,
+          "x2": 12.959,
+          "y2": -2.415
+        },
+        "side": "front",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "earth",
+          "absorption": 0.445,
+          "scattering": 0.972,
+          "tail_soften": 0.637
+        },
+        "index": 3,
+        "level": 0,
+        "family": "cave",
+        "height_m": 9.174,
+        "x": 6.388,
+        "y": -2.496,
+        "width": 5.5,
+        "depth": 2.496,
+        "opening_x": 10.651,
+        "opening_y": 0,
+        "opening": 3.025,
+        "polygon": [
+          {
+            "x": 11.888,
+            "y": 0
+          },
+          {
+            "x": 6.388,
+            "y": 0
+          },
+          {
+            "x": 6.627,
+            "y": -0.796
+          },
+          {
+            "x": 7.036,
+            "y": -1.47
+          },
+          {
+            "x": 7.554,
+            "y": -2.072
+          },
+          {
+            "x": 8.337,
+            "y": -2.335
+          },
+          {
+            "x": 9.153,
+            "y": -2.496
+          },
+          {
+            "x": 9.962,
+            "y": -2.336
+          },
+          {
+            "x": 10.567,
+            "y": -1.851
+          },
+          {
+            "x": 11.067,
+            "y": -1.349
+          },
+          {
+            "x": 11.52,
+            "y": -0.757
+          }
+        ],
+        "opening_segment": {
+          "x1": 10.651,
+          "y1": 0,
+          "x2": 7.626,
+          "y2": 0
+        },
+        "side": "front",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "vegetation",
+          "absorption": 0.645,
+          "scattering": 1,
+          "tail_soften": 0.79
+        },
+        "index": 4,
+        "level": 1,
+        "family": "cave",
+        "height_m": 9.869,
+        "x": 5.846,
+        "y": -4.259,
+        "width": 3.96,
+        "depth": 1.882,
+        "opening_x": 9.066,
+        "opening_y": -2.379,
+        "opening": 2.481,
+        "polygon": [
+          {
+            "x": 9.806,
+            "y": -2.379
+          },
+          {
+            "x": 5.846,
+            "y": -2.377
+          },
+          {
+            "x": 6.169,
+            "y": -2.955
+          },
+          {
+            "x": 6.469,
+            "y": -3.446
+          },
+          {
+            "x": 6.784,
+            "y": -3.924
+          },
+          {
+            "x": 7.249,
+            "y": -4.224
+          },
+          {
+            "x": 7.785,
+            "y": -4.259
+          },
+          {
+            "x": 8.32,
+            "y": -4.156
+          },
+          {
+            "x": 8.81,
+            "y": -3.871
+          },
+          {
+            "x": 9.234,
+            "y": -3.476
+          },
+          {
+            "x": 9.549,
+            "y": -2.973
+          }
+        ],
+        "opening_segment": {
+          "x1": 9.066,
+          "y1": -2.379,
+          "x2": 6.586,
+          "y2": -2.377
+        },
+        "side": "front",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "ice",
+          "absorption": 0.146,
+          "scattering": 0.553,
+          "tail_soften": 0.335
+        },
+        "index": 5,
+        "level": 0,
+        "family": "cave",
+        "height_m": 9.174,
+        "x": 6.211,
+        "y": 39.8,
+        "width": 5.5,
+        "depth": 2.59,
+        "opening_x": 7.448,
+        "opening_y": 39.8,
+        "opening": 3.025,
+        "polygon": [
+          {
+            "x": 6.211,
+            "y": 39.8
+          },
+          {
+            "x": 11.711,
+            "y": 39.8
+          },
+          {
+            "x": 11.425,
+            "y": 40.582
+          },
+          {
+            "x": 11.103,
+            "y": 41.326
+          },
+          {
+            "x": 10.519,
+            "y": 41.948
+          },
+          {
+            "x": 9.711,
+            "y": 42.261
+          },
+          {
+            "x": 8.89,
+            "y": 42.39
+          },
+          {
+            "x": 8.083,
+            "y": 42.317
+          },
+          {
+            "x": 7.396,
+            "y": 41.909
+          },
+          {
+            "x": 7.043,
+            "y": 41.184
+          },
+          {
+            "x": 6.692,
+            "y": 40.53
+          }
+        ],
+        "opening_segment": {
+          "x1": 7.448,
+          "y1": 39.8,
+          "x2": 10.473,
+          "y2": 39.8
+        },
+        "side": "back",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "vegetation",
+          "absorption": 0.628,
+          "scattering": 0.944,
+          "tail_soften": 0.762
+        },
+        "index": 6,
+        "level": 1,
+        "family": "cave",
+        "height_m": 9.869,
+        "x": 8.239,
+        "y": 42.19,
+        "width": 3.956,
+        "depth": 2.064,
+        "opening_x": 8.978,
+        "opening_y": 42.331,
+        "opening": 2.481,
+        "polygon": [
+          {
+            "x": 8.239,
+            "y": 42.364
+          },
+          {
+            "x": 12.195,
+            "y": 42.19
+          },
+          {
+            "x": 11.931,
+            "y": 42.799
+          },
+          {
+            "x": 11.688,
+            "y": 43.374
+          },
+          {
+            "x": 11.299,
+            "y": 43.864
+          },
+          {
+            "x": 10.759,
+            "y": 44.075
+          },
+          {
+            "x": 10.234,
+            "y": 44.253
+          },
+          {
+            "x": 9.663,
+            "y": 44.249
+          },
+          {
+            "x": 9.197,
+            "y": 43.878
+          },
+          {
+            "x": 8.82,
+            "y": 43.438
+          },
+          {
+            "x": 8.445,
+            "y": 42.969
+          }
+        ],
+        "opening_segment": {
+          "x1": 8.978,
+          "y1": 42.331,
+          "x2": 11.456,
+          "y2": 42.222
+        },
+        "side": "back",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "metal",
+          "absorption": 0.245,
+          "scattering": 0.528,
+          "tail_soften": 0.214
+        },
+        "index": 7,
+        "level": 0,
+        "family": "cave",
+        "height_m": 9.174,
+        "x": 12.536,
+        "y": 39.8,
+        "width": 5.5,
+        "depth": 2.492,
+        "opening_x": 13.773,
+        "opening_y": 39.8,
+        "opening": 3.025,
+        "polygon": [
+          {
+            "x": 12.536,
+            "y": 39.8
+          },
+          {
+            "x": 18.036,
+            "y": 39.8
+          },
+          {
+            "x": 17.721,
+            "y": 40.583
+          },
+          {
+            "x": 17.25,
+            "y": 41.211
+          },
+          {
+            "x": 16.782,
+            "y": 41.798
+          },
+          {
+            "x": 16.126,
+            "y": 42.174
+          },
+          {
+            "x": 15.358,
+            "y": 42.292
+          },
+          {
+            "x": 14.562,
+            "y": 42.156
+          },
+          {
+            "x": 13.834,
+            "y": 41.787
+          },
+          {
+            "x": 13.215,
+            "y": 41.268
+          },
+          {
+            "x": 12.728,
+            "y": 40.61
+          }
+        ],
+        "opening_segment": {
+          "x1": 13.773,
+          "y1": 39.8,
+          "x2": 16.798,
+          "y2": 39.8
+        },
+        "side": "back",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "brick",
+          "absorption": 0.272,
+          "scattering": 0.765,
+          "tail_soften": 0.303
+        },
+        "index": 8,
+        "level": 1,
+        "family": "cave",
+        "height_m": 9.869,
+        "x": 14.72,
+        "y": 42.199,
+        "width": 3.96,
+        "depth": 1.975,
+        "opening_x": 15.46,
+        "opening_y": 42.21,
+        "opening": 2.481,
+        "polygon": [
+          {
+            "x": 14.72,
+            "y": 42.199
+          },
+          {
+            "x": 18.68,
+            "y": 42.257
+          },
+          {
+            "x": 18.403,
+            "y": 42.836
+          },
+          {
+            "x": 18.213,
+            "y": 43.399
+          },
+          {
+            "x": 17.859,
+            "y": 43.916
+          },
+          {
+            "x": 17.283,
+            "y": 44.174
+          },
+          {
+            "x": 16.662,
+            "y": 44.109
+          },
+          {
+            "x": 16.094,
+            "y": 44.043
+          },
+          {
+            "x": 15.578,
+            "y": 43.8
+          },
+          {
+            "x": 15.181,
+            "y": 43.37
+          },
+          {
+            "x": 15.007,
+            "y": 42.79
+          }
+        ],
+        "opening_segment": {
+          "x1": 15.46,
+          "y1": 42.21,
+          "x2": 17.94,
+          "y2": 42.247
+        },
+        "side": "back",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "fabric",
+          "absorption": 0.652,
+          "scattering": 0.763,
+          "tail_soften": 0.786
+        },
+        "index": 9,
+        "level": 0,
+        "family": "cave",
+        "height_m": 9.174,
+        "x": -1.244,
+        "y": 14.473,
+        "width": 3.02,
+        "depth": 3.443,
+        "opening_x": 0.818,
+        "opening_y": 15.205,
+        "opening": 1.916,
+        "polygon": [
+          {
+            "x": 0.54,
+            "y": 14.473
+          },
+          {
+            "x": 1.775,
+            "y": 17.729
+          },
+          {
+            "x": 0.971,
+            "y": 17.915
+          },
+          {
+            "x": 0.207,
+            "y": 17.911
+          },
+          {
+            "x": -0.385,
+            "y": 17.658
+          },
+          {
+            "x": -0.846,
+            "y": 17.333
+          },
+          {
+            "x": -1.197,
+            "y": 16.95
+          },
+          {
+            "x": -1.244,
+            "y": 16.459
+          },
+          {
+            "x": -1.057,
+            "y": 15.938
+          },
+          {
+            "x": -0.612,
+            "y": 15.443
+          },
+          {
+            "x": -0.163,
+            "y": 14.9
+          }
+        ],
+        "opening_segment": {
+          "x1": 0.818,
+          "y1": 15.205,
+          "x2": 1.497,
+          "y2": 16.996
+        },
+        "side": "left",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "metal",
+          "absorption": 0.231,
+          "scattering": 0.547,
+          "tail_soften": 0.3
+        },
+        "index": 10,
+        "level": 1,
+        "family": "cave",
+        "height_m": 9.869,
+        "x": -2.722,
+        "y": 16.56,
+        "width": 2.55,
+        "depth": 2.299,
+        "opening_x": -1.051,
+        "opening_y": 16.983,
+        "opening": 1.571,
+        "polygon": [
+          {
+            "x": -1.252,
+            "y": 16.56
+          },
+          {
+            "x": -0.172,
+            "y": 18.823
+          },
+          {
+            "x": -0.792,
+            "y": 18.851
+          },
+          {
+            "x": -1.317,
+            "y": 18.86
+          },
+          {
+            "x": -1.828,
+            "y": 18.82
+          },
+          {
+            "x": -2.339,
+            "y": 18.699
+          },
+          {
+            "x": -2.632,
+            "y": 18.397
+          },
+          {
+            "x": -2.722,
+            "y": 18.017
+          },
+          {
+            "x": -2.581,
+            "y": 17.611
+          },
+          {
+            "x": -2.241,
+            "y": 17.228
+          },
+          {
+            "x": -1.729,
+            "y": 16.926
+          }
+        ],
+        "opening_segment": {
+          "x1": -1.051,
+          "y1": 16.983,
+          "x2": -0.374,
+          "y2": 18.401
+        },
+        "side": "left",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "porous_rock",
+          "absorption": 0.367,
+          "scattering": 0.949,
+          "tail_soften": 0.458
+        },
+        "index": 11,
+        "level": 0,
+        "family": "cave",
+        "height_m": 9.174,
+        "x": -1.069,
+        "y": 14.835,
+        "width": 2.982,
+        "depth": 3.307,
+        "opening_x": 0.955,
+        "opening_y": 15.567,
+        "opening": 1.916,
+        "polygon": [
+          {
+            "x": 0.677,
+            "y": 14.835
+          },
+          {
+            "x": 1.913,
+            "y": 18.091
+          },
+          {
+            "x": 1.113,
+            "y": 18.142
+          },
+          {
+            "x": 0.414,
+            "y": 18.114
+          },
+          {
+            "x": -0.287,
+            "y": 18.085
+          },
+          {
+            "x": -0.871,
+            "y": 17.87
+          },
+          {
+            "x": -1.069,
+            "y": 17.403
+          },
+          {
+            "x": -0.95,
+            "y": 16.859
+          },
+          {
+            "x": -0.799,
+            "y": 16.329
+          },
+          {
+            "x": -0.549,
+            "y": 15.765
+          },
+          {
+            "x": 0.009,
+            "y": 15.282
+          }
+        ],
+        "opening_segment": {
+          "x1": 0.955,
+          "y1": 15.567,
+          "x2": 1.635,
+          "y2": 17.358
+        },
+        "side": "left",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "fabric",
+          "absorption": 0.677,
+          "scattering": 0.815,
+          "tail_soften": 0.726
+        },
+        "index": 12,
+        "level": 1,
+        "family": "cave",
+        "height_m": 9.869,
+        "x": -2.836,
+        "y": 16.96,
+        "width": 1.9,
+        "depth": 2.532,
+        "opening_x": -0.952,
+        "opening_y": 17.429,
+        "opening": 1.571,
+        "polygon": [
+          {
+            "x": -0.955,
+            "y": 16.96
+          },
+          {
+            "x": -0.936,
+            "y": 19.468
+          },
+          {
+            "x": -1.468,
+            "y": 19.464
+          },
+          {
+            "x": -1.941,
+            "y": 19.492
+          },
+          {
+            "x": -2.334,
+            "y": 19.405
+          },
+          {
+            "x": -2.614,
+            "y": 19.195
+          },
+          {
+            "x": -2.836,
+            "y": 18.913
+          },
+          {
+            "x": -2.8,
+            "y": 18.504
+          },
+          {
+            "x": -2.476,
+            "y": 18.061
+          },
+          {
+            "x": -1.996,
+            "y": 17.683
+          },
+          {
+            "x": -1.534,
+            "y": 17.298
+          }
+        ],
+        "opening_segment": {
+          "x1": -0.952,
+          "y1": 17.429,
+          "x2": -0.94,
+          "y2": 18.999
+        },
+        "side": "left",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "wood",
+          "absorption": 0.343,
+          "scattering": 0.745,
+          "tail_soften": 0.462
+        },
+        "index": 13,
+        "level": 0,
+        "family": "cave",
+        "height_m": 9.174,
+        "x": 22.61,
+        "y": 3.622,
+        "width": 3.284,
+        "depth": 3.614,
+        "opening_x": 24.076,
+        "opening_y": 6.504,
+        "opening": 2.071,
+        "polygon": [
+          {
+            "x": 24.502,
+            "y": 7.236
+          },
+          {
+            "x": 22.61,
+            "y": 3.98
+          },
+          {
+            "x": 23.396,
+            "y": 3.87
+          },
+          {
+            "x": 24.096,
+            "y": 3.663
+          },
+          {
+            "x": 24.802,
+            "y": 3.622
+          },
+          {
+            "x": 25.388,
+            "y": 3.855
+          },
+          {
+            "x": 25.805,
+            "y": 4.287
+          },
+          {
+            "x": 25.894,
+            "y": 4.893
+          },
+          {
+            "x": 25.729,
+            "y": 5.514
+          },
+          {
+            "x": 25.468,
+            "y": 6.095
+          },
+          {
+            "x": 25.073,
+            "y": 6.671
+          }
+        ],
+        "opening_segment": {
+          "x1": 24.076,
+          "y1": 6.504,
+          "x2": 23.036,
+          "y2": 4.713
+        },
+        "side": "right",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "wood",
+          "absorption": 0.376,
+          "scattering": 0.711,
+          "tail_soften": 0.413
+        },
+        "index": 14,
+        "level": 1,
+        "family": "cave",
+        "height_m": 9.869,
+        "x": 24.735,
+        "y": 2.129,
+        "width": 2.294,
+        "depth": 2.646,
+        "opening_x": 25.663,
+        "opening_y": 4.316,
+        "opening": 1.699,
+        "polygon": [
+          {
+            "x": 25.877,
+            "y": 4.775
+          },
+          {
+            "x": 24.735,
+            "y": 2.316
+          },
+          {
+            "x": 25.323,
+            "y": 2.129
+          },
+          {
+            "x": 25.841,
+            "y": 2.138
+          },
+          {
+            "x": 26.307,
+            "y": 2.191
+          },
+          {
+            "x": 26.683,
+            "y": 2.362
+          },
+          {
+            "x": 26.959,
+            "y": 2.619
+          },
+          {
+            "x": 27.029,
+            "y": 2.992
+          },
+          {
+            "x": 26.938,
+            "y": 3.417
+          },
+          {
+            "x": 26.73,
+            "y": 3.879
+          },
+          {
+            "x": 26.366,
+            "y": 4.348
+          }
+        ],
+        "opening_segment": {
+          "x1": 25.663,
+          "y1": 4.316,
+          "x2": 24.948,
+          "y2": 2.775
+        },
+        "side": "right",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "water",
+          "absorption": 0.263,
+          "scattering": 0.873,
+          "tail_soften": 0.217
+        },
+        "index": 15,
+        "level": 0,
+        "family": "cave",
+        "height_m": 9.174,
+        "x": 22.4,
+        "y": 3.238,
+        "width": 3.124,
+        "depth": 3.636,
+        "opening_x": 23.866,
+        "opening_y": 6.142,
+        "opening": 2.071,
+        "polygon": [
+          {
+            "x": 24.292,
+            "y": 6.875
+          },
+          {
+            "x": 22.4,
+            "y": 3.618
+          },
+          {
+            "x": 23.182,
+            "y": 3.449
+          },
+          {
+            "x": 23.903,
+            "y": 3.253
+          },
+          {
+            "x": 24.607,
+            "y": 3.238
+          },
+          {
+            "x": 25.094,
+            "y": 3.562
+          },
+          {
+            "x": 25.417,
+            "y": 4.014
+          },
+          {
+            "x": 25.514,
+            "y": 4.572
+          },
+          {
+            "x": 25.524,
+            "y": 5.145
+          },
+          {
+            "x": 25.358,
+            "y": 5.757
+          },
+          {
+            "x": 24.88,
+            "y": 6.322
+          }
+        ],
+        "opening_segment": {
+          "x1": 23.866,
+          "y1": 6.142,
+          "x2": 22.825,
+          "y2": 4.351
+        },
+        "side": "right",
+        "shape": "trapezoid"
+      },
+      {
+        "material_profile": {
+          "material": "metal",
+          "absorption": 0.133,
+          "scattering": 0.524,
+          "tail_soften": 0.297
+        },
+        "index": 16,
+        "level": 1,
+        "family": "cave",
+        "height_m": 9.869,
+        "x": 24.544,
+        "y": 1.743,
+        "width": 2.288,
+        "depth": 2.719,
+        "opening_x": 25.319,
+        "opening_y": 3.988,
+        "opening": 1.699,
+        "polygon": [
+          {
+            "x": 25.497,
+            "y": 4.462
+          },
+          {
+            "x": 24.544,
+            "y": 1.923
+          },
+          {
+            "x": 25.114,
+            "y": 1.869
+          },
+          {
+            "x": 25.6,
+            "y": 1.77
+          },
+          {
+            "x": 26.07,
+            "y": 1.743
+          },
+          {
+            "x": 26.532,
+            "y": 1.822
+          },
+          {
+            "x": 26.763,
+            "y": 2.163
+          },
+          {
+            "x": 26.832,
+            "y": 2.608
+          },
+          {
+            "x": 26.721,
+            "y": 3.107
+          },
+          {
+            "x": 26.358,
+            "y": 3.582
+          },
+          {
+            "x": 25.914,
+            "y": 3.973
+          }
+        ],
+        "opening_segment": {
+          "x1": 25.319,
+          "y1": 3.988,
+          "x2": 24.722,
+          "y2": 2.397
+        },
+        "side": "right",
+        "shape": "trapezoid"
+      }
+    ]
+  },
+  "field_offset": {
+    "x": 0.59,
+    "y": -0.43
+  },
+  "source_distance": 6.25,
+  "direction_spread_deg": 67,
+  "group_variation": 0.36,
+  "surface_contrast": 0.69,
+  "distance_variation": 0.29,
+  "order": 3,
+  "direction_set": "auto",
+  "effective_direction_layout": "practical_8",
+  "groups": [
+    {
+      "group": 1,
+      "azimuth": 45,
+      "elevation": 35.264,
+      "channels": "1-16",
+      "direct_time_ms": 48,
+      "first_reflection": {
+        "wall": "B1.11",
+        "time_ms": 30
+      },
+      "early_energy": 1.82297,
+      "chamber_energy": 0.00398,
+      "branch_energy": 0.00398,
+      "local_profile": {
+        "absorption": 0.543,
+        "scattering": 0.768,
+        "tail_soften": 0.496,
+        "source_distance": 6.242,
+        "direction_spread_deg": 60.79,
+        "pre_delay_ms": 29.8,
+        "rt60": 0.216
+      },
+      "source_position_m": {
+        "x": 20.906,
+        "y": 9.419,
+        "z": 6.804
+      }
+    },
+    {
+      "group": 2,
+      "azimuth": -45,
+      "elevation": 35.264,
+      "channels": "17-32",
+      "direct_time_ms": 45,
+      "first_reflection": {
+        "wall": "B4.10",
+        "time_ms": 38
+      },
+      "early_energy": 0.08526,
+      "chamber_energy": 0.00217,
+      "branch_energy": 0.00217,
+      "local_profile": {
+        "absorption": 0.603,
+        "scattering": 0.866,
+        "tail_soften": 0.408,
+        "source_distance": 6.387,
+        "direction_spread_deg": 69.25,
+        "pre_delay_ms": 26.05,
+        "rt60": 0.216
+      },
+      "source_position_m": {
+        "x": 17.219,
+        "y": 13.106,
+        "z": 10.491
+      }
+    },
+    {
+      "group": 3,
+      "azimuth": 135,
+      "elevation": 35.264,
+      "channels": "33-48",
+      "direct_time_ms": 45,
+      "first_reflection": {
+        "wall": "B3.8",
+        "time_ms": 38
+      },
+      "early_energy": 0.13408,
+      "chamber_energy": 0.00414,
+      "branch_energy": 0.00414,
+      "local_profile": {
+        "absorption": 0.587,
+        "scattering": 0.757,
+        "tail_soften": 0.447,
+        "source_distance": 5.852,
+        "direction_spread_deg": 59.86,
+        "pre_delay_ms": 27.73,
+        "rt60": 0.216
+      },
+      "source_position_m": {
+        "x": 24.285,
+        "y": 6.04,
+        "z": 10.182
+      }
+    },
+    {
+      "group": 4,
+      "azimuth": -135,
+      "elevation": 35.264,
+      "channels": "49-64",
+      "direct_time_ms": 42,
+      "first_reflection": {
+        "wall": "B16.10",
+        "time_ms": 38
+      },
+      "early_energy": 0.07707,
+      "chamber_energy": 0.00385,
+      "branch_energy": 0.00385,
+      "local_profile": {
+        "absorption": 0.596,
+        "scattering": 0.933,
+        "tail_soften": 0.372,
+        "source_distance": 5.839,
+        "direction_spread_deg": 75,
+        "pre_delay_ms": 24.54,
+        "rt60": 0.216
+      },
+      "source_position_m": {
+        "x": 17.535,
+        "y": 6.048,
+        "z": 10.174
+      }
+    },
+    {
+      "group": 5,
+      "azimuth": 45,
+      "elevation": -35.264,
+      "channels": "65-80",
+      "direct_time_ms": 44,
+      "first_reflection": {
+        "wall": "B1.11",
+        "time_ms": 26
+      },
+      "early_energy": 1.47816,
+      "chamber_energy": 0.00462,
+      "branch_energy": 0.00462,
+      "local_profile": {
+        "absorption": 0.612,
+        "scattering": 0.776,
+        "tail_soften": 0.389,
+        "source_distance": 6.467,
+        "direction_spread_deg": 61.51,
+        "pre_delay_ms": 25.27,
+        "rt60": 0.216
+      },
+      "source_position_m": {
+        "x": 20.906,
+        "y": 9.419,
+        "z": 6.804
+      }
+    },
+    {
+      "group": 6,
+      "azimuth": -45,
+      "elevation": -35.264,
+      "channels": "81-96",
+      "direct_time_ms": 44,
+      "first_reflection": {
+        "wall": "B4.10",
+        "time_ms": 36
+      },
+      "early_energy": 0.0965,
+      "chamber_energy": 0.00411,
+      "branch_energy": 0.00411,
+      "local_profile": {
+        "absorption": 0.564,
+        "scattering": 0.908,
+        "tail_soften": 0.371,
+        "source_distance": 6.52,
+        "direction_spread_deg": 72.91,
+        "pre_delay_ms": 24.5,
+        "rt60": 0.216
+      },
+      "source_position_m": {
+        "x": 17.142,
+        "y": 13.183,
+        "z": 3.039
+      }
+    },
+    {
+      "group": 7,
+      "azimuth": 135,
+      "elevation": -35.264,
+      "channels": "97-112",
+      "direct_time_ms": 46,
+      "first_reflection": {
+        "wall": "B3.8",
+        "time_ms": 39
+      },
+      "early_energy": 0.08704,
+      "chamber_energy": 0.00164,
+      "branch_energy": 0.00164,
+      "local_profile": {
+        "absorption": 0.662,
+        "scattering": 0.889,
+        "tail_soften": 0.447,
+        "source_distance": 6.371,
+        "direction_spread_deg": 71.21,
+        "pre_delay_ms": 27.72,
+        "rt60": 0.216
+      },
+      "source_position_m": {
+        "x": 24.585,
+        "y": 5.741,
+        "z": 3.125
+      }
+    },
+    {
+      "group": 8,
+      "azimuth": -135,
+      "elevation": -35.264,
+      "channels": "113-128",
+      "direct_time_ms": 48,
+      "first_reflection": {
+        "wall": "B16.10",
+        "time_ms": 44
+      },
+      "early_energy": 0.09172,
+      "chamber_energy": 0.00305,
+      "branch_energy": 0.00305,
+      "local_profile": {
+        "absorption": 0.504,
+        "scattering": 0.818,
+        "tail_soften": 0.482,
+        "source_distance": 6.383,
+        "direction_spread_deg": 65.14,
+        "pre_delay_ms": 29.2,
+        "rt60": 0.216
+      },
+      "source_position_m": {
+        "x": 17.221,
+        "y": 5.734,
+        "z": 3.118
+      }
+    }
+  ],
+  "duration": 3.35,
+  "pre_delay_ms": 27,
+  "early_reflections": 21,
+  "camera": {
+    "azimuth": -68,
+    "elevation": 25,
+    "zoom": 1.18
+  },
+  "estimated_rt60": 0.216,
+  "late_start_seconds": 0.045,
+  "atlas": {
+    "name": "Porous Gorge",
+    "category": "Canyon",
+    "description": "A broad porous gorge with cave recesses and strongly thinned late energy.",
+    "seed": 550239,
+    "source": "s3g-mc Imprint Sketch"
+  }
+}

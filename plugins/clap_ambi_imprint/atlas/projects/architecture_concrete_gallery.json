@@ -1,0 +1,630 @@
+{
+  "format": "s3g-imprint-sketch",
+  "version": 1,
+  "tool": "s3g-mc Imprint Sketch",
+  "target_process": "3OAFX Synthetic Ambisonic IR Bank",
+  "interpretation": "directional acoustic sketch for architectural, natural, open, or imaginary spaces",
+  "space_family": "room",
+  "space_seed": 110103,
+  "room_x": 29.6,
+  "room_y": 7.3,
+  "room_z": 9.5,
+  "material_preset": "concrete",
+  "absorption": 0.128,
+  "scattering": 0.32,
+  "tail_soften": 0.16,
+  "irregularity": 0.23,
+  "surface_roughness": 0.19,
+  "vertical_variation": 0.14,
+  "openness": 0.03,
+  "space_shape": "side_chamber",
+  "room_shape": "trapezoid",
+  "topology_bias": 0.24,
+  "branch_family": "room",
+  "room_polygon": [
+    {
+      "x": 2.047,
+      "y": 0.001
+    },
+    {
+      "x": 28.488,
+      "y": -0.003
+    },
+    {
+      "x": 29.543,
+      "y": 7.286
+    },
+    {
+      "x": -0.166,
+      "y": 7.34
+    }
+  ],
+  "space": {
+    "family": "room",
+    "seed": 110103,
+    "topology": "connected_regions",
+    "branch_family_mode": "room",
+    "primary_polygon_xy_m": [
+      {
+        "x": 2.047,
+        "y": 0.001
+      },
+      {
+        "x": 28.488,
+        "y": -0.003
+      },
+      {
+        "x": 29.543,
+        "y": 7.286
+      },
+      {
+        "x": -0.166,
+        "y": 7.34
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": -0.166,
+        "z": 9.313
+      },
+      {
+        "x": 1.69,
+        "z": 9.402
+      },
+      {
+        "x": 3.547,
+        "z": 9.503
+      },
+      {
+        "x": 5.404,
+        "z": 9.59
+      },
+      {
+        "x": 7.261,
+        "z": 9.64
+      },
+      {
+        "x": 9.118,
+        "z": 9.64
+      },
+      {
+        "x": 10.975,
+        "z": 9.591
+      },
+      {
+        "x": 12.831,
+        "z": 9.51
+      },
+      {
+        "x": 14.688,
+        "z": 9.419
+      },
+      {
+        "x": 16.545,
+        "z": 9.341
+      },
+      {
+        "x": 18.402,
+        "z": 9.292
+      },
+      {
+        "x": 20.259,
+        "z": 9.277
+      },
+      {
+        "x": 22.116,
+        "z": 9.289
+      },
+      {
+        "x": 23.972,
+        "z": 9.318
+      },
+      {
+        "x": 25.829,
+        "z": 9.352
+      },
+      {
+        "x": 27.686,
+        "z": 9.385
+      },
+      {
+        "x": 29.543,
+        "z": 9.417
+      }
+    ],
+    "irregularity": 0.23,
+    "roughness": 0.19,
+    "vertical_variation": 0.14,
+    "openness": 0.03,
+    "acoustic_volume_m3": 2156.71,
+    "acoustic_surface_m2": 1563.03
+  },
+  "chamber_shape": "skew",
+  "chamber_side": "back",
+  "exterior_opening": {
+    "enabled": false,
+    "leak": 0
+  },
+  "chamber": {
+    "family_mode": "room",
+    "material": "stone",
+    "material_mode": "alternating",
+    "material_mix": 0.57,
+    "width": 4.3,
+    "depth": 1.7,
+    "count": 2,
+    "position": 0.53,
+    "nested_chambers": 1,
+    "opening_width": 0.42,
+    "coupling": 0.4,
+    "chambers": [
+      {
+        "material_profile": {
+          "material": "stone",
+          "absorption": 0.164,
+          "scattering": 0.35,
+          "tail_soften": 0.178
+        },
+        "index": 1,
+        "level": 0,
+        "family": "room",
+        "height_m": 6.84,
+        "x": 14.083,
+        "y": 7.306,
+        "width": 4.586,
+        "depth": 1.708,
+        "opening_x": 17.302,
+        "opening_y": 7.308,
+        "opening": 1.806,
+        "polygon": [
+          {
+            "x": 18.549,
+            "y": 7.306
+          },
+          {
+            "x": 14.249,
+            "y": 7.314
+          },
+          {
+            "x": 14.083,
+            "y": 8.096
+          },
+          {
+            "x": 14.252,
+            "y": 9.014
+          },
+          {
+            "x": 18.552,
+            "y": 9.006
+          },
+          {
+            "x": 18.669,
+            "y": 8.054
+          }
+        ],
+        "opening_segment": {
+          "x1": 17.302,
+          "y1": 7.308,
+          "x2": 15.496,
+          "y2": 7.312
+        },
+        "side": "back",
+        "shape": "skew"
+      },
+      {
+        "material_profile": {
+          "material": "inherit",
+          "absorption": 0.089,
+          "scattering": 0.329,
+          "tail_soften": 0.185
+        },
+        "index": 2,
+        "level": 1,
+        "family": "room",
+        "height_m": 7.315,
+        "x": 14.725,
+        "y": 9.007,
+        "width": 3.319,
+        "depth": 1.332,
+        "opening_x": 17.142,
+        "opening_y": 9.009,
+        "opening": 1.481,
+        "polygon": [
+          {
+            "x": 17.95,
+            "y": 9.007
+          },
+          {
+            "x": 14.854,
+            "y": 9.013
+          },
+          {
+            "x": 14.725,
+            "y": 9.623
+          },
+          {
+            "x": 14.856,
+            "y": 10.339
+          },
+          {
+            "x": 17.952,
+            "y": 10.333
+          },
+          {
+            "x": 18.044,
+            "y": 9.59
+          }
+        ],
+        "opening_segment": {
+          "x1": 17.142,
+          "y1": 9.009,
+          "x2": 15.661,
+          "y2": 9.011
+        },
+        "side": "back",
+        "shape": "skew"
+      },
+      {
+        "material_profile": {
+          "material": "stone",
+          "absorption": 0.197,
+          "scattering": 0.465,
+          "tail_soften": 0.215
+        },
+        "index": 3,
+        "level": 0,
+        "family": "room",
+        "height_m": 6.84,
+        "x": 9.138,
+        "y": 7.315,
+        "width": 4.586,
+        "depth": 1.708,
+        "opening_x": 12.357,
+        "opening_y": 7.317,
+        "opening": 1.806,
+        "polygon": [
+          {
+            "x": 13.604,
+            "y": 7.315
+          },
+          {
+            "x": 9.304,
+            "y": 7.323
+          },
+          {
+            "x": 9.138,
+            "y": 8.105
+          },
+          {
+            "x": 9.307,
+            "y": 9.023
+          },
+          {
+            "x": 13.607,
+            "y": 9.015
+          },
+          {
+            "x": 13.724,
+            "y": 8.063
+          }
+        ],
+        "opening_segment": {
+          "x1": 12.357,
+          "y1": 7.317,
+          "x2": 10.551,
+          "y2": 7.321
+        },
+        "side": "back",
+        "shape": "skew"
+      },
+      {
+        "material_profile": {
+          "material": "inherit",
+          "absorption": 0.197,
+          "scattering": 0.357,
+          "tail_soften": 0.159
+        },
+        "index": 4,
+        "level": 1,
+        "family": "room",
+        "height_m": 7.315,
+        "x": 9.78,
+        "y": 9.016,
+        "width": 3.319,
+        "depth": 1.332,
+        "opening_x": 12.197,
+        "opening_y": 9.018,
+        "opening": 1.481,
+        "polygon": [
+          {
+            "x": 13.005,
+            "y": 9.016
+          },
+          {
+            "x": 9.909,
+            "y": 9.022
+          },
+          {
+            "x": 9.78,
+            "y": 9.632
+          },
+          {
+            "x": 9.911,
+            "y": 10.348
+          },
+          {
+            "x": 13.007,
+            "y": 10.342
+          },
+          {
+            "x": 13.099,
+            "y": 9.599
+          }
+        ],
+        "opening_segment": {
+          "x1": 12.197,
+          "y1": 9.018,
+          "x2": 10.716,
+          "y2": 9.02
+        },
+        "side": "back",
+        "shape": "skew"
+      }
+    ]
+  },
+  "field_offset": {
+    "x": 0.01,
+    "y": -0.28
+  },
+  "source_distance": 5.25,
+  "direction_spread_deg": 46,
+  "group_variation": 0.44,
+  "surface_contrast": 0.28,
+  "distance_variation": 0.13,
+  "order": 3,
+  "direction_set": "auto",
+  "effective_direction_layout": "practical_8",
+  "groups": [
+    {
+      "group": 1,
+      "azimuth": 45,
+      "elevation": 35.264,
+      "channels": "1-16",
+      "direct_time_ms": 54,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 46
+      },
+      "early_energy": 0.47093,
+      "chamber_energy": 0.00347,
+      "branch_energy": 0.00347,
+      "local_profile": {
+        "absorption": 0.105,
+        "scattering": 0.284,
+        "tail_soften": 0.193,
+        "source_distance": 5.246,
+        "direction_spread_deg": 40.79,
+        "pre_delay_ms": 38.43,
+        "rt60": 1.867
+      },
+      "source_position_m": {
+        "x": 17.47,
+        "y": 6.356,
+        "z": 7.46
+      }
+    },
+    {
+      "group": 2,
+      "azimuth": -45,
+      "elevation": 35.264,
+      "channels": "17-32",
+      "direct_time_ms": 49,
+      "first_reflection": {
+        "wall": "B1.3",
+        "time_ms": 44
+      },
+      "early_energy": 0.60636,
+      "chamber_energy": 0.0029,
+      "branch_energy": 0.0029,
+      "local_profile": {
+        "absorption": 0.134,
+        "scattering": 0.333,
+        "tail_soften": 0.149,
+        "source_distance": 5.313,
+        "direction_spread_deg": 47.89,
+        "pre_delay_ms": 33.83,
+        "rt60": 1.496
+      },
+      "source_position_m": {
+        "x": 12.204,
+        "y": 6.356,
+        "z": 7.46
+      }
+    },
+    {
+      "group": 3,
+      "azimuth": 135,
+      "elevation": 35.264,
+      "channels": "33-48",
+      "direct_time_ms": 51,
+      "first_reflection": {
+        "wall": "B2.6",
+        "time_ms": 47
+      },
+      "early_energy": 0.48836,
+      "chamber_energy": 0.00127,
+      "branch_energy": 0.00127,
+      "local_profile": {
+        "absorption": 0.126,
+        "scattering": 0.279,
+        "tail_soften": 0.169,
+        "source_distance": 5.067,
+        "direction_spread_deg": 40,
+        "pre_delay_ms": 35.9,
+        "rt60": 1.58
+      },
+      "source_position_m": {
+        "x": 17.47,
+        "y": 1.09,
+        "z": 7.46
+      }
+    },
+    {
+      "group": 4,
+      "azimuth": -135,
+      "elevation": 35.264,
+      "channels": "49-64",
+      "direct_time_ms": 47,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 42
+      },
+      "early_energy": 0.52457,
+      "chamber_energy": 0.00105,
+      "branch_energy": 0.00105,
+      "local_profile": {
+        "absorption": 0.131,
+        "scattering": 0.366,
+        "tail_soften": 0.131,
+        "source_distance": 5.061,
+        "direction_spread_deg": 52.71,
+        "pre_delay_ms": 32,
+        "rt60": 1.531
+      },
+      "source_position_m": {
+        "x": 12.204,
+        "y": 1.09,
+        "z": 7.46
+      }
+    },
+    {
+      "group": 5,
+      "azimuth": 45,
+      "elevation": -35.264,
+      "channels": "65-80",
+      "direct_time_ms": 48,
+      "first_reflection": {
+        "wall": "B2.2",
+        "time_ms": 43
+      },
+      "early_energy": 0.48319,
+      "chamber_energy": 0.00539,
+      "branch_energy": 0.00539,
+      "local_profile": {
+        "absorption": 0.139,
+        "scattering": 0.288,
+        "tail_soften": 0.14,
+        "source_distance": 5.35,
+        "direction_spread_deg": 41.4,
+        "pre_delay_ms": 32.88,
+        "rt60": 1.451
+      },
+      "source_position_m": {
+        "x": 17.47,
+        "y": 6.356,
+        "z": 2.194
+      }
+    },
+    {
+      "group": 6,
+      "azimuth": -45,
+      "elevation": -35.264,
+      "channels": "81-96",
+      "direct_time_ms": 48,
+      "first_reflection": {
+        "wall": "B1.3",
+        "time_ms": 42
+      },
+      "early_energy": 0.66114,
+      "chamber_energy": 0.00427,
+      "branch_energy": 0.00427,
+      "local_profile": {
+        "absorption": 0.115,
+        "scattering": 0.354,
+        "tail_soften": 0.131,
+        "source_distance": 5.374,
+        "direction_spread_deg": 50.96,
+        "pre_delay_ms": 31.95,
+        "rt60": 1.717
+      },
+      "source_position_m": {
+        "x": 12.204,
+        "y": 6.356,
+        "z": 2.194
+      }
+    },
+    {
+      "group": 7,
+      "azimuth": 135,
+      "elevation": -35.264,
+      "channels": "97-112",
+      "direct_time_ms": 51,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 44
+      },
+      "early_energy": 0.47388,
+      "chamber_energy": 0.00093,
+      "branch_energy": 0.00093,
+      "local_profile": {
+        "absorption": 0.164,
+        "scattering": 0.344,
+        "tail_soften": 0.168,
+        "source_distance": 5.306,
+        "direction_spread_deg": 49.53,
+        "pre_delay_ms": 35.88,
+        "rt60": 1.248
+      },
+      "source_position_m": {
+        "x": 17.47,
+        "y": 1.09,
+        "z": 2.194
+      }
+    },
+    {
+      "group": 8,
+      "azimuth": -135,
+      "elevation": -35.264,
+      "channels": "113-128",
+      "direct_time_ms": 53,
+      "first_reflection": {
+        "wall": "B4.5",
+        "time_ms": 48
+      },
+      "early_energy": 0.61241,
+      "chamber_energy": 0.00084,
+      "branch_energy": 0.00084,
+      "local_profile": {
+        "absorption": 0.085,
+        "scattering": 0.309,
+        "tail_soften": 0.186,
+        "source_distance": 5.311,
+        "direction_spread_deg": 44.44,
+        "pre_delay_ms": 37.69,
+        "rt60": 2.233
+      },
+      "source_position_m": {
+        "x": 12.204,
+        "y": 1.09,
+        "z": 2.194
+      }
+    }
+  ],
+  "duration": 3.05,
+  "pre_delay_ms": 35,
+  "early_reflections": 26,
+  "camera": {
+    "azimuth": -24,
+    "elevation": 48,
+    "zoom": 0.79
+  },
+  "estimated_rt60": 1.561,
+  "late_start_seconds": 0.124,
+  "atlas": {
+    "name": "Concrete Gallery",
+    "category": "Architecture",
+    "description": "A broad concrete gallery with offset stone branches and restrained irregularity.",
+    "seed": 110103,
+    "source": "s3g-mc Imprint Sketch"
+  }
+}

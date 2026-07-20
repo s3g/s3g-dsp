@@ -2,6 +2,7 @@
 #include "s3g_3oafx.h"
 #include "s3g_3oafx_single_effect.h"
 #include "s3g_ambi_grain_processor.h"
+#include "s3g_ambi_imprint.h"
 #include "s3g_ambi_environment_generator.h"
 #include "s3g_ambisonic_point_encoder.h"
 #include "s3g_ambi_cloud_encoder.h"
@@ -52,6 +53,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -129,6 +131,64 @@ int main()
 
     if (!std::isfinite(samples[0][3]) || samples[0][3] >= 1.0f) {
         std::cerr << "Gain smoothing did not reduce signal\n";
+        return 1;
+    }
+
+    s3g::AmbiImprintPartitionedConvolver imprintConvolver;
+    if (!imprintConvolver.prepare({ 1.0f }, 64u)) {
+        std::cerr << "Ambi Imprint convolver did not prepare\n";
+        return 1;
+    }
+    float imprintImpulsePeak = 0.0f;
+    uint32_t imprintImpulseFrame = 0u;
+    for (uint32_t frame = 0; frame < 160u; ++frame) {
+        const float value = imprintConvolver.processSample(frame == 0u ? 1.0f : 0.0f);
+        if (std::abs(value) > imprintImpulsePeak) {
+            imprintImpulsePeak = std::abs(value);
+            imprintImpulseFrame = frame;
+        }
+    }
+    if (!near(imprintImpulsePeak, 1.0f, 0.001f) || imprintImpulseFrame != 64u) {
+        std::cerr << "Ambi Imprint convolution impulse/latency failed: " << imprintImpulsePeak << " at " << imprintImpulseFrame << "\n";
+        return 1;
+    }
+    s3g::AmbiImprintDescriptor imprintDescriptor;
+    imprintDescriptor.durationSeconds = 0.05f;
+    s3g::AmbiImprintProfile imprintProfile;
+    imprintProfile.weight = 1.0f;
+    imprintProfile.directGain = 1.0f;
+    imprintProfile.late.durationSeconds = 0.05f;
+    imprintProfile.late.level = 0.0f;
+    imprintDescriptor.profiles.push_back(imprintProfile);
+    s3g::AmbiImprintProcessor imprintProcessor;
+    if (!imprintProcessor.prepare(48000.0, imprintDescriptor)) {
+        std::cerr << "Ambi Imprint processor did not prepare\n";
+        return 1;
+    }
+    s3g::AmbiImprintParams imprintParams;
+    imprintParams.order = 1u;
+    imprintParams.mix = 1.0f;
+    imprintParams.focus = 0.0f;
+    imprintProcessor.setParams(imprintParams);
+    imprintProcessor.reset();
+    constexpr uint32_t imprintFrames = 256u;
+    std::vector<std::vector<float>> imprintIn(4u, std::vector<float>(imprintFrames, 0.0f));
+    std::vector<std::vector<float>> imprintOut(4u, std::vector<float>(imprintFrames, 0.0f));
+    std::array<float*, 4u> imprintInPtrs {};
+    std::array<float*, 4u> imprintOutPtrs {};
+    for (uint32_t ch = 0; ch < 4u; ++ch) {
+        imprintInPtrs[ch] = imprintIn[ch].data();
+        imprintOutPtrs[ch] = imprintOut[ch].data();
+    }
+    float imprintProcessorPeak = 0.0f;
+    for (uint32_t block = 0; block < 8u; ++block) {
+        for (auto& channel : imprintIn) std::fill(channel.begin(), channel.end(), 0.0f);
+        if (block == 0u) imprintIn[0][0] = 1.0f;
+        imprintProcessor.process(imprintInPtrs.data(), 4u, imprintOutPtrs.data(), 4u, imprintFrames);
+        for (const auto& channel : imprintOut) for (float value : channel) imprintProcessorPeak = std::max(imprintProcessorPeak, std::abs(value));
+    }
+    if (!std::isfinite(imprintProcessorPeak) || imprintProcessorPeak < 0.5f) {
+        std::cerr << "Ambi Imprint processor produced no wet impulse\n";
         return 1;
     }
 

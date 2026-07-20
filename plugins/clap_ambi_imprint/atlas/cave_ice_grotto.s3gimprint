@@ -1,0 +1,5212 @@
+{
+  "format": "s3g-ambi-imprint",
+  "version": 1,
+  "generator": {
+    "name": "s3g-mc Imprint Sketch",
+    "project_format": "s3g-imprint-sketch",
+    "project_version": 1
+  },
+  "interpretation": "procedural directional space sketch; spectral material curves are creative estimates, not measured coefficients",
+  "coordinate_system": {
+    "convention": "AED",
+    "azimuth_zero": "front",
+    "azimuth_positive": "counterclockwise",
+    "elevation_positive": "up",
+    "distance_unit": "metre",
+    "time_unit": "millisecond"
+  },
+  "ambisonics": {
+    "channel_order": "ACN",
+    "normalization": "SN3D",
+    "reference_order": 3,
+    "maximum_runtime_order": 7
+  },
+  "spectral_bands_hz": [
+    125,
+    250,
+    500,
+    1000,
+    2000,
+    4000,
+    8000,
+    16000
+  ],
+  "space": {
+    "family": "cave",
+    "seed": 220211,
+    "topology": "connected_regions",
+    "branch_family_mode": "cavern",
+    "primary_polygon_xy_m": [
+      {
+        "x": 5.05,
+        "y": 1.319
+      },
+      {
+        "x": 6.543,
+        "y": 1.26
+      },
+      {
+        "x": 7.784,
+        "y": 2.018
+      },
+      {
+        "x": 8.559,
+        "y": 3.134
+      },
+      {
+        "x": 9.002,
+        "y": 4.4
+      },
+      {
+        "x": 8.964,
+        "y": 5.812
+      },
+      {
+        "x": 8.276,
+        "y": 7.211
+      },
+      {
+        "x": 6.692,
+        "y": 7.853
+      },
+      {
+        "x": 5.05,
+        "y": 7.884
+      },
+      {
+        "x": 3.624,
+        "y": 7.4
+      },
+      {
+        "x": 2.723,
+        "y": 6.428
+      },
+      {
+        "x": 1.595,
+        "y": 5.647
+      },
+      {
+        "x": 0.979,
+        "y": 4.4
+      },
+      {
+        "x": 1.242,
+        "y": 3.026
+      },
+      {
+        "x": 2.377,
+        "y": 2.071
+      },
+      {
+        "x": 3.777,
+        "y": 1.723
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": -2.909,
+        "z": 3.465
+      },
+      {
+        "x": -2.165,
+        "z": 3.12
+      },
+      {
+        "x": -1.42,
+        "z": 3.104
+      },
+      {
+        "x": -0.676,
+        "z": 3.394
+      },
+      {
+        "x": 0.069,
+        "z": 3.855
+      },
+      {
+        "x": 0.813,
+        "z": 4.311
+      },
+      {
+        "x": 1.557,
+        "z": 4.627
+      },
+      {
+        "x": 2.302,
+        "z": 4.758
+      },
+      {
+        "x": 3.046,
+        "z": 4.742
+      },
+      {
+        "x": 3.791,
+        "z": 4.651
+      },
+      {
+        "x": 4.535,
+        "z": 4.534
+      },
+      {
+        "x": 5.28,
+        "z": 4.391
+      },
+      {
+        "x": 6.024,
+        "z": 4.185
+      },
+      {
+        "x": 6.769,
+        "z": 3.898
+      },
+      {
+        "x": 7.513,
+        "z": 3.566
+      },
+      {
+        "x": 8.258,
+        "z": 3.296
+      },
+      {
+        "x": 9.002,
+        "z": 3.22
+      }
+    ],
+    "irregularity": 0.58,
+    "roughness": 0.72,
+    "vertical_variation": 0.72,
+    "openness": 0.17,
+    "acoustic_volume_m3": 211.194,
+    "acoustic_surface_m2": 338.006
+  },
+  "room": {
+    "dimensions_m": {
+      "x": 10.1,
+      "y": 8.8,
+      "z": 4.6
+    },
+    "polygon_xy_m": [
+      {
+        "x": 5.05,
+        "y": 1.319
+      },
+      {
+        "x": 6.543,
+        "y": 1.26
+      },
+      {
+        "x": 7.784,
+        "y": 2.018
+      },
+      {
+        "x": 8.559,
+        "y": 3.134
+      },
+      {
+        "x": 9.002,
+        "y": 4.4
+      },
+      {
+        "x": 8.964,
+        "y": 5.812
+      },
+      {
+        "x": 8.276,
+        "y": 7.211
+      },
+      {
+        "x": 6.692,
+        "y": 7.853
+      },
+      {
+        "x": 5.05,
+        "y": 7.884
+      },
+      {
+        "x": 3.624,
+        "y": 7.4
+      },
+      {
+        "x": 2.723,
+        "y": 6.428
+      },
+      {
+        "x": 1.595,
+        "y": 5.647
+      },
+      {
+        "x": 0.979,
+        "y": 4.4
+      },
+      {
+        "x": 1.242,
+        "y": 3.026
+      },
+      {
+        "x": 2.377,
+        "y": 2.071
+      },
+      {
+        "x": 3.777,
+        "y": 1.723
+      }
+    ],
+    "shape": "cave",
+    "family": "cave",
+    "seed": 220211,
+    "material": "ice",
+    "absorption": 0.161213,
+    "scattering": 0.28,
+    "tail_soften": 0.12,
+    "exterior_opening": {
+      "enabled": true,
+      "side": "back",
+      "count": 2,
+      "position": 0.35,
+      "spread": 0.41,
+      "width": 0.34,
+      "opening_m": 1.117,
+      "leak": 0.13,
+      "leak_factor": 0.223,
+      "interpretation": "energy escape boundary for late-tail thinning and reduced reflection density",
+      "openings": [
+        {
+          "index": 1,
+          "side": "back",
+          "opening_m": 0.558,
+          "opening_segment": {
+            "x1": 6.692,
+            "y1": 7.853,
+            "x2": 6.134,
+            "y2": 7.864
+          }
+        },
+        {
+          "index": 2,
+          "side": "back",
+          "opening_m": 0.558,
+          "opening_segment": {
+            "x1": 6.06,
+            "y1": 7.865,
+            "x2": 5.501,
+            "y2": 7.876
+          }
+        }
+      ],
+      "opening_segment": {
+        "x1": 6.692,
+        "y1": 7.853,
+        "x2": 6.134,
+        "y2": 7.864
+      }
+    },
+    "chamber": {
+      "family_mode": "cavern",
+      "material": "water",
+      "material_mode": "alternating",
+      "material_mix": 0.51,
+      "width": 5.2,
+      "depth": 2.2,
+      "count": 2,
+      "position": 0.18,
+      "nested_chambers": 1,
+      "opening_width": 0.34,
+      "coupling": 0.54,
+      "chambers": [
+        {
+          "material_profile": {
+            "material": "water",
+            "absorption": 0.086,
+            "scattering": 0.535,
+            "tail_soften": 0.244
+          },
+          "index": 1,
+          "level": 0,
+          "family": "cavern",
+          "height_m": 4.692,
+          "x": -1.167,
+          "y": 2.97,
+          "width": 2.383,
+          "depth": 1.43,
+          "opening_x": 1.057,
+          "opening_y": 3.992,
+          "opening": 0.428,
+          "polygon": [
+            {
+              "x": 0.979,
+              "y": 4.4
+            },
+            {
+              "x": 1.216,
+              "y": 3.163
+            },
+            {
+              "x": 0.714,
+              "y": 2.984
+            },
+            {
+              "x": 0.247,
+              "y": 2.97
+            },
+            {
+              "x": -0.104,
+              "y": 3.026
+            },
+            {
+              "x": -0.502,
+              "y": 3.045
+            },
+            {
+              "x": -0.936,
+              "y": 3.074
+            },
+            {
+              "x": -1.098,
+              "y": 3.209
+            },
+            {
+              "x": -1.067,
+              "y": 3.383
+            },
+            {
+              "x": -1.167,
+              "y": 3.528
+            },
+            {
+              "x": -1.049,
+              "y": 3.706
+            },
+            {
+              "x": -0.757,
+              "y": 3.886
+            },
+            {
+              "x": -0.399,
+              "y": 4.055
+            },
+            {
+              "x": 0.064,
+              "y": 4.192
+            },
+            {
+              "x": 0.496,
+              "y": 4.332
+            }
+          ],
+          "opening_segment": {
+            "x1": 1.057,
+            "y1": 3.992,
+            "x2": 1.138,
+            "y2": 3.571
+          },
+          "side": "left",
+          "shape": "wedge"
+        },
+        {
+          "material_profile": {
+            "material": "inherit",
+            "absorption": 0.074,
+            "scattering": 0.388,
+            "tail_soften": 0.294
+          },
+          "index": 2,
+          "level": 1,
+          "family": "cavern",
+          "height_m": 4.922,
+          "x": -2.909,
+          "y": 2.507,
+          "width": 1.942,
+          "depth": 1.042,
+          "opening_x": -1.098,
+          "opening_y": 3.277,
+          "opening": 0.351,
+          "polygon": [
+            {
+              "x": -1.156,
+              "y": 3.549
+            },
+            {
+              "x": -0.967,
+              "y": 2.662
+            },
+            {
+              "x": -1.347,
+              "y": 2.555
+            },
+            {
+              "x": -1.743,
+              "y": 2.507
+            },
+            {
+              "x": -2.052,
+              "y": 2.53
+            },
+            {
+              "x": -2.271,
+              "y": 2.585
+            },
+            {
+              "x": -2.56,
+              "y": 2.606
+            },
+            {
+              "x": -2.831,
+              "y": 2.647
+            },
+            {
+              "x": -2.909,
+              "y": 2.747
+            },
+            {
+              "x": -2.825,
+              "y": 2.876
+            },
+            {
+              "x": -2.699,
+              "y": 3.007
+            },
+            {
+              "x": -2.511,
+              "y": 3.143
+            },
+            {
+              "x": -2.259,
+              "y": 3.281
+            },
+            {
+              "x": -1.907,
+              "y": 3.4
+            },
+            {
+              "x": -1.519,
+              "y": 3.484
+            }
+          ],
+          "opening_segment": {
+            "x1": -1.098,
+            "y1": 3.277,
+            "x2": -1.025,
+            "y2": 2.934
+          },
+          "side": "left",
+          "shape": "wedge"
+        },
+        {
+          "material_profile": {
+            "material": "water",
+            "absorption": 0.118,
+            "scattering": 0.646,
+            "tail_soften": 0.28
+          },
+          "index": 3,
+          "level": 0,
+          "family": "cavern",
+          "height_m": 4.692,
+          "x": -1.214,
+          "y": 2.853,
+          "width": 2.456,
+          "depth": 1.41,
+          "opening_x": 1.084,
+          "opening_y": 3.854,
+          "opening": 0.428,
+          "polygon": [
+            {
+              "x": 1.006,
+              "y": 4.263
+            },
+            {
+              "x": 1.242,
+              "y": 3.026
+            },
+            {
+              "x": 0.742,
+              "y": 2.86
+            },
+            {
+              "x": 0.277,
+              "y": 2.853
+            },
+            {
+              "x": -0.111,
+              "y": 2.882
+            },
+            {
+              "x": -0.465,
+              "y": 2.919
+            },
+            {
+              "x": -0.872,
+              "y": 2.942
+            },
+            {
+              "x": -1.085,
+              "y": 3.047
+            },
+            {
+              "x": -1.214,
+              "y": 3.181
+            },
+            {
+              "x": -1.129,
+              "y": 3.358
+            },
+            {
+              "x": -0.915,
+              "y": 3.545
+            },
+            {
+              "x": -0.729,
+              "y": 3.732
+            },
+            {
+              "x": -0.407,
+              "y": 3.92
+            },
+            {
+              "x": -0.016,
+              "y": 4.1
+            },
+            {
+              "x": 0.498,
+              "y": 4.221
+            }
+          ],
+          "opening_segment": {
+            "x1": 1.084,
+            "y1": 3.854,
+            "x2": 1.164,
+            "y2": 3.434
+          },
+          "side": "left",
+          "shape": "wedge"
+        },
+        {
+          "material_profile": {
+            "material": "inherit",
+            "absorption": 0.178,
+            "scattering": 0.416,
+            "tail_soften": 0.269
+          },
+          "index": 4,
+          "level": 1,
+          "family": "cavern",
+          "height_m": 4.922,
+          "x": -2.729,
+          "y": 2.354,
+          "width": 1.743,
+          "depth": 1.025,
+          "opening_x": -1.077,
+          "opening_y": 3.105,
+          "opening": 0.351,
+          "polygon": [
+            {
+              "x": -1.118,
+              "y": 3.38
+            },
+            {
+              "x": -0.986,
+              "y": 2.483
+            },
+            {
+              "x": -1.369,
+              "y": 2.372
+            },
+            {
+              "x": -1.728,
+              "y": 2.354
+            },
+            {
+              "x": -2.021,
+              "y": 2.378
+            },
+            {
+              "x": -2.293,
+              "y": 2.403
+            },
+            {
+              "x": -2.624,
+              "y": 2.413
+            },
+            {
+              "x": -2.729,
+              "y": 2.503
+            },
+            {
+              "x": -2.666,
+              "y": 2.623
+            },
+            {
+              "x": -2.691,
+              "y": 2.722
+            },
+            {
+              "x": -2.58,
+              "y": 2.842
+            },
+            {
+              "x": -2.323,
+              "y": 2.967
+            },
+            {
+              "x": -2.068,
+              "y": 3.085
+            },
+            {
+              "x": -1.807,
+              "y": 3.206
+            },
+            {
+              "x": -1.491,
+              "y": 3.323
+            }
+          ],
+          "opening_segment": {
+            "x1": -1.077,
+            "y1": 3.105,
+            "x2": -1.026,
+            "y2": 2.757
+          },
+          "side": "left",
+          "shape": "wedge"
+        }
+      ]
+    }
+  },
+  "listener_position_m": {
+    "x": -0.0684,
+    "y": 4.1532,
+    "z": 2.0002
+  },
+  "direction_layout": "practical_8",
+  "direction_count": 8,
+  "duration_s": 3.8,
+  "profiles": [
+    {
+      "id": 1,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 1.4319,
+        "y": 5.3167,
+        "z": 3.2749
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 59.141,
+        "gain": 0.3230027
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 54.795,
+          "gain": 0.4826268,
+          "azimuth_deg": 17.315,
+          "elevation_deg": 52.255,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.795,
+          "gain": 0.4801062,
+          "azimuth_deg": 16.888,
+          "elevation_deg": 52.252,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.795,
+          "gain": 0.4775988,
+          "azimuth_deg": 17.647,
+          "elevation_deg": 52.717,
+          "kind": "surface",
+          "surface": "B3.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.566,
+          "gain": 0.3446883,
+          "azimuth_deg": 106.168,
+          "elevation_deg": 34.98,
+          "kind": "surface",
+          "surface": "B1.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.621,
+          "gain": 0.0491839,
+          "azimuth_deg": 46.19,
+          "elevation_deg": 29.577,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.725,
+          "gain": 0.3346491,
+          "azimuth_deg": 117.501,
+          "elevation_deg": 33.936,
+          "kind": "surface",
+          "surface": "B3.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.734,
+          "gain": 0.3324539,
+          "azimuth_deg": 73.57,
+          "elevation_deg": 34.129,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.759,
+          "gain": 0.329477,
+          "azimuth_deg": 55.629,
+          "elevation_deg": 34.144,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.774,
+          "gain": 0.3270403,
+          "azimuth_deg": 52.357,
+          "elevation_deg": 33.794,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.782,
+          "gain": 0.3249064,
+          "azimuth_deg": 51.704,
+          "elevation_deg": 33.793,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.782,
+          "gain": 0.3232096,
+          "azimuth_deg": 94.985,
+          "elevation_deg": 33.573,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.788,
+          "gain": 0.3212546,
+          "azimuth_deg": 91.541,
+          "elevation_deg": 33.642,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.805,
+          "gain": 0.3187558,
+          "azimuth_deg": 68.697,
+          "elevation_deg": 33.517,
+          "kind": "surface",
+          "surface": "B3.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.836,
+          "gain": 0.3156316,
+          "azimuth_deg": 40.107,
+          "elevation_deg": 33.278,
+          "kind": "surface",
+          "surface": "B3.10",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.872,
+          "gain": 0.3123248,
+          "azimuth_deg": 83.092,
+          "elevation_deg": 33.586,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.878,
+          "gain": 0.3103982,
+          "azimuth_deg": -152.286,
+          "elevation_deg": 33.563,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.887,
+          "gain": 0.3083711,
+          "azimuth_deg": 80.482,
+          "elevation_deg": 33.595,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.909,
+          "gain": 0.305745,
+          "azimuth_deg": 42.286,
+          "elevation_deg": 32.872,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.727,
+          "gain": 0.0648782,
+          "azimuth_deg": -110.451,
+          "elevation_deg": 13.888,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.673,
+          "gain": 0.0697344,
+          "azimuth_deg": 24.744,
+          "elevation_deg": 33.635,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.09,
+          "gain": 0.0795294,
+          "azimuth_deg": 32.927,
+          "elevation_deg": 34.704,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 62.129,
+          "gain": 0.1022488,
+          "azimuth_deg": 31.253,
+          "elevation_deg": 37.837,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.885,
+          "gain": 0.1158535,
+          "azimuth_deg": 46.737,
+          "elevation_deg": 28.013,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 66.692,
+          "gain": 0.0282774,
+          "azimuth_deg": 73.81,
+          "elevation_deg": 26.692,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 68.549,
+          "gain": 0.0384468,
+          "azimuth_deg": 68.54,
+          "elevation_deg": 50.758,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.837,
+          "gain": 0.0666882,
+          "azimuth_deg": 34.019,
+          "elevation_deg": 47.35,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.294,
+          "gain": 0.0138902,
+          "azimuth_deg": 47.053,
+          "elevation_deg": 7.64,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 74.248,
+          "gain": 0.1182394,
+          "azimuth_deg": -43.138,
+          "elevation_deg": 15.266,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.045,
+          "gain": 0.0109725,
+          "azimuth_deg": 73.497,
+          "elevation_deg": 25.593,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 75.474,
+          "gain": 0.0414742,
+          "azimuth_deg": 74.805,
+          "elevation_deg": 36.562,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.678,
+          "gain": 0.0587624,
+          "azimuth_deg": 36.725,
+          "elevation_deg": 27.275,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 76.148,
+          "gain": 0.0047539,
+          "azimuth_deg": 121.701,
+          "elevation_deg": 17.171,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 80.11,
+          "gain": 0.1198767,
+          "azimuth_deg": -46.876,
+          "elevation_deg": -60.202,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 83.198,
+          "gain": 0.124119,
+          "azimuth_deg": 35.615,
+          "elevation_deg": 36.756,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 84.935,
+          "gain": 0.0077247,
+          "azimuth_deg": 102.465,
+          "elevation_deg": 29.592,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 86.231,
+          "gain": 0.132322,
+          "azimuth_deg": 69.937,
+          "elevation_deg": 32.206,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 88.713,
+          "gain": 0.0058557,
+          "azimuth_deg": 93.661,
+          "elevation_deg": 37.945,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 88.776,
+          "gain": 0.0089318,
+          "azimuth_deg": 115.445,
+          "elevation_deg": 31.039,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 89.099,
+          "gain": 0.056539,
+          "azimuth_deg": 80.574,
+          "elevation_deg": -11.993,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.459,
+          "gain": 0.0845342,
+          "azimuth_deg": 23.048,
+          "elevation_deg": 31.111,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.563,
+          "gain": 0.0886023,
+          "azimuth_deg": 103.364,
+          "elevation_deg": -34.514,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.085,
+          "gain": 0.0620801,
+          "azimuth_deg": 163.062,
+          "elevation_deg": 36.214,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 92.902,
+          "gain": 0.0104871,
+          "azimuth_deg": 61.733,
+          "elevation_deg": 22.527,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 93.28,
+          "gain": 0.096777,
+          "azimuth_deg": 61.334,
+          "elevation_deg": 47.149,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 95.641,
+          "gain": 0.0045315,
+          "azimuth_deg": 54.484,
+          "elevation_deg": 26.955,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 96.744,
+          "gain": 0.0912064,
+          "azimuth_deg": 24.683,
+          "elevation_deg": 26.323,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 101.279,
+          "gain": 0.0073507,
+          "azimuth_deg": 93.521,
+          "elevation_deg": 24.585,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        }
+      ],
+      "late": {
+        "start_ms": 132.924,
+        "duration_s": 3.8,
+        "level": 0.2809826,
+        "diffusion": 0.22088,
+        "spread_deg": 51.127,
+        "high_frequency_damping": 0.17416,
+        "absorption_by_band": [
+          0.112702,
+          0.104404,
+          0.096106,
+          0.097808,
+          0.119511,
+          0.161213,
+          0.232915,
+          0.324617
+        ],
+        "rt60_s_by_band": [
+          0.454941,
+          0.471318,
+          0.488918,
+          0.485201,
+          0.44233,
+          0.37813,
+          0.302611,
+          0.241044
+        ],
+        "seed": 21633737
+      }
+    },
+    {
+      "id": 2,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": -0.6412,
+        "y": 3.9408,
+        "z": 3.2749
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 55.174,
+        "gain": 0.3157078
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 49.85,
+          "gain": 0.5165852,
+          "azimuth_deg": -109.405,
+          "elevation_deg": 63.033,
+          "kind": "surface",
+          "surface": "U",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.001,
+          "gain": 0.5365122,
+          "azimuth_deg": -126.46,
+          "elevation_deg": 66.637,
+          "kind": "surface",
+          "surface": "B3.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.013,
+          "gain": 0.530935,
+          "azimuth_deg": -133.542,
+          "elevation_deg": 65.353,
+          "kind": "surface",
+          "surface": "B3.10",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.018,
+          "gain": 0.5261882,
+          "azimuth_deg": 8.842,
+          "elevation_deg": 66.15,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.058,
+          "gain": 0.5171845,
+          "azimuth_deg": -109.041,
+          "elevation_deg": 63.991,
+          "kind": "surface",
+          "surface": "B3.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.061,
+          "gain": 0.5129925,
+          "azimuth_deg": -105.373,
+          "elevation_deg": 63.892,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.061,
+          "gain": 0.5091073,
+          "azimuth_deg": -103.339,
+          "elevation_deg": 64.349,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.061,
+          "gain": 0.50529,
+          "azimuth_deg": -110.183,
+          "elevation_deg": 64.719,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.069,
+          "gain": 0.5005417,
+          "azimuth_deg": -107.066,
+          "elevation_deg": 64.526,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.078,
+          "gain": 0.4957069,
+          "azimuth_deg": -74.85,
+          "elevation_deg": 63.612,
+          "kind": "surface",
+          "surface": "B3.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.079,
+          "gain": 0.4918967,
+          "azimuth_deg": -134.928,
+          "elevation_deg": 64.149,
+          "kind": "surface",
+          "surface": "B3.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.095,
+          "gain": 0.4862955,
+          "azimuth_deg": -132.163,
+          "elevation_deg": 63.592,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.112,
+          "gain": 0.4806748,
+          "azimuth_deg": -136.526,
+          "elevation_deg": 63.484,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.115,
+          "gain": 0.4767598,
+          "azimuth_deg": -129.906,
+          "elevation_deg": 63.184,
+          "kind": "surface",
+          "surface": "B2.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.148,
+          "gain": 0.4694532,
+          "azimuth_deg": -140.897,
+          "elevation_deg": 62.568,
+          "kind": "surface",
+          "surface": "B4.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.153,
+          "gain": 0.4653501,
+          "azimuth_deg": -68.292,
+          "elevation_deg": 61.385,
+          "kind": "surface",
+          "surface": "B1.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.155,
+          "gain": 0.4616849,
+          "azimuth_deg": -140.948,
+          "elevation_deg": 62.076,
+          "kind": "surface",
+          "surface": "B4.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.604,
+          "gain": 0.0569973,
+          "azimuth_deg": -7.652,
+          "elevation_deg": 31.275,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.877,
+          "gain": 0.126882,
+          "azimuth_deg": 127.284,
+          "elevation_deg": 15.216,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.642,
+          "gain": 0.1121606,
+          "azimuth_deg": -64.143,
+          "elevation_deg": -54.298,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.164,
+          "gain": 0.034837,
+          "azimuth_deg": -179.121,
+          "elevation_deg": 12.105,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.836,
+          "gain": 0.0893645,
+          "azimuth_deg": 15.73,
+          "elevation_deg": -10.251,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.213,
+          "gain": 0.0161848,
+          "azimuth_deg": 110.889,
+          "elevation_deg": 1.979,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 64.646,
+          "gain": 0.0489528,
+          "azimuth_deg": -49.46,
+          "elevation_deg": -65.412,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.645,
+          "gain": 0.0189291,
+          "azimuth_deg": 81.226,
+          "elevation_deg": 21.083,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 67.837,
+          "gain": 0.1284344,
+          "azimuth_deg": -48.899,
+          "elevation_deg": 41.885,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 68.488,
+          "gain": 0.1107178,
+          "azimuth_deg": -81.168,
+          "elevation_deg": 19.947,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 69.451,
+          "gain": 0.0604212,
+          "azimuth_deg": 60.551,
+          "elevation_deg": 27.281,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.015,
+          "gain": 0.0363763,
+          "azimuth_deg": -76.19,
+          "elevation_deg": 28.757,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.333,
+          "gain": 0.0594362,
+          "azimuth_deg": -61.507,
+          "elevation_deg": 17.952,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.589,
+          "gain": 0.0159024,
+          "azimuth_deg": 138.69,
+          "elevation_deg": 7.571,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 71.072,
+          "gain": 0.0476202,
+          "azimuth_deg": -20.069,
+          "elevation_deg": 42.722,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 71.799,
+          "gain": 0.0510336,
+          "azimuth_deg": -14.163,
+          "elevation_deg": 39.042,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.938,
+          "gain": 0.0770728,
+          "azimuth_deg": -41.992,
+          "elevation_deg": 54.657,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.175,
+          "gain": 0.098921,
+          "azimuth_deg": -57.617,
+          "elevation_deg": 48.147,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 74.352,
+          "gain": 0.042753,
+          "azimuth_deg": -56.464,
+          "elevation_deg": 31.634,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.348,
+          "gain": 0.1141953,
+          "azimuth_deg": -72.202,
+          "elevation_deg": 53.235,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 76.704,
+          "gain": 0.0953439,
+          "azimuth_deg": -33.202,
+          "elevation_deg": 37.786,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 80.558,
+          "gain": 0.0148921,
+          "azimuth_deg": 95.95,
+          "elevation_deg": -6.754,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 84.015,
+          "gain": 0.0669008,
+          "azimuth_deg": -38.427,
+          "elevation_deg": 22.184,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 84.746,
+          "gain": 0.0207854,
+          "azimuth_deg": 117.693,
+          "elevation_deg": 27.131,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 84.809,
+          "gain": 0.011313,
+          "azimuth_deg": 136.255,
+          "elevation_deg": 35.071,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 88.242,
+          "gain": 0.0198385,
+          "azimuth_deg": 141.557,
+          "elevation_deg": 32.173,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 88.935,
+          "gain": 0.0182179,
+          "azimuth_deg": 39.239,
+          "elevation_deg": -2.582,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 89.766,
+          "gain": 0.0125865,
+          "azimuth_deg": 138.94,
+          "elevation_deg": 5.378,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 90.182,
+          "gain": 0.1005821,
+          "azimuth_deg": -61.828,
+          "elevation_deg": 37.069,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 92.79,
+          "gain": 0.0985051,
+          "azimuth_deg": -23.273,
+          "elevation_deg": 34.161,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 132.924,
+        "duration_s": 3.8,
+        "level": 0.3556681,
+        "diffusion": 0.30143,
+        "spread_deg": 59.129,
+        "high_frequency_damping": 0.10157,
+        "absorption_by_band": [
+          0.161517,
+          0.150938,
+          0.140358,
+          0.139779,
+          0.1592,
+          0.198621,
+          0.268041,
+          0.357462
+        ],
+        "rt60_s_by_band": [
+          0.37773,
+          0.392154,
+          0.407723,
+          0.408611,
+          0.380797,
+          0.33457,
+          0.275643,
+          0.224672
+        ],
+        "seed": 21641656
+      }
+    },
+    {
+      "id": 3,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": 3.0464,
+        "y": 4.5719,
+        "z": 2.3711
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 56.281,
+        "gain": 0.3444077
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 50.932,
+          "gain": 0.7100401,
+          "azimuth_deg": -110.631,
+          "elevation_deg": 20.092,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.932,
+          "gain": 0.7051559,
+          "azimuth_deg": -110.669,
+          "elevation_deg": 20.194,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.932,
+          "gain": 0.7003053,
+          "azimuth_deg": -110.452,
+          "elevation_deg": 20.606,
+          "kind": "surface",
+          "surface": "B3.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.728,
+          "gain": 0.3665303,
+          "azimuth_deg": -1.936,
+          "elevation_deg": 10.29,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.53,
+          "gain": 0.2789655,
+          "azimuth_deg": 20.021,
+          "elevation_deg": 8,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.829,
+          "gain": 0.2371251,
+          "azimuth_deg": 67.406,
+          "elevation_deg": 7.005,
+          "kind": "surface",
+          "surface": "B4.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.849,
+          "gain": 0.2349684,
+          "azimuth_deg": 51.964,
+          "elevation_deg": 7.082,
+          "kind": "surface",
+          "surface": "B4.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.855,
+          "gain": 0.2331936,
+          "azimuth_deg": 51.506,
+          "elevation_deg": 7.152,
+          "kind": "surface",
+          "surface": "B4.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.899,
+          "gain": 0.2304757,
+          "azimuth_deg": 48.534,
+          "elevation_deg": 6.774,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.931,
+          "gain": 0.2280974,
+          "azimuth_deg": 50.488,
+          "elevation_deg": 6.804,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.933,
+          "gain": 0.2264832,
+          "azimuth_deg": 65.098,
+          "elevation_deg": 6.872,
+          "kind": "surface",
+          "surface": "B2.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.974,
+          "gain": 0.2239162,
+          "azimuth_deg": 38.636,
+          "elevation_deg": 6.613,
+          "kind": "surface",
+          "surface": "B3.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.013,
+          "gain": 0.2214213,
+          "azimuth_deg": 73.924,
+          "elevation_deg": 6.711,
+          "kind": "surface",
+          "surface": "B3.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.036,
+          "gain": 0.2193431,
+          "azimuth_deg": 87.767,
+          "elevation_deg": 6.436,
+          "kind": "surface",
+          "surface": "B3.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.039,
+          "gain": 0.2177788,
+          "azimuth_deg": 62.318,
+          "elevation_deg": 6.44,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.042,
+          "gain": 0.2162003,
+          "azimuth_deg": 64.72,
+          "elevation_deg": 6.55,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.063,
+          "gain": 0.2142188,
+          "azimuth_deg": 77.793,
+          "elevation_deg": 6.95,
+          "kind": "surface",
+          "surface": "B1.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.771,
+          "gain": 0.0377773,
+          "azimuth_deg": -144.905,
+          "elevation_deg": -40.094,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.371,
+          "gain": 0.0657548,
+          "azimuth_deg": 73.137,
+          "elevation_deg": 11.138,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.923,
+          "gain": 0.1212468,
+          "azimuth_deg": 153.466,
+          "elevation_deg": 41.639,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.661,
+          "gain": 0.1238107,
+          "azimuth_deg": 152.746,
+          "elevation_deg": 29.483,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.304,
+          "gain": 0.0106641,
+          "azimuth_deg": 144.294,
+          "elevation_deg": -17.547,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 66.77,
+          "gain": 0.0882169,
+          "azimuth_deg": -121.219,
+          "elevation_deg": -12.793,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.289,
+          "gain": 0.03429,
+          "azimuth_deg": -2.823,
+          "elevation_deg": -83.025,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.717,
+          "gain": 0.0806646,
+          "azimuth_deg": 119.159,
+          "elevation_deg": 28.284,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 71.607,
+          "gain": 0.0538302,
+          "azimuth_deg": -104.113,
+          "elevation_deg": -34.96,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.288,
+          "gain": 0.0118424,
+          "azimuth_deg": 98.66,
+          "elevation_deg": 30.734,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 74.159,
+          "gain": 0.079109,
+          "azimuth_deg": 123.034,
+          "elevation_deg": 38.242,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.617,
+          "gain": 0.0138042,
+          "azimuth_deg": 87.069,
+          "elevation_deg": 20.756,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 76.286,
+          "gain": 0.071417,
+          "azimuth_deg": 145.817,
+          "elevation_deg": 50.628,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 76.318,
+          "gain": 0.0669096,
+          "azimuth_deg": -107.691,
+          "elevation_deg": -60.202,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 77.476,
+          "gain": 0.0123066,
+          "azimuth_deg": 105.405,
+          "elevation_deg": -1.646,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 78.562,
+          "gain": 0.116002,
+          "azimuth_deg": 128.487,
+          "elevation_deg": -39.915,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 79.05,
+          "gain": 0.0134774,
+          "azimuth_deg": 77.123,
+          "elevation_deg": 41.261,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 80.338,
+          "gain": 0.0500115,
+          "azimuth_deg": 169.047,
+          "elevation_deg": 17.944,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 81.106,
+          "gain": 0.0730743,
+          "azimuth_deg": 114.256,
+          "elevation_deg": 51.537,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 81.822,
+          "gain": 0.0345386,
+          "azimuth_deg": 150.319,
+          "elevation_deg": 52.221,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 83.061,
+          "gain": 0.0894165,
+          "azimuth_deg": 138.872,
+          "elevation_deg": 35.127,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 84.445,
+          "gain": 0.0758657,
+          "azimuth_deg": 113.179,
+          "elevation_deg": 0.737,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 85.47,
+          "gain": 0.0631995,
+          "azimuth_deg": 153.224,
+          "elevation_deg": -40.407,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 85.916,
+          "gain": 0.0114764,
+          "azimuth_deg": 76.377,
+          "elevation_deg": -16.086,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 86.16,
+          "gain": 0.1158759,
+          "azimuth_deg": 117.108,
+          "elevation_deg": 38.245,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 88.168,
+          "gain": 0.0908791,
+          "azimuth_deg": 124.421,
+          "elevation_deg": 48.614,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 89.348,
+          "gain": 0.0043126,
+          "azimuth_deg": 131.4,
+          "elevation_deg": 18.323,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 90.042,
+          "gain": 0.0115128,
+          "azimuth_deg": 55.333,
+          "elevation_deg": 14.965,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 94.883,
+          "gain": 0.0844787,
+          "azimuth_deg": 30.507,
+          "elevation_deg": 34.376,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 103.143,
+          "gain": 0.0141792,
+          "azimuth_deg": 120.438,
+          "elevation_deg": -6.326,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        }
+      ],
+      "late": {
+        "start_ms": 132.924,
+        "duration_s": 3.8,
+        "level": 0.2847045,
+        "diffusion": 0.21202,
+        "spread_deg": 50.247,
+        "high_frequency_damping": 0.13419,
+        "absorption_by_band": [
+          0.148495,
+          0.138941,
+          0.129387,
+          0.129833,
+          0.150279,
+          0.190725,
+          0.261171,
+          0.351617
+        ],
+        "rt60_s_by_band": [
+          0.395641,
+          0.409903,
+          0.425231,
+          0.42449,
+          0.393088,
+          0.342908,
+          0.280533,
+          0.227421
+        ],
+        "seed": 21649575
+      }
+    },
+    {
+      "id": 4,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": 35.264
+      },
+      "source_position_m": {
+        "x": -1.3432,
+        "y": 2.8784,
+        "z": 3.2749
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 52.714,
+        "gain": 0.3452164
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 48.681,
+          "gain": 0.4992422,
+          "azimuth_deg": -147.579,
+          "elevation_deg": 56.899,
+          "kind": "surface",
+          "surface": "B1.9",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.97,
+          "gain": 0.4651805,
+          "azimuth_deg": -131.09,
+          "elevation_deg": 52.605,
+          "kind": "surface",
+          "surface": "B1.7",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.165,
+          "gain": 0.4433701,
+          "azimuth_deg": -112.961,
+          "elevation_deg": 49.888,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.367,
+          "gain": 0.4227504,
+          "azimuth_deg": -136.197,
+          "elevation_deg": 46.472,
+          "kind": "surface",
+          "surface": "B3.8",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.597,
+          "gain": 0.4016151,
+          "azimuth_deg": -150.662,
+          "elevation_deg": 44.106,
+          "kind": "surface",
+          "surface": "B2.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.599,
+          "gain": 0.3985052,
+          "azimuth_deg": -128.727,
+          "elevation_deg": 44.211,
+          "kind": "surface",
+          "surface": "B3.7",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.612,
+          "gain": 0.3946778,
+          "azimuth_deg": -116.299,
+          "elevation_deg": 43.731,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.734,
+          "gain": 0.3831249,
+          "azimuth_deg": -150.13,
+          "elevation_deg": 42.374,
+          "kind": "surface",
+          "surface": "B4.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.917,
+          "gain": 0.3679815,
+          "azimuth_deg": -105.128,
+          "elevation_deg": 40.689,
+          "kind": "surface",
+          "surface": "B4.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.999,
+          "gain": 0.3601378,
+          "azimuth_deg": -91.487,
+          "elevation_deg": 39.9,
+          "kind": "surface",
+          "surface": "B2.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.005,
+          "gain": 0.3571614,
+          "azimuth_deg": -122.84,
+          "elevation_deg": 40.318,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.056,
+          "gain": 0.3514012,
+          "azimuth_deg": -124.428,
+          "elevation_deg": 39.54,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.102,
+          "gain": 0.3461623,
+          "azimuth_deg": -90.509,
+          "elevation_deg": 39.479,
+          "kind": "surface",
+          "surface": "B2.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.248,
+          "gain": 0.3352382,
+          "azimuth_deg": -128.944,
+          "elevation_deg": 39.054,
+          "kind": "surface",
+          "surface": "B3.5",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.249,
+          "gain": 0.332745,
+          "azimuth_deg": -129.365,
+          "elevation_deg": 38.003,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.284,
+          "gain": 0.3284305,
+          "azimuth_deg": -144.965,
+          "elevation_deg": 37.603,
+          "kind": "surface",
+          "surface": "B1.8",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.342,
+          "gain": 0.322966,
+          "azimuth_deg": -103.192,
+          "elevation_deg": 37.193,
+          "kind": "surface",
+          "surface": "B4.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.006,
+          "gain": 0.119468,
+          "azimuth_deg": -135.828,
+          "elevation_deg": 13.805,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.838,
+          "gain": 0.0458655,
+          "azimuth_deg": 25.971,
+          "elevation_deg": 44.789,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.369,
+          "gain": 0.0473001,
+          "azimuth_deg": -146.508,
+          "elevation_deg": 54.603,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.554,
+          "gain": 0.1143513,
+          "azimuth_deg": -144.687,
+          "elevation_deg": 25.606,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.903,
+          "gain": 0.0648802,
+          "azimuth_deg": 43.076,
+          "elevation_deg": 74.735,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.737,
+          "gain": 0.0122644,
+          "azimuth_deg": 64.608,
+          "elevation_deg": 7.611,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 62.62,
+          "gain": 0.0390574,
+          "azimuth_deg": -102.467,
+          "elevation_deg": 42.765,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.601,
+          "gain": 0.0771905,
+          "azimuth_deg": -122.236,
+          "elevation_deg": 29.633,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 68.129,
+          "gain": 0.0179259,
+          "azimuth_deg": 41.498,
+          "elevation_deg": 16.003,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 69.788,
+          "gain": 0.079003,
+          "azimuth_deg": -98.552,
+          "elevation_deg": 57.547,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.08,
+          "gain": 0.0189245,
+          "azimuth_deg": 102.276,
+          "elevation_deg": 26.309,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 72.036,
+          "gain": 0.0889347,
+          "azimuth_deg": -112.133,
+          "elevation_deg": 30.315,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.051,
+          "gain": 0.0255293,
+          "azimuth_deg": 71.893,
+          "elevation_deg": -19.877,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 73.954,
+          "gain": 0.11218,
+          "azimuth_deg": -138.758,
+          "elevation_deg": 44.866,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 74.521,
+          "gain": 0.0219899,
+          "azimuth_deg": 34.385,
+          "elevation_deg": -4.378,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 75.658,
+          "gain": 0.0504633,
+          "azimuth_deg": -103.042,
+          "elevation_deg": 31.477,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 77.567,
+          "gain": 0.105363,
+          "azimuth_deg": -172.428,
+          "elevation_deg": 21.824,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 78.24,
+          "gain": 0.0774123,
+          "azimuth_deg": -87.094,
+          "elevation_deg": -37.677,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 79.121,
+          "gain": 0.0574036,
+          "azimuth_deg": -134.854,
+          "elevation_deg": 17.888,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 79.494,
+          "gain": 0.0662467,
+          "azimuth_deg": -100.196,
+          "elevation_deg": 47.088,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 81.084,
+          "gain": 0.0614717,
+          "azimuth_deg": 151.035,
+          "elevation_deg": 16.997,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.319,
+          "gain": 0.0564034,
+          "azimuth_deg": -171.35,
+          "elevation_deg": 22.278,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.321,
+          "gain": 0.0733013,
+          "azimuth_deg": 35.09,
+          "elevation_deg": 81.576,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.349,
+          "gain": 0.0268482,
+          "azimuth_deg": 133.023,
+          "elevation_deg": -21.374,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 82.849,
+          "gain": 0.0472679,
+          "azimuth_deg": -121.813,
+          "elevation_deg": 48.148,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 84.109,
+          "gain": 0.0255945,
+          "azimuth_deg": 79.333,
+          "elevation_deg": -18.133,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 86.475,
+          "gain": 0.0212897,
+          "azimuth_deg": 130.743,
+          "elevation_deg": 3.14,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 87.821,
+          "gain": 0.0907316,
+          "azimuth_deg": -134.872,
+          "elevation_deg": 46.573,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 88.119,
+          "gain": 0.0811571,
+          "azimuth_deg": -134.162,
+          "elevation_deg": 54.757,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 99.576,
+          "gain": 0.0102911,
+          "azimuth_deg": 47.246,
+          "elevation_deg": 5.744,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        }
+      ],
+      "late": {
+        "start_ms": 132.924,
+        "duration_s": 3.8,
+        "level": 0.2930829,
+        "diffusion": 0.35613,
+        "spread_deg": 64.563,
+        "high_frequency_damping": 0.07252,
+        "absorption_by_band": [
+          0.155844,
+          0.144352,
+          0.13286,
+          0.131367,
+          0.149875,
+          0.188383,
+          0.256891,
+          0.345398
+        ],
+        "rt60_s_by_band": [
+          0.385329,
+          0.401703,
+          0.419529,
+          0.421961,
+          0.393664,
+          0.345462,
+          0.283668,
+          0.23042
+        ],
+        "seed": 21657494
+      }
+    },
+    {
+      "id": 5,
+      "input_direction": {
+        "azimuth_deg": 45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 1.4319,
+        "y": 5.3167,
+        "z": 0.7254
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 54.426,
+        "gain": 0.3117856
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 49.756,
+          "gain": 0.4668611,
+          "azimuth_deg": 17.905,
+          "elevation_deg": -52.534,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.756,
+          "gain": 0.4631906,
+          "azimuth_deg": 16.726,
+          "elevation_deg": -52.655,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 49.756,
+          "gain": 0.4595489,
+          "azimuth_deg": 17.892,
+          "elevation_deg": -52.761,
+          "kind": "surface",
+          "surface": "B3.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.527,
+          "gain": 0.3307815,
+          "azimuth_deg": 106.855,
+          "elevation_deg": -35.392,
+          "kind": "surface",
+          "surface": "B1.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.686,
+          "gain": 0.3202951,
+          "azimuth_deg": 117.71,
+          "elevation_deg": -34.155,
+          "kind": "surface",
+          "surface": "B3.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.695,
+          "gain": 0.3173498,
+          "azimuth_deg": 73.465,
+          "elevation_deg": -34.208,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.719,
+          "gain": 0.3136736,
+          "azimuth_deg": 56.732,
+          "elevation_deg": -33.628,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.734,
+          "gain": 0.3105276,
+          "azimuth_deg": 52.355,
+          "elevation_deg": -33.851,
+          "kind": "surface",
+          "surface": "B2.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.743,
+          "gain": 0.3076829,
+          "azimuth_deg": 51.595,
+          "elevation_deg": -33.851,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.743,
+          "gain": 0.3052638,
+          "azimuth_deg": 95.386,
+          "elevation_deg": -33.715,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.748,
+          "gain": 0.3026123,
+          "azimuth_deg": 92.291,
+          "elevation_deg": -33.941,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.765,
+          "gain": 0.2994618,
+          "azimuth_deg": 69.146,
+          "elevation_deg": -34.059,
+          "kind": "surface",
+          "surface": "B3.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.796,
+          "gain": 0.2957399,
+          "azimuth_deg": 39.601,
+          "elevation_deg": -33.823,
+          "kind": "surface",
+          "surface": "B3.10",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.832,
+          "gain": 0.291865,
+          "azimuth_deg": 81.971,
+          "elevation_deg": -33.411,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.838,
+          "gain": 0.2892949,
+          "azimuth_deg": -152.266,
+          "elevation_deg": -33.073,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.847,
+          "gain": 0.286643,
+          "azimuth_deg": 80.707,
+          "elevation_deg": -33.18,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 51.87,
+          "gain": 0.2834479,
+          "azimuth_deg": 41.346,
+          "elevation_deg": -33.424,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.564,
+          "gain": 0.0599993,
+          "azimuth_deg": 44.93,
+          "elevation_deg": -30.852,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.923,
+          "gain": 0.0977222,
+          "azimuth_deg": 35.286,
+          "elevation_deg": -17.161,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.87,
+          "gain": 0.1169846,
+          "azimuth_deg": 13.252,
+          "elevation_deg": -42.232,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 58.156,
+          "gain": 0.043385,
+          "azimuth_deg": 118.674,
+          "elevation_deg": 48.798,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.649,
+          "gain": 0.1011394,
+          "azimuth_deg": 97.158,
+          "elevation_deg": -44.211,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.439,
+          "gain": 0.0684748,
+          "azimuth_deg": 0.247,
+          "elevation_deg": 33.723,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.901,
+          "gain": 0.0401271,
+          "azimuth_deg": -53.756,
+          "elevation_deg": 27.214,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.449,
+          "gain": 0.0138439,
+          "azimuth_deg": 79.705,
+          "elevation_deg": -14.258,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 63.944,
+          "gain": 0.0611488,
+          "azimuth_deg": 59.869,
+          "elevation_deg": -27.403,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.256,
+          "gain": 0.1190522,
+          "azimuth_deg": -102.931,
+          "elevation_deg": -10.148,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.054,
+          "gain": 0.0870625,
+          "azimuth_deg": 57.54,
+          "elevation_deg": -53.031,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 65.788,
+          "gain": 0.1028744,
+          "azimuth_deg": -11.283,
+          "elevation_deg": -28.883,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 71.793,
+          "gain": 0.0124119,
+          "azimuth_deg": 54.01,
+          "elevation_deg": -11.173,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 72.882,
+          "gain": 0.0809105,
+          "azimuth_deg": 20.392,
+          "elevation_deg": -33.556,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.763,
+          "gain": 0.0120117,
+          "azimuth_deg": 39.257,
+          "elevation_deg": 7.132,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 76.006,
+          "gain": 0.0103543,
+          "azimuth_deg": 50.701,
+          "elevation_deg": 5.624,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 76.382,
+          "gain": 0.1197934,
+          "azimuth_deg": 32.784,
+          "elevation_deg": -24.677,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 80.628,
+          "gain": 0.0111526,
+          "azimuth_deg": 103.389,
+          "elevation_deg": -39.433,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 83.133,
+          "gain": 0.0798078,
+          "azimuth_deg": 65.699,
+          "elevation_deg": -25.255,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 83.998,
+          "gain": 0.0110439,
+          "azimuth_deg": 77.53,
+          "elevation_deg": -29.798,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 84.061,
+          "gain": 0.0105324,
+          "azimuth_deg": 137.471,
+          "elevation_deg": 7.267,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 85.992,
+          "gain": 0.0644915,
+          "azimuth_deg": 68.784,
+          "elevation_deg": -30.183,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 87.494,
+          "gain": 0.0091066,
+          "azimuth_deg": 138.126,
+          "elevation_deg": -4.237,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 87.52,
+          "gain": 0.048472,
+          "azimuth_deg": -37.952,
+          "elevation_deg": 88.056,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 87.826,
+          "gain": 0.0725051,
+          "azimuth_deg": 107.615,
+          "elevation_deg": 54.682,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 88.19,
+          "gain": 0.1211237,
+          "azimuth_deg": -95.051,
+          "elevation_deg": -34.834,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 89.687,
+          "gain": 0.0247841,
+          "azimuth_deg": 54.72,
+          "elevation_deg": -26.573,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 89.777,
+          "gain": 0.0316883,
+          "azimuth_deg": 35.338,
+          "elevation_deg": 34.238,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.926,
+          "gain": 0.0120771,
+          "azimuth_deg": 38.33,
+          "elevation_deg": -35.053,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 91.696,
+          "gain": 0.1019096,
+          "azimuth_deg": 14.074,
+          "elevation_deg": -22.226,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 132.924,
+        "duration_s": 3.8,
+        "level": 0.2663933,
+        "diffusion": 0.22779,
+        "spread_deg": 51.813,
+        "high_frequency_damping": 0.08654,
+        "absorption_by_band": [
+          0.169082,
+          0.15803,
+          0.146979,
+          0.145927,
+          0.164876,
+          0.203824,
+          0.272773,
+          0.361721
+        ],
+        "rt60_s_by_band": [
+          0.368049,
+          0.382365,
+          0.397838,
+          0.399376,
+          0.373369,
+          0.329293,
+          0.272373,
+          0.22271
+        ],
+        "seed": 21665413
+      }
+    },
+    {
+      "id": 6,
+      "input_direction": {
+        "azimuth_deg": -45,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": -0.6412,
+        "y": 3.9408,
+        "z": 0.7254
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 53.654,
+        "gain": 0.3092784
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 48.288,
+          "gain": 0.5507752,
+          "azimuth_deg": -125.522,
+          "elevation_deg": -65.574,
+          "kind": "surface",
+          "surface": "B3.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.3,
+          "gain": 0.5458662,
+          "azimuth_deg": -131.879,
+          "elevation_deg": -66.115,
+          "kind": "surface",
+          "surface": "B3.10",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.306,
+          "gain": 0.5417963,
+          "azimuth_deg": 8.785,
+          "elevation_deg": -65.502,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.346,
+          "gain": 0.5333233,
+          "azimuth_deg": -108.002,
+          "elevation_deg": -63.952,
+          "kind": "surface",
+          "surface": "B3.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.348,
+          "gain": 0.5297928,
+          "azimuth_deg": -105.994,
+          "elevation_deg": -64.101,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.349,
+          "gain": 0.5265681,
+          "azimuth_deg": -102.012,
+          "elevation_deg": -64.922,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.349,
+          "gain": 0.5234027,
+          "azimuth_deg": -110.382,
+          "elevation_deg": -64.621,
+          "kind": "surface",
+          "surface": "B1.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.356,
+          "gain": 0.5192609,
+          "azimuth_deg": -107.651,
+          "elevation_deg": -63.983,
+          "kind": "surface",
+          "surface": "B1.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.365,
+          "gain": 0.5150157,
+          "azimuth_deg": -74.477,
+          "elevation_deg": -63.246,
+          "kind": "surface",
+          "surface": "B3.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.366,
+          "gain": 0.5118226,
+          "azimuth_deg": -136.561,
+          "elevation_deg": -64.295,
+          "kind": "surface",
+          "surface": "B3.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.382,
+          "gain": 0.5067525,
+          "azimuth_deg": -133.114,
+          "elevation_deg": -63.211,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.4,
+          "gain": 0.5016456,
+          "azimuth_deg": -136.82,
+          "elevation_deg": -63.542,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.402,
+          "gain": 0.4983053,
+          "azimuth_deg": -129.471,
+          "elevation_deg": -63.266,
+          "kind": "surface",
+          "surface": "B2.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.435,
+          "gain": 0.4914035,
+          "azimuth_deg": -141.779,
+          "elevation_deg": -62.179,
+          "kind": "surface",
+          "surface": "B4.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.441,
+          "gain": 0.4878381,
+          "azimuth_deg": -69.031,
+          "elevation_deg": -62.445,
+          "kind": "surface",
+          "surface": "B1.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.442,
+          "gain": 0.4847209,
+          "azimuth_deg": -140.651,
+          "elevation_deg": -62.314,
+          "kind": "surface",
+          "surface": "B4.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 48.497,
+          "gain": 0.4756091,
+          "azimuth_deg": -89.296,
+          "elevation_deg": -60.675,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.106,
+          "gain": 0.10668,
+          "azimuth_deg": -46.249,
+          "elevation_deg": -25.19,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.137,
+          "gain": 0.1128686,
+          "azimuth_deg": -61.519,
+          "elevation_deg": -24.913,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 52.661,
+          "gain": 0.0585772,
+          "azimuth_deg": -76.097,
+          "elevation_deg": -19.143,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.9,
+          "gain": 0.1082625,
+          "azimuth_deg": -179.071,
+          "elevation_deg": -0.394,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.241,
+          "gain": 0.0867964,
+          "azimuth_deg": -40.944,
+          "elevation_deg": -17.409,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.008,
+          "gain": 0.0915619,
+          "azimuth_deg": -32.396,
+          "elevation_deg": -48.672,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 60.812,
+          "gain": 0.0796536,
+          "azimuth_deg": 153.38,
+          "elevation_deg": 19.177,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 61.837,
+          "gain": 0.1120268,
+          "azimuth_deg": -20.376,
+          "elevation_deg": -24.611,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 62.676,
+          "gain": 0.0133132,
+          "azimuth_deg": 114.093,
+          "elevation_deg": 12.399,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 63.947,
+          "gain": 0.0724464,
+          "azimuth_deg": -38.481,
+          "elevation_deg": -21.592,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 66.858,
+          "gain": 0.1256524,
+          "azimuth_deg": -153.711,
+          "elevation_deg": 62.338,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.544,
+          "gain": 0.0473515,
+          "azimuth_deg": -53.324,
+          "elevation_deg": -34.582,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.659,
+          "gain": 0.0600338,
+          "azimuth_deg": -16.544,
+          "elevation_deg": -54.238,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 69.557,
+          "gain": 0.0186369,
+          "azimuth_deg": 33.046,
+          "elevation_deg": 6.951,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 69.792,
+          "gain": 0.0638893,
+          "azimuth_deg": -134.216,
+          "elevation_deg": -19.602,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 71.02,
+          "gain": 0.0117974,
+          "azimuth_deg": 86.724,
+          "elevation_deg": -26.45,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 71.724,
+          "gain": 0.1113122,
+          "azimuth_deg": -124.319,
+          "elevation_deg": 60.527,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.218,
+          "gain": 0.0798831,
+          "azimuth_deg": -32.406,
+          "elevation_deg": -36.487,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.635,
+          "gain": 0.0308283,
+          "azimuth_deg": -75.934,
+          "elevation_deg": -34.09,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.31,
+          "gain": 0.0946739,
+          "azimuth_deg": -137.165,
+          "elevation_deg": 52.816,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 75.467,
+          "gain": 0.1057764,
+          "azimuth_deg": -13.253,
+          "elevation_deg": -37.962,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 79.447,
+          "gain": 0.0213793,
+          "azimuth_deg": 106.686,
+          "elevation_deg": -7.037,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 79.856,
+          "gain": 0.0304648,
+          "azimuth_deg": 123.877,
+          "elevation_deg": 11.22,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 83.226,
+          "gain": 0.0144886,
+          "azimuth_deg": 90.924,
+          "elevation_deg": -20.038,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 83.897,
+          "gain": 0.0429115,
+          "azimuth_deg": -59.241,
+          "elevation_deg": -28.167,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 88.245,
+          "gain": 0.0153719,
+          "azimuth_deg": 82.276,
+          "elevation_deg": -22.456,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 88.689,
+          "gain": 0.1221575,
+          "azimuth_deg": -28.088,
+          "elevation_deg": -56.434,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 89.235,
+          "gain": 0.030263,
+          "azimuth_deg": -25.738,
+          "elevation_deg": -53.404,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 91.603,
+          "gain": 0.0239163,
+          "azimuth_deg": 82.916,
+          "elevation_deg": -10.42,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 95.791,
+          "gain": 0.0262354,
+          "azimuth_deg": 113.205,
+          "elevation_deg": -6.752,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        }
+      ],
+      "late": {
+        "start_ms": 132.924,
+        "duration_s": 3.8,
+        "level": 0.3672333,
+        "diffusion": 0.3362,
+        "spread_deg": 62.583,
+        "high_frequency_damping": 0.07179,
+        "absorption_by_band": [
+          0.129926,
+          0.118411,
+          0.106896,
+          0.105381,
+          0.123866,
+          0.16235,
+          0.230835,
+          0.31932
+        ],
+        "rt60_s_by_band": [
+          0.424336,
+          0.444319,
+          0.466278,
+          0.46933,
+          0.434624,
+          0.376638,
+          0.304375,
+          0.24391
+        ],
+        "seed": 21673332
+      }
+    },
+    {
+      "id": 7,
+      "input_direction": {
+        "azimuth_deg": 135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": 3.0464,
+        "y": 4.5719,
+        "z": 2.3711
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 57.009,
+        "gain": 0.3164796
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 50.912,
+          "gain": 0.6834447,
+          "azimuth_deg": -110.994,
+          "elevation_deg": 20.866,
+          "kind": "surface",
+          "surface": "B1.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.912,
+          "gain": 0.6766737,
+          "azimuth_deg": -109.979,
+          "elevation_deg": 19.914,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 50.912,
+          "gain": 0.6699698,
+          "azimuth_deg": -110.566,
+          "elevation_deg": 19.79,
+          "kind": "surface",
+          "surface": "B3.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 53.708,
+          "gain": 0.3495839,
+          "azimuth_deg": -2.617,
+          "elevation_deg": 10.94,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.534,
+          "gain": 0.1119214,
+          "azimuth_deg": 121.847,
+          "elevation_deg": -45.126,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.511,
+          "gain": 0.2652562,
+          "azimuth_deg": 20.642,
+          "elevation_deg": 7.623,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.81,
+          "gain": 0.2247845,
+          "azimuth_deg": 67.679,
+          "elevation_deg": 6.699,
+          "kind": "surface",
+          "surface": "B4.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.83,
+          "gain": 0.2220607,
+          "azimuth_deg": 52.759,
+          "elevation_deg": 6.985,
+          "kind": "surface",
+          "surface": "B4.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.836,
+          "gain": 0.2197114,
+          "azimuth_deg": 52.277,
+          "elevation_deg": 7.178,
+          "kind": "surface",
+          "surface": "B4.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.88,
+          "gain": 0.2164884,
+          "azimuth_deg": 48.548,
+          "elevation_deg": 6.731,
+          "kind": "surface",
+          "surface": "B4.11",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.911,
+          "gain": 0.2136012,
+          "azimuth_deg": 50.99,
+          "elevation_deg": 7.087,
+          "kind": "surface",
+          "surface": "B3.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.913,
+          "gain": 0.2114428,
+          "azimuth_deg": 64.957,
+          "elevation_deg": 7.173,
+          "kind": "surface",
+          "surface": "B2.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.954,
+          "gain": 0.2084088,
+          "azimuth_deg": 37.732,
+          "elevation_deg": 6.998,
+          "kind": "surface",
+          "surface": "B3.12",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 56.994,
+          "gain": 0.2054582,
+          "azimuth_deg": 74.38,
+          "elevation_deg": 6.726,
+          "kind": "surface",
+          "surface": "B3.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.017,
+          "gain": 0.2029092,
+          "azimuth_deg": 88.62,
+          "elevation_deg": 6.317,
+          "kind": "surface",
+          "surface": "B3.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.019,
+          "gain": 0.2008478,
+          "azimuth_deg": 62.92,
+          "elevation_deg": 6.308,
+          "kind": "surface",
+          "surface": "B1.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.023,
+          "gain": 0.198784,
+          "azimuth_deg": 64.469,
+          "elevation_deg": 7.028,
+          "kind": "surface",
+          "surface": "B1.13",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 57.044,
+          "gain": 0.1963615,
+          "azimuth_deg": 79.185,
+          "elevation_deg": 6.486,
+          "kind": "surface",
+          "surface": "B1.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.104,
+          "gain": 0.0567361,
+          "azimuth_deg": 151.588,
+          "elevation_deg": -37.025,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 62.593,
+          "gain": 0.0276311,
+          "azimuth_deg": 97.629,
+          "elevation_deg": -54.891,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.272,
+          "gain": 0.0586478,
+          "azimuth_deg": 87.285,
+          "elevation_deg": -12.642,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 66.047,
+          "gain": 0.006965,
+          "azimuth_deg": 55.241,
+          "elevation_deg": -28.913,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 67.908,
+          "gain": 0.1206418,
+          "azimuth_deg": 134.019,
+          "elevation_deg": -46.602,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 69.785,
+          "gain": 0.0595346,
+          "azimuth_deg": 169.186,
+          "elevation_deg": -39.819,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 70.289,
+          "gain": 0.0507183,
+          "azimuth_deg": 139.014,
+          "elevation_deg": -36.563,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.314,
+          "gain": 0.0291514,
+          "azimuth_deg": 125.349,
+          "elevation_deg": -43.743,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 72.912,
+          "gain": 0.0114937,
+          "azimuth_deg": 121.23,
+          "elevation_deg": 4.812,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 74.375,
+          "gain": 0.0139005,
+          "azimuth_deg": 129.008,
+          "elevation_deg": 8.766,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 76.469,
+          "gain": 0.0466851,
+          "azimuth_deg": 153.898,
+          "elevation_deg": -29.184,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 78.051,
+          "gain": 0.111588,
+          "azimuth_deg": 155.826,
+          "elevation_deg": -51.602,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 78.324,
+          "gain": 0.0562717,
+          "azimuth_deg": -84.336,
+          "elevation_deg": -44.333,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 78.629,
+          "gain": 0.0943476,
+          "azimuth_deg": -72.602,
+          "elevation_deg": -58.489,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 79.778,
+          "gain": 0.0073571,
+          "azimuth_deg": 66.638,
+          "elevation_deg": 21.405,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 79.885,
+          "gain": 0.0294967,
+          "azimuth_deg": 132.218,
+          "elevation_deg": -44.306,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 80.033,
+          "gain": 0.0269559,
+          "azimuth_deg": 140.348,
+          "elevation_deg": -37.02,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.496,
+          "gain": 0.087813,
+          "azimuth_deg": 145.551,
+          "elevation_deg": -16.808,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 82.802,
+          "gain": 0.0072392,
+          "azimuth_deg": 71.444,
+          "elevation_deg": -36.315,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 85.492,
+          "gain": 0.0748896,
+          "azimuth_deg": 107.458,
+          "elevation_deg": -15.956,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 86.643,
+          "gain": 0.0053138,
+          "azimuth_deg": 74.227,
+          "elevation_deg": -40.284,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 89.498,
+          "gain": 0.037002,
+          "azimuth_deg": 101.531,
+          "elevation_deg": -26.814,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.076,
+          "gain": 0.0096746,
+          "azimuth_deg": 104.469,
+          "elevation_deg": 21.034,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 91.229,
+          "gain": 0.0110654,
+          "azimuth_deg": 84.457,
+          "elevation_deg": 0.68,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        },
+        {
+          "delay_ms": 91.521,
+          "gain": 0.054519,
+          "azimuth_deg": 162.819,
+          "elevation_deg": -29.093,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 92.216,
+          "gain": 0.1073271,
+          "azimuth_deg": 142.351,
+          "elevation_deg": 65.768,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 92.698,
+          "gain": 0.111548,
+          "azimuth_deg": -33.943,
+          "elevation_deg": -42.722,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 93.508,
+          "gain": 0.0104465,
+          "azimuth_deg": 106.199,
+          "elevation_deg": -16.641,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 94.107,
+          "gain": 0.0375449,
+          "azimuth_deg": 109.433,
+          "elevation_deg": -37.248,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        }
+      ],
+      "late": {
+        "start_ms": 132.924,
+        "duration_s": 3.8,
+        "level": 0.2686018,
+        "diffusion": 0.32004,
+        "spread_deg": 60.978,
+        "high_frequency_damping": 0.13385,
+        "absorption_by_band": [
+          0.210354,
+          0.200789,
+          0.191224,
+          0.191659,
+          0.212095,
+          0.25253,
+          0.322965,
+          0.4134
+        ],
+        "rt60_s_by_band": [
+          0.322903,
+          0.332351,
+          0.342368,
+          0.341899,
+          0.321241,
+          0.286935,
+          0.241931,
+          0.201377
+        ],
+        "seed": 21681251
+      }
+    },
+    {
+      "id": 8,
+      "input_direction": {
+        "azimuth_deg": -135,
+        "elevation_deg": -35.264
+      },
+      "source_position_m": {
+        "x": -1.3432,
+        "y": 2.8784,
+        "z": 0.7254
+      },
+      "weight": 0.125,
+      "direct": {
+        "delay_ms": 58.678,
+        "gain": 0.3158758
+      },
+      "early_reflections": [
+        {
+          "delay_ms": 53.86,
+          "gain": 0.5213435,
+          "azimuth_deg": -148.704,
+          "elevation_deg": -57.583,
+          "kind": "surface",
+          "surface": "B1.9",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.149,
+          "gain": 0.4874602,
+          "azimuth_deg": -130.92,
+          "elevation_deg": -52.36,
+          "kind": "surface",
+          "surface": "B1.7",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.345,
+          "gain": 0.466218,
+          "azimuth_deg": -112.679,
+          "elevation_deg": -48.915,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.546,
+          "gain": 0.4460789,
+          "azimuth_deg": -135.73,
+          "elevation_deg": -46.596,
+          "kind": "surface",
+          "surface": "B3.8",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.776,
+          "gain": 0.4252484,
+          "azimuth_deg": -150.061,
+          "elevation_deg": -44.418,
+          "kind": "surface",
+          "surface": "B2.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.779,
+          "gain": 0.4234202,
+          "azimuth_deg": -128.254,
+          "elevation_deg": -44.261,
+          "kind": "surface",
+          "surface": "B3.7",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.791,
+          "gain": 0.4208093,
+          "azimuth_deg": -117.121,
+          "elevation_deg": -44.198,
+          "kind": "surface",
+          "surface": "B1.4",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 54.913,
+          "gain": 0.4099096,
+          "azimuth_deg": -150.317,
+          "elevation_deg": -42.982,
+          "kind": "surface",
+          "surface": "B4.1",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.096,
+          "gain": 0.3950742,
+          "azimuth_deg": -104.485,
+          "elevation_deg": -40.87,
+          "kind": "surface",
+          "surface": "B4.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.178,
+          "gain": 0.3879953,
+          "azimuth_deg": -92.176,
+          "elevation_deg": -40.058,
+          "kind": "surface",
+          "surface": "B2.15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.184,
+          "gain": 0.3861244,
+          "azimuth_deg": -123.25,
+          "elevation_deg": -40.433,
+          "kind": "surface",
+          "surface": "B1.6",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.236,
+          "gain": 0.3812159,
+          "azimuth_deg": -124.666,
+          "elevation_deg": -40.322,
+          "kind": "surface",
+          "surface": "B1.5",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.281,
+          "gain": 0.3768361,
+          "azimuth_deg": -91.725,
+          "elevation_deg": -39.861,
+          "kind": "surface",
+          "surface": "B2.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.427,
+          "gain": 0.3662108,
+          "azimuth_deg": -129.769,
+          "elevation_deg": -38.821,
+          "kind": "surface",
+          "surface": "B3.5",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.429,
+          "gain": 0.3647492,
+          "azimuth_deg": -129.873,
+          "elevation_deg": -38.23,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.463,
+          "gain": 0.3612695,
+          "azimuth_deg": -145.201,
+          "elevation_deg": -37.78,
+          "kind": "surface",
+          "surface": "B1.8",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 55.521,
+          "gain": 0.3564918,
+          "azimuth_deg": -104.318,
+          "elevation_deg": -38.042,
+          "kind": "surface",
+          "surface": "B4.14",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 59.431,
+          "gain": 0.1242826,
+          "azimuth_deg": -69.539,
+          "elevation_deg": 54.579,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 62.076,
+          "gain": 0.0859182,
+          "azimuth_deg": -106.788,
+          "elevation_deg": -51.629,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 63.722,
+          "gain": 0.0616611,
+          "azimuth_deg": -102.324,
+          "elevation_deg": -18.975,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 64.862,
+          "gain": 0.1362897,
+          "azimuth_deg": -131.546,
+          "elevation_deg": -25.45,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.711,
+          "gain": 0.0914675,
+          "azimuth_deg": -102.382,
+          "elevation_deg": -52.871,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 67.716,
+          "gain": 0.0208274,
+          "azimuth_deg": 54.82,
+          "elevation_deg": -44.499,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 70.585,
+          "gain": 0.1271909,
+          "azimuth_deg": -166.49,
+          "elevation_deg": -28.777,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 71.149,
+          "gain": 0.0159424,
+          "azimuth_deg": 69.77,
+          "elevation_deg": -17.915,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 3
+        },
+        {
+          "delay_ms": 72.816,
+          "gain": 0.0812612,
+          "azimuth_deg": -133.519,
+          "elevation_deg": -35.461,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 73.723,
+          "gain": 0.09272,
+          "azimuth_deg": 148.821,
+          "elevation_deg": 17.126,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 77.289,
+          "gain": 0.0273524,
+          "azimuth_deg": 56.168,
+          "elevation_deg": -41.75,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 77.337,
+          "gain": 0.1218016,
+          "azimuth_deg": -151.328,
+          "elevation_deg": -28.116,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 77.508,
+          "gain": 0.0965719,
+          "azimuth_deg": -168.177,
+          "elevation_deg": -36.979,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 78.133,
+          "gain": 0.1313935,
+          "azimuth_deg": 88.228,
+          "elevation_deg": 21.194,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 78.434,
+          "gain": 0.0301843,
+          "azimuth_deg": -167.578,
+          "elevation_deg": -25.176,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 79.433,
+          "gain": 0.0349415,
+          "azimuth_deg": -145.143,
+          "elevation_deg": -21.727,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 79.873,
+          "gain": 0.0206143,
+          "azimuth_deg": 87.309,
+          "elevation_deg": -1.276,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 80.485,
+          "gain": 0.0156342,
+          "azimuth_deg": 56.118,
+          "elevation_deg": 0.662,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 83.483,
+          "gain": 0.114098,
+          "azimuth_deg": -56.394,
+          "elevation_deg": -14.355,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 84.423,
+          "gain": 0.054894,
+          "azimuth_deg": -125.958,
+          "elevation_deg": -43.558,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 87.663,
+          "gain": 0.1219006,
+          "azimuth_deg": -58.612,
+          "elevation_deg": -8.097,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 90.073,
+          "gain": 0.0251385,
+          "azimuth_deg": 90.164,
+          "elevation_deg": 15.595,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "water",
+          "branch_family": "cavern",
+          "chamber_index": 1
+        },
+        {
+          "delay_ms": 90.433,
+          "gain": 0.0835416,
+          "azimuth_deg": 143.323,
+          "elevation_deg": 6.992,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 92.438,
+          "gain": 0.0110465,
+          "azimuth_deg": 126.682,
+          "elevation_deg": 14.659,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 92.672,
+          "gain": 0.053977,
+          "azimuth_deg": -122.546,
+          "elevation_deg": -22.574,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 93.682,
+          "gain": 0.08538,
+          "azimuth_deg": 84.766,
+          "elevation_deg": -66.024,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 94.359,
+          "gain": 0.1077627,
+          "azimuth_deg": -77.049,
+          "elevation_deg": 47.622,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 96.627,
+          "gain": 0.0187923,
+          "azimuth_deg": 72.675,
+          "elevation_deg": -19.806,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 4
+        },
+        {
+          "delay_ms": 96.799,
+          "gain": 0.0729389,
+          "azimuth_deg": -158.57,
+          "elevation_deg": -27.707,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "ice",
+          "branch_family": null,
+          "chamber_index": null
+        },
+        {
+          "delay_ms": 105.54,
+          "gain": 0.0183201,
+          "azimuth_deg": 57.72,
+          "elevation_deg": -27.796,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "inherit",
+          "branch_family": "cavern",
+          "chamber_index": 2
+        }
+      ],
+      "late": {
+        "start_ms": 132.924,
+        "duration_s": 3.8,
+        "level": 0.3167614,
+        "diffusion": 0.26231,
+        "spread_deg": 55.242,
+        "high_frequency_damping": 0.16257,
+        "absorption_by_band": [
+          0.080354,
+          0.071692,
+          0.06303,
+          0.064367,
+          0.085705,
+          0.127043,
+          0.198381,
+          0.289719
+        ],
+        "rt60_s_by_band": [
+          0.52622,
+          0.549265,
+          0.57442,
+          0.570386,
+          0.512926,
+          0.429169,
+          0.334817,
+          0.261274
+        ],
+        "seed": 21689170
+      }
+    }
+  ],
+  "atlas": {
+    "name": "Ice Grotto",
+    "category": "Cave",
+    "description": "A reflective ice grotto opening into a water-worn cavern pocket.",
+    "seed": 220211,
+    "source": "s3g-mc Imprint Sketch"
+  }
+}
