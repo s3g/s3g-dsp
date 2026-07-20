@@ -187,6 +187,17 @@
     "acoustic_volume_m3": 15861.313,
     "acoustic_surface_m2": 17490.487
   },
+  "echo_paths": {
+    "enabled": false,
+    "requested_structure": "off",
+    "resolved_structure": "off",
+    "prominence": 0.58,
+    "persistence": 0.68,
+    "regularity": 0.82,
+    "geometry_driven": true,
+    "event_count": 0,
+    "paths": []
+  },
   "room": {
     "dimensions_m": {
       "x": 36.8,

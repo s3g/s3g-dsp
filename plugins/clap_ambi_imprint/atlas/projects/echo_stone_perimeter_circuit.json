@@ -1,0 +1,604 @@
+{
+  "format": "s3g-imprint-sketch",
+  "version": 1,
+  "tool": "s3g-mc Imprint Sketch",
+  "target_process": "3OAFX Synthetic Ambisonic IR Bank",
+  "interpretation": "directional acoustic sketch for architectural, natural, open, or imaginary spaces",
+  "space_family": "cavern",
+  "space_seed": 880409,
+  "room_x": 31,
+  "room_y": 28,
+  "room_z": 13,
+  "material_preset": "stone",
+  "absorption": 0.11,
+  "scattering": 0.28,
+  "tail_soften": 0.2,
+  "irregularity": 0.42,
+  "surface_roughness": 0.34,
+  "vertical_variation": 0.37,
+  "openness": 0,
+  "space_shape": "shoebox",
+  "room_shape": "wedge",
+  "topology_bias": 0.52,
+  "branch_family": "cavern",
+  "room_polygon": [
+    {
+      "x": 15.5,
+      "y": 2.971
+    },
+    {
+      "x": 19.354,
+      "y": 3.287
+    },
+    {
+      "x": 22.498,
+      "y": 5.301
+    },
+    {
+      "x": 24.811,
+      "y": 7.89
+    },
+    {
+      "x": 26.552,
+      "y": 10.756
+    },
+    {
+      "x": 27.061,
+      "y": 14
+    },
+    {
+      "x": 25.803,
+      "y": 17.024
+    },
+    {
+      "x": 24.966,
+      "y": 20.212
+    },
+    {
+      "x": 22.87,
+      "y": 23.162
+    },
+    {
+      "x": 19.425,
+      "y": 24.911
+    },
+    {
+      "x": 15.5,
+      "y": 26.284
+    },
+    {
+      "x": 11.333,
+      "y": 25.584
+    },
+    {
+      "x": 8.09,
+      "y": 23.212
+    },
+    {
+      "x": 6.493,
+      "y": 19.911
+    },
+    {
+      "x": 4.911,
+      "y": 17.108
+    },
+    {
+      "x": 3.513,
+      "y": 14
+    },
+    {
+      "x": 3.845,
+      "y": 10.579
+    },
+    {
+      "x": 5.204,
+      "y": 7.243
+    },
+    {
+      "x": 7.973,
+      "y": 4.642
+    },
+    {
+      "x": 11.658,
+      "y": 3.32
+    }
+  ],
+  "space": {
+    "family": "cavern",
+    "seed": 880409,
+    "topology": "single_region",
+    "branch_family_mode": "cavern",
+    "primary_polygon_xy_m": [
+      {
+        "x": 15.5,
+        "y": 2.971
+      },
+      {
+        "x": 19.354,
+        "y": 3.287
+      },
+      {
+        "x": 22.498,
+        "y": 5.301
+      },
+      {
+        "x": 24.811,
+        "y": 7.89
+      },
+      {
+        "x": 26.552,
+        "y": 10.756
+      },
+      {
+        "x": 27.061,
+        "y": 14
+      },
+      {
+        "x": 25.803,
+        "y": 17.024
+      },
+      {
+        "x": 24.966,
+        "y": 20.212
+      },
+      {
+        "x": 22.87,
+        "y": 23.162
+      },
+      {
+        "x": 19.425,
+        "y": 24.911
+      },
+      {
+        "x": 15.5,
+        "y": 26.284
+      },
+      {
+        "x": 11.333,
+        "y": 25.584
+      },
+      {
+        "x": 8.09,
+        "y": 23.212
+      },
+      {
+        "x": 6.493,
+        "y": 19.911
+      },
+      {
+        "x": 4.911,
+        "y": 17.108
+      },
+      {
+        "x": 3.513,
+        "y": 14
+      },
+      {
+        "x": 3.845,
+        "y": 10.579
+      },
+      {
+        "x": 5.204,
+        "y": 7.243
+      },
+      {
+        "x": 7.973,
+        "y": 4.642
+      },
+      {
+        "x": 11.658,
+        "y": 3.32
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": 3.513,
+        "z": 14.08
+      },
+      {
+        "x": 4.985,
+        "z": 13.931
+      },
+      {
+        "x": 6.457,
+        "z": 13.601
+      },
+      {
+        "x": 7.928,
+        "z": 13.147
+      },
+      {
+        "x": 9.4,
+        "z": 12.645
+      },
+      {
+        "x": 10.872,
+        "z": 12.171
+      },
+      {
+        "x": 12.344,
+        "z": 11.787
+      },
+      {
+        "x": 13.815,
+        "z": 11.531
+      },
+      {
+        "x": 15.287,
+        "z": 11.417
+      },
+      {
+        "x": 16.759,
+        "z": 11.431
+      },
+      {
+        "x": 18.231,
+        "z": 11.54
+      },
+      {
+        "x": 19.702,
+        "z": 11.707
+      },
+      {
+        "x": 21.174,
+        "z": 11.896
+      },
+      {
+        "x": 22.646,
+        "z": 12.084
+      },
+      {
+        "x": 24.118,
+        "z": 12.262
+      },
+      {
+        "x": 25.589,
+        "z": 12.437
+      },
+      {
+        "x": 27.061,
+        "z": 12.62
+      }
+    ],
+    "irregularity": 0.42,
+    "roughness": 0.34,
+    "vertical_variation": 0.37,
+    "openness": 0,
+    "acoustic_volume_m3": 5259.127,
+    "acoustic_surface_m2": 1868.826
+  },
+  "chamber_shape": "trapezoid",
+  "chamber_side": "front",
+  "exterior_opening": {
+    "enabled": false,
+    "leak": 0
+  },
+  "chamber": null,
+  "echo_paths": {
+    "enabled": true,
+    "requested_structure": "circulating",
+    "resolved_structure": "circulating",
+    "prominence": 0.8,
+    "persistence": 0.78,
+    "regularity": 0.78,
+    "geometry_driven": true,
+    "event_count": 23,
+    "paths": [
+      {
+        "id": 1,
+        "structure": "circulating",
+        "interval_ms": 26.028,
+        "repeat_path_m": 8.9276,
+        "material": "stone",
+        "chamber_index": null,
+        "branch_family": null,
+        "closed": true,
+        "points_m": [
+          {
+            "x": 15.5,
+            "y": 2.9712,
+            "z": 5.6977
+          },
+          {
+            "x": 22.4977,
+            "y": 5.3006,
+            "z": 5.6977
+          },
+          {
+            "x": 27.0611,
+            "y": 14,
+            "z": 5.6977
+          },
+          {
+            "x": 24.9662,
+            "y": 20.212,
+            "z": 5.6977
+          },
+          {
+            "x": 15.5,
+            "y": 26.2838,
+            "z": 5.6977
+          },
+          {
+            "x": 8.0904,
+            "y": 23.2115,
+            "z": 5.6977
+          },
+          {
+            "x": 3.5132,
+            "y": 14,
+            "z": 5.6977
+          },
+          {
+            "x": 5.2037,
+            "y": 7.2432,
+            "z": 5.6977
+          }
+        ]
+      }
+    ]
+  },
+  "field_offset": {
+    "x": -0.18,
+    "y": -0.16
+  },
+  "source_distance": 9.75,
+  "direction_spread_deg": 54,
+  "group_variation": 0.45,
+  "surface_contrast": 0.46,
+  "distance_variation": 0.53,
+  "order": 3,
+  "direction_set": "auto",
+  "effective_direction_layout": "practical_8",
+  "groups": [
+    {
+      "group": 1,
+      "azimuth": 45,
+      "elevation": 35.264,
+      "channels": "1-16",
+      "direct_time_ms": 47,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 26
+      },
+      "early_energy": 0.85555,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0.00457,
+      "local_profile": {
+        "absorption": 0.071,
+        "scattering": 0.22,
+        "tail_soften": 0.255,
+        "source_distance": 9.721,
+        "direction_spread_deg": 47.74,
+        "pre_delay_ms": 18.5,
+        "rt60": 7.794
+      },
+      "source_position_m": {
+        "x": 16.77,
+        "y": 16.365,
+        "z": 9.3
+      }
+    },
+    {
+      "group": 2,
+      "azimuth": -45,
+      "elevation": 35.264,
+      "channels": "17-32",
+      "direct_time_ms": 44,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 20
+      },
+      "early_energy": 0.81418,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0.00436,
+      "local_profile": {
+        "absorption": 0.12,
+        "scattering": 0.302,
+        "tail_soften": 0.181,
+        "source_distance": 10.237,
+        "direction_spread_deg": 56.27,
+        "pre_delay_ms": 13.81,
+        "rt60": 4.589
+      },
+      "source_position_m": {
+        "x": 9.565,
+        "y": 16.365,
+        "z": 9.3
+      }
+    },
+    {
+      "group": 3,
+      "azimuth": 135,
+      "elevation": 35.264,
+      "channels": "33-48",
+      "direct_time_ms": 40,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 22
+      },
+      "early_energy": 0.84633,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0.00633,
+      "local_profile": {
+        "absorption": 0.107,
+        "scattering": 0.211,
+        "tail_soften": 0.214,
+        "source_distance": 8.333,
+        "direction_spread_deg": 46.8,
+        "pre_delay_ms": 15.92,
+        "rt60": 5.154
+      },
+      "source_position_m": {
+        "x": 16.77,
+        "y": 9.16,
+        "z": 9.3
+      }
+    },
+    {
+      "group": 4,
+      "azimuth": -135,
+      "elevation": 35.264,
+      "channels": "49-64",
+      "direct_time_ms": 36,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 20
+      },
+      "early_energy": 0.80199,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0.00567,
+      "local_profile": {
+        "absorption": 0.115,
+        "scattering": 0.357,
+        "tail_soften": 0.152,
+        "source_distance": 8.284,
+        "direction_spread_deg": 62.06,
+        "pre_delay_ms": 11.93,
+        "rt60": 4.819
+      },
+      "source_position_m": {
+        "x": 9.565,
+        "y": 9.16,
+        "z": 9.3
+      }
+    },
+    {
+      "group": 5,
+      "azimuth": 45,
+      "elevation": -35.264,
+      "channels": "65-80",
+      "direct_time_ms": 44,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 21
+      },
+      "early_energy": 0.80846,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0.00457,
+      "local_profile": {
+        "absorption": 0.128,
+        "scattering": 0.227,
+        "tail_soften": 0.166,
+        "source_distance": 10.524,
+        "direction_spread_deg": 48.47,
+        "pre_delay_ms": 12.84,
+        "rt60": 4.314
+      },
+      "source_position_m": {
+        "x": 16.77,
+        "y": 16.365,
+        "z": 2.095
+      }
+    },
+    {
+      "group": 6,
+      "azimuth": -45,
+      "elevation": -35.264,
+      "channels": "81-96",
+      "direct_time_ms": 43,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 19
+      },
+      "early_energy": 0.9114,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0.00436,
+      "local_profile": {
+        "absorption": 0.088,
+        "scattering": 0.337,
+        "tail_soften": 0.151,
+        "source_distance": 10.712,
+        "direction_spread_deg": 59.95,
+        "pre_delay_ms": 11.88,
+        "rt60": 6.253
+      },
+      "source_position_m": {
+        "x": 9.565,
+        "y": 16.365,
+        "z": 2.095
+      }
+    },
+    {
+      "group": 7,
+      "azimuth": 135,
+      "elevation": -35.264,
+      "channels": "97-112",
+      "direct_time_ms": 46,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 24
+      },
+      "early_energy": 0.87405,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0.00633,
+      "local_profile": {
+        "absorption": 0.17,
+        "scattering": 0.321,
+        "tail_soften": 0.214,
+        "source_distance": 10.181,
+        "direction_spread_deg": 58.24,
+        "pre_delay_ms": 15.9,
+        "rt60": 3.251
+      },
+      "source_position_m": {
+        "x": 16.77,
+        "y": 9.16,
+        "z": 2.095
+      }
+    },
+    {
+      "group": 8,
+      "azimuth": -135,
+      "elevation": -35.264,
+      "channels": "113-128",
+      "direct_time_ms": 48,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 34
+      },
+      "early_energy": 1.01848,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0.00567,
+      "local_profile": {
+        "absorption": 0.038,
+        "scattering": 0.262,
+        "tail_soften": 0.243,
+        "source_distance": 10.225,
+        "direction_spread_deg": 52.13,
+        "pre_delay_ms": 17.75,
+        "rt60": 8
+      },
+      "source_position_m": {
+        "x": 9.565,
+        "y": 9.16,
+        "z": 2.095
+      }
+    }
+  ],
+  "duration": 4,
+  "pre_delay_ms": 15,
+  "early_reflections": 68,
+  "camera": {
+    "azimuth": -49,
+    "elevation": 47,
+    "zoom": 0.96
+  },
+  "estimated_rt60": 5.025,
+  "late_start_seconds": 0.108,
+  "atlas": {
+    "name": "Stone Perimeter Circuit",
+    "category": "Echo",
+    "description": "A broad irregular cavern whose returns circulate around a stone perimeter.",
+    "seed": 880409,
+    "source": "s3g-mc Imprint Sketch"
+  }
+}

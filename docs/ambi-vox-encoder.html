@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Vox Encoder - s3g-dsp</title>
+    <meta name="description" content="Ambi Vox Encoder vocal vector-wavetable instrument documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Vox Encoder</h1>
+
+        <p><code>s3g Ambi Vox Encoder 64</code> is a 64-voice vocal vector-wavetable instrument with first-through-seventh-order <code>ACN/SN3D</code> output. It combines the VOT Encoder's interpolated 4 x 4 waveform field with vocal articulation, phrase-driven vector movement, MIDI, and spatial voice motion.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert the instrument on a 64-channel REAPER track.</li>
+          <li>Choose <code>FREE</code>, <code>MIDI</code>, or <code>BOTH</code>.</li>
+          <li>Select an internal wave set or load a mono WAV atlas.</li>
+          <li>Set the ambisonic order, voice count, tuning, and envelope.</li>
+          <li>Shape the vocal layer and enter a phrase when articulated vector movement is wanted.</li>
+          <li>Follow the instrument with an ambisonic decoder or meter.</li>
+        </ol>
+
+        <h2 id="vector-source">Vector Source</h2>
+
+        <p>Each source bank is divided into sixteen tables arranged as a 4 x 4 field. Voice U/V positions blend nearby tables continuously rather than switching between them. <code>SINE</code>, <code>CLASSIC</code>, <code>DIGITAL</code>, and <code>FORMANT</code> provide internal starting banks.</p>
+
+        <p><code>LOAD</code> accepts a mono WAV file and divides it into sixteen equal waveform regions. The pre-release package's <code>VOX Wavetables</code> folder provides Black Metal, Throat, Choir, and Animal source fields. A loaded user bank is embedded in the REAPER project state.</p>
+
+        <p><code>FIELD</code> shows AED motion, <code>VECTOR</code> shows table interpolation and the selected voice waveform, and <code>SCORE</code> shows the editable U/V path.</p>
+
+        <h2 id="vocal-layer">Vocal Layer</h2>
+
+        <ul>
+          <li><code>RASP</code>, <code>BREATH</code>, <code>THROAT</code>, and <code>DRIVE</code> set the main vocal body and edge.</li>
+          <li><code>JITTER</code>, <code>VOWELS</code>, and <code>SCOOP</code> vary pitch and movement through the waveform field.</li>
+          <li><code>SHAPE</code> changes the attack contour; <code>ARTIC</code> sets phrase and consonant influence.</li>
+          <li><code>CONS</code>, <code>PLOS</code>, and <code>SIBIL</code> control consonant bursts, plosives, and high-frequency articulation.</li>
+          <li><code>PHRASE</code> sets phrase-advance rate in free-running modes.</li>
+        </ul>
+
+        <h2 id="phrase">Phrase Articulator</h2>
+
+        <p>The phrase field is a synthesis score rather than recorded speech. Vowels move the U/V target, consonants create short articulated events, repeated vowel pairs create longer holds, and spaces or punctuation create rests. In <code>FREE</code> and <code>BOTH</code>, the phrase advances from the internal phrase clock. MIDI note events also advance and articulate the phrase.</p>
+
+        <h2 id="motion">Motion and Neighbor Gates</h2>
+
+        <p><code>MANUAL</code>, <code>ORBIT</code>, <code>FLOW</code>, <code>PATH</code>, and <code>PULSE</code> move voices in the shared U/V and AED field. Motion can run freely or follow the REAPER transport. <code>LINK</code> couples timbral and spatial movement.</p>
+
+        <p><code>NEAR</code> defines neighbor proximity and <code>NBR</code> sets how many nearby voices are required to open a free-running voice. The field draws those relationships so changes in the constellation remain visible.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <p>The output bus remains 64 channels wide. <code>ORDER</code> activates the corresponding <code>ACN/SN3D</code> channels from 1OA through 7OA and clears all higher outputs.</p>
+
+        <p>Follow the instrument with an <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-vot-encoder.html">
+            <span>Previous</span>
+            Ambi VOT Encoder
+          </a>
+          <a class="page-nav-link next" href="ambi-stochastic-encoder.html">
+            <span>Next</span>
+            Ambi Stochastic Encoder
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instrument Pages</h2>
+          <a href="instruments.html">Instruments Overview</a>
+          <a href="loop-processor.html">Loop Processor</a>
+          <a href="multi-loop-processor.html">Multi Loop Processor</a>
+          <a href="ambi-vot-encoder.html">VOT Encoder</a>
+          <a href="ambi-vox-encoder.html">Vox Encoder</a>
+          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
+          <a href="ambi-grain-processor.html">Grain Processor</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#vector-source">Vector Source</a>
+          <a href="#vocal-layer">Vocal Layer</a>
+          <a href="#phrase">Phrase Articulator</a>
+          <a href="#motion">Motion</a>
+          <a href="#routing">Order and Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

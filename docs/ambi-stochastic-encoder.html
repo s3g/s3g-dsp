@@ -35,12 +35,44 @@
 
         <ol>
           <li>Insert <code>s3g Ambi Stochastic Encoder 64</code> on a 64-channel REAPER track.</li>
+          <li>Choose a factory preset or begin from <code>FREE PERIOD</code>.</li>
           <li>Choose <code>FREE</code>, <code>MIDI</code>, or <code>BOTH</code>.</li>
           <li>Set the ambisonic <code>ORDER</code> and active voice count.</li>
           <li>Choose a generator selection law and transition method.</li>
           <li>Shape the random walks, time-fields, topology, and AED projection.</li>
           <li>Follow the instrument with an ambisonic decoder or meter.</li>
         </ol>
+
+        <h2 id="presets">Preset Library</h2>
+
+        <p>The title-bar <code>PRESET</code> menu provides complete starting states. Choosing one resets the evolving generator bank under the new settings and briefly bridges the output for a continuous change.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Preset</th><th>Character</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>FREE PERIOD</td><td>Broad autonomous pitch travel with persistent generator walks.</td></tr>
+            <tr><td>MICRO POINTS</td><td>Fast, sharply articulated point events and rapid period changes.</td></tr>
+            <tr><td>PRESSURE BLOOM</td><td>Slow linked curves with long envelopes and clustered motion.</td></tr>
+            <tr><td>HARSH POLYGONS</td><td>Short binary pressure curves, rupture motion, and hard joins.</td></tr>
+            <tr><td>SPARSE SIGNALS</td><td>Separated high-register events with deliberate resting fields.</td></tr>
+            <tr><td>MARKOV CLUSTERS</td><td>Neighbor-coupled generator choices and converging voice groups.</td></tr>
+            <tr><td>METALLIC FLIGHT</td><td>Bright inharmonic curves moving through an orbital field.</td></tr>
+            <tr><td>SUBHARMONIC TIDES</td><td>Low, long-period pressure motion with slow distributed swells.</td></tr>
+            <tr><td>BINARY FRACTURE</td><td>Extreme binary timing and amplitude walks with scattered motion.</td></tr>
+            <tr><td>SLOW CONSTELLATION</td><td>Stable long-form pressure curves across a wide voice field.</td></tr>
+            <tr><td>MIDI PRESSURE</td><td>MIDI-gated stochastic voices with a focused response envelope.</td></tr>
+            <tr><td>HYBRID FIELD</td><td>MIDI and autonomous time-fields sharing a coupled topology.</td></tr>
+            <tr><td>FULL 7OA FIELD</td><td>A 64-voice, seventh-order field demonstrating maximum scale.</td></tr>
+          </tbody>
+        </table>
+
+        <h3 id="user-presets">User Presets</h3>
+
+        <p><code>SAVE</code> writes the current state as a portable <code>.s3gstochastic</code> file. <code>LOAD</code> restores one through the macOS file chooser. The file contains every synthesis, selection, time-field, envelope, topology, projection, ambisonic-order, and output setting.</p>
+
+        <p>User presets are versioned JSON documents and can be moved between systems or kept with a project archive. Changing a control after loading or selecting a preset marks the current state as <code>CUSTOM</code>. REAPER project state continues to store the complete plugin state independently.</p>
 
         <h2 id="walks">Second-Order Walks</h2>
 
@@ -60,6 +92,8 @@
         </table>
 
         <p>The distribution menus provide <code>UNIFORM</code>, <code>GAUSS</code>, <code>CAUCHY</code>, <code>LOGISTIC</code>, <code>ARCSINE</code>, <code>EXPON</code>, and <code>BINARY</code>. The amplitude and timing walks can use different distributions.</p>
+
+        <p>Controls that become turbulent near their upper limit use a tapered GUI response. The lower and middle regions receive more slider travel, while the most extreme walk, density, spread, and topology values remain available near the right edge. Displayed values, user-preset values, and REAPER automation remain unchanged.</p>
 
         <p><code>BASE</code>, <code>SPREAD</code>, and <code>DEV</code> seed the initial periods. They are not pitch centers after initialization. <code>LOW</code> reflects the total polygon period before it becomes subaudio while preserving the relative duration of every segment. Generator identity and topology Z distribute voices upward from that floor. MIDI notes reseed a voice when assigned.</p>
 
@@ -87,7 +121,9 @@
 
         <h2 id="time-fields">Time-Fields</h2>
 
-        <p>Free-running voices alternate independently between active and resting time-fields. The initial state favors dense, short articulations rather than long rests. <code>DENS</code> sets the probability of an active field, <code>DUR</code> sets its mean duration, and <code>CONT</code> increases duration variation and the influence of topology Y. The ADSR envelope smooths each change of state.</p>
+        <p>Free-running voices alternate independently between active and resting time-fields. <code>DENS</code> sets the probability of an active field, <code>DUR</code> sets its mean duration, and <code>CONT</code> increases duration variation and the influence of topology Y. The ADSR envelope smooths each change of state.</p>
+
+        <p><code>DENS</code> is compensated for the active voice count: the same setting uses a lower per-voice probability as the field grows from 8 toward 64 voices. This keeps the overall texture articulated instead of automatically becoming continuous. The far-right setting still opens nearly the full field when a sustained mass is intentional.</p>
 
         <p>In <code>MIDI</code> mode, note gates replace the autonomous time-fields. <code>BOTH</code> allows either source to open a voice.</p>
 
@@ -137,9 +173,9 @@
         <p>The synthesis design follows documented second-order dynamic-stochastic methods and extends them with realtime generator selection, stochastic concatenation, per-voice time-fields, and topology transfer. See the <a href="https://csound.com/docs/manual/gendy.html" target="_blank" rel="noopener noreferrer">Csound stochastic synthesis reference</a> and <a href="https://doc.sccode.org/Classes/Gendy3.html" target="_blank" rel="noopener noreferrer">SuperCollider Gendy3 reference</a> for related formulations.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambi-vot-encoder.html">
+          <a class="page-nav-link" href="ambi-vox-encoder.html">
             <span>Previous</span>
-            Ambi VOT Encoder
+            Ambi Vox Encoder
           </a>
           <a class="page-nav-link next" href="ambi-grain-processor.html">
             <span>Next</span>
@@ -155,12 +191,14 @@
           <a href="loop-processor.html">Loop Processor</a>
           <a href="multi-loop-processor.html">Multi Loop Processor</a>
           <a href="ambi-vot-encoder.html">VOT Encoder</a>
+          <a href="ambi-vox-encoder.html">Vox Encoder</a>
           <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
           <a href="ambi-grain-processor.html">Grain Processor</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
+          <a href="#presets">Preset Library</a>
           <a href="#walks">Second-Order Walks</a>
           <a href="#selection">Generator Selection</a>
           <a href="#time-fields">Time-Fields</a>

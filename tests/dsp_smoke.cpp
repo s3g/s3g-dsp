@@ -3,10 +3,10 @@
 #include "s3g_3oafx_single_effect.h"
 #include "s3g_ambi_grain_processor.h"
 #include "s3g_ambi_imprint.h"
-#include "s3g_ambi_environment_generator.h"
 #include "s3g_ambisonic_point_encoder.h"
 #include "s3g_ambi_cloud_encoder.h"
 #include "s3g_ambi_stochastic_encoder.h"
+#include "s3g_ambi_stochastic_presets.h"
 #include "s3g_ambi_vot_encoder.h"
 #include "s3g_ambi_vox_encoder.h"
 #include "s3g_ambi_path_encoder.h"
@@ -4187,6 +4187,43 @@ int main()
         stochasticOutputs[channel] = stochasticBuffers[channel].data();
     }
 
+    std::vector<std::string> stochasticPresetNames;
+    for (uint32_t preset = 0u; preset < s3g::kAmbiStochasticFactoryPresetCount; ++preset) {
+        const auto info = s3g::ambiStochasticFactoryPresetInfo(preset);
+        if (!info.name || info.name[0] == '\0' || !info.description || info.description[0] == '\0'
+            || std::find(stochasticPresetNames.begin(), stochasticPresetNames.end(), info.name)
+                != stochasticPresetNames.end()) {
+            std::cerr << "Ambi Stochastic factory preset metadata failed: " << preset << "\n";
+            return 1;
+        }
+        stochasticPresetNames.emplace_back(info.name);
+
+        s3g::AmbiStochasticEncoder presetEncoder;
+        presetEncoder.prepare(48000.0);
+        const auto presetParams = s3g::ambiStochasticFactoryPreset(preset);
+        presetEncoder.setParams(presetParams);
+        presetEncoder.reset();
+        if (presetParams.mode != s3g::AmbiStochasticMode::Free) presetEncoder.noteOn(55, 0.78f);
+        float presetPeak = 0.0f;
+        for (uint32_t block = 0u; block < 20u; ++block) {
+            presetEncoder.process(stochasticOutputs.data(), s3g::kAmbiStochasticMaxChannels, stochasticFrames);
+            for (uint32_t channel = 0u; channel < s3g::kAmbiStochasticMaxChannels; ++channel) {
+                for (float value : stochasticBuffers[channel]) {
+                    if (!std::isfinite(value)) {
+                        std::cerr << "Ambi Stochastic factory preset output is not finite: " << info.name << "\n";
+                        return 1;
+                    }
+                    presetPeak = std::max(presetPeak, std::abs(value));
+                }
+            }
+        }
+        if (presetPeak <= 0.0000001f || presetPeak > 1.01f) {
+            std::cerr << "Ambi Stochastic factory preset peak failed: " << info.name
+                      << " / " << presetPeak << "\n";
+            return 1;
+        }
+    }
+
     s3g::AmbiStochasticEncoder stochasticEncoder;
     stochasticEncoder.prepare(48000.0);
     s3g::AmbiStochasticParams stochasticParams;
@@ -4383,6 +4420,48 @@ int main()
         return 1;
     }
 
+    const auto stochasticActiveFraction = [&](uint32_t voices) {
+        s3g::AmbiStochasticParams densityParams;
+        densityParams.order = 1u;
+        densityParams.voices = voices;
+        densityParams.mode = s3g::AmbiStochasticMode::Free;
+        densityParams.fieldDensity = 0.72f;
+        densityParams.fieldDurationSeconds = 0.05f;
+        densityParams.fieldContrast = 0.0f;
+        densityParams.neighborTransfer = 0.0f;
+        densityParams.topologyMotion = 0u;
+        densityParams.attackMs = 1.0f;
+        densityParams.decayMs = 5.0f;
+        densityParams.sustain = 0.0f;
+        densityParams.releaseMs = 5.0f;
+        densityParams.outputGainDb = -60.0f;
+
+        s3g::AmbiStochasticEncoder densityEncoder;
+        densityEncoder.prepare(48000.0);
+        densityEncoder.setParams(densityParams);
+        densityEncoder.reset();
+        uint64_t activeStates = 0u;
+        uint64_t measuredStates = 0u;
+        for (uint32_t block = 0u; block < 180u; ++block) {
+            densityEncoder.process(stochasticOutputs.data(), 4u, stochasticFrames);
+            if (block < 20u) continue;
+            for (uint32_t voice = 0u; voice < voices; ++voice) {
+                activeStates += densityEncoder.voiceFieldActive(voice) ? 1u : 0u;
+                ++measuredStates;
+            }
+        }
+        return static_cast<float>(activeStates) / static_cast<float>(measuredStates);
+    };
+    const float stochasticDensity8 = stochasticActiveFraction(8u);
+    const float stochasticDensity64 = stochasticActiveFraction(64u);
+    if (stochasticDensity8 < 0.45f || stochasticDensity8 > 0.90f
+        || stochasticDensity64 < 0.04f || stochasticDensity64 > 0.35f
+        || stochasticDensity8 < stochasticDensity64 + 0.30f) {
+        std::cerr << "Ambi Stochastic density did not scale with voice count: "
+                  << stochasticDensity8 << " / " << stochasticDensity64 << "\n";
+        return 1;
+    }
+
     stochasticParams.mode = s3g::AmbiStochasticMode::Midi;
     stochasticParams.voices = 8u;
     stochasticParams.order = 7u;
@@ -4467,134 +4546,6 @@ int main()
         return 1;
     }
 
-    constexpr uint32_t environmentFrames = 256u;
-    s3g::AmbiEnvironmentGenerator environmentGenerator;
-    environmentGenerator.prepare(48000.0);
-    s3g::AmbiEnvironmentParams environmentParams;
-    environmentParams.order = 3u;
-    environmentParams.seed = 24017u;
-    environmentGenerator.setParams(environmentParams);
-    environmentGenerator.reset();
-    std::array<std::array<float, environmentFrames>, s3g::kAmbiEnvironmentMaxChannels> environmentBuffers {};
-    std::array<float*, s3g::kAmbiEnvironmentMaxChannels> environmentOutputs {};
-    for (uint32_t channel = 0u; channel < s3g::kAmbiEnvironmentMaxChannels; ++channel) {
-        environmentOutputs[channel] = environmentBuffers[channel].data();
-    }
-    environmentGenerator.processBlock(environmentOutputs.data(), s3g::kAmbiEnvironmentMaxChannels, environmentFrames);
-    const auto environmentFirstBlock = environmentBuffers;
-    float environmentPeak = 0.0f;
-    for (uint32_t block = 0u; block < 96u; ++block) {
-        environmentGenerator.processBlock(environmentOutputs.data(), s3g::kAmbiEnvironmentMaxChannels, environmentFrames);
-        for (uint32_t channel = 0u; channel < s3g::kAmbiEnvironmentMaxChannels; ++channel) {
-            for (float value : environmentBuffers[channel]) {
-                if (!std::isfinite(value)) {
-                    std::cerr << "Ambi Environment output is not finite\n";
-                    return 1;
-                }
-                environmentPeak = std::max(environmentPeak, std::abs(value));
-                if (channel >= 16u && value != 0.0f) {
-                    std::cerr << "Ambi Environment did not clear channels above selected order\n";
-                    return 1;
-                }
-            }
-        }
-    }
-    if (environmentPeak <= 0.000001f || environmentPeak > 1.01f) {
-        std::cerr << "Ambi Environment peak outside expected range: " << environmentPeak << "\n";
-        return 1;
-    }
-    environmentGenerator.reset();
-    environmentGenerator.processBlock(environmentOutputs.data(), s3g::kAmbiEnvironmentMaxChannels, environmentFrames);
-    for (uint32_t channel = 0u; channel < s3g::kAmbiEnvironmentMaxChannels; ++channel) {
-        for (uint32_t frame = 0u; frame < environmentFrames; ++frame) {
-            if (environmentBuffers[channel][frame] != environmentFirstBlock[channel][frame]) {
-                std::cerr << "Ambi Environment reset was not deterministic\n";
-                return 1;
-            }
-        }
-    }
-    for (uint32_t scene = 0u; scene <= static_cast<uint32_t>(s3g::AmbiEnvironmentScene::Interior); ++scene) {
-        environmentParams.scene = static_cast<s3g::AmbiEnvironmentScene>(scene);
-        environmentGenerator.setParams(environmentParams);
-        environmentGenerator.reset();
-        float scenePeak = 0.0f;
-        for (uint32_t block = 0u; block < 12u; ++block) {
-            environmentGenerator.processBlock(environmentOutputs.data(), 16u, environmentFrames);
-            for (uint32_t channel = 0u; channel < 16u; ++channel) {
-                for (float value : environmentBuffers[channel]) scenePeak = std::max(scenePeak, std::abs(value));
-            }
-        }
-        if (!std::isfinite(scenePeak) || scenePeak <= 0.000001f) {
-            std::cerr << "Ambi Environment scene did not render: " << scene << "\n";
-            return 1;
-        }
-    }
-
-    environmentParams.scene = s3g::AmbiEnvironmentScene::Woodland;
-    environmentParams.order = 3u;
-    environmentParams.fieldAzimuthDeg = 0.0f;
-    environmentParams.fieldElevationDeg = 0.0f;
-    environmentParams.width = 1.0f;
-    environmentGenerator.setParams(environmentParams);
-    environmentGenerator.reset();
-    const auto unrotatedCell = environmentGenerator.cells()[0u];
-    environmentParams.fieldAzimuthDeg = 90.0f;
-    environmentParams.fieldElevationDeg = 24.0f;
-    environmentGenerator.setParams(environmentParams);
-    environmentGenerator.reset();
-    const auto rotatedCell = environmentGenerator.cells()[0u];
-    const auto unrotatedDirection = s3g::directionFromAed(unrotatedCell.azimuthDeg, unrotatedCell.elevationDeg);
-    const auto rotatedDirection = s3g::directionFromAed(rotatedCell.azimuthDeg, rotatedCell.elevationDeg);
-    const float rotationDot = unrotatedDirection.x * rotatedDirection.x
-        + unrotatedDirection.y * rotatedDirection.y
-        + unrotatedDirection.z * rotatedDirection.z;
-    if (rotationDot > 0.82f) {
-        std::cerr << "Ambi Environment field rotation did not affect spatial cells\n";
-        return 1;
-    }
-
-    environmentParams.fieldAzimuthDeg = 0.0f;
-    environmentParams.fieldElevationDeg = 0.0f;
-    environmentParams.walkRate = 1.0f;
-    environmentParams.walkDepth = 1.0f;
-    environmentParams.sourceMotion = 0.0f;
-    environmentGenerator.setParams(environmentParams);
-    environmentGenerator.reset();
-    const auto walkStartCell = environmentGenerator.cells()[0u];
-    for (uint32_t block = 0u; block < 128u; ++block) {
-        environmentGenerator.processBlock(environmentOutputs.data(), 16u, environmentFrames);
-    }
-    const auto walkEndCell = environmentGenerator.cells()[0u];
-    const float walkDelta = std::abs(s3g::ambiEnvironmentWrapDeg(walkEndCell.azimuthDeg - walkStartCell.azimuthDeg))
-        + std::abs(walkEndCell.elevationDeg - walkStartCell.elevationDeg)
-        + std::abs(walkEndCell.distance - walkStartCell.distance) * 10.0f;
-    if (walkDelta < 1.0f) {
-        std::cerr << "Ambi Environment listener walk did not create spatial parallax\n";
-        return 1;
-    }
-
-    environmentParams.fieldAzimuthDeg = 0.0f;
-    environmentParams.fieldElevationDeg = 0.0f;
-    environmentParams.walkRate = 0.16f;
-    environmentParams.walkDepth = 0.35f;
-    environmentParams.sourceMotion = 0.30f;
-    environmentParams.width = 0.0f;
-    environmentGenerator.setParams(environmentParams);
-    environmentGenerator.reset();
-    float environmentOmniPeak = 0.0f;
-    float environmentDirectionalPeak = 0.0f;
-    for (uint32_t block = 0u; block < 16u; ++block) {
-        environmentGenerator.processBlock(environmentOutputs.data(), 16u, environmentFrames);
-        for (float value : environmentBuffers[0u]) environmentOmniPeak = std::max(environmentOmniPeak, std::abs(value));
-        for (uint32_t channel = 1u; channel < 16u; ++channel) {
-            for (float value : environmentBuffers[channel]) environmentDirectionalPeak = std::max(environmentDirectionalPeak, std::abs(value));
-        }
-    }
-    if (environmentOmniPeak <= 0.000001f || environmentDirectionalPeak != 0.0f) {
-        std::cerr << "Ambi Environment width did not collapse to the omnidirectional component\n";
-        return 1;
-    }
-
     std::cout << "s3g-dsp smoke test passed\n";
     std::cout << "layout speakers: " << s3g::kVirtualSpeakerCount << "\n";
     std::cout << "gain ch1 sample4: " << samples[0][3] << "\n";
@@ -4636,9 +4587,12 @@ int main()
     std::cout << "Ambi Stochastic v2 temporal range/duration articulation: "
               << stochasticTemporalMinimum << ".." << stochasticTemporalMaximum
               << " / " << stochasticDurationArticulation << "\n";
+    std::cout << "Ambi Stochastic density 8/64 voices: "
+              << stochasticDensity8 << " / " << stochasticDensity64 << "\n";
     std::cout << "Ambi Stochastic v2 seed/held/reset: "
               << seededFrequency << " / " << heldFrequency << " / " << resetFrequency << "\n";
-    std::cout << "Ambi Environment peak: " << environmentPeak << "\n";
+    std::cout << "Ambi Stochastic factory presets: "
+              << s3g::kAmbiStochasticFactoryPresetCount << "\n";
     std::cout << "Ambi point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "Ambi speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "Ambi object decoder peak: " << objectDecoderPeak << "\n";

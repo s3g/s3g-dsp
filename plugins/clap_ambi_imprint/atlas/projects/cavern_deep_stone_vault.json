@@ -860,6 +860,17 @@
       }
     ]
   },
+  "echo_paths": {
+    "enabled": false,
+    "requested_structure": "off",
+    "resolved_structure": "off",
+    "prominence": 0.58,
+    "persistence": 0.68,
+    "regularity": 0.82,
+    "geometry_driven": true,
+    "event_count": 0,
+    "paths": []
+  },
   "field_offset": {
     "x": 0.26,
     "y": 0.22
@@ -886,6 +897,7 @@
       "early_energy": 0.13633,
       "chamber_energy": 0.00168,
       "branch_energy": 0.00168,
+      "echo_energy": 0,
       "local_profile": {
         "absorption": 0.157,
         "scattering": 0.384,
@@ -914,6 +926,7 @@
       "early_energy": 0.13646,
       "chamber_energy": 0.00135,
       "branch_energy": 0.00135,
+      "echo_energy": 0,
       "local_profile": {
         "absorption": 0.236,
         "scattering": 0.515,
@@ -942,6 +955,7 @@
       "early_energy": 1.12813,
       "chamber_energy": 0.01201,
       "branch_energy": 0.01201,
+      "echo_energy": 0,
       "local_profile": {
         "absorption": 0.215,
         "scattering": 0.37,
@@ -970,6 +984,7 @@
       "early_energy": 1.09944,
       "chamber_energy": 0.00863,
       "branch_energy": 0.00863,
+      "echo_energy": 0,
       "local_profile": {
         "absorption": 0.227,
         "scattering": 0.603,
@@ -998,6 +1013,7 @@
       "early_energy": 0.14156,
       "chamber_energy": 0.00257,
       "branch_energy": 0.00257,
+      "echo_energy": 0,
       "local_profile": {
         "absorption": 0.249,
         "scattering": 0.395,
@@ -1026,6 +1042,7 @@
       "early_energy": 0.20041,
       "chamber_energy": 0.00193,
       "branch_energy": 0.00193,
+      "echo_energy": 0,
       "local_profile": {
         "absorption": 0.185,
         "scattering": 0.571,
@@ -1054,6 +1071,7 @@
       "early_energy": 0.9694,
       "chamber_energy": 0.00713,
       "branch_energy": 0.00713,
+      "echo_energy": 0,
       "local_profile": {
         "absorption": 0.315,
         "scattering": 0.545,
@@ -1082,6 +1100,7 @@
       "early_energy": 1.34854,
       "chamber_energy": 0.0096,
       "branch_energy": 0.0096,
+      "echo_energy": 0,
       "local_profile": {
         "absorption": 0.105,
         "scattering": 0.451,

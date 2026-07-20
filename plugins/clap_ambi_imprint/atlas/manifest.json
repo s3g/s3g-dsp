@@ -13,7 +13,8 @@
       "branch_family_mode": "room",
       "seed": 110103,
       "duration_s": 3.05,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Wood Studio",
@@ -25,7 +26,8 @@
       "branch_family_mode": "room",
       "seed": 110207,
       "duration_s": 1.8,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Limestone Pocket",
@@ -37,7 +39,8 @@
       "branch_family_mode": "cave",
       "seed": 220103,
       "duration_s": 1.85,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Ice Grotto",
@@ -49,7 +52,8 @@
       "branch_family_mode": "cavern",
       "seed": 220211,
       "duration_s": 3.8,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Deep Stone Vault",
@@ -61,7 +65,8 @@
       "branch_family_mode": "cavern",
       "seed": 330107,
       "duration_s": 7.5,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Water Chamber",
@@ -73,7 +78,8 @@
       "branch_family_mode": "mixed",
       "seed": 330223,
       "duration_s": 4.5,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Brick Bend",
@@ -85,7 +91,8 @@
       "branch_family_mode": "room",
       "seed": 440117,
       "duration_s": 4.8,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Metal Conduit",
@@ -97,7 +104,8 @@
       "branch_family_mode": "tunnel",
       "seed": 440229,
       "duration_s": 1.5,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Dry Slot",
@@ -109,7 +117,8 @@
       "branch_family_mode": "canyon",
       "seed": 550101,
       "duration_s": 3.6,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Porous Gorge",
@@ -121,7 +130,8 @@
       "branch_family_mode": "cave",
       "seed": 550239,
       "duration_s": 3.35,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Forest Ring",
@@ -133,7 +143,8 @@
       "branch_family_mode": "clearing",
       "seed": 660109,
       "duration_s": 1.6,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Water Meadow",
@@ -145,7 +156,73 @@
       "branch_family_mode": "mixed",
       "seed": 660241,
       "duration_s": 2.1,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
+    },
+    {
+      "name": "Stone Flutter Gallery",
+      "category": "Echo",
+      "description": "A narrow hard-stone gallery with a highly regular alternating flutter path.",
+      "file": "echo_stone_flutter_gallery.s3gimprint",
+      "project_file": "projects/echo_stone_flutter_gallery.json",
+      "family": "room",
+      "branch_family_mode": "room",
+      "seed": 880101,
+      "duration_s": 3.2,
+      "profiles": 8,
+      "echo_structure": "flutter"
+    },
+    {
+      "name": "Metal Axial Tunnel",
+      "category": "Echo",
+      "description": "A long enclosed metal passage with pronounced front-to-back axial returns.",
+      "file": "echo_metal_axial_tunnel.s3gimprint",
+      "project_file": "projects/echo_metal_axial_tunnel.json",
+      "family": "tunnel",
+      "branch_family_mode": "tunnel",
+      "seed": 880203,
+      "duration_s": 4,
+      "profiles": 8,
+      "echo_structure": "axial"
+    },
+    {
+      "name": "Twin Concrete Chambers",
+      "category": "Echo",
+      "description": "Two deep concrete side chambers return distinct portal-coupled echo trains.",
+      "file": "echo_twin_concrete_chambers.s3gimprint",
+      "project_file": "projects/echo_twin_concrete_chambers.json",
+      "family": "room",
+      "branch_family_mode": "room",
+      "seed": 880307,
+      "duration_s": 4,
+      "profiles": 8,
+      "echo_structure": "coupled"
+    },
+    {
+      "name": "Stone Perimeter Circuit",
+      "category": "Echo",
+      "description": "A broad irregular cavern whose returns circulate around a stone perimeter.",
+      "file": "echo_stone_perimeter_circuit.s3gimprint",
+      "project_file": "projects/echo_stone_perimeter_circuit.json",
+      "family": "cavern",
+      "branch_family_mode": "cavern",
+      "seed": 880409,
+      "duration_s": 4,
+      "profiles": 8,
+      "echo_structure": "circulating"
+    },
+    {
+      "name": "Impossible Echo Relay",
+      "category": "Echo",
+      "description": "A mixed network relays irregular echoes through nested impossible chambers.",
+      "file": "echo_impossible_relay.s3gimprint",
+      "project_file": "projects/echo_impossible_relay.json",
+      "family": "abstract",
+      "branch_family_mode": "mixed",
+      "seed": 880503,
+      "duration_s": 4,
+      "profiles": 8,
+      "echo_structure": "coupled"
     },
     {
       "name": "Folded Chamber",
@@ -157,7 +234,8 @@
       "branch_family_mode": "mixed",
       "seed": 770113,
       "duration_s": 2.25,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     },
     {
       "name": "Impossible Network",
@@ -169,7 +247,8 @@
       "branch_family_mode": "mixed",
       "seed": 770257,
       "duration_s": 6.35,
-      "profiles": 8
+      "profiles": 8,
+      "echo_structure": null
     }
   ]
 }

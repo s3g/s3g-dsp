@@ -23,7 +23,6 @@ bundles=(
   "$src_root/clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap"
   "$src_root/clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap"
   "$src_root/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap"
-  "$src_root/clap_ambi_environment_generator/s3g_ambi_environment_generator.clap"
   "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"
   "$src_root/clap_ambi_path_encoder/s3g_ambi_path_encoder.clap"
   "$src_root/clap_3oafx_speaker_decoder/s3g_3oafx_speaker_decoder.clap"
@@ -132,7 +131,7 @@ Included plugins:
 - s3g Ambi VOT Encoder 64
 - s3g Ambi Vox Encoder 64
 - s3g Ambi Stochastic Encoder 64
-- s3g Ambi Environment Generator 64
+- s3g Ambi Imprint 64
 - s3g Ambi Path Encoder 64
 - s3g Ambi Speaker Decoder 64
 - s3g Layout Panner

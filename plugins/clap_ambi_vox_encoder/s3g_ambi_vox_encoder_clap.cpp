@@ -30,9 +30,10 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiVotMaxChannels;
-constexpr uint32_t kStateVersion = 7;
+constexpr uint32_t kStateVersion = 9;
 constexpr uint32_t kGuiW = 1160;
-constexpr uint32_t kGuiH = 894;
+constexpr uint32_t kGuiH = 1030;
+constexpr uint32_t kVoxPhraseMaxChars = 256;
 
 constexpr clap_id kOrderParamId = 1;
 constexpr clap_id kVoicesParamId = 2;
@@ -81,6 +82,11 @@ constexpr clap_id kJitterParamId = 44;
 constexpr clap_id kVowelSpreadParamId = 45;
 constexpr clap_id kPitchScoopParamId = 46;
 constexpr clap_id kAttackShapeParamId = 47;
+constexpr clap_id kArticulationParamId = 48;
+constexpr clap_id kConsonantParamId = 49;
+constexpr clap_id kPlosiveParamId = 50;
+constexpr clap_id kSibilanceParamId = 51;
+constexpr clap_id kPhraseRateParamId = 52;
 
 struct LegacyParamsV1 {
     uint32_t order = 3;
@@ -247,6 +253,17 @@ struct SavedStateV5 {
     float guiViewZoom = 1.0f;
 };
 
+struct VoxParamsV7 {
+    float rasp = 0.42f;
+    float breath = 0.18f;
+    float throat = 0.56f;
+    float drive = 0.48f;
+    float jitter = 0.12f;
+    float vowelSpread = 0.22f;
+    float pitchScoop = 0.18f;
+    float attackShape = 0.62f;
+};
+
 struct VoxParams {
     float rasp = 0.42f;
     float breath = 0.18f;
@@ -256,6 +273,11 @@ struct VoxParams {
     float vowelSpread = 0.22f;
     float pitchScoop = 0.18f;
     float attackShape = 0.62f;
+    float articulation = 0.52f;
+    float consonant = 0.34f;
+    float plosive = 0.08f;
+    float sibilance = 0.32f;
+    float phraseRate = 0.55f;
 };
 
 struct SavedStateV6 {
@@ -271,11 +293,41 @@ struct SavedStateV6 {
     std::array<float, s3g::kAmbiVotAtlasSampleCount> userAtlas {};
 };
 
+struct SavedStateV7 {
+    uint32_t version = 7;
+    s3g::AmbiVotParams params {};
+    s3g::AmbiVotVectorScore score = s3g::ambiVotDefaultScore();
+    VoxParamsV7 vox {};
+    int32_t guiPage = 0;
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+    uint32_t hasUserAtlas = 0u;
+    std::array<float, s3g::kAmbiVotAtlasSampleCount> userAtlas {};
+};
+
+struct SavedStateV8 {
+    uint32_t version = 8;
+    s3g::AmbiVotParams params {};
+    s3g::AmbiVotVectorScore score = s3g::ambiVotDefaultScore();
+    VoxParams vox {};
+    int32_t guiPage = 0;
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+    uint32_t hasUserAtlas = 0u;
+    std::array<float, s3g::kAmbiVotAtlasSampleCount> userAtlas {};
+};
+
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiVotParams params {};
     s3g::AmbiVotVectorScore score = s3g::ambiVotDefaultScore();
     VoxParams vox {};
+    std::array<uint8_t, kVoxPhraseMaxChars> phrase {};
+    uint32_t phraseLength = 0u;
     int32_t guiPage = 0;
     int32_t guiViewMode = 2;
     float guiViewAzDeg = 38.0f;
@@ -304,6 +356,30 @@ struct Plugin {
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<uint32_t> lastMidiNote { 0u };
     uint32_t voxNoiseState = 0x51f15eedu;
+    float voxConsonantEnv = 0.0f;
+    float voxConsonantLevel = 0.0f;
+    float voxPlosiveEnv = 0.0f;
+    float voxPlosiveLevel = 0.0f;
+    float voxPhrasePhase = 0.0f;
+    float voxSibilantState = 0.0f;
+    float voxFricativeState = 0.0f;
+    float voxPhraseU = 0.72f;
+    float voxPhraseV = 0.64f;
+    uint32_t voxPhraseIndex = 0u;
+    uint32_t voxPhraseHold = 0u;
+    float voxPhraseBreathEnv = 0.0f;
+    float voxPhraseVowelEnv = 0.0f;
+    float voxPhraseVowelU = 0.72f;
+    float voxPhraseVowelV = 0.64f;
+    float voxCarrierEnv = 0.0f;
+    float voxFormant1Low = 0.0f;
+    float voxFormant1Band = 0.0f;
+    float voxFormant2Low = 0.0f;
+    float voxFormant2Band = 0.0f;
+    float voxFormant3Low = 0.0f;
+    float voxFormant3Band = 0.0f;
+    std::array<std::atomic<uint8_t>, kVoxPhraseMaxChars> voxPhrase {};
+    std::atomic<uint32_t> voxPhraseLength { 0u };
 #if defined(__APPLE__)
     void* guiView = nullptr;
     std::atomic<bool> guiVisible { false };
@@ -373,6 +449,152 @@ std::shared_ptr<const s3g::AmbiVotTableBank> activeBank(Plugin& plugin)
     return plugin.presetBanks[index];
 }
 
+std::string loadVoxPhrase(const Plugin& plugin)
+{
+    const uint32_t length = std::min<uint32_t>(
+        plugin.voxPhraseLength.load(std::memory_order_acquire), kVoxPhraseMaxChars - 1u);
+    std::string text;
+    text.reserve(length);
+    for (uint32_t i = 0; i < length; ++i) {
+        const uint8_t ch = plugin.voxPhrase[i].load(std::memory_order_relaxed);
+        if (ch == 0u) break;
+        text.push_back(static_cast<char>(ch));
+    }
+    return text;
+}
+
+void storeVoxPhrase(Plugin& plugin, const char* text)
+{
+    const size_t length = text ? std::min(std::strlen(text), static_cast<size_t>(kVoxPhraseMaxChars - 1u)) : 0u;
+    for (uint32_t i = 0; i < kVoxPhraseMaxChars; ++i) {
+        const uint8_t ch = i < length ? static_cast<uint8_t>(text[i]) : 0u;
+        plugin.voxPhrase[i].store(ch, std::memory_order_relaxed);
+    }
+    plugin.voxPhraseLength.store(static_cast<uint32_t>(length), std::memory_order_release);
+}
+
+struct VoxSpeechGlyph {
+    float u = 0.72f;
+    float v = 0.64f;
+    float consonant = 0.35f;
+    float plosive = 0.0f;
+    float sibilance = 0.0f;
+    float breath = 0.0f;
+    uint32_t advance = 1u;
+    uint32_t hold = 0u;
+    bool vowel = false;
+    bool rest = false;
+};
+
+char voxLowerAscii(uint8_t ch)
+{
+    return ch >= 'A' && ch <= 'Z' ? static_cast<char>(ch + ('a' - 'A')) : static_cast<char>(ch);
+}
+
+VoxSpeechGlyph voxGlyphForChar(uint8_t raw)
+{
+    const char ch = voxLowerAscii(raw);
+    VoxSpeechGlyph glyph {};
+    switch (ch) {
+    case 'a': glyph.u = 0.18f; glyph.v = 0.44f; glyph.vowel = true; glyph.hold = 1u; break;
+    case 'e': glyph.u = 0.86f; glyph.v = 0.30f; glyph.vowel = true; glyph.hold = 1u; break;
+    case 'i': glyph.u = 0.78f; glyph.v = 0.12f; glyph.vowel = true; glyph.hold = 1u; break;
+    case 'o': glyph.u = 0.30f; glyph.v = 0.72f; glyph.vowel = true; glyph.hold = 1u; break;
+    case 'u': glyph.u = 0.56f; glyph.v = 0.88f; glyph.vowel = true; glyph.hold = 1u; break;
+    case 'y': glyph.u = 0.78f; glyph.v = 0.56f; glyph.vowel = true; glyph.hold = 1u; break;
+    case 'p': case 'b':
+        glyph.consonant = 0.68f; glyph.plosive = 0.62f; glyph.u = 0.20f; glyph.v = 0.35f; break;
+    case 't': case 'd':
+        glyph.consonant = 0.62f; glyph.plosive = 0.36f; glyph.sibilance = 0.25f; glyph.u = 0.70f; glyph.v = 0.25f; break;
+    case 'k': case 'g': case 'q':
+        glyph.consonant = 0.66f; glyph.plosive = 0.44f; glyph.u = 0.38f; glyph.v = 0.72f; break;
+    case 's': case 'z': case 'x':
+        glyph.consonant = 0.92f; glyph.sibilance = 1.0f; glyph.breath = 0.24f; glyph.u = 0.88f; glyph.v = 0.18f; break;
+    case 'f': case 'v':
+        glyph.consonant = 0.70f; glyph.sibilance = 0.72f; glyph.breath = 0.30f; glyph.u = 0.68f; glyph.v = 0.38f; break;
+    case 'h':
+        glyph.consonant = 0.42f; glyph.sibilance = 0.50f; glyph.breath = 0.48f; glyph.u = 0.48f; glyph.v = 0.80f; break;
+    case 'r':
+        glyph.consonant = 0.48f; glyph.plosive = 0.18f; glyph.u = 0.42f; glyph.v = 0.68f; break;
+    case 'l': case 'm': case 'n': case 'w':
+        glyph.consonant = 0.36f; glyph.u = 0.52f; glyph.v = 0.58f; break;
+    case ' ':
+    case '\t':
+    case '\n':
+    case '.':
+    case ',':
+    case ';':
+    case ':':
+    case '!':
+    case '?':
+    case '-':
+        glyph.rest = true;
+        glyph.consonant = 0.0f;
+        break;
+    default:
+        glyph.consonant = 0.28f;
+        break;
+    }
+    return glyph;
+}
+
+VoxSpeechGlyph voxGlyphForPhrase(const Plugin& plugin, uint32_t index)
+{
+    const uint32_t length = std::min<uint32_t>(
+        plugin.voxPhraseLength.load(std::memory_order_acquire), kVoxPhraseMaxChars - 1u);
+    const uint8_t raw0 = index < length ? plugin.voxPhrase[index].load(std::memory_order_relaxed) : 0u;
+    const uint8_t raw1 = index + 1u < length ? plugin.voxPhrase[index + 1u].load(std::memory_order_relaxed) : 0u;
+    const char a = voxLowerAscii(raw0);
+    const char b = voxLowerAscii(raw1);
+    VoxSpeechGlyph glyph {};
+
+    if (a == 's' && b == 'h') {
+        glyph.consonant = 0.95f; glyph.sibilance = 0.92f; glyph.breath = 0.42f;
+        glyph.u = 0.82f; glyph.v = 0.24f; glyph.advance = 2u; glyph.hold = 1u; return glyph;
+    }
+    if (a == 'c' && b == 'h') {
+        glyph.consonant = 0.78f; glyph.plosive = 0.24f; glyph.sibilance = 0.62f;
+        glyph.u = 0.76f; glyph.v = 0.28f; glyph.advance = 2u; return glyph;
+    }
+    if (a == 't' && b == 'h') {
+        glyph.consonant = 0.70f; glyph.sibilance = 0.55f; glyph.breath = 0.36f;
+        glyph.u = 0.70f; glyph.v = 0.34f; glyph.advance = 2u; return glyph;
+    }
+    if ((a == 'p' && b == 'h') || (a == 'g' && b == 'h')) {
+        glyph.consonant = 0.66f; glyph.sibilance = 0.68f; glyph.breath = 0.34f;
+        glyph.u = 0.66f; glyph.v = 0.40f; glyph.advance = 2u; return glyph;
+    }
+    if (a == 'n' && b == 'g') {
+        glyph.consonant = 0.32f; glyph.u = 0.38f; glyph.v = 0.76f;
+        glyph.advance = 2u; glyph.hold = 1u; return glyph;
+    }
+    if (a == 'o' && b == 'o') {
+        glyph.u = 0.54f; glyph.v = 0.92f; glyph.vowel = true; glyph.advance = 2u; glyph.hold = 3u; return glyph;
+    }
+    if (a == 'e' && b == 'e') {
+        glyph.u = 0.90f; glyph.v = 0.14f; glyph.vowel = true; glyph.advance = 2u; glyph.hold = 3u; return glyph;
+    }
+    if (a == 'a' && (b == 'i' || b == 'y')) {
+        glyph.u = 0.78f; glyph.v = 0.22f; glyph.vowel = true; glyph.advance = 2u; glyph.hold = 2u; return glyph;
+    }
+    if (a == 'o' && (b == 'w' || b == 'u')) {
+        glyph.u = 0.42f; glyph.v = 0.86f; glyph.vowel = true; glyph.advance = 2u; glyph.hold = 2u; return glyph;
+    }
+    if (a == 'o' && b == 'i') {
+        glyph.u = 0.66f; glyph.v = 0.52f; glyph.vowel = true; glyph.advance = 2u; glyph.hold = 2u; return glyph;
+    }
+    if (a == 'e' && b == 'r') {
+        glyph.u = 0.46f; glyph.v = 0.62f; glyph.vowel = true; glyph.advance = 2u; glyph.hold = 2u; return glyph;
+    }
+    if (a == 'a' && b == 'r') {
+        glyph.u = 0.20f; glyph.v = 0.62f; glyph.vowel = true; glyph.advance = 2u; glyph.hold = 2u; return glyph;
+    }
+    if (a == 'o' && b == 'r') {
+        glyph.u = 0.34f; glyph.v = 0.78f; glyph.vowel = true; glyph.advance = 2u; glyph.hold = 2u; return glyph;
+    }
+    return voxGlyphForChar(raw0);
+}
+
 float voxUnitNoise(uint32_t& state)
 {
     state = state * 1664525u + 1013904223u;
@@ -387,18 +609,88 @@ float voxSoftSat(float value)
     return value / (1.0f + std::fabs(value));
 }
 
+float voxBandpass(float input, float frequency, float resonance, double sampleRate, float& low, float& band)
+{
+    const float safeFrequency = std::clamp(frequency, 80.0f, static_cast<float>(sampleRate) * 0.42f);
+    const float f = 2.0f * std::sin(s3g::kPi * safeFrequency / static_cast<float>(sampleRate));
+    const float damp = std::clamp(resonance, 0.06f, 1.70f);
+    low += f * band;
+    const float high = input - low - damp * band;
+    band += f * high;
+    low = s3g::flushDenormal(std::clamp(low, -8.0f, 8.0f));
+    band = s3g::flushDenormal(std::clamp(band, -8.0f, 8.0f));
+    return band;
+}
+
 s3g::AmbiVotParams voxRenderParams(const s3g::AmbiVotParams& source, const VoxParams& vox)
 {
     s3g::AmbiVotParams params = source;
-    params.detune = std::clamp(source.detune + vox.jitter * 0.34f + vox.rasp * 0.04f, 0.0f, 1.0f);
-    params.pitchSpread = std::clamp(source.pitchSpread + vox.pitchScoop * 0.38f, 0.0f, 2.0f);
-    params.morph = std::clamp(source.morph + (vox.vowelSpread - 0.5f) * 0.30f + vox.rasp * 0.08f, 0.0f, 1.0f);
+    params.detune = std::clamp(source.detune + vox.jitter * 0.34f + vox.rasp * 0.04f + vox.consonant * 0.05f, 0.0f, 1.0f);
+    params.pitchSpread = std::clamp(source.pitchSpread + vox.pitchScoop * 0.38f + vox.articulation * 0.03f, 0.0f, 2.0f);
+    params.morph = std::clamp(source.morph + (vox.vowelSpread - 0.5f) * 0.30f + vox.rasp * 0.08f + vox.articulation * 0.06f, 0.0f, 1.0f);
     params.vectorX = std::clamp(source.vectorX + (vox.throat - 0.5f) * 0.22f, 0.0f, 1.0f);
     params.vectorY = std::clamp(source.vectorY + (vox.rasp - 0.5f) * 0.18f + vox.breath * 0.08f, 0.0f, 1.0f);
-    params.scan = std::clamp(source.scan + vox.vowelSpread * 0.14f, 0.0f, 1.0f);
+    params.scan = std::clamp(source.scan + vox.vowelSpread * 0.14f + vox.phraseRate * 0.04f, 0.0f, 1.0f);
     params.harmonicAmount = std::clamp(source.harmonicAmount + vox.drive * 0.18f, 0.0f, 1.0f);
     params.subharmonicAmount = std::clamp(source.subharmonicAmount + vox.throat * 0.16f, 0.0f, 1.0f);
     params.attackMs = std::clamp(source.attackMs * (0.35f + vox.attackShape * 1.45f), 1.0f, 2000.0f);
+    return params;
+}
+
+void triggerVoxConsonant(Plugin& plugin, float strength)
+{
+    const float amount = std::clamp(strength, 0.0f, 1.0f) * std::clamp(plugin.vox.articulation, 0.0f, 1.0f);
+    plugin.voxConsonantEnv = std::max(plugin.voxConsonantEnv, amount);
+    plugin.voxPlosiveEnv = std::max(plugin.voxPlosiveEnv, amount * std::clamp(plugin.vox.plosive, 0.0f, 1.0f));
+}
+
+void advanceVoxPhrase(Plugin& plugin, float strength)
+{
+    const uint32_t length = std::min<uint32_t>(
+        plugin.voxPhraseLength.load(std::memory_order_acquire), kVoxPhraseMaxChars - 1u);
+    if (length == 0u) {
+        triggerVoxConsonant(plugin, strength);
+        return;
+    }
+    if (plugin.voxPhraseHold > 0u) {
+        --plugin.voxPhraseHold;
+        plugin.voxPhraseU = s3g::lerp(plugin.voxPhraseU, plugin.voxPhraseU, 0.20f);
+        plugin.voxPhraseV = s3g::lerp(plugin.voxPhraseV, plugin.voxPhraseV, 0.20f);
+        return;
+    }
+    const uint32_t index = plugin.voxPhraseIndex % length;
+    const VoxSpeechGlyph glyph = voxGlyphForPhrase(plugin, index);
+    plugin.voxPhraseIndex = (index + std::max<uint32_t>(1u, glyph.advance)) % length;
+    if (glyph.rest) {
+        plugin.voxPhraseHold = std::max<uint32_t>(1u, glyph.hold);
+        return;
+    }
+    const float vowelWeight = glyph.vowel ? 0.88f : 0.34f;
+    plugin.voxPhraseU = s3g::lerp(plugin.voxPhraseU, glyph.u, vowelWeight);
+    plugin.voxPhraseV = s3g::lerp(plugin.voxPhraseV, glyph.v, vowelWeight);
+    plugin.voxPhraseVowelU = plugin.voxPhraseU;
+    plugin.voxPhraseVowelV = plugin.voxPhraseV;
+    plugin.voxPhraseHold = glyph.hold;
+    const float articulation = std::clamp(plugin.vox.articulation, 0.0f, 1.0f);
+    const float amount = std::clamp(strength, 0.0f, 1.0f) * articulation;
+    if (glyph.vowel || glyph.hold > 0u) {
+        plugin.voxPhraseVowelEnv = std::max(plugin.voxPhraseVowelEnv, amount * (glyph.vowel ? 1.0f : 0.42f));
+    }
+    plugin.voxConsonantEnv = std::max(plugin.voxConsonantEnv, amount * glyph.consonant);
+    plugin.voxPlosiveEnv = std::max(plugin.voxPlosiveEnv, amount * glyph.plosive * std::clamp(plugin.vox.plosive, 0.0f, 1.0f));
+    plugin.voxPhraseBreathEnv = std::max(plugin.voxPhraseBreathEnv, amount * glyph.breath);
+    plugin.voxSibilantState += glyph.sibilance * std::clamp(plugin.vox.sibilance, 0.0f, 1.0f) * 0.006f;
+}
+
+s3g::AmbiVotParams applyVoxPhraseToRenderParams(const Plugin& plugin, s3g::AmbiVotParams params)
+{
+    const uint32_t length = plugin.voxPhraseLength.load(std::memory_order_acquire);
+    if (length == 0u) return params;
+    const float amount = std::clamp(plugin.vox.articulation * 0.85f + plugin.vox.vowelSpread * 0.35f, 0.0f, 0.96f);
+    params.vectorX = std::clamp(s3g::lerp(params.vectorX, plugin.voxPhraseU, amount), 0.0f, 1.0f);
+    params.vectorY = std::clamp(s3g::lerp(params.vectorY, plugin.voxPhraseV, amount), 0.0f, 1.0f);
+    params.morph = std::clamp(params.morph + plugin.voxPhraseVowelEnv * 0.22f, 0.0f, 1.0f);
+    params.scan = std::clamp(params.scan + std::fabs(plugin.voxPhraseU - 0.5f) * plugin.voxPhraseVowelEnv * 0.20f, 0.0f, 1.0f);
     return params;
 }
 
@@ -409,26 +701,104 @@ void applyVoxPostProcess(Plugin& plugin, float* const* outputs, uint32_t channel
     const float breath = std::clamp(vox.breath, 0.0f, 1.0f);
     const float throat = std::clamp(vox.throat, 0.0f, 1.0f);
     const float drive = std::clamp(vox.drive, 0.0f, 1.0f);
-    if (rasp <= 0.0001f && breath <= 0.0001f && throat <= 0.0001f && drive <= 0.0001f) return;
+    const float articulation = std::clamp(vox.articulation, 0.0f, 1.0f);
+    const float consonant = std::clamp(vox.consonant, 0.0f, 1.0f);
+    const float plosive = std::clamp(vox.plosive, 0.0f, 1.0f);
+    const float sibilance = std::clamp(vox.sibilance, 0.0f, 1.0f);
+    const float phraseRate = std::clamp(vox.phraseRate, 0.0f, 1.0f);
+    if (rasp <= 0.0001f && breath <= 0.0001f && throat <= 0.0001f && drive <= 0.0001f
+        && articulation <= 0.0001f && consonant <= 0.0001f && plosive <= 0.0001f && sibilance <= 0.0001f) {
+        return;
+    }
 
     uint32_t noiseState = plugin.voxNoiseState;
     const float driveGain = 1.0f + drive * 6.0f;
     const float driveNorm = 1.0f / std::max(0.0001f, voxSoftSat(driveGain));
+    const float consonantAttack = 1.0f - std::exp(-1.0f / (0.014f * static_cast<float>(plugin.sampleRate)));
+    const float plosiveAttack = 1.0f - std::exp(-1.0f / (0.010f * static_cast<float>(plugin.sampleRate)));
+    const float consonantDecay = std::exp(-1.0f / ((0.115f + articulation * 0.070f) * static_cast<float>(plugin.sampleRate)));
+    const float plosiveDecay = std::exp(-1.0f / ((0.060f + plosive * 0.040f) * static_cast<float>(plugin.sampleRate)));
+    const float vowelDecay = std::exp(-1.0f / ((0.180f + articulation * 0.120f) * static_cast<float>(plugin.sampleRate)));
+    const float carrierAttack = 1.0f - std::exp(-1.0f / (0.012f * static_cast<float>(plugin.sampleRate)));
+    const float carrierRelease = 1.0f - std::exp(-1.0f / (0.090f * static_cast<float>(plugin.sampleRate)));
+    const float phraseHz = 0.55f + phraseRate * 8.45f;
+    const float phraseStep = phraseHz / static_cast<float>(plugin.sampleRate);
     for (uint32_t frame = 0; frame < frames; ++frame) {
         const float w = (channels > 0u && outputs[0]) ? outputs[0][frame] : 0.0f;
+        const float carrierTarget = std::clamp(std::fabs(w) * 18.0f, 0.0f, 1.0f);
+        plugin.voxCarrierEnv += (carrierTarget - plugin.voxCarrierEnv)
+            * (carrierTarget > plugin.voxCarrierEnv ? carrierAttack : carrierRelease);
+        const float carrierGate = std::clamp((plugin.voxCarrierEnv - 0.006f) * 2.8f, 0.0f, 1.0f);
+        if (plugin.params.mode != s3g::AmbiVotMode::Midi && articulation > 0.001f && carrierGate > 0.02f) {
+            plugin.voxPhrasePhase += phraseStep;
+            if (plugin.voxPhrasePhase >= 1.0f) {
+                plugin.voxPhrasePhase -= std::floor(plugin.voxPhrasePhase);
+                advanceVoxPhrase(plugin, carrierGate * (0.38f + 0.62f * phraseRate));
+            }
+        }
         const float energy = std::clamp(std::fabs(w) * 6.0f, 0.0f, 1.0f);
-        const float breathNoise = voxUnitNoise(noiseState) * breath * (0.0018f + energy * 0.010f);
+        const float noise = voxUnitNoise(noiseState);
+        plugin.voxConsonantLevel += (plugin.voxConsonantEnv - plugin.voxConsonantLevel) * consonantAttack;
+        plugin.voxPlosiveLevel += (plugin.voxPlosiveEnv - plugin.voxPlosiveLevel) * plosiveAttack;
+        plugin.voxFricativeState += (noise - plugin.voxFricativeState) * 0.10f;
+        const float fricative = noise - plugin.voxFricativeState;
+        const float sibilant = fricative - plugin.voxSibilantState * 0.45f;
+        plugin.voxSibilantState = noise;
+        const float phraseBreath = carrierGate * plugin.voxPhraseBreathEnv * (0.006f + 0.016f * sibilance);
+        const float breathNoise = carrierGate * noise * breath * (0.0018f + energy * 0.010f) + fricative * phraseBreath;
+        const float consonantBurst = carrierGate * sibilant * (plugin.voxConsonantLevel * consonant * (0.020f + 0.052f * sibilance));
+        const float plosiveThump = carrierGate * plugin.voxPlosiveLevel * plosive * (0.010f + 0.026f * throat);
+        const float transientDucker = 1.0f - carrierGate * plugin.voxPlosiveLevel * plosive * 0.045f;
+        const float vowelEnv = carrierGate * plugin.voxPhraseVowelEnv * articulation;
+        const float vowelDrive = 1.4f + plugin.voxPhraseVowelU * 5.5f + plugin.voxPhraseVowelV * 2.5f;
+        const float vowelDark = 0.55f + plugin.voxPhraseVowelV * 0.55f;
+        const float f1 = 260.0f + plugin.voxPhraseVowelV * 760.0f;
+        const float f2 = 850.0f + plugin.voxPhraseVowelU * 1850.0f - plugin.voxPhraseVowelV * 360.0f;
+        const float f3 = 2300.0f + plugin.voxPhraseVowelU * 1200.0f;
+        const float formantDrive = vowelEnv * (0.10f + plugin.vox.vowelSpread * 0.32f);
         for (uint32_t ch = 0; ch < channels; ++ch) {
             if (!outputs[ch]) continue;
             float y = outputs[ch][frame];
+            float formant = 0.0f;
+            if (ch == 0u && formantDrive > 0.0001f) {
+                const float excitation = voxSoftSat((y + w * 0.7f + breathNoise * 5.0f) * (1.4f + drive * 2.2f));
+                const float bp1 = voxBandpass(excitation, f1, 0.18f, plugin.sampleRate, plugin.voxFormant1Low, plugin.voxFormant1Band);
+                const float bp2 = voxBandpass(excitation, f2, 0.11f, plugin.sampleRate, plugin.voxFormant2Low, plugin.voxFormant2Band);
+                const float bp3 = voxBandpass(excitation + sibilant * 0.18f, f3, 0.09f, plugin.sampleRate, plugin.voxFormant3Low, plugin.voxFormant3Band);
+                formant = (bp1 * (0.50f + plugin.voxPhraseVowelV * 0.35f)
+                    + bp2 * (0.42f + plugin.voxPhraseVowelU * 0.38f)
+                    + bp3 * (0.18f + sibilance * 0.28f)) * formantDrive;
+            }
             const float driven = voxSoftSat(y * driveGain) * driveNorm;
             const float rasped = voxSoftSat(y * (2.0f + rasp * 11.0f)) - voxSoftSat(y * 1.6f);
+            const float vowelColor = (voxSoftSat(y * vowelDrive) - voxSoftSat(y * vowelDark)) * vowelEnv;
             y = y * (1.0f - drive * 0.32f) + driven * (drive * 0.32f);
             y += rasped * rasp * 0.22f;
-            if (ch == 0u) y += breathNoise + voxSoftSat(w * 2.5f) * throat * 0.10f;
-            else y *= 1.0f - throat * 0.045f;
+            y += vowelColor * (0.065f + 0.12f * plugin.vox.vowelSpread);
+            y *= transientDucker;
+            if (ch == 0u) y += formant + breathNoise + consonantBurst + plosiveThump + voxSoftSat(w * 2.5f) * throat * 0.10f;
+            else {
+                const float spatialSpray = ((ch & 1u) == 0u ? 1.0f : -1.0f) * consonantBurst * 0.18f;
+                y = y * (1.0f - throat * 0.045f) + spatialSpray;
+            }
             outputs[ch][frame] = std::clamp(y, -1.5f, 1.5f);
         }
+        plugin.voxConsonantEnv *= consonantDecay;
+        plugin.voxPlosiveEnv *= plosiveDecay;
+        plugin.voxPhraseBreathEnv *= consonantDecay;
+        plugin.voxPhraseVowelEnv *= vowelDecay;
+        if (carrierGate <= 0.001f) {
+            plugin.voxConsonantEnv *= 0.94f;
+            plugin.voxPlosiveEnv *= 0.92f;
+            plugin.voxPhraseBreathEnv *= 0.94f;
+            plugin.voxPhraseVowelEnv *= 0.97f;
+        }
+        plugin.voxConsonantLevel *= 0.99985f;
+        plugin.voxPlosiveLevel *= 0.99980f;
+        if (plugin.voxConsonantEnv < 0.000001f) plugin.voxConsonantEnv = 0.0f;
+        if (plugin.voxPlosiveEnv < 0.000001f) plugin.voxPlosiveEnv = 0.0f;
+        if (plugin.voxPhraseBreathEnv < 0.000001f) plugin.voxPhraseBreathEnv = 0.0f;
+        if (plugin.voxPhraseVowelEnv < 0.000001f) plugin.voxPhraseVowelEnv = 0.0f;
     }
     plugin.voxNoiseState = noiseState;
 }
@@ -648,6 +1018,11 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kVowelSpreadParamId: plugin.vox.vowelSpread = std::clamp(static_cast<float>(value), 0.0f, 1.0f); break;
     case kPitchScoopParamId: plugin.vox.pitchScoop = std::clamp(static_cast<float>(value), 0.0f, 1.0f); break;
     case kAttackShapeParamId: plugin.vox.attackShape = std::clamp(static_cast<float>(value), 0.0f, 1.0f); break;
+    case kArticulationParamId: plugin.vox.articulation = std::clamp(static_cast<float>(value), 0.0f, 1.0f); break;
+    case kConsonantParamId: plugin.vox.consonant = std::clamp(static_cast<float>(value), 0.0f, 1.0f); break;
+    case kPlosiveParamId: plugin.vox.plosive = std::clamp(static_cast<float>(value), 0.0f, 1.0f); break;
+    case kSibilanceParamId: plugin.vox.sibilance = std::clamp(static_cast<float>(value), 0.0f, 1.0f); break;
+    case kPhraseRateParamId: plugin.vox.phraseRate = std::clamp(static_cast<float>(value), 0.0f, 1.0f); break;
     default: return;
     }
     plugin.engine.setParams(plugin.params);
@@ -669,6 +1044,7 @@ void readEvents(Plugin& plugin, const clap_input_events_t* events)
             if (event->type == CLAP_EVENT_NOTE_ON && note->velocity > 0.0) {
                 plugin.engine.noteOn(note->key, static_cast<float>(note->velocity));
                 plugin.lastMidiNote.store(static_cast<uint32_t>(note->key), std::memory_order_relaxed);
+                advanceVoxPhrase(plugin, static_cast<float>(note->velocity));
             } else {
                 plugin.engine.noteOff(note->key);
             }
@@ -743,6 +1119,28 @@ void reset(const clap_plugin_t* plugin)
 {
     auto* state = self(plugin);
     state->engine.reset();
+    state->voxConsonantEnv = 0.0f;
+    state->voxConsonantLevel = 0.0f;
+    state->voxPlosiveEnv = 0.0f;
+    state->voxPlosiveLevel = 0.0f;
+    state->voxPhrasePhase = 0.0f;
+    state->voxSibilantState = 0.0f;
+    state->voxFricativeState = 0.0f;
+    state->voxPhraseU = state->params.vectorX;
+    state->voxPhraseV = state->params.vectorY;
+    state->voxPhraseIndex = 0u;
+    state->voxPhraseHold = 0u;
+    state->voxPhraseBreathEnv = 0.0f;
+    state->voxPhraseVowelEnv = 0.0f;
+    state->voxPhraseVowelU = state->params.vectorX;
+    state->voxPhraseVowelV = state->params.vectorY;
+    state->voxCarrierEnv = 0.0f;
+    state->voxFormant1Low = 0.0f;
+    state->voxFormant1Band = 0.0f;
+    state->voxFormant2Low = 0.0f;
+    state->voxFormant2Band = 0.0f;
+    state->voxFormant3Low = 0.0f;
+    state->voxFormant3Band = 0.0f;
     state->outputPeak.store(0.0f, std::memory_order_relaxed);
 }
 
@@ -770,7 +1168,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     for (uint32_t ch = 0; ch < outputChannels; ++ch) outputs[ch] = output.data32[ch];
     auto bank = activeBank(*state);
     if (bank) {
-        state->engine.setParams(voxRenderParams(state->params, state->vox));
+        state->engine.setParams(applyVoxPhraseToRenderParams(*state, voxRenderParams(state->params, state->vox)));
         state->engine.setScore(loadScore(*state));
         state->engine.process(*bank, outputs, outputChannels, frames);
         applyVoxPostProcess(*state, outputs, outputChannels, frames);
@@ -880,6 +1278,11 @@ constexpr ParamDef kParams[] {
     { kVowelSpreadParamId, "Vowel Spread", 0.0, 1.0, 0.22, false },
     { kPitchScoopParamId, "Pitch Scoop", 0.0, 1.0, 0.18, false },
     { kAttackShapeParamId, "Attack Shape", 0.0, 1.0, 0.62, false },
+    { kArticulationParamId, "Articulation", 0.0, 1.0, 0.52, false },
+    { kConsonantParamId, "Consonants", 0.0, 1.0, 0.34, false },
+    { kPlosiveParamId, "Plosive", 0.0, 1.0, 0.08, false },
+    { kSibilanceParamId, "Sibilance", 0.0, 1.0, 0.32, false },
+    { kPhraseRateParamId, "Phrase Rate", 0.0, 1.0, 0.55, false },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
@@ -952,6 +1355,11 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kVowelSpreadParamId: *value = vox.vowelSpread; return true;
     case kPitchScoopParamId: *value = vox.pitchScoop; return true;
     case kAttackShapeParamId: *value = vox.attackShape; return true;
+    case kArticulationParamId: *value = vox.articulation; return true;
+    case kConsonantParamId: *value = vox.consonant; return true;
+    case kPlosiveParamId: *value = vox.plosive; return true;
+    case kSibilanceParamId: *value = vox.sibilance; return true;
+    case kPhraseRateParamId: *value = vox.phraseRate; return true;
     default: return false;
     }
 }
@@ -977,7 +1385,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kOutputParamId) std::snprintf(display, size, "%+.1f dB", value);
     else if (id == kCenterAzimuthParamId || id == kCenterElevationParamId) std::snprintf(display, size, "%+.0f deg", value);
     else if (id == kNeighborRadiusParamId) std::snprintf(display, size, "%.2f", value);
-    else if (id == kMotionAmountParamId || id == kSpreadParamId || id == kCoherenceParamId || id == kChaosParamId || id == kLinkParamId || id == kSmoothParamId || id == kScanParamId || id == kMorphParamId || id == kSustainParamId || id == kHarmonicsParamId || id == kSubharmonicsParamId || id == kScoreDepthParamId || id == kRaspParamId || id == kBreathParamId || id == kThroatParamId || id == kDriveParamId || id == kJitterParamId || id == kVowelSpreadParamId || id == kPitchScoopParamId || id == kAttackShapeParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
+    else if (id == kMotionAmountParamId || id == kSpreadParamId || id == kCoherenceParamId || id == kChaosParamId || id == kLinkParamId || id == kSmoothParamId || id == kScanParamId || id == kMorphParamId || id == kSustainParamId || id == kHarmonicsParamId || id == kSubharmonicsParamId || id == kScoreDepthParamId || id == kRaspParamId || id == kBreathParamId || id == kThroatParamId || id == kDriveParamId || id == kJitterParamId || id == kVowelSpreadParamId || id == kPitchScoopParamId || id == kAttackShapeParamId || id == kArticulationParamId || id == kConsonantParamId || id == kPlosiveParamId || id == kSibilanceParamId || id == kPhraseRateParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
     else if (id == kOrderParamId || id == kVoicesParamId || id == kRequiredNeighborsParamId) std::snprintf(display, size, "%.0f", value);
     else std::snprintf(display, size, "%.2f", value);
     return true;
@@ -1004,6 +1412,11 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     saved.params = state->params;
     saved.score = loadScore(*state);
     saved.vox = state->vox;
+    saved.phraseLength = std::min<uint32_t>(
+        state->voxPhraseLength.load(std::memory_order_acquire), kVoxPhraseMaxChars - 1u);
+    for (uint32_t i = 0; i < saved.phraseLength; ++i) {
+        saved.phrase[i] = state->voxPhrase[i].load(std::memory_order_relaxed);
+    }
     auto userBank = std::atomic_load_explicit(&state->userBank, std::memory_order_acquire);
     if (userBank) {
         saved.hasUserAtlas = 1u;
@@ -1101,6 +1514,49 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state->guiViewElDeg = std::clamp(legacy.guiViewElDeg, -85.0f, 85.0f);
         state->guiViewZoom = std::clamp(legacy.guiViewZoom, 0.55f, 2.4f);
 #endif
+    } else if (version == 7u) {
+        SavedStateV7 legacy {};
+        legacy.version = version;
+        if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
+        state->params = legacy.params;
+        storeScore(*state, legacy.score);
+        state->vox.rasp = legacy.vox.rasp;
+        state->vox.breath = legacy.vox.breath;
+        state->vox.throat = legacy.vox.throat;
+        state->vox.drive = legacy.vox.drive;
+        state->vox.jitter = legacy.vox.jitter;
+        state->vox.vowelSpread = legacy.vox.vowelSpread;
+        state->vox.pitchScoop = legacy.vox.pitchScoop;
+        state->vox.attackShape = legacy.vox.attackShape;
+        if (legacy.hasUserAtlas != 0u) {
+            std::vector<float> wave(legacy.userAtlas.begin(), legacy.userAtlas.end());
+            restoredUserBank = std::make_shared<s3g::AmbiVotTableBank>(s3g::ambiVotBankFromWave(wave));
+        }
+#if defined(__APPLE__)
+        state->guiPage = std::clamp(legacy.guiPage, 0, 2);
+        state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
+        state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
+        state->guiViewElDeg = std::clamp(legacy.guiViewElDeg, -85.0f, 85.0f);
+        state->guiViewZoom = std::clamp(legacy.guiViewZoom, 0.55f, 2.4f);
+#endif
+    } else if (version == 8u) {
+        SavedStateV8 legacy {};
+        legacy.version = version;
+        if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
+        state->params = legacy.params;
+        storeScore(*state, legacy.score);
+        state->vox = legacy.vox;
+        if (legacy.hasUserAtlas != 0u) {
+            std::vector<float> wave(legacy.userAtlas.begin(), legacy.userAtlas.end());
+            restoredUserBank = std::make_shared<s3g::AmbiVotTableBank>(s3g::ambiVotBankFromWave(wave));
+        }
+#if defined(__APPLE__)
+        state->guiPage = std::clamp(legacy.guiPage, 0, 2);
+        state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
+        state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
+        state->guiViewElDeg = std::clamp(legacy.guiViewElDeg, -85.0f, 85.0f);
+        state->guiViewZoom = std::clamp(legacy.guiViewZoom, 0.55f, 2.4f);
+#endif
     } else if (version == kStateVersion) {
         SavedState saved {};
         saved.version = version;
@@ -1108,6 +1564,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state->params = saved.params;
         storeScore(*state, saved.score);
         state->vox = saved.vox;
+        const uint32_t phraseLength = std::min<uint32_t>(saved.phraseLength, kVoxPhraseMaxChars - 1u);
+        for (uint32_t i = 0; i < kVoxPhraseMaxChars; ++i) {
+            state->voxPhrase[i].store(i < phraseLength ? saved.phrase[i] : 0u, std::memory_order_relaxed);
+        }
+        state->voxPhraseLength.store(phraseLength, std::memory_order_release);
+        state->voxPhraseIndex = 0u;
         if (saved.hasUserAtlas != 0u) {
             std::vector<float> wave(saved.userAtlas.begin(), saved.userAtlas.end());
             restoredUserBank = std::make_shared<s3g::AmbiVotTableBank>(s3g::ambiVotBankFromWave(wave));
@@ -1235,9 +1697,10 @@ static std::vector<float> readWavMono(NSURL* url)
     return result;
 }
 
-@interface S3GAmbiVoxEncoderView : NSView {
+@interface S3GAmbiVoxEncoderView : NSView <NSTextFieldDelegate> {
     Plugin* _plugin;
     NSTimer* _timer;
+    NSTextField* _phraseField;
     clap_id _dragParam;
     int _dragArea;
     int _openMenu;
@@ -1262,6 +1725,7 @@ static std::vector<float> readWavMono(NSURL* url)
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
+- (void)phraseTextChanged:(id)sender;
 @end
 
 @implementation S3GAmbiVoxEncoderView
@@ -1272,6 +1736,18 @@ static std::vector<float> readWavMono(NSURL* url)
     if (self) {
         _plugin = plugin;
         _timer = nil;
+        _phraseField = [[NSTextField alloc] initWithFrame:NSMakeRect(912, 736, 214, 22)];
+        [_phraseField setStringValue:[NSString stringWithUTF8String:(plugin ? loadVoxPhrase(*plugin).c_str() : "")]];
+        [_phraseField setDelegate:self];
+        [_phraseField setTarget:self];
+        [_phraseField setAction:@selector(phraseTextChanged:)];
+        [_phraseField setBezeled:YES];
+        [_phraseField setBordered:YES];
+        [_phraseField setDrawsBackground:YES];
+        [_phraseField setBackgroundColor:votColor(0x101010)];
+        [_phraseField setTextColor:votColor(0xd0d0d0)];
+        [_phraseField setFont:[NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular]];
+        [self addSubview:_phraseField];
         _dragParam = CLAP_INVALID_ID;
         _dragArea = 0;
         _openMenu = 0;
@@ -1297,6 +1773,20 @@ static std::vector<float> readWavMono(NSURL* url)
 }
 
 - (BOOL)isFlipped { return YES; }
+
+- (void)phraseTextChanged:(id)sender
+{
+    (void)sender;
+    if (!_plugin || !_phraseField) return;
+    storeVoxPhrase(*_plugin, [[_phraseField stringValue] UTF8String]);
+    _plugin->voxPhraseIndex = 0u;
+}
+
+- (void)controlTextDidChange:(NSNotification*)notification
+{
+    (void)notification;
+    [self phraseTextChanged:_phraseField];
+}
 
 - (void)updateTrackingAreas
 {
@@ -1364,6 +1854,7 @@ static std::vector<float> readWavMono(NSURL* url)
 {
     [self storeViewState];
     [self stopRefreshTimer];
+    [_phraseField release];
     [super dealloc];
 }
 
@@ -1931,7 +2422,7 @@ static std::vector<float> readWavMono(NSURL* url)
     [self drawSlider:@"HARM" param:kHarmonicsParamId value:p.harmonicAmount min:0 max:1 y:370 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SUB" param:kSubharmonicsParamId value:p.subharmonicAmount min:0 max:1 y:396 attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 444, 250, 230, style);
+    s3g::clap_gui::drawPanelFrame(630, 444, 250, 360, style);
     s3g::clap_gui::drawPanelHeader(@"VOX", true, 630, 444, 250, 21, attrs, style);
     [self drawSlider:@"RASP" param:kRaspParamId value:v.rasp min:0 max:1 y:480 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"BREATH" param:kBreathParamId value:v.breath min:0 max:1 y:506 attrs:attrs valueAttrs:valueAttrs style:style];
@@ -1941,17 +2432,22 @@ static std::vector<float> readWavMono(NSURL* url)
     [self drawSlider:@"VOWELS" param:kVowelSpreadParamId value:v.vowelSpread min:0 max:1 y:610 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SCOOP" param:kPitchScoopParamId value:v.pitchScoop min:0 max:1 y:636 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SHAPE" param:kAttackShapeParamId value:v.attackShape min:0 max:1 y:662 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"ARTIC" param:kArticulationParamId value:v.articulation min:0 max:1 y:688 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"CONS" param:kConsonantParamId value:v.consonant min:0 max:1 y:714 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"PLOS" param:kPlosiveParamId value:v.plosive min:0 max:1 y:740 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SIBIL" param:kSibilanceParamId value:v.sibilance min:0 max:1 y:766 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"PHRASE" param:kPhraseRateParamId value:v.phraseRate min:0 max:1 y:792 attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 686, 250, 150, style);
-    s3g::clap_gui::drawPanelHeader(@"ENVELOPE", true, 630, 686, 250, 21, attrs, style);
-    [self drawSlider:@"ATTACK" param:kAttackParamId value:p.attackMs min:1 max:2000 y:722 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"DECAY" param:kDecayParamId value:p.decayMs min:5 max:4000 y:748 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"SUSTAIN" param:kSustainParamId value:p.sustain min:0 max:1 y:774 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RELEASE" param:kReleaseParamId value:p.releaseMs min:5 max:8000 y:800 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(630, 818, 250, 150, style);
+    s3g::clap_gui::drawPanelHeader(@"ENVELOPE", true, 630, 818, 250, 21, attrs, style);
+    [self drawSlider:@"ATTACK" param:kAttackParamId value:p.attackMs min:1 max:2000 y:854 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"DECAY" param:kDecayParamId value:p.decayMs min:5 max:4000 y:880 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SUSTAIN" param:kSustainParamId value:p.sustain min:0 max:1 y:906 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"RELEASE" param:kReleaseParamId value:p.releaseMs min:5 max:8000 y:932 attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 848, 250, 38, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 848, 250, 21, attrs, style);
-    [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:872 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(630, 980, 250, 38, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 980, 250, 21, attrs, style);
+    [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:1004 attrs:attrs valueAttrs:valueAttrs style:style];
 
     constexpr CGFloat motionX = 896;
     s3g::clap_gui::drawPanelFrame(motionX, 42, 246, 426, style);
@@ -1991,6 +2487,13 @@ static std::vector<float> readWavMono(NSURL* url)
     NSString* scoreInfo = [NSString stringWithFormat:@"%u NODES   LOOP %u-%u", score.nodeCount,
         score.sustainStart + 1u, score.sustainEnd + 1u];
     [scoreInfo drawAtPoint:NSMakePoint(motionX + 16, 654) withAttributes:valueAttrs];
+
+    s3g::clap_gui::drawPanelFrame(motionX, 700, 246, 72, style);
+    s3g::clap_gui::drawPanelHeader(@"PHRASE", true, motionX, 700, 246, 21, attrs, style);
+    if (_phraseField) {
+        [_phraseField setHidden:NO];
+        [_phraseField setFrame:NSMakeRect(motionX + 16, 736, 214, 22)];
+    }
 }
 
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -2108,6 +2611,11 @@ static std::vector<float> readWavMono(NSURL* url)
     case kVowelSpreadParamId:
     case kPitchScoopParamId:
     case kAttackShapeParamId:
+    case kArticulationParamId:
+    case kConsonantParamId:
+    case kPlosiveParamId:
+    case kSibilanceParamId:
+    case kPhraseRateParamId:
     case kScoreDepthParamId:
     case kMotionAmountParamId:
     case kSpreadParamId:
@@ -2458,9 +2966,12 @@ static std::vector<float> readWavMono(NSURL* url)
         { kThroatParamId, 638, 532, 1 }, { kDriveParamId, 638, 558, 1 },
         { kJitterParamId, 638, 584, 1 }, { kVowelSpreadParamId, 638, 610, 1 },
         { kPitchScoopParamId, 638, 636, 1 }, { kAttackShapeParamId, 638, 662, 1 },
-        { kAttackParamId, 638, 722, 1 }, { kDecayParamId, 638, 748, 1 },
-        { kSustainParamId, 638, 774, 1 }, { kReleaseParamId, 638, 800, 1 },
-        { kOutputParamId, 638, 872, 1 },
+        { kArticulationParamId, 638, 688, 1 }, { kConsonantParamId, 638, 714, 1 },
+        { kPlosiveParamId, 638, 740, 1 }, { kSibilanceParamId, 638, 766, 1 },
+        { kPhraseRateParamId, 638, 792, 1 },
+        { kAttackParamId, 638, 854, 1 }, { kDecayParamId, 638, 880, 1 },
+        { kSustainParamId, 638, 906, 1 }, { kReleaseParamId, 638, 932, 1 },
+        { kOutputParamId, 638, 1004, 1 },
         { kMotionRateParamId, 904, 130, 7 }, { kSyncDivisionParamId, 904, 156, 7 },
         { kMotionAmountParamId, 904, 182, 7 }, { kSpreadParamId, 904, 208, 7 },
         { kCoherenceParamId, 904, 234, 7 }, { kChaosParamId, 904, 260, 7 },
@@ -2754,6 +3265,7 @@ const clap_plugin_t* create(const clap_host_t* host)
     state->params.attackMs = 18.0f;
     state->params.releaseMs = 950.0f;
     state->params.outputGainDb = -22.0f;
+    storeVoxPhrase(*state, "ra ka ta sa sorrow ash");
     storeScore(*state, s3g::ambiVotDefaultScore());
     state->engine.prepare(state->sampleRate);
     state->engine.setParams(state->params);

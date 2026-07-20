@@ -805,7 +805,7 @@ struct ImprintAtlasEntry {
     const char* resource;
 };
 
-constexpr std::array<ImprintAtlasEntry, 14> kImprintAtlas {{
+constexpr std::array<ImprintAtlasEntry, 19> kImprintAtlas {{
     { "ARCH / CONCRETE GALLERY", "architecture_concrete_gallery" },
     { "ARCH / WOOD STUDIO", "architecture_wood_studio" },
     { "CAVE / LIMESTONE POCKET", "cave_limestone_pocket" },
@@ -818,9 +818,19 @@ constexpr std::array<ImprintAtlasEntry, 14> kImprintAtlas {{
     { "CANYON / POROUS GORGE", "canyon_porous_gorge" },
     { "CLEAR / FOREST RING", "clearing_forest_ring" },
     { "CLEAR / WATER MEADOW", "clearing_water_meadow" },
+    { "ECHO / STONE FLUTTER", "echo_stone_flutter_gallery" },
+    { "ECHO / METAL AXIAL TUNNEL", "echo_metal_axial_tunnel" },
+    { "ECHO / TWIN CHAMBERS", "echo_twin_concrete_chambers" },
+    { "ECHO / PERIMETER CIRCUIT", "echo_stone_perimeter_circuit" },
+    { "ECHO / IMPOSSIBLE RELAY", "echo_impossible_relay" },
     { "ABSTRACT / FOLDED CHAMBER", "abstract_folded_chamber" },
     { "ABSTRACT / IMPOSSIBLE NETWORK", "abstract_impossible_network" },
 }};
+
+NSRect imprintAtlasMenuRect()
+{
+    return NSMakeRect(616, 56, 272, 18.0 * static_cast<CGFloat>(kImprintAtlas.size()));
+}
 
 } // namespace
 
@@ -1280,7 +1290,7 @@ constexpr std::array<ImprintAtlasEntry, 14> kImprintAtlas {{
     if (_atlasMenuOpen) {
         NSString* atlasItems[kImprintAtlas.size()];
         for (size_t i = 0; i < kImprintAtlas.size(); ++i) atlasItems[i] = [NSString stringWithUTF8String:kImprintAtlas[i].title];
-        s3g::clap_gui::drawDropdownMenu(NSMakeRect(616, 56, 272, 252), 18, atlasItems,
+        s3g::clap_gui::drawDropdownMenu(imprintAtlasMenuRect(), 18, atlasItems,
             static_cast<uint32_t>(kImprintAtlas.size()), -1, _atlasMenuHover, value, style);
     }
 }
@@ -1312,7 +1322,7 @@ constexpr std::array<ImprintAtlasEntry, 14> kImprintAtlas {{
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     if (_atlasMenuOpen) {
-        const int hit = s3g::clap_gui::dropdownHitIndex(point, NSMakeRect(616, 56, 272, 252), 18,
+        const int hit = s3g::clap_gui::dropdownHitIndex(point, imprintAtlasMenuRect(), 18,
             static_cast<uint32_t>(kImprintAtlas.size()));
         _atlasMenuOpen = false;
         _atlasMenuHover = -1;
@@ -1409,7 +1419,7 @@ constexpr std::array<ImprintAtlasEntry, 14> kImprintAtlas {{
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     if (_atlasMenuOpen) {
-        _atlasMenuHover = s3g::clap_gui::dropdownHitIndex(point, NSMakeRect(616, 56, 272, 252), 18,
+        _atlasMenuHover = s3g::clap_gui::dropdownHitIndex(point, imprintAtlasMenuRect(), 18,
             static_cast<uint32_t>(kImprintAtlas.size()));
     } else if (_orderMenuOpen) {
         _orderMenuHover = s3g::clap_gui::dropdownHitIndex(point, NSMakeRect(718, 230, 150, 126), 18, 7u);

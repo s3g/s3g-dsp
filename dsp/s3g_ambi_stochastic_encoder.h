@@ -68,15 +68,15 @@ struct AmbiStochasticParams {
     float durationStep = 0.52f;
     float amplitudeRange = 0.65f;
     float durationRange = 0.78f;
-    float fieldDensity = 0.94f;
+    float fieldDensity = 0.84f;
     float neighborTransfer = 0.32f;
     float selectionMemory = 0.82f;
-    float fieldDurationSeconds = 0.45f;
+    float fieldDurationSeconds = 0.32f;
     float fieldContrast = 0.58f;
     float attackMs = 12.0f;
-    float decayMs = 180.0f;
-    float sustain = 0.82f;
-    float releaseMs = 420.0f;
+    float decayMs = 140.0f;
+    float sustain = 0.76f;
+    float releaseMs = 280.0f;
     uint32_t topologyShape = 11;
     uint32_t topologyMotion = 1;
     float topologyRateHz = 0.035f;
@@ -282,6 +282,11 @@ public:
             neighborIndex_[voice] = (voice + 1u) % kAmbiStochasticMaxVoices;
             secondaryNeighborIndex_[voice] = (voice + 2u) % kAmbiStochasticMaxVoices;
         }
+        bool anyFieldActive = false;
+        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+            anyFieldActive = anyFieldActive || voices_[voice].fieldActive;
+        }
+        if (!anyFieldActive && params_.fieldDensity > 0.0f) voices_[0].fieldActive = true;
         updateTopology(0.0f);
     }
 
@@ -661,7 +666,7 @@ private:
         voice.phase = randomUnit(voice.seed);
         voice.velocity = 0.72f;
         voice.note = static_cast<int>(std::lround(params_.baseNote));
-        voice.fieldActive = true;
+        voice.fieldActive = randomUnit(voice.seed) < scaledFieldDensity();
         voice.fieldRemainingSamples = static_cast<float>(sampleRate_)
             * params_.fieldDurationSeconds * (0.35f + 0.65f * randomUnit(voice.seed));
         voice.selectorSecondary = static_cast<float>(voiceIndex % kAmbiStochasticGeneratorCount);
@@ -994,6 +999,13 @@ private:
         return lerp(table[index], table[next], position - std::floor(position));
     }
 
+    float scaledFieldDensity() const
+    {
+        const float densityExponent = 1.0f + std::max(0.0f,
+            std::log2(static_cast<float>(params_.voices) / 8.0f)) * 1.5f;
+        return std::pow(params_.fieldDensity, densityExponent);
+    }
+
     void updateTimeFields(float frames)
     {
         for (uint32_t voiceIndex = 0u; voiceIndex < params_.voices; ++voiceIndex) {
@@ -1002,7 +1014,7 @@ private:
             if (voice.fieldRemainingSamples > 0.0f) continue;
             const Vec3 topology = topologyPosition_[voiceIndex];
             const float neighborGate = voices_[neighborIndex_[voiceIndex]].fieldActive ? 1.0f : 0.0f;
-            const float probability = clamp(params_.fieldDensity
+            const float probability = clamp(scaledFieldDensity()
                     + topology.y * params_.fieldContrast * 0.22f
                     + (neighborGate - 0.5f) * params_.neighborTransfer * 0.16f,
                 0.01f, 0.99f);

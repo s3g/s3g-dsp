@@ -111,6 +111,46 @@ const presets = [
     overrides: { spaceShape: "side_chamber", chamberMaterial: "vegetation", chamberMaterialMode: "palette", chamberCount: 2, nestedChambers: 1, openness: 0.86, outsideOpening: true, outsideLeak: 0.72 }
   },
   {
+    slug: "echo_stone_flutter_gallery",
+    title: "Stone Flutter Gallery",
+    category: "Echo",
+    description: "A narrow hard-stone gallery with a highly regular alternating flutter path.",
+    family: "room", seed: 880101, bias: 0.14, branchFamily: "room", material: "stone",
+    overrides: { spaceShape: "shoebox", roomShape: "rect", roomX: 18, roomY: 7, roomZ: 5.4, absorption: 0.08, scattering: 0.09, tailSoften: 0.12, irregularity: 0.01, surfaceRoughness: 0.05, openness: 0, outsideOpening: false, duration: 3.2, earlyReflections: 64, echoStructure: "flutter", echoProminence: 0.86, echoPersistence: 0.82, echoRegularity: 0.98 }
+  },
+  {
+    slug: "echo_metal_axial_tunnel",
+    title: "Metal Axial Tunnel",
+    category: "Echo",
+    description: "A long enclosed metal passage with pronounced front-to-back axial returns.",
+    family: "tunnel", seed: 880203, bias: 0.22, branchFamily: "tunnel", material: "metal",
+    overrides: { spaceShape: "shoebox", roomX: 5.2, roomY: 48, roomZ: 4.1, absorption: 0.06, scattering: 0.08, tailSoften: 0.09, irregularity: 0.08, surfaceRoughness: 0.1, openness: 0, outsideOpening: false, duration: 4, earlyReflections: 72, echoStructure: "axial", echoProminence: 0.9, echoPersistence: 0.88, echoRegularity: 0.95 }
+  },
+  {
+    slug: "echo_twin_concrete_chambers",
+    title: "Twin Concrete Chambers",
+    category: "Echo",
+    description: "Two deep concrete side chambers return distinct portal-coupled echo trains.",
+    family: "room", seed: 880307, bias: 0.38, branchFamily: "room", material: "concrete",
+    overrides: { spaceShape: "side_chamber", roomShape: "trapezoid", roomX: 16, roomY: 12, roomZ: 6, chamberShape: "rect", chamberSide: "all", chamberMaterial: "concrete", chamberMaterialMode: "uniform", chamberWidth: 5.8, chamberDepth: 14, chamberCount: 2, nestedChambers: 1, openingWidth: 0.24, chamberCoupling: 0.9, absorption: 0.08, scattering: 0.18, openness: 0, outsideOpening: false, duration: 4, earlyReflections: 72, echoStructure: "coupled", echoProminence: 0.92, echoPersistence: 0.85, echoRegularity: 0.9 }
+  },
+  {
+    slug: "echo_stone_perimeter_circuit",
+    title: "Stone Perimeter Circuit",
+    category: "Echo",
+    description: "A broad irregular cavern whose returns circulate around a stone perimeter.",
+    family: "cavern", seed: 880409, bias: 0.52, branchFamily: "cavern", material: "stone",
+    overrides: { spaceShape: "shoebox", roomX: 31, roomY: 28, roomZ: 13, absorption: 0.11, scattering: 0.28, tailSoften: 0.2, irregularity: 0.42, surfaceRoughness: 0.34, verticalVariation: 0.37, openness: 0, outsideOpening: false, duration: 4, earlyReflections: 68, echoStructure: "circulating", echoProminence: 0.8, echoPersistence: 0.78, echoRegularity: 0.78 }
+  },
+  {
+    slug: "echo_impossible_relay",
+    title: "Impossible Echo Relay",
+    category: "Echo",
+    description: "A mixed network relays irregular echoes through nested impossible chambers.",
+    family: "abstract", seed: 880503, bias: 0.91, branchFamily: "mixed", material: "glass",
+    overrides: { spaceShape: "side_chamber", roomShape: "impossible", chamberShape: "impossible", chamberSide: "all", chamberMaterial: "metal", chamberMaterialMode: "palette", chamberCount: 4, nestedChambers: 2, openingWidth: 0.3, chamberCoupling: 0.92, openness: 0.03, outsideOpening: false, duration: 4, earlyReflections: 76, echoStructure: "geometry", echoProminence: 0.94, echoPersistence: 0.86, echoRegularity: 0.36 }
+  },
+  {
     slug: "abstract_folded_chamber",
     title: "Folded Chamber",
     category: "Abstract",
@@ -135,13 +175,24 @@ function validateImprint(imprint, preset) {
   if (imprint.space?.branch_family_mode !== preset.branchFamily) fail(`expected ${preset.branchFamily} branch mode`);
   if (!Array.isArray(imprint.room?.polygon_xy_m) || imprint.room.polygon_xy_m.length < 3) fail("missing primary polygon");
   if (!Array.isArray(imprint.profiles) || imprint.profiles.length < 1 || imprint.profiles.length > 8) fail("expected 1-8 profiles");
+  const expectsEcho = preset.overrides?.echoStructure && preset.overrides.echoStructure !== "off";
+  if (expectsEcho) {
+    if (!imprint.echo_paths?.enabled || !Array.isArray(imprint.echo_paths.paths) || !imprint.echo_paths.paths.length) fail("echo preset has no resolved paths");
+    if (imprint.echo_paths.requested_structure !== preset.overrides.echoStructure) fail("echo structure does not match preset");
+    for (const pathEntry of imprint.echo_paths.paths) {
+      if (!Number.isFinite(pathEntry.interval_ms) || pathEntry.interval_ms <= 0) fail("echo path interval is invalid");
+      if (!Array.isArray(pathEntry.points_m) || pathEntry.points_m.length < 2) fail("echo path geometry is invalid");
+    }
+  }
   for (const profile of imprint.profiles) {
     if (!Array.isArray(profile.early_reflections)) fail("profile is missing early reflections");
+    if (profile.early_reflections.length > 128) fail("profile exceeds the reflection ceiling");
     if (!Array.isArray(profile.late?.absorption_by_band) || profile.late.absorption_by_band.length !== 8) fail("invalid absorption bands");
     if (!Array.isArray(profile.late?.rt60_s_by_band) || profile.late.rt60_s_by_band.length !== 8) fail("invalid RT60 bands");
     for (const event of profile.early_reflections) {
       if (![event.delay_ms, event.gain, event.azimuth_deg, event.elevation_deg].every(Number.isFinite)) fail("non-finite early reflection");
     }
+    if (expectsEcho && !profile.early_reflections.some((event) => event.kind === "echo" && Number.isFinite(event.echo_path_id) && Number.isFinite(event.echo_bounce))) fail("profile is missing echo events");
   }
   const branches = imprint.room?.chamber?.chambers || [];
   if (preset.overrides?.spaceShape === "side_chamber" && branches.length < 1) fail("connected preset has no branches");
@@ -210,6 +261,15 @@ try {
   if (!target) throw new Error(`Imprint Sketch target not found for ${sketchIndex}`);
   const client = await connect(target);
   await client.send("Runtime.enable");
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const ready = await client.send("Runtime.evaluate", {
+      expression: "typeof resetDefaults === 'function' && typeof imprintObject === 'function' && typeof exportObject === 'function'",
+      returnByValue: true
+    });
+    if (ready.result?.value === true) break;
+    if (attempt === 99) throw new Error("Imprint Sketch did not finish loading");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 
   const manifest = {
     format: "s3g-imprint-atlas",
@@ -272,7 +332,8 @@ try {
       branch_family_mode: imprint.space?.branch_family_mode,
       seed: preset.seed,
       duration_s: imprint.duration_s,
-      profiles: imprint.profiles?.length || 0
+      profiles: imprint.profiles?.length || 0,
+      echo_structure: imprint.echo_paths?.enabled ? imprint.echo_paths.resolved_structure : null
     });
   }
 

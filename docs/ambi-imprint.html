@@ -38,7 +38,7 @@
         <h2 id="controls">Controls</h2>
 
         <ul>
-          <li><code>ATLAS</code>: loads one of fourteen bundled spaces spanning architecture, caves, caverns, tunnels, canyons, clearings, and abstract networks.</li>
+          <li><code>ATLAS</code>: loads one of nineteen bundled spaces spanning architecture, caves, caverns, tunnels, canyons, clearings, structured echoes, and abstract networks.</li>
           <li><code>LOAD</code>: selects an Imprint Sketch <code>.s3gimprint</code> file.</li>
           <li><code>TOP</code>, <code>SIDE</code>, and <code>3/4</code>: set exact camera views. Drag the field to orbit and use the wheel or <code>-</code>/<code>+</code> controls to zoom. Camera state is saved with the project.</li>
           <li><code>ORD</code>: selects first through seventh order; inactive higher channels are cleared.</li>
@@ -51,7 +51,7 @@
 
         <h2 id="atlas">Imprint Atlas</h2>
 
-        <p>The bundled atlas contains fourteen deterministic, precomposed spaces. It includes conventional rooms, contrasting natural enclosures, open spaces, coupled passage systems, and mixed impossible networks. Atlas choices use the same <code>.s3gimprint</code> parser and DSP path as user files.</p>
+        <p>The bundled atlas contains nineteen deterministic, precomposed spaces. It includes conventional rooms, contrasting natural enclosures, open spaces, coupled passage systems, five geometry-derived echo designs, and mixed impossible networks. Atlas choices use the same <code>.s3gimprint</code> parser and DSP path as user files.</p>
 
         <p>The repository also retains an editable <code>s3g-imprint-sketch</code> project for every atlas entry. The generation script rebuilds both forms from named seeds through the actual Imprint Sketch authoring engine and validates geometry, profiles, reflection values, and spectral bands before writing them.</p>
 
@@ -65,9 +65,41 @@
         <p>The imported descriptor is embedded in CLAP project state, so reopening a REAPER project does not depend on the original file remaining at the same path. The <a href="s3gimprint-format.html">format reference</a> documents the versioned interchange contract.</p>
 
         <p>The plugin does not need to load a separate glTF file for display. It renders the primary polygon, ceiling profile, connected-region geometry, listener, and directional sources carried by <code>.s3gimprint</code>. Imprint Sketch glTF export remains available for interchange with dedicated 3D software.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-path-encoder.html">
+            <span>Previous</span>
+            Ambi Path Encoder
+          </a>
+          <a class="page-nav-link next" href="3oafx-speaker-decoder.html">
+            <span>Next</span>
+            Ambi Speaker Decoder
+          </a>
+        </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics Pages</h2>
+          <a href="3oafx.html">Ambisonics Overview</a>
+          <a href="3oafx-effects.html">3OAFX Processors</a>
+          <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-path-encoder.html">Path Encoder</a>
+          <a href="ambi-vot-encoder.html">VOT Encoder</a>
+          <a href="ambi-vox-encoder.html">Vox Encoder</a>
+          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
+          <a href="ambi-imprint.html">Ambi Imprint</a>
+          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
+          <a href="ambisonic-rotate.html">Rotate</a>
+          <a href="ambisonic-bus-processors.html#field-depth">Depth</a>
+          <a href="ambisonic-bus-processors.html">Field / Bus</a>
+          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
+          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
+          <a href="ambisonic-head-decoder.html">Head Decoder</a>
+          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
+          <a href="ambi-grain-processor.html">Grain Processor</a>
+        </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#signal-model">Signal Model</a>

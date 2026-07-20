@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Topology Framework</h1>
 
-        <p>Topology is the shared control layer for s3g-dsp plugins. The patch matrix selects active input lanes. Those lanes become points. The points form a network. Each plugin maps that network to sound.</p>
+        <p>Topology is a shared control model for s3g-dsp plugins. In lane processors, active patch-matrix lanes become points. In instruments and encoders, voices or sources provide the points. The points form a network, and each plugin maps that network to sound.</p>
 
         <p>This keeps automation compact. REAPER sees global controls while per-lane variation stays inside the plugin.</p>
 
@@ -44,8 +44,8 @@
         <h2 id="control-model">Control Model</h2>
 
         <ul>
-          <li>The host pin connector feeds the fixed-width plugin inputs.</li>
-          <li>The patch matrix controls which plugin input lanes are active.</li>
+          <li>The host pin connector feeds fixed-width processor inputs.</li>
+          <li>A patch matrix, voice count, or source count determines the active points.</li>
           <li>Shape and displacement controls position active lanes as points.</li>
           <li>Animation and variants move the point field over time.</li>
           <li>Neighbor and centroid controls define relationships between lanes.</li>
@@ -65,7 +65,7 @@
 
         <h2 id="plugin-mapping">Plugin Mapping</h2>
 
-        <p>Topology controls stay consistent across plugins. Each plugin decides what the field means. The Delay Processor maps it to time, feedback, tone, pitch, smear, and diffusion.</p>
+        <p>Topology controls stay consistent across plugins, but each plugin decides what the field means. Delay Processor maps it to time, feedback, tone, pitch, smear, and diffusion. Ambi Stochastic Encoder maps the same spatial ideas to pressure-curve mutation, time-fields, generator selection, and AED placement.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -74,22 +74,22 @@
         </figure>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambi-vot-encoder.html">
+          <a class="page-nav-link" href="ambi-grain-processor.html">
             <span>Previous</span>
-            Ambi VOT Encoder
+            Ambi Grain Processor
           </a>
         </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
-          <h2>Reference Pages</h2>
+          <h2>Topology Pages</h2>
           <a href="topology-framework.html">Topology Framework</a>
           <a href="delay-processor.html">Delay Processor Mapping</a>
-          <a href="loop-processor.html">Loop Processor Model</a>
-          <a href="multi-loop-processor.html">Multi Loop Processor</a>
-          <a href="ambi-vot-encoder.html">Ambi VOT Encoder</a>
+          <a href="wave-geometry-processor.html">Wave Geometry Processor</a>
+          <a href="spectral-topology-processor.html">Spectral Topology Processor</a>
           <a href="3oafx-point-encoder.html">Ambi Point Encoder</a>
+          <a href="ambi-stochastic-encoder.html">Ambi Stochastic Encoder</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>

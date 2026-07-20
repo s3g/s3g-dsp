@@ -1,4 +1,5 @@
 #include "s3g_ambi_stochastic_encoder.h"
+#include "s3g_ambi_stochastic_presets.h"
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
@@ -28,7 +29,7 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiStochasticMaxChannels;
-constexpr uint32_t kStateVersion = 6u;
+constexpr uint32_t kStateVersion = 7u;
 constexpr uint32_t kGuiWidth = 1160u;
 constexpr uint32_t kGuiHeight = 860u;
 constexpr uint32_t kGuiWaveSamples = 256u;
@@ -75,19 +76,66 @@ constexpr clap_id kFrequencyFloorParamId = 38;
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiStochasticParams params {};
+    int32_t factoryPresetIndex = 0;
+    char presetName[64] {};
     int32_t guiViewMode = 2;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
 };
 
+struct LegacySavedStateV6 {
+    uint32_t version = 6u;
+    s3g::AmbiStochasticParams params {};
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+};
+
+struct PresetMailbox {
+    static constexpr uint32_t kCapacity = 4u;
+    std::array<s3g::AmbiStochasticParams, kCapacity> values {};
+    std::atomic<uint32_t> readIndex { 0u };
+    std::atomic<uint32_t> writeIndex { 0u };
+
+    bool push(const s3g::AmbiStochasticParams& value)
+    {
+        const uint32_t write = writeIndex.load(std::memory_order_relaxed);
+        const uint32_t next = (write + 1u) % kCapacity;
+        if (next == readIndex.load(std::memory_order_acquire)) return false;
+        values[write] = value;
+        writeIndex.store(next, std::memory_order_release);
+        return true;
+    }
+
+    bool pop(s3g::AmbiStochasticParams& value)
+    {
+        const uint32_t read = readIndex.load(std::memory_order_relaxed);
+        if (read == writeIndex.load(std::memory_order_acquire)) return false;
+        value = values[read];
+        readIndex.store((read + 1u) % kCapacity, std::memory_order_release);
+        return true;
+    }
+};
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_params_t* hostParams = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0u;
     s3g::AmbiStochasticEncoder engine {};
     s3g::AmbiStochasticParams params {};
+    PresetMailbox presetMailbox {};
+    std::atomic<bool> presetRescanPending { false };
+    int32_t factoryPresetIndex = 0;
+    char presetName[64] {};
+    std::array<float, kOutputChannels> lastOutputSample {};
+    std::array<float, kOutputChannels> presetTransitionOffset {};
+    uint32_t presetTransitionFrames = 0u;
+    uint32_t presetTransitionRemaining = 0u;
+    bool presetTransitionNeedsInit = false;
     std::array<std::vector<float>, kOutputChannels> scratch {};
     std::array<float*, kOutputChannels> scratchPointers {};
     std::atomic<float> outputPeak { 0.0f };
@@ -136,51 +184,119 @@ Plugin* self(const clap_plugin_t* plugin)
     return static_cast<Plugin*>(plugin->plugin_data);
 }
 
-void applyParam(Plugin& plugin, clap_id id, double value)
+bool assignParam(s3g::AmbiStochasticParams& params, clap_id id, double value)
 {
     switch (id) {
-    case kOrderParamId: plugin.params.order = static_cast<uint32_t>(std::lround(value)); break;
-    case kVoicesParamId: plugin.params.voices = static_cast<uint32_t>(std::lround(value)); break;
-    case kModeParamId: plugin.params.mode = static_cast<s3g::AmbiStochasticMode>(static_cast<uint32_t>(std::lround(value))); break;
-    case kSelectionParamId: plugin.params.selection = static_cast<s3g::AmbiStochasticSelection>(static_cast<uint32_t>(std::lround(value))); break;
-    case kTransitionParamId: plugin.params.transition = static_cast<s3g::AmbiStochasticTransition>(static_cast<uint32_t>(std::lround(value))); break;
-    case kAmplitudeDistributionParamId: plugin.params.amplitudeDistribution = static_cast<s3g::AmbiStochasticDistribution>(static_cast<uint32_t>(std::lround(value))); break;
-    case kDurationDistributionParamId: plugin.params.durationDistribution = static_cast<s3g::AmbiStochasticDistribution>(static_cast<uint32_t>(std::lround(value))); break;
-    case kBaseNoteParamId: plugin.params.baseNote = static_cast<float>(value); break;
-    case kSeedSpreadParamId: plugin.params.seedSpreadSemitones = static_cast<float>(value); break;
-    case kDetuneParamId: plugin.params.detuneCents = static_cast<float>(value); break;
-    case kFrequencyFloorParamId: plugin.params.frequencyFloorHz = static_cast<float>(value); break;
-    case kBreakpointsParamId: plugin.params.breakpoints = static_cast<uint32_t>(std::lround(value)); break;
-    case kAmplitudeStepParamId: plugin.params.amplitudeStep = static_cast<float>(value); break;
-    case kDurationStepParamId: plugin.params.durationStep = static_cast<float>(value); break;
-    case kAmplitudeRangeParamId: plugin.params.amplitudeRange = static_cast<float>(value); break;
-    case kDurationRangeParamId: plugin.params.durationRange = static_cast<float>(value); break;
-    case kFieldDensityParamId: plugin.params.fieldDensity = static_cast<float>(value); break;
-    case kNeighborTransferParamId: plugin.params.neighborTransfer = static_cast<float>(value); break;
-    case kSelectionMemoryParamId: plugin.params.selectionMemory = static_cast<float>(value); break;
-    case kFieldDurationParamId: plugin.params.fieldDurationSeconds = static_cast<float>(value); break;
-    case kFieldContrastParamId: plugin.params.fieldContrast = static_cast<float>(value); break;
-    case kAttackParamId: plugin.params.attackMs = static_cast<float>(value); break;
-    case kDecayParamId: plugin.params.decayMs = static_cast<float>(value); break;
-    case kSustainParamId: plugin.params.sustain = static_cast<float>(value); break;
-    case kReleaseParamId: plugin.params.releaseMs = static_cast<float>(value); break;
-    case kTopologyShapeParamId: plugin.params.topologyShape = static_cast<uint32_t>(std::lround(value)); break;
-    case kTopologyMotionParamId: plugin.params.topologyMotion = static_cast<uint32_t>(std::lround(value)); break;
-    case kTopologyRateParamId: plugin.params.topologyRateHz = static_cast<float>(value); break;
-    case kTopologyAmountParamId: plugin.params.topologyAmount = static_cast<float>(value); break;
-    case kTopologyDepthParamId: plugin.params.topologyDepth = static_cast<float>(value); break;
-    case kTopologyScaleParamId: plugin.params.topologyScale = static_cast<float>(value); break;
-    case kTopologyCollapseParamId: plugin.params.topologyCollapse = static_cast<float>(value); break;
-    case kTopologyTwistParamId: plugin.params.topologyTwist = static_cast<float>(value); break;
-    case kAzimuthParamId: plugin.params.centerAzimuthDeg = static_cast<float>(value); break;
-    case kElevationParamId: plugin.params.centerElevationDeg = static_cast<float>(value); break;
-    case kDistanceParamId: plugin.params.centerDistance = static_cast<float>(value); break;
-    case kSpatialFollowParamId: plugin.params.spatialFollow = static_cast<float>(value); break;
-    case kOutputParamId: plugin.params.outputGainDb = static_cast<float>(value); break;
-    default: return;
+    case kOrderParamId: params.order = static_cast<uint32_t>(std::lround(value)); break;
+    case kVoicesParamId: params.voices = static_cast<uint32_t>(std::lround(value)); break;
+    case kModeParamId: params.mode = static_cast<s3g::AmbiStochasticMode>(static_cast<uint32_t>(std::lround(value))); break;
+    case kSelectionParamId: params.selection = static_cast<s3g::AmbiStochasticSelection>(static_cast<uint32_t>(std::lround(value))); break;
+    case kTransitionParamId: params.transition = static_cast<s3g::AmbiStochasticTransition>(static_cast<uint32_t>(std::lround(value))); break;
+    case kAmplitudeDistributionParamId: params.amplitudeDistribution = static_cast<s3g::AmbiStochasticDistribution>(static_cast<uint32_t>(std::lround(value))); break;
+    case kDurationDistributionParamId: params.durationDistribution = static_cast<s3g::AmbiStochasticDistribution>(static_cast<uint32_t>(std::lround(value))); break;
+    case kBaseNoteParamId: params.baseNote = static_cast<float>(value); break;
+    case kSeedSpreadParamId: params.seedSpreadSemitones = static_cast<float>(value); break;
+    case kDetuneParamId: params.detuneCents = static_cast<float>(value); break;
+    case kFrequencyFloorParamId: params.frequencyFloorHz = static_cast<float>(value); break;
+    case kBreakpointsParamId: params.breakpoints = static_cast<uint32_t>(std::lround(value)); break;
+    case kAmplitudeStepParamId: params.amplitudeStep = static_cast<float>(value); break;
+    case kDurationStepParamId: params.durationStep = static_cast<float>(value); break;
+    case kAmplitudeRangeParamId: params.amplitudeRange = static_cast<float>(value); break;
+    case kDurationRangeParamId: params.durationRange = static_cast<float>(value); break;
+    case kFieldDensityParamId: params.fieldDensity = static_cast<float>(value); break;
+    case kNeighborTransferParamId: params.neighborTransfer = static_cast<float>(value); break;
+    case kSelectionMemoryParamId: params.selectionMemory = static_cast<float>(value); break;
+    case kFieldDurationParamId: params.fieldDurationSeconds = static_cast<float>(value); break;
+    case kFieldContrastParamId: params.fieldContrast = static_cast<float>(value); break;
+    case kAttackParamId: params.attackMs = static_cast<float>(value); break;
+    case kDecayParamId: params.decayMs = static_cast<float>(value); break;
+    case kSustainParamId: params.sustain = static_cast<float>(value); break;
+    case kReleaseParamId: params.releaseMs = static_cast<float>(value); break;
+    case kTopologyShapeParamId: params.topologyShape = static_cast<uint32_t>(std::lround(value)); break;
+    case kTopologyMotionParamId: params.topologyMotion = static_cast<uint32_t>(std::lround(value)); break;
+    case kTopologyRateParamId: params.topologyRateHz = static_cast<float>(value); break;
+    case kTopologyAmountParamId: params.topologyAmount = static_cast<float>(value); break;
+    case kTopologyDepthParamId: params.topologyDepth = static_cast<float>(value); break;
+    case kTopologyScaleParamId: params.topologyScale = static_cast<float>(value); break;
+    case kTopologyCollapseParamId: params.topologyCollapse = static_cast<float>(value); break;
+    case kTopologyTwistParamId: params.topologyTwist = static_cast<float>(value); break;
+    case kAzimuthParamId: params.centerAzimuthDeg = static_cast<float>(value); break;
+    case kElevationParamId: params.centerElevationDeg = static_cast<float>(value); break;
+    case kDistanceParamId: params.centerDistance = static_cast<float>(value); break;
+    case kSpatialFollowParamId: params.spatialFollow = static_cast<float>(value); break;
+    case kOutputParamId: params.outputGainDb = static_cast<float>(value); break;
+    default: return false;
     }
+    return true;
+}
+
+void applyParam(Plugin& plugin, clap_id id, double value)
+{
+    if (!assignParam(plugin.params, id, value)) return;
     plugin.engine.setParams(plugin.params);
     plugin.params = plugin.engine.params();
+}
+
+bool queuePreset(Plugin& plugin, const s3g::AmbiStochasticParams& params)
+{
+    if (!plugin.presetMailbox.push(params)) return false;
+    if (plugin.hostParams && plugin.hostParams->request_flush) {
+        plugin.hostParams->request_flush(plugin.host);
+    } else if (plugin.host && plugin.host->request_process) {
+        plugin.host->request_process(plugin.host);
+    }
+    return true;
+}
+
+void applyPendingPreset(Plugin& plugin)
+{
+    s3g::AmbiStochasticParams pending {};
+    s3g::AmbiStochasticParams latest {};
+    bool hasPreset = false;
+    while (plugin.presetMailbox.pop(pending)) {
+        latest = pending;
+        hasPreset = true;
+    }
+    if (!hasPreset) return;
+
+    plugin.engine.setParams(latest);
+    plugin.params = plugin.engine.params();
+    plugin.engine.reset();
+    plugin.presetTransitionFrames = std::max<uint32_t>(1u,
+        static_cast<uint32_t>(std::lround(plugin.sampleRate * 0.012)));
+    plugin.presetTransitionRemaining = plugin.presetTransitionFrames;
+    plugin.presetTransitionNeedsInit = true;
+    plugin.presetRescanPending.store(true, std::memory_order_release);
+    if (plugin.host && plugin.host->request_callback) plugin.host->request_callback(plugin.host);
+}
+
+void applyPresetTransition(Plugin& plugin,
+    const std::array<float*, kOutputChannels>& outputs, uint32_t channels, uint32_t frames)
+{
+    if (frames == 0u) return;
+    if (plugin.presetTransitionNeedsInit) {
+        for (uint32_t channel = 0u; channel < channels; ++channel) {
+            plugin.presetTransitionOffset[channel] = outputs[channel]
+                ? plugin.lastOutputSample[channel] - outputs[channel][0]
+                : 0.0f;
+        }
+        plugin.presetTransitionNeedsInit = false;
+    }
+    for (uint32_t frame = 0u; frame < frames && plugin.presetTransitionRemaining > 0u; ++frame) {
+        const float fade = static_cast<float>(plugin.presetTransitionRemaining)
+            / static_cast<float>(std::max<uint32_t>(1u, plugin.presetTransitionFrames));
+        for (uint32_t channel = 0u; channel < channels; ++channel) {
+            if (outputs[channel]) outputs[channel][frame] += plugin.presetTransitionOffset[channel] * fade;
+        }
+        --plugin.presetTransitionRemaining;
+    }
+    if (plugin.presetTransitionRemaining == 0u) plugin.presetTransitionOffset.fill(0.0f);
+    for (uint32_t channel = 0u; channel < channels; ++channel) {
+        plugin.lastOutputSample[channel] = outputs[channel] ? outputs[channel][frames - 1u] : 0.0f;
+    }
+    for (uint32_t channel = channels; channel < kOutputChannels; ++channel) {
+        plugin.lastOutputSample[channel] = 0.0f;
+    }
 }
 
 void readEvents(Plugin& plugin, const clap_input_events_t* events)
@@ -267,7 +383,15 @@ void publishGuiSnapshot(Plugin& plugin)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin)
+{
+    auto* state = self(plugin);
+    if (state->host && state->host->get_extension) {
+        state->hostParams = static_cast<const clap_host_params_t*>(
+            state->host->get_extension(state->host, CLAP_EXT_PARAMS));
+    }
+    return true;
+}
 
 void destroy(const clap_plugin_t* plugin)
 {
@@ -291,6 +415,11 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     state->engine.prepare(sampleRate);
     state->engine.setParams(state->params);
     state->engine.reset();
+    state->lastOutputSample.fill(0.0f);
+    state->presetTransitionOffset.fill(0.0f);
+    state->presetTransitionFrames = 0u;
+    state->presetTransitionRemaining = 0u;
+    state->presetTransitionNeedsInit = false;
     return true;
 }
 
@@ -321,12 +450,17 @@ void reset(const clap_plugin_t* plugin)
     state->engine.reset();
     state->engine.setParams(state->params);
     state->outputPeak.store(0.0f, std::memory_order_relaxed);
+    state->lastOutputSample.fill(0.0f);
+    state->presetTransitionOffset.fill(0.0f);
+    state->presetTransitionRemaining = 0u;
+    state->presetTransitionNeedsInit = false;
 }
 
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* processData)
 {
     auto* state = self(plugin);
     if (!processData) return CLAP_PROCESS_CONTINUE;
+    applyPendingPreset(*state);
     readEvents(*state, processData->in_events);
     if (processData->audio_outputs_count == 0u || !processData->audio_outputs) return CLAP_PROCESS_CONTINUE;
     auto& output = processData->audio_outputs[0];
@@ -347,6 +481,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         outputs[channel] = useScratch ? state->scratchPointers[channel] : output.data32[channel];
     }
     state->engine.process(outputs.data(), outputChannels, frames);
+    applyPresetTransition(*state, outputs, outputChannels, frames);
 
     float blockPeak = 0.0f;
     for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
@@ -369,7 +504,14 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     return CLAP_PROCESS_CONTINUE;
 }
 
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin)
+{
+    auto* state = self(plugin);
+    if (state->presetRescanPending.exchange(false, std::memory_order_acq_rel)
+        && state->hostParams && state->hostParams->rescan) {
+        state->hostParams->rescan(state->host, CLAP_PARAM_RESCAN_VALUES);
+    }
+}
 
 uint32_t audioPortsCount(const clap_plugin_t*, bool isInput) { return isInput ? 0u : 1u; }
 
@@ -427,15 +569,15 @@ constexpr ParamDef kParams[] {
     { kDurationStepParamId, "Duration Step", 0.0, 1.0, 0.52, false },
     { kAmplitudeRangeParamId, "Amplitude Range", 0.0, 1.0, 0.65, false },
     { kDurationRangeParamId, "Duration Range", 0.0, 1.0, 0.78, false },
-    { kFieldDensityParamId, "Field Density", 0.0, 1.0, 0.94, false },
+    { kFieldDensityParamId, "Field Density", 0.0, 1.0, 0.84, false },
     { kNeighborTransferParamId, "Neighbor Transfer", 0.0, 1.0, 0.32, false },
     { kSelectionMemoryParamId, "Selection Memory", 0.0, 1.0, 0.82, false },
-    { kFieldDurationParamId, "Field Duration", 0.05, 30.0, 0.45, false },
+    { kFieldDurationParamId, "Field Duration", 0.05, 30.0, 0.32, false },
     { kFieldContrastParamId, "Field Contrast", 0.0, 1.0, 0.58, false },
     { kAttackParamId, "Attack", 1.0, 4000.0, 12.0, false },
-    { kDecayParamId, "Decay", 5.0, 8000.0, 180.0, false },
-    { kSustainParamId, "Sustain", 0.0, 1.0, 0.82, false },
-    { kReleaseParamId, "Release", 5.0, 12000.0, 420.0, false },
+    { kDecayParamId, "Decay", 5.0, 8000.0, 140.0, false },
+    { kSustainParamId, "Sustain", 0.0, 1.0, 0.76, false },
+    { kReleaseParamId, "Release", 5.0, 12000.0, 280.0, false },
     { kTopologyShapeParamId, "Topology Shape", 0.0, 11.0, 11.0, true },
     { kTopologyMotionParamId, "Topology Animation", 0.0, 17.0, 1.0, true },
     { kTopologyRateParamId, "Topology Rate", 0.001, 1.0, 0.035, false },
@@ -450,6 +592,52 @@ constexpr ParamDef kParams[] {
     { kSpatialFollowParamId, "Spatial Follow", 0.0, 1.0, 0.92, false },
     { kOutputParamId, "Output", -60.0, 6.0, -24.0, false },
 };
+
+struct PresetJsonField {
+    clap_id id;
+    const char* key;
+};
+
+constexpr std::array<PresetJsonField, std::size(kParams)> kPresetJsonFields {{
+    { kOrderParamId, "order" },
+    { kVoicesParamId, "voices" },
+    { kModeParamId, "mode" },
+    { kSelectionParamId, "selection" },
+    { kTransitionParamId, "transition" },
+    { kAmplitudeDistributionParamId, "amplitude_distribution" },
+    { kDurationDistributionParamId, "duration_distribution" },
+    { kBaseNoteParamId, "base_seed" },
+    { kSeedSpreadParamId, "seed_spread" },
+    { kDetuneParamId, "seed_deviation" },
+    { kFrequencyFloorParamId, "frequency_floor_hz" },
+    { kBreakpointsParamId, "breakpoints" },
+    { kAmplitudeStepParamId, "amplitude_step" },
+    { kDurationStepParamId, "duration_step" },
+    { kAmplitudeRangeParamId, "amplitude_range" },
+    { kDurationRangeParamId, "duration_range" },
+    { kFieldDensityParamId, "field_density" },
+    { kNeighborTransferParamId, "neighbor_transfer" },
+    { kSelectionMemoryParamId, "selection_memory" },
+    { kFieldDurationParamId, "field_duration_seconds" },
+    { kFieldContrastParamId, "field_contrast" },
+    { kAttackParamId, "attack_ms" },
+    { kDecayParamId, "decay_ms" },
+    { kSustainParamId, "sustain" },
+    { kReleaseParamId, "release_ms" },
+    { kTopologyShapeParamId, "topology_shape" },
+    { kTopologyMotionParamId, "topology_animation" },
+    { kTopologyRateParamId, "topology_rate_hz" },
+    { kTopologyAmountParamId, "topology_amount" },
+    { kTopologyDepthParamId, "topology_depth" },
+    { kTopologyScaleParamId, "topology_scale" },
+    { kTopologyCollapseParamId, "topology_collapse" },
+    { kTopologyTwistParamId, "topology_twist" },
+    { kAzimuthParamId, "center_azimuth_degrees" },
+    { kElevationParamId, "center_elevation_degrees" },
+    { kDistanceParamId, "center_distance" },
+    { kSpatialFollowParamId, "spatial_follow" },
+    { kOutputParamId, "output_gain_db" },
+}};
 
 const ParamDef* paramDef(clap_id id)
 {
@@ -475,10 +663,9 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     return true;
 }
 
-bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
+bool parameterValue(const s3g::AmbiStochasticParams& params, clap_id id, double* value)
 {
     if (!value) return false;
-    const auto& params = self(plugin)->params;
     switch (id) {
     case kOrderParamId: *value = params.order; return true;
     case kVoicesParamId: *value = params.voices; return true;
@@ -520,6 +707,11 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kOutputParamId: *value = params.outputGainDb; return true;
     default: return false;
     }
+}
+
+bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
+{
+    return parameterValue(self(plugin)->params, id, value);
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
@@ -580,7 +772,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
 
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t*)
 {
-    readEvents(*self(plugin), input);
+    auto* state = self(plugin);
+    applyPendingPreset(*state);
+    readEvents(*state, input);
 }
 
 const clap_plugin_params_t paramsExt {
@@ -598,6 +792,8 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     SavedState saved {};
     auto* state = self(plugin);
     saved.params = state->params;
+    saved.factoryPresetIndex = state->factoryPresetIndex;
+    std::strncpy(saved.presetName, state->presetName, sizeof(saved.presetName) - 1u);
 #if defined(__APPLE__)
     saved.guiViewMode = state->guiViewMode;
     saved.guiViewAzDeg = state->guiViewAzDeg;
@@ -610,25 +806,74 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
-    SavedState saved {};
-    auto* destination = reinterpret_cast<uint8_t*>(&saved);
-    uint64_t remaining = sizeof(saved);
-    while (remaining > 0u) {
-        const int64_t read = stream->read(stream, destination, remaining);
-        if (read <= 0) return false;
-        destination += read;
-        remaining -= static_cast<uint64_t>(read);
+    auto readFully = [stream](void* destination, uint64_t remaining) {
+        auto* bytes = static_cast<uint8_t*>(destination);
+        while (remaining > 0u) {
+            const int64_t read = stream->read(stream, bytes, remaining);
+            if (read <= 0) return false;
+            bytes += read;
+            remaining -= static_cast<uint64_t>(read);
+        }
+        return true;
+    };
+
+    uint32_t version = 0u;
+    if (!readFully(&version, sizeof(version))) return false;
+    s3g::AmbiStochasticParams loadedParams {};
+    int32_t loadedPresetIndex = -1;
+    char loadedPresetName[64] {};
+    int32_t loadedViewMode = 2;
+    float loadedViewAzDeg = 38.0f;
+    float loadedViewElDeg = 32.0f;
+    float loadedViewZoom = 1.0f;
+
+    if (version == kStateVersion) {
+        SavedState saved {};
+        saved.version = version;
+        if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
+                sizeof(saved) - sizeof(version))) return false;
+        loadedParams = saved.params;
+        loadedPresetIndex = saved.factoryPresetIndex;
+        std::strncpy(loadedPresetName, saved.presetName, sizeof(loadedPresetName) - 1u);
+        loadedViewMode = saved.guiViewMode;
+        loadedViewAzDeg = saved.guiViewAzDeg;
+        loadedViewElDeg = saved.guiViewElDeg;
+        loadedViewZoom = saved.guiViewZoom;
+    } else if (version == 5u || version == 6u) {
+        LegacySavedStateV6 saved {};
+        saved.version = version;
+        if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
+                sizeof(saved) - sizeof(version))) return false;
+        loadedParams = saved.params;
+        std::snprintf(loadedPresetName, sizeof(loadedPresetName), "%s", "CUSTOM");
+        loadedViewMode = saved.guiViewMode;
+        loadedViewAzDeg = saved.guiViewAzDeg;
+        loadedViewElDeg = saved.guiViewElDeg;
+        loadedViewZoom = saved.guiViewZoom;
+    } else {
+        return false;
     }
-    if (saved.version != kStateVersion) return false;
+
     auto* state = self(plugin);
-    state->params = saved.params;
+    state->params = loadedParams;
     state->engine.setParams(state->params);
     state->params = state->engine.params();
+    state->factoryPresetIndex = (loadedPresetIndex >= 0
+            && loadedPresetIndex < static_cast<int32_t>(s3g::kAmbiStochasticFactoryPresetCount))
+        ? loadedPresetIndex : -1;
+    if (loadedPresetName[0] == '\0') {
+        const char* fallback = state->factoryPresetIndex >= 0
+            ? s3g::ambiStochasticFactoryPresetInfo(static_cast<uint32_t>(state->factoryPresetIndex)).name
+            : "CUSTOM";
+        std::snprintf(loadedPresetName, sizeof(loadedPresetName), "%s", fallback);
+    }
+    std::strncpy(state->presetName, loadedPresetName, sizeof(state->presetName) - 1u);
+    state->presetName[sizeof(state->presetName) - 1u] = '\0';
 #if defined(__APPLE__)
-    state->guiViewMode = saved.guiViewMode;
-    state->guiViewAzDeg = saved.guiViewAzDeg;
-    state->guiViewElDeg = saved.guiViewElDeg;
-    state->guiViewZoom = saved.guiViewZoom;
+    state->guiViewMode = loadedViewMode;
+    state->guiViewAzDeg = loadedViewAzDeg;
+    state->guiViewElDeg = loadedViewElDeg;
+    state->guiViewZoom = loadedViewZoom;
 #endif
     return true;
 }
@@ -691,18 +936,55 @@ const GuiSliderSpec* guiSliderSpec(clap_id id)
     return nullptr;
 }
 
+double sliderCurvePower(clap_id id)
+{
+    switch (id) {
+    case kVoicesParamId: return 1.45;
+    case kSeedSpreadParamId: return 1.35;
+    case kDetuneParamId: return 1.40;
+    case kBreakpointsParamId: return 1.30;
+    case kAmplitudeStepParamId:
+    case kDurationStepParamId: return 1.75;
+    case kAmplitudeRangeParamId:
+    case kDurationRangeParamId: return 1.50;
+    case kNeighborTransferParamId: return 1.35;
+    case kFieldDensityParamId: return 1.90;
+    case kFieldContrastParamId: return 1.35;
+    case kSustainParamId: return 1.50;
+    case kTopologyAmountParamId: return 1.25;
+    case kTopologyDepthParamId: return 1.35;
+    case kTopologyCollapseParamId: return 1.40;
+    case kTopologyTwistParamId: return 1.35;
+    default: return 1.0;
+    }
+}
+
 double sliderNorm(const GuiSliderSpec& spec, double value)
 {
     value = std::clamp(value, spec.minimum, spec.maximum);
     if (spec.logarithmic) return std::log(value / spec.minimum) / std::log(spec.maximum / spec.minimum);
-    return (value - spec.minimum) / (spec.maximum - spec.minimum);
+    const double linear = (value - spec.minimum) / (spec.maximum - spec.minimum);
+    const double power = sliderCurvePower(spec.id);
+    if (spec.id == kTopologyTwistParamId) {
+        const double centered = linear * 2.0 - 1.0;
+        const double curved = std::copysign(std::pow(std::abs(centered), 1.0 / power), centered);
+        return (curved + 1.0) * 0.5;
+    }
+    return std::pow(linear, 1.0 / power);
 }
 
 double sliderValue(const GuiSliderSpec& spec, double norm)
 {
     norm = std::clamp(norm, 0.0, 1.0);
     if (spec.logarithmic) return spec.minimum * std::pow(spec.maximum / spec.minimum, norm);
-    return spec.minimum + (spec.maximum - spec.minimum) * norm;
+    const double power = sliderCurvePower(spec.id);
+    double linear = std::pow(norm, power);
+    if (spec.id == kTopologyTwistParamId) {
+        const double centered = norm * 2.0 - 1.0;
+        const double curved = std::copysign(std::pow(std::abs(centered), power), centered);
+        linear = (curved + 1.0) * 0.5;
+    }
+    return spec.minimum + (spec.maximum - spec.minimum) * linear;
 }
 
 float linearToSrgb(float value)
@@ -836,6 +1118,25 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 - (NSRect)wavePanelRect { return NSMakeRect(18, 554, 596, 288); }
 - (NSRect)waveRect { return NSMakeRect(34, 584, 564, 174); }
 - (NSRect)historyRect { return NSMakeRect(34, 774, 564, 50); }
+- (NSRect)presetMenuRect { return NSMakeRect(382, 13, 190, 15); }
+- (NSRect)presetLoadButtonRect { return NSMakeRect(580, 13, 48, 15); }
+- (NSRect)presetSaveButtonRect { return NSMakeRect(636, 13, 48, 15); }
+
+- (NSString*)presetDisplayName
+{
+    NSString* name = _plugin && _plugin->presetName[0] != '\0'
+        ? [NSString stringWithUTF8String:_plugin->presetName]
+        : @"CUSTOM";
+    if ([name length] <= 22u) return name;
+    return [[name substringToIndex:19u] stringByAppendingString:@"..."];
+}
+
+- (void)markPresetCustom
+{
+    if (!_plugin) return;
+    _plugin->factoryPresetIndex = -1;
+    std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", "CUSTOM");
+}
 
 - (NSRect)viewButtonRect:(int)index
 {
@@ -1196,6 +1497,12 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     static NSString* distributionItems[] = { @"UNIFORM", @"GAUSS", @"CAUCHY", @"LOGISTIC", @"ARCSINE", @"EXPON", @"BINARY" };
     static NSString* shapeItems[] = { @"AED", @"SHEAR", @"FOLD", @"VORTEX", @"PINCH", @"RUPTURE", @"SCATTER", @"MIRROR", @"WAVE", @"LINE", @"PLANE", @"FORSY" };
     static NSString* motionItems[] = { @"OFF", @"FREE", @"DRIFT", @"PULSE", @"ORBIT", @"FOLD", @"WEAVE", @"GRID", @"TRACE", @"HOVER", @"LEAP", @"FIELD", @"PAIR", @"FLOW", @"GROUP", @"MARCH", @"PATH", @"SCAT" };
+    static NSString* factoryItems[] = {
+        @"FREE PERIOD", @"MICRO POINTS", @"PRESSURE BLOOM", @"HARSH POLYGONS",
+        @"SPARSE SIGNALS", @"MARKOV CLUSTERS", @"METALLIC FLIGHT", @"SUBHARMONIC TIDES",
+        @"BINARY FRACTURE", @"SLOW CONSTELLATION", @"MIDI PRESSURE", @"HYBRID FIELD",
+        @"FULL 7OA FIELD"
+    };
     NSString** items = modeItems;
     int selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.mode));
     if (_openMenu == 2) {
@@ -1219,8 +1526,131 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     } else if (_openMenu == 8) {
         items = motionItems;
         selected = static_cast<int>(_plugin->params.topologyMotion);
+    } else if (_openMenu == 9) {
+        items = factoryItems;
+        selected = _plugin->factoryPresetIndex;
     }
     s3g::clap_gui::drawDropdownMenu(_openMenuRect, 21.0, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
+}
+
+- (void)applyFactoryPreset:(uint32_t)index
+{
+    if (!_plugin || index >= s3g::kAmbiStochasticFactoryPresetCount) return;
+    const auto params = s3g::ambiStochasticFactoryPreset(index);
+    if (!queuePreset(*_plugin, params)) {
+        NSBeep();
+        return;
+    }
+    const auto info = s3g::ambiStochasticFactoryPresetInfo(index);
+    _plugin->factoryPresetIndex = static_cast<int32_t>(index);
+    std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", info.name);
+    _selectedVoice = std::min<uint32_t>(_selectedVoice, params.voices - 1u);
+    _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
+    [self setNeedsDisplay:YES];
+}
+
+- (NSDictionary*)presetDictionaryWithName:(NSString*)name
+{
+    NSMutableDictionary* parameters = [NSMutableDictionary dictionaryWithCapacity:kPresetJsonFields.size()];
+    for (const auto& field : kPresetJsonFields) {
+        double value = 0.0;
+        if (!parameterValue(_plugin->params, field.id, &value)) continue;
+        NSString* key = [NSString stringWithUTF8String:field.key];
+        [parameters setObject:@(value) forKey:key];
+    }
+    return @{
+        @"format": @"s3g-ambi-stochastic-preset",
+        @"version": @1,
+        @"plugin": @"org.s3g.s3g-dsp.ambi-stochastic-encoder-64",
+        @"name": name ?: @"USER PRESET",
+        @"parameters": parameters
+    };
+}
+
+- (void)loadUserPreset
+{
+    NSOpenPanel* panel = [NSOpenPanel openPanel];
+    [panel setAllowsMultipleSelection:NO];
+    [panel setCanChooseDirectories:NO];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    [panel setAllowedFileTypes:@[@"s3gstochastic", @"json"]];
+#pragma clang diagnostic pop
+    if ([panel runModal] != NSModalResponseOK) return;
+    NSData* data = [NSData dataWithContentsOfURL:[panel URL]];
+    if (!data) {
+        NSBeep();
+        return;
+    }
+    NSError* error = nil;
+    id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
+    if (error || ![root isKindOfClass:[NSDictionary class]]) {
+        NSBeep();
+        return;
+    }
+    NSDictionary* dictionary = static_cast<NSDictionary*>(root);
+    NSString* format = [dictionary objectForKey:@"format"];
+    NSNumber* version = [dictionary objectForKey:@"version"];
+    NSDictionary* parameters = [dictionary objectForKey:@"parameters"];
+    if (![format isKindOfClass:[NSString class]]
+        || ![format isEqualToString:@"s3g-ambi-stochastic-preset"]
+        || ![version respondsToSelector:@selector(unsignedIntValue)]
+        || [version unsignedIntValue] != 1u
+        || ![parameters isKindOfClass:[NSDictionary class]]) {
+        NSBeep();
+        return;
+    }
+
+    s3g::AmbiStochasticParams candidate {};
+    uint32_t loaded = 0u;
+    for (const auto& field : kPresetJsonFields) {
+        NSString* key = [NSString stringWithUTF8String:field.key];
+        id item = [parameters objectForKey:key];
+        if (![item respondsToSelector:@selector(doubleValue)]) continue;
+        const double value = [item doubleValue];
+        if (!std::isfinite(value) || !assignParam(candidate, field.id, value)) continue;
+        ++loaded;
+    }
+    if (loaded != kPresetJsonFields.size() || !queuePreset(*_plugin, candidate)) {
+        NSBeep();
+        return;
+    }
+
+    NSString* name = [dictionary objectForKey:@"name"];
+    if (![name isKindOfClass:[NSString class]] || [name length] == 0u) {
+        name = [[[panel URL] lastPathComponent] stringByDeletingPathExtension];
+    }
+    name = [name uppercaseString];
+    _plugin->factoryPresetIndex = -1;
+    std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", [name UTF8String]);
+    _selectedVoice = std::min<uint32_t>(_selectedVoice, std::max<uint32_t>(1u, candidate.voices) - 1u);
+    _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
+    [self setNeedsDisplay:YES];
+}
+
+- (void)saveUserPreset
+{
+    NSSavePanel* panel = [NSSavePanel savePanel];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    [panel setAllowedFileTypes:@[@"s3gstochastic"]];
+#pragma clang diagnostic pop
+    [panel setNameFieldStringValue:@"s3g-stochastic-preset.s3gstochastic"];
+    if ([panel runModal] != NSModalResponseOK) return;
+    NSString* name = [[[panel URL] lastPathComponent] stringByDeletingPathExtension];
+    if ([name length] == 0u) name = @"USER PRESET";
+    NSDictionary* dictionary = [self presetDictionaryWithName:name];
+    NSError* error = nil;
+    NSData* data = [NSJSONSerialization dataWithJSONObject:dictionary
+        options:(NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys) error:&error];
+    if (error || !data || ![data writeToURL:[panel URL] atomically:YES]) {
+        NSBeep();
+        return;
+    }
+    name = [name uppercaseString];
+    _plugin->factoryPresetIndex = -1;
+    std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", [name UTF8String]);
+    [self setNeedsDisplay:YES];
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -1234,6 +1664,11 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     [@"s3g AMBI STOCHASTIC ENCODER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
+    s3g::clap_gui::drawMenu(@"PRESET", [self presetDisplayName], 14, attrs, valueAttrs, style,
+        320, 382, 190);
+    const NSRect titleHeader = NSMakeRect(0, 8, kGuiWidth, 21);
+    s3g::clap_gui::drawHeaderActionButton([self presetLoadButtonRect], titleHeader, @"LOAD", attrs, style);
+    s3g::clap_gui::drawHeaderActionButton([self presetSaveButtonRect], titleHeader, @"SAVE", attrs, style);
     s3g::clap_gui::drawRightStatus(s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed)),
         kGuiWidth, 14, valueAttrs, 18);
     [self drawField:attrs valueAttrs:valueAttrs style:style];
@@ -1253,6 +1688,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     case 6: return NSMakeRect(738, 343, 124, 15);
     case 7: return NSMakeRect(1004, 375, 124, 15);
     case 8: return NSMakeRect(1004, 401, 124, 15);
+    case 9: return [self presetMenuRect];
     default: return NSZeroRect;
     }
 }
@@ -1268,6 +1704,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     case 6: return 7u;
     case 7: return 12u;
     case 8: return 18u;
+    case 9: return s3g::kAmbiStochasticFactoryPresetCount;
     default: return 0u;
     }
 }
@@ -1288,6 +1725,12 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 - (void)chooseMenuItem:(int)item
 {
     if (item < 0) return;
+    if (_openMenu == 9) {
+        [self applyFactoryPreset:static_cast<uint32_t>(item)];
+        _openMenu = 0;
+        _hoverMenuItem = -1;
+        return;
+    }
     switch (_openMenu) {
     case 1: applyParam(*_plugin, kModeParamId, item); break;
     case 2: applyParam(*_plugin, kOrderParamId, item + 1); break;
@@ -1299,6 +1742,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     case 8: applyParam(*_plugin, kTopologyMotionParamId, item); break;
     default: break;
     }
+    [self markPresetCustom];
     _openMenu = 0;
     _hoverMenuItem = -1;
     [self setNeedsDisplay:YES];
@@ -1311,6 +1755,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     const double norm = std::clamp((point.x - (spec->panelX + 108.0)) / 82.0, 0.0, 1.0);
     double value = sliderValue(*spec, norm);
     if (_dragParam == kVoicesParamId || _dragParam == kBreakpointsParamId) value = std::lround(value);
+    [self markPresetCustom];
     applyParam(*_plugin, _dragParam, value);
     [self setNeedsDisplay:YES];
 }
@@ -1327,7 +1772,15 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         _openMenu = 0;
         _hoverMenuItem = -1;
     }
-    for (int menu = 1; menu <= 8; ++menu) {
+    if (NSPointInRect(point, [self presetLoadButtonRect])) {
+        [self loadUserPreset];
+        return;
+    }
+    if (NSPointInRect(point, [self presetSaveButtonRect])) {
+        [self saveUserPreset];
+        return;
+    }
+    for (int menu = 1; menu <= 9; ++menu) {
         if (NSPointInRect(point, [self menuBoxRect:menu])) {
             [self openMenu:menu];
             return;
@@ -1364,7 +1817,10 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         if (!NSPointInRect(point, hit)) continue;
         if ([event clickCount] >= 2) {
             const auto* definition = paramDef(spec.id);
-            if (definition) applyParam(*_plugin, spec.id, definition->defaultValue);
+            if (definition) {
+                [self markPresetCustom];
+                applyParam(*_plugin, spec.id, definition->defaultValue);
+            }
             [self setNeedsDisplay:YES];
             return;
         }
@@ -1559,6 +2015,8 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     auto* state = new (std::nothrow) Plugin();
     if (!state) return nullptr;
     state->host = host;
+    std::snprintf(state->presetName, sizeof(state->presetName), "%s",
+        s3g::ambiStochasticFactoryPresetInfo(0u).name);
     state->plugin.desc = &descriptor;
     state->plugin.plugin_data = state;
     state->plugin.init = init;
