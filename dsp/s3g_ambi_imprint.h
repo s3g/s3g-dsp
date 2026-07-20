@@ -28,6 +28,9 @@ constexpr uint32_t kAmbiImprintBands = 8u;
 constexpr uint32_t kAmbiImprintChannels = 64u;
 constexpr uint32_t kAmbiImprintPartitionSize = 1024u;
 constexpr float kAmbiImprintMaxKernelSeconds = 4.0f;
+constexpr float kAmbiImprintWetHighpassHz = 25.0f;
+constexpr float kAmbiImprintSparseTransferCeiling = 2.0f;
+constexpr float kAmbiImprintSafetyCeiling = 0.95f;
 
 struct AmbiImprintReflection {
     float delayMs = 0.0f;
@@ -168,6 +171,29 @@ struct Biquad {
     float a2 = 0.0f;
     float z1 = 0.0f;
     float z2 = 0.0f;
+
+    void reset()
+    {
+        z1 = 0.0f;
+        z2 = 0.0f;
+    }
+
+    void prepareHighpass(double sampleRate, float frequency, float q = 0.70710678f)
+    {
+        const float safeRate = static_cast<float>(std::max(1.0, sampleRate));
+        frequency = clamp(frequency, 2.0f, safeRate * 0.44f);
+        q = clamp(q, 0.35f, 4.0f);
+        const float omega = 2.0f * kPi * frequency / safeRate;
+        const float cosine = std::cos(omega);
+        const float alpha = std::sin(omega) / (2.0f * q);
+        const float a0 = 1.0f + alpha;
+        b0 = 0.5f * (1.0f + cosine) / a0;
+        b1 = -(1.0f + cosine) / a0;
+        b2 = b0;
+        a1 = -2.0f * cosine / a0;
+        a2 = (1.0f - alpha) / a0;
+        reset();
+    }
 
     void prepareBandpass(double sampleRate, float frequency, float q)
     {
@@ -441,6 +467,22 @@ public:
     {
         sampleRate_ = std::max(1.0, sampleRate);
         descriptor_ = sanitizeAmbiImprintDescriptor(std::move(descriptor));
+        float directTransfer = 0.0f;
+        float reflectionTransfer = 0.0f;
+        for (const auto& profile : descriptor_.profiles) {
+            directTransfer += profile.weight * std::abs(profile.directGain);
+            for (const auto& reflection : profile.earlyReflections) {
+                reflectionTransfer += profile.weight * std::abs(reflection.gain);
+            }
+        }
+        directTapScale_ = directTransfer > kAmbiImprintSparseTransferCeiling
+            ? kAmbiImprintSparseTransferCeiling / directTransfer
+            : 1.0f;
+        const float directAfterScale = directTransfer * directTapScale_;
+        const float reflectionBudget = std::max(0.0f, kAmbiImprintSparseTransferCeiling - directAfterScale);
+        reflectionTapScale_ = reflectionTransfer > reflectionBudget && reflectionTransfer > 1.0e-9f
+            ? reflectionBudget / reflectionTransfer
+            : 1.0f;
         profiles_.clear();
         for (const auto& profile : descriptor_.profiles) {
             RuntimeProfile runtime;
@@ -466,7 +508,7 @@ public:
                 runtime.sparseTaps.push_back({ delay, outputProfile, gain });
                 maximumDelay = std::max(maximumDelay, delay);
             };
-            appendTap(source.directDelayMs, source.directGain, sourceIndex);
+            appendTap(source.directDelayMs, source.directGain * directTapScale_, sourceIndex);
             for (const auto& reflection : source.earlyReflections) {
                 const Vec3 eventDirection = directionFromAed(reflection.azimuthDeg, reflection.elevationDeg);
                 uint32_t first = 0u;
@@ -487,13 +529,13 @@ public:
                     }
                 }
                 if (profiles_.size() == 1u) {
-                    appendTap(reflection.delayMs, reflection.gain, first);
+                    appendTap(reflection.delayMs, reflection.gain * reflectionTapScale_, first);
                 } else {
                     const float firstWeight = std::pow(std::max(0.001f, 1.0f + firstDot), 4.0f);
                     const float secondWeight = std::pow(std::max(0.001f, 1.0f + secondDot), 4.0f);
                     const float inverse = 1.0f / std::max(1.0e-9f, firstWeight + secondWeight);
-                    appendTap(reflection.delayMs, reflection.gain * firstWeight * inverse, first);
-                    appendTap(reflection.delayMs, reflection.gain * secondWeight * inverse, second);
+                    appendTap(reflection.delayMs, reflection.gain * reflectionTapScale_ * firstWeight * inverse, first);
+                    appendTap(reflection.delayMs, reflection.gain * reflectionTapScale_ * secondWeight * inverse, second);
                 }
             }
             runtime.sparseDelay.assign(static_cast<size_t>(maximumDelay) + 1u, 0.0f);
@@ -501,6 +543,11 @@ public:
         }
         dryDelay_.assign(kAmbiImprintChannels, std::vector<float>(kAmbiImprintPartitionSize, 0.0f));
         dryPosition_ = 0u;
+        for (auto& filter : inputHighpass_) filter.prepareHighpass(sampleRate_, kAmbiImprintWetHighpassHz);
+        inputSafetyGain_ = 1.0f;
+        wetSafetyGain_ = 1.0f;
+        inputSafetyRelease_ = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.080));
+        wetSafetyRelease_ = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.120));
         params_ = sanitizeAmbiImprintParams(params_);
         currentMix_ = params_.mix;
         currentFocus_ = params_.focus;
@@ -515,6 +562,8 @@ public:
     uint32_t profileCount() const { return static_cast<uint32_t>(profiles_.size()); }
     uint32_t latencyFrames() const { return kAmbiImprintPartitionSize; }
     uint32_t tailFrames() const { return static_cast<uint32_t>(std::ceil(std::min(descriptor_.durationSeconds, kAmbiImprintMaxKernelSeconds) * sampleRate_)) + latencyFrames(); }
+    float directTapScale() const { return directTapScale_; }
+    float reflectionTapScale() const { return reflectionTapScale_; }
 
     void reset()
     {
@@ -525,6 +574,9 @@ public:
         }
         for (auto& channel : dryDelay_) std::fill(channel.begin(), channel.end(), 0.0f);
         dryPosition_ = 0u;
+        for (auto& filter : inputHighpass_) filter.reset();
+        inputSafetyGain_ = 1.0f;
+        wetSafetyGain_ = 1.0f;
         currentMix_ = params_.mix;
         currentFocus_ = params_.focus;
         currentWidth_ = params_.width;
@@ -545,10 +597,26 @@ public:
             wet_.fill(0.0f);
             wetBins_.fill(0.0f);
 
-            const float w = inputChannels > 0u && input && input[0] ? static_cast<float>(input[0][frame]) : 0.0f;
-            const float y = inputChannels > 1u && input[1] ? static_cast<float>(input[1][frame]) : 0.0f;
-            const float z = inputChannels > 2u && input[2] ? static_cast<float>(input[2][frame]) : 0.0f;
-            const float x = inputChannels > 3u && input[3] ? static_cast<float>(input[3][frame]) : 0.0f;
+            std::array<float, 4u> excitation {};
+            float inputPeak = 0.0f;
+            for (uint32_t channel = 0u; channel < excitation.size(); ++channel) {
+                float value = inputChannels > channel && input && input[channel]
+                    ? static_cast<float>(input[channel][frame])
+                    : 0.0f;
+                if (!std::isfinite(value)) value = 0.0f;
+                excitation[channel] = inputHighpass_[channel].process(value);
+                inputPeak = std::max(inputPeak, std::abs(excitation[channel]));
+            }
+            const float inputSafetyTarget = inputPeak > kAmbiImprintSafetyCeiling
+                ? kAmbiImprintSafetyCeiling / inputPeak
+                : 1.0f;
+            if (inputSafetyTarget < inputSafetyGain_) inputSafetyGain_ = inputSafetyTarget;
+            else inputSafetyGain_ += (inputSafetyTarget - inputSafetyGain_) * inputSafetyRelease_;
+            for (auto& value : excitation) value *= inputSafetyGain_;
+            const float w = excitation[0];
+            const float y = excitation[1];
+            const float z = excitation[2];
+            const float x = excitation[3];
             for (uint32_t sourceIndex = 0; sourceIndex < profiles_.size(); ++sourceIndex) {
                 auto& profile = profiles_[sourceIndex];
                 const float beam = w + currentFocus_ * 3.0f * (y * profile.basis[1] + z * profile.basis[2] + x * profile.basis[3]);
@@ -568,19 +636,34 @@ public:
                 for (uint32_t channel = 0; channel < activeChannels; ++channel) wet_[channel] += response * profiles_[outputProfile].basis[channel];
             }
 
+            float wetPeak = 0.0f;
+            for (uint32_t channel = 0u; channel < activeChannels; ++channel) {
+                const uint32_t order = static_cast<uint32_t>(std::sqrt(static_cast<float>(channel)));
+                const float width = order == 0u ? 1.0f : std::pow(currentWidth_, static_cast<float>(order) / static_cast<float>(std::max<uint32_t>(1u, params_.order)));
+                float value = wet_[channel] * width;
+                if (!std::isfinite(value)) value = 0.0f;
+                wetShaped_[channel] = value;
+                wetPeak = std::max(wetPeak, std::abs(value));
+            }
+            const float wetSafetyTarget = wetPeak > kAmbiImprintSafetyCeiling
+                ? kAmbiImprintSafetyCeiling / wetPeak
+                : 1.0f;
+            if (wetSafetyTarget < wetSafetyGain_) wetSafetyGain_ = wetSafetyTarget;
+            else wetSafetyGain_ += (wetSafetyTarget - wetSafetyGain_) * wetSafetyRelease_;
+
             for (uint32_t channel = 0; channel < outputChannels; ++channel) {
                 if (!output[channel]) continue;
-                const float in = channel < inputChannels && input && input[channel] ? static_cast<float>(input[channel][frame]) : 0.0f;
+                float in = channel < inputChannels && input && input[channel] ? static_cast<float>(input[channel][frame]) : 0.0f;
+                if (!std::isfinite(in)) in = 0.0f;
                 float dry = in;
                 if (channel < kAmbiImprintChannels && !dryDelay_.empty()) {
                     dry = dryDelay_[channel][dryPosition_];
                     dryDelay_[channel][dryPosition_] = in;
                 }
                 if (channel < activeChannels) {
-                    const uint32_t order = static_cast<uint32_t>(std::sqrt(static_cast<float>(channel)));
-                    const float width = order == 0u ? 1.0f : std::pow(currentWidth_, static_cast<float>(order) / static_cast<float>(std::max<uint32_t>(1u, params_.order)));
-                    const float value = lerp(dry, wet_[channel] * width, currentMix_) * currentOutput_;
-                    output[channel][frame] = static_cast<Sample>(std::clamp(value, -16.0f, 16.0f));
+                    float value = lerp(dry, wetShaped_[channel] * wetSafetyGain_, currentMix_) * currentOutput_;
+                    if (!std::isfinite(value)) value = 0.0f;
+                    output[channel][frame] = static_cast<Sample>(std::clamp(value, -8.0f, 8.0f));
                 } else {
                     output[channel][frame] = Sample {};
                 }
@@ -613,7 +696,15 @@ private:
     std::vector<std::vector<float>> dryDelay_;
     uint32_t dryPosition_ = 0u;
     std::array<float, kAmbiImprintChannels> wet_ {};
+    std::array<float, kAmbiImprintChannels> wetShaped_ {};
     std::array<float, kAmbiImprintMaxProfiles> wetBins_ {};
+    std::array<ambi_imprint_detail::Biquad, 4u> inputHighpass_ {};
+    float directTapScale_ = 1.0f;
+    float reflectionTapScale_ = 1.0f;
+    float inputSafetyGain_ = 1.0f;
+    float wetSafetyGain_ = 1.0f;
+    float inputSafetyRelease_ = 0.001f;
+    float wetSafetyRelease_ = 0.001f;
     float currentMix_ = 0.5f;
     float currentFocus_ = 1.0f;
     float currentWidth_ = 1.0f;

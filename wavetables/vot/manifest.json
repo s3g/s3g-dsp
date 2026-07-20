@@ -249,6 +249,46 @@
       "energy_range_db": 0.0,
       "wav": "s3g-vot-glitch-fracture.wav",
       "preview": "previews/s3g-vot-glitch-fracture.svg"
+    },
+    {
+      "id": "vocal-blackmetal",
+      "name": "Vocal / Black Metal",
+      "u_axis": "throat closure and distortion edge",
+      "v_axis": "vowel darkness and rasp depth",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-vocal-blackmetal.wav",
+      "preview": "previews/s3g-vot-vocal-blackmetal.svg"
+    },
+    {
+      "id": "vocal-throat",
+      "name": "Vocal / Throat",
+      "u_axis": "closure",
+      "v_axis": "subharmonic body",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-vocal-throat.wav",
+      "preview": "previews/s3g-vot-vocal-throat.svg"
+    },
+    {
+      "id": "vocal-choir",
+      "name": "Vocal / Choir",
+      "u_axis": "strain",
+      "v_axis": "vowel family",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-vocal-choir.wav",
+      "preview": "previews/s3g-vot-vocal-choir.svg"
+    },
+    {
+      "id": "vocal-animal",
+      "name": "Vocal / Animal",
+      "u_axis": "snarl",
+      "v_axis": "body size",
+      "energy_surface": "level matched",
+      "energy_range_db": 0.0,
+      "wav": "s3g-vot-vocal-animal.wav",
+      "preview": "previews/s3g-vot-vocal-animal.svg"
     }
   ]
 }

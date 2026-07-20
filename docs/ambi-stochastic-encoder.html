@@ -115,15 +115,21 @@
           </tbody>
         </table>
 
-        <p><code>XFER</code> lets nearby voices exchange generator tendencies and walk motion. <code>MEM</code> controls both selection-law memory and how long a generator remains active.</p>
+        <p><code>XFER</code> lets nearby voices exchange generator tendencies and walk motion, and sets how strongly a new event can propagate to its nearest neighbors. <code>MEM</code> controls selection-law memory, generator persistence, and the stability of the slower macro state.</p>
 
         <p><code>LINK</code> moves to the selected generator, <code>MERGE</code> interlaces it with the previous generator, and <code>VARY</code> creates a topology-weighted variation between them. A short interpolation at each cycle boundary keeps the transition continuous without blurring the pressure curve for the full cycle.</p>
 
         <h2 id="time-fields">Time-Fields</h2>
 
-        <p>Free-running voices alternate independently between active and resting time-fields. <code>DENS</code> sets the probability of an active field, <code>DUR</code> sets its mean duration, and <code>CONT</code> increases duration variation and the influence of topology Y. The ADSR envelope smooths each change of state.</p>
+        <p>Free-running voices use renewal clocks: every active event is followed by a genuine rest before that voice can begin again. <code>DENS</code> sets the target activity, <code>DUR</code> sets the mean event duration, <code>CONT</code> increases duration variation and clustered propagation, and <code>REST</code> sets the minimum inactive time. The ADSR envelope smooths each change of state.</p>
 
-        <p><code>DENS</code> is compensated for the active voice count: the same setting uses a lower per-voice probability as the field grows from 8 toward 64 voices. This keeps the overall texture articulated instead of automatically becoming continuous. The far-right setting still opens nearly the full field when a sustained mass is intentional.</p>
+        <p><code>DENS</code> is compensated for the active voice count: the same setting uses a lower per-voice target as the field grows from 8 toward 64 voices. Gentle activity regulation steers the ensemble toward that target without hard voice limits. This keeps the texture articulated instead of automatically becoming continuous; even at maximum density, <code>REST</code> remains in force.</p>
+
+        <p>Each onset can schedule delayed events at the two nearest topology points. Distance determines propagation time, while <code>XFER</code> and <code>CONT</code> set cascade strength. The network lines brighten as a cascade arrives, making clustered activity visible as well as audible.</p>
+
+        <h3 id="macro-scenes">Macro Scenes</h3>
+
+        <p>The autonomous engine also moves through metastable macro scenes. A scene slowly changes four internal relationships together: activity, event duration, pressure-curve mutation, and cascade strength. <code>MACRO</code> sets the approximate time spent in each region. Higher <code>MEM</code> makes the changes smaller and more persistent; lower values allow wider movement between contrasting states.</p>
 
         <p>In <code>MIDI</code> mode, note gates replace the autonomous time-fields. <code>BOTH</code> allows either source to open a voice.</p>
 
@@ -136,7 +142,7 @@
           <li><code>Y</code> changes event probability, field duration, and selection tendency.</li>
           <li><code>Z</code> biases the segment-duration walk and therefore oscillator period.</li>
           <li>Distance from the center increases walk drive and transition variation.</li>
-          <li>Nearest-neighbor links carry generator and walk influence between voices.</li>
+          <li>Nearest-neighbor links carry generator influence, walk motion, and delayed event cascades between voices.</li>
         </ul>
 
         <p><code>SHAPE</code>, <code>ANIM</code>, <code>RATE</code>, <code>AMT</code>, <code>DEPTH</code>, <code>SCALE</code>, <code>COLL</code>, and <code>TWIST</code> reshape and animate the shared field. <code>AZIM</code>, <code>ELEV</code>, and <code>DIST</code> place its center. <code>FOLLOW</code> sets how fully topology position and radius are projected into AED space.</p>
@@ -202,6 +208,7 @@
           <a href="#walks">Second-Order Walks</a>
           <a href="#selection">Generator Selection</a>
           <a href="#time-fields">Time-Fields</a>
+          <a href="#macro-scenes">Macro Scenes</a>
           <a href="#topology">Topology and Projection</a>
           <a href="#pressure-display">Pressure Display</a>
           <a href="#routing">Order and Routing</a>

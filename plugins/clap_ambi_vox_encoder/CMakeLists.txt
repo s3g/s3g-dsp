@@ -5,9 +5,14 @@ add_library(s3g_ambi_vox_encoder_clap MODULE
 target_link_libraries(s3g_ambi_vox_encoder_clap PRIVATE s3g_dsp)
 target_include_directories(s3g_ambi_vox_encoder_clap PRIVATE ${S3G_CLAP_INCLUDE_DIR})
 
+if(TARGET world::core)
+  target_link_libraries(s3g_ambi_vox_encoder_clap PRIVATE world::core)
+  target_compile_definitions(s3g_ambi_vox_encoder_clap PRIVATE S3G_HAS_WORLD=1)
+endif()
+
 if(APPLE)
   set_source_files_properties(s3g_ambi_vox_encoder_clap.cpp PROPERTIES LANGUAGE OBJCXX)
-  target_link_libraries(s3g_ambi_vox_encoder_clap PRIVATE "-framework Cocoa")
+  target_link_libraries(s3g_ambi_vox_encoder_clap PRIVATE "-framework Cocoa" "-framework Accelerate")
 endif()
 
 set_target_properties(s3g_ambi_vox_encoder_clap PROPERTIES

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Ambi Vox Encoder - s3g-dsp</title>
-    <meta name="description" content="Ambi Vox Encoder vocal vector-wavetable instrument documentation for s3g-dsp.">
+    <meta name="description" content="Ambi Vox Encoder WORLD and UTAU-style voicebank instrument documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -27,46 +27,63 @@
       <main class="content" id="content">
         <h1>Ambi Vox Encoder</h1>
 
-        <p><code>s3g Ambi Vox Encoder 64</code> is a 64-voice vocal vector-wavetable instrument with first-through-seventh-order <code>ACN/SN3D</code> output. It combines the VOT Encoder's interpolated 4 x 4 waveform field with vocal articulation, phrase-driven vector movement, MIDI, and spatial voice motion.</p>
+        <p><code>s3g Ambi Vox Encoder 64</code> is a 64-voice voicebank and WORLD-based vocal instrument with first-through-seventh-order <code>ACN/SN3D</code> output. It maps a typed phrase across independently pitched and positioned voices.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
           <li>Insert the instrument on a 64-channel REAPER track.</li>
           <li>Choose <code>FREE</code>, <code>MIDI</code>, or <code>BOTH</code>.</li>
-          <li>Select an internal wave set or load a mono WAV atlas.</li>
-          <li>Set the ambisonic order, voice count, tuning, and envelope.</li>
-          <li>Shape the vocal layer and enter a phrase when articulated vector movement is wanted.</li>
+          <li>Load a UTAU-style voicebank folder or a vocal WAV file.</li>
+          <li>Enter a phrase, then set the voice count, scale, pitch spread, and timing spread.</li>
           <li>Follow the instrument with an ambisonic decoder or meter.</li>
         </ol>
 
-        <h2 id="vector-source">Vector Source</h2>
+        <h2 id="phrase-source">Phrase Source</h2>
 
-        <p>Each source bank is divided into sixteen tables arranged as a 4 x 4 field. Voice U/V positions blend nearby tables continuously rather than switching between them. <code>SINE</code>, <code>CLASSIC</code>, <code>DIGITAL</code>, and <code>FORMANT</code> provide internal starting banks.</p>
+        <p>The <code>LOAD</code> button accepts either a voicebank folder containing WAV files and <code>oto.ini</code>, or a single vocal WAV file. Every loaded voicebank alias is analyzed and resynthesized by WORLD before playback. The first load writes a persistent cache in <code>~/Library/Caches/org.s3g.s3g-dsp/AmbiVoxWorld</code>; later loads reuse it until the source WAV changes. The included synthetic test bank is in <code>examples/voicebanks/s3g-demo-synthetic</code>.</p>
 
-        <p><code>LOAD</code> accepts a mono WAV file and divides it into sixteen equal waveform regions. The pre-release package's <code>VOX Wavetables</code> folder provides Black Metal, Throat, Choir, and Animal source fields. A loaded user bank is embedded in the REAPER project state.</p>
+        <p>Voicebank preparation caches five formant-preserving WORLD pitch anchors from two octaves below through two octaves above each alias's detected base pitch. Runtime voices select the nearest anchor, which keeps wide MIDI and scale intervals closer to the original vocal character.</p>
 
-        <p><code>FIELD</code> shows AED motion, <code>VECTOR</code> shows table interpolation and the selected voice waveform, and <code>SCORE</code> shows the editable U/V path.</p>
+        <p>Words are mapped to available voicebank aliases and romaji sample keys by a small English grapheme-to-phoneme layer. The phrase panel shows the resolved alias sequence and a live voice-1 timeline. <code>SPEAK</code> prioritizes phrase timing. <code>SING</code> holds syllables longer and keeps every voice on the same phrase sequence. <code>TEXTURE</code> treats loaded samples as a continuously moving source field.</p>
+
+        <p><code>TIME STEP</code> delays each successive rendered voice by as much as 1000 ms; <code>TIME DEV</code> adds a repeatable deviation around that cascade. These controls retarget crossfaded delay taps. Moving them does not recompile or restart the phrase.</p>
+
+        <h2 id="voicebank-timing">Voicebank Timing and Pronunciation</h2>
+
+        <p>The renderer honors each <code>oto.ini</code> entry's offset, consonant/fixed region, cutoff, preutterance, and overlap. Consonant regions run at their original timing. Vowels can sustain after the fixed region, and adjacent aliases crossfade using their preutterance and overlap values. <code>BLEND</code> scales that transition. If a legacy CV bank supplies zeros for every timing field, Ambi Vox derives a short onset and a vowel-only sustain region instead of looping the complete recording.</p>
+
+        <p>A bank can override the built-in word mapping with an optional <code>s3g-pronunciations.txt</code> file in its root folder. Put one lower-case word and its alias sequence on each line:</p>
+
+        <pre><code>fire=fa i ya
+voices=bo ka ru
+sorrow=so ro</code></pre>
+
+        <p>Aliases may be separated by spaces, commas, semicolons, or vertical bars. Lines beginning with <code>#</code> are ignored. Every alias on a line must exist in the loaded bank for that override to be used.</p>
 
         <h2 id="vocal-layer">Vocal Layer</h2>
 
         <ul>
-          <li><code>RASP</code>, <code>BREATH</code>, <code>THROAT</code>, and <code>DRIVE</code> set the main vocal body and edge.</li>
-          <li><code>JITTER</code>, <code>VOWELS</code>, and <code>SCOOP</code> vary pitch and movement through the waveform field.</li>
-          <li><code>SHAPE</code> changes the attack contour; <code>ARTIC</code> sets phrase and consonant influence.</li>
-          <li><code>CONS</code>, <code>PLOS</code>, and <code>SIBIL</code> control consonant bursts, plosives, and high-frequency articulation.</li>
-          <li><code>PHRASE</code> sets phrase-advance rate in free-running modes.</li>
+          <li><code>ROOT</code> and <code>SCALE</code> define the pitch grid.</li>
+          <li><code>SPREAD</code> expands or contracts scale-degree relationships while keeping voices on the selected scale.</li>
+          <li><code>DEV</code> adds a deterministic pitch deviation per voice; <code>TUNE</code> and <code>TRANSPOSE</code> shift the resulting field.</li>
+          <li><code>PORT</code> sets pitch glide time. <code>VIBRATO</code> and <code>VIB RATE</code> add per-voice phase-offset vibrato, with full depth in <code>SING</code>.</li>
+          <li><code>FORM</code>, <code>EDGE</code>, <code>AIR</code>, and <code>DRIVE</code> shape the reconstructed voice.</li>
         </ul>
 
-        <h2 id="phrase">Phrase Articulator</h2>
+        <h2 id="phrase">MIDI and Phrase Voices</h2>
 
-        <p>The phrase field is a synthesis score rather than recorded speech. Vowels move the U/V target, consonants create short articulated events, repeated vowel pairs create longer holds, and spaces or punctuation create rests. In <code>FREE</code> and <code>BOTH</code>, the phrase advances from the internal phrase clock. MIDI note events also advance and articulate the phrase.</p>
+        <p>In <code>FREE</code>, active points take scale degrees around the root. In <code>MIDI</code>, each held note is allocated to one voice; chords therefore become spatially distinct voices. Notes are quantized to the selected scale before pitch spread and deviation are applied. <code>BOTH</code> retains the free-running field and lets held MIDI notes take over allocated voices.</p>
 
-        <h2 id="motion">Motion and Neighbor Gates</h2>
+        <h2 id="pvoc">PVOC Timing</h2>
 
-        <p><code>MANUAL</code>, <code>ORBIT</code>, <code>FLOW</code>, <code>PATH</code>, and <code>PULSE</code> move voices in the shared U/V and AED field. Motion can run freely or follow the REAPER transport. <code>LINK</code> couples timbral and spatial movement.</p>
+        <p>The phrase-panel <code>RATE</code> control sets spoken or sung syllable pacing. Word spaces and punctuation produce explicit short, medium, and sentence-length gaps. The WORLD-panel <code>RATE</code>, loop, freeze, and scrub controls shape continuous <code>TEXTURE</code> playback and do not warp aliases in <code>SPEAK</code> or <code>SING</code>.</p>
 
-        <p><code>NEAR</code> defines neighbor proximity and <code>NBR</code> sets how many nearby voices are required to open a free-running voice. The field draws those relationships so changes in the constellation remain visible.</p>
+        <p><code>STRETCH</code> changes target syllable duration from 0.25x to 4x without changing the selected musical pitch; fixed consonant timing is preserved and vowels provide the flexible sustain region. <code>TRANSIENT</code> controls phase resets at consonant and attack boundaries; higher values preserve sharper attacks. For voicebanks, the phase vocoder handles residual tuning between cached WORLD pitch anchors rather than carrying the full pitch shift.</p>
+
+        <h2 id="motion">Motion</h2>
+
+        <p><code>MANUAL</code>, <code>ORBIT</code>, <code>FLOW</code>, <code>PATH</code>, and <code>PULSE</code> move voices in the AED field. Motion can run freely or follow the REAPER transport.</p>
 
         <h2 id="routing">Order and Routing</h2>
 
@@ -100,9 +117,11 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
-          <a href="#vector-source">Vector Source</a>
+          <a href="#phrase-source">Phrase Source</a>
+          <a href="#voicebank-timing">Voicebank Timing</a>
           <a href="#vocal-layer">Vocal Layer</a>
-          <a href="#phrase">Phrase Articulator</a>
+          <a href="#phrase">MIDI and Phrase Voices</a>
+          <a href="#pvoc">PVOC Timing</a>
           <a href="#motion">Motion</a>
           <a href="#routing">Order and Routing</a>
         </div>

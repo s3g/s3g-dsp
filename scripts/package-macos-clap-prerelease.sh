@@ -18,10 +18,13 @@ bundles=(
   "$src_root/clap_3oafx_single_effects/s3g_3oafx_pitch.clap"
   "$src_root/clap_3oafx_single_effects/s3g_3oafx_filter.clap"
   "$src_root/clap_3oafx_single_effects/s3g_3oafx_gain.clap"
+  "$src_root/clap_3oafx_displacement/s3g_3oafx_displacement.clap"
   "$src_root/clap_3oafx_point_encoder/s3g_3oafx_point_encoder.clap"
   "$src_root/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder.clap"
+  "$src_root/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator.clap"
   "$src_root/clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap"
   "$src_root/clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap"
+  "$src_root/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap"
   "$src_root/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap"
   "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"
   "$src_root/clap_ambi_path_encoder/s3g_ambi_path_encoder.clap"
@@ -97,7 +100,9 @@ for bundle in "${bundles[@]}"; do
 done
 
 cp -R "$repo_root/wavetables/vot" "$staging/VOT Wavetables"
-cp -R "$repo_root/wavetables/vox" "$staging/VOX Wavetables"
+cp -R "$repo_root/examples/ambi-vox-lpc" "$staging/Ambi Vox LPC Examples"
+cp "$repo_root/LICENSE" "$staging/LICENSE.txt"
+cp "$repo_root/THIRD_PARTY_NOTICES.md" "$staging/THIRD_PARTY_NOTICES.md"
 
 cat > "$staging/README.txt" <<'EOF'
 s3g-dsp pre-release macOS CLAP builds for REAPER testing.
@@ -126,10 +131,13 @@ Included plugins:
 - s3g 3OAFX Pitch
 - s3g 3OAFX Filter
 - s3g 3OAFX Gain
+- s3g 3OAFX Displacement
 - s3g Ambi Point Encoder
 - s3g Ambi Cloud Encoder 64
+- s3g Ambi Terrain Navigator 64
 - s3g Ambi VOT Encoder 64
 - s3g Ambi Vox Encoder 64
+- s3g Ambi Wave Terrain Encoder 64
 - s3g Ambi Stochastic Encoder 64
 - s3g Ambi Imprint 64
 - s3g Ambi Path Encoder 64
@@ -191,6 +199,29 @@ Included plugins:
 Docs:
 
 https://s3g.github.io/s3g-dsp/
+
+License:
+
+s3g-dsp is distributed under the BSD 3-Clause License. See LICENSE.txt.
+Third-party notices, including WORLD speech vocoder attribution for Ambi Vox
+Encoder's WORLD WAV source path, are included in THIRD_PARTY_NOTICES.md.
+
+VOT Wavetable Library:
+
+Use the LOAD button in s3g Ambi VOT Encoder 64 to load any WAV file from the
+included VOT Wavetables folder. The library contains twenty-eight 4 x 4 banks,
+including four vocal-source atlases.
+
+Ambi Vox LPC Examples:
+
+Use the LOAD button in the s3g Ambi Vox Encoder 64 PHRASE panel to load .hex
+files from the included Ambi Vox LPC Examples folder. These are synthetic test
+files for the encoded-frame loader, not borrowed Speak & Spell ROM data.
+
+Ambi Vox WORLD WAV Source:
+
+When built with WORLD support, the same PHRASE panel LOAD button can load WAV
+files for WORLD analysis/resynthesis before Ambi Vox spatialization.
 EOF
 
 (cd "$dist_root" && zip -qry "$zip_path" "$package_name")

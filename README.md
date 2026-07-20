@@ -19,7 +19,7 @@ DAWs are not support targets at this stage.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-The current macOS package installs 70 CLAP bundles, including fixed-width
+The current macOS package installs 73 CLAP bundles, including fixed-width
 variants for several processors, bus tools, and speaker-array utilities.
 
 Plugin areas:
@@ -30,9 +30,11 @@ Plugin areas:
   metering, direct panning, matrix and node mixing, and speaker calibration.
 - [Ambisonics](https://s3g.github.io/s3g-dsp/3oafx.html): 3OAFX,
   `ACN/SN3D` encoders and decoders, field and bus tools, visualization, and
-  Ambi Imprint with its nineteen-space atlas.
+  Ambi Imprint with its nineteen-space atlas. The 3OAFX family includes a
+  Displacement Score player for time-varying 24-point field warps authored in
+  the related `s3g-mc` browser utility.
 - [Instruments](https://s3g.github.io/s3g-dsp/instruments.html): loaded-loop,
-  granular, vector-wavetable, vocal-wavetable, and stochastic instruments.
+  granular, vector-wavetable, LPC-style vocal, and stochastic instruments.
 
 The [installation page](https://s3g.github.io/s3g-dsp/installing-plugins.html)
 lists the included families and the REAPER routing notes that matter for wide
@@ -42,6 +44,8 @@ tracks and true stereo outputs.
 
 - Reusable DSP lives in `dsp/`.
 - Plugin wrappers live in `plugins/`.
+- VOT-compatible 4 x 4 atlases live in `wavetables/vot/`; plugin loader
+  examples live in `examples/`.
 - Fixed-width CLAP plugins are used where REAPER pin routing needs to be
   predictable.
 - Relationship controls keep automation compact where that suits the plugin;
@@ -89,6 +93,31 @@ cmake -S . -B build-clap \
   -DS3G_CLAP_INCLUDE_DIR=/path/to/clap/include
 cmake --build build-clap
 ```
+
+WORLD speech vocoder support is enabled by default for CLAP builds and is used
+by Ambi Vox Encoder's WORLD WAV source path. It can be disabled with:
+
+```sh
+cmake -S . -B build-clap \
+  -DS3G_BUILD_CLAP_PLUGIN=ON \
+  -DS3G_ENABLE_WORLD=OFF
+```
+
+## Voicebank Builder
+
+`tools/voicebank_builder.py` creates a starter UTAU-style voicebank from one
+recorded WAV and an ordered phoneme list. It writes sliced WAVs,
+`voicebank.json`, and `oto.ini`.
+
+```sh
+python3 tools/voicebank_builder.py my-recording.wav \
+  --phonemes examples/voicebank-builder/phonemes.txt \
+  --name my_voice \
+  --output examples/voicebanks/my_voice
+```
+
+The automatic slicer uses silence-separated regions when possible. For precise
+edits, pass `--markers markers.csv` with `alias,start_ms,end_ms` rows.
 
 ## Install Locally
 
@@ -161,9 +190,11 @@ The 3OAFX workflow guide is maintained with `s3g-mc`:
 BSD-3-Clause for the code in this repository unless a subdirectory states
 otherwise. See `LICENSE`.
 
-CLAP headers are MIT licensed and are fetched at build time unless an existing
-SDK path is supplied. Keep the CLAP notice with source and binary distributions;
-see `THIRD_PARTY_NOTICES.md`.
+Third-party libraries used by optional builds retain their own licenses. CLAP
+headers are MIT licensed and are fetched at build time unless an existing SDK
+path is supplied. WORLD speech vocoder is BSD-style licensed and is fetched
+when CLAP builds enable `S3G_ENABLE_WORLD`. Keep third-party notices with
+source and binary distributions; see `THIRD_PARTY_NOTICES.md`.
 
 ## Attribution
 

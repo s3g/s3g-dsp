@@ -58,6 +58,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.selectionMemory = 0.62f;
         p.fieldDurationSeconds = 0.14f;
         p.fieldContrast = 0.72f;
+        p.fieldRestSeconds = 0.035f;
+        p.macroDurationSeconds = 8.0f;
         p.attackMs = 3.0f;
         p.decayMs = 45.0f;
         p.sustain = 0.42f;
@@ -91,6 +93,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.selectionMemory = 0.90f;
         p.fieldDurationSeconds = 3.50f;
         p.fieldContrast = 0.52f;
+        p.fieldRestSeconds = 0.80f;
+        p.macroDurationSeconds = 42.0f;
         p.attackMs = 600.0f;
         p.decayMs = 1200.0f;
         p.sustain = 0.90f;
@@ -125,6 +129,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.selectionMemory = 0.18f;
         p.fieldDurationSeconds = 0.11f;
         p.fieldContrast = 0.88f;
+        p.fieldRestSeconds = 0.025f;
+        p.macroDurationSeconds = 7.0f;
         p.attackMs = 1.0f;
         p.decayMs = 24.0f;
         p.sustain = 0.50f;
@@ -158,6 +164,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.selectionMemory = 0.78f;
         p.fieldDurationSeconds = 1.20f;
         p.fieldContrast = 0.90f;
+        p.fieldRestSeconds = 0.75f;
+        p.macroDurationSeconds = 36.0f;
         p.attackMs = 4.0f;
         p.decayMs = 80.0f;
         p.sustain = 0.52f;
@@ -190,6 +198,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.selectionMemory = 0.88f;
         p.fieldDurationSeconds = 0.42f;
         p.fieldContrast = 0.80f;
+        p.fieldRestSeconds = 0.18f;
+        p.macroDurationSeconds = 18.0f;
         p.attackMs = 20.0f;
         p.decayMs = 260.0f;
         p.sustain = 0.74f;
@@ -224,6 +234,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.selectionMemory = 0.52f;
         p.fieldDurationSeconds = 0.18f;
         p.fieldContrast = 0.70f;
+        p.fieldRestSeconds = 0.06f;
+        p.macroDurationSeconds = 12.0f;
         p.attackMs = 2.0f;
         p.decayMs = 90.0f;
         p.sustain = 0.46f;
@@ -257,6 +269,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.selectionMemory = 0.90f;
         p.fieldDurationSeconds = 1.10f;
         p.fieldContrast = 0.58f;
+        p.fieldRestSeconds = 0.90f;
+        p.macroDurationSeconds = 52.0f;
         p.attackMs = 90.0f;
         p.decayMs = 650.0f;
         p.sustain = 0.86f;
@@ -290,6 +304,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.selectionMemory = 0.35f;
         p.fieldDurationSeconds = 0.11f;
         p.fieldContrast = 0.95f;
+        p.fieldRestSeconds = 0.04f;
+        p.macroDurationSeconds = 9.0f;
         p.attackMs = 2.0f;
         p.decayMs = 35.0f;
         p.sustain = 0.62f;
@@ -323,6 +339,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.selectionMemory = 1.0f;
         p.fieldDurationSeconds = 4.0f;
         p.fieldContrast = 0.30f;
+        p.fieldRestSeconds = 0.25f;
+        p.macroDurationSeconds = 80.0f;
         p.attackMs = 1200.0f;
         p.decayMs = 2000.0f;
         p.sustain = 0.95f;
@@ -353,6 +371,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.durationRange = 0.65f;
         p.neighborTransfer = 0.35f;
         p.selectionMemory = 0.78f;
+        p.fieldRestSeconds = 0.12f;
+        p.macroDurationSeconds = 24.0f;
         p.attackMs = 8.0f;
         p.decayMs = 220.0f;
         p.sustain = 0.72f;
@@ -385,6 +405,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.selectionMemory = 0.70f;
         p.fieldDurationSeconds = 0.50f;
         p.fieldContrast = 0.65f;
+        p.fieldRestSeconds = 0.16f;
+        p.macroDurationSeconds = 20.0f;
         p.attackMs = 15.0f;
         p.decayMs = 300.0f;
         p.sustain = 0.76f;
@@ -420,6 +442,8 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
         p.selectionMemory = 0.84f;
         p.fieldDurationSeconds = 0.38f;
         p.fieldContrast = 0.64f;
+        p.fieldRestSeconds = 0.09f;
+        p.macroDurationSeconds = 30.0f;
         p.attackMs = 18.0f;
         p.decayMs = 240.0f;
         p.sustain = 0.80f;

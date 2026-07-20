@@ -73,6 +73,8 @@ struct AmbiStochasticParams {
     float selectionMemory = 0.82f;
     float fieldDurationSeconds = 0.32f;
     float fieldContrast = 0.58f;
+    float fieldRestSeconds = 0.12f;
+    float macroDurationSeconds = 24.0f;
     float attackMs = 12.0f;
     float decayMs = 140.0f;
     float sustain = 0.76f;
@@ -197,6 +199,9 @@ struct AmbiStochasticVoice {
     float velocity = 0.72f;
     float age = 0.0f;
     float fieldRemainingSamples = 1.0f;
+    float cascadeExcitation = 0.0f;
+    float cascadeDelaySamples = 0.0f;
+    float cascadePendingStrength = 0.0f;
     bool fieldActive = true;
     int note = 48;
     bool midiGate = false;
@@ -262,12 +267,17 @@ public:
     {
         topologyPhase_ = 0.0f;
         topologySeed_ = 0x7f4a7c15u;
+        macroSeed_ = 0x51ed270bu;
+        macroCurrent_ = {};
+        macroTarget_ = {};
+        macroRemainingSamples_ = params_.macroDurationSeconds * static_cast<float>(sampleRate_);
+        globalActivity_ = 0.0f;
         globalEnergy_ = 0.0f;
         globalKinetic_ = 0.0f;
+        cascadePulse_.fill(0.0f);
         smoothedOutputGain_ = dbToGain(params_.outputGainDb)
             / std::sqrt(static_cast<float>(std::max<uint32_t>(1u, params_.voices)));
         for (uint32_t voice = 0u; voice < kAmbiStochasticMaxVoices; ++voice) {
-            initializeVoice(voice);
             const auto base = baseTopologyPoint(voice, std::max<uint32_t>(1u, params_.voices));
             topologySecondary_[voice] = {
                 static_cast<float>(base[0]), static_cast<float>(base[1]), static_cast<float>(base[2])
@@ -279,6 +289,7 @@ public:
             };
             topologyPosition_[voice] = topologySecondary_[voice];
             topologyPrevious_[voice] = topologySecondary_[voice];
+            initializeVoice(voice);
             neighborIndex_[voice] = (voice + 1u) % kAmbiStochasticMaxVoices;
             secondaryNeighborIndex_[voice] = (voice + 2u) % kAmbiStochasticMaxVoices;
         }
@@ -286,7 +297,16 @@ public:
         for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
             anyFieldActive = anyFieldActive || voices_[voice].fieldActive;
         }
-        if (!anyFieldActive && params_.fieldDensity > 0.0f) voices_[0].fieldActive = true;
+        if (!anyFieldActive && params_.fieldDensity > 0.0f) {
+            voices_[0].fieldActive = true;
+            voices_[0].fieldRemainingSamples = activeDurationSamples(0u);
+        }
+        uint32_t activeVoices = 0u;
+        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+            if (voices_[voice].fieldActive) ++activeVoices;
+        }
+        globalActivity_ = static_cast<float>(activeVoices)
+            / static_cast<float>(std::max<uint32_t>(1u, params_.voices));
         updateTopology(0.0f);
     }
 
@@ -315,6 +335,8 @@ public:
         params.selectionMemory = clamp(params.selectionMemory, 0.0f, 1.0f);
         params.fieldDurationSeconds = clamp(params.fieldDurationSeconds, 0.05f, 30.0f);
         params.fieldContrast = clamp(params.fieldContrast, 0.0f, 1.0f);
+        params.fieldRestSeconds = clamp(params.fieldRestSeconds, 0.02f, 8.0f);
+        params.macroDurationSeconds = clamp(params.macroDurationSeconds, 2.0f, 300.0f);
         params.attackMs = clamp(params.attackMs, 1.0f, 4000.0f);
         params.decayMs = clamp(params.decayMs, 5.0f, 8000.0f);
         params.sustain = clamp(params.sustain, 0.0f, 1.0f);
@@ -335,10 +357,14 @@ public:
 
         const uint32_t oldVoices = params_.voices;
         const uint32_t oldBreakpoints = params_.breakpoints;
+        const float oldMacroDuration = params_.macroDurationSeconds;
         params_ = params;
+        if (oldMacroDuration > 0.0f && std::fabs(params_.macroDurationSeconds - oldMacroDuration) > 0.0001f) {
+            macroRemainingSamples_ = std::max(1.0f, macroRemainingSamples_
+                * params_.macroDurationSeconds / oldMacroDuration);
+        }
         if (params_.voices > oldVoices) {
             for (uint32_t voice = oldVoices; voice < params_.voices; ++voice) {
-                initializeVoice(voice);
                 const auto base = baseTopologyPoint(voice, params_.voices);
                 topologySecondary_[voice] = {
                     static_cast<float>(base[0]), static_cast<float>(base[1]), static_cast<float>(base[2])
@@ -350,6 +376,7 @@ public:
                 };
                 topologyPosition_[voice] = topologySecondary_[voice];
                 topologyPrevious_[voice] = topologySecondary_[voice];
+                initializeVoice(voice);
             }
         }
         if (params_.breakpoints != oldBreakpoints) {
@@ -371,6 +398,11 @@ public:
     const std::array<uint32_t, kAmbiStochasticMaxVoices>& secondaryNeighborIndices() const { return secondaryNeighborIndex_; }
     float globalEnergy() const { return globalEnergy_; }
     float globalKinetic() const { return globalKinetic_; }
+    float globalActivity() const { return globalActivity_; }
+    float macroDensityScale() const { return macroCurrent_.density; }
+    float macroDurationScale() const { return macroCurrent_.duration; }
+    float macroMutationScale() const { return macroCurrent_.mutation; }
+    float macroCascadeScale() const { return macroCurrent_.cascade; }
     float voiceEnergy(uint32_t voice) const { return voiceState(voice).energy; }
     float voiceFrequency(uint32_t voice) const { return voiceState(voice).currentFrequency; }
     float voicePeriodRatio(uint32_t voice) const
@@ -382,7 +414,12 @@ public:
     float voiceContact(uint32_t voice) const { return neighborInfluence_[safeVoice(voice)]; }
     float voiceCrowding(uint32_t voice) const { return crowding_[safeVoice(voice)]; }
     float voiceTension(uint32_t voice) const { return topologyRadius_[safeVoice(voice)]; }
-    float voiceNetworkPulse(uint32_t voice) const { return selectionPulse_[safeVoice(voice)]; }
+    float voiceNetworkPulse(uint32_t voice) const
+    {
+        const uint32_t safe = safeVoice(voice);
+        return std::max(selectionPulse_[safe], cascadePulse_[safe]);
+    }
+    float voiceCascadePulse(uint32_t voice) const { return cascadePulse_[safeVoice(voice)]; }
     float voiceBondStrength(uint32_t) const { return 1.0f; }
     bool voiceFieldActive(uint32_t voice) const { return voiceState(voice).fieldActive; }
     uint32_t currentGenerator(uint32_t voice) const { return voiceState(voice).currentGenerator; }
@@ -494,6 +531,8 @@ public:
             const uint32_t chunkFrames = std::min<uint32_t>(kControlFrames, frames - chunkStart);
             const float dt = static_cast<float>(chunkFrames / sampleRate_);
             updateTopology(dt);
+            updateMacroScene(static_cast<float>(chunkFrames));
+            updateCascadeState(static_cast<float>(chunkFrames));
             updateTimeFields(static_cast<float>(chunkFrames));
 
             std::array<std::array<float, kAmbiStochasticMaxChannels>, kAmbiStochasticMaxVoices> basis {};
@@ -558,6 +597,13 @@ public:
     }
 
 private:
+    struct MacroScene {
+        float density = 1.0f;
+        float duration = 1.0f;
+        float mutation = 1.0f;
+        float cascade = 1.0f;
+    };
+
     static float wrapSignedDeg(float value)
     {
         while (value > 180.0f) value -= 360.0f;
@@ -657,6 +703,32 @@ private:
             static_cast<float>(sampleRate_) * 0.35f);
     }
 
+    float activeDurationSamples(uint32_t voiceIndex)
+    {
+        auto& voice = voices_[voiceIndex];
+        const Vec3 topology = topologyPosition_[voiceIndex];
+        const float u = clamp(randomUnit(voice.seed), 0.001f, 0.999f);
+        const float exponential = -std::log(1.0f - u);
+        const float topologyDuration = std::exp(-topology.y * params_.fieldContrast * 0.85f);
+        const float seconds = clamp(params_.fieldDurationSeconds * macroCurrent_.duration
+                * (0.18f + exponential * (0.45f + params_.fieldContrast * 0.70f)) * topologyDuration,
+            0.03f, 30.0f);
+        return seconds * static_cast<float>(sampleRate_);
+    }
+
+    float restDurationSamples(AmbiStochasticVoice& voice)
+    {
+        const float variation = 1.0f + randomUnit(voice.seed) * (0.35f + params_.fieldContrast * 0.65f);
+        return params_.fieldRestSeconds * variation * static_cast<float>(sampleRate_);
+    }
+
+    float retryDurationSamples(AmbiStochasticVoice& voice)
+    {
+        const float seconds = std::max(0.02f, params_.fieldRestSeconds
+            * (0.22f + randomUnit(voice.seed) * 0.38f));
+        return seconds * static_cast<float>(sampleRate_);
+    }
+
     void initializeVoice(uint32_t voiceIndex)
     {
         auto& voice = voices_[voiceIndex];
@@ -667,8 +739,8 @@ private:
         voice.velocity = 0.72f;
         voice.note = static_cast<int>(std::lround(params_.baseNote));
         voice.fieldActive = randomUnit(voice.seed) < scaledFieldDensity();
-        voice.fieldRemainingSamples = static_cast<float>(sampleRate_)
-            * params_.fieldDurationSeconds * (0.35f + 0.65f * randomUnit(voice.seed));
+        voice.fieldRemainingSamples = voice.fieldActive
+            ? activeDurationSamples(voiceIndex) : restDurationSamples(voice);
         voice.selectorSecondary = static_cast<float>(voiceIndex % kAmbiStochasticGeneratorCount);
         voice.tendencyCenter = voice.selectorSecondary;
         initializeVoiceGenerators(voiceIndex, seedFrequencyForVoice(voiceIndex, 0u));
@@ -809,8 +881,9 @@ private:
         const float radius = topologyRadius_[voiceIndex];
         const float amplitudeLimit = amplitudePrimaryLimit(topology);
         const float durationLimit = durationPrimaryLimit(topology, generator);
-        const float amplitudeDrive = params_.amplitudeStep * (0.28f + radius * 0.92f);
-        const float durationDrive = params_.durationStep * (0.24f + radius * 0.96f);
+        const float mutation = clamp(macroCurrent_.mutation, 0.45f, 1.65f);
+        const float amplitudeDrive = params_.amplitudeStep * (0.28f + radius * 0.92f) * mutation;
+        const float durationDrive = params_.durationStep * (0.24f + radius * 0.96f) * mutation;
         const uint32_t neighbor = neighborIndex_[voiceIndex];
         const auto& neighborGenerator = voices_[neighbor].generators[voices_[neighbor].currentGenerator];
         const float transfer = params_.neighborTransfer * neighborInfluence_[voiceIndex] * 0.34f;
@@ -1003,29 +1076,148 @@ private:
     {
         const float densityExponent = 1.0f + std::max(0.0f,
             std::log2(static_cast<float>(params_.voices) / 8.0f)) * 1.5f;
-        return std::pow(params_.fieldDensity, densityExponent);
+        return clamp(std::pow(params_.fieldDensity, densityExponent) * macroCurrent_.density, 0.0f, 1.0f);
+    }
+
+    void updateMacroScene(float frames)
+    {
+        macroRemainingSamples_ -= frames;
+        if (macroRemainingSamples_ <= 0.0f) {
+            static constexpr std::array<MacroScene, 6> kScenes {{
+                { 0.58f, 1.55f, 0.62f, 0.42f },
+                { 1.24f, 0.62f, 1.42f, 1.34f },
+                { 0.84f, 1.78f, 0.76f, 1.24f },
+                { 0.72f, 0.72f, 1.52f, 0.58f },
+                { 0.96f, 1.02f, 0.92f, 1.62f },
+                { 0.52f, 1.92f, 0.58f, 0.30f },
+            }};
+            const MacroScene candidate = kScenes[randomU32(macroSeed_) % kScenes.size()];
+            const float reach = 0.28f + (1.0f - params_.selectionMemory) * 0.72f;
+            const float jitter = 0.94f + randomUnit(macroSeed_) * 0.12f;
+            macroTarget_.density = clamp(lerp(macroCurrent_.density, candidate.density, reach) * jitter,
+                0.45f, 1.35f);
+            macroTarget_.duration = clamp(lerp(macroCurrent_.duration, candidate.duration, reach)
+                    * (0.96f + randomUnit(macroSeed_) * 0.08f),
+                0.50f, 2.0f);
+            macroTarget_.mutation = clamp(lerp(macroCurrent_.mutation, candidate.mutation, reach)
+                    * (0.95f + randomUnit(macroSeed_) * 0.10f),
+                0.50f, 1.60f);
+            macroTarget_.cascade = clamp(lerp(macroCurrent_.cascade, candidate.cascade, reach)
+                    * (0.94f + randomUnit(macroSeed_) * 0.12f),
+                0.25f, 1.75f);
+            const float hold = params_.macroDurationSeconds
+                * (0.68f + randomUnit(macroSeed_) * 0.72f)
+                * (0.90f + params_.selectionMemory * 0.20f);
+            macroRemainingSamples_ += hold * static_cast<float>(sampleRate_);
+        }
+
+        const float smoothingSeconds = 0.45f + params_.macroDurationSeconds * 0.025f
+            + params_.selectionMemory * 1.35f;
+        const float smoothing = 1.0f - std::exp(-frames
+            / std::max(1.0f, static_cast<float>(sampleRate_) * smoothingSeconds));
+        macroCurrent_.density += (macroTarget_.density - macroCurrent_.density) * smoothing;
+        macroCurrent_.duration += (macroTarget_.duration - macroCurrent_.duration) * smoothing;
+        macroCurrent_.mutation += (macroTarget_.mutation - macroCurrent_.mutation) * smoothing;
+        macroCurrent_.cascade += (macroTarget_.cascade - macroCurrent_.cascade) * smoothing;
+    }
+
+    void scheduleCascade(uint32_t sourceIndex)
+    {
+        if (params_.neighborTransfer <= 0.0001f || params_.voices < 2u) return;
+        auto& source = voices_[sourceIndex];
+        const float baseStrength = params_.neighborTransfer
+            * (0.34f + params_.fieldContrast * 0.66f) * macroCurrent_.cascade;
+        const auto scheduleTarget = [&](uint32_t targetIndex, float scale) {
+            if (targetIndex == sourceIndex || targetIndex >= params_.voices) return;
+            const Vec3 sourcePoint = topologyPosition_[sourceIndex];
+            const Vec3 targetPoint = topologyPosition_[targetIndex];
+            const float dx = sourcePoint.x - targetPoint.x;
+            const float dy = sourcePoint.y - targetPoint.y;
+            const float dz = sourcePoint.z - targetPoint.z;
+            const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            const float proximity = clamp(1.0f - distance / 2.4f, 0.12f, 1.0f);
+            const float strength = clamp(baseStrength * scale * proximity, 0.0f, 1.0f);
+            if (strength <= 0.001f) return;
+            const float delaySeconds = 0.015f + std::min(2.4f, distance) * 0.065f
+                + randomUnit(source.seed) * 0.018f;
+            auto& target = voices_[targetIndex];
+            const float delaySamples = delaySeconds * static_cast<float>(sampleRate_);
+            if (target.cascadePendingStrength <= 0.0001f
+                || delaySamples < target.cascadeDelaySamples) {
+                target.cascadeDelaySamples = delaySamples;
+            }
+            target.cascadePendingStrength = 1.0f
+                - (1.0f - clamp(target.cascadePendingStrength, 0.0f, 1.0f)) * (1.0f - strength);
+        };
+
+        const uint32_t first = neighborIndex_[sourceIndex];
+        const uint32_t second = secondaryNeighborIndex_[sourceIndex];
+        scheduleTarget(first, 1.0f);
+        if (second != first) scheduleTarget(second, 0.58f);
+    }
+
+    void updateCascadeState(float frames)
+    {
+        const float excitationDecay = std::exp(-frames / std::max(1.0f,
+            static_cast<float>(sampleRate_) * (0.22f + params_.fieldContrast * 1.05f)));
+        const float pulseDecay = std::exp(-frames / std::max(1.0f,
+            static_cast<float>(sampleRate_) * 0.18f));
+        for (uint32_t voiceIndex = 0u; voiceIndex < params_.voices; ++voiceIndex) {
+            auto& voice = voices_[voiceIndex];
+            voice.cascadeExcitation *= excitationDecay;
+            cascadePulse_[voiceIndex] *= pulseDecay;
+            if (voice.cascadePendingStrength <= 0.0001f) continue;
+            voice.cascadeDelaySamples -= frames;
+            if (voice.cascadeDelaySamples > 0.0f) continue;
+            voice.cascadeExcitation = clamp(voice.cascadeExcitation
+                + voice.cascadePendingStrength, 0.0f, 1.5f);
+            voice.cascadePendingStrength = 0.0f;
+            voice.cascadeDelaySamples = 0.0f;
+            cascadePulse_[voiceIndex] = 1.0f;
+        }
     }
 
     void updateTimeFields(float frames)
     {
+        uint32_t activeVoices = 0u;
+        for (uint32_t voiceIndex = 0u; voiceIndex < params_.voices; ++voiceIndex) {
+            if (voices_[voiceIndex].fieldActive) ++activeVoices;
+        }
+        const float measuredActivity = static_cast<float>(activeVoices)
+            / static_cast<float>(std::max<uint32_t>(1u, params_.voices));
+        const float activitySmoothing = 1.0f - std::exp(-frames
+            / std::max(1.0f, static_cast<float>(sampleRate_) * 0.22f));
+        globalActivity_ += (measuredActivity - globalActivity_) * activitySmoothing;
+        const float targetActivity = scaledFieldDensity();
+        const float homeostasis = clamp((targetActivity - globalActivity_) * 0.82f, -0.32f, 0.32f);
+
         for (uint32_t voiceIndex = 0u; voiceIndex < params_.voices; ++voiceIndex) {
             auto& voice = voices_[voiceIndex];
             voice.fieldRemainingSamples -= frames;
             if (voice.fieldRemainingSamples > 0.0f) continue;
+            if (voice.fieldActive) {
+                voice.fieldActive = false;
+                voice.fieldRemainingSamples += restDurationSamples(voice);
+                continue;
+            }
+
+            if (params_.fieldDensity <= 0.0001f) {
+                voice.fieldRemainingSamples += retryDurationSamples(voice);
+                continue;
+            }
             const Vec3 topology = topologyPosition_[voiceIndex];
-            const float neighborGate = voices_[neighborIndex_[voiceIndex]].fieldActive ? 1.0f : 0.0f;
-            const float probability = clamp(scaledFieldDensity()
-                    + topology.y * params_.fieldContrast * 0.22f
-                    + (neighborGate - 0.5f) * params_.neighborTransfer * 0.16f,
-                0.01f, 0.99f);
-            voice.fieldActive = randomUnit(voice.seed) < probability;
-            const float u = clamp(randomUnit(voice.seed), 0.001f, 0.999f);
-            const float exponential = -std::log(1.0f - u);
-            const float topologyDuration = std::exp(-topology.y * params_.fieldContrast * 0.85f);
-            const float seconds = clamp(params_.fieldDurationSeconds
-                    * (0.18f + exponential * (0.45f + params_.fieldContrast * 0.70f)) * topologyDuration,
-                0.03f, 30.0f);
-            voice.fieldRemainingSamples += seconds * static_cast<float>(sampleRate_);
+            const float topologyBias = topology.y * params_.fieldContrast * 0.13f;
+            const float cascadeBias = voice.cascadeExcitation * 0.58f;
+            const float probability = clamp(targetActivity + topologyBias + cascadeBias + homeostasis,
+                0.002f, 0.995f);
+            if (randomUnit(voice.seed) < probability) {
+                voice.fieldActive = true;
+                voice.fieldRemainingSamples += activeDurationSamples(voiceIndex);
+                voice.cascadeExcitation *= 0.18f;
+                scheduleCascade(voiceIndex);
+            } else {
+                voice.fieldRemainingSamples += retryDurationSamples(voice);
+            }
         }
     }
 
@@ -1186,8 +1378,14 @@ private:
     std::array<float, kAmbiStochasticMaxVoices> crowding_ {};
     std::array<float, kAmbiStochasticMaxVoices> topologyRadius_ {};
     std::array<float, kAmbiStochasticMaxVoices> selectionPulse_ {};
+    std::array<float, kAmbiStochasticMaxVoices> cascadePulse_ {};
     float topologyPhase_ = 0.0f;
     uint32_t topologySeed_ = 0x7f4a7c15u;
+    uint32_t macroSeed_ = 0x51ed270bu;
+    MacroScene macroCurrent_ {};
+    MacroScene macroTarget_ {};
+    float macroRemainingSamples_ = 1.0f;
+    float globalActivity_ = 0.0f;
     float globalEnergy_ = 0.0f;
     float globalKinetic_ = 0.0f;
     float smoothedOutputGain_ = 0.0f;

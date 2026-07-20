@@ -1,0 +1,358 @@
+{
+  "name": "s3g_demo_synthetic_voice",
+  "source": "examples/voicebank-builder/s3g_demo_voice_source.wav",
+  "sampleRate": 48000,
+  "format": "s3g-voicebank-v1",
+  "entries": [
+    {
+      "alias": "a",
+      "file": "a.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "e",
+      "file": "e.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "i",
+      "file": "i.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "o",
+      "file": "o.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "u",
+      "file": "u.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ka",
+      "file": "ka.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ke",
+      "file": "ke.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ki",
+      "file": "ki.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ko",
+      "file": "ko.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ku",
+      "file": "ku.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "sa",
+      "file": "sa.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "se",
+      "file": "se.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "si",
+      "file": "si.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "so",
+      "file": "so.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "su",
+      "file": "su.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ta",
+      "file": "ta.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "te",
+      "file": "te.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ti",
+      "file": "ti.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "to",
+      "file": "to.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "tu",
+      "file": "tu.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "na",
+      "file": "na.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ne",
+      "file": "ne.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ni",
+      "file": "ni.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "no",
+      "file": "no.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "nu",
+      "file": "nu.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ma",
+      "file": "ma.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "me",
+      "file": "me.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "mi",
+      "file": "mi.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "mo",
+      "file": "mo.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "mu",
+      "file": "mu.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ra",
+      "file": "ra.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "re",
+      "file": "re.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ri",
+      "file": "ri.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ro",
+      "file": "ro.wav",
+      "baseMidi": 38,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    },
+    {
+      "alias": "ru",
+      "file": "ru.wav",
+      "baseMidi": 50,
+      "offsetMs": 0.0,
+      "consonantMs": 120.0,
+      "loopStartMs": 155.0,
+      "loopEndMs": 335.4,
+      "cutoffMs": 430.0
+    }
+  ]
+}

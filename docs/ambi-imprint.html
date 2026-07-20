@@ -35,6 +35,14 @@
 
         <p>Kernel generation happens when an imprint is loaded, never in the audio callback. The file stores timing and spectral descriptors rather than sample-rate-specific FIR arrays, so the plugin builds kernels for the current host rate. Version 1 uses a four-second realtime response limit and reports 1024 samples of latency.</p>
 
+        <p>Imprint Sketch can describe connected wall, overhead, beneath, and stacked regions joined by rectangular, arched, circular, elliptical, slot, or irregular portals. Their path timing and directional loss are resolved into the loaded response profiles; the optional region graph drives the plugin's orbitable geometry display.</p>
+
+        <h2 id="safety">Low-Frequency and Gain Safety</h2>
+
+        <p>The wet excitation path includes a fixed 25 Hz high-pass filter that removes DC and subsonic energy before the directional probes. Every first-order component uses the same filter response, and all subsequent safety gain is linked across the ambisonic field, so protection does not independently reshape channels or move the apparent image. The latency-aligned dry path remains unfiltered.</p>
+
+        <p>When an imprint is loaded, direct and sparse early-reflection taps receive a shared transfer-gain budget capped at <code>+6 dB</code>. Dense echo files therefore retain their relative timing, direction, and decay pattern without allowing hundreds of positive taps to create extreme low-frequency gain. A fast linked wet-field limiter provides a final guard before Mix and Output; user Output gain remains available after that guard.</p>
+
         <h2 id="controls">Controls</h2>
 
         <ul>
@@ -103,6 +111,7 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#signal-model">Signal Model</a>
+          <a href="#safety">Low-Frequency and Gain Safety</a>
           <a href="#controls">Controls</a>
           <a href="#atlas">Imprint Atlas</a>
           <a href="#workflow">Imprint Sketch Workflow</a>

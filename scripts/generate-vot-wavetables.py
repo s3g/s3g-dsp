@@ -658,6 +658,76 @@ def glitch_fracture(u, v):
     return result
 
 
+def vocal_pulse(phase, width):
+    return 1.0 if (phase % 1.0) < clamp(width, 0.04, 0.96) else -1.0
+
+
+def vocal_triangle(phase):
+    return 4.0 * abs((phase % 1.0) - 0.5) - 1.0
+
+
+def vocal_noise(seed):
+    seed &= 0xFFFFFFFF
+    seed ^= seed >> 16
+    seed = (seed * 0x7FEB352D) & 0xFFFFFFFF
+    seed ^= seed >> 15
+    seed = (seed * 0x846CA68B) & 0xFFFFFFFF
+    seed ^= seed >> 16
+    return (seed & 0x00FFFFFF) / 0x00800000 - 1.0
+
+
+def vocal_blackmetal(u, v):
+    result = []
+    for sample in range(TABLE_SIZE):
+        phase = sample / TABLE_SIZE
+        sine = math.sin(TAU * phase)
+        throat = math.sin(TAU * phase * (2.0 + 5.0 * v)
+                          + 0.55 * math.sin(TAU * phase * (3.0 + 9.0 * u)))
+        shriek = math.sin(TAU * phase * (9.0 + 22.0 * u) + v * 2.1)
+        scrape = vocal_noise(sample * 32 + int(u * 101.0) + int(v * 509.0))
+        body = 0.36 * sine + 0.28 * vocal_pulse(phase, 0.18 + 0.34 * u) + 0.22 * throat
+        result.append(math.tanh((body + (0.10 + 0.22 * u) * shriek
+                                 + (0.06 + 0.18 * v) * scrape) * (1.35 + 3.25 * u)))
+    return result
+
+
+def vocal_throat(u, v):
+    result = []
+    for sample in range(TABLE_SIZE):
+        phase = sample / TABLE_SIZE
+        sub = math.sin(TAU * phase * 0.5 + v * 1.7)
+        tone = 0.42 * math.sin(TAU * phase) + 0.28 * vocal_pulse(phase, 0.28 + 0.32 * u)
+        form = 0.26 * sub + 0.18 * math.sin(TAU * phase * (3.0 + 5.0 * v))
+        result.append(math.tanh((tone + form) * (1.0 + 2.2 * u)))
+    return result
+
+
+def vocal_choir(u, v):
+    result = []
+    f1 = 2.0 + 5.0 * v
+    f2 = 5.0 + 10.0 * (1.0 - v)
+    for sample in range(TABLE_SIZE):
+        phase = sample / TABLE_SIZE
+        voice = (0.62 * math.sin(TAU * phase)
+                 + 0.22 * math.sin(TAU * phase * f1 + u * 0.4)
+                 + 0.14 * math.sin(TAU * phase * f2 + v * 1.3))
+        result.append(voice * (1.0 - 0.20 * u) + vocal_triangle(phase) * 0.20 * u)
+    return result
+
+
+def vocal_animal(u, v):
+    result = []
+    for sample in range(TABLE_SIZE):
+        phase = sample / TABLE_SIZE
+        folded = math.sin(TAU * (phase + 0.13 * math.sin(TAU * phase * (2.0 + 6.0 * u))))
+        growl = math.sin(TAU * phase * (1.0 + 0.5 * v)) * vocal_pulse(
+            phase * (2.0 + 3.0 * u), 0.34
+        )
+        result.append(math.tanh((0.48 * folded + 0.44 * growl
+                                 + 0.16 * math.sin(TAU * phase)) * (1.2 + 1.8 * u)))
+    return result
+
+
 ATLASES = (
     ("foundation", "Foundation", "harmonic density", "odd/even balance", foundation),
     ("body-bass", "Body / Bass", "brightness", "body and asymmetry", body_bass),
@@ -683,6 +753,10 @@ ATLASES = (
     ("glitch-address", "Glitch / Address", "address damage", "repeat and reorder mode", glitch_address),
     ("glitch-pcm", "Glitch / PCM", "data corruption", "bit pattern family", glitch_pcm),
     ("glitch-fracture", "Glitch / Fracture", "fracture depth", "polarity and dropout mode", glitch_fracture),
+    ("vocal-blackmetal", "Vocal / Black Metal", "throat closure and distortion edge", "vowel darkness and rasp depth", vocal_blackmetal),
+    ("vocal-throat", "Vocal / Throat", "closure", "subharmonic body", vocal_throat),
+    ("vocal-choir", "Vocal / Choir", "strain", "vowel family", vocal_choir),
+    ("vocal-animal", "Vocal / Animal", "snarl", "body size", vocal_animal),
 )
 
 

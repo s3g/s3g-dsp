@@ -39,7 +39,7 @@
           <li><code>version</code>: <code>1</code></li>
           <li><code>ambisonics</code>: ACN/SN3D and reference-order metadata</li>
           <li><code>spectral_bands_hz</code>: exactly eight band centers</li>
-          <li><code>space</code>: optional generalized family, seed, topology, polygon, ceiling profile, openness, and acoustic estimates</li>
+          <li><code>space</code>: optional generalized family, seed, topology, polygon, ceiling profile, connected regions, portals, openness, and acoustic estimates</li>
           <li><code>room</code>: compatibility dimensions, top-view polygon, and optional connected-region/opening provenance</li>
           <li><code>listener_position_m</code>: listener XYZ position</li>
           <li><code>direction_layout</code> and <code>direction_count</code></li>
@@ -49,7 +49,9 @@
 
         <p>Each profile contains its input AED direction, source position, quadrature weight, direct arrival, discrete early reflections, and late response. The late response includes eight-band absorption and RT60 values, diffusion, spread, damping, level, and a deterministic seed. Ambi Imprint derives processing from these resolved profiles; generalized geometry remains useful provenance and drives the orbitable GUI scene rather than a realtime geometry simulation.</p>
 
-        <p>Optional display metadata includes the primary XY polygon, an XZ ceiling profile, connected-region polygons, branch family, branch level, and branch height. An optional <code>echo_paths</code> object records the requested and resolved structure, geometry-derived interval, path points, prominence, persistence, and regularity. Resolved echo events remain ordinary entries in <code>early_reflections</code>, with optional path and bounce identifiers for provenance. Readers must continue to derive sound from the resolved profiles, so these additions remain backward compatible within version 1.</p>
+        <p>Optional display metadata includes the primary XY polygon, an XZ ceiling profile, and a connected-volume graph. <code>space.regions</code> records each region polygon, base elevation, height, family, attachment, and parent. <code>space.portals</code> records the connection endpoints, 3D center and orientation, opening shape, dimensions, area, transmission estimate, and outline. This permits wall, overhead, beneath, and stacked regions without changing the resolved audio contract.</p>
+
+        <p>An optional <code>echo_paths</code> object records the requested and resolved structure, geometry-derived interval, path points, prominence, persistence, and regularity. Coupled paths may traverse more than one portal and region. Resolved echo events remain ordinary entries in <code>early_reflections</code>, with optional path and bounce identifiers for provenance. Readers must continue to derive sound from the resolved profiles, so these additions remain backward compatible within version 1.</p>
 
         <h2 id="runtime">Runtime Limits</h2>
 

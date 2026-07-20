@@ -81,15 +81,29 @@ struct GuiProfileSnapshot {
 
 struct GuiBranchGeometry {
     std::string family = "room";
+    std::string attachment = "wall";
     uint32_t level = 0u;
+    float baseHeight = 0.0f;
     float height = 0.0f;
     std::vector<std::array<float, 2>> polygon;
+};
+
+struct GuiPortalGeometry {
+    std::string shape = "rect";
+    std::array<float, 3> center {};
+    std::array<float, 3> normal { 0.0f, 1.0f, 0.0f };
+    std::array<float, 3> axisU { 1.0f, 0.0f, 0.0f };
+    std::array<float, 3> axisV { 0.0f, 0.0f, 1.0f };
+    float width = 1.0f;
+    float height = 1.0f;
+    std::vector<std::array<float, 3>> outline;
 };
 
 struct GuiSpaceGeometry {
     std::string family = "room";
     std::vector<std::array<float, 2>> ceilingProfile;
     std::vector<GuiBranchGeometry> branches;
+    std::vector<GuiPortalGeometry> portals;
 };
 
 struct GuiSnapshot {
@@ -100,11 +114,13 @@ struct GuiSnapshot {
     float roomHeight = 3.0f;
     float listenerX = 4.0f;
     float listenerY = 5.0f;
+    float listenerZ = 1.5f;
     float duration = 0.0f;
     std::string family = "room";
     std::vector<std::array<float, 2>> polygon;
     std::vector<std::array<float, 2>> ceilingProfile;
     std::vector<GuiBranchGeometry> branches;
+    std::vector<GuiPortalGeometry> portals;
     std::array<GuiProfileSnapshot, s3g::kAmbiImprintMaxProfiles> profiles {};
     uint32_t profileCount = 0u;
 };
@@ -241,11 +257,13 @@ GuiSnapshot guiSnapshot(Plugin& plugin)
     result.roomHeight = plugin.descriptor.room.heightMetres;
     result.listenerX = plugin.descriptor.listenerPositionMetres[0];
     result.listenerY = plugin.descriptor.listenerPositionMetres[1];
+    result.listenerZ = plugin.descriptor.listenerPositionMetres[2];
     result.duration = plugin.hasImprint.load(std::memory_order_relaxed) ? std::min(plugin.descriptor.durationSeconds, s3g::kAmbiImprintMaxKernelSeconds) : 0.0f;
     result.family = plugin.guiGeometry.family;
     result.polygon = plugin.descriptor.room.polygon;
     result.ceilingProfile = plugin.guiGeometry.ceilingProfile;
     result.branches = plugin.guiGeometry.branches;
+    result.portals = plugin.guiGeometry.portals;
     result.profileCount = std::min<uint32_t>(static_cast<uint32_t>(plugin.descriptor.profiles.size()), s3g::kAmbiImprintMaxProfiles);
     for (uint32_t i = 0; i < result.profileCount; ++i) {
         const auto& source = plugin.descriptor.profiles[i];
@@ -307,6 +325,28 @@ std::vector<std::array<float, 2>> parsePointPairs(NSArray* values, NSString* sec
         if (![item isKindOfClass:[NSDictionary class]]) continue;
         auto* point = static_cast<NSDictionary*>(item);
         result.push_back({ numberValue(point, @"x", 0.0f), numberValue(point, secondKey, 0.0f) });
+    }
+    return result;
+}
+
+std::array<float, 3> parseVector3(NSDictionary* value, std::array<float, 3> fallback = {})
+{
+    if (![value isKindOfClass:[NSDictionary class]]) return fallback;
+    return { numberValue(value, @"x", fallback[0]),
+             numberValue(value, @"y", fallback[1]),
+             numberValue(value, @"z", fallback[2]) };
+}
+
+std::vector<std::array<float, 3>> parsePointTriples(NSArray* values, uint32_t maximum = 48u)
+{
+    std::vector<std::array<float, 3>> result;
+    if (![values isKindOfClass:[NSArray class]]) return result;
+    const uint32_t count = std::min<uint32_t>(maximum, static_cast<uint32_t>([values count]));
+    result.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        id item = [values objectAtIndex:i];
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        result.push_back(parseVector3(static_cast<NSDictionary*>(item)));
     }
     return result;
 }
@@ -376,6 +416,53 @@ bool parseImprintData(NSData* data,
         parsedGeometry.family = stringValue(space, @"family", "room");
         primarySpacePolygon = parsePointPairs(arrayValue(space, @"primary_polygon_xy_m"), @"y");
         parsedGeometry.ceilingProfile = parsePointPairs(arrayValue(space, @"ceiling_profile_xz_m"), @"z");
+        if (NSArray* regions = arrayValue(space, @"regions")) {
+            const uint32_t count = std::min<uint32_t>(64u, static_cast<uint32_t>([regions count]));
+            parsedGeometry.branches.reserve(count);
+            for (uint32_t i = 0; i < count; ++i) {
+                id item = [regions objectAtIndex:i];
+                if (![item isKindOfClass:[NSDictionary class]]) continue;
+                auto* source = static_cast<NSDictionary*>(item);
+                if (stringValue(source, @"kind", "branch") == "primary") continue;
+                GuiBranchGeometry branch;
+                branch.family = stringValue(source, @"family", parsedGeometry.family.c_str());
+                branch.attachment = stringValue(source, @"attachment", "wall");
+                branch.level = unsignedValue(source, @"level", 0u);
+                branch.baseHeight = numberValue(source, @"base_z_m", 0.0f);
+                branch.height = numberValue(source, @"height_m", defaultBranchHeight(parsed.room.heightMetres, branch.family, branch.level));
+                branch.polygon = parsePointPairs(arrayValue(source, @"polygon_xy_m"), @"y");
+                if (branch.polygon.size() >= 3u) parsedGeometry.branches.push_back(std::move(branch));
+            }
+        }
+        if (NSArray* portals = arrayValue(space, @"portals")) {
+            const uint32_t count = std::min<uint32_t>(64u, static_cast<uint32_t>([portals count]));
+            parsedGeometry.portals.reserve(count);
+            for (uint32_t i = 0; i < count; ++i) {
+                id item = [portals objectAtIndex:i];
+                if (![item isKindOfClass:[NSDictionary class]]) continue;
+                auto* source = static_cast<NSDictionary*>(item);
+                GuiPortalGeometry portal;
+                portal.shape = stringValue(source, @"shape", "rect");
+                portal.center = parseVector3(dictionaryValue(source, @"center_m"));
+                portal.normal = parseVector3(dictionaryValue(source, @"normal"), { 0.0f, 1.0f, 0.0f });
+                portal.axisU = parseVector3(dictionaryValue(source, @"axis_u"), { 1.0f, 0.0f, 0.0f });
+                portal.axisV = parseVector3(dictionaryValue(source, @"axis_v"), { 0.0f, 0.0f, 1.0f });
+                portal.width = std::max(0.01f, numberValue(source, @"width_m", 1.0f));
+                portal.height = std::max(0.01f, numberValue(source, @"height_m", 1.0f));
+                portal.outline = parsePointTriples(arrayValue(source, @"outline_xyz_m"));
+                if (portal.outline.size() < 3u) {
+                    for (const auto& corner : std::array<std::array<float, 2>, 4> {
+                             std::array<float, 2> { -0.5f, -0.5f }, { 0.5f, -0.5f }, { 0.5f, 0.5f }, { -0.5f, 0.5f } }) {
+                        portal.outline.push_back({
+                            portal.center[0] + portal.axisU[0] * corner[0] * portal.width + portal.axisV[0] * corner[1] * portal.height,
+                            portal.center[1] + portal.axisU[1] * corner[0] * portal.width + portal.axisV[1] * corner[1] * portal.height,
+                            portal.center[2] + portal.axisU[2] * corner[0] * portal.width + portal.axisV[2] * corner[1] * portal.height
+                        });
+                    }
+                }
+                parsedGeometry.portals.push_back(std::move(portal));
+            }
+        }
     }
     if (NSDictionary* room = dictionaryValue(root, @"room")) {
         if (parsedGeometry.family.empty() || parsedGeometry.family == "room") parsedGeometry.family = stringValue(room, @"family", parsedGeometry.family.c_str());
@@ -385,7 +472,7 @@ bool parseImprintData(NSData* data,
             parsed.room.heightMetres = numberValue(dimensions, @"z", 3.0f);
         }
         parsed.room.polygon = parsePointPairs(arrayValue(room, @"polygon_xy_m"), @"y");
-        if (NSDictionary* chamber = dictionaryValue(room, @"chamber")) {
+        if (parsedGeometry.branches.empty()) if (NSDictionary* chamber = dictionaryValue(room, @"chamber")) {
             if (NSArray* branches = arrayValue(chamber, @"chambers")) {
                 const uint32_t count = std::min<uint32_t>(64u, static_cast<uint32_t>([branches count]));
                 parsedGeometry.branches.reserve(count);
@@ -395,7 +482,9 @@ bool parseImprintData(NSData* data,
                     auto* source = static_cast<NSDictionary*>(item);
                     GuiBranchGeometry branch;
                     branch.family = stringValue(source, @"family", parsedGeometry.family.c_str());
+                    branch.attachment = stringValue(source, @"attachment", stringValue(source, @"side", "wall").c_str());
                     branch.level = unsignedValue(source, @"level", 0u);
+                    branch.baseHeight = numberValue(source, @"base_z_m", 0.0f);
                     branch.height = numberValue(source, @"height_m", defaultBranchHeight(parsed.room.heightMetres, branch.family, branch.level));
                     branch.polygon = parsePointPairs(arrayValue(source, @"polygon"), @"y");
                     if (branch.polygon.size() >= 3u) parsedGeometry.branches.push_back(std::move(branch));
@@ -1074,9 +1163,15 @@ NSRect imprintAtlasMenuRect()
     for (const auto& point : polygon) includePoint(point[0], point[1], 0.0f);
     for (const auto& point : snapshot.ceilingProfile) includePoint(point[0], minY, point[1]);
     for (const auto& branch : snapshot.branches) {
-        for (const auto& point : branch.polygon) includePoint(point[0], point[1], branch.height);
+        for (const auto& point : branch.polygon) {
+            includePoint(point[0], point[1], branch.baseHeight);
+            includePoint(point[0], point[1], branch.baseHeight + branch.height);
+        }
     }
-    includePoint(snapshot.listenerX, snapshot.listenerY, snapshot.roomHeight * 0.5f);
+    for (const auto& portal : snapshot.portals) {
+        for (const auto& point : portal.outline) includePoint(point[0], point[1], point[2]);
+    }
+    includePoint(snapshot.listenerX, snapshot.listenerY, snapshot.listenerZ);
     for (uint32_t i = 0; i < snapshot.profileCount; ++i) {
         const auto& profile = snapshot.profiles[i];
         includePoint(profile.sourceX, profile.sourceY, profile.sourceZ);
@@ -1146,12 +1241,13 @@ NSRect imprintAtlasMenuRect()
     [NSGraphicsContext saveGraphicsState];
     NSRectClip(NSInsetRect(field, 1.0, 1.0));
     auto drawGeometry = [&](const std::vector<std::array<float, 2>>& points,
+                            float baseHeight,
                             float fixedHeight,
                             bool variableHeight,
                             NSColor* stroke,
                             NSColor* fill) {
         if (points.size() < 3u) return;
-        auto heightAt = [&](float x) { return variableHeight ? ceilingAt(x) : fixedHeight; };
+        auto heightAt = [&](float x) { return variableHeight ? ceilingAt(x) : baseHeight + fixedHeight; };
         NSBezierPath* roof = [NSBezierPath bezierPath];
         [roof moveToPoint:projectPoint(points[0][0], points[0][1], heightAt(points[0][0]))];
         for (size_t i = 1; i < points.size(); ++i) {
@@ -1166,12 +1262,12 @@ NSRect imprintAtlasMenuRect()
         for (size_t i = 0; i < points.size(); ++i) {
             const auto& a = points[i];
             const auto& b = points[(i + 1u) % points.size()];
-            [edges moveToPoint:projectPoint(a[0], a[1], 0.0f)];
-            [edges lineToPoint:projectPoint(b[0], b[1], 0.0f)];
+            [edges moveToPoint:projectPoint(a[0], a[1], baseHeight)];
+            [edges lineToPoint:projectPoint(b[0], b[1], baseHeight)];
             [edges moveToPoint:projectPoint(a[0], a[1], heightAt(a[0]))];
             [edges lineToPoint:projectPoint(b[0], b[1], heightAt(b[0]))];
             if (i % verticalStride == 0u) {
-                [edges moveToPoint:projectPoint(a[0], a[1], 0.0f)];
+                [edges moveToPoint:projectPoint(a[0], a[1], baseHeight)];
                 [edges lineToPoint:projectPoint(a[0], a[1], heightAt(a[0]))];
             }
         }
@@ -1180,7 +1276,7 @@ NSRect imprintAtlasMenuRect()
         [edges stroke];
     };
 
-    drawGeometry(polygon, snapshot.roomHeight, true,
+    drawGeometry(polygon, 0.0f, snapshot.roomHeight, true,
         s3g::clap_gui::color(0x858585, 0.78), s3g::clap_gui::color(0x747474, 0.075));
     for (const auto& branch : snapshot.branches) {
         int color = 0x66746e;
@@ -1190,11 +1286,28 @@ NSRect imprintAtlasMenuRect()
         else if (branch.family == "canyon") color = 0x767063;
         else if (branch.family == "clearing") color = 0x647665;
         else if (branch.family == "abstract") color = 0x726a78;
-        drawGeometry(branch.polygon, std::max(0.1f, branch.height), false,
+        drawGeometry(branch.polygon, branch.baseHeight, std::max(0.1f, branch.height), false,
             s3g::clap_gui::color(color, 0.70), s3g::clap_gui::color(color, 0.055));
     }
 
-    const NSPoint listener = projectPoint(snapshot.listenerX, snapshot.listenerY, snapshot.roomHeight * 0.5f);
+    for (const auto& portal : snapshot.portals) {
+        if (portal.outline.size() < 3u) continue;
+        NSBezierPath* path = [NSBezierPath bezierPath];
+        [path moveToPoint:projectPoint(portal.outline[0][0], portal.outline[0][1], portal.outline[0][2])];
+        for (size_t index = 1; index < portal.outline.size(); ++index) {
+            [path lineToPoint:projectPoint(portal.outline[index][0], portal.outline[index][1], portal.outline[index][2])];
+        }
+        [path closePath];
+        [s3g::clap_gui::color(0x101010, 0.72) setFill];
+        [path fill];
+        [s3g::clap_gui::color(0xb8dce6, 0.82) setStroke];
+        const CGFloat dash[] = { 4.0, 3.0 };
+        [path setLineDash:dash count:2 phase:0.0];
+        [path setLineWidth:1.15];
+        [path stroke];
+    }
+
+    const NSPoint listener = projectPoint(snapshot.listenerX, snapshot.listenerY, snapshot.listenerZ);
     for (uint32_t i = 0; i < snapshot.profileCount; ++i) {
         const auto& profile = snapshot.profiles[i];
         const NSPoint source = projectPoint(profile.sourceX, profile.sourceY, profile.sourceZ);

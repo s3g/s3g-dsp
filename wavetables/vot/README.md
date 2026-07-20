@@ -63,6 +63,19 @@ material. VOT derives pitch-dependent band-limited tables when an atlas is
 loaded, allowing the damage to remain forceful without using the same bright
 table at every MIDI register.
 
+## Vocal Atlases
+
+| File | U | V |
+| --- | --- | --- |
+| `s3g-vot-vocal-blackmetal.wav` | throat closure and distortion edge | vowel darkness and rasp depth |
+| `s3g-vot-vocal-throat.wav` | closure | subharmonic body |
+| `s3g-vot-vocal-choir.wav` | strain | vowel family |
+| `s3g-vot-vocal-animal.wav` | snarl | body size |
+
+These banks provide vocal and formant-adjacent USER material for VOT. They use
+the same validated 4 x 4 atlas contract as the rest of the library. Ambi Vox
+Encoder uses LPC-style phrase frames instead of these WAV files.
+
 ## Atlas Format
 
 The canonical format is mono 24-bit PCM WAV at 48 kHz with exactly 4096

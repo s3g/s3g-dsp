@@ -173,7 +173,9 @@ private:
     float readDelay(uint32_t ch, float delay) const
     {
         float pos = static_cast<float>(writePos_) - delay;
-        pos += static_cast<float>(bufferSize_) * (pos < 0.0f ? 1.0f : 0.0f);
+        const float size = static_cast<float>(bufferSize_);
+        pos += size * (pos < 0.0f ? 1.0f : 0.0f);
+        pos -= size * (pos >= size ? 1.0f : 0.0f);
         const uint32_t i0 = static_cast<uint32_t>(std::floor(pos));
         const uint32_t i1 = (i0 + 1u) % bufferSize_;
         return lerp(buffers_[ch][i0], buffers_[ch][i1], pos - static_cast<float>(i0));

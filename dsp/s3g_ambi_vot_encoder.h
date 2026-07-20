@@ -1060,6 +1060,17 @@ public:
         }
     }
 
+    void advanceMotionOnly(uint32_t frames)
+    {
+        constexpr uint32_t kMotionChunkFrames = 16;
+        for (uint32_t chunkStart = 0; chunkStart < frames; chunkStart += kMotionChunkFrames) {
+            const uint32_t chunkFrames = std::min<uint32_t>(kMotionChunkFrames, frames - chunkStart);
+            const float chunkSeconds = static_cast<float>(chunkFrames) / static_cast<float>(sampleRate_);
+            advanceMotion(chunkSeconds);
+            updateNeighborGraph();
+        }
+    }
+
 private:
     void updateScorePlayback(float dt, bool freeMode, bool midiMode)
     {

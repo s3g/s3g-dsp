@@ -13,6 +13,10 @@ copy_bundle() {
   name="$(basename "$bundle")"
   rm -rf "$dst_root/$name"
   cp -R "$bundle" "$dst_root/$name"
+  touch "$dst_root/$name"
+  touch "$dst_root/$name/Contents"
+  touch "$dst_root/$name/Contents/Info.plist"
+  touch "$dst_root/$name/Contents/MacOS"/*
 }
 
 remove_stale_bundle() {
@@ -35,6 +39,8 @@ remove_stale_bundle "s3g_3oafx_spectral_smear.clap"
 remove_stale_bundle "s3g_node_track_mixer.clap"
 remove_stale_bundle "s3g_ambi_node_track_mixer.clap"
 remove_stale_bundle "s3g_ambi_environment_generator.clap"
+remove_stale_bundle "s3g_ambi_terrain_encoder.clap"
+remove_stale_bundle "s3g_wave_terrain_synth.clap"
 
 copy_bundle "$src_root/clap_24ch_passthrough/s3g_24ch_passthrough_test.clap"
 copy_bundle "$src_root/clap_delay_processor/s3g_8ch_delay_processor.clap"
@@ -45,10 +51,13 @@ copy_bundle "$src_root/clap_3oafx_single_effects/s3g_3oafx_delay.clap"
 copy_bundle "$src_root/clap_3oafx_single_effects/s3g_3oafx_pitch.clap"
 copy_bundle "$src_root/clap_3oafx_single_effects/s3g_3oafx_filter.clap"
 copy_bundle "$src_root/clap_3oafx_single_effects/s3g_3oafx_gain.clap"
+copy_bundle "$src_root/clap_3oafx_displacement/s3g_3oafx_displacement.clap"
 copy_bundle "$src_root/clap_3oafx_point_encoder/s3g_3oafx_point_encoder.clap"
 copy_bundle "$src_root/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder.clap"
+copy_bundle "$src_root/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator.clap"
 copy_bundle "$src_root/clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap"
 copy_bundle "$src_root/clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap"
+copy_bundle "$src_root/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap"
 copy_bundle "$src_root/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap"
 copy_bundle "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"
 copy_bundle "$src_root/clap_ambi_path_encoder/s3g_ambi_path_encoder.clap"

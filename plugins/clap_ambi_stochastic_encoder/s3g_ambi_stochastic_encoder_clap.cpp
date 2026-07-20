@@ -29,7 +29,7 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiStochasticMaxChannels;
-constexpr uint32_t kStateVersion = 7u;
+constexpr uint32_t kStateVersion = 8u;
 constexpr uint32_t kGuiWidth = 1160u;
 constexpr uint32_t kGuiHeight = 860u;
 constexpr uint32_t kGuiWaveSamples = 256u;
@@ -72,6 +72,51 @@ constexpr clap_id kDistanceParamId = 35;
 constexpr clap_id kSpatialFollowParamId = 36;
 constexpr clap_id kOutputParamId = 37;
 constexpr clap_id kFrequencyFloorParamId = 38;
+constexpr clap_id kFieldRestParamId = 39;
+constexpr clap_id kMacroDurationParamId = 40;
+
+struct LegacyAmbiStochasticParamsV7 {
+    uint32_t order = 3;
+    uint32_t voices = 12;
+    s3g::AmbiStochasticMode mode = s3g::AmbiStochasticMode::Free;
+    s3g::AmbiStochasticSelection selection = s3g::AmbiStochasticSelection::Walk;
+    s3g::AmbiStochasticTransition transition = s3g::AmbiStochasticTransition::Link;
+    s3g::AmbiStochasticDistribution amplitudeDistribution = s3g::AmbiStochasticDistribution::Cauchy;
+    s3g::AmbiStochasticDistribution durationDistribution = s3g::AmbiStochasticDistribution::Logistic;
+    float baseNote = 40.0f;
+    float seedSpreadSemitones = 19.0f;
+    float detuneCents = 9.0f;
+    float frequencyFloorHz = 18.0f;
+    uint32_t breakpoints = 16;
+    float amplitudeStep = 0.58f;
+    float durationStep = 0.52f;
+    float amplitudeRange = 0.65f;
+    float durationRange = 0.78f;
+    float fieldDensity = 0.84f;
+    float neighborTransfer = 0.32f;
+    float selectionMemory = 0.82f;
+    float fieldDurationSeconds = 0.32f;
+    float fieldContrast = 0.58f;
+    float attackMs = 12.0f;
+    float decayMs = 140.0f;
+    float sustain = 0.76f;
+    float releaseMs = 280.0f;
+    uint32_t topologyShape = 11;
+    uint32_t topologyMotion = 1;
+    float topologyRateHz = 0.035f;
+    float topologyAmount = 0.82f;
+    float topologyDepth = 0.78f;
+    float topologyScale = 1.20f;
+    float topologyCollapse = 0.0f;
+    float topologyTwist = 0.0f;
+    float centerAzimuthDeg = 0.0f;
+    float centerElevationDeg = 0.0f;
+    float centerDistance = 1.0f;
+    float spatialFollow = 0.92f;
+    float outputGainDb = -24.0f;
+};
+
+static_assert(sizeof(LegacyAmbiStochasticParamsV7) == 152u);
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -84,14 +129,74 @@ struct SavedState {
     float guiViewZoom = 1.0f;
 };
 
-struct LegacySavedStateV6 {
-    uint32_t version = 6u;
-    s3g::AmbiStochasticParams params {};
+struct LegacySavedStateV7 {
+    uint32_t version = 7u;
+    LegacyAmbiStochasticParamsV7 params {};
+    int32_t factoryPresetIndex = 0;
+    char presetName[64] {};
     int32_t guiViewMode = 2;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
 };
+
+struct LegacySavedStateV6 {
+    uint32_t version = 6u;
+    LegacyAmbiStochasticParamsV7 params {};
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+};
+
+static_assert(sizeof(s3g::AmbiStochasticParams) == 160u);
+static_assert(sizeof(SavedState) == 248u);
+static_assert(sizeof(LegacySavedStateV7) == 240u);
+static_assert(sizeof(LegacySavedStateV6) == 172u);
+
+s3g::AmbiStochasticParams migrateLegacyParams(const LegacyAmbiStochasticParamsV7& legacy)
+{
+    s3g::AmbiStochasticParams params {};
+    params.order = legacy.order;
+    params.voices = legacy.voices;
+    params.mode = legacy.mode;
+    params.selection = legacy.selection;
+    params.transition = legacy.transition;
+    params.amplitudeDistribution = legacy.amplitudeDistribution;
+    params.durationDistribution = legacy.durationDistribution;
+    params.baseNote = legacy.baseNote;
+    params.seedSpreadSemitones = legacy.seedSpreadSemitones;
+    params.detuneCents = legacy.detuneCents;
+    params.frequencyFloorHz = legacy.frequencyFloorHz;
+    params.breakpoints = legacy.breakpoints;
+    params.amplitudeStep = legacy.amplitudeStep;
+    params.durationStep = legacy.durationStep;
+    params.amplitudeRange = legacy.amplitudeRange;
+    params.durationRange = legacy.durationRange;
+    params.fieldDensity = legacy.fieldDensity;
+    params.neighborTransfer = legacy.neighborTransfer;
+    params.selectionMemory = legacy.selectionMemory;
+    params.fieldDurationSeconds = legacy.fieldDurationSeconds;
+    params.fieldContrast = legacy.fieldContrast;
+    params.attackMs = legacy.attackMs;
+    params.decayMs = legacy.decayMs;
+    params.sustain = legacy.sustain;
+    params.releaseMs = legacy.releaseMs;
+    params.topologyShape = legacy.topologyShape;
+    params.topologyMotion = legacy.topologyMotion;
+    params.topologyRateHz = legacy.topologyRateHz;
+    params.topologyAmount = legacy.topologyAmount;
+    params.topologyDepth = legacy.topologyDepth;
+    params.topologyScale = legacy.topologyScale;
+    params.topologyCollapse = legacy.topologyCollapse;
+    params.topologyTwist = legacy.topologyTwist;
+    params.centerAzimuthDeg = legacy.centerAzimuthDeg;
+    params.centerElevationDeg = legacy.centerElevationDeg;
+    params.centerDistance = legacy.centerDistance;
+    params.spatialFollow = legacy.spatialFollow;
+    params.outputGainDb = legacy.outputGainDb;
+    return params;
+}
 
 struct PresetMailbox {
     static constexpr uint32_t kCapacity = 4u;
@@ -208,6 +313,8 @@ bool assignParam(s3g::AmbiStochasticParams& params, clap_id id, double value)
     case kSelectionMemoryParamId: params.selectionMemory = static_cast<float>(value); break;
     case kFieldDurationParamId: params.fieldDurationSeconds = static_cast<float>(value); break;
     case kFieldContrastParamId: params.fieldContrast = static_cast<float>(value); break;
+    case kFieldRestParamId: params.fieldRestSeconds = static_cast<float>(value); break;
+    case kMacroDurationParamId: params.macroDurationSeconds = static_cast<float>(value); break;
     case kAttackParamId: params.attackMs = static_cast<float>(value); break;
     case kDecayParamId: params.decayMs = static_cast<float>(value); break;
     case kSustainParamId: params.sustain = static_cast<float>(value); break;
@@ -591,6 +698,8 @@ constexpr ParamDef kParams[] {
     { kDistanceParamId, "Center Distance", 0.15, 2.0, 1.0, false },
     { kSpatialFollowParamId, "Spatial Follow", 0.0, 1.0, 0.92, false },
     { kOutputParamId, "Output", -60.0, 6.0, -24.0, false },
+    { kFieldRestParamId, "Minimum Rest", 0.02, 8.0, 0.12, false },
+    { kMacroDurationParamId, "Macro Duration", 2.0, 300.0, 24.0, false },
 };
 
 struct PresetJsonField {
@@ -637,7 +746,11 @@ constexpr std::array<PresetJsonField, std::size(kParams)> kPresetJsonFields {{
     { kDistanceParamId, "center_distance" },
     { kSpatialFollowParamId, "spatial_follow" },
     { kOutputParamId, "output_gain_db" },
+    { kFieldRestParamId, "field_rest_seconds" },
+    { kMacroDurationParamId, "macro_duration_seconds" },
 }};
+constexpr uint32_t kLegacyPresetJsonFieldCount = 38u;
+static_assert(kPresetJsonFields.size() == 40u);
 
 const ParamDef* paramDef(clap_id id)
 {
@@ -688,6 +801,8 @@ bool parameterValue(const s3g::AmbiStochasticParams& params, clap_id id, double*
     case kSelectionMemoryParamId: *value = params.selectionMemory; return true;
     case kFieldDurationParamId: *value = params.fieldDurationSeconds; return true;
     case kFieldContrastParamId: *value = params.fieldContrast; return true;
+    case kFieldRestParamId: *value = params.fieldRestSeconds; return true;
+    case kMacroDurationParamId: *value = params.macroDurationSeconds; return true;
     case kAttackParamId: *value = params.attackMs; return true;
     case kDecayParamId: *value = params.decayMs; return true;
     case kSustainParamId: *value = params.sustain; return true;
@@ -743,7 +858,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         std::snprintf(display, size, "%.1f HZ", value);
     } else if (id == kAttackParamId || id == kDecayParamId || id == kReleaseParamId) {
         std::snprintf(display, size, "%.0f MS", value);
-    } else if (id == kFieldDurationParamId) {
+    } else if (id == kFieldDurationParamId || id == kFieldRestParamId
+        || id == kMacroDurationParamId) {
         std::snprintf(display, size, "%.2f S", value);
     } else if (id == kTopologyRateParamId) {
         std::snprintf(display, size, "%.3f HZ", value);
@@ -839,12 +955,24 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         loadedViewAzDeg = saved.guiViewAzDeg;
         loadedViewElDeg = saved.guiViewElDeg;
         loadedViewZoom = saved.guiViewZoom;
+    } else if (version == 7u) {
+        LegacySavedStateV7 saved {};
+        saved.version = version;
+        if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
+                sizeof(saved) - sizeof(version))) return false;
+        loadedParams = migrateLegacyParams(saved.params);
+        loadedPresetIndex = saved.factoryPresetIndex;
+        std::strncpy(loadedPresetName, saved.presetName, sizeof(loadedPresetName) - 1u);
+        loadedViewMode = saved.guiViewMode;
+        loadedViewAzDeg = saved.guiViewAzDeg;
+        loadedViewElDeg = saved.guiViewElDeg;
+        loadedViewZoom = saved.guiViewZoom;
     } else if (version == 5u || version == 6u) {
         LegacySavedStateV6 saved {};
         saved.version = version;
         if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
                 sizeof(saved) - sizeof(version))) return false;
-        loadedParams = saved.params;
+        loadedParams = migrateLegacyParams(saved.params);
         std::snprintf(loadedPresetName, sizeof(loadedPresetName), "%s", "CUSTOM");
         loadedViewMode = saved.guiViewMode;
         loadedViewAzDeg = saved.guiViewAzDeg;
@@ -895,7 +1023,7 @@ struct GuiSliderSpec {
     bool logarithmic;
 };
 
-constexpr std::array<GuiSliderSpec, 30> kGuiSliders {{
+constexpr std::array<GuiSliderSpec, 32> kGuiSliders {{
     { kVoicesParamId, 630, 130, 1.0, 64.0, false },
     { kBaseNoteParamId, 630, 156, 12.0, 96.0, false },
     { kSeedSpreadParamId, 630, 182, 0.0, 48.0, false },
@@ -916,16 +1044,18 @@ constexpr std::array<GuiSliderSpec, 30> kGuiSliders {{
     { kFieldDensityParamId, 896, 240, 0.0, 1.0, false },
     { kFieldDurationParamId, 896, 266, 0.05, 30.0, true },
     { kFieldContrastParamId, 896, 292, 0.0, 1.0, false },
-    { kTopologyRateParamId, 896, 428, 0.001, 1.0, true },
-    { kTopologyAmountParamId, 896, 454, 0.0, 1.0, false },
-    { kTopologyDepthParamId, 896, 480, 0.0, 1.0, false },
-    { kTopologyScaleParamId, 896, 506, 0.25, 2.0, false },
-    { kTopologyCollapseParamId, 896, 532, 0.0, 1.0, false },
-    { kTopologyTwistParamId, 896, 558, -1.0, 1.0, false },
-    { kAzimuthParamId, 896, 642, -180.0, 180.0, false },
-    { kElevationParamId, 896, 668, -90.0, 90.0, false },
-    { kDistanceParamId, 896, 694, 0.15, 2.0, false },
-    { kSpatialFollowParamId, 896, 720, 0.0, 1.0, false },
+    { kFieldRestParamId, 896, 318, 0.02, 8.0, true },
+    { kMacroDurationParamId, 896, 344, 2.0, 300.0, true },
+    { kTopologyRateParamId, 896, 480, 0.001, 1.0, true },
+    { kTopologyAmountParamId, 896, 506, 0.0, 1.0, false },
+    { kTopologyDepthParamId, 896, 532, 0.0, 1.0, false },
+    { kTopologyScaleParamId, 896, 558, 0.25, 2.0, false },
+    { kTopologyCollapseParamId, 896, 584, 0.0, 1.0, false },
+    { kTopologyTwistParamId, 896, 610, -1.0, 1.0, false },
+    { kAzimuthParamId, 896, 694, -180.0, 180.0, false },
+    { kElevationParamId, 896, 720, -90.0, 90.0, false },
+    { kDistanceParamId, 896, 746, 0.15, 2.0, false },
+    { kSpatialFollowParamId, 896, 772, 0.0, 1.0, false },
 }};
 
 const GuiSliderSpec* guiSliderSpec(clap_id id)
@@ -1462,16 +1592,18 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     [self drawSlider:@"XFER" param:kNeighborTransferParamId value:params.neighborTransfer attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"MEM" param:kSelectionMemoryParamId value:params.selectionMemory attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(896, 204, 246, 124, style);
+    s3g::clap_gui::drawPanelFrame(896, 204, 246, 176, style);
     s3g::clap_gui::drawPanelHeader(@"TIME FIELDS", true, 896, 204, 246, 21, attrs, style);
     [self drawSlider:@"DENS" param:kFieldDensityParamId value:params.fieldDensity attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DUR" param:kFieldDurationParamId value:params.fieldDurationSeconds attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"CONT" param:kFieldContrastParamId value:params.fieldContrast attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"REST" param:kFieldRestParamId value:params.fieldRestSeconds attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"MACRO" param:kMacroDurationParamId value:params.macroDurationSeconds attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(896, 340, 246, 254, style);
-    s3g::clap_gui::drawPanelHeader(@"TOPOLOGY", true, 896, 340, 246, 21, attrs, style);
-    [self drawMenu:@"SHAPE" value:[NSString stringWithUTF8String:s3g::topologyShapeName(params.topologyShape)] panelX:896 y:376 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"ANIM" value:[NSString stringWithUTF8String:s3g::topologyMotionModeName(params.topologyMotion)] panelX:896 y:402 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(896, 392, 246, 254, style);
+    s3g::clap_gui::drawPanelHeader(@"TOPOLOGY", true, 896, 392, 246, 21, attrs, style);
+    [self drawMenu:@"SHAPE" value:[NSString stringWithUTF8String:s3g::topologyShapeName(params.topologyShape)] panelX:896 y:428 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"ANIM" value:[NSString stringWithUTF8String:s3g::topologyMotionModeName(params.topologyMotion)] panelX:896 y:454 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RATE" param:kTopologyRateParamId value:params.topologyRateHz attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"AMT" param:kTopologyAmountParamId value:params.topologyAmount attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DEPTH" param:kTopologyDepthParamId value:params.topologyDepth attrs:attrs valueAttrs:valueAttrs style:style];
@@ -1479,8 +1611,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     [self drawSlider:@"COLL" param:kTopologyCollapseParamId value:params.topologyCollapse attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"TWIST" param:kTopologyTwistParamId value:params.topologyTwist attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(896, 606, 246, 150, style);
-    s3g::clap_gui::drawPanelHeader(@"PROJECTION", true, 896, 606, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(896, 658, 246, 150, style);
+    s3g::clap_gui::drawPanelHeader(@"PROJECTION", true, 896, 658, 246, 21, attrs, style);
     [self drawSlider:@"AZIM" param:kAzimuthParamId value:params.centerAzimuthDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ELEV" param:kElevationParamId value:params.centerElevationDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DIST" param:kDistanceParamId value:params.centerDistance attrs:attrs valueAttrs:valueAttrs style:style];
@@ -1611,7 +1743,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         if (!std::isfinite(value) || !assignParam(candidate, field.id, value)) continue;
         ++loaded;
     }
-    if (loaded != kPresetJsonFields.size() || !queuePreset(*_plugin, candidate)) {
+    if (loaded < kLegacyPresetJsonFieldCount || !queuePreset(*_plugin, candidate)) {
         NSBeep();
         return;
     }
@@ -1686,8 +1818,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     case 4: return NSMakeRect(1004, 103, 124, 15);
     case 5: return NSMakeRect(738, 317, 124, 15);
     case 6: return NSMakeRect(738, 343, 124, 15);
-    case 7: return NSMakeRect(1004, 375, 124, 15);
-    case 8: return NSMakeRect(1004, 401, 124, 15);
+    case 7: return NSMakeRect(1004, 427, 124, 15);
+    case 8: return NSMakeRect(1004, 453, 124, 15);
     case 9: return [self presetMenuRect];
     default: return NSZeroRect;
     }

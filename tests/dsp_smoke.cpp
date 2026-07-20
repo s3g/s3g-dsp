@@ -4,6 +4,7 @@
 #include "s3g_ambi_grain_processor.h"
 #include "s3g_ambi_imprint.h"
 #include "s3g_ambisonic_point_encoder.h"
+#include "s3g_ambi_terrain_navigator.h"
 #include "s3g_ambi_cloud_encoder.h"
 #include "s3g_ambi_stochastic_encoder.h"
 #include "s3g_ambi_stochastic_presets.h"
@@ -40,6 +41,7 @@
 #include "s3g_spectral_topology_processor.h"
 #include "s3g_sub_crossover.h"
 #include "s3g_wave_geometry_processor.h"
+#include "s3g_ambi_wave_terrain_encoder.h"
 #include "s3g_shard_scatter.h"
 #include "s3g_layout_panner.h"
 #include "s3g_mc_to_stereo.h"
@@ -131,6 +133,203 @@ int main()
 
     if (!std::isfinite(samples[0][3]) || samples[0][3] >= 1.0f) {
         std::cerr << "Gain smoothing did not reduce signal\n";
+        return 1;
+    }
+
+    s3g::AmbiTerrainNavigator terrainNavigator;
+    terrainNavigator.prepare(48000.0);
+    s3g::AmbiTerrainNavigatorParams terrainParams;
+    terrainParams.order = 3u;
+    terrainParams.points = 4u;
+    terrainParams.rateHz = 0.25f;
+    terrainParams.rateSpread = 0.80f;
+    terrainParams.rateDeviation = 0.50f;
+    terrainParams.traversal = 1.0f;
+    terrainParams.terrainDepth = 0.8f;
+    terrainParams.palette = s3g::AmbiTerrainPalette::Vot;
+    terrainNavigator.setParams(terrainParams);
+    const float terrainRate0 = terrainNavigator.rateForPoint(0u);
+    const float terrainRate3 = terrainNavigator.rateForPoint(3u);
+    if (!std::isfinite(terrainRate0) || !std::isfinite(terrainRate3) || std::abs(terrainRate0 - terrainRate3) < 0.00001f) {
+        std::cerr << "Ambi Terrain navigator did not create distinct per-point rates\n";
+        return 1;
+    }
+    float terrainSkinMin = 100.0f;
+    float terrainSkinMax = -100.0f;
+    for (uint32_t skin = 0; skin < 8u; ++skin) {
+        terrainParams.palette = static_cast<s3g::AmbiTerrainPalette>(skin);
+        terrainNavigator.setParams(terrainParams);
+        const auto shellPoint = terrainNavigator.surfacePointForDisplay(0.37f, 0.62f);
+        if (!std::isfinite(shellPoint.distance) || !std::isfinite(shellPoint.terrain) || shellPoint.shell != 0u) {
+            std::cerr << "Ambi Terrain navigator produced an invalid shell surface\n";
+            return 1;
+        }
+        terrainSkinMin = std::min(terrainSkinMin, shellPoint.terrain);
+        terrainSkinMax = std::max(terrainSkinMax, shellPoint.terrain);
+    }
+    if (terrainSkinMax - terrainSkinMin < 0.02f) {
+        std::cerr << "Ambi Terrain navigator skins did not produce distinct terrain\n";
+        return 1;
+    }
+    terrainParams.palette = s3g::AmbiTerrainPalette::Vot;
+    terrainParams.rateHz = 0.000001f;
+    terrainNavigator.setParams(terrainParams);
+    if (terrainNavigator.params().rateHz > 0.0000011f) {
+        std::cerr << "Ambi Terrain navigator did not preserve ultra-slow motion\n";
+        return 1;
+    }
+    constexpr uint32_t terrainFrames = 128u;
+    float terrainIn[s3g::kAmbiTerrainMaxPoints][terrainFrames] {};
+    const float* terrainInPtrs[s3g::kAmbiTerrainMaxPoints] {};
+    float terrainOut[s3g::kAmbiTerrainMaxChannels][terrainFrames] {};
+    float* terrainOutPtrs[s3g::kAmbiTerrainMaxChannels] {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiTerrainMaxPoints; ++ch) terrainInPtrs[ch] = terrainIn[ch];
+    for (uint32_t ch = 0; ch < s3g::kAmbiTerrainMaxChannels; ++ch) terrainOutPtrs[ch] = terrainOut[ch];
+    for (uint32_t point = 0; point < terrainParams.points; ++point) {
+        for (uint32_t frame = 0; frame < terrainFrames; ++frame) terrainIn[point][frame] = frame == point ? 1.0f : 0.20f;
+    }
+    terrainNavigator.processBlock(terrainInPtrs, terrainOutPtrs, terrainParams.points, s3g::kAmbiTerrainMaxChannels, terrainFrames);
+    float terrainPeak = 0.0f;
+    for (uint32_t ch = 0; ch < s3g::ambiChannelsForOrder(terrainParams.order); ++ch) {
+        for (uint32_t frame = 0; frame < terrainFrames; ++frame) {
+            if (!std::isfinite(terrainOut[ch][frame])) {
+                std::cerr << "Ambi Terrain navigator produced non-finite output\n";
+                return 1;
+            }
+            terrainPeak = std::max(terrainPeak, std::abs(terrainOut[ch][frame]));
+        }
+    }
+    const auto terrainPoint = terrainNavigator.point(3u);
+    if (terrainPeak <= 0.0001f || !std::isfinite(terrainPoint.azimuthDeg) || !std::isfinite(terrainPoint.elevationDeg) || !std::isfinite(terrainPoint.distance)) {
+        std::cerr << "Ambi Terrain navigator produced no valid spatial output\n";
+        return 1;
+    }
+
+    auto waveTerrain = std::make_unique<s3g::AmbiWaveTerrainEncoder>();
+    waveTerrain->prepare(48000.0);
+    s3g::AmbiWaveTerrainParams waveTerrainParams;
+    waveTerrainParams.order = 3u;
+    waveTerrainParams.voices = 6u;
+    waveTerrainParams.mode = s3g::AmbiWaveTerrainMode::Free;
+    waveTerrainParams.skin = s3g::AmbiWaveTerrainSkin::Tectonic;
+    waveTerrainParams.selection = s3g::AmbiWaveTerrainSelection::Markov;
+    waveTerrainParams.transition = s3g::AmbiWaveTerrainTransition::Merge;
+    waveTerrainParams.interpretation = s3g::AmbiWaveTerrainInterpretation::Height;
+    waveTerrainParams.attackMs = 1.0f;
+    waveTerrainParams.terrainDepth = 1.0f;
+    waveTerrain->setParams(waveTerrainParams);
+    float waveTerrainOut[s3g::kAmbiWaveTerrainMaxChannels][terrainFrames] {};
+    float* waveTerrainPtrs[s3g::kAmbiWaveTerrainMaxChannels] {};
+    for (uint32_t ch = 0; ch < s3g::kAmbiWaveTerrainMaxChannels; ++ch) waveTerrainPtrs[ch] = waveTerrainOut[ch];
+    waveTerrain->process(waveTerrainPtrs, s3g::kAmbiWaveTerrainMaxChannels, terrainFrames);
+    float waveTerrainPeak = 0.0f;
+    for (uint32_t ch = 0; ch < s3g::ambiChannelsForOrder(waveTerrainParams.order); ++ch) {
+        for (uint32_t frame = 0; frame < terrainFrames; ++frame) {
+            if (!std::isfinite(waveTerrainOut[ch][frame])) {
+                std::cerr << "Ambi Wave Terrain Encoder produced non-finite output\n";
+                return 1;
+            }
+            waveTerrainPeak = std::max(waveTerrainPeak, std::abs(waveTerrainOut[ch][frame]));
+        }
+    }
+    if (waveTerrainPeak <= 0.0001f) {
+        std::cerr << "Ambi Wave Terrain Encoder produced no free-running output\n";
+        return 1;
+    }
+    const auto scanPointBefore = waveTerrain->points()[0u];
+    waveTerrain->process(waveTerrainPtrs, s3g::kAmbiWaveTerrainMaxChannels, terrainFrames);
+    const auto scanPointAfter = waveTerrain->points()[0u];
+    const float scanPointMotion = std::abs(scanPointAfter.azimuthDeg - scanPointBefore.azimuthDeg)
+        + std::abs(scanPointAfter.elevationDeg - scanPointBefore.elevationDeg)
+        + std::abs(scanPointAfter.distance - scanPointBefore.distance);
+    if (!std::isfinite(scanPointMotion) || scanPointMotion < 0.001f) {
+        std::cerr << "Ambi Wave Terrain Encoder scan head did not traverse its contour\n";
+        return 1;
+    }
+    float tableMin = 1.0f;
+    float tableMax = -1.0f;
+    float tableDifference = 0.0f;
+    float terrainProfileMean = 0.0f;
+    float heightTableMean = 0.0f;
+    for (uint32_t index = 0; index < s3g::kAmbiWaveTerrainTableSize; ++index) {
+        const float current = waveTerrain->tableValue(0u, false, index);
+        const float next = waveTerrain->tableValue(0u, true, index);
+        const float topography = waveTerrain->terrainProfileValue(0u, true, index);
+        if (!std::isfinite(current) || !std::isfinite(next) || !std::isfinite(topography)) {
+            std::cerr << "Ambi Wave Terrain Encoder rendered a non-finite contour table\n";
+            return 1;
+        }
+        tableMin = std::min(tableMin, next);
+        tableMax = std::max(tableMax, next);
+        tableDifference = std::max(tableDifference, std::abs(next - current));
+        terrainProfileMean += topography;
+        heightTableMean += next;
+    }
+    if (tableMax - tableMin < 0.05f || tableDifference < 0.001f) {
+        std::cerr << "Ambi Wave Terrain Encoder did not render a distinct terrain transition\n";
+        return 1;
+    }
+    terrainProfileMean /= static_cast<float>(s3g::kAmbiWaveTerrainTableSize);
+    heightTableMean /= static_cast<float>(s3g::kAmbiWaveTerrainTableSize);
+    float terrainWaveCovariance = 0.0f;
+    float terrainVariance = 0.0f;
+    float heightTableVariance = 0.0f;
+    for (uint32_t index = 0; index < s3g::kAmbiWaveTerrainTableSize; ++index) {
+        const float terrainCentered = waveTerrain->terrainProfileValue(0u, true, index) - terrainProfileMean;
+        const float tableCentered = waveTerrain->tableValue(0u, true, index) - heightTableMean;
+        terrainWaveCovariance += terrainCentered * tableCentered;
+        terrainVariance += terrainCentered * terrainCentered;
+        heightTableVariance += tableCentered * tableCentered;
+    }
+    const float terrainWaveCorrelation = terrainWaveCovariance
+        / std::sqrt(std::max(0.0000001f, terrainVariance * heightTableVariance));
+    if (!std::isfinite(terrainWaveCorrelation) || terrainWaveCorrelation < 0.995f) {
+        std::cerr << "Ambi Wave Terrain Encoder height table did not follow its scan topography\n";
+        return 1;
+    }
+    auto smoothTerrainParams = waveTerrainParams;
+    smoothTerrainParams.terrainDepth = 0.0f;
+    smoothTerrainParams.terrainRelief = 0.0f;
+    smoothTerrainParams.trace = s3g::AmbiWaveTerrainTrace::Orbit;
+    smoothTerrainParams.scanAspect = 1.0f;
+    smoothTerrainParams.scanRotation = 0.0f;
+    smoothTerrainParams.scanWarp = 0.0f;
+    waveTerrain->setParams(smoothTerrainParams);
+    waveTerrain->process(waveTerrainPtrs, s3g::kAmbiWaveTerrainMaxChannels, terrainFrames);
+    float orbitSineCovariance = 0.0f;
+    float orbitSineEnergy = 0.0f;
+    float orbitTableEnergy = 0.0f;
+    for (uint32_t index = 0; index < s3g::kAmbiWaveTerrainTableSize; ++index) {
+        const float sine = std::sin(s3g::kAmbiWaveTerrainTwoPi * static_cast<float>(index)
+            / static_cast<float>(s3g::kAmbiWaveTerrainTableSize));
+        const float value = waveTerrain->tableValue(0u, true, index);
+        orbitSineCovariance += sine * value;
+        orbitSineEnergy += sine * sine;
+        orbitTableEnergy += value * value;
+    }
+    const float orbitSineCorrelation = orbitSineCovariance
+        / std::sqrt(std::max(0.0000001f, orbitSineEnergy * orbitTableEnergy));
+    if (!std::isfinite(orbitSineCorrelation) || orbitSineCorrelation < 0.995f) {
+        std::cerr << "Ambi Wave Terrain Encoder smooth orbit was not low harmonic\n";
+        return 1;
+    }
+    const float tectonicHeight = waveTerrain->terrainHeight(0.23f, 0.61f);
+    waveTerrainParams.skin = s3g::AmbiWaveTerrainSkin::Craters;
+    waveTerrain->setParams(waveTerrainParams);
+    const float craterHeight = waveTerrain->terrainHeight(0.23f, 0.61f);
+    if (!std::isfinite(tectonicHeight) || !std::isfinite(craterHeight) || std::abs(tectonicHeight - craterHeight) < 0.001f) {
+        std::cerr << "Ambi Wave Terrain Encoder skins did not produce distinct surfaces\n";
+        return 1;
+    }
+    waveTerrainParams.mode = s3g::AmbiWaveTerrainMode::Midi;
+    waveTerrain->setParams(waveTerrainParams);
+    waveTerrain->noteOn(57, 0.9f);
+    waveTerrain->process(waveTerrainPtrs, s3g::kAmbiWaveTerrainMaxChannels, terrainFrames);
+    waveTerrain->noteOff(57);
+    float waveTerrainMidiPeak = 0.0f;
+    for (uint32_t frame = 0; frame < terrainFrames; ++frame) waveTerrainMidiPeak = std::max(waveTerrainMidiPeak, std::abs(waveTerrainOut[0][frame]));
+    if (waveTerrainMidiPeak <= 0.0001f) {
+        std::cerr << "Ambi Wave Terrain Encoder produced no MIDI output\n";
         return 1;
     }
 
@@ -4454,11 +4653,94 @@ int main()
     };
     const float stochasticDensity8 = stochasticActiveFraction(8u);
     const float stochasticDensity64 = stochasticActiveFraction(64u);
-    if (stochasticDensity8 < 0.45f || stochasticDensity8 > 0.90f
-        || stochasticDensity64 < 0.04f || stochasticDensity64 > 0.35f
-        || stochasticDensity8 < stochasticDensity64 + 0.30f) {
+    if (stochasticDensity8 < 0.12f || stochasticDensity8 > 0.35f
+        || stochasticDensity64 < 0.03f || stochasticDensity64 > 0.18f
+        || stochasticDensity8 < stochasticDensity64 + 0.07f) {
         std::cerr << "Ambi Stochastic density did not scale with voice count: "
                   << stochasticDensity8 << " / " << stochasticDensity64 << "\n";
+        return 1;
+    }
+
+    s3g::AmbiStochasticParams renewalParams;
+    renewalParams.order = 1u;
+    renewalParams.voices = 1u;
+    renewalParams.mode = s3g::AmbiStochasticMode::Free;
+    renewalParams.fieldDensity = 1.0f;
+    renewalParams.fieldDurationSeconds = 0.05f;
+    renewalParams.fieldRestSeconds = 0.20f;
+    renewalParams.fieldContrast = 0.0f;
+    renewalParams.neighborTransfer = 0.0f;
+    renewalParams.topologyMotion = 0u;
+    renewalParams.macroDurationSeconds = 300.0f;
+    renewalParams.attackMs = 1.0f;
+    renewalParams.releaseMs = 5.0f;
+    renewalParams.outputGainDb = -60.0f;
+    auto renewalEncoder = std::make_unique<s3g::AmbiStochasticEncoder>();
+    renewalEncoder->prepare(48000.0);
+    renewalEncoder->setParams(renewalParams);
+    renewalEncoder->reset();
+    bool renewalEnteredRest = false;
+    bool renewalCompletedRest = false;
+    uint32_t renewalRestBlocks = 0u;
+    constexpr uint32_t renewalFrames = 64u;
+    for (uint32_t block = 0u; block < 4000u && !renewalCompletedRest; ++block) {
+        renewalEncoder->process(stochasticOutputs.data(), 4u, renewalFrames);
+        if (!renewalEncoder->voiceFieldActive(0u)) {
+            renewalEnteredRest = true;
+            ++renewalRestBlocks;
+        } else if (renewalEnteredRest) {
+            renewalCompletedRest = true;
+        }
+    }
+    const uint32_t renewalRestSamples = renewalRestBlocks * renewalFrames;
+    const uint32_t minimumRestSamples = static_cast<uint32_t>(renewalParams.fieldRestSeconds * 48000.0f);
+    if (!renewalCompletedRest || renewalRestSamples + renewalFrames * 2u < minimumRestSamples) {
+        std::cerr << "Ambi Stochastic renewal rest was not guaranteed: "
+                  << renewalRestSamples << " / " << minimumRestSamples << "\n";
+        return 1;
+    }
+
+    s3g::AmbiStochasticParams stochasticCascadeParams = renewalParams;
+    stochasticCascadeParams.voices = 8u;
+    stochasticCascadeParams.fieldRestSeconds = 0.02f;
+    stochasticCascadeParams.fieldContrast = 1.0f;
+    stochasticCascadeParams.neighborTransfer = 1.0f;
+    stochasticCascadeParams.topologyDepth = 0.75f;
+    auto cascadeEncoder = std::make_unique<s3g::AmbiStochasticEncoder>();
+    cascadeEncoder->prepare(48000.0);
+    cascadeEncoder->setParams(stochasticCascadeParams);
+    cascadeEncoder->reset();
+    float cascadePulse = 0.0f;
+    for (uint32_t block = 0u; block < 1200u && cascadePulse < 0.50f; ++block) {
+        cascadeEncoder->process(stochasticOutputs.data(), 4u, renewalFrames);
+        for (uint32_t voice = 0u; voice < stochasticCascadeParams.voices; ++voice) {
+            cascadePulse = std::max(cascadePulse, cascadeEncoder->voiceCascadePulse(voice));
+        }
+    }
+    if (cascadePulse < 0.50f) {
+        std::cerr << "Ambi Stochastic delayed topology cascade did not arrive\n";
+        return 1;
+    }
+
+    s3g::AmbiStochasticParams stochasticMacroParams = renewalParams;
+    stochasticMacroParams.voices = 4u;
+    stochasticMacroParams.fieldDensity = 0.72f;
+    stochasticMacroParams.fieldRestSeconds = 0.06f;
+    stochasticMacroParams.selectionMemory = 0.0f;
+    stochasticMacroParams.macroDurationSeconds = 2.0f;
+    auto macroEncoder = std::make_unique<s3g::AmbiStochasticEncoder>();
+    macroEncoder->prepare(48000.0);
+    macroEncoder->setParams(stochasticMacroParams);
+    macroEncoder->reset();
+    for (uint32_t block = 0u; block < 560u; ++block) {
+        macroEncoder->process(stochasticOutputs.data(), 4u, stochasticFrames);
+    }
+    const float macroDrift = std::abs(macroEncoder->macroDensityScale() - 1.0f)
+        + std::abs(macroEncoder->macroDurationScale() - 1.0f)
+        + std::abs(macroEncoder->macroMutationScale() - 1.0f)
+        + std::abs(macroEncoder->macroCascadeScale() - 1.0f);
+    if (macroDrift < 0.03f || !std::isfinite(macroEncoder->globalActivity())) {
+        std::cerr << "Ambi Stochastic macro scene did not evolve: " << macroDrift << "\n";
         return 1;
     }
 
@@ -4589,6 +4871,8 @@ int main()
               << " / " << stochasticDurationArticulation << "\n";
     std::cout << "Ambi Stochastic density 8/64 voices: "
               << stochasticDensity8 << " / " << stochasticDensity64 << "\n";
+    std::cout << "Ambi Stochastic renewal/cascade/macro: "
+              << renewalRestSamples << " / " << cascadePulse << " / " << macroDrift << "\n";
     std::cout << "Ambi Stochastic v2 seed/held/reset: "
               << seededFrequency << " / " << heldFrequency << " / " << resetFrequency << "\n";
     std::cout << "Ambi Stochastic factory presets: "

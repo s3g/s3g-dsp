@@ -1,0 +1,5 @@
+# Optional typed-word to voicebank-alias overrides.
+sorrow=so ro
+ash=a si
+metal=me ta ru
+night=na i to
