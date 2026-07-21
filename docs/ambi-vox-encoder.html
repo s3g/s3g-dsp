@@ -68,9 +68,10 @@
           <li><code>MIDI STEP</code> advances one cue for each note-on received on the dedicated cue channel.</li>
           <li><code>MIDI CUE</code> maps consecutive notes from <code>BASE NOTE</code> to consecutive cue lines.</li>
           <li><code>TRANSPORT</code> assigns consecutive cue lines to equal <code>CUE BEATS</code> windows on the host beat timeline and wraps after the final cue.</li>
+          <li><code>AUTO</code> advances through the cue lines on a free-running <code>CUE BEATS</code> clock. It uses the project tempo even while transport is stopped, or 120 BPM when the host supplies no tempo.</li>
         </ul>
 
-        <p><code>MIDI CH</code> defaults to channel 16. In either MIDI cue mode, notes on that channel are consumed as cue control and do not trigger vocal voices. Other MIDI channels retain their normal instrument behavior. Cue selection occurs at an audio processing boundary; <code>PACE</code>, <code>STRETCH</code>, and voice timing continue to control performance inside the selected line.</p>
+        <p><code>MIDI CH</code> defaults to channel 16. In either MIDI cue mode, notes on that channel are consumed as cue control and do not trigger vocal voices. Other MIDI channels retain their normal instrument behavior. Clicking a line while <code>AUTO</code> is active starts its full cue interval again. Cue selection occurs at an audio processing boundary; <code>PACE</code>, <code>STRETCH</code>, and voice timing continue to control performance inside the selected line.</p>
 
         <h2 id="voicebank-timing">Voicebank Timing and Pronunciation</h2>
 

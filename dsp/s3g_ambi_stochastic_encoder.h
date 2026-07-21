@@ -91,7 +91,7 @@ struct AmbiStochasticParams {
     float centerElevationDeg = 0.0f;
     float centerDistance = 1.0f;
     float spatialFollow = 0.92f;
-    float outputGainDb = -24.0f;
+    float outputGainDb = -6.0f;
 };
 
 struct AmbiStochasticPoint {

@@ -113,7 +113,7 @@ struct LegacyAmbiStochasticParamsV7 {
     float centerElevationDeg = 0.0f;
     float centerDistance = 1.0f;
     float spatialFollow = 0.92f;
-    float outputGainDb = -24.0f;
+    float outputGainDb = -6.0f;
 };
 
 static_assert(sizeof(LegacyAmbiStochasticParamsV7) == 152u);
@@ -406,7 +406,7 @@ s3g::AmbiStochasticParams makeSafeRandomParams(Plugin& plugin)
     p.centerElevationDeg = randomRange(seed, -24.0f, 24.0f);
     p.centerDistance = randomRange(seed, 0.82f, 1.34f);
     p.spatialFollow = randomRange(seed, 0.78f, 0.98f);
-    p.outputGainDb = -24.0f;
+    p.outputGainDb = -6.0f;
     plugin.randomSeed = seed;
     return p;
 }
@@ -764,7 +764,7 @@ constexpr ParamDef kParams[] {
     { kElevationParamId, "Center Elevation", -90.0, 90.0, 0.0, false },
     { kDistanceParamId, "Center Distance", 0.15, 2.0, 1.0, false },
     { kSpatialFollowParamId, "Spatial Follow", 0.0, 1.0, 0.92, false },
-    { kOutputParamId, "Output", -60.0, 6.0, -24.0, false },
+    { kOutputParamId, "Output", -60.0, 6.0, -6.0, false },
     { kFieldRestParamId, "Minimum Rest", 0.02, 8.0, 0.12, false },
     { kMacroDurationParamId, "Macro Duration", 2.0, 300.0, 24.0, false },
 };

@@ -105,6 +105,7 @@ struct AmbiWranglerVoice {
     float rungSmooth = 0.0f;
     float lastClock = 0.0f;
     float energy = 0.0f;
+    float maskGain = 1.0f;
     uint32_t reg = 1u;
     uint32_t seed = 1u;
     AmbiWranglerFilter filterA {};
@@ -204,7 +205,7 @@ public:
     AmbiWranglerParams params() const { return params_; }
     float voiceEnergy(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiWranglerMaxVoices - 1u)].energy; }
     AmbiWranglerPoint voicePoint(uint32_t voice) const { return points_[std::min<uint32_t>(voice, kAmbiWranglerMaxVoices - 1u)]; }
-    float voiceMaskLevel(uint32_t voice) const { return voiceMask(std::min<uint32_t>(voice, kAmbiWranglerMaxVoices - 1u)); }
+    float voiceMaskLevel(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiWranglerMaxVoices - 1u)].maskGain; }
 
     void process(float* const* outputs, uint32_t outputChannels, uint32_t frames)
     {
@@ -217,6 +218,8 @@ public:
         const uint32_t voices = params_.voices;
         const uint32_t ambiChannels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), outputChannels);
         const float targetGain = dbToGain(params_.outputGainDb) / std::sqrt(static_cast<float>(std::max<uint32_t>(1u, voices)));
+        const float maskAttack = 1.0f - std::exp(-1.0f / (static_cast<float>(sampleRate_) * 0.004f));
+        const float maskRelease = 1.0f - std::exp(-1.0f / (static_cast<float>(sampleRate_) * 0.018f));
         constexpr uint32_t kControlFrames = 16u;
 
         for (uint32_t chunkStart = 0u; chunkStart < frames; chunkStart += kControlFrames) {
@@ -235,7 +238,10 @@ public:
             for (uint32_t frame = chunkStart; frame < chunkStart + chunkFrames; ++frame) {
                 smoothedOutputGain_ += (targetGain - smoothedOutputGain_) * 0.0015f;
                 for (uint32_t v = 0u; v < voices; ++v) {
-                    const float sample = processVoice(v) * voiceMask(v) * smoothedOutputGain_ * distGain[v];
+                    const float targetMask = voiceMask(v);
+                    auto& voice = voices_[v];
+                    voice.maskGain += (targetMask - voice.maskGain) * (targetMask > voice.maskGain ? maskAttack : maskRelease);
+                    const float sample = processVoice(v) * voice.maskGain * smoothedOutputGain_ * distGain[v];
                     voices_[v].energy += (sample * sample - voices_[v].energy) * 0.0008f;
                     if (std::fabs(sample) < 0.0000001f) continue;
                     for (uint32_t ch = 0u; ch < ambiChannels; ++ch) {

@@ -461,6 +461,7 @@ inline AmbiStochasticParams ambiStochasticFactoryPreset(uint32_t index)
     default:
         break;
     }
+    p.outputGainDb = -6.0f;
     return p;
 }
 

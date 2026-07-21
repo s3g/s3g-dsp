@@ -368,6 +368,7 @@ enum class VoxLyricMode : uint32_t {
     MidiStep = 1,
     MidiCue = 2,
     Transport = 3,
+    Auto = 4,
 };
 
 const char* voxLyricModeName(VoxLyricMode mode)
@@ -377,6 +378,7 @@ const char* voxLyricModeName(VoxLyricMode mode)
     case VoxLyricMode::MidiStep: return "MIDI STEP";
     case VoxLyricMode::MidiCue: return "MIDI CUE";
     case VoxLyricMode::Transport: return "TRANSPORT";
+    case VoxLyricMode::Auto: return "AUTO";
     }
     return "LOOP";
 }
@@ -1760,9 +1762,11 @@ struct Plugin {
     std::atomic<uint32_t> requestedLyricCue { 0u };
     std::atomic<uint32_t> guiLyricCue { 0u };
     std::atomic<bool> lyricCueResetRequested { true };
+    std::atomic<bool> lyricAutoClockResetRequested { true };
     uint32_t lyricRuntimeCue = 0u;
     uint32_t lyricMidiStepCue = 0u;
     bool lyricMidiStepStarted = false;
+    double lyricAutoSamplesElapsed = 0.0;
     std::array<std::atomic<uint8_t>, kVoxLoadedNameMaxChars> voxLoadedName {};
     std::atomic<uint32_t> voxLoadedNameLength { 0u };
 #if defined(__APPLE__)
@@ -2373,6 +2377,11 @@ void applyPendingVoxPreset(Plugin& plugin)
     plugin.params = latest.params;
     plugin.vox = latest.vox;
     plugin.lyric = latest.lyric;
+    plugin.lyric.mode = static_cast<VoxLyricMode>(
+        std::clamp<uint32_t>(static_cast<uint32_t>(plugin.lyric.mode), 0u, 4u));
+    plugin.lyric.cueBeats = std::clamp(plugin.lyric.cueBeats, 0.25f, 64.0f);
+    plugin.lyric.cueBaseNote = std::clamp<uint32_t>(plugin.lyric.cueBaseNote, 0u, 127u);
+    plugin.lyric.cueChannel = std::clamp<uint32_t>(plugin.lyric.cueChannel, 1u, 16u);
     plugin.params.voices = std::clamp<uint32_t>(
         plugin.params.voices, 1u, s3g::kAmbiVoxMaxVoices);
     plugin.engine.setParams(plugin.params);
@@ -2382,6 +2391,8 @@ void applyPendingVoxPreset(Plugin& plugin)
     plugin.voxBankTimingResetRequested.store(true, std::memory_order_release);
     plugin.voxWorldTimingResetRequested.store(true, std::memory_order_release);
     plugin.lyricMidiStepStarted = false;
+    plugin.lyricAutoSamplesElapsed = 0.0;
+    plugin.lyricAutoClockResetRequested.store(false, std::memory_order_release);
     plugin.lyricCueResetRequested.store(true, std::memory_order_release);
     requestVoiceDelayResize(plugin);
     plugin.presetTransitionFrames = std::max<uint32_t>(1u,
@@ -3691,6 +3702,7 @@ void rebuildVoxLyricScore(Plugin& plugin)
         : 0u;
     plugin.requestedLyricCue.store(requested, std::memory_order_relaxed);
     std::atomic_store_explicit(&plugin.lyricScore, std::move(score), std::memory_order_release);
+    plugin.lyricAutoClockResetRequested.store(true, std::memory_order_release);
     plugin.lyricCueResetRequested.store(true, std::memory_order_release);
     if (plugin.host && plugin.host->request_process) plugin.host->request_process(plugin.host);
 }
@@ -3700,6 +3712,7 @@ void requestVoxLyricCue(Plugin& plugin, uint32_t cue)
     const auto score = std::atomic_load_explicit(&plugin.lyricScore, std::memory_order_acquire);
     const uint32_t count = score ? static_cast<uint32_t>(score->cues.size()) : 0u;
     plugin.requestedLyricCue.store(count > 0u ? cue % count : 0u, std::memory_order_release);
+    plugin.lyricAutoClockResetRequested.store(true, std::memory_order_release);
     plugin.lyricCueResetRequested.store(true, std::memory_order_release);
     if (plugin.host && plugin.host->request_process) plugin.host->request_process(plugin.host);
 }
@@ -5366,9 +5379,12 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         break;
     case kLyricModeParamId:
         plugin.lyric.mode = static_cast<VoxLyricMode>(
-            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 3u));
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 4u));
         plugin.lyricMidiStepStarted = false;
         plugin.lyricMidiStepCue = plugin.requestedLyricCue.load(std::memory_order_relaxed);
+        plugin.lyricAutoSamplesElapsed = 0.0;
+        plugin.lyricAutoClockResetRequested.store(false, std::memory_order_release);
+        plugin.lyricCueResetRequested.store(true, std::memory_order_release);
         break;
     case kLyricCueBeatsParamId:
         plugin.lyric.cueBeats = std::clamp(static_cast<float>(value), 0.25f, 64.0f);
@@ -5488,6 +5504,41 @@ void updateVoxLyricTransport(Plugin& plugin, const clap_event_transport_t* trans
         + static_cast<int64_t>(count)) % static_cast<int64_t>(count);
     const uint32_t cue = static_cast<uint32_t>(wrapped);
     if (cue == plugin.requestedLyricCue.load(std::memory_order_relaxed)) return;
+    plugin.requestedLyricCue.store(cue, std::memory_order_release);
+    plugin.lyricCueResetRequested.store(true, std::memory_order_release);
+}
+
+void updateVoxLyricAuto(Plugin& plugin,
+                        const clap_event_transport_t* transport,
+                        uint32_t frames)
+{
+    if (plugin.lyric.mode != VoxLyricMode::Auto) {
+        plugin.lyricAutoSamplesElapsed = 0.0;
+        return;
+    }
+    const uint32_t count = voxLyricCueCount(plugin);
+    if (count == 0u || frames == 0u || plugin.sampleRate <= 0.0) return;
+
+    if (plugin.lyricAutoClockResetRequested.exchange(
+            false, std::memory_order_acq_rel)) {
+        plugin.lyricAutoSamplesElapsed = 0.0;
+    }
+    double tempo = 120.0;
+    if (transport && (transport->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0
+        && std::isfinite(transport->tempo) && transport->tempo > 0.0) {
+        tempo = std::clamp(transport->tempo, 1.0, 1000.0);
+    }
+    const double cueSamples = std::max(1.0,
+        plugin.sampleRate * std::max(0.25, static_cast<double>(plugin.lyric.cueBeats))
+            * 60.0 / tempo);
+    plugin.lyricAutoSamplesElapsed += static_cast<double>(frames);
+    const uint64_t advances = static_cast<uint64_t>(
+        std::floor(plugin.lyricAutoSamplesElapsed / cueSamples));
+    if (advances == 0u) return;
+
+    plugin.lyricAutoSamplesElapsed -= static_cast<double>(advances) * cueSamples;
+    const uint32_t current = plugin.requestedLyricCue.load(std::memory_order_relaxed) % count;
+    const uint32_t cue = (current + static_cast<uint32_t>(advances % count)) % count;
     plugin.requestedLyricCue.store(cue, std::memory_order_release);
     plugin.lyricCueResetRequested.store(true, std::memory_order_release);
 }
@@ -5645,6 +5696,8 @@ void reset(const clap_plugin_t* plugin)
     state->voxWorldTimingResetRequested.store(true, std::memory_order_release);
     state->lyricMidiStepStarted = false;
     state->lyricMidiStepCue = state->requestedLyricCue.load(std::memory_order_relaxed);
+    state->lyricAutoSamplesElapsed = 0.0;
+    state->lyricAutoClockResetRequested.store(true, std::memory_order_release);
     state->lyricCueResetRequested.store(true, std::memory_order_release);
     state->outputPeak.store(0.0f, std::memory_order_relaxed);
     state->lastOutputSample.fill(0.0f);
@@ -5660,6 +5713,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     applyPendingVoxPreset(*state);
     readEvents(*state, processData->in_events);
     updateVoxLyricTransport(*state, processData->transport);
+    updateVoxLyricAuto(*state, processData->transport, processData->frames_count);
     applyPendingVoxLyricCue(*state);
     updateTransportPhase(*state, processData->transport);
     if (processData->audio_outputs_count == 0u || !processData->audio_outputs) return CLAP_PROCESS_CONTINUE;
@@ -5807,7 +5861,7 @@ constexpr ParamDef kParams[] {
     { kOrchestrationParamId, "Ensemble", 0.0, 5.0, 0.0, true },
     { kContourModeParamId, "Pitch Contour", 0.0, 3.0, 0.0, true },
     { kPhraseSpreadParamId, "Phrase Spread", 0.0, 1.0, 0.0, false },
-    { kLyricModeParamId, "Lyrics Mode", 0.0, 3.0, 0.0, true },
+    { kLyricModeParamId, "Lyrics Mode", 0.0, 4.0, 0.0, true },
     { kLyricCueBeatsParamId, "Lyrics Cue Beats", 0.25, 64.0, 16.0, false },
     { kLyricCueNoteParamId, "Lyrics Cue Base Note", 0.0, 127.0, 24.0, true },
     { kLyricCueChannelParamId, "Lyrics Cue Channel", 1.0, 16.0, 16.0, true },
@@ -5905,7 +5959,8 @@ bool assignVoxPresetParameter(VoxPresetSnapshot& preset, clap_id id, double rawV
         break;
     case kPhraseSpreadParamId: vox.phraseSpread = static_cast<float>(value); break;
     case kLyricModeParamId:
-        lyric.mode = static_cast<VoxLyricMode>(static_cast<uint32_t>(std::lround(value)));
+        lyric.mode = static_cast<VoxLyricMode>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 4u));
         break;
     case kLyricCueBeatsParamId: lyric.cueBeats = static_cast<float>(value); break;
     case kLyricCueNoteParamId: lyric.cueBaseNote = static_cast<uint32_t>(std::lround(value)); break;
@@ -6120,8 +6175,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kVibratoDepthParamId) std::snprintf(display, size, "%.0f ct", value * 100.0);
     else if (id == kVibratoRateParamId) std::snprintf(display, size, "%.2f Hz", value);
     else if (id == kMotionAmountParamId || id == kSpreadParamId || id == kCoherenceParamId || id == kChaosParamId || id == kLinkParamId || id == kSmoothParamId || id == kScanParamId || id == kMorphParamId || id == kSustainParamId || id == kHarmonicsParamId || id == kSubharmonicsParamId || id == kScoreDepthParamId || id == kRaspParamId || id == kBreathParamId || id == kThroatParamId || id == kDriveParamId || id == kJitterParamId || id == kVowelSpreadParamId || id == kPitchScoopParamId || id == kAttackShapeParamId || id == kArticulationParamId || id == kConsonantParamId || id == kPlosiveParamId || id == kSibilanceParamId || id == kPhraseRateParamId || id == kBendMacroParamId || id == kCrushMacroParamId || id == kWorldLoopStartParamId || id == kWorldLoopEndParamId || id == kWorldVoiceDeviationParamId || id == kWorldFreezeParamId || id == kWorldScrubParamId || id == kWorldVoicingParamId || id == kPvocTransientParamId || id == kTransitionParamId || id == kPhraseSpreadParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
-    else if (id == kLyricCueChannelParamId) std::snprintf(display, size, "CH %.0f", value);
-    else if (id == kOrderParamId || id == kVoicesParamId || id == kRequiredNeighborsParamId || id == kBaseNoteParamId || id == kLyricCueNoteParamId) std::snprintf(display, size, "%.0f", value);
+    else if (id == kOrderParamId || id == kVoicesParamId || id == kRequiredNeighborsParamId || id == kBaseNoteParamId || id == kLyricCueNoteParamId || id == kLyricCueChannelParamId) std::snprintf(display, size, "%.0f", value);
     else std::snprintf(display, size, "%.2f", value);
     return true;
 }
@@ -6150,7 +6204,8 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         return true;
     }
     if (id == kLyricModeParamId) {
-        if (text.find("transport") != std::string::npos) *value = 3.0;
+        if (text.find("auto") != std::string::npos) *value = 4.0;
+        else if (text.find("transport") != std::string::npos) *value = 3.0;
         else if (text.find("cue") != std::string::npos) *value = 2.0;
         else if (text.find("step") != std::string::npos) *value = 1.0;
         else *value = 0.0;
@@ -6776,7 +6831,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     state->vox.contourMode = static_cast<s3g::AmbiVoxContourMode>(
         std::clamp<uint32_t>(static_cast<uint32_t>(state->vox.contourMode), 0u, 3u));
     state->lyric.mode = static_cast<VoxLyricMode>(
-        std::clamp<uint32_t>(static_cast<uint32_t>(state->lyric.mode), 0u, 3u));
+        std::clamp<uint32_t>(static_cast<uint32_t>(state->lyric.mode), 0u, 4u));
     state->lyric.cueBeats = std::clamp(state->lyric.cueBeats, 0.25f, 64.0f);
     state->lyric.cueBaseNote = std::clamp<uint32_t>(state->lyric.cueBaseNote, 0u, 127u);
     state->lyric.cueChannel = std::clamp<uint32_t>(state->lyric.cueChannel, 1u, 16u);
@@ -7614,6 +7669,17 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     (void)timer;
     if ([self isHidden] || !_plugin || !_plugin->guiVisible.load(std::memory_order_relaxed)) return;
     if (!s3g::clap_support::hostAppIsActive()) return;
+    const uint32_t cueCount = voxLyricCueCount(*_plugin);
+    if (cueCount > 0u && _plugin->lyric.mode != VoxLyricMode::Loop
+        && ![_phraseField currentEditor]
+        && [[self window] firstResponder] != _lyricsEditor) {
+        const uint32_t activeCue = _plugin->guiLyricCue.load(std::memory_order_relaxed) % cueCount;
+        if (activeCue != _selectedLyricCue) {
+            _selectedLyricCue = activeCue;
+            const std::string cue = voxLyricCueText(*_plugin, activeCue);
+            [_phraseField setStringValue:[NSString stringWithUTF8String:cue.c_str()]];
+        }
+    }
     [self captureTrails];
     [self setNeedsDisplay:YES];
 }
@@ -8418,7 +8484,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     static NSString* speechItems[] = { @"TEXTURE", @"SPEAK", @"SING" };
     static NSString* ensembleItems[] = { @"INDIVIDUAL", @"UNISON", @"CHORALE", @"CHORUS", @"ROUND", @"CLUSTER" };
     static NSString* contourItems[] = { @"ORIGINAL", @"REDUCED", @"FLAT", @"QUANTIZED" };
-    static NSString* lyricModeItems[] = { @"LOOP", @"MIDI STEP", @"MIDI CUE", @"TRANSPORT" };
+    static NSString* lyricModeItems[] = { @"LOOP", @"MIDI STEP", @"MIDI CUE", @"TRANSPORT", @"AUTO" };
     static NSString* factoryItems[] = {
         @"VOX DEFAULT", @"SOLO SPEAK", @"CLOSE UNISON", @"SATB CHORALE",
         @"DOUBLE CHOIR", @"WIDE CHORUS", @"FOUR PART ROUND", @"SEMITONE CLUSTER",
@@ -9380,7 +9446,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         const CGFloat controlsY = content.origin.y + 618.0;
         if (NSPointInRect(point, NSMakeRect(content.origin.x + 110,
             controlsY - 1, 150, 17))) {
-            [self openMenu:13 count:4 x:content.origin.x + 110
+            [self openMenu:13 count:5 x:content.origin.x + 110
                 y:controlsY width:150];
             return;
         }

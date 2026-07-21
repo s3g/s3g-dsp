@@ -1024,7 +1024,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         _viewElDeg = 0.0;
     } else if (mode == 1) {
         _viewAzDeg = 0.0;
-        _viewElDeg = 90.0;
+        _viewElDeg = -90.0;
     } else {
         _viewAzDeg = 38.0;
         _viewElDeg = 32.0;
