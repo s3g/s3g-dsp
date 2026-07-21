@@ -1,5 +1,5 @@
-#include "s3g_ambi_wrangler_encoder.h"
-#include "s3g_ambi_wrangler_presets.h"
+#include "s3g_ambi_wind_encoder.h"
+#include "s3g_ambi_wind_presets.h"
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
@@ -24,9 +24,9 @@
 
 namespace {
 
-constexpr uint32_t kOutputChannels = s3g::kAmbiWranglerMaxChannels;
+constexpr uint32_t kOutputChannels = s3g::kAmbiWindMaxChannels;
 constexpr uint32_t kStateVersion = 9;
-constexpr uint32_t kCustomPresetMagic = 0x33505741u; // AWP3
+constexpr uint32_t kCustomPresetMagic = 0x31445741u; // AWD1
 constexpr uint32_t kCustomPresetVersion = 6;
 
 constexpr clap_id kPresetParamId = 1;
@@ -78,14 +78,14 @@ constexpr clap_id kRungLoopParamId = 46;
 
 struct SavedState {
     uint32_t version = kStateVersion;
-    s3g::AmbiWranglerParams params {};
+    s3g::AmbiWindParams params {};
     uint32_t presetIndex = 0u;
     char customPresetName[64] {};
 };
 
 struct SavedStateV3 {
     uint32_t version = 3u;
-    s3g::AmbiWranglerParams params {};
+    s3g::AmbiWindParams params {};
     uint32_t presetIndex = 0u;
 };
 
@@ -93,15 +93,15 @@ struct CustomPresetFile {
     uint32_t magic = kCustomPresetMagic;
     uint32_t version = kCustomPresetVersion;
     char name[64] {};
-    s3g::AmbiWranglerParams params {};
+    s3g::AmbiWindParams params {};
 };
 
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
-    s3g::AmbiWranglerEncoder engine {};
-    s3g::AmbiWranglerParams params {};
+    s3g::AmbiWindEncoder engine {};
+    s3g::AmbiWindParams params {};
     uint32_t presetIndex = 0u;
     char customPresetName[64] {};
     uint32_t randomSeed = 0x6d2b79f5u;
@@ -113,11 +113,11 @@ struct Plugin {
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
-    std::array<std::atomic<float>, s3g::kAmbiWranglerMaxVoices> guiAzimuth {};
-    std::array<std::atomic<float>, s3g::kAmbiWranglerMaxVoices> guiElevation {};
-    std::array<std::atomic<float>, s3g::kAmbiWranglerMaxVoices> guiDistance {};
-    std::array<std::atomic<float>, s3g::kAmbiWranglerMaxVoices> guiEnergy {};
-    std::array<std::atomic<float>, s3g::kAmbiWranglerMaxVoices> guiMask {};
+    std::array<std::atomic<float>, s3g::kAmbiWindMaxVoices> guiAzimuth {};
+    std::array<std::atomic<float>, s3g::kAmbiWindMaxVoices> guiElevation {};
+    std::array<std::atomic<float>, s3g::kAmbiWindMaxVoices> guiDistance {};
+    std::array<std::atomic<float>, s3g::kAmbiWindMaxVoices> guiEnergy {};
+    std::array<std::atomic<float>, s3g::kAmbiWindMaxVoices> guiMask {};
 #endif
 };
 
@@ -147,59 +147,59 @@ bool readExact(const clap_istream_t* stream, void* data, size_t size)
     return true;
 }
 
-std::array<float, s3g::kAmbiWranglerMaxVoices>& breakpointArray(s3g::AmbiWranglerParams& params, uint32_t row)
+std::array<float, s3g::kAmbiWindMaxVoices>& breakpointArray(s3g::AmbiWindParams& params, uint32_t row)
 {
     switch (row) {
-    case 0: return params.bpRateA;
-    case 1: return params.bpRateB;
-    case 2: return params.bpFmAtoB;
-    case 3: return params.bpFmBtoA;
-    case 4: return params.bpRunglerA;
-    case 5: return params.bpRunglerB;
-    case 6: return params.bpFilter;
-    case 7: return params.bpThreshold;
-    case 8: return params.bpPwmA;
-    case 9: return params.bpPwmB;
-    case 10: return params.bpRampA;
-    case 11: return params.bpRampB;
+    case 0: return params.bpWind;
+    case 1: return params.bpGustRate;
+    case 2: return params.bpGustDepth;
+    case 3: return params.bpTurbulence;
+    case 4: return params.bpFlutter;
+    case 5: return params.bpMaterial;
+    case 6: return params.bpCenter;
+    case 7: return params.bpQ;
+    case 8: return params.bpAir;
+    case 9: return params.bpHiss;
+    case 10: return params.bpSweep;
+    case 11: return params.bpBody;
     default: return params.bpAmp;
     }
 }
 
-const std::array<float, s3g::kAmbiWranglerMaxVoices>& breakpointArray(const s3g::AmbiWranglerParams& params, uint32_t row)
+const std::array<float, s3g::kAmbiWindMaxVoices>& breakpointArray(const s3g::AmbiWindParams& params, uint32_t row)
 {
     switch (row) {
-    case 0: return params.bpRateA;
-    case 1: return params.bpRateB;
-    case 2: return params.bpFmAtoB;
-    case 3: return params.bpFmBtoA;
-    case 4: return params.bpRunglerA;
-    case 5: return params.bpRunglerB;
-    case 6: return params.bpFilter;
-    case 7: return params.bpThreshold;
-    case 8: return params.bpPwmA;
-    case 9: return params.bpPwmB;
-    case 10: return params.bpRampA;
-    case 11: return params.bpRampB;
+    case 0: return params.bpWind;
+    case 1: return params.bpGustRate;
+    case 2: return params.bpGustDepth;
+    case 3: return params.bpTurbulence;
+    case 4: return params.bpFlutter;
+    case 5: return params.bpMaterial;
+    case 6: return params.bpCenter;
+    case 7: return params.bpQ;
+    case 8: return params.bpAir;
+    case 9: return params.bpHiss;
+    case 10: return params.bpSweep;
+    case 11: return params.bpBody;
     default: return params.bpAmp;
     }
 }
 
-double breakpointFallback(const s3g::AmbiWranglerParams& params, uint32_t row)
+double breakpointFallback(const s3g::AmbiWindParams& params, uint32_t row)
 {
     switch (row) {
-    case 0: return params.rateA;
-    case 1: return params.rateB;
-    case 2: return params.fmAtoB;
-    case 3: return params.fmBtoA;
-    case 4: return params.runglerA;
-    case 5: return params.runglerB;
-    case 6: return params.filter;
-    case 7: return params.threshold;
-    case 8: return params.pwmA;
-    case 9: return params.pwmB;
-    case 10: return params.rampA;
-    case 11: return params.rampB;
+    case 0: return params.wind;
+    case 1: return params.gustRate;
+    case 2: return params.gustDepth;
+    case 3: return params.turbulence;
+    case 4: return params.flutter;
+    case 5: return params.material;
+    case 6: return params.q;
+    case 7: return params.center;
+    case 8: return params.air;
+    case 9: return params.hiss;
+    case 10: return params.sweep;
+    case 11: return params.body;
     default: return 1.0;
     }
 }
@@ -224,20 +224,20 @@ double breakpointRange(uint32_t row)
     }
 }
 
-double breakpointFinalValue(const s3g::AmbiWranglerParams& params, uint32_t row, uint32_t voice)
+double breakpointFinalValue(const s3g::AmbiWindParams& params, uint32_t row, uint32_t voice)
 {
     const auto& values = breakpointArray(params, row);
-    const double curve = values[std::min<uint32_t>(voice, s3g::kAmbiWranglerMaxVoices - 1u)];
+    const double curve = values[std::min<uint32_t>(voice, s3g::kAmbiWindMaxVoices - 1u)];
     if (row == 12u) return std::clamp(curve, 0.0, 1.0);
     return std::clamp(breakpointFallback(params, row) + (curve - 0.5) * breakpointRange(row), 0.0, 1.0);
 }
 
-void seedBreakpointsFromMacros(s3g::AmbiWranglerParams& params)
+void seedBreakpointsFromMacros(s3g::AmbiWindParams& params)
 {
-    const uint32_t voices = std::clamp<uint32_t>(params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(params.voices, 1u, s3g::kAmbiWindMaxVoices);
     for (uint32_t row = 0u; row < 13u; ++row) {
         auto& values = breakpointArray(params, row);
-        for (uint32_t voice = 0u; voice < s3g::kAmbiWranglerMaxVoices; ++voice) {
+        for (uint32_t voice = 0u; voice < s3g::kAmbiWindMaxVoices; ++voice) {
             const float lane = static_cast<float>(voice) / static_cast<float>(std::max<uint32_t>(1u, voices - 1u));
             const float tilt = row < 2u ? (lane - 0.5f) * params.spread * 0.18f : 0.0f;
             values[voice] = row == 12u ? 1.0f : std::clamp(0.5f + tilt, 0.0f, 1.0f);
@@ -274,21 +274,21 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
             ok = std::fread(&file.params, 1, sizeof(file.params), handle) == sizeof(file.params);
         } else if (file.version == 5u || file.version == 4u) {
             const uint32_t loadedVersion = file.version;
-            constexpr size_t kPresetV5ParamsSize = sizeof(s3g::AmbiWranglerParams) - sizeof(uint32_t);
+            constexpr size_t kPresetV5ParamsSize = sizeof(s3g::AmbiWindParams) - sizeof(uint32_t);
             ok = std::fread(&file.params, 1, kPresetV5ParamsSize, handle) == kPresetV5ParamsSize;
             file.params.rungLoop = 0u;
             if (ok && loadedVersion == 4u) {
-                file.params.rateModeA = std::min<uint32_t>(2u, file.params.rateModeA + 1u);
-                file.params.rateModeB = std::min<uint32_t>(2u, file.params.rateModeB + 1u);
+                file.params.rateMode = std::min<uint32_t>(2u, file.params.rateMode + 1u);
+                file.params.materialMode = std::min<uint32_t>(2u, file.params.materialMode + 1u);
             }
         } else {
-            constexpr size_t kLegacyParamsV3Size = sizeof(s3g::AmbiWranglerParams) - sizeof(float) * 2u - sizeof(uint32_t);
+            constexpr size_t kLegacyParamsV3Size = sizeof(s3g::AmbiWindParams) - sizeof(float) * 2u - sizeof(uint32_t);
             ok = std::fread(&file.params, 1, kLegacyParamsV3Size, handle) == kLegacyParamsV3Size;
-            file.params.snap = 0.0f;
-            file.params.snapDecay = 0.34f;
+            file.params.grit = 0.0f;
+            file.params.breath = 0.34f;
             file.params.rungLoop = 0u;
-            file.params.rateModeA = std::min<uint32_t>(2u, file.params.rateModeA + 1u);
-            file.params.rateModeB = std::min<uint32_t>(2u, file.params.rateModeB + 1u);
+            file.params.rateMode = std::min<uint32_t>(2u, file.params.rateMode + 1u);
+            file.params.materialMode = std::min<uint32_t>(2u, file.params.materialMode + 1u);
             file.version = kCustomPresetVersion;
         }
     }
@@ -323,65 +323,63 @@ void randomizeSafe(Plugin& plugin)
     auto p = plugin.params;
     uint32_t seed = plugin.randomSeed ^ static_cast<uint32_t>(std::lround(plugin.outputPeak.load(std::memory_order_relaxed) * 1000000.0f));
     p.order = 3u;
-    p.voices = 12u + randomChoice(seed, 29u);
-    p.rateA = randomRange(seed, 0.035f, 0.58f);
-    p.rateB = randomRange(seed, 0.035f, 0.64f);
+    p.voices = 10u + randomChoice(seed, 23u);
+    p.wind = randomRange(seed, 0.08f, 0.46f);
+    p.gustRate = randomRange(seed, 0.025f, 0.52f);
     if (randomUnit(seed) < 0.32f) {
-        p.rateA *= 0.38f;
-        p.rateB *= 0.44f;
+        p.wind *= 0.38f;
+        p.gustRate *= 0.44f;
     }
-    p.fmAtoB = randomRange(seed, 0.02f, 0.58f);
-    p.fmBtoA = randomRange(seed, 0.02f, 0.58f);
-    p.runglerA = randomRange(seed, 0.03f, 0.78f);
-    p.runglerB = randomRange(seed, 0.03f, 0.82f);
-    p.pwmA = randomRange(seed, 0.30f, 0.70f);
-    p.pwmB = randomRange(seed, 0.30f, 0.70f);
-    p.rampA = randomRange(seed, 0.24f, 0.76f);
-    p.rampB = randomRange(seed, 0.24f, 0.76f);
+    p.gustDepth = randomRange(seed, 0.04f, 0.48f);
+    p.turbulence = randomRange(seed, 0.02f, 0.42f);
+    p.flutter = randomRange(seed, 0.03f, 0.58f);
+    p.material = randomRange(seed, 0.03f, 0.56f);
+    p.air = randomRange(seed, 0.18f, 0.54f);
+    p.hiss = randomRange(seed, 0.14f, 0.50f);
+    p.sweep = randomRange(seed, 0.24f, 0.76f);
+    p.body = randomRange(seed, 0.24f, 0.76f);
     p.inputA = randomUnit(seed) < 0.22f ? 1u : 0u;
     p.inputB = randomUnit(seed) < 0.18f ? 1u : 0u;
     p.spread = randomRange(seed, 0.06f, 0.42f);
     p.deviation = randomRange(seed, 0.025f, 0.22f);
-    p.rungSize = 2u + randomChoice(seed, 7u);
-    p.rateModeA = randomUnit(seed) < 0.18f ? 0u : (randomUnit(seed) < 0.26f ? 2u : 1u);
-    p.rateModeB = randomUnit(seed) < 0.22f ? 0u : (randomUnit(seed) < 0.32f ? 2u : 1u);
+    p.gustShape = randomChoice(seed, 6u);
+    p.rateMode = randomUnit(seed) < 0.18f ? 0u : (randomUnit(seed) < 0.26f ? 2u : 1u);
+    p.materialMode = randomUnit(seed) < 0.22f ? 0u : (randomUnit(seed) < 0.32f ? 2u : 1u);
     p.rungLoop = randomUnit(seed) < 0.72f ? 0u : (randomUnit(seed) < 0.62f ? 1u : 2u);
-    p.threshold = randomRange(seed, 0.20f, 0.82f);
-    p.color = randomRange(seed, 0.16f, 0.78f);
-    p.filter = randomRange(seed, 0.22f, 0.72f);
-    p.resonance = randomRange(seed, 0.12f, 0.58f);
-    p.filterRun = randomRange(seed, 0.06f, 0.62f);
-    p.filterSweep = randomRange(seed, 0.04f, 0.62f);
-    p.saturation = randomRange(seed, 0.16f, 0.58f);
-    p.snap = randomRange(seed, 0.04f, 0.46f);
-    p.snapDecay = randomRange(seed, 0.08f, 0.54f);
-    p.field = randomRange(seed, 0.36f, 0.92f);
-    p.maskMode = randomChoice(seed, 6u);
-    if (p.maskMode == 0u && randomUnit(seed) < 0.70f) p.maskMode = 2u + randomChoice(seed, 4u);
-    p.maskDepth = randomRange(seed, 0.34f, 0.84f);
-    p.maskRateHz = randomRange(seed, 0.012f, 0.18f);
-    p.topologyShape = randomChoice(seed, s3g::kTopologyShapeCount);
-    p.topologyMotion = randomChoice(seed, s3g::kTopologyMotionModeCount);
-    p.topologyRateHz = randomRange(seed, 0.010f, 0.12f);
-    p.topologyAmount = randomRange(seed, 0.32f, 0.86f);
-    p.topologyDepth = randomRange(seed, 0.28f, 0.82f);
-    p.topologyScale = randomRange(seed, 0.74f, 1.42f);
-    p.topologyCollapse = randomRange(seed, 0.0f, 0.18f);
+    p.center = randomRange(seed, 0.20f, 0.82f);
+    p.sweep = randomRange(seed, 0.16f, 0.78f);
+    p.q = randomRange(seed, 0.14f, 0.54f);
+    p.shrill = randomRange(seed, 0.06f, 0.42f);
+    p.body = randomRange(seed, 0.12f, 0.56f);
+    p.breath = randomRange(seed, 0.08f, 0.54f);
+    p.grit = randomRange(seed, 0.02f, 0.26f);
+    p.breath = randomRange(seed, 0.08f, 0.54f);
+    p.field = randomRange(seed, 0.16f, 0.58f);
+    p.maskMode = 0u;
+    p.maskDepth = 0.0f;
+    p.maskRateHz = 0.0f;
+    p.topologyShape = 0u;
+    p.topologyMotion = 0u;
+    p.topologyRateHz = randomRange(seed, 0.006f, 0.090f);
+    p.topologyAmount = randomRange(seed, 0.10f, 0.48f);
+    p.topologyDepth = randomRange(seed, 0.08f, 0.42f);
+    p.topologyScale = randomRange(seed, 0.12f, 0.62f);
+    p.topologyCollapse = randomRange(seed, 0.0f, 0.20f);
     p.centerAzimuthDeg = randomRange(seed, -35.0f, 35.0f);
     p.centerElevationDeg = randomRange(seed, -18.0f, 24.0f);
     p.centerDistance = randomRange(seed, 0.88f, 1.30f);
     p.spatialFollow = randomRange(seed, 0.82f, 0.98f);
-    p.outputGainDb = -6.0f;
+    p.outputGainDb = -12.0f;
 
     seedBreakpointsFromMacros(p);
     p.voiceBreakpointsEnabled = true;
-    const uint32_t voices = std::clamp<uint32_t>(p.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(p.voices, 1u, s3g::kAmbiWindMaxVoices);
     for (uint32_t row = 0u; row < 13u; ++row) {
         auto& values = breakpointArray(p, row);
         const float depth = row == 12u ? randomRange(seed, 0.12f, 0.34f) : randomRange(seed, 0.04f, 0.24f);
         const float phase = randomUnit(seed);
         const float cycles = 1.0f + static_cast<float>(randomChoice(seed, 5u));
-        for (uint32_t voice = 0u; voice < s3g::kAmbiWranglerMaxVoices; ++voice) {
+        for (uint32_t voice = 0u; voice < s3g::kAmbiWindMaxVoices; ++voice) {
             const float lane = static_cast<float>(voice % voices) / static_cast<float>(std::max<uint32_t>(1u, voices - 1u));
             const float wave = std::sin((lane * cycles + phase) * s3g::kPi * 2.0f);
             const float speck = randomRange(seed, -0.035f, 0.035f);
@@ -398,38 +396,38 @@ void randomizeSafe(Plugin& plugin)
     plugin.params = plugin.engine.params();
 }
 
-bool assignParam(s3g::AmbiWranglerParams& params, clap_id id, double value)
+bool assignParam(s3g::AmbiWindParams& params, clap_id id, double value)
 {
     switch (id) {
     case kOrderParamId: params.order = static_cast<uint32_t>(std::lround(value)); return true;
     case kVoicesParamId: params.voices = static_cast<uint32_t>(std::lround(value)); return true;
-    case kRateAParamId: params.rateA = static_cast<float>(value); return true;
-    case kRateBParamId: params.rateB = static_cast<float>(value); return true;
-    case kFmAtoBParamId: params.fmAtoB = static_cast<float>(value); return true;
-    case kFmBtoAParamId: params.fmBtoA = static_cast<float>(value); return true;
-    case kRunglerAParamId: params.runglerA = static_cast<float>(value); return true;
-    case kRunglerBParamId: params.runglerB = static_cast<float>(value); return true;
-    case kPwmAParamId: params.pwmA = static_cast<float>(value); return true;
-    case kPwmBParamId: params.pwmB = static_cast<float>(value); return true;
-    case kRampAParamId: params.rampA = static_cast<float>(value); return true;
-    case kRampBParamId: params.rampB = static_cast<float>(value); return true;
+    case kRateAParamId: params.wind = static_cast<float>(value); return true;
+    case kRateBParamId: params.gustRate = static_cast<float>(value); return true;
+    case kFmAtoBParamId: params.gustDepth = static_cast<float>(value); return true;
+    case kFmBtoAParamId: params.turbulence = static_cast<float>(value); return true;
+    case kRunglerAParamId: params.flutter = static_cast<float>(value); return true;
+    case kRunglerBParamId: params.material = static_cast<float>(value); return true;
+    case kPwmAParamId: params.air = static_cast<float>(value); return true;
+    case kPwmBParamId: params.hiss = static_cast<float>(value); return true;
+    case kRampAParamId: params.sweep = static_cast<float>(value); return true;
+    case kRampBParamId: params.body = static_cast<float>(value); return true;
     case kInputAParamId: params.inputA = static_cast<uint32_t>(std::lround(value)); return true;
     case kInputBParamId: params.inputB = static_cast<uint32_t>(std::lround(value)); return true;
     case kSpreadParamId: params.spread = static_cast<float>(value); return true;
     case kDeviationParamId: params.deviation = static_cast<float>(value); return true;
-    case kRungSizeParamId: params.rungSize = static_cast<uint32_t>(std::lround(value)); return true;
-    case kRateModeAParamId: params.rateModeA = static_cast<uint32_t>(std::lround(value)); return true;
-    case kRateModeBParamId: params.rateModeB = static_cast<uint32_t>(std::lround(value)); return true;
+    case kRungSizeParamId: params.gustShape = static_cast<uint32_t>(std::lround(value)); return true;
+    case kRateModeAParamId: params.rateMode = static_cast<uint32_t>(std::lround(value)); return true;
+    case kRateModeBParamId: params.materialMode = static_cast<uint32_t>(std::lround(value)); return true;
     case kRungLoopParamId: params.rungLoop = static_cast<uint32_t>(std::lround(value)); return true;
-    case kThresholdParamId: params.threshold = static_cast<float>(value); return true;
-    case kColorParamId: params.color = static_cast<float>(value); return true;
-    case kFilterParamId: params.filter = static_cast<float>(value); return true;
-    case kResonanceParamId: params.resonance = static_cast<float>(value); return true;
-    case kFilterRunParamId: params.filterRun = static_cast<float>(value); return true;
-    case kFilterSweepParamId: params.filterSweep = static_cast<float>(value); return true;
-    case kSaturationParamId: params.saturation = static_cast<float>(value); return true;
-    case kSnapParamId: params.snap = static_cast<float>(value); return true;
-    case kSnapDecayParamId: params.snapDecay = static_cast<float>(value); return true;
+    case kThresholdParamId: params.center = static_cast<float>(value); return true;
+    case kColorParamId: params.sweep = static_cast<float>(value); return true;
+    case kFilterParamId: params.q = static_cast<float>(value); return true;
+    case kResonanceParamId: params.shrill = static_cast<float>(value); return true;
+    case kFilterRunParamId: params.body = static_cast<float>(value); return true;
+    case kFilterSweepParamId: params.breath = static_cast<float>(value); return true;
+    case kSaturationParamId: params.grit = static_cast<float>(value); return true;
+    case kSnapParamId: params.grit = static_cast<float>(value); return true;
+    case kSnapDecayParamId: params.breath = static_cast<float>(value); return true;
     case kFieldParamId: params.field = static_cast<float>(value); return true;
     case kMaskModeParamId: params.maskMode = static_cast<uint32_t>(std::lround(value)); return true;
     case kMaskDepthParamId: params.maskDepth = static_cast<float>(value); return true;
@@ -453,9 +451,9 @@ bool assignParam(s3g::AmbiWranglerParams& params, clap_id id, double value)
 void applyParam(Plugin& p, clap_id id, double value)
 {
     if (id == kPresetParamId) {
-        p.presetIndex = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, s3g::kAmbiWranglerFactoryPresetCount - 1u);
+        p.presetIndex = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, s3g::kAmbiWindFactoryPresetCount - 1u);
         p.customPresetName[0] = '\0';
-        p.params = s3g::ambiWranglerFactoryPreset(p.presetIndex);
+        p.params = s3g::ambiWindFactoryPreset(p.presetIndex);
         p.engine.setParams(p.params);
         p.params = p.engine.params();
         return;
@@ -537,7 +535,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     }
     p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);
 #if defined(__APPLE__)
-    const uint32_t voices = std::min<uint32_t>(p->params.voices, s3g::kAmbiWranglerMaxVoices);
+    const uint32_t voices = std::min<uint32_t>(p->params.voices, s3g::kAmbiWindMaxVoices);
     for (uint32_t voice = 0u; voice < voices; ++voice) {
         const auto point = p->engine.voicePoint(voice);
         p->guiAzimuth[voice].store(point.azimuthDeg, std::memory_order_relaxed);
@@ -570,52 +568,47 @@ const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; bool stepped; };
 constexpr ParamDef kParams[] {
-    { kPresetParamId, "Preset", 0.0, static_cast<double>(s3g::kAmbiWranglerFactoryPresetCount - 1u), 0.0, true },
+    { kPresetParamId, "Preset", 0.0, static_cast<double>(s3g::kAmbiWindFactoryPresetCount - 1u), 0.0, true },
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
     { kVoicesParamId, "Voices", 1.0, 64.0, 16.0, true },
-    { kRateAParamId, "Rate A", 0.0, 1.0, 0.28, false },
-    { kRateBParamId, "Rate B", 0.0, 1.0, 0.34, false },
-    { kFmAtoBParamId, "FM A to B", 0.0, 1.0, 0.18, false },
-    { kFmBtoAParamId, "FM B to A", 0.0, 1.0, 0.14, false },
-    { kRunglerAParamId, "Rungler A", 0.0, 1.0, 0.25, false },
-    { kRunglerBParamId, "Rungler B", 0.0, 1.0, 0.32, false },
+    { kRateAParamId, "Wind", 0.0, 1.0, 0.55, false },
+    { kRateBParamId, "Gust Rate", 0.0, 1.0, 0.20, false },
+    { kFmAtoBParamId, "Gust Depth", 0.0, 1.0, 0.48, false },
+    { kFmBtoAParamId, "Turbulence", 0.0, 1.0, 0.36, false },
+    { kRunglerAParamId, "Flutter", 0.0, 1.0, 0.28, false },
+    { kRunglerBParamId, "Material", 0.0, 1.0, 0.34, false },
     { kSpreadParamId, "Spread", 0.0, 1.0, 0.26, false },
     { kDeviationParamId, "Deviation", 0.0, 1.0, 0.12, false },
-    { kRungSizeParamId, "Rung Size", 2.0, 8.0, 4.0, true },
-    { kRateModeAParamId, "Rate A Range", 0.0, 2.0, 1.0, true },
-    { kRateModeBParamId, "Rate B Range", 0.0, 2.0, 1.0, true },
-    { kRungLoopParamId, "Rung Loop", 0.0, 2.0, 0.0, true },
-    { kThresholdParamId, "Threshold", 0.0, 1.0, 0.50, false },
-    { kColorParamId, "Color", 0.0, 1.0, 0.42, false },
-    { kFilterParamId, "Filter", 0.0, 1.0, 0.36, false },
-    { kResonanceParamId, "Resonance", 0.0, 1.0, 0.20, false },
-    { kFilterRunParamId, "Filter Run", 0.0, 1.0, 0.28, false },
-    { kFilterSweepParamId, "Filter Sweep", 0.0, 1.0, 0.20, false },
-    { kSaturationParamId, "Saturation", 0.0, 1.0, 0.36, false },
-    { kTopologyShapeParamId, "Topology", 0.0, static_cast<double>(s3g::kTopologyShapeCount - 1u), 11.0, true },
-    { kTopologyMotionParamId, "Motion", 0.0, static_cast<double>(s3g::kTopologyMotionModeCount - 1u), 1.0, true },
-    { kTopologyRateParamId, "Motion Rate", 0.001, 2.0, 0.032, false },
-    { kTopologyAmountParamId, "Topology Amount", 0.0, 1.0, 0.80, false },
-    { kTopologyDepthParamId, "Topology Depth", 0.0, 1.0, 0.72, false },
-    { kTopologyScaleParamId, "Topology Scale", 0.20, 2.50, 1.14, false },
-    { kTopologyCollapseParamId, "Topology Collapse", 0.0, 1.0, 0.0, false },
+    { kRungSizeParamId, "Gust Shape", 0.0, 5.0, 2.0, true },
+    { kRateModeAParamId, "Gust Range", 0.0, 2.0, 1.0, true },
+    { kRateModeBParamId, "Material Type", 0.0, 4.0, 0.0, true },
+    { kRungLoopParamId, "Gust Edge", 0.0, 2.0, 0.0, true },
+    { kThresholdParamId, "Center", 0.0, 1.0, 0.38, false },
+    { kColorParamId, "Sweep", 0.0, 1.0, 0.48, false },
+    { kFilterParamId, "Q", 0.0, 1.0, 0.42, false },
+    { kResonanceParamId, "Shrill", 0.0, 1.0, 0.24, false },
+    { kFilterRunParamId, "Body", 0.0, 1.0, 0.52, false },
+    { kFilterSweepParamId, "Breath", 0.0, 1.0, 0.36, false },
+    { kSaturationParamId, "Grit", 0.0, 1.0, 0.18, false },
+    { kTopologyRateParamId, "Motion Rate", 0.001, 2.0, 0.024, false },
+    { kTopologyAmountParamId, "Drift", 0.0, 1.0, 0.24, false },
+    { kTopologyDepthParamId, "Sway", 0.0, 1.0, 0.22, false },
+    { kTopologyScaleParamId, "Swirl", 0.0, 1.0, 0.32, false },
+    { kTopologyCollapseParamId, "Lift", 0.0, 1.0, 0.05, false },
     { kAzimuthParamId, "Azimuth", -180.0, 180.0, 0.0, false },
     { kElevationParamId, "Elevation", -90.0, 90.0, 0.0, false },
     { kDistanceParamId, "Distance", 0.15, 2.0, 1.0, false },
     { kSpatialFollowParamId, "Spatial Follow", 0.0, 1.0, 0.90, false },
     { kOutputParamId, "Output", -60.0, 12.0, -6.0, false },
-    { kFieldParamId, "Voice Field", 0.0, 1.0, 0.62, false },
-    { kMaskModeParamId, "Mask Mode", 0.0, 5.0, 2.0, true },
-    { kMaskDepthParamId, "Mask Depth", 0.0, 1.0, 0.55, false },
-    { kMaskRateParamId, "Mask Rate", 0.0, 4.0, 0.070, false },
-    { kPwmAParamId, "PWM A", 0.0, 1.0, 0.50, false },
-    { kPwmBParamId, "PWM B", 0.0, 1.0, 0.50, false },
-    { kRampAParamId, "Ramp A", 0.0, 1.0, 0.50, false },
-    { kRampBParamId, "Ramp B", 0.0, 1.0, 0.50, false },
-    { kInputAParamId, "Input A", 0.0, 1.0, 0.0, true },
-    { kInputBParamId, "Input B", 0.0, 1.0, 0.0, true },
-    { kSnapParamId, "Snap", 0.0, 1.0, 0.0, false },
-    { kSnapDecayParamId, "Snap Decay", 0.0, 1.0, 0.34, false },
+    { kFieldParamId, "Motion Spread", 0.0, 1.0, 0.30, false },
+    { kPwmAParamId, "Air", 0.0, 1.0, 0.42, false },
+    { kPwmBParamId, "Hiss", 0.0, 1.0, 0.34, false },
+    { kRampAParamId, "Sweep Trim", 0.0, 1.0, 0.48, false },
+    { kRampBParamId, "Body Trim", 0.0, 1.0, 0.52, false },
+    { kInputAParamId, "Wind Polarity", 0.0, 1.0, 0.0, true },
+    { kInputBParamId, "Air Bias", 0.0, 1.0, 0.0, true },
+    { kSnapParamId, "Grit Trim", 0.0, 1.0, 0.18, false },
+    { kSnapDecayParamId, "Breath Trim", 0.0, 1.0, 0.36, false },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
@@ -627,7 +620,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->id = def.id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0);
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, "Ambi Wrangler Encoder", sizeof(info->module));
+    std::strncpy(info->module, "Ambi Wind Encoder", sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -643,33 +636,33 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kPresetParamId: *value = p->presetIndex; return true;
     case kOrderParamId: *value = params.order; return true;
     case kVoicesParamId: *value = params.voices; return true;
-    case kRateAParamId: *value = params.rateA; return true;
-    case kRateBParamId: *value = params.rateB; return true;
-    case kFmAtoBParamId: *value = params.fmAtoB; return true;
-    case kFmBtoAParamId: *value = params.fmBtoA; return true;
-    case kRunglerAParamId: *value = params.runglerA; return true;
-    case kRunglerBParamId: *value = params.runglerB; return true;
-    case kPwmAParamId: *value = params.pwmA; return true;
-    case kPwmBParamId: *value = params.pwmB; return true;
-    case kRampAParamId: *value = params.rampA; return true;
-    case kRampBParamId: *value = params.rampB; return true;
+    case kRateAParamId: *value = params.wind; return true;
+    case kRateBParamId: *value = params.gustRate; return true;
+    case kFmAtoBParamId: *value = params.gustDepth; return true;
+    case kFmBtoAParamId: *value = params.turbulence; return true;
+    case kRunglerAParamId: *value = params.flutter; return true;
+    case kRunglerBParamId: *value = params.material; return true;
+    case kPwmAParamId: *value = params.air; return true;
+    case kPwmBParamId: *value = params.hiss; return true;
+    case kRampAParamId: *value = params.sweep; return true;
+    case kRampBParamId: *value = params.body; return true;
     case kInputAParamId: *value = params.inputA; return true;
     case kInputBParamId: *value = params.inputB; return true;
     case kSpreadParamId: *value = params.spread; return true;
     case kDeviationParamId: *value = params.deviation; return true;
-    case kRungSizeParamId: *value = params.rungSize; return true;
-    case kRateModeAParamId: *value = params.rateModeA; return true;
-    case kRateModeBParamId: *value = params.rateModeB; return true;
+    case kRungSizeParamId: *value = params.gustShape; return true;
+    case kRateModeAParamId: *value = params.rateMode; return true;
+    case kRateModeBParamId: *value = params.materialMode; return true;
     case kRungLoopParamId: *value = params.rungLoop; return true;
-    case kThresholdParamId: *value = params.threshold; return true;
-    case kColorParamId: *value = params.color; return true;
-    case kFilterParamId: *value = params.filter; return true;
-    case kResonanceParamId: *value = params.resonance; return true;
-    case kFilterRunParamId: *value = params.filterRun; return true;
-    case kFilterSweepParamId: *value = params.filterSweep; return true;
-    case kSaturationParamId: *value = params.saturation; return true;
-    case kSnapParamId: *value = params.snap; return true;
-    case kSnapDecayParamId: *value = params.snapDecay; return true;
+    case kThresholdParamId: *value = params.center; return true;
+    case kColorParamId: *value = params.sweep; return true;
+    case kFilterParamId: *value = params.q; return true;
+    case kResonanceParamId: *value = params.shrill; return true;
+    case kFilterRunParamId: *value = params.body; return true;
+    case kFilterSweepParamId: *value = params.breath; return true;
+    case kSaturationParamId: *value = params.grit; return true;
+    case kSnapParamId: *value = params.grit; return true;
+    case kSnapDecayParamId: *value = params.breath; return true;
     case kTopologyShapeParamId: *value = params.topologyShape; return true;
     case kTopologyMotionParamId: *value = params.topologyMotion; return true;
     case kTopologyRateParamId: *value = params.topologyRateHz; return true;
@@ -694,25 +687,24 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
 {
     if (!display || size == 0u) return false;
     if (id == kPresetParamId) {
-        std::snprintf(display, size, "%s", s3g::ambiWranglerFactoryPresetInfo(static_cast<uint32_t>(std::lround(value))).name);
+        std::snprintf(display, size, "%s", s3g::ambiWindFactoryPresetInfo(static_cast<uint32_t>(std::lround(value))).name);
     } else if (id == kOrderParamId) {
         std::snprintf(display, size, "%.0fOA", value);
-    } else if (id == kRateModeAParamId || id == kRateModeBParamId) {
+    } else if (id == kRateModeAParamId) {
         static constexpr const char* kRateRangeNames[] = { "LOW", "SINGLE", "DOUBLE" };
         std::snprintf(display, size, "%s", kRateRangeNames[std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)), 2u)]);
+    } else if (id == kRateModeBParamId) {
+        static constexpr const char* kMaterialNames[] = { "OPEN", "LEAF", "HOLLOW", "WIRE", "METAL" };
+        std::snprintf(display, size, "%s", kMaterialNames[std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)), 4u)]);
+    } else if (id == kRungSizeParamId) {
+        static constexpr const char* kGustShapeNames[] = { "SINE", "SWELL", "SURGE", "TRI", "BLAST", "GATE" };
+        std::snprintf(display, size, "%s", kGustShapeNames[std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)), 5u)]);
     } else if (id == kRungLoopParamId) {
-        static constexpr const char* kLoopNames[] = { "OFF", "LOOP", "XOR" };
-        std::snprintf(display, size, "%s", kLoopNames[std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)), 2u)]);
+        static constexpr const char* kEdgeNames[] = { "SOFT", "BEND", "HARD" };
+        std::snprintf(display, size, "%s", kEdgeNames[std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)), 2u)]);
     } else if (id == kInputAParamId || id == kInputBParamId) {
-        std::snprintf(display, size, "%s", value < 0.5 ? "SQUARE" : "TRI");
-    } else if (id == kMaskModeParamId) {
-        static constexpr const char* kMaskNames[] = { "ALL", "BREATH", "CHOIR", "CELLS", "SPARK", "WEAVE" };
-        std::snprintf(display, size, "%s", kMaskNames[std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)), 5u)]);
-    } else if (id == kTopologyShapeParamId) {
-        std::snprintf(display, size, "%s", s3g::topologyShapeName(static_cast<uint32_t>(std::lround(value))));
-    } else if (id == kTopologyMotionParamId) {
-        std::snprintf(display, size, "%s", s3g::topologyMotionModeName(static_cast<uint32_t>(std::lround(value))));
-    } else if (id == kTopologyRateParamId || id == kMaskRateParamId) {
+        std::snprintf(display, size, "%s", value < 0.5 ? "NORMAL" : "ALT");
+    } else if (id == kTopologyRateParamId) {
         std::snprintf(display, size, "%.3f Hz", value);
     } else if (id == kAzimuthParamId || id == kElevationParamId) {
         std::snprintf(display, size, "%+.1f deg", value);
@@ -726,7 +718,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         || id == kThresholdParamId || id == kColorParamId || id == kFilterParamId || id == kResonanceParamId
         || id == kFilterRunParamId || id == kFilterSweepParamId || id == kSaturationParamId
         || id == kSnapParamId || id == kSnapDecayParamId
-        || id == kFieldParamId || id == kMaskDepthParamId
+        || id == kFieldParamId
         || id == kTopologyAmountParamId || id == kTopologyDepthParamId || id == kTopologyCollapseParamId
         || id == kSpatialFollowParamId) {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
@@ -741,26 +733,8 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     if (!display || !value) return false;
 
     if (id == kPresetParamId) {
-        for (uint32_t index = 0u; index < s3g::kAmbiWranglerFactoryPresetCount; ++index) {
-            if (std::strcmp(display, s3g::ambiWranglerFactoryPresetInfo(index).name) == 0) {
-                *value = static_cast<double>(index);
-                return true;
-            }
-        }
-        return false;
-    }
-    if (id == kTopologyShapeParamId) {
-        for (uint32_t index = 0u; index < s3g::kTopologyShapeCount; ++index) {
-            if (std::strcmp(display, s3g::topologyShapeName(index)) == 0) {
-                *value = static_cast<double>(index);
-                return true;
-            }
-        }
-        return false;
-    }
-    if (id == kTopologyMotionParamId) {
-        for (uint32_t index = 0u; index < s3g::kTopologyMotionModeCount; ++index) {
-            if (std::strcmp(display, s3g::topologyMotionModeName(index)) == 0) {
+        for (uint32_t index = 0u; index < s3g::kAmbiWindFactoryPresetCount; ++index) {
+            if (std::strcmp(display, s3g::ambiWindFactoryPresetInfo(index).name) == 0) {
                 *value = static_cast<double>(index);
                 return true;
             }
@@ -768,11 +742,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         return false;
     }
     if (id == kInputAParamId || id == kInputBParamId) {
-        if (std::strcmp(display, "SQUARE") == 0) {
+        if (std::strcmp(display, "NORMAL") == 0) {
             *value = 0.0;
             return true;
         }
-        if (std::strcmp(display, "TRI") == 0) {
+        if (std::strcmp(display, "ALT") == 0) {
             *value = 1.0;
             return true;
         }
@@ -814,7 +788,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         || id == kThresholdParamId || id == kColorParamId || id == kFilterParamId || id == kResonanceParamId
         || id == kFilterRunParamId || id == kFilterSweepParamId || id == kSaturationParamId
         || id == kSnapParamId || id == kSnapDecayParamId
-        || id == kFieldParamId || id == kMaskDepthParamId
+        || id == kFieldParamId
         || id == kTopologyAmountParamId || id == kTopologyDepthParamId || id == kTopologyCollapseParamId
         || id == kSpatialFollowParamId) {
         *value *= 0.01;
@@ -852,25 +826,25 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.presetIndex = oldState.presetIndex;
         state.customPresetName[0] = '\0';
     } else if (version == 6u) {
-        constexpr size_t kLegacyParamsV6Size = sizeof(s3g::AmbiWranglerParams) - sizeof(float) * 2u - sizeof(uint32_t);
+        constexpr size_t kLegacyParamsV6Size = sizeof(s3g::AmbiWindParams) - sizeof(float) * 2u - sizeof(uint32_t);
         if (!readExact(stream, &state.params, kLegacyParamsV6Size)) return false;
-        state.params.snap = 0.0f;
-        state.params.snapDecay = 0.34f;
+        state.params.grit = 0.0f;
+        state.params.breath = 0.34f;
         state.params.rungLoop = 0u;
-        state.params.rateModeA = std::min<uint32_t>(2u, state.params.rateModeA + 1u);
-        state.params.rateModeB = std::min<uint32_t>(2u, state.params.rateModeB + 1u);
+        state.params.rateMode = std::min<uint32_t>(2u, state.params.rateMode + 1u);
+        state.params.materialMode = std::min<uint32_t>(2u, state.params.materialMode + 1u);
         if (!readExact(stream, &state.presetIndex, sizeof(state.presetIndex))) return false;
         if (!readExact(stream, state.customPresetName, sizeof(state.customPresetName))) return false;
     } else if (version == 7u) {
-        constexpr size_t kStateV7ParamsSize = sizeof(s3g::AmbiWranglerParams) - sizeof(uint32_t);
+        constexpr size_t kStateV7ParamsSize = sizeof(s3g::AmbiWindParams) - sizeof(uint32_t);
         if (!readExact(stream, &state.params, kStateV7ParamsSize)) return false;
         state.params.rungLoop = 0u;
         if (!readExact(stream, &state.presetIndex, sizeof(state.presetIndex))) return false;
         if (!readExact(stream, state.customPresetName, sizeof(state.customPresetName))) return false;
-        state.params.rateModeA = std::min<uint32_t>(2u, state.params.rateModeA + 1u);
-        state.params.rateModeB = std::min<uint32_t>(2u, state.params.rateModeB + 1u);
+        state.params.rateMode = std::min<uint32_t>(2u, state.params.rateMode + 1u);
+        state.params.materialMode = std::min<uint32_t>(2u, state.params.materialMode + 1u);
     } else if (version == 8u) {
-        constexpr size_t kStateV8ParamsSize = sizeof(s3g::AmbiWranglerParams) - sizeof(uint32_t);
+        constexpr size_t kStateV8ParamsSize = sizeof(s3g::AmbiWindParams) - sizeof(uint32_t);
         if (!readExact(stream, &state.params, kStateV8ParamsSize)) return false;
         state.params.rungLoop = 0u;
         if (!readExact(stream, &state.presetIndex, sizeof(state.presetIndex))) return false;
@@ -882,7 +856,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     auto* p = self(plugin);
     p->params = state.params;
-    p->presetIndex = std::min<uint32_t>(state.presetIndex, s3g::kAmbiWranglerFactoryPresetCount - 1u);
+    p->presetIndex = std::min<uint32_t>(state.presetIndex, s3g::kAmbiWindFactoryPresetCount - 1u);
     std::snprintf(p->customPresetName, sizeof(p->customPresetName), "%s", state.customPresetName);
     p->engine.setParams(p->params);
     p->params = p->engine.params();
@@ -917,7 +891,7 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kFmBtoAParamId, 630, 360, 0.0, 1.0, false },
     { kRunglerAParamId, 630, 386, 0.0, 1.0, false },
     { kRunglerBParamId, 630, 412, 0.0, 1.0, false },
-    { kRungSizeParamId, 630, 438, 2.0, 8.0, false },
+    { kRungSizeParamId, 630, 438, 0.0, 5.0, false },
     { kThresholdParamId, 630, 464, 0.0, 1.0, false },
     { kColorParamId, 630, 538, 0.0, 1.0, false },
     { kFilterParamId, 630, 564, 0.0, 1.0, false },
@@ -927,23 +901,21 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kSaturationParamId, 630, 668, 0.0, 1.0, false },
     { kPwmAParamId, 630, 748, 0.0, 1.0, false },
     { kPwmBParamId, 630, 774, 0.0, 1.0, false },
-    { kTopologyRateParamId, 896, 156, 0.001, 2.0, true },
-    { kTopologyAmountParamId, 896, 182, 0.0, 1.0, false },
-    { kTopologyDepthParamId, 896, 208, 0.0, 1.0, false },
-    { kTopologyScaleParamId, 896, 234, 0.20, 2.50, false },
-    { kTopologyCollapseParamId, 896, 260, 0.0, 1.0, false },
+    { kTopologyRateParamId, 896, 104, 0.001, 2.0, true },
+    { kTopologyAmountParamId, 896, 130, 0.0, 1.0, false },
+    { kTopologyDepthParamId, 896, 156, 0.0, 1.0, false },
+    { kTopologyScaleParamId, 896, 182, 0.0, 1.0, false },
+    { kTopologyCollapseParamId, 896, 208, 0.0, 1.0, false },
+    { kFieldParamId, 896, 234, 0.0, 1.0, false },
+    { kSpatialFollowParamId, 896, 260, 0.0, 1.0, false },
     { kAzimuthParamId, 896, 334, -180.0, 180.0, false },
     { kElevationParamId, 896, 360, -90.0, 90.0, false },
     { kDistanceParamId, 896, 386, 0.15, 2.0, false },
-    { kSpatialFollowParamId, 896, 412, 0.0, 1.0, false },
-    { kFieldParamId, 896, 534, 0.0, 1.0, false },
-    { kMaskDepthParamId, 896, 560, 0.0, 1.0, false },
-    { kMaskRateParamId, 896, 586, 0.001, 4.0, true },
-    { kRampAParamId, 896, 720, 0.0, 1.0, false },
-    { kRampBParamId, 896, 746, 0.0, 1.0, false },
-    { kSnapParamId, 896, 772, 0.0, 1.0, false },
-    { kSnapDecayParamId, 896, 798, 0.0, 1.0, false },
-    { kOutputParamId, 896, 824, -60.0, 12.0, false },
+    { kRampAParamId, 896, 534, 0.0, 1.0, false },
+    { kRampBParamId, 896, 560, 0.0, 1.0, false },
+    { kSnapParamId, 896, 586, 0.0, 1.0, false },
+    { kSnapDecayParamId, 896, 612, 0.0, 1.0, false },
+    { kOutputParamId, 896, 668, -60.0, 12.0, false },
 };
 
 const GuiSliderSpec* guiSliderSpec(clap_id id)
@@ -973,19 +945,18 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 double rateModeScaleForDisplay(uint32_t mode)
 {
     switch (mode) {
-    case 0u: return 0.01;
-    case 2u: return 2.0;
+    case 0u: return 0.25;
+    case 2u: return 4.0;
     default: return 1.0;
     }
 }
 
 double rateNormToHzForDisplay(double value, uint32_t mode)
 {
-    return 440.0 * std::pow(2.0, (std::clamp(value, 0.0, 1.0) * 172.0 - 109.0) / 12.0)
-        * rateModeScaleForDisplay(mode);
+    return 0.006 * std::pow(1.8 / 0.006, std::clamp(value, 0.0, 1.0)) * rateModeScaleForDisplay(mode);
 }
 
-@interface S3GAmbiWranglerEncoderView : NSView {
+@interface S3GAmbiWindEncoderView : NSView {
     Plugin* _plugin;
     NSTimer* _timer;
     uint32_t _selectedVoice;
@@ -1008,7 +979,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 - (void)stopRefreshTimer;
 @end
 
-@implementation S3GAmbiWranglerEncoderView
+@implementation S3GAmbiWindEncoderView
 - (instancetype)initWithPlugin:(Plugin*)plugin
 {
     self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
@@ -1101,7 +1072,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 
 - (s3g::Vec3)voiceWorld:(uint32_t)voice
 {
-    if (!_plugin || voice >= s3g::kAmbiWranglerMaxVoices) return { 0.0f, 0.0f, 0.0f };
+    if (!_plugin || voice >= s3g::kAmbiWindMaxVoices) return { 0.0f, 0.0f, 0.0f };
     const float az = _plugin->guiAzimuth[voice].load(std::memory_order_relaxed);
     const float el = _plugin->guiElevation[voice].load(std::memory_order_relaxed);
     const float dist = _plugin->guiDistance[voice].load(std::memory_order_relaxed);
@@ -1153,7 +1124,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 
 - (NSString*)customPresetDirectory
 {
-    return [NSHomeDirectory() stringByAppendingPathComponent:@"Music/s3g/Presets/Ambi Wrangler Encoder"];
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Music/s3g/Presets/Ambi Wind Encoder"];
 }
 
 - (void)saveCustomPreset
@@ -1163,8 +1134,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
     NSSavePanel* panel = [NSSavePanel savePanel];
     [panel setDirectoryURL:[NSURL fileURLWithPath:directory isDirectory:YES]];
-    [panel setAllowedFileTypes:@[ @"s3gawp" ]];
-    [panel setNameFieldStringValue:[NSString stringWithFormat:@"%@.s3gawp", [self presetDisplayName]]];
+    [panel setAllowedFileTypes:@[ @"s3gwind" ]];
+    [panel setNameFieldStringValue:[NSString stringWithFormat:@"%@.s3gwind", [self presetDisplayName]]];
     if ([panel runModal] != NSModalResponseOK) return;
     NSString* name = [[[[panel URL] lastPathComponent] stringByDeletingPathExtension] copy];
     if (saveCustomPresetFile([[[panel URL] path] UTF8String], *_plugin, [name UTF8String])) {
@@ -1181,7 +1152,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
     NSOpenPanel* panel = [NSOpenPanel openPanel];
     [panel setDirectoryURL:[NSURL fileURLWithPath:directory isDirectory:YES]];
-    [panel setAllowedFileTypes:@[ @"s3gawp" ]];
+    [panel setAllowedFileTypes:@[ @"s3gwind" ]];
     [panel setAllowsMultipleSelection:NO];
     [panel setCanChooseDirectories:NO];
     [panel setCanChooseFiles:YES];
@@ -1214,8 +1185,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [s3g::clap_gui::color(0x555555) setStroke];
     NSFrameRect(field);
 
-    static NSString* rowLabels[] = { @"RATE A", @"RATE B", @"FM A>B", @"FM B>A", @"RUNG A", @"RUNG B", @"FILTER", @"THRESH", @"PWM A", @"PWM B", @"RAMP A", @"RAMP B", @"AMP" };
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+    static NSString* rowLabels[] = { @"WIND", @"G RATE", @"G DEP", @"TURB", @"FLUTTER", @"MAT", @"CENTER", @"Q", @"AIR", @"HISS", @"SWEEP", @"BODY", @"AMP" };
+    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWindMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
     const CGFloat labelW = 54.0;
     const CGFloat left = field.origin.x + labelW + 10.0;
@@ -1296,9 +1267,9 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMinX(field) + 18, NSMidY(field)) toPoint:NSMakePoint(NSMaxX(field) - 18, NSMidY(field))];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(field), NSMinY(field) + 18) toPoint:NSMakePoint(NSMidX(field), NSMaxY(field) - 18)];
 
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWindMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
-    std::array<NSPoint, s3g::kAmbiWranglerMaxVoices> projected {};
+    std::array<NSPoint, s3g::kAmbiWindMaxVoices> projected {};
     for (uint32_t voice = 0; voice < voices; ++voice) projected[voice] = [self projectVoice:voice depth:nullptr];
     [s3g::clap_gui::color(0x5c5c5c, 0.18) setStroke];
     for (uint32_t voice = 0; voice < voices; ++voice) {
@@ -1342,7 +1313,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     const float mask = _plugin->guiMask[_selectedVoice].load(std::memory_order_relaxed);
     NSString* readout = [NSString stringWithFormat:@"V%02u  AZ%+.1f  EL%+.1f  D%.2f  M%.2f  E%.3f", _selectedVoice + 1u, az, el, dist, mask, energy];
     s3g::clap_gui::drawRightStatus(readout, NSMaxX(field), field.origin.y + 7, valueAttrs, 8.0);
-    [@"RUNG REGISTER FIELD     CHAOTIC DUAL OSCILLATOR VOICES     ACN/SN3D" drawAtPoint:NSMakePoint(field.origin.x + 9, NSMaxY(field) - 19) withAttributes:valueAttrs];
+    [@"WIND FIELD     PAIA-STYLE RANDOM VOLTAGE FILTERED NOISE     ACN/SN3D" drawAtPoint:NSMakePoint(field.origin.x + 9, NSMaxY(field) - 19) withAttributes:valueAttrs];
 }
 
 - (void)drawSlider:(NSString*)name param:(clap_id)param value:(double)value attrs:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
@@ -1350,12 +1321,10 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     const auto* spec = guiSliderSpec(param);
     if (!spec) return;
     char display[64] {};
-    if (param == kRateAParamId || param == kRateBParamId) {
-        const uint32_t mode = param == kRateAParamId ? _plugin->params.rateModeA : _plugin->params.rateModeB;
-        const double hz = rateNormToHzForDisplay(value, mode);
+    if (param == kRateBParamId) {
+        const double hz = rateNormToHzForDisplay(value, _plugin->params.rateMode);
         if (hz < 1.0) std::snprintf(display, sizeof(display), "%.4f Hz", hz);
-        else if (hz < 100.0) std::snprintf(display, sizeof(display), "%.2f Hz", hz);
-        else std::snprintf(display, sizeof(display), "%.0f Hz", hz);
+        else std::snprintf(display, sizeof(display), "%.2f Hz", hz);
     } else {
         paramsValueToText(nullptr, param, value, display, sizeof(display));
     }
@@ -1371,82 +1340,73 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 - (NSString*)presetDisplayName
 {
     if (_plugin->customPresetName[0]) return [NSString stringWithFormat:@"CUSTOM: %s", _plugin->customPresetName];
-    return [NSString stringWithUTF8String:s3g::ambiWranglerFactoryPresetInfo(_plugin->presetIndex).name];
+    return [NSString stringWithUTF8String:s3g::ambiWindFactoryPresetInfo(_plugin->presetIndex).name];
 }
 
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const auto p = _plugin->params;
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 228, style);
-    s3g::clap_gui::drawPanelHeader(@"OSCILLATORS", true, 630, 42, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelHeader(@"SOURCE / GUST", true, 630, 42, 250, 21, attrs, style);
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] panelX:630 y:78 attrs:attrs valueAttrs:valueAttrs style:style];
     static constexpr const char* kRateRangeNames[] = { "LOW", "SINGLE", "DOUBLE" };
-    [self drawMenu:@"RNG A" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeA, 2u)]] panelX:630 y:104 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"RNG B" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeB, 2u)]] panelX:630 y:130 attrs:attrs valueAttrs:valueAttrs style:style];
+    static constexpr const char* kMaterialNames[] = { "OPEN", "LEAF", "HOLLOW", "WIRE", "METAL" };
+    [self drawMenu:@"RANGE" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateMode, 2u)]] panelX:630 y:104 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"MAT" value:[NSString stringWithUTF8String:kMaterialNames[std::min<uint32_t>(p.materialMode, 4u)]] panelX:630 y:130 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RATE A" param:kRateAParamId value:p.rateA attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RATE B" param:kRateBParamId value:p.rateB attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"WIND" param:kRateAParamId value:p.wind attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"G RATE" param:kRateBParamId value:p.gustRate attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SPREAD" param:kSpreadParamId value:p.spread attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DEV" param:kDeviationParamId value:p.deviation attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(630, 282, 250, 218, style);
-    s3g::clap_gui::drawPanelHeader(@"CROSS / RUNGLER", true, 630, 282, 250, 21, attrs, style);
-    static constexpr const char* kLoopNames[] = { "OFF", "LOOP", "XOR" };
-    [self drawMenu:@"LOOP" value:[NSString stringWithUTF8String:kLoopNames[std::min<uint32_t>(p.rungLoop, 2u)]] panelX:630 y:308 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FM A>B" param:kFmAtoBParamId value:p.fmAtoB attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FM B>A" param:kFmBtoAParamId value:p.fmBtoA attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RUNG A" param:kRunglerAParamId value:p.runglerA attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RUNG B" param:kRunglerBParamId value:p.runglerB attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"SIZE" param:kRungSizeParamId value:p.rungSize attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"THRESH" param:kThresholdParamId value:p.threshold attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelHeader(@"GUST / MATERIAL", true, 630, 282, 250, 21, attrs, style);
+    static constexpr const char* kEdgeNames[] = { "SOFT", "BEND", "HARD" };
+    [self drawMenu:@"EDGE" value:[NSString stringWithUTF8String:kEdgeNames[std::min<uint32_t>(p.rungLoop, 2u)]] panelX:630 y:308 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"G DEP" param:kFmAtoBParamId value:p.gustDepth attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"TURB" param:kFmBtoAParamId value:p.turbulence attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"FLUT" param:kRunglerAParamId value:p.flutter attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"MAT" param:kRunglerBParamId value:p.material attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SHAPE" param:kRungSizeParamId value:p.gustShape attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"CENTER" param:kThresholdParamId value:p.center attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(630, 512, 250, 186, style);
     s3g::clap_gui::drawPanelHeader(@"FILTER / OUTPUT", true, 630, 512, 250, 21, attrs, style);
-    [self drawSlider:@"COLOR" param:kColorParamId value:p.color attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FIL FRQ" param:kFilterParamId value:p.filter attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FIL RES" param:kResonanceParamId value:p.resonance attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FIL RUN" param:kFilterRunParamId value:p.filterRun attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FIL SWP" param:kFilterSweepParamId value:p.filterSweep attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"SAT" param:kSaturationParamId value:p.saturation attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SWEEP" param:kColorParamId value:p.sweep attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"Q" param:kFilterParamId value:p.q attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SHRILL" param:kResonanceParamId value:p.shrill attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"BODY" param:kFilterRunParamId value:p.body attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"BREATH" param:kFilterSweepParamId value:p.breath attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"GRIT" param:kSaturationParamId value:p.grit attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(630, 722, 250, 98, style);
-    s3g::clap_gui::drawPanelHeader(@"PULSE WIDTH", true, 630, 722, 250, 21, attrs, style);
-    [self drawSlider:@"PWM A" param:kPwmAParamId value:p.pwmA attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"PWM B" param:kPwmBParamId value:p.pwmB attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelHeader(@"AIR BAND", true, 630, 722, 250, 21, attrs, style);
+    [self drawSlider:@"AIR" param:kPwmAParamId value:p.air attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"HISS" param:kPwmBParamId value:p.hiss attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(896, 42, 246, 254, style);
-    s3g::clap_gui::drawPanelHeader(@"TOPOLOGY", true, 896, 42, 246, 21, attrs, style);
-    [self drawMenu:@"SHAPE" value:[NSString stringWithUTF8String:s3g::topologyShapeName(p.topologyShape)] panelX:896 y:78 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"MOTION" value:[NSString stringWithUTF8String:s3g::topologyMotionModeName(p.topologyMotion)] panelX:896 y:104 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelHeader(@"WIND MOTION", true, 896, 42, 246, 21, attrs, style);
     [self drawSlider:@"RATE" param:kTopologyRateParamId value:p.topologyRateHz attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"AMT" param:kTopologyAmountParamId value:p.topologyAmount attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"DEPTH" param:kTopologyDepthParamId value:p.topologyDepth attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"SCALE" param:kTopologyScaleParamId value:p.topologyScale attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"COLL" param:kTopologyCollapseParamId value:p.topologyCollapse attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"DRIFT" param:kTopologyAmountParamId value:p.topologyAmount attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SWAY" param:kTopologyDepthParamId value:p.topologyDepth attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SWIRL" param:kTopologyScaleParamId value:p.topologyScale attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"LIFT" param:kTopologyCollapseParamId value:p.topologyCollapse attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"FIELD" param:kFieldParamId value:p.field attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"FOLLOW" param:kSpatialFollowParamId value:p.spatialFollow attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(896, 308, 246, 150, style);
     s3g::clap_gui::drawPanelHeader(@"PROJECTION", true, 896, 308, 246, 21, attrs, style);
     [self drawSlider:@"AZIM" param:kAzimuthParamId value:p.centerAzimuthDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ELEV" param:kElevationParamId value:p.centerElevationDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DIST" param:kDistanceParamId value:p.centerDistance attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FOLLOW" param:kSpatialFollowParamId value:p.spatialFollow attrs:attrs valueAttrs:valueAttrs style:style];
-
-    s3g::clap_gui::drawPanelFrame(896, 472, 246, 146, style);
-    s3g::clap_gui::drawPanelHeader(@"VOICE MASK", true, 896, 472, 246, 21, attrs, style);
-    static constexpr const char* kMaskNames[] = { "ALL", "BREATH", "CHOIR", "CELLS", "SPARK", "WEAVE" };
-    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:kMaskNames[std::min<uint32_t>(p.maskMode, 5u)]] panelX:896 y:508 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FIELD" param:kFieldParamId value:p.field attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"DEPTH" param:kMaskDepthParamId value:p.maskDepth attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RATE" param:kMaskRateParamId value:p.maskRateHz attrs:attrs valueAttrs:valueAttrs style:style];
-
-    s3g::clap_gui::drawPanelFrame(896, 632, 246, 214, style);
-    s3g::clap_gui::drawPanelHeader(@"OSC SHAPE", true, 896, 632, 246, 21, attrs, style);
-    [self drawMenu:@"IN A" value:(p.inputA == 0u ? @"SQUARE" : @"TRI") panelX:896 y:668 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"IN B" value:(p.inputB == 0u ? @"SQUARE" : @"TRI") panelX:896 y:694 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RAMP A" param:kRampAParamId value:p.rampA attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RAMP B" param:kRampBParamId value:p.rampB attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"SNAP" param:kSnapParamId value:p.snap attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"DECAY" param:kSnapDecayParamId value:p.snapDecay attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(896, 472, 246, 222, style);
+    s3g::clap_gui::drawPanelHeader(@"WIND TRIMS", true, 896, 472, 246, 21, attrs, style);
+    [self drawMenu:@"POL" value:(p.inputA == 0u ? @"NORMAL" : @"ALT") panelX:896 y:508 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"BIAS" value:(p.inputB == 0u ? @"NORMAL" : @"ALT") panelX:896 y:534 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SW TRIM" param:kRampAParamId value:p.sweep attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"BD TRIM" param:kRampBParamId value:p.body attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"GR TRIM" param:kSnapParamId value:p.grit attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"BR TRIM" param:kSnapDecayParamId value:p.breath attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
 }
 
@@ -1456,11 +1416,11 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     case 1: return [self presetMenuRect];
     case 2: return NSMakeRect(738, 103, 124, 15);
     case 3: return NSMakeRect(738, 129, 124, 15);
-    case 4: return NSMakeRect(1004, 77, 124, 15);
-    case 5: return NSMakeRect(1004, 103, 124, 15);
+    case 4: return NSZeroRect;
+    case 5: return NSZeroRect;
     case 6: return NSMakeRect(1004, 507, 124, 15);
-    case 7: return NSMakeRect(1004, 667, 124, 15);
-    case 8: return NSMakeRect(1004, 693, 124, 15);
+    case 7: return NSMakeRect(1004, 507, 124, 15);
+    case 8: return NSMakeRect(1004, 533, 124, 15);
     case 9: return NSMakeRect(738, 307, 124, 15);
     case 10: return NSMakeRect(738, 77, 124, 15);
     default: return NSZeroRect;
@@ -1470,12 +1430,12 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 - (uint32_t)menuCount:(int)menu
 {
     switch (menu) {
-    case 1: return s3g::kAmbiWranglerFactoryPresetCount;
+    case 1: return s3g::kAmbiWindFactoryPresetCount;
     case 2: return 3u;
-    case 3: return 3u;
-    case 4: return s3g::kTopologyShapeCount;
-    case 5: return s3g::kTopologyMotionModeCount;
-    case 6: return 6u;
+    case 3: return 5u;
+    case 4: return 0u;
+    case 5: return 0u;
+    case 6: return 0u;
     case 7: return 2u;
     case 8: return 2u;
     case 9: return 3u;
@@ -1503,35 +1463,22 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     if (_openMenu <= 0 || _menuItemCount == 0u) return;
     static NSString* rateItems[] = { @"LOW", @"SINGLE", @"DOUBLE" };
     static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
-    static NSString* loopItems[] = { @"OFF", @"LOOP", @"XOR" };
-    static NSString* maskItems[] = { @"ALL", @"BREATH", @"CHOIR", @"CELLS", @"SPARK", @"WEAVE" };
-    static NSString* inputItems[] = { @"SQUARE", @"TRI" };
-    static NSString* presetItems[s3g::kAmbiWranglerFactoryPresetCount];
-    static NSString* shapeItems[s3g::kTopologyShapeCount];
-    static NSString* motionItems[s3g::kTopologyMotionModeCount];
+    static NSString* materialItems[] = { @"OPEN", @"LEAF", @"HOLLOW", @"WIRE", @"METAL" };
+    static NSString* edgeItems[] = { @"SOFT", @"BEND", @"HARD" };
+    static NSString* inputItems[] = { @"NORMAL", @"ALT" };
+    static NSString* presetItems[s3g::kAmbiWindFactoryPresetCount];
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        for (uint32_t i = 0; i < s3g::kAmbiWranglerFactoryPresetCount; ++i) presetItems[i] = [[NSString stringWithUTF8String:s3g::ambiWranglerFactoryPresetInfo(i).name] retain];
-        for (uint32_t i = 0; i < s3g::kTopologyShapeCount; ++i) shapeItems[i] = [[NSString stringWithUTF8String:s3g::topologyShapeName(i)] retain];
-        for (uint32_t i = 0; i < s3g::kTopologyMotionModeCount; ++i) motionItems[i] = [[NSString stringWithUTF8String:s3g::topologyMotionModeName(i)] retain];
+        for (uint32_t i = 0; i < s3g::kAmbiWindFactoryPresetCount; ++i) presetItems[i] = [[NSString stringWithUTF8String:s3g::ambiWindFactoryPresetInfo(i).name] retain];
     });
     NSString** items = presetItems;
     int selected = static_cast<int>(_plugin->presetIndex);
     if (_openMenu == 2) {
         items = rateItems;
-        selected = static_cast<int>(_plugin->params.rateModeA);
+        selected = static_cast<int>(_plugin->params.rateMode);
     } else if (_openMenu == 3) {
-        items = rateItems;
-        selected = static_cast<int>(_plugin->params.rateModeB);
-    } else if (_openMenu == 4) {
-        items = shapeItems;
-        selected = static_cast<int>(_plugin->params.topologyShape);
-    } else if (_openMenu == 5) {
-        items = motionItems;
-        selected = static_cast<int>(_plugin->params.topologyMotion);
-    } else if (_openMenu == 6) {
-        items = maskItems;
-        selected = static_cast<int>(_plugin->params.maskMode);
+        items = materialItems;
+        selected = static_cast<int>(_plugin->params.materialMode);
     } else if (_openMenu == 7) {
         items = inputItems;
         selected = static_cast<int>(_plugin->params.inputA);
@@ -1539,7 +1486,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         items = inputItems;
         selected = static_cast<int>(_plugin->params.inputB);
     } else if (_openMenu == 9) {
-        items = loopItems;
+        items = edgeItems;
         selected = static_cast<int>(_plugin->params.rungLoop);
     } else if (_openMenu == 10) {
         items = orderItems;
@@ -1558,7 +1505,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     NSDictionary* attrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
-    [@"s3g AMBI WRANGLER ENCODER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
+    [@"s3g AMBI WIND ENCODER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
     s3g::clap_gui::drawMenu(@"PRESET", [self presetDisplayName], 14, attrs, valueAttrs, style, 320, 382, 190);
     s3g::clap_gui::drawHeaderActionButton([self savePresetButtonRect], [self savePresetButtonRect], @"SAVE", attrs, style);
     s3g::clap_gui::drawHeaderActionButton([self loadPresetButtonRect], [self loadPresetButtonRect], @"LOAD", attrs, style);
@@ -1572,7 +1519,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 - (int)hitVoice:(NSPoint)point
 {
     if (!NSPointInRect(point, [self fieldRect])) return -1;
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWindMaxVoices);
     int best = -1;
     CGFloat bestDistance = 15.0;
     for (uint32_t voice = 0; voice < voices; ++voice) {
@@ -1598,7 +1545,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 {
     const NSRect field = [self fieldRect];
     if (!NSPointInRect(point, field)) return NO;
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWindMaxVoices);
     const CGFloat labelW = 54.0;
     const CGFloat left = field.origin.x + labelW + 10.0;
     const CGFloat right = NSMaxX(field) - 12.0;
@@ -1634,9 +1581,6 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
             if (_openMenu == 1) applyParam(*_plugin, kPresetParamId, hit);
             else if (_openMenu == 2) applyParam(*_plugin, kRateModeAParamId, hit);
             else if (_openMenu == 3) applyParam(*_plugin, kRateModeBParamId, hit);
-            else if (_openMenu == 4) applyParam(*_plugin, kTopologyShapeParamId, hit);
-            else if (_openMenu == 5) applyParam(*_plugin, kTopologyMotionParamId, hit);
-            else if (_openMenu == 6) applyParam(*_plugin, kMaskModeParamId, hit);
             else if (_openMenu == 7) applyParam(*_plugin, kInputAParamId, hit);
             else if (_openMenu == 8) applyParam(*_plugin, kInputBParamId, hit);
             else if (_openMenu == 9) applyParam(*_plugin, kRungLoopParamId, hit);
@@ -1659,11 +1603,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     if (NSPointInRect(point, NSMakeRect(738, 77, 124, 15))) { [self openMenu:10]; return; }
     if (NSPointInRect(point, NSMakeRect(738, 103, 124, 15))) { [self openMenu:2]; return; }
     if (NSPointInRect(point, NSMakeRect(738, 129, 124, 15))) { [self openMenu:3]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 77, 124, 15))) { [self openMenu:4]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 103, 124, 15))) { [self openMenu:5]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 507, 124, 15))) { [self openMenu:6]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 667, 124, 15))) { [self openMenu:7]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 693, 124, 15))) { [self openMenu:8]; return; }
+    if (NSPointInRect(point, NSMakeRect(1004, 507, 124, 15))) { [self openMenu:7]; return; }
+    if (NSPointInRect(point, NSMakeRect(1004, 533, 124, 15))) { [self openMenu:8]; return; }
     if (NSPointInRect(point, NSMakeRect(738, 307, 124, 15))) { [self openMenu:9]; return; }
     const NSRect panel = [self fieldPanelRect];
     if (NSPointInRect(point, panel)) {
@@ -1781,7 +1722,7 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     if (!guiIsApiSupported(plugin, api, isFloating)) return false;
     auto* p = self(plugin);
     if (p->guiView) return true;
-    p->guiView = [[S3GAmbiWranglerEncoderView alloc] initWithPlugin:p];
+    p->guiView = [[S3GAmbiWindEncoderView alloc] initWithPlugin:p];
     return p->guiView != nullptr;
 }
 
@@ -1789,7 +1730,7 @@ void guiDestroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
     if (!p->guiView) return;
-    [static_cast<S3GAmbiWranglerEncoderView*>(p->guiView) stopRefreshTimer];
+    [static_cast<S3GAmbiWindEncoderView*>(p->guiView) stopRefreshTimer];
     [static_cast<NSView*>(p->guiView) removeFromSuperview];
     [static_cast<NSView*>(p->guiView) release];
     p->guiView = nullptr;
@@ -1817,8 +1758,8 @@ bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win)
 
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GAmbiWranglerEncoderView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiWranglerEncoderView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GAmbiWindEncoderView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiWindEncoderView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 
 #endif
@@ -1839,14 +1780,14 @@ const void* getExtension(const clap_plugin_t*, const char* id)
 constexpr const char* features[] { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SYNTHESIZER, CLAP_PLUGIN_FEATURE_SURROUND, nullptr };
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
-    "org.s3g.s3g-dsp.ambi-wrangler-encoder-64",
-    "s3g Ambi Wrangler Encoder 64",
+    "org.s3g.s3g-dsp.ambi-wind-encoder-64",
+    "s3g Ambi Wind Encoder 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
     "0.1.0",
-    "Chaotic Benjolin/rungler voice cloud with direct 7OA ACN/SN3D output.",
+    "PAIA-inspired random-voltage filtered-noise wind field with direct 7OA ACN/SN3D output.",
     features
 };
 
@@ -1855,7 +1796,7 @@ const clap_plugin_t* create(const clap_host_t* host)
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
     p->host = host;
-    p->params = s3g::ambiWranglerFactoryPreset(0u);
+    p->params = s3g::ambiWindFactoryPreset(0u);
     p->engine.prepare(p->sampleRate);
     p->engine.setParams(p->params);
     p->params = p->engine.params();

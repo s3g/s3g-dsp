@@ -116,9 +116,24 @@ cmake -S . -B build-clap \
 
 ## Voicebank Builder
 
-`tools/voicebank_builder.py` creates a starter UTAU-style voicebank from one
-recorded WAV and an ordered phoneme list. It writes sliced WAVs,
-`voicebank.json`, and `oto.ini`.
+`s3g Vox Builder` is a macOS companion app for preparing Ambi Vox Encoder
+voicebanks from one continuous recording, several WAV files, or a folder of
+WAVs. It provides automatic silence-aware segmentation for a continuous source,
+one-file-per-alias folder import, draggable boundaries, per-segment WORLD pitch
+and voicing analysis, guarded level conditioning, filename/order alias guesses,
+manual segment correction, audition, timing edits, and UTAU-style export.
+
+```sh
+cmake --preset apps
+cmake --build --preset apps
+open "build-apps/apps/vox_builder/s3g Vox Builder.app"
+```
+
+The app writes sliced WAVs, `oto.ini`, `voicebank.json`, `markers.csv`, and the
+phoneme list. See [Vox Builder](docs/vox-builder.html) for the workflow.
+
+`tools/voicebank_builder.py` remains available for batch preparation and exact
+CSV marker workflows:
 
 ```sh
 python3 tools/voicebank_builder.py my-recording.wav \
@@ -127,8 +142,8 @@ python3 tools/voicebank_builder.py my-recording.wav \
   --output examples/voicebanks/my_voice
 ```
 
-The automatic slicer uses silence-separated regions when possible. For precise
-edits, pass `--markers markers.csv` with `alias,start_ms,end_ms` rows.
+Pass `--markers markers.csv` with `alias,start_ms,end_ms` rows to bypass its
+automatic slicer.
 
 ## Install Locally
 

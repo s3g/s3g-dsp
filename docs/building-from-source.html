@@ -80,9 +80,12 @@ cmake --build build-clap</code></pre>
         <pre><code>cmake --preset apps
 cmake --build --preset apps</code></pre>
 
-        <p>The standalone app target is:</p>
+        <p>The standalone app targets are:</p>
 
-        <pre><code>build-apps/apps/multi_loop_processor_standalone/s3g Multi Loop Processor.app</code></pre>
+        <pre><code>build-apps/apps/multi_loop_processor_standalone/s3g Multi Loop Processor.app
+build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
+
+        <p>Vox Builder uses the same pinned WORLD dependency as Ambi Vox Encoder. Its segmentation core can be checked independently with <code>./build-apps/s3g_vox_builder_smoke</code>.</p>
 
         <h2 id="install-local">Install Local Build</h2>
 

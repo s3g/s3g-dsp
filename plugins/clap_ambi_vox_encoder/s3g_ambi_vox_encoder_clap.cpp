@@ -1811,7 +1811,7 @@ VoxPresetSnapshot makeVoxDefaultSnapshot()
     preset.params.subharmonicAmount = 0.32f;
     preset.params.attackMs = 45.0f;
     preset.params.releaseMs = 950.0f;
-    preset.params.outputGainDb = -22.0f;
+    preset.params.outputGainDb = -6.0f;
     return preset;
 }
 
@@ -1830,7 +1830,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.motionAmount = 0.22f;
         params.motionSpread = 0.12f;
         params.motionCoherence = 0.92f;
-        params.outputGainDb = -14.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Speak;
         vox.orchestration = s3g::AmbiVoxOrchestration::Individual;
         vox.contourMode = s3g::AmbiVoxContourMode::Original;
@@ -1845,7 +1845,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.detune = 0.04f;
         params.motionSpread = 0.34f;
         params.motionCoherence = 0.88f;
-        params.outputGainDb = -24.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Sing;
         vox.orchestration = s3g::AmbiVoxOrchestration::Unison;
         vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
@@ -1864,7 +1864,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.detune = 0.08f;
         params.motionSpread = 0.58f;
         params.motionCoherence = 0.76f;
-        params.outputGainDb = -27.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Sing;
         vox.orchestration = s3g::AmbiVoxOrchestration::Chorale;
         vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
@@ -1884,7 +1884,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.detune = 0.15f;
         params.motionSpread = 0.86f;
         params.motionCoherence = 0.62f;
-        params.outputGainDb = -31.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Sing;
         vox.orchestration = s3g::AmbiVoxOrchestration::Chorus;
         vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
@@ -1903,7 +1903,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.motionSpread = 0.98f;
         params.motionCoherence = 0.38f;
         params.motionChaos = 0.28f;
-        params.outputGainDb = -29.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Sing;
         vox.orchestration = s3g::AmbiVoxOrchestration::Chorus;
         vox.contourMode = s3g::AmbiVoxContourMode::Original;
@@ -1921,7 +1921,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.motionRateHz = 0.032f;
         params.motionSpread = 0.82f;
         params.motionCoherence = 0.54f;
-        params.outputGainDb = -29.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Speak;
         vox.orchestration = s3g::AmbiVoxOrchestration::Round;
         vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
@@ -1943,7 +1943,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.motionRateHz = 0.018f;
         params.motionSpread = 0.72f;
         params.motionCoherence = 0.70f;
-        params.outputGainDb = -32.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Sing;
         vox.orchestration = s3g::AmbiVoxOrchestration::Cluster;
         vox.contourMode = s3g::AmbiVoxContourMode::Flat;
@@ -1956,7 +1956,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.voices = 12u;
         params.motionSpread = 0.88f;
         params.motionCoherence = 0.48f;
-        params.outputGainDb = -28.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Sing;
         vox.orchestration = s3g::AmbiVoxOrchestration::Chorus;
         vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
@@ -1974,7 +1974,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.pitchSpread = 0.52f;
         params.motionRateHz = 0.014f;
         params.motionSpread = 0.56f;
-        params.outputGainDb = -26.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Sing;
         vox.orchestration = s3g::AmbiVoxOrchestration::Chorale;
         vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
@@ -1991,7 +1991,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.motionSpread = 0.94f;
         params.motionCoherence = 0.28f;
         params.motionChaos = 0.34f;
-        params.outputGainDb = -31.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Texture;
         vox.orchestration = s3g::AmbiVoxOrchestration::Individual;
         vox.worldRate = 0.12f;
@@ -2011,7 +2011,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.motionSpread = 0.96f;
         params.motionCoherence = 0.44f;
         params.centerElevationDeg = 15.0f;
-        params.outputGainDb = -29.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Sing;
         vox.orchestration = s3g::AmbiVoxOrchestration::Chorus;
         vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
@@ -2029,7 +2029,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         params.motionSpread = 0.90f;
         params.motionCoherence = 0.58f;
         params.motionSmooth = 0.88f;
-        params.outputGainDb = -32.0f;
+        params.outputGainDb = -6.0f;
         vox.speechMode = VoxSpeechMode::Sing;
         vox.orchestration = s3g::AmbiVoxOrchestration::Chorale;
         vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
@@ -5821,7 +5821,7 @@ constexpr ParamDef kParams[] {
     { kDetuneParamId, "Pitch Deviation", 0.0, 1.0, 0.10, false },
     { kSpreadParamId, "Motion Spread", 0.0, 1.0, 0.65, false },
     { kMotionRateParamId, "Motion Rate", 0.001, 2.0, 0.045, false },
-    { kOutputParamId, "Output", -60.0, 12.0, -18.0, false },
+    { kOutputParamId, "Output", -60.0, 12.0, -6.0, false },
     { kMotionSceneParamId, "Motion Scene", 0.0, 4.0, 2.0, true },
     { kMotionClockParamId, "Motion Clock", 0.0, 1.0, 0.0, true },
     { kSyncDivisionParamId, "Sync Division", 0.25, 64.0, 8.0, false },
@@ -7555,7 +7555,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         _menuItemCount = 0;
         _menuOrigin = NSMakePoint(0, 0);
         _menuWidth = 124.0;
-        _leftPage = plugin ? plugin->guiPage : 0;
+        _leftPage = plugin && plugin->guiPage == 3 ? 3 : 0;
         _selectedVoice = 0;
         _selectedScoreNode = 0;
         _selectedLyricCue = plugin
@@ -7799,10 +7799,11 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 
 - (void)drawPageButtons:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
-    static NSString* labels[] = { @"FIELD", @"VECTOR", @"SCORE", @"LYRICS" };
+    static NSString* labels[] = { @"FIELD", @"LYRICS" };
+    static constexpr int pages[] = { 0, 3 };
     const NSRect header = NSMakeRect(18, 42, 596, 21);
-    for (int i = 0; i < 4; ++i) {
-        s3g::clap_gui::drawHeaderButton([self pageButtonRect:i], header, labels[i], i == _leftPage, attrs, style);
+    for (int i = 0; i < 2; ++i) {
+        s3g::clap_gui::drawHeaderButton([self pageButtonRect:i], header, labels[i], pages[i] == _leftPage, attrs, style);
     }
 }
 
@@ -8822,14 +8823,10 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     s3g::clap_gui::drawPanelFrame(left.origin.x, left.origin.y, left.size.width, left.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"VOICE SPACE", true, left.origin.x, left.origin.y, left.size.width, 21, labelAttrs, style);
     [self drawPageButtons:labelAttrs style:style];
-    [_lyricsScroll setHidden:_leftPage != 3];
+    [_lyricsScroll setHidden:_leftPage != 3 || _openMenu == 12];
     if (_leftPage == 0) {
         [self drawViewButtons:labelAttrs style:style];
         [self drawField:[self leftContentRect] attrs:valueAttrs];
-    } else if (_leftPage == 1) {
-        [self drawVectorPage:[self leftContentRect] attrs:labelAttrs valueAttrs:valueAttrs style:style];
-    } else if (_leftPage == 2) {
-        [self drawScorePage:[self leftContentRect] attrs:labelAttrs valueAttrs:valueAttrs style:style];
     } else {
         [self drawLyricsPage:[self leftContentRect] attrs:labelAttrs valueAttrs:valueAttrs style:style];
     }
@@ -9235,6 +9232,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     _hoverMenuItem = -1;
     _menuOrigin = NSMakePoint(x, y + 18.0);
     _menuWidth = width;
+    if (menu == 12 && _leftPage == 3) [_lyricsScroll setHidden:YES];
     [self setNeedsDisplay:YES];
 }
 
@@ -9271,6 +9269,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     _hoverMenuItem = -1;
     _menuItemCount = 0;
     _menuWidth = 124.0;
+    [_lyricsScroll setHidden:_leftPage != 3];
     [self setNeedsDisplay:YES];
 }
 
@@ -9391,9 +9390,10 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         [self setNeedsDisplay:YES];
         return;
     }
-    for (int i = 0; i < 4; ++i) {
+    static constexpr int pages[] = { 0, 3 };
+    for (int i = 0; i < 2; ++i) {
         if (!NSPointInRect(point, [self pageButtonRect:i])) continue;
-        _leftPage = i;
+        _leftPage = pages[i];
         [_lyricsScroll setHidden:_leftPage != 3];
         [self storeViewState];
         [self setNeedsDisplay:YES];
@@ -9428,10 +9428,6 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
                 return;
             }
         }
-    } else if (_leftPage == 1 && NSPointInRect(point, [self leftContentRect])) {
-        [self selectVectorVoiceAtPoint:point];
-        [self setNeedsDisplay:YES];
-        return;
     } else if (_leftPage == 3) {
         const auto cues = splitVoxLyricCues(loadVoxLyrics(*_plugin));
         for (uint32_t cue = 0u; cue < cues.size(); ++cue) {

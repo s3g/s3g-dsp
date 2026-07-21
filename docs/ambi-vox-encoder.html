@@ -41,13 +41,15 @@
 
         <h2 id="presets">Presets</h2>
 
-        <p>The title-bar <code>PRESET</code> menu provides thirteen starting points spanning solo speech, unison, SATB and double choirs, chorus, round, cluster, spectral color, texture, spatial orbit, and full 7OA operation. Selecting one updates the registered host parameters, phrase, and vector score with a short output transition.</p>
+        <p>The title-bar <code>PRESET</code> menu provides thirteen starting points spanning solo speech, unison, SATB and double choirs, chorus, round, cluster, spectral color, texture, spatial orbit, and full 7OA operation. Selecting one updates the registered host parameters and phrase with a short output transition. Factory presets set Output to <code>-6 dB</code>.</p>
 
-        <p><code>LOAD</code> and <code>SAVE</code> beside the preset menu read and write <code>.s3gvox</code> JSON files. A user preset stores the editable instrument parameters, lyric cue sheet, vector score, and camera view. Vocal WAV files, voicebank folders, and analyzed WORLD audio are deliberately not embedded: loading a preset keeps the currently loaded sound source in place, so one performance design can be auditioned with different voices. The normal CLAP project state also remembers the selected factory or user preset name.</p>
+        <p><code>LOAD</code> and <code>SAVE</code> beside the preset menu read and write <code>.s3gvox</code> JSON files. A user preset stores the editable instrument parameters, lyric cue sheet, and camera view. Vocal WAV files, voicebank folders, and analyzed WORLD audio are deliberately not embedded: loading a preset keeps the currently loaded sound source in place, so one performance design can be auditioned with different voices. The normal CLAP project state also remembers the selected factory or user preset name.</p>
 
         <h2 id="phrase-source">Phrase Source</h2>
 
         <p>The <code>LOAD</code> button accepts either a voicebank folder containing WAV files and <code>oto.ini</code>, or a single vocal WAV file. Every loaded voicebank alias is analyzed and resynthesized by WORLD before playback. Offline analysis uses Harvest for continuous pitch tracking, with DIO and StoneMask as fallback, plus CheapTrick spectral envelopes and D4C aperiodicity. Compact WORLD parameters are retained with the rendered audio instead of being discarded after import.</p>
+
+        <p><a href="vox-builder.html">s3g Vox Builder</a> prepares compatible voicebank folders from a continuous vocal recording. It detects the ordered aliases, shows editable segment boundaries, estimates root pitch and voicing with WORLD, auditions each slice, and exports WAV files with <code>oto.ini</code> timing.</p>
 
         <p>The first voicebank load writes a persistent cache in <code>~/Library/Caches/org.s3g.s3g-dsp/AmbiVoxWorld</code>; later loads reuse it until the source WAV changes. Older cache revisions are analyzed again once. The included synthetic test bank is in <code>examples/voicebanks/s3g-demo-synthetic</code>.</p>
 
@@ -162,6 +164,7 @@ sorrow=so ro</code></pre>
           <a href="multi-loop-processor.html">Multi Loop Processor</a>
           <a href="ambi-vot-encoder.html">VOT Encoder</a>
           <a href="ambi-vox-encoder.html">Vox Encoder</a>
+          <a href="vox-builder.html">Vox Builder</a>
           <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
           <a href="ambi-grain-processor.html">Grain Processor</a>
         </div>

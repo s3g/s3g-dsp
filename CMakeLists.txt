@@ -33,6 +33,9 @@ endif()
 add_executable(s3g_ambi_ray_encoder_smoke tests/ambi_ray_encoder_smoke.cpp)
 target_link_libraries(s3g_ambi_ray_encoder_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_vox_builder_smoke tests/vox_builder_smoke.cpp)
+target_link_libraries(s3g_vox_builder_smoke PRIVATE s3g_dsp)
+
 add_custom_target(audit_gui_style
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/audit-gui-style.sh
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -47,6 +50,18 @@ set(S3G_CLAP_GIT_REPOSITORY "https://github.com/free-audio/clap.git" CACHE STRIN
 set(S3G_CLAP_GIT_TAG "1.2.6" CACHE STRING "CLAP git tag or commit used by FetchContent")
 set(S3G_WORLD_GIT_REPOSITORY "https://github.com/mmorise/World.git" CACHE STRING "WORLD git repository used by FetchContent")
 set(S3G_WORLD_GIT_TAG "d625e7608ca23a870018f01e7c562ac683d9847f" CACHE STRING "WORLD git tag or commit used by FetchContent")
+
+if(S3G_ENABLE_WORLD AND (S3G_BUILD_CLAP_PLUGIN OR S3G_BUILD_STANDALONE_APPS))
+  set(WORLD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(WORLD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    world
+    GIT_REPOSITORY ${S3G_WORLD_GIT_REPOSITORY}
+    GIT_TAG ${S3G_WORLD_GIT_TAG}
+    GIT_SHALLOW FALSE
+  )
+  FetchContent_MakeAvailable(world)
+endif()
 
 if(S3G_BUILD_CLAP_PLUGIN)
   if(NOT S3G_CLAP_INCLUDE_DIR)
@@ -68,18 +83,6 @@ if(S3G_BUILD_CLAP_PLUGIN)
     message(FATAL_ERROR "S3G_CLAP_INCLUDE_DIR must contain clap/clap.h: ${S3G_CLAP_INCLUDE_DIR}")
   endif()
 
-  if(S3G_ENABLE_WORLD)
-    set(WORLD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(WORLD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(
-      world
-      GIT_REPOSITORY ${S3G_WORLD_GIT_REPOSITORY}
-      GIT_TAG ${S3G_WORLD_GIT_TAG}
-      GIT_SHALLOW FALSE
-    )
-    FetchContent_MakeAvailable(world)
-  endif()
-
   add_subdirectory(plugins/clap_24ch_passthrough)
   add_subdirectory(plugins/clap_delay_processor)
   add_subdirectory(plugins/clap_mc_to_stereo_autogain)
@@ -94,6 +97,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_wave_terrain_encoder)
   add_subdirectory(plugins/clap_ambi_stochastic_encoder)
   add_subdirectory(plugins/clap_ambi_wrangler_encoder)
+  add_subdirectory(plugins/clap_ambi_wind_encoder)
   add_subdirectory(plugins/clap_ambi_imprint)
   add_subdirectory(plugins/clap_ambi_ray_encoder)
   add_subdirectory(plugins/clap_ambi_path_encoder)
@@ -140,4 +144,5 @@ endif()
 
 if(S3G_BUILD_STANDALONE_APPS)
   add_subdirectory(apps/multi_loop_processor_standalone)
+  add_subdirectory(apps/vox_builder)
 endif()

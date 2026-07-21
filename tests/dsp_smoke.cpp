@@ -8,6 +8,8 @@
 #include "s3g_ambi_cloud_encoder.h"
 #include "s3g_ambi_stochastic_encoder.h"
 #include "s3g_ambi_stochastic_presets.h"
+#include "s3g_ambi_wind_encoder.h"
+#include "s3g_ambi_wind_presets.h"
 #include "s3g_ambi_vot_encoder.h"
 #include "s3g_ambi_vox_encoder.h"
 #include "s3g_ambi_path_encoder.h"
@@ -5327,6 +5329,35 @@ int main()
     const float resetFrequency = untetheredEncoder.voiceFrequency(0u);
     if (std::abs(heldFrequency - seededFrequency) > 0.001f || resetFrequency < seededFrequency * 3.8f) {
         std::cerr << "Ambi Stochastic v2 period remained tethered to BASE after initialization\n";
+        return 1;
+    }
+
+    s3g::AmbiWindEncoder windEncoder;
+    windEncoder.prepare(48000.0);
+    auto windParams = s3g::ambiWindFactoryPreset(0u);
+    windParams.order = 3u;
+    windParams.voices = 24u;
+    windEncoder.setParams(windParams);
+    constexpr uint32_t windFrames = 512u;
+    std::array<std::array<float, windFrames>, s3g::kAmbiWindMaxChannels> windBuffers {};
+    std::array<float*, s3g::kAmbiWindMaxChannels> windOutputs {};
+    for (uint32_t ch = 0u; ch < s3g::kAmbiWindMaxChannels; ++ch) windOutputs[ch] = windBuffers[ch].data();
+    windEncoder.process(windOutputs.data(), s3g::kAmbiWindMaxChannels, windFrames);
+    float windPeak = 0.0f;
+    float windMutedPeak = 0.0f;
+    const uint32_t windActiveChannels = s3g::ambiChannelsForOrder(windParams.order);
+    for (uint32_t ch = 0u; ch < s3g::kAmbiWindMaxChannels; ++ch) {
+        for (float value : windBuffers[ch]) {
+            if (!std::isfinite(value)) {
+                std::cerr << "Ambi Wind output is not finite\n";
+                return 1;
+            }
+            if (ch < windActiveChannels) windPeak = std::max(windPeak, std::abs(value));
+            else windMutedPeak = std::max(windMutedPeak, std::abs(value));
+        }
+    }
+    if (windPeak <= 0.000001f || windPeak > 1.01f || windMutedPeak > 0.000001f) {
+        std::cerr << "Ambi Wind peak/order failed: " << windPeak << " / " << windMutedPeak << "\n";
         return 1;
     }
 

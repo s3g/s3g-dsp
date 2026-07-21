@@ -33,8 +33,9 @@ struct AmbiWranglerParams {
     float spread = 0.26f;
     float deviation = 0.12f;
     uint32_t rungSize = 4;
-    uint32_t rateModeA = 0;
-    uint32_t rateModeB = 0;
+    uint32_t rateModeA = 1;
+    uint32_t rateModeB = 1;
+    uint32_t rungLoop = 0;
     float threshold = 0.50f;
     float color = 0.42f;
     float filter = 0.36f;
@@ -72,6 +73,8 @@ struct AmbiWranglerParams {
     float centerDistance = 1.0f;
     float spatialFollow = 0.90f;
     float outputGainDb = -6.0f;
+    float snap = 0.0f;
+    float snapDecay = 0.34f;
 };
 
 struct AmbiWranglerPoint {
@@ -106,6 +109,8 @@ struct AmbiWranglerVoice {
     float lastClock = 0.0f;
     float energy = 0.0f;
     float maskGain = 1.0f;
+    float snapEnv = 0.0f;
+    float snapPolarity = 1.0f;
     uint32_t reg = 1u;
     uint32_t seed = 1u;
     AmbiWranglerFilter filterA {};
@@ -154,9 +159,10 @@ public:
         params.inputB = std::clamp<uint32_t>(params.inputB, 0u, 1u);
         params.spread = clamp(params.spread, 0.0f, 1.0f);
         params.deviation = clamp(params.deviation, 0.0f, 1.0f);
-        params.rungSize = std::clamp<uint32_t>(params.rungSize, 2u, 5u);
-        params.rateModeA = std::clamp<uint32_t>(params.rateModeA, 0u, 1u);
-        params.rateModeB = std::clamp<uint32_t>(params.rateModeB, 0u, 1u);
+        params.rungSize = std::clamp<uint32_t>(params.rungSize, 2u, 8u);
+        params.rateModeA = std::clamp<uint32_t>(params.rateModeA, 0u, 2u);
+        params.rateModeB = std::clamp<uint32_t>(params.rateModeB, 0u, 2u);
+        params.rungLoop = std::clamp<uint32_t>(params.rungLoop, 0u, 2u);
         params.threshold = clamp(params.threshold, 0.0f, 1.0f);
         params.color = clamp(params.color, 0.0f, 1.0f);
         params.filter = clamp(params.filter, 0.0f, 1.0f);
@@ -164,6 +170,8 @@ public:
         params.filterRun = clamp(params.filterRun, 0.0f, 1.0f);
         params.filterSweep = clamp(params.filterSweep, 0.0f, 1.0f);
         params.saturation = clamp(params.saturation, 0.0f, 1.0f);
+        params.snap = clamp(params.snap, 0.0f, 1.0f);
+        params.snapDecay = clamp(params.snapDecay, 0.0f, 1.0f);
         params.field = clamp(params.field, 0.0f, 1.0f);
         params.maskMode = std::clamp<uint32_t>(params.maskMode, 0u, 5u);
         params.maskDepth = clamp(params.maskDepth, 0.0f, 1.0f);
@@ -289,6 +297,15 @@ private:
     {
         value = clamp(value, 0.0f, 1.0f);
         return midiToHz(value * 172.0f - 40.0f);
+    }
+
+    static float rateModeScale(uint32_t mode)
+    {
+        switch (mode) {
+        case 0u: return 0.01f;
+        case 2u: return 2.0f;
+        default: return 1.0f;
+        }
     }
 
     static float clampOscHz(float hz, float sampleRate)
@@ -482,8 +499,8 @@ private:
         const float spreadB = (0.5f - lane) * params_.spread * (1.2f + field * 1.4f);
         const float devA = hashSigned(voice.seed + 101u) * params_.deviation * (0.35f + field * 0.85f);
         const float devB = hashSigned(voice.seed + 211u) * params_.deviation * (0.35f + field * 0.85f);
-        const float rateScaleA = params_.rateModeA == 0u ? 1.0f : 2.0f;
-        const float rateScaleB = params_.rateModeB == 0u ? 1.0f : 2.0f;
+        const float rateScaleA = rateModeScale(params_.rateModeA);
+        const float rateScaleB = rateModeScale(params_.rateModeB);
         const float baseA = targetNormToHz(clamp(rateAParam + hashSigned(voice.seed + 307u) * field * params_.deviation * 0.42f, 0.0f, 1.0f)) * rateScaleA * std::pow(2.0f, spreadA + devA) * voice.rateA;
         const float baseB = targetNormToHz(clamp(rateBParam + hashSigned(voice.seed + 401u) * field * params_.deviation * 0.42f, 0.0f, 1.0f)) * rateScaleB * std::pow(2.0f, spreadB + devB) * voice.rateB;
         const float laneFmA = clamp(fmBtoAParam + hashSigned(voice.seed + 503u) * field * params_.deviation * 0.55f, 0.0f, 1.0f);
@@ -512,26 +529,39 @@ private:
         voice.lastClock = clockInput;
         if (clock) {
             const float input = params_.inputA == 0u ? squareA : triA;
-            const uint32_t bit = input > 0.0f ? 1u : 0u;
+            const uint32_t inputBit = input > 0.0f ? 1u : 0u;
             const uint32_t mask = (1u << params_.rungSize) - 1u;
+            const uint32_t loopBit = (voice.reg >> (params_.rungSize - 1u)) & 1u;
+            uint32_t bit = inputBit;
+            if (params_.rungLoop == 1u) bit = loopBit;
+            else if (params_.rungLoop == 2u) bit = inputBit ^ loopBit;
             voice.reg = ((voice.reg << 1u) | bit) & mask;
             const float denom = static_cast<float>(std::max<uint32_t>(1u, mask));
             voice.rungValue = static_cast<float>(voice.reg) / denom * 2.0f - 1.0f;
+            const float edgeDelta = voice.rungValue - voice.rungSmooth;
+            voice.snapPolarity = edgeDelta == 0.0f ? (bit ? 1.0f : -1.0f) : (edgeDelta > 0.0f ? 1.0f : -1.0f);
+            voice.snapEnv = std::min(1.0f, voice.snapEnv + (0.38f + std::fabs(edgeDelta) * 0.62f));
         }
         const float rungAmount = std::max(params_.runglerA, params_.runglerB);
         voice.rungSmooth += (voice.rungValue - voice.rungSmooth) * (0.002f + rungAmount * 0.030f);
+        const float snapDecaySamples = 12.0f + std::pow(params_.snapDecay, 2.0f) * 900.0f;
+        const float snapDecayCoeff = std::exp(-1.0f / snapDecaySamples);
+        const float snapTransient = voice.snapEnv * voice.snapPolarity * params_.snap;
+        voice.snapEnv *= snapDecayCoeff;
 
         const float sweep = (triB * 0.5f + 0.5f) * params_.filterSweep * 0.11f;
         const float run = (voice.rungSmooth * 0.5f + 0.5f) * params_.filterRun * 0.14f;
         const float filterNorm = 0.0015f + std::pow(filterParam, 2.2f) * 0.20f + sweep + run;
-        const float pwm = squareA * 0.55f + squareB * 0.45f + (triA - triB) * 0.25f;
-        const float filtA = voice.filterA.process(pwm + squareB * laneRunA * 0.30f, filterNorm, params_.resonance, params_.saturation);
-        const float filtB = voice.filterB.process(pwm + squareA * laneRunB * 0.30f, filterNorm * 1.17f, params_.resonance, params_.saturation);
+        const float rungAudio = voice.rungValue * (0.10f + rungAmount * 0.18f);
+        const float pwm = squareA * 0.55f + squareB * 0.45f + (triA - triB) * 0.25f + rungAudio;
+        const float filtA = voice.filterA.process(pwm + squareB * laneRunA * 0.30f + snapTransient * 0.46f, filterNorm, params_.resonance, params_.saturation);
+        const float filtB = voice.filterB.process(pwm + squareA * laneRunB * 0.30f - snapTransient * 0.32f, filterNorm * 1.17f, params_.resonance, params_.saturation);
         const float edge = (squareA + squareB) * 0.24f;
         const float body = (triA + triB) * 0.32f;
         const float bloom = (filtA + filtB) * 0.48f;
         const float mixed = lerp(edge + body, bloom + body * 0.24f, params_.color);
-        return std::tanh(clamp(mixed * (1.0f + params_.saturation * 3.2f), -7.0f, 7.0f)) * ampParam;
+        const float click = snapTransient * (0.10f + (1.0f - params_.color) * 0.22f);
+        return std::tanh(clamp((mixed + click) * (1.0f + params_.saturation * 3.2f), -7.0f, 7.0f)) * ampParam;
     }
 
     double sampleRate_ = 48000.0;

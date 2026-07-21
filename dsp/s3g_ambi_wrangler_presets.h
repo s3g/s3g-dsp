@@ -26,7 +26,9 @@ struct AmbiWranglerPresetValues {
     float spread;
     float deviation;
     uint32_t rungSize;
-    uint32_t rateMode;
+    uint32_t rateModeA;
+    uint32_t rateModeB;
+    uint32_t rungLoop;
     float threshold;
     float color;
     float filter;
@@ -50,6 +52,10 @@ struct AmbiWranglerPresetValues {
     float centerDistance;
     float spatialFollow;
     float outputGainDb;
+    float snap;
+    float snapDecay;
+    uint32_t inputA;
+    uint32_t inputB;
 };
 
 struct AmbiWranglerPreset {
@@ -60,24 +66,24 @@ struct AmbiWranglerPreset {
 inline constexpr uint32_t kAmbiWranglerFactoryPresetCount = 18;
 
 inline constexpr std::array<AmbiWranglerPreset, kAmbiWranglerFactoryPresetCount> kAmbiWranglerPresets {{
-    { { "Deep Choir Mask", "Slow masked low-register ensemble from the 20a pad zones." }, { 3, 28, 0.055f, 0.180f, 0.135f, 0.108f, 0.125f, 0.098f, 0.24f, 0.10f, 2, 0, 0.071f, 0.59f, 0.54f, 0.40f, 0.23f, 0.21f, 0.47f, 0.78f, 2, 0.72f, 0.030f, 10, 4, 0.036f, 0.60f, 0.60f, 0.98f, 0.0f, 0.0f, 0.0f, 1.0f, 0.94f, -28.0f } },
-    { { "Half Lit Register", "Uneven high/low oscillator contrast with voices entering in cells." }, { 3, 24, 0.555f, 0.825f, 0.147f, 0.203f, 0.028f, 0.507f, 0.34f, 0.18f, 2, 1, 0.658f, 0.25f, 0.39f, 0.58f, 0.10f, 0.28f, 0.36f, 0.84f, 3, 0.70f, 0.085f, 11, 1, 0.016f, 0.52f, 0.50f, 0.88f, 0.0f, 0.0f, 10.0f, 1.05f, 0.92f, -34.0f } },
-    { { "Bass Rung Cloud", "Low oscillators with large Rungler-B choir movement." }, { 3, 32, 0.035f, 0.016f, 0.154f, 0.049f, 0.759f, 0.185f, 0.16f, 0.13f, 3, 0, 0.436f, 0.25f, 0.38f, 0.42f, 0.40f, 0.14f, 0.55f, 0.72f, 2, 0.64f, 0.055f, 2, 6, 0.084f, 0.52f, 0.44f, 0.94f, 0.12f, -8.0f, 0.0f, 1.18f, 0.96f, -31.5f } },
-    { { "Glass Mask", "Bright rate split, strong filtering, and a sparse audible layer." }, { 3, 20, 0.686f, 0.314f, 0.224f, 0.229f, 0.016f, 0.045f, 0.14f, 0.13f, 2, 1, 0.071f, 0.24f, 0.58f, 0.68f, 0.43f, 0.44f, 0.24f, 0.92f, 4, 0.80f, 0.120f, 0, 5, 0.080f, 0.50f, 0.42f, 0.92f, 0.0f, 18.0f, 0.0f, 1.05f, 0.88f, -32.5f } },
-    { { "Slow Teeth", "Low reciprocal FM bite with rotating partial audibility." }, { 3, 20, 0.105f, 0.186f, 0.324f, 0.750f, 0.169f, 0.246f, 0.14f, 0.09f, 2, 0, 0.496f, 0.56f, 0.28f, 0.34f, 0.09f, 0.26f, 0.30f, 0.70f, 3, 0.66f, 0.045f, 5, 13, 0.028f, 0.56f, 0.56f, 0.94f, 0.0f, -12.0f, 0.0f, 0.96f, 0.94f, -31.5f } },
-    { { "Twenty Tiny Clocks", "Fast small voices with a breathing amplitude mesh." }, { 3, 36, 0.674f, 0.696f, 0.219f, 0.388f, 0.052f, 0.059f, 0.22f, 0.14f, 2, 1, 0.794f, 0.36f, 0.50f, 0.31f, 0.46f, 0.52f, 0.16f, 0.68f, 1, 0.58f, 0.140f, 6, 17, 0.076f, 0.48f, 0.60f, 0.90f, 0.0f, 26.0f, 0.0f, 1.16f, 0.88f, -33.0f } },
-    { { "Soft Comparator Pad", "Filtered PWM body with slow choir drift and restrained FM." }, { 3, 30, 0.250f, 0.260f, 0.400f, 0.420f, 0.300f, 0.300f, 0.10f, 0.05f, 4, 0, 0.500f, 0.50f, 0.36f, 0.30f, 0.14f, 0.10f, 0.18f, 0.48f, 2, 0.46f, 0.045f, 3, 1, 0.014f, 0.34f, 0.24f, 0.72f, 0.0f, 0.0f, -10.0f, 0.88f, 0.98f, -25.5f } },
-    { { "Sparkle Lattice", "Snappy bright cells and high threshold sparkle bursts." }, { 3, 24, 0.465f, 0.077f, 0.101f, 0.691f, 0.261f, 0.339f, 0.30f, 0.16f, 2, 1, 0.906f, 0.18f, 0.29f, 0.68f, 0.22f, 0.24f, 0.28f, 0.92f, 4, 0.82f, 0.200f, 1, 3, 0.052f, 0.52f, 0.48f, 0.92f, 0.0f, 34.0f, 0.0f, 1.22f, 0.86f, -34.5f } },
-    { { "Rungler Altos", "Strong B-side rungler choir with mellow upper voices." }, { 3, 22, 0.077f, 0.491f, 0.621f, 0.458f, 0.040f, 0.925f, 0.42f, 0.09f, 2, 1, 0.906f, 0.51f, 0.40f, 0.48f, 0.35f, 0.29f, 0.32f, 0.86f, 2, 0.70f, 0.070f, 5, 2, 0.068f, 0.60f, 0.56f, 0.86f, 0.0f, 8.0f, 0.0f, 1.02f, 0.90f, -35.0f } },
-    { { "Breathing Crosswire", "A slow ensemble that swells through FM cross-coupling." }, { 3, 26, 0.107f, 0.609f, 0.072f, 0.424f, 0.441f, 0.254f, 0.18f, 0.12f, 2, 0, 0.452f, 0.06f, 0.64f, 0.61f, 0.07f, 0.24f, 0.30f, 0.74f, 1, 0.62f, 0.038f, 8, 1, 0.024f, 0.54f, 0.54f, 0.92f, 0.0f, -18.0f, 0.0f, 1.08f, 0.96f, -31.0f } },
-    { { "Dust Window", "Sparse quiet dust from low clocks and audible mask holes." }, { 3, 18, 0.026f, 0.055f, 0.218f, 0.035f, 0.748f, 0.218f, 0.16f, 0.14f, 2, 0, 0.414f, 0.40f, 0.42f, 0.42f, 0.39f, 0.59f, 0.53f, 0.78f, 4, 0.88f, 0.110f, 11, 1, 0.092f, 0.56f, 0.48f, 0.98f, 0.0f, -26.0f, 0.0f, 1.12f, 0.98f, -32.0f } },
-    { { "Formant Swarm", "Resonant clustered voices with mid-speed filter-rung motion." }, { 3, 34, 0.634f, 0.305f, 0.216f, 0.219f, 0.048f, 0.076f, 0.20f, 0.11f, 4, 0, 0.175f, 0.22f, 0.64f, 0.85f, 0.43f, 0.39f, 0.18f, 0.66f, 2, 0.58f, 0.050f, 3, 9, 0.032f, 0.58f, 0.58f, 0.96f, 0.0f, 14.0f, 0.0f, 0.92f, 0.93f, -31.0f } },
-    { { "Snappy Register Choir", "High contrast slots reworked into punchy rotating voicings." }, { 3, 20, 0.059f, 0.810f, 0.408f, 0.778f, 0.147f, 0.081f, 0.24f, 0.10f, 3, 1, 0.742f, 0.41f, 0.52f, 0.26f, 0.15f, 0.12f, 0.48f, 0.80f, 3, 0.74f, 0.160f, 4, 8, 0.064f, 0.58f, 0.54f, 0.98f, 0.0f, 22.0f, 0.0f, 1.18f, 0.90f, -33.0f } },
-    { { "Narrow Organism II", "Compact choir center with very legible beating." }, { 3, 16, 0.290f, 0.300f, 0.240f, 0.280f, 0.220f, 0.200f, 0.08f, 0.04f, 4, 0, 0.500f, 0.62f, 0.44f, 0.36f, 0.18f, 0.16f, 0.20f, 0.34f, 2, 0.38f, 0.018f, 0, 9, 0.016f, 0.24f, 0.20f, 0.56f, 0.0f, 0.0f, 0.0f, 0.72f, 0.99f, -24.0f } },
-    { { "Fault Mask", "Hot rungler cells clipped into a wide unstable shell." }, { 3, 40, 0.452f, 0.227f, 0.122f, 0.682f, 0.535f, 0.870f, 0.44f, 0.18f, 2, 1, 0.906f, 0.17f, 0.34f, 0.70f, 0.27f, 0.16f, 0.26f, 0.96f, 4, 0.78f, 0.180f, 11, 4, 0.056f, 0.82f, 0.70f, 1.22f, 0.16f, 0.0f, 4.0f, 1.22f, 0.90f, -36.0f } },
-    { { "Run Filter Kites II", "Filter-run voices rising and falling in a lifted mask." }, { 3, 30, 0.320f, 0.083f, 0.219f, 0.372f, 0.062f, 0.932f, 0.17f, 0.14f, 2, 1, 0.906f, 0.36f, 0.57f, 0.38f, 0.29f, 0.56f, 0.12f, 0.72f, 5, 0.70f, 0.090f, 10, 10, 0.072f, 0.62f, 0.58f, 0.88f, 0.0f, 30.0f, 0.0f, 1.05f, 0.94f, -33.5f } },
-    { { "Quiet Teeth Halo", "Soft sparse mask with low clocks and distant topology." }, { 3, 22, 0.065f, 0.045f, 0.082f, 0.734f, 0.029f, 0.316f, 0.12f, 0.09f, 2, 0, 0.839f, 0.13f, 0.30f, 0.64f, 0.24f, 0.24f, 0.31f, 0.58f, 4, 0.72f, 0.035f, 6, 12, 0.048f, 0.50f, 0.46f, 1.10f, 0.08f, -18.0f, -6.0f, 1.34f, 0.98f, -32.5f } },
-    { { "Wide Backwash Organ", "Large slow choir, broad field, and gentle mask breathing." }, { 3, 48, 0.366f, 0.514f, 0.124f, 0.530f, 0.069f, 0.068f, 0.34f, 0.08f, 2, 0, 0.112f, 0.22f, 0.53f, 0.54f, 0.19f, 0.20f, 0.47f, 0.62f, 1, 0.50f, 0.022f, 9, 9, 0.018f, 0.54f, 0.46f, 1.18f, 0.0f, 0.0f, 0.0f, 1.24f, 0.97f, -30.0f } },
+    { { "Classic Slow Rungler", "Eight-step Benjolin drift with clear filter sweep and choir mask." }, { 3, 24, 0.180f, 0.115f, 0.18f, 0.14f, 0.38f, 0.32f, 0.18f, 0.08f, 8, 1, 1, 0, 0.48f, 0.46f, 0.42f, 0.52f, 0.36f, 0.44f, 0.34f, 0.66f, 2, 0.58f, 0.045f, 11, 1, 0.028f, 0.54f, 0.52f, 1.02f, 0.02f, 0.0f, 0.0f, 1.00f, 0.94f, -6.0f, 0.18f, 0.28f, 0, 0 } },
+    { { "Subharmonic Loop", "LOW-range oscillator B recirculating the register into a large pad." }, { 3, 28, 0.320f, 0.220f, 0.10f, 0.22f, 0.62f, 0.40f, 0.22f, 0.10f, 8, 1, 0, 1, 0.42f, 0.52f, 0.36f, 0.46f, 0.48f, 0.30f, 0.42f, 0.74f, 3, 0.70f, 0.030f, 10, 4, 0.034f, 0.60f, 0.60f, 1.08f, 0.04f, -10.0f, 0.0f, 1.12f, 0.96f, -6.0f, 0.14f, 0.42f, 0, 0 } },
+    { { "XOR Teeth", "XOR loop edges with snappy register ticks and sharper motion." }, { 3, 20, 0.460f, 0.380f, 0.24f, 0.52f, 0.48f, 0.66f, 0.16f, 0.12f, 8, 1, 1, 2, 0.72f, 0.30f, 0.34f, 0.64f, 0.32f, 0.24f, 0.50f, 0.82f, 4, 0.74f, 0.135f, 6, 3, 0.064f, 0.56f, 0.48f, 1.00f, 0.08f, 22.0f, 0.0f, 1.12f, 0.90f, -6.0f, 0.42f, 0.18f, 0, 0 } },
+    { { "Deep Choir Mask", "Very slow LOW/SINGLE masked choir with visible curve structure." }, { 3, 36, 0.240f, 0.145f, 0.12f, 0.08f, 0.30f, 0.18f, 0.30f, 0.12f, 6, 0, 1, 0, 0.18f, 0.60f, 0.54f, 0.38f, 0.26f, 0.24f, 0.40f, 0.82f, 2, 0.76f, 0.022f, 9, 1, 0.020f, 0.50f, 0.50f, 1.14f, 0.00f, 0.0f, -8.0f, 1.18f, 0.97f, -6.0f, 0.08f, 0.48f, 0, 0 } },
+    { { "Spark Cells", "Sparse high-threshold pings with short register snap." }, { 3, 24, 0.610f, 0.082f, 0.10f, 0.62f, 0.24f, 0.42f, 0.28f, 0.16f, 5, 2, 1, 0, 0.88f, 0.18f, 0.30f, 0.70f, 0.22f, 0.26f, 0.30f, 0.92f, 4, 0.84f, 0.180f, 1, 3, 0.052f, 0.52f, 0.48f, 0.92f, 0.00f, 32.0f, 0.0f, 1.20f, 0.88f, -6.0f, 0.50f, 0.12f, 0, 0 } },
+    { { "Filter Sweep Organ", "Triangle-B sweep into a resonant filter-run body." }, { 3, 30, 0.280f, 0.360f, 0.22f, 0.18f, 0.18f, 0.36f, 0.14f, 0.07f, 8, 1, 1, 0, 0.44f, 0.64f, 0.58f, 0.74f, 0.30f, 0.78f, 0.20f, 0.58f, 2, 0.46f, 0.040f, 3, 9, 0.020f, 0.42f, 0.36f, 0.86f, 0.00f, 0.0f, 0.0f, 0.92f, 0.96f, -6.0f, 0.12f, 0.34f, 0, 1 } },
+    { { "Looped Register Choir", "Recirculating register tones with audible mask offsets." }, { 3, 26, 0.335f, 0.310f, 0.16f, 0.30f, 0.44f, 0.40f, 0.20f, 0.10f, 8, 1, 1, 1, 0.52f, 0.50f, 0.44f, 0.48f, 0.34f, 0.24f, 0.36f, 0.78f, 3, 0.66f, 0.070f, 5, 2, 0.046f, 0.58f, 0.54f, 0.96f, 0.02f, 12.0f, 0.0f, 1.04f, 0.92f, -6.0f, 0.22f, 0.36f, 0, 0 } },
+    { { "Tiny Clockwork", "Fast double-range clock percussion through short registers." }, { 3, 40, 0.760f, 0.700f, 0.28f, 0.36f, 0.10f, 0.12f, 0.20f, 0.14f, 4, 2, 2, 0, 0.78f, 0.34f, 0.50f, 0.38f, 0.44f, 0.50f, 0.18f, 0.70f, 1, 0.56f, 0.150f, 6, 17, 0.082f, 0.50f, 0.60f, 0.94f, 0.00f, 26.0f, 0.0f, 1.12f, 0.88f, -6.0f, 0.36f, 0.10f, 0, 0 } },
+    { { "Bass Rung Cloud", "LOW A/B sub-oscillator cloud with strong Rungler A." }, { 3, 32, 0.180f, 0.110f, 0.08f, 0.06f, 0.78f, 0.24f, 0.20f, 0.12f, 8, 0, 0, 0, 0.36f, 0.36f, 0.32f, 0.44f, 0.48f, 0.18f, 0.56f, 0.74f, 2, 0.66f, 0.040f, 2, 6, 0.078f, 0.52f, 0.44f, 1.02f, 0.12f, -6.0f, 0.0f, 1.18f, 0.98f, -6.0f, 0.10f, 0.52f, 0, 0 } },
+    { { "PWM Glass", "Comparator glass with triangle-B color and a double B clock." }, { 3, 22, 0.520f, 0.430f, 0.16f, 0.22f, 0.12f, 0.10f, 0.12f, 0.10f, 6, 1, 2, 0, 0.12f, 0.22f, 0.62f, 0.78f, 0.36f, 0.42f, 0.22f, 0.88f, 4, 0.78f, 0.110f, 0, 5, 0.076f, 0.48f, 0.42f, 0.94f, 0.00f, 18.0f, 0.0f, 1.04f, 0.90f, -6.0f, 0.20f, 0.22f, 0, 1 } },
+    { { "Breathing Crosswire", "Slow FM cross-coupled movement with low-range A." }, { 3, 28, 0.120f, 0.580f, 0.08f, 0.46f, 0.48f, 0.28f, 0.22f, 0.12f, 7, 0, 1, 0, 0.45f, 0.10f, 0.62f, 0.62f, 0.10f, 0.28f, 0.32f, 0.76f, 1, 0.62f, 0.036f, 8, 1, 0.024f, 0.54f, 0.54f, 0.94f, 0.00f, -18.0f, 0.0f, 1.08f, 0.96f, -6.0f, 0.12f, 0.44f, 0, 0 } },
+    { { "XOR Dust Window", "Sparse LOW clocks with XOR patterns and wide mask holes." }, { 3, 18, 0.090f, 0.065f, 0.20f, 0.05f, 0.72f, 0.26f, 0.16f, 0.16f, 8, 0, 0, 2, 0.40f, 0.38f, 0.40f, 0.48f, 0.42f, 0.58f, 0.50f, 0.80f, 4, 0.88f, 0.095f, 11, 1, 0.088f, 0.56f, 0.48f, 1.08f, 0.00f, -24.0f, 0.0f, 1.12f, 0.98f, -6.0f, 0.28f, 0.20f, 0, 0 } },
+    { { "Resonant Swarm", "Audio-rate oscillators into a rungler-driven resonant filter." }, { 3, 34, 0.640f, 0.330f, 0.22f, 0.22f, 0.12f, 0.18f, 0.24f, 0.12f, 8, 1, 1, 0, 0.22f, 0.22f, 0.66f, 0.88f, 0.48f, 0.42f, 0.20f, 0.70f, 2, 0.60f, 0.055f, 3, 9, 0.034f, 0.58f, 0.58f, 0.98f, 0.00f, 14.0f, 0.0f, 0.94f, 0.93f, -6.0f, 0.16f, 0.26f, 0, 0 } },
+    { { "Snappy Register Choir", "Punchy rotating loop cells with an eight-step register." }, { 3, 24, 0.155f, 0.780f, 0.40f, 0.76f, 0.18f, 0.16f, 0.26f, 0.12f, 8, 1, 2, 1, 0.74f, 0.42f, 0.52f, 0.34f, 0.20f, 0.18f, 0.50f, 0.82f, 3, 0.74f, 0.150f, 4, 8, 0.064f, 0.58f, 0.54f, 1.00f, 0.00f, 22.0f, 0.0f, 1.18f, 0.91f, -6.0f, 0.46f, 0.18f, 0, 0 } },
+    { { "Classic Narrow", "Compact classic register behavior with little spatial spread." }, { 3, 16, 0.290f, 0.300f, 0.24f, 0.28f, 0.22f, 0.20f, 0.08f, 0.04f, 8, 1, 1, 0, 0.50f, 0.62f, 0.44f, 0.36f, 0.18f, 0.16f, 0.20f, 0.36f, 2, 0.38f, 0.018f, 0, 9, 0.016f, 0.24f, 0.20f, 0.58f, 0.00f, 0.0f, 0.0f, 0.72f, 0.99f, -6.0f, 0.08f, 0.28f, 0, 0 } },
+    { { "Fault Mask XOR", "Hot rungler XOR cells clipped into a wide unstable shell." }, { 3, 44, 0.470f, 0.230f, 0.14f, 0.70f, 0.58f, 0.86f, 0.44f, 0.20f, 8, 2, 1, 2, 0.90f, 0.16f, 0.34f, 0.72f, 0.30f, 0.18f, 0.32f, 0.96f, 4, 0.82f, 0.170f, 11, 4, 0.058f, 0.82f, 0.70f, 1.26f, 0.18f, 0.0f, 4.0f, 1.24f, 0.90f, -6.0f, 0.55f, 0.16f, 0, 0 } },
+    { { "Run Filter Kites", "Filter run and sweep flying around a looped register." }, { 3, 30, 0.340f, 0.090f, 0.22f, 0.38f, 0.10f, 0.92f, 0.18f, 0.16f, 7, 1, 0, 1, 0.82f, 0.36f, 0.58f, 0.42f, 0.34f, 0.62f, 0.16f, 0.74f, 5, 0.70f, 0.085f, 10, 10, 0.072f, 0.62f, 0.58f, 0.90f, 0.00f, 30.0f, 0.0f, 1.05f, 0.95f, -6.0f, 0.24f, 0.36f, 0, 1 } },
+    { { "Wide Backwash Organ", "Large slow choir, broad field, gentle sweep and mask breathing." }, { 3, 48, 0.360f, 0.500f, 0.12f, 0.52f, 0.08f, 0.08f, 0.36f, 0.08f, 8, 1, 1, 0, 0.12f, 0.24f, 0.54f, 0.56f, 0.22f, 0.24f, 0.46f, 0.64f, 1, 0.52f, 0.024f, 9, 9, 0.018f, 0.54f, 0.46f, 1.18f, 0.00f, 0.0f, 0.0f, 1.24f, 0.98f, -6.0f, 0.06f, 0.50f, 0, 0 } },
 }};
 
 inline AmbiWranglerPresetInfo ambiWranglerFactoryPresetInfo(uint32_t index)
@@ -170,8 +176,9 @@ inline AmbiWranglerParams ambiWranglerFactoryPreset(uint32_t index)
     p.spread = v.spread;
     p.deviation = v.deviation;
     p.rungSize = v.rungSize;
-    p.rateModeA = v.rateMode;
-    p.rateModeB = v.rateMode;
+    p.rateModeA = std::min<uint32_t>(2u, v.rateModeA);
+    p.rateModeB = std::min<uint32_t>(2u, v.rateModeB);
+    p.rungLoop = std::min<uint32_t>(2u, v.rungLoop);
     p.threshold = v.threshold;
     p.color = v.color;
     p.filter = v.filter;
@@ -194,13 +201,15 @@ inline AmbiWranglerParams ambiWranglerFactoryPreset(uint32_t index)
     p.centerElevationDeg = v.centerElevationDeg;
     p.centerDistance = v.centerDistance;
     p.spatialFollow = v.spatialFollow;
-    p.outputGainDb = -6.0f;
+    p.outputGainDb = v.outputGainDb;
     p.pwmA = std::clamp(0.46f + ambiWranglerPresetSigned(index * 331u + 17u) * 0.08f, 0.0f, 1.0f);
     p.pwmB = std::clamp(0.54f + ambiWranglerPresetSigned(index * 337u + 19u) * 0.08f, 0.0f, 1.0f);
     p.rampA = std::clamp(0.50f + ambiWranglerPresetSigned(index * 347u + 23u) * 0.16f, 0.0f, 1.0f);
     p.rampB = std::clamp(0.50f + ambiWranglerPresetSigned(index * 349u + 29u) * 0.16f, 0.0f, 1.0f);
-    p.inputA = (index % 5u) == 2u ? 1u : 0u;
-    p.inputB = (index % 6u) == 3u ? 1u : 0u;
+    p.inputA = std::min<uint32_t>(1u, v.inputA);
+    p.inputB = std::min<uint32_t>(1u, v.inputB);
+    p.snap = v.snap;
+    p.snapDecay = v.snapDecay;
     ambiWranglerFillPresetBreakpoints(p, index);
     return p;
 }
