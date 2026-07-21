@@ -39,16 +39,16 @@
           <li><code>interpolation</code>: sampled-cell and stable-slot interpretation metadata</li>
           <li><code>space</code>: optional generalized geometry, regions, portals, and display provenance</li>
           <li><code>room</code>: dimensions, top-view polygon, ceiling profile, navigation bounds, and material summary</li>
-          <li><code>listener_position_m</code> and <code>default_source_position_m</code>: XYZ positions in metres</li>
+          <li><code>listener_position_m</code> and <code>default_source_position_m</code>: reference listener and default source XYZ positions in metres</li>
           <li><code>grid</code>: authoring-grid dimensions, source-sampling metadata, and the optional global stable-slot key list</li>
           <li><code>cells</code>: one to 256 sampled source positions</li>
         </ul>
 
-        <p>Each cell has a <code>position_m</code>, up to 32 <code>early_reflections</code>, and one <code>late</code> profile. Every early reflection carries a stable <code>slot</code>, delay in milliseconds, gain, azimuth, elevation, and normalized damping. It may also carry <code>bounce_position_m</code>, an optional XYZ wall, floor, ceiling, portal, or echo-path point used for path display. A slot may be absent from a cell when that path is not active there; readers treat its gain as zero. The late profile carries start time, decay time, level, diffusion, and damping.</p>
+        <p>Each cell has a <code>position_m</code>, up to 32 <code>early_reflections</code>, and one <code>late</code> profile. Every early reflection carries a stable <code>slot</code>, delay in milliseconds, gain, azimuth, elevation, and normalized damping. It may also carry <code>bounce_position_m</code>, an optional XYZ wall, floor, ceiling, portal, or echo-path point used to re-resolve path timing and arrival direction when the listener moves. A slot may be absent from a cell when that path is not active there; readers treat its gain as zero. The late profile carries start time, decay time, level, diffusion, and damping.</p>
 
         <h2 id="runtime">Runtime Interpretation</h2>
 
-        <p>The source XYZ parameters map to the field's navigation bounds. Ambi Ray Encoder computes source-to-listener distance, delay, attenuation, and direction continuously for the direct sound. It blends stable reflection slots and late profiles from the four nearest cells using inverse-distance weights. Position and field changes are smoothed by the plugin's <code>MOVEMENT</code> control.</p>
+        <p>The source and listener XYZ parameters map to the field's navigation bounds. Ambi Ray Encoder computes source-to-listener distance, delay, attenuation, and direction continuously for the direct sound. Source position selects stable reflection slots and late profiles from the four nearest cells using inverse-distance weights. For reflections with a bounce point, the encoder continuously resolves source-to-bounce-to-listener geometry while retaining any non-geometric delay embedded by Ray Sketch. Reflections without a bounce point retain a world-space virtual arrival anchored from <code>listener_position_m</code>. Position and field changes are smoothed by the plugin's <code>MOVEMENT</code> control.</p>
 
         <p>The direct component follows the selected first-through-seventh ambisonic order. Early and late room components are represented through third order. Timing is sample-rate independent in the file and compiled for the current host rate. Imported JSON is embedded in CLAP project state.</p>
 
@@ -56,7 +56,7 @@
 
         <p>The editable Ray Sketch project uses the <code>s3g-ray-sketch</code> format identifier and is not a plugin input. Ray Sketch may import Imprint Sketch and legacy room-sketch projects as authoring sources, but Ambi Ray Encoder loads only a version 1 <code>s3g-ambi-ray-field</code> runtime file.</p>
 
-        <p>Geometry, materials, path losses, bounce points, and decay values are creative acoustic estimates intended for repeatable spatial composition. Readers derive sound from the resolved delay, gain, and AED values; <code>bounce_position_m</code> and generalized geometry are optional display provenance, not a requirement to ray trace on the audio thread. Version 1 readers may ignore the bounce field.</p>
+        <p>Geometry, materials, path losses, bounce points, and decay values are creative acoustic estimates intended for repeatable spatial composition. Resolved delay, gain, and AED values remain sufficient for a fixed reference listener. <code>bounce_position_m</code> enables lightweight moving-listener path resolution without a geometry engine on the audio thread; generalized geometry remains display provenance. Version 1 readers may ignore the bounce field.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-ray-encoder.html">

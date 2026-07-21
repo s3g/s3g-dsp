@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Ambi Ray Encoder</h1>
 
-        <p><code>s3g Ambi Ray Encoder</code> places one mono source inside a sampled room field and produces a 64-channel <code>ACN/SN3D</code> output bus. Source motion changes the direct path, early reflection directions and delays, and the late room profile.</p>
+        <p><code>s3g Ambi Ray Encoder</code> places a mono source and listener inside a sampled room field and produces a 64-channel <code>ACN/SN3D</code> output bus. Motion of either point changes the direct path and early reflection directions and delays; source motion also interpolates the sampled late-room profile.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -36,27 +36,29 @@
           <li>Place the listener and default source, then choose the source-sampling grid and reflection-slot count.</li>
           <li>Export a <code>.s3gray</code> Ray Field.</li>
           <li>Insert the plugin on a 64-channel REAPER track, route a mono source to its input, and load the field.</li>
-          <li>Set the ambisonic order, move the source in the top and side views, and balance direct, early, and late sound.</li>
+          <li>Set the ambisonic order, move the source and listener in the top and side views, and balance direct, early, and late sound.</li>
           <li>Follow the encoder with an ambisonic decoder or meter.</li>
         </ol>
 
         <h2 id="field">Ray Field</h2>
 
-        <p>The built-in room makes the plugin immediately usable. <code>LOAD</code> accepts version 1 <code>.s3gray</code> files with the format identifier <code>s3g-ambi-ray-field</code>. A field stores room and navigation bounds, listener and default source positions, and 1 to 256 sampled cells. Each cell can hold as many as 32 directional early reflections plus a late response profile. See the <a href="s3gray-format.html"><code>.s3gray</code> format reference</a> for the complete runtime contract.</p>
+        <p>The built-in room makes the plugin immediately usable. <code>LOAD</code> accepts version 1 <code>.s3gray</code> files with the format identifier <code>s3g-ambi-ray-field</code>. A field stores room and navigation bounds, a reference listener and default source position, and 1 to 256 sampled source cells. Each cell can hold as many as 32 directional early reflections plus a late response profile. See the <a href="s3gray-format.html"><code>.s3gray</code> format reference</a> for the complete runtime contract.</p>
 
         <p>At runtime, the encoder blends the four nearest cells as the source moves. Loaded field data is stored with the REAPER project state, so the original <code>.s3gray</code> file does not need to remain beside the project for recall.</p>
 
         <h2 id="interpretation">Musical Interpretation</h2>
 
-        <p>Ray Sketch resolves the designed space into a compact map of stable reflection slots and late-room profiles. The plugin owns the live source position: its direct path is calculated continuously from source to listener, while nearby map cells smoothly reshape the early and late field. Moving a source therefore does not require rebuilding or streaming a new ray trace.</p>
+        <p>Ray Sketch resolves the designed space into a compact map of stable reflection slots and late-room profiles. The plugin owns both live positions. Its direct path is calculated continuously between source and listener, nearby source cells reshape the early and late field, and bounce-aware early paths are recalculated through their wall, floor, ceiling, portal, or echo point as either endpoint moves. Moving either point therefore does not require rebuilding or streaming a new ray trace.</p>
 
         <p>The result is intentionally a musical room instrument rather than an architectural simulator. Material curves, path losses, and late estimates preserve a space's directional character and repeatable motion behavior without claiming measurement-grade acoustics.</p>
 
         <h2 id="position">Position and Motion</h2>
 
-        <p><code>SOURCE X</code>, <code>SOURCE Y</code>, and <code>SOURCE Z</code> are normalized automation parameters mapped to the loaded field's navigation bounds. The GUI reports their positions in metres. <code>MOVEMENT</code> sets the smoothing time used when the source changes position.</p>
+        <p><code>SOURCE X/Y/Z</code> and <code>LISTENER X/Y/Z</code> are normalized automation parameters mapped to the loaded field's navigation bounds. The GUI reports both positions in metres. <code>MOVEMENT</code> applies the same smoothing time to both points.</p>
 
-        <p>The display places a top view and side view next to each other. Solid green lines run from source through an exported amber bounce point to the listener. Dashed cyan lines are listener-relative arrivals for procedural events that have no defensible wall path; their arrowheads point inward. The grey source-to-listener line is the direct path. Drag the source in the top view for X/Y or in the side view for X/Z. Source automation is continuous; loading a new field constructs a replacement room runtime outside the audio callback.</p>
+        <p>The display places a top view and side view next to each other. Select <code>SRC</code> or <code>LIS</code> in the Position panel, or grab either marker directly, then drag in the top view for X/Y or the side view for X/Z. Solid green lines run from source through an exported amber bounce point to the listener. Dashed cyan events without a defensible bounce point use a stable world-space arrival anchor derived from the field's reference listener. The grey source-to-listener line is the direct path. Position automation is continuous; loading a new field constructs a replacement room runtime outside the audio callback.</p>
+
+        <p>The late field remains a directional room bed interpolated from source cells. Listener motion reshapes direct and early geometry but does not claim a second sampled late-field dimension.</p>
 
         <h2 id="room-controls">Room Controls</h2>
 

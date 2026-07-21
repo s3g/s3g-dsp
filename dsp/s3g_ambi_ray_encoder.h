@@ -82,6 +82,9 @@ struct AmbiRayEncoderParams {
     float movementMs = 60.0f;
     float outputGainDb = -6.0f;
     bool bypassRoom = false;
+    float listenerX = 0.5f;
+    float listenerY = 0.5f;
+    float listenerZ = 0.5f;
 };
 
 inline AmbiRayEncoderParams sanitizeAmbiRayEncoderParams(AmbiRayEncoderParams params)
@@ -90,6 +93,9 @@ inline AmbiRayEncoderParams sanitizeAmbiRayEncoderParams(AmbiRayEncoderParams pa
     params.sourceX = clamp(params.sourceX, 0.0f, 1.0f);
     params.sourceY = clamp(params.sourceY, 0.0f, 1.0f);
     params.sourceZ = clamp(params.sourceZ, 0.0f, 1.0f);
+    params.listenerX = clamp(params.listenerX, 0.0f, 1.0f);
+    params.listenerY = clamp(params.listenerY, 0.0f, 1.0f);
+    params.listenerZ = clamp(params.listenerZ, 0.0f, 1.0f);
     params.direct = clamp(params.direct, 0.0f, 1.5f);
     params.early = clamp(params.early, 0.0f, 1.5f);
     params.late = clamp(params.late, 0.0f, 1.5f);
@@ -391,6 +397,58 @@ inline AmbiRayDescriptor sanitizeAmbiRayDescriptor(AmbiRayDescriptor descriptor)
     return descriptor;
 }
 
+struct AmbiRayResolvedReflection {
+    float delayMs = 20.0f;
+    float gain = 0.1f;
+    Vec3 direction { 1.0f, 0.0f, 0.0f };
+};
+
+inline AmbiRayResolvedReflection resolveAmbiRayReflection(const AmbiRayDescriptor& descriptor,
+                                                          const AmbiRayCell& cell,
+                                                          const AmbiRayReflection& reflection,
+                                                          Vec3 source,
+                                                          Vec3 listener)
+{
+    constexpr float speedOfSound = 343.0f;
+    const Vec3 storedDirection = directionFromAed(reflection.azimuthDeg, reflection.elevationDeg);
+    const float referenceDistance = std::max(0.02f, reflection.delayMs * 0.001f * speedOfSound);
+    Vec3 currentDirection = storedDirection;
+    float currentDistance = referenceDistance;
+
+    if (reflection.hasBouncePosition) {
+        const float referenceGeometry = ambi_ray_detail::distance(cell.positionMetres, reflection.bouncePositionMetres)
+            + ambi_ray_detail::distance(reflection.bouncePositionMetres, descriptor.listenerPositionMetres);
+        const float nonGeometricDistance = std::max(0.0f, referenceDistance - referenceGeometry);
+        currentDistance = nonGeometricDistance
+            + ambi_ray_detail::distance(source, reflection.bouncePositionMetres)
+            + ambi_ray_detail::distance(reflection.bouncePositionMetres, listener);
+        currentDirection = {
+            reflection.bouncePositionMetres.x - listener.x,
+            reflection.bouncePositionMetres.y - listener.y,
+            reflection.bouncePositionMetres.z - listener.z
+        };
+    } else {
+        const Vec3 anchor {
+            descriptor.listenerPositionMetres.x + storedDirection.x * referenceDistance,
+            descriptor.listenerPositionMetres.y + storedDirection.y * referenceDistance,
+            descriptor.listenerPositionMetres.z + storedDirection.z * referenceDistance
+        };
+        currentDirection = { anchor.x - listener.x, anchor.y - listener.y, anchor.z - listener.z };
+        currentDistance = ambi_ray_detail::distance(anchor, listener);
+    }
+
+    currentDistance = std::max(0.02f, currentDistance);
+    const float directionLength = std::sqrt(currentDirection.x * currentDirection.x
+        + currentDirection.y * currentDirection.y + currentDirection.z * currentDirection.z);
+    const Vec3 direction = directionLength > 0.000001f ? normalize(currentDirection) : storedDirection;
+    const float distanceScale = std::sqrt(clamp(referenceDistance / currentDistance, 0.25f, 4.0f));
+    return {
+        clamp(currentDistance / speedOfSound * 1000.0f, 0.0f, kAmbiRayMaximumDelaySeconds * 1000.0f),
+        clamp(reflection.gain * distanceScale, -2.0f, 2.0f),
+        direction
+    };
+}
+
 inline AmbiRayDescriptor makeDefaultAmbiRayDescriptor()
 {
     AmbiRayDescriptor descriptor;
@@ -476,6 +534,7 @@ public:
         safetyGain_ = 1.0f;
         frame_.fill(0.0f);
         currentNormalized_ = { params_.sourceX, params_.sourceY, params_.sourceZ };
+        currentListenerNormalized_ = { params_.listenerX, params_.listenerY, params_.listenerZ };
         currentDirect_ = params_.direct;
         currentEarly_ = params_.early;
         currentLate_ = params_.late;
@@ -511,7 +570,22 @@ public:
         return ambi_ray_detail::positionFromNormalized(descriptor_, { params_.sourceX, params_.sourceY, params_.sourceZ });
     }
 
+    Vec3 listenerPositionMetres() const
+    {
+        return ambi_ray_detail::positionFromNormalized(descriptor_, currentListenerNormalized_);
+    }
+
+    Vec3 targetListenerPositionMetres() const
+    {
+        return ambi_ray_detail::positionFromNormalized(descriptor_, { params_.listenerX, params_.listenerY, params_.listenerZ });
+    }
+
     static Vec3 normalizedSourcePosition(const AmbiRayDescriptor& descriptor, Vec3 position)
+    {
+        return ambi_ray_detail::normalizedFromPosition(descriptor, position);
+    }
+
+    static Vec3 normalizedListenerPosition(const AmbiRayDescriptor& descriptor, Vec3 position)
     {
         return ambi_ray_detail::normalizedFromPosition(descriptor, position);
     }
@@ -672,6 +746,9 @@ private:
             : 1.0f - std::exp(-static_cast<float>(frames) / static_cast<float>(sampleRate_ * movementSeconds));
         const Vec3 targetNormalized { params_.sourceX, params_.sourceY, params_.sourceZ };
         currentNormalized_ = ambi_ray_detail::mixVec(currentNormalized_, targetNormalized, movementAlpha);
+        const Vec3 targetListenerNormalized { params_.listenerX, params_.listenerY, params_.listenerZ };
+        currentListenerNormalized_ = ambi_ray_detail::mixVec(
+            currentListenerNormalized_, targetListenerNormalized, movementAlpha);
         const float parameterAlpha = immediate ? 1.0f
             : 1.0f - std::exp(-static_cast<float>(frames) / static_cast<float>(sampleRate_ * 0.035));
         currentDirect_ += (params_.direct - currentDirect_) * parameterAlpha;
@@ -684,10 +761,11 @@ private:
         currentAir_ += (params_.air - currentAir_) * parameterAlpha;
 
         const Vec3 source = sourcePositionMetres();
+        const Vec3 listener = listenerPositionMetres();
         const Vec3 directWorld {
-            source.x - descriptor_.listenerPositionMetres.x,
-            source.y - descriptor_.listenerPositionMetres.y,
-            source.z - descriptor_.listenerPositionMetres.z
+            source.x - listener.x,
+            source.y - listener.y,
+            source.z - listener.z
         };
         const float directDistance = std::max(0.02f, std::sqrt(
             directWorld.x * directWorld.x + directWorld.y * directWorld.y + directWorld.z * directWorld.z));
@@ -717,12 +795,12 @@ private:
             for (const auto& reflection : cell.reflections) {
                 const uint32_t slot = std::min<uint32_t>(reflection.slot, kAmbiRayMaxReflections - 1u);
                 auto& event = desired[slot];
-                const Vec3 direction = directionFromAed(reflection.azimuthDeg, reflection.elevationDeg);
-                event.delayMs += reflection.delayMs * weightedCell.weight;
-                event.gain += reflection.gain * weightedCell.weight;
-                event.direction.x += direction.x * weightedCell.weight;
-                event.direction.y += direction.y * weightedCell.weight;
-                event.direction.z += direction.z * weightedCell.weight;
+                const auto resolved = resolveAmbiRayReflection(descriptor_, cell, reflection, source, listener);
+                event.delayMs += resolved.delayMs * weightedCell.weight;
+                event.gain += resolved.gain * weightedCell.weight;
+                event.direction.x += resolved.direction.x * weightedCell.weight;
+                event.direction.y += resolved.direction.y * weightedCell.weight;
+                event.direction.z += resolved.direction.z * weightedCell.weight;
                 event.damping += reflection.damping * weightedCell.weight;
                 event.weight += weightedCell.weight;
                 desiredCount = std::max<uint32_t>(desiredCount, slot + 1u);
@@ -795,6 +873,7 @@ private:
     std::array<float, kAmbiRayRoomChannels> lateOrderScale_ {};
     std::array<float, kAmbiRayMaxChannels> frame_ {};
     Vec3 currentNormalized_ { 0.5f, 0.25f, 0.5f };
+    Vec3 currentListenerNormalized_ { 0.5f, 0.5f, 0.5f };
     uint32_t activeEventCount_ = 0u;
     float directDelayFrames_ = 0.0f;
     float directDistanceGain_ = 1.0f;

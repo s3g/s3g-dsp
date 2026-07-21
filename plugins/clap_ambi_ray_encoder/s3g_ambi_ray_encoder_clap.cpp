@@ -36,11 +36,11 @@ constexpr uint32_t kOutputChannels = 64u;
 constexpr uint32_t kGuiWidth = 1040u;
 constexpr uint32_t kGuiHeight = 620u;
 constexpr uint32_t kStateMagic = 0x53475259u;
-constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kStateVersion = 2u;
 constexpr uint32_t kMaximumStateJsonBytes = 8u * 1024u * 1024u;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-ray-encoder";
 constexpr const char* kPluginName = "s3g Ambi Ray Encoder";
-constexpr const char* kPluginDesc = "Moving mono source encoder with interpolated ray-field room response.";
+constexpr const char* kPluginDesc = "Moving source and listener encoder with interpolated ray-field room response.";
 
 enum ParamId : clap_id {
     kParamOrder = 1,
@@ -57,7 +57,50 @@ enum ParamId : clap_id {
     kParamMovement = 12,
     kParamOutput = 13,
     kParamBypass = 14,
+    kParamListenerX = 15,
+    kParamListenerY = 16,
+    kParamListenerZ = 17,
 };
+
+struct SavedAmbiRayEncoderParamsV1 {
+    uint32_t order = 3u;
+    float sourceX = 0.5f;
+    float sourceY = 0.25f;
+    float sourceZ = 0.5f;
+    float direct = 1.0f;
+    float early = 0.72f;
+    float late = 0.42f;
+    float size = 1.0f;
+    float scatter = 0.45f;
+    float width = 1.0f;
+    float air = 0.20f;
+    float movementMs = 60.0f;
+    float outputGainDb = -6.0f;
+    bool bypassRoom = false;
+};
+
+static_assert(sizeof(SavedAmbiRayEncoderParamsV1) == 56u,
+    "Ambi Ray v1 state compatibility requires the original parameter layout");
+
+s3g::AmbiRayEncoderParams paramsFromV1(const SavedAmbiRayEncoderParamsV1& saved)
+{
+    s3g::AmbiRayEncoderParams params;
+    params.order = saved.order;
+    params.sourceX = saved.sourceX;
+    params.sourceY = saved.sourceY;
+    params.sourceZ = saved.sourceZ;
+    params.direct = saved.direct;
+    params.early = saved.early;
+    params.late = saved.late;
+    params.size = saved.size;
+    params.scatter = saved.scatter;
+    params.width = saved.width;
+    params.air = saved.air;
+    params.movementMs = saved.movementMs;
+    params.outputGainDb = saved.outputGainDb;
+    params.bypassRoom = saved.bypassRoom;
+    return params;
+}
 
 struct SavedStateHeader {
     uint32_t magic = kStateMagic;
@@ -169,6 +212,27 @@ s3g::Vec3 sourcePosition(const s3g::AmbiRayDescriptor& descriptor, const s3g::Am
     };
 }
 
+s3g::Vec3 listenerPosition(const s3g::AmbiRayDescriptor& descriptor, const s3g::AmbiRayEncoderParams& params)
+{
+    const auto& minimum = descriptor.room.navigationMinimumMetres;
+    const auto& maximum = descriptor.room.navigationMaximumMetres;
+    return {
+        s3g::lerp(minimum.x, maximum.x, params.listenerX),
+        s3g::lerp(minimum.y, maximum.y, params.listenerY),
+        s3g::lerp(minimum.z, maximum.z, params.listenerZ)
+    };
+}
+
+void setListenerToDescriptorReference(s3g::AmbiRayEncoderParams& params,
+                                      const s3g::AmbiRayDescriptor& descriptor)
+{
+    const s3g::Vec3 normalized = s3g::AmbiRayEncoder::normalizedListenerPosition(
+        descriptor, descriptor.listenerPositionMetres);
+    params.listenerX = normalized.x;
+    params.listenerY = normalized.y;
+    params.listenerZ = normalized.z;
+}
+
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
     switch (id) {
@@ -176,6 +240,9 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kParamSourceX: plugin.params.sourceX = static_cast<float>(value); break;
     case kParamSourceY: plugin.params.sourceY = static_cast<float>(value); break;
     case kParamSourceZ: plugin.params.sourceZ = static_cast<float>(value); break;
+    case kParamListenerX: plugin.params.listenerX = static_cast<float>(value); break;
+    case kParamListenerY: plugin.params.listenerY = static_cast<float>(value); break;
+    case kParamListenerZ: plugin.params.listenerZ = static_cast<float>(value); break;
     case kParamDirect: plugin.params.direct = static_cast<float>(value); break;
     case kParamEarly: plugin.params.early = static_cast<float>(value); break;
     case kParamLate: plugin.params.late = static_cast<float>(value); break;
@@ -199,6 +266,9 @@ double getParam(const Plugin& plugin, clap_id id)
     case kParamSourceX: return plugin.params.sourceX;
     case kParamSourceY: return plugin.params.sourceY;
     case kParamSourceZ: return plugin.params.sourceZ;
+    case kParamListenerX: return plugin.params.listenerX;
+    case kParamListenerY: return plugin.params.listenerY;
+    case kParamListenerZ: return plugin.params.listenerZ;
     case kParamDirect: return plugin.params.direct;
     case kParamEarly: return plugin.params.early;
     case kParamLate: return plugin.params.late;
@@ -232,7 +302,7 @@ bool installDescriptor(Plugin& plugin,
                        GuiSpaceGeometry geometry,
                        std::string json,
                        std::string name,
-                       bool adoptDefaultSource,
+                       bool adoptDefaultPositions,
                        std::string& error)
 {
     descriptor = s3g::sanitizeAmbiRayDescriptor(std::move(descriptor));
@@ -240,12 +310,13 @@ bool installDescriptor(Plugin& plugin,
         error = "RAY FIELD HAS NO CELLS";
         return false;
     }
-    if (adoptDefaultSource) {
+    if (adoptDefaultPositions) {
         const s3g::Vec3 normalized = s3g::AmbiRayEncoder::normalizedSourcePosition(
             descriptor, descriptor.defaultSourcePositionMetres);
         plugin.params.sourceX = normalized.x;
         plugin.params.sourceY = normalized.y;
         plugin.params.sourceZ = normalized.z;
+        setListenerToDescriptorReference(plugin.params, descriptor);
         plugin.params = s3g::sanitizeAmbiRayEncoderParams(plugin.params);
     }
     if (plugin.active.load(std::memory_order_acquire) && !buildRuntime(plugin, descriptor, error)) return false;
@@ -271,11 +342,11 @@ GuiSnapshot guiSnapshot(Plugin& plugin)
         result.status = plugin.status;
         result.family = plugin.guiGeometry.family;
         result.room = plugin.descriptor.room;
-        result.listener = plugin.descriptor.listenerPositionMetres;
         result.branches = plugin.guiGeometry.branches;
         result.portals = plugin.guiGeometry.portals;
         params = plugin.params;
         result.source = sourcePosition(plugin.descriptor, params);
+        result.listener = listenerPosition(plugin.descriptor, params);
         result.cells.reserve(plugin.descriptor.cells.size());
         float nearest = std::numeric_limits<float>::max();
         for (uint32_t index = 0u; index < plugin.descriptor.cells.size(); ++index) {
@@ -297,7 +368,10 @@ GuiSnapshot guiSnapshot(Plugin& plugin)
             result.reflections.reserve(count);
             for (uint32_t index = 0u; index < count; ++index) {
                 const auto& event = cell.reflections[index];
-                result.reflections.push_back({ event.delayMs, event.gain, event.azimuthDeg, event.elevationDeg,
+                const auto resolved = s3g::resolveAmbiRayReflection(
+                    plugin.descriptor, cell, event, result.source, result.listener);
+                const auto aed = s3g::ambi_ray_detail::aedFromWorldVector(resolved.direction);
+                result.reflections.push_back({ resolved.delayMs, resolved.gain, aed[0], aed[1],
                     event.bouncePositionMetres, event.hasBouncePosition });
             }
         }
@@ -644,13 +718,16 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
-uint32_t paramsCount(const clap_plugin_t*) { return 14u; }
+uint32_t paramsCount(const clap_plugin_t*) { return 17u; }
 
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
     if (!info) return false;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
-    std::strncpy(info->module, "Ambi Ray Encoder", sizeof(info->module));
+    const char* module = index >= 1u && index <= 3u
+        ? "Position/Source"
+        : index >= 14u && index <= 16u ? "Position/Listener" : "Ambi Ray Encoder";
+    std::strncpy(info->module, module, sizeof(info->module));
     switch (index) {
     case 0: info->id = kParamOrder; info->flags |= CLAP_PARAM_IS_STEPPED; std::strncpy(info->name, "Order", sizeof(info->name)); info->min_value = 1; info->max_value = 7; info->default_value = 3; return true;
     case 1: info->id = kParamSourceX; std::strncpy(info->name, "Source X", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; return true;
@@ -666,13 +743,16 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     case 11: info->id = kParamMovement; std::strncpy(info->name, "Movement smoothing", sizeof(info->name)); info->min_value = 10; info->max_value = 500; info->default_value = 60; return true;
     case 12: info->id = kParamOutput; std::strncpy(info->name, "Output gain", sizeof(info->name)); info->min_value = -60; info->max_value = 12; info->default_value = -6; return true;
     case 13: info->id = kParamBypass; info->flags |= CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_BYPASS; std::strncpy(info->name, "Bypass room", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0; return true;
+    case 14: info->id = kParamListenerX; std::strncpy(info->name, "Listener X", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; return true;
+    case 15: info->id = kParamListenerY; std::strncpy(info->name, "Listener Y", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; return true;
+    case 16: info->id = kParamListenerZ; std::strncpy(info->name, "Listener Z", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; return true;
     default: return false;
     }
 }
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
 {
-    if (!value || paramId < kParamOrder || paramId > kParamBypass) return false;
+    if (!value || paramId < kParamOrder || paramId > kParamListenerZ) return false;
     *value = getParam(*self(plugin), paramId);
     return true;
 }
@@ -683,17 +763,20 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id paramId, double valu
     const auto* instance = self(plugin);
     switch (paramId) {
     case kParamOrder: std::snprintf(display, size, "%.0fOA", value); return true;
-    case kParamSourceX: {
+    case kParamSourceX:
+    case kParamListenerX: {
         const auto& room = instance->descriptor.room;
         std::snprintf(display, size, "%.2f m", s3g::lerp(room.navigationMinimumMetres.x, room.navigationMaximumMetres.x, static_cast<float>(value)));
         return true;
     }
-    case kParamSourceY: {
+    case kParamSourceY:
+    case kParamListenerY: {
         const auto& room = instance->descriptor.room;
         std::snprintf(display, size, "%.2f m", s3g::lerp(room.navigationMinimumMetres.y, room.navigationMaximumMetres.y, static_cast<float>(value)));
         return true;
     }
-    case kParamSourceZ: {
+    case kParamSourceZ:
+    case kParamListenerZ: {
         const auto& room = instance->descriptor.room;
         std::snprintf(display, size, "%.2f m", s3g::lerp(room.navigationMinimumMetres.z, room.navigationMaximumMetres.z, static_cast<float>(value)));
         return true;
@@ -714,21 +797,24 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id paramId, double valu
 
 bool paramsTextToValue(const clap_plugin_t* plugin, clap_id paramId, const char* display, double* value)
 {
-    if (!display || !value || paramId < kParamOrder || paramId > kParamBypass) return false;
+    if (!display || !value || paramId < kParamOrder || paramId > kParamListenerZ) return false;
     const double parsed = std::atof(display);
     const auto* instance = self(plugin);
     switch (paramId) {
-    case kParamSourceX: {
+    case kParamSourceX:
+    case kParamListenerX: {
         const auto& room = instance->descriptor.room;
         *value = (parsed - room.navigationMinimumMetres.x) / std::max(0.0001f, room.navigationMaximumMetres.x - room.navigationMinimumMetres.x);
         break;
     }
-    case kParamSourceY: {
+    case kParamSourceY:
+    case kParamListenerY: {
         const auto& room = instance->descriptor.room;
         *value = (parsed - room.navigationMinimumMetres.y) / std::max(0.0001f, room.navigationMaximumMetres.y - room.navigationMinimumMetres.y);
         break;
     }
-    case kParamSourceZ: {
+    case kParamSourceZ:
+    case kParamListenerZ: {
         const auto& room = instance->descriptor.room;
         *value = (parsed - room.navigationMinimumMetres.z) / std::max(0.0001f, room.navigationMaximumMetres.z - room.navigationMinimumMetres.z);
         break;
@@ -772,15 +858,30 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
-    SavedStateHeader header;
-    if (!streamReadAll(stream, &header, sizeof(header))
-        || header.magic != kStateMagic
-        || header.version != kStateVersion
-        || header.jsonBytes > kMaximumStateJsonBytes) return false;
+    uint32_t magic = 0u;
+    uint32_t version = 0u;
+    if (!streamReadAll(stream, &magic, sizeof(magic))
+        || !streamReadAll(stream, &version, sizeof(version))
+        || magic != kStateMagic) return false;
+
+    s3g::AmbiRayEncoderParams loadedParams;
+    uint32_t jsonBytes = 0u;
+    const bool legacyState = version == 1u;
+    if (legacyState) {
+        SavedAmbiRayEncoderParamsV1 saved;
+        if (!streamReadAll(stream, &saved, sizeof(saved))) return false;
+        loadedParams = paramsFromV1(saved);
+    } else if (version == kStateVersion) {
+        if (!streamReadAll(stream, &loadedParams, sizeof(loadedParams))) return false;
+    } else {
+        return false;
+    }
+    if (!streamReadAll(stream, &jsonBytes, sizeof(jsonBytes)) || jsonBytes > kMaximumStateJsonBytes) return false;
+
     auto* instance = self(plugin);
-    instance->params = s3g::sanitizeAmbiRayEncoderParams(header.params);
-    if (header.jsonBytes > 0u) {
-        std::string json(header.jsonBytes, '\0');
+    instance->params = s3g::sanitizeAmbiRayEncoderParams(loadedParams);
+    if (jsonBytes > 0u) {
+        std::string json(jsonBytes, '\0');
         if (!streamReadAll(stream, json.data(), json.size())) return false;
 #if defined(__APPLE__)
         NSData* data = [NSData dataWithBytes:json.data() length:json.size()];
@@ -789,10 +890,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         std::string canonical;
         std::string error;
         if (!parseRayData(data, descriptor, geometry, canonical, error)) return false;
+        if (legacyState) setListenerToDescriptorReference(instance->params, descriptor);
         if (!installDescriptor(*instance, std::move(descriptor), std::move(geometry), std::move(canonical), "PROJECT STATE", false, error)) return false;
 #else
         return false;
 #endif
+    } else if (legacyState) {
+        std::lock_guard<std::mutex> lock(instance->stateMutex);
+        setListenerToDescriptorReference(instance->params, instance->descriptor);
     }
     if (auto* processor = instance->activeProcessor.load(std::memory_order_acquire)) processor->setParams(instance->params);
     return true;
@@ -883,14 +988,29 @@ NSRect topFieldRect() { return NSMakeRect(24, 68, 330, 452); }
 NSRect sideFieldRect() { return NSMakeRect(366, 68, 330, 452); }
 NSRect fieldPlotRect(NSRect field) { return NSMakeRect(field.origin.x + 15, field.origin.y + 29, field.size.width - 30, field.size.height - 44); }
 NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
+NSRect sourceModeRect() { return NSMakeRect(934, 152, 38, 17); }
+NSRect listenerModeRect() { return NSMakeRect(976, 152, 40, 17); }
+
+NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NSInteger view)
+{
+    const GuiWorldBounds bounds = guiWorldBounds(snapshot);
+    const NSRect plot = fieldPlotRect(view == 1 ? topFieldRect() : sideFieldRect());
+    const float nx = (position.x - bounds.minimumX) / std::max(0.001f, bounds.maximumX - bounds.minimumX);
+    const float vertical = view == 2
+        ? (position.z - bounds.minimumZ) / std::max(0.001f, bounds.maximumZ - bounds.minimumZ)
+        : (position.y - bounds.minimumY) / std::max(0.001f, bounds.maximumY - bounds.minimumY);
+    return NSMakePoint(plot.origin.x + nx * plot.size.width,
+        plot.origin.y + (1.0f - vertical) * plot.size.height);
+}
 
 } // namespace
 
 @interface S3GAmbiRayEncoderView : NSView {
     Plugin* _plugin;
     clap_id _dragParam;
-    NSInteger _sourceDragView;
+    NSInteger _positionDragView;
     NSTimer* _refreshTimer;
+    bool _editListener;
     bool _orderMenuOpen;
     int _orderMenuHover;
 }
@@ -900,7 +1020,7 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
 - (void)setParam:(clap_id)param value:(double)value;
 - (void)loadRayField;
 - (void)updateSliderAtPoint:(NSPoint)point;
-- (void)updateSourceAtPoint:(NSPoint)point view:(NSInteger)view;
+- (void)updatePositionAtPoint:(NSPoint)point view:(NSInteger)view;
 @end
 
 @implementation S3GAmbiRayEncoderView
@@ -911,8 +1031,9 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
     if (self) {
         _plugin = plugin;
         _dragParam = CLAP_INVALID_ID;
-        _sourceDragView = 0;
+        _positionDragView = 0;
         _refreshTimer = nil;
+        _editListener = false;
         _orderMenuOpen = false;
         _orderMenuHover = -1;
     }
@@ -1177,14 +1298,37 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
     [directColor setStroke];
     [NSBezierPath strokeLineFromPoint:source toPoint:listener];
     drawInwardArrow(source, listener, directColor);
-    [s3g::clap_gui::color(0xb7b7b7) setFill];
-    NSRectFill(NSMakeRect(listener.x - 4.0, listener.y - 4.0, 8.0, 8.0));
-    [s3g::clap_gui::color(0x90d3dc) setFill];
-    NSRectFill(NSMakeRect(source.x - 6.0, source.y - 6.0, 12.0, 12.0));
-    [s3g::clap_gui::color(0x101213) setStroke];
-    NSFrameRect(NSMakeRect(source.x - 6.0, source.y - 6.0, 12.0, 12.0));
-    [@"L" drawAtPoint:NSMakePoint(listener.x + 7.0, listener.y - 8.0) withAttributes:attrs];
-    [@"S" drawAtPoint:NSMakePoint(source.x + 9.0, source.y - 8.0) withAttributes:attrs];
+    const bool markersOverlap = std::hypot(source.x - listener.x, source.y - listener.y) < 16.0;
+    if (markersOverlap) {
+        NSBezierPath* listenerMarker = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            listener.x - 8.0, listener.y - 8.0, 16.0, 16.0)];
+        [listenerMarker setLineWidth:1.5];
+        [s3g::clap_gui::color(0xb7b7b7) setStroke];
+        [listenerMarker stroke];
+        [s3g::clap_gui::color(0x90d3dc) setFill];
+        NSRectFill(NSMakeRect(source.x - 4.0, source.y - 4.0, 8.0, 8.0));
+    } else {
+        [s3g::clap_gui::color(0xb7b7b7) setFill];
+        NSRectFill(NSMakeRect(listener.x - 4.0, listener.y - 4.0, 8.0, 8.0));
+        [s3g::clap_gui::color(0x90d3dc) setFill];
+        NSRectFill(NSMakeRect(source.x - 6.0, source.y - 6.0, 12.0, 12.0));
+        [s3g::clap_gui::color(0x101213) setStroke];
+        NSFrameRect(NSMakeRect(source.x - 6.0, source.y - 6.0, 12.0, 12.0));
+    }
+    const NSPoint selectedPosition = _editListener ? listener : source;
+    const CGFloat selectedRadius = markersOverlap ? 12.0 : _editListener ? 8.0 : 10.0;
+    NSBezierPath* selection = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+        selectedPosition.x - selectedRadius, selectedPosition.y - selectedRadius,
+        selectedRadius * 2.0, selectedRadius * 2.0)];
+    [selection setLineWidth:1.4];
+    [s3g::clap_gui::color(0xd8a24a, 0.92) setStroke];
+    [selection stroke];
+    if (markersOverlap) {
+        [@"L/S" drawAtPoint:NSMakePoint(source.x + 14.0, source.y - 8.0) withAttributes:attrs];
+    } else {
+        [@"L" drawAtPoint:NSMakePoint(listener.x + 7.0, listener.y - 8.0) withAttributes:attrs];
+        [@"S" drawAtPoint:NSMakePoint(source.x + 9.0, source.y - 8.0) withAttributes:attrs];
+    }
     [NSGraphicsContext restoreGraphicsState];
 }
 
@@ -1209,7 +1353,7 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
 
     const NSRect fieldPanel = NSMakeRect(12, 34, 700, 574);
     const NSRect mapPanel = NSMakeRect(724, 34, 304, 104);
-    const NSRect sourcePanel = NSMakeRect(724, 150, 304, 132);
+    const NSRect positionPanel = NSMakeRect(724, 150, 304, 132);
     const NSRect roomPanel = NSMakeRect(724, 294, 304, 214);
     const NSRect outputPanel = NSMakeRect(724, 520, 304, 88);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
@@ -1243,11 +1387,18 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
     [@"CELLS" drawAtPoint:NSMakePoint(742, 114) withAttributes:text];
     [[NSString stringWithFormat:@"%zu", snapshot.cells.size()] drawAtPoint:NSMakePoint(790, 114) withAttributes:value];
 
-    s3g::clap_gui::drawPanelFrame(sourcePanel.origin.x, sourcePanel.origin.y, sourcePanel.size.width, sourcePanel.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"SOURCE", true, sourcePanel.origin.x, sourcePanel.origin.y, sourcePanel.size.width, 21, text, style);
-    [self drawSlider:@"X" value:[NSString stringWithFormat:@"%.2f m", snapshot.source.x] norm:params.sourceX y:186 attrs:value style:style];
-    [self drawSlider:@"Y" value:[NSString stringWithFormat:@"%.2f m", snapshot.source.y] norm:params.sourceY y:210 attrs:value style:style];
-    [self drawSlider:@"Z" value:[NSString stringWithFormat:@"%.2f m", snapshot.source.z] norm:params.sourceZ y:234 attrs:value style:style];
+    s3g::clap_gui::drawPanelFrame(positionPanel.origin.x, positionPanel.origin.y, positionPanel.size.width, positionPanel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"POSITION", true, positionPanel.origin.x, positionPanel.origin.y, positionPanel.size.width, 21, text, style);
+    const NSRect positionHeader = NSMakeRect(positionPanel.origin.x, positionPanel.origin.y, positionPanel.size.width, 21);
+    s3g::clap_gui::drawHeaderButton(sourceModeRect(), positionHeader, @"SRC", !_editListener, value, style);
+    s3g::clap_gui::drawHeaderButton(listenerModeRect(), positionHeader, @"LIS", _editListener, value, style);
+    const s3g::Vec3 editPosition = _editListener ? snapshot.listener : snapshot.source;
+    const float editX = _editListener ? params.listenerX : params.sourceX;
+    const float editY = _editListener ? params.listenerY : params.sourceY;
+    const float editZ = _editListener ? params.listenerZ : params.sourceZ;
+    [self drawSlider:@"X" value:[NSString stringWithFormat:@"%.2f m", editPosition.x] norm:editX y:186 attrs:value style:style];
+    [self drawSlider:@"Y" value:[NSString stringWithFormat:@"%.2f m", editPosition.y] norm:editY y:210 attrs:value style:style];
+    [self drawSlider:@"Z" value:[NSString stringWithFormat:@"%.2f m", editPosition.z] norm:editZ y:234 attrs:value style:style];
     [self drawSlider:@"MOVE" value:[NSString stringWithFormat:@"%.0f ms", params.movementMs] norm:(params.movementMs - 10.0f) / 490.0f y:258 attrs:value style:style];
 
     s3g::clap_gui::drawPanelFrame(roomPanel.origin.x, roomPanel.origin.y, roomPanel.size.width, roomPanel.size.height, style);
@@ -1275,10 +1426,17 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
 
 - (void)resetParam:(clap_id)param
 {
+    const s3g::Vec3 sourceDefault = s3g::AmbiRayEncoder::normalizedSourcePosition(
+        _plugin->descriptor, _plugin->descriptor.defaultSourcePositionMetres);
+    const s3g::Vec3 listenerDefault = s3g::AmbiRayEncoder::normalizedListenerPosition(
+        _plugin->descriptor, _plugin->descriptor.listenerPositionMetres);
     switch (param) {
-    case kParamSourceX: [self setParam:param value:0.5]; break;
-    case kParamSourceY: [self setParam:param value:0.25]; break;
-    case kParamSourceZ: [self setParam:param value:0.5]; break;
+    case kParamSourceX: [self setParam:param value:sourceDefault.x]; break;
+    case kParamSourceY: [self setParam:param value:sourceDefault.y]; break;
+    case kParamSourceZ: [self setParam:param value:sourceDefault.z]; break;
+    case kParamListenerX: [self setParam:param value:listenerDefault.x]; break;
+    case kParamListenerY: [self setParam:param value:listenerDefault.y]; break;
+    case kParamListenerZ: [self setParam:param value:listenerDefault.z]; break;
     case kParamMovement: [self setParam:param value:60.0]; break;
     case kParamDirect: [self setParam:param value:1.0]; break;
     case kParamEarly: [self setParam:param value:0.72]; break;
@@ -1299,6 +1457,9 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
     case kParamSourceX: [self setParam:_dragParam value:norm]; break;
     case kParamSourceY: [self setParam:_dragParam value:norm]; break;
     case kParamSourceZ: [self setParam:_dragParam value:norm]; break;
+    case kParamListenerX: [self setParam:_dragParam value:norm]; break;
+    case kParamListenerY: [self setParam:_dragParam value:norm]; break;
+    case kParamListenerZ: [self setParam:_dragParam value:norm]; break;
     case kParamMovement: [self setParam:_dragParam value:10.0 + norm * 490.0]; break;
     case kParamDirect: [self setParam:_dragParam value:norm * 1.5]; break;
     case kParamEarly: [self setParam:_dragParam value:norm * 1.5]; break;
@@ -1312,7 +1473,7 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
     }
 }
 
-- (void)updateSourceAtPoint:(NSPoint)point view:(NSInteger)view
+- (void)updatePositionAtPoint:(NSPoint)point view:(NSInteger)view
 {
     const GuiSnapshot snapshot = guiSnapshot(*_plugin);
     const GuiWorldBounds bounds = guiWorldBounds(snapshot);
@@ -1322,13 +1483,16 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
     const float worldX = s3g::lerp(bounds.minimumX, bounds.maximumX, xAmount);
     const auto& minimum = snapshot.room.navigationMinimumMetres;
     const auto& maximum = snapshot.room.navigationMaximumMetres;
-    [self setParam:kParamSourceX value:(worldX - minimum.x) / std::max(0.0001f, maximum.x - minimum.x)];
+    const clap_id xParam = _editListener ? kParamListenerX : kParamSourceX;
+    const clap_id yParam = _editListener ? kParamListenerY : kParamSourceY;
+    const clap_id zParam = _editListener ? kParamListenerZ : kParamSourceZ;
+    [self setParam:xParam value:(worldX - minimum.x) / std::max(0.0001f, maximum.x - minimum.x)];
     if (view == 1) {
         const float worldY = s3g::lerp(bounds.minimumY, bounds.maximumY, verticalAmount);
-        [self setParam:kParamSourceY value:(worldY - minimum.y) / std::max(0.0001f, maximum.y - minimum.y)];
+        [self setParam:yParam value:(worldY - minimum.y) / std::max(0.0001f, maximum.y - minimum.y)];
     } else {
         const float worldZ = s3g::lerp(bounds.minimumZ, bounds.maximumZ, verticalAmount);
-        [self setParam:kParamSourceZ value:(worldZ - minimum.z) / std::max(0.0001f, maximum.z - minimum.z)];
+        [self setParam:zParam value:(worldZ - minimum.z) / std::max(0.0001f, maximum.z - minimum.z)];
     }
 }
 
@@ -1356,19 +1520,41 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
         [self setParam:kParamBypass value:_plugin->params.bypassRoom ? 0.0 : 1.0];
         return;
     }
+    if (NSPointInRect(point, sourceModeRect())) {
+        _editListener = false;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, listenerModeRect())) {
+        _editListener = true;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    auto beginPositionDrag = [&](NSInteger view) {
+        const GuiSnapshot snapshot = guiSnapshot(*_plugin);
+        const NSPoint sourcePoint = projectFieldPosition(snapshot, snapshot.source, view);
+        const NSPoint listenerPoint = projectFieldPosition(snapshot, snapshot.listener, view);
+        const CGFloat sourceDistance = std::hypot(point.x - sourcePoint.x, point.y - sourcePoint.y);
+        const CGFloat listenerDistance = std::hypot(point.x - listenerPoint.x, point.y - listenerPoint.y);
+        if (sourceDistance <= 14.0 && listenerDistance > 14.0) _editListener = false;
+        else if (listenerDistance <= 14.0 && sourceDistance > 14.0) _editListener = true;
+        _positionDragView = view;
+        [self updatePositionAtPoint:point view:view];
+    };
     if (NSPointInRect(point, fieldPlotRect(topFieldRect()))) {
-        _sourceDragView = 1;
-        [self updateSourceAtPoint:point view:_sourceDragView];
+        beginPositionDrag(1);
         return;
     }
     if (NSPointInRect(point, fieldPlotRect(sideFieldRect()))) {
-        _sourceDragView = 2;
-        [self updateSourceAtPoint:point view:_sourceDragView];
+        beginPositionDrag(2);
         return;
     }
     struct Row { clap_id param; CGFloat y; };
+    const clap_id xParam = _editListener ? kParamListenerX : kParamSourceX;
+    const clap_id yParam = _editListener ? kParamListenerY : kParamSourceY;
+    const clap_id zParam = _editListener ? kParamListenerZ : kParamSourceZ;
     const Row rows[] = {
-        { kParamSourceX, 186 }, { kParamSourceY, 210 }, { kParamSourceZ, 234 }, { kParamMovement, 258 },
+        { xParam, 186 }, { yParam, 210 }, { zParam, 234 }, { kParamMovement, 258 },
         { kParamDirect, 332 }, { kParamEarly, 356 }, { kParamLate, 380 }, { kParamSize, 404 },
         { kParamScatter, 428 }, { kParamWidth, 452 }, { kParamAir, 476 }, { kParamOutput, 582 }
     };
@@ -1387,8 +1573,8 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
 - (void)mouseDragged:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    if (_sourceDragView != 0) {
-        [self updateSourceAtPoint:point view:_sourceDragView];
+    if (_positionDragView != 0) {
+        [self updatePositionAtPoint:point view:_positionDragView];
         return;
     }
     if (_dragParam != CLAP_INVALID_ID) [self updateSliderAtPoint:point];
@@ -1398,7 +1584,7 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
 {
     (void)event;
     _dragParam = CLAP_INVALID_ID;
-    _sourceDragView = 0;
+    _positionDragView = 0;
 }
 
 - (void)mouseMoved:(NSEvent*)event
@@ -1497,7 +1683,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.1.0",
+    "0.2.0",
     kPluginDesc,
     features
 };
@@ -1513,6 +1699,7 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     instance->params.sourceX = normalized.x;
     instance->params.sourceY = normalized.y;
     instance->params.sourceZ = normalized.z;
+    setListenerToDescriptorReference(instance->params, instance->descriptor);
     instance->params = s3g::sanitizeAmbiRayEncoderParams(instance->params);
     instance->plugin.desc = &descriptor;
     instance->plugin.plugin_data = instance;

@@ -61,6 +61,27 @@ int main()
             }
         }
     }
+    const auto& referenceCell = descriptor.cells.front();
+    const auto& referenceReflection = referenceCell.reflections.front();
+    const auto referenceResolved = s3g::resolveAmbiRayReflection(
+        descriptor, referenceCell, referenceReflection, referenceCell.positionMetres,
+        descriptor.listenerPositionMetres);
+    const s3g::Vec3 movedListener {
+        descriptor.listenerPositionMetres.x + 1.0f,
+        descriptor.listenerPositionMetres.y - 0.7f,
+        descriptor.listenerPositionMetres.z + 0.35f
+    };
+    const auto movedResolved = s3g::resolveAmbiRayReflection(
+        descriptor, referenceCell, referenceReflection, referenceCell.positionMetres, movedListener);
+    const float reflectionDirectionChange = std::abs(referenceResolved.direction.x - movedResolved.direction.x)
+        + std::abs(referenceResolved.direction.y - movedResolved.direction.y)
+        + std::abs(referenceResolved.direction.z - movedResolved.direction.z);
+    if (!std::isfinite(movedResolved.delayMs) || !std::isfinite(movedResolved.gain)
+        || std::abs(referenceResolved.delayMs - referenceReflection.delayMs) > 0.05f
+        || reflectionDirectionChange < 0.01f) {
+        std::cerr << "Ambi Ray listener-aware reflection resolution failed\n";
+        return 1;
+    }
 
     s3g::AmbiRayEncoder directEncoder;
     s3g::AmbiRayEncoderParams directParams;
@@ -92,6 +113,24 @@ int main()
     if (!(rightEnergy > frontEnergy * 2.0f) || channelEnergy(directOutput.channels[0]) <= 0.0f) {
         std::cerr << "Ambi Ray direct path did not encode its source position: "
                   << rightEnergy << " / " << frontEnergy << "\n";
+        return 1;
+    }
+
+    s3g::AmbiRayEncoder listenerEncoder;
+    auto listenerParams = directParams;
+    listenerParams.sourceX = 0.5f;
+    listenerParams.sourceY = 0.82f;
+    listenerParams.listenerX = 0.5f;
+    listenerParams.listenerY = 0.12f;
+    listenerEncoder.setParams(listenerParams);
+    if (!listenerEncoder.prepare(kSampleRate, descriptor)) return 1;
+    RenderBuffer listenerOutput(directFrames);
+    listenerEncoder.process(directInput.data(), listenerOutput.pointers.data(), 16u, directFrames);
+    const float listenerRightEnergy = channelEnergy(listenerOutput.channels[1]);
+    const float listenerFrontEnergy = channelEnergy(listenerOutput.channels[3]);
+    if (!finiteBuffer(listenerOutput) || !(listenerFrontEnergy > listenerRightEnergy * 2.0f)) {
+        std::cerr << "Ambi Ray direct path did not follow listener position: "
+                  << listenerRightEnergy << " / " << listenerFrontEnergy << "\n";
         return 1;
     }
 
@@ -154,6 +193,9 @@ int main()
     for (uint32_t block = 0u; block < 240u; ++block) {
         movingParams.sourceX = 0.1f + 0.8f * static_cast<float>(block) / 239.0f;
         movingParams.sourceY = 0.28f + 0.44f * static_cast<float>(block % 80u) / 79.0f;
+        movingParams.listenerX = 0.82f - 0.46f * static_cast<float>(block) / 239.0f;
+        movingParams.listenerY = 0.72f - 0.28f * static_cast<float>(block % 96u) / 95.0f;
+        movingParams.listenerZ = 0.30f + 0.40f * static_cast<float>(block % 120u) / 119.0f;
         movingEncoder.setParams(movingParams);
         for (uint32_t frame = 0u; frame < kBlockFrames; ++frame) {
             movingInput[frame] = std::sin(phase) * 0.12f;
@@ -163,7 +205,7 @@ int main()
         }
         movingEncoder.process(movingInput.data(), movingOutput.pointers.data(), 16u, kBlockFrames);
         if (!finiteBuffer(movingOutput)) {
-            std::cerr << "Ambi Ray moving source produced non-finite output\n";
+            std::cerr << "Ambi Ray moving source/listener produced non-finite output\n";
             return 1;
         }
         for (uint32_t frame = 0u; frame < kBlockFrames; ++frame) {
@@ -174,11 +216,12 @@ int main()
         }
     }
     if (peak <= 0.0001f || peak > 1.001f || maximumStep > 0.25f) {
-        std::cerr << "Ambi Ray source automation was unstable: " << peak << " / " << maximumStep << "\n";
+        std::cerr << "Ambi Ray source/listener automation was unstable: " << peak << " / " << maximumStep << "\n";
         return 1;
     }
 
     std::cout << "Ambi Ray direct right/front energy: " << rightEnergy << " / " << frontEnergy << "\n";
+    std::cout << "Ambi Ray listener front/right energy: " << listenerFrontEnergy << " / " << listenerRightEnergy << "\n";
     std::cout << "Ambi Ray room early/tail/directional energy: "
               << earlyEnergy << " / " << tailEnergy << " / " << directionalEnergy << "\n";
     std::cout << "Ambi Ray motion peak/step: " << peak << " / " << maximumStep << "\n";
