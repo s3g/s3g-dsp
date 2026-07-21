@@ -236,6 +236,7 @@ struct Plugin {
     std::atomic<bool> presetRescanPending { false };
     int32_t factoryPresetIndex = 0;
     char presetName[64] {};
+    uint32_t randomSeed = 0x57c0a57cu;
     std::array<float, kOutputChannels> lastOutputSample {};
     std::array<float, kOutputChannels> presetTransitionOffset {};
     uint32_t presetTransitionFrames = 0u;
@@ -342,6 +343,72 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     if (!assignParam(plugin.params, id, value)) return;
     plugin.engine.setParams(plugin.params);
     plugin.params = plugin.engine.params();
+}
+
+float randomUnit(uint32_t& seed)
+{
+    seed = seed * 1664525u + 1013904223u;
+    return static_cast<float>((seed >> 8u) & 0x00ffffffu) / 16777215.0f;
+}
+
+float randomRange(uint32_t& seed, float minValue, float maxValue)
+{
+    return minValue + (maxValue - minValue) * randomUnit(seed);
+}
+
+uint32_t randomChoice(uint32_t& seed, uint32_t count)
+{
+    return std::min<uint32_t>(count - 1u, static_cast<uint32_t>(randomUnit(seed) * static_cast<float>(count)));
+}
+
+s3g::AmbiStochasticParams makeSafeRandomParams(Plugin& plugin)
+{
+    auto p = plugin.params;
+    uint32_t seed = plugin.randomSeed
+        ^ static_cast<uint32_t>(std::lround(plugin.outputPeak.load(std::memory_order_relaxed) * 1000000.0f))
+        ^ static_cast<uint32_t>(plugin.lastMidiNote.load(std::memory_order_relaxed) * 2654435761u);
+    p.order = 3u;
+    p.voices = 8u + randomChoice(seed, 33u);
+    p.mode = randomUnit(seed) < 0.82f ? s3g::AmbiStochasticMode::Free : s3g::AmbiStochasticMode::Both;
+    p.selection = static_cast<s3g::AmbiStochasticSelection>(randomChoice(seed, 6u));
+    p.transition = static_cast<s3g::AmbiStochasticTransition>(randomChoice(seed, 3u));
+    p.amplitudeDistribution = static_cast<s3g::AmbiStochasticDistribution>(randomChoice(seed, 7u));
+    p.durationDistribution = static_cast<s3g::AmbiStochasticDistribution>(randomChoice(seed, 7u));
+    p.baseNote = randomRange(seed, 28.0f, 58.0f);
+    p.seedSpreadSemitones = randomRange(seed, 4.0f, 34.0f);
+    p.detuneCents = randomRange(seed, 2.0f, 38.0f);
+    p.frequencyFloorHz = randomRange(seed, 8.0f, 72.0f);
+    p.breakpoints = 6u + randomChoice(seed, 23u);
+    p.amplitudeStep = randomRange(seed, 0.22f, 0.82f);
+    p.durationStep = randomRange(seed, 0.20f, 0.86f);
+    p.amplitudeRange = randomRange(seed, 0.28f, 0.92f);
+    p.durationRange = randomRange(seed, 0.30f, 0.94f);
+    p.fieldDensity = randomRange(seed, 0.38f, 0.95f);
+    p.neighborTransfer = randomRange(seed, 0.08f, 0.68f);
+    p.selectionMemory = randomRange(seed, 0.25f, 0.96f);
+    p.fieldDurationSeconds = randomRange(seed, 0.08f, randomUnit(seed) < 0.18f ? 9.0f : 3.8f);
+    p.fieldContrast = randomRange(seed, 0.14f, 0.90f);
+    p.fieldRestSeconds = randomRange(seed, 0.03f, 0.92f);
+    p.macroDurationSeconds = randomRange(seed, 4.0f, 96.0f);
+    p.attackMs = randomRange(seed, 2.0f, randomUnit(seed) < 0.20f ? 720.0f : 180.0f);
+    p.decayMs = randomRange(seed, 35.0f, 1400.0f);
+    p.sustain = randomRange(seed, 0.25f, 0.96f);
+    p.releaseMs = randomRange(seed, 60.0f, 3200.0f);
+    p.topologyShape = randomChoice(seed, s3g::kTopologyShapeCount);
+    p.topologyMotion = randomChoice(seed, s3g::kTopologyMotionModeCount);
+    p.topologyRateHz = randomRange(seed, 0.006f, 0.18f);
+    p.topologyAmount = randomRange(seed, 0.32f, 0.94f);
+    p.topologyDepth = randomRange(seed, 0.28f, 0.92f);
+    p.topologyScale = randomRange(seed, 0.72f, 1.58f);
+    p.topologyCollapse = randomRange(seed, 0.0f, 0.34f);
+    p.topologyTwist = randomRange(seed, -0.42f, 0.42f);
+    p.centerAzimuthDeg = randomRange(seed, -42.0f, 42.0f);
+    p.centerElevationDeg = randomRange(seed, -24.0f, 24.0f);
+    p.centerDistance = randomRange(seed, 0.82f, 1.34f);
+    p.spatialFollow = randomRange(seed, 0.78f, 0.98f);
+    p.outputGainDb = -24.0f;
+    plugin.randomSeed = seed;
+    return p;
 }
 
 bool queuePreset(Plugin& plugin, const s3g::AmbiStochasticParams& params)
@@ -1251,6 +1318,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 - (NSRect)presetMenuRect { return NSMakeRect(382, 13, 190, 15); }
 - (NSRect)presetLoadButtonRect { return NSMakeRect(580, 13, 48, 15); }
 - (NSRect)presetSaveButtonRect { return NSMakeRect(636, 13, 48, 15); }
+- (NSRect)randomizeButtonRect { return NSMakeRect(692, 13, 66, 15); }
 
 - (NSString*)presetDisplayName
 {
@@ -1266,6 +1334,21 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     if (!_plugin) return;
     _plugin->factoryPresetIndex = -1;
     std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", "CUSTOM");
+}
+
+- (void)randomizePreset
+{
+    if (!_plugin) return;
+    const auto params = makeSafeRandomParams(*_plugin);
+    if (!queuePreset(*_plugin, params)) {
+        NSBeep();
+        return;
+    }
+    _plugin->factoryPresetIndex = -1;
+    std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", "RANDOM");
+    _selectedVoice = std::min<uint32_t>(_selectedVoice, std::max<uint32_t>(1u, params.voices) - 1u);
+    _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
+    [self setNeedsDisplay:YES];
 }
 
 - (NSRect)viewButtonRect:(int)index
@@ -1801,6 +1884,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     const NSRect titleHeader = NSMakeRect(0, 8, kGuiWidth, 21);
     s3g::clap_gui::drawHeaderActionButton([self presetLoadButtonRect], titleHeader, @"LOAD", attrs, style);
     s3g::clap_gui::drawHeaderActionButton([self presetSaveButtonRect], titleHeader, @"SAVE", attrs, style);
+    s3g::clap_gui::drawHeaderActionButton([self randomizeButtonRect], titleHeader, @"RANDOM", attrs, style);
     s3g::clap_gui::drawRightStatus(s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed)),
         kGuiWidth, 14, valueAttrs, 18);
     [self drawField:attrs valueAttrs:valueAttrs style:style];
@@ -1910,6 +1994,10 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     }
     if (NSPointInRect(point, [self presetSaveButtonRect])) {
         [self saveUserPreset];
+        return;
+    }
+    if (NSPointInRect(point, [self randomizeButtonRect])) {
+        [self randomizePreset];
         return;
     }
     for (int menu = 1; menu <= 9; ++menu) {

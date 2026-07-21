@@ -36,8 +36,10 @@
 
 #if defined(S3G_HAS_WORLD)
 #include <world/cheaptrick.h>
+#include <world/codec.h>
 #include <world/d4c.h>
 #include <world/dio.h>
+#include <world/harvest.h>
 #include <world/stonemask.h>
 #include <world/synthesis.h>
 #endif
@@ -45,10 +47,12 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiVotMaxChannels;
-constexpr uint32_t kStateVersion = 18;
+constexpr uint32_t kStateVersion = 22;
 constexpr uint32_t kGuiW = 1160;
 constexpr uint32_t kGuiH = 920;
 constexpr uint32_t kVoxPhraseMaxChars = 256;
+constexpr uint32_t kVoxLyricsMaxChars = 4096;
+constexpr uint32_t kVoxLyricsMaxCues = 32;
 constexpr uint32_t kVoxLoadedNameMaxChars = 96;
 constexpr uint32_t kVoxCompiledMaxFrames = 512;
 constexpr float kVoxVoiceTimeStepMaxMs = 1000.0f;
@@ -58,6 +62,9 @@ constexpr uint32_t kVoxPvocBins = kVoxPvocHalfSize + 1u;
 constexpr uint32_t kVoxPvocHopSize = kVoxPvocFftSize / 4u;
 constexpr uint32_t kVoxWorldPitchAnchorCount = 5u;
 constexpr uint32_t kVoxWorldPitchAnchorCenter = 2u;
+constexpr uint32_t kVoxWorldSpectralDimensions = 50u;
+constexpr uint32_t kVoxWorldRuntimeEnvelopeBins = kVoxPvocBins;
+constexpr uint32_t kVoxFactoryPresetCount = 13u;
 constexpr std::array<int, kVoxWorldPitchAnchorCount> kVoxWorldPitchAnchorSemitones {
     -24, -12, 0, 12, 24
 };
@@ -137,6 +144,14 @@ constexpr clap_id kPortamentoParamId = 69;
 constexpr clap_id kVibratoDepthParamId = 70;
 constexpr clap_id kVibratoRateParamId = 71;
 constexpr clap_id kTransitionParamId = 72;
+constexpr clap_id kWorldAirColorParamId = 73;
+constexpr clap_id kOrchestrationParamId = 74;
+constexpr clap_id kContourModeParamId = 75;
+constexpr clap_id kPhraseSpreadParamId = 76;
+constexpr clap_id kLyricModeParamId = 77;
+constexpr clap_id kLyricCueBeatsParamId = 78;
+constexpr clap_id kLyricCueNoteParamId = 79;
+constexpr clap_id kLyricCueChannelParamId = 80;
 
 struct LegacyParamsV1 {
     uint32_t order = 3;
@@ -348,6 +363,31 @@ const char* voxCircuitModeName(VoxCircuitMode mode)
     return "CLEAN";
 }
 
+enum class VoxLyricMode : uint32_t {
+    Loop = 0,
+    MidiStep = 1,
+    MidiCue = 2,
+    Transport = 3,
+};
+
+const char* voxLyricModeName(VoxLyricMode mode)
+{
+    switch (mode) {
+    case VoxLyricMode::Loop: return "LOOP";
+    case VoxLyricMode::MidiStep: return "MIDI STEP";
+    case VoxLyricMode::MidiCue: return "MIDI CUE";
+    case VoxLyricMode::Transport: return "TRANSPORT";
+    }
+    return "LOOP";
+}
+
+struct VoxLyricParams {
+    VoxLyricMode mode = VoxLyricMode::Loop;
+    float cueBeats = 16.0f;
+    uint32_t cueBaseNote = 24u;
+    uint32_t cueChannel = 16u;
+};
+
 struct VoxParamsV9 {
     float rasp = 0.34f;
     float breath = 0.14f;
@@ -544,6 +584,81 @@ struct VoxParamsV16 {
     float pvocTransient = 0.65f;
 };
 
+struct VoxParamsV18 {
+    float rasp = 0.0f;
+    float breath = 0.0f;
+    float throat = 0.52f;
+    float drive = 0.0f;
+    float jitter = 0.12f;
+    float vowelSpread = 0.22f;
+    float pitchScoop = 0.12f;
+    float attackShape = 0.50f;
+    float articulation = 0.36f;
+    float consonant = 0.18f;
+    float plosive = 0.04f;
+    float sibilance = 0.18f;
+    float phraseRate = 0.34f;
+    VoxSpeechMode speechMode = VoxSpeechMode::Speak;
+    VoxCircuitMode circuitMode = VoxCircuitMode::Clean;
+    float formantMacro = 0.0f;
+    float bendMacro = 0.0f;
+    float crushMacro = 0.0f;
+    float worldRate = 0.50f;
+    float worldPitchCents = 0.0f;
+    float worldLoopStart = 0.0f;
+    float worldLoopEnd = 1.0f;
+    float worldVoiceSpread = 0.0f;
+    float worldFreeze = 0.0f;
+    float worldScrub = 0.0f;
+    float worldVoicing = 0.50f;
+    float worldVoiceDeviation = 0.0f;
+    float pvocStretch = 1.0f;
+    float pvocTransient = 0.65f;
+    float portamento = 0.18f;
+    float vibratoDepth = 0.12f;
+    float vibratoRateHz = 5.2f;
+    float transition = 0.65f;
+};
+
+struct VoxParamsV20 {
+    float rasp = 0.0f;
+    float breath = 0.0f;
+    float throat = 0.52f;
+    float drive = 0.0f;
+    float jitter = 0.12f;
+    float vowelSpread = 0.22f;
+    float pitchScoop = 0.12f;
+    float attackShape = 0.50f;
+    float articulation = 0.36f;
+    float consonant = 0.18f;
+    float plosive = 0.04f;
+    float sibilance = 0.18f;
+    float phraseRate = 0.34f;
+    VoxSpeechMode speechMode = VoxSpeechMode::Speak;
+    VoxCircuitMode circuitMode = VoxCircuitMode::Clean;
+    float formantMacro = 0.0f;
+    float bendMacro = 0.0f;
+    float crushMacro = 0.0f;
+    float worldRate = 0.50f;
+    float worldPitchCents = 0.0f;
+    float worldLoopStart = 0.0f;
+    float worldLoopEnd = 1.0f;
+    float worldVoiceSpread = 0.0f;
+    float worldFreeze = 0.0f;
+    float worldScrub = 0.0f;
+    float worldVoicing = 0.50f;
+    float worldVoiceDeviation = 0.0f;
+    float pvocStretch = 1.0f;
+    float pvocTransient = 0.65f;
+    float portamento = 0.18f;
+    float vibratoDepth = 0.12f;
+    float vibratoRateHz = 5.2f;
+    float transition = 0.65f;
+    float worldAirColor = 0.0f;
+    s3g::AmbiVoxOrchestration orchestration = s3g::AmbiVoxOrchestration::Individual;
+    s3g::AmbiVoxContourMode contourMode = s3g::AmbiVoxContourMode::Original;
+};
+
 struct VoxParams {
     float rasp = 0.0f;
     float breath = 0.0f;
@@ -578,6 +693,10 @@ struct VoxParams {
     float vibratoDepth = 0.12f;
     float vibratoRateHz = 5.2f;
     float transition = 0.65f;
+    float worldAirColor = 0.0f;
+    s3g::AmbiVoxOrchestration orchestration = s3g::AmbiVoxOrchestration::Individual;
+    s3g::AmbiVoxContourMode contourMode = s3g::AmbiVoxContourMode::Original;
+    float phraseSpread = 0.0f;
 };
 
 struct SavedStateV6 {
@@ -749,8 +868,58 @@ struct SavedStateV16 {
     std::array<float, s3g::kAmbiVotAtlasSampleCount> userAtlas {};
 };
 
-struct SavedState {
-    uint32_t version = kStateVersion;
+struct SavedStateV18 {
+    uint32_t version = 18;
+    s3g::AmbiVotParams params {};
+    s3g::AmbiVotVectorScore score = s3g::ambiVotDefaultScore();
+    VoxParamsV18 vox {};
+    std::array<uint8_t, kVoxPhraseMaxChars> phrase {};
+    uint32_t phraseLength = 0u;
+    int32_t guiPage = 0;
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+    uint32_t hasUserAtlas = 0u;
+    std::array<float, s3g::kAmbiVotAtlasSampleCount> userAtlas {};
+};
+
+struct SavedStateV19 {
+    uint32_t version = 19u;
+    s3g::AmbiVotParams params {};
+    s3g::AmbiVotVectorScore score = s3g::ambiVotDefaultScore();
+    VoxParamsV20 vox {};
+    std::array<uint8_t, kVoxPhraseMaxChars> phrase {};
+    uint32_t phraseLength = 0u;
+    int32_t guiPage = 0;
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+    uint32_t hasUserAtlas = 0u;
+    std::array<float, s3g::kAmbiVotAtlasSampleCount> userAtlas {};
+};
+
+struct SavedStateV20 {
+    uint32_t version = 20u;
+    s3g::AmbiVotParams params {};
+    s3g::AmbiVotVectorScore score = s3g::ambiVotDefaultScore();
+    VoxParamsV20 vox {};
+    std::array<uint8_t, kVoxPhraseMaxChars> phrase {};
+    uint32_t phraseLength = 0u;
+    int32_t guiPage = 0;
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+    uint32_t hasUserAtlas = 0u;
+    std::array<float, s3g::kAmbiVotAtlasSampleCount> userAtlas {};
+    int32_t factoryPresetIndex = 0;
+    std::array<char, 64> presetName {};
+};
+
+struct SavedStateV21 {
+    uint32_t version = 21u;
     s3g::AmbiVotParams params {};
     s3g::AmbiVotVectorScore score = s3g::ambiVotDefaultScore();
     VoxParams vox {};
@@ -763,6 +932,81 @@ struct SavedState {
     float guiViewZoom = 1.0f;
     uint32_t hasUserAtlas = 0u;
     std::array<float, s3g::kAmbiVotAtlasSampleCount> userAtlas {};
+    int32_t factoryPresetIndex = 0;
+    std::array<char, 64> presetName {};
+};
+
+struct SavedState {
+    uint32_t version = kStateVersion;
+    s3g::AmbiVotParams params {};
+    s3g::AmbiVotVectorScore score = s3g::ambiVotDefaultScore();
+    VoxParams vox {};
+    VoxLyricParams lyric {};
+    std::array<uint8_t, kVoxPhraseMaxChars> phrase {};
+    uint32_t phraseLength = 0u;
+    std::array<uint8_t, kVoxLyricsMaxChars> lyrics {};
+    uint32_t lyricsLength = 0u;
+    int32_t guiPage = 0;
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+    uint32_t hasUserAtlas = 0u;
+    std::array<float, s3g::kAmbiVotAtlasSampleCount> userAtlas {};
+    int32_t factoryPresetIndex = 0;
+    std::array<char, 64> presetName {};
+};
+
+struct VoxPresetSnapshot {
+    s3g::AmbiVotParams params {};
+    VoxParams vox {};
+    VoxLyricParams lyric {};
+    s3g::AmbiVotVectorScore score = s3g::ambiVotDefaultScore();
+};
+
+struct VoxPresetMailbox {
+    static constexpr uint32_t kCapacity = 4u;
+    std::array<VoxPresetSnapshot, kCapacity> values {};
+    std::atomic<uint32_t> readIndex { 0u };
+    std::atomic<uint32_t> writeIndex { 0u };
+
+    bool push(const VoxPresetSnapshot& value)
+    {
+        const uint32_t write = writeIndex.load(std::memory_order_relaxed);
+        const uint32_t next = (write + 1u) % kCapacity;
+        if (next == readIndex.load(std::memory_order_acquire)) return false;
+        values[write] = value;
+        writeIndex.store(next, std::memory_order_release);
+        return true;
+    }
+
+    bool pop(VoxPresetSnapshot& value)
+    {
+        const uint32_t read = readIndex.load(std::memory_order_relaxed);
+        if (read == writeIndex.load(std::memory_order_acquire)) return false;
+        value = values[read];
+        readIndex.store((read + 1u) % kCapacity, std::memory_order_release);
+        return true;
+    }
+};
+
+struct VoxWorldParameterData {
+    int sampleRate = 0;
+    int fftSize = 0;
+    double framePeriodMs = 5.0;
+    uint32_t frameCount = 0u;
+    uint32_t spectralDimensions = 0u;
+    uint32_t aperiodicityDimensions = 0u;
+    std::vector<float> codedSpectralEnvelope;
+    std::vector<float> codedAperiodicity;
+    std::vector<float> runtimeLogEnvelope;
+
+    bool ready() const
+    {
+        return sampleRate > 0 && frameCount > 0u
+            && runtimeLogEnvelope.size()
+                == static_cast<size_t>(frameCount) * kVoxWorldRuntimeEnvelopeBins;
+    }
 };
 
 struct VoxWorldSample {
@@ -772,6 +1016,7 @@ struct VoxWorldSample {
     std::vector<float> samples;
     std::vector<float> f0;
     std::vector<float> frameEnergy;
+    VoxWorldParameterData parameters;
     std::string name;
 };
 
@@ -782,8 +1027,16 @@ struct VoxVoicebankAudio {
     std::array<std::vector<float>, kVoxWorldPitchAnchorCount - 1u> worldPitchVariants;
     std::vector<float> worldF0;
     std::vector<float> worldFrameEnergy;
+    VoxWorldParameterData worldParameters;
     double worldFramePeriodMs = 5.0;
     bool worldResynthesized = false;
+};
+
+struct VoxPvocSpectralControl {
+    const VoxWorldParameterData* parameters = nullptr;
+    float formant = 0.0f;
+    float periodicity = 0.5f;
+    float airColor = 0.0f;
 };
 
 struct VoxVoicebankEntry {
@@ -815,6 +1068,7 @@ struct VoxPvocVoiceState {
     double analysisPosition = 0.0;
     uint32_t outputReadPosition = 0u;
     uint32_t samplesUntilHop = 0u;
+    uint64_t spectralFrameCounter = 0u;
     bool primed = false;
 };
 
@@ -857,6 +1111,7 @@ public:
         state.analysisPosition = position;
         state.outputReadPosition = 0u;
         state.samplesUntilHop = 0u;
+        state.spectralFrameCounter = 0u;
         state.primed = false;
     }
 
@@ -871,7 +1126,8 @@ public:
                   float transientPreserve,
                   float freeze,
                   float scrub,
-                  bool loop = true)
+                  bool loop = true,
+                  const VoxPvocSpectralControl& spectral = {})
     {
         if (samples.empty()) return 0.0f;
         rangeStart = std::clamp(rangeStart, 0.0, static_cast<double>(samples.size() - 1u));
@@ -897,7 +1153,7 @@ public:
 
         if (state.samplesUntilHop == 0u) {
             synthesize(state, samples, rangeStart, rangeEnd, sourceRateRatio, timelineRate,
-                       stretch, pitchRatio, transientPreserve, freeze, scrub, loop);
+                       stretch, pitchRatio, transientPreserve, freeze, scrub, loop, spectral);
             state.samplesUntilHop = kVoxPvocHopSize;
         }
         const uint32_t readPosition = state.outputReadPosition;
@@ -941,6 +1197,101 @@ private:
         return std::remainder(phase, 2.0f * s3g::kPi);
     }
 
+    static float worldFrameCoordinate(const VoxWorldParameterData& parameters,
+                                      double samplePosition)
+    {
+        if (parameters.frameCount == 0u || parameters.sampleRate <= 0) return 0.0f;
+        const double frame = (samplePosition / static_cast<double>(parameters.sampleRate))
+            * (1000.0 / std::max(0.001, parameters.framePeriodMs));
+        double wrapped = std::fmod(std::max(0.0, frame), static_cast<double>(parameters.frameCount));
+        if (wrapped < 0.0) wrapped += static_cast<double>(parameters.frameCount);
+        return static_cast<float>(wrapped);
+    }
+
+    static float worldFrameValue(const std::vector<float>& values,
+                                 uint32_t dimensions,
+                                 uint32_t frameCount,
+                                 float frame,
+                                 float dimension)
+    {
+        if (values.empty() || dimensions == 0u || frameCount == 0u) return 0.0f;
+        frame = std::clamp(frame, 0.0f, static_cast<float>(frameCount - 1u));
+        dimension = std::clamp(dimension, 0.0f, static_cast<float>(dimensions - 1u));
+        const uint32_t frame0 = static_cast<uint32_t>(frame);
+        const uint32_t frame1 = std::min<uint32_t>(frame0 + 1u, frameCount - 1u);
+        const uint32_t dim0 = static_cast<uint32_t>(dimension);
+        const uint32_t dim1 = std::min<uint32_t>(dim0 + 1u, dimensions - 1u);
+        const float frameMix = frame - static_cast<float>(frame0);
+        const float dimMix = dimension - static_cast<float>(dim0);
+        const auto at = [&](uint32_t f, uint32_t d) {
+            const size_t index = static_cast<size_t>(f) * dimensions + d;
+            return index < values.size() ? values[index] : 0.0f;
+        };
+        return s3g::lerp(
+            s3g::lerp(at(frame0, dim0), at(frame0, dim1), dimMix),
+            s3g::lerp(at(frame1, dim0), at(frame1, dim1), dimMix),
+            frameMix);
+    }
+
+    static float worldAperiodicity(const VoxWorldParameterData& parameters,
+                                   float frame,
+                                   float frequencyHz,
+                                   float airColor)
+    {
+        if (parameters.aperiodicityDimensions == 0u
+            || parameters.codedAperiodicity.empty()) return 0.5f;
+        float averageDb = 0.0f;
+        for (uint32_t dimension = 0u;
+             dimension < parameters.aperiodicityDimensions; ++dimension) {
+            averageDb += worldFrameValue(parameters.codedAperiodicity,
+                parameters.aperiodicityDimensions, parameters.frameCount,
+                frame, static_cast<float>(dimension));
+        }
+        averageDb /= static_cast<float>(parameters.aperiodicityDimensions);
+        // WORLD marks unvoiced frames by coding a coarse aperiodicity near
+        // 0 dB across every band.
+        if (averageDb > -0.5f) return 1.0f;
+        constexpr float intervalHz = 3000.0f;
+        const float nyquist = std::max(1.0f, static_cast<float>(parameters.sampleRate) * 0.5f);
+        float db = -60.0f;
+        if (frequencyHz <= intervalHz) {
+            const float first = worldFrameValue(parameters.codedAperiodicity,
+                parameters.aperiodicityDimensions, parameters.frameCount, frame, 0.0f);
+            db = s3g::lerp(-60.0f, first, std::clamp(frequencyHz / intervalHz, 0.0f, 1.0f));
+        } else {
+            const float position = frequencyHz / intervalHz - 1.0f;
+            const float last = static_cast<float>(parameters.aperiodicityDimensions - 1u);
+            if (position <= last) {
+                db = worldFrameValue(parameters.codedAperiodicity,
+                    parameters.aperiodicityDimensions, parameters.frameCount, frame, position);
+            } else {
+                const float tailStartHz = intervalHz * static_cast<float>(parameters.aperiodicityDimensions);
+                const float tail = std::clamp((frequencyHz - tailStartHz)
+                    / std::max(1.0f, nyquist - tailStartHz), 0.0f, 1.0f);
+                const float lastDb = worldFrameValue(parameters.codedAperiodicity,
+                    parameters.aperiodicityDimensions, parameters.frameCount, frame, last);
+                db = s3g::lerp(lastDb, 0.0f, tail);
+            }
+        }
+        const float brightness = frequencyHz / nyquist - 0.35f;
+        db += std::clamp(airColor, -1.0f, 1.0f) * brightness * 18.0f;
+        return std::clamp(std::pow(10.0f, std::clamp(db, -60.0f, 0.0f) / 20.0f), 0.001f, 1.0f);
+    }
+
+    static float randomPhase(uint64_t frame, uint32_t bin)
+    {
+        uint64_t hash = frame * 0x9e3779b97f4a7c15ull
+            ^ (static_cast<uint64_t>(bin) + 1ull) * 0xbf58476d1ce4e5b9ull;
+        hash ^= hash >> 30u;
+        hash *= 0xbf58476d1ce4e5b9ull;
+        hash ^= hash >> 27u;
+        hash *= 0x94d049bb133111ebull;
+        hash ^= hash >> 31u;
+        const float unit = static_cast<float>(hash & 0x00ffffffu)
+            / static_cast<float>(0x01000000u);
+        return unit * 2.0f * s3g::kPi - s3g::kPi;
+    }
+
     void synthesize(VoxPvocVoiceState& state,
                     const std::vector<float>& samples,
                     double rangeStart,
@@ -952,7 +1303,8 @@ private:
                     float transientPreserve,
                     float freeze,
                     float scrub,
-                    bool loop)
+                    bool loop,
+                    const VoxPvocSpectralControl& spectral)
     {
 #if defined(__APPLE__)
         sourceRateRatio = std::clamp(sourceRateRatio, 0.125f, 8.0f);
@@ -1004,6 +1356,12 @@ private:
         outputImag_.fill(0.0f);
         const float frequencyScale = pitchRatio * sourceRateRatio;
         const float magnitudeScale = 1.0f / std::sqrt(std::max(0.25f, frequencyScale));
+        const bool hasWorldParameters = spectral.parameters && spectral.parameters->ready();
+        const float worldFrame = hasWorldParameters
+            ? worldFrameCoordinate(*spectral.parameters, framePosition)
+            : 0.0f;
+        const float formantScale = std::pow(2.0f, std::clamp(spectral.formant, -1.0f, 1.0f) * 0.5f);
+        const float periodicityShift = (std::clamp(spectral.periodicity, 0.0f, 1.0f) - 0.5f) * 2.0f;
         for (uint32_t bin = 0u; bin < kVoxPvocBins; ++bin) {
             const float omega = 2.0f * s3g::kPi * static_cast<float>(bin) / static_cast<float>(kVoxPvocFftSize);
             const float delta = wrapPhase(inputPhase_[bin] - state.previousPhase[bin] - omega * analysisHop);
@@ -1019,9 +1377,47 @@ private:
             if (lower >= kVoxPvocBins) continue;
             const uint32_t upper = std::min<uint32_t>(lower + 1u, kVoxPvocBins - 1u);
             const float fraction = target - static_cast<float>(lower);
-            const float magnitude = inputMagnitude_[bin] * magnitudeScale;
-            const float real = magnitude * std::cos(state.synthesisPhase[bin]);
-            const float imag = magnitude * std::sin(state.synthesisPhase[bin]);
+            float magnitude = inputMagnitude_[bin] * magnitudeScale;
+            float outputPhase = state.synthesisPhase[bin];
+            if (hasWorldParameters) {
+                const float envelopeBin = static_cast<float>(bin);
+                const float warpedBin = envelopeBin / formantScale;
+                const float originalEnvelope = worldFrameValue(
+                    spectral.parameters->runtimeLogEnvelope,
+                    kVoxWorldRuntimeEnvelopeBins, spectral.parameters->frameCount,
+                    worldFrame, envelopeBin);
+                const float warpedEnvelope = worldFrameValue(
+                    spectral.parameters->runtimeLogEnvelope,
+                    kVoxWorldRuntimeEnvelopeBins, spectral.parameters->frameCount,
+                    worldFrame, warpedBin);
+                const float formantGain = std::clamp(
+                    std::exp(0.5f * (warpedEnvelope - originalEnvelope)), 0.125f, 8.0f);
+                magnitude *= formantGain;
+
+                const float frequencyHz = static_cast<float>(bin)
+                    * static_cast<float>(spectral.parameters->sampleRate)
+                    / static_cast<float>(kVoxPvocFftSize);
+                const float aperiodicity = worldAperiodicity(
+                    *spectral.parameters, worldFrame, frequencyHz, spectral.airColor);
+                const float nyquist = std::max(1.0f,
+                    static_cast<float>(spectral.parameters->sampleRate) * 0.5f);
+                const float airTiltDb = std::clamp(spectral.airColor, -1.0f, 1.0f)
+                    * (frequencyHz / nyquist - 0.35f) * aperiodicity * 12.0f;
+                magnitude *= std::pow(10.0f, airTiltDb / 20.0f);
+                if (periodicityShift > 0.0f) {
+                    const float periodicGain = std::sqrt(std::max(0.001f,
+                        1.0f - aperiodicity * aperiodicity));
+                    magnitude *= s3g::lerp(1.0f, periodicGain,
+                        std::min(1.0f, periodicityShift * 0.82f));
+                } else if (periodicityShift < 0.0f) {
+                    const float randomAmount = std::min(0.96f,
+                        -periodicityShift * (1.0f - aperiodicity * aperiodicity));
+                    const float targetPhase = randomPhase(state.spectralFrameCounter, bin);
+                    outputPhase += wrapPhase(targetPhase - outputPhase) * randomAmount;
+                }
+            }
+            const float real = magnitude * std::cos(outputPhase);
+            const float imag = magnitude * std::sin(outputPhase);
             outputReal_[lower] += real * (1.0f - fraction);
             outputImag_[lower] += imag * (1.0f - fraction);
             if (upper != lower) {
@@ -1049,6 +1445,7 @@ private:
         state.analysisPosition = loop
             ? wrapPosition(nextPosition, rangeStart, rangeEnd)
             : nextPosition;
+        ++state.spectralFrameCounter;
         state.primed = true;
 #else
         (void)state;
@@ -1063,6 +1460,7 @@ private:
         (void)freeze;
         (void)scrub;
         (void)loop;
+        (void)spectral;
 #endif
     }
 
@@ -1083,21 +1481,25 @@ private:
 };
 
 struct VoxVoiceDelayLine {
-    std::vector<int16_t> samples;
+    std::vector<float> samples;
     size_t writePosition = 0u;
     double delayA = 0.0;
     double delayB = 0.0;
+    double pendingDelay = 0.0;
     float crossfade = 1.0f;
     float crossfadeStep = 1.0f;
+    bool hasPendingDelay = false;
 
     void prepare(size_t capacity, double sampleRate)
     {
-        samples.assign(std::max<size_t>(4u, capacity), 0);
+        samples.assign(std::max<size_t>(4u, capacity), 0.0f);
         writePosition = 0u;
         delayA = 0.0;
         delayB = 0.0;
+        pendingDelay = 0.0;
         crossfade = 1.0f;
-        crossfadeStep = 1.0f / std::max(1.0f, static_cast<float>(sampleRate) * 0.050f);
+        crossfadeStep = 1.0f / std::max(1.0f, static_cast<float>(sampleRate) * 0.120f);
+        hasPendingDelay = false;
     }
 
     double maximumDelay() const
@@ -1108,9 +1510,13 @@ struct VoxVoiceDelayLine {
     void setDelay(double delaySamples)
     {
         const double target = std::clamp(delaySamples, 0.0, maximumDelay());
+        if (crossfade < 1.0f) {
+            pendingDelay = target;
+            hasPendingDelay = std::fabs(pendingDelay - delayB) >= 0.5;
+            return;
+        }
         if (std::fabs(target - delayB) < 0.5) return;
-        const float mix = crossfade * crossfade * (3.0f - 2.0f * crossfade);
-        delayA = delayA + (delayB - delayA) * static_cast<double>(mix);
+        delayA = delayB;
         delayB = target;
         crossfade = 0.0f;
     }
@@ -1124,32 +1530,43 @@ struct VoxVoiceDelayLine {
         if (read < 0.0) read += size;
         const size_t i0 = static_cast<size_t>(read);
         const size_t i1 = (i0 + 1u) % samples.size();
-        const float a = static_cast<float>(samples[i0]) / 32768.0f;
-        const float b = static_cast<float>(samples[i1]) / 32768.0f;
+        const float a = samples[i0];
+        const float b = samples[i1];
         return s3g::lerp(a, b, static_cast<float>(read - std::floor(read)));
     }
 
     float process(float input)
     {
         if (samples.empty()) return input;
-        samples[writePosition] = static_cast<int16_t>(std::lround(
-            std::clamp(input, -0.999969f, 0.999969f) * 32767.0f));
+        samples[writePosition] = std::clamp(input, -1.2f, 1.2f);
         const float a = readAt(delayA);
         const float b = readAt(delayB);
         const float mix = crossfade * crossfade * (3.0f - 2.0f * crossfade);
         const float output = s3g::lerp(a, b, mix);
         writePosition = (writePosition + 1u) % samples.size();
         crossfade = std::min(1.0f, crossfade + crossfadeStep);
-        if (crossfade >= 1.0f) delayA = delayB;
+        if (crossfade >= 1.0f) {
+            delayA = delayB;
+            if (hasPendingDelay) {
+                const double next = pendingDelay;
+                hasPendingDelay = false;
+                if (std::fabs(next - delayB) >= 0.5) {
+                    delayB = next;
+                    crossfade = 0.0f;
+                }
+            }
+        }
         return s3g::flushDenormal(output);
     }
 
     void reset()
     {
-        std::fill(samples.begin(), samples.end(), 0);
+        std::fill(samples.begin(), samples.end(), 0.0f);
         writePosition = 0u;
         delayA = delayB;
+        pendingDelay = delayB;
         crossfade = 1.0f;
+        hasPendingDelay = false;
     }
 };
 
@@ -1158,21 +1575,62 @@ struct VoxVoiceDelayBank {
     float requestedStep = 0.0f;
     float stepCapacity = 0.0f;
     uint32_t voiceCapacity = 0u;
-    std::array<VoxVoiceDelayLine, s3g::kAmbiVotMaxVoices> lines;
+    std::array<VoxVoiceDelayLine, s3g::kAmbiVoxMaxVoices> lines;
+};
+
+struct VoxLyricSynthEvent {
+    uint8_t symbol = 0u;
+    uint8_t duration = 1u;
+    float energy = 0.0f;
+    float pitchMul = 1.0f;
+    float noise = 0.0f;
+    float plosive = 0.0f;
+    float f1 = 600.0f;
+    float f2 = 1500.0f;
+    float f3 = 2800.0f;
+};
+
+struct VoxLyricBankEvent {
+    uint16_t index = 0u;
+    uint8_t duration = 1u;
+    uint8_t flags = kVoxBankEventRest;
+};
+
+struct VoxLyricCue {
+    std::string text;
+    std::vector<VoxLyricSynthEvent> synthEvents;
+    std::vector<VoxLyricBankEvent> bankEvents;
+};
+
+struct VoxLyricScore {
+    std::vector<VoxLyricCue> cues;
 };
 
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_params_t* hostParams = nullptr;
     double sampleRate = 48000.0;
     s3g::AmbiVotEncoder engine {};
     VoxPvocProcessor pvoc {};
     s3g::AmbiVotParams params {};
     VoxParams vox {};
+    VoxLyricParams lyric {};
+    VoxPresetMailbox presetMailbox {};
+    std::atomic<bool> presetRescanPending { false };
+    int32_t factoryPresetIndex = 0;
+    char presetName[64] {};
+    std::array<float, kOutputChannels> lastOutputSample {};
+    std::array<float, kOutputChannels> presetTransitionOffset {};
+    uint32_t presetTransitionFrames = 0u;
+    uint32_t presetTransitionRemaining = 0u;
+    bool presetTransitionNeedsInit = false;
     std::array<std::shared_ptr<const s3g::AmbiVotTableBank>, 4> presetBanks {};
     std::shared_ptr<const s3g::AmbiVotTableBank> userBank;
     std::shared_ptr<const VoxWorldSample> worldSample;
     std::shared_ptr<const VoxVoicebank> voicebank;
+    std::shared_ptr<const VoxLyricScore> lyricScore;
+    std::shared_ptr<const VoxLyricScore> activeLyricScore;
     std::shared_ptr<VoxVoiceDelayBank> voiceDelayBank;
     std::atomic<float> requestedDelayStepCapacity { 0.0f };
     std::atomic<uint32_t> requestedDelayVoiceCapacity { 0u };
@@ -1200,6 +1658,7 @@ struct Plugin {
     std::atomic<uint32_t> voxBankCompiledCount { 0u };
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<uint32_t> lastMidiNote { 0u };
+    std::atomic<float> lastMidiVelocity { 0.0f };
     uint32_t voxNoiseState = 0x51f15eedu;
     float voxConsonantEnv = 0.0f;
     float voxConsonantLevel = 0.0f;
@@ -1211,22 +1670,24 @@ struct Plugin {
     float voxPhraseU = 0.72f;
     float voxPhraseV = 0.64f;
     uint32_t voxPhraseIndex = 0u;
+    uint32_t voxPhraseCurrentIndex = 0u;
     uint32_t voxPhraseHold = 0u;
     uint32_t voxBankPhraseIndex = 0u;
     uint32_t voxBankPhraseHold = 0u;
     uint32_t voxBankCurrentEntry = 0u;
-    std::array<uint32_t, s3g::kAmbiVotMaxVoices> voxBankVoicePhraseIndex {};
-    std::array<uint32_t, s3g::kAmbiVotMaxVoices> voxBankVoiceCurrentPhraseIndex {};
-    std::array<uint32_t, s3g::kAmbiVotMaxVoices> voxBankVoicePhraseHold {};
-    std::array<uint32_t, s3g::kAmbiVotMaxVoices> voxBankVoiceCurrentEntry {};
-    std::array<double, s3g::kAmbiVotMaxVoices> voxBankVoicePhraseSamplesRemaining {};
-    std::array<double, s3g::kAmbiVotMaxVoices> voxBankVoicePhraseSamplesTotal {};
-    std::array<uint32_t, s3g::kAmbiVotMaxVoices> voxBankVoiceNextEntry {};
-    std::array<uint8_t, s3g::kAmbiVotMaxVoices> voxBankVoiceCurrentFlags {};
-    std::array<uint8_t, s3g::kAmbiVotMaxVoices> voxBankVoiceNextFlags {};
-    std::array<uint8_t, s3g::kAmbiVotMaxVoices> voxBankVoiceNextPitchAnchor {};
-    std::array<bool, s3g::kAmbiVotMaxVoices> voxBankVoiceTransitionActive {};
+    std::array<uint32_t, s3g::kAmbiVoxMaxVoices> voxBankVoicePhraseIndex {};
+    std::array<uint32_t, s3g::kAmbiVoxMaxVoices> voxBankVoiceCurrentPhraseIndex {};
+    std::array<uint32_t, s3g::kAmbiVoxMaxVoices> voxBankVoicePhraseHold {};
+    std::array<uint32_t, s3g::kAmbiVoxMaxVoices> voxBankVoiceCurrentEntry {};
+    std::array<double, s3g::kAmbiVoxMaxVoices> voxBankVoicePhraseSamplesRemaining {};
+    std::array<double, s3g::kAmbiVoxMaxVoices> voxBankVoicePhraseSamplesTotal {};
+    std::array<uint32_t, s3g::kAmbiVoxMaxVoices> voxBankVoiceNextEntry {};
+    std::array<uint8_t, s3g::kAmbiVoxMaxVoices> voxBankVoiceCurrentFlags {};
+    std::array<uint8_t, s3g::kAmbiVoxMaxVoices> voxBankVoiceNextFlags {};
+    std::array<uint8_t, s3g::kAmbiVoxMaxVoices> voxBankVoiceNextPitchAnchor {};
+    std::array<bool, s3g::kAmbiVoxMaxVoices> voxBankVoiceTransitionActive {};
     std::atomic<bool> voxBankTimingResetRequested { false };
+    std::atomic<bool> voxWorldTimingResetRequested { false };
     float voxPhraseBreathEnv = 0.0f;
     float voxPhraseVowelEnv = 0.0f;
     float voxPhraseVowelU = 0.72f;
@@ -1246,8 +1707,10 @@ struct Plugin {
     float voxWorldPitchSmooth = 0.0f;
     float voxWorldLoopStartSmooth = 0.0f;
     float voxWorldLoopEndSmooth = 1.0f;
+    float voxWorldVoiceSpreadSmooth = 0.0f;
     float voxWorldVoiceDeviationSmooth = 0.0f;
     float voxWorldFormantSmooth = 0.0f;
+    float voxWorldAirColorSmooth = 0.0f;
     float voxWorldFlutterSmooth = 0.0f;
     float voxWorldDegradeSmooth = 0.0f;
     float voxWorldEdgeSmooth = 0.34f;
@@ -1258,54 +1721,64 @@ struct Plugin {
     float voxWorldVoicingSmooth = 0.50f;
     float voxPvocStretchSmooth = 1.0f;
     float voxPvocTransientSmooth = 0.65f;
-    std::array<float, s3g::kAmbiVotMaxVoices> voxNeighborEnv {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxWorldVoiceGainSmooth {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxPitchRatioSmooth {};
-    std::array<double, s3g::kAmbiVotMaxVoices> voxWorldPhase {};
-    std::array<VoxPvocVoiceState, s3g::kAmbiVotMaxVoices> voxPvocVoice {};
-    std::array<VoxPvocVoiceState, s3g::kAmbiVotMaxVoices> voxPvocNextVoice {};
-    std::array<uint8_t, s3g::kAmbiVotMaxVoices> voxBankWorldPitchAnchor {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxTargetNoteSmooth {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxVibratoPhase {};
-    std::array<int16_t, s3g::kAmbiVotMaxVoices> voxMidiNote {};
-    std::array<int16_t, s3g::kAmbiVotMaxVoices> voxMidiChannel {};
-    std::array<int32_t, s3g::kAmbiVotMaxVoices> voxMidiNoteId {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxMidiVelocity {};
-    std::array<uint64_t, s3g::kAmbiVotMaxVoices> voxMidiAge {};
-    std::array<bool, s3g::kAmbiVotMaxVoices> voxMidiGate {};
-    std::array<bool, s3g::kAmbiVotMaxVoices> voxMidiRetrigger {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxNeighborEnv {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxWorldVoiceGainSmooth {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxPitchRatioSmooth {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxContourRatioSmooth {};
+    std::array<double, s3g::kAmbiVoxMaxVoices> voxWorldPhase {};
+    std::array<VoxPvocVoiceState, s3g::kAmbiVoxMaxVoices> voxPvocVoice {};
+    std::array<VoxPvocVoiceState, s3g::kAmbiVoxMaxVoices> voxPvocNextVoice {};
+    std::array<uint8_t, s3g::kAmbiVoxMaxVoices> voxBankWorldPitchAnchor {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxTargetNoteSmooth {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxVibratoPhase {};
+    std::array<int16_t, s3g::kAmbiVoxMaxVoices> voxMidiNote {};
+    std::array<int16_t, s3g::kAmbiVoxMaxVoices> voxMidiChannel {};
+    std::array<int32_t, s3g::kAmbiVoxMaxVoices> voxMidiNoteId {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxMidiVelocity {};
+    std::array<uint64_t, s3g::kAmbiVoxMaxVoices> voxMidiAge {};
+    std::array<bool, s3g::kAmbiVoxMaxVoices> voxMidiGate {};
+    std::array<bool, s3g::kAmbiVoxMaxVoices> voxMidiRetrigger {};
     uint64_t voxMidiAgeCounter = 1u;
-    std::array<float, s3g::kAmbiVotMaxVoices> voxLpcPhase {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxLpcTilt {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxLpcPulse {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxLpcF0 {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxLpcOut {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxFormant1Hz {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxFormant2Hz {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxFormant3Hz {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxFormant1Low {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxFormant1Band {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxFormant2Low {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxFormant2Band {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxFormant3Low {};
-    std::array<float, s3g::kAmbiVotMaxVoices> voxFormant3Band {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxLpcPhase {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxLpcTilt {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxLpcPulse {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxLpcF0 {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxLpcOut {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxFormant1Hz {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxFormant2Hz {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxFormant3Hz {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxFormant1Low {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxFormant1Band {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxFormant2Low {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxFormant2Band {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxFormant3Low {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> voxFormant3Band {};
     std::array<std::atomic<uint8_t>, kVoxPhraseMaxChars> voxPhrase {};
     std::atomic<uint32_t> voxPhraseLength { 0u };
+    std::array<std::atomic<uint8_t>, kVoxLyricsMaxChars> voxLyrics {};
+    std::atomic<uint32_t> voxLyricsLength { 0u };
+    std::atomic<uint32_t> requestedLyricCue { 0u };
+    std::atomic<uint32_t> guiLyricCue { 0u };
+    std::atomic<bool> lyricCueResetRequested { true };
+    uint32_t lyricRuntimeCue = 0u;
+    uint32_t lyricMidiStepCue = 0u;
+    bool lyricMidiStepStarted = false;
     std::array<std::atomic<uint8_t>, kVoxLoadedNameMaxChars> voxLoadedName {};
     std::atomic<uint32_t> voxLoadedNameLength { 0u };
 #if defined(__APPLE__)
     void* guiView = nullptr;
     std::atomic<bool> guiVisible { false };
-    std::array<std::atomic<float>, s3g::kAmbiVotMaxVoices> guiAzimuth {};
-    std::array<std::atomic<float>, s3g::kAmbiVotMaxVoices> guiElevation {};
-    std::array<std::atomic<float>, s3g::kAmbiVotMaxVoices> guiDistance {};
-    std::array<std::atomic<float>, s3g::kAmbiVotMaxVoices> guiU {};
-    std::array<std::atomic<float>, s3g::kAmbiVotMaxVoices> guiV {};
-    std::array<std::atomic<uint32_t>, s3g::kAmbiVotMaxVoices> guiNeighborCount {};
-    std::array<std::atomic<uint32_t>, s3g::kAmbiVotMaxVoices> guiNeighborGate {};
+    std::array<std::atomic<float>, s3g::kAmbiVoxMaxVoices> guiAzimuth {};
+    std::array<std::atomic<float>, s3g::kAmbiVoxMaxVoices> guiElevation {};
+    std::array<std::atomic<float>, s3g::kAmbiVoxMaxVoices> guiDistance {};
+    std::array<std::atomic<float>, s3g::kAmbiVoxMaxVoices> guiU {};
+    std::array<std::atomic<float>, s3g::kAmbiVoxMaxVoices> guiV {};
+    std::array<std::atomic<uint32_t>, s3g::kAmbiVoxMaxVoices> guiNeighborCount {};
+    std::array<std::atomic<uint32_t>, s3g::kAmbiVoxMaxVoices> guiNeighborGate {};
     std::atomic<float> guiMotionPhase { 0.0f };
     std::atomic<uint32_t> guiVoxPhraseEvent { 0u };
     std::atomic<float> guiVoxPhraseProgress { 0.0f };
+    std::array<std::atomic<float>, s3g::kAmbiVoxMaxVoices> guiVoxPhrasePhase {};
     int guiPage = 0;
     int guiViewMode = 2;
     float guiViewAzDeg = 38.0f;
@@ -1315,6 +1788,258 @@ struct Plugin {
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+struct VoxFactoryPresetDefinition {
+    VoxPresetSnapshot snapshot {};
+    const char* name = "VOX DEFAULT";
+    const char* phrase = "ra ka ta sa sorrow ash";
+};
+
+VoxPresetSnapshot makeVoxDefaultSnapshot()
+{
+    VoxPresetSnapshot preset {};
+    preset.params.preset = s3g::AmbiVotPreset::User;
+    preset.params.vectorX = 0.72f;
+    preset.params.vectorY = 0.64f;
+    preset.params.morph = 0.82f;
+    preset.params.detune = 0.18f;
+    preset.params.pitchSpread = 0.58f;
+    preset.params.subharmonicAmount = 0.32f;
+    preset.params.attackMs = 45.0f;
+    preset.params.releaseMs = 950.0f;
+    preset.params.outputGainDb = -22.0f;
+    return preset;
+}
+
+VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
+{
+    VoxFactoryPresetDefinition preset {};
+    preset.snapshot = makeVoxDefaultSnapshot();
+    auto& params = preset.snapshot.params;
+    auto& vox = preset.snapshot.vox;
+
+    switch (std::min<uint32_t>(index, kVoxFactoryPresetCount - 1u)) {
+    case 1u:
+        preset.name = "SOLO SPEAK";
+        preset.phrase = "ra ka ta sa sorrow ash";
+        params.voices = 1u;
+        params.motionAmount = 0.22f;
+        params.motionSpread = 0.12f;
+        params.motionCoherence = 0.92f;
+        params.outputGainDb = -14.0f;
+        vox.speechMode = VoxSpeechMode::Speak;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Individual;
+        vox.contourMode = s3g::AmbiVoxContourMode::Original;
+        vox.worldVoicing = 0.68f;
+        vox.transition = 0.78f;
+        break;
+    case 2u:
+        preset.name = "CLOSE UNISON";
+        preset.phrase = "ah ra no mi ah ra no mi";
+        params.voices = 8u;
+        params.pitchSpread = 0.0f;
+        params.detune = 0.04f;
+        params.motionSpread = 0.34f;
+        params.motionCoherence = 0.88f;
+        params.outputGainDb = -24.0f;
+        vox.speechMode = VoxSpeechMode::Sing;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Unison;
+        vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
+        vox.worldVoiceSpread = 0.006f;
+        vox.worldVoiceDeviation = 0.35f;
+        vox.worldVoicing = 0.76f;
+        break;
+    case 3u:
+        preset.name = "SATB CHORALE";
+        preset.phrase = "a ve lu men a ve lu men";
+        params.order = 5u;
+        params.voices = 8u;
+        params.baseNote = 48.0f;
+        params.scale = s3g::AmbiVotScale::Major;
+        params.pitchSpread = 0.64f;
+        params.detune = 0.08f;
+        params.motionSpread = 0.58f;
+        params.motionCoherence = 0.76f;
+        params.outputGainDb = -27.0f;
+        vox.speechMode = VoxSpeechMode::Sing;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Chorale;
+        vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
+        vox.worldVoiceSpread = 0.018f;
+        vox.worldVoiceDeviation = 0.24f;
+        vox.worldVoicing = 0.82f;
+        vox.formantMacro = -0.08f;
+        vox.phraseSpread = 0.12f;
+        break;
+    case 4u:
+        preset.name = "DOUBLE CHOIR";
+        preset.phrase = "o ra li a o ra li a";
+        params.order = 7u;
+        params.voices = 16u;
+        params.scale = s3g::AmbiVotScale::Minor;
+        params.pitchSpread = 0.78f;
+        params.detune = 0.15f;
+        params.motionSpread = 0.86f;
+        params.motionCoherence = 0.62f;
+        params.outputGainDb = -31.0f;
+        vox.speechMode = VoxSpeechMode::Sing;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Chorus;
+        vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
+        vox.worldVoiceSpread = 0.025f;
+        vox.worldVoiceDeviation = 0.42f;
+        vox.worldVoicing = 0.74f;
+        vox.phraseSpread = 0.24f;
+        break;
+    case 5u:
+        preset.name = "WIDE CHORUS";
+        preset.phrase = "ha ya he yo ha ya he yo";
+        params.order = 5u;
+        params.voices = 12u;
+        params.pitchSpread = 0.92f;
+        params.detune = 0.24f;
+        params.motionSpread = 0.98f;
+        params.motionCoherence = 0.38f;
+        params.motionChaos = 0.28f;
+        params.outputGainDb = -29.0f;
+        vox.speechMode = VoxSpeechMode::Sing;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Chorus;
+        vox.contourMode = s3g::AmbiVoxContourMode::Original;
+        vox.worldVoiceSpread = 0.032f;
+        vox.worldVoiceDeviation = 0.58f;
+        vox.worldVoicing = 0.64f;
+        vox.phraseSpread = 0.10f;
+        break;
+    case 6u:
+        preset.name = "FOUR PART ROUND";
+        preset.phrase = "ka na ri o so la mi re";
+        params.order = 5u;
+        params.voices = 12u;
+        params.motionScene = s3g::AmbiVotMotionScene::Orbit;
+        params.motionRateHz = 0.032f;
+        params.motionSpread = 0.82f;
+        params.motionCoherence = 0.54f;
+        params.outputGainDb = -29.0f;
+        vox.speechMode = VoxSpeechMode::Speak;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Round;
+        vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
+        vox.phraseRate = 0.25f;
+        vox.worldVoiceSpread = 0.012f;
+        vox.worldVoiceDeviation = 0.18f;
+        vox.transition = 0.82f;
+        vox.phraseSpread = 1.0f;
+        break;
+    case 7u:
+        preset.name = "SEMITONE CLUSTER";
+        preset.phrase = "u o a e i u o a e i";
+        params.order = 7u;
+        params.voices = 16u;
+        params.baseNote = 55.0f;
+        params.scale = s3g::AmbiVotScale::Chromatic;
+        params.pitchSpread = 0.0f;
+        params.detune = 0.03f;
+        params.motionRateHz = 0.018f;
+        params.motionSpread = 0.72f;
+        params.motionCoherence = 0.70f;
+        params.outputGainDb = -32.0f;
+        vox.speechMode = VoxSpeechMode::Sing;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Cluster;
+        vox.contourMode = s3g::AmbiVoxContourMode::Flat;
+        vox.worldVoicing = 0.86f;
+        break;
+    case 8u:
+        preset.name = "AIR CHOIR";
+        preset.phrase = "sha ha sa he shu ho";
+        params.order = 5u;
+        params.voices = 12u;
+        params.motionSpread = 0.88f;
+        params.motionCoherence = 0.48f;
+        params.outputGainDb = -28.0f;
+        vox.speechMode = VoxSpeechMode::Sing;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Chorus;
+        vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
+        vox.worldVoicing = 0.32f;
+        vox.worldAirColor = 0.72f;
+        vox.formantMacro = 0.24f;
+        vox.pvocTransient = 0.34f;
+        break;
+    case 9u:
+        preset.name = "DARK VOWELS";
+        preset.phrase = "u o um oh u o um oh";
+        params.voices = 8u;
+        params.baseNote = 40.0f;
+        params.scale = s3g::AmbiVotScale::HarmonicMinor;
+        params.pitchSpread = 0.52f;
+        params.motionRateHz = 0.014f;
+        params.motionSpread = 0.56f;
+        params.outputGainDb = -26.0f;
+        vox.speechMode = VoxSpeechMode::Sing;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Chorale;
+        vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
+        vox.formantMacro = -0.68f;
+        vox.worldAirColor = -0.52f;
+        vox.worldVoicing = 0.86f;
+        break;
+    case 10u:
+        preset.name = "FROZEN TEXTURE";
+        preset.phrase = "a e i o u";
+        params.order = 7u;
+        params.voices = 16u;
+        params.motionRateHz = 0.009f;
+        params.motionSpread = 0.94f;
+        params.motionCoherence = 0.28f;
+        params.motionChaos = 0.34f;
+        params.outputGainDb = -31.0f;
+        vox.speechMode = VoxSpeechMode::Texture;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Individual;
+        vox.worldRate = 0.12f;
+        vox.worldFreeze = 0.82f;
+        vox.worldScrub = 0.37f;
+        vox.pvocStretch = 2.80f;
+        vox.pvocTransient = 0.20f;
+        break;
+    case 11u:
+        preset.name = "ORBITING CHORUS";
+        preset.phrase = "la ri a la ri a la ri a";
+        params.order = 5u;
+        params.voices = 12u;
+        params.motionScene = s3g::AmbiVotMotionScene::Orbit;
+        params.motionRateHz = 0.080f;
+        params.motionAmount = 1.0f;
+        params.motionSpread = 0.96f;
+        params.motionCoherence = 0.44f;
+        params.centerElevationDeg = 15.0f;
+        params.outputGainDb = -29.0f;
+        vox.speechMode = VoxSpeechMode::Sing;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Chorus;
+        vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
+        vox.worldVoiceSpread = 0.020f;
+        vox.worldVoiceDeviation = 0.32f;
+        break;
+    case 12u:
+        preset.name = "FULL 7OA CHOIR";
+        preset.phrase = "a ve o ra lu men a ve o ra";
+        params.order = 7u;
+        params.voices = 16u;
+        params.scale = s3g::AmbiVotScale::Major;
+        params.pitchSpread = 0.72f;
+        params.detune = 0.12f;
+        params.motionSpread = 0.90f;
+        params.motionCoherence = 0.58f;
+        params.motionSmooth = 0.88f;
+        params.outputGainDb = -32.0f;
+        vox.speechMode = VoxSpeechMode::Sing;
+        vox.orchestration = s3g::AmbiVoxOrchestration::Chorale;
+        vox.contourMode = s3g::AmbiVoxContourMode::Reduced;
+        vox.worldVoiceSpread = 0.016f;
+        vox.worldVoiceDeviation = 0.26f;
+        vox.worldVoicing = 0.78f;
+        vox.phraseSpread = 0.16f;
+        break;
+    case 0u:
+    default:
+        break;
+    }
+    return preset;
+}
 
 void resetVoxMidiVoices(Plugin& plugin)
 {
@@ -1327,11 +2052,12 @@ void resetVoxMidiVoices(Plugin& plugin)
     plugin.voxMidiRetrigger.fill(false);
     plugin.voxMidiAgeCounter = 1u;
     plugin.lastMidiNote.store(0u, std::memory_order_relaxed);
+    plugin.lastMidiVelocity.store(0.0f, std::memory_order_relaxed);
 }
 
 uint32_t allocateVoxMidiVoice(Plugin& plugin, int16_t channel, int32_t noteId, int16_t note, float velocity)
 {
-    const uint32_t voiceCount = std::clamp<uint32_t>(plugin.params.voices, 1u, s3g::kAmbiVotMaxVoices);
+    const uint32_t voiceCount = std::clamp<uint32_t>(plugin.params.voices, 1u, s3g::kAmbiVoxMaxVoices);
     uint32_t selected = 0u;
     bool foundIdle = false;
     uint64_t oldestAge = std::numeric_limits<uint64_t>::max();
@@ -1355,6 +2081,7 @@ uint32_t allocateVoxMidiVoice(Plugin& plugin, int16_t channel, int32_t noteId, i
     plugin.voxMidiGate[selected] = true;
     plugin.voxMidiRetrigger[selected] = true;
     plugin.lastMidiNote.store(static_cast<uint32_t>(std::max<int16_t>(0, note)), std::memory_order_relaxed);
+    plugin.lastMidiVelocity.store(std::clamp(velocity, 0.0f, 1.0f), std::memory_order_relaxed);
     return selected;
 }
 
@@ -1362,18 +2089,21 @@ void refreshLastVoxMidiNote(Plugin& plugin)
 {
     uint64_t newestAge = 0u;
     uint32_t newestNote = 0u;
-    for (uint32_t voice = 0u; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+    float newestVelocity = 0.0f;
+    for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
         if (plugin.voxMidiGate[voice] && plugin.voxMidiAge[voice] >= newestAge) {
             newestAge = plugin.voxMidiAge[voice];
             newestNote = static_cast<uint32_t>(std::max<int16_t>(0, plugin.voxMidiNote[voice]));
+            newestVelocity = plugin.voxMidiVelocity[voice];
         }
     }
     plugin.lastMidiNote.store(newestNote, std::memory_order_relaxed);
+    plugin.lastMidiVelocity.store(newestVelocity, std::memory_order_relaxed);
 }
 
 void releaseVoxMidiVoice(Plugin& plugin, int16_t channel, int32_t noteId, int16_t note)
 {
-    for (uint32_t voice = 0u; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+    for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
         if (!plugin.voxMidiGate[voice] || plugin.voxMidiNote[voice] != note) continue;
         if (channel >= 0 && plugin.voxMidiChannel[voice] != channel) continue;
         if (noteId >= 0 && plugin.voxMidiNoteId[voice] >= 0 && plugin.voxMidiNoteId[voice] != noteId) continue;
@@ -1385,22 +2115,38 @@ void releaseVoxMidiVoice(Plugin& plugin, int16_t channel, int32_t noteId, int16_
 
 bool voxVoiceHasMidiPitch(const Plugin& plugin, uint32_t voice)
 {
-    if (voice >= s3g::kAmbiVotMaxVoices || plugin.params.mode == s3g::AmbiVotMode::Free) return false;
+    if (voice >= s3g::kAmbiVoxMaxVoices || plugin.params.mode == s3g::AmbiVotMode::Free) return false;
     if (plugin.voxMidiNote[voice] < 0) return false;
     return plugin.voxMidiGate[voice] || plugin.params.mode == s3g::AmbiVotMode::Midi;
 }
 
 float voxVoiceTargetNote(const Plugin& plugin, uint32_t voice)
 {
-    const float root = plugin.params.baseNote;
+    const bool ensembleMidi = plugin.vox.orchestration != s3g::AmbiVoxOrchestration::Individual
+        && plugin.params.mode != s3g::AmbiVotMode::Free
+        && plugin.lastMidiVelocity.load(std::memory_order_relaxed) > 0.0f;
+    const float root = ensembleMidi
+        ? static_cast<float>(plugin.lastMidiNote.load(std::memory_order_relaxed))
+        : plugin.params.baseNote;
     float scaleNote = root;
     int deviationSeedNote = static_cast<int>(std::lround(root));
-    if (voxVoiceHasMidiPitch(plugin, voice)) {
+    if (ensembleMidi) {
+        const float orchestrated = s3g::ambiVoxOrchestratedFreeNote(
+            plugin.vox.orchestration, root, plugin.params.scale, voice);
+        scaleNote = root + (orchestrated - root)
+            * std::clamp(plugin.params.pitchSpread, 0.0f, 2.0f);
+        deviationSeedNote = static_cast<int>(std::lround(root));
+    } else if (voxVoiceHasMidiPitch(plugin, voice)) {
         const float sourceNote = static_cast<float>(plugin.voxMidiNote[voice]);
         const float quantized = s3g::ambiVotQuantizeToScale(sourceNote, root, plugin.params.scale);
         const float spreadCandidate = root + (quantized - root) * std::clamp(plugin.params.pitchSpread, 0.0f, 2.0f);
         scaleNote = s3g::ambiVotQuantizeToScale(spreadCandidate, root, plugin.params.scale);
         deviationSeedNote = static_cast<int>(std::lround(sourceNote));
+    } else if (plugin.vox.orchestration != s3g::AmbiVoxOrchestration::Individual) {
+        const float orchestrated = s3g::ambiVoxOrchestratedFreeNote(
+            plugin.vox.orchestration, root, plugin.params.scale, voice);
+        scaleNote = root + (orchestrated - root)
+            * std::clamp(plugin.params.pitchSpread, 0.0f, 2.0f);
     } else {
         const int relationshipDegree = static_cast<int>(voice) - static_cast<int>(plugin.params.voices / 2u);
         const int spreadDegree = static_cast<int>(std::lround(
@@ -1408,13 +2154,14 @@ float voxVoiceTargetNote(const Plugin& plugin, uint32_t voice)
         scaleNote = root + static_cast<float>(s3g::ambiVotScaleDegreeSemitones(plugin.params.scale, spreadDegree));
     }
     const float cents = plugin.params.tuneCents
-        + s3g::ambiVotPitchDeviation(voice, deviationSeedNote, plugin.params.detune);
+        + s3g::ambiVotPitchDeviation(voice, deviationSeedNote, plugin.params.detune)
+        + s3g::ambiVoxOrchestrationDetuneCents(plugin.vox.orchestration, voice);
     return std::clamp(scaleNote + cents / 100.0f, -24.0f, 132.0f);
 }
 
 float voxVoiceExpressiveNote(Plugin& plugin, uint32_t voice, bool singing)
 {
-    if (voice >= s3g::kAmbiVotMaxVoices) return plugin.params.baseNote;
+    if (voice >= s3g::kAmbiVoxMaxVoices) return plugin.params.baseNote;
     const float target = voxVoiceTargetNote(plugin, voice);
     const float portamentoMs = 2.0f + std::pow(std::clamp(plugin.vox.portamento, 0.0f, 1.0f), 2.0f) * 750.0f;
     const float coefficient = 1.0f - std::exp(-1.0f
@@ -1434,6 +2181,9 @@ float voxVoiceActivityTarget(const Plugin& plugin, uint32_t voice, uint32_t acti
 {
     if (voice >= activeVoices) return 0.0f;
     if (plugin.params.mode != s3g::AmbiVotMode::Midi) return 1.0f;
+    if (plugin.vox.orchestration != s3g::AmbiVoxOrchestration::Individual) {
+        return plugin.lastMidiVelocity.load(std::memory_order_relaxed);
+    }
     return plugin.voxMidiGate[voice] ? std::max(0.08f, plugin.voxMidiVelocity[voice]) : 0.0f;
 }
 
@@ -1449,14 +2199,18 @@ float voxVoiceTimeDeviation(uint32_t voice)
 double voxVoiceTimeOffsetSamples(float stepAmount,
                                  float deviationAmount,
                                  double sampleRate,
-                                 uint32_t voice)
+                                 uint32_t voice,
+                                 s3g::AmbiVoxOrchestration orchestration)
 {
-    if (voice == 0u || sampleRate <= 0.0) return 0.0;
+    if (sampleRate <= 0.0) return 0.0;
     const double stepMs = static_cast<double>(std::clamp(stepAmount, 0.0f, 1.0f))
         * static_cast<double>(kVoxVoiceTimeStepMaxMs);
     const double deviationMs = static_cast<double>(voxVoiceTimeDeviation(voice))
         * stepMs * static_cast<double>(std::clamp(deviationAmount, 0.0f, 1.0f));
-    const double offsetMs = std::max(0.0, static_cast<double>(voice) * stepMs + deviationMs);
+    const double ensembleMs = static_cast<double>(
+        s3g::ambiVoxOrchestrationDelayMs(orchestration, voice));
+    const double offsetMs = std::max(0.0,
+        static_cast<double>(voice) * stepMs + deviationMs + ensembleMs);
     return sampleRate * offsetMs * 0.001;
 }
 
@@ -1468,7 +2222,7 @@ float voxDelayStepCapacity(float requestedStep, uint32_t voices, double sampleRa
     const double voiceCount = static_cast<double>(std::max<uint32_t>(1u, voices));
     const double triangular = voiceCount * (voiceCount + 1.0) * 0.5;
     constexpr double maximumDelayBytes = 256.0 * 1024.0 * 1024.0;
-    const double maximumSamples = maximumDelayBytes / static_cast<double>(sizeof(int16_t));
+    const double maximumSamples = maximumDelayBytes / static_cast<double>(sizeof(float));
     const double memoryLimitedStep = maximumSamples
         / std::max(1.0, sampleRate * triangular);
     return static_cast<float>(std::clamp(
@@ -1481,16 +2235,16 @@ std::shared_ptr<VoxVoiceDelayBank> makeVoiceDelayBank(double sampleRate,
 {
     auto bank = std::make_shared<VoxVoiceDelayBank>();
     bank->sampleRate = std::max(8000.0, sampleRate);
-    bank->voiceCapacity = std::clamp<uint32_t>(voices, 1u, s3g::kAmbiVotMaxVoices);
+    bank->voiceCapacity = std::clamp<uint32_t>(voices, 1u, s3g::kAmbiVoxMaxVoices);
     // Reserve the complete timing range once so moving TIME STEP never replaces
     // a live delay line with an empty buffer.
     (void)requestedStep;
     constexpr float capacityStep = 1.0f;
     bank->requestedStep = capacityStep;
     bank->stepCapacity = voxDelayStepCapacity(capacityStep, bank->voiceCapacity, bank->sampleRate);
-    for (uint32_t voice = 0u; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+    for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
         const double seconds = voice < bank->voiceCapacity
-            ? static_cast<double>(voice + 1u) * static_cast<double>(bank->stepCapacity)
+            ? static_cast<double>(voice + 1u) * static_cast<double>(bank->stepCapacity) + 0.040
             : 0.0;
         const size_t capacity = static_cast<size_t>(std::ceil(seconds * bank->sampleRate)) + 4u;
         bank->lines[voice].prepare(capacity, bank->sampleRate);
@@ -1500,7 +2254,7 @@ std::shared_ptr<VoxVoiceDelayBank> makeVoiceDelayBank(double sampleRate,
 
 void requestVoiceDelayResize(Plugin& plugin)
 {
-    const uint32_t voices = std::clamp<uint32_t>(plugin.params.voices, 1u, s3g::kAmbiVotMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(plugin.params.voices, 1u, s3g::kAmbiVoxMaxVoices);
     const float requestedStep = std::clamp(plugin.vox.worldVoiceSpread, 0.0f, 1.0f);
     const auto current = std::atomic_load_explicit(&plugin.voiceDelayBank, std::memory_order_acquire);
     if (current && current->voiceCapacity >= voices
@@ -1527,8 +2281,8 @@ std::shared_ptr<VoxVoiceDelayBank> prepareVoiceDelays(Plugin& plugin, uint32_t v
     if (!bank) return nullptr;
     for (uint32_t voice = 0u; voice < std::min<uint32_t>(voices, bank->voiceCapacity); ++voice) {
         bank->lines[voice].setDelay(voxVoiceTimeOffsetSamples(
-            plugin.vox.worldVoiceSpread, plugin.vox.worldVoiceDeviation,
-            plugin.sampleRate, voice));
+            plugin.voxWorldVoiceSpreadSmooth, plugin.voxWorldVoiceDeviationSmooth,
+            plugin.sampleRate, voice, plugin.vox.orchestration));
     }
     return bank;
 }
@@ -1547,8 +2301,10 @@ void syncWorldSmoothing(Plugin& plugin)
     plugin.voxWorldPitchSmooth = std::clamp(plugin.vox.worldPitchCents, -2400.0f, 2400.0f);
     plugin.voxWorldLoopStartSmooth = std::clamp(plugin.vox.worldLoopStart, 0.0f, 1.0f);
     plugin.voxWorldLoopEndSmooth = std::clamp(plugin.vox.worldLoopEnd, 0.0f, 1.0f);
+    plugin.voxWorldVoiceSpreadSmooth = std::clamp(plugin.vox.worldVoiceSpread, 0.0f, 1.0f);
     plugin.voxWorldVoiceDeviationSmooth = std::clamp(plugin.vox.worldVoiceDeviation, 0.0f, 1.0f);
     plugin.voxWorldFormantSmooth = std::clamp(plugin.vox.formantMacro, -1.0f, 1.0f);
+    plugin.voxWorldAirColorSmooth = std::clamp(plugin.vox.worldAirColor, -1.0f, 1.0f);
     plugin.voxWorldFlutterSmooth = std::clamp(plugin.vox.bendMacro, 0.0f, 1.0f);
     plugin.voxWorldDegradeSmooth = std::clamp(plugin.vox.crushMacro, 0.0f, 1.0f);
     plugin.voxWorldEdgeSmooth = std::clamp(plugin.vox.rasp, 0.0f, 1.0f);
@@ -1590,6 +2346,84 @@ void storeScore(Plugin& plugin, s3g::AmbiVotVectorScore score)
     plugin.scoreSustainStart.store(score.sustainStart, std::memory_order_relaxed);
     plugin.scoreSustainEnd.store(score.sustainEnd, std::memory_order_relaxed);
     plugin.scoreNodeCount.store(score.nodeCount, std::memory_order_release);
+}
+
+bool queueVoxPreset(Plugin& plugin, const VoxPresetSnapshot& preset)
+{
+    if (!plugin.presetMailbox.push(preset)) return false;
+    if (plugin.hostParams && plugin.hostParams->request_flush) {
+        plugin.hostParams->request_flush(plugin.host);
+    } else if (plugin.host && plugin.host->request_process) {
+        plugin.host->request_process(plugin.host);
+    }
+    return true;
+}
+
+void applyPendingVoxPreset(Plugin& plugin)
+{
+    VoxPresetSnapshot pending {};
+    VoxPresetSnapshot latest {};
+    bool hasPreset = false;
+    while (plugin.presetMailbox.pop(pending)) {
+        latest = pending;
+        hasPreset = true;
+    }
+    if (!hasPreset) return;
+
+    plugin.params = latest.params;
+    plugin.vox = latest.vox;
+    plugin.lyric = latest.lyric;
+    plugin.params.voices = std::clamp<uint32_t>(
+        plugin.params.voices, 1u, s3g::kAmbiVoxMaxVoices);
+    plugin.engine.setParams(plugin.params);
+    plugin.params = plugin.engine.params();
+    storeScore(plugin, latest.score);
+    plugin.engine.setScore(loadScore(plugin));
+    plugin.voxBankTimingResetRequested.store(true, std::memory_order_release);
+    plugin.voxWorldTimingResetRequested.store(true, std::memory_order_release);
+    plugin.lyricMidiStepStarted = false;
+    plugin.lyricCueResetRequested.store(true, std::memory_order_release);
+    requestVoiceDelayResize(plugin);
+    plugin.presetTransitionFrames = std::max<uint32_t>(1u,
+        static_cast<uint32_t>(std::lround(plugin.sampleRate * 0.012)));
+    plugin.presetTransitionRemaining = plugin.presetTransitionFrames;
+    plugin.presetTransitionNeedsInit = true;
+    plugin.presetRescanPending.store(true, std::memory_order_release);
+    if (plugin.host && plugin.host->request_callback) plugin.host->request_callback(plugin.host);
+}
+
+void applyVoxPresetTransition(Plugin& plugin, float* const* outputs,
+                              uint32_t channels, uint32_t frames)
+{
+    if (!outputs || frames == 0u) return;
+    if (plugin.presetTransitionNeedsInit) {
+        for (uint32_t channel = 0u; channel < channels; ++channel) {
+            plugin.presetTransitionOffset[channel] = outputs[channel]
+                ? plugin.lastOutputSample[channel] - outputs[channel][0]
+                : 0.0f;
+        }
+        plugin.presetTransitionNeedsInit = false;
+    }
+    for (uint32_t frame = 0u;
+         frame < frames && plugin.presetTransitionRemaining > 0u; ++frame) {
+        const float fade = static_cast<float>(plugin.presetTransitionRemaining)
+            / static_cast<float>(std::max<uint32_t>(1u, plugin.presetTransitionFrames));
+        for (uint32_t channel = 0u; channel < channels; ++channel) {
+            if (outputs[channel]) outputs[channel][frame]
+                += plugin.presetTransitionOffset[channel] * fade;
+        }
+        --plugin.presetTransitionRemaining;
+    }
+    if (plugin.presetTransitionRemaining == 0u) {
+        plugin.presetTransitionOffset.fill(0.0f);
+    }
+    for (uint32_t channel = 0u; channel < channels; ++channel) {
+        plugin.lastOutputSample[channel] = outputs[channel]
+            ? outputs[channel][frames - 1u] : 0.0f;
+    }
+    for (uint32_t channel = channels; channel < kOutputChannels; ++channel) {
+        plugin.lastOutputSample[channel] = 0.0f;
+    }
 }
 
 std::shared_ptr<const s3g::AmbiVotTableBank> makePresetBank(s3g::AmbiVotPreset preset)
@@ -1637,6 +2471,92 @@ std::string loadVoxPhrase(const Plugin& plugin)
     return text;
 }
 
+std::string loadVoxLyrics(const Plugin& plugin)
+{
+    const uint32_t length = std::min<uint32_t>(
+        plugin.voxLyricsLength.load(std::memory_order_acquire), kVoxLyricsMaxChars - 1u);
+    std::string text;
+    text.reserve(length);
+    for (uint32_t i = 0; i < length; ++i) {
+        const uint8_t ch = plugin.voxLyrics[i].load(std::memory_order_relaxed);
+        if (ch == 0u) break;
+        text.push_back(static_cast<char>(ch));
+    }
+    return text;
+}
+
+std::string trimVoxLyricLine(const std::string& line)
+{
+    size_t first = 0u;
+    while (first < line.size()
+        && std::isspace(static_cast<unsigned char>(line[first]))) ++first;
+    size_t last = line.size();
+    while (last > first
+        && std::isspace(static_cast<unsigned char>(line[last - 1u]))) --last;
+    return line.substr(first, last - first);
+}
+
+std::vector<std::string> splitVoxLyricCues(const std::string& text)
+{
+    std::vector<std::string> cues;
+    std::string line;
+    const auto flush = [&]() {
+        const std::string trimmed = trimVoxLyricLine(line);
+        if (!trimmed.empty() && cues.size() < kVoxLyricsMaxCues) cues.push_back(trimmed);
+        line.clear();
+    };
+    for (const char ch : text) {
+        if (ch == '\n' || ch == '\r') {
+            if (ch == '\n' || !line.empty()) flush();
+        } else {
+            line.push_back(ch);
+        }
+    }
+    flush();
+    return cues;
+}
+
+void storeVoxLyricsText(Plugin& plugin, const char* text)
+{
+    const size_t length = text
+        ? std::min(std::strlen(text), static_cast<size_t>(kVoxLyricsMaxChars - 1u))
+        : 0u;
+    for (uint32_t i = 0; i < kVoxLyricsMaxChars; ++i) {
+        const uint8_t ch = i < length ? static_cast<uint8_t>(text[i]) : 0u;
+        plugin.voxLyrics[i].store(ch, std::memory_order_relaxed);
+    }
+    plugin.voxLyricsLength.store(static_cast<uint32_t>(length), std::memory_order_release);
+}
+
+void rebuildVoxLyricScore(Plugin& plugin);
+void requestVoxLyricCue(Plugin& plugin, uint32_t cue);
+uint32_t voxLyricCueCount(const Plugin& plugin);
+
+std::string voxLyricCueText(const Plugin& plugin, uint32_t cueIndex)
+{
+    const auto cues = splitVoxLyricCues(loadVoxLyrics(plugin));
+    return cueIndex < cues.size() ? cues[cueIndex] : std::string();
+}
+
+void replaceVoxLyricCueText(Plugin& plugin, uint32_t cueIndex, const char* text)
+{
+    auto cues = splitVoxLyricCues(loadVoxLyrics(plugin));
+    if (cues.empty()) cues.push_back(loadVoxPhrase(plugin));
+    cueIndex = std::min<uint32_t>(cueIndex, static_cast<uint32_t>(cues.size() - 1u));
+    cues[cueIndex] = trimVoxLyricLine(text ? text : "");
+    std::string lyrics;
+    for (const auto& cue : cues) {
+        if (cue.empty()) continue;
+        if (!lyrics.empty()) lyrics.push_back('\n');
+        lyrics += cue;
+    }
+    if (lyrics.empty()) lyrics = " ";
+    storeVoxLyricsText(plugin, lyrics.c_str());
+    rebuildVoxLyricScore(plugin);
+    requestVoxLyricCue(plugin, std::min<uint32_t>(cueIndex,
+        std::max<uint32_t>(1u, voxLyricCueCount(plugin)) - 1u));
+}
+
 std::string loadVoxLoadedName(const Plugin& plugin)
 {
     const uint32_t length = std::min<uint32_t>(
@@ -1663,6 +2583,7 @@ void storeVoxLoadedName(Plugin& plugin, const char* text)
 
 void compileVoxPhrase(Plugin& plugin);
 void compileVoicebankPhrase(Plugin& plugin, const VoxVoicebank& bank);
+void rebuildVoxLyricScore(Plugin& plugin);
 
 void storeVoxPhrase(Plugin& plugin, const char* text)
 {
@@ -1998,6 +2919,50 @@ VoxLpcFrame voxLpcFrameForState(const Plugin& plugin)
     return frame;
 }
 
+VoxLpcFrame voxLpcFrameForVoice(const Plugin& plugin, uint32_t voice, uint32_t voices)
+{
+    const uint32_t length = std::min<uint32_t>(
+        plugin.voxCompiledCount.load(std::memory_order_acquire), kVoxCompiledMaxFrames);
+    const uint32_t offset = s3g::ambiVoxPhraseSpreadIndex(
+        plugin.vox.orchestration, voice, voices, length, plugin.vox.phraseSpread);
+    if (length < 2u || offset == 0u) return voxLpcFrameForState(plugin);
+
+    const uint32_t index = (plugin.voxPhraseCurrentIndex + offset) % length;
+    const uint8_t symbol = plugin.voxCompiledSymbol[index].load(std::memory_order_relaxed);
+    const VoxSpeechGlyph glyph = voxGlyphForSymbol(symbol);
+    VoxLpcFrame frame {};
+    frame.energy = plugin.voxCompiledEnergy[index].load(std::memory_order_relaxed);
+    frame.pitchMul = plugin.voxCompiledPitchMul[index].load(std::memory_order_relaxed);
+    frame.noise = plugin.voxCompiledNoise[index].load(std::memory_order_relaxed);
+    frame.plosive = plugin.voxCompiledPlosive[index].load(std::memory_order_relaxed);
+    frame.f1 = plugin.voxCompiledF1[index].load(std::memory_order_relaxed);
+    frame.f2 = plugin.voxCompiledF2[index].load(std::memory_order_relaxed);
+    frame.f3 = plugin.voxCompiledF3[index].load(std::memory_order_relaxed);
+    if (glyph.rest) {
+        frame.energy = 0.0f;
+        frame.noise = 0.0f;
+        frame.plosive = 0.0f;
+        return frame;
+    }
+
+    const float consonant = std::clamp(
+        glyph.consonant * plugin.vox.articulation + plugin.vox.consonant * 0.18f,
+        0.0f, 1.0f);
+    const float breath = std::clamp(glyph.breath + plugin.vox.breath * 0.32f, 0.0f, 1.0f);
+    frame.energy = std::clamp(frame.energy
+        + (glyph.vowel ? 0.14f : 0.0f) - consonant * 0.08f
+        + plugin.vox.drive * 0.10f, 0.0f, 1.0f);
+    frame.pitchMul = std::clamp(frame.pitchMul
+        + (glyph.u - 0.5f) * plugin.vox.pitchScoop * 0.08f
+        - consonant * 0.025f, 0.72f, 1.32f);
+    frame.noise = std::clamp(frame.noise + breath * 0.35f + consonant * 0.28f, 0.0f, 1.0f);
+    frame.plosive = std::clamp(frame.plosive + glyph.plosive * plugin.vox.plosive, 0.0f, 1.0f);
+    frame.f1 = std::clamp(frame.f1 + (glyph.v - 0.5f) * 90.0f, 120.0f, 1800.0f);
+    frame.f2 = std::clamp(frame.f2 + (glyph.u - 0.5f) * 220.0f, 420.0f, 4200.0f);
+    frame.f3 = std::clamp(frame.f3 + plugin.vox.sibilance * 420.0f, 900.0f, 6200.0f);
+    return frame;
+}
+
 s3g::AmbiVotParams voxRenderParams(const s3g::AmbiVotParams& source, const VoxParams& vox)
 {
     s3g::AmbiVotParams params = source;
@@ -2118,13 +3083,12 @@ void appendRuleWord(const std::string& word,
     }
 }
 
-void compileVoxPhrase(Plugin& plugin)
+std::vector<VoxLyricSynthEvent> compileVoxLyricSynthEvents(const std::string& text)
 {
     std::array<uint8_t, kVoxCompiledMaxFrames> symbols {};
     std::array<uint8_t, kVoxCompiledMaxFrames> durations {};
     std::array<VoxLpcFrame, kVoxCompiledMaxFrames> frames {};
     uint32_t count = 0u;
-    const std::string text = loadVoxPhrase(plugin);
     std::string word;
     auto flushWord = [&]() {
         if (word.empty()) return;
@@ -2146,20 +3110,43 @@ void compileVoxPhrase(Plugin& plugin)
     }
     flushWord();
     if (count == 0u) appendCompiledPhoneme(symbols, durations, frames, count, kVoxRest, 4u);
+
+    std::vector<VoxLyricSynthEvent> result;
+    result.reserve(count);
+    for (uint32_t i = 0u; i < count; ++i) {
+        result.push_back({ symbols[i], durations[i], frames[i].energy, frames[i].pitchMul,
+            frames[i].noise, frames[i].plosive, frames[i].f1, frames[i].f2, frames[i].f3 });
+    }
+    return result;
+}
+
+void publishVoxLyricSynthEvents(Plugin& plugin,
+                                const std::vector<VoxLyricSynthEvent>& events)
+{
+    const uint32_t count = std::min<uint32_t>(
+        static_cast<uint32_t>(events.size()), kVoxCompiledMaxFrames);
     for (uint32_t i = 0; i < kVoxCompiledMaxFrames; ++i) {
-        plugin.voxCompiledSymbol[i].store(i < count ? symbols[i] : kVoxRest, std::memory_order_relaxed);
-        plugin.voxCompiledDuration[i].store(i < count ? durations[i] : 1u, std::memory_order_relaxed);
-        plugin.voxCompiledEnergy[i].store(i < count ? frames[i].energy : 0.0f, std::memory_order_relaxed);
-        plugin.voxCompiledPitchMul[i].store(i < count ? frames[i].pitchMul : 1.0f, std::memory_order_relaxed);
-        plugin.voxCompiledNoise[i].store(i < count ? frames[i].noise : 0.0f, std::memory_order_relaxed);
-        plugin.voxCompiledPlosive[i].store(i < count ? frames[i].plosive : 0.0f, std::memory_order_relaxed);
-        plugin.voxCompiledF1[i].store(i < count ? frames[i].f1 : 600.0f, std::memory_order_relaxed);
-        plugin.voxCompiledF2[i].store(i < count ? frames[i].f2 : 1500.0f, std::memory_order_relaxed);
-        plugin.voxCompiledF3[i].store(i < count ? frames[i].f3 : 2800.0f, std::memory_order_relaxed);
+        const VoxLyricSynthEvent fallback {};
+        const auto& event = i < count ? events[i] : fallback;
+        plugin.voxCompiledSymbol[i].store(i < count ? event.symbol : kVoxRest, std::memory_order_relaxed);
+        plugin.voxCompiledDuration[i].store(event.duration, std::memory_order_relaxed);
+        plugin.voxCompiledEnergy[i].store(event.energy, std::memory_order_relaxed);
+        plugin.voxCompiledPitchMul[i].store(event.pitchMul, std::memory_order_relaxed);
+        plugin.voxCompiledNoise[i].store(event.noise, std::memory_order_relaxed);
+        plugin.voxCompiledPlosive[i].store(event.plosive, std::memory_order_relaxed);
+        plugin.voxCompiledF1[i].store(event.f1, std::memory_order_relaxed);
+        plugin.voxCompiledF2[i].store(event.f2, std::memory_order_relaxed);
+        plugin.voxCompiledF3[i].store(event.f3, std::memory_order_relaxed);
     }
     plugin.voxPhraseIndex = 0u;
+    plugin.voxPhraseCurrentIndex = 0u;
     plugin.voxPhraseHold = 0u;
     plugin.voxCompiledCount.store(count, std::memory_order_release);
+}
+
+void compileVoxPhrase(Plugin& plugin)
+{
+    publishVoxLyricSynthEvents(plugin, compileVoxLyricSynthEvents(loadVoxPhrase(plugin)));
 }
 
 bool storeVoxEncodedBytes(Plugin& plugin, const std::vector<uint8_t>& bytes)
@@ -2220,6 +3207,7 @@ bool storeVoxEncodedBytes(Plugin& plugin, const std::vector<uint8_t>& bytes)
         plugin.voxCompiledF3[i].store(i < count ? frames[i].f3 : 2800.0f, std::memory_order_relaxed);
     }
     plugin.voxPhraseIndex = 0u;
+    plugin.voxPhraseCurrentIndex = 0u;
     plugin.voxPhraseHold = 0u;
     std::atomic_store_explicit(&plugin.worldSample, std::shared_ptr<const VoxWorldSample> {}, std::memory_order_release);
     plugin.voxCompiledCount.store(count, std::memory_order_release);
@@ -2571,7 +3559,7 @@ uint32_t voxVoicebankPitchAnchor(const Plugin& plugin, const VoxVoicebankEntry& 
 
 void resetVoicebankPvoc(Plugin& plugin, const VoxVoicebankEntry& entry, uint32_t voice, double position)
 {
-    if (voice >= s3g::kAmbiVotMaxVoices) return;
+    if (voice >= s3g::kAmbiVoxMaxVoices) return;
     const uint32_t anchor = voxVoicebankPitchAnchor(plugin, entry, voice);
     plugin.voxBankWorldPitchAnchor[voice] = static_cast<uint8_t>(anchor);
     const auto& source = voxVoicebankSource(entry, anchor);
@@ -2589,13 +3577,13 @@ bool voxVoicebankEntryHasVowel(const VoxVoicebankEntry& entry)
     return ending == 'a' || ending == 'e' || ending == 'i' || ending == 'o' || ending == 'u';
 }
 
-void compileVoicebankPhrase(Plugin& plugin, const VoxVoicebank& bank)
+std::vector<VoxLyricBankEvent> compileVoxLyricBankEvents(
+    const std::string& text, const VoxVoicebank& bank)
 {
     std::array<uint16_t, kVoxCompiledMaxFrames> indices {};
     std::array<uint8_t, kVoxCompiledMaxFrames> durations {};
     std::array<uint8_t, kVoxCompiledMaxFrames> flags {};
     uint32_t count = 0u;
-    const std::string text = loadVoxPhrase(plugin);
     std::string word;
     auto flushWord = [&]() {
         if (!word.empty()) {
@@ -2644,13 +3632,111 @@ void compileVoicebankPhrase(Plugin& plugin, const VoxVoicebank& bank)
         const uint32_t entryIndex = std::min<uint32_t>(indices[i], static_cast<uint32_t>(bank.entries.size() - 1u));
         if (voxVoicebankEntryHasVowel(bank.entries[entryIndex])) flags[i] |= kVoxBankEventVowel;
     }
+
+    std::vector<VoxLyricBankEvent> result;
+    result.reserve(count);
+    for (uint32_t i = 0u; i < count; ++i) {
+        result.push_back({ indices[i], durations[i], flags[i] });
+    }
+    return result;
+}
+
+void publishVoxLyricBankEvents(Plugin& plugin,
+                               const std::vector<VoxLyricBankEvent>& events,
+                               const VoxVoicebank* bank)
+{
+    const uint32_t count = std::min<uint32_t>(
+        static_cast<uint32_t>(events.size()), kVoxCompiledMaxFrames);
     for (uint32_t i = 0; i < kVoxCompiledMaxFrames; ++i) {
-        plugin.voxBankCompiledIndex[i].store(i < count ? indices[i] : 0u, std::memory_order_relaxed);
-        plugin.voxBankCompiledDuration[i].store(i < count ? durations[i] : 1u, std::memory_order_relaxed);
-        plugin.voxBankCompiledFlags[i].store(i < count ? flags[i] : kVoxBankEventRest, std::memory_order_relaxed);
+        const VoxLyricBankEvent fallback {};
+        const auto& event = i < count ? events[i] : fallback;
+        plugin.voxBankCompiledIndex[i].store(event.index, std::memory_order_relaxed);
+        plugin.voxBankCompiledDuration[i].store(event.duration, std::memory_order_relaxed);
+        plugin.voxBankCompiledFlags[i].store(event.flags, std::memory_order_relaxed);
     }
     plugin.voxBankCompiledCount.store(count, std::memory_order_release);
-    resetVoicebankTimelines(plugin, bank);
+    if (bank) resetVoicebankTimelines(plugin, *bank);
+}
+
+void compileVoicebankPhrase(Plugin& plugin, const VoxVoicebank& bank)
+{
+    publishVoxLyricBankEvents(
+        plugin, compileVoxLyricBankEvents(loadVoxPhrase(plugin), bank), &bank);
+}
+
+std::shared_ptr<const VoxLyricScore> makeVoxLyricScore(Plugin& plugin)
+{
+    std::string lyrics = loadVoxLyrics(plugin);
+    auto cueTexts = splitVoxLyricCues(lyrics);
+    if (cueTexts.empty()) cueTexts.push_back(loadVoxPhrase(plugin));
+    const auto bank = std::atomic_load_explicit(&plugin.voicebank, std::memory_order_acquire);
+    auto score = std::make_shared<VoxLyricScore>();
+    score->cues.reserve(cueTexts.size());
+    for (auto& text : cueTexts) {
+        VoxLyricCue cue {};
+        cue.text = std::move(text);
+        cue.synthEvents = compileVoxLyricSynthEvents(cue.text);
+        if (bank) cue.bankEvents = compileVoxLyricBankEvents(cue.text, *bank);
+        score->cues.push_back(std::move(cue));
+    }
+    return score;
+}
+
+void rebuildVoxLyricScore(Plugin& plugin)
+{
+    auto score = makeVoxLyricScore(plugin);
+    const uint32_t count = static_cast<uint32_t>(score->cues.size());
+    const uint32_t requested = count > 0u
+        ? plugin.requestedLyricCue.load(std::memory_order_relaxed) % count
+        : 0u;
+    plugin.requestedLyricCue.store(requested, std::memory_order_relaxed);
+    std::atomic_store_explicit(&plugin.lyricScore, std::move(score), std::memory_order_release);
+    plugin.lyricCueResetRequested.store(true, std::memory_order_release);
+    if (plugin.host && plugin.host->request_process) plugin.host->request_process(plugin.host);
+}
+
+void requestVoxLyricCue(Plugin& plugin, uint32_t cue)
+{
+    const auto score = std::atomic_load_explicit(&plugin.lyricScore, std::memory_order_acquire);
+    const uint32_t count = score ? static_cast<uint32_t>(score->cues.size()) : 0u;
+    plugin.requestedLyricCue.store(count > 0u ? cue % count : 0u, std::memory_order_release);
+    plugin.lyricCueResetRequested.store(true, std::memory_order_release);
+    if (plugin.host && plugin.host->request_process) plugin.host->request_process(plugin.host);
+}
+
+void publishVoxLyricCue(Plugin& plugin, const VoxLyricCue& cue, uint32_t cueIndex)
+{
+    const size_t phraseLength = std::min(
+        cue.text.size(), static_cast<size_t>(kVoxPhraseMaxChars - 1u));
+    for (uint32_t i = 0u; i < kVoxPhraseMaxChars; ++i) {
+        plugin.voxPhrase[i].store(i < phraseLength
+            ? static_cast<uint8_t>(cue.text[i]) : 0u, std::memory_order_relaxed);
+    }
+    plugin.voxPhraseLength.store(static_cast<uint32_t>(phraseLength), std::memory_order_release);
+    publishVoxLyricSynthEvents(plugin, cue.synthEvents);
+    const auto bank = std::atomic_load_explicit(&plugin.voicebank, std::memory_order_acquire);
+    publishVoxLyricBankEvents(plugin, cue.bankEvents, bank.get());
+    plugin.voxPhrasePhase = 0.0f;
+    plugin.voxPhraseBreathEnv = 0.0f;
+    plugin.voxPhraseVowelEnv = 0.0f;
+    plugin.voxBankTimingResetRequested.store(true, std::memory_order_release);
+    plugin.voxWorldTimingResetRequested.store(true, std::memory_order_release);
+    plugin.lyricRuntimeCue = cueIndex;
+    plugin.guiLyricCue.store(cueIndex, std::memory_order_release);
+}
+
+void applyPendingVoxLyricCue(Plugin& plugin)
+{
+    auto score = std::atomic_load_explicit(&plugin.lyricScore, std::memory_order_acquire);
+    if (!score || score->cues.empty()) return;
+    const bool scoreChanged = score.get() != plugin.activeLyricScore.get();
+    const bool resetRequested = plugin.lyricCueResetRequested.exchange(
+        false, std::memory_order_acq_rel);
+    const uint32_t cue = plugin.requestedLyricCue.load(std::memory_order_acquire)
+        % static_cast<uint32_t>(score->cues.size());
+    if (!scoreChanged && !resetRequested && cue == plugin.lyricRuntimeCue) return;
+    plugin.activeLyricScore = std::move(score);
+    publishVoxLyricCue(plugin, plugin.activeLyricScore->cues[cue], cue);
 }
 
 std::string resolvedVoicebankPhrase(const Plugin& plugin, const VoxVoicebank& bank)
@@ -2688,9 +3774,11 @@ void resetVoicebankTimelines(Plugin& plugin, const VoxVoicebank& bank)
         ? plugin.voxBankCompiledIndex[0].load(std::memory_order_relaxed)
         : 0u;
     const uint32_t activeVoices = std::clamp<uint32_t>(
-        plugin.params.voices, 1u, s3g::kAmbiVotMaxVoices);
-    for (uint32_t voice = 0; voice < s3g::kAmbiVotMaxVoices; ++voice) {
-        const uint32_t initialPhraseIndex = 0u;
+        plugin.params.voices, 1u, s3g::kAmbiVoxMaxVoices);
+    for (uint32_t voice = 0; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
+        const uint32_t initialPhraseIndex = s3g::ambiVoxPhraseSpreadIndex(
+            plugin.vox.orchestration, voice, activeVoices, count,
+            plugin.vox.phraseSpread);
         const uint32_t entryIndex = count > 0u && !bank.entries.empty()
             ? std::min<uint32_t>(
                 plugin.voxBankCompiledIndex[initialPhraseIndex].load(std::memory_order_relaxed),
@@ -2731,15 +3819,20 @@ void retriggerVoicebankVoice(Plugin& plugin, const VoxVoicebank& bank, uint32_t 
 {
     const uint32_t count = std::min<uint32_t>(
         plugin.voxBankCompiledCount.load(std::memory_order_acquire), kVoxCompiledMaxFrames);
-    if (voice >= s3g::kAmbiVotMaxVoices || count == 0u || bank.entries.empty()) return;
+    if (voice >= s3g::kAmbiVoxMaxVoices || count == 0u || bank.entries.empty()) return;
+    const uint32_t activeVoices = std::clamp<uint32_t>(
+        plugin.params.voices, 1u, s3g::kAmbiVoxMaxVoices);
+    const uint32_t phraseIndex = s3g::ambiVoxPhraseSpreadIndex(
+        plugin.vox.orchestration, voice, activeVoices, count,
+        plugin.vox.phraseSpread);
     const uint32_t entryIndex = std::min<uint32_t>(
-        plugin.voxBankCompiledIndex[0].load(std::memory_order_relaxed),
+        plugin.voxBankCompiledIndex[phraseIndex].load(std::memory_order_relaxed),
         static_cast<uint32_t>(bank.entries.size() - 1u));
-    const uint32_t duration = plugin.voxBankCompiledDuration[0].load(std::memory_order_relaxed);
-    const uint8_t flags = plugin.voxBankCompiledFlags[0].load(std::memory_order_relaxed);
+    const uint32_t duration = plugin.voxBankCompiledDuration[phraseIndex].load(std::memory_order_relaxed);
+    const uint8_t flags = plugin.voxBankCompiledFlags[phraseIndex].load(std::memory_order_relaxed);
     const auto& entry = bank.entries[entryIndex];
-    plugin.voxBankVoicePhraseIndex[voice] = count > 1u ? 1u : 0u;
-    plugin.voxBankVoiceCurrentPhraseIndex[voice] = 0u;
+    plugin.voxBankVoicePhraseIndex[voice] = count > 0u ? (phraseIndex + 1u) % count : 0u;
+    plugin.voxBankVoiceCurrentPhraseIndex[voice] = phraseIndex;
     plugin.voxBankVoiceCurrentEntry[voice] = entryIndex;
     const double eventSamples = voxVoicebankPhraseDurationSamples(plugin, duration, &entry, flags);
     plugin.voxBankVoicePhraseSamplesRemaining[voice] = eventSamples;
@@ -2755,7 +3848,7 @@ void advanceVoicebankVoice(Plugin& plugin, const VoxVoicebank& bank, uint32_t vo
 {
     const uint32_t length = std::min<uint32_t>(
         plugin.voxBankCompiledCount.load(std::memory_order_acquire), kVoxCompiledMaxFrames);
-    if (length == 0u || bank.entries.empty() || voice >= s3g::kAmbiVotMaxVoices) return;
+    if (length == 0u || bank.entries.empty() || voice >= s3g::kAmbiVoxMaxVoices) return;
     const uint32_t phraseIndex = plugin.voxBankVoicePhraseIndex[voice] % length;
     const uint32_t entryIndex = std::min<uint32_t>(
         plugin.voxBankCompiledIndex[phraseIndex].load(std::memory_order_relaxed),
@@ -2814,7 +3907,7 @@ void prepareVoicebankTransition(Plugin& plugin, const VoxVoicebank& bank, uint32
 {
     const uint32_t length = std::min<uint32_t>(
         plugin.voxBankCompiledCount.load(std::memory_order_acquire), kVoxCompiledMaxFrames);
-    if (length == 0u || bank.entries.empty() || voice >= s3g::kAmbiVotMaxVoices
+    if (length == 0u || bank.entries.empty() || voice >= s3g::kAmbiVoxMaxVoices
         || plugin.voxBankVoiceTransitionActive[voice]) return;
     const uint32_t phraseIndex = plugin.voxBankVoicePhraseIndex[voice] % length;
     const uint8_t flags = plugin.voxBankCompiledFlags[phraseIndex].load(std::memory_order_relaxed);
@@ -2842,7 +3935,7 @@ double pendingVoicebankTransitionSamples(const Plugin& plugin,
 {
     const uint32_t length = std::min<uint32_t>(
         plugin.voxBankCompiledCount.load(std::memory_order_acquire), kVoxCompiledMaxFrames);
-    if (length == 0u || bank.entries.empty() || voice >= s3g::kAmbiVotMaxVoices) return 0.0;
+    if (length == 0u || bank.entries.empty() || voice >= s3g::kAmbiVoxMaxVoices) return 0.0;
     const uint32_t phraseIndex = plugin.voxBankVoicePhraseIndex[voice] % length;
     const uint8_t flags = plugin.voxBankCompiledFlags[phraseIndex].load(std::memory_order_relaxed);
     if ((flags & kVoxBankEventRest) != 0u) return plugin.sampleRate * 0.012;
@@ -2878,6 +3971,7 @@ void advanceVoxPhrase(Plugin& plugin, float strength)
     plugin.voxFrameF2 = plugin.voxCompiledF2[index].load(std::memory_order_relaxed);
     plugin.voxFrameF3 = plugin.voxCompiledF3[index].load(std::memory_order_relaxed);
     plugin.voxFrameSymbol = symbol;
+    plugin.voxPhraseCurrentIndex = index;
     plugin.voxPhraseIndex = (index + 1u) % length;
     if (glyph.rest) {
         plugin.voxPhraseHold = duration;
@@ -2930,6 +4024,42 @@ float voxWorldFrameValueAt(const std::vector<float>& values, const VoxWorldSampl
     return voxWorldFrameValueAt(values, sample.sampleRate, sample.framePeriodMs, samplePhase);
 }
 
+float voxWorldContourCorrection(const std::vector<float>& f0,
+                                int sampleRate,
+                                double framePeriodMs,
+                                double samplePhase,
+                                int baseMidi,
+                                s3g::AmbiVoxContourMode mode)
+{
+    if (mode == s3g::AmbiVoxContourMode::Original) return 1.0f;
+    const float frequency = voxWorldFrameValueAt(f0, sampleRate, framePeriodMs, samplePhase);
+    if (frequency <= 24.0f) return 1.0f;
+    const float baseFrequency = 440.0f * std::pow(2.0f,
+        (static_cast<float>(baseMidi) - 69.0f) / 12.0f);
+    const float sourceRatio = std::clamp(frequency / std::max(20.0f, baseFrequency), 0.25f, 4.0f);
+    float desiredRatio = sourceRatio;
+    if (mode == s3g::AmbiVoxContourMode::Reduced) {
+        desiredRatio = std::sqrt(sourceRatio);
+    } else if (mode == s3g::AmbiVoxContourMode::Flat) {
+        desiredRatio = 1.0f;
+    } else if (mode == s3g::AmbiVoxContourMode::Quantized) {
+        desiredRatio = std::pow(2.0f,
+            std::round(12.0f * std::log2(sourceRatio)) / 12.0f);
+    }
+    return std::clamp(desiredRatio / sourceRatio, 0.25f, 4.0f);
+}
+
+VoxPvocSpectralControl voxWorldSpectralControl(const Plugin& plugin,
+                                               const VoxWorldParameterData& parameters)
+{
+    VoxPvocSpectralControl control {};
+    control.parameters = parameters.ready() ? &parameters : nullptr;
+    control.formant = plugin.voxWorldFormantSmooth;
+    control.periodicity = plugin.voxWorldVoicingSmooth;
+    control.airColor = plugin.voxWorldAirColorSmooth;
+    return control;
+}
+
 float voxVoicebankPitchRatio(const Plugin& plugin,
                              const VoxVoicebankEntry& entry,
                              uint32_t anchor,
@@ -2949,6 +4079,7 @@ float voxVoicebankPitchRatio(const Plugin& plugin,
 float processVoicebankEntry(Plugin& plugin,
                             VoxPvocVoiceState& state,
                             const VoxVoicebankEntry& entry,
+                            uint32_t voice,
                             uint32_t anchor,
                             float pitchRatio,
                             VoxSpeechMode speechMode,
@@ -2994,34 +4125,56 @@ float processVoicebankEntry(Plugin& plugin,
     const float stretch = speechMode == VoxSpeechMode::Sing
         ? 1.0f
         : plugin.voxPvocStretchSmooth;
+    const float contourTarget = voxWorldContourCorrection(
+        entry.audio->worldF0, entry.audio->sampleRate,
+        entry.audio->worldFramePeriodMs, state.analysisPosition,
+        entry.audio->baseMidi, plugin.vox.contourMode);
+    const float contourSmooth = 1.0f - std::exp(-1.0f
+        / std::max(1.0f, 0.045f * static_cast<float>(plugin.sampleRate)));
+    const uint32_t contourVoice = std::min<uint32_t>(voice, s3g::kAmbiVoxMaxVoices - 1u);
+    plugin.voxContourRatioSmooth[contourVoice] += (contourTarget
+        - plugin.voxContourRatioSmooth[contourVoice]) * contourSmooth;
+    const VoxPvocSpectralControl spectral = voxWorldSpectralControl(
+        plugin, entry.audio->worldParameters);
     return plugin.pvoc.process(state, source, rangeStart, rangeEnd,
-        sourceRateRatio, timelineRate, stretch, pitchRatio,
+        sourceRateRatio, timelineRate, stretch,
+        pitchRatio * plugin.voxContourRatioSmooth[contourVoice],
         plugin.voxPvocTransientSmooth,
         phraseMode ? 0.0f : plugin.voxWorldFreezeSmooth,
         phraseMode ? 0.0f : plugin.voxWorldScrubSmooth,
-        speechMode != VoxSpeechMode::Speak);
+        speechMode != VoxSpeechMode::Speak, spectral);
 }
 
 void resetWorldPhases(Plugin& plugin)
 {
     if (const auto bank = std::atomic_load_explicit(&plugin.voicebank, std::memory_order_acquire)) {
-        compileVoicebankPhrase(plugin, *bank);
+        resetVoicebankTimelines(plugin, *bank);
         plugin.voxPhrasePhase = 0.0f;
         return;
     }
     const auto sample = std::atomic_load_explicit(&plugin.worldSample, std::memory_order_acquire);
     const double length = sample && !sample->samples.empty() ? static_cast<double>(sample->samples.size()) : 0.0;
     const double loopStart = length * static_cast<double>(std::clamp(plugin.vox.worldLoopStart, 0.0f, 1.0f));
-    for (uint32_t voice = 0; voice < s3g::kAmbiVotMaxVoices; ++voice) {
-        plugin.voxWorldPhase[voice] = loopStart;
+    const double loopEnd = length * static_cast<double>(std::clamp(plugin.vox.worldLoopEnd, 0.0f, 1.0f));
+    const double loopLength = std::max(0.0, loopEnd - loopStart);
+    const uint32_t activeVoices = std::clamp<uint32_t>(
+        plugin.params.voices, 1u, s3g::kAmbiVoxMaxVoices);
+    for (uint32_t voice = 0; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
+        const float phase = s3g::ambiVoxPhraseSpreadPhase(
+            plugin.vox.orchestration, voice, activeVoices, plugin.vox.phraseSpread);
+        const double position = loopStart + loopLength * static_cast<double>(phase);
+        plugin.voxWorldPhase[voice] = position;
         plugin.pvoc.reset(plugin.voxPvocVoice[voice],
-            sample && !sample->samples.empty() ? sample->samples.data() : nullptr, loopStart);
+            sample && !sample->samples.empty() ? sample->samples.data() : nullptr, position);
     }
 }
 
 bool applyWorldPostProcess(Plugin& plugin, const VoxWorldSample& sample, float* const* outputs, uint32_t channels, uint32_t frames)
 {
     if (channels == 0u || !outputs || sample.samples.empty() || sample.sampleRate <= 0) return false;
+    if (plugin.voxWorldTimingResetRequested.exchange(false, std::memory_order_acq_rel)) {
+        resetWorldPhases(plugin);
+    }
     const auto vox = plugin.vox;
     const VoxSpeechMode speechMode = vox.speechMode;
     const VoxCircuitMode circuitMode = vox.circuitMode;
@@ -3032,14 +4185,20 @@ bool applyWorldPostProcess(Plugin& plugin, const VoxWorldSample& sample, float* 
     const float timelineSmooth = 1.0f - std::exp(-1.0f / (0.140f * static_cast<float>(plugin.sampleRate)));
     const float voiceSmooth = 1.0f - std::exp(-1.0f / (0.090f * static_cast<float>(plugin.sampleRate)));
     const float limiterRelease = 1.0f - std::exp(-1.0f / (0.120f * static_cast<float>(plugin.sampleRate)));
-    const uint32_t activeVoices = std::clamp<uint32_t>(plugin.params.voices, 1u, s3g::kAmbiVotMaxVoices);
+    const uint32_t activeVoices = std::clamp<uint32_t>(plugin.params.voices, 1u, s3g::kAmbiVoxMaxVoices);
+    const float delayBlockSmooth = 1.0f - std::exp(-static_cast<float>(frames)
+        / (0.180f * static_cast<float>(plugin.sampleRate)));
+    plugin.voxWorldVoiceSpreadSmooth += (std::clamp(vox.worldVoiceSpread, 0.0f, 1.0f)
+        - plugin.voxWorldVoiceSpreadSmooth) * delayBlockSmooth;
+    plugin.voxWorldVoiceDeviationSmooth += (std::clamp(vox.worldVoiceDeviation, 0.0f, 1.0f)
+        - plugin.voxWorldVoiceDeviationSmooth) * delayBlockSmooth;
     const auto voiceDelays = prepareVoiceDelays(plugin, activeVoices);
     const double sampleLength = static_cast<double>(sample.samples.size());
     const float baseRate = static_cast<float>(sample.sampleRate) / static_cast<float>(plugin.sampleRate);
     const auto& motionPoints = plugin.engine.motionPoints();
-    std::array<std::array<float, s3g::kAmbiSpeakerDecoderMaxChannels>, s3g::kAmbiVotMaxVoices> basis {};
-    std::array<float, s3g::kAmbiVotMaxVoices> distanceGains {};
-    for (uint32_t voice = 0; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+    std::array<std::array<float, s3g::kAmbiSpeakerDecoderMaxChannels>, s3g::kAmbiVoxMaxVoices> basis {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> distanceGains {};
+    for (uint32_t voice = 0; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
         const auto& point = motionPoints[voice];
         basis[voice] = s3g::acnSn3dBasis7(s3g::directionFromAed(point.azimuthDeg, point.elevationDeg));
         distanceGains[voice] = speechMode == VoxSpeechMode::Speak ? 1.0f : 1.0f / std::max(0.35f, point.distance);
@@ -3058,10 +4217,10 @@ bool applyWorldPostProcess(Plugin& plugin, const VoxWorldSample& sample, float* 
             plugin.voxWorldLoopStartSmooth = std::max(0.0f, center - 0.005f);
             plugin.voxWorldLoopEndSmooth = std::min(1.0f, center + 0.005f);
         }
-        plugin.voxWorldVoiceDeviationSmooth += (std::clamp(vox.worldVoiceDeviation, 0.0f, 1.0f) - plugin.voxWorldVoiceDeviationSmooth) * timelineSmooth;
         plugin.voxWorldFreezeSmooth += (std::clamp(vox.worldFreeze, 0.0f, 1.0f) - plugin.voxWorldFreezeSmooth) * timelineSmooth;
         plugin.voxWorldScrubSmooth += (std::clamp(vox.worldScrub, 0.0f, 1.0f) - plugin.voxWorldScrubSmooth) * timelineSmooth;
         plugin.voxWorldFormantSmooth += (std::clamp(vox.formantMacro, -1.0f, 1.0f) - plugin.voxWorldFormantSmooth) * toneSmooth;
+        plugin.voxWorldAirColorSmooth += (std::clamp(vox.worldAirColor, -1.0f, 1.0f) - plugin.voxWorldAirColorSmooth) * toneSmooth;
         plugin.voxWorldFlutterSmooth += (std::clamp(vox.bendMacro, 0.0f, 1.0f) - plugin.voxWorldFlutterSmooth) * toneSmooth;
         plugin.voxWorldDegradeSmooth += (std::clamp(vox.crushMacro, 0.0f, 1.0f) - plugin.voxWorldDegradeSmooth) * toneSmooth;
         plugin.voxWorldEdgeSmooth += (std::clamp(vox.rasp, 0.0f, 1.0f) - plugin.voxWorldEdgeSmooth) * toneSmooth;
@@ -3077,22 +4236,20 @@ bool applyWorldPostProcess(Plugin& plugin, const VoxWorldSample& sample, float* 
             loopEnd = sampleLength;
         }
         const float worldRate = 0.25f + plugin.voxWorldRateSmooth * 1.75f;
-        const float formantTone = std::pow(2.0f, plugin.voxWorldFormantSmooth * 0.14f);
         const float bend = plugin.voxWorldFlutterSmooth;
         const float crush = plugin.voxWorldDegradeSmooth;
         const float edge = plugin.voxWorldEdgeSmooth;
         const float air = plugin.voxWorldAirSmooth;
         const float drive = plugin.voxWorldDriveSmooth;
         const float freeze = plugin.voxWorldFreezeSmooth;
-        const float voicingMacro = plugin.voxWorldVoicingSmooth;
         float voiceGainEnergy = 0.0f;
-        for (uint32_t voice = 0; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+        for (uint32_t voice = 0; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
             const float target = voxVoiceActivityTarget(plugin, voice, activeVoices);
             plugin.voxWorldVoiceGainSmooth[voice] += (target - plugin.voxWorldVoiceGainSmooth[voice]) * voiceSmooth;
             voiceGainEnergy += plugin.voxWorldVoiceGainSmooth[voice] * plugin.voxWorldVoiceGainSmooth[voice];
         }
         const float voiceGain = (speechMode == VoxSpeechMode::Speak ? 0.96f : 0.72f) / std::sqrt(std::max(1.0f, voiceGainEnergy));
-        for (uint32_t voice = 0; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+        for (uint32_t voice = 0; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
             const float voiceFade = plugin.voxWorldVoiceGainSmooth[voice];
             if (voiceFade <= 0.00005f
                 && (voice >= activeVoices || (plugin.params.mode == s3g::AmbiVotMode::Midi && !plugin.voxMidiGate[voice]))) continue;
@@ -3109,23 +4266,22 @@ bool applyWorldPostProcess(Plugin& plugin, const VoxWorldSample& sample, float* 
             const float targetPitchRatio = std::pow(2.0f,
                 (plugin.voxWorldPitchSmooth + (targetNote - static_cast<float>(sample.baseMidi)) * 100.0f) / 1200.0f);
             plugin.voxPitchRatioSmooth[voice] += (targetPitchRatio - plugin.voxPitchRatioSmooth[voice]) * toneSmooth;
+            const float contourTarget = voxWorldContourCorrection(
+                sample.f0, sample.sampleRate, sample.framePeriodMs,
+                plugin.voxPvocVoice[voice].analysisPosition,
+                sample.baseMidi, vox.contourMode);
+            plugin.voxContourRatioSmooth[voice] += (contourTarget
+                - plugin.voxContourRatioSmooth[voice]) * toneSmooth;
+            const VoxPvocSpectralControl spectral = voxWorldSpectralControl(
+                plugin, sample.parameters);
             float value = plugin.pvoc.process(
                 plugin.voxPvocVoice[voice], sample.samples, loopStart, loopEnd,
                 baseRate, worldRate, plugin.voxPvocStretchSmooth,
-                plugin.voxPitchRatioSmooth[voice] * bent, plugin.voxPvocTransientSmooth,
-                freeze, plugin.voxWorldScrubSmooth);
+                plugin.voxPitchRatioSmooth[voice] * plugin.voxContourRatioSmooth[voice] * bent,
+                plugin.voxPvocTransientSmooth,
+                freeze, plugin.voxWorldScrubSmooth, true, spectral);
             const double phase = plugin.voxPvocVoice[voice].analysisPosition;
             plugin.voxWorldPhase[voice] = phase;
-            const float f0 = voxWorldFrameValueAt(sample.f0, sample, phase);
-            const float energy = voxWorldFrameValueAt(sample.frameEnergy, sample, phase);
-            const float voiced = f0 > 24.0f ? 1.0f : 0.0f;
-            const float voicedTilt = s3g::lerp(0.65f + energy * 2.2f, 1.0f, voiced);
-            value *= s3g::lerp(1.0f, voicedTilt, std::fabs(voicingMacro - 0.5f) * 1.6f);
-            if (voicingMacro < 0.5f) value *= s3g::lerp(1.0f, 1.0f - voiced * 0.55f, (0.5f - voicingMacro) * 2.0f);
-            else value *= s3g::lerp(1.0f, 0.72f + voiced * 0.44f, (voicingMacro - 0.5f) * 2.0f);
-            if (formantTone != 1.0f) {
-                value = voxSoftSat(value * formantTone);
-            }
             const float airNoise = voxUnitNoise(noiseState) * air * (0.018f + 0.055f * std::fabs(value));
             value += airNoise;
             const float driven = voxSoftSat(value * (1.0f + drive * 3.0f));
@@ -3156,6 +4312,17 @@ bool applyWorldPostProcess(Plugin& plugin, const VoxWorldSample& sample, float* 
         }
     }
     plugin.voxNoiseState = noiseState;
+#if defined(__APPLE__)
+    const double guiLoopStart = sampleLength * static_cast<double>(plugin.voxWorldLoopStartSmooth);
+    const double guiLoopEnd = sampleLength * static_cast<double>(plugin.voxWorldLoopEndSmooth);
+    const double guiLoopLength = std::max(1.0, guiLoopEnd - guiLoopStart);
+    for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
+        double phase = std::fmod(plugin.voxWorldPhase[voice] - guiLoopStart, guiLoopLength);
+        if (phase < 0.0) phase += guiLoopLength;
+        plugin.guiVoxPhrasePhase[voice].store(
+            static_cast<float>(phase / guiLoopLength), std::memory_order_relaxed);
+    }
+#endif
     return true;
 }
 
@@ -3174,12 +4341,18 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
     const float toneSmooth = 1.0f - std::exp(-1.0f / (0.045f * static_cast<float>(plugin.sampleRate)));
     const float voiceSmooth = 1.0f - std::exp(-1.0f / (0.090f * static_cast<float>(plugin.sampleRate)));
     const float limiterRelease = 1.0f - std::exp(-1.0f / (0.120f * static_cast<float>(plugin.sampleRate)));
-    const uint32_t activeVoices = std::clamp<uint32_t>(plugin.params.voices, 1u, s3g::kAmbiVotMaxVoices);
+    const uint32_t activeVoices = std::clamp<uint32_t>(plugin.params.voices, 1u, s3g::kAmbiVoxMaxVoices);
+    const float delayBlockSmooth = 1.0f - std::exp(-static_cast<float>(frames)
+        / (0.180f * static_cast<float>(plugin.sampleRate)));
+    plugin.voxWorldVoiceSpreadSmooth += (std::clamp(vox.worldVoiceSpread, 0.0f, 1.0f)
+        - plugin.voxWorldVoiceSpreadSmooth) * delayBlockSmooth;
+    plugin.voxWorldVoiceDeviationSmooth += (std::clamp(vox.worldVoiceDeviation, 0.0f, 1.0f)
+        - plugin.voxWorldVoiceDeviationSmooth) * delayBlockSmooth;
     const auto voiceDelays = prepareVoiceDelays(plugin, activeVoices);
     const auto& motionPoints = plugin.engine.motionPoints();
-    std::array<std::array<float, s3g::kAmbiSpeakerDecoderMaxChannels>, s3g::kAmbiVotMaxVoices> basis {};
-    std::array<float, s3g::kAmbiVotMaxVoices> distanceGains {};
-    for (uint32_t voice = 0; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+    std::array<std::array<float, s3g::kAmbiSpeakerDecoderMaxChannels>, s3g::kAmbiVoxMaxVoices> basis {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> distanceGains {};
+    for (uint32_t voice = 0; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
         const auto& point = motionPoints[voice];
         basis[voice] = s3g::acnSn3dBasis7(s3g::directionFromAed(point.azimuthDeg, point.elevationDeg));
         distanceGains[voice] = speechMode == VoxSpeechMode::Speak ? 1.0f : 1.0f / std::max(0.35f, point.distance);
@@ -3191,10 +4364,10 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
         plugin.voxOutputGainSmooth += (outputGainTarget - plugin.voxOutputGainSmooth) * outputGainSmooth;
         plugin.voxWorldRateSmooth += (std::clamp(vox.worldRate, 0.0f, 1.0f) - plugin.voxWorldRateSmooth) * timelineSmooth;
         plugin.voxWorldPitchSmooth += (std::clamp(vox.worldPitchCents, -2400.0f, 2400.0f) - plugin.voxWorldPitchSmooth) * timelineSmooth;
-        plugin.voxWorldVoiceDeviationSmooth += (std::clamp(vox.worldVoiceDeviation, 0.0f, 1.0f) - plugin.voxWorldVoiceDeviationSmooth) * timelineSmooth;
         plugin.voxWorldFreezeSmooth += (std::clamp(vox.worldFreeze, 0.0f, 1.0f) - plugin.voxWorldFreezeSmooth) * timelineSmooth;
         plugin.voxWorldScrubSmooth += (std::clamp(vox.worldScrub, 0.0f, 1.0f) - plugin.voxWorldScrubSmooth) * timelineSmooth;
         plugin.voxWorldFormantSmooth += (std::clamp(vox.formantMacro, -1.0f, 1.0f) - plugin.voxWorldFormantSmooth) * toneSmooth;
+        plugin.voxWorldAirColorSmooth += (std::clamp(vox.worldAirColor, -1.0f, 1.0f) - plugin.voxWorldAirColorSmooth) * toneSmooth;
         plugin.voxWorldFlutterSmooth += (std::clamp(vox.bendMacro, 0.0f, 1.0f) - plugin.voxWorldFlutterSmooth) * toneSmooth;
         plugin.voxWorldEdgeSmooth += (std::clamp(vox.rasp, 0.0f, 1.0f) - plugin.voxWorldEdgeSmooth) * toneSmooth;
         plugin.voxWorldAirSmooth += (std::clamp(vox.breath, 0.0f, 1.0f) - plugin.voxWorldAirSmooth) * toneSmooth;
@@ -3203,13 +4376,13 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
         plugin.voxPvocStretchSmooth += (std::clamp(vox.pvocStretch, 0.25f, 4.0f) - plugin.voxPvocStretchSmooth) * timelineSmooth;
         plugin.voxPvocTransientSmooth += (std::clamp(vox.pvocTransient, 0.0f, 1.0f) - plugin.voxPvocTransientSmooth) * toneSmooth;
         float voiceGainEnergy = 0.0f;
-        for (uint32_t voice = 0; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+        for (uint32_t voice = 0; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
             const float target = voxVoiceActivityTarget(plugin, voice, activeVoices);
             plugin.voxWorldVoiceGainSmooth[voice] += (target - plugin.voxWorldVoiceGainSmooth[voice]) * voiceSmooth;
             voiceGainEnergy += plugin.voxWorldVoiceGainSmooth[voice] * plugin.voxWorldVoiceGainSmooth[voice];
         }
         const float voiceGain = (speechMode == VoxSpeechMode::Speak ? 0.96f : 0.72f) / std::sqrt(std::max(1.0f, voiceGainEnergy));
-        for (uint32_t voice = 0; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+        for (uint32_t voice = 0; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
             const float voiceFade = plugin.voxWorldVoiceGainSmooth[voice];
             if (voiceFade <= 0.00005f
                 && (voice >= activeVoices || (plugin.params.mode == s3g::AmbiVotMode::Midi && !plugin.voxMidiGate[voice]))) continue;
@@ -3268,7 +4441,7 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
                 plugin, entry, pitchAnchor, targetNote);
             plugin.voxPitchRatioSmooth[voice] += (targetPitchRatio - plugin.voxPitchRatioSmooth[voice]) * toneSmooth;
             float value = processVoicebankEntry(plugin, plugin.voxPvocVoice[voice],
-                entry, pitchAnchor, plugin.voxPitchRatioSmooth[voice],
+                entry, voice, pitchAnchor, plugin.voxPitchRatioSmooth[voice],
                 speechMode, currentFlags);
             const double phase = plugin.voxPvocVoice[voice].analysisPosition;
             plugin.voxWorldPhase[voice] = phase;
@@ -3295,30 +4468,12 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
                         const float nextPitchRatio = voxVoicebankPitchRatio(
                             plugin, next, nextAnchor, targetNote);
                         const float nextValue = processVoicebankEntry(plugin,
-                            plugin.voxPvocNextVoice[voice], next, nextAnchor,
+                            plugin.voxPvocNextVoice[voice], next, voice, nextAnchor,
                             nextPitchRatio, speechMode, plugin.voxBankVoiceNextFlags[voice]);
                         value = s3g::lerp(value, nextValue, smoothMix);
                     }
                 }
             }
-            if (audio.worldResynthesized) {
-                const float f0 = voxWorldFrameValueAt(
-                    audio.worldF0, audio.sampleRate, audio.worldFramePeriodMs, phase);
-                const float energy = voxWorldFrameValueAt(
-                    audio.worldFrameEnergy, audio.sampleRate, audio.worldFramePeriodMs, phase);
-                const float voiced = f0 > 24.0f ? 1.0f : 0.0f;
-                const float voicedTilt = s3g::lerp(0.65f + energy * 2.2f, 1.0f, voiced);
-                value *= s3g::lerp(1.0f, voicedTilt,
-                    std::fabs(plugin.voxWorldVoicingSmooth - 0.5f) * 1.6f);
-                if (plugin.voxWorldVoicingSmooth < 0.5f) {
-                    value *= s3g::lerp(1.0f, 1.0f - voiced * 0.55f,
-                        (0.5f - plugin.voxWorldVoicingSmooth) * 2.0f);
-                } else {
-                    value *= s3g::lerp(1.0f, 0.72f + voiced * 0.44f,
-                        (plugin.voxWorldVoicingSmooth - 0.5f) * 2.0f);
-                }
-            }
-            if (plugin.voxWorldFormantSmooth != 0.0f) value = voxSoftSat(value * std::pow(2.0f, plugin.voxWorldFormantSmooth * 0.14f));
             value += voxUnitNoise(noiseState) * plugin.voxWorldAirSmooth * (0.012f + 0.035f * std::fabs(value));
             const float driven = voxSoftSat(value * (1.0f + plugin.voxWorldDriveSmooth * 2.2f));
             value = s3g::lerp(value, driven, plugin.voxWorldEdgeSmooth * 0.28f);
@@ -3352,9 +4507,23 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
         plugin.guiVoxPhraseProgress.store(static_cast<float>(std::clamp(
             1.0 - plugin.voxBankVoicePhraseSamplesRemaining[0] / total, 0.0, 1.0)),
             std::memory_order_relaxed);
+        for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
+            const double voiceTotal = std::max(1.0, plugin.voxBankVoicePhraseSamplesTotal[voice]);
+            const float eventProgress = static_cast<float>(std::clamp(
+                1.0 - plugin.voxBankVoicePhraseSamplesRemaining[voice] / voiceTotal,
+                0.0, 1.0));
+            const float phrasePhase = (static_cast<float>(
+                plugin.voxBankVoiceCurrentPhraseIndex[voice] % phraseCount) + eventProgress)
+                / static_cast<float>(phraseCount);
+            plugin.guiVoxPhrasePhase[voice].store(
+                s3g::ambiVotFract(phrasePhase), std::memory_order_relaxed);
+        }
     } else {
         plugin.guiVoxPhraseEvent.store(0u, std::memory_order_relaxed);
         plugin.guiVoxPhraseProgress.store(0.0f, std::memory_order_relaxed);
+        for (auto& phase : plugin.guiVoxPhrasePhase) {
+            phase.store(0.0f, std::memory_order_relaxed);
+        }
     }
 #endif
     return true;
@@ -3404,16 +4573,16 @@ void applyVoxPostProcess(Plugin& plugin, float* const* outputs, uint32_t channel
     const float outputGainTarget = std::min(s3g::dbToGain(plugin.params.outputGainDb), s3g::dbToGain(12.0f));
     const float outputGainSmooth = 1.0f - std::exp(-1.0f / (0.020f * static_cast<float>(plugin.sampleRate)));
     const float limiterRelease = 1.0f - std::exp(-1.0f / (0.120f * static_cast<float>(plugin.sampleRate)));
-    const uint32_t activeVoices = std::clamp<uint32_t>(plugin.params.voices, 1u, s3g::kAmbiVotMaxVoices);
+    const uint32_t activeVoices = std::clamp<uint32_t>(plugin.params.voices, 1u, s3g::kAmbiVoxMaxVoices);
     const uint32_t renderVoices = activeVoices;
     const float voiceGain = (speakMode ? 0.92f : (singMode ? 0.72f : 1.0f)) / std::sqrt(static_cast<float>(activeVoices));
     const bool midiMode = plugin.params.mode == s3g::AmbiVotMode::Midi;
     bool midiActive = false;
     for (uint32_t voice = 0u; voice < activeVoices; ++voice) midiActive = midiActive || plugin.voxMidiGate[voice];
     const auto& motionPoints = plugin.engine.motionPoints();
-    std::array<std::array<float, s3g::kAmbiSpeakerDecoderMaxChannels>, s3g::kAmbiVotMaxVoices> voiceBasis {};
-    std::array<float, s3g::kAmbiVotMaxVoices> distanceGains {};
-    std::array<float, s3g::kAmbiVotMaxVoices> targetF0 {};
+    std::array<std::array<float, s3g::kAmbiSpeakerDecoderMaxChannels>, s3g::kAmbiVoxMaxVoices> voiceBasis {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> distanceGains {};
+    std::array<float, s3g::kAmbiVoxMaxVoices> targetF0 {};
     for (uint32_t voice = 0; voice < renderVoices; ++voice) {
         const auto& point = motionPoints[voice];
         voiceBasis[voice] = s3g::acnSn3dBasis7(s3g::directionFromAed(point.azimuthDeg, point.elevationDeg));
@@ -3422,6 +4591,13 @@ void applyVoxPostProcess(Plugin& plugin, float* const* outputs, uint32_t channel
             s3g::ambiVotMidiToHz(voxVoiceTargetNote(plugin, voice)),
             20.0f, static_cast<float>(plugin.sampleRate) * 0.42f);
     }
+    std::array<VoxLpcFrame, s3g::kAmbiVoxMaxVoices> voiceLpcFrames {};
+    const auto refreshVoiceLpcFrames = [&]() {
+        for (uint32_t voice = 0u; voice < renderVoices; ++voice) {
+            voiceLpcFrames[voice] = voxLpcFrameForVoice(plugin, voice, activeVoices);
+        }
+    };
+    refreshVoiceLpcFrames();
     for (uint32_t frame = 0; frame < frames; ++frame) {
         const float freeCarrier = midiMode ? 0.0f : 0.86f;
         const float carrierTarget = midiMode ? (midiActive ? 0.86f : 0.0f) : freeCarrier;
@@ -3434,6 +4610,7 @@ void applyVoxPostProcess(Plugin& plugin, float* const* outputs, uint32_t channel
             if (plugin.voxPhrasePhase >= 1.0f) {
                 plugin.voxPhrasePhase -= std::floor(plugin.voxPhrasePhase);
                 advanceVoxPhrase(plugin, phraseGate * (0.38f + 0.62f * phraseRate));
+                refreshVoiceLpcFrames();
             }
         }
         const float noise = voxUnitNoise(noiseState);
@@ -3449,8 +4626,8 @@ void applyVoxPostProcess(Plugin& plugin, float* const* outputs, uint32_t channel
         }
         plugin.voxOutputGainSmooth += (outputGainTarget - plugin.voxOutputGainSmooth) * outputGainSmooth;
         if (carrierGate > 0.0001f) {
-            const VoxLpcFrame lpcFrame = voxLpcFrameForState(plugin);
             for (uint32_t voice = 0; voice < renderVoices; ++voice) {
+                const VoxLpcFrame& lpcFrame = voiceLpcFrames[voice];
                 const float voiceSkew = static_cast<float>(voice) / static_cast<float>(std::max<uint32_t>(1u, activeVoices - 1u));
                 const float bendSign = (voice & 1u) == 0u ? 1.0f : -1.0f;
                 const float circuitPitch = circuitMode == VoxCircuitMode::Bent
@@ -3547,6 +4724,21 @@ void applyVoxPostProcess(Plugin& plugin, float* const* outputs, uint32_t channel
         if (plugin.voxPhraseVowelEnv < 0.000001f) plugin.voxPhraseVowelEnv = 0.0f;
     }
     plugin.voxNoiseState = noiseState;
+#if defined(__APPLE__)
+    const uint32_t phraseCount = std::min<uint32_t>(
+        plugin.voxCompiledCount.load(std::memory_order_acquire), kVoxCompiledMaxFrames);
+    for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
+        const uint32_t offset = s3g::ambiVoxPhraseSpreadIndex(
+            plugin.vox.orchestration, voice, activeVoices, phraseCount,
+            plugin.vox.phraseSpread);
+        const float phase = phraseCount > 0u
+            ? (static_cast<float>((plugin.voxPhraseCurrentIndex + offset) % phraseCount)
+                + plugin.voxPhrasePhase) / static_cast<float>(phraseCount)
+            : 0.0f;
+        plugin.guiVoxPhrasePhase[voice].store(
+            s3g::ambiVotFract(phase), std::memory_order_relaxed);
+    }
+#endif
 }
 
 bool writeExact(const clap_ostream_t* stream, const void* data, size_t size)
@@ -3970,13 +5162,97 @@ void migrateVoxV16(Plugin& plugin, const VoxParamsV16& old)
     plugin.vox.transition = 0.65f;
 }
 
+void migrateVoxV18(Plugin& plugin, const VoxParamsV18& old)
+{
+    plugin.vox.rasp = old.rasp;
+    plugin.vox.breath = old.breath;
+    plugin.vox.throat = old.throat;
+    plugin.vox.drive = old.drive;
+    plugin.vox.jitter = old.jitter;
+    plugin.vox.vowelSpread = old.vowelSpread;
+    plugin.vox.pitchScoop = old.pitchScoop;
+    plugin.vox.attackShape = old.attackShape;
+    plugin.vox.articulation = old.articulation;
+    plugin.vox.consonant = old.consonant;
+    plugin.vox.plosive = old.plosive;
+    plugin.vox.sibilance = old.sibilance;
+    plugin.vox.phraseRate = old.phraseRate;
+    plugin.vox.speechMode = old.speechMode;
+    plugin.vox.circuitMode = old.circuitMode;
+    plugin.vox.formantMacro = old.formantMacro;
+    plugin.vox.bendMacro = old.bendMacro;
+    plugin.vox.crushMacro = old.crushMacro;
+    plugin.vox.worldRate = old.worldRate;
+    plugin.vox.worldPitchCents = old.worldPitchCents;
+    plugin.vox.worldLoopStart = old.worldLoopStart;
+    plugin.vox.worldLoopEnd = old.worldLoopEnd;
+    plugin.vox.worldVoiceSpread = old.worldVoiceSpread;
+    plugin.vox.worldFreeze = old.worldFreeze;
+    plugin.vox.worldScrub = old.worldScrub;
+    plugin.vox.worldVoicing = old.worldVoicing;
+    plugin.vox.worldVoiceDeviation = old.worldVoiceDeviation;
+    plugin.vox.pvocStretch = old.pvocStretch;
+    plugin.vox.pvocTransient = old.pvocTransient;
+    plugin.vox.portamento = old.portamento;
+    plugin.vox.vibratoDepth = old.vibratoDepth;
+    plugin.vox.vibratoRateHz = old.vibratoRateHz;
+    plugin.vox.transition = old.transition;
+    plugin.vox.worldAirColor = 0.0f;
+    plugin.vox.orchestration = s3g::AmbiVoxOrchestration::Individual;
+    plugin.vox.contourMode = s3g::AmbiVoxContourMode::Original;
+}
+
+void migrateVoxV20(Plugin& plugin, const VoxParamsV20& old)
+{
+    plugin.vox.rasp = old.rasp;
+    plugin.vox.breath = old.breath;
+    plugin.vox.throat = old.throat;
+    plugin.vox.drive = old.drive;
+    plugin.vox.jitter = old.jitter;
+    plugin.vox.vowelSpread = old.vowelSpread;
+    plugin.vox.pitchScoop = old.pitchScoop;
+    plugin.vox.attackShape = old.attackShape;
+    plugin.vox.articulation = old.articulation;
+    plugin.vox.consonant = old.consonant;
+    plugin.vox.plosive = old.plosive;
+    plugin.vox.sibilance = old.sibilance;
+    plugin.vox.phraseRate = old.phraseRate;
+    plugin.vox.speechMode = old.speechMode;
+    plugin.vox.circuitMode = old.circuitMode;
+    plugin.vox.formantMacro = old.formantMacro;
+    plugin.vox.bendMacro = old.bendMacro;
+    plugin.vox.crushMacro = old.crushMacro;
+    plugin.vox.worldRate = old.worldRate;
+    plugin.vox.worldPitchCents = old.worldPitchCents;
+    plugin.vox.worldLoopStart = old.worldLoopStart;
+    plugin.vox.worldLoopEnd = old.worldLoopEnd;
+    plugin.vox.worldVoiceSpread = old.worldVoiceSpread;
+    plugin.vox.worldFreeze = old.worldFreeze;
+    plugin.vox.worldScrub = old.worldScrub;
+    plugin.vox.worldVoicing = old.worldVoicing;
+    plugin.vox.worldVoiceDeviation = old.worldVoiceDeviation;
+    plugin.vox.pvocStretch = old.pvocStretch;
+    plugin.vox.pvocTransient = old.pvocTransient;
+    plugin.vox.portamento = old.portamento;
+    plugin.vox.vibratoDepth = old.vibratoDepth;
+    plugin.vox.vibratoRateHz = old.vibratoRateHz;
+    plugin.vox.transition = old.transition;
+    plugin.vox.worldAirColor = old.worldAirColor;
+    plugin.vox.orchestration = old.orchestration;
+    plugin.vox.contourMode = old.contourMode;
+    plugin.vox.phraseSpread = old.orchestration == s3g::AmbiVoxOrchestration::Round
+        ? 1.0f : 0.0f;
+}
+
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
     switch (id) {
     case kOrderParamId: plugin.params.order = static_cast<uint32_t>(std::lround(value)); break;
     case kVoicesParamId:
-        plugin.params.voices = static_cast<uint32_t>(std::lround(value));
+        plugin.params.voices = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiVoxMaxVoices);
         plugin.voxBankTimingResetRequested.store(true, std::memory_order_release);
+        plugin.voxWorldTimingResetRequested.store(true, std::memory_order_release);
         requestVoiceDelayResize(plugin);
         break;
     case kModeParamId: plugin.params.mode = static_cast<s3g::AmbiVotMode>(static_cast<uint32_t>(std::lround(value))); break;
@@ -4067,10 +5343,83 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kVibratoDepthParamId: plugin.vox.vibratoDepth = std::clamp(static_cast<float>(value), 0.0f, 1.0f); break;
     case kVibratoRateParamId: plugin.vox.vibratoRateHz = std::clamp(static_cast<float>(value), 0.1f, 12.0f); break;
     case kTransitionParamId: plugin.vox.transition = std::clamp(static_cast<float>(value), 0.0f, 1.0f); break;
+    case kWorldAirColorParamId: plugin.vox.worldAirColor = std::clamp(static_cast<float>(value), -1.0f, 1.0f); break;
+    case kOrchestrationParamId:
+        plugin.vox.orchestration = static_cast<s3g::AmbiVoxOrchestration>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 5u));
+        plugin.voxBankTimingResetRequested.store(true, std::memory_order_release);
+        plugin.voxWorldTimingResetRequested.store(true, std::memory_order_release);
+        break;
+    case kContourModeParamId:
+        plugin.vox.contourMode = static_cast<s3g::AmbiVoxContourMode>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 3u));
+        break;
+    case kPhraseSpreadParamId:
+        {
+            const float spread = std::clamp(static_cast<float>(value), 0.0f, 1.0f);
+            if (std::fabs(spread - plugin.vox.phraseSpread) > 0.00001f) {
+                plugin.vox.phraseSpread = spread;
+                plugin.voxBankTimingResetRequested.store(true, std::memory_order_release);
+                plugin.voxWorldTimingResetRequested.store(true, std::memory_order_release);
+            }
+        }
+        break;
+    case kLyricModeParamId:
+        plugin.lyric.mode = static_cast<VoxLyricMode>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 3u));
+        plugin.lyricMidiStepStarted = false;
+        plugin.lyricMidiStepCue = plugin.requestedLyricCue.load(std::memory_order_relaxed);
+        break;
+    case kLyricCueBeatsParamId:
+        plugin.lyric.cueBeats = std::clamp(static_cast<float>(value), 0.25f, 64.0f);
+        break;
+    case kLyricCueNoteParamId:
+        plugin.lyric.cueBaseNote = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 0u, 127u);
+        break;
+    case kLyricCueChannelParamId:
+        plugin.lyric.cueChannel = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 1u, 16u);
+        break;
     default: return;
     }
     plugin.engine.setParams(plugin.params);
     plugin.params = plugin.engine.params();
+}
+
+uint32_t voxLyricCueCount(const Plugin& plugin)
+{
+    const auto score = std::atomic_load_explicit(&plugin.lyricScore, std::memory_order_acquire);
+    return score ? static_cast<uint32_t>(score->cues.size()) : 0u;
+}
+
+bool handleVoxLyricMidiNote(Plugin& plugin, int16_t channel, int16_t note, bool noteOn)
+{
+    if (plugin.lyric.mode != VoxLyricMode::MidiStep
+        && plugin.lyric.mode != VoxLyricMode::MidiCue) return false;
+    const int16_t cueChannel = static_cast<int16_t>(
+        std::clamp<uint32_t>(plugin.lyric.cueChannel, 1u, 16u) - 1u);
+    if (channel != cueChannel) return false;
+    if (!noteOn) return true;
+    const uint32_t count = voxLyricCueCount(plugin);
+    if (count == 0u) return true;
+    uint32_t cue = plugin.requestedLyricCue.load(std::memory_order_relaxed) % count;
+    if (plugin.lyric.mode == VoxLyricMode::MidiStep) {
+        cue = plugin.lyricMidiStepStarted ? (plugin.lyricMidiStepCue + 1u) % count : 0u;
+        plugin.lyricMidiStepStarted = true;
+        plugin.lyricMidiStepCue = cue;
+    } else {
+        const int32_t offset = static_cast<int32_t>(note)
+            - static_cast<int32_t>(plugin.lyric.cueBaseNote);
+        if (offset >= 0 && static_cast<uint32_t>(offset) < count) {
+            cue = static_cast<uint32_t>(offset);
+        } else {
+            return true;
+        }
+    }
+    plugin.requestedLyricCue.store(cue, std::memory_order_release);
+    plugin.lyricCueResetRequested.store(true, std::memory_order_release);
+    return true;
 }
 
 void readEvents(Plugin& plugin, const clap_input_events_t* events)
@@ -4085,6 +5434,8 @@ void readEvents(Plugin& plugin, const clap_input_events_t* events)
             applyParam(plugin, param->param_id, param->value);
         } else if (event->type == CLAP_EVENT_NOTE_ON || event->type == CLAP_EVENT_NOTE_OFF || event->type == CLAP_EVENT_NOTE_CHOKE) {
             const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
+            const bool noteOn = event->type == CLAP_EVENT_NOTE_ON && note->velocity > 0.0;
+            if (handleVoxLyricMidiNote(plugin, note->channel, note->key, noteOn)) continue;
             if (event->type == CLAP_EVENT_NOTE_ON && note->velocity > 0.0) {
                 plugin.engine.noteOn(note->key, static_cast<float>(note->velocity));
                 allocateVoxMidiVoice(plugin, note->channel, note->note_id, note->key,
@@ -4100,6 +5451,10 @@ void readEvents(Plugin& plugin, const clap_input_events_t* events)
             const int16_t channel = static_cast<int16_t>(midi->data[0] & 0x0fu);
             const int16_t note = static_cast<int16_t>(midi->data[1] & 0x7fu);
             const float velocity = static_cast<float>(midi->data[2] & 0x7fu) / 127.0f;
+            const bool noteOn = status == 0x90u && velocity > 0.0f;
+            const bool noteOff = status == 0x80u || (status == 0x90u && velocity <= 0.0f);
+            if ((noteOn || noteOff)
+                && handleVoxLyricMidiNote(plugin, channel, note, noteOn)) continue;
             if (status == 0x90u && velocity > 0.0f) {
                 plugin.engine.noteOn(note, velocity);
                 allocateVoxMidiVoice(plugin, channel, -1, note, velocity);
@@ -4109,7 +5464,7 @@ void readEvents(Plugin& plugin, const clap_input_events_t* events)
                 releaseVoxMidiVoice(plugin, channel, -1, note);
             } else if (status == 0xb0u && (midi->data[1] == 120u || midi->data[1] == 123u)) {
                 for (int midiNote = 0; midiNote < 128; ++midiNote) plugin.engine.noteOff(midiNote);
-                for (uint32_t voice = 0u; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+                for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
                     plugin.voxMidiGate[voice] = false;
                     plugin.voxMidiVelocity[voice] = 0.0f;
                 }
@@ -4117,6 +5472,24 @@ void readEvents(Plugin& plugin, const clap_input_events_t* events)
             }
         }
     }
+}
+
+void updateVoxLyricTransport(Plugin& plugin, const clap_event_transport_t* transport)
+{
+    if (plugin.lyric.mode != VoxLyricMode::Transport || !transport
+        || (transport->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE) == 0) return;
+    const uint32_t count = voxLyricCueCount(plugin);
+    if (count == 0u) return;
+    const double beats = static_cast<double>(transport->song_pos_beats)
+        / static_cast<double>(CLAP_BEATTIME_FACTOR);
+    const double cueBeats = std::max(0.25, static_cast<double>(plugin.lyric.cueBeats));
+    const int64_t window = static_cast<int64_t>(std::floor(beats / cueBeats));
+    const int64_t wrapped = ((window % static_cast<int64_t>(count))
+        + static_cast<int64_t>(count)) % static_cast<int64_t>(count);
+    const uint32_t cue = static_cast<uint32_t>(wrapped);
+    if (cue == plugin.requestedLyricCue.load(std::memory_order_relaxed)) return;
+    plugin.requestedLyricCue.store(cue, std::memory_order_release);
+    plugin.lyricCueResetRequested.store(true, std::memory_order_release);
 }
 
 void updateTransportPhase(Plugin& plugin, const clap_event_transport_t* transport)
@@ -4143,7 +5516,7 @@ void publishMotionSnapshot(Plugin& plugin)
     const auto& points = plugin.engine.motionPoints();
     const auto& neighborCounts = plugin.engine.neighborCounts();
     const auto& neighborGates = plugin.engine.neighborGates();
-    for (uint32_t i = 0; i < s3g::kAmbiVotMaxVoices; ++i) {
+    for (uint32_t i = 0; i < s3g::kAmbiVoxMaxVoices; ++i) {
         plugin.guiAzimuth[i].store(points[i].azimuthDeg, std::memory_order_relaxed);
         plugin.guiElevation[i].store(points[i].elevationDeg, std::memory_order_relaxed);
         plugin.guiDistance[i].store(points[i].distance, std::memory_order_relaxed);
@@ -4158,7 +5531,15 @@ void publishMotionSnapshot(Plugin& plugin)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin)
+{
+    auto* state = self(plugin);
+    if (state->host && state->host->get_extension) {
+        state->hostParams = static_cast<const clap_host_params_t*>(
+            state->host->get_extension(state->host, CLAP_EXT_PARAMS));
+    }
+    return true;
+}
 
 void destroy(const clap_plugin_t* plugin)
 {
@@ -4174,7 +5555,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     state->sampleRate = sampleRate;
     try {
         auto delays = makeVoiceDelayBank(sampleRate,
-            std::clamp<uint32_t>(state->params.voices, 1u, s3g::kAmbiVotMaxVoices),
+            s3g::kAmbiVoxMaxVoices,
             std::clamp(state->vox.worldVoiceSpread, 0.0f, 1.0f));
         std::atomic_store_explicit(&state->voiceDelayBank, std::move(delays), std::memory_order_release);
         state->voiceDelayResizePending.store(false, std::memory_order_release);
@@ -4186,6 +5567,11 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     state->engine.prepare(sampleRate);
     state->engine.setParams(state->params);
     state->engine.setScore(loadScore(*state));
+    state->lastOutputSample.fill(0.0f);
+    state->presetTransitionOffset.fill(0.0f);
+    state->presetTransitionFrames = 0u;
+    state->presetTransitionRemaining = 0u;
+    state->presetTransitionNeedsInit = false;
     return true;
 }
 
@@ -4207,6 +5593,7 @@ void reset(const clap_plugin_t* plugin)
     state->voxPhraseU = state->params.vectorX;
     state->voxPhraseV = state->params.vectorY;
     state->voxPhraseIndex = 0u;
+    state->voxPhraseCurrentIndex = 0u;
     state->voxPhraseHold = 0u;
     state->voxPhraseBreathEnv = 0.0f;
     state->voxPhraseVowelEnv = 0.0f;
@@ -4224,12 +5611,13 @@ void reset(const clap_plugin_t* plugin)
     state->voxOutputGainSmooth = s3g::dbToGain(state->params.outputGainDb);
     state->voxLimiterGain = 1.0f;
     syncWorldSmoothing(*state);
-    const uint32_t activeVoices = std::clamp<uint32_t>(state->params.voices, 1u, s3g::kAmbiVotMaxVoices);
+    const uint32_t activeVoices = std::clamp<uint32_t>(state->params.voices, 1u, s3g::kAmbiVoxMaxVoices);
     resetVoxMidiVoices(*state);
-    for (uint32_t voice = 0; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+    for (uint32_t voice = 0; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
         state->voxWorldPhase[voice] = static_cast<double>(voice) * 997.0;
         state->voxWorldVoiceGainSmooth[voice] = voice < activeVoices ? 1.0f : 0.0f;
         state->voxPitchRatioSmooth[voice] = 1.0f;
+        state->voxContourRatioSmooth[voice] = 1.0f;
         state->pvoc.reset(state->voxPvocVoice[voice], nullptr, 0.0);
         state->pvoc.reset(state->voxPvocNextVoice[voice], nullptr, 0.0);
         state->voxTargetNoteSmooth[voice] = voxVoiceTargetNote(*state, voice);
@@ -4253,14 +5641,26 @@ void reset(const clap_plugin_t* plugin)
     if (auto delays = std::atomic_load_explicit(&state->voiceDelayBank, std::memory_order_acquire)) {
         for (auto& line : delays->lines) line.reset();
     }
+    state->voxBankTimingResetRequested.store(true, std::memory_order_release);
+    state->voxWorldTimingResetRequested.store(true, std::memory_order_release);
+    state->lyricMidiStepStarted = false;
+    state->lyricMidiStepCue = state->requestedLyricCue.load(std::memory_order_relaxed);
+    state->lyricCueResetRequested.store(true, std::memory_order_release);
     state->outputPeak.store(0.0f, std::memory_order_relaxed);
+    state->lastOutputSample.fill(0.0f);
+    state->presetTransitionOffset.fill(0.0f);
+    state->presetTransitionRemaining = 0u;
+    state->presetTransitionNeedsInit = false;
 }
 
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* processData)
 {
     auto* state = self(plugin);
     if (!processData) return CLAP_PROCESS_CONTINUE;
+    applyPendingVoxPreset(*state);
     readEvents(*state, processData->in_events);
+    updateVoxLyricTransport(*state, processData->transport);
+    applyPendingVoxLyricCue(*state);
     updateTransportPhase(*state, processData->transport);
     if (processData->audio_outputs_count == 0u || !processData->audio_outputs) return CLAP_PROCESS_CONTINUE;
 
@@ -4284,6 +5684,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     state->engine.setParams(motionParams);
     state->engine.advanceMotionOnly(frames);
     applyVoxPostProcess(*state, outputs, outputChannels, frames);
+    applyVoxPresetTransition(*state, outputs, outputChannels, frames);
     s3g::clearAudioBufferFromChannel(output, outputChannels, frames);
 
     float peak = 0.0f;
@@ -4301,10 +5702,12 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 void onMainThread(const clap_plugin_t* plugin)
 {
     auto* state = self(plugin);
+    if (state->presetRescanPending.exchange(false, std::memory_order_acq_rel)
+        && state->hostParams && state->hostParams->rescan) {
+        state->hostParams->rescan(state->host, CLAP_PARAM_RESCAN_VALUES);
+    }
     if (!state->voiceDelayResizePending.exchange(false, std::memory_order_acq_rel)) return;
-    const uint32_t voices = std::clamp<uint32_t>(
-        state->requestedDelayVoiceCapacity.load(std::memory_order_relaxed),
-        1u, s3g::kAmbiVotMaxVoices);
+    const uint32_t voices = s3g::kAmbiVoxMaxVoices;
     const float step = std::clamp(
         state->requestedDelayStepCapacity.load(std::memory_order_relaxed), 0.0f, 1.0f);
     try {
@@ -4355,7 +5758,7 @@ struct ParamDef {
 
 constexpr ParamDef kParams[] {
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
-    { kVoicesParamId, "Voices", 1.0, 64.0, 8.0, true },
+    { kVoicesParamId, "Voices", 1.0, static_cast<double>(s3g::kAmbiVoxMaxVoices), 8.0, true },
     { kModeParamId, "Trigger Mode", 0.0, 2.0, 0.0, true },
     { kBaseNoteParamId, "Pitch Root", 12.0, 96.0, 48.0, false },
     { kTuneParamId, "Legacy Pitch Tune", -1200.0, 1200.0, 0.0, false },
@@ -4382,7 +5785,7 @@ constexpr ParamDef kParams[] {
     { kSpeechModeParamId, "Voice Mode", 0.0, 2.0, 1.0, true },
     { kPhraseRateParamId, "Phrase Pace", 0.0, 1.0, 0.34, false },
     { kCircuitModeParamId, "Legacy Circuit", 0.0, 3.0, 0.0, true },
-    { kFormantMacroParamId, "Legacy WORLD Formant", -1.0, 1.0, 0.0, false },
+    { kFormantMacroParamId, "WORLD Formant", -1.0, 1.0, 0.0, false },
     { kBendMacroParamId, "Legacy WORLD Flutter", 0.0, 1.0, 0.0, false },
     { kCrushMacroParamId, "Legacy WORLD Degrade", 0.0, 1.0, 0.0, false },
     { kWorldRateParamId, "Texture Speed", 0.0, 1.0, 0.50, false },
@@ -4393,13 +5796,21 @@ constexpr ParamDef kParams[] {
     { kWorldVoiceDeviationParamId, "Voice Delay Deviation", 0.0, 1.0, 0.0, false },
     { kWorldFreezeParamId, "Texture Freeze", 0.0, 1.0, 0.0, false },
     { kWorldScrubParamId, "Texture Position", 0.0, 1.0, 0.0, false },
-    { kWorldVoicingParamId, "Voicing", 0.0, 1.0, 0.50, false },
+    { kWorldVoicingParamId, "WORLD Periodicity", 0.0, 1.0, 0.50, false },
     { kPvocStretchParamId, "Playback Stretch", 0.25, 4.0, 1.0, false },
     { kPvocTransientParamId, "Playback Transient", 0.0, 1.0, 0.65, false },
     { kPortamentoParamId, "Pitch Glide", 0.0, 1.0, 0.18, false },
     { kVibratoDepthParamId, "Pitch Vibrato Depth", 0.0, 1.0, 0.12, false },
     { kVibratoRateParamId, "Pitch Vibrato Speed", 0.1, 12.0, 5.2, false },
     { kTransitionParamId, "Phrase Blend", 0.0, 1.0, 0.65, false },
+    { kWorldAirColorParamId, "WORLD Air Color", -1.0, 1.0, 0.0, false },
+    { kOrchestrationParamId, "Ensemble", 0.0, 5.0, 0.0, true },
+    { kContourModeParamId, "Pitch Contour", 0.0, 3.0, 0.0, true },
+    { kPhraseSpreadParamId, "Phrase Spread", 0.0, 1.0, 0.0, false },
+    { kLyricModeParamId, "Lyrics Mode", 0.0, 3.0, 0.0, true },
+    { kLyricCueBeatsParamId, "Lyrics Cue Beats", 0.25, 64.0, 16.0, false },
+    { kLyricCueNoteParamId, "Lyrics Cue Base Note", 0.0, 127.0, 24.0, true },
+    { kLyricCueChannelParamId, "Lyrics Cue Channel", 1.0, 16.0, 16.0, true },
 };
 
 constexpr bool isLegacyHiddenParam(clap_id id)
@@ -4410,13 +5821,105 @@ constexpr bool isLegacyHiddenParam(clap_id id)
     case kBreathParamId:
     case kDriveParamId:
     case kCircuitModeParamId:
-    case kFormantMacroParamId:
     case kBendMacroParamId:
     case kCrushMacroParamId:
         return true;
     default:
         return false;
     }
+}
+
+const ParamDef* paramDef(clap_id id)
+{
+    for (const auto& definition : kParams) {
+        if (definition.id == id) return &definition;
+    }
+    return nullptr;
+}
+
+uint32_t publicPresetParameterCount()
+{
+    uint32_t count = 0u;
+    for (const auto& definition : kParams) {
+        if (!isLegacyHiddenParam(definition.id)) ++count;
+    }
+    return count;
+}
+
+bool assignVoxPresetParameter(VoxPresetSnapshot& preset, clap_id id, double rawValue)
+{
+    const auto* definition = paramDef(id);
+    if (!definition || isLegacyHiddenParam(id) || !std::isfinite(rawValue)) return false;
+    const double value = std::clamp(rawValue, definition->min, definition->max);
+    auto& params = preset.params;
+    auto& vox = preset.vox;
+    auto& lyric = preset.lyric;
+    switch (id) {
+    case kOrderParamId: params.order = static_cast<uint32_t>(std::lround(value)); break;
+    case kVoicesParamId: params.voices = static_cast<uint32_t>(std::lround(value)); break;
+    case kModeParamId: params.mode = static_cast<s3g::AmbiVotMode>(static_cast<uint32_t>(std::lround(value))); break;
+    case kBaseNoteParamId: params.baseNote = static_cast<float>(value); break;
+    case kScaleParamId: params.scale = static_cast<s3g::AmbiVotScale>(static_cast<uint32_t>(std::lround(value))); break;
+    case kPitchSpreadParamId: params.pitchSpread = static_cast<float>(value); break;
+    case kDetuneParamId: params.detune = static_cast<float>(value); break;
+    case kSpreadParamId: params.motionSpread = static_cast<float>(value); break;
+    case kMotionRateParamId: params.motionRateHz = static_cast<float>(value); break;
+    case kOutputParamId: params.outputGainDb = static_cast<float>(value); break;
+    case kMotionSceneParamId: params.motionScene = static_cast<s3g::AmbiVotMotionScene>(static_cast<uint32_t>(std::lround(value))); break;
+    case kMotionClockParamId: params.motionClock = static_cast<s3g::AmbiVotMotionClock>(static_cast<uint32_t>(std::lround(value))); break;
+    case kSyncDivisionParamId: params.syncDivisionBeats = static_cast<float>(value); break;
+    case kMotionAmountParamId: params.motionAmount = static_cast<float>(value); break;
+    case kCoherenceParamId: params.motionCoherence = static_cast<float>(value); break;
+    case kChaosParamId: params.motionChaos = static_cast<float>(value); break;
+    case kLinkParamId: params.motionLink = static_cast<float>(value); break;
+    case kSmoothParamId: params.motionSmooth = static_cast<float>(value); break;
+    case kCenterAzimuthParamId: params.centerAzimuthDeg = static_cast<float>(value); break;
+    case kCenterElevationParamId: params.centerElevationDeg = static_cast<float>(value); break;
+    case kCenterDistanceParamId: params.centerDistance = static_cast<float>(value); break;
+    case kSpeechModeParamId: vox.speechMode = static_cast<VoxSpeechMode>(static_cast<uint32_t>(std::lround(value))); break;
+    case kPhraseRateParamId: vox.phraseRate = static_cast<float>(value); break;
+    case kFormantMacroParamId: vox.formantMacro = static_cast<float>(value); break;
+    case kWorldRateParamId: vox.worldRate = static_cast<float>(value); break;
+    case kWorldPitchParamId: vox.worldPitchCents = static_cast<float>(value); break;
+    case kWorldLoopStartParamId: vox.worldLoopStart = static_cast<float>(value); break;
+    case kWorldLoopEndParamId: vox.worldLoopEnd = static_cast<float>(value); break;
+    case kWorldVoiceSpreadParamId: vox.worldVoiceSpread = static_cast<float>(value); break;
+    case kWorldVoiceDeviationParamId: vox.worldVoiceDeviation = static_cast<float>(value); break;
+    case kWorldFreezeParamId: vox.worldFreeze = static_cast<float>(value); break;
+    case kWorldScrubParamId: vox.worldScrub = static_cast<float>(value); break;
+    case kWorldVoicingParamId: vox.worldVoicing = static_cast<float>(value); break;
+    case kPvocStretchParamId: vox.pvocStretch = static_cast<float>(value); break;
+    case kPvocTransientParamId: vox.pvocTransient = static_cast<float>(value); break;
+    case kPortamentoParamId: vox.portamento = static_cast<float>(value); break;
+    case kVibratoDepthParamId: vox.vibratoDepth = static_cast<float>(value); break;
+    case kVibratoRateParamId: vox.vibratoRateHz = static_cast<float>(value); break;
+    case kTransitionParamId: vox.transition = static_cast<float>(value); break;
+    case kWorldAirColorParamId: vox.worldAirColor = static_cast<float>(value); break;
+    case kOrchestrationParamId:
+        vox.orchestration = static_cast<s3g::AmbiVoxOrchestration>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kContourModeParamId:
+        vox.contourMode = static_cast<s3g::AmbiVoxContourMode>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kPhraseSpreadParamId: vox.phraseSpread = static_cast<float>(value); break;
+    case kLyricModeParamId:
+        lyric.mode = static_cast<VoxLyricMode>(static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kLyricCueBeatsParamId: lyric.cueBeats = static_cast<float>(value); break;
+    case kLyricCueNoteParamId: lyric.cueBaseNote = static_cast<uint32_t>(std::lround(value)); break;
+    case kLyricCueChannelParamId: lyric.cueChannel = static_cast<uint32_t>(std::lround(value)); break;
+    default: return false;
+    }
+    if (vox.worldLoopStart >= vox.worldLoopEnd - 0.01f) {
+        if (id == kWorldLoopStartParamId) {
+            vox.worldLoopEnd = std::min(1.0f, vox.worldLoopStart + 0.01f);
+        } else if (id == kWorldLoopEndParamId) {
+            vox.worldLoopStart = std::max(0.0f, vox.worldLoopEnd - 0.01f);
+        }
+    }
+    return true;
 }
 
 const char* paramModule(clap_id id)
@@ -4440,7 +5943,13 @@ const char* paramModule(clap_id id)
         return "Pitch";
     case kPhraseRateParamId:
     case kTransitionParamId:
+    case kPhraseSpreadParamId:
         return "Phrase Playback";
+    case kLyricModeParamId:
+    case kLyricCueBeatsParamId:
+    case kLyricCueNoteParamId:
+    case kLyricCueChannelParamId:
+        return "Lyrics";
     case kWorldRateParamId:
     case kWorldLoopStartParamId:
     case kWorldLoopEndParamId:
@@ -4450,9 +5959,14 @@ const char* paramModule(clap_id id)
     case kWorldVoiceSpreadParamId:
     case kWorldVoiceDeviationParamId:
     case kWorldVoicingParamId:
+    case kFormantMacroParamId:
+    case kWorldAirColorParamId:
+    case kContourModeParamId:
     case kPvocStretchParamId:
     case kPvocTransientParamId:
         return "Voice Playback";
+    case kOrchestrationParamId:
+        return "Ensemble";
     case kOutputParamId:
         return "Output";
     default:
@@ -4484,6 +5998,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     const auto* state = self(plugin);
     const auto params = state->params;
     const auto vox = state->vox;
+    const auto lyric = state->lyric;
     switch (id) {
     case kOrderParamId: *value = params.order; return true;
     case kVoicesParamId: *value = params.voices; return true;
@@ -4557,6 +6072,14 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kVibratoDepthParamId: *value = vox.vibratoDepth; return true;
     case kVibratoRateParamId: *value = vox.vibratoRateHz; return true;
     case kTransitionParamId: *value = vox.transition; return true;
+    case kWorldAirColorParamId: *value = vox.worldAirColor; return true;
+    case kOrchestrationParamId: *value = static_cast<uint32_t>(vox.orchestration); return true;
+    case kContourModeParamId: *value = static_cast<uint32_t>(vox.contourMode); return true;
+    case kPhraseSpreadParamId: *value = vox.phraseSpread; return true;
+    case kLyricModeParamId: *value = static_cast<uint32_t>(lyric.mode); return true;
+    case kLyricCueBeatsParamId: *value = lyric.cueBeats; return true;
+    case kLyricCueNoteParamId: *value = lyric.cueBaseNote; return true;
+    case kLyricCueChannelParamId: *value = lyric.cueChannel; return true;
     default: return false;
     }
 }
@@ -4573,18 +6096,22 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kScoreModeParamId) std::snprintf(display, size, "%s", s3g::ambiVotScoreModeName(static_cast<s3g::AmbiVotScoreMode>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kSpeechModeParamId) std::snprintf(display, size, "%s", voxSpeechModeName(static_cast<VoxSpeechMode>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kCircuitModeParamId) std::snprintf(display, size, "%s", voxCircuitModeName(static_cast<VoxCircuitMode>(static_cast<uint32_t>(std::lround(value)))));
+    else if (id == kOrchestrationParamId) std::snprintf(display, size, "%s", s3g::ambiVoxOrchestrationName(static_cast<s3g::AmbiVoxOrchestration>(static_cast<uint32_t>(std::lround(value)))));
+    else if (id == kContourModeParamId) std::snprintf(display, size, "%s", s3g::ambiVoxContourModeName(static_cast<s3g::AmbiVoxContourMode>(static_cast<uint32_t>(std::lround(value)))));
+    else if (id == kLyricModeParamId) std::snprintf(display, size, "%s", voxLyricModeName(static_cast<VoxLyricMode>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kTuneParamId) std::snprintf(display, size, "%+.0f ct", value);
     else if (id == kDetuneParamId) std::snprintf(display, size, "%.0f ct", value * 100.0);
     else if (id == kPitchSpreadParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
     else if (id == kMotionRateParamId) std::snprintf(display, size, "%.3f Hz", value);
     else if (id == kScanRateParamId) std::snprintf(display, size, "%+.2fx", value);
     else if (id == kSyncDivisionParamId) std::snprintf(display, size, "%.2f beats", value);
+    else if (id == kLyricCueBeatsParamId) std::snprintf(display, size, "%.2f beats", value);
     else if (id == kScoreDurationParamId) std::snprintf(display, size, "%.2f s", value);
     else if (id == kAttackParamId || id == kDecayParamId || id == kReleaseParamId) std::snprintf(display, size, "%.0f ms", value);
     else if (id == kOutputParamId) std::snprintf(display, size, "%+.1f dB", value);
     else if (id == kCenterAzimuthParamId || id == kCenterElevationParamId) std::snprintf(display, size, "%+.0f deg", value);
     else if (id == kNeighborRadiusParamId) std::snprintf(display, size, "%.2f", value);
-    else if (id == kFormantMacroParamId) std::snprintf(display, size, "%+.0f%%", value * 100.0);
+    else if (id == kFormantMacroParamId || id == kWorldAirColorParamId) std::snprintf(display, size, "%+.0f%%", value * 100.0);
     else if (id == kWorldRateParamId) std::snprintf(display, size, "%.2fx", 0.25 + value * 1.75);
     else if (id == kWorldPitchParamId) std::snprintf(display, size, "%+.0f ct", value);
     else if (id == kWorldVoiceSpreadParamId) std::snprintf(display, size, "%.0f ms", value * kVoxVoiceTimeStepMaxMs);
@@ -4592,8 +6119,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kPortamentoParamId) std::snprintf(display, size, "%.0f ms", 2.0 + value * value * 750.0);
     else if (id == kVibratoDepthParamId) std::snprintf(display, size, "%.0f ct", value * 100.0);
     else if (id == kVibratoRateParamId) std::snprintf(display, size, "%.2f Hz", value);
-    else if (id == kMotionAmountParamId || id == kSpreadParamId || id == kCoherenceParamId || id == kChaosParamId || id == kLinkParamId || id == kSmoothParamId || id == kScanParamId || id == kMorphParamId || id == kSustainParamId || id == kHarmonicsParamId || id == kSubharmonicsParamId || id == kScoreDepthParamId || id == kRaspParamId || id == kBreathParamId || id == kThroatParamId || id == kDriveParamId || id == kJitterParamId || id == kVowelSpreadParamId || id == kPitchScoopParamId || id == kAttackShapeParamId || id == kArticulationParamId || id == kConsonantParamId || id == kPlosiveParamId || id == kSibilanceParamId || id == kPhraseRateParamId || id == kBendMacroParamId || id == kCrushMacroParamId || id == kWorldLoopStartParamId || id == kWorldLoopEndParamId || id == kWorldVoiceDeviationParamId || id == kWorldFreezeParamId || id == kWorldScrubParamId || id == kWorldVoicingParamId || id == kPvocTransientParamId || id == kTransitionParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
-    else if (id == kOrderParamId || id == kVoicesParamId || id == kRequiredNeighborsParamId || id == kBaseNoteParamId) std::snprintf(display, size, "%.0f", value);
+    else if (id == kMotionAmountParamId || id == kSpreadParamId || id == kCoherenceParamId || id == kChaosParamId || id == kLinkParamId || id == kSmoothParamId || id == kScanParamId || id == kMorphParamId || id == kSustainParamId || id == kHarmonicsParamId || id == kSubharmonicsParamId || id == kScoreDepthParamId || id == kRaspParamId || id == kBreathParamId || id == kThroatParamId || id == kDriveParamId || id == kJitterParamId || id == kVowelSpreadParamId || id == kPitchScoopParamId || id == kAttackShapeParamId || id == kArticulationParamId || id == kConsonantParamId || id == kPlosiveParamId || id == kSibilanceParamId || id == kPhraseRateParamId || id == kBendMacroParamId || id == kCrushMacroParamId || id == kWorldLoopStartParamId || id == kWorldLoopEndParamId || id == kWorldVoiceDeviationParamId || id == kWorldFreezeParamId || id == kWorldScrubParamId || id == kWorldVoicingParamId || id == kPvocTransientParamId || id == kTransitionParamId || id == kPhraseSpreadParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
+    else if (id == kLyricCueChannelParamId) std::snprintf(display, size, "CH %.0f", value);
+    else if (id == kOrderParamId || id == kVoicesParamId || id == kRequiredNeighborsParamId || id == kBaseNoteParamId || id == kLyricCueNoteParamId) std::snprintf(display, size, "%.0f", value);
     else std::snprintf(display, size, "%.2f", value);
     return true;
 }
@@ -4621,6 +6149,13 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         *value = text.find("sync") != std::string::npos ? 1.0 : 0.0;
         return true;
     }
+    if (id == kLyricModeParamId) {
+        if (text.find("transport") != std::string::npos) *value = 3.0;
+        else if (text.find("cue") != std::string::npos) *value = 2.0;
+        else if (text.find("step") != std::string::npos) *value = 1.0;
+        else *value = 0.0;
+        return true;
+    }
     if (id == kScaleParamId) {
         if (text.find("harm") != std::string::npos) *value = 5.0;
         else if (text.find("whole") != std::string::npos) *value = 4.0;
@@ -4633,6 +6168,22 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     if (id == kSpeechModeParamId) {
         if (text.find("speak") != std::string::npos) *value = 1.0;
         else if (text.find("sing") != std::string::npos || text.find("chorus") != std::string::npos) *value = 2.0;
+        else *value = 0.0;
+        return true;
+    }
+    if (id == kOrchestrationParamId) {
+        if (text.find("unison") != std::string::npos) *value = 1.0;
+        else if (text.find("chorale") != std::string::npos) *value = 2.0;
+        else if (text.find("chorus") != std::string::npos) *value = 3.0;
+        else if (text.find("round") != std::string::npos) *value = 4.0;
+        else if (text.find("cluster") != std::string::npos) *value = 5.0;
+        else *value = 0.0;
+        return true;
+    }
+    if (id == kContourModeParamId) {
+        if (text.find("reduc") != std::string::npos) *value = 1.0;
+        else if (text.find("flat") != std::string::npos) *value = 2.0;
+        else if (text.find("quant") != std::string::npos) *value = 3.0;
         else *value = 0.0;
         return true;
     }
@@ -4681,6 +6232,13 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         *value = std::atof(display);
         return true;
     }
+    if (id == kFormantMacroParamId || id == kWorldAirColorParamId) {
+        const double parsed = std::atof(display);
+        *value = text.find('%') != std::string::npos || std::fabs(parsed) > 1.0
+            ? parsed * 0.01
+            : parsed;
+        return true;
+    }
     switch (id) {
     case kPitchSpreadParamId:
     case kMotionAmountParamId:
@@ -4702,7 +6260,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     case kWorldVoicingParamId:
     case kPvocTransientParamId:
     case kTransitionParamId:
-    case kFormantMacroParamId:
+    case kPhraseSpreadParamId:
         *value = std::atof(display) * 0.01;
         return true;
     default:
@@ -4714,7 +6272,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
 
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* events, const clap_output_events_t*)
 {
-    readEvents(*self(plugin), events);
+    auto* state = self(plugin);
+    applyPendingVoxPreset(*state);
+    readEvents(*state, events);
 }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
@@ -4726,10 +6286,18 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     saved.params = state->params;
     saved.score = loadScore(*state);
     saved.vox = state->vox;
+    saved.lyric = state->lyric;
+    saved.factoryPresetIndex = state->factoryPresetIndex;
+    std::strncpy(saved.presetName.data(), state->presetName, saved.presetName.size() - 1u);
     saved.phraseLength = std::min<uint32_t>(
         state->voxPhraseLength.load(std::memory_order_acquire), kVoxPhraseMaxChars - 1u);
     for (uint32_t i = 0; i < saved.phraseLength; ++i) {
         saved.phrase[i] = state->voxPhrase[i].load(std::memory_order_relaxed);
+    }
+    saved.lyricsLength = std::min<uint32_t>(
+        state->voxLyricsLength.load(std::memory_order_acquire), kVoxLyricsMaxChars - 1u);
+    for (uint32_t i = 0; i < saved.lyricsLength; ++i) {
+        saved.lyrics[i] = state->voxLyrics[i].load(std::memory_order_relaxed);
     }
     auto userBank = std::atomic_load_explicit(&state->userBank, std::memory_order_acquire);
     if (userBank) {
@@ -4757,7 +6325,11 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!readExact(stream, &version, sizeof(version))) return false;
     auto* state = self(plugin);
     std::shared_ptr<const s3g::AmbiVotTableBank> restoredUserBank;
+    int32_t loadedPresetIndex = -1;
+    char loadedPresetName[64] {};
+    std::snprintf(loadedPresetName, sizeof(loadedPresetName), "%s", "CUSTOM");
     state->vox = VoxParams {};
+    state->lyric = VoxLyricParams {};
     if (version == 1u) {
         SavedStateV1 legacy {};
         legacy.version = version;
@@ -5053,13 +6625,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state->guiViewElDeg = std::clamp(legacy.guiViewElDeg, -85.0f, 85.0f);
         state->guiViewZoom = std::clamp(legacy.guiViewZoom, 0.55f, 2.4f);
 #endif
-    } else if (version == 17u || version == kStateVersion) {
-        SavedState saved {};
+    } else if (version == 17u || version == 18u) {
+        SavedStateV18 saved {};
         saved.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&saved) + sizeof(version), sizeof(saved) - sizeof(version))) return false;
         state->params = saved.params;
         storeScore(*state, saved.score);
-        state->vox = saved.vox;
+        migrateVoxV18(*state, saved.vox);
         const uint32_t phraseLength = std::min<uint32_t>(saved.phraseLength, kVoxPhraseMaxChars - 1u);
         for (uint32_t i = 0; i < kVoxPhraseMaxChars; ++i) {
             state->voxPhrase[i].store(i < phraseLength ? saved.phrase[i] : 0u, std::memory_order_relaxed);
@@ -5076,10 +6648,114 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state->guiViewElDeg = std::clamp(saved.guiViewElDeg, -85.0f, 85.0f);
         state->guiViewZoom = std::clamp(saved.guiViewZoom, 0.55f, 2.4f);
 #endif
+    } else if (version == 19u) {
+        SavedStateV19 saved {};
+        saved.version = version;
+        if (!readExact(stream, reinterpret_cast<uint8_t*>(&saved) + sizeof(version), sizeof(saved) - sizeof(version))) return false;
+        state->params = saved.params;
+        storeScore(*state, saved.score);
+        migrateVoxV20(*state, saved.vox);
+        const uint32_t phraseLength = std::min<uint32_t>(saved.phraseLength, kVoxPhraseMaxChars - 1u);
+        for (uint32_t i = 0; i < kVoxPhraseMaxChars; ++i) {
+            state->voxPhrase[i].store(i < phraseLength ? saved.phrase[i] : 0u, std::memory_order_relaxed);
+        }
+        state->voxPhraseLength.store(phraseLength, std::memory_order_release);
+        state->voxPhraseIndex = 0u;
+        if (saved.hasUserAtlas != 0u) {
+            restoredUserBank = restoreUserAtlas(saved.userAtlas);
+        }
+#if defined(__APPLE__)
+        state->guiPage = std::clamp(saved.guiPage, 0, 2);
+        state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
+        state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
+        state->guiViewElDeg = std::clamp(saved.guiViewElDeg, -85.0f, 85.0f);
+        state->guiViewZoom = std::clamp(saved.guiViewZoom, 0.55f, 2.4f);
+#endif
+    } else if (version == 20u) {
+        SavedStateV20 saved {};
+        saved.version = version;
+        if (!readExact(stream, reinterpret_cast<uint8_t*>(&saved) + sizeof(version), sizeof(saved) - sizeof(version))) return false;
+        state->params = saved.params;
+        storeScore(*state, saved.score);
+        migrateVoxV20(*state, saved.vox);
+        const uint32_t phraseLength = std::min<uint32_t>(saved.phraseLength, kVoxPhraseMaxChars - 1u);
+        for (uint32_t i = 0; i < kVoxPhraseMaxChars; ++i) {
+            state->voxPhrase[i].store(i < phraseLength ? saved.phrase[i] : 0u, std::memory_order_relaxed);
+        }
+        state->voxPhraseLength.store(phraseLength, std::memory_order_release);
+        state->voxPhraseIndex = 0u;
+        loadedPresetIndex = saved.factoryPresetIndex;
+        std::strncpy(loadedPresetName, saved.presetName.data(), sizeof(loadedPresetName) - 1u);
+        if (saved.hasUserAtlas != 0u) {
+            restoredUserBank = restoreUserAtlas(saved.userAtlas);
+        }
+#if defined(__APPLE__)
+        state->guiPage = std::clamp(saved.guiPage, 0, 2);
+        state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
+        state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
+        state->guiViewElDeg = std::clamp(saved.guiViewElDeg, -85.0f, 85.0f);
+        state->guiViewZoom = std::clamp(saved.guiViewZoom, 0.55f, 2.4f);
+#endif
+    } else if (version == 21u) {
+        SavedStateV21 saved {};
+        saved.version = version;
+        if (!readExact(stream, reinterpret_cast<uint8_t*>(&saved) + sizeof(version), sizeof(saved) - sizeof(version))) return false;
+        state->params = saved.params;
+        storeScore(*state, saved.score);
+        state->vox = saved.vox;
+        const uint32_t phraseLength = std::min<uint32_t>(saved.phraseLength, kVoxPhraseMaxChars - 1u);
+        for (uint32_t i = 0; i < kVoxPhraseMaxChars; ++i) {
+            state->voxPhrase[i].store(i < phraseLength ? saved.phrase[i] : 0u, std::memory_order_relaxed);
+        }
+        state->voxPhraseLength.store(phraseLength, std::memory_order_release);
+        state->voxPhraseIndex = 0u;
+        loadedPresetIndex = saved.factoryPresetIndex;
+        std::strncpy(loadedPresetName, saved.presetName.data(), sizeof(loadedPresetName) - 1u);
+        if (saved.hasUserAtlas != 0u) restoredUserBank = restoreUserAtlas(saved.userAtlas);
+#if defined(__APPLE__)
+        state->guiPage = std::clamp(saved.guiPage, 0, 2);
+        state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
+        state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
+        state->guiViewElDeg = std::clamp(saved.guiViewElDeg, -85.0f, 85.0f);
+        state->guiViewZoom = std::clamp(saved.guiViewZoom, 0.55f, 2.4f);
+#endif
+    } else if (version == kStateVersion) {
+        SavedState saved {};
+        saved.version = version;
+        if (!readExact(stream, reinterpret_cast<uint8_t*>(&saved) + sizeof(version), sizeof(saved) - sizeof(version))) return false;
+        state->params = saved.params;
+        storeScore(*state, saved.score);
+        state->vox = saved.vox;
+        state->lyric = saved.lyric;
+        const uint32_t phraseLength = std::min<uint32_t>(saved.phraseLength, kVoxPhraseMaxChars - 1u);
+        for (uint32_t i = 0; i < kVoxPhraseMaxChars; ++i) {
+            state->voxPhrase[i].store(i < phraseLength ? saved.phrase[i] : 0u, std::memory_order_relaxed);
+        }
+        state->voxPhraseLength.store(phraseLength, std::memory_order_release);
+        state->voxPhraseIndex = 0u;
+        const uint32_t lyricsLength = std::min<uint32_t>(
+            saved.lyricsLength, kVoxLyricsMaxChars - 1u);
+        for (uint32_t i = 0; i < kVoxLyricsMaxChars; ++i) {
+            state->voxLyrics[i].store(
+                i < lyricsLength ? saved.lyrics[i] : 0u, std::memory_order_relaxed);
+        }
+        state->voxLyricsLength.store(lyricsLength, std::memory_order_release);
+        loadedPresetIndex = saved.factoryPresetIndex;
+        std::strncpy(loadedPresetName, saved.presetName.data(), sizeof(loadedPresetName) - 1u);
+        if (saved.hasUserAtlas != 0u) {
+            restoredUserBank = restoreUserAtlas(saved.userAtlas);
+        }
+#if defined(__APPLE__)
+        state->guiPage = std::clamp(saved.guiPage, 0, 3);
+        state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
+        state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
+        state->guiViewElDeg = std::clamp(saved.guiViewElDeg, -85.0f, 85.0f);
+        state->guiViewZoom = std::clamp(saved.guiViewZoom, 0.55f, 2.4f);
+#endif
     } else {
         return false;
     }
-    if (version < kStateVersion) {
+    if (version < 19u) {
         state->vox.worldPitchCents = std::clamp(
             state->vox.worldPitchCents + state->params.tuneCents, -2400.0f, 2400.0f);
         state->params.tuneCents = 0.0f;
@@ -5091,13 +6767,44 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state->vox.breath = 0.0f;
         state->vox.drive = 0.0f;
     }
+    state->params.voices = std::clamp<uint32_t>(
+        state->params.voices, 1u, s3g::kAmbiVoxMaxVoices);
+    state->vox.worldAirColor = std::clamp(state->vox.worldAirColor, -1.0f, 1.0f);
+    state->vox.phraseSpread = std::clamp(state->vox.phraseSpread, 0.0f, 1.0f);
+    state->vox.orchestration = static_cast<s3g::AmbiVoxOrchestration>(
+        std::clamp<uint32_t>(static_cast<uint32_t>(state->vox.orchestration), 0u, 5u));
+    state->vox.contourMode = static_cast<s3g::AmbiVoxContourMode>(
+        std::clamp<uint32_t>(static_cast<uint32_t>(state->vox.contourMode), 0u, 3u));
+    state->lyric.mode = static_cast<VoxLyricMode>(
+        std::clamp<uint32_t>(static_cast<uint32_t>(state->lyric.mode), 0u, 3u));
+    state->lyric.cueBeats = std::clamp(state->lyric.cueBeats, 0.25f, 64.0f);
+    state->lyric.cueBaseNote = std::clamp<uint32_t>(state->lyric.cueBaseNote, 0u, 127u);
+    state->lyric.cueChannel = std::clamp<uint32_t>(state->lyric.cueChannel, 1u, 16u);
+    if (version < kStateVersion) {
+        const std::string phrase = loadVoxPhrase(*state);
+        storeVoxLyricsText(*state, phrase.c_str());
+    }
+    state->factoryPresetIndex = (loadedPresetIndex >= 0
+            && loadedPresetIndex < static_cast<int32_t>(kVoxFactoryPresetCount))
+        ? loadedPresetIndex : -1;
+    if (loadedPresetName[0] == '\0') {
+        const char* fallback = state->factoryPresetIndex >= 0
+            ? voxFactoryPreset(static_cast<uint32_t>(state->factoryPresetIndex)).name
+            : "CUSTOM";
+        std::snprintf(loadedPresetName, sizeof(loadedPresetName), "%s", fallback);
+    }
+    std::strncpy(state->presetName, loadedPresetName, sizeof(state->presetName) - 1u);
+    state->presetName[sizeof(state->presetName) - 1u] = '\0';
     compileVoxPhrase(*state);
+    rebuildVoxLyricScore(*state);
     std::atomic_store_explicit(&state->userBank, std::move(restoredUserBank), std::memory_order_release);
     syncWorldSmoothing(*state);
     resetVoxMidiVoices(*state);
     state->voxBankTimingResetRequested.store(true, std::memory_order_release);
-    for (uint32_t voice = 0u; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+    state->voxWorldTimingResetRequested.store(true, std::memory_order_release);
+    for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
         state->voxPitchRatioSmooth[voice] = 1.0f;
+        state->voxContourRatioSmooth[voice] = 1.0f;
         state->pvoc.reset(state->voxPvocVoice[voice], nullptr, 0.0);
         state->pvoc.reset(state->voxPvocNextVoice[voice], nullptr, 0.0);
         state->voxTargetNoteSmooth[voice] = voxVoiceTargetNote(*state, voice);
@@ -5146,6 +6853,57 @@ static NSColor* votPointColor(float azimuthDeg, float elevationDeg, float distan
     g = g * (1.0f - grayMix) + 0.72f * grayMix;
     blue = blue * (1.0f - grayMix) + 0.72f * grayMix;
     return [NSColor colorWithCalibratedRed:r green:g blue:blue alpha:selected ? 1.0 : 0.88];
+}
+
+static uint32_t voxEnsembleCohort(s3g::AmbiVoxOrchestration orchestration,
+                                  uint32_t voice,
+                                  uint32_t voices)
+{
+    if (orchestration == s3g::AmbiVoxOrchestration::Unison) return 0u;
+    if (orchestration == s3g::AmbiVoxOrchestration::Chorale
+        || orchestration == s3g::AmbiVoxOrchestration::Chorus
+        || orchestration == s3g::AmbiVoxOrchestration::Round) {
+        return voice % std::min<uint32_t>(std::max<uint32_t>(1u, voices), 4u);
+    }
+    return voice;
+}
+
+static NSString* voxEnsembleRoleLabel(s3g::AmbiVoxOrchestration orchestration,
+                                      uint32_t voice,
+                                      uint32_t voices)
+{
+    const uint32_t cohort = voxEnsembleCohort(orchestration, voice, voices);
+    switch (orchestration) {
+    case s3g::AmbiVoxOrchestration::Unison:
+        return @"U";
+    case s3g::AmbiVoxOrchestration::Chorale: {
+        static NSString* labels[] = { @"S", @"A", @"T", @"B" };
+        return labels[cohort % 4u];
+    }
+    case s3g::AmbiVoxOrchestration::Chorus: {
+        static NSString* labels[] = { @"U1", @"U2", @"+8", @"-8" };
+        return labels[cohort % 4u];
+    }
+    case s3g::AmbiVoxOrchestration::Round:
+        return [NSString stringWithFormat:@"R%u", cohort + 1u];
+    case s3g::AmbiVoxOrchestration::Cluster:
+        if (voice == 0u) return @"0";
+        return [NSString stringWithFormat:(voice & 1u) != 0u ? @"+%u" : @"-%u",
+            (voice + 1u) / 2u];
+    case s3g::AmbiVoxOrchestration::Individual:
+    default:
+        return @"";
+    }
+}
+
+static NSColor* voxEnsembleRoleColor(s3g::AmbiVoxOrchestration orchestration,
+                                     uint32_t voice,
+                                     uint32_t voices)
+{
+    if (orchestration == s3g::AmbiVoxOrchestration::Individual) return votColor(0x8a8a8a);
+    static constexpr int colors[] = { 0xc99c9c, 0xc2b074, 0x83aaa4, 0x929dbd };
+    const uint32_t cohort = voxEnsembleCohort(orchestration, voice, voices);
+    return votColor(colors[cohort % 4u]);
 }
 
 static std::vector<float> readWavMono(NSURL* url, int* sampleRateOut = nullptr)
@@ -5220,6 +6978,136 @@ static std::vector<float> readWavMono(NSURL* url, int* sampleRateOut = nullptr)
 }
 
 #if defined(S3G_HAS_WORLD)
+static VoxWorldParameterData makeWorldParameterData(
+    const std::vector<std::vector<double>>& spectrogramStorage,
+    const std::vector<std::vector<double>>& aperiodicityStorage,
+    int sampleRate,
+    int fftSize,
+    double framePeriodMs)
+{
+    VoxWorldParameterData result {};
+    if (spectrogramStorage.empty() || aperiodicityStorage.size() != spectrogramStorage.size()
+        || sampleRate <= 0 || fftSize <= 0) return result;
+    result.sampleRate = sampleRate;
+    result.fftSize = fftSize;
+    result.framePeriodMs = framePeriodMs;
+    result.frameCount = static_cast<uint32_t>(spectrogramStorage.size());
+    result.spectralDimensions = std::min<uint32_t>(
+        kVoxWorldSpectralDimensions, static_cast<uint32_t>(fftSize / 2));
+    result.aperiodicityDimensions = static_cast<uint32_t>(
+        std::max(0, GetNumberOfAperiodicities(sampleRate)));
+
+    std::vector<double*> spectrogram(result.frameCount);
+    std::vector<double*> aperiodicity(result.frameCount);
+    for (uint32_t frame = 0u; frame < result.frameCount; ++frame) {
+        spectrogram[frame] = const_cast<double*>(spectrogramStorage[frame].data());
+        aperiodicity[frame] = const_cast<double*>(aperiodicityStorage[frame].data());
+    }
+
+    if (result.spectralDimensions > 0u) {
+        std::vector<std::vector<double>> codedStorage(result.frameCount,
+            std::vector<double>(result.spectralDimensions));
+        std::vector<double*> coded(result.frameCount);
+        for (uint32_t frame = 0u; frame < result.frameCount; ++frame) {
+            coded[frame] = codedStorage[frame].data();
+        }
+        CodeSpectralEnvelope(spectrogram.data(), static_cast<int>(result.frameCount),
+            sampleRate, fftSize, static_cast<int>(result.spectralDimensions), coded.data());
+        result.codedSpectralEnvelope.resize(
+            static_cast<size_t>(result.frameCount) * result.spectralDimensions);
+        for (uint32_t frame = 0u; frame < result.frameCount; ++frame) {
+            for (uint32_t dimension = 0u; dimension < result.spectralDimensions; ++dimension) {
+                result.codedSpectralEnvelope[static_cast<size_t>(frame)
+                    * result.spectralDimensions + dimension]
+                    = static_cast<float>(codedStorage[frame][dimension]);
+            }
+        }
+    }
+
+    if (result.aperiodicityDimensions > 0u) {
+        std::vector<std::vector<double>> codedStorage(result.frameCount,
+            std::vector<double>(result.aperiodicityDimensions));
+        std::vector<double*> coded(result.frameCount);
+        for (uint32_t frame = 0u; frame < result.frameCount; ++frame) {
+            coded[frame] = codedStorage[frame].data();
+        }
+        CodeAperiodicity(aperiodicity.data(), static_cast<int>(result.frameCount),
+            sampleRate, fftSize, coded.data());
+        result.codedAperiodicity.resize(
+            static_cast<size_t>(result.frameCount) * result.aperiodicityDimensions);
+        for (uint32_t frame = 0u; frame < result.frameCount; ++frame) {
+            for (uint32_t dimension = 0u; dimension < result.aperiodicityDimensions; ++dimension) {
+                result.codedAperiodicity[static_cast<size_t>(frame)
+                    * result.aperiodicityDimensions + dimension]
+                    = static_cast<float>(codedStorage[frame][dimension]);
+            }
+        }
+    }
+
+    const uint32_t sourceBins = static_cast<uint32_t>(fftSize / 2 + 1);
+    result.runtimeLogEnvelope.resize(
+        static_cast<size_t>(result.frameCount) * kVoxWorldRuntimeEnvelopeBins);
+    for (uint32_t frame = 0u; frame < result.frameCount; ++frame) {
+        for (uint32_t bin = 0u; bin < kVoxWorldRuntimeEnvelopeBins; ++bin) {
+            const float sourcePosition = static_cast<float>(bin)
+                * static_cast<float>(sourceBins - 1u)
+                / static_cast<float>(kVoxWorldRuntimeEnvelopeBins - 1u);
+            const uint32_t source0 = static_cast<uint32_t>(sourcePosition);
+            const uint32_t source1 = std::min<uint32_t>(source0 + 1u, sourceBins - 1u);
+            const double power = s3g::lerp(
+                spectrogramStorage[frame][source0], spectrogramStorage[frame][source1],
+                sourcePosition - static_cast<float>(source0));
+            result.runtimeLogEnvelope[static_cast<size_t>(frame)
+                * kVoxWorldRuntimeEnvelopeBins + bin]
+                = static_cast<float>(std::log(std::max(1.0e-12, power)));
+        }
+    }
+    return result;
+}
+
+static bool rebuildWorldRuntimeEnvelope(VoxWorldParameterData& parameters)
+{
+    if (parameters.frameCount == 0u || parameters.sampleRate <= 0
+        || parameters.fftSize <= 0 || parameters.spectralDimensions == 0u
+        || parameters.codedSpectralEnvelope.size()
+            != static_cast<size_t>(parameters.frameCount) * parameters.spectralDimensions) return false;
+    std::vector<std::vector<double>> codedStorage(parameters.frameCount,
+        std::vector<double>(parameters.spectralDimensions));
+    std::vector<double*> coded(parameters.frameCount);
+    std::vector<std::vector<double>> decodedStorage(parameters.frameCount,
+        std::vector<double>(static_cast<size_t>(parameters.fftSize / 2 + 1)));
+    std::vector<double*> decoded(parameters.frameCount);
+    for (uint32_t frame = 0u; frame < parameters.frameCount; ++frame) {
+        for (uint32_t dimension = 0u; dimension < parameters.spectralDimensions; ++dimension) {
+            codedStorage[frame][dimension] = parameters.codedSpectralEnvelope[
+                static_cast<size_t>(frame) * parameters.spectralDimensions + dimension];
+        }
+        coded[frame] = codedStorage[frame].data();
+        decoded[frame] = decodedStorage[frame].data();
+    }
+    DecodeSpectralEnvelope(coded.data(), static_cast<int>(parameters.frameCount),
+        parameters.sampleRate, parameters.fftSize,
+        static_cast<int>(parameters.spectralDimensions), decoded.data());
+    const uint32_t sourceBins = static_cast<uint32_t>(parameters.fftSize / 2 + 1);
+    parameters.runtimeLogEnvelope.resize(
+        static_cast<size_t>(parameters.frameCount) * kVoxWorldRuntimeEnvelopeBins);
+    for (uint32_t frame = 0u; frame < parameters.frameCount; ++frame) {
+        for (uint32_t bin = 0u; bin < kVoxWorldRuntimeEnvelopeBins; ++bin) {
+            const float sourcePosition = static_cast<float>(bin)
+                * static_cast<float>(sourceBins - 1u)
+                / static_cast<float>(kVoxWorldRuntimeEnvelopeBins - 1u);
+            const uint32_t source0 = static_cast<uint32_t>(sourcePosition);
+            const uint32_t source1 = std::min<uint32_t>(source0 + 1u, sourceBins - 1u);
+            const double power = s3g::lerp(decodedStorage[frame][source0],
+                decodedStorage[frame][source1], sourcePosition - static_cast<float>(source0));
+            parameters.runtimeLogEnvelope[static_cast<size_t>(frame)
+                * kVoxWorldRuntimeEnvelopeBins + bin]
+                = static_cast<float>(std::log(std::max(1.0e-12, power)));
+        }
+    }
+    return true;
+}
+
 static std::shared_ptr<VoxWorldSample> makeWorldSampleFromWave(
     const std::vector<float>& wave, int sampleRate, const std::string& name,
     std::array<std::vector<float>, kVoxWorldPitchAnchorCount - 1u>* pitchVariants = nullptr)
@@ -5238,6 +7126,28 @@ static std::shared_ptr<VoxWorldSample> makeWorldSampleFromWave(
     std::vector<double> refinedF0(static_cast<size_t>(f0Length));
     Dio(x.data(), static_cast<int>(x.size()), sampleRate, &dio, temporalPositions.data(), f0.data());
     StoneMask(x.data(), static_cast<int>(x.size()), sampleRate, temporalPositions.data(), f0.data(), f0Length, refinedF0.data());
+
+    // File and voicebank analysis is offline, so Harvest's stronger voiced
+    // continuity is worth its additional analysis cost. DIO/StoneMask remains
+    // a per-frame fallback for unusual material.
+    HarvestOption harvest {};
+    InitializeHarvestOption(&harvest);
+    harvest.frame_period = dio.frame_period;
+    harvest.f0_floor = dio.f0_floor;
+    harvest.f0_ceil = dio.f0_ceil;
+    const int harvestLength = GetSamplesForHarvest(
+        sampleRate, static_cast<int>(x.size()), harvest.frame_period);
+    if (harvestLength == f0Length) {
+        std::vector<double> harvestPositions(static_cast<size_t>(harvestLength));
+        std::vector<double> harvestF0(static_cast<size_t>(harvestLength));
+        Harvest(x.data(), static_cast<int>(x.size()), sampleRate, &harvest,
+            harvestPositions.data(), harvestF0.data());
+        for (int frame = 0; frame < f0Length; ++frame) {
+            if (harvestF0[static_cast<size_t>(frame)] > 0.0) {
+                refinedF0[static_cast<size_t>(frame)] = harvestF0[static_cast<size_t>(frame)];
+            }
+        }
+    }
 
     CheapTrickOption cheapTrick {};
     InitializeCheapTrickOption(sampleRate, &cheapTrick);
@@ -5259,6 +7169,8 @@ static std::shared_ptr<VoxWorldSample> makeWorldSampleFromWave(
     result->sampleRate = sampleRate;
     result->framePeriodMs = dio.frame_period;
     result->name = name;
+    result->parameters = makeWorldParameterData(spectrogramStorage,
+        aperiodicityStorage, sampleRate, cheapTrick.fft_size, dio.frame_period);
     result->f0.resize(static_cast<size_t>(f0Length));
     result->frameEnergy.resize(static_cast<size_t>(f0Length));
     std::vector<float> voicedF0;
@@ -5334,14 +7246,20 @@ static std::shared_ptr<VoxWorldSample> makeWorldSampleFromWave(
 }
 
 struct VoxWorldCacheHeader {
-    std::array<char, 8> magic { 'S', '3', 'G', 'V', 'W', 'L', 'D', '3' };
-    uint32_t version = 3u;
+    std::array<char, 8> magic { 'S', '3', 'G', 'V', 'W', 'L', 'D', '4' };
+    uint32_t version = 4u;
     int32_t sampleRate = 0;
     int32_t baseMidi = 60;
+    int32_t fftSize = 0;
+    uint32_t frameCount = 0u;
+    uint32_t spectralDimensions = 0u;
+    uint32_t aperiodicityDimensions = 0u;
     double framePeriodMs = 5.0;
     uint64_t sampleCount = 0u;
     uint64_t f0Count = 0u;
     uint64_t energyCount = 0u;
+    uint64_t spectralCount = 0u;
+    uint64_t aperiodicityCount = 0u;
     std::array<uint64_t, kVoxWorldPitchAnchorCount - 1u> variantCount {};
 };
 
@@ -5366,7 +7284,7 @@ static std::string voxWorldCachePath(NSURL* wavURL)
         : 0.0;
     const char* utf8 = [path UTF8String];
     const std::string identity = std::string(utf8 ? utf8 : "") + "|"
-        + std::to_string(fileSize) + "|" + std::to_string(modified) + "|world-cache-v3";
+        + std::to_string(fileSize) + "|" + std::to_string(modified) + "|world-cache-v4";
     NSArray<NSString*>* cacheRoots = NSSearchPathForDirectoriesInDomains(
         NSCachesDirectory, NSUserDomainMask, YES);
     if ([cacheRoots count] == 0u) return {};
@@ -5408,9 +7326,13 @@ static std::shared_ptr<const VoxVoicebankAudio> readVoxWorldCache(NSURL* wavURL)
     if (!stream) return nullptr;
     VoxWorldCacheHeader header {};
     if (!stream.read(reinterpret_cast<char*>(&header), sizeof(header))) return nullptr;
-    const std::array<char, 8> expected { 'S', '3', 'G', 'V', 'W', 'L', 'D', '3' };
-    if (header.magic != expected || header.version != 3u
+    const std::array<char, 8> expected { 'S', '3', 'G', 'V', 'W', 'L', 'D', '4' };
+    if (header.magic != expected || header.version != 4u
         || header.sampleRate < 8000 || header.sampleRate > 384000
+        || header.fftSize < 256 || header.fftSize > 32768
+        || header.frameCount == 0u || header.frameCount > 2000000u
+        || header.spectralDimensions == 0u || header.spectralDimensions > 256u
+        || header.aperiodicityDimensions == 0u || header.aperiodicityDimensions > 16u
         || header.sampleCount < 32u || header.sampleCount > 40000000u) return nullptr;
     auto audio = std::make_shared<VoxVoicebankAudio>();
     audio->sampleRate = header.sampleRate;
@@ -5424,14 +7346,34 @@ static std::shared_ptr<const VoxVoicebankAudio> readVoxWorldCache(NSURL* wavURL)
     }
     if (!voxReadCacheVector(stream, audio->worldF0, header.f0Count, 2000000u)
         || !voxReadCacheVector(stream, audio->worldFrameEnergy, header.energyCount, 2000000u)) return nullptr;
-    if (audio->worldF0.size() != audio->worldFrameEnergy.size()) return nullptr;
+    if (audio->worldF0.size() != header.frameCount
+        || audio->worldFrameEnergy.size() != header.frameCount) return nullptr;
+    auto& parameters = audio->worldParameters;
+    parameters.sampleRate = header.sampleRate;
+    parameters.fftSize = header.fftSize;
+    parameters.framePeriodMs = audio->worldFramePeriodMs;
+    parameters.frameCount = header.frameCount;
+    parameters.spectralDimensions = header.spectralDimensions;
+    parameters.aperiodicityDimensions = header.aperiodicityDimensions;
+    if (header.spectralCount != static_cast<uint64_t>(header.frameCount)
+            * header.spectralDimensions
+        || header.aperiodicityCount != static_cast<uint64_t>(header.frameCount)
+            * header.aperiodicityDimensions
+        || !voxReadCacheVector(stream, parameters.codedSpectralEnvelope,
+            header.spectralCount, 100000000u)
+        || !voxReadCacheVector(stream, parameters.codedAperiodicity,
+            header.aperiodicityCount, 32000000u)
+        || !rebuildWorldRuntimeEnvelope(parameters)) return nullptr;
     audio->worldResynthesized = true;
     return audio;
 }
 
 static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 {
-    if (!audio.worldResynthesized || audio.samples.empty()) return;
+    if (!audio.worldResynthesized || audio.samples.empty()
+        || !audio.worldParameters.ready()
+        || audio.worldF0.size() != audio.worldParameters.frameCount
+        || audio.worldFrameEnergy.size() != audio.worldParameters.frameCount) return;
     const std::string path = voxWorldCachePath(wavURL);
     if (path.empty()) return;
     const std::string temporary = path + ".tmp";
@@ -5440,10 +7382,16 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     VoxWorldCacheHeader header {};
     header.sampleRate = audio.sampleRate;
     header.baseMidi = audio.baseMidi;
+    header.fftSize = audio.worldParameters.fftSize;
+    header.frameCount = audio.worldParameters.frameCount;
+    header.spectralDimensions = audio.worldParameters.spectralDimensions;
+    header.aperiodicityDimensions = audio.worldParameters.aperiodicityDimensions;
     header.framePeriodMs = audio.worldFramePeriodMs;
     header.sampleCount = audio.samples.size();
     header.f0Count = audio.worldF0.size();
     header.energyCount = audio.worldFrameEnergy.size();
+    header.spectralCount = audio.worldParameters.codedSpectralEnvelope.size();
+    header.aperiodicityCount = audio.worldParameters.codedAperiodicity.size();
     for (uint32_t variant = 0u; variant < audio.worldPitchVariants.size(); ++variant) {
         header.variantCount[variant] = audio.worldPitchVariants[variant].size();
     }
@@ -5451,7 +7399,9 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     bool ok = static_cast<bool>(stream) && voxWriteCacheVector(stream, audio.samples);
     for (const auto& variant : audio.worldPitchVariants) ok = ok && voxWriteCacheVector(stream, variant);
     ok = ok && voxWriteCacheVector(stream, audio.worldF0)
-        && voxWriteCacheVector(stream, audio.worldFrameEnergy);
+        && voxWriteCacheVector(stream, audio.worldFrameEnergy)
+        && voxWriteCacheVector(stream, audio.worldParameters.codedSpectralEnvelope)
+        && voxWriteCacheVector(stream, audio.worldParameters.codedAperiodicity);
     stream.close();
     if (ok) {
         std::rename(temporary.c_str(), path.c_str());
@@ -5461,10 +7411,13 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 }
 #endif
 
-@interface S3GAmbiVoxEncoderView : NSView <NSTextFieldDelegate> {
+@interface S3GAmbiVoxEncoderView : NSView <NSTextFieldDelegate, NSTextViewDelegate> {
     Plugin* _plugin;
     NSTimer* _timer;
     NSTextField* _phraseField;
+    NSScrollView* _lyricsScroll;
+    NSTextView* _lyricsEditor;
+    BOOL _updatingLyricsEditor;
     clap_id _dragParam;
     int _dragArea;
     int _openMenu;
@@ -5475,6 +7428,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     int _leftPage;
     uint32_t _selectedVoice;
     uint32_t _selectedScoreNode;
+    uint32_t _selectedLyricCue;
     int _scoreDragLane;
     int _viewMode;
     CGFloat _viewAzDeg;
@@ -5482,7 +7436,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     CGFloat _viewZoom;
     BOOL _dragView;
     NSPoint _lastDragPoint;
-    std::array<std::array<s3g::AmbiVotMotionPoint, 48>, s3g::kAmbiVotMaxVoices> _trails;
+    std::array<std::array<s3g::AmbiVotMotionPoint, 48>, s3g::kAmbiVoxMaxVoices> _trails;
     uint32_t _trailHead;
     uint32_t _trailCount;
 }
@@ -5490,6 +7444,10 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 - (void)phraseTextChanged:(id)sender;
+- (void)markPresetCustom;
+- (void)applyFactoryPreset:(uint32_t)index;
+- (void)loadUserPreset;
+- (void)saveUserPreset;
 @end
 
 @implementation S3GAmbiVoxEncoderView
@@ -5508,6 +7466,33 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         s3g::clap_gui::styleNumberTextField(_phraseField, 11.0, NSTextAlignmentLeft);
         [_phraseField setPlaceholderString:@"type phrase or spaced romaji"];
         [self addSubview:_phraseField];
+        _lyricsScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(44, 104, 544, 420)];
+        [_lyricsScroll setHasVerticalScroller:YES];
+        [_lyricsScroll setHasHorizontalScroller:NO];
+        [_lyricsScroll setBorderType:NSNoBorder];
+        [_lyricsScroll setDrawsBackground:YES];
+        [_lyricsScroll setBackgroundColor:votColor(0x0b0b0b)];
+        _lyricsEditor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 526, 420)];
+        _updatingLyricsEditor = YES;
+        [_lyricsEditor setDelegate:self];
+        [_lyricsEditor setRichText:NO];
+        [_lyricsEditor setImportsGraphics:NO];
+        [_lyricsEditor setAllowsUndo:YES];
+        [_lyricsEditor setHorizontallyResizable:NO];
+        [_lyricsEditor setVerticallyResizable:YES];
+        [_lyricsEditor setAutoresizingMask:NSViewWidthSizable];
+        [[_lyricsEditor textContainer] setWidthTracksTextView:YES];
+        [[_lyricsEditor textContainer] setContainerSize:NSMakeSize(526, CGFLOAT_MAX)];
+        [_lyricsEditor setFont:[NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular]];
+        [_lyricsEditor setTextColor:votColor(0xb0b0b0)];
+        [_lyricsEditor setInsertionPointColor:votColor(0xd0d0d0)];
+        [_lyricsEditor setBackgroundColor:votColor(0x0b0b0b)];
+        const std::string lyrics = plugin ? loadVoxLyrics(*plugin) : std::string();
+        [_lyricsEditor setString:[NSString stringWithUTF8String:lyrics.c_str()]];
+        _updatingLyricsEditor = NO;
+        [_lyricsScroll setDocumentView:_lyricsEditor];
+        [_lyricsScroll setHidden:YES];
+        [self addSubview:_lyricsScroll];
         _dragParam = CLAP_INVALID_ID;
         _dragArea = 0;
         _openMenu = 0;
@@ -5518,6 +7503,8 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         _leftPage = plugin ? plugin->guiPage : 0;
         _selectedVoice = 0;
         _selectedScoreNode = 0;
+        _selectedLyricCue = plugin
+            ? plugin->guiLyricCue.load(std::memory_order_relaxed) : 0u;
         _scoreDragLane = -1;
         _viewMode = plugin ? plugin->guiViewMode : 2;
         _viewAzDeg = plugin ? plugin->guiViewAzDeg : 38.0;
@@ -5538,14 +7525,35 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 {
     (void)sender;
     if (!_plugin || !_phraseField) return;
-    storeVoxPhrase(*_plugin, [[_phraseField stringValue] UTF8String]);
-    _plugin->voxPhraseIndex = 0u;
+    replaceVoxLyricCueText(*_plugin, _selectedLyricCue,
+        [[_phraseField stringValue] UTF8String]);
+    if (_lyricsEditor) {
+        const std::string lyrics = loadVoxLyrics(*_plugin);
+        _updatingLyricsEditor = YES;
+        [_lyricsEditor setString:[NSString stringWithUTF8String:lyrics.c_str()]];
+        _updatingLyricsEditor = NO;
+    }
+    [self markPresetCustom];
 }
 
 - (void)controlTextDidChange:(NSNotification*)notification
 {
     (void)notification;
     [self phraseTextChanged:_phraseField];
+}
+
+- (void)textDidChange:(NSNotification*)notification
+{
+    if (!_plugin || _updatingLyricsEditor || [notification object] != _lyricsEditor) return;
+    storeVoxLyricsText(*_plugin, [[_lyricsEditor string] UTF8String]);
+    rebuildVoxLyricScore(*_plugin);
+    const uint32_t count = std::max<uint32_t>(1u, voxLyricCueCount(*_plugin));
+    _selectedLyricCue = std::min<uint32_t>(_selectedLyricCue, count - 1u);
+    requestVoxLyricCue(*_plugin, _selectedLyricCue);
+    const std::string cue = voxLyricCueText(*_plugin, _selectedLyricCue);
+    [_phraseField setStringValue:[NSString stringWithUTF8String:cue.c_str()]];
+    [self markPresetCustom];
+    [self setNeedsDisplay:YES];
 }
 
 - (void)updateTrackingAreas
@@ -5570,7 +7578,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 - (s3g::AmbiVotMotionPoint)snapshotPoint:(uint32_t)index
 {
     s3g::AmbiVotMotionPoint point {};
-    if (!_plugin || index >= s3g::kAmbiVotMaxVoices) return point;
+    if (!_plugin || index >= s3g::kAmbiVoxMaxVoices) return point;
     point.azimuthDeg = _plugin->guiAzimuth[index].load(std::memory_order_relaxed);
     point.elevationDeg = _plugin->guiElevation[index].load(std::memory_order_relaxed);
     point.distance = _plugin->guiDistance[index].load(std::memory_order_relaxed);
@@ -5582,7 +7590,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 - (void)captureTrails
 {
     if (!_plugin) return;
-    for (uint32_t i = 0; i < s3g::kAmbiVotMaxVoices; ++i) _trails[i][_trailHead] = [self snapshotPoint:i];
+    for (uint32_t i = 0; i < s3g::kAmbiVoxMaxVoices; ++i) _trails[i][_trailHead] = [self snapshotPoint:i];
     _trailHead = (_trailHead + 1u) % 48u;
     _trailCount = std::min<uint32_t>(48u, _trailCount + 1u);
 }
@@ -5614,6 +7622,8 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 {
     [self storeViewState];
     [self stopRefreshTimer];
+    [_lyricsScroll release];
+    [_lyricsEditor release];
     [_phraseField release];
     [super dealloc];
 }
@@ -5637,11 +7647,30 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 }
 
 - (NSRect)synthLoadButtonRect { return NSMakeRect(824, 46, 48, 13); }
+- (NSRect)presetMenuRect { return NSMakeRect(382, 13, 190, 15); }
+- (NSRect)presetLoadButtonRect { return NSMakeRect(580, 13, 48, 15); }
+- (NSRect)presetSaveButtonRect { return NSMakeRect(636, 13, 48, 15); }
 - (NSRect)worldResetButtonRect { return NSMakeRect(1016, 484, 56, 13); }
 - (NSRect)encodedLoadButtonRect { return NSMakeRect(1078, 484, 56, 13); }
 - (NSRect)scoreRemoveButtonRect { return NSMakeRect(1032, 484, 18, 13); }
 - (NSRect)scoreAddButtonRect { return NSMakeRect(1054, 484, 18, 13); }
 - (NSRect)scoreResetButtonRect { return NSMakeRect(1080, 484, 54, 13); }
+
+- (NSString*)presetDisplayName
+{
+    NSString* name = _plugin && _plugin->presetName[0] != '\0'
+        ? [NSString stringWithUTF8String:_plugin->presetName]
+        : @"CUSTOM";
+    if ([name length] <= 22u) return name;
+    return [[name substringToIndex:19u] stringByAppendingString:@"..."];
+}
+
+- (void)markPresetCustom
+{
+    if (!_plugin) return;
+    _plugin->factoryPresetIndex = -1;
+    std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", "CUSTOM");
+}
 
 - (void)setViewPreset:(int)mode
 {
@@ -5704,9 +7733,9 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 
 - (void)drawPageButtons:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
-    static NSString* labels[] = { @"FIELD", @"VECTOR", @"SCORE" };
+    static NSString* labels[] = { @"FIELD", @"VECTOR", @"SCORE", @"LYRICS" };
     const NSRect header = NSMakeRect(18, 42, 596, 21);
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         s3g::clap_gui::drawHeaderButton([self pageButtonRect:i], header, labels[i], i == _leftPage, attrs, style);
     }
 }
@@ -5744,7 +7773,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     [axes setLineWidth:0.6];
     [axes stroke];
 
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiVotMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiVoxMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
     struct ProjectedPoint {
         uint32_t index;
@@ -5753,7 +7782,8 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         s3g::Vec3 world;
         s3g::AmbiVotMotionPoint motion;
     };
-    std::array<ProjectedPoint, s3g::kAmbiVotMaxVoices> projected {};
+    std::array<ProjectedPoint, s3g::kAmbiVoxMaxVoices> projected {};
+    std::array<NSPoint, s3g::kAmbiVoxMaxVoices> voicePoints {};
     for (uint32_t voice = 0; voice < voices; ++voice) {
         projected[voice].index = voice;
         projected[voice].motion = [self snapshotPoint:voice];
@@ -5765,6 +7795,24 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
             direction.z * projected[voice].motion.distance,
         };
         projected[voice].point = [self projectWorldPoint:projected[voice].world rect:rect depth:&projected[voice].depth];
+        voicePoints[voice] = projected[voice].point;
+    }
+    const auto orchestration = _plugin->vox.orchestration;
+    if (orchestration != s3g::AmbiVoxOrchestration::Individual
+        && orchestration != s3g::AmbiVoxOrchestration::Cluster) {
+        std::array<int32_t, 4> previous {{ -1, -1, -1, -1 }};
+        for (uint32_t voice = 0u; voice < voices; ++voice) {
+            const uint32_t cohort = voxEnsembleCohort(orchestration, voice, voices) % 4u;
+            if (previous[cohort] >= 0) {
+                NSBezierPath* cohortPath = [NSBezierPath bezierPath];
+                [cohortPath moveToPoint:voicePoints[static_cast<uint32_t>(previous[cohort])]];
+                [cohortPath lineToPoint:voicePoints[voice]];
+                [[voxEnsembleRoleColor(orchestration, voice, voices) colorWithAlphaComponent:0.18] setStroke];
+                [cohortPath setLineWidth:0.65];
+                [cohortPath stroke];
+            }
+            previous[cohort] = static_cast<int32_t>(voice);
+        }
     }
     std::sort(projected.begin(), projected.begin() + voices,
         [](const ProjectedPoint& a, const ProjectedPoint& b) { return a.depth < b.depth; });
@@ -5774,6 +7822,17 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         const bool selected = item.index == _selectedVoice;
         const CGFloat size = selected ? 15.0 : (voices > 32u ? 9.0 : 12.0);
         const NSRect pointRect = NSMakeRect(item.point.x - size * 0.5, item.point.y - size * 0.5, size, size);
+        const float phrasePhase = std::clamp(
+            _plugin->guiVoxPhrasePhase[item.index].load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const float phrasePulse = 0.5f - 0.5f * std::cos(2.0f * s3g::kPi * phrasePhase);
+        const CGFloat roleSize = size + 4.0 + static_cast<CGFloat>(phrasePulse) * 5.0;
+        const NSRect roleRect = NSMakeRect(item.point.x - roleSize * 0.5,
+            item.point.y - roleSize * 0.5, roleSize, roleSize);
+        NSColor* roleColor = voxEnsembleRoleColor(orchestration, item.index, voices);
+        [[roleColor colorWithAlphaComponent:0.20 + phrasePulse * 0.48] setStroke];
+        NSBezierPath* roleFrame = [NSBezierPath bezierPathWithRect:roleRect];
+        [roleFrame setLineWidth:selected ? 1.35 : 0.85];
+        [roleFrame stroke];
         [[votPointColor(item.motion.azimuthDeg, item.motion.elevationDeg, item.motion.distance, selected)
             colorWithAlphaComponent:0.96] setFill];
         NSRectFill(pointRect);
@@ -5784,12 +7843,27 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         [label drawAtPoint:NSMakePoint(NSMidX(pointRect) - labelSize.width * 0.5,
                                        NSMidY(pointRect) - labelSize.height * 0.5 - 0.5)
             withAttributes:idAttrs];
+        NSString* roleLabel = voxEnsembleRoleLabel(orchestration, item.index, voices);
+        if ([roleLabel length] > 0u) {
+            NSDictionary* roleAttrs = s3g::clap_gui::textAttrs(
+                [roleColor colorWithAlphaComponent:selected ? 1.0 : 0.82], 7.0);
+            [roleLabel drawAtPoint:NSMakePoint(NSMaxX(roleRect) + 2.0, NSMinY(roleRect) - 1.0)
+                     withAttributes:roleAttrs];
+        }
     }
     [NSGraphicsContext restoreGraphicsState];
 
     const auto selected = [self snapshotPoint:_selectedVoice];
-    NSString* readout = [NSString stringWithFormat:@"V%u   AZ %+06.1f   EL %+05.1f   D %.2f",
-        _selectedVoice + 1u, selected.azimuthDeg, selected.elevationDeg, selected.distance];
+    NSString* roleLabel = voxEnsembleRoleLabel(orchestration, _selectedVoice, voices);
+    const float phrasePhase = std::clamp(
+        _plugin->guiVoxPhrasePhase[_selectedVoice].load(std::memory_order_relaxed), 0.0f, 1.0f);
+    NSString* readout = [roleLabel length] > 0u
+        ? [NSString stringWithFormat:@"V%u %@   AZ %+06.1f   EL %+05.1f   D %.2f   P %.0f%%",
+            _selectedVoice + 1u, roleLabel, selected.azimuthDeg, selected.elevationDeg,
+            selected.distance, phrasePhase * 100.0f]
+        : [NSString stringWithFormat:@"V%u   AZ %+06.1f   EL %+05.1f   D %.2f   P %.0f%%",
+            _selectedVoice + 1u, selected.azimuthDeg, selected.elevationDeg,
+            selected.distance, phrasePhase * 100.0f];
     [readout drawAtPoint:NSMakePoint(rect.origin.x + 10, rect.origin.y + 9) withAttributes:attrs];
 }
 
@@ -5819,7 +7893,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     [votColor(0x575757) setStroke];
     NSFrameRect(bankRect);
     NSFrameRect(pathRect);
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiVotMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiVoxMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
     const auto selected = [self snapshotPoint:_selectedVoice];
     const auto vectorWeights = s3g::ambiVotVectorWeights(
@@ -6092,6 +8166,71 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         rect.origin.y + 726, attrs, valueAttrs, style, rect.origin.x + 8, rect.origin.x + 86, 184);
 }
 
+- (NSRect)lyricCueRect:(uint32_t)index
+{
+    const NSRect content = [self leftContentRect];
+    const uint32_t column = index % 4u;
+    const uint32_t row = index / 4u;
+    return NSMakeRect(content.origin.x + 8.0 + static_cast<CGFloat>(column) * 135.0,
+        content.origin.y + 446.0 + static_cast<CGFloat>(row) * 20.0, 131.0, 17.0);
+}
+
+- (void)drawLyricsPage:(NSRect)rect attrs:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
+{
+    [votColor(0x0b0b0b) setFill];
+    NSRectFill(rect);
+    [votColor(0x575757) setStroke];
+    NSFrameRect(rect);
+    [@"LYRIC CUES" drawAtPoint:NSMakePoint(rect.origin.x + 8, rect.origin.y + 7)
+        withAttributes:attrs];
+
+    const auto cues = splitVoxLyricCues(loadVoxLyrics(*_plugin));
+    const uint32_t cueCount = std::min<uint32_t>(
+        static_cast<uint32_t>(cues.size()), kVoxLyricsMaxCues);
+    _selectedLyricCue = cueCount > 0u
+        ? std::min<uint32_t>(_selectedLyricCue, cueCount - 1u) : 0u;
+    const uint32_t activeCue = cueCount > 0u
+        ? _plugin->guiLyricCue.load(std::memory_order_relaxed) % cueCount : 0u;
+    [@"CUE MAP" drawAtPoint:NSMakePoint(rect.origin.x + 8, rect.origin.y + 422)
+        withAttributes:attrs];
+    NSDictionary* cueAttrs = s3g::clap_gui::textAttrs(votColor(0xa8a8a8), 8.5);
+    for (uint32_t cue = 0u; cue < cueCount; ++cue) {
+        const NSRect cell = [self lyricCueRect:cue];
+        [votColor(cue == activeCue ? 0x484848 : 0x202020) setFill];
+        NSRectFill(cell);
+        [votColor(cue == _selectedLyricCue ? 0xc4c4c4 : 0x505050) setStroke];
+        NSFrameRect(cell);
+        NSString* text = [NSString stringWithFormat:@"%02u  %@", cue + 1u,
+            [NSString stringWithUTF8String:cues[cue].c_str()]];
+        [text drawInRect:NSInsetRect(cell, 4, 2) withAttributes:cueAttrs];
+    }
+
+    const CGFloat controlsY = rect.origin.y + 618.0;
+    s3g::clap_gui::drawMenu(@"MODE",
+        [NSString stringWithUTF8String:voxLyricModeName(_plugin->lyric.mode)],
+        controlsY, attrs, valueAttrs, style,
+        rect.origin.x + 8, rect.origin.x + 110, 150);
+    char display[64] {};
+    paramsValueToText(nullptr, kLyricCueBeatsParamId, _plugin->lyric.cueBeats,
+        display, sizeof(display));
+    const double beatNorm = (_plugin->lyric.cueBeats - 0.25) / 63.75;
+    s3g::clap_gui::drawSlider(@"CUE BEATS", [NSString stringWithUTF8String:display],
+        beatNorm, controlsY + 28, attrs, valueAttrs, style,
+        rect.origin.x + 8, rect.origin.x + 110, rect.origin.x + 302, 170);
+    paramsValueToText(nullptr, kLyricCueNoteParamId, _plugin->lyric.cueBaseNote,
+        display, sizeof(display));
+    s3g::clap_gui::drawSlider(@"BASE NOTE", [NSString stringWithUTF8String:display],
+        static_cast<double>(_plugin->lyric.cueBaseNote) / 127.0,
+        controlsY + 56, attrs, valueAttrs, style,
+        rect.origin.x + 8, rect.origin.x + 110, rect.origin.x + 302, 170);
+    paramsValueToText(nullptr, kLyricCueChannelParamId, _plugin->lyric.cueChannel,
+        display, sizeof(display));
+    s3g::clap_gui::drawSlider(@"MIDI CH", [NSString stringWithUTF8String:display],
+        static_cast<double>(_plugin->lyric.cueChannel - 1u) / 15.0,
+        controlsY + 84, attrs, valueAttrs, style,
+        rect.origin.x + 8, rect.origin.x + 110, rect.origin.x + 302, 170);
+}
+
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     [self drawMenuAtX:630 name:name value:value y:y attrs:attrs valueAttrs:valueAttrs style:style];
@@ -6127,7 +8266,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     s3g::clap_gui::drawPanelHeader(@"ENCODER", true, 630, 42, 250, 21, attrs, style);
     [self drawMenu:@"TRIGGER" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:78 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:64 y:130 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:s3g::kAmbiVoxMaxVoices y:130 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenu:@"VOICE" value:[NSString stringWithUTF8String:voxSpeechModeName(v.speechMode)] y:156 attrs:attrs valueAttrs:valueAttrs style:style];
 
     const bool textureMode = v.speechMode == VoxSpeechMode::Texture;
@@ -6140,9 +8279,9 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         [self drawSlider:@"LOOP END" param:kWorldLoopEndParamId value:v.worldLoopEnd min:0 max:1 y:292 attrs:attrs valueAttrs:valueAttrs style:style];
         [self drawSlider:@"FREEZE" param:kWorldFreezeParamId value:v.worldFreeze min:0 max:1 y:318 attrs:attrs valueAttrs:valueAttrs style:style];
         [self drawSlider:@"POSITION" param:kWorldScrubParamId value:v.worldScrub min:0 max:1 y:344 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"STRETCH" param:kPvocStretchParamId value:v.pvocStretch min:0.25 max:4 y:370 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"TRANSIENT" param:kPvocTransientParamId value:v.pvocTransient min:0 max:1 y:396 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"VOICING" param:kWorldVoicingParamId value:v.worldVoicing min:0 max:1 y:422 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"PHR SPREAD" param:kPhraseSpreadParamId value:v.phraseSpread min:0 max:1 y:370 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"STRETCH" param:kPvocStretchParamId value:v.pvocStretch min:0.25 max:4 y:396 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"TRANSIENT" param:kPvocTransientParamId value:v.pvocTransient min:0 max:1 y:422 attrs:attrs valueAttrs:valueAttrs style:style];
         [self drawSlider:@"VOICE STEP" param:kWorldVoiceSpreadParamId value:v.worldVoiceSpread min:0 max:1 y:448 attrs:attrs valueAttrs:valueAttrs style:style];
         [self drawSlider:@"VOICE DEV" param:kWorldVoiceDeviationParamId value:v.worldVoiceDeviation min:0 max:1 y:474 attrs:attrs valueAttrs:valueAttrs style:style];
     } else {
@@ -6150,7 +8289,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         [self drawSlider:@"STRETCH" param:kPvocStretchParamId value:v.pvocStretch min:0.25 max:4 y:266 attrs:attrs valueAttrs:valueAttrs style:style];
         [self drawSlider:@"TRANSIENT" param:kPvocTransientParamId value:v.pvocTransient min:0 max:1 y:292 attrs:attrs valueAttrs:valueAttrs style:style];
         [self drawSlider:@"BLEND" param:kTransitionParamId value:v.transition min:0 max:1 y:318 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"VOICING" param:kWorldVoicingParamId value:v.worldVoicing min:0 max:1 y:344 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"PHR SPREAD" param:kPhraseSpreadParamId value:v.phraseSpread min:0 max:1 y:344 attrs:attrs valueAttrs:valueAttrs style:style];
         [self drawSlider:@"VOICE STEP" param:kWorldVoiceSpreadParamId value:v.worldVoiceSpread min:0 max:1 y:370 attrs:attrs valueAttrs:valueAttrs style:style];
         [self drawSlider:@"VOICE DEV" param:kWorldVoiceDeviationParamId value:v.worldVoiceDeviation min:0 max:1 y:396 attrs:attrs valueAttrs:valueAttrs style:style];
     }
@@ -6158,6 +8297,14 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     s3g::clap_gui::drawPanelFrame(630, 510, 250, 64, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 510, 250, 21, attrs, style);
     [self drawSlider:@"LEVEL" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:546 attrs:attrs valueAttrs:valueAttrs style:style];
+
+    s3g::clap_gui::drawPanelFrame(630, 586, 250, 176, style);
+    s3g::clap_gui::drawPanelHeader(@"WORLD / ENSEMBLE", true, 630, 586, 250, 21, attrs, style);
+    [self drawMenu:@"ENSEMBLE" value:[NSString stringWithUTF8String:s3g::ambiVoxOrchestrationName(v.orchestration)] y:622 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"CONTOUR" value:[NSString stringWithUTF8String:s3g::ambiVoxContourModeName(v.contourMode)] y:648 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"FORMANT" param:kFormantMacroParamId value:v.formantMacro min:-1 max:1 y:674 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"PERIODIC" param:kWorldVoicingParamId value:v.worldVoicing min:0 max:1 y:700 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"AIR COLOR" param:kWorldAirColorParamId value:v.worldAirColor min:-1 max:1 y:726 attrs:attrs valueAttrs:valueAttrs style:style];
 
     constexpr CGFloat motionX = 896;
     s3g::clap_gui::drawPanelFrame(motionX, 42, 246, 426, style);
@@ -6269,6 +8416,15 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     static NSString* scoreModeItems[] = { @"OFF", @"ONE", @"LOOP", @"PING" };
     static NSString* curveItems[] = { @"LINEAR", @"SMOOTH", @"EXP", @"HOLD" };
     static NSString* speechItems[] = { @"TEXTURE", @"SPEAK", @"SING" };
+    static NSString* ensembleItems[] = { @"INDIVIDUAL", @"UNISON", @"CHORALE", @"CHORUS", @"ROUND", @"CLUSTER" };
+    static NSString* contourItems[] = { @"ORIGINAL", @"REDUCED", @"FLAT", @"QUANTIZED" };
+    static NSString* lyricModeItems[] = { @"LOOP", @"MIDI STEP", @"MIDI CUE", @"TRANSPORT" };
+    static NSString* factoryItems[] = {
+        @"VOX DEFAULT", @"SOLO SPEAK", @"CLOSE UNISON", @"SATB CHORALE",
+        @"DOUBLE CHOIR", @"WIDE CHORUS", @"FOUR PART ROUND", @"SEMITONE CLUSTER",
+        @"AIR CHOIR", @"DARK VOWELS", @"FROZEN TEXTURE", @"ORBITING CHORUS",
+        @"FULL 7OA CHOIR"
+    };
     NSString** items = modeItems;
     int selected = 0;
     if (_openMenu == 1) selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.mode));
@@ -6293,6 +8449,18 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     } else if (_openMenu == 9) {
         items = speechItems;
         selected = static_cast<int>(static_cast<uint32_t>(_plugin->vox.speechMode));
+    } else if (_openMenu == 10) {
+        items = ensembleItems;
+        selected = static_cast<int>(static_cast<uint32_t>(_plugin->vox.orchestration));
+    } else if (_openMenu == 11) {
+        items = contourItems;
+        selected = static_cast<int>(static_cast<uint32_t>(_plugin->vox.contourMode));
+    } else if (_openMenu == 12) {
+        items = factoryItems;
+        selected = _plugin->factoryPresetIndex;
+    } else if (_openMenu == 13) {
+        items = lyricModeItems;
+        selected = static_cast<int>(static_cast<uint32_t>(_plugin->lyric.mode));
     } else {
         items = curveItems;
         const auto score = loadScore(*_plugin);
@@ -6301,6 +8469,265 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     const CGFloat itemHeight = 18.0;
     const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, _menuWidth, itemHeight * _menuItemCount);
     s3g::clap_gui::drawDropdownMenu(menuRect, itemHeight, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
+}
+
+- (void)applyFactoryPreset:(uint32_t)index
+{
+    if (!_plugin || index >= kVoxFactoryPresetCount) return;
+    const auto preset = voxFactoryPreset(index);
+    if (!queueVoxPreset(*_plugin, preset.snapshot)) {
+        NSBeep();
+        return;
+    }
+    storeVoxPhrase(*_plugin, preset.phrase);
+    storeVoxLyricsText(*_plugin, preset.phrase);
+    rebuildVoxLyricScore(*_plugin);
+    _selectedLyricCue = 0u;
+    requestVoxLyricCue(*_plugin, 0u);
+    if (_phraseField) {
+        [_phraseField setStringValue:[NSString stringWithUTF8String:preset.phrase]];
+    }
+    if (_lyricsEditor) {
+        _updatingLyricsEditor = YES;
+        [_lyricsEditor setString:[NSString stringWithUTF8String:preset.phrase]];
+        _updatingLyricsEditor = NO;
+    }
+    _plugin->factoryPresetIndex = static_cast<int32_t>(index);
+    std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", preset.name);
+    _selectedVoice = std::min<uint32_t>(_selectedVoice,
+        std::max<uint32_t>(1u, preset.snapshot.params.voices) - 1u);
+    [self setNeedsDisplay:YES];
+}
+
+- (NSDictionary*)presetDictionaryWithName:(NSString*)name
+{
+    NSMutableArray* parameters = [NSMutableArray arrayWithCapacity:publicPresetParameterCount()];
+    for (const auto& definition : kParams) {
+        if (isLegacyHiddenParam(definition.id)) continue;
+        double value = 0.0;
+        if (!paramsGetValue(&_plugin->plugin, definition.id, &value)) continue;
+        NSString* parameterName = [NSString stringWithUTF8String:definition.name];
+        [parameters addObject:@{
+            @"id": @(definition.id),
+            @"name": parameterName ?: @"PARAMETER",
+            @"value": @(value)
+        }];
+    }
+
+    const auto score = loadScore(*_plugin);
+    NSMutableArray* nodes = [NSMutableArray arrayWithCapacity:score.nodeCount];
+    for (uint32_t node = 0u; node < score.nodeCount; ++node) {
+        [nodes addObject:@{
+            @"time": @(score.nodes[node].time),
+            @"u": @(score.nodes[node].u),
+            @"v": @(score.nodes[node].v),
+            @"curve": @(static_cast<uint32_t>(score.nodes[node].curve))
+        }];
+    }
+    NSDictionary* scoreDictionary = @{
+        @"sustain_start": @(score.sustainStart),
+        @"sustain_end": @(score.sustainEnd),
+        @"nodes": nodes
+    };
+    NSDictionary* viewDictionary = @{
+        @"mode": @(_viewMode),
+        @"azimuth_degrees": @(_viewAzDeg),
+        @"elevation_degrees": @(_viewElDeg),
+        @"zoom": @(_viewZoom)
+    };
+    const std::string phraseText = loadVoxPhrase(*_plugin);
+    const std::string lyricsText = loadVoxLyrics(*_plugin);
+    NSString* phrase = [NSString stringWithUTF8String:phraseText.c_str()];
+    NSString* lyrics = [NSString stringWithUTF8String:lyricsText.c_str()];
+    return @{
+        @"format": @"s3g-ambi-vox-preset",
+        @"version": @1,
+        @"plugin": @"org.s3g.s3g-dsp.ambi-vox-encoder-64",
+        @"name": name ?: @"USER PRESET",
+        @"audio_source": @"external-not-embedded",
+        @"phrase": phrase ?: @"",
+        @"lyrics": lyrics ?: @"",
+        @"parameters": parameters,
+        @"score": scoreDictionary,
+        @"view": viewDictionary
+    };
+}
+
+- (void)loadUserPreset
+{
+    NSOpenPanel* panel = [NSOpenPanel openPanel];
+    [panel setAllowsMultipleSelection:NO];
+    [panel setCanChooseDirectories:NO];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    [panel setAllowedFileTypes:@[ @"s3gvox", @"json" ]];
+#pragma clang diagnostic pop
+    if ([panel runModal] != NSModalResponseOK) return;
+
+    NSData* data = [NSData dataWithContentsOfURL:[panel URL]];
+    if (!data) {
+        NSBeep();
+        return;
+    }
+    NSError* error = nil;
+    id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
+    if (error || ![root isKindOfClass:[NSDictionary class]]) {
+        NSBeep();
+        return;
+    }
+    NSDictionary* dictionary = static_cast<NSDictionary*>(root);
+    NSString* format = [dictionary objectForKey:@"format"];
+    NSNumber* version = [dictionary objectForKey:@"version"];
+    NSArray* parameters = [dictionary objectForKey:@"parameters"];
+    if (![format isKindOfClass:[NSString class]]
+        || ![format isEqualToString:@"s3g-ambi-vox-preset"]
+        || ![version respondsToSelector:@selector(unsignedIntValue)]
+        || [version unsignedIntValue] != 1u
+        || ![parameters isKindOfClass:[NSArray class]]) {
+        NSBeep();
+        return;
+    }
+
+    VoxPresetSnapshot candidate = makeVoxDefaultSnapshot();
+    std::array<bool, kLyricCueChannelParamId + 1u> loadedIds {};
+    uint32_t loaded = 0u;
+    for (id item in parameters) {
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        NSNumber* identifier = [item objectForKey:@"id"];
+        NSNumber* number = [item objectForKey:@"value"];
+        if (![identifier respondsToSelector:@selector(unsignedIntValue)]
+            || ![number respondsToSelector:@selector(doubleValue)]) continue;
+        const clap_id parameterId = [identifier unsignedIntValue];
+        if (parameterId >= loadedIds.size() || loadedIds[parameterId]) continue;
+        if (!assignVoxPresetParameter(candidate, parameterId, [number doubleValue])) continue;
+        loadedIds[parameterId] = true;
+        ++loaded;
+    }
+    const uint32_t minimumParameters = std::min<uint32_t>(24u, publicPresetParameterCount());
+    if (loaded < minimumParameters) {
+        NSBeep();
+        return;
+    }
+
+    NSDictionary* scoreDictionary = [dictionary objectForKey:@"score"];
+    if ([scoreDictionary isKindOfClass:[NSDictionary class]]) {
+        NSArray* nodes = [scoreDictionary objectForKey:@"nodes"];
+        if ([nodes isKindOfClass:[NSArray class]] && [nodes count] >= 2u) {
+            candidate.score = s3g::ambiVotDefaultScore();
+            candidate.score.nodeCount = std::min<uint32_t>(
+                static_cast<uint32_t>([nodes count]), s3g::kAmbiVotMaxScoreNodes);
+            for (uint32_t node = 0u; node < candidate.score.nodeCount; ++node) {
+                id nodeItem = [nodes objectAtIndex:node];
+                if (![nodeItem isKindOfClass:[NSDictionary class]]) continue;
+                NSNumber* time = [nodeItem objectForKey:@"time"];
+                NSNumber* u = [nodeItem objectForKey:@"u"];
+                NSNumber* v = [nodeItem objectForKey:@"v"];
+                NSNumber* curve = [nodeItem objectForKey:@"curve"];
+                if ([time respondsToSelector:@selector(floatValue)]) {
+                    candidate.score.nodes[node].time = [time floatValue];
+                }
+                if ([u respondsToSelector:@selector(floatValue)]) {
+                    candidate.score.nodes[node].u = [u floatValue];
+                }
+                if ([v respondsToSelector:@selector(floatValue)]) {
+                    candidate.score.nodes[node].v = [v floatValue];
+                }
+                if ([curve respondsToSelector:@selector(unsignedIntValue)]) {
+                    candidate.score.nodes[node].curve = static_cast<s3g::AmbiVotScoreCurve>(
+                        std::min<uint32_t>([curve unsignedIntValue], 3u));
+                }
+            }
+            NSNumber* sustainStart = [scoreDictionary objectForKey:@"sustain_start"];
+            NSNumber* sustainEnd = [scoreDictionary objectForKey:@"sustain_end"];
+            if ([sustainStart respondsToSelector:@selector(unsignedIntValue)]) {
+                candidate.score.sustainStart = [sustainStart unsignedIntValue];
+            }
+            if ([sustainEnd respondsToSelector:@selector(unsignedIntValue)]) {
+                candidate.score.sustainEnd = [sustainEnd unsignedIntValue];
+            }
+            s3g::ambiVotNormalizeScore(candidate.score);
+        }
+    }
+
+    if (!queueVoxPreset(*_plugin, candidate)) {
+        NSBeep();
+        return;
+    }
+    NSString* phrase = [dictionary objectForKey:@"phrase"];
+    NSString* lyrics = [dictionary objectForKey:@"lyrics"];
+    if (![lyrics isKindOfClass:[NSString class]] || [lyrics length] == 0u) lyrics = phrase;
+    if ([lyrics isKindOfClass:[NSString class]]) {
+        storeVoxLyricsText(*_plugin, [lyrics UTF8String]);
+        rebuildVoxLyricScore(*_plugin);
+        _selectedLyricCue = 0u;
+        requestVoxLyricCue(*_plugin, 0u);
+        const std::string firstCue = voxLyricCueText(*_plugin, 0u);
+        NSString* first = [NSString stringWithUTF8String:firstCue.c_str()];
+        storeVoxPhrase(*_plugin, firstCue.c_str());
+        [_phraseField setStringValue:first ?: @""];
+        _updatingLyricsEditor = YES;
+        [_lyricsEditor setString:lyrics];
+        _updatingLyricsEditor = NO;
+    }
+
+    NSDictionary* view = [dictionary objectForKey:@"view"];
+    if ([view isKindOfClass:[NSDictionary class]]) {
+        NSNumber* mode = [view objectForKey:@"mode"];
+        NSNumber* azimuth = [view objectForKey:@"azimuth_degrees"];
+        NSNumber* elevation = [view objectForKey:@"elevation_degrees"];
+        NSNumber* zoom = [view objectForKey:@"zoom"];
+        if ([mode respondsToSelector:@selector(intValue)]) {
+            _viewMode = std::clamp([mode intValue], -1, 2);
+        }
+        if ([azimuth respondsToSelector:@selector(doubleValue)]) {
+            _viewAzDeg = std::clamp([azimuth doubleValue], -180.0, 180.0);
+        }
+        if ([elevation respondsToSelector:@selector(doubleValue)]) {
+            _viewElDeg = std::clamp([elevation doubleValue], -85.0, 85.0);
+        }
+        if ([zoom respondsToSelector:@selector(doubleValue)]) {
+            _viewZoom = std::clamp([zoom doubleValue], 0.55, 2.4);
+        }
+        [self storeViewState];
+    }
+
+    NSString* name = [dictionary objectForKey:@"name"];
+    if (![name isKindOfClass:[NSString class]] || [name length] == 0u) {
+        name = [[[panel URL] lastPathComponent] stringByDeletingPathExtension];
+    }
+    name = [name uppercaseString];
+    _plugin->factoryPresetIndex = -1;
+    std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", [name UTF8String]);
+    _selectedVoice = std::min<uint32_t>(_selectedVoice,
+        std::max<uint32_t>(1u, candidate.params.voices) - 1u);
+    [self setNeedsDisplay:YES];
+}
+
+- (void)saveUserPreset
+{
+    [self phraseTextChanged:_phraseField];
+    NSSavePanel* panel = [NSSavePanel savePanel];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    [panel setAllowedFileTypes:@[ @"s3gvox" ]];
+#pragma clang diagnostic pop
+    [panel setNameFieldStringValue:@"s3g-vox-preset.s3gvox"];
+    if ([panel runModal] != NSModalResponseOK) return;
+
+    NSString* name = [[[panel URL] lastPathComponent] stringByDeletingPathExtension];
+    if ([name length] == 0u) name = @"USER PRESET";
+    NSDictionary* dictionary = [self presetDictionaryWithName:name];
+    NSError* error = nil;
+    NSData* data = [NSJSONSerialization dataWithJSONObject:dictionary
+        options:(NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys) error:&error];
+    if (error || !data || ![data writeToURL:[panel URL] atomically:YES]) {
+        NSBeep();
+        return;
+    }
+    name = [name uppercaseString];
+    _plugin->factoryPresetIndex = -1;
+    std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", [name UTF8String]);
+    [self setNeedsDisplay:YES];
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -6314,16 +8741,32 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     NSDictionary* labelAttrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
     [@"s3g AMBI VOX ENCODER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
+    s3g::clap_gui::drawMenu(@"PRESET", [self presetDisplayName], 14,
+        labelAttrs, valueAttrs, style, 320, 382, 190);
+    const NSRect titleHeader = NSMakeRect(0, 8, kGuiW, 21);
+    s3g::clap_gui::drawHeaderActionButton([self presetLoadButtonRect], titleHeader,
+        @"LOAD", labelAttrs, style);
+    s3g::clap_gui::drawHeaderActionButton([self presetSaveButtonRect], titleHeader,
+        @"SAVE", labelAttrs, style);
     NSString* status = [NSString stringWithFormat:@"%@   64 CH",
         s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed))];
     s3g::clap_gui::drawRightStatus(status, kGuiW, 14, valueAttrs);
 
     const NSRect left = [self leftPanelRect];
-    _leftPage = 0;
     s3g::clap_gui::drawPanelFrame(left.origin.x, left.origin.y, left.size.width, left.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"VOICE SPACE", true, left.origin.x, left.origin.y, left.size.width, 21, labelAttrs, style);
-    [self drawViewButtons:labelAttrs style:style];
-    [self drawField:[self leftContentRect] attrs:valueAttrs];
+    [self drawPageButtons:labelAttrs style:style];
+    [_lyricsScroll setHidden:_leftPage != 3];
+    if (_leftPage == 0) {
+        [self drawViewButtons:labelAttrs style:style];
+        [self drawField:[self leftContentRect] attrs:valueAttrs];
+    } else if (_leftPage == 1) {
+        [self drawVectorPage:[self leftContentRect] attrs:labelAttrs valueAttrs:valueAttrs style:style];
+    } else if (_leftPage == 2) {
+        [self drawScorePage:[self leftContentRect] attrs:labelAttrs valueAttrs:valueAttrs style:style];
+    } else {
+        [self drawLyricsPage:[self leftContentRect] attrs:labelAttrs valueAttrs:valueAttrs style:style];
+    }
     [self drawPanels:labelAttrs valueAttrs:valueAttrs style:style];
     [self drawOpenMenu:valueAttrs style:style];
 }
@@ -6497,6 +8940,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
                     prepared->worldPitchVariants = std::move(variants);
                     prepared->worldF0 = std::move(world->f0);
                     prepared->worldFrameEnergy = std::move(world->frameEnergy);
+                    prepared->worldParameters = std::move(world->parameters);
                     prepared->worldFramePeriodMs = world->framePeriodMs;
                     prepared->baseMidi = world->baseMidi;
                     prepared->worldResynthesized = true;
@@ -6585,9 +9029,9 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     if ([isDirectory boolValue]) {
         auto bank = [self loadVoicebankFolder:[panel URL]];
         if (!bank) return;
-        compileVoicebankPhrase(*_plugin, *bank);
         std::atomic_store_explicit(&_plugin->voicebank, std::move(bank), std::memory_order_release);
         std::atomic_store_explicit(&_plugin->worldSample, std::shared_ptr<const VoxWorldSample> {}, std::memory_order_release);
+        rebuildVoxLyricScore(*_plugin);
         NSString* folderName = [[[panel URL] path] lastPathComponent];
         storeVoxLoadedName(*_plugin, folderName ? [folderName UTF8String] : "voicebank");
         syncWorldSmoothing(*_plugin);
@@ -6605,9 +9049,10 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         std::shared_ptr<const VoxWorldSample> world = std::move(analyzed);
         std::atomic_store_explicit(&_plugin->worldSample, std::move(world), std::memory_order_release);
         std::atomic_store_explicit(&_plugin->voicebank, std::shared_ptr<const VoxVoicebank> {}, std::memory_order_release);
+        rebuildVoxLyricScore(*_plugin);
         storeVoxLoadedName(*_plugin, name ? [name UTF8String] : "");
         syncWorldSmoothing(*_plugin);
-        for (uint32_t voice = 0; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+        for (uint32_t voice = 0; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
             _plugin->voxWorldPhase[voice] = 0.0;
         }
         resetWorldPhases(*_plugin);
@@ -6630,7 +9075,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     norm = std::clamp(norm, 0.0, 1.0);
     double value = 0.0;
     switch (param) {
-    case kVoicesParamId: value = 1.0 + norm * 63.0; break;
+    case kVoicesParamId: value = 1.0 + norm * static_cast<double>(s3g::kAmbiVoxMaxVoices - 1u); break;
     case kBaseNoteParamId: value = 12.0 + norm * 84.0; break;
     case kTuneParamId: value = -1200.0 + norm * 2400.0; break;
     case kWorldPitchParamId: value = -2400.0 + norm * 4800.0; break;
@@ -6676,12 +9121,19 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     case kPortamentoParamId:
     case kVibratoDepthParamId:
     case kTransitionParamId:
+    case kPhraseSpreadParamId:
         value = norm;
         break;
-    case kFormantMacroParamId: value = -1.0 + norm * 2.0; break;
+    case kFormantMacroParamId:
+    case kWorldAirColorParamId:
+        value = -1.0 + norm * 2.0;
+        break;
     case kPitchSpreadParamId: value = norm * 2.0; break;
     case kPvocStretchParamId: value = 0.25 * std::pow(16.0, norm); break;
     case kVibratoRateParamId: value = 0.1 * std::pow(120.0, norm); break;
+    case kLyricCueBeatsParamId: value = 0.25 + norm * 63.75; break;
+    case kLyricCueNoteParamId: value = norm * 127.0; break;
+    case kLyricCueChannelParamId: value = 1.0 + norm * 15.0; break;
     case kAttackParamId: value = 1.0 * std::pow(2000.0, norm); break;
     case kDecayParamId: value = 5.0 * std::pow(800.0, norm); break;
     case kReleaseParamId: value = 5.0 * std::pow(1600.0, norm); break;
@@ -6697,13 +9149,15 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     default: return;
     }
     applyParam(*_plugin, param, value);
+    [self markPresetCustom];
 }
 
 - (void)updateDraggedSlider:(NSPoint)point
 {
     if (_dragParam == CLAP_INVALID_ID) return;
-    const CGFloat trackX = _dragArea == 2 ? 120.0 : (_dragArea == 7 ? 1004.0 : 738.0);
-    const CGFloat trackWidth = _dragArea == 2 ? 170.0 : 82.0;
+    const CGFloat trackX = _dragArea == 2 ? 120.0
+        : (_dragArea == 9 ? 336.0 : (_dragArea == 7 ? 1004.0 : 738.0));
+    const CGFloat trackWidth = (_dragArea == 2 || _dragArea == 9) ? 170.0 : 82.0;
     [self setParam:_dragParam fromNorm:(point.x - trackX) / trackWidth];
     [self setNeedsDisplay:YES];
 }
@@ -6724,19 +9178,27 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, _menuWidth, itemHeight * _menuItemCount);
     const int hit = s3g::clap_gui::dropdownHitIndex(point, menuRect, itemHeight, _menuItemCount);
     if (hit >= 0) {
-        if (_openMenu == 1) applyParam(*_plugin, kModeParamId, hit);
-        else if (_openMenu == 2) applyParam(*_plugin, kPresetParamId, hit);
-        else if (_openMenu == 3) applyParam(*_plugin, kOrderParamId, hit + 1);
-        else if (_openMenu == 4) applyParam(*_plugin, kMotionSceneParamId, hit);
-        else if (_openMenu == 5) applyParam(*_plugin, kMotionClockParamId, hit);
-        else if (_openMenu == 6) applyParam(*_plugin, kScaleParamId, hit);
-        else if (_openMenu == 7) applyParam(*_plugin, kScoreModeParamId, hit);
-        else if (_openMenu == 9) applyParam(*_plugin, kSpeechModeParamId, hit);
-        else if (_openMenu == 8) {
-            auto score = loadScore(*_plugin);
-            const uint32_t node = std::min<uint32_t>(_selectedScoreNode, score.nodeCount - 1u);
-            score.nodes[node].curve = static_cast<s3g::AmbiVotScoreCurve>(hit);
-            storeScore(*_plugin, score);
+        if (_openMenu == 12) {
+            [self applyFactoryPreset:static_cast<uint32_t>(hit)];
+        } else {
+            if (_openMenu == 1) applyParam(*_plugin, kModeParamId, hit);
+            else if (_openMenu == 2) applyParam(*_plugin, kPresetParamId, hit);
+            else if (_openMenu == 3) applyParam(*_plugin, kOrderParamId, hit + 1);
+            else if (_openMenu == 4) applyParam(*_plugin, kMotionSceneParamId, hit);
+            else if (_openMenu == 5) applyParam(*_plugin, kMotionClockParamId, hit);
+            else if (_openMenu == 6) applyParam(*_plugin, kScaleParamId, hit);
+            else if (_openMenu == 7) applyParam(*_plugin, kScoreModeParamId, hit);
+            else if (_openMenu == 9) applyParam(*_plugin, kSpeechModeParamId, hit);
+            else if (_openMenu == 10) applyParam(*_plugin, kOrchestrationParamId, hit);
+            else if (_openMenu == 11) applyParam(*_plugin, kContourModeParamId, hit);
+            else if (_openMenu == 13) applyParam(*_plugin, kLyricModeParamId, hit);
+            else if (_openMenu == 8) {
+                auto score = loadScore(*_plugin);
+                const uint32_t node = std::min<uint32_t>(_selectedScoreNode, score.nodeCount - 1u);
+                score.nodes[node].curve = static_cast<s3g::AmbiVotScoreCurve>(hit);
+                storeScore(*_plugin, score);
+            }
+            [self markPresetCustom];
         }
     }
     _openMenu = 0;
@@ -6749,7 +9211,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 - (int)hitVoiceAtPoint:(NSPoint)point
 {
     const NSRect rect = [self leftContentRect];
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiVotMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiVoxMaxVoices);
     int bestVoice = -1;
     CGFloat bestDistance = 144.0;
     for (uint32_t voice = 0; voice < voices; ++voice) {
@@ -6771,7 +9233,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     const NSRect content = [self leftContentRect];
     const NSRect pathRect = NSMakeRect(content.origin.x + 278, content.origin.y + 8, 270, 252);
     const NSRect inner = NSInsetRect(pathRect, 14, 28);
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiVotMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiVoxMaxVoices);
     int bestVoice = -1;
     CGFloat bestDistance = 196.0;
     for (uint32_t voice = 0; voice < voices; ++voice) {
@@ -6829,6 +9291,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         else score.sustainEnd = std::max<uint32_t>(selected, score.sustainStart + 1u);
     }
     storeScore(*_plugin, score);
+    [self markPresetCustom];
     [self setNeedsDisplay:YES];
 }
 
@@ -6837,6 +9300,20 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     if (_openMenu > 0) {
         [self closeMenuAtPoint:point];
+        return;
+    }
+    if (NSPointInRect(point, [self presetMenuRect])) {
+        const NSRect rect = [self presetMenuRect];
+        [self openMenu:12 count:kVoxFactoryPresetCount
+            x:rect.origin.x y:rect.origin.y width:rect.size.width];
+        return;
+    }
+    if (NSPointInRect(point, [self presetLoadButtonRect])) {
+        [self loadUserPreset];
+        return;
+    }
+    if (NSPointInRect(point, [self presetSaveButtonRect])) {
+        [self saveUserPreset];
         return;
     }
     if (NSPointInRect(point, [self encodedLoadButtonRect])) {
@@ -6848,31 +9325,82 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         [self setNeedsDisplay:YES];
         return;
     }
-    _leftPage = 0;
-    for (int i = 0; i < 3; ++i) {
-        if (NSPointInRect(point, [self viewButtonRect:i])) {
-            [self setViewPreset:i];
-            return;
-        }
+    for (int i = 0; i < 4; ++i) {
+        if (!NSPointInRect(point, [self pageButtonRect:i])) continue;
+        _leftPage = i;
+        [_lyricsScroll setHidden:_leftPage != 3];
+        [self storeViewState];
+        [self setNeedsDisplay:YES];
+        return;
     }
-    for (int i = 0; i < 2; ++i) {
-        if (NSPointInRect(point, [self zoomButtonRect:i])) {
-            _viewZoom = std::clamp(_viewZoom * (i == 0 ? 0.82 : 1.22), 0.55, 2.20);
-            _viewMode = -1;
-            [self storeViewState];
+    if (_leftPage == 0) {
+        for (int i = 0; i < 3; ++i) {
+            if (NSPointInRect(point, [self viewButtonRect:i])) {
+                [self setViewPreset:i];
+                return;
+            }
+        }
+        for (int i = 0; i < 2; ++i) {
+            if (NSPointInRect(point, [self zoomButtonRect:i])) {
+                _viewZoom = std::clamp(_viewZoom * (i == 0 ? 0.82 : 1.22), 0.55, 2.20);
+                _viewMode = -1;
+                [self storeViewState];
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+        if (NSPointInRect(point, [self leftContentRect])) {
+            if (([event modifierFlags] & NSEventModifierFlagShift) != 0) {
+                _dragView = YES;
+                _lastDragPoint = point;
+                return;
+            }
+            const int hit = [self hitVoiceAtPoint:point];
+            if (hit >= 0) {
+                _selectedVoice = static_cast<uint32_t>(hit);
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+    } else if (_leftPage == 1 && NSPointInRect(point, [self leftContentRect])) {
+        [self selectVectorVoiceAtPoint:point];
+        [self setNeedsDisplay:YES];
+        return;
+    } else if (_leftPage == 3) {
+        const auto cues = splitVoxLyricCues(loadVoxLyrics(*_plugin));
+        for (uint32_t cue = 0u; cue < cues.size(); ++cue) {
+            if (!NSPointInRect(point, [self lyricCueRect:cue])) continue;
+            _selectedLyricCue = cue;
+            requestVoxLyricCue(*_plugin, cue);
+            [_phraseField setStringValue:[NSString stringWithUTF8String:cues[cue].c_str()]];
             [self setNeedsDisplay:YES];
             return;
         }
-    }
-    if (NSPointInRect(point, [self leftContentRect])) {
-        if (([event modifierFlags] & NSEventModifierFlagShift) != 0) {
-            _dragView = YES;
-            _lastDragPoint = point;
+        const NSRect content = [self leftContentRect];
+        const CGFloat controlsY = content.origin.y + 618.0;
+        if (NSPointInRect(point, NSMakeRect(content.origin.x + 110,
+            controlsY - 1, 150, 17))) {
+            [self openMenu:13 count:4 x:content.origin.x + 110
+                y:controlsY width:150];
             return;
         }
-        const int hit = [self hitVoiceAtPoint:point];
-        if (hit >= 0) {
-            _selectedVoice = static_cast<uint32_t>(hit);
+        struct LyricSliderHit { clap_id param; CGFloat y; };
+        const LyricSliderHit lyricSliders[] {
+            { kLyricCueBeatsParamId, controlsY + 28 },
+            { kLyricCueNoteParamId, controlsY + 56 },
+            { kLyricCueChannelParamId, controlsY + 84 },
+        };
+        for (const auto& slider : lyricSliders) {
+            if (!NSPointInRect(point, NSMakeRect(content.origin.x + 102,
+                slider.y - 8, 404, 24))) continue;
+            if ([event clickCount] >= 2) {
+                applyParam(*_plugin, slider.param, [self defaultValueForParam:slider.param]);
+                [self markPresetCustom];
+            } else {
+                _dragParam = slider.param;
+                _dragArea = 9;
+                [self updateDraggedSlider:point];
+            }
             [self setNeedsDisplay:YES];
             return;
         }
@@ -6882,6 +9410,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     static constexpr MenuHit menus[] {
         { 1, 3, 738, 78, 124 }, { 3, 7, 738, 104, 124 },
         { 9, 3, 738, 156, 124 },
+        { 10, 6, 738, 622, 124 }, { 11, 4, 738, 648, 124 },
         { 4, 5, 1004, 78, 124 }, { 5, 2, 1004, 104, 124 },
         { 6, 6, 1004, 706, 124 },
     };
@@ -6894,6 +9423,8 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     struct SliderHit { clap_id param; CGFloat x; CGFloat y; int area; };
     static constexpr SliderHit commonSliders[] {
         { kVoicesParamId, 638, 130, 1 }, { kOutputParamId, 638, 546, 1 },
+        { kFormantMacroParamId, 638, 674, 1 }, { kWorldVoicingParamId, 638, 700, 1 },
+        { kWorldAirColorParamId, 638, 726, 1 },
         { kMotionRateParamId, 904, 130, 7 }, { kSyncDivisionParamId, 904, 156, 7 },
         { kMotionAmountParamId, 904, 182, 7 }, { kSpreadParamId, 904, 208, 7 },
         { kCoherenceParamId, 904, 234, 7 }, { kChaosParamId, 904, 260, 7 },
@@ -6908,19 +9439,22 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     static constexpr SliderHit phraseSliders[] {
         { kPhraseRateParamId, 638, 240, 1 }, { kPvocStretchParamId, 638, 266, 1 },
         { kPvocTransientParamId, 638, 292, 1 }, { kTransitionParamId, 638, 318, 1 },
-        { kWorldVoicingParamId, 638, 344, 1 }, { kWorldVoiceSpreadParamId, 638, 370, 1 },
+        { kPhraseSpreadParamId, 638, 344, 1 }, { kWorldVoiceSpreadParamId, 638, 370, 1 },
         { kWorldVoiceDeviationParamId, 638, 396, 1 },
     };
     static constexpr SliderHit textureSliders[] {
         { kWorldRateParamId, 638, 240, 1 }, { kWorldLoopStartParamId, 638, 266, 1 },
         { kWorldLoopEndParamId, 638, 292, 1 }, { kWorldFreezeParamId, 638, 318, 1 },
-        { kWorldScrubParamId, 638, 344, 1 }, { kPvocStretchParamId, 638, 370, 1 },
-        { kPvocTransientParamId, 638, 396, 1 }, { kWorldVoicingParamId, 638, 422, 1 },
+        { kWorldScrubParamId, 638, 344, 1 }, { kPhraseSpreadParamId, 638, 370, 1 },
+        { kPvocStretchParamId, 638, 396, 1 }, { kPvocTransientParamId, 638, 422, 1 },
         { kWorldVoiceSpreadParamId, 638, 448, 1 }, { kWorldVoiceDeviationParamId, 638, 474, 1 },
     };
     const auto hitSlider = [&](const SliderHit& slider) {
         if (!NSPointInRect(point, NSMakeRect(slider.x, slider.y - 8, 232, 24))) return false;
-            if ([event clickCount] >= 2) applyParam(*_plugin, slider.param, [self defaultValueForParam:slider.param]);
+            if ([event clickCount] >= 2) {
+                applyParam(*_plugin, slider.param, [self defaultValueForParam:slider.param]);
+                [self markPresetCustom];
+            }
             else {
                 _dragParam = slider.param;
                 _dragArea = slider.area;
@@ -7122,7 +9656,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.4.0-pre",
-    "Polyphonic ambisonic WORLD and voicebank instrument with phrase, scale, and PVOC timing controls.",
+    "16-voice ambisonic WORLD and voicebank instrument with phrase, ensemble, and spectral controls.",
     features,
 };
 
@@ -7138,26 +9672,25 @@ const clap_plugin_t* create(const clap_host_t* host)
     std::shared_ptr<const s3g::AmbiVotTableBank> defaultVoxBank = std::make_shared<s3g::AmbiVotTableBank>(
         s3g::ambiVoxPresetBank(s3g::AmbiVoxPreset::BlackMetal));
     std::atomic_store_explicit(&state->userBank, std::move(defaultVoxBank), std::memory_order_release);
-    state->params.preset = s3g::AmbiVotPreset::User;
-    state->params.vectorX = 0.72f;
-    state->params.vectorY = 0.64f;
-    state->params.morph = 0.82f;
-    state->params.detune = 0.18f;
-    state->params.pitchSpread = 0.58f;
-    state->params.subharmonicAmount = 0.32f;
-    state->params.attackMs = 45.0f;
-    state->params.releaseMs = 950.0f;
-    state->params.outputGainDb = -22.0f;
-    storeVoxPhrase(*state, "ra ka ta sa sorrow ash");
-    storeScore(*state, s3g::ambiVotDefaultScore());
+    const auto defaultPreset = voxFactoryPreset(0u);
+    state->params = defaultPreset.snapshot.params;
+    state->vox = defaultPreset.snapshot.vox;
+    state->lyric = defaultPreset.snapshot.lyric;
+    state->factoryPresetIndex = 0;
+    std::snprintf(state->presetName, sizeof(state->presetName), "%s", defaultPreset.name);
+    storeVoxPhrase(*state, defaultPreset.phrase);
+    storeVoxLyricsText(*state, defaultPreset.phrase);
+    rebuildVoxLyricScore(*state);
+    storeScore(*state, defaultPreset.snapshot.score);
     state->voxOutputGainSmooth = s3g::dbToGain(state->params.outputGainDb);
     state->voxLimiterGain = 1.0f;
     syncWorldSmoothing(*state);
     state->pvoc.prepare();
     resetVoxMidiVoices(*state);
-    for (uint32_t voice = 0; voice < s3g::kAmbiVotMaxVoices; ++voice) {
+    for (uint32_t voice = 0; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
         state->voxWorldVoiceGainSmooth[voice] = voice < state->params.voices ? 1.0f : 0.0f;
         state->voxPitchRatioSmooth[voice] = 1.0f;
+        state->voxContourRatioSmooth[voice] = 1.0f;
         state->pvoc.reset(state->voxPvocVoice[voice], nullptr, 0.0);
         state->pvoc.reset(state->voxPvocNextVoice[voice], nullptr, 0.0);
         state->voxTargetNoteSmooth[voice] = voxVoiceTargetNote(*state, voice);
@@ -7175,7 +9708,7 @@ const clap_plugin_t* create(const clap_host_t* host)
     state->params = state->engine.params();
 #if defined(__APPLE__)
     const auto& points = state->engine.motionPoints();
-    for (uint32_t i = 0; i < s3g::kAmbiVotMaxVoices; ++i) {
+    for (uint32_t i = 0; i < s3g::kAmbiVoxMaxVoices; ++i) {
         state->guiAzimuth[i].store(points[i].azimuthDeg, std::memory_order_relaxed);
         state->guiElevation[i].store(points[i].elevationDeg, std::memory_order_relaxed);
         state->guiDistance[i].store(points[i].distance, std::memory_order_relaxed);

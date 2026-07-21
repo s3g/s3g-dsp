@@ -36,13 +36,17 @@
           <li><code>format</code>: <code>s3g-ambi-ray-field</code></li>
           <li><code>version</code>: <code>1</code></li>
           <li><code>ambisonics</code>: ACN/SN3D metadata</li>
+          <li><code>coordinate_system</code>: world axes, AED orientation, units, and the explicit world-to-AED mapping</li>
           <li><code>interpolation</code>: sampled-cell and stable-slot interpretation metadata</li>
+          <li><code>atlas</code>: optional bundled-preset name, category, description, seed, and provenance</li>
           <li><code>space</code>: optional generalized geometry, regions, portals, and display provenance</li>
           <li><code>room</code>: dimensions, top-view polygon, ceiling profile, navigation bounds, and material summary</li>
           <li><code>listener_position_m</code> and <code>default_source_position_m</code>: reference listener and default source XYZ positions in metres</li>
           <li><code>grid</code>: authoring-grid dimensions, source-sampling metadata, and the optional global stable-slot key list</li>
           <li><code>cells</code>: one to 256 sampled source positions</li>
         </ul>
+
+        <p>The canonical horizontal mapping is <code>azimuth_deg=atan2(-x_right,y_front)</code>: world +X is right/<code>-90</code> degrees, world -X is left/<code>+90</code> degrees, and world +Y is front/<code>0</code> degrees. Current Ray Sketch exports store this value in <code>coordinate_system.world_to_aed</code>.</p>
 
         <p>Each cell has a <code>position_m</code>, up to 32 <code>early_reflections</code>, and one <code>late</code> profile. Every early reflection carries a stable <code>slot</code>, delay in milliseconds, gain, azimuth, elevation, and normalized damping. It may also carry <code>bounce_position_m</code>, an optional XYZ wall, floor, ceiling, portal, or echo-path point used to re-resolve path timing and arrival direction when the listener moves. A slot may be absent from a cell when that path is not active there; readers treat its gain as zero. The late profile carries start time, decay time, level, diffusion, and damping.</p>
 
@@ -54,7 +58,7 @@
 
         <h2 id="compatibility">Compatibility</h2>
 
-        <p>The editable Ray Sketch project uses the <code>s3g-ray-sketch</code> format identifier and is not a plugin input. Ray Sketch may import Imprint Sketch and legacy room-sketch projects as authoring sources, but Ambi Ray Encoder loads only a version 1 <code>s3g-ambi-ray-field</code> runtime file.</p>
+        <p>The editable Ray Sketch project uses the <code>s3g-ray-sketch</code> format identifier and is not a plugin input. Ray Sketch may import Imprint Sketch and legacy room-sketch projects as authoring sources, but Ambi Ray Encoder loads only a version 1 <code>s3g-ambi-ray-field</code> runtime file. Early Ray Sketch version 1 exports omitted <code>world_to_aed</code> and wrote the horizontal azimuth sign in screen-space orientation; Ambi Ray Encoder recognizes those generated files and corrects them while loading.</p>
 
         <p>Geometry, materials, path losses, bounce points, and decay values are creative acoustic estimates intended for repeatable spatial composition. Resolved delay, gain, and AED values remain sufficient for a fixed reference listener. <code>bounce_position_m</code> enables lightweight moving-listener path resolution without a geometry engine on the audio thread; generalized geometry remains display provenance. Version 1 readers may ignore the bounce field.</p>
 

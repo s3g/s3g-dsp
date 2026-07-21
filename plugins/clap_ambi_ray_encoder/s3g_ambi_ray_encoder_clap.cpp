@@ -36,11 +36,12 @@ constexpr uint32_t kOutputChannels = 64u;
 constexpr uint32_t kGuiWidth = 1040u;
 constexpr uint32_t kGuiHeight = 620u;
 constexpr uint32_t kStateMagic = 0x53475259u;
-constexpr uint32_t kStateVersion = 2u;
+constexpr uint32_t kStateVersion = 3u;
 constexpr uint32_t kMaximumStateJsonBytes = 8u * 1024u * 1024u;
+constexpr const char* kWorldToAedConvention = "azimuth_deg=atan2(-x_right,y_front)";
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-ray-encoder";
 constexpr const char* kPluginName = "s3g Ambi Ray Encoder";
-constexpr const char* kPluginDesc = "Moving source and listener encoder with interpolated ray-field room response.";
+constexpr const char* kPluginDesc = "Moving source and listener encoder with bundled or user ray-field rooms.";
 
 enum ParamId : clap_id {
     kParamOrder = 1,
@@ -60,6 +61,7 @@ enum ParamId : clap_id {
     kParamListenerX = 15,
     kParamListenerY = 16,
     kParamListenerZ = 17,
+    kParamDoppler = 18,
 };
 
 struct SavedAmbiRayEncoderParamsV1 {
@@ -97,8 +99,56 @@ s3g::AmbiRayEncoderParams paramsFromV1(const SavedAmbiRayEncoderParamsV1& saved)
     params.width = saved.width;
     params.air = saved.air;
     params.movementMs = saved.movementMs;
+    params.doppler = 1.0f;
     params.outputGainDb = saved.outputGainDb;
     params.bypassRoom = saved.bypassRoom;
+    return params;
+}
+
+struct SavedAmbiRayEncoderParamsV2 {
+    uint32_t order = 3u;
+    float sourceX = 0.5f;
+    float sourceY = 0.25f;
+    float sourceZ = 0.5f;
+    float direct = 1.0f;
+    float early = 0.72f;
+    float late = 0.42f;
+    float size = 1.0f;
+    float scatter = 0.45f;
+    float width = 1.0f;
+    float air = 0.20f;
+    float movementMs = 60.0f;
+    float outputGainDb = -6.0f;
+    bool bypassRoom = false;
+    float listenerX = 0.5f;
+    float listenerY = 0.5f;
+    float listenerZ = 0.5f;
+};
+
+static_assert(sizeof(SavedAmbiRayEncoderParamsV2) == 68u,
+    "Ambi Ray v2 state compatibility requires the original parameter layout");
+
+s3g::AmbiRayEncoderParams paramsFromV2(const SavedAmbiRayEncoderParamsV2& saved)
+{
+    s3g::AmbiRayEncoderParams params;
+    params.order = saved.order;
+    params.sourceX = saved.sourceX;
+    params.sourceY = saved.sourceY;
+    params.sourceZ = saved.sourceZ;
+    params.direct = saved.direct;
+    params.early = saved.early;
+    params.late = saved.late;
+    params.size = saved.size;
+    params.scatter = saved.scatter;
+    params.width = saved.width;
+    params.air = saved.air;
+    params.movementMs = saved.movementMs;
+    params.doppler = 1.0f;
+    params.outputGainDb = saved.outputGainDb;
+    params.bypassRoom = saved.bypassRoom;
+    params.listenerX = saved.listenerX;
+    params.listenerY = saved.listenerY;
+    params.listenerZ = saved.listenerZ;
     return params;
 }
 
@@ -251,6 +301,7 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kParamWidth: plugin.params.width = static_cast<float>(value); break;
     case kParamAir: plugin.params.air = static_cast<float>(value); break;
     case kParamMovement: plugin.params.movementMs = static_cast<float>(value); break;
+    case kParamDoppler: plugin.params.doppler = static_cast<float>(value); break;
     case kParamOutput: plugin.params.outputGainDb = static_cast<float>(value); break;
     case kParamBypass: plugin.params.bypassRoom = value >= 0.5; break;
     default: return;
@@ -277,6 +328,7 @@ double getParam(const Plugin& plugin, clap_id id)
     case kParamWidth: return plugin.params.width;
     case kParamAir: return plugin.params.air;
     case kParamMovement: return plugin.params.movementMs;
+    case kParamDoppler: return plugin.params.doppler;
     case kParamOutput: return plugin.params.outputGainDb;
     case kParamBypass: return plugin.params.bypassRoom ? 1.0 : 0.0;
     default: return 0.0;
@@ -370,7 +422,7 @@ GuiSnapshot guiSnapshot(Plugin& plugin)
                 const auto& event = cell.reflections[index];
                 const auto resolved = s3g::resolveAmbiRayReflection(
                     plugin.descriptor, cell, event, result.source, result.listener);
-                const auto aed = s3g::ambi_ray_detail::aedFromWorldVector(resolved.direction);
+                const auto aed = s3g::ambi_ray_detail::aedFromAmbisonicDirection(resolved.direction);
                 result.reflections.push_back({ resolved.delayMs, resolved.gain, aed[0], aed[1],
                     event.bouncePositionMetres, event.hasBouncePosition });
             }
@@ -468,6 +520,14 @@ bool parseRayData(NSData* data,
         error = "EXPECTED 1-256 RAY CELLS";
         return false;
     }
+    bool invertLegacyRaySketchAzimuth = false;
+    if (NSDictionary* generator = dictionaryValue(root, @"generator")) {
+        if (stringValue(generator, @"name") == "s3g-mc Ray Sketch") {
+            NSDictionary* coordinates = dictionaryValue(root, @"coordinate_system");
+            invertLegacyRaySketchAzimuth = !coordinates
+                || stringValue(coordinates, @"world_to_aed") != kWorldToAedConvention;
+        }
+    }
 
     s3g::AmbiRayDescriptor parsed;
     GuiSpaceGeometry parsedGeometry;
@@ -551,11 +611,13 @@ bool parseRayData(NSData* data,
             id reflectionItem = [reflections objectAtIndex:reflectionIndex];
             if (![reflectionItem isKindOfClass:[NSDictionary class]]) continue;
             auto* reflection = static_cast<NSDictionary*>(reflectionItem);
+            float azimuthDeg = numberValue(reflection, @"azimuth_deg", 0.0f);
+            if (invertLegacyRaySketchAzimuth) azimuthDeg = -azimuthDeg;
             s3g::AmbiRayReflection event {
                 unsignedValue(reflection, @"slot", reflectionIndex),
                 numberValue(reflection, @"delay_ms", 20.0f),
                 numberValue(reflection, @"gain", 0.0f),
-                numberValue(reflection, @"azimuth_deg", 0.0f),
+                azimuthDeg,
                 numberValue(reflection, @"elevation_deg", 0.0f),
                 numberValue(reflection, @"damping", 0.25f)
             };
@@ -718,7 +780,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
-uint32_t paramsCount(const clap_plugin_t*) { return 17u; }
+uint32_t paramsCount(const clap_plugin_t*) { return 18u; }
 
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
@@ -726,7 +788,8 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
     const char* module = index >= 1u && index <= 3u
         ? "Position/Source"
-        : index >= 14u && index <= 16u ? "Position/Listener" : "Ambi Ray Encoder";
+        : index >= 14u && index <= 16u ? "Position/Listener"
+        : index == 11u || index == 17u ? "Position/Motion" : "Ambi Ray Encoder";
     std::strncpy(info->module, module, sizeof(info->module));
     switch (index) {
     case 0: info->id = kParamOrder; info->flags |= CLAP_PARAM_IS_STEPPED; std::strncpy(info->name, "Order", sizeof(info->name)); info->min_value = 1; info->max_value = 7; info->default_value = 3; return true;
@@ -746,13 +809,14 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     case 14: info->id = kParamListenerX; std::strncpy(info->name, "Listener X", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; return true;
     case 15: info->id = kParamListenerY; std::strncpy(info->name, "Listener Y", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; return true;
     case 16: info->id = kParamListenerZ; std::strncpy(info->name, "Listener Z", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; return true;
+    case 17: info->id = kParamDoppler; std::strncpy(info->name, "Doppler", sizeof(info->name)); info->min_value = 0; info->max_value = 2; info->default_value = 0.5; return true;
     default: return false;
     }
 }
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
 {
-    if (!value || paramId < kParamOrder || paramId > kParamListenerZ) return false;
+    if (!value || paramId < kParamOrder || paramId > kParamDoppler) return false;
     *value = getParam(*self(plugin), paramId);
     return true;
 }
@@ -787,7 +851,8 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id paramId, double valu
     case kParamSize:
     case kParamWidth: std::snprintf(display, size, "%.2f", value); return true;
     case kParamScatter:
-    case kParamAir: std::snprintf(display, size, "%.0f%%", value * 100.0); return true;
+    case kParamAir:
+    case kParamDoppler: std::snprintf(display, size, "%.0f%%", value * 100.0); return true;
     case kParamMovement: std::snprintf(display, size, "%.0f ms", value); return true;
     case kParamOutput: std::snprintf(display, size, "%+.1f dB", value); return true;
     case kParamBypass: std::snprintf(display, size, "%s", value >= 0.5 ? "On" : "Off"); return true;
@@ -797,7 +862,7 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id paramId, double valu
 
 bool paramsTextToValue(const clap_plugin_t* plugin, clap_id paramId, const char* display, double* value)
 {
-    if (!display || !value || paramId < kParamOrder || paramId > kParamListenerZ) return false;
+    if (!display || !value || paramId < kParamOrder || paramId > kParamDoppler) return false;
     const double parsed = std::atof(display);
     const auto* instance = self(plugin);
     switch (paramId) {
@@ -823,7 +888,8 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id paramId, const char*
     case kParamEarly:
     case kParamLate:
     case kParamScatter:
-    case kParamAir: *value = parsed * 0.01; break;
+    case kParamAir:
+    case kParamDoppler: *value = parsed * 0.01; break;
     case kParamBypass:
         *value = (display[0] == 'O' || display[0] == 'o')
             && (display[1] == 'N' || display[1] == 'n') ? 1.0 : 0.0;
@@ -866,11 +932,15 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 
     s3g::AmbiRayEncoderParams loadedParams;
     uint32_t jsonBytes = 0u;
-    const bool legacyState = version == 1u;
-    if (legacyState) {
+    const bool legacyListenerState = version == 1u;
+    if (legacyListenerState) {
         SavedAmbiRayEncoderParamsV1 saved;
         if (!streamReadAll(stream, &saved, sizeof(saved))) return false;
         loadedParams = paramsFromV1(saved);
+    } else if (version == 2u) {
+        SavedAmbiRayEncoderParamsV2 saved;
+        if (!streamReadAll(stream, &saved, sizeof(saved))) return false;
+        loadedParams = paramsFromV2(saved);
     } else if (version == kStateVersion) {
         if (!streamReadAll(stream, &loadedParams, sizeof(loadedParams))) return false;
     } else {
@@ -890,12 +960,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         std::string canonical;
         std::string error;
         if (!parseRayData(data, descriptor, geometry, canonical, error)) return false;
-        if (legacyState) setListenerToDescriptorReference(instance->params, descriptor);
+        if (legacyListenerState) setListenerToDescriptorReference(instance->params, descriptor);
         if (!installDescriptor(*instance, std::move(descriptor), std::move(geometry), std::move(canonical), "PROJECT STATE", false, error)) return false;
 #else
         return false;
 #endif
-    } else if (legacyState) {
+    } else if (legacyListenerState) {
         std::lock_guard<std::mutex> lock(instance->stateMutex);
         setListenerToDescriptorReference(instance->params, instance->descriptor);
     }
@@ -927,6 +997,33 @@ NSString* compactFileName(const std::string& name)
     if ([value length] <= 27u) return value;
     return [NSString stringWithFormat:@"...%@", [value substringFromIndex:[value length] - 24u]];
 }
+
+struct RayAtlasEntry {
+    const char* title;
+    const char* resource;
+};
+
+constexpr std::array<RayAtlasEntry, 19> kRayAtlas {{
+    { "ARCH / CONCRETE GALLERY", "architecture_concrete_gallery" },
+    { "ARCH / WOOD STUDIO", "architecture_wood_studio" },
+    { "CAVE / LIMESTONE POCKET", "cave_limestone_pocket" },
+    { "CAVE / ICE GROTTO", "cave_ice_grotto" },
+    { "CAVERN / DEEP STONE VAULT", "cavern_deep_stone_vault" },
+    { "CAVERN / WATER CHAMBER", "cavern_water_chamber" },
+    { "TUNNEL / BRICK BEND", "tunnel_brick_bend" },
+    { "TUNNEL / METAL CONDUIT", "tunnel_metal_conduit" },
+    { "CANYON / DRY SLOT", "canyon_dry_slot" },
+    { "CANYON / POROUS GORGE", "canyon_porous_gorge" },
+    { "CLEAR / FOREST RING", "clearing_forest_ring" },
+    { "CLEAR / WATER MEADOW", "clearing_water_meadow" },
+    { "ECHO / STONE FLUTTER", "echo_stone_flutter_gallery" },
+    { "ECHO / METAL AXIAL TUNNEL", "echo_metal_axial_tunnel" },
+    { "ECHO / TWIN CHAMBERS", "echo_twin_concrete_chambers" },
+    { "ECHO / PERIMETER CIRCUIT", "echo_stone_perimeter_circuit" },
+    { "ECHO / IMPOSSIBLE RELAY", "echo_impossible_relay" },
+    { "ABSTRACT / FOLDED CHAMBER", "abstract_folded_chamber" },
+    { "ABSTRACT / IMPOSSIBLE NETWORK", "abstract_impossible_network" },
+}};
 
 struct GuiWorldBounds {
     float minimumX = 0.0f;
@@ -988,6 +1085,7 @@ NSRect topFieldRect() { return NSMakeRect(24, 68, 330, 452); }
 NSRect sideFieldRect() { return NSMakeRect(366, 68, 330, 452); }
 NSRect fieldPlotRect(NSRect field) { return NSMakeRect(field.origin.x + 15, field.origin.y + 29, field.size.width - 30, field.size.height - 44); }
 NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
+NSRect rayAtlasMenuRect() { return NSMakeRect(724, 56, 304, 18.0 * static_cast<CGFloat>(kRayAtlas.size())); }
 NSRect sourceModeRect() { return NSMakeRect(934, 152, 38, 17); }
 NSRect listenerModeRect() { return NSMakeRect(976, 152, 40, 17); }
 
@@ -1011,6 +1109,8 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     NSInteger _positionDragView;
     NSTimer* _refreshTimer;
     bool _editListener;
+    bool _atlasMenuOpen;
+    int _atlasMenuHover;
     bool _orderMenuOpen;
     int _orderMenuHover;
 }
@@ -1019,6 +1119,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 - (void)stopRefreshTimer;
 - (void)setParam:(clap_id)param value:(double)value;
 - (void)loadRayField;
+- (void)loadAtlasAtIndex:(NSUInteger)index;
 - (void)updateSliderAtPoint:(NSPoint)point;
 - (void)updatePositionAtPoint:(NSPoint)point view:(NSInteger)view;
 @end
@@ -1034,6 +1135,8 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
         _positionDragView = 0;
         _refreshTimer = nil;
         _editListener = false;
+        _atlasMenuOpen = false;
+        _atlasMenuHover = -1;
         _orderMenuOpen = false;
         _orderMenuHover = -1;
     }
@@ -1116,6 +1219,36 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     [self setStatus:"BUILDING FIELD"];
     [self displayIfNeeded];
     if (!installDescriptor(*_plugin, std::move(descriptor), std::move(geometry), std::move(json), name, true, error))
+        [self setStatus:error];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)loadAtlasAtIndex:(NSUInteger)index
+{
+    if (index >= kRayAtlas.size()) return;
+    const auto& entry = kRayAtlas[index];
+    NSString* resource = [NSString stringWithUTF8String:entry.resource];
+    NSBundle* bundle = [NSBundle bundleForClass:[self class]];
+    NSString* path = [bundle pathForResource:resource ofType:@"s3gray" inDirectory:@"Ray Atlas"];
+    if (!path) path = [[NSBundle mainBundle] pathForResource:resource ofType:@"s3gray" inDirectory:@"Ray Atlas"];
+    if (!path) {
+        [self setStatus:"ATLAS RESOURCE NOT FOUND"];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    NSData* data = [NSData dataWithContentsOfFile:path];
+    s3g::AmbiRayDescriptor descriptor;
+    GuiSpaceGeometry geometry;
+    std::string json;
+    std::string error;
+    if (!parseRayData(data, descriptor, geometry, json, error)) {
+        [self setStatus:error];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    [self setStatus:"BUILDING FIELD"];
+    [self displayIfNeeded];
+    if (!installDescriptor(*_plugin, std::move(descriptor), std::move(geometry), std::move(json), entry.title, true, error))
         [self setStatus:error];
     [self setNeedsDisplay:YES];
 }
@@ -1275,12 +1408,12 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
             [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(bounce.x - 2.2, bounce.y - 2.2, 4.4, 4.4)] fill];
             drawInwardArrow(bounce, listener, pathColor);
         } else {
-            const float azimuth = reflection.azimuthDeg * s3g::kPi / 180.0f;
-            const float elevation = reflection.elevationDeg * s3g::kPi / 180.0f;
             const float length = worldSpan * (0.14f + 0.32f * s3g::clamp(reflection.delayMs / 220.0f, 0.0f, 1.0f));
-            const float dx = std::sin(azimuth) * std::cos(elevation) * length;
-            const float dy = std::cos(azimuth) * std::cos(elevation) * length;
-            const float dz = std::sin(elevation) * length;
+            const s3g::Vec3 worldDirection = s3g::ambi_ray_detail::worldDirectionFromAed(
+                reflection.azimuthDeg, reflection.elevationDeg);
+            const float dx = worldDirection.x * length;
+            const float dy = worldDirection.y * length;
+            const float dz = worldDirection.z * length;
             const NSPoint end = project(snapshot.listener.x + dx, snapshot.listener.y + dy, snapshot.listener.z + dz);
             NSColor* arrivalColor = s3g::clap_gui::color(0x7fb9c2, alpha);
             NSBezierPath* arrival = [NSBezierPath bezierPath];
@@ -1353,8 +1486,8 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 
     const NSRect fieldPanel = NSMakeRect(12, 34, 700, 574);
     const NSRect mapPanel = NSMakeRect(724, 34, 304, 104);
-    const NSRect positionPanel = NSMakeRect(724, 150, 304, 132);
-    const NSRect roomPanel = NSMakeRect(724, 294, 304, 214);
+    const NSRect positionPanel = NSMakeRect(724, 150, 304, 156);
+    const NSRect roomPanel = NSMakeRect(724, 318, 304, 190);
     const NSRect outputPanel = NSMakeRect(724, 520, 304, 88);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"RAY FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
@@ -1379,6 +1512,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 
     s3g::clap_gui::drawPanelFrame(mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, mapPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"MAP", true, mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, 21, text, style);
+    s3g::clap_gui::drawHeaderActionButton(NSMakeRect(879, 36, 64, 17), NSMakeRect(724, 34, 304, 21), @"ATLAS", value, style);
     s3g::clap_gui::drawHeaderActionButton(NSMakeRect(951, 36, 64, 17), NSMakeRect(724, 34, 304, 21), @"LOAD", value, style);
     [@"FILE" drawAtPoint:NSMakePoint(742, 68) withAttributes:text];
     [compactFileName(snapshot.name) drawAtPoint:NSMakePoint(790, 68) withAttributes:value];
@@ -1400,16 +1534,17 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     [self drawSlider:@"Y" value:[NSString stringWithFormat:@"%.2f m", editPosition.y] norm:editY y:210 attrs:value style:style];
     [self drawSlider:@"Z" value:[NSString stringWithFormat:@"%.2f m", editPosition.z] norm:editZ y:234 attrs:value style:style];
     [self drawSlider:@"MOVE" value:[NSString stringWithFormat:@"%.0f ms", params.movementMs] norm:(params.movementMs - 10.0f) / 490.0f y:258 attrs:value style:style];
+    [self drawSlider:@"DOP" value:[NSString stringWithFormat:@"%.0f%%", params.doppler * 100.0f] norm:params.doppler / 2.0f y:282 attrs:value style:style];
 
     s3g::clap_gui::drawPanelFrame(roomPanel.origin.x, roomPanel.origin.y, roomPanel.size.width, roomPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"ROOM FIELD", true, roomPanel.origin.x, roomPanel.origin.y, roomPanel.size.width, 21, text, style);
-    [self drawSlider:@"DIR" value:[NSString stringWithFormat:@"%.0f%%", params.direct * 100.0f] norm:params.direct / 1.5f y:332 attrs:value style:style];
-    [self drawSlider:@"EAR" value:[NSString stringWithFormat:@"%.0f%%", params.early * 100.0f] norm:params.early / 1.5f y:356 attrs:value style:style];
-    [self drawSlider:@"LAT" value:[NSString stringWithFormat:@"%.0f%%", params.late * 100.0f] norm:params.late / 1.5f y:380 attrs:value style:style];
-    [self drawSlider:@"SIZE" value:[NSString stringWithFormat:@"%.2f", params.size] norm:(params.size - 0.5f) / 1.5f y:404 attrs:value style:style];
-    [self drawSlider:@"SCAT" value:[NSString stringWithFormat:@"%.0f%%", params.scatter * 100.0f] norm:params.scatter y:428 attrs:value style:style];
-    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", params.width] norm:params.width / 1.5f y:452 attrs:value style:style];
-    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%.0f%%", params.air * 100.0f] norm:params.air y:476 attrs:value style:style];
+    [self drawSlider:@"DIR" value:[NSString stringWithFormat:@"%.0f%%", params.direct * 100.0f] norm:params.direct / 1.5f y:352 attrs:value style:style];
+    [self drawSlider:@"EAR" value:[NSString stringWithFormat:@"%.0f%%", params.early * 100.0f] norm:params.early / 1.5f y:374 attrs:value style:style];
+    [self drawSlider:@"LAT" value:[NSString stringWithFormat:@"%.0f%%", params.late * 100.0f] norm:params.late / 1.5f y:396 attrs:value style:style];
+    [self drawSlider:@"SIZE" value:[NSString stringWithFormat:@"%.2f", params.size] norm:(params.size - 0.5f) / 1.5f y:418 attrs:value style:style];
+    [self drawSlider:@"SCAT" value:[NSString stringWithFormat:@"%.0f%%", params.scatter * 100.0f] norm:params.scatter y:440 attrs:value style:style];
+    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", params.width] norm:params.width / 1.5f y:462 attrs:value style:style];
+    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%.0f%%", params.air * 100.0f] norm:params.air y:484 attrs:value style:style];
 
     s3g::clap_gui::drawPanelFrame(outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, outputPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, 21, text, style);
@@ -1421,6 +1556,13 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
         NSString* items[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
         s3g::clap_gui::drawDropdownMenu(orderMenuRect(), 18, items, 7u,
             static_cast<int>(params.order) - 1, _orderMenuHover, value, style);
+    }
+    if (_atlasMenuOpen) {
+        NSString* atlasItems[kRayAtlas.size()];
+        for (size_t index = 0u; index < kRayAtlas.size(); ++index)
+            atlasItems[index] = [NSString stringWithUTF8String:kRayAtlas[index].title];
+        s3g::clap_gui::drawDropdownMenu(rayAtlasMenuRect(), 18, atlasItems,
+            static_cast<uint32_t>(kRayAtlas.size()), -1, _atlasMenuHover, value, style);
     }
 }
 
@@ -1438,6 +1580,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     case kParamListenerY: [self setParam:param value:listenerDefault.y]; break;
     case kParamListenerZ: [self setParam:param value:listenerDefault.z]; break;
     case kParamMovement: [self setParam:param value:60.0]; break;
+    case kParamDoppler: [self setParam:param value:0.50]; break;
     case kParamDirect: [self setParam:param value:1.0]; break;
     case kParamEarly: [self setParam:param value:0.72]; break;
     case kParamLate: [self setParam:param value:0.42]; break;
@@ -1461,6 +1604,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     case kParamListenerY: [self setParam:_dragParam value:norm]; break;
     case kParamListenerZ: [self setParam:_dragParam value:norm]; break;
     case kParamMovement: [self setParam:_dragParam value:10.0 + norm * 490.0]; break;
+    case kParamDoppler: [self setParam:_dragParam value:norm * 2.0]; break;
     case kParamDirect: [self setParam:_dragParam value:norm * 1.5]; break;
     case kParamEarly: [self setParam:_dragParam value:norm * 1.5]; break;
     case kParamLate: [self setParam:_dragParam value:norm * 1.5]; break;
@@ -1499,11 +1643,28 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (_atlasMenuOpen) {
+        const int hit = s3g::clap_gui::dropdownHitIndex(point, rayAtlasMenuRect(), 18,
+            static_cast<uint32_t>(kRayAtlas.size()));
+        _atlasMenuOpen = false;
+        _atlasMenuHover = -1;
+        if (hit >= 0) [self loadAtlasAtIndex:static_cast<NSUInteger>(hit)];
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_orderMenuOpen) {
         const int hit = s3g::clap_gui::dropdownHitIndex(point, orderMenuRect(), 18, 7u);
         _orderMenuOpen = false;
         _orderMenuHover = -1;
         if (hit >= 0) [self setParam:kParamOrder value:hit + 1];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, NSMakeRect(879, 36, 64, 17))) {
+        _atlasMenuOpen = true;
+        _atlasMenuHover = -1;
+        _orderMenuOpen = false;
+        _orderMenuHover = -1;
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1513,6 +1674,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     }
     if (NSPointInRect(point, NSMakeRect(830, 552, 82, 18))) {
         _orderMenuOpen = true;
+        _atlasMenuOpen = false;
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1555,11 +1717,12 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     const clap_id zParam = _editListener ? kParamListenerZ : kParamSourceZ;
     const Row rows[] = {
         { xParam, 186 }, { yParam, 210 }, { zParam, 234 }, { kParamMovement, 258 },
-        { kParamDirect, 332 }, { kParamEarly, 356 }, { kParamLate, 380 }, { kParamSize, 404 },
-        { kParamScatter, 428 }, { kParamWidth, 452 }, { kParamAir, 476 }, { kParamOutput, 582 }
+        { kParamDoppler, 282 }, { kParamDirect, 352 }, { kParamEarly, 374 }, { kParamLate, 396 },
+        { kParamSize, 418 }, { kParamScatter, 440 }, { kParamWidth, 462 }, { kParamAir, 484 },
+        { kParamOutput, 582 }
     };
     for (const auto& row : rows) {
-        if (!NSPointInRect(point, NSMakeRect(734, row.y - 8, 286, 24))) continue;
+        if (!NSPointInRect(point, NSMakeRect(734, row.y - 4, 286, 18))) continue;
         if ([event clickCount] >= 2) {
             [self resetParam:row.param];
             return;
@@ -1589,16 +1752,23 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 
 - (void)mouseMoved:(NSEvent*)event
 {
-    if (!_orderMenuOpen) return;
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    _orderMenuHover = s3g::clap_gui::dropdownHitIndex(point, orderMenuRect(), 18, 7u);
+    if (_atlasMenuOpen) {
+        _atlasMenuHover = s3g::clap_gui::dropdownHitIndex(point, rayAtlasMenuRect(), 18,
+            static_cast<uint32_t>(kRayAtlas.size()));
+    } else if (_orderMenuOpen) {
+        _orderMenuHover = s3g::clap_gui::dropdownHitIndex(point, orderMenuRect(), 18, 7u);
+    } else {
+        return;
+    }
     [self setNeedsDisplay:YES];
 }
 
 - (void)mouseExited:(NSEvent*)event
 {
     (void)event;
-    if (_orderMenuHover == -1) return;
+    if (_atlasMenuHover == -1 && _orderMenuHover == -1) return;
+    _atlasMenuHover = -1;
     _orderMenuHover = -1;
     [self setNeedsDisplay:YES];
 }
@@ -1683,7 +1853,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.2.0",
+    "0.4.0",
     kPluginDesc,
     features
 };

@@ -80,6 +80,7 @@ struct AmbiRayEncoderParams {
     float width = 1.0f;
     float air = 0.20f;
     float movementMs = 60.0f;
+    float doppler = 0.50f;
     float outputGainDb = -6.0f;
     bool bypassRoom = false;
     float listenerX = 0.5f;
@@ -104,6 +105,7 @@ inline AmbiRayEncoderParams sanitizeAmbiRayEncoderParams(AmbiRayEncoderParams pa
     params.width = clamp(params.width, 0.0f, 1.5f);
     params.air = clamp(params.air, 0.0f, 1.0f);
     params.movementMs = clamp(params.movementMs, 10.0f, 500.0f);
+    params.doppler = clamp(params.doppler, 0.0f, 2.0f);
     params.outputGainDb = clamp(params.outputGainDb, -60.0f, 12.0f);
     return params;
 }
@@ -145,13 +147,30 @@ inline float distance(Vec3 a, Vec3 b)
     return std::sqrt(x * x + y * y + z * z);
 }
 
+inline Vec3 ambisonicDirectionFromWorldVector(Vec3 world)
+{
+    return normalize({ world.y, -world.x, world.z });
+}
+
+inline Vec3 worldDirectionFromAed(float azimuthDeg, float elevationDeg)
+{
+    const Vec3 direction = directionFromAed(azimuthDeg, elevationDeg);
+    return { -direction.y, direction.x, direction.z };
+}
+
+inline std::array<float, 2> aedFromAmbisonicDirection(Vec3 direction)
+{
+    const float length = std::max(0.000001f,
+        std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z));
+    return {
+        std::atan2(direction.y, direction.x) * 180.0f / kPi,
+        std::asin(clamp(direction.z / length, -1.0f, 1.0f)) * 180.0f / kPi
+    };
+}
+
 inline std::array<float, 2> aedFromWorldVector(Vec3 world)
 {
-    const float length = std::max(0.000001f, std::sqrt(world.x * world.x + world.y * world.y + world.z * world.z));
-    return {
-        std::atan2(world.x, world.y) * 180.0f / kPi,
-        std::asin(clamp(world.z / length, -1.0f, 1.0f)) * 180.0f / kPi
-    };
+    return aedFromAmbisonicDirection(ambisonicDirectionFromWorldVector(world));
 }
 
 inline float normalizedPosition(float value, float minimum, float maximum)
@@ -222,6 +241,116 @@ public:
 private:
     std::vector<float> data_;
     uint32_t position_ = 0u;
+};
+
+class DopplerDelayTap {
+public:
+    void prepare(double sampleRate)
+    {
+        crossfadeFrames_ = std::max<uint32_t>(32u,
+            static_cast<uint32_t>(std::lround(std::max(1.0, sampleRate) * 0.012)));
+        reset();
+    }
+
+    void reset()
+    {
+        initialized_ = false;
+        crossfading_ = false;
+        physicalDelayFrames_ = 0.0f;
+        physicalTargetFrames_ = 0.0f;
+        physicalStepFrames_ = 0.0f;
+        physicalFramesRemaining_ = 0u;
+        primaryDelayFrames_ = 0.0f;
+        secondaryDelayFrames_ = 0.0f;
+        pendingDelayFrames_ = 0.0f;
+        crossfadePosition_ = 0u;
+        retargetWaitFrames_ = 0u;
+    }
+
+    void setTarget(float delayFrames, uint32_t transitionFrames, bool immediate)
+    {
+        delayFrames = std::max(0.0f, finiteOr(delayFrames, 0.0f));
+        if (immediate || !initialized_) {
+            initialized_ = true;
+            crossfading_ = false;
+            physicalDelayFrames_ = delayFrames;
+            physicalTargetFrames_ = delayFrames;
+            physicalStepFrames_ = 0.0f;
+            physicalFramesRemaining_ = 0u;
+            primaryDelayFrames_ = delayFrames;
+            secondaryDelayFrames_ = delayFrames;
+            pendingDelayFrames_ = delayFrames;
+            crossfadePosition_ = 0u;
+            retargetWaitFrames_ = 0u;
+            return;
+        }
+        if (std::abs(delayFrames - pendingDelayFrames_) > 0.01f && !crossfading_)
+            retargetWaitFrames_ = crossfadeFrames_;
+        pendingDelayFrames_ = delayFrames;
+        physicalTargetFrames_ = delayFrames;
+        physicalFramesRemaining_ = std::max<uint32_t>(1u, transitionFrames);
+        physicalStepFrames_ = (physicalTargetFrames_ - physicalDelayFrames_)
+            / static_cast<float>(physicalFramesRemaining_);
+    }
+
+    float read(const FractionalDelay& delay, float amount)
+    {
+        if (!initialized_) return 0.0f;
+        amount = clamp(amount, 0.0f, 2.0f);
+        if (!crossfading_ && retargetWaitFrames_ > 0u) --retargetWaitFrames_;
+        if (!crossfading_ && retargetWaitFrames_ == 0u
+            && std::abs(pendingDelayFrames_ - primaryDelayFrames_) > 0.25f) {
+            secondaryDelayFrames_ = pendingDelayFrames_;
+            crossfadePosition_ = 0u;
+            crossfading_ = true;
+        }
+
+        const auto scaledDelay = [amount, this](float anchor) {
+            return anchor + (physicalDelayFrames_ - anchor) * amount;
+        };
+        float value = 0.0f;
+        if (crossfading_) {
+            const float phase = static_cast<float>(crossfadePosition_ + 1u)
+                / static_cast<float>(crossfadeFrames_);
+            const float secondaryWeight = phase * phase * (3.0f - 2.0f * phase);
+            value = delay.read(scaledDelay(primaryDelayFrames_)) * (1.0f - secondaryWeight)
+                + delay.read(scaledDelay(secondaryDelayFrames_)) * secondaryWeight;
+            if (++crossfadePosition_ >= crossfadeFrames_) {
+                primaryDelayFrames_ = secondaryDelayFrames_;
+                crossfadePosition_ = 0u;
+                crossfading_ = false;
+                if (std::abs(pendingDelayFrames_ - primaryDelayFrames_) > 0.25f)
+                    retargetWaitFrames_ = crossfadeFrames_;
+            }
+        } else {
+            value = delay.read(scaledDelay(primaryDelayFrames_));
+        }
+
+        if (physicalFramesRemaining_ > 0u) {
+            physicalDelayFrames_ += physicalStepFrames_;
+            if (--physicalFramesRemaining_ == 0u) {
+                physicalDelayFrames_ = physicalTargetFrames_;
+                physicalStepFrames_ = 0.0f;
+            }
+        }
+        return value;
+    }
+
+    float physicalDelayFrames() const { return physicalDelayFrames_; }
+
+private:
+    bool initialized_ = false;
+    bool crossfading_ = false;
+    float physicalDelayFrames_ = 0.0f;
+    float physicalTargetFrames_ = 0.0f;
+    float physicalStepFrames_ = 0.0f;
+    uint32_t physicalFramesRemaining_ = 0u;
+    float primaryDelayFrames_ = 0.0f;
+    float secondaryDelayFrames_ = 0.0f;
+    float pendingDelayFrames_ = 0.0f;
+    uint32_t crossfadeFrames_ = 576u;
+    uint32_t crossfadePosition_ = 0u;
+    uint32_t retargetWaitFrames_ = 0u;
 };
 
 inline void hadamard8(const std::array<float, kAmbiRayLateLines>& input,
@@ -412,7 +541,8 @@ inline AmbiRayResolvedReflection resolveAmbiRayReflection(const AmbiRayDescripto
     constexpr float speedOfSound = 343.0f;
     const Vec3 storedDirection = directionFromAed(reflection.azimuthDeg, reflection.elevationDeg);
     const float referenceDistance = std::max(0.02f, reflection.delayMs * 0.001f * speedOfSound);
-    Vec3 currentDirection = storedDirection;
+    Vec3 currentWorldDirection = ambi_ray_detail::worldDirectionFromAed(
+        reflection.azimuthDeg, reflection.elevationDeg);
     float currentDistance = referenceDistance;
 
     if (reflection.hasBouncePosition) {
@@ -422,25 +552,29 @@ inline AmbiRayResolvedReflection resolveAmbiRayReflection(const AmbiRayDescripto
         currentDistance = nonGeometricDistance
             + ambi_ray_detail::distance(source, reflection.bouncePositionMetres)
             + ambi_ray_detail::distance(reflection.bouncePositionMetres, listener);
-        currentDirection = {
+        currentWorldDirection = {
             reflection.bouncePositionMetres.x - listener.x,
             reflection.bouncePositionMetres.y - listener.y,
             reflection.bouncePositionMetres.z - listener.z
         };
     } else {
+        const Vec3 storedWorldDirection = ambi_ray_detail::worldDirectionFromAed(
+            reflection.azimuthDeg, reflection.elevationDeg);
         const Vec3 anchor {
-            descriptor.listenerPositionMetres.x + storedDirection.x * referenceDistance,
-            descriptor.listenerPositionMetres.y + storedDirection.y * referenceDistance,
-            descriptor.listenerPositionMetres.z + storedDirection.z * referenceDistance
+            descriptor.listenerPositionMetres.x + storedWorldDirection.x * referenceDistance,
+            descriptor.listenerPositionMetres.y + storedWorldDirection.y * referenceDistance,
+            descriptor.listenerPositionMetres.z + storedWorldDirection.z * referenceDistance
         };
-        currentDirection = { anchor.x - listener.x, anchor.y - listener.y, anchor.z - listener.z };
+        currentWorldDirection = { anchor.x - listener.x, anchor.y - listener.y, anchor.z - listener.z };
         currentDistance = ambi_ray_detail::distance(anchor, listener);
     }
 
     currentDistance = std::max(0.02f, currentDistance);
-    const float directionLength = std::sqrt(currentDirection.x * currentDirection.x
-        + currentDirection.y * currentDirection.y + currentDirection.z * currentDirection.z);
-    const Vec3 direction = directionLength > 0.000001f ? normalize(currentDirection) : storedDirection;
+    const float directionLength = std::sqrt(currentWorldDirection.x * currentWorldDirection.x
+        + currentWorldDirection.y * currentWorldDirection.y + currentWorldDirection.z * currentWorldDirection.z);
+    const Vec3 direction = directionLength > 0.000001f
+        ? ambi_ray_detail::ambisonicDirectionFromWorldVector(currentWorldDirection)
+        : storedDirection;
     const float distanceScale = std::sqrt(clamp(referenceDistance / currentDistance, 0.25f, 4.0f));
     return {
         clamp(currentDistance / speedOfSound * 1000.0f, 0.0f, kAmbiRayMaximumDelaySeconds * 1000.0f),
@@ -514,8 +648,8 @@ public:
         sampleRate_ = std::max(1.0, sampleRate);
         descriptor_ = sanitizeAmbiRayDescriptor(std::move(descriptor));
         if (descriptor_.cells.empty()) descriptor_ = makeDefaultAmbiRayDescriptor();
-        delay_.prepare(sampleRate_, kAmbiRayMaximumDelaySeconds * 2.05f);
-        roomDelay_.prepare(sampleRate_, kAmbiRayMaximumDelaySeconds * 2.05f);
+        delay_.prepare(sampleRate_, kAmbiRayMaximumDelaySeconds * 4.05f);
+        roomDelay_.prepare(sampleRate_, kAmbiRayMaximumDelaySeconds * 4.05f);
         lateField_.prepare(sampleRate_);
         params_ = sanitizeAmbiRayEncoderParams(params_);
         reset();
@@ -543,12 +677,18 @@ public:
         currentSize_ = params_.size;
         currentScatter_ = params_.scatter;
         currentAir_ = params_.air;
+        currentDoppler_ = params_.doppler;
         currentLateStartMs_ = 45.0f;
         currentLateDecay_ = 1.8f;
         currentLateLevel_ = 0.18f;
         currentLateDiffusion_ = 0.72f;
         currentLateDamping_ = 0.38f;
-        for (auto& event : events_) event = RuntimeEvent {};
+        directDelayTap_.prepare(sampleRate_);
+        lateDelayTap_.prepare(sampleRate_);
+        for (auto& event : events_) {
+            event = RuntimeEvent {};
+            event.delayTap.prepare(sampleRate_);
+        }
         updateControl(1u, true);
     }
 
@@ -621,7 +761,7 @@ public:
                 roomDelay_.write(wetInput);
                 frame_.fill(0.0f);
 
-                const float directSample = delay_.read(directDelayFrames_);
+                const float directSample = directDelayTap_.read(delay_, currentDoppler_);
                 directFilter_ += (directSample - directFilter_) * directFilterCoefficient_;
                 const float direct = directFilter_ * directDistanceGain_ * currentDirect_;
                 for (uint32_t channel = 0u; channel < activeChannels; ++channel) {
@@ -630,8 +770,8 @@ public:
 
                 if (!params_.bypassRoom) {
                     for (uint32_t eventIndex = 0u; eventIndex < activeEventCount_; ++eventIndex) {
-                        const auto& event = events_[eventIndex];
-                        const float reflected = roomDelay_.read(event.delayFrames);
+                        auto& event = events_[eventIndex];
+                        const float reflected = event.delayTap.read(roomDelay_, currentDoppler_);
                         eventFilters_[eventIndex] += (reflected - eventFilters_[eventIndex]) * event.filterCoefficient;
                         const float value = eventFilters_[eventIndex] * event.gain * currentEarly_;
                         for (uint32_t channel = 0u; channel < roomChannels; ++channel) {
@@ -639,7 +779,7 @@ public:
                         }
                     }
 
-                    const float lateExcitation = roomDelay_.read(currentLateStartMs_ * 0.001f * static_cast<float>(sampleRate_) * currentSize_);
+                    const float lateExcitation = lateDelayTap_.read(roomDelay_, 0.0f);
                     const auto lateLines = lateField_.process(lateExcitation);
                     const float lateGain = currentLate_ * currentLateLevel_ * 0.52f;
                     for (uint32_t line = 0u; line < kAmbiRayLateLines; ++line) {
@@ -649,6 +789,9 @@ public:
                         }
                     }
                 } else {
+                    for (uint32_t eventIndex = 0u; eventIndex < activeEventCount_; ++eventIndex)
+                        events_[eventIndex].delayTap.read(roomDelay_, currentDoppler_);
+                    lateDelayTap_.read(roomDelay_, 0.0f);
                     lateField_.process(0.0f);
                 }
 
@@ -681,6 +824,7 @@ private:
         Vec3 direction { 1.0f, 0.0f, 0.0f };
         float damping = 0.25f;
         float filterCoefficient = 0.5f;
+        ambi_ray_detail::DopplerDelayTap delayTap;
         std::array<float, kAmbiRayMaxChannels> basis {};
     };
 
@@ -759,6 +903,7 @@ private:
         currentSize_ += (params_.size - currentSize_) * parameterAlpha;
         currentScatter_ += (params_.scatter - currentScatter_) * parameterAlpha;
         currentAir_ += (params_.air - currentAir_) * parameterAlpha;
+        currentDoppler_ += (params_.doppler - currentDoppler_) * parameterAlpha;
 
         const Vec3 source = sourcePositionMetres();
         const Vec3 listener = listenerPositionMetres();
@@ -769,9 +914,9 @@ private:
         };
         const float directDistance = std::max(0.02f, std::sqrt(
             directWorld.x * directWorld.x + directWorld.y * directWorld.y + directWorld.z * directWorld.z));
-        const auto directAed = ambi_ray_detail::aedFromWorldVector(directWorld);
-        directBasis_ = acnSn3dBasis7(directionFromAed(directAed[0], directAed[1]));
+        directBasis_ = acnSn3dBasis7(ambi_ray_detail::ambisonicDirectionFromWorldVector(directWorld));
         directDelayFrames_ = directDistance / 343.0f * static_cast<float>(sampleRate_) * currentSize_;
+        directDelayTap_.setTarget(directDelayFrames_, frames, immediate);
         directDistanceGain_ = 1.0f / std::sqrt(std::max(1.0f, directDistance));
         const float directCutoff = clamp(20000.0f * std::exp(-currentAir_ * directDistance * 0.10f), 900.0f, 20000.0f);
         directFilterCoefficient_ = clamp(1.0f - std::exp(-2.0f * kPi * directCutoff / static_cast<float>(sampleRate_)), 0.001f, 1.0f);
@@ -811,6 +956,8 @@ private:
         currentLateLevel_ += (lateLevel - currentLateLevel_) * movementAlpha;
         currentLateDiffusion_ += (lateDiffusion - currentLateDiffusion_) * movementAlpha;
         currentLateDamping_ += (lateDamping - currentLateDamping_) * movementAlpha;
+        lateDelayTap_.setTarget(currentLateStartMs_ * 0.001f
+            * static_cast<float>(sampleRate_) * currentSize_, frames, immediate);
         lateField_.setShape(currentLateDecay_, currentLateDamping_ + currentAir_ * 0.35f,
             currentLateDiffusion_, currentSize_);
 
@@ -832,6 +979,7 @@ private:
             }
             const float eventAlpha = immediate ? 1.0f : movementAlpha;
             runtime.delayFrames += (target.delayMs * 0.001f * static_cast<float>(sampleRate_) * currentSize_ - runtime.delayFrames) * eventAlpha;
+            runtime.delayTap.setTarget(runtime.delayFrames, frames, immediate);
             runtime.gain += (target.gain - runtime.gain) * eventAlpha;
             runtime.direction = normalize(ambi_ray_detail::mixVec(runtime.direction, target.direction, eventAlpha));
             runtime.damping += (target.damping - runtime.damping) * eventAlpha;
@@ -864,6 +1012,8 @@ private:
     AmbiRayEncoderParams params_ {};
     ambi_ray_detail::FractionalDelay delay_;
     ambi_ray_detail::FractionalDelay roomDelay_;
+    ambi_ray_detail::DopplerDelayTap directDelayTap_;
+    ambi_ray_detail::DopplerDelayTap lateDelayTap_;
     ambi_ray_detail::LateField lateField_;
     std::array<RuntimeEvent, kAmbiRayMaxReflections> events_ {};
     std::array<float, kAmbiRayMaxReflections> eventFilters_ {};
@@ -888,6 +1038,7 @@ private:
     float currentScatter_ = 0.45f;
     float currentWidth_ = 1.0f;
     float currentAir_ = 0.2f;
+    float currentDoppler_ = 0.5f;
     float currentOutput_ = 0.5f;
     float currentLateStartMs_ = 45.0f;
     float currentLateDecay_ = 1.8f;

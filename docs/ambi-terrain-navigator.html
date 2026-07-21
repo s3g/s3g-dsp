@@ -37,7 +37,7 @@
           <li>Insert <code>s3g Ambi Terrain Navigator 64</code> on a multichannel source or bus.</li>
           <li>Set <code>INPUTS</code> for the number of active input lanes, up to 64.</li>
           <li>Set <code>ORDER</code> for the desired ambisonic output width.</li>
-          <li>Choose a <code>TRACE</code> and terrain <code>SKIN</code>, then shape the shell with <code>DEPTH</code> and <code>FOLD</code>.</li>
+          <li>Choose a <code>TRACE</code>, then construct the shell with the <code>FORM</code>, <code>SKIN</code>, <code>WARP</code>, and <code>READ</code> pages.</li>
           <li>Set <code>RATE</code>, <code>RATE SP</code>, and <code>RATE DEV</code> for shared, distributed, or independently varied source motion.</li>
           <li>Follow with an ambisonic decoder or meter.</li>
         </ol>
@@ -53,6 +53,28 @@
         </ul>
 
         <p><code>FOLD</code> folds the sampled surface back on itself for sharper ridges and more VOT-like discontinuity. <code>SMOOTH</code> damps each final AED point. <code>RATE</code> spans 0.000001 to 2 Hz logarithmically; at the slowest setting, one traversal takes about 11.6 days. <code>RATE SP</code> distributes rates across the active inputs and <code>RATE DEV</code> adds a stable deterministic deviation to each source.</p>
+
+        <h2 id="terrain-geometry">Terrain Geometry</h2>
+
+        <p><code>PATH</code>, <code>FORM</code>, <code>SKIN</code>, <code>WARP</code>, and <code>READ</code> share the upper control panel. The four terrain pages follow Ambi Wave Terrain Encoder, and the 3D field redraws the same interpreted shell used to calculate every source position.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Effect</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>FORM</td><td>Selects Sphere, Tetrahedron, Cube, Octahedron, Dodecahedron, or Icosahedron radial geometry.</td></tr>
+            <tr><td>FACET / BEVEL</td><td>Morphs the procedural terrain toward the selected polyhedron and rounds its face intersections.</td></tr>
+            <tr><td>ORIENT</td><td>Rotates the polyhedral support geometry before it deforms the shell.</td></tr>
+            <tr><td>SKIN / DEPTH</td><td>Selects the procedural terrain family and its contribution to the shell.</td></tr>
+            <tr><td>ROUGH / FOLD / RELIEF</td><td>Changes layer frequency, folds the resulting height, and scales its final AED displacement.</td></tr>
+            <tr><td>TERRACE / STEPS</td><td>Quantizes terrain height into a selectable number of radial levels.</td></tr>
+            <tr><td>RIDGE / ERODE</td><td>Folds height into crests and compresses extreme elevations.</td></tr>
+            <tr><td>DOMAIN / TWIST</td><td>Warps the spherical sampling coordinates before the terrain layers are evaluated.</td></tr>
+            <tr><td>READ / MIX</td><td>Interprets the terrain as Height, Edge, Curve, Blend, Gradient, Ridge, Valley, Normal, Cross, or Vector before spatial projection.</td></tr>
+            <tr><td>AZ / EL / DIST WARP</td><td>Maps the interpreted terrain value into azimuth, elevation, and radial displacement.</td></tr>
+          </tbody>
+        </table>
 
         <h2 id="palettes">Palettes</h2>
 

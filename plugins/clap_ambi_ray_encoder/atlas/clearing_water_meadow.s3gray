@@ -1,0 +1,6715 @@
+{
+  "format": "s3g-ambi-ray-field",
+  "version": 1,
+  "generator": {
+    "name": "s3g-mc Ray Sketch",
+    "project_format": "s3g-ray-sketch",
+    "project_version": 1
+  },
+  "interpretation": "musical moving-source and moving-listener ray field; geometry and material values are creative estimates",
+  "coordinate_system": {
+    "world_axes": "x right, y front-depth, z up",
+    "ambisonic_direction": "AED",
+    "azimuth_zero": "front",
+    "elevation_positive": "up",
+    "distance_unit": "metre",
+    "time_unit": "millisecond",
+    "azimuth_positive": "counterclockwise",
+    "world_to_aed": "azimuth_deg=atan2(-x_right,y_front)"
+  },
+  "ambisonics": {
+    "channel_order": "ACN",
+    "normalization": "SN3D",
+    "direct_maximum_order": 7,
+    "room_field_order": 3
+  },
+  "interpolation": {
+    "method": "nearest_4_inverse_distance",
+    "direct_path": "continuous",
+    "early_reflections": "stable_slot_morph",
+    "late_field": "directional_fdn_morph"
+  },
+  "duration_s": 2.1,
+  "space": {
+    "family": "clearing",
+    "seed": 660241,
+    "topology": "connected_regions",
+    "branch_family_mode": "mixed",
+    "primary_polygon_xy_m": [
+      {
+        "x": 29.4,
+        "y": 7.298
+      },
+      {
+        "x": 37.588,
+        "y": 8.36
+      },
+      {
+        "x": 44.491,
+        "y": 13.822
+      },
+      {
+        "x": 48.718,
+        "y": 22.095
+      },
+      {
+        "x": 51.246,
+        "y": 30.936
+      },
+      {
+        "x": 52.028,
+        "y": 40.431
+      },
+      {
+        "x": 50.215,
+        "y": 50.152
+      },
+      {
+        "x": 45.476,
+        "y": 58.799
+      },
+      {
+        "x": 37.768,
+        "y": 63.438
+      },
+      {
+        "x": 29.4,
+        "y": 63.267
+      },
+      {
+        "x": 21.893,
+        "y": 60.574
+      },
+      {
+        "x": 14.62,
+        "y": 56.928
+      },
+      {
+        "x": 8.547,
+        "y": 50.178
+      },
+      {
+        "x": 5.811,
+        "y": 40.637
+      },
+      {
+        "x": 6.252,
+        "y": 30.658
+      },
+      {
+        "x": 9.463,
+        "y": 21.662
+      },
+      {
+        "x": 15.149,
+        "y": 15.034
+      },
+      {
+        "x": 21.614,
+        "y": 9.695
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": 5.811,
+        "z": 14.192
+      },
+      {
+        "x": 8.699,
+        "z": 14.153
+      },
+      {
+        "x": 11.588,
+        "z": 14.131
+      },
+      {
+        "x": 14.477,
+        "z": 14.119
+      },
+      {
+        "x": 17.365,
+        "z": 14.116
+      },
+      {
+        "x": 20.254,
+        "z": 14.128
+      },
+      {
+        "x": 23.142,
+        "z": 14.165
+      },
+      {
+        "x": 26.031,
+        "z": 14.24
+      },
+      {
+        "x": 28.92,
+        "z": 14.357
+      },
+      {
+        "x": 31.808,
+        "z": 14.514
+      },
+      {
+        "x": 34.697,
+        "z": 14.696
+      },
+      {
+        "x": 37.585,
+        "z": 14.878
+      },
+      {
+        "x": 40.474,
+        "z": 15.03
+      },
+      {
+        "x": 43.363,
+        "z": 15.121
+      },
+      {
+        "x": 46.251,
+        "z": 15.127
+      },
+      {
+        "x": 49.14,
+        "z": 15.039
+      },
+      {
+        "x": 52.028,
+        "z": 14.864
+      }
+    ],
+    "irregularity": 0.28,
+    "roughness": 0.64,
+    "vertical_variation": 0.29,
+    "openness": 0.86,
+    "acoustic_volume_m3": 31481.581,
+    "acoustic_surface_m2": 5963.427,
+    "regions": [
+      {
+        "id": "primary",
+        "kind": "primary",
+        "family": "clearing",
+        "level": 0,
+        "parent_region": null,
+        "attachment": null,
+        "base_z_m": 0,
+        "height_m": 14.8,
+        "polygon_xy_m": [
+          {
+            "x": 29.4,
+            "y": 7.2981
+          },
+          {
+            "x": 37.588,
+            "y": 8.3596
+          },
+          {
+            "x": 44.4914,
+            "y": 13.8219
+          },
+          {
+            "x": 48.7177,
+            "y": 22.0949
+          },
+          {
+            "x": 51.2464,
+            "y": 30.9355
+          },
+          {
+            "x": 52.0285,
+            "y": 40.4314
+          },
+          {
+            "x": 50.2148,
+            "y": 50.1517
+          },
+          {
+            "x": 45.4759,
+            "y": 58.7987
+          },
+          {
+            "x": 37.7677,
+            "y": 63.4382
+          },
+          {
+            "x": 29.4,
+            "y": 63.2673
+          },
+          {
+            "x": 21.8933,
+            "y": 60.5739
+          },
+          {
+            "x": 14.6203,
+            "y": 56.9282
+          },
+          {
+            "x": 8.547,
+            "y": 50.1784
+          },
+          {
+            "x": 5.8108,
+            "y": 40.6366
+          },
+          {
+            "x": 6.2516,
+            "y": 30.6575
+          },
+          {
+            "x": 9.4628,
+            "y": 21.6618
+          },
+          {
+            "x": 15.1486,
+            "y": 15.0341
+          },
+          {
+            "x": 21.6136,
+            "y": 9.6955
+          }
+        ]
+      },
+      {
+        "id": "region-1",
+        "kind": "branch",
+        "family": "clearing",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 5.032,
+        "polygon_xy_m": [
+          {
+            "x": 37.7677,
+            "y": 63.4382
+          },
+          {
+            "x": 30.4692,
+            "y": 63.2891
+          },
+          {
+            "x": 30.5307,
+            "y": 65.0753
+          },
+          {
+            "x": 30.9502,
+            "y": 66.7014
+          },
+          {
+            "x": 31.5674,
+            "y": 68.1522
+          },
+          {
+            "x": 32.4294,
+            "y": 69.2485
+          },
+          {
+            "x": 33.4731,
+            "y": 69.7688
+          },
+          {
+            "x": 34.5524,
+            "y": 69.7186
+          },
+          {
+            "x": 35.5816,
+            "y": 69.2359
+          },
+          {
+            "x": 36.5056,
+            "y": 68.31
+          },
+          {
+            "x": 37.2146,
+            "y": 66.9196
+          },
+          {
+            "x": 37.6566,
+            "y": 65.2399
+          }
+        ]
+      },
+      {
+        "id": "region-2",
+        "kind": "branch",
+        "family": "clearing",
+        "level": 1,
+        "parent_region": "region-1",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 5.772,
+        "polygon_xy_m": [
+          {
+            "x": 34.9525,
+            "y": 69.5906
+          },
+          {
+            "x": 29.6973,
+            "y": 69.6805
+          },
+          {
+            "x": 29.7695,
+            "y": 71.0568
+          },
+          {
+            "x": 29.9919,
+            "y": 72.3833
+          },
+          {
+            "x": 30.4422,
+            "y": 73.4984
+          },
+          {
+            "x": 31.1016,
+            "y": 74.1769
+          },
+          {
+            "x": 31.8395,
+            "y": 74.4741
+          },
+          {
+            "x": 32.6047,
+            "y": 74.5462
+          },
+          {
+            "x": 33.361,
+            "y": 74.1636
+          },
+          {
+            "x": 33.9955,
+            "y": 73.3164
+          },
+          {
+            "x": 34.5237,
+            "y": 72.2733
+          },
+          {
+            "x": 34.8617,
+            "y": 70.9888
+          }
+        ]
+      },
+      {
+        "id": "region-3",
+        "kind": "branch",
+        "family": "canyon",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 16.28,
+        "polygon_xy_m": [
+          {
+            "x": 36.6985,
+            "y": 63.4164
+          },
+          {
+            "x": 36.5511,
+            "y": 64.585
+          },
+          {
+            "x": 36.6371,
+            "y": 65.7585
+          },
+          {
+            "x": 36.5895,
+            "y": 66.9292
+          },
+          {
+            "x": 37.5386,
+            "y": 68.1202
+          },
+          {
+            "x": 37.9107,
+            "y": 69.2995
+          },
+          {
+            "x": 37.732,
+            "y": 70.4675
+          },
+          {
+            "x": 37.988,
+            "y": 71.6444
+          },
+          {
+            "x": 29.7629,
+            "y": 71.4764
+          },
+          {
+            "x": 29.9402,
+            "y": 70.3083
+          },
+          {
+            "x": 29.2567,
+            "y": 69.1227
+          },
+          {
+            "x": 29.0005,
+            "y": 67.9458
+          },
+          {
+            "x": 29.4884,
+            "y": 66.7841
+          },
+          {
+            "x": 29.2813,
+            "y": 65.6082
+          },
+          {
+            "x": 29.4416,
+            "y": 64.4398
+          },
+          {
+            "x": 29.4,
+            "y": 63.2673
+          }
+        ]
+      },
+      {
+        "id": "region-4",
+        "kind": "branch",
+        "family": "cave",
+        "level": 1,
+        "parent_region": "region-3",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 10.508,
+        "polygon_xy_m": [
+          {
+            "x": 36.5029,
+            "y": 71.6141
+          },
+          {
+            "x": 31.248,
+            "y": 71.5067
+          },
+          {
+            "x": 31.5069,
+            "y": 73.3577
+          },
+          {
+            "x": 31.8824,
+            "y": 74.9529
+          },
+          {
+            "x": 32.394,
+            "y": 76.283
+          },
+          {
+            "x": 33.0631,
+            "y": 77.0546
+          },
+          {
+            "x": 33.7754,
+            "y": 77.3743
+          },
+          {
+            "x": 34.4938,
+            "y": 77.1036
+          },
+          {
+            "x": 35.1801,
+            "y": 76.3681
+          },
+          {
+            "x": 35.7584,
+            "y": 75.0997
+          },
+          {
+            "x": 36.0764,
+            "y": 73.3844
+          }
+        ]
+      }
+    ],
+    "portals": [
+      {
+        "id": "portal-1",
+        "from_region": "primary",
+        "to_region": "region-1",
+        "attachment": "back",
+        "shape": "rect",
+        "center_m": {
+          "x": 34.1184,
+          "y": 63.3637,
+          "z": 2.516
+        },
+        "normal": {
+          "x": -0.02042,
+          "y": 0.99979,
+          "z": 0
+        },
+        "axis_u": {
+          "x": -0.99979,
+          "y": -0.02042,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 5.037,
+        "height_m": 3.623,
+        "area_m2": 18.24925,
+        "transmission": 0.49477,
+        "outline_xyz_m": [
+          {
+            "x": 36.6364,
+            "y": 63.4151,
+            "z": 0.7045
+          },
+          {
+            "x": 31.6005,
+            "y": 63.3122,
+            "z": 0.7045
+          },
+          {
+            "x": 31.6005,
+            "y": 63.3122,
+            "z": 4.3275
+          },
+          {
+            "x": 36.6364,
+            "y": 63.4151,
+            "z": 4.3275
+          }
+        ]
+      },
+      {
+        "id": "portal-2",
+        "from_region": "region-1",
+        "to_region": "region-2",
+        "attachment": "back",
+        "shape": "rect",
+        "center_m": {
+          "x": 32.3249,
+          "y": 69.6355,
+          "z": 2.516
+        },
+        "normal": {
+          "x": -0.02042,
+          "y": 0.99979,
+          "z": 0
+        },
+        "axis_u": {
+          "x": -0.99985,
+          "y": 0.0171,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 4.1303,
+        "height_m": 3.623,
+        "area_m2": 14.96439,
+        "transmission": 0.79227,
+        "outline_xyz_m": [
+          {
+            "x": 34.3897,
+            "y": 69.6002,
+            "z": 0.7045
+          },
+          {
+            "x": 30.26,
+            "y": 69.6708,
+            "z": 0.7045
+          },
+          {
+            "x": 30.26,
+            "y": 69.6708,
+            "z": 4.3275
+          },
+          {
+            "x": 34.3897,
+            "y": 69.6002,
+            "z": 4.3275
+          }
+        ]
+      },
+      {
+        "id": "portal-3",
+        "from_region": "primary",
+        "to_region": "region-3",
+        "attachment": "back",
+        "shape": "rect",
+        "center_m": {
+          "x": 33.0492,
+          "y": 63.3418,
+          "z": 7.4
+        },
+        "normal": {
+          "x": -0.02042,
+          "y": 0.99979,
+          "z": 0
+        },
+        "axis_u": {
+          "x": -0.99979,
+          "y": -0.02042,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 5.037,
+        "height_m": 10.656,
+        "area_m2": 53.67427,
+        "transmission": 0.80904,
+        "outline_xyz_m": [
+          {
+            "x": 35.5672,
+            "y": 63.3932,
+            "z": 2.072
+          },
+          {
+            "x": 30.5313,
+            "y": 63.2904,
+            "z": 2.072
+          },
+          {
+            "x": 30.5313,
+            "y": 63.2904,
+            "z": 12.728
+          },
+          {
+            "x": 35.5672,
+            "y": 63.3932,
+            "z": 12.728
+          }
+        ]
+      },
+      {
+        "id": "portal-4",
+        "from_region": "region-3",
+        "to_region": "region-4",
+        "attachment": "back",
+        "shape": "rect",
+        "center_m": {
+          "x": 33.8755,
+          "y": 71.5604,
+          "z": 5.254
+        },
+        "normal": {
+          "x": -0.02042,
+          "y": 0.99979,
+          "z": 0
+        },
+        "axis_u": {
+          "x": -0.99979,
+          "y": -0.02042,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 4.1303,
+        "height_m": 7.5658,
+        "area_m2": 31.24916,
+        "transmission": 0.68171,
+        "outline_xyz_m": [
+          {
+            "x": 35.9402,
+            "y": 71.6026,
+            "z": 1.4711
+          },
+          {
+            "x": 31.8107,
+            "y": 71.5182,
+            "z": 1.4711
+          },
+          {
+            "x": 31.8107,
+            "y": 71.5182,
+            "z": 9.0369
+          },
+          {
+            "x": 35.9402,
+            "y": 71.6026,
+            "z": 9.0369
+          }
+        ]
+      }
+    ]
+  },
+  "room": {
+    "family": "clearing",
+    "dimensions_m": {
+      "x": 58.8,
+      "y": 71.2,
+      "z": 14.8
+    },
+    "polygon_xy_m": [
+      {
+        "x": 29.4,
+        "y": 7.298
+      },
+      {
+        "x": 37.588,
+        "y": 8.36
+      },
+      {
+        "x": 44.491,
+        "y": 13.822
+      },
+      {
+        "x": 48.718,
+        "y": 22.095
+      },
+      {
+        "x": 51.246,
+        "y": 30.936
+      },
+      {
+        "x": 52.028,
+        "y": 40.431
+      },
+      {
+        "x": 50.215,
+        "y": 50.152
+      },
+      {
+        "x": 45.476,
+        "y": 58.799
+      },
+      {
+        "x": 37.768,
+        "y": 63.438
+      },
+      {
+        "x": 29.4,
+        "y": 63.267
+      },
+      {
+        "x": 21.893,
+        "y": 60.574
+      },
+      {
+        "x": 14.62,
+        "y": 56.928
+      },
+      {
+        "x": 8.547,
+        "y": 50.178
+      },
+      {
+        "x": 5.811,
+        "y": 40.637
+      },
+      {
+        "x": 6.252,
+        "y": 30.658
+      },
+      {
+        "x": 9.463,
+        "y": 21.662
+      },
+      {
+        "x": 15.149,
+        "y": 15.034
+      },
+      {
+        "x": 21.614,
+        "y": 9.695
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": 5.8108,
+        "z": 14.1916
+      },
+      {
+        "x": 8.6994,
+        "z": 14.153
+      },
+      {
+        "x": 11.588,
+        "z": 14.131
+      },
+      {
+        "x": 14.4766,
+        "z": 14.1188
+      },
+      {
+        "x": 17.3652,
+        "z": 14.1156
+      },
+      {
+        "x": 20.2538,
+        "z": 14.1275
+      },
+      {
+        "x": 23.1424,
+        "z": 14.1652
+      },
+      {
+        "x": 26.0311,
+        "z": 14.2396
+      },
+      {
+        "x": 28.9197,
+        "z": 14.3568
+      },
+      {
+        "x": 31.8083,
+        "z": 14.5136
+      },
+      {
+        "x": 34.6969,
+        "z": 14.6957
+      },
+      {
+        "x": 37.5855,
+        "z": 14.8781
+      },
+      {
+        "x": 40.4741,
+        "z": 15.0299
+      },
+      {
+        "x": 43.3627,
+        "z": 15.1205
+      },
+      {
+        "x": 46.2513,
+        "z": 15.1267
+      },
+      {
+        "x": 49.1399,
+        "z": 15.0387
+      },
+      {
+        "x": 52.0285,
+        "z": 14.8641
+      }
+    ],
+    "navigation_bounds_m": {
+      "minimum": {
+        "x": 6.0608,
+        "y": 7.5481,
+        "z": 0.15
+      },
+      "maximum": {
+        "x": 51.7785,
+        "y": 77.1243,
+        "z": 16.13
+      }
+    },
+    "material": "water",
+    "absorption": 0.74,
+    "scattering": 0.7,
+    "tail_soften": 0.1
+  },
+  "listener_position_m": {
+    "x": 41.1673,
+    "y": 33.5767,
+    "z": 7.5089
+  },
+  "default_source_position_m": {
+    "x": 28.9197,
+    "y": 24.9421,
+    "z": 8.14
+  },
+  "grid": {
+    "requested": {
+      "x": 5,
+      "y": 5,
+      "z": 3
+    },
+    "valid_cells": 18,
+    "reflection_slots": 24,
+    "slot_keys": [
+      "00:surface:D:-:-:-:000",
+      "00:surface:S1:-:-:-:000",
+      "00:surface:S10:-:-:-:000",
+      "00:surface:S11:-:-:-:000",
+      "00:surface:S12:-:-:-:000",
+      "00:surface:S2:-:-:-:000",
+      "00:surface:S3:-:-:-:000",
+      "00:surface:S4:-:-:-:000",
+      "00:surface:S5:-:-:-:000",
+      "00:surface:S6:-:-:-:000",
+      "00:surface:S7:-:-:-:000",
+      "00:surface:U:-:-:-:000",
+      "01:chamber:C:1:-:-:000",
+      "01:chamber:C:1:-:-:001",
+      "01:chamber:C:2:-:-:000",
+      "01:chamber:C:2:-:-:001",
+      "01:chamber:C:3:-:-:000",
+      "01:chamber:C:3:-:-:001",
+      "01:chamber:C:3:-:-:002",
+      "01:chamber:C:3:-:-:003",
+      "05:scatter:SC:-:-:-:000",
+      "05:scatter:SC:-:-:-:001",
+      "05:scatter:SC:-:-:-:002",
+      "05:scatter:SC:-:-:-:003"
+    ]
+  },
+  "cells": [
+    {
+      "id": 1,
+      "position_m": {
+        "x": 28.9197,
+        "y": 7.5481,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 105.969,
+          "gain": 0.0164285,
+          "azimuth_deg": 154.564,
+          "elevation_deg": -15.769,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 29.1595,
+            "y": 8.0579,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 107.228,
+          "gain": 0.0134113,
+          "azimuth_deg": 154.305,
+          "elevation_deg": -13.695,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "water"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 120.789,
+          "gain": 0.0110454,
+          "azimuth_deg": 169.789,
+          "elevation_deg": -12.73,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 128.576,
+          "gain": 0.0088082,
+          "azimuth_deg": -166.607,
+          "elevation_deg": -10.952,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 45.0008,
+            "y": 14.8191,
+            "z": 3.6798
+          }
+        },
+        {
+          "slot": 7,
+          "delay_ms": 132.399,
+          "gain": 0.0080889,
+          "azimuth_deg": -152.554,
+          "elevation_deg": -11.297,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 139.959,
+          "gain": 0.0068496,
+          "azimuth_deg": -136.687,
+          "elevation_deg": -11.073,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 157.595,
+          "gain": 0.0056807,
+          "azimuth_deg": -107.557,
+          "elevation_deg": -9.482,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 188.468,
+          "gain": 0.0041957,
+          "azimuth_deg": -80.099,
+          "elevation_deg": -8.09,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 124.924,
+          "gain": 0.0024333,
+          "azimuth_deg": 156.357,
+          "elevation_deg": 37.438,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 37.0835,
+            "y": 24.8977,
+            "z": 14.8749
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 348.079,
+          "gain": 0.0003299,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 399.491,
+          "gain": 0.0001633,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 347.537,
+          "gain": 0.0008579,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 415.505,
+          "gain": 0.0005883,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 376.172,
+          "gain": 0.0008504,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 429.2,
+          "gain": 0.0009458,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 446.875,
+          "gain": 0.0016372,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 482.227,
+          "gain": 0.0010721,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 153.325,
+          "elevation_deg": -19.51,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 169.772,
+          "elevation_deg": -14.857,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 171.848,
+          "elevation_deg": -12.015,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2881,
+        "level": 0.0077305,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 2,
+      "position_m": {
+        "x": 17.4902,
+        "y": 24.9421,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 95.975,
+          "gain": 0.0185664,
+          "azimuth_deg": 109.799,
+          "elevation_deg": -17.763,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 17.954,
+            "y": 25.1113,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 166.627,
+          "gain": 0.0048172,
+          "azimuth_deg": 156.23,
+          "elevation_deg": -9.176,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 30.5858,
+            "y": 7.4519,
+            "z": 3.3635
+          }
+        },
+        {
+          "slot": 5,
+          "delay_ms": 164.313,
+          "gain": 0.0051492,
+          "azimuth_deg": -169.114,
+          "elevation_deg": -9.136,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 44.4053,
+            "y": 13.7537,
+            "z": 4.5067
+          }
+        },
+        {
+          "slot": 6,
+          "delay_ms": 152.151,
+          "gain": 0.0068874,
+          "azimuth_deg": -139.737,
+          "elevation_deg": -9.659,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 148.678,
+          "gain": 0.0078289,
+          "azimuth_deg": -124.171,
+          "elevation_deg": -9.621,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 50.1531,
+            "y": 27.1132,
+            "z": 5.6493
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 151.185,
+          "gain": 0.0072995,
+          "azimuth_deg": -106.524,
+          "elevation_deg": -8.996,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 163.362,
+          "gain": 0.0054535,
+          "azimuth_deg": -82.576,
+          "elevation_deg": -9.122,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 115.044,
+          "gain": 0.0032892,
+          "azimuth_deg": 110.97,
+          "elevation_deg": 39.096,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 33.4539,
+            "y": 30.7637,
+            "z": 14.389
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 304.128,
+          "gain": 0.0003723,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 355.539,
+          "gain": 0.0001844,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 305.693,
+          "gain": 0.00097,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 373.661,
+          "gain": 0.0006652,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 333.229,
+          "gain": 0.0009432,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 386.256,
+          "gain": 0.001049,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 403.932,
+          "gain": 0.0018159,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 439.283,
+          "gain": 0.0011891,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 108.56,
+          "elevation_deg": -21.438,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 125.007,
+          "elevation_deg": -16.785,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 127.083,
+          "elevation_deg": -13.943,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2862,
+        "level": 0.0076186,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 3,
+      "position_m": {
+        "x": 28.9197,
+        "y": 24.9421,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 68.245,
+          "gain": 0.0290596,
+          "azimuth_deg": 124.947,
+          "elevation_deg": -27.931,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 29.1595,
+            "y": 25.1113,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 149.657,
+          "gain": 0.007019,
+          "azimuth_deg": 171.448,
+          "elevation_deg": -9.838,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 36.6594,
+            "y": 8.2393,
+            "z": 3.2188
+          }
+        },
+        {
+          "slot": 5,
+          "delay_ms": 134.683,
+          "gain": 0.0083425,
+          "azimuth_deg": -162.409,
+          "elevation_deg": -10.347,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 119.464,
+          "gain": 0.0106367,
+          "azimuth_deg": -140.657,
+          "elevation_deg": -13.111,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 116.071,
+          "gain": 0.0121872,
+          "azimuth_deg": -128.216,
+          "elevation_deg": -12.385,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 50.0768,
+            "y": 26.8464,
+            "z": 4.9735
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 118.984,
+          "gain": 0.0112451,
+          "azimuth_deg": -110.861,
+          "elevation_deg": -12.954,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 132.049,
+          "gain": 0.0089823,
+          "azimuth_deg": -87.326,
+          "elevation_deg": -11.042,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 157.072,
+          "gain": 0.0059996,
+          "azimuth_deg": -63.948,
+          "elevation_deg": -9.792,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 98.405,
+          "gain": 0.00398,
+          "azimuth_deg": 126.118,
+          "elevation_deg": 55.666,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 37.0315,
+            "y": 30.6609,
+            "z": 15.1636
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 297.524,
+          "gain": 0.0003791,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 348.936,
+          "gain": 0.0001877,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 297.629,
+          "gain": 0.0009932,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 365.597,
+          "gain": 0.0006811,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 325.885,
+          "gain": 0.00096,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 378.912,
+          "gain": 0.0010678,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 396.588,
+          "gain": 0.0018483,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 431.94,
+          "gain": 0.0012103,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 123.707,
+          "elevation_deg": -31.315,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 140.155,
+          "elevation_deg": -26.662,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 142.23,
+          "elevation_deg": -23.82,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2808,
+        "level": 0.0080379,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 4,
+      "position_m": {
+        "x": 40.3491,
+        "y": 24.9421,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 52.915,
+          "gain": 0.0422658,
+          "azimuth_deg": 174.349,
+          "elevation_deg": -42.306,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.3651,
+            "y": 25.1113,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 139.714,
+          "gain": 0.0072214,
+          "azimuth_deg": -173.943,
+          "elevation_deg": -10.49,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "water"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 107.717,
+          "gain": 0.0108834,
+          "azimuth_deg": -151.554,
+          "elevation_deg": -13.666,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 87.393,
+          "gain": 0.0173109,
+          "azimuth_deg": -139.492,
+          "elevation_deg": -17.924,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 84.193,
+          "gain": 0.0191103,
+          "azimuth_deg": -128.923,
+          "elevation_deg": -20.136,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 49.9133,
+            "y": 26.2749,
+            "z": 3.5259
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 87.863,
+          "gain": 0.0163405,
+          "azimuth_deg": -116.956,
+          "elevation_deg": -18.743,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 102.313,
+          "gain": 0.0121951,
+          "azimuth_deg": -95.492,
+          "elevation_deg": -15.04,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 130.205,
+          "gain": 0.0082488,
+          "azimuth_deg": -70.817,
+          "elevation_deg": -11.516,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 91.062,
+          "gain": 0.0037662,
+          "azimuth_deg": 174.235,
+          "elevation_deg": 68.646,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.8887,
+            "y": 30.636,
+            "z": 15.3691
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 299.228,
+          "gain": 0.0003773,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 350.639,
+          "gain": 0.0001869,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 298.966,
+          "gain": 0.0009893,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 366.933,
+          "gain": 0.0006785,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 326.42,
+          "gain": 0.0009588,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 379.448,
+          "gain": 0.0010664,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 397.123,
+          "gain": 0.0018459,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 432.475,
+          "gain": 0.0012087,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 173.11,
+          "elevation_deg": -45.474,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": -170.443,
+          "elevation_deg": -40.821,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": -168.367,
+          "elevation_deg": -37.978,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2777,
+        "level": 0.0086538,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 5,
+      "position_m": {
+        "x": 17.4902,
+        "y": 42.3362,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 96.095,
+          "gain": 0.0185374,
+          "azimuth_deg": 69.461,
+          "elevation_deg": -17.736,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 17.954,
+            "y": 42.1646,
+            "z": 0
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 170.487,
+          "gain": 0.0049391,
+          "azimuth_deg": 43.447,
+          "elevation_deg": -8.787,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "water"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 166.982,
+          "gain": 0.0055973,
+          "azimuth_deg": 46.122,
+          "elevation_deg": -9.187,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 15.7576,
+            "y": 57.4983,
+            "z": 2.3889
+          }
+        },
+        {
+          "slot": 4,
+          "delay_ms": 161.215,
+          "gain": 0.0064478,
+          "azimuth_deg": 60.721,
+          "elevation_deg": -9.062,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 10.219,
+            "y": 52.0366,
+            "z": 2.0025
+          }
+        },
+        {
+          "slot": 6,
+          "delay_ms": 163.796,
+          "gain": 0.0060189,
+          "azimuth_deg": -119.154,
+          "elevation_deg": -8.769,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 155.13,
+          "gain": 0.0082553,
+          "azimuth_deg": -103.031,
+          "elevation_deg": -9.621,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 153.127,
+          "gain": 0.0088156,
+          "azimuth_deg": -87.251,
+          "elevation_deg": -8.809,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 51.522,
+            "y": 34.2822,
+            "z": 5.8248
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 158.866,
+          "gain": 0.0072578,
+          "azimuth_deg": -61.995,
+          "elevation_deg": -8.919,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 172.222,
+          "gain": 0.0046411,
+          "azimuth_deg": -41.482,
+          "elevation_deg": -8.868,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 114.126,
+          "gain": 0.003321,
+          "azimuth_deg": 70.632,
+          "elevation_deg": 38.31,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 33.5635,
+            "y": 36.3898,
+            "z": 14.1157
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 257.508,
+          "gain": 0.0006995,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 308.919,
+          "gain": 0.0003464,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 262.153,
+          "gain": 0.0018215,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 330.12,
+          "gain": 0.0012491,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 287.205,
+          "gain": 0.0017417,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 340.233,
+          "gain": 0.0019372,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 357.908,
+          "gain": 0.0033533,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 393.26,
+          "gain": 0.0021958,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 68.222,
+          "elevation_deg": -21.411,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 84.669,
+          "elevation_deg": -16.759,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 86.744,
+          "elevation_deg": -13.916,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2862,
+        "level": 0.0076866,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 6,
+      "position_m": {
+        "x": 28.9197,
+        "y": 42.3362,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 68.433,
+          "gain": 0.0289487,
+          "azimuth_deg": 54.191,
+          "elevation_deg": -27.819,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 29.1595,
+            "y": 42.1646,
+            "z": 0
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 172.78,
+          "gain": 0.005386,
+          "azimuth_deg": 28.587,
+          "elevation_deg": -8.87,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 25.3838,
+            "y": 61.8263,
+            "z": 2.9442
+          }
+        },
+        {
+          "slot": 3,
+          "delay_ms": 174.301,
+          "gain": 0.0048177,
+          "azimuth_deg": 35.893,
+          "elevation_deg": -8.585,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "water"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 183.181,
+          "gain": 0.004331,
+          "azimuth_deg": 48.026,
+          "elevation_deg": -8.326,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 14.1735,
+            "y": 56.4315,
+            "z": 2.8417
+          }
+        },
+        {
+          "slot": 5,
+          "delay_ms": 165.811,
+          "gain": 0.0059362,
+          "azimuth_deg": -145.077,
+          "elevation_deg": -8.651,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 134.46,
+          "gain": 0.0087944,
+          "azimuth_deg": -112.214,
+          "elevation_deg": -10.81,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 124.539,
+          "gain": 0.0106523,
+          "azimuth_deg": -97.197,
+          "elevation_deg": -12.29,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 121.54,
+          "gain": 0.0115361,
+          "azimuth_deg": -82.853,
+          "elevation_deg": -11.691,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 51.5891,
+            "y": 35.0962,
+            "z": 5.2512
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 126.247,
+          "gain": 0.0099628,
+          "azimuth_deg": -62.219,
+          "elevation_deg": -12.317,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 139.652,
+          "gain": 0.0079983,
+          "azimuth_deg": -39.94,
+          "elevation_deg": -9.9,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 94.647,
+          "gain": 0.0041782,
+          "azimuth_deg": 55.362,
+          "elevation_deg": 53.562,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 37.1839,
+            "y": 36.4257,
+            "z": 14.3568
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 247.166,
+          "gain": 0.0008702,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 298.577,
+          "gain": 0.0004309,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 248.96,
+          "gain": 0.0022892,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 316.928,
+          "gain": 0.0015699,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 276.088,
+          "gain": 0.002163,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 329.116,
+          "gain": 0.0024058,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 346.791,
+          "gain": 0.0041644,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 382.143,
+          "gain": 0.0027269,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 52.952,
+          "elevation_deg": -31.206,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 69.399,
+          "elevation_deg": -26.553,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 71.475,
+          "elevation_deg": -23.71,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2808,
+        "level": 0.008038,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 7,
+      "position_m": {
+        "x": 40.3491,
+        "y": 42.3362,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 53.187,
+          "gain": 0.0419267,
+          "azimuth_deg": 5.1,
+          "elevation_deg": -41.901,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.3651,
+            "y": 42.1646,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 189.308,
+          "gain": 0.004175,
+          "azimuth_deg": -174.022,
+          "elevation_deg": -8.054,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "water"
+        },
+        {
+          "slot": 2,
+          "delay_ms": 182.007,
+          "gain": 0.004829,
+          "azimuth_deg": 19.19,
+          "elevation_deg": -8.136,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "water"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 187.999,
+          "gain": 0.0044268,
+          "azimuth_deg": 25.045,
+          "elevation_deg": -7.936,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "water"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 208.494,
+          "gain": 0.0035659,
+          "azimuth_deg": 40.862,
+          "elevation_deg": -5.921,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "water"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 145.665,
+          "gain": 0.0068817,
+          "azimuth_deg": -133.833,
+          "elevation_deg": -10.003,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 107.982,
+          "gain": 0.0108509,
+          "azimuth_deg": -100.661,
+          "elevation_deg": -13.623,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 96.247,
+          "gain": 0.0138411,
+          "azimuth_deg": -87.479,
+          "elevation_deg": -16.922,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 91.526,
+          "gain": 0.016322,
+          "azimuth_deg": -74.416,
+          "elevation_deg": -16.843,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 51.7253,
+            "y": 36.7508,
+            "z": 4.0854
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 94.247,
+          "gain": 0.0149507,
+          "azimuth_deg": -58.079,
+          "elevation_deg": -17.148,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 107.644,
+          "gain": 0.0114603,
+          "azimuth_deg": -43.798,
+          "elevation_deg": -14.12,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 89.316,
+          "gain": 0.0044958,
+          "azimuth_deg": 6.271,
+          "elevation_deg": 67.682,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.8927,
+            "y": 36.5169,
+            "z": 15.0244
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 249.906,
+          "gain": 0.0010463,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 301.318,
+          "gain": 0.0005181,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 251.257,
+          "gain": 0.0027548,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 319.224,
+          "gain": 0.0018891,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 276.925,
+          "gain": 0.0026152,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 329.952,
+          "gain": 0.0029087,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 347.628,
+          "gain": 0.005035,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 382.98,
+          "gain": 0.003297,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 3.861,
+          "elevation_deg": -45.071,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 20.308,
+          "elevation_deg": -40.419,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 22.384,
+          "elevation_deg": -37.576,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2778,
+        "level": 0.0085737,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 8,
+      "position_m": {
+        "x": 28.9197,
+        "y": 59.7302,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 106.287,
+          "gain": 0.0163684,
+          "azimuth_deg": 24.857,
+          "elevation_deg": -15.713,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 29.1595,
+            "y": 59.218,
+            "z": 0
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 123.996,
+          "gain": 0.0118532,
+          "azimuth_deg": 25.066,
+          "elevation_deg": -12.678,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 28.0791,
+            "y": 62.7933,
+            "z": 0.8142
+          }
+        },
+        {
+          "slot": 3,
+          "delay_ms": 128.259,
+          "gain": 0.0097791,
+          "azimuth_deg": 25.067,
+          "elevation_deg": -12.101,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "water"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 153.618,
+          "gain": 0.0058487,
+          "azimuth_deg": 35.429,
+          "elevation_deg": -9.748,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "water"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 205.738,
+          "gain": 0.0036186,
+          "azimuth_deg": -137.52,
+          "elevation_deg": -6.017,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 166.372,
+          "gain": 0.0050772,
+          "azimuth_deg": -94.672,
+          "elevation_deg": -9.016,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 153.181,
+          "gain": 0.0061737,
+          "azimuth_deg": -77.883,
+          "elevation_deg": -10.054,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 146.214,
+          "gain": 0.006852,
+          "azimuth_deg": -57.632,
+          "elevation_deg": -9.961,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 51.9998,
+            "y": 40.0828,
+            "z": 5.3437
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 142.997,
+          "gain": 0.0073966,
+          "azimuth_deg": -35.952,
+          "elevation_deg": -10.352,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 50.9321,
+            "y": 46.3077,
+            "z": 4.686
+          }
+        },
+        {
+          "slot": 10,
+          "delay_ms": 142.291,
+          "gain": 0.0078269,
+          "azimuth_deg": -15.553,
+          "elevation_deg": -9.678,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 47.7623,
+            "y": 54.6267,
+            "z": 3.6049
+          }
+        },
+        {
+          "slot": 11,
+          "delay_ms": 125.986,
+          "gain": 0.0026669,
+          "azimuth_deg": 25.647,
+          "elevation_deg": 37.431,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 37.0428,
+            "y": 42.3841,
+            "z": 15.0993
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 197.97,
+          "gain": 0.0013189,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 249.381,
+          "gain": 0.0006531,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 209.571,
+          "gain": 0.0034016,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 277.539,
+          "gain": 0.0023327,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 228.645,
+          "gain": 0.0032103,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 281.672,
+          "gain": 0.0035706,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 299.348,
+          "gain": 0.0061808,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 334.699,
+          "gain": 0.0040473,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 23.618,
+          "elevation_deg": -19.456,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 40.065,
+          "elevation_deg": -14.803,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 42.14,
+          "elevation_deg": -11.961,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2882,
+        "level": 0.0077591,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 9,
+      "position_m": {
+        "x": 40.3491,
+        "y": 59.7302,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 98.668,
+          "gain": 0.0179374,
+          "azimuth_deg": 1.555,
+          "elevation_deg": -17.174,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.3651,
+            "y": 59.218,
+            "z": 0
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 137.104,
+          "gain": 0.0073813,
+          "azimuth_deg": 9.42,
+          "elevation_deg": -10.72,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "water"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 146.991,
+          "gain": 0.006152,
+          "azimuth_deg": 13.611,
+          "elevation_deg": -10.228,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "water"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 183.548,
+          "gain": 0.0045466,
+          "azimuth_deg": 29.872,
+          "elevation_deg": -8.135,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "water"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 190.357,
+          "gain": 0.0041494,
+          "azimuth_deg": -127.848,
+          "elevation_deg": -8.009,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 146.702,
+          "gain": 0.0064875,
+          "azimuth_deg": -85.555,
+          "elevation_deg": -10.527,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 132.296,
+          "gain": 0.0080963,
+          "azimuth_deg": -63.57,
+          "elevation_deg": -11.307,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 123.554,
+          "gain": 0.0092319,
+          "azimuth_deg": -44.959,
+          "elevation_deg": -11.504,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 116.66,
+          "gain": 0.0115132,
+          "azimuth_deg": -26.423,
+          "elevation_deg": -13.255,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 111.205,
+          "gain": 0.0128317,
+          "azimuth_deg": -12.958,
+          "elevation_deg": -13.074,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 46.1744,
+            "y": 57.5242,
+            "z": 1.6434
+          }
+        },
+        {
+          "slot": 11,
+          "delay_ms": 121.596,
+          "gain": 0.0025123,
+          "azimuth_deg": 3.349,
+          "elevation_deg": 41.767,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.8867,
+            "y": 42.5477,
+            "z": 15.5484
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 204.463,
+          "gain": 0.0013654,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 255.875,
+          "gain": 0.0006762,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 214.854,
+          "gain": 0.0035299,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 282.822,
+          "gain": 0.0024207,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 230.437,
+          "gain": 0.0033689,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 283.464,
+          "gain": 0.003747,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 301.14,
+          "gain": 0.0064861,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 336.491,
+          "gain": 0.0042472,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 0.316,
+          "elevation_deg": -20.868,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 16.763,
+          "elevation_deg": -16.216,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 18.839,
+          "elevation_deg": -13.373,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2867,
+        "level": 0.0078417,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 10,
+      "position_m": {
+        "x": 28.9197,
+        "y": 7.5481,
+        "z": 8.14
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 114.653,
+          "gain": 0.0128218,
+          "azimuth_deg": 155.354,
+          "elevation_deg": -29.087,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 35.2905,
+            "y": 21.0873,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 104.594,
+          "gain": 0.0145458,
+          "azimuth_deg": 156.388,
+          "elevation_deg": 0.368,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "water"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 118.515,
+          "gain": 0.0107383,
+          "azimuth_deg": 168.883,
+          "elevation_deg": 0.304,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 126.467,
+          "gain": 0.0089813,
+          "azimuth_deg": -166.607,
+          "elevation_deg": 1.341,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 45.0008,
+            "y": 14.8191,
+            "z": 7.8373
+          }
+        },
+        {
+          "slot": 7,
+          "delay_ms": 130.363,
+          "gain": 0.0082371,
+          "azimuth_deg": -152.554,
+          "elevation_deg": 0.575,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 138.053,
+          "gain": 0.0069595,
+          "azimuth_deg": -136.687,
+          "elevation_deg": 0.046,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 155.935,
+          "gain": 0.0057496,
+          "azimuth_deg": -107.557,
+          "elevation_deg": 0.206,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 187.113,
+          "gain": 0.0042296,
+          "azimuth_deg": -80.099,
+          "elevation_deg": -0.182,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 112.581,
+          "gain": 0.0032086,
+          "azimuth_deg": 153.652,
+          "elevation_deg": 26.522,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 34.7694,
+            "y": 19.9799,
+            "z": 14.8749
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 348.688,
+          "gain": 0.0003293,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 400.1,
+          "gain": 0.0001631,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 346.188,
+          "gain": 0.0008613,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 414.155,
+          "gain": 0.0005907,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 375.771,
+          "gain": 0.0008512,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 428.798,
+          "gain": 0.0009467,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 446.474,
+          "gain": 0.0016388,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 481.825,
+          "gain": 0.0010731,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 153.325,
+          "elevation_deg": -3.903,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 169.772,
+          "elevation_deg": 0.749,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 171.848,
+          "elevation_deg": 3.592,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2876,
+        "level": 0.0076965,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 11,
+      "position_m": {
+        "x": 17.4902,
+        "y": 24.9421,
+        "z": 8.14
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 105.669,
+          "gain": 0.0156683,
+          "azimuth_deg": 110.97,
+          "elevation_deg": -32.704,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 29.8062,
+            "y": 29.4335,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 165.07,
+          "gain": 0.0048686,
+          "azimuth_deg": 156.23,
+          "elevation_deg": -0.087,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 30.5858,
+            "y": 7.4519,
+            "z": 7.8644
+          }
+        },
+        {
+          "slot": 5,
+          "delay_ms": 162.73,
+          "gain": 0.005206,
+          "azimuth_deg": -169.114,
+          "elevation_deg": 0.099,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 44.4053,
+            "y": 13.7537,
+            "z": 7.7664
+          }
+        },
+        {
+          "slot": 6,
+          "delay_ms": 150.421,
+          "gain": 0.0069781,
+          "azimuth_deg": -139.737,
+          "elevation_deg": 0.43,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 146.902,
+          "gain": 0.0079377,
+          "azimuth_deg": -124.171,
+          "elevation_deg": 0.741,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 50.1531,
+            "y": 27.1132,
+            "z": 7.6684
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 149.443,
+          "gain": 0.0073972,
+          "azimuth_deg": -106.524,
+          "elevation_deg": 1.167,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 161.768,
+          "gain": 0.0055144,
+          "azimuth_deg": -82.576,
+          "elevation_deg": 0.175,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 102.029,
+          "gain": 0.0040044,
+          "azimuth_deg": 109.799,
+          "elevation_deg": 26.658,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 28.7597,
+            "y": 29.0519,
+            "z": 14.389
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 304.931,
+          "gain": 0.0003715,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 356.342,
+          "gain": 0.0001839,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 303.877,
+          "gain": 0.0009752,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 371.845,
+          "gain": 0.0006688,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 332.708,
+          "gain": 0.0009443,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 385.735,
+          "gain": 0.0010503,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 403.411,
+          "gain": 0.0018181,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 438.762,
+          "gain": 0.0011905,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 108.56,
+          "elevation_deg": -3.726,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 125.007,
+          "elevation_deg": 0.927,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 127.083,
+          "elevation_deg": 3.769,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2856,
+        "level": 0.0075717,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 12,
+      "position_m": {
+        "x": 28.9197,
+        "y": 24.9421,
+        "z": 8.14
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 82.349,
+          "gain": 0.0214527,
+          "azimuth_deg": 126.118,
+          "elevation_deg": -47.107,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 35.2905,
+            "y": 29.4335,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 147.894,
+          "gain": 0.0071151,
+          "azimuth_deg": 171.448,
+          "elevation_deg": 0.445,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 36.6594,
+            "y": 8.2393,
+            "z": 7.8768
+          }
+        },
+        {
+          "slot": 5,
+          "delay_ms": 132.687,
+          "gain": 0.0084891,
+          "azimuth_deg": -162.409,
+          "elevation_deg": 1.287,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 117.159,
+          "gain": 0.0108869,
+          "azimuth_deg": -140.657,
+          "elevation_deg": 0.318,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 113.684,
+          "gain": 0.0124951,
+          "azimuth_deg": -128.216,
+          "elevation_deg": 1.524,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 50.0768,
+            "y": 26.8464,
+            "z": 7.7263
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 116.669,
+          "gain": 0.0115122,
+          "azimuth_deg": -110.861,
+          "elevation_deg": 0.541,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 130.006,
+          "gain": 0.0091478,
+          "azimuth_deg": -87.326,
+          "elevation_deg": 0.867,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 155.405,
+          "gain": 0.006073,
+          "azimuth_deg": -63.948,
+          "elevation_deg": -0.067,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 80.337,
+          "gain": 0.0054247,
+          "azimuth_deg": 124.947,
+          "elevation_deg": 43.547,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 34.7802,
+            "y": 29.0738,
+            "z": 15.1636
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 298.367,
+          "gain": 0.0003782,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 349.778,
+          "gain": 0.0001873,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 295.683,
+          "gain": 0.0009989,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 363.651,
+          "gain": 0.000685,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 325.336,
+          "gain": 0.0009613,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 378.364,
+          "gain": 0.0010692,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 396.039,
+          "gain": 0.0018508,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 431.391,
+          "gain": 0.0012119,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 123.707,
+          "elevation_deg": -2.749,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 140.155,
+          "elevation_deg": 1.904,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 142.23,
+          "elevation_deg": 4.746,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2798,
+        "level": 0.0078855,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 13,
+      "position_m": {
+        "x": 40.3491,
+        "y": 24.9421,
+        "z": 8.14
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 71.343,
+          "gain": 0.0259791,
+          "azimuth_deg": 175.521,
+          "elevation_deg": -61.87,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.7747,
+            "y": 29.4335,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 137.804,
+          "gain": 0.0073377,
+          "azimuth_deg": -173.943,
+          "elevation_deg": 0.651,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "water"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 105.097,
+          "gain": 0.0112151,
+          "azimuth_deg": -151.554,
+          "elevation_deg": 1.585,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 83.958,
+          "gain": 0.0173256,
+          "azimuth_deg": -137.789,
+          "elevation_deg": 1.087,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 80.578,
+          "gain": 0.0192324,
+          "azimuth_deg": -131.006,
+          "elevation_deg": 2.125,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 49.9133,
+            "y": 26.2749,
+            "z": 7.8505
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 84.452,
+          "gain": 0.0163423,
+          "azimuth_deg": -117.861,
+          "elevation_deg": 0.858,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 99.518,
+          "gain": 0.0126194,
+          "azimuth_deg": -95.492,
+          "elevation_deg": 1.228,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 128.128,
+          "gain": 0.008406,
+          "azimuth_deg": -70.817,
+          "elevation_deg": 0.594,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 69.922,
+          "gain": 0.0065381,
+          "azimuth_deg": 174.349,
+          "elevation_deg": 59.251,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.7411,
+            "y": 29.0788,
+            "z": 15.3691
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 300.06,
+          "gain": 0.0003765,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 351.471,
+          "gain": 0.0001864,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 297.042,
+          "gain": 0.0009949,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 365.01,
+          "gain": 0.0006823,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 325.874,
+          "gain": 0.00096,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 378.901,
+          "gain": 0.0010678,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 396.577,
+          "gain": 0.0018484,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 431.928,
+          "gain": 0.0012103,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 173.11,
+          "elevation_deg": -0.998,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": -170.443,
+          "elevation_deg": 3.654,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": -168.367,
+          "elevation_deg": 6.497,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2762,
+        "level": 0.008274,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 14,
+      "position_m": {
+        "x": 17.4902,
+        "y": 42.3362,
+        "z": 8.14
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 105.776,
+          "gain": 0.015649,
+          "azimuth_deg": 70.632,
+          "elevation_deg": -32.66,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 29.8062,
+            "y": 37.7798,
+            "z": 0
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 168.97,
+          "gain": 0.0049891,
+          "azimuth_deg": 43.447,
+          "elevation_deg": 0.069,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "water"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 165.429,
+          "gain": 0.0056567,
+          "azimuth_deg": 46.122,
+          "elevation_deg": -0.12,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 15.7576,
+            "y": 57.4983,
+            "z": 7.948
+          }
+        },
+        {
+          "slot": 4,
+          "delay_ms": 159.597,
+          "gain": 0.0065221,
+          "azimuth_deg": 60.721,
+          "elevation_deg": 0.377,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 10.219,
+            "y": 52.0366,
+            "z": 7.9811
+          }
+        },
+        {
+          "slot": 6,
+          "delay_ms": 162.208,
+          "gain": 0.0060857,
+          "azimuth_deg": -119.154,
+          "elevation_deg": 0.5,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 153.439,
+          "gain": 0.0083593,
+          "azimuth_deg": -103.031,
+          "elevation_deg": 0.245,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 151.411,
+          "gain": 0.0089301,
+          "azimuth_deg": -87.251,
+          "elevation_deg": 1.205,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 51.522,
+            "y": 34.2822,
+            "z": 7.6533
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 157.221,
+          "gain": 0.0073443,
+          "azimuth_deg": -61.995,
+          "elevation_deg": 0.679,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 170.722,
+          "gain": 0.004687,
+          "azimuth_deg": -41.482,
+          "elevation_deg": -0.114,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 101.418,
+          "gain": 0.0040341,
+          "azimuth_deg": 69.461,
+          "elevation_deg": 25.632,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 28.735,
+            "y": 38.1761,
+            "z": 14.1157
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 258.717,
+          "gain": 0.0007086,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 310.129,
+          "gain": 0.0003509,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 259.306,
+          "gain": 0.0018667,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 327.274,
+          "gain": 0.0012802,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 286.44,
+          "gain": 0.0017734,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 339.467,
+          "gain": 0.0019724,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 357.143,
+          "gain": 0.0034142,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 392.495,
+          "gain": 0.0022357,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 68.222,
+          "elevation_deg": -3.728,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 84.669,
+          "elevation_deg": 0.924,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 86.744,
+          "elevation_deg": 3.767,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2856,
+        "level": 0.0076434,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 15,
+      "position_m": {
+        "x": 28.9197,
+        "y": 42.3362,
+        "z": 8.14
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 82.495,
+          "gain": 0.0214032,
+          "azimuth_deg": 55.362,
+          "elevation_deg": -46.969,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 35.2905,
+            "y": 37.7798,
+            "z": 0
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 171.285,
+          "gain": 0.0054389,
+          "azimuth_deg": 28.587,
+          "elevation_deg": -0.148,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 25.3838,
+            "y": 61.8263,
+            "z": 7.9004
+          }
+        },
+        {
+          "slot": 3,
+          "delay_ms": 172.821,
+          "gain": 0.0048641,
+          "azimuth_deg": 35.893,
+          "elevation_deg": 0.051,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "water"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 181.783,
+          "gain": 0.0043682,
+          "azimuth_deg": 48.026,
+          "elevation_deg": -0.161,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 14.1735,
+            "y": 56.4315,
+            "z": 7.9091
+          }
+        },
+        {
+          "slot": 5,
+          "delay_ms": 164.245,
+          "gain": 0.0060003,
+          "azimuth_deg": -145.077,
+          "elevation_deg": 0.489,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 132.461,
+          "gain": 0.0089496,
+          "azimuth_deg": -112.214,
+          "elevation_deg": 0.846,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 122.348,
+          "gain": 0.0108785,
+          "azimuth_deg": -97.197,
+          "elevation_deg": 0.481,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 119.283,
+          "gain": 0.0117961,
+          "azimuth_deg": -82.853,
+          "elevation_deg": 1.461,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 51.5891,
+            "y": 35.0962,
+            "z": 7.7025
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 124.092,
+          "gain": 0.0101675,
+          "azimuth_deg": -62.219,
+          "elevation_deg": 0.247,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 137.741,
+          "gain": 0.0081273,
+          "azimuth_deg": -39.94,
+          "elevation_deg": 1.247,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 77.301,
+          "gain": 0.005708,
+          "azimuth_deg": 54.191,
+          "elevation_deg": 40.087,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 34.7477,
+            "y": 38.168,
+            "z": 14.3568
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 248.529,
+          "gain": 0.0009154,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 299.94,
+          "gain": 0.0004533,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 245.515,
+          "gain": 0.0024419,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 313.483,
+          "gain": 0.0016746,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 275.225,
+          "gain": 0.0022889,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 328.253,
+          "gain": 0.0025457,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 345.928,
+          "gain": 0.0044067,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 381.28,
+          "gain": 0.0028856,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 52.952,
+          "elevation_deg": -2.76,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 69.399,
+          "elevation_deg": 1.892,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 71.475,
+          "elevation_deg": 4.735,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2798,
+        "level": 0.0078885,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 16,
+      "position_m": {
+        "x": 40.3491,
+        "y": 42.3362,
+        "z": 8.14
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 71.52,
+          "gain": 0.0258914,
+          "azimuth_deg": 6.271,
+          "elevation_deg": -61.522,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.7747,
+            "y": 37.7798,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 187.96,
+          "gain": 0.0042083,
+          "azimuth_deg": -174.022,
+          "elevation_deg": -0.185,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "water"
+        },
+        {
+          "slot": 2,
+          "delay_ms": 180.598,
+          "gain": 0.0048711,
+          "azimuth_deg": 19.19,
+          "elevation_deg": 0.088,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "water"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 186.64,
+          "gain": 0.0044627,
+          "azimuth_deg": 25.045,
+          "elevation_deg": -0.006,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "water"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 207.283,
+          "gain": 0.0035889,
+          "azimuth_deg": 40.862,
+          "elevation_deg": 1.147,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "water"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 143.846,
+          "gain": 0.0069821,
+          "azimuth_deg": -133.833,
+          "elevation_deg": 0.608,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 105.371,
+          "gain": 0.0111796,
+          "azimuth_deg": -100.661,
+          "elevation_deg": 1.581,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 93.223,
+          "gain": 0.0144064,
+          "azimuth_deg": -87.479,
+          "elevation_deg": 0.666,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 88.296,
+          "gain": 0.0170848,
+          "azimuth_deg": -74.416,
+          "elevation_deg": 1.934,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 51.7253,
+            "y": 36.7508,
+            "z": 7.8025
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 91.14,
+          "gain": 0.0155964,
+          "azimuth_deg": -58.079,
+          "elevation_deg": 0.925,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 105.023,
+          "gain": 0.0118102,
+          "azimuth_deg": -43.798,
+          "elevation_deg": 1.144,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 68.378,
+          "gain": 0.0067433,
+          "azimuth_deg": 5.1,
+          "elevation_deg": 57.718,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.7403,
+            "y": 38.1484,
+            "z": 15.0244
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 251.225,
+          "gain": 0.0012263,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 302.636,
+          "gain": 0.0006072,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 247.934,
+          "gain": 0.0032721,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 315.902,
+          "gain": 0.0022439,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 276.07,
+          "gain": 0.0030826,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 329.098,
+          "gain": 0.0034285,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 346.773,
+          "gain": 0.0059348,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 382.125,
+          "gain": 0.0038862,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 3.861,
+          "elevation_deg": -1.057,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 20.308,
+          "elevation_deg": 3.596,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 22.384,
+          "elevation_deg": 6.438,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2763,
+        "level": 0.0082201,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 17,
+      "position_m": {
+        "x": 28.9197,
+        "y": 59.7302,
+        "z": 8.14
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 114.943,
+          "gain": 0.0141509,
+          "azimuth_deg": 26.028,
+          "elevation_deg": -29.318,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 35.2905,
+            "y": 46.1261,
+            "z": 0
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 121.794,
+          "gain": 0.0115075,
+          "azimuth_deg": 22.982,
+          "elevation_deg": 1.435,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 28.0791,
+            "y": 62.7933,
+            "z": 8.083
+          }
+        },
+        {
+          "slot": 3,
+          "delay_ms": 126.144,
+          "gain": 0.0099724,
+          "azimuth_deg": 25.067,
+          "elevation_deg": 0.228,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "water"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 151.908,
+          "gain": 0.0059241,
+          "azimuth_deg": 35.429,
+          "elevation_deg": 0.23,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "water"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 204.509,
+          "gain": 0.0036426,
+          "azimuth_deg": -137.52,
+          "elevation_deg": 1.155,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 164.812,
+          "gain": 0.0051316,
+          "azimuth_deg": -94.672,
+          "elevation_deg": 0.089,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 151.466,
+          "gain": 0.0062538,
+          "azimuth_deg": -77.883,
+          "elevation_deg": -0.044,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 144.402,
+          "gain": 0.0069511,
+          "azimuth_deg": -57.632,
+          "elevation_deg": 0.604,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 51.9998,
+            "y": 40.0828,
+            "z": 7.6946
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 141.138,
+          "gain": 0.0075093,
+          "azimuth_deg": -35.952,
+          "elevation_deg": 0.491,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 50.9321,
+            "y": 46.3077,
+            "z": 7.751
+          }
+        },
+        {
+          "slot": 10,
+          "delay_ms": 140.421,
+          "gain": 0.0079476,
+          "azimuth_deg": -15.553,
+          "elevation_deg": 1.227,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 47.7623,
+            "y": 54.6267,
+            "z": 7.8437
+          }
+        },
+        {
+          "slot": 11,
+          "delay_ms": 113.459,
+          "gain": 0.0035189,
+          "azimuth_deg": 24.857,
+          "elevation_deg": 25.88,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 34.7779,
+            "y": 47.2207,
+            "z": 15.0993
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 201.324,
+          "gain": 0.0013326,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 252.735,
+          "gain": 0.0006599,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 199.204,
+          "gain": 0.0035758,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 267.172,
+          "gain": 0.0024522,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 226.728,
+          "gain": 0.0032888,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 279.755,
+          "gain": 0.0036579,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 297.431,
+          "gain": 0.0063319,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 332.782,
+          "gain": 0.0041462,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 23.618,
+          "elevation_deg": -3.908,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 40.065,
+          "elevation_deg": 0.744,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 42.14,
+          "elevation_deg": 3.587,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2877,
+        "level": 0.0077328,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    },
+    {
+      "id": 18,
+      "position_m": {
+        "x": 40.3491,
+        "y": 59.7302,
+        "z": 8.14
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 108.069,
+          "gain": 0.0144897,
+          "azimuth_deg": 0.643,
+          "elevation_deg": -30.474,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "D",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.7747,
+            "y": 46.1261,
+            "z": 0
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 135.151,
+          "gain": 0.0075056,
+          "azimuth_deg": 9.42,
+          "elevation_deg": 0.672,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S10",
+          "material": "water"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 145.191,
+          "gain": 0.0062399,
+          "azimuth_deg": 13.611,
+          "elevation_deg": 0.272,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "water"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 182.152,
+          "gain": 0.0045856,
+          "azimuth_deg": 29.872,
+          "elevation_deg": 0.012,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "water"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 189.017,
+          "gain": 0.0041821,
+          "azimuth_deg": -127.848,
+          "elevation_deg": -0.189,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "water"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 144.897,
+          "gain": 0.0065806,
+          "azimuth_deg": -85.555,
+          "elevation_deg": -0.002,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "water"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 130.258,
+          "gain": 0.0082448,
+          "azimuth_deg": -63.57,
+          "elevation_deg": 0.576,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "water"
+        },
+        {
+          "slot": 8,
+          "delay_ms": 121.342,
+          "gain": 0.0094319,
+          "azimuth_deg": -44.959,
+          "elevation_deg": 1.39,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "water"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 114.288,
+          "gain": 0.0112156,
+          "azimuth_deg": -27.328,
+          "elevation_deg": 0.351,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "water"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 108.688,
+          "gain": 0.0125387,
+          "azimuth_deg": -11.256,
+          "elevation_deg": 0.637,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "S7",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 46.1744,
+            "y": 57.5242,
+            "z": 8.0119
+          }
+        },
+        {
+          "slot": 11,
+          "delay_ms": 107.77,
+          "gain": 0.0035593,
+          "azimuth_deg": 2.727,
+          "elevation_deg": 29.69,
+          "damping": 0.27343,
+          "kind": "surface",
+          "surface": "U",
+          "material": "water",
+          "bounce_position_m": {
+            "x": 40.7415,
+            "y": 47.1877,
+            "z": 15.5484
+          }
+        },
+        {
+          "slot": 12,
+          "delay_ms": 207.285,
+          "gain": 0.0013883,
+          "azimuth_deg": 53.663,
+          "elevation_deg": -11.216,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 258.696,
+          "gain": 0.0006875,
+          "azimuth_deg": 2.202,
+          "elevation_deg": 5.389,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 32.3249,
+            "y": 69.6355,
+            "z": 2.516
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 206.907,
+          "gain": 0.0037024,
+          "azimuth_deg": 18.736,
+          "elevation_deg": 6.327,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 274.875,
+          "gain": 0.002539,
+          "azimuth_deg": 9.89,
+          "elevation_deg": 9.011,
+          "damping": 0.61903,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "earth",
+          "bounce_position_m": {
+            "x": 33.0492,
+            "y": 63.3418,
+            "z": 7.4
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 228.605,
+          "gain": 0.0034673,
+          "azimuth_deg": -14.265,
+          "elevation_deg": 0.653,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 281.633,
+          "gain": 0.0038565,
+          "azimuth_deg": 7.965,
+          "elevation_deg": 17.816,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 299.308,
+          "gain": 0.0066756,
+          "azimuth_deg": 33.277,
+          "elevation_deg": 5.078,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 334.66,
+          "gain": 0.0043713,
+          "azimuth_deg": 8.076,
+          "elevation_deg": 6.778,
+          "damping": 0.79183,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "vegetation",
+          "bounce_position_m": {
+            "x": 33.8755,
+            "y": 71.5604,
+            "z": 5.254
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 28.179,
+          "gain": 0.0114492,
+          "azimuth_deg": 0.316,
+          "elevation_deg": -3.779,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 21,
+          "delay_ms": 34.735,
+          "gain": 0.014808,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 22,
+          "delay_ms": 48.731,
+          "gain": 0.0174045,
+          "azimuth_deg": 16.763,
+          "elevation_deg": 0.874,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 60.814,
+          "gain": 0.0215787,
+          "azimuth_deg": 18.839,
+          "elevation_deg": 3.716,
+          "damping": 0.27343,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "water"
+        }
+      ],
+      "late": {
+        "start_ms": 46,
+        "decay_s": 0.2861,
+        "level": 0.0077934,
+        "diffusion": 0.66325,
+        "damping": 0.25888
+      }
+    }
+  ],
+  "atlas": {
+    "name": "Water Meadow",
+    "category": "Clearing",
+    "description": "A wet open field with water and vegetation boundaries plus a few cave-like hollows.",
+    "seed": 660241,
+    "source": "s3g-mc Ray Sketch"
+  }
+}

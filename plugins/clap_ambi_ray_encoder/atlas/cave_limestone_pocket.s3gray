@@ -1,0 +1,4230 @@
+{
+  "format": "s3g-ambi-ray-field",
+  "version": 1,
+  "generator": {
+    "name": "s3g-mc Ray Sketch",
+    "project_format": "s3g-ray-sketch",
+    "project_version": 1
+  },
+  "interpretation": "musical moving-source and moving-listener ray field; geometry and material values are creative estimates",
+  "coordinate_system": {
+    "world_axes": "x right, y front-depth, z up",
+    "ambisonic_direction": "AED",
+    "azimuth_zero": "front",
+    "elevation_positive": "up",
+    "distance_unit": "metre",
+    "time_unit": "millisecond",
+    "azimuth_positive": "counterclockwise",
+    "world_to_aed": "azimuth_deg=atan2(-x_right,y_front)"
+  },
+  "ambisonics": {
+    "channel_order": "ACN",
+    "normalization": "SN3D",
+    "direct_maximum_order": 7,
+    "room_field_order": 3
+  },
+  "interpolation": {
+    "method": "nearest_4_inverse_distance",
+    "direct_path": "continuous",
+    "early_reflections": "stable_slot_morph",
+    "late_field": "directional_fdn_morph"
+  },
+  "duration_s": 1.85,
+  "space": {
+    "family": "cave",
+    "seed": 220103,
+    "topology": "connected_regions",
+    "branch_family_mode": "cave",
+    "primary_polygon_xy_m": [
+      {
+        "x": 8.8,
+        "y": 1.639
+      },
+      {
+        "x": 11.524,
+        "y": 3.348
+      },
+      {
+        "x": 13.515,
+        "y": 6.151
+      },
+      {
+        "x": 14.692,
+        "y": 9.575
+      },
+      {
+        "x": 14.525,
+        "y": 13.25
+      },
+      {
+        "x": 15.096,
+        "y": 17.177
+      },
+      {
+        "x": 13.673,
+        "y": 20.587
+      },
+      {
+        "x": 11.55,
+        "y": 23.245
+      },
+      {
+        "x": 8.8,
+        "y": 24.157
+      },
+      {
+        "x": 6.417,
+        "y": 21.911
+      },
+      {
+        "x": 4.341,
+        "y": 19.964
+      },
+      {
+        "x": 2.643,
+        "y": 17.09
+      },
+      {
+        "x": 1.577,
+        "y": 13.25
+      },
+      {
+        "x": 1.938,
+        "y": 8.971
+      },
+      {
+        "x": 4.274,
+        "y": 6.435
+      },
+      {
+        "x": 6.319,
+        "y": 4.231
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": 1.577,
+        "z": 4.157
+      },
+      {
+        "x": 2.827,
+        "z": 4.158
+      },
+      {
+        "x": 4.078,
+        "z": 4.236
+      },
+      {
+        "x": 5.328,
+        "z": 4.45
+      },
+      {
+        "x": 6.578,
+        "z": 4.818
+      },
+      {
+        "x": 7.828,
+        "z": 5.286
+      },
+      {
+        "x": 9.078,
+        "z": 5.719
+      },
+      {
+        "x": 10.329,
+        "z": 5.952
+      },
+      {
+        "x": 11.579,
+        "z": 5.863
+      },
+      {
+        "x": 12.829,
+        "z": 5.442
+      },
+      {
+        "x": 14.079,
+        "z": 4.806
+      },
+      {
+        "x": 15.329,
+        "z": 4.158
+      },
+      {
+        "x": 16.58,
+        "z": 3.714
+      },
+      {
+        "x": 17.83,
+        "z": 3.606
+      },
+      {
+        "x": 19.08,
+        "z": 3.84
+      },
+      {
+        "x": 20.33,
+        "z": 4.301
+      },
+      {
+        "x": 21.58,
+        "z": 4.814
+      }
+    ],
+    "irregularity": 0.53,
+    "roughness": 0.78,
+    "vertical_variation": 0.81,
+    "openness": 0.03,
+    "acoustic_volume_m3": 1257.741,
+    "acoustic_surface_m2": 1438.596,
+    "regions": [
+      {
+        "id": "primary",
+        "kind": "primary",
+        "family": "cave",
+        "level": 0,
+        "parent_region": null,
+        "attachment": null,
+        "base_z_m": 0,
+        "height_m": 4.7,
+        "polygon_xy_m": [
+          {
+            "x": 8.8,
+            "y": 1.6393
+          },
+          {
+            "x": 11.5242,
+            "y": 3.3476
+          },
+          {
+            "x": 13.5151,
+            "y": 6.1506
+          },
+          {
+            "x": 14.6918,
+            "y": 9.5754
+          },
+          {
+            "x": 14.5247,
+            "y": 13.25
+          },
+          {
+            "x": 15.0964,
+            "y": 17.1769
+          },
+          {
+            "x": 13.673,
+            "y": 20.5871
+          },
+          {
+            "x": 11.5495,
+            "y": 23.2446
+          },
+          {
+            "x": 8.8,
+            "y": 24.157
+          },
+          {
+            "x": 6.4174,
+            "y": 21.9109
+          },
+          {
+            "x": 4.3408,
+            "y": 19.9642
+          },
+          {
+            "x": 2.6428,
+            "y": 17.0901
+          },
+          {
+            "x": 1.5772,
+            "y": 13.25
+          },
+          {
+            "x": 1.9383,
+            "y": 8.9706
+          },
+          {
+            "x": 4.2736,
+            "y": 6.4347
+          },
+          {
+            "x": 6.3189,
+            "y": 4.2311
+          }
+        ]
+      },
+      {
+        "id": "region-1",
+        "kind": "branch",
+        "family": "cave",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 3.102,
+        "polygon_xy_m": [
+          {
+            "x": 8.8,
+            "y": 1.6393
+          },
+          {
+            "x": 11.2517,
+            "y": 3.1767
+          },
+          {
+            "x": 13.1,
+            "y": -0.1252
+          },
+          {
+            "x": 14.7593,
+            "y": -3.0983
+          },
+          {
+            "x": 16.1515,
+            "y": -5.8134
+          },
+          {
+            "x": 16.5035,
+            "y": -7.1502
+          },
+          {
+            "x": 16.353,
+            "y": -7.7166
+          },
+          {
+            "x": 15.5697,
+            "y": -7.2298
+          },
+          {
+            "x": 14.3269,
+            "y": -5.8817
+          },
+          {
+            "x": 12.8797,
+            "y": -4.1402
+          },
+          {
+            "x": 10.9996,
+            "y": -1.5566
+          }
+        ]
+      },
+      {
+        "id": "region-2",
+        "kind": "branch",
+        "family": "cave",
+        "level": 1,
+        "parent_region": "region-1",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 3.337,
+        "polygon_xy_m": [
+          {
+            "x": 15.7443,
+            "y": -7.3619
+          },
+          {
+            "x": 17.8277,
+            "y": -7.3953
+          },
+          {
+            "x": 19.2165,
+            "y": -9.8604
+          },
+          {
+            "x": 20.5249,
+            "y": -12.1313
+          },
+          {
+            "x": 21.2982,
+            "y": -13.6982
+          },
+          {
+            "x": 21.5805,
+            "y": -14.5478
+          },
+          {
+            "x": 21.4689,
+            "y": -14.8038
+          },
+          {
+            "x": 21.0849,
+            "y": -14.6517
+          },
+          {
+            "x": 20.1363,
+            "y": -13.5597
+          },
+          {
+            "x": 18.8839,
+            "y": -11.8955
+          },
+          {
+            "x": 17.4517,
+            "y": -9.8868
+          }
+        ]
+      },
+      {
+        "id": "region-3",
+        "kind": "branch",
+        "family": "cave",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 3.102,
+        "polygon_xy_m": [
+          {
+            "x": 9.0724,
+            "y": 1.8101
+          },
+          {
+            "x": 11.5242,
+            "y": 3.3476
+          },
+          {
+            "x": 13.523,
+            "y": -0.0849
+          },
+          {
+            "x": 15.1943,
+            "y": -3.1596
+          },
+          {
+            "x": 15.9536,
+            "y": -5.0897
+          },
+          {
+            "x": 16.488,
+            "y": -6.6406
+          },
+          {
+            "x": 16.9301,
+            "y": -8.0739
+          },
+          {
+            "x": 16.4124,
+            "y": -8.0148
+          },
+          {
+            "x": 15.2434,
+            "y": -6.86
+          },
+          {
+            "x": 13.327,
+            "y": -4.2805
+          },
+          {
+            "x": 11.2575,
+            "y": -1.2638
+          }
+        ]
+      },
+      {
+        "id": "region-4",
+        "kind": "branch",
+        "family": "cave",
+        "level": 1,
+        "parent_region": "region-3",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 3.337,
+        "polygon_xy_m": [
+          {
+            "x": 16.5985,
+            "y": -8.164
+          },
+          {
+            "x": 16.4916,
+            "y": -6.0831
+          },
+          {
+            "x": 18.1395,
+            "y": -8.8119
+          },
+          {
+            "x": 19.5269,
+            "y": -11.1846
+          },
+          {
+            "x": 20.3252,
+            "y": -12.692
+          },
+          {
+            "x": 20.9777,
+            "y": -13.9434
+          },
+          {
+            "x": 21.4136,
+            "y": -14.8686
+          },
+          {
+            "x": 21.2537,
+            "y": -14.8661
+          },
+          {
+            "x": 20.843,
+            "y": -14.4854
+          },
+          {
+            "x": 19.759,
+            "y": -12.9856
+          },
+          {
+            "x": 18.0989,
+            "y": -10.3954
+          }
+        ]
+      }
+    ],
+    "portals": [
+      {
+        "id": "portal-1",
+        "from_region": "primary",
+        "to_region": "region-1",
+        "attachment": "front",
+        "shape": "rect",
+        "center_m": {
+          "x": 10.0259,
+          "y": 2.408,
+          "z": 1.551
+        },
+        "normal": {
+          "x": 0.53127,
+          "y": -0.84721,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.84721,
+          "y": 0.53127,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.447,
+        "height_m": 2.2334,
+        "area_m2": 3.2317,
+        "transmission": 0.68935,
+        "outline_xyz_m": [
+          {
+            "x": 9.4129,
+            "y": 2.0237,
+            "z": 0.4343
+          },
+          {
+            "x": 10.6388,
+            "y": 2.7924,
+            "z": 0.4343
+          },
+          {
+            "x": 10.6388,
+            "y": 2.7924,
+            "z": 2.6677
+          },
+          {
+            "x": 9.4129,
+            "y": 2.0237,
+            "z": 2.6677
+          }
+        ]
+      },
+      {
+        "id": "portal-2",
+        "from_region": "region-1",
+        "to_region": "region-2",
+        "attachment": "front",
+        "shape": "rect",
+        "center_m": {
+          "x": 16.786,
+          "y": -7.3786,
+          "z": 1.551
+        },
+        "normal": {
+          "x": 0.53127,
+          "y": -0.84721,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.99987,
+          "y": -0.01601,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.1865,
+        "height_m": 2.2334,
+        "area_m2": 2.64999,
+        "transmission": 0.8181,
+        "outline_xyz_m": [
+          {
+            "x": 16.1928,
+            "y": -7.3691,
+            "z": 0.4343
+          },
+          {
+            "x": 17.3792,
+            "y": -7.3881,
+            "z": 0.4343
+          },
+          {
+            "x": 17.3792,
+            "y": -7.3881,
+            "z": 2.6677
+          },
+          {
+            "x": 16.1928,
+            "y": -7.3691,
+            "z": 2.6677
+          }
+        ]
+      },
+      {
+        "id": "portal-3",
+        "from_region": "primary",
+        "to_region": "region-3",
+        "attachment": "front",
+        "shape": "rect",
+        "center_m": {
+          "x": 10.2983,
+          "y": 2.5788,
+          "z": 1.551
+        },
+        "normal": {
+          "x": 0.53127,
+          "y": -0.84721,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.84721,
+          "y": 0.53127,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.447,
+        "height_m": 2.2334,
+        "area_m2": 3.2317,
+        "transmission": 0.68935,
+        "outline_xyz_m": [
+          {
+            "x": 9.6854,
+            "y": 2.1945,
+            "z": 0.4343
+          },
+          {
+            "x": 10.9112,
+            "y": 2.9632,
+            "z": 0.4343
+          },
+          {
+            "x": 10.9112,
+            "y": 2.9632,
+            "z": 2.6677
+          },
+          {
+            "x": 9.6854,
+            "y": 2.1945,
+            "z": 2.6677
+          }
+        ]
+      },
+      {
+        "id": "portal-4",
+        "from_region": "region-3",
+        "to_region": "region-4",
+        "attachment": "front",
+        "shape": "rect",
+        "center_m": {
+          "x": 16.545,
+          "y": -7.1235,
+          "z": 1.551
+        },
+        "normal": {
+          "x": 0.53127,
+          "y": -0.84721,
+          "z": 0
+        },
+        "axis_u": {
+          "x": -0.05133,
+          "y": 0.99868,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.1865,
+        "height_m": 2.2334,
+        "area_m2": 2.64999,
+        "transmission": 0.8181,
+        "outline_xyz_m": [
+          {
+            "x": 16.5755,
+            "y": -7.716,
+            "z": 0.4343
+          },
+          {
+            "x": 16.5146,
+            "y": -6.5311,
+            "z": 0.4343
+          },
+          {
+            "x": 16.5146,
+            "y": -6.5311,
+            "z": 2.6677
+          },
+          {
+            "x": 16.5755,
+            "y": -7.716,
+            "z": 2.6677
+          }
+        ]
+      }
+    ]
+  },
+  "room": {
+    "family": "cave",
+    "dimensions_m": {
+      "x": 17.6,
+      "y": 26.5,
+      "z": 4.7
+    },
+    "polygon_xy_m": [
+      {
+        "x": 8.8,
+        "y": 1.639
+      },
+      {
+        "x": 11.524,
+        "y": 3.348
+      },
+      {
+        "x": 13.515,
+        "y": 6.151
+      },
+      {
+        "x": 14.692,
+        "y": 9.575
+      },
+      {
+        "x": 14.525,
+        "y": 13.25
+      },
+      {
+        "x": 15.096,
+        "y": 17.177
+      },
+      {
+        "x": 13.673,
+        "y": 20.587
+      },
+      {
+        "x": 11.55,
+        "y": 23.245
+      },
+      {
+        "x": 8.8,
+        "y": 24.157
+      },
+      {
+        "x": 6.417,
+        "y": 21.911
+      },
+      {
+        "x": 4.341,
+        "y": 19.964
+      },
+      {
+        "x": 2.643,
+        "y": 17.09
+      },
+      {
+        "x": 1.577,
+        "y": 13.25
+      },
+      {
+        "x": 1.938,
+        "y": 8.971
+      },
+      {
+        "x": 4.274,
+        "y": 6.435
+      },
+      {
+        "x": 6.319,
+        "y": 4.231
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": 1.5772,
+        "z": 4.1566
+      },
+      {
+        "x": 2.8274,
+        "z": 4.1579
+      },
+      {
+        "x": 4.0776,
+        "z": 4.2365
+      },
+      {
+        "x": 5.3278,
+        "z": 4.4496
+      },
+      {
+        "x": 6.578,
+        "z": 4.8182
+      },
+      {
+        "x": 7.8282,
+        "z": 5.2861
+      },
+      {
+        "x": 9.0784,
+        "z": 5.7189
+      },
+      {
+        "x": 10.3286,
+        "z": 5.9516
+      },
+      {
+        "x": 11.5788,
+        "z": 5.8633
+      },
+      {
+        "x": 12.829,
+        "z": 5.4424
+      },
+      {
+        "x": 14.0793,
+        "z": 4.8055
+      },
+      {
+        "x": 15.3295,
+        "z": 4.1584
+      },
+      {
+        "x": 16.5797,
+        "z": 3.714
+      },
+      {
+        "x": 17.8299,
+        "z": 3.6062
+      },
+      {
+        "x": 19.0801,
+        "z": 3.8401
+      },
+      {
+        "x": 20.3303,
+        "z": 4.3009
+      },
+      {
+        "x": 21.5805,
+        "z": 4.814
+      }
+    ],
+    "navigation_bounds_m": {
+      "minimum": {
+        "x": 1.8272,
+        "y": -14.6186,
+        "z": 0.15
+      },
+      "maximum": {
+        "x": 21.3305,
+        "y": 23.907,
+        "z": 5.8016
+      }
+    },
+    "material": "stone",
+    "absorption": 0.197872,
+    "scattering": 0.48,
+    "tail_soften": 0.22
+  },
+  "listener_position_m": {
+    "x": 10.2786,
+    "y": 3.8637,
+    "z": 3.0009
+  },
+  "default_source_position_m": {
+    "x": 11.5788,
+    "y": -4.9872,
+    "z": 2.9758
+  },
+  "grid": {
+    "requested": {
+      "x": 5,
+      "y": 5,
+      "z": 3
+    },
+    "valid_cells": 11,
+    "reflection_slots": 24,
+    "slot_keys": [
+      "00:surface:D:-:-:-:000",
+      "00:surface:S1:-:-:-:000",
+      "00:surface:S11:-:-:-:000",
+      "00:surface:S12:-:-:-:000",
+      "00:surface:S13:-:-:-:000",
+      "00:surface:S14:-:-:-:000",
+      "00:surface:S15:-:-:-:000",
+      "00:surface:S16:-:-:-:000",
+      "00:surface:S2:-:-:-:000",
+      "00:surface:S3:-:-:-:000",
+      "00:surface:S4:-:-:-:000",
+      "00:surface:S5:-:-:-:000",
+      "00:surface:S6:-:-:-:000",
+      "00:surface:U:-:-:-:000",
+      "01:chamber:C:1:-:-:000",
+      "01:chamber:C:1:-:-:001",
+      "01:chamber:C:2:-:-:000",
+      "01:chamber:C:2:-:-:001",
+      "01:chamber:C:3:-:-:000",
+      "01:chamber:C:3:-:-:001",
+      "01:chamber:C:3:-:-:002",
+      "01:chamber:C:3:-:-:003",
+      "05:scatter:SC:-:-:-:000",
+      "05:scatter:SC:-:-:-:001"
+    ]
+  },
+  "cells": [
+    {
+      "id": 1,
+      "position_m": {
+        "x": 21.3305,
+        "y": -14.6186,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 71.944,
+          "gain": 0.0377471,
+          "azimuth_deg": -148.716,
+          "elevation_deg": -8.701,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "D",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 20.8044,
+            "y": -13.7388,
+            "z": 0
+          }
+        },
+        {
+          "slot": 13,
+          "delay_ms": 72.11,
+          "gain": 0.0329531,
+          "azimuth_deg": -149.385,
+          "elevation_deg": 8.926,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "U",
+          "material": "stone"
+        },
+        {
+          "slot": 14,
+          "delay_ms": 132.662,
+          "gain": 0.0298123,
+          "azimuth_deg": -127.914,
+          "elevation_deg": -8.89,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 198.757,
+          "gain": 0.0158744,
+          "azimuth_deg": -156.328,
+          "elevation_deg": 2.88,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 150.416,
+          "gain": 0.0188489,
+          "azimuth_deg": -169.787,
+          "elevation_deg": -40.645,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 219.841,
+          "gain": 0.0147418,
+          "azimuth_deg": 166.482,
+          "elevation_deg": -37.437,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 156.739,
+          "gain": 0.0100601,
+          "azimuth_deg": -166.503,
+          "elevation_deg": -3.961,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 225.263,
+          "gain": 0.0118244,
+          "azimuth_deg": -152.173,
+          "elevation_deg": 7.135,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 248.105,
+          "gain": 0.0208485,
+          "azimuth_deg": -135.857,
+          "elevation_deg": -1.1,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 21,
+          "delay_ms": 293.788,
+          "gain": 0.0141639,
+          "azimuth_deg": -152.102,
+          "elevation_deg": -0.001,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 22,
+          "delay_ms": 19.436,
+          "gain": 0.0791456,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.20501,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "stone"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 119.794,
+          "gain": 0.0986421,
+          "azimuth_deg": -133.413,
+          "elevation_deg": -10.075,
+          "damping": 0.20501,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "stone"
+        }
+      ],
+      "late": {
+        "start_ms": 81.862,
+        "decay_s": 0.8755,
+        "level": 0.0944336,
+        "diffusion": 0.49446,
+        "damping": 0.24268
+      }
+    },
+    {
+      "id": 2,
+      "position_m": {
+        "x": 6.703,
+        "y": 4.6442,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 22.572,
+          "gain": 0.1713551,
+          "azimuth_deg": 77.583,
+          "elevation_deg": -41.1,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "D",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 6.8732,
+            "y": 4.607,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 26.372,
+          "gain": 0.1175291,
+          "azimuth_deg": -176.848,
+          "elevation_deg": -28.031,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 10.3509,
+            "y": 2.6118,
+            "z": 2.3425
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 76.515,
+          "gain": 0.0289322,
+          "azimuth_deg": 61.458,
+          "elevation_deg": -6.764,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "stone"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 62.016,
+          "gain": 0.0373093,
+          "azimuth_deg": 75.835,
+          "elevation_deg": -9.21,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "stone"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 45.338,
+          "gain": 0.0549912,
+          "azimuth_deg": 89.536,
+          "elevation_deg": -13.402,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "stone"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 23.827,
+          "gain": 0.1380325,
+          "azimuth_deg": 90.206,
+          "elevation_deg": -33.055,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "stone"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 23.778,
+          "gain": 0.1394854,
+          "azimuth_deg": 89.305,
+          "elevation_deg": -32.761,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "stone"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 23.751,
+          "gain": 0.1407554,
+          "azimuth_deg": 90.385,
+          "elevation_deg": -33.381,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 6.6693,
+            "y": 3.865,
+            "z": 0.6566
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 28.294,
+          "gain": 0.1053477,
+          "azimuth_deg": -138.161,
+          "elevation_deg": -24.854,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "stone"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 34.027,
+          "gain": 0.0805161,
+          "azimuth_deg": -111.228,
+          "elevation_deg": -19.159,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "stone"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 47.03,
+          "gain": 0.0521964,
+          "azimuth_deg": -82.463,
+          "elevation_deg": -12.701,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "stone"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 36.999,
+          "gain": 0.071598,
+          "azimuth_deg": -96.11,
+          "elevation_deg": -17.055,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "stone"
+        },
+        {
+          "slot": 12,
+          "delay_ms": 73.881,
+          "gain": 0.0303174,
+          "azimuth_deg": -62.681,
+          "elevation_deg": -7.654,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "stone"
+        },
+        {
+          "slot": 13,
+          "delay_ms": 30.427,
+          "gain": 0.097685,
+          "azimuth_deg": 78.487,
+          "elevation_deg": 61.049,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "U",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 9.2662,
+            "y": 4.0847,
+            "z": 4.8622
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 153.337,
+          "gain": 0.0102709,
+          "azimuth_deg": -127.914,
+          "elevation_deg": -8.89,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 219.432,
+          "gain": 0.005469,
+          "azimuth_deg": -156.328,
+          "elevation_deg": 2.88,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 103.467,
+          "gain": 0.0069475,
+          "azimuth_deg": -169.787,
+          "elevation_deg": -40.645,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 172.893,
+          "gain": 0.0054337,
+          "azimuth_deg": 166.482,
+          "elevation_deg": -37.437,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 175.405,
+          "gain": 0.003472,
+          "azimuth_deg": -166.503,
+          "elevation_deg": -3.961,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 243.93,
+          "gain": 0.004081,
+          "azimuth_deg": -152.173,
+          "elevation_deg": 7.135,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 266.771,
+          "gain": 0.0071955,
+          "azimuth_deg": -135.857,
+          "elevation_deg": -1.1,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 21,
+          "delay_ms": 312.454,
+          "gain": 0.0048884,
+          "azimuth_deg": -152.102,
+          "elevation_deg": -0.001,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        }
+      ],
+      "late": {
+        "start_ms": 81.862,
+        "decay_s": 0.7951,
+        "level": 0.1352421,
+        "diffusion": 0.49446,
+        "damping": 0.24268
+      }
+    },
+    {
+      "id": 3,
+      "position_m": {
+        "x": 11.5788,
+        "y": 4.6442,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 18.687,
+          "gain": 0.2366502,
+          "azimuth_deg": -59.127,
+          "elevation_deg": -64.672,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "D",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.5169,
+            "y": 4.607,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 19.832,
+          "gain": 0.1880283,
+          "azimuth_deg": -113.446,
+          "elevation_deg": -46.958,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.5135,
+            "y": 3.3409,
+            "z": 1.5561
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 88.688,
+          "gain": 0.0243625,
+          "azimuth_deg": 57.129,
+          "elevation_deg": -5.678,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "stone"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 75.654,
+          "gain": 0.0295172,
+          "azimuth_deg": 70.986,
+          "elevation_deg": -7.46,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "stone"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 59.14,
+          "gain": 0.0397155,
+          "azimuth_deg": 93.335,
+          "elevation_deg": -9.691,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "stone"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 30.105,
+          "gain": 0.0951239,
+          "azimuth_deg": 135.877,
+          "elevation_deg": -22.779,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "stone"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 29.978,
+          "gain": 0.0963873,
+          "azimuth_deg": 136.301,
+          "elevation_deg": -22.603,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "stone"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 29.72,
+          "gain": 0.0982711,
+          "azimuth_deg": 137.296,
+          "elevation_deg": -23.087,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 8.4863,
+            "y": 1.967,
+            "z": 1.8905
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 19.455,
+          "gain": 0.1959089,
+          "azimuth_deg": -90.468,
+          "elevation_deg": -49.677,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.8734,
+            "y": 3.8393,
+            "z": 1.1465
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 22.433,
+          "gain": 0.1518338,
+          "azimuth_deg": -91.124,
+          "elevation_deg": -36.833,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "stone"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 33.347,
+          "gain": 0.0821179,
+          "azimuth_deg": -81.651,
+          "elevation_deg": -19.64,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "stone"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 24.332,
+          "gain": 0.1326595,
+          "azimuth_deg": -86.461,
+          "elevation_deg": -31.978,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "stone"
+        },
+        {
+          "slot": 12,
+          "delay_ms": 60.615,
+          "gain": 0.0383121,
+          "azimuth_deg": -65.933,
+          "elevation_deg": -9.452,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "stone"
+        },
+        {
+          "slot": 13,
+          "delay_ms": 33.882,
+          "gain": 0.0825678,
+          "azimuth_deg": -59.287,
+          "elevation_deg": 79.606,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "U",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 10.7126,
+            "y": 4.1242,
+            "z": 5.8633
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 145.824,
+          "gain": 0.0105274,
+          "azimuth_deg": -127.914,
+          "elevation_deg": -8.89,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 211.919,
+          "gain": 0.0056056,
+          "azimuth_deg": -156.328,
+          "elevation_deg": 2.88,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 98.885,
+          "gain": 0.0070972,
+          "azimuth_deg": -169.787,
+          "elevation_deg": -40.645,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 168.311,
+          "gain": 0.0055507,
+          "azimuth_deg": 166.482,
+          "elevation_deg": -37.437,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 167.955,
+          "gain": 0.003559,
+          "azimuth_deg": -166.503,
+          "elevation_deg": -3.961,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 236.479,
+          "gain": 0.0041831,
+          "azimuth_deg": -152.173,
+          "elevation_deg": 7.135,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 259.321,
+          "gain": 0.0073756,
+          "azimuth_deg": -135.857,
+          "elevation_deg": -1.1,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 21,
+          "delay_ms": 305.004,
+          "gain": 0.0050108,
+          "azimuth_deg": -152.102,
+          "elevation_deg": -0.001,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        }
+      ],
+      "late": {
+        "start_ms": 81.862,
+        "decay_s": 0.7885,
+        "level": 0.1505773,
+        "diffusion": 0.49446,
+        "damping": 0.24268
+      }
+    },
+    {
+      "id": 4,
+      "position_m": {
+        "x": 6.703,
+        "y": 14.2756,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 41.876,
+          "gain": 0.0722681,
+          "azimuth_deg": 18.85,
+          "elevation_deg": -16.345,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "D",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 6.8732,
+            "y": 13.7799,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 47.746,
+          "gain": 0.0543187,
+          "azimuth_deg": -137.446,
+          "elevation_deg": -12.047,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.0428,
+            "y": 3.0457,
+            "z": 2.7584
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 66.178,
+          "gain": 0.034366,
+          "azimuth_deg": 37.274,
+          "elevation_deg": -8.636,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "stone"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 61.663,
+          "gain": 0.0375568,
+          "azimuth_deg": 44.933,
+          "elevation_deg": -9.269,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "stone"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 58.402,
+          "gain": 0.0403033,
+          "azimuth_deg": 56.339,
+          "elevation_deg": -9.832,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 1.8841,
+            "y": 9.613,
+            "z": 1.2825
+          }
+        },
+        {
+          "slot": 5,
+          "delay_ms": 50.265,
+          "gain": 0.0495772,
+          "azimuth_deg": 87.557,
+          "elevation_deg": -11.321,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "stone"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 50.215,
+          "gain": 0.0499993,
+          "azimuth_deg": 87.684,
+          "elevation_deg": -11.527,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "stone"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 50.197,
+          "gain": 0.0503865,
+          "azimuth_deg": 88.124,
+          "elevation_deg": -11.825,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 6.5636,
+            "y": 3.9754,
+            "z": 2.245
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 47.959,
+          "gain": 0.053633,
+          "azimuth_deg": -96.133,
+          "elevation_deg": -12.392,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.7722,
+            "y": 3.6968,
+            "z": 2.6771
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 51.094,
+          "gain": 0.0482597,
+          "azimuth_deg": -70.994,
+          "elevation_deg": -11.413,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "stone"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 56.782,
+          "gain": 0.0419592,
+          "azimuth_deg": -47.311,
+          "elevation_deg": -10.276,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "stone"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 51.659,
+          "gain": 0.0472827,
+          "azimuth_deg": -55.333,
+          "elevation_deg": -11.205,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "stone"
+        },
+        {
+          "slot": 12,
+          "delay_ms": 71.614,
+          "gain": 0.0311785,
+          "azimuth_deg": -37.361,
+          "elevation_deg": -7.312,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "stone"
+        },
+        {
+          "slot": 13,
+          "delay_ms": 46.707,
+          "gain": 0.0581499,
+          "azimuth_deg": 19.359,
+          "elevation_deg": 32.497,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "U",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 9.2072,
+            "y": 6.9835,
+            "z": 5.1327
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 177.168,
+          "gain": 0.0100187,
+          "azimuth_deg": -127.914,
+          "elevation_deg": -8.89,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 243.263,
+          "gain": 0.0053347,
+          "azimuth_deg": -156.328,
+          "elevation_deg": 2.88,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 126.616,
+          "gain": 0.0067918,
+          "azimuth_deg": -169.787,
+          "elevation_deg": -40.645,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 196.042,
+          "gain": 0.0053119,
+          "azimuth_deg": 166.482,
+          "elevation_deg": -37.437,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 199.285,
+          "gain": 0.0033852,
+          "azimuth_deg": -166.503,
+          "elevation_deg": -3.961,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 267.81,
+          "gain": 0.0039789,
+          "azimuth_deg": -152.173,
+          "elevation_deg": 7.135,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 290.651,
+          "gain": 0.0070156,
+          "azimuth_deg": -135.857,
+          "elevation_deg": -1.1,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 21,
+          "delay_ms": 336.334,
+          "gain": 0.0047662,
+          "azimuth_deg": -152.102,
+          "elevation_deg": -0.001,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        }
+      ],
+      "late": {
+        "start_ms": 81.862,
+        "decay_s": 0.8268,
+        "level": 0.1011725,
+        "diffusion": 0.49446,
+        "damping": 0.24268
+      }
+    },
+    {
+      "id": 5,
+      "position_m": {
+        "x": 11.5788,
+        "y": 14.2756,
+        "z": 0.15
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 40.433,
+          "gain": 0.0755343,
+          "azimuth_deg": -7.221,
+          "elevation_deg": -17.088,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "D",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.5169,
+            "y": 13.7799,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 45.231,
+          "gain": 0.0576153,
+          "azimuth_deg": -114.959,
+          "elevation_deg": -13.31,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.4604,
+            "y": 3.3076,
+            "z": 2.6976
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 80.129,
+          "gain": 0.027273,
+          "azimuth_deg": 36.693,
+          "elevation_deg": -6.392,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "stone"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 75.373,
+          "gain": 0.029426,
+          "azimuth_deg": 46.554,
+          "elevation_deg": -6.884,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "stone"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 69.308,
+          "gain": 0.0325973,
+          "azimuth_deg": 64.289,
+          "elevation_deg": -8.207,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "stone"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 52.955,
+          "gain": 0.0455711,
+          "azimuth_deg": 105.479,
+          "elevation_deg": -11.139,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "stone"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 52.863,
+          "gain": 0.0459992,
+          "azimuth_deg": 106.636,
+          "elevation_deg": -10.9,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "stone"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 52.731,
+          "gain": 0.0464736,
+          "azimuth_deg": 108.038,
+          "elevation_deg": -10.991,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 7.5021,
+            "y": 2.9951,
+            "z": 2.4444
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 44.349,
+          "gain": 0.0598993,
+          "azimuth_deg": -74.404,
+          "elevation_deg": -13.78,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 12.2759,
+            "y": 4.406,
+            "z": 2.5077
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 45.333,
+          "gain": 0.0566251,
+          "azimuth_deg": -51.754,
+          "elevation_deg": -13.075,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 13.6097,
+            "y": 6.4261,
+            "z": 2.0276
+          }
+        },
+        {
+          "slot": 10,
+          "delay_ms": 46.762,
+          "gain": 0.0541153,
+          "azimuth_deg": -32.777,
+          "elevation_deg": -12.388,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 14.652,
+            "y": 10.4516,
+            "z": 1.2415
+          }
+        },
+        {
+          "slot": 11,
+          "delay_ms": 44.57,
+          "gain": 0.0590996,
+          "azimuth_deg": -38.187,
+          "elevation_deg": -13.142,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "stone"
+        },
+        {
+          "slot": 12,
+          "delay_ms": 57.74,
+          "gain": 0.0408446,
+          "azimuth_deg": -33.436,
+          "elevation_deg": -9.962,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "stone"
+        },
+        {
+          "slot": 13,
+          "delay_ms": 45.294,
+          "gain": 0.0590777,
+          "azimuth_deg": -7.271,
+          "elevation_deg": 33.444,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "U",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 10.6646,
+            "y": 6.9546,
+            "z": 5.084
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 172.467,
+          "gain": 0.010068,
+          "azimuth_deg": -127.914,
+          "elevation_deg": -8.89,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 238.563,
+          "gain": 0.005361,
+          "azimuth_deg": -156.328,
+          "elevation_deg": 2.88,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 125.255,
+          "gain": 0.0068009,
+          "azimuth_deg": -169.787,
+          "elevation_deg": -40.645,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 194.68,
+          "gain": 0.005319,
+          "azimuth_deg": 166.482,
+          "elevation_deg": -37.437,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 194.669,
+          "gain": 0.0034018,
+          "azimuth_deg": -166.503,
+          "elevation_deg": -3.961,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 263.194,
+          "gain": 0.0039985,
+          "azimuth_deg": -152.173,
+          "elevation_deg": 7.135,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 286.036,
+          "gain": 0.00705,
+          "azimuth_deg": -135.857,
+          "elevation_deg": -1.1,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 21,
+          "delay_ms": 331.719,
+          "gain": 0.0047896,
+          "azimuth_deg": -152.102,
+          "elevation_deg": -0.001,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        }
+      ],
+      "late": {
+        "start_ms": 81.862,
+        "decay_s": 0.8245,
+        "level": 0.1025663,
+        "diffusion": 0.49446,
+        "damping": 0.24268
+      }
+    },
+    {
+      "id": 6,
+      "position_m": {
+        "x": 21.3305,
+        "y": -14.6186,
+        "z": 2.9758
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 73.648,
+          "gain": 0.0339295,
+          "azimuth_deg": -149.869,
+          "elevation_deg": -15.863,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "D",
+          "material": "stone"
+        },
+        {
+          "slot": 13,
+          "delay_ms": 71.308,
+          "gain": 0.0353759,
+          "azimuth_deg": -148.716,
+          "elevation_deg": 1.478,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "U",
+          "material": "stone"
+        },
+        {
+          "slot": 14,
+          "delay_ms": 132.673,
+          "gain": 0.0299805,
+          "azimuth_deg": -127.914,
+          "elevation_deg": -8.89,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 198.768,
+          "gain": 0.0159639,
+          "azimuth_deg": -156.328,
+          "elevation_deg": 2.88,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 150.42,
+          "gain": 0.0189553,
+          "azimuth_deg": -169.787,
+          "elevation_deg": -40.645,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 219.846,
+          "gain": 0.0148251,
+          "azimuth_deg": 166.482,
+          "elevation_deg": -37.437,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 156.75,
+          "gain": 0.0101168,
+          "azimuth_deg": -166.503,
+          "elevation_deg": -3.961,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 225.274,
+          "gain": 0.0118911,
+          "azimuth_deg": -152.173,
+          "elevation_deg": 7.135,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 248.116,
+          "gain": 0.0209661,
+          "azimuth_deg": -135.857,
+          "elevation_deg": -1.1,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 21,
+          "delay_ms": 293.799,
+          "gain": 0.0142438,
+          "azimuth_deg": -152.102,
+          "elevation_deg": -0.001,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 22,
+          "delay_ms": 19.436,
+          "gain": 0.0791456,
+          "azimuth_deg": 110.451,
+          "elevation_deg": 13.888,
+          "damping": 0.20501,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "stone"
+        },
+        {
+          "slot": 23,
+          "delay_ms": 119.794,
+          "gain": 0.0986421,
+          "azimuth_deg": -133.413,
+          "elevation_deg": -2.601,
+          "damping": 0.20501,
+          "kind": "scatter",
+          "surface": "SC",
+          "material": "stone"
+        }
+      ],
+      "late": {
+        "start_ms": 81.862,
+        "decay_s": 0.8746,
+        "level": 0.094386,
+        "diffusion": 0.49446,
+        "damping": 0.24268
+      }
+    },
+    {
+      "id": 7,
+      "position_m": {
+        "x": 6.703,
+        "y": 4.6442,
+        "z": 2.9758
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 28.924,
+          "gain": 0.1130314,
+          "azimuth_deg": 78.487,
+          "elevation_deg": -58.363,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "D",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 8.4833,
+            "y": 4.2556,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 24.322,
+          "gain": 0.132743,
+          "azimuth_deg": -176.848,
+          "elevation_deg": -0.594,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 10.3509,
+            "y": 2.6118,
+            "z": 2.9951
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 76.005,
+          "gain": 0.0291506,
+          "azimuth_deg": 61.458,
+          "elevation_deg": 0.193,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "stone"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 61.366,
+          "gain": 0.0377674,
+          "azimuth_deg": 75.835,
+          "elevation_deg": -0.355,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "stone"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 44.389,
+          "gain": 0.056446,
+          "azimuth_deg": 89.536,
+          "elevation_deg": -0.482,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "stone"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 21.379,
+          "gain": 0.1654492,
+          "azimuth_deg": 89.467,
+          "elevation_deg": -0.148,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "stone"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 21.321,
+          "gain": 0.1674134,
+          "azimuth_deg": 90.21,
+          "elevation_deg": -0.703,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "stone"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 21.289,
+          "gain": 0.1690645,
+          "azimuth_deg": 89.876,
+          "elevation_deg": -0.701,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 6.6693,
+            "y": 3.865,
+            "z": 2.9802
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 26.466,
+          "gain": 0.1160658,
+          "azimuth_deg": -138.161,
+          "elevation_deg": -0.27,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "stone"
+        },
+        {
+          "slot": 9,
+          "delay_ms": 32.636,
+          "gain": 0.0851531,
+          "azimuth_deg": -111.228,
+          "elevation_deg": -0.336,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "stone"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 46.123,
+          "gain": 0.0534544,
+          "azimuth_deg": -82.463,
+          "elevation_deg": -0.357,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "stone"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 35.76,
+          "gain": 0.0748499,
+          "azimuth_deg": -96.11,
+          "elevation_deg": -0.257,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "stone"
+        },
+        {
+          "slot": 12,
+          "delay_ms": 73.351,
+          "gain": 0.0305653,
+          "azimuth_deg": -62.681,
+          "elevation_deg": -0.416,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "stone"
+        },
+        {
+          "slot": 13,
+          "delay_ms": 23.764,
+          "gain": 0.1434019,
+          "azimuth_deg": 77.927,
+          "elevation_deg": 45.445,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "U",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 8.5028,
+            "y": 4.2513,
+            "z": 4.8622
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 153.343,
+          "gain": 0.0102708,
+          "azimuth_deg": -127.914,
+          "elevation_deg": -8.89,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 219.438,
+          "gain": 0.005469,
+          "azimuth_deg": -156.328,
+          "elevation_deg": 2.88,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 103.49,
+          "gain": 0.0069474,
+          "azimuth_deg": -169.787,
+          "elevation_deg": -40.645,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 172.915,
+          "gain": 0.0054336,
+          "azimuth_deg": 166.482,
+          "elevation_deg": -37.437,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 175.411,
+          "gain": 0.003472,
+          "azimuth_deg": -166.503,
+          "elevation_deg": -3.961,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 243.936,
+          "gain": 0.0040809,
+          "azimuth_deg": -152.173,
+          "elevation_deg": 7.135,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 266.778,
+          "gain": 0.0071954,
+          "azimuth_deg": -135.857,
+          "elevation_deg": -1.1,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 21,
+          "delay_ms": 312.461,
+          "gain": 0.0048884,
+          "azimuth_deg": -152.102,
+          "elevation_deg": -0.001,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        }
+      ],
+      "late": {
+        "start_ms": 81.862,
+        "decay_s": 0.7905,
+        "level": 0.1414156,
+        "diffusion": 0.49446,
+        "damping": 0.24268
+      }
+    },
+    {
+      "id": 8,
+      "position_m": {
+        "x": 11.5788,
+        "y": 4.6442,
+        "z": 2.9758
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 26.469,
+          "gain": 0.1294076,
+          "azimuth_deg": -58.348,
+          "elevation_deg": -75.799,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "D",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 10.9315,
+            "y": 4.2556,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 16.207,
+          "gain": 0.2784122,
+          "azimuth_deg": -112.541,
+          "elevation_deg": -0.92,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.5135,
+            "y": 3.3409,
+            "z": 2.9882
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 88.256,
+          "gain": 0.0244944,
+          "azimuth_deg": 57.129,
+          "elevation_deg": 0.218,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "stone"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 75.138,
+          "gain": 0.0297458,
+          "azimuth_deg": 70.986,
+          "elevation_deg": -0.415,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "stone"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 58.454,
+          "gain": 0.0402613,
+          "azimuth_deg": 93.335,
+          "elevation_deg": -0.329,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "stone"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 28.444,
+          "gain": 0.1023,
+          "azimuth_deg": 135.809,
+          "elevation_deg": -0.313,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "stone"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 28.305,
+          "gain": 0.1037657,
+          "azimuth_deg": 136.167,
+          "elevation_deg": -0.374,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "stone"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 28.026,
+          "gain": 0.106022,
+          "azimuth_deg": 137.42,
+          "elevation_deg": -0.059,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 8.4863,
+            "y": 1.967,
+            "z": 2.9911
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 15.641,
+          "gain": 0.3026139,
+          "azimuth_deg": -90.977,
+          "elevation_deg": -0.96,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.8734,
+            "y": 3.8393,
+            "z": 2.9846
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 19.685,
+          "gain": 0.1905001,
+          "azimuth_deg": -91.863,
+          "elevation_deg": -0.198,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "stone"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 31.916,
+          "gain": 0.0865016,
+          "azimuth_deg": -82.513,
+          "elevation_deg": -0.544,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "stone"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 21.977,
+          "gain": 0.1569727,
+          "azimuth_deg": -86.068,
+          "elevation_deg": -0.546,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "stone"
+        },
+        {
+          "slot": 12,
+          "delay_ms": 59.948,
+          "gain": 0.0388087,
+          "azimuth_deg": -65.933,
+          "elevation_deg": -0.357,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "stone"
+        },
+        {
+          "slot": 13,
+          "delay_ms": 25.829,
+          "gain": 0.1254054,
+          "azimuth_deg": -59.177,
+          "elevation_deg": 74.896,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "U",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 10.9259,
+            "y": 4.2522,
+            "z": 5.8633
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 145.831,
+          "gain": 0.0107256,
+          "azimuth_deg": -127.914,
+          "elevation_deg": -8.89,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 211.926,
+          "gain": 0.0057112,
+          "azimuth_deg": -156.328,
+          "elevation_deg": 2.88,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 98.92,
+          "gain": 0.0072306,
+          "azimuth_deg": -169.787,
+          "elevation_deg": -40.645,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 168.346,
+          "gain": 0.0056551,
+          "azimuth_deg": 166.482,
+          "elevation_deg": -37.437,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 167.962,
+          "gain": 0.003626,
+          "azimuth_deg": -166.503,
+          "elevation_deg": -3.961,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 236.487,
+          "gain": 0.0042619,
+          "azimuth_deg": -152.173,
+          "elevation_deg": 7.135,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 259.329,
+          "gain": 0.0075145,
+          "azimuth_deg": -135.857,
+          "elevation_deg": -1.1,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 21,
+          "delay_ms": 305.012,
+          "gain": 0.0051051,
+          "azimuth_deg": -152.102,
+          "elevation_deg": -0.001,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        }
+      ],
+      "late": {
+        "start_ms": 81.862,
+        "decay_s": 0.7804,
+        "level": 0.1661453,
+        "diffusion": 0.49446,
+        "damping": 0.24268
+      }
+    },
+    {
+      "id": 9,
+      "position_m": {
+        "x": 6.703,
+        "y": 14.2756,
+        "z": 2.9758
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 45.013,
+          "gain": 0.0655828,
+          "azimuth_deg": 19.359,
+          "elevation_deg": -28.874,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "D",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 8.4833,
+            "y": 9.0915,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 46.856,
+          "gain": 0.0555788,
+          "azimuth_deg": -137.446,
+          "elevation_deg": 0.068,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.0428,
+            "y": 3.0457,
+            "z": 2.9988
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 65.576,
+          "gain": 0.0347283,
+          "azimuth_deg": 37.274,
+          "elevation_deg": -0.425,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "stone"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 61.009,
+          "gain": 0.0380242,
+          "azimuth_deg": 44.933,
+          "elevation_deg": -0.356,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "stone"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 57.705,
+          "gain": 0.040874,
+          "azimuth_deg": 56.339,
+          "elevation_deg": -0.331,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 1.8841,
+            "y": 9.613,
+            "z": 2.9858
+          }
+        },
+        {
+          "slot": 5,
+          "delay_ms": 49.43,
+          "gain": 0.0505887,
+          "azimuth_deg": 87.557,
+          "elevation_deg": 0.053,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "stone"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 49.379,
+          "gain": 0.0510218,
+          "azimuth_deg": 87.684,
+          "elevation_deg": -0.139,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "stone"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 49.36,
+          "gain": 0.0514179,
+          "azimuth_deg": 88.124,
+          "elevation_deg": -0.432,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 6.5636,
+            "y": 3.9754,
+            "z": 2.9942
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 47.074,
+          "gain": 0.0548634,
+          "azimuth_deg": -96.133,
+          "elevation_deg": -0.344,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.7722,
+            "y": 3.6968,
+            "z": 2.998
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 50.275,
+          "gain": 0.0492052,
+          "azimuth_deg": -70.994,
+          "elevation_deg": -0.263,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "stone"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 56.062,
+          "gain": 0.0425949,
+          "azimuth_deg": -47.311,
+          "elevation_deg": -0.453,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "stone"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 50.851,
+          "gain": 0.0481843,
+          "azimuth_deg": -55.333,
+          "elevation_deg": -0.202,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "stone"
+        },
+        {
+          "slot": 12,
+          "delay_ms": 71.064,
+          "gain": 0.0314524,
+          "azimuth_deg": -37.361,
+          "elevation_deg": 0.188,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "stone"
+        },
+        {
+          "slot": 13,
+          "delay_ms": 42.937,
+          "gain": 0.0649851,
+          "azimuth_deg": 18.85,
+          "elevation_deg": 20.911,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "U",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 8.5013,
+            "y": 9.0391,
+            "z": 5.1327
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 177.172,
+          "gain": 0.0100187,
+          "azimuth_deg": -127.914,
+          "elevation_deg": -8.89,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 243.267,
+          "gain": 0.0053347,
+          "azimuth_deg": -156.328,
+          "elevation_deg": 2.88,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 126.624,
+          "gain": 0.0067917,
+          "azimuth_deg": -169.787,
+          "elevation_deg": -40.645,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 196.05,
+          "gain": 0.0053119,
+          "azimuth_deg": 166.482,
+          "elevation_deg": -37.437,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 199.289,
+          "gain": 0.0033852,
+          "azimuth_deg": -166.503,
+          "elevation_deg": -3.961,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 267.814,
+          "gain": 0.0039789,
+          "azimuth_deg": -152.173,
+          "elevation_deg": 7.135,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 290.655,
+          "gain": 0.0070155,
+          "azimuth_deg": -135.857,
+          "elevation_deg": -1.1,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 21,
+          "delay_ms": 336.338,
+          "gain": 0.0047662,
+          "azimuth_deg": -152.102,
+          "elevation_deg": -0.001,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        }
+      ],
+      "late": {
+        "start_ms": 81.862,
+        "decay_s": 0.8251,
+        "level": 0.1015789,
+        "diffusion": 0.49446,
+        "damping": 0.24268
+      }
+    },
+    {
+      "id": 10,
+      "position_m": {
+        "x": 11.5788,
+        "y": 14.2756,
+        "z": 2.9758
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 43.698,
+          "gain": 0.0670482,
+          "azimuth_deg": -6.878,
+          "elevation_deg": -29.901,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "D",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 10.9315,
+            "y": 9.0915,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 44.279,
+          "gain": 0.0587196,
+          "azimuth_deg": -115.352,
+          "elevation_deg": -0.446,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.4604,
+            "y": 3.3076,
+            "z": 2.9982
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 79.646,
+          "gain": 0.0274584,
+          "azimuth_deg": 36.693,
+          "elevation_deg": 0.212,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "stone"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 74.855,
+          "gain": 0.0296559,
+          "azimuth_deg": 46.554,
+          "elevation_deg": 0.191,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "stone"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 68.737,
+          "gain": 0.0329061,
+          "azimuth_deg": 64.289,
+          "elevation_deg": -0.421,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "stone"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 52.171,
+          "gain": 0.0463888,
+          "azimuth_deg": 105.479,
+          "elevation_deg": -0.461,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "stone"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 52.078,
+          "gain": 0.0468281,
+          "azimuth_deg": 106.636,
+          "elevation_deg": -0.199,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "stone"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 51.943,
+          "gain": 0.0473161,
+          "azimuth_deg": 108.038,
+          "elevation_deg": -0.259,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 7.5021,
+            "y": 2.9951,
+            "z": 2.996
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 43.372,
+          "gain": 0.0615763,
+          "azimuth_deg": -74.404,
+          "elevation_deg": -0.497,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 12.2759,
+            "y": 4.406,
+            "z": 2.9966
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 44.383,
+          "gain": 0.0581235,
+          "azimuth_deg": -51.754,
+          "elevation_deg": -0.154,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 13.6097,
+            "y": 6.4261,
+            "z": 2.9923
+          }
+        },
+        {
+          "slot": 10,
+          "delay_ms": 45.848,
+          "gain": 0.0554385,
+          "azimuth_deg": -32.777,
+          "elevation_deg": 0.043,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 14.652,
+            "y": 10.4516,
+            "z": 2.9854
+          }
+        },
+        {
+          "slot": 11,
+          "delay_ms": 43.6,
+          "gain": 0.0607331,
+          "azimuth_deg": -38.187,
+          "elevation_deg": 0.058,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "stone"
+        },
+        {
+          "slot": 12,
+          "delay_ms": 57.034,
+          "gain": 0.041439,
+          "azimuth_deg": -33.436,
+          "elevation_deg": -0.332,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "stone"
+        },
+        {
+          "slot": 13,
+          "delay_ms": 41.434,
+          "gain": 0.0679514,
+          "azimuth_deg": -7.221,
+          "elevation_deg": 21.401,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "U",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 10.9248,
+            "y": 9.0384,
+            "z": 5.084
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 172.472,
+          "gain": 0.0100679,
+          "azimuth_deg": -127.914,
+          "elevation_deg": -8.89,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 238.567,
+          "gain": 0.0053609,
+          "azimuth_deg": -156.328,
+          "elevation_deg": 2.88,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 125.263,
+          "gain": 0.0068008,
+          "azimuth_deg": -169.787,
+          "elevation_deg": -40.645,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 194.689,
+          "gain": 0.005319,
+          "azimuth_deg": 166.482,
+          "elevation_deg": -37.437,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 194.674,
+          "gain": 0.0034018,
+          "azimuth_deg": -166.503,
+          "elevation_deg": -3.961,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 263.199,
+          "gain": 0.0039984,
+          "azimuth_deg": -152.173,
+          "elevation_deg": 7.135,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 286.04,
+          "gain": 0.0070499,
+          "azimuth_deg": -135.857,
+          "elevation_deg": -1.1,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 21,
+          "delay_ms": 331.723,
+          "gain": 0.0047895,
+          "azimuth_deg": -152.102,
+          "elevation_deg": -0.001,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        }
+      ],
+      "late": {
+        "start_ms": 81.862,
+        "decay_s": 0.8227,
+        "level": 0.1030592,
+        "diffusion": 0.49446,
+        "damping": 0.24268
+      }
+    },
+    {
+      "id": 11,
+      "position_m": {
+        "x": 11.5788,
+        "y": 4.6442,
+        "z": 5.8016
+      },
+      "early_reflections": [
+        {
+          "slot": 0,
+          "delay_ms": 34.533,
+          "gain": 0.0867684,
+          "azimuth_deg": -59.287,
+          "elevation_deg": -80.59,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "D",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 10.7219,
+            "y": 4.1298,
+            "z": 0
+          }
+        },
+        {
+          "slot": 1,
+          "delay_ms": 19.725,
+          "gain": 0.1898178,
+          "azimuth_deg": -113.446,
+          "elevation_deg": 46.805,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S1",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.5135,
+            "y": 3.3409,
+            "z": 4.4203
+          }
+        },
+        {
+          "slot": 2,
+          "delay_ms": 88.673,
+          "gain": 0.0243671,
+          "azimuth_deg": 57.129,
+          "elevation_deg": 6.115,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S11",
+          "material": "stone"
+        },
+        {
+          "slot": 3,
+          "delay_ms": 75.636,
+          "gain": 0.0295251,
+          "azimuth_deg": 70.986,
+          "elevation_deg": 6.633,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S12",
+          "material": "stone"
+        },
+        {
+          "slot": 4,
+          "delay_ms": 59.116,
+          "gain": 0.0397342,
+          "azimuth_deg": 93.335,
+          "elevation_deg": 9.036,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S13",
+          "material": "stone"
+        },
+        {
+          "slot": 5,
+          "delay_ms": 30.05,
+          "gain": 0.0953706,
+          "azimuth_deg": 135.877,
+          "elevation_deg": 22.095,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S14",
+          "material": "stone"
+        },
+        {
+          "slot": 6,
+          "delay_ms": 29.922,
+          "gain": 0.0966402,
+          "azimuth_deg": 136.301,
+          "elevation_deg": 22.552,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S15",
+          "material": "stone"
+        },
+        {
+          "slot": 7,
+          "delay_ms": 29.663,
+          "gain": 0.0985353,
+          "azimuth_deg": 137.296,
+          "elevation_deg": 22.649,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S16",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 8.4863,
+            "y": 1.967,
+            "z": 4.0917
+          }
+        },
+        {
+          "slot": 8,
+          "delay_ms": 19.345,
+          "gain": 0.1979057,
+          "azimuth_deg": -90.468,
+          "elevation_deg": 48.42,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S2",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.8734,
+            "y": 3.8393,
+            "z": 4.8226
+          }
+        },
+        {
+          "slot": 9,
+          "delay_ms": 22.346,
+          "gain": 0.1527853,
+          "azimuth_deg": -91.124,
+          "elevation_deg": 35.877,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S3",
+          "material": "stone"
+        },
+        {
+          "slot": 10,
+          "delay_ms": 33.298,
+          "gain": 0.0822788,
+          "azimuth_deg": -81.651,
+          "elevation_deg": 19.115,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S4",
+          "material": "stone"
+        },
+        {
+          "slot": 11,
+          "delay_ms": 24.256,
+          "gain": 0.1333021,
+          "azimuth_deg": -86.461,
+          "elevation_deg": 30.867,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S5",
+          "material": "stone"
+        },
+        {
+          "slot": 12,
+          "delay_ms": 60.591,
+          "gain": 0.0383291,
+          "azimuth_deg": -65.933,
+          "elevation_deg": 8.741,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "S6",
+          "material": "stone"
+        },
+        {
+          "slot": 13,
+          "delay_ms": 18.096,
+          "gain": 0.233082,
+          "azimuth_deg": -59.127,
+          "elevation_deg": 62.215,
+          "damping": 0.20501,
+          "kind": "surface",
+          "surface": "U",
+          "material": "stone",
+          "bounce_position_m": {
+            "x": 11.5514,
+            "y": 4.6277,
+            "z": 5.8633
+          }
+        },
+        {
+          "slot": 14,
+          "delay_ms": 147.566,
+          "gain": 0.0105107,
+          "azimuth_deg": -127.914,
+          "elevation_deg": -8.89,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 15,
+          "delay_ms": 213.661,
+          "gain": 0.0055967,
+          "azimuth_deg": -156.328,
+          "elevation_deg": 2.88,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.786,
+            "y": -7.3786,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 16,
+          "delay_ms": 104.982,
+          "gain": 0.0070566,
+          "azimuth_deg": -169.787,
+          "elevation_deg": -40.645,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 17,
+          "delay_ms": 174.408,
+          "gain": 0.005519,
+          "azimuth_deg": 166.482,
+          "elevation_deg": -37.437,
+          "damping": 0.35621,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "porous_rock",
+          "bounce_position_m": {
+            "x": 10.2983,
+            "y": 2.5788,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 18,
+          "delay_ms": 169.739,
+          "gain": 0.0035531,
+          "azimuth_deg": -166.503,
+          "elevation_deg": -3.961,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 19,
+          "delay_ms": 238.264,
+          "gain": 0.0041762,
+          "azimuth_deg": -152.173,
+          "elevation_deg": 7.135,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 20,
+          "delay_ms": 261.106,
+          "gain": 0.0073634,
+          "azimuth_deg": -135.857,
+          "elevation_deg": -1.1,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        },
+        {
+          "slot": 21,
+          "delay_ms": 306.789,
+          "gain": 0.0050025,
+          "azimuth_deg": -152.102,
+          "elevation_deg": -0.001,
+          "damping": 0.16181,
+          "kind": "chamber",
+          "surface": "C",
+          "material": "concrete",
+          "bounce_position_m": {
+            "x": 16.545,
+            "y": -7.1235,
+            "z": 1.551
+          }
+        }
+      ],
+      "late": {
+        "start_ms": 81.862,
+        "decay_s": 0.7883,
+        "level": 0.1507905,
+        "diffusion": 0.49446,
+        "damping": 0.24268
+      }
+    }
+  ],
+  "atlas": {
+    "name": "Limestone Pocket",
+    "category": "Cave",
+    "description": "A rough limestone pocket with smaller cave branches and dense directional scatter.",
+    "seed": 220103,
+    "source": "s3g-mc Ray Sketch"
+  }
+}

@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Ambi Vox Encoder</h1>
 
-        <p><code>s3g Ambi Vox Encoder 64</code> is a 64-voice voicebank and WORLD-based vocal instrument with first-through-seventh-order <code>ACN/SN3D</code> output. It maps a typed phrase across independently pitched and positioned voices.</p>
+        <p><code>s3g Ambi Vox Encoder 64</code> is a 16-voice voicebank and WORLD-based vocal instrument with a fixed 64-channel, first-through-seventh-order <code>ACN/SN3D</code> output. It maps a typed phrase across independently pitched and positioned vocal sources; the 64 channels describe the ambisonic field, not the source-voice count.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -35,19 +35,42 @@
           <li>Insert the instrument on a 64-channel REAPER track.</li>
           <li>Choose <code>FREE</code>, <code>MIDI</code>, or <code>BOTH</code>.</li>
           <li>Load a UTAU-style voicebank folder or a vocal WAV file.</li>
-          <li>Enter a phrase, then set the voice count, pitch relationships, and voice-delay spread.</li>
+          <li>Choose a factory preset or enter a phrase, then set 1-16 voices, an ensemble direction, pitch relationships, and voice-delay spread.</li>
           <li>Follow the instrument with an ambisonic decoder or meter.</li>
         </ol>
 
+        <h2 id="presets">Presets</h2>
+
+        <p>The title-bar <code>PRESET</code> menu provides thirteen starting points spanning solo speech, unison, SATB and double choirs, chorus, round, cluster, spectral color, texture, spatial orbit, and full 7OA operation. Selecting one updates the registered host parameters, phrase, and vector score with a short output transition.</p>
+
+        <p><code>LOAD</code> and <code>SAVE</code> beside the preset menu read and write <code>.s3gvox</code> JSON files. A user preset stores the editable instrument parameters, lyric cue sheet, vector score, and camera view. Vocal WAV files, voicebank folders, and analyzed WORLD audio are deliberately not embedded: loading a preset keeps the currently loaded sound source in place, so one performance design can be auditioned with different voices. The normal CLAP project state also remembers the selected factory or user preset name.</p>
+
         <h2 id="phrase-source">Phrase Source</h2>
 
-        <p>The <code>LOAD</code> button accepts either a voicebank folder containing WAV files and <code>oto.ini</code>, or a single vocal WAV file. Every loaded voicebank alias is analyzed and resynthesized by WORLD before playback. The first load writes a persistent cache in <code>~/Library/Caches/org.s3g.s3g-dsp/AmbiVoxWorld</code>; later loads reuse it until the source WAV changes. The included synthetic test bank is in <code>examples/voicebanks/s3g-demo-synthetic</code>.</p>
+        <p>The <code>LOAD</code> button accepts either a voicebank folder containing WAV files and <code>oto.ini</code>, or a single vocal WAV file. Every loaded voicebank alias is analyzed and resynthesized by WORLD before playback. Offline analysis uses Harvest for continuous pitch tracking, with DIO and StoneMask as fallback, plus CheapTrick spectral envelopes and D4C aperiodicity. Compact WORLD parameters are retained with the rendered audio instead of being discarded after import.</p>
+
+        <p>The first voicebank load writes a persistent cache in <code>~/Library/Caches/org.s3g.s3g-dsp/AmbiVoxWorld</code>; later loads reuse it until the source WAV changes. Older cache revisions are analyzed again once. The included synthetic test bank is in <code>examples/voicebanks/s3g-demo-synthetic</code>.</p>
 
         <p>Voicebank preparation caches five formant-preserving WORLD pitch anchors from two octaves below through two octaves above each alias's detected base pitch. Runtime voices select the nearest anchor, which keeps wide MIDI and scale intervals closer to the original vocal character.</p>
 
         <p>Words are mapped to available voicebank aliases and romaji sample keys by a small English grapheme-to-phoneme layer. The phrase panel shows the resolved alias sequence and a live voice-1 timeline. <code>SPEAK</code> plays every resolved alias once, reads the complete phrase in order, then loops after the phrase-end pause. <code>SING</code> can sustain vowels while keeping every voice on the same phrase sequence. <code>TEXTURE</code> treats loaded samples as a continuously moving source field.</p>
 
-        <p><code>VOICE STEP</code> delays each successive rendered voice by as much as 1000 ms; <code>VOICE DEV</code> adds a repeatable deviation around that cascade. These controls retarget crossfaded delay taps. Moving them does not recompile or restart the phrase.</p>
+        <p><code>PHR SPREAD</code> lets active voices read different parts of the source phrase. At 0% every voice begins on the same event; at 100% voices are distributed across the complete phrase. Voicebanks always move by complete alias or rest events, so an offset never begins halfway through a syllable. A single loaded WAV uses the same control to distribute starting positions across its loop, while the internal voice model offsets compiled phoneme events.</p>
+
+        <p><code>VOICE STEP</code> delays each successive rendered voice by as much as 1000 ms; <code>VOICE DEV</code> adds a repeatable deviation around that cascade. These are short entrance and timing offsets rather than phrase-position controls. They are smoothed and retarget dual delay taps with a 120 ms crossfade. Moving either control does not clear a delay, recompile a bank, or restart the phrase.</p>
+
+        <h2 id="lyrics-field">Lyrics Field</h2>
+
+        <p>The left-side <code>LYRICS</code> page is a cue sheet. Each non-empty line becomes one independently compiled lyric cue, up to 32 cues. The cue map shows the selected line and the line currently being performed. Clicking a cue selects it; the single-line phrase field remains a quick editor for that selected cue. <code>PHR SPREAD</code> is always contained within the active cue, so a round can begin at different syllables without spilling into the next line.</p>
+
+        <ul>
+          <li><code>LOOP</code> repeats the selected cue.</li>
+          <li><code>MIDI STEP</code> advances one cue for each note-on received on the dedicated cue channel.</li>
+          <li><code>MIDI CUE</code> maps consecutive notes from <code>BASE NOTE</code> to consecutive cue lines.</li>
+          <li><code>TRANSPORT</code> assigns consecutive cue lines to equal <code>CUE BEATS</code> windows on the host beat timeline and wraps after the final cue.</li>
+        </ul>
+
+        <p><code>MIDI CH</code> defaults to channel 16. In either MIDI cue mode, notes on that channel are consumed as cue control and do not trigger vocal voices. Other MIDI channels retain their normal instrument behavior. Cue selection occurs at an audio processing boundary; <code>PACE</code>, <code>STRETCH</code>, and voice timing continue to control performance inside the selected line.</p>
 
         <h2 id="voicebank-timing">Voicebank Timing and Pronunciation</h2>
 
@@ -72,9 +95,35 @@ sorrow=so ro</code></pre>
 
         <p>When an older project state is loaded, its separate tune offset is folded into <code>TRANSPOSE</code>. Retired Character coloration is reset to the clean WORLD/voicebank path so no hidden control continues changing the sound.</p>
 
+        <h2 id="world-model">WORLD Voice Model</h2>
+
+        <ul>
+          <li><code>FORMANT</code> shifts the retained CheapTrick envelope independently of musical pitch.</li>
+          <li><code>PERIODIC</code> is neutral at 50%. Lower values add phase diffusion to voiced energy; higher values reduce aperiodic energy.</li>
+          <li><code>AIR COLOR</code> tilts D4C-identified aperiodic energy toward darker or brighter spectra.</li>
+          <li><code>CONTOUR</code> chooses <code>ORIGINAL</code>, <code>REDUCED</code>, <code>FLAT</code>, or semitone-<code>QUANTIZED</code> source-pitch movement before the musical target pitch is applied.</li>
+        </ul>
+
+        <p>These controls use the analysis attached to each loaded WORLD source. They remain neutral when centered and are smoothed before reaching the phase-vocoder resynthesis path.</p>
+
+        <h2 id="ensemble">Ensemble Direction</h2>
+
+        <ul>
+          <li><code>INDIVIDUAL</code> keeps the original scale-field behavior and normal per-note MIDI allocation.</li>
+          <li><code>UNISON</code> shares one root with small deterministic entrance and tuning differences.</li>
+          <li><code>CHORALE</code> repeats an open SATB voicing across the field and keeps soprano, alto, tenor, and bass parts inside practical tessitura.</li>
+          <li><code>CHORUS</code> distributes unison and octave doubles with wider entrance and tuning variation.</li>
+          <li><code>ROUND</code> divides the voices into as many as four cohorts. The Four Part Round preset sets <code>PHR SPREAD</code> to 100% for quarter-phrase entrances.</li>
+          <li><code>CLUSTER</code> alternates voices above and below the root in semitone steps.</li>
+        </ul>
+
+        <p><code>SPREAD</code> contracts or expands an ensemble's interval pattern. In <code>MIDI</code> or <code>BOTH</code>, a non-<code>INDIVIDUAL</code> ensemble takes the newest held note as its common root; <code>INDIVIDUAL</code> continues to turn held chords into separately allocated spatial voices.</p>
+
+        <p>The field keeps each source point's azimuth/elevation/distance color and adds a muted ensemble-role frame. Chorale points are marked <code>S</code>, <code>A</code>, <code>T</code>, or <code>B</code>; chorus and round cohorts receive corresponding labels and faint same-role links. The outer square pulses at each voice's phrase position, making staggered entries visible without confusing orchestration with spatial location.</p>
+
         <h2 id="phrase">MIDI and Phrase Voices</h2>
 
-        <p>In <code>FREE</code>, active points take scale degrees around the root. In <code>MIDI</code>, each held note is allocated to one voice; chords therefore become spatially distinct voices. Notes are quantized to the selected scale before pitch spread and deviation are applied. <code>BOTH</code> retains the free-running field and lets held MIDI notes take over allocated voices.</p>
+        <p>In <code>FREE</code>, active points take scale degrees or the selected ensemble relationship around the root. With <code>INDIVIDUAL</code> selected, <code>MIDI</code> allocates each held note to one voice, so chords become spatially distinct voices; <code>BOTH</code> retains the free-running field and lets held MIDI notes take over allocated voices. Other ensemble directions use the newest held MIDI note as a conductor root for the complete active choir.</p>
 
         <h2 id="pvoc">Playback Timing</h2>
 
@@ -88,7 +137,7 @@ sorrow=so ro</code></pre>
 
         <h2 id="routing">Order and Routing</h2>
 
-        <p>The output bus remains 64 channels wide. <code>ORDER</code> activates the corresponding <code>ACN/SN3D</code> channels from 1OA through 7OA and clears all higher outputs.</p>
+        <p>The output bus remains 64 channels wide even though synthesis is capped at 16 source voices. <code>ORDER</code> activates the corresponding <code>ACN/SN3D</code> channels from 1OA through 7OA and clears all higher outputs. Project states saved with an older voice count above 16 load at the new 16-voice maximum.</p>
 
         <p>Follow the instrument with an <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>.</p>
 
@@ -118,9 +167,13 @@ sorrow=so ro</code></pre>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
+          <a href="#presets">Presets</a>
           <a href="#phrase-source">Phrase Source</a>
+          <a href="#lyrics-field">Lyrics Field</a>
           <a href="#voicebank-timing">Voicebank Timing</a>
           <a href="#vocal-layer">Vocal Layer</a>
+          <a href="#world-model">WORLD Voice Model</a>
+          <a href="#ensemble">Ensemble Direction</a>
           <a href="#phrase">MIDI and Phrase Voices</a>
           <a href="#pvoc">Playback Timing</a>
           <a href="#motion">Motion</a>

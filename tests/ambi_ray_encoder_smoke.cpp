@@ -42,6 +42,74 @@ float channelEnergy(const std::vector<float>& channel)
     return static_cast<float>(energy);
 }
 
+float channelDot(const std::vector<float>& a, const std::vector<float>& b)
+{
+    double result = 0.0;
+    const size_t count = std::min(a.size(), b.size());
+    for (size_t index = 0u; index < count; ++index)
+        result += static_cast<double>(a[index]) * static_cast<double>(b[index]);
+    return static_cast<float>(result);
+}
+
+double tonePower(const std::vector<float>& signal, double frequency)
+{
+    double real = 0.0;
+    double imaginary = 0.0;
+    for (size_t frame = 0u; frame < signal.size(); ++frame) {
+        const double phase = 2.0 * static_cast<double>(s3g::kPi) * frequency
+            * static_cast<double>(frame) / kSampleRate;
+        real += static_cast<double>(signal[frame]) * std::cos(phase);
+        imaginary -= static_cast<double>(signal[frame]) * std::sin(phase);
+    }
+    return real * real + imaginary * imaginary;
+}
+
+struct DopplerProbe {
+    std::array<std::vector<float>, 3u> outputs;
+    float physicalError = 0.0f;
+};
+
+DopplerProbe renderDopplerProbe()
+{
+    constexpr uint32_t frames = 96000u;
+    constexpr uint32_t warmupFrames = 12000u;
+    constexpr float inputFrequency = 200.0f;
+    constexpr float initialDelayFrames = 1024.0f;
+    constexpr float delaySlope = 0.08f;
+    s3g::ambi_ray_detail::FractionalDelay delay;
+    delay.prepare(kSampleRate, 4.0f);
+    std::array<s3g::ambi_ray_detail::DopplerDelayTap, 3u> taps;
+    for (auto& tap : taps) {
+        tap.prepare(kSampleRate);
+        tap.setTarget(initialDelayFrames, 1u, true);
+    }
+
+    DopplerProbe result;
+    for (auto& output : result.outputs) output.reserve(frames - warmupFrames);
+    float phase = 0.0f;
+    for (uint32_t frame = 0u; frame < frames; ++frame) {
+        if (frame % 32u == 0u) {
+            const float target = initialDelayFrames + delaySlope * static_cast<float>(frame + 32u);
+            for (auto& tap : taps) tap.setTarget(target, 32u, false);
+        }
+        delay.write(std::sin(phase));
+        const float physical = delay.read(taps[1].physicalDelayFrames());
+        const float stable = taps[0].read(delay, 0.0f);
+        const float natural = taps[1].read(delay, 1.0f);
+        const float exaggerated = taps[2].read(delay, 2.0f);
+        result.physicalError = std::max(result.physicalError, std::abs(natural - physical));
+        if (frame >= warmupFrames) {
+            result.outputs[0].push_back(stable);
+            result.outputs[1].push_back(natural);
+            result.outputs[2].push_back(exaggerated);
+        }
+        delay.advance();
+        phase += 2.0f * s3g::kPi * inputFrequency / static_cast<float>(kSampleRate);
+        if (phase > 2.0f * s3g::kPi) phase -= 2.0f * s3g::kPi;
+    }
+    return result;
+}
+
 } // namespace
 
 int main()
@@ -49,6 +117,34 @@ int main()
     const auto descriptor = s3g::makeDefaultAmbiRayDescriptor();
     if (descriptor.cells.size() != 8u || descriptor.room.polygon.size() != 4u) {
         std::cerr << "Ambi Ray default scene was not constructed\n";
+        return 1;
+    }
+    if (std::abs(s3g::AmbiRayEncoderParams {}.doppler - 0.5f) > 0.0001f
+        || s3g::sanitizeAmbiRayEncoderParams({ .doppler = 3.0f }).doppler != 2.0f) {
+        std::cerr << "Ambi Ray Doppler parameter defaults or bounds changed\n";
+        return 1;
+    }
+
+    const auto dopplerProbe = renderDopplerProbe();
+    const std::array<double, 3u> probeFrequencies { 200.0, 184.0, 168.0 };
+    std::array<double, 3u> probePowers {};
+    for (uint32_t index = 0u; index < probePowers.size(); ++index)
+        probePowers[index] = tonePower(dopplerProbe.outputs[index], probeFrequencies[index]);
+    if (dopplerProbe.physicalError > 0.00001f
+        || probePowers[0] <= tonePower(dopplerProbe.outputs[0], probeFrequencies[1]) * 4.0
+        || probePowers[1] <= tonePower(dopplerProbe.outputs[1], probeFrequencies[0]) * 8.0
+        || probePowers[2] <= tonePower(dopplerProbe.outputs[2], probeFrequencies[1]) * 4.0) {
+        std::cerr << "Ambi Ray Doppler scaling failed: " << dopplerProbe.physicalError << " / "
+                  << probePowers[0] << " / " << probePowers[1] << " / " << probePowers[2] << "\n";
+        return 1;
+    }
+    const s3g::Vec3 leftDirection = s3g::ambi_ray_detail::ambisonicDirectionFromWorldVector({ -1.0f, 0.0f, 0.0f });
+    const s3g::Vec3 rightDirection = s3g::ambi_ray_detail::ambisonicDirectionFromWorldVector({ 1.0f, 0.0f, 0.0f });
+    const s3g::Vec3 frontDirection = s3g::ambi_ray_detail::ambisonicDirectionFromWorldVector({ 0.0f, 1.0f, 0.0f });
+    const auto leftAed = s3g::ambi_ray_detail::aedFromWorldVector({ -1.0f, 0.0f, 0.0f });
+    if (leftDirection.y < 0.999f || rightDirection.y > -0.999f || frontDirection.x < 0.999f
+        || std::abs(leftAed[0] - 90.0f) > 0.001f) {
+        std::cerr << "Ambi Ray world-to-ambisonic orientation is reversed\n";
         return 1;
     }
     for (const auto& cell : descriptor.cells) {
@@ -73,11 +169,22 @@ int main()
     };
     const auto movedResolved = s3g::resolveAmbiRayReflection(
         descriptor, referenceCell, referenceReflection, referenceCell.positionMetres, movedListener);
+    const s3g::Vec3 referenceBounceWorld {
+        referenceReflection.bouncePositionMetres.x - descriptor.listenerPositionMetres.x,
+        referenceReflection.bouncePositionMetres.y - descriptor.listenerPositionMetres.y,
+        referenceReflection.bouncePositionMetres.z - descriptor.listenerPositionMetres.z
+    };
+    const s3g::Vec3 expectedReferenceDirection =
+        s3g::ambi_ray_detail::ambisonicDirectionFromWorldVector(referenceBounceWorld);
+    const float referenceDirectionDot = referenceResolved.direction.x * expectedReferenceDirection.x
+        + referenceResolved.direction.y * expectedReferenceDirection.y
+        + referenceResolved.direction.z * expectedReferenceDirection.z;
     const float reflectionDirectionChange = std::abs(referenceResolved.direction.x - movedResolved.direction.x)
         + std::abs(referenceResolved.direction.y - movedResolved.direction.y)
         + std::abs(referenceResolved.direction.z - movedResolved.direction.z);
     if (!std::isfinite(movedResolved.delayMs) || !std::isfinite(movedResolved.gain)
         || std::abs(referenceResolved.delayMs - referenceReflection.delayMs) > 0.05f
+        || referenceDirectionDot < 0.999f
         || reflectionDirectionChange < 0.01f) {
         std::cerr << "Ambi Ray listener-aware reflection resolution failed\n";
         return 1;
@@ -108,11 +215,27 @@ int main()
         std::cerr << "Ambi Ray direct render produced non-finite output\n";
         return 1;
     }
-    const float rightEnergy = channelEnergy(directOutput.channels[1]);
+    const float lateralEnergy = channelEnergy(directOutput.channels[1]);
     const float frontEnergy = channelEnergy(directOutput.channels[3]);
-    if (!(rightEnergy > frontEnergy * 2.0f) || channelEnergy(directOutput.channels[0]) <= 0.0f) {
-        std::cerr << "Ambi Ray direct path did not encode its source position: "
-                  << rightEnergy << " / " << frontEnergy << "\n";
+    const float leftCorrelation = channelDot(directOutput.channels[0], directOutput.channels[1]);
+    if (!(lateralEnergy > frontEnergy * 2.0f) || leftCorrelation <= 0.0f
+        || channelEnergy(directOutput.channels[0]) <= 0.0f) {
+        std::cerr << "Ambi Ray direct path did not encode source-left correctly: "
+                  << lateralEnergy << " / " << frontEnergy << " / " << leftCorrelation << "\n";
+        return 1;
+    }
+
+    s3g::AmbiRayEncoder rightEncoder;
+    auto rightParams = directParams;
+    rightParams.sourceX = 0.92f;
+    rightEncoder.setParams(rightParams);
+    if (!rightEncoder.prepare(kSampleRate, descriptor)) return 1;
+    RenderBuffer rightOutput(directFrames);
+    rightEncoder.process(directInput.data(), rightOutput.pointers.data(), 16u, directFrames);
+    const float rightCorrelation = channelDot(rightOutput.channels[0], rightOutput.channels[1]);
+    if (!finiteBuffer(rightOutput) || rightCorrelation >= 0.0f) {
+        std::cerr << "Ambi Ray direct path did not encode source-right correctly: "
+                  << rightCorrelation << "\n";
         return 1;
     }
 
@@ -128,9 +251,11 @@ int main()
     listenerEncoder.process(directInput.data(), listenerOutput.pointers.data(), 16u, directFrames);
     const float listenerRightEnergy = channelEnergy(listenerOutput.channels[1]);
     const float listenerFrontEnergy = channelEnergy(listenerOutput.channels[3]);
-    if (!finiteBuffer(listenerOutput) || !(listenerFrontEnergy > listenerRightEnergy * 2.0f)) {
+    const float frontCorrelation = channelDot(listenerOutput.channels[0], listenerOutput.channels[3]);
+    if (!finiteBuffer(listenerOutput) || !(listenerFrontEnergy > listenerRightEnergy * 2.0f)
+        || frontCorrelation <= 0.0f) {
         std::cerr << "Ambi Ray direct path did not follow listener position: "
-                  << listenerRightEnergy << " / " << listenerFrontEnergy << "\n";
+                  << listenerRightEnergy << " / " << listenerFrontEnergy << " / " << frontCorrelation << "\n";
         return 1;
     }
 
@@ -220,10 +345,14 @@ int main()
         return 1;
     }
 
-    std::cout << "Ambi Ray direct right/front energy: " << rightEnergy << " / " << frontEnergy << "\n";
+    std::cout << "Ambi Ray direct lateral/front energy and left/right sign: "
+              << lateralEnergy << " / " << frontEnergy << " / " << leftCorrelation << " / " << rightCorrelation << "\n";
     std::cout << "Ambi Ray listener front/right energy: " << listenerFrontEnergy << " / " << listenerRightEnergy << "\n";
     std::cout << "Ambi Ray room early/tail/directional energy: "
               << earlyEnergy << " / " << tailEnergy << " / " << directionalEnergy << "\n";
     std::cout << "Ambi Ray motion peak/step: " << peak << " / " << maximumStep << "\n";
+    std::cout << "Ambi Ray Doppler 0/100/200 percent tone power: "
+              << probePowers[0] << " / " << probePowers[1] << " / " << probePowers[2]
+              << " (physical error " << dopplerProbe.physicalError << ")\n";
     return 0;
 }

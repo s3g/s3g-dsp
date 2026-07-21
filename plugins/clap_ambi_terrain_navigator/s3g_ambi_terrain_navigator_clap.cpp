@@ -16,6 +16,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -26,7 +27,7 @@ namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiTerrainMaxChannels;
 constexpr uint32_t kInputChannels = s3g::kAmbiTerrainMaxPoints;
-constexpr uint32_t kStateVersion = 3;
+constexpr uint32_t kStateVersion = 5;
 
 constexpr clap_id kOrderParamId = 1;
 constexpr clap_id kPointsParamId = 20;
@@ -60,6 +61,20 @@ constexpr clap_id kAirParamId = 29;
 constexpr clap_id kSelectedSourceParamId = 30;
 constexpr clap_id kRateSpreadParamId = 31;
 constexpr clap_id kRateDeviationParamId = 32;
+constexpr clap_id kTerrainFormParamId = 33;
+constexpr clap_id kTerrainFacetParamId = 34;
+constexpr clap_id kTerrainBevelParamId = 35;
+constexpr clap_id kTerrainOrientationParamId = 36;
+constexpr clap_id kTerrainTerraceParamId = 37;
+constexpr clap_id kTerrainTerraceStepsParamId = 38;
+constexpr clap_id kTerrainRidgeParamId = 39;
+constexpr clap_id kTerrainErosionParamId = 40;
+constexpr clap_id kTerrainDomainWarpParamId = 41;
+constexpr clap_id kTerrainTwistParamId = 42;
+constexpr clap_id kTerrainRoughnessParamId = 43;
+constexpr clap_id kTerrainReliefParamId = 44;
+constexpr clap_id kTerrainReadParamId = 45;
+constexpr clap_id kTerrainReadMixParamId = 46;
 
 struct AmbiTerrainNavigatorParamsV1 {
     uint32_t order;
@@ -182,6 +197,21 @@ const char* paletteName(uint32_t index)
     return kNames[std::min<uint32_t>(index, 7u)];
 }
 
+const char* formName(uint32_t index)
+{
+    static constexpr const char* kNames[] { "SPHERE", "TETRA", "CUBE", "OCTA", "DODECA", "ICOSA" };
+    return kNames[std::min<uint32_t>(index, 5u)];
+}
+
+const char* readName(uint32_t index)
+{
+    static constexpr const char* kNames[] {
+        "HEIGHT", "EDGE", "CURVE", "BLEND", "GRADIENT",
+        "RIDGE", "VALLEY", "NORMAL", "CROSS", "VECTOR",
+    };
+    return kNames[std::min<uint32_t>(index, 9u)];
+}
+
 const char* playbackName(uint32_t index)
 {
     static constexpr const char* kNames[] { "OFF", "RUN", "SCRUB" };
@@ -229,6 +259,22 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kSelectedSourceParamId: p.params.selectedSource = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiTerrainMaxPoints) - 1u; break;
     case kRateSpreadParamId: p.params.rateSpread = static_cast<float>(value); break;
     case kRateDeviationParamId: p.params.rateDeviation = static_cast<float>(value); break;
+    case kTerrainFormParamId: p.params.terrainForm = static_cast<s3g::AmbiTerrainForm>(
+        std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 5u)); break;
+    case kTerrainFacetParamId: p.params.terrainFacet = static_cast<float>(value); break;
+    case kTerrainBevelParamId: p.params.terrainBevel = static_cast<float>(value); break;
+    case kTerrainOrientationParamId: p.params.terrainOrientation = static_cast<float>(value); break;
+    case kTerrainTerraceParamId: p.params.terrainTerrace = static_cast<float>(value); break;
+    case kTerrainTerraceStepsParamId: p.params.terrainTerraceSteps = static_cast<uint32_t>(std::lround(value)); break;
+    case kTerrainRidgeParamId: p.params.terrainRidge = static_cast<float>(value); break;
+    case kTerrainErosionParamId: p.params.terrainErosion = static_cast<float>(value); break;
+    case kTerrainDomainWarpParamId: p.params.terrainDomainWarp = static_cast<float>(value); break;
+    case kTerrainTwistParamId: p.params.terrainTwist = static_cast<float>(value); break;
+    case kTerrainRoughnessParamId: p.params.terrainRoughness = static_cast<float>(value); break;
+    case kTerrainReliefParamId: p.params.terrainRelief = static_cast<float>(value); break;
+    case kTerrainReadParamId: p.params.terrainRead = static_cast<s3g::AmbiTerrainRead>(
+        std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 9u)); break;
+    case kTerrainReadMixParamId: p.params.terrainReadMix = static_cast<float>(value); break;
     default: break;
     }
     p.encoder.setParams(p.params);
@@ -381,6 +427,20 @@ constexpr ParamDef kParams[] {
     { kSelectedSourceParamId, "Selected Source", 1.0, 64.0, 1.0, true },
     { kRateSpreadParamId, "Rate Spread", 0.0, 1.0, 0.35, false },
     { kRateDeviationParamId, "Rate Deviation", 0.0, 1.0, 0.18, false },
+    { kTerrainFormParamId, "Terrain Form", 0.0, 5.0, 0.0, true },
+    { kTerrainFacetParamId, "Terrain Facet", 0.0, 1.0, 0.0, false },
+    { kTerrainBevelParamId, "Terrain Bevel", 0.0, 1.0, 0.18, false },
+    { kTerrainOrientationParamId, "Terrain Orientation", -1.0, 1.0, 0.0, false },
+    { kTerrainTerraceParamId, "Terrain Terrace", 0.0, 1.0, 0.0, false },
+    { kTerrainTerraceStepsParamId, "Terrain Terrace Steps", 2.0, 24.0, 8.0, true },
+    { kTerrainRidgeParamId, "Terrain Ridge", 0.0, 1.0, 0.0, false },
+    { kTerrainErosionParamId, "Terrain Erosion", 0.0, 1.0, 0.0, false },
+    { kTerrainDomainWarpParamId, "Terrain Domain Warp", 0.0, 1.0, 0.0, false },
+    { kTerrainTwistParamId, "Terrain Twist", -1.0, 1.0, 0.0, false },
+    { kTerrainRoughnessParamId, "Terrain Roughness", 0.0, 1.0, 0.50, false },
+    { kTerrainReliefParamId, "Terrain Relief", 0.0, 1.0, 1.0, false },
+    { kTerrainReadParamId, "Terrain Read", 0.0, 9.0, 0.0, true },
+    { kTerrainReadMixParamId, "Terrain Read Mix", 0.0, 1.0, 0.50, false },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
@@ -436,6 +496,20 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kSelectedSourceParamId: *value = p.selectedSource + 1u; return true;
     case kRateSpreadParamId: *value = p.rateSpread; return true;
     case kRateDeviationParamId: *value = p.rateDeviation; return true;
+    case kTerrainFormParamId: *value = static_cast<uint32_t>(p.terrainForm); return true;
+    case kTerrainFacetParamId: *value = p.terrainFacet; return true;
+    case kTerrainBevelParamId: *value = p.terrainBevel; return true;
+    case kTerrainOrientationParamId: *value = p.terrainOrientation; return true;
+    case kTerrainTerraceParamId: *value = p.terrainTerrace; return true;
+    case kTerrainTerraceStepsParamId: *value = p.terrainTerraceSteps; return true;
+    case kTerrainRidgeParamId: *value = p.terrainRidge; return true;
+    case kTerrainErosionParamId: *value = p.terrainErosion; return true;
+    case kTerrainDomainWarpParamId: *value = p.terrainDomainWarp; return true;
+    case kTerrainTwistParamId: *value = p.terrainTwist; return true;
+    case kTerrainRoughnessParamId: *value = p.terrainRoughness; return true;
+    case kTerrainReliefParamId: *value = p.terrainRelief; return true;
+    case kTerrainReadParamId: *value = static_cast<uint32_t>(p.terrainRead); return true;
+    case kTerrainReadMixParamId: *value = p.terrainReadMix; return true;
     default: return false;
     }
 }
@@ -447,11 +521,15 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kPointsParamId) std::snprintf(display, size, "%.0f", value);
     else if (id == kOrbitParamId) std::snprintf(display, size, "%s", orbitName(static_cast<uint32_t>(std::lround(value))));
     else if (id == kPaletteParamId) std::snprintf(display, size, "%s", paletteName(static_cast<uint32_t>(std::lround(value))));
+    else if (id == kTerrainFormParamId) std::snprintf(display, size, "%s", formName(static_cast<uint32_t>(std::lround(value))));
+    else if (id == kTerrainReadParamId) std::snprintf(display, size, "%s", readName(static_cast<uint32_t>(std::lround(value))));
     else if (id == kPlaybackParamId) std::snprintf(display, size, "%s", playbackName(static_cast<uint32_t>(std::lround(value))));
     else if (id == kSyncParamId) std::snprintf(display, size, "%s", syncName(static_cast<uint32_t>(std::lround(value))));
     else if (id == kAzimuthParamId || id == kElevationParamId || id == kAzimuthWarpParamId || id == kElevationWarpParamId) std::snprintf(display, size, "%+.1f deg", value);
     else if (id == kInputParamId || id == kOutputParamId) std::snprintf(display, size, "%+.1f dB", value);
-    else if (id == kTraversalParamId || id == kTerrainDepthParamId || id == kLayerSpreadParamId || id == kDistanceWarpParamId || id == kFoldParamId || id == kSmoothingParamId || id == kPhaseParamId || id == kPhaseSpreadParamId || id == kEaseParamId || id == kDopplerParamId || id == kAirParamId || id == kRateSpreadParamId || id == kRateDeviationParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
+    else if (id == kTerrainOrientationParamId || id == kTerrainTwistParamId) std::snprintf(display, size, "%+.0f deg", value * 180.0);
+    else if (id == kTerrainTerraceStepsParamId) std::snprintf(display, size, "%.0f", value);
+    else if (id == kTraversalParamId || id == kTerrainDepthParamId || id == kLayerSpreadParamId || id == kDistanceWarpParamId || id == kFoldParamId || id == kSmoothingParamId || id == kPhaseParamId || id == kPhaseSpreadParamId || id == kEaseParamId || id == kDopplerParamId || id == kAirParamId || id == kRateSpreadParamId || id == kRateDeviationParamId || id == kTerrainFacetParamId || id == kTerrainBevelParamId || id == kTerrainTerraceParamId || id == kTerrainRidgeParamId || id == kTerrainErosionParamId || id == kTerrainDomainWarpParamId || id == kTerrainRoughnessParamId || id == kTerrainReliefParamId || id == kTerrainReadMixParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
     else if (id == kRateParamId) {
         const double period = 1.0 / std::max(0.000001, value);
         if (period >= 3600.0) std::snprintf(display, size, "%.1f h/cycle", period / 3600.0);
@@ -466,10 +544,52 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
+    static constexpr const char* orbitNames[] { "DRIFT", "LISSAJOUS", "SPIRAL", "FOLD" };
+    static constexpr const char* paletteNames[] { "HARMONIC", "FBM", "CELL", "VOT", "RIDGES", "DUNES", "CRATERS", "TECTONIC" };
+    static constexpr const char* playbackNames[] { "OFF", "RUN", "SCRUB" };
+    static constexpr const char* syncNames[] { "FREE", "SYNC" };
+    static constexpr const char* formNames[] { "SPHERE", "TETRA", "CUBE", "OCTA", "DODECA", "ICOSA" };
+    static constexpr const char* readNames[] {
+        "HEIGHT", "EDGE", "CURVE", "BLEND", "GRADIENT",
+        "RIDGE", "VALLEY", "NORMAL", "CROSS", "VECTOR",
+    };
+    const char* const* names = nullptr;
+    uint32_t nameCount = 0u;
+    if (id == kOrbitParamId) { names = orbitNames; nameCount = static_cast<uint32_t>(std::size(orbitNames)); }
+    else if (id == kPaletteParamId) { names = paletteNames; nameCount = static_cast<uint32_t>(std::size(paletteNames)); }
+    else if (id == kPlaybackParamId) { names = playbackNames; nameCount = static_cast<uint32_t>(std::size(playbackNames)); }
+    else if (id == kSyncParamId) { names = syncNames; nameCount = static_cast<uint32_t>(std::size(syncNames)); }
+    else if (id == kTerrainFormParamId) { names = formNames; nameCount = static_cast<uint32_t>(std::size(formNames)); }
+    else if (id == kTerrainReadParamId) { names = readNames; nameCount = static_cast<uint32_t>(std::size(readNames)); }
+    if (names) {
+        for (uint32_t index = 0u; index < nameCount; ++index) {
+            if (std::strcmp(display, names[index]) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
     *value = std::atof(display);
+    if (id == kRateParamId) {
+        if (std::strstr(display, "h/cycle")) *value = 1.0 / std::max(0.000001, *value * 3600.0);
+        else if (std::strstr(display, "min/cycle")) *value = 1.0 / std::max(0.000001, *value * 60.0);
+        else if (std::strstr(display, "s/cycle")) *value = 1.0 / std::max(0.000001, *value);
+        return true;
+    }
+    const bool percent = id == kTraversalParamId || id == kTerrainDepthParamId || id == kLayerSpreadParamId
+        || id == kDistanceWarpParamId || id == kFoldParamId || id == kSmoothingParamId
+        || id == kPhaseParamId || id == kPhaseSpreadParamId || id == kEaseParamId
+        || id == kDopplerParamId || id == kAirParamId || id == kRateSpreadParamId
+        || id == kRateDeviationParamId || id == kTerrainFacetParamId || id == kTerrainBevelParamId
+        || id == kTerrainTerraceParamId || id == kTerrainRidgeParamId || id == kTerrainErosionParamId
+        || id == kTerrainDomainWarpParamId || id == kTerrainRoughnessParamId || id == kTerrainReliefParamId
+        || id == kTerrainReadMixParamId;
+    if (percent) *value *= 0.01;
+    if (id == kTerrainOrientationParamId || id == kTerrainTwistParamId) *value /= 180.0;
     return true;
 }
 
@@ -517,10 +637,19 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(version), sizeof(state) - sizeof(version))) return false;
         p->params = state.params;
+    } else if (version == 4u) {
+        p->params = {};
+        constexpr size_t kV4ParamsSize = offsetof(s3g::AmbiTerrainNavigatorParams, terrainRoughness);
+        if (!readExact(stream, &p->params, kV4ParamsSize)) return false;
+    } else if (version == 3u) {
+        p->params = {};
+        constexpr size_t kV3ParamsSize = offsetof(s3g::AmbiTerrainNavigatorParams, terrainForm);
+        if (!readExact(stream, &p->params, kV3ParamsSize)) return false;
     } else if (version == 2u) {
         SavedStateV2 state {};
         state.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(version), sizeof(state) - sizeof(version))) return false;
+        p->params = {};
         const auto& old = state.params;
         copyV1Params(old);
         p->params.playback = old.playback;
@@ -537,6 +666,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         SavedStateV1 state {};
         state.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(version), sizeof(state) - sizeof(version))) return false;
+        p->params = {};
         copyV1Params(state.params);
     } else {
         return false;
@@ -572,6 +702,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     double _viewAzDeg;
     double _viewElDeg;
     double _viewZoom;
+    int _surfacePage;
     int _openMenu;
     int _hoverMenuItem;
     uint32_t _menuItemCount;
@@ -595,6 +726,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         _viewAzDeg = 90.0;
         _viewElDeg = 0.0;
         _viewZoom = 1.0;
+        _surfacePage = 0;
         _openMenu = 0;
         _hoverMenuItem = -1;
         _menuItemCount = 0u;
@@ -692,6 +824,14 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     return NSMakeRect(start + static_cast<CGFloat>(index) * (w + gap), rect.origin.y + 3.0, w, 16.0);
 }
 
+- (NSRect)pathTabRect:(int)index
+{
+    static constexpr CGFloat starts[] { 638.0, 682.0, 730.0, 774.0, 822.0 };
+    static constexpr CGFloat widths[] { 40.0, 44.0, 40.0, 44.0, 42.0 };
+    const int safe = std::clamp(index, 0, 4);
+    return NSMakeRect(starts[safe], 68.0, widths[safe], 16.0);
+}
+
 - (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
@@ -704,6 +844,14 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 {
     static NSString* labels[] = { @"-", @"+" };
     for (int i = 0; i < 2; ++i) s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i inRect:rect], rect, labels[i], false, attrs, style);
+}
+
+- (void)drawPathTabsWithAttrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
+{
+    static NSString* labels[] = { @"PATH", @"FORM", @"SKIN", @"WARP", @"READ" };
+    const NSRect tabHeader = NSMakeRect(630, 63, 250, 21);
+    for (int index = 0; index < 5; ++index)
+        s3g::clap_gui::drawHeaderButton([self pathTabRect:index], tabHeader, labels[index], index == _surfacePage, attrs, style);
 }
 
 - (s3g::Vec3)worldPoint:(const s3g::AmbiTerrainPoint&)point
@@ -857,19 +1005,31 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     s3g::clap_gui::drawMenu(name, [self valueText:param value:[self paramValue:param]], y, attrs, s3g::clap_gui::softValueAttrs(), style, 646.0, 738.0, 126.0);
 }
 
+- (BOOL)point:(NSPoint)point isInControlRowAtY:(CGFloat)y
+{
+    return NSPointInRect(point, NSMakeRect(626.0, y - 8.0, 266.0, 24.0));
+}
+
 - (CGFloat)menuRowY:(int)menu
 {
     switch (menu) {
-    case 1: return 104.0;
-    case 2: return 156.0;
-    case 3: return 182.0;
+    case 1: return 130.0;
+    case 2: return 182.0;
+    case 3: return 104.0;
     case 4: return 414.0;
     case 5: return 436.0;
+    case 6: return 104.0;
+    case 7: return 104.0;
     default: return 0.0;
     }
 }
 
 - (CGFloat)menuY { return [self menuRowY:_openMenu] + 17.0; }
+
+- (NSRect)menuControlRect:(int)menu
+{
+    return NSMakeRect(738.0, [self menuRowY:menu] - 1.0, 126.0, 17.0);
+}
 
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
@@ -879,6 +1039,11 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     static NSString* paletteItems[] = { @"HARMONIC", @"FBM", @"CELL", @"VOT", @"RIDGES", @"DUNES", @"CRATERS", @"TECTONIC" };
     static NSString* playbackItems[] = { @"OFF", @"RUN", @"SCRUB" };
     static NSString* syncItems[] = { @"FREE", @"SYNC" };
+    static NSString* formItems[] = { @"SPHERE", @"TETRA", @"CUBE", @"OCTA", @"DODECA", @"ICOSA" };
+    static NSString* readItems[] = {
+        @"HEIGHT", @"EDGE", @"CURVE", @"BLEND", @"GRADIENT",
+        @"RIDGE", @"VALLEY", @"NORMAL", @"CROSS", @"VECTOR",
+    };
     NSString* const* items = orderItems;
     int selected = 0;
     if (_openMenu == 1) {
@@ -901,6 +1066,14 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         items = syncItems;
         selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.syncMode));
         _menuItemCount = 2u;
+    } else if (_openMenu == 6) {
+        items = formItems;
+        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.terrainForm));
+        _menuItemCount = 6u;
+    } else if (_openMenu == 7) {
+        items = readItems;
+        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.terrainRead));
+        _menuItemCount = 10u;
     }
     const CGFloat itemH = 18.0;
     s3g::clap_gui::drawDropdownMenu(NSMakeRect(738.0, [self menuY], 126.0, itemH * _menuItemCount),
@@ -926,19 +1099,43 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     [self drawZoomButtonsInRect:fieldPanel attrs:valueAttrs style:style];
     [self drawField:[self fieldRect] attrs:valueAttrs style:style];
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 330, style);
-    s3g::clap_gui::drawPanelHeader(@"PATH", true, 630, 42, 250, 21, labelAttrs, style);
+    s3g::clap_gui::drawPanelHeader(@"PATH / TERRAIN", true, 630, 42, 250, 21, labelAttrs, style);
+    [self drawPathTabsWithAttrs:valueAttrs style:style];
     s3g::clap_gui::drawPanelFrame(630, 384, 250, 320, style);
     s3g::clap_gui::drawPanelHeader(@"MOTION", true, 630, 384, 250, 21, labelAttrs, style);
-    [self drawSlider:@"INPUTS" param:kPointsParamId y:78 attrs:labelAttrs style:style];
-    [self drawMenu:@"ORDER" param:kOrderParamId y:104 attrs:labelAttrs style:style];
-    [self drawSlider:@"SOURCE" param:kSelectedSourceParamId y:130 attrs:labelAttrs style:style];
-    [self drawMenu:@"TRACE" param:kOrbitParamId y:156 attrs:labelAttrs style:style];
-    [self drawMenu:@"SKIN" param:kPaletteParamId y:182 attrs:labelAttrs style:style];
-    [self drawSlider:@"AZIM" param:kAzimuthParamId y:208 attrs:labelAttrs style:style];
-    [self drawSlider:@"ELEV" param:kElevationParamId y:234 attrs:labelAttrs style:style];
-    [self drawSlider:@"DEPTH" param:kTerrainDepthParamId y:260 attrs:labelAttrs style:style];
-    [self drawSlider:@"TRAVERSE" param:kTraversalParamId y:286 attrs:labelAttrs style:style];
-    [self drawSlider:@"FOLD" param:kFoldParamId y:312 attrs:labelAttrs style:style];
+    if (_surfacePage == 0) {
+        [self drawSlider:@"INPUTS" param:kPointsParamId y:104 attrs:labelAttrs style:style];
+        [self drawMenu:@"ORDER" param:kOrderParamId y:130 attrs:labelAttrs style:style];
+        [self drawSlider:@"SOURCE" param:kSelectedSourceParamId y:156 attrs:labelAttrs style:style];
+        [self drawMenu:@"TRACE" param:kOrbitParamId y:182 attrs:labelAttrs style:style];
+        [self drawSlider:@"AZIM" param:kAzimuthParamId y:208 attrs:labelAttrs style:style];
+        [self drawSlider:@"ELEV" param:kElevationParamId y:234 attrs:labelAttrs style:style];
+        [self drawSlider:@"TRAVERSE" param:kTraversalParamId y:260 attrs:labelAttrs style:style];
+    } else if (_surfacePage == 1) {
+        [self drawMenu:@"FORM" param:kTerrainFormParamId y:104 attrs:labelAttrs style:style];
+        [self drawSlider:@"FACET" param:kTerrainFacetParamId y:130 attrs:labelAttrs style:style];
+        [self drawSlider:@"BEVEL" param:kTerrainBevelParamId y:156 attrs:labelAttrs style:style];
+        [self drawSlider:@"ORIENT" param:kTerrainOrientationParamId y:182 attrs:labelAttrs style:style];
+    } else if (_surfacePage == 2) {
+        [self drawMenu:@"SKIN" param:kPaletteParamId y:104 attrs:labelAttrs style:style];
+        [self drawSlider:@"DEPTH" param:kTerrainDepthParamId y:130 attrs:labelAttrs style:style];
+        [self drawSlider:@"ROUGH" param:kTerrainRoughnessParamId y:156 attrs:labelAttrs style:style];
+        [self drawSlider:@"FOLD" param:kFoldParamId y:182 attrs:labelAttrs style:style];
+        [self drawSlider:@"RELIEF" param:kTerrainReliefParamId y:208 attrs:labelAttrs style:style];
+    } else if (_surfacePage == 3) {
+        [self drawSlider:@"TERRACE" param:kTerrainTerraceParamId y:104 attrs:labelAttrs style:style];
+        [self drawSlider:@"STEPS" param:kTerrainTerraceStepsParamId y:130 attrs:labelAttrs style:style];
+        [self drawSlider:@"RIDGE" param:kTerrainRidgeParamId y:156 attrs:labelAttrs style:style];
+        [self drawSlider:@"ERODE" param:kTerrainErosionParamId y:182 attrs:labelAttrs style:style];
+        [self drawSlider:@"DOMAIN" param:kTerrainDomainWarpParamId y:208 attrs:labelAttrs style:style];
+        [self drawSlider:@"TWIST" param:kTerrainTwistParamId y:234 attrs:labelAttrs style:style];
+    } else {
+        [self drawMenu:@"READ" param:kTerrainReadParamId y:104 attrs:labelAttrs style:style];
+        [self drawSlider:@"MIX" param:kTerrainReadMixParamId y:130 attrs:labelAttrs style:style];
+        [self drawSlider:@"AZ WARP" param:kAzimuthWarpParamId y:156 attrs:labelAttrs style:style];
+        [self drawSlider:@"EL WARP" param:kElevationWarpParamId y:182 attrs:labelAttrs style:style];
+        [self drawSlider:@"DIST WARP" param:kDistanceWarpParamId y:208 attrs:labelAttrs style:style];
+    }
     [self drawSlider:@"OUTPUT" param:kOutputParamId y:354 attrs:labelAttrs style:style];
 
     [self drawMenu:@"PLAY" param:kPlaybackParamId y:414 attrs:labelAttrs style:style];
@@ -960,16 +1157,46 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 - (clap_id)paramAtPoint:(NSPoint)pt
 {
     struct Row { clap_id id; CGFloat y; };
-    static constexpr Row rows[] {
-        { kPointsParamId, 78 }, { kSelectedSourceParamId, 130 },
-        { kAzimuthParamId, 208 }, { kElevationParamId, 234 }, { kTerrainDepthParamId, 260 },
-        { kTraversalParamId, 286 }, { kFoldParamId, 312 }, { kOutputParamId, 354 },
+    static constexpr Row pathRows[] {
+        { kPointsParamId, 104 }, { kSelectedSourceParamId, 156 },
+        { kAzimuthParamId, 208 }, { kElevationParamId, 234 }, { kTraversalParamId, 260 },
+    };
+    static constexpr Row formRows[] {
+        { kTerrainFacetParamId, 130 }, { kTerrainBevelParamId, 156 },
+        { kTerrainOrientationParamId, 182 },
+    };
+    static constexpr Row skinRows[] {
+        { kTerrainDepthParamId, 130 }, { kTerrainRoughnessParamId, 156 },
+        { kFoldParamId, 182 }, { kTerrainReliefParamId, 208 },
+    };
+    static constexpr Row warpRows[] {
+        { kTerrainTerraceParamId, 104 }, { kTerrainTerraceStepsParamId, 130 },
+        { kTerrainRidgeParamId, 156 }, { kTerrainErosionParamId, 182 },
+        { kTerrainDomainWarpParamId, 208 }, { kTerrainTwistParamId, 234 },
+    };
+    static constexpr Row readRows[] {
+        { kTerrainReadMixParamId, 130 }, { kAzimuthWarpParamId, 156 },
+        { kElevationWarpParamId, 182 }, { kDistanceWarpParamId, 208 },
+    };
+    static constexpr Row motionRows[] {
         { kDivisionParamId, 458 }, { kRateSpreadParamId, 480 }, { kRateDeviationParamId, 502 },
         { kRateParamId, 528 }, { kPhaseParamId, 550 },
         { kPhaseSpreadParamId, 572 }, { kSmoothingParamId, 594 }, { kEaseParamId, 616 },
         { kDistanceScaleParamId, 638 }, { kDopplerParamId, 660 }, { kAirParamId, 682 },
     };
-    for (const auto& row : rows) if (NSPointInRect(pt, NSMakeRect(626, row.y - 8, 266, 24))) return row.id;
+    if ([self point:pt isInControlRowAtY:354.0]) return kOutputParamId;
+    if (_surfacePage == 0) {
+        for (const auto& row : pathRows) if ([self point:pt isInControlRowAtY:row.y]) return row.id;
+    } else if (_surfacePage == 1) {
+        for (const auto& row : formRows) if ([self point:pt isInControlRowAtY:row.y]) return row.id;
+    } else if (_surfacePage == 2) {
+        for (const auto& row : skinRows) if ([self point:pt isInControlRowAtY:row.y]) return row.id;
+    } else if (_surfacePage == 3) {
+        for (const auto& row : warpRows) if ([self point:pt isInControlRowAtY:row.y]) return row.id;
+    } else {
+        for (const auto& row : readRows) if ([self point:pt isInControlRowAtY:row.y]) return row.id;
+    }
+    for (const auto& row : motionRows) if ([self point:pt isInControlRowAtY:row.y]) return row.id;
     return 0;
 }
 
@@ -988,6 +1215,15 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    for (int index = 0; index < 5; ++index) {
+        if (NSPointInRect(pt, [self pathTabRect:index])) {
+            _surfacePage = index;
+            _openMenu = 0;
+            _hoverMenuItem = -1;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
     if (_openMenu > 0) {
         const CGFloat itemH = 18.0;
         const int hit = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(738.0, [self menuY], 126.0, itemH * _menuItemCount), itemH, _menuItemCount);
@@ -997,6 +1233,8 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
             else if (_openMenu == 3) applyParam(*_plugin, kPaletteParamId, hit);
             else if (_openMenu == 4) applyParam(*_plugin, kPlaybackParamId, hit);
             else if (_openMenu == 5) applyParam(*_plugin, kSyncParamId, hit);
+            else if (_openMenu == 6) applyParam(*_plugin, kTerrainFormParamId, hit);
+            else if (_openMenu == 7) applyParam(*_plugin, kTerrainReadParamId, hit);
         }
         _openMenu = 0;
         _hoverMenuItem = -1;
@@ -1009,11 +1247,18 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         _hoverMenuItem = -1;
         [self setNeedsDisplay:YES];
     };
-    if (NSPointInRect(pt, NSMakeRect(738, 103, 126, 17))) { openMenu(1, 7); return; }
-    if (NSPointInRect(pt, NSMakeRect(738, 155, 126, 17))) { openMenu(2, 4); return; }
-    if (NSPointInRect(pt, NSMakeRect(738, 181, 126, 17))) { openMenu(3, 8); return; }
-    if (NSPointInRect(pt, NSMakeRect(738, 413, 126, 17))) { openMenu(4, 3); return; }
-    if (NSPointInRect(pt, NSMakeRect(738, 435, 126, 17))) { openMenu(5, 2); return; }
+    if (_surfacePage == 0) {
+        if (NSPointInRect(pt, [self menuControlRect:1])) { openMenu(1, 7); return; }
+        if (NSPointInRect(pt, [self menuControlRect:2])) { openMenu(2, 4); return; }
+    } else if (_surfacePage == 1) {
+        if (NSPointInRect(pt, [self menuControlRect:6])) { openMenu(6, 6); return; }
+    } else if (_surfacePage == 2) {
+        if (NSPointInRect(pt, [self menuControlRect:3])) { openMenu(3, 8); return; }
+    } else if (_surfacePage == 4) {
+        if (NSPointInRect(pt, [self menuControlRect:7])) { openMenu(7, 10); return; }
+    }
+    if (NSPointInRect(pt, [self menuControlRect:4])) { openMenu(4, 3); return; }
+    if (NSPointInRect(pt, [self menuControlRect:5])) { openMenu(5, 2); return; }
     const NSRect fieldPanel = [self fieldPanelRect];
     for (int i = 0; i < 3; ++i) {
         if (NSPointInRect(pt, [self viewButtonRect:i inRect:fieldPanel])) {
@@ -1140,7 +1385,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.4.1-pre",
-    "64-point ambisonic navigator whose AED source points traverse nested procedural wave terrains.",
+    "64-point ambisonic navigator whose AED source points traverse a deformable procedural terrain shell.",
     features
 };
 

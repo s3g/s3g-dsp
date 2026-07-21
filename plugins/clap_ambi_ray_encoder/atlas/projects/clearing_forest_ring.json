@@ -1,0 +1,1167 @@
+{
+  "format": "s3g-ray-sketch",
+  "version": 1,
+  "tool": "s3g-mc Ray Sketch",
+  "target_process": "s3g Ambi Ray Encoder",
+  "interpretation": "moving-source acoustic map for architectural, natural, open, or imaginary spaces",
+  "space_family": "clearing",
+  "space_seed": 660109,
+  "room_x": 23.9,
+  "room_y": 23.8,
+  "room_z": 17.7,
+  "material_preset": "vegetation",
+  "absorption": 0.95,
+  "scattering": 0.88,
+  "tail_soften": 0.82,
+  "irregularity": 0.51,
+  "surface_roughness": 0.65,
+  "vertical_variation": 0.3,
+  "openness": 0.91,
+  "space_shape": "side_chamber",
+  "room_shape": "wedge",
+  "topology_bias": 0.31,
+  "branch_family": "clearing",
+  "room_polygon": [
+    {
+      "x": 11.95,
+      "y": 2.582
+    },
+    {
+      "x": 15.442,
+      "y": 2.346
+    },
+    {
+      "x": 18.38,
+      "y": 4.269
+    },
+    {
+      "x": 20.665,
+      "y": 6.889
+    },
+    {
+      "x": 20.942,
+      "y": 10.321
+    },
+    {
+      "x": 19.865,
+      "y": 13.29
+    },
+    {
+      "x": 19.567,
+      "y": 16.279
+    },
+    {
+      "x": 18.346,
+      "y": 19.49
+    },
+    {
+      "x": 15.329,
+      "y": 21.144
+    },
+    {
+      "x": 11.95,
+      "y": 21.303
+    },
+    {
+      "x": 8.829,
+      "y": 20.439
+    },
+    {
+      "x": 6.561,
+      "y": 18.295
+    },
+    {
+      "x": 4.374,
+      "y": 16.256
+    },
+    {
+      "x": 2.67,
+      "y": 13.53
+    },
+    {
+      "x": 2.554,
+      "y": 10.25
+    },
+    {
+      "x": 3.208,
+      "y": 6.874
+    },
+    {
+      "x": 5.612,
+      "y": 4.378
+    },
+    {
+      "x": 8.829,
+      "y": 3.36
+    }
+  ],
+  "space": {
+    "family": "clearing",
+    "seed": 660109,
+    "topology": "connected_regions",
+    "branch_family_mode": "clearing",
+    "primary_polygon_xy_m": [
+      {
+        "x": 11.95,
+        "y": 2.582
+      },
+      {
+        "x": 15.442,
+        "y": 2.346
+      },
+      {
+        "x": 18.38,
+        "y": 4.269
+      },
+      {
+        "x": 20.665,
+        "y": 6.889
+      },
+      {
+        "x": 20.942,
+        "y": 10.321
+      },
+      {
+        "x": 19.865,
+        "y": 13.29
+      },
+      {
+        "x": 19.567,
+        "y": 16.279
+      },
+      {
+        "x": 18.346,
+        "y": 19.49
+      },
+      {
+        "x": 15.329,
+        "y": 21.144
+      },
+      {
+        "x": 11.95,
+        "y": 21.303
+      },
+      {
+        "x": 8.829,
+        "y": 20.439
+      },
+      {
+        "x": 6.561,
+        "y": 18.295
+      },
+      {
+        "x": 4.374,
+        "y": 16.256
+      },
+      {
+        "x": 2.67,
+        "y": 13.53
+      },
+      {
+        "x": 2.554,
+        "y": 10.25
+      },
+      {
+        "x": 3.208,
+        "y": 6.874
+      },
+      {
+        "x": 5.612,
+        "y": 4.378
+      },
+      {
+        "x": 8.829,
+        "y": 3.36
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": 2.554,
+        "z": 18.134
+      },
+      {
+        "x": 3.703,
+        "z": 17.975
+      },
+      {
+        "x": 4.852,
+        "z": 17.724
+      },
+      {
+        "x": 6.002,
+        "z": 17.418
+      },
+      {
+        "x": 7.151,
+        "z": 17.105
+      },
+      {
+        "x": 8.3,
+        "z": 16.834
+      },
+      {
+        "x": 9.449,
+        "z": 16.642
+      },
+      {
+        "x": 10.599,
+        "z": 16.551
+      },
+      {
+        "x": 11.748,
+        "z": 16.566
+      },
+      {
+        "x": 12.897,
+        "z": 16.671
+      },
+      {
+        "x": 14.047,
+        "z": 16.84
+      },
+      {
+        "x": 15.196,
+        "z": 17.038
+      },
+      {
+        "x": 16.345,
+        "z": 17.235
+      },
+      {
+        "x": 17.495,
+        "z": 17.405
+      },
+      {
+        "x": 18.644,
+        "z": 17.537
+      },
+      {
+        "x": 19.793,
+        "z": 17.63
+      },
+      {
+        "x": 20.942,
+        "z": 17.691
+      }
+    ],
+    "irregularity": 0.51,
+    "roughness": 0.65,
+    "vertical_variation": 0.3,
+    "openness": 0.91,
+    "acoustic_volume_m3": 4978.764,
+    "acoustic_surface_m2": 1651.53,
+    "regions": [
+      {
+        "id": "primary",
+        "kind": "primary",
+        "family": "clearing",
+        "level": 0,
+        "parent_region": null,
+        "attachment": null,
+        "base_z_m": 0,
+        "height_m": 17.7,
+        "polygon_xy_m": [
+          {
+            "x": 11.95,
+            "y": 2.5816
+          },
+          {
+            "x": 15.442,
+            "y": 2.346
+          },
+          {
+            "x": 18.3804,
+            "y": 4.2687
+          },
+          {
+            "x": 20.6653,
+            "y": 6.8893
+          },
+          {
+            "x": 20.9425,
+            "y": 10.321
+          },
+          {
+            "x": 19.865,
+            "y": 13.2898
+          },
+          {
+            "x": 19.567,
+            "y": 16.2793
+          },
+          {
+            "x": 18.3459,
+            "y": 19.4905
+          },
+          {
+            "x": 15.3287,
+            "y": 21.144
+          },
+          {
+            "x": 11.95,
+            "y": 21.3034
+          },
+          {
+            "x": 8.8289,
+            "y": 20.4392
+          },
+          {
+            "x": 6.5611,
+            "y": 18.2954
+          },
+          {
+            "x": 4.3742,
+            "y": 16.2556
+          },
+          {
+            "x": 2.6697,
+            "y": 13.5295
+          },
+          {
+            "x": 2.5536,
+            "y": 10.2501
+          },
+          {
+            "x": 3.2085,
+            "y": 6.8742
+          },
+          {
+            "x": 5.6121,
+            "y": 4.3784
+          },
+          {
+            "x": 8.8287,
+            "y": 3.3601
+          }
+        ]
+      },
+      {
+        "id": "region-1",
+        "kind": "branch",
+        "family": "clearing",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 6.018,
+        "polygon_xy_m": [
+          {
+            "x": 11.95,
+            "y": 2.5816
+          },
+          {
+            "x": 15.0928,
+            "y": 2.3696
+          },
+          {
+            "x": 14.9858,
+            "y": 1.5098
+          },
+          {
+            "x": 14.7579,
+            "y": 0.7201
+          },
+          {
+            "x": 14.4045,
+            "y": 0.1109
+          },
+          {
+            "x": 13.9999,
+            "y": -0.3985
+          },
+          {
+            "x": 13.5309,
+            "y": -0.5793
+          },
+          {
+            "x": 13.0873,
+            "y": -0.4215
+          },
+          {
+            "x": 12.6772,
+            "y": -0.1891
+          },
+          {
+            "x": 12.2934,
+            "y": 0.1915
+          },
+          {
+            "x": 12.061,
+            "y": 0.8941
+          },
+          {
+            "x": 11.9918,
+            "y": 1.7356
+          }
+        ]
+      },
+      {
+        "id": "region-2",
+        "kind": "branch",
+        "family": "clearing",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 6.018,
+        "polygon_xy_m": [
+          {
+            "x": 12.2992,
+            "y": 2.5581
+          },
+          {
+            "x": 15.442,
+            "y": 2.346
+          },
+          {
+            "x": 15.3008,
+            "y": 1.5032
+          },
+          {
+            "x": 15.0614,
+            "y": 0.7481
+          },
+          {
+            "x": 14.7423,
+            "y": 0.1215
+          },
+          {
+            "x": 14.3658,
+            "y": -0.4047
+          },
+          {
+            "x": 13.9152,
+            "y": -0.6779
+          },
+          {
+            "x": 13.458,
+            "y": -0.5549
+          },
+          {
+            "x": 13.0218,
+            "y": -0.3103
+          },
+          {
+            "x": 12.6244,
+            "y": 0.1202
+          },
+          {
+            "x": 12.3753,
+            "y": 0.8401
+          },
+          {
+            "x": 12.2424,
+            "y": 1.6689
+          }
+        ]
+      }
+    ],
+    "portals": [
+      {
+        "id": "portal-1",
+        "from_region": "primary",
+        "to_region": "region-1",
+        "attachment": "front",
+        "shape": "rect",
+        "center_m": {
+          "x": 13.5214,
+          "y": 2.4756,
+          "z": 3.009
+        },
+        "normal": {
+          "x": -0.06731,
+          "y": -0.99773,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.99773,
+          "y": -0.06731,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.5435,
+        "height_m": 4.333,
+        "area_m2": 6.68774,
+        "transmission": 0.49477,
+        "outline_xyz_m": [
+          {
+            "x": 12.7514,
+            "y": 2.5275,
+            "z": 0.8425
+          },
+          {
+            "x": 14.2914,
+            "y": 2.4237,
+            "z": 0.8425
+          },
+          {
+            "x": 14.2914,
+            "y": 2.4237,
+            "z": 5.1755
+          },
+          {
+            "x": 12.7514,
+            "y": 2.5275,
+            "z": 5.1755
+          }
+        ]
+      },
+      {
+        "id": "portal-2",
+        "from_region": "primary",
+        "to_region": "region-2",
+        "attachment": "front",
+        "shape": "rect",
+        "center_m": {
+          "x": 13.8706,
+          "y": 2.452,
+          "z": 3.009
+        },
+        "normal": {
+          "x": -0.06731,
+          "y": -0.99773,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.99773,
+          "y": -0.06731,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.5435,
+        "height_m": 4.333,
+        "area_m2": 6.68774,
+        "transmission": 0.49477,
+        "outline_xyz_m": [
+          {
+            "x": 13.1006,
+            "y": 2.504,
+            "z": 0.8425
+          },
+          {
+            "x": 14.6406,
+            "y": 2.4001,
+            "z": 0.8425
+          },
+          {
+            "x": 14.6406,
+            "y": 2.4001,
+            "z": 5.1755
+          },
+          {
+            "x": 13.1006,
+            "y": 2.504,
+            "z": 5.1755
+          }
+        ]
+      }
+    ]
+  },
+  "chamber_shape": "skew",
+  "chamber_side": "front",
+  "exterior_opening": {
+    "enabled": true,
+    "side": "front",
+    "count": 2,
+    "position": 0.63,
+    "spread": 0.18,
+    "width": 0.18,
+    "opening_m": 1.26,
+    "leak": 0.84,
+    "leak_factor": 0.952,
+    "interpretation": "energy escape boundary for late-tail thinning and reduced reflection density",
+    "openings": [
+      {
+        "index": 1,
+        "side": "front",
+        "shape": "rect",
+        "opening_m": 0.63,
+        "base_z_m": 2.096,
+        "height_m": 13.275,
+        "center_m": {
+          "x": 13.836,
+          "y": 2.454,
+          "z": 8.734
+        },
+        "opening_segment": {
+          "x1": 13.521,
+          "y1": 2.476,
+          "x2": 14.15,
+          "y2": 2.433
+        },
+        "outline_xyz_m": [
+          {
+            "x": 13.521,
+            "y": 2.476,
+            "z": 2.096
+          },
+          {
+            "x": 14.15,
+            "y": 2.433,
+            "z": 2.096
+          },
+          {
+            "x": 14.15,
+            "y": 2.433,
+            "z": 15.371
+          },
+          {
+            "x": 13.521,
+            "y": 2.476,
+            "z": 15.371
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "side": "front",
+        "shape": "rect",
+        "opening_m": 0.63,
+        "base_z_m": 2.096,
+        "height_m": 13.275,
+        "center_m": {
+          "x": 14.464,
+          "y": 2.412,
+          "z": 8.734
+        },
+        "opening_segment": {
+          "x1": 14.15,
+          "y1": 2.433,
+          "x2": 14.778,
+          "y2": 2.391
+        },
+        "outline_xyz_m": [
+          {
+            "x": 14.15,
+            "y": 2.433,
+            "z": 2.096
+          },
+          {
+            "x": 14.778,
+            "y": 2.391,
+            "z": 2.096
+          },
+          {
+            "x": 14.778,
+            "y": 2.391,
+            "z": 15.371
+          },
+          {
+            "x": 14.15,
+            "y": 2.433,
+            "z": 15.371
+          }
+        ]
+      }
+    ],
+    "opening_segment": {
+      "x1": 13.521,
+      "y1": 2.476,
+      "x2": 14.15,
+      "y2": 2.433
+    }
+  },
+  "chamber": {
+    "family_mode": "clearing",
+    "material": "earth",
+    "material_mode": "alternating",
+    "material_mix": 0.46,
+    "width": 6.5,
+    "depth": 4,
+    "count": 2,
+    "position": 0.56,
+    "cross_position": 0.5,
+    "heading_deg": 0,
+    "wall_elevation": 0,
+    "nested_chambers": 0,
+    "opening_shape": "rect",
+    "opening_width": 0.49,
+    "opening_height": 0.72,
+    "opening_position_z": 0.5,
+    "coupling": 0.55,
+    "chambers": [
+      {
+        "material_profile": {
+          "material": "earth",
+          "absorption": 0.915,
+          "scattering": 0.881,
+          "tail_soften": 0.533
+        },
+        "index": 1,
+        "level": 0,
+        "family": "clearing",
+        "region_id": "region-1",
+        "parent_region": "primary",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 6.018,
+        "x": 11.95,
+        "y": -0.579,
+        "width": 3.143,
+        "depth": 3.161,
+        "opening_x": 12.751,
+        "opening_y": 2.528,
+        "opening": 1.543,
+        "portal": {
+          "id": "portal-1",
+          "shape": "rect",
+          "center_m": {
+            "x": 13.5214,
+            "y": 2.4756,
+            "z": 3.009
+          },
+          "width_m": 1.5435,
+          "height_m": 4.333,
+          "area_m2": 6.68774,
+          "transmission": 0.49477
+        },
+        "polygon": [
+          {
+            "x": 11.95,
+            "y": 2.582
+          },
+          {
+            "x": 15.093,
+            "y": 2.37
+          },
+          {
+            "x": 14.986,
+            "y": 1.51
+          },
+          {
+            "x": 14.758,
+            "y": 0.72
+          },
+          {
+            "x": 14.404,
+            "y": 0.111
+          },
+          {
+            "x": 14,
+            "y": -0.398
+          },
+          {
+            "x": 13.531,
+            "y": -0.579
+          },
+          {
+            "x": 13.087,
+            "y": -0.421
+          },
+          {
+            "x": 12.677,
+            "y": -0.189
+          },
+          {
+            "x": 12.293,
+            "y": 0.191
+          },
+          {
+            "x": 12.061,
+            "y": 0.894
+          },
+          {
+            "x": 11.992,
+            "y": 1.736
+          }
+        ],
+        "opening_segment": {
+          "x1": 12.751,
+          "y1": 2.528,
+          "x2": 14.291,
+          "y2": 2.424
+        },
+        "side": "front",
+        "shape": "skew"
+      },
+      {
+        "material_profile": {
+          "material": "inherit",
+          "absorption": 0.95,
+          "scattering": 1,
+          "tail_soften": 0.673
+        },
+        "index": 2,
+        "level": 0,
+        "family": "clearing",
+        "region_id": "region-2",
+        "parent_region": "primary",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 6.018,
+        "x": 12.242,
+        "y": -0.678,
+        "width": 3.2,
+        "depth": 3.236,
+        "opening_x": 13.101,
+        "opening_y": 2.504,
+        "opening": 1.543,
+        "portal": {
+          "id": "portal-2",
+          "shape": "rect",
+          "center_m": {
+            "x": 13.8706,
+            "y": 2.452,
+            "z": 3.009
+          },
+          "width_m": 1.5435,
+          "height_m": 4.333,
+          "area_m2": 6.68774,
+          "transmission": 0.49477
+        },
+        "polygon": [
+          {
+            "x": 12.299,
+            "y": 2.558
+          },
+          {
+            "x": 15.442,
+            "y": 2.346
+          },
+          {
+            "x": 15.301,
+            "y": 1.503
+          },
+          {
+            "x": 15.061,
+            "y": 0.748
+          },
+          {
+            "x": 14.742,
+            "y": 0.122
+          },
+          {
+            "x": 14.366,
+            "y": -0.405
+          },
+          {
+            "x": 13.915,
+            "y": -0.678
+          },
+          {
+            "x": 13.458,
+            "y": -0.555
+          },
+          {
+            "x": 13.022,
+            "y": -0.31
+          },
+          {
+            "x": 12.624,
+            "y": 0.12
+          },
+          {
+            "x": 12.375,
+            "y": 0.84
+          },
+          {
+            "x": 12.242,
+            "y": 1.669
+          }
+        ],
+        "opening_segment": {
+          "x1": 13.101,
+          "y1": 2.504,
+          "x2": 14.641,
+          "y2": 2.4
+        },
+        "side": "front",
+        "shape": "skew"
+      }
+    ]
+  },
+  "echo_paths": {
+    "enabled": false,
+    "requested_structure": "off",
+    "resolved_structure": "off",
+    "prominence": 0.58,
+    "persistence": 0.68,
+    "regularity": 0.82,
+    "geometry_driven": true,
+    "event_count": 0,
+    "paths": []
+  },
+  "field_offset": {
+    "x": 0.27,
+    "y": -0.27,
+    "z": 0
+  },
+  "ray_source_normalized": {
+    "x": 0.5,
+    "y": 0.25,
+    "z": 0.5
+  },
+  "ray_grid": {
+    "x": 5,
+    "y": 5,
+    "z": 3,
+    "reflection_slots": 24
+  },
+  "source_distance": 11.55,
+  "direction_spread_deg": 21,
+  "group_variation": 0.48,
+  "surface_contrast": 0.32,
+  "distance_variation": 0.12,
+  "order": 3,
+  "direction_set": "auto",
+  "effective_direction_layout": "practical_8",
+  "groups": [
+    {
+      "group": 1,
+      "azimuth": 45,
+      "elevation": 35.264,
+      "channels": "1-16",
+      "direct_time_ms": 36,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 33
+      },
+      "early_energy": 0.00345,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.921,
+        "scattering": 0.835,
+        "tail_soften": 0.861,
+        "source_distance": 11.542,
+        "direction_spread_deg": 18.4,
+        "pre_delay_ms": 25.74,
+        "rt60": 0.168
+      },
+      "source_position_m": {
+        "x": 11.748,
+        "y": 4.942,
+        "z": 9.067
+      }
+    },
+    {
+      "group": 2,
+      "azimuth": -45,
+      "elevation": 35.264,
+      "channels": "17-32",
+      "direct_time_ms": 31,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 38
+      },
+      "early_energy": 0.00204,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.95,
+        "scattering": 0.896,
+        "tail_soften": 0.806,
+        "source_distance": 11.689,
+        "direction_spread_deg": 21.94,
+        "pre_delay_ms": 20.73,
+        "rt60": 0.168
+      },
+      "source_position_m": {
+        "x": 11.748,
+        "y": 4.942,
+        "z": 9.067
+      }
+    },
+    {
+      "group": 3,
+      "azimuth": 135,
+      "elevation": 35.264,
+      "channels": "33-48",
+      "direct_time_ms": 33,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 41
+      },
+      "early_energy": 0.00218,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.948,
+        "scattering": 0.829,
+        "tail_soften": 0.831,
+        "source_distance": 11.145,
+        "direction_spread_deg": 18.01,
+        "pre_delay_ms": 22.98,
+        "rt60": 0.168
+      },
+      "source_position_m": {
+        "x": 11.748,
+        "y": 4.942,
+        "z": 9.067
+      }
+    },
+    {
+      "group": 4,
+      "azimuth": -135,
+      "elevation": 35.264,
+      "channels": "49-64",
+      "direct_time_ms": 29,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 31
+      },
+      "early_energy": 0.00203,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.95,
+        "scattering": 0.937,
+        "tail_soften": 0.784,
+        "source_distance": 11.131,
+        "direction_spread_deg": 24.34,
+        "pre_delay_ms": 18.72,
+        "rt60": 0.168
+      },
+      "source_position_m": {
+        "x": 11.748,
+        "y": 4.942,
+        "z": 9.067
+      }
+    },
+    {
+      "group": 5,
+      "azimuth": 45,
+      "elevation": -35.264,
+      "channels": "65-80",
+      "direct_time_ms": 30,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 32
+      },
+      "early_energy": 0.0022,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.95,
+        "scattering": 0.841,
+        "tail_soften": 0.795,
+        "source_distance": 11.771,
+        "direction_spread_deg": 18.71,
+        "pre_delay_ms": 19.69,
+        "rt60": 0.168
+      },
+      "source_position_m": {
+        "x": 11.748,
+        "y": 4.942,
+        "z": 9.067
+      }
+    },
+    {
+      "group": 6,
+      "azimuth": -45,
+      "elevation": -35.264,
+      "channels": "81-96",
+      "direct_time_ms": 29,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 29
+      },
+      "early_energy": 0.00302,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.934,
+        "scattering": 0.922,
+        "tail_soften": 0.784,
+        "source_distance": 11.825,
+        "direction_spread_deg": 23.47,
+        "pre_delay_ms": 18.67,
+        "rt60": 0.168
+      },
+      "source_position_m": {
+        "x": 11.748,
+        "y": 4.942,
+        "z": 9.067
+      }
+    },
+    {
+      "group": 7,
+      "azimuth": 135,
+      "elevation": -35.264,
+      "channels": "97-112",
+      "direct_time_ms": 33,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 31
+      },
+      "early_energy": 0.00214,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.95,
+        "scattering": 0.91,
+        "tail_soften": 0.83,
+        "source_distance": 11.673,
+        "direction_spread_deg": 22.76,
+        "pre_delay_ms": 22.96,
+        "rt60": 0.168
+      },
+      "source_position_m": {
+        "x": 11.748,
+        "y": 4.942,
+        "z": 9.067
+      }
+    },
+    {
+      "group": 8,
+      "azimuth": -135,
+      "elevation": -35.264,
+      "channels": "113-128",
+      "direct_time_ms": 35,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 40
+      },
+      "early_energy": 0.00492,
+      "chamber_energy": 0,
+      "branch_energy": 0,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.897,
+        "scattering": 0.867,
+        "tail_soften": 0.852,
+        "source_distance": 11.686,
+        "direction_spread_deg": 20.22,
+        "pre_delay_ms": 24.94,
+        "rt60": 0.168
+      },
+      "source_position_m": {
+        "x": 11.748,
+        "y": 4.942,
+        "z": 9.067
+      }
+    }
+  ],
+  "duration": 1.6,
+  "pre_delay_ms": 22,
+  "early_reflections": 23,
+  "camera": {
+    "azimuth": 33,
+    "elevation": 51,
+    "zoom": 1.11
+  },
+  "estimated_rt60": 0.168,
+  "late_start_seconds": 0.038,
+  "atlas": {
+    "name": "Forest Ring",
+    "category": "Clearing",
+    "description": "An open vegetation ring with low boundary pockets and diffuse distant scatter.",
+    "seed": 660109,
+    "source": "s3g-mc Ray Sketch"
+  }
+}

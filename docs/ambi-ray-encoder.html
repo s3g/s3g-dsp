@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Ambi Ray Encoder</h1>
 
-        <p><code>s3g Ambi Ray Encoder</code> places a mono source and listener inside a sampled room field and produces a 64-channel <code>ACN/SN3D</code> output bus. Motion of either point changes the direct path and early reflection directions and delays; source motion also interpolates the sampled late-room profile.</p>
+        <p><code>s3g Ambi Ray Encoder</code> places a mono source and listener inside a sampled room field and produces a 64-channel <code>ACN/SN3D</code> output bus. Motion of either point changes the direct path and early reflection directions, delays, and Doppler behavior; source motion also interpolates the sampled late-room profile.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -46,6 +46,12 @@
 
         <p>At runtime, the encoder blends the four nearest cells as the source moves. Loaded field data is stored with the REAPER project state, so the original <code>.s3gray</code> file does not need to remain beside the project for recall.</p>
 
+        <h2 id="atlas">Ray Atlas</h2>
+
+        <p><code>ATLAS</code> opens nineteen deterministic spaces generated through the Ray Sketch engine. The collection spans architecture, caves, caverns, tunnels, canyons, clearings, focused echo designs, and abstract connected spaces. Each entry is a complete sampled <code>.s3gray</code> field with stable reflection slots, listener-resolvable bounce points, and a directional late profile.</p>
+
+        <p>Choosing an atlas entry loads its map and authored source and reference-listener positions. The current order, direct/early/late balance, room shaping, movement smoothing, Doppler amount, bypass, and output gain remain in place. Atlas data is embedded into project state exactly like a user-loaded field. Editable Ray Sketch projects and a deterministic generation script are retained with the repository.</p>
+
         <h2 id="interpretation">Musical Interpretation</h2>
 
         <p>Ray Sketch resolves the designed space into a compact map of stable reflection slots and late-room profiles. The plugin owns both live positions. Its direct path is calculated continuously between source and listener, nearby source cells reshape the early and late field, and bounce-aware early paths are recalculated through their wall, floor, ceiling, portal, or echo point as either endpoint moves. Moving either point therefore does not require rebuilding or streaming a new ray trace.</p>
@@ -54,11 +60,15 @@
 
         <h2 id="position">Position and Motion</h2>
 
-        <p><code>SOURCE X/Y/Z</code> and <code>LISTENER X/Y/Z</code> are normalized automation parameters mapped to the loaded field's navigation bounds. The GUI reports both positions in metres. <code>MOVEMENT</code> applies the same smoothing time to both points.</p>
+        <p><code>SOURCE X/Y/Z</code> and <code>LISTENER X/Y/Z</code> are normalized automation parameters mapped to the loaded field's navigation bounds. The GUI reports both positions in metres. <code>MOVEMENT</code> applies the same trajectory smoothing time to both points.</p>
+
+        <p><code>DOPPLER</code> controls pitch motion caused by changing path lengths. At <code>0%</code>, delay heads hold while a point is moving and retarget with a short crossfade after the path settles. <code>50%</code> is the musical default, <code>100%</code> follows propagation timing at the speed of sound, and values through <code>200%</code> exaggerate the shift. Source and listener movement both affect the direct path, and each early reflection receives its own shift from its changing source-to-bounce-to-listener distance.</p>
+
+        <p>The world view uses X right, Y front, and Z up. At the ambisonic boundary, world +X maps to <code>-90</code> degrees on the right, world -X maps to <code>+90</code> degrees on the left, world +Y maps to <code>0</code> degrees in front, and world +Z maps upward. This matches the ACN/SN3D convention used by the other s3g encoders and decoders.</p>
 
         <p>The display places a top view and side view next to each other. Select <code>SRC</code> or <code>LIS</code> in the Position panel, or grab either marker directly, then drag in the top view for X/Y or the side view for X/Z. Solid green lines run from source through an exported amber bounce point to the listener. Dashed cyan events without a defensible bounce point use a stable world-space arrival anchor derived from the field's reference listener. The grey source-to-listener line is the direct path. Position automation is continuous; loading a new field constructs a replacement room runtime outside the audio callback.</p>
 
-        <p>The late field remains a directional room bed interpolated from source cells. Listener motion reshapes direct and early geometry but does not claim a second sampled late-field dimension.</p>
+        <p>The late field remains a directional room bed interpolated from source cells. Its excitation pre-delay retargets without continuous pitch modulation, so moving the source or listener does not bend the entire reverb tail. Listener motion reshapes direct and early geometry but does not claim a second sampled late-field dimension.</p>
 
         <h2 id="room-controls">Room Controls</h2>
 
@@ -108,6 +118,7 @@
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
           <a href="#field">Ray Field</a>
+          <a href="#atlas">Ray Atlas</a>
           <a href="#interpretation">Musical Interpretation</a>
           <a href="#position">Position and Motion</a>
           <a href="#room-controls">Room Controls</a>

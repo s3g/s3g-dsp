@@ -52,7 +52,11 @@ tracks and true stereo outputs.
 - VOT-compatible 4 x 4 atlases live in `wavetables/vot/`; plugin loader
   examples live in `examples/`.
 - The included Ambi Vox test bank uses a documented UTAU-style folder with
-  WAV aliases and `oto.ini` timing.
+  WAV aliases and `oto.ini` timing. Ambi Vox renders up to 16 vocal sources
+  into its fixed 64-channel ambisonic bus and retains WORLD spectral and
+  aperiodicity analysis for its voice-model controls. Factory starting points
+  and `.s3gvox` user presets retain the performance design while keeping source
+  WAV and voicebank audio external.
 - Fixed-width CLAP plugins are used where REAPER pin routing needs to be
   predictable.
 - Relationship controls keep automation compact where that suits the plugin;

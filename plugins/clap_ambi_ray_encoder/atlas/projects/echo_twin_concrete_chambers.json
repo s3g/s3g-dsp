@@ -1,0 +1,2924 @@
+{
+  "format": "s3g-ray-sketch",
+  "version": 1,
+  "tool": "s3g-mc Ray Sketch",
+  "target_process": "s3g Ambi Ray Encoder",
+  "interpretation": "moving-source acoustic map for architectural, natural, open, or imaginary spaces",
+  "space_family": "room",
+  "space_seed": 880307,
+  "room_x": 16,
+  "room_y": 12,
+  "room_z": 6,
+  "material_preset": "concrete",
+  "absorption": 0.08,
+  "scattering": 0.18,
+  "tail_soften": 0.16,
+  "irregularity": 0.16,
+  "surface_roughness": 0.14,
+  "vertical_variation": 0.17,
+  "openness": 0,
+  "space_shape": "side_chamber",
+  "room_shape": "trapezoid",
+  "topology_bias": 0.38,
+  "branch_family": "room",
+  "room_polygon": [
+    {
+      "x": 2.943,
+      "y": 0.07
+    },
+    {
+      "x": 14.505,
+      "y": -0.088
+    },
+    {
+      "x": 15.991,
+      "y": 11.993
+    },
+    {
+      "x": -0.042,
+      "y": 12.031
+    }
+  ],
+  "space": {
+    "family": "room",
+    "seed": 880307,
+    "topology": "connected_regions",
+    "branch_family_mode": "room",
+    "primary_polygon_xy_m": [
+      {
+        "x": 2.943,
+        "y": 0.07
+      },
+      {
+        "x": 14.505,
+        "y": -0.088
+      },
+      {
+        "x": 15.991,
+        "y": 11.993
+      },
+      {
+        "x": -0.042,
+        "y": 12.031
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": -21.951,
+        "z": 5.853
+      },
+      {
+        "x": -18.179,
+        "z": 5.866
+      },
+      {
+        "x": -14.407,
+        "z": 5.998
+      },
+      {
+        "x": -10.635,
+        "z": 6.066
+      },
+      {
+        "x": -6.863,
+        "z": 5.812
+      },
+      {
+        "x": -3.091,
+        "z": 5.86
+      },
+      {
+        "x": 0.681,
+        "z": 6.038
+      },
+      {
+        "x": 4.453,
+        "z": 5.997
+      },
+      {
+        "x": 8.225,
+        "z": 5.893
+      },
+      {
+        "x": 11.998,
+        "z": 5.808
+      },
+      {
+        "x": 15.77,
+        "z": 6.034
+      },
+      {
+        "x": 19.542,
+        "z": 6.047
+      },
+      {
+        "x": 23.314,
+        "z": 5.825
+      },
+      {
+        "x": 27.086,
+        "z": 5.878
+      },
+      {
+        "x": 30.858,
+        "z": 5.979
+      },
+      {
+        "x": 34.63,
+        "z": 6.055
+      },
+      {
+        "x": 38.402,
+        "z": 5.874
+      }
+    ],
+    "irregularity": 0.16,
+    "roughness": 0.14,
+    "vertical_variation": 0.17,
+    "openness": 0,
+    "acoustic_volume_m3": 5804.067,
+    "acoustic_surface_m2": 5215.344,
+    "regions": [
+      {
+        "id": "primary",
+        "kind": "primary",
+        "family": "room",
+        "level": 0,
+        "parent_region": null,
+        "attachment": null,
+        "base_z_m": 0,
+        "height_m": 6,
+        "polygon_xy_m": [
+          {
+            "x": 2.9433,
+            "y": 0.0698
+          },
+          {
+            "x": 14.5051,
+            "y": -0.0877
+          },
+          {
+            "x": 15.9907,
+            "y": 11.9928
+          },
+          {
+            "x": -0.0424,
+            "y": 12.0306
+          }
+        ]
+      },
+      {
+        "id": "region-1",
+        "kind": "branch",
+        "family": "room",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "polygon_xy_m": [
+          {
+            "x": 2.9433,
+            "y": 0.0698
+          },
+          {
+            "x": 8.7428,
+            "y": -0.0092
+          },
+          {
+            "x": 8.612,
+            "y": -9.6083
+          },
+          {
+            "x": 2.8126,
+            "y": -9.5293
+          }
+        ]
+      },
+      {
+        "id": "region-2",
+        "kind": "branch",
+        "family": "room",
+        "level": 1,
+        "parent_region": "region-1",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "polygon_xy_m": [
+          {
+            "x": 3.6245,
+            "y": -9.5404
+          },
+          {
+            "x": 7.8001,
+            "y": -9.5973
+          },
+          {
+            "x": 7.6981,
+            "y": -17.0846
+          },
+          {
+            "x": 3.5225,
+            "y": -17.0277
+          }
+        ]
+      },
+      {
+        "id": "region-3",
+        "kind": "branch",
+        "family": "room",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "polygon_xy_m": [
+          {
+            "x": 8.081,
+            "y": -0.0002
+          },
+          {
+            "x": 13.8805,
+            "y": -0.0792
+          },
+          {
+            "x": 13.7497,
+            "y": -9.6783
+          },
+          {
+            "x": 7.9503,
+            "y": -9.5993
+          }
+        ]
+      },
+      {
+        "id": "region-4",
+        "kind": "branch",
+        "family": "room",
+        "level": 1,
+        "parent_region": "region-3",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "polygon_xy_m": [
+          {
+            "x": 8.7622,
+            "y": -9.6104
+          },
+          {
+            "x": 12.9378,
+            "y": -9.6673
+          },
+          {
+            "x": 12.8358,
+            "y": -17.1546
+          },
+          {
+            "x": 8.6602,
+            "y": -17.0977
+          }
+        ]
+      },
+      {
+        "id": "region-5",
+        "kind": "branch",
+        "family": "room",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "right",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "polygon_xy_m": [
+          {
+            "x": 14.5051,
+            "y": -0.0877
+          },
+          {
+            "x": 15.213,
+            "y": 5.6689
+          },
+          {
+            "x": 27.9173,
+            "y": 4.1065
+          },
+          {
+            "x": 27.2093,
+            "y": -1.6501
+          }
+        ]
+      },
+      {
+        "id": "region-6",
+        "kind": "branch",
+        "family": "room",
+        "level": 1,
+        "parent_region": "region-5",
+        "attachment": "right",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "polygon_xy_m": [
+          {
+            "x": 27.3085,
+            "y": -0.8442
+          },
+          {
+            "x": 27.8182,
+            "y": 3.3006
+          },
+          {
+            "x": 37.7275,
+            "y": 2.0819
+          },
+          {
+            "x": 37.2178,
+            "y": -2.0629
+          }
+        ]
+      },
+      {
+        "id": "region-7",
+        "kind": "branch",
+        "family": "room",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "right",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "polygon_xy_m": [
+          {
+            "x": 15.1798,
+            "y": 5.3987
+          },
+          {
+            "x": 15.8878,
+            "y": 11.1553
+          },
+          {
+            "x": 28.592,
+            "y": 9.5929
+          },
+          {
+            "x": 27.8841,
+            "y": 3.8363
+          }
+        ]
+      },
+      {
+        "id": "region-8",
+        "kind": "branch",
+        "family": "room",
+        "level": 1,
+        "parent_region": "region-7",
+        "attachment": "right",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "polygon_xy_m": [
+          {
+            "x": 27.9832,
+            "y": 4.6422
+          },
+          {
+            "x": 28.4929,
+            "y": 8.787
+          },
+          {
+            "x": 38.4023,
+            "y": 7.5683
+          },
+          {
+            "x": 37.8925,
+            "y": 3.4236
+          }
+        ]
+      },
+      {
+        "id": "region-9",
+        "kind": "branch",
+        "family": "room",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "polygon_xy_m": [
+          {
+            "x": 15.3348,
+            "y": 11.9943
+          },
+          {
+            "x": 9.5348,
+            "y": 12.008
+          },
+          {
+            "x": 9.5575,
+            "y": 21.608
+          },
+          {
+            "x": 15.3574,
+            "y": 21.5943
+          }
+        ]
+      },
+      {
+        "id": "region-10",
+        "kind": "branch",
+        "family": "room",
+        "level": 1,
+        "parent_region": "region-9",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "polygon_xy_m": [
+          {
+            "x": 14.5454,
+            "y": 21.5962
+          },
+          {
+            "x": 10.3694,
+            "y": 21.606
+          },
+          {
+            "x": 10.3871,
+            "y": 29.094
+          },
+          {
+            "x": 14.5631,
+            "y": 29.0842
+          }
+        ]
+      },
+      {
+        "id": "region-11",
+        "kind": "branch",
+        "family": "room",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "polygon_xy_m": [
+          {
+            "x": 8.6648,
+            "y": 12.01
+          },
+          {
+            "x": 2.8648,
+            "y": 12.0237
+          },
+          {
+            "x": 2.8875,
+            "y": 21.6237
+          },
+          {
+            "x": 8.6875,
+            "y": 21.61
+          }
+        ]
+      },
+      {
+        "id": "region-12",
+        "kind": "branch",
+        "family": "room",
+        "level": 1,
+        "parent_region": "region-11",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "polygon_xy_m": [
+          {
+            "x": 7.8755,
+            "y": 21.6119
+          },
+          {
+            "x": 3.6995,
+            "y": 21.6218
+          },
+          {
+            "x": 3.7171,
+            "y": 29.1098
+          },
+          {
+            "x": 7.8931,
+            "y": 29.0999
+          }
+        ]
+      },
+      {
+        "id": "region-13",
+        "kind": "branch",
+        "family": "room",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "polygon_xy_m": [
+          {
+            "x": -0.0424,
+            "y": 12.0306
+          },
+          {
+            "x": 1.3623,
+            "y": 6.4033
+          },
+          {
+            "x": -11.0566,
+            "y": 3.3032
+          },
+          {
+            "x": -12.4613,
+            "y": 8.9305
+          }
+        ]
+      },
+      {
+        "id": "region-14",
+        "kind": "branch",
+        "family": "room",
+        "level": 1,
+        "parent_region": "region-13",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "polygon_xy_m": [
+          {
+            "x": -12.2647,
+            "y": 8.1427
+          },
+          {
+            "x": -11.2533,
+            "y": 4.091
+          },
+          {
+            "x": -20.94,
+            "y": 1.6729
+          },
+          {
+            "x": -21.9514,
+            "y": 5.7246
+          }
+        ]
+      },
+      {
+        "id": "region-15",
+        "kind": "branch",
+        "family": "room",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "polygon_xy_m": [
+          {
+            "x": 1.3206,
+            "y": 6.5703
+          },
+          {
+            "x": 2.7253,
+            "y": 0.943
+          },
+          {
+            "x": -9.6936,
+            "y": -2.1571
+          },
+          {
+            "x": -11.0983,
+            "y": 3.4702
+          }
+        ]
+      },
+      {
+        "id": "region-16",
+        "kind": "branch",
+        "family": "room",
+        "level": 1,
+        "parent_region": "region-15",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "polygon_xy_m": [
+          {
+            "x": -10.9016,
+            "y": 2.6824
+          },
+          {
+            "x": -9.8902,
+            "y": -1.3693
+          },
+          {
+            "x": -19.577,
+            "y": -3.7873
+          },
+          {
+            "x": -20.5884,
+            "y": 0.2643
+          }
+        ]
+      }
+    ],
+    "portals": [
+      {
+        "id": "portal-1",
+        "from_region": "primary",
+        "to_region": "region-1",
+        "attachment": "front",
+        "shape": "rect",
+        "center_m": {
+          "x": 5.8431,
+          "y": 0.0303,
+          "z": 2.16
+        },
+        "normal": {
+          "x": -0.01362,
+          "y": -0.99991,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.99991,
+          "y": -0.01362,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.392,
+        "height_m": 3.1104,
+        "area_m2": 4.32968,
+        "transmission": 0.72,
+        "outline_xyz_m": [
+          {
+            "x": 5.1471,
+            "y": 0.0398,
+            "z": 0.6048
+          },
+          {
+            "x": 6.539,
+            "y": 0.0208,
+            "z": 0.6048
+          },
+          {
+            "x": 6.539,
+            "y": 0.0208,
+            "z": 3.7152
+          },
+          {
+            "x": 5.1471,
+            "y": 0.0398,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-2",
+        "from_region": "region-1",
+        "to_region": "region-2",
+        "attachment": "front",
+        "shape": "rect",
+        "center_m": {
+          "x": 5.7123,
+          "y": -9.5688,
+          "z": 2.16
+        },
+        "normal": {
+          "x": -0.01362,
+          "y": -0.99991,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.99991,
+          "y": -0.01362,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.1414,
+        "height_m": 3.1104,
+        "area_m2": 3.55033,
+        "transmission": 0.82052,
+        "outline_xyz_m": [
+          {
+            "x": 5.1416,
+            "y": -9.561,
+            "z": 0.6048
+          },
+          {
+            "x": 6.283,
+            "y": -9.5766,
+            "z": 0.6048
+          },
+          {
+            "x": 6.283,
+            "y": -9.5766,
+            "z": 3.7152
+          },
+          {
+            "x": 5.1416,
+            "y": -9.561,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-3",
+        "from_region": "primary",
+        "to_region": "region-3",
+        "attachment": "front",
+        "shape": "rect",
+        "center_m": {
+          "x": 10.9808,
+          "y": -0.0397,
+          "z": 2.16
+        },
+        "normal": {
+          "x": -0.01362,
+          "y": -0.99991,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.99991,
+          "y": -0.01362,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.392,
+        "height_m": 3.1104,
+        "area_m2": 4.32968,
+        "transmission": 0.72,
+        "outline_xyz_m": [
+          {
+            "x": 10.2848,
+            "y": -0.0302,
+            "z": 0.6048
+          },
+          {
+            "x": 11.6767,
+            "y": -0.0492,
+            "z": 0.6048
+          },
+          {
+            "x": 11.6767,
+            "y": -0.0492,
+            "z": 3.7152
+          },
+          {
+            "x": 10.2848,
+            "y": -0.0302,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-4",
+        "from_region": "region-3",
+        "to_region": "region-4",
+        "attachment": "front",
+        "shape": "rect",
+        "center_m": {
+          "x": 10.85,
+          "y": -9.6388,
+          "z": 2.16
+        },
+        "normal": {
+          "x": -0.01362,
+          "y": -0.99991,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.99991,
+          "y": -0.01362,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.1414,
+        "height_m": 3.1104,
+        "area_m2": 3.55033,
+        "transmission": 0.82052,
+        "outline_xyz_m": [
+          {
+            "x": 10.2793,
+            "y": -9.631,
+            "z": 0.6048
+          },
+          {
+            "x": 11.4207,
+            "y": -9.6466,
+            "z": 0.6048
+          },
+          {
+            "x": 11.4207,
+            "y": -9.6466,
+            "z": 3.7152
+          },
+          {
+            "x": 10.2793,
+            "y": -9.631,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-5",
+        "from_region": "primary",
+        "to_region": "region-5",
+        "attachment": "right",
+        "shape": "rect",
+        "center_m": {
+          "x": 14.859,
+          "y": 2.7906,
+          "z": 2.16
+        },
+        "normal": {
+          "x": 0.99252,
+          "y": -0.12206,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.12206,
+          "y": 0.99252,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.392,
+        "height_m": 3.1104,
+        "area_m2": 4.32968,
+        "transmission": 0.72,
+        "outline_xyz_m": [
+          {
+            "x": 14.7741,
+            "y": 2.0998,
+            "z": 0.6048
+          },
+          {
+            "x": 14.944,
+            "y": 3.4814,
+            "z": 0.6048
+          },
+          {
+            "x": 14.944,
+            "y": 3.4814,
+            "z": 3.7152
+          },
+          {
+            "x": 14.7741,
+            "y": 2.0998,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-6",
+        "from_region": "region-5",
+        "to_region": "region-6",
+        "attachment": "right",
+        "shape": "rect",
+        "center_m": {
+          "x": 27.5633,
+          "y": 1.2282,
+          "z": 2.16
+        },
+        "normal": {
+          "x": 0.99252,
+          "y": -0.12206,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.12206,
+          "y": 0.99252,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.1414,
+        "height_m": 3.1104,
+        "area_m2": 3.55033,
+        "transmission": 0.82052,
+        "outline_xyz_m": [
+          {
+            "x": 27.4937,
+            "y": 0.6617,
+            "z": 0.6048
+          },
+          {
+            "x": 27.633,
+            "y": 1.7947,
+            "z": 0.6048
+          },
+          {
+            "x": 27.633,
+            "y": 1.7947,
+            "z": 3.7152
+          },
+          {
+            "x": 27.4937,
+            "y": 0.6617,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-7",
+        "from_region": "primary",
+        "to_region": "region-7",
+        "attachment": "right",
+        "shape": "rect",
+        "center_m": {
+          "x": 15.5338,
+          "y": 8.277,
+          "z": 2.16
+        },
+        "normal": {
+          "x": 0.99252,
+          "y": -0.12206,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.12206,
+          "y": 0.99252,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.392,
+        "height_m": 3.1104,
+        "area_m2": 4.32968,
+        "transmission": 0.72,
+        "outline_xyz_m": [
+          {
+            "x": 15.4488,
+            "y": 7.5862,
+            "z": 0.6048
+          },
+          {
+            "x": 15.6187,
+            "y": 8.9678,
+            "z": 0.6048
+          },
+          {
+            "x": 15.6187,
+            "y": 8.9678,
+            "z": 3.7152
+          },
+          {
+            "x": 15.4488,
+            "y": 7.5862,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-8",
+        "from_region": "region-7",
+        "to_region": "region-8",
+        "attachment": "right",
+        "shape": "rect",
+        "center_m": {
+          "x": 28.2381,
+          "y": 6.7146,
+          "z": 2.16
+        },
+        "normal": {
+          "x": 0.99252,
+          "y": -0.12206,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.12206,
+          "y": 0.99252,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.1414,
+        "height_m": 3.1104,
+        "area_m2": 3.55033,
+        "transmission": 0.82052,
+        "outline_xyz_m": [
+          {
+            "x": 28.1684,
+            "y": 6.1482,
+            "z": 0.6048
+          },
+          {
+            "x": 28.3077,
+            "y": 7.2811,
+            "z": 0.6048
+          },
+          {
+            "x": 28.3077,
+            "y": 7.2811,
+            "z": 3.7152
+          },
+          {
+            "x": 28.1684,
+            "y": 6.1482,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-9",
+        "from_region": "primary",
+        "to_region": "region-9",
+        "attachment": "back",
+        "shape": "rect",
+        "center_m": {
+          "x": 12.4348,
+          "y": 12.0012,
+          "z": 2.16
+        },
+        "normal": {
+          "x": 0.00236,
+          "y": 1,
+          "z": 0
+        },
+        "axis_u": {
+          "x": -1,
+          "y": 0.00236,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.392,
+        "height_m": 3.1104,
+        "area_m2": 4.32968,
+        "transmission": 0.72,
+        "outline_xyz_m": [
+          {
+            "x": 13.1308,
+            "y": 11.9995,
+            "z": 0.6048
+          },
+          {
+            "x": 11.7388,
+            "y": 12.0028,
+            "z": 0.6048
+          },
+          {
+            "x": 11.7388,
+            "y": 12.0028,
+            "z": 3.7152
+          },
+          {
+            "x": 13.1308,
+            "y": 11.9995,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-10",
+        "from_region": "region-9",
+        "to_region": "region-10",
+        "attachment": "back",
+        "shape": "rect",
+        "center_m": {
+          "x": 12.4574,
+          "y": 21.6011,
+          "z": 2.16
+        },
+        "normal": {
+          "x": 0.00236,
+          "y": 1,
+          "z": 0
+        },
+        "axis_u": {
+          "x": -1,
+          "y": 0.00236,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.1414,
+        "height_m": 3.1104,
+        "area_m2": 3.55033,
+        "transmission": 0.82052,
+        "outline_xyz_m": [
+          {
+            "x": 13.0282,
+            "y": 21.5998,
+            "z": 0.6048
+          },
+          {
+            "x": 11.8867,
+            "y": 21.6025,
+            "z": 0.6048
+          },
+          {
+            "x": 11.8867,
+            "y": 21.6025,
+            "z": 3.7152
+          },
+          {
+            "x": 13.0282,
+            "y": 21.5998,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-11",
+        "from_region": "primary",
+        "to_region": "region-11",
+        "attachment": "back",
+        "shape": "rect",
+        "center_m": {
+          "x": 5.7648,
+          "y": 12.0169,
+          "z": 2.16
+        },
+        "normal": {
+          "x": 0.00236,
+          "y": 1,
+          "z": 0
+        },
+        "axis_u": {
+          "x": -1,
+          "y": 0.00236,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.392,
+        "height_m": 3.1104,
+        "area_m2": 4.32968,
+        "transmission": 0.72,
+        "outline_xyz_m": [
+          {
+            "x": 6.4608,
+            "y": 12.0152,
+            "z": 0.6048
+          },
+          {
+            "x": 5.0688,
+            "y": 12.0185,
+            "z": 0.6048
+          },
+          {
+            "x": 5.0688,
+            "y": 12.0185,
+            "z": 3.7152
+          },
+          {
+            "x": 6.4608,
+            "y": 12.0152,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-12",
+        "from_region": "region-11",
+        "to_region": "region-12",
+        "attachment": "back",
+        "shape": "rect",
+        "center_m": {
+          "x": 5.7875,
+          "y": 21.6169,
+          "z": 2.16
+        },
+        "normal": {
+          "x": 0.00236,
+          "y": 1,
+          "z": 0
+        },
+        "axis_u": {
+          "x": -1,
+          "y": 0.00236,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.1414,
+        "height_m": 3.1104,
+        "area_m2": 3.55033,
+        "transmission": 0.82052,
+        "outline_xyz_m": [
+          {
+            "x": 6.3582,
+            "y": 21.6155,
+            "z": 0.6048
+          },
+          {
+            "x": 5.2167,
+            "y": 21.6182,
+            "z": 0.6048
+          },
+          {
+            "x": 5.2167,
+            "y": 21.6182,
+            "z": 3.7152
+          },
+          {
+            "x": 6.3582,
+            "y": 21.6155,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-13",
+        "from_region": "primary",
+        "to_region": "region-13",
+        "attachment": "left",
+        "shape": "rect",
+        "center_m": {
+          "x": 0.6599,
+          "y": 9.2169,
+          "z": 2.16
+        },
+        "normal": {
+          "x": -0.97023,
+          "y": -0.2422,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.2422,
+          "y": -0.97023,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.392,
+        "height_m": 3.1104,
+        "area_m2": 4.32968,
+        "transmission": 0.72,
+        "outline_xyz_m": [
+          {
+            "x": 0.4914,
+            "y": 9.8922,
+            "z": 0.6048
+          },
+          {
+            "x": 0.8285,
+            "y": 8.5416,
+            "z": 0.6048
+          },
+          {
+            "x": 0.8285,
+            "y": 8.5416,
+            "z": 3.7152
+          },
+          {
+            "x": 0.4914,
+            "y": 9.8922,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-14",
+        "from_region": "region-13",
+        "to_region": "region-14",
+        "attachment": "left",
+        "shape": "rect",
+        "center_m": {
+          "x": -11.759,
+          "y": 6.1168,
+          "z": 2.16
+        },
+        "normal": {
+          "x": -0.97023,
+          "y": -0.2422,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.2422,
+          "y": -0.97023,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.1414,
+        "height_m": 3.1104,
+        "area_m2": 3.55033,
+        "transmission": 0.82052,
+        "outline_xyz_m": [
+          {
+            "x": -11.8972,
+            "y": 6.6705,
+            "z": 0.6048
+          },
+          {
+            "x": -11.6207,
+            "y": 5.5631,
+            "z": 0.6048
+          },
+          {
+            "x": -11.6207,
+            "y": 5.5631,
+            "z": 3.7152
+          },
+          {
+            "x": -11.8972,
+            "y": 6.6705,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-15",
+        "from_region": "primary",
+        "to_region": "region-15",
+        "attachment": "left",
+        "shape": "rect",
+        "center_m": {
+          "x": 2.023,
+          "y": 3.7567,
+          "z": 2.16
+        },
+        "normal": {
+          "x": -0.97023,
+          "y": -0.2422,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.2422,
+          "y": -0.97023,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.392,
+        "height_m": 3.1104,
+        "area_m2": 4.32968,
+        "transmission": 0.72,
+        "outline_xyz_m": [
+          {
+            "x": 1.8544,
+            "y": 4.4319,
+            "z": 0.6048
+          },
+          {
+            "x": 2.1915,
+            "y": 3.0814,
+            "z": 0.6048
+          },
+          {
+            "x": 2.1915,
+            "y": 3.0814,
+            "z": 3.7152
+          },
+          {
+            "x": 1.8544,
+            "y": 4.4319,
+            "z": 3.7152
+          }
+        ]
+      },
+      {
+        "id": "portal-16",
+        "from_region": "region-15",
+        "to_region": "region-16",
+        "attachment": "left",
+        "shape": "rect",
+        "center_m": {
+          "x": -10.3959,
+          "y": 0.6566,
+          "z": 2.16
+        },
+        "normal": {
+          "x": -0.97023,
+          "y": -0.2422,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.2422,
+          "y": -0.97023,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 1.1414,
+        "height_m": 3.1104,
+        "area_m2": 3.55033,
+        "transmission": 0.82052,
+        "outline_xyz_m": [
+          {
+            "x": -10.5342,
+            "y": 1.2103,
+            "z": 0.6048
+          },
+          {
+            "x": -10.2577,
+            "y": 0.1028,
+            "z": 0.6048
+          },
+          {
+            "x": -10.2577,
+            "y": 0.1028,
+            "z": 3.7152
+          },
+          {
+            "x": -10.5342,
+            "y": 1.2103,
+            "z": 3.7152
+          }
+        ]
+      }
+    ]
+  },
+  "chamber_shape": "rect",
+  "chamber_side": "all",
+  "exterior_opening": {
+    "enabled": false,
+    "leak": 0
+  },
+  "chamber": {
+    "family_mode": "room",
+    "material": "concrete",
+    "material_mode": "uniform",
+    "material_mix": 0.51,
+    "width": 5.8,
+    "depth": 14,
+    "count": 2,
+    "position": 0.39,
+    "cross_position": 0.5,
+    "heading_deg": 0,
+    "wall_elevation": 0,
+    "nested_chambers": 1,
+    "opening_shape": "rect",
+    "opening_width": 0.24,
+    "opening_height": 0.72,
+    "opening_position_z": 0.5,
+    "coupling": 0.9,
+    "chambers": [
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.106,
+          "scattering": 0.196,
+          "tail_soften": 0.145
+        },
+        "index": 1,
+        "level": 0,
+        "family": "room",
+        "region_id": "region-1",
+        "parent_region": "primary",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "x": 2.813,
+        "y": -9.608,
+        "width": 5.93,
+        "depth": 9.678,
+        "opening_x": 5.147,
+        "opening_y": 0.04,
+        "opening": 1.392,
+        "portal": {
+          "id": "portal-1",
+          "shape": "rect",
+          "center_m": {
+            "x": 5.8431,
+            "y": 0.0303,
+            "z": 2.16
+          },
+          "width_m": 1.392,
+          "height_m": 3.1104,
+          "area_m2": 4.32968,
+          "transmission": 0.72
+        },
+        "polygon": [
+          {
+            "x": 2.943,
+            "y": 0.07
+          },
+          {
+            "x": 8.743,
+            "y": -0.009
+          },
+          {
+            "x": 8.612,
+            "y": -9.608
+          },
+          {
+            "x": 2.813,
+            "y": -9.529
+          }
+        ],
+        "opening_segment": {
+          "x1": 5.147,
+          "y1": 0.04,
+          "x2": 6.539,
+          "y2": 0.021
+        },
+        "side": "front",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.066,
+          "scattering": 0.259,
+          "tail_soften": 0.182
+        },
+        "index": 2,
+        "level": 1,
+        "family": "room",
+        "region_id": "region-2",
+        "parent_region": "region-1",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "x": 3.522,
+        "y": -17.085,
+        "width": 4.278,
+        "depth": 7.544,
+        "opening_x": 5.142,
+        "opening_y": -9.561,
+        "opening": 1.141,
+        "portal": {
+          "id": "portal-2",
+          "shape": "rect",
+          "center_m": {
+            "x": 5.7123,
+            "y": -9.5688,
+            "z": 2.16
+          },
+          "width_m": 1.1414,
+          "height_m": 3.1104,
+          "area_m2": 3.55033,
+          "transmission": 0.82052
+        },
+        "polygon": [
+          {
+            "x": 3.624,
+            "y": -9.54
+          },
+          {
+            "x": 7.8,
+            "y": -9.597
+          },
+          {
+            "x": 7.698,
+            "y": -17.085
+          },
+          {
+            "x": 3.522,
+            "y": -17.028
+          }
+        ],
+        "opening_segment": {
+          "x1": 5.142,
+          "y1": -9.561,
+          "x2": 6.283,
+          "y2": -9.577
+        },
+        "side": "front",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.136,
+          "scattering": 0.299,
+          "tail_soften": 0.178
+        },
+        "index": 3,
+        "level": 0,
+        "family": "room",
+        "region_id": "region-3",
+        "parent_region": "primary",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "x": 7.95,
+        "y": -9.678,
+        "width": 5.93,
+        "depth": 9.678,
+        "opening_x": 10.285,
+        "opening_y": -0.03,
+        "opening": 1.392,
+        "portal": {
+          "id": "portal-3",
+          "shape": "rect",
+          "center_m": {
+            "x": 10.9808,
+            "y": -0.0397,
+            "z": 2.16
+          },
+          "width_m": 1.392,
+          "height_m": 3.1104,
+          "area_m2": 4.32968,
+          "transmission": 0.72
+        },
+        "polygon": [
+          {
+            "x": 8.081,
+            "y": 0
+          },
+          {
+            "x": 13.881,
+            "y": -0.079
+          },
+          {
+            "x": 13.75,
+            "y": -9.678
+          },
+          {
+            "x": 7.95,
+            "y": -9.599
+          }
+        ],
+        "opening_segment": {
+          "x1": 10.285,
+          "y1": -0.03,
+          "x2": 11.677,
+          "y2": -0.049
+        },
+        "side": "front",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.162,
+          "scattering": 0.285,
+          "tail_soften": 0.159
+        },
+        "index": 4,
+        "level": 1,
+        "family": "room",
+        "region_id": "region-4",
+        "parent_region": "region-3",
+        "attachment": "front",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "x": 8.66,
+        "y": -17.155,
+        "width": 4.278,
+        "depth": 7.544,
+        "opening_x": 10.279,
+        "opening_y": -9.631,
+        "opening": 1.141,
+        "portal": {
+          "id": "portal-4",
+          "shape": "rect",
+          "center_m": {
+            "x": 10.85,
+            "y": -9.6388,
+            "z": 2.16
+          },
+          "width_m": 1.1414,
+          "height_m": 3.1104,
+          "area_m2": 3.55033,
+          "transmission": 0.82052
+        },
+        "polygon": [
+          {
+            "x": 8.762,
+            "y": -9.61
+          },
+          {
+            "x": 12.938,
+            "y": -9.667
+          },
+          {
+            "x": 12.836,
+            "y": -17.155
+          },
+          {
+            "x": 8.66,
+            "y": -17.098
+          }
+        ],
+        "opening_segment": {
+          "x1": 10.279,
+          "y1": -9.631,
+          "x2": 11.421,
+          "y2": -9.647
+        },
+        "side": "front",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.048,
+          "scattering": 0.228,
+          "tail_soften": 0.206
+        },
+        "index": 5,
+        "level": 0,
+        "family": "room",
+        "region_id": "region-5",
+        "parent_region": "primary",
+        "attachment": "right",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "x": 14.505,
+        "y": -1.65,
+        "width": 13.412,
+        "depth": 7.319,
+        "opening_x": 14.774,
+        "opening_y": 2.1,
+        "opening": 1.392,
+        "portal": {
+          "id": "portal-5",
+          "shape": "rect",
+          "center_m": {
+            "x": 14.859,
+            "y": 2.7906,
+            "z": 2.16
+          },
+          "width_m": 1.392,
+          "height_m": 3.1104,
+          "area_m2": 4.32968,
+          "transmission": 0.72
+        },
+        "polygon": [
+          {
+            "x": 14.505,
+            "y": -0.088
+          },
+          {
+            "x": 15.213,
+            "y": 5.669
+          },
+          {
+            "x": 27.917,
+            "y": 4.107
+          },
+          {
+            "x": 27.209,
+            "y": -1.65
+          }
+        ],
+        "opening_segment": {
+          "x1": 14.774,
+          "y1": 2.1,
+          "x2": 14.944,
+          "y2": 3.481
+        },
+        "side": "right",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.146,
+          "scattering": 0.188,
+          "tail_soften": 0.132
+        },
+        "index": 6,
+        "level": 1,
+        "family": "room",
+        "region_id": "region-6",
+        "parent_region": "region-5",
+        "attachment": "right",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "x": 27.308,
+        "y": -2.063,
+        "width": 10.419,
+        "depth": 5.363,
+        "opening_x": 27.494,
+        "opening_y": 0.662,
+        "opening": 1.141,
+        "portal": {
+          "id": "portal-6",
+          "shape": "rect",
+          "center_m": {
+            "x": 27.5633,
+            "y": 1.2282,
+            "z": 2.16
+          },
+          "width_m": 1.1414,
+          "height_m": 3.1104,
+          "area_m2": 3.55033,
+          "transmission": 0.82052
+        },
+        "polygon": [
+          {
+            "x": 27.308,
+            "y": -0.844
+          },
+          {
+            "x": 27.818,
+            "y": 3.301
+          },
+          {
+            "x": 37.728,
+            "y": 2.082
+          },
+          {
+            "x": 37.218,
+            "y": -2.063
+          }
+        ],
+        "opening_segment": {
+          "x1": 27.494,
+          "y1": 0.662,
+          "x2": 27.633,
+          "y2": 1.795
+        },
+        "side": "right",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.151,
+          "scattering": 0.274,
+          "tail_soften": 0.118
+        },
+        "index": 7,
+        "level": 0,
+        "family": "room",
+        "region_id": "region-7",
+        "parent_region": "primary",
+        "attachment": "right",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "x": 15.18,
+        "y": 3.836,
+        "width": 13.412,
+        "depth": 7.319,
+        "opening_x": 15.449,
+        "opening_y": 7.586,
+        "opening": 1.392,
+        "portal": {
+          "id": "portal-7",
+          "shape": "rect",
+          "center_m": {
+            "x": 15.5338,
+            "y": 8.277,
+            "z": 2.16
+          },
+          "width_m": 1.392,
+          "height_m": 3.1104,
+          "area_m2": 4.32968,
+          "transmission": 0.72
+        },
+        "polygon": [
+          {
+            "x": 15.18,
+            "y": 5.399
+          },
+          {
+            "x": 15.888,
+            "y": 11.155
+          },
+          {
+            "x": 28.592,
+            "y": 9.593
+          },
+          {
+            "x": 27.884,
+            "y": 3.836
+          }
+        ],
+        "opening_segment": {
+          "x1": 15.449,
+          "y1": 7.586,
+          "x2": 15.619,
+          "y2": 8.968
+        },
+        "side": "right",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.122,
+          "scattering": 0.197,
+          "tail_soften": 0.12
+        },
+        "index": 8,
+        "level": 1,
+        "family": "room",
+        "region_id": "region-8",
+        "parent_region": "region-7",
+        "attachment": "right",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "x": 27.983,
+        "y": 3.424,
+        "width": 10.419,
+        "depth": 5.363,
+        "opening_x": 28.168,
+        "opening_y": 6.148,
+        "opening": 1.141,
+        "portal": {
+          "id": "portal-8",
+          "shape": "rect",
+          "center_m": {
+            "x": 28.2381,
+            "y": 6.7146,
+            "z": 2.16
+          },
+          "width_m": 1.1414,
+          "height_m": 3.1104,
+          "area_m2": 3.55033,
+          "transmission": 0.82052
+        },
+        "polygon": [
+          {
+            "x": 27.983,
+            "y": 4.642
+          },
+          {
+            "x": 28.493,
+            "y": 8.787
+          },
+          {
+            "x": 38.402,
+            "y": 7.568
+          },
+          {
+            "x": 37.893,
+            "y": 3.424
+          }
+        ],
+        "opening_segment": {
+          "x1": 28.168,
+          "y1": 6.148,
+          "x2": 28.308,
+          "y2": 7.281
+        },
+        "side": "right",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.085,
+          "scattering": 0.222,
+          "tail_soften": 0.155
+        },
+        "index": 9,
+        "level": 0,
+        "family": "room",
+        "region_id": "region-9",
+        "parent_region": "primary",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "x": 9.535,
+        "y": 11.994,
+        "width": 5.823,
+        "depth": 9.614,
+        "opening_x": 13.131,
+        "opening_y": 12,
+        "opening": 1.392,
+        "portal": {
+          "id": "portal-9",
+          "shape": "rect",
+          "center_m": {
+            "x": 12.4348,
+            "y": 12.0012,
+            "z": 2.16
+          },
+          "width_m": 1.392,
+          "height_m": 3.1104,
+          "area_m2": 4.32968,
+          "transmission": 0.72
+        },
+        "polygon": [
+          {
+            "x": 15.335,
+            "y": 11.994
+          },
+          {
+            "x": 9.535,
+            "y": 12.008
+          },
+          {
+            "x": 9.557,
+            "y": 21.608
+          },
+          {
+            "x": 15.357,
+            "y": 21.594
+          }
+        ],
+        "opening_segment": {
+          "x1": 13.131,
+          "y1": 12,
+          "x2": 11.739,
+          "y2": 12.003
+        },
+        "side": "back",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.137,
+          "scattering": 0.292,
+          "tail_soften": 0.2
+        },
+        "index": 10,
+        "level": 1,
+        "family": "room",
+        "region_id": "region-10",
+        "parent_region": "region-9",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "x": 10.369,
+        "y": 21.596,
+        "width": 4.194,
+        "depth": 7.498,
+        "opening_x": 13.028,
+        "opening_y": 21.6,
+        "opening": 1.141,
+        "portal": {
+          "id": "portal-10",
+          "shape": "rect",
+          "center_m": {
+            "x": 12.4574,
+            "y": 21.6011,
+            "z": 2.16
+          },
+          "width_m": 1.1414,
+          "height_m": 3.1104,
+          "area_m2": 3.55033,
+          "transmission": 0.82052
+        },
+        "polygon": [
+          {
+            "x": 14.545,
+            "y": 21.596
+          },
+          {
+            "x": 10.369,
+            "y": 21.606
+          },
+          {
+            "x": 10.387,
+            "y": 29.094
+          },
+          {
+            "x": 14.563,
+            "y": 29.084
+          }
+        ],
+        "opening_segment": {
+          "x1": 13.028,
+          "y1": 21.6,
+          "x2": 11.887,
+          "y2": 21.602
+        },
+        "side": "back",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.137,
+          "scattering": 0.221,
+          "tail_soften": 0.11
+        },
+        "index": 11,
+        "level": 0,
+        "family": "room",
+        "region_id": "region-11",
+        "parent_region": "primary",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "x": 2.865,
+        "y": 12.01,
+        "width": 5.823,
+        "depth": 9.614,
+        "opening_x": 6.461,
+        "opening_y": 12.015,
+        "opening": 1.392,
+        "portal": {
+          "id": "portal-11",
+          "shape": "rect",
+          "center_m": {
+            "x": 5.7648,
+            "y": 12.0169,
+            "z": 2.16
+          },
+          "width_m": 1.392,
+          "height_m": 3.1104,
+          "area_m2": 4.32968,
+          "transmission": 0.72
+        },
+        "polygon": [
+          {
+            "x": 8.665,
+            "y": 12.01
+          },
+          {
+            "x": 2.865,
+            "y": 12.024
+          },
+          {
+            "x": 2.887,
+            "y": 21.624
+          },
+          {
+            "x": 8.687,
+            "y": 21.61
+          }
+        ],
+        "opening_segment": {
+          "x1": 6.461,
+          "y1": 12.015,
+          "x2": 5.069,
+          "y2": 12.019
+        },
+        "side": "back",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.109,
+          "scattering": 0.273,
+          "tail_soften": 0.098
+        },
+        "index": 12,
+        "level": 1,
+        "family": "room",
+        "region_id": "region-12",
+        "parent_region": "region-11",
+        "attachment": "back",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "x": 3.699,
+        "y": 21.612,
+        "width": 4.194,
+        "depth": 7.498,
+        "opening_x": 6.358,
+        "opening_y": 21.616,
+        "opening": 1.141,
+        "portal": {
+          "id": "portal-12",
+          "shape": "rect",
+          "center_m": {
+            "x": 5.7875,
+            "y": 21.6169,
+            "z": 2.16
+          },
+          "width_m": 1.1414,
+          "height_m": 3.1104,
+          "area_m2": 3.55033,
+          "transmission": 0.82052
+        },
+        "polygon": [
+          {
+            "x": 7.875,
+            "y": 21.612
+          },
+          {
+            "x": 3.699,
+            "y": 21.622
+          },
+          {
+            "x": 3.717,
+            "y": 29.11
+          },
+          {
+            "x": 7.893,
+            "y": 29.1
+          }
+        ],
+        "opening_segment": {
+          "x1": 6.358,
+          "y1": 21.616,
+          "x2": 5.217,
+          "y2": 21.618
+        },
+        "side": "back",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.092,
+          "scattering": 0.226,
+          "tail_soften": 0.163
+        },
+        "index": 13,
+        "level": 0,
+        "family": "room",
+        "region_id": "region-13",
+        "parent_region": "primary",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "x": -12.461,
+        "y": 3.303,
+        "width": 13.824,
+        "depth": 8.727,
+        "opening_x": 0.491,
+        "opening_y": 9.892,
+        "opening": 1.392,
+        "portal": {
+          "id": "portal-13",
+          "shape": "rect",
+          "center_m": {
+            "x": 0.6599,
+            "y": 9.2169,
+            "z": 2.16
+          },
+          "width_m": 1.392,
+          "height_m": 3.1104,
+          "area_m2": 4.32968,
+          "transmission": 0.72
+        },
+        "polygon": [
+          {
+            "x": -0.042,
+            "y": 12.031
+          },
+          {
+            "x": 1.362,
+            "y": 6.403
+          },
+          {
+            "x": -11.057,
+            "y": 3.303
+          },
+          {
+            "x": -12.461,
+            "y": 8.93
+          }
+        ],
+        "opening_segment": {
+          "x1": 0.491,
+          "y1": 9.892,
+          "x2": 0.829,
+          "y2": 8.542
+        },
+        "side": "left",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.125,
+          "scattering": 0.194,
+          "tail_soften": 0.115
+        },
+        "index": 14,
+        "level": 1,
+        "family": "room",
+        "region_id": "region-14",
+        "parent_region": "region-13",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "x": -21.951,
+        "y": 1.673,
+        "width": 10.698,
+        "depth": 6.47,
+        "opening_x": -11.897,
+        "opening_y": 6.671,
+        "opening": 1.141,
+        "portal": {
+          "id": "portal-14",
+          "shape": "rect",
+          "center_m": {
+            "x": -11.759,
+            "y": 6.1168,
+            "z": 2.16
+          },
+          "width_m": 1.1414,
+          "height_m": 3.1104,
+          "area_m2": 3.55033,
+          "transmission": 0.82052
+        },
+        "polygon": [
+          {
+            "x": -12.265,
+            "y": 8.143
+          },
+          {
+            "x": -11.253,
+            "y": 4.091
+          },
+          {
+            "x": -20.94,
+            "y": 1.673
+          },
+          {
+            "x": -21.951,
+            "y": 5.725
+          }
+        ],
+        "opening_segment": {
+          "x1": -11.897,
+          "y1": 6.671,
+          "x2": -11.621,
+          "y2": 5.563
+        },
+        "side": "left",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.155,
+          "scattering": 0.245,
+          "tail_soften": 0.106
+        },
+        "index": 15,
+        "level": 0,
+        "family": "room",
+        "region_id": "region-15",
+        "parent_region": "primary",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.32,
+        "x": -11.098,
+        "y": -2.157,
+        "width": 13.824,
+        "depth": 8.727,
+        "opening_x": 1.854,
+        "opening_y": 4.432,
+        "opening": 1.392,
+        "portal": {
+          "id": "portal-15",
+          "shape": "rect",
+          "center_m": {
+            "x": 2.023,
+            "y": 3.7567,
+            "z": 2.16
+          },
+          "width_m": 1.392,
+          "height_m": 3.1104,
+          "area_m2": 4.32968,
+          "transmission": 0.72
+        },
+        "polygon": [
+          {
+            "x": 1.321,
+            "y": 6.57
+          },
+          {
+            "x": 2.725,
+            "y": 0.943
+          },
+          {
+            "x": -9.694,
+            "y": -2.157
+          },
+          {
+            "x": -11.098,
+            "y": 3.47
+          }
+        ],
+        "opening_segment": {
+          "x1": 1.854,
+          "y1": 4.432,
+          "x2": 2.192,
+          "y2": 3.081
+        },
+        "side": "left",
+        "shape": "rect"
+      },
+      {
+        "material_profile": {
+          "material": "concrete",
+          "absorption": 0.043,
+          "scattering": 0.27,
+          "tail_soften": 0.198
+        },
+        "index": 16,
+        "level": 1,
+        "family": "room",
+        "region_id": "region-16",
+        "parent_region": "region-15",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.62,
+        "x": -20.588,
+        "y": -3.787,
+        "width": 10.698,
+        "depth": 6.47,
+        "opening_x": -10.534,
+        "opening_y": 1.21,
+        "opening": 1.141,
+        "portal": {
+          "id": "portal-16",
+          "shape": "rect",
+          "center_m": {
+            "x": -10.3959,
+            "y": 0.6566,
+            "z": 2.16
+          },
+          "width_m": 1.1414,
+          "height_m": 3.1104,
+          "area_m2": 3.55033,
+          "transmission": 0.82052
+        },
+        "polygon": [
+          {
+            "x": -10.902,
+            "y": 2.682
+          },
+          {
+            "x": -9.89,
+            "y": -1.369
+          },
+          {
+            "x": -19.577,
+            "y": -3.787
+          },
+          {
+            "x": -20.588,
+            "y": 0.264
+          }
+        ],
+        "opening_segment": {
+          "x1": -10.534,
+          "y1": 1.21,
+          "x2": -10.258,
+          "y2": 0.103
+        },
+        "side": "left",
+        "shape": "rect"
+      }
+    ]
+  },
+  "echo_paths": {
+    "enabled": true,
+    "requested_structure": "coupled",
+    "resolved_structure": "coupled",
+    "prominence": 0.92,
+    "persistence": 0.85,
+    "regularity": 0.9,
+    "geometry_driven": true,
+    "event_count": 26,
+    "paths": [
+      {
+        "id": 1,
+        "structure": "coupled",
+        "interval_ms": 45.37,
+        "repeat_path_m": 15.5617,
+        "material": "concrete",
+        "chamber_index": 10,
+        "branch_family": "room",
+        "closed": false,
+        "points_m": [
+          {
+            "x": 15.1661,
+            "y": 4.5897,
+            "z": 3.0085
+          },
+          {
+            "x": 12.4574,
+            "y": 21.6011,
+            "z": 2.16
+          },
+          {
+            "x": 10.3871,
+            "y": 29.094,
+            "z": 2.4948
+          },
+          {
+            "x": 12.4574,
+            "y": 21.6011,
+            "z": 2.16
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "structure": "coupled",
+        "interval_ms": 45.37,
+        "repeat_path_m": 15.5617,
+        "material": "concrete",
+        "chamber_index": 12,
+        "branch_family": "room",
+        "closed": false,
+        "points_m": [
+          {
+            "x": 15.1661,
+            "y": 4.5897,
+            "z": 3.0085
+          },
+          {
+            "x": 5.7875,
+            "y": 21.6169,
+            "z": 2.16
+          },
+          {
+            "x": 7.8931,
+            "y": 29.0999,
+            "z": 2.4948
+          },
+          {
+            "x": 5.7875,
+            "y": 21.6169,
+            "z": 2.16
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "structure": "coupled",
+        "interval_ms": 155.859,
+        "repeat_path_m": 53.4598,
+        "material": "concrete",
+        "chamber_index": null,
+        "branch_family": "room/room",
+        "closed": true,
+        "points_m": [
+          {
+            "x": 12.4348,
+            "y": 12.0012,
+            "z": 2.16
+          },
+          {
+            "x": 15.3574,
+            "y": 21.5943,
+            "z": 2.3328
+          },
+          {
+            "x": 12.4348,
+            "y": 12.0012,
+            "z": 2.16
+          },
+          {
+            "x": 5.7648,
+            "y": 12.0169,
+            "z": 2.16
+          },
+          {
+            "x": 8.6875,
+            "y": 21.61,
+            "z": 2.3328
+          },
+          {
+            "x": 5.7648,
+            "y": 12.0169,
+            "z": 2.16
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "structure": "coupled",
+        "interval_ms": 196.011,
+        "repeat_path_m": 67.2317,
+        "material": "concrete",
+        "chamber_index": null,
+        "branch_family": "room/room",
+        "closed": true,
+        "points_m": [
+          {
+            "x": 5.7648,
+            "y": 12.0169,
+            "z": 2.16
+          },
+          {
+            "x": 8.6875,
+            "y": 21.61,
+            "z": 2.3328
+          },
+          {
+            "x": 5.7648,
+            "y": 12.0169,
+            "z": 2.16
+          },
+          {
+            "x": 15.5338,
+            "y": 8.277,
+            "z": 2.16
+          },
+          {
+            "x": 28.592,
+            "y": 9.5929,
+            "z": 2.3328
+          },
+          {
+            "x": 15.5338,
+            "y": 8.277,
+            "z": 2.16
+          }
+        ]
+      }
+    ]
+  },
+  "field_offset": {
+    "x": 0.23,
+    "y": -0.06,
+    "z": 0
+  },
+  "ray_source_normalized": {
+    "x": 0.5,
+    "y": 0.25,
+    "z": 0.5
+  },
+  "ray_grid": {
+    "x": 5,
+    "y": 5,
+    "z": 3,
+    "reflection_slots": 24
+  },
+  "source_distance": 14.25,
+  "direction_spread_deg": 40,
+  "group_variation": 0.33,
+  "surface_contrast": 0.36,
+  "distance_variation": 0.13,
+  "order": 3,
+  "direction_set": "auto",
+  "effective_direction_layout": "practical_8",
+  "groups": [
+    {
+      "group": 1,
+      "azimuth": 45,
+      "elevation": 35.264,
+      "channels": "1-16",
+      "direct_time_ms": 41,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 14
+      },
+      "early_energy": 0.97524,
+      "chamber_energy": 0.01557,
+      "branch_energy": 0.01557,
+      "echo_energy": 0.00082,
+      "local_profile": {
+        "absorption": 0.058,
+        "scattering": 0.146,
+        "tail_soften": 0.192,
+        "source_distance": 14.242,
+        "direction_spread_deg": 36.6,
+        "pre_delay_ms": 5.57,
+        "rt60": 3.112
+      },
+      "source_position_m": {
+        "x": 8.225,
+        "y": -5.463,
+        "z": 3.033
+      }
+    },
+    {
+      "group": 2,
+      "azimuth": -45,
+      "elevation": 35.264,
+      "channels": "17-32",
+      "direct_time_ms": 38,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 8
+      },
+      "early_energy": 0.88673,
+      "chamber_energy": 0.01332,
+      "branch_energy": 0.01332,
+      "echo_energy": 0.0008,
+      "local_profile": {
+        "absorption": 0.086,
+        "scattering": 0.192,
+        "tail_soften": 0.149,
+        "source_distance": 14.378,
+        "direction_spread_deg": 41.23,
+        "pre_delay_ms": 2.13,
+        "rt60": 2.083
+      },
+      "source_position_m": {
+        "x": 8.225,
+        "y": -5.463,
+        "z": 3.033
+      }
+    },
+    {
+      "group": 3,
+      "azimuth": 135,
+      "elevation": 35.264,
+      "channels": "33-48",
+      "direct_time_ms": 39,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 10
+      },
+      "early_energy": 0.9599,
+      "chamber_energy": 0.01203,
+      "branch_energy": 0.01203,
+      "echo_energy": 0.00101,
+      "local_profile": {
+        "absorption": 0.078,
+        "scattering": 0.14,
+        "tail_soften": 0.168,
+        "source_distance": 13.877,
+        "direction_spread_deg": 36.09,
+        "pre_delay_ms": 3.67,
+        "rt60": 2.285
+      },
+      "source_position_m": {
+        "x": 8.225,
+        "y": -5.463,
+        "z": 3.033
+      }
+    },
+    {
+      "group": 4,
+      "azimuth": -135,
+      "elevation": 35.264,
+      "channels": "49-64",
+      "direct_time_ms": 36,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 11
+      },
+      "early_energy": 0.91949,
+      "chamber_energy": 0.01478,
+      "branch_energy": 0.01478,
+      "echo_energy": 0.00095,
+      "local_profile": {
+        "absorption": 0.083,
+        "scattering": 0.224,
+        "tail_soften": 0.132,
+        "source_distance": 13.865,
+        "direction_spread_deg": 44.38,
+        "pre_delay_ms": 0.75,
+        "rt60": 2.167
+      },
+      "source_position_m": {
+        "x": 8.225,
+        "y": -5.463,
+        "z": 3.033
+      }
+    },
+    {
+      "group": 5,
+      "azimuth": 45,
+      "elevation": -35.264,
+      "channels": "65-80",
+      "direct_time_ms": 37,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 13
+      },
+      "early_energy": 0.90592,
+      "chamber_energy": 0.02163,
+      "branch_energy": 0.02163,
+      "echo_energy": 0.00082,
+      "local_profile": {
+        "absorption": 0.09,
+        "scattering": 0.15,
+        "tail_soften": 0.141,
+        "source_distance": 14.454,
+        "direction_spread_deg": 37,
+        "pre_delay_ms": 1.41,
+        "rt60": 1.982
+      },
+      "source_position_m": {
+        "x": 8.225,
+        "y": -5.463,
+        "z": 3.033
+      }
+    },
+    {
+      "group": 6,
+      "azimuth": -45,
+      "elevation": -35.264,
+      "channels": "81-96",
+      "direct_time_ms": 36,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 9
+      },
+      "early_energy": 1.01594,
+      "chamber_energy": 0.02014,
+      "branch_energy": 0.02014,
+      "echo_energy": 0.0008,
+      "local_profile": {
+        "absorption": 0.068,
+        "scattering": 0.213,
+        "tail_soften": 0.132,
+        "source_distance": 14.503,
+        "direction_spread_deg": 43.23,
+        "pre_delay_ms": 0.71,
+        "rt60": 2.65
+      },
+      "source_position_m": {
+        "x": 8.225,
+        "y": -5.463,
+        "z": 3.033
+      }
+    },
+    {
+      "group": 7,
+      "azimuth": 135,
+      "elevation": -35.264,
+      "channels": "97-112",
+      "direct_time_ms": 39,
+      "first_reflection": {
+        "wall": "SC",
+        "time_ms": 11
+      },
+      "early_energy": 0.94911,
+      "chamber_energy": 0.01446,
+      "branch_energy": 0.01446,
+      "echo_energy": 0.00101,
+      "local_profile": {
+        "absorption": 0.114,
+        "scattering": 0.203,
+        "tail_soften": 0.168,
+        "source_distance": 14.363,
+        "direction_spread_deg": 42.3,
+        "pre_delay_ms": 3.66,
+        "rt60": 1.566
+      },
+      "source_position_m": {
+        "x": 8.225,
+        "y": -5.463,
+        "z": 3.033
+      }
+    },
+    {
+      "group": 8,
+      "azimuth": -135,
+      "elevation": -35.264,
+      "channels": "113-128",
+      "direct_time_ms": 41,
+      "first_reflection": {
+        "wall": "B1.1",
+        "time_ms": 25
+      },
+      "early_energy": 1.16676,
+      "chamber_energy": 0.02029,
+      "branch_energy": 0.02029,
+      "echo_energy": 0.00095,
+      "local_profile": {
+        "absorption": 0.039,
+        "scattering": 0.17,
+        "tail_soften": 0.185,
+        "source_distance": 14.375,
+        "direction_spread_deg": 38.98,
+        "pre_delay_ms": 5.02,
+        "rt60": 4.626
+      },
+      "source_position_m": {
+        "x": 8.225,
+        "y": -5.463,
+        "z": 3.033
+      }
+    }
+  ],
+  "duration": 4,
+  "pre_delay_ms": 3,
+  "early_reflections": 72,
+  "camera": {
+    "azimuth": 73,
+    "elevation": 22,
+    "zoom": 0.81
+  },
+  "estimated_rt60": 2.24,
+  "late_start_seconds": 0.104,
+  "atlas": {
+    "name": "Twin Concrete Chambers",
+    "category": "Echo",
+    "description": "Two deep concrete side chambers return distinct portal-coupled echo trains.",
+    "seed": 880307,
+    "source": "s3g-mc Ray Sketch"
+  }
+}

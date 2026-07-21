@@ -35,6 +35,28 @@ enum class AmbiTerrainPalette : uint32_t {
     Tectonic = 7,
 };
 
+enum class AmbiTerrainForm : uint32_t {
+    Sphere = 0,
+    Tetra = 1,
+    Cube = 2,
+    Octa = 3,
+    Dodeca = 4,
+    Icosa = 5,
+};
+
+enum class AmbiTerrainRead : uint32_t {
+    Height = 0,
+    Edge = 1,
+    Curvature = 2,
+    Blend = 3,
+    Gradient = 4,
+    Ridge = 5,
+    Valley = 6,
+    Normal = 7,
+    Cross = 8,
+    Vector = 9,
+};
+
 enum class AmbiTerrainPlaybackMode : uint32_t {
     Off = 0,
     Run = 1,
@@ -87,6 +109,20 @@ struct AmbiTerrainNavigatorParams {
     uint32_t selectedSource = 0;
     float rateSpread = 0.35f;
     float rateDeviation = 0.18f;
+    AmbiTerrainForm terrainForm = AmbiTerrainForm::Sphere;
+    float terrainFacet = 0.0f;
+    float terrainBevel = 0.18f;
+    float terrainOrientation = 0.0f;
+    float terrainTerrace = 0.0f;
+    uint32_t terrainTerraceSteps = 8u;
+    float terrainRidge = 0.0f;
+    float terrainErosion = 0.0f;
+    float terrainDomainWarp = 0.0f;
+    float terrainTwist = 0.0f;
+    float terrainRoughness = 0.50f;
+    float terrainRelief = 1.0f;
+    AmbiTerrainRead terrainRead = AmbiTerrainRead::Height;
+    float terrainReadMix = 0.50f;
 };
 
 class AmbiTerrainNavigator {
@@ -232,6 +268,22 @@ private:
         p.selectedSource = std::min<uint32_t>(p.selectedSource, p.points - 1u);
         p.rateSpread = clamp(p.rateSpread, 0.0f, 1.0f);
         p.rateDeviation = clamp(p.rateDeviation, 0.0f, 1.0f);
+        p.terrainForm = static_cast<AmbiTerrainForm>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(p.terrainForm), 0u, 5u));
+        p.terrainFacet = clamp(p.terrainFacet, 0.0f, 1.0f);
+        p.terrainBevel = clamp(p.terrainBevel, 0.0f, 1.0f);
+        p.terrainOrientation = clamp(p.terrainOrientation, -1.0f, 1.0f);
+        p.terrainTerrace = clamp(p.terrainTerrace, 0.0f, 1.0f);
+        p.terrainTerraceSteps = std::clamp<uint32_t>(p.terrainTerraceSteps, 2u, 24u);
+        p.terrainRidge = clamp(p.terrainRidge, 0.0f, 1.0f);
+        p.terrainErosion = clamp(p.terrainErosion, 0.0f, 1.0f);
+        p.terrainDomainWarp = clamp(p.terrainDomainWarp, 0.0f, 1.0f);
+        p.terrainTwist = clamp(p.terrainTwist, -1.0f, 1.0f);
+        p.terrainRoughness = clamp(p.terrainRoughness, 0.0f, 1.0f);
+        p.terrainRelief = clamp(p.terrainRelief, 0.0f, 1.0f);
+        p.terrainRead = static_cast<AmbiTerrainRead>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(p.terrainRead), 0u, 9u));
+        p.terrainReadMix = clamp(p.terrainReadMix, 0.0f, 1.0f);
         return p;
     }
 
@@ -304,7 +356,8 @@ private:
         const float azimuthDeg = (azUnit - 0.5f) * 360.0f;
         const float elevationDeg = (elUnit - 0.5f) * 180.0f;
         const Vec3 direction = directionFromAed(azimuthDeg, elevationDeg);
-        const float frequency = 1.15f + static_cast<float>(layer) * 0.92f;
+        const float frequency = 1.15f + static_cast<float>(layer)
+            * (0.68f + params_.terrainRoughness * 0.48f);
         const float x = direction.x * frequency + static_cast<float>(layer) * 0.31f;
         const float y = direction.y * (frequency + 0.37f) - static_cast<float>(layer) * 0.17f;
         const float z = direction.z * (frequency + 0.71f) + radius * 0.23f;
@@ -333,8 +386,79 @@ private:
         }
     }
 
+    float terrainForm(float azUnit, float elUnit) const
+    {
+        if (params_.terrainForm == AmbiTerrainForm::Sphere) return 0.0f;
+        Vec3 direction = directionFromAed((azUnit - 0.5f) * 360.0f, (elUnit - 0.5f) * 180.0f);
+        const float yaw = params_.terrainOrientation * kPi;
+        const float pitch = params_.terrainOrientation * kPi * 0.37f;
+        const float cy = std::cos(yaw), sy = std::sin(yaw);
+        const float cp = std::cos(pitch), sp = std::sin(pitch);
+        const float x1 = cy * direction.x - sy * direction.y;
+        const float y1 = sy * direction.x + cy * direction.y;
+        direction = { cp * x1 + sp * direction.z, y1, -sp * x1 + cp * direction.z };
+
+        std::array<float, 20> dots {};
+        uint32_t count = 0u;
+        const auto addNormal = [&](float x, float y, float z) {
+            const float inverseLength = 1.0f / std::sqrt(std::max(0.000001f, x * x + y * y + z * z));
+            dots[count++] = direction.x * x * inverseLength + direction.y * y * inverseLength + direction.z * z * inverseLength;
+        };
+        if (params_.terrainForm == AmbiTerrainForm::Cube) {
+            addNormal(1.0f, 0.0f, 0.0f); addNormal(-1.0f, 0.0f, 0.0f);
+            addNormal(0.0f, 1.0f, 0.0f); addNormal(0.0f, -1.0f, 0.0f);
+            addNormal(0.0f, 0.0f, 1.0f); addNormal(0.0f, 0.0f, -1.0f);
+        } else if (params_.terrainForm == AmbiTerrainForm::Octa) {
+            for (int x : { -1, 1 }) for (int y : { -1, 1 }) for (int z : { -1, 1 }) {
+                addNormal(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+            }
+        } else if (params_.terrainForm == AmbiTerrainForm::Tetra) {
+            addNormal(1.0f, 1.0f, 1.0f); addNormal(1.0f, -1.0f, -1.0f);
+            addNormal(-1.0f, 1.0f, -1.0f); addNormal(-1.0f, -1.0f, 1.0f);
+        } else if (params_.terrainForm == AmbiTerrainForm::Dodeca) {
+            constexpr float phi = 1.61803398875f;
+            for (int a : { -1, 1 }) for (int b : { -1, 1 }) {
+                addNormal(0.0f, static_cast<float>(a), static_cast<float>(b) * phi);
+                addNormal(static_cast<float>(a), static_cast<float>(b) * phi, 0.0f);
+                addNormal(static_cast<float>(a) * phi, 0.0f, static_cast<float>(b));
+            }
+        } else {
+            constexpr float phi = 1.61803398875f;
+            constexpr float inversePhi = 0.61803398875f;
+            for (int x : { -1, 1 }) for (int y : { -1, 1 }) for (int z : { -1, 1 }) {
+                addNormal(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+            }
+            for (int a : { -1, 1 }) for (int b : { -1, 1 }) {
+                addNormal(0.0f, static_cast<float>(a) * inversePhi, static_cast<float>(b) * phi);
+                addNormal(static_cast<float>(a) * inversePhi, static_cast<float>(b) * phi, 0.0f);
+                addNormal(static_cast<float>(a) * phi, 0.0f, static_cast<float>(b) * inversePhi);
+            }
+        }
+
+        float maximum = dots[0];
+        for (uint32_t index = 1u; index < count; ++index) maximum = std::max(maximum, dots[index]);
+        float support = maximum;
+        if (params_.terrainBevel > 0.0001f) {
+            const float sharpness = lerp(80.0f, 6.0f, params_.terrainBevel);
+            float sum = 0.0f;
+            for (uint32_t index = 0u; index < count; ++index) sum += std::exp((dots[index] - maximum) * sharpness);
+            support += std::log(std::max(1.0f, sum)) / sharpness;
+        }
+        const float radial = 1.0f / std::max(0.18f, support);
+        return softSat((radial - 1.0f) * 4.0f - 0.28f);
+    }
+
     float terrainAt(float azUnit, float elUnit) const
     {
+        azUnit = fract(azUnit + params_.terrainTwist * (elUnit - 0.5f) * 0.42f);
+        if (params_.terrainDomainWarp > 0.0001f) {
+            const float warpAz = std::sin(kAmbiTerrainTwoPi
+                * (elUnit * 1.73f + std::sin(azUnit * kAmbiTerrainTwoPi) * 0.19f));
+            const float warpEl = std::sin(kAmbiTerrainTwoPi
+                * (azUnit * 1.31f - std::cos(elUnit * kAmbiTerrainTwoPi) * 0.23f));
+            azUnit = fract(azUnit + warpAz * params_.terrainDomainWarp * 0.11f);
+            elUnit = clamp(elUnit + warpEl * params_.terrainDomainWarp * 0.085f, 0.0f, 1.0f);
+        }
         float terrain = 0.0f;
         float weightSum = 0.0f;
         for (uint32_t layer = 0; layer < 4u; ++layer) {
@@ -346,16 +470,67 @@ private:
         }
         terrain = weightSum > 0.0f ? terrain / weightSum : 0.0f;
         const float folded = std::sin(terrain * (1.0f + 4.0f * params_.fold));
-        return lerp(terrain, folded, params_.fold);
+        terrain = lerp(terrain, folded, params_.fold);
+        const float ridge = 1.0f - 2.0f * std::fabs(terrain);
+        terrain = lerp(terrain, ridge, params_.terrainRidge);
+        const float eroded = terrain / (1.0f + params_.terrainErosion * 2.8f * std::fabs(terrain));
+        terrain = lerp(terrain, eroded, params_.terrainErosion);
+        if (params_.terrainForm != AmbiTerrainForm::Sphere && params_.terrainFacet > 0.0001f) {
+            const float form = terrainForm(azUnit, elUnit);
+            terrain = lerp(terrain, form * 0.88f + terrain * 0.22f, params_.terrainFacet);
+        }
+        if (params_.terrainTerrace > 0.0001f) {
+            const float steps = static_cast<float>(params_.terrainTerraceSteps);
+            const float terraced = std::round(terrain * steps) / steps;
+            terrain = lerp(terrain, terraced, params_.terrainTerrace);
+        }
+        return terrain;
+    }
+
+    float interpretedTerrainAt(float azUnit, float elUnit) const
+    {
+        const float height = terrainAt(azUnit, elUnit);
+        if (params_.terrainRead == AmbiTerrainRead::Height) return height;
+
+        constexpr float offset = 0.0025f;
+        const float left = terrainAt(fract(azUnit - offset), elUnit);
+        const float right = terrainAt(fract(azUnit + offset), elUnit);
+        const float down = terrainAt(azUnit, clamp(elUnit - offset, 0.0f, 1.0f));
+        const float up = terrainAt(azUnit, clamp(elUnit + offset, 0.0f, 1.0f));
+        const float dx = (right - left) * 0.5f;
+        const float dy = (up - down) * 0.5f;
+        const float edge = softSat((dx * 0.72f + dy * 0.28f) * 22.0f);
+        const float curvature = softSat((4.0f * height - left - right - down - up) * 52.0f);
+        const float gradient = softSat(std::sqrt(dx * dx + dy * dy) * 4.5f);
+        const float normal = 2.0f / std::sqrt(1.0f + (dx * dx + dy * dy) * 128.0f) - 1.0f;
+        const float cross = softSat((dx - dy) * 18.0f);
+        switch (params_.terrainRead) {
+        case AmbiTerrainRead::Edge: return edge;
+        case AmbiTerrainRead::Curvature: return curvature;
+        case AmbiTerrainRead::Blend:
+            return lerp(height, lerp(edge, curvature, 0.35f), params_.terrainReadMix);
+        case AmbiTerrainRead::Gradient: return gradient;
+        case AmbiTerrainRead::Ridge: return std::max(0.0f, curvature);
+        case AmbiTerrainRead::Valley: return std::max(0.0f, -curvature);
+        case AmbiTerrainRead::Normal: return normal;
+        case AmbiTerrainRead::Cross: return cross;
+        case AmbiTerrainRead::Vector: {
+            const float derived = edge * 0.38f + curvature * 0.24f + gradient * 0.20f + cross * 0.18f;
+            return lerp(height, softSat(derived * 1.35f), params_.terrainReadMix);
+        }
+        case AmbiTerrainRead::Height:
+        default: return height;
+        }
     }
 
     AmbiTerrainPoint surfacePoint(float azUnit, float elUnit) const
     {
-        const float terrain = terrainAt(azUnit, elUnit);
-        const float shellHeight = terrain * params_.terrainDepth * (0.16f + 0.24f * params_.distanceWarp);
+        const float terrain = interpretedTerrainAt(azUnit, elUnit);
+        const float terrainAmount = params_.terrainDepth * params_.terrainRelief;
+        const float shellHeight = terrain * terrainAmount * (0.16f + 0.24f * params_.distanceWarp);
         AmbiTerrainPoint out {};
-        out.azimuthDeg = wrapSignedDeg((azUnit - 0.5f) * 360.0f + terrain * params_.azimuthWarpDeg * params_.terrainDepth);
-        out.elevationDeg = clamp((elUnit - 0.5f) * 180.0f + terrain * params_.elevationWarpDeg * params_.terrainDepth, -90.0f, 90.0f);
+        out.azimuthDeg = wrapSignedDeg((azUnit - 0.5f) * 360.0f + terrain * params_.azimuthWarpDeg * terrainAmount);
+        out.elevationDeg = clamp((elUnit - 0.5f) * 180.0f + terrain * params_.elevationWarpDeg * terrainAmount, -90.0f, 90.0f);
         out.distance = clamp((params_.distance + shellHeight) * params_.distanceScale, 0.15f, 8.0f);
         out.terrain = terrain;
         out.shell = 0u;

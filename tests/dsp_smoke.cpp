@@ -173,6 +173,97 @@ int main()
         std::cerr << "Ambi Terrain navigator skins did not produce distinct terrain\n";
         return 1;
     }
+    auto terrainGeometryParams = terrainParams;
+    terrainGeometryParams.palette = s3g::AmbiTerrainPalette::Fbm;
+    terrainGeometryParams.fold = 0.0f;
+    terrainGeometryParams.terrainDepth = 1.0f;
+    terrainGeometryParams.distanceWarp = 1.0f;
+    terrainGeometryParams.azimuthWarpDeg = 0.0f;
+    terrainGeometryParams.elevationWarpDeg = 0.0f;
+    terrainGeometryParams.terrainFacet = 1.0f;
+    terrainGeometryParams.terrainBevel = 0.0f;
+    terrainGeometryParams.terrainForm = s3g::AmbiTerrainForm::Cube;
+    terrainNavigator.setParams(terrainGeometryParams);
+    const auto cubeTerrainPoint = terrainNavigator.surfacePointForDisplay(0.137f, 0.613f);
+    terrainGeometryParams.terrainForm = s3g::AmbiTerrainForm::Icosa;
+    terrainNavigator.setParams(terrainGeometryParams);
+    const auto icosaTerrainPoint = terrainNavigator.surfacePointForDisplay(0.137f, 0.613f);
+    if (!std::isfinite(cubeTerrainPoint.terrain) || !std::isfinite(icosaTerrainPoint.terrain)
+        || std::abs(cubeTerrainPoint.terrain - icosaTerrainPoint.terrain) < 0.02f
+        || std::abs(cubeTerrainPoint.distance - icosaTerrainPoint.distance) < 0.005f) {
+        std::cerr << "Ambi Terrain navigator did not inherit distinct polyhedral shell forms\n";
+        return 1;
+    }
+    terrainGeometryParams.terrainTerrace = 1.0f;
+    terrainGeometryParams.terrainTerraceSteps = 5u;
+    terrainGeometryParams.terrainRidge = 0.55f;
+    terrainGeometryParams.terrainErosion = 0.35f;
+    terrainGeometryParams.terrainDomainWarp = 0.70f;
+    terrainGeometryParams.terrainTwist = -0.45f;
+    terrainNavigator.setParams(terrainGeometryParams);
+    const auto deformedTerrainPoint = terrainNavigator.surfacePointForDisplay(0.271f, 0.684f);
+    const float terraceUnits = deformedTerrainPoint.terrain * static_cast<float>(terrainGeometryParams.terrainTerraceSteps);
+    if (!std::isfinite(deformedTerrainPoint.azimuthDeg) || !std::isfinite(deformedTerrainPoint.elevationDeg)
+        || !std::isfinite(deformedTerrainPoint.distance)
+        || std::abs(terraceUnits - std::round(terraceUnits)) > 0.0001f) {
+        std::cerr << "Ambi Terrain navigator geometry deformation produced an invalid shell\n";
+        return 1;
+    }
+    auto terrainReadParams = terrainParams;
+    terrainReadParams.palette = s3g::AmbiTerrainPalette::Fbm;
+    terrainReadParams.fold = 0.15f;
+    terrainReadParams.terrainDepth = 1.0f;
+    terrainReadParams.terrainRelief = 1.0f;
+    terrainReadParams.distanceWarp = 1.0f;
+    terrainReadParams.terrainRoughness = 0.0f;
+    terrainReadParams.terrainRead = s3g::AmbiTerrainRead::Height;
+    terrainNavigator.setParams(terrainReadParams);
+    const auto smoothReadPoint = terrainNavigator.surfacePointForDisplay(0.319f, 0.577f);
+    terrainReadParams.terrainRoughness = 1.0f;
+    terrainNavigator.setParams(terrainReadParams);
+    const auto roughReadPoint = terrainNavigator.surfacePointForDisplay(0.319f, 0.577f);
+    if (std::abs(smoothReadPoint.terrain - roughReadPoint.terrain) < 0.001f) {
+        std::cerr << "Ambi Terrain navigator roughness did not alter its terrain layers\n";
+        return 1;
+    }
+    float readMinimum = 100.0f;
+    float readMaximum = -100.0f;
+    for (uint32_t read = 0u; read < 10u; ++read) {
+        terrainReadParams.terrainRead = static_cast<s3g::AmbiTerrainRead>(read);
+        terrainNavigator.setParams(terrainReadParams);
+        const auto readPoint = terrainNavigator.surfacePointForDisplay(0.319f, 0.577f);
+        if (!std::isfinite(readPoint.terrain) || !std::isfinite(readPoint.distance)) {
+            std::cerr << "Ambi Terrain navigator read interpretation produced an invalid shell\n";
+            return 1;
+        }
+        readMinimum = std::min(readMinimum, readPoint.terrain);
+        readMaximum = std::max(readMaximum, readPoint.terrain);
+    }
+    terrainReadParams.terrainRead = s3g::AmbiTerrainRead::Height;
+    terrainNavigator.setParams(terrainReadParams);
+    const auto heightReadPoint = terrainNavigator.surfacePointForDisplay(0.319f, 0.577f);
+    terrainReadParams.terrainRead = s3g::AmbiTerrainRead::Blend;
+    terrainReadParams.terrainReadMix = 0.0f;
+    terrainNavigator.setParams(terrainReadParams);
+    const auto unmixedReadPoint = terrainNavigator.surfacePointForDisplay(0.319f, 0.577f);
+    terrainReadParams.terrainReadMix = 1.0f;
+    terrainNavigator.setParams(terrainReadParams);
+    const auto mixedReadPoint = terrainNavigator.surfacePointForDisplay(0.319f, 0.577f);
+    if (readMaximum - readMinimum < 0.02f
+        || std::abs(unmixedReadPoint.terrain - heightReadPoint.terrain) > 0.0001f
+        || std::abs(mixedReadPoint.terrain - heightReadPoint.terrain) < 0.005f) {
+        std::cerr << "Ambi Terrain navigator read modes did not produce distinct spatial interpretations\n";
+        return 1;
+    }
+    terrainReadParams.terrainRead = s3g::AmbiTerrainRead::Height;
+    terrainReadParams.terrainRelief = 0.0f;
+    terrainNavigator.setParams(terrainReadParams);
+    const auto flatReliefPoint = terrainNavigator.surfacePointForDisplay(0.319f, 0.577f);
+    const float expectedFlatDistance = terrainReadParams.distance * terrainReadParams.distanceScale;
+    if (std::abs(flatReliefPoint.distance - expectedFlatDistance) > 0.0001f) {
+        std::cerr << "Ambi Terrain navigator relief did not flatten AED displacement\n";
+        return 1;
+    }
     terrainParams.palette = s3g::AmbiTerrainPalette::Vot;
     terrainParams.rateHz = 0.000001f;
     terrainNavigator.setParams(terrainParams);
@@ -4386,6 +4477,73 @@ int main()
         std::cerr << "Ambi VOX black metal bank failed: peak=" << voxPeak
                   << " rms=" << voxRms << " fundamental=" << voxFundamental << "\n";
         return 1;
+    }
+    if (s3g::kAmbiVoxMaxVoices != 16u) {
+        std::cerr << "Ambi VOX voice cap is not 16\n";
+        return 1;
+    }
+    constexpr std::array<float, 4> choraleLow {{ 60.0f, 53.0f, 48.0f, 40.0f }};
+    constexpr std::array<float, 4> choraleHigh {{ 84.0f, 77.0f, 72.0f, 64.0f }};
+    for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
+        const uint32_t part = voice % 4u;
+        const float note = s3g::ambiVoxOrchestratedFreeNote(
+            s3g::AmbiVoxOrchestration::Chorale, 60.0f,
+            s3g::AmbiVotScale::Major, voice);
+        if (note < choraleLow[part] || note > choraleHigh[part]) {
+            std::cerr << "Ambi VOX chorale note escaped SATB tessitura\n";
+            return 1;
+        }
+    }
+    constexpr std::array<uint32_t, 5> expectedRound {{ 0u, 4u, 8u, 12u, 0u }};
+    for (uint32_t voice = 0u; voice < expectedRound.size(); ++voice) {
+        const uint32_t position = s3g::ambiVoxRoundPhraseIndex(
+            s3g::AmbiVoxOrchestration::Round, voice,
+            s3g::kAmbiVoxMaxVoices, 16u);
+        if (position != expectedRound[voice]) {
+            std::cerr << "Ambi VOX round cohort offset failed\n";
+            return 1;
+        }
+    }
+    if (s3g::ambiVoxPhraseSpreadIndex(
+            s3g::AmbiVoxOrchestration::Chorale, 7u, 8u, 16u, 0.0f) != 0u
+        || s3g::ambiVoxPhraseSpreadIndex(
+            s3g::AmbiVoxOrchestration::Chorale, 4u, 8u, 16u, 0.5f) != 4u
+        || s3g::ambiVoxPhraseSpreadIndex(
+            s3g::AmbiVoxOrchestration::Chorale, 4u, 8u, 16u, 1.0f) != 8u
+        || s3g::ambiVoxPhraseSpreadIndex(
+            s3g::AmbiVoxOrchestration::Round, 3u, 16u, 16u, 1.0f) != 12u
+        || s3g::ambiVoxPhraseSpreadIndex(
+            s3g::AmbiVoxOrchestration::Round, 4u, 16u, 16u, 1.0f) != 0u) {
+        std::cerr << "Ambi VOX phrase spread placement failed\n";
+        return 1;
+    }
+    const float spreadPhase = s3g::ambiVoxPhraseSpreadPhase(
+        s3g::AmbiVoxOrchestration::Chorale, 7u, 8u, 1.0f);
+    if (std::fabs(spreadPhase - 0.875f) > 0.0001f) {
+        std::cerr << "Ambi VOX phrase spread phase failed\n";
+        return 1;
+    }
+    for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
+        const float delay = s3g::ambiVoxOrchestrationDelayMs(
+            s3g::AmbiVoxOrchestration::Chorus, voice);
+        if (!std::isfinite(delay) || delay < 0.0f || delay > 32.0f) {
+            std::cerr << "Ambi VOX ensemble delay is invalid\n";
+            return 1;
+        }
+    }
+    for (uint32_t mode = 0u; mode <= 5u; ++mode) {
+        if (std::string(s3g::ambiVoxOrchestrationName(
+                static_cast<s3g::AmbiVoxOrchestration>(mode))).empty()) {
+            std::cerr << "Ambi VOX orchestration name is empty\n";
+            return 1;
+        }
+    }
+    for (uint32_t mode = 0u; mode <= 3u; ++mode) {
+        if (std::string(s3g::ambiVoxContourModeName(
+                static_cast<s3g::AmbiVoxContourMode>(mode))).empty()) {
+            std::cerr << "Ambi VOX contour name is empty\n";
+            return 1;
+        }
     }
     float votFullHighHarmonic = 0.0f;
     float votLimitedHighHarmonic = 0.0f;

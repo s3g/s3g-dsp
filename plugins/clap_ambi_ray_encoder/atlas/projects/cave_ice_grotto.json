@@ -1,0 +1,1653 @@
+{
+  "format": "s3g-ray-sketch",
+  "version": 1,
+  "tool": "s3g-mc Ray Sketch",
+  "target_process": "s3g Ambi Ray Encoder",
+  "interpretation": "moving-source acoustic map for architectural, natural, open, or imaginary spaces",
+  "space_family": "cave",
+  "space_seed": 220211,
+  "room_x": 10.1,
+  "room_y": 8.8,
+  "room_z": 4.6,
+  "material_preset": "ice",
+  "absorption": 0.231,
+  "scattering": 0.28,
+  "tail_soften": 0.12,
+  "irregularity": 0.58,
+  "surface_roughness": 0.72,
+  "vertical_variation": 0.72,
+  "openness": 0.17,
+  "space_shape": "side_chamber",
+  "room_shape": "trapezoid",
+  "topology_bias": 0.61,
+  "branch_family": "cavern",
+  "room_polygon": [
+    {
+      "x": 5.05,
+      "y": 1.319
+    },
+    {
+      "x": 6.543,
+      "y": 1.26
+    },
+    {
+      "x": 7.784,
+      "y": 2.018
+    },
+    {
+      "x": 8.559,
+      "y": 3.134
+    },
+    {
+      "x": 9.002,
+      "y": 4.4
+    },
+    {
+      "x": 8.964,
+      "y": 5.812
+    },
+    {
+      "x": 8.276,
+      "y": 7.211
+    },
+    {
+      "x": 6.692,
+      "y": 7.853
+    },
+    {
+      "x": 5.05,
+      "y": 7.884
+    },
+    {
+      "x": 3.624,
+      "y": 7.4
+    },
+    {
+      "x": 2.723,
+      "y": 6.428
+    },
+    {
+      "x": 1.595,
+      "y": 5.647
+    },
+    {
+      "x": 0.979,
+      "y": 4.4
+    },
+    {
+      "x": 1.242,
+      "y": 3.026
+    },
+    {
+      "x": 2.377,
+      "y": 2.071
+    },
+    {
+      "x": 3.777,
+      "y": 1.723
+    }
+  ],
+  "space": {
+    "family": "cave",
+    "seed": 220211,
+    "topology": "connected_regions",
+    "branch_family_mode": "cavern",
+    "primary_polygon_xy_m": [
+      {
+        "x": 5.05,
+        "y": 1.319
+      },
+      {
+        "x": 6.543,
+        "y": 1.26
+      },
+      {
+        "x": 7.784,
+        "y": 2.018
+      },
+      {
+        "x": 8.559,
+        "y": 3.134
+      },
+      {
+        "x": 9.002,
+        "y": 4.4
+      },
+      {
+        "x": 8.964,
+        "y": 5.812
+      },
+      {
+        "x": 8.276,
+        "y": 7.211
+      },
+      {
+        "x": 6.692,
+        "y": 7.853
+      },
+      {
+        "x": 5.05,
+        "y": 7.884
+      },
+      {
+        "x": 3.624,
+        "y": 7.4
+      },
+      {
+        "x": 2.723,
+        "y": 6.428
+      },
+      {
+        "x": 1.595,
+        "y": 5.647
+      },
+      {
+        "x": 0.979,
+        "y": 4.4
+      },
+      {
+        "x": 1.242,
+        "y": 3.026
+      },
+      {
+        "x": 2.377,
+        "y": 2.071
+      },
+      {
+        "x": 3.777,
+        "y": 1.723
+      }
+    ],
+    "ceiling_profile_xz_m": [
+      {
+        "x": -2.909,
+        "z": 3.465
+      },
+      {
+        "x": -2.165,
+        "z": 3.12
+      },
+      {
+        "x": -1.42,
+        "z": 3.104
+      },
+      {
+        "x": -0.676,
+        "z": 3.394
+      },
+      {
+        "x": 0.069,
+        "z": 3.855
+      },
+      {
+        "x": 0.813,
+        "z": 4.311
+      },
+      {
+        "x": 1.557,
+        "z": 4.627
+      },
+      {
+        "x": 2.302,
+        "z": 4.758
+      },
+      {
+        "x": 3.046,
+        "z": 4.742
+      },
+      {
+        "x": 3.791,
+        "z": 4.651
+      },
+      {
+        "x": 4.535,
+        "z": 4.534
+      },
+      {
+        "x": 5.28,
+        "z": 4.391
+      },
+      {
+        "x": 6.024,
+        "z": 4.185
+      },
+      {
+        "x": 6.769,
+        "z": 3.898
+      },
+      {
+        "x": 7.513,
+        "z": 3.566
+      },
+      {
+        "x": 8.258,
+        "z": 3.296
+      },
+      {
+        "x": 9.002,
+        "z": 3.22
+      }
+    ],
+    "irregularity": 0.58,
+    "roughness": 0.72,
+    "vertical_variation": 0.72,
+    "openness": 0.17,
+    "acoustic_volume_m3": 211.194,
+    "acoustic_surface_m2": 338.006,
+    "regions": [
+      {
+        "id": "primary",
+        "kind": "primary",
+        "family": "cave",
+        "level": 0,
+        "parent_region": null,
+        "attachment": null,
+        "base_z_m": 0,
+        "height_m": 4.6,
+        "polygon_xy_m": [
+          {
+            "x": 5.05,
+            "y": 1.3194
+          },
+          {
+            "x": 6.5428,
+            "y": 1.2598
+          },
+          {
+            "x": 7.7839,
+            "y": 2.018
+          },
+          {
+            "x": 8.5591,
+            "y": 3.1336
+          },
+          {
+            "x": 9.0021,
+            "y": 4.4
+          },
+          {
+            "x": 8.9637,
+            "y": 5.8125
+          },
+          {
+            "x": 8.2764,
+            "y": 7.2111
+          },
+          {
+            "x": 6.6918,
+            "y": 7.8534
+          },
+          {
+            "x": 5.05,
+            "y": 7.8841
+          },
+          {
+            "x": 3.6236,
+            "y": 7.4003
+          },
+          {
+            "x": 2.7229,
+            "y": 6.4276
+          },
+          {
+            "x": 1.5949,
+            "y": 5.6469
+          },
+          {
+            "x": 0.9793,
+            "y": 4.4
+          },
+          {
+            "x": 1.242,
+            "y": 3.0257
+          },
+          {
+            "x": 2.3775,
+            "y": 2.0715
+          },
+          {
+            "x": 3.7771,
+            "y": 1.7226
+          }
+        ]
+      },
+      {
+        "id": "region-1",
+        "kind": "branch",
+        "family": "cavern",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.692,
+        "polygon_xy_m": [
+          {
+            "x": 0.9793,
+            "y": 4.4
+          },
+          {
+            "x": 1.2157,
+            "y": 3.1631
+          },
+          {
+            "x": 0.7142,
+            "y": 2.9836
+          },
+          {
+            "x": 0.2465,
+            "y": 2.9703
+          },
+          {
+            "x": -0.1042,
+            "y": 3.0257
+          },
+          {
+            "x": -0.5019,
+            "y": 3.045
+          },
+          {
+            "x": -0.9363,
+            "y": 3.0736
+          },
+          {
+            "x": -1.0984,
+            "y": 3.2092
+          },
+          {
+            "x": -1.0673,
+            "y": 3.3826
+          },
+          {
+            "x": -1.1673,
+            "y": 3.5279
+          },
+          {
+            "x": -1.0488,
+            "y": 3.706
+          },
+          {
+            "x": -0.7567,
+            "y": 3.8863
+          },
+          {
+            "x": -0.3986,
+            "y": 4.0553
+          },
+          {
+            "x": 0.0636,
+            "y": 4.1924
+          },
+          {
+            "x": 0.496,
+            "y": 4.3321
+          }
+        ]
+      },
+      {
+        "id": "region-2",
+        "kind": "branch",
+        "family": "cavern",
+        "level": 1,
+        "parent_region": "region-1",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.922,
+        "polygon_xy_m": [
+          {
+            "x": -1.1563,
+            "y": 3.5491
+          },
+          {
+            "x": -0.9671,
+            "y": 2.6624
+          },
+          {
+            "x": -1.3471,
+            "y": 2.5555
+          },
+          {
+            "x": -1.7427,
+            "y": 2.5071
+          },
+          {
+            "x": -2.0521,
+            "y": 2.5303
+          },
+          {
+            "x": -2.2709,
+            "y": 2.5853
+          },
+          {
+            "x": -2.5599,
+            "y": 2.6063
+          },
+          {
+            "x": -2.8314,
+            "y": 2.6472
+          },
+          {
+            "x": -2.9093,
+            "y": 2.7471
+          },
+          {
+            "x": -2.8253,
+            "y": 2.8757
+          },
+          {
+            "x": -2.699,
+            "y": 3.007
+          },
+          {
+            "x": -2.5109,
+            "y": 3.1434
+          },
+          {
+            "x": -2.2593,
+            "y": 3.2812
+          },
+          {
+            "x": -1.9072,
+            "y": 3.4003
+          },
+          {
+            "x": -1.5194,
+            "y": 3.4843
+          }
+        ]
+      },
+      {
+        "id": "region-3",
+        "kind": "branch",
+        "family": "cavern",
+        "level": 0,
+        "parent_region": "primary",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.692,
+        "polygon_xy_m": [
+          {
+            "x": 1.0056,
+            "y": 4.2626
+          },
+          {
+            "x": 1.242,
+            "y": 3.0257
+          },
+          {
+            "x": 0.7422,
+            "y": 2.8603
+          },
+          {
+            "x": 0.2774,
+            "y": 2.8528
+          },
+          {
+            "x": -0.1114,
+            "y": 2.8823
+          },
+          {
+            "x": -0.4646,
+            "y": 2.9192
+          },
+          {
+            "x": -0.8724,
+            "y": 2.9422
+          },
+          {
+            "x": -1.0845,
+            "y": 3.047
+          },
+          {
+            "x": -1.2143,
+            "y": 3.1805
+          },
+          {
+            "x": -1.1285,
+            "y": 3.3582
+          },
+          {
+            "x": -0.9146,
+            "y": 3.5453
+          },
+          {
+            "x": -0.7289,
+            "y": 3.7323
+          },
+          {
+            "x": -0.4071,
+            "y": 3.9195
+          },
+          {
+            "x": -0.0156,
+            "y": 4.0998
+          },
+          {
+            "x": 0.4975,
+            "y": 4.2213
+          }
+        ]
+      },
+      {
+        "id": "region-4",
+        "kind": "branch",
+        "family": "cavern",
+        "level": 1,
+        "parent_region": "region-3",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.922,
+        "polygon_xy_m": [
+          {
+            "x": -1.1176,
+            "y": 3.3796
+          },
+          {
+            "x": -0.9859,
+            "y": 2.4825
+          },
+          {
+            "x": -1.369,
+            "y": 2.372
+          },
+          {
+            "x": -1.7285,
+            "y": 2.3545
+          },
+          {
+            "x": -2.0205,
+            "y": 2.3776
+          },
+          {
+            "x": -2.2935,
+            "y": 2.4032
+          },
+          {
+            "x": -2.6242,
+            "y": 2.4133
+          },
+          {
+            "x": -2.7287,
+            "y": 2.5032
+          },
+          {
+            "x": -2.6664,
+            "y": 2.6232
+          },
+          {
+            "x": -2.6905,
+            "y": 2.7219
+          },
+          {
+            "x": -2.5797,
+            "y": 2.8423
+          },
+          {
+            "x": -2.3226,
+            "y": 2.9667
+          },
+          {
+            "x": -2.0679,
+            "y": 3.0847
+          },
+          {
+            "x": -1.8075,
+            "y": 3.2061
+          },
+          {
+            "x": -1.4908,
+            "y": 3.323
+          }
+        ]
+      }
+    ],
+    "portals": [
+      {
+        "id": "portal-1",
+        "from_region": "primary",
+        "to_region": "region-1",
+        "attachment": "left",
+        "shape": "rect",
+        "center_m": {
+          "x": 1.0975,
+          "y": 3.7816,
+          "z": 2.3
+        },
+        "normal": {
+          "x": -0.98222,
+          "y": -0.18772,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.18772,
+          "y": -0.98222,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 0.4282,
+        "height_m": 3.312,
+        "area_m2": 1.41803,
+        "transmission": 0.84017,
+        "outline_xyz_m": [
+          {
+            "x": 1.0573,
+            "y": 3.9918,
+            "z": 0.644
+          },
+          {
+            "x": 1.1377,
+            "y": 3.5713,
+            "z": 0.644
+          },
+          {
+            "x": 1.1377,
+            "y": 3.5713,
+            "z": 3.956
+          },
+          {
+            "x": 1.0573,
+            "y": 3.9918,
+            "z": 3.956
+          }
+        ]
+      },
+      {
+        "id": "portal-2",
+        "from_region": "region-1",
+        "to_region": "region-2",
+        "attachment": "left",
+        "shape": "rect",
+        "center_m": {
+          "x": -1.0617,
+          "y": 3.1057,
+          "z": 2.346
+        },
+        "normal": {
+          "x": -0.98222,
+          "y": -0.18772,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.20861,
+          "y": -0.978,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 0.3511,
+        "height_m": 3.3782,
+        "area_m2": 1.18604,
+        "transmission": 0.82847,
+        "outline_xyz_m": [
+          {
+            "x": -1.0983,
+            "y": 3.2774,
+            "z": 0.6569
+          },
+          {
+            "x": -1.0251,
+            "y": 2.934,
+            "z": 0.6569
+          },
+          {
+            "x": -1.0251,
+            "y": 2.934,
+            "z": 4.0351
+          },
+          {
+            "x": -1.0983,
+            "y": 3.2774,
+            "z": 4.0351
+          }
+        ]
+      },
+      {
+        "id": "portal-3",
+        "from_region": "primary",
+        "to_region": "region-3",
+        "attachment": "left",
+        "shape": "rect",
+        "center_m": {
+          "x": 1.1238,
+          "y": 3.6441,
+          "z": 2.3
+        },
+        "normal": {
+          "x": -0.98222,
+          "y": -0.18772,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.18772,
+          "y": -0.98222,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 0.4282,
+        "height_m": 3.312,
+        "area_m2": 1.41803,
+        "transmission": 0.84017,
+        "outline_xyz_m": [
+          {
+            "x": 1.0836,
+            "y": 3.8544,
+            "z": 0.644
+          },
+          {
+            "x": 1.164,
+            "y": 3.4339,
+            "z": 0.644
+          },
+          {
+            "x": 1.164,
+            "y": 3.4339,
+            "z": 3.956
+          },
+          {
+            "x": 1.0836,
+            "y": 3.8544,
+            "z": 3.956
+          }
+        ]
+      },
+      {
+        "id": "portal-4",
+        "from_region": "region-3",
+        "to_region": "region-4",
+        "attachment": "left",
+        "shape": "rect",
+        "center_m": {
+          "x": -1.0517,
+          "y": 2.931,
+          "z": 2.346
+        },
+        "normal": {
+          "x": -0.98222,
+          "y": -0.18772,
+          "z": 0
+        },
+        "axis_u": {
+          "x": 0.14527,
+          "y": -0.98939,
+          "z": 0
+        },
+        "axis_v": {
+          "x": 0,
+          "y": 0,
+          "z": 1
+        },
+        "width_m": 0.3511,
+        "height_m": 3.3782,
+        "area_m2": 1.18604,
+        "transmission": 0.82847,
+        "outline_xyz_m": [
+          {
+            "x": -1.0772,
+            "y": 3.1047,
+            "z": 0.6569
+          },
+          {
+            "x": -1.0262,
+            "y": 2.7574,
+            "z": 0.6569
+          },
+          {
+            "x": -1.0262,
+            "y": 2.7574,
+            "z": 4.0351
+          },
+          {
+            "x": -1.0772,
+            "y": 3.1047,
+            "z": 4.0351
+          }
+        ]
+      }
+    ]
+  },
+  "chamber_shape": "wedge",
+  "chamber_side": "left",
+  "exterior_opening": {
+    "enabled": true,
+    "side": "back",
+    "count": 2,
+    "position": 0.35,
+    "spread": 0.41,
+    "width": 0.34,
+    "opening_m": 1.117,
+    "leak": 0.13,
+    "leak_factor": 0.223,
+    "interpretation": "energy escape boundary for late-tail thinning and reduced reflection density",
+    "openings": [
+      {
+        "index": 1,
+        "side": "back",
+        "shape": "rect",
+        "opening_m": 0.558,
+        "base_z_m": 0.53,
+        "height_m": 3.354,
+        "center_m": {
+          "x": 6.413,
+          "y": 7.859,
+          "z": 2.207
+        },
+        "opening_segment": {
+          "x1": 6.692,
+          "y1": 7.853,
+          "x2": 6.134,
+          "y2": 7.864
+        },
+        "outline_xyz_m": [
+          {
+            "x": 6.692,
+            "y": 7.853,
+            "z": 0.53
+          },
+          {
+            "x": 6.134,
+            "y": 7.864,
+            "z": 0.53
+          },
+          {
+            "x": 6.134,
+            "y": 7.864,
+            "z": 3.884
+          },
+          {
+            "x": 6.692,
+            "y": 7.853,
+            "z": 3.884
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "side": "back",
+        "shape": "rect",
+        "opening_m": 0.558,
+        "base_z_m": 0.558,
+        "height_m": 3.535,
+        "center_m": {
+          "x": 5.781,
+          "y": 7.87,
+          "z": 2.326
+        },
+        "opening_segment": {
+          "x1": 6.06,
+          "y1": 7.865,
+          "x2": 5.501,
+          "y2": 7.876
+        },
+        "outline_xyz_m": [
+          {
+            "x": 6.06,
+            "y": 7.865,
+            "z": 0.558
+          },
+          {
+            "x": 5.501,
+            "y": 7.876,
+            "z": 0.558
+          },
+          {
+            "x": 5.501,
+            "y": 7.876,
+            "z": 4.093
+          },
+          {
+            "x": 6.06,
+            "y": 7.865,
+            "z": 4.093
+          }
+        ]
+      }
+    ],
+    "opening_segment": {
+      "x1": 6.692,
+      "y1": 7.853,
+      "x2": 6.134,
+      "y2": 7.864
+    }
+  },
+  "chamber": {
+    "family_mode": "cavern",
+    "material": "water",
+    "material_mode": "alternating",
+    "material_mix": 0.51,
+    "width": 5.2,
+    "depth": 2.2,
+    "count": 2,
+    "position": 0.18,
+    "cross_position": 0.5,
+    "heading_deg": 0,
+    "wall_elevation": 0,
+    "nested_chambers": 1,
+    "opening_shape": "rect",
+    "opening_width": 0.34,
+    "opening_height": 0.72,
+    "opening_position_z": 0.5,
+    "coupling": 0.54,
+    "chambers": [
+      {
+        "material_profile": {
+          "material": "water",
+          "absorption": 0.121,
+          "scattering": 0.535,
+          "tail_soften": 0.244
+        },
+        "index": 1,
+        "level": 0,
+        "family": "cavern",
+        "region_id": "region-1",
+        "parent_region": "primary",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.692,
+        "x": -1.167,
+        "y": 2.97,
+        "width": 2.383,
+        "depth": 1.43,
+        "opening_x": 1.057,
+        "opening_y": 3.992,
+        "opening": 0.428,
+        "portal": {
+          "id": "portal-1",
+          "shape": "rect",
+          "center_m": {
+            "x": 1.0975,
+            "y": 3.7816,
+            "z": 2.3
+          },
+          "width_m": 0.4282,
+          "height_m": 3.312,
+          "area_m2": 1.41803,
+          "transmission": 0.84017
+        },
+        "polygon": [
+          {
+            "x": 0.979,
+            "y": 4.4
+          },
+          {
+            "x": 1.216,
+            "y": 3.163
+          },
+          {
+            "x": 0.714,
+            "y": 2.984
+          },
+          {
+            "x": 0.247,
+            "y": 2.97
+          },
+          {
+            "x": -0.104,
+            "y": 3.026
+          },
+          {
+            "x": -0.502,
+            "y": 3.045
+          },
+          {
+            "x": -0.936,
+            "y": 3.074
+          },
+          {
+            "x": -1.098,
+            "y": 3.209
+          },
+          {
+            "x": -1.067,
+            "y": 3.383
+          },
+          {
+            "x": -1.167,
+            "y": 3.528
+          },
+          {
+            "x": -1.049,
+            "y": 3.706
+          },
+          {
+            "x": -0.757,
+            "y": 3.886
+          },
+          {
+            "x": -0.399,
+            "y": 4.055
+          },
+          {
+            "x": 0.064,
+            "y": 4.192
+          },
+          {
+            "x": 0.496,
+            "y": 4.332
+          }
+        ],
+        "opening_segment": {
+          "x1": 1.057,
+          "y1": 3.992,
+          "x2": 1.138,
+          "y2": 3.571
+        },
+        "side": "left",
+        "shape": "wedge"
+      },
+      {
+        "material_profile": {
+          "material": "inherit",
+          "absorption": 0.144,
+          "scattering": 0.388,
+          "tail_soften": 0.294
+        },
+        "index": 2,
+        "level": 1,
+        "family": "cavern",
+        "region_id": "region-2",
+        "parent_region": "region-1",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.922,
+        "x": -2.909,
+        "y": 2.507,
+        "width": 1.942,
+        "depth": 1.042,
+        "opening_x": -1.098,
+        "opening_y": 3.277,
+        "opening": 0.351,
+        "portal": {
+          "id": "portal-2",
+          "shape": "rect",
+          "center_m": {
+            "x": -1.0617,
+            "y": 3.1057,
+            "z": 2.346
+          },
+          "width_m": 0.3511,
+          "height_m": 3.3782,
+          "area_m2": 1.18604,
+          "transmission": 0.82847
+        },
+        "polygon": [
+          {
+            "x": -1.156,
+            "y": 3.549
+          },
+          {
+            "x": -0.967,
+            "y": 2.662
+          },
+          {
+            "x": -1.347,
+            "y": 2.555
+          },
+          {
+            "x": -1.743,
+            "y": 2.507
+          },
+          {
+            "x": -2.052,
+            "y": 2.53
+          },
+          {
+            "x": -2.271,
+            "y": 2.585
+          },
+          {
+            "x": -2.56,
+            "y": 2.606
+          },
+          {
+            "x": -2.831,
+            "y": 2.647
+          },
+          {
+            "x": -2.909,
+            "y": 2.747
+          },
+          {
+            "x": -2.825,
+            "y": 2.876
+          },
+          {
+            "x": -2.699,
+            "y": 3.007
+          },
+          {
+            "x": -2.511,
+            "y": 3.143
+          },
+          {
+            "x": -2.259,
+            "y": 3.281
+          },
+          {
+            "x": -1.907,
+            "y": 3.4
+          },
+          {
+            "x": -1.519,
+            "y": 3.484
+          }
+        ],
+        "opening_segment": {
+          "x1": -1.098,
+          "y1": 3.277,
+          "x2": -1.025,
+          "y2": 2.934
+        },
+        "side": "left",
+        "shape": "wedge"
+      },
+      {
+        "material_profile": {
+          "material": "water",
+          "absorption": 0.152,
+          "scattering": 0.646,
+          "tail_soften": 0.28
+        },
+        "index": 3,
+        "level": 0,
+        "family": "cavern",
+        "region_id": "region-3",
+        "parent_region": "primary",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.692,
+        "x": -1.214,
+        "y": 2.853,
+        "width": 2.456,
+        "depth": 1.41,
+        "opening_x": 1.084,
+        "opening_y": 3.854,
+        "opening": 0.428,
+        "portal": {
+          "id": "portal-3",
+          "shape": "rect",
+          "center_m": {
+            "x": 1.1238,
+            "y": 3.6441,
+            "z": 2.3
+          },
+          "width_m": 0.4282,
+          "height_m": 3.312,
+          "area_m2": 1.41803,
+          "transmission": 0.84017
+        },
+        "polygon": [
+          {
+            "x": 1.006,
+            "y": 4.263
+          },
+          {
+            "x": 1.242,
+            "y": 3.026
+          },
+          {
+            "x": 0.742,
+            "y": 2.86
+          },
+          {
+            "x": 0.277,
+            "y": 2.853
+          },
+          {
+            "x": -0.111,
+            "y": 2.882
+          },
+          {
+            "x": -0.465,
+            "y": 2.919
+          },
+          {
+            "x": -0.872,
+            "y": 2.942
+          },
+          {
+            "x": -1.085,
+            "y": 3.047
+          },
+          {
+            "x": -1.214,
+            "y": 3.181
+          },
+          {
+            "x": -1.129,
+            "y": 3.358
+          },
+          {
+            "x": -0.915,
+            "y": 3.545
+          },
+          {
+            "x": -0.729,
+            "y": 3.732
+          },
+          {
+            "x": -0.407,
+            "y": 3.92
+          },
+          {
+            "x": -0.016,
+            "y": 4.1
+          },
+          {
+            "x": 0.498,
+            "y": 4.221
+          }
+        ],
+        "opening_segment": {
+          "x1": 1.084,
+          "y1": 3.854,
+          "x2": 1.164,
+          "y2": 3.434
+        },
+        "side": "left",
+        "shape": "wedge"
+      },
+      {
+        "material_profile": {
+          "material": "inherit",
+          "absorption": 0.248,
+          "scattering": 0.416,
+          "tail_soften": 0.269
+        },
+        "index": 4,
+        "level": 1,
+        "family": "cavern",
+        "region_id": "region-4",
+        "parent_region": "region-3",
+        "attachment": "left",
+        "base_z_m": 0,
+        "height_m": 4.922,
+        "x": -2.729,
+        "y": 2.354,
+        "width": 1.743,
+        "depth": 1.025,
+        "opening_x": -1.077,
+        "opening_y": 3.105,
+        "opening": 0.351,
+        "portal": {
+          "id": "portal-4",
+          "shape": "rect",
+          "center_m": {
+            "x": -1.0517,
+            "y": 2.931,
+            "z": 2.346
+          },
+          "width_m": 0.3511,
+          "height_m": 3.3782,
+          "area_m2": 1.18604,
+          "transmission": 0.82847
+        },
+        "polygon": [
+          {
+            "x": -1.118,
+            "y": 3.38
+          },
+          {
+            "x": -0.986,
+            "y": 2.483
+          },
+          {
+            "x": -1.369,
+            "y": 2.372
+          },
+          {
+            "x": -1.728,
+            "y": 2.354
+          },
+          {
+            "x": -2.021,
+            "y": 2.378
+          },
+          {
+            "x": -2.293,
+            "y": 2.403
+          },
+          {
+            "x": -2.624,
+            "y": 2.413
+          },
+          {
+            "x": -2.729,
+            "y": 2.503
+          },
+          {
+            "x": -2.666,
+            "y": 2.623
+          },
+          {
+            "x": -2.691,
+            "y": 2.722
+          },
+          {
+            "x": -2.58,
+            "y": 2.842
+          },
+          {
+            "x": -2.323,
+            "y": 2.967
+          },
+          {
+            "x": -2.068,
+            "y": 3.085
+          },
+          {
+            "x": -1.807,
+            "y": 3.206
+          },
+          {
+            "x": -1.491,
+            "y": 3.323
+          }
+        ],
+        "opening_segment": {
+          "x1": -1.077,
+          "y1": 3.105,
+          "x2": -1.026,
+          "y2": 2.757
+        },
+        "side": "left",
+        "shape": "wedge"
+      }
+    ]
+  },
+  "echo_paths": {
+    "enabled": false,
+    "requested_structure": "off",
+    "resolved_structure": "off",
+    "prominence": 0.58,
+    "persistence": 0.68,
+    "regularity": 0.82,
+    "geometry_driven": true,
+    "event_count": 0,
+    "paths": []
+  },
+  "field_offset": {
+    "x": -0.59,
+    "y": 0.28,
+    "z": 0
+  },
+  "ray_source_normalized": {
+    "x": 0.5,
+    "y": 0.25,
+    "z": 0.5
+  },
+  "ray_grid": {
+    "x": 5,
+    "y": 5,
+    "z": 3,
+    "reflection_slots": 24
+  },
+  "source_distance": 3.1,
+  "direction_spread_deg": 57,
+  "group_variation": 0.4,
+  "surface_contrast": 0.51,
+  "distance_variation": 0.26,
+  "order": 3,
+  "direction_set": "auto",
+  "effective_direction_layout": "practical_8",
+  "groups": [
+    {
+      "group": 1,
+      "azimuth": 45,
+      "elevation": 35.264,
+      "channels": "1-16",
+      "direct_time_ms": 60,
+      "first_reflection": {
+        "wall": "S12",
+        "time_ms": 55
+      },
+      "early_energy": 0.77428,
+      "chamber_energy": 0.00039,
+      "branch_energy": 0.00039,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.193,
+        "scattering": 0.221,
+        "tail_soften": 0.174,
+        "source_distance": 3.096,
+        "direction_spread_deg": 51.13,
+        "pre_delay_ms": 50.12,
+        "rt60": 0.341
+      },
+      "source_position_m": {
+        "x": 3.046,
+        "y": 3.041,
+        "z": 2.461
+      }
+    },
+    {
+      "group": 2,
+      "azimuth": -45,
+      "elevation": 35.264,
+      "channels": "17-32",
+      "direct_time_ms": 56,
+      "first_reflection": {
+        "wall": "S12",
+        "time_ms": 51
+      },
+      "early_energy": 0.72477,
+      "chamber_energy": 0.00119,
+      "branch_energy": 0.00119,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.242,
+        "scattering": 0.301,
+        "tail_soften": 0.102,
+        "source_distance": 3.167,
+        "direction_spread_deg": 59.13,
+        "pre_delay_ms": 45.94,
+        "rt60": 0.296
+      },
+      "source_position_m": {
+        "x": 3.046,
+        "y": 3.041,
+        "z": 2.461
+      }
+    },
+    {
+      "group": 3,
+      "azimuth": 135,
+      "elevation": 35.264,
+      "channels": "33-48",
+      "direct_time_ms": 58,
+      "first_reflection": {
+        "wall": "S12",
+        "time_ms": 53
+      },
+      "early_energy": 0.72728,
+      "chamber_energy": 0.00072,
+      "branch_energy": 0.00072,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.228,
+        "scattering": 0.212,
+        "tail_soften": 0.134,
+        "source_distance": 2.904,
+        "direction_spread_deg": 50.25,
+        "pre_delay_ms": 47.82,
+        "rt60": 0.306
+      },
+      "source_position_m": {
+        "x": 3.046,
+        "y": 3.041,
+        "z": 2.461
+      }
+    },
+    {
+      "group": 4,
+      "azimuth": -135,
+      "elevation": 35.264,
+      "channels": "49-64",
+      "direct_time_ms": 54,
+      "first_reflection": {
+        "wall": "S12",
+        "time_ms": 49
+      },
+      "early_energy": 0.71274,
+      "chamber_energy": 0.00275,
+      "branch_energy": 0.00275,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.236,
+        "scattering": 0.356,
+        "tail_soften": 0.073,
+        "source_distance": 2.897,
+        "direction_spread_deg": 64.56,
+        "pre_delay_ms": 44.27,
+        "rt60": 0.3
+      },
+      "source_position_m": {
+        "x": 3.046,
+        "y": 3.041,
+        "z": 2.461
+      }
+    },
+    {
+      "group": 5,
+      "azimuth": 45,
+      "elevation": -35.264,
+      "channels": "65-80",
+      "direct_time_ms": 55,
+      "first_reflection": {
+        "wall": "S12",
+        "time_ms": 50
+      },
+      "early_energy": 0.71486,
+      "chamber_energy": 0.0007,
+      "branch_energy": 0.0007,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.249,
+        "scattering": 0.228,
+        "tail_soften": 0.087,
+        "source_distance": 3.207,
+        "direction_spread_deg": 51.81,
+        "pre_delay_ms": 45.08,
+        "rt60": 0.29
+      },
+      "source_position_m": {
+        "x": 3.046,
+        "y": 3.041,
+        "z": 2.461
+      }
+    },
+    {
+      "group": 6,
+      "azimuth": -45,
+      "elevation": -35.264,
+      "channels": "81-96",
+      "direct_time_ms": 54,
+      "first_reflection": {
+        "wall": "S12",
+        "time_ms": 49
+      },
+      "early_energy": 0.76768,
+      "chamber_energy": 0.00172,
+      "branch_energy": 0.00172,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.21,
+        "scattering": 0.336,
+        "tail_soften": 0.072,
+        "source_distance": 3.233,
+        "direction_spread_deg": 62.58,
+        "pre_delay_ms": 44.23,
+        "rt60": 0.323
+      },
+      "source_position_m": {
+        "x": 3.046,
+        "y": 3.041,
+        "z": 2.461
+      }
+    },
+    {
+      "group": 7,
+      "azimuth": 135,
+      "elevation": -35.264,
+      "channels": "97-112",
+      "direct_time_ms": 58,
+      "first_reflection": {
+        "wall": "S12",
+        "time_ms": 53
+      },
+      "early_energy": 0.64613,
+      "chamber_energy": 0.00048,
+      "branch_energy": 0.00048,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.29,
+        "scattering": 0.32,
+        "tail_soften": 0.134,
+        "source_distance": 3.16,
+        "direction_spread_deg": 60.98,
+        "pre_delay_ms": 47.8,
+        "rt60": 0.261
+      },
+      "source_position_m": {
+        "x": 3.046,
+        "y": 3.041,
+        "z": 2.461
+      }
+    },
+    {
+      "group": 8,
+      "azimuth": -135,
+      "elevation": -35.264,
+      "channels": "113-128",
+      "direct_time_ms": 59,
+      "first_reflection": {
+        "wall": "S12",
+        "time_ms": 54
+      },
+      "early_energy": 0.84086,
+      "chamber_energy": 0.00248,
+      "branch_energy": 0.00248,
+      "echo_energy": 0,
+      "local_profile": {
+        "absorption": 0.16,
+        "scattering": 0.262,
+        "tail_soften": 0.163,
+        "source_distance": 3.166,
+        "direction_spread_deg": 55.24,
+        "pre_delay_ms": 49.45,
+        "rt60": 0.379
+      },
+      "source_position_m": {
+        "x": 3.046,
+        "y": 3.041,
+        "z": 2.461
+      }
+    }
+  ],
+  "duration": 3.8,
+  "pre_delay_ms": 47,
+  "early_reflections": 38,
+  "camera": {
+    "azimuth": 56,
+    "elevation": 35,
+    "zoom": 1.29
+  },
+  "estimated_rt60": 0.304,
+  "late_start_seconds": 0.133,
+  "atlas": {
+    "name": "Ice Grotto",
+    "category": "Cave",
+    "description": "A reflective ice grotto opening into a water-worn cavern pocket.",
+    "seed": 220211,
+    "source": "s3g-mc Ray Sketch"
+  }
+}
