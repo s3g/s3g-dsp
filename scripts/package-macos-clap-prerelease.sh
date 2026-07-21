@@ -41,6 +41,7 @@ bundles=(
   "$src_root/clap_sub_crossover/s3g_sub_crossover.clap"
   "$src_root/clap_loop_processor/s3g_loop_processor.clap"
   "$src_root/clap_multi_loop_processor/s3g_multi_loop_processor.clap"
+  "$src_root/clap_psd_raw_field/s3g_fault.clap"
   "$src_root/clap_ambi_grain_processor/s3g_ambi_grain_processor.clap"
   "$src_root/clap_macro_delay/s3g_macro_delay.clap"
   "$src_root/clap_macro_delay/s3g_24ch_macro_delay.clap"
@@ -166,6 +167,7 @@ Included plugins ($bundle_count bundles):
 - s3g Sub Crossover
 - s3g Loop Processor 8ch
 - s3g Multi Loop Processor 8ch
+- s3g Fault
 - s3g Ambi Grain Processor
 - s3g Macro Delay 8ch
 - s3g Macro Delay 24ch

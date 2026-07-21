@@ -20,7 +20,7 @@ DAWs are not support targets at this stage.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-The current macOS package installs 78 CLAP bundles, including fixed-width
+The current macOS package installs 79 CLAP bundles, including fixed-width
 variants for several processors, bus tools, and speaker-array utilities.
 All bundles build, but clap-validator conformance remains in progress for some
 older wrappers, chiefly around parameter text conversion and buffered state
@@ -39,7 +39,9 @@ Plugin areas:
   the related `s3g-mc` browser utility.
 - [Instruments](https://s3g.github.io/s3g-dsp/instruments.html): loaded-loop,
   granular, vector-wavetable, WORLD/voicebank vocal, and stochastic
-  instruments.
+  instruments, including the eight-channel
+  [s3g Fault](https://s3g.github.io/s3g-dsp/fault.html) byte-field and codec
+  synthesizer.
 
 The [installation page](https://s3g.github.io/s3g-dsp/installing-plugins.html)
 lists the included families and the REAPER routing notes that matter for wide
@@ -171,7 +173,7 @@ Create the local pre-release zip after a complete CLAP build with:
 ./scripts/package-macos-clap-prerelease.sh
 ```
 
-The package contains 78 CLAP bundles, the VOT wavetable library, the Ambi Vox
+The package contains 79 CLAP bundles, the VOT wavetable library, the Ambi Vox
 demo voicebank, and the applicable license notices. The packaging script
 ad-hoc signs and strictly verifies every bundle by default. Set
 `S3G_CODESIGN_IDENTITY` to use a different macOS signing identity; notarization
@@ -186,11 +188,14 @@ The local smoke executables exercise shared DSP code:
 ./build/s3g_3oafx_displacement_smoke
 ./build/s3g_ambi_imprint_safety_smoke
 ./build/s3g_ambi_ray_encoder_smoke
+./build/s3g_psd_raw_field_smoke
+./build/s3g_psd_raw_field_parameter_audit
 ```
 
 The smoke tests cover multichannel routing, loop playback, finite output,
 bounded peaks, de-click stress, high-order encoder/decoder paths, Ambi Imprint
-safety, and Ambi Ray room-response behavior.
+safety, Ambi Ray room-response behavior, and Fault codec, morph, evolution,
+and parameter-sensitivity behavior.
 
 Check the static documentation and advisory GUI conventions with:
 
@@ -205,7 +210,8 @@ If `clap-validator` is installed, validate one or more installed bundles with:
 clap-validator validate --only-failed \
   ~/Library/Audio/Plug-Ins/CLAP/s3g_macro_shred_mono.clap \
   ~/Library/Audio/Plug-Ins/CLAP/s3g_macro_shred.clap \
-  ~/Library/Audio/Plug-Ins/CLAP/s3g_24ch_macro_shred.clap
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_24ch_macro_shred.clap \
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_fault.clap
 ```
 
 ## Related Projects

@@ -50,7 +50,9 @@ cmake --build --preset dev
 ./build/s3g_dsp_smoke
 ./build/s3g_3oafx_displacement_smoke
 ./build/s3g_ambi_imprint_safety_smoke
-./build/s3g_ambi_ray_encoder_smoke</code></pre>
+./build/s3g_ambi_ray_encoder_smoke
+./build/s3g_psd_raw_field_smoke
+./build/s3g_psd_raw_field_parameter_audit</code></pre>
 
         <h2 id="clap-build">Build CLAP Plugins</h2>
 
@@ -111,7 +113,8 @@ build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
         <pre><code>clap-validator validate --only-failed \
   build-clap/plugins/clap_macro_shred/s3g_macro_shred_mono.clap \
   build-clap/plugins/clap_macro_shred/s3g_macro_shred.clap \
-  build-clap/plugins/clap_macro_shred/s3g_24ch_macro_shred.clap</code></pre>
+  build-clap/plugins/clap_macro_shred/s3g_24ch_macro_shred.clap \
+  build-clap/plugins/clap_psd_raw_field/s3g_fault.clap</code></pre>
 
         <h2 id="package">Package a Pre-release</h2>
 
@@ -119,7 +122,7 @@ build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
 
         <pre><code>./scripts/package-macos-clap-prerelease.sh</code></pre>
 
-        <p>The archive is written to <code>dist/</code> and includes 78 CLAP bundles, VOT wavetables, the Ambi Vox demo voicebank, the project license, and third-party notices. The script ad-hoc signs and strictly verifies every bundle by default; set <code>S3G_CODESIGN_IDENTITY</code> to use another macOS signing identity. Set <code>S3G_RELEASE_VERSION</code> and <code>S3G_RELEASE_DATE</code> to override the pre-release metadata. Apple notarization remains a separate release step.</p>
+        <p>The archive is written to <code>dist/</code> and includes 79 CLAP bundles, VOT wavetables, the Ambi Vox demo voicebank, the project license, and third-party notices. The script ad-hoc signs and strictly verifies every bundle by default; set <code>S3G_CODESIGN_IDENTITY</code> to use another macOS signing identity. Set <code>S3G_RELEASE_VERSION</code> and <code>S3G_RELEASE_DATE</code> to override the pre-release metadata. Apple notarization remains a separate release step.</p>
 
         <h2 id="cleanup">Cleanup</h2>
 
