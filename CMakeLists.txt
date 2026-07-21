@@ -36,6 +36,12 @@ target_link_libraries(s3g_ambi_ray_encoder_smoke PRIVATE s3g_dsp)
 add_executable(s3g_vox_builder_smoke tests/vox_builder_smoke.cpp)
 target_link_libraries(s3g_vox_builder_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_psd_raw_field_smoke tests/psd_raw_field_smoke.cpp)
+target_link_libraries(s3g_psd_raw_field_smoke PRIVATE s3g_dsp)
+
+add_executable(s3g_psd_raw_field_parameter_audit tests/psd_raw_field_parameter_audit.cpp)
+target_link_libraries(s3g_psd_raw_field_parameter_audit PRIVATE s3g_dsp)
+
 add_custom_target(audit_gui_style
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/audit-gui-style.sh
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -138,6 +144,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_8ch_spectral_spray)
   add_subdirectory(plugins/clap_spectral_topology_processor)
   add_subdirectory(plugins/clap_shard_scatter)
+  add_subdirectory(plugins/clap_psd_raw_field)
   add_subdirectory(plugins/clap_orbit_delay)
   add_subdirectory(plugins/clap_cascade_taps)
 endif()

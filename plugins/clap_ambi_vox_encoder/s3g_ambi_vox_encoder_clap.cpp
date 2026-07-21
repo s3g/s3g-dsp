@@ -65,6 +65,7 @@ constexpr uint32_t kVoxWorldPitchAnchorCenter = 2u;
 constexpr uint32_t kVoxWorldSpectralDimensions = 50u;
 constexpr uint32_t kVoxWorldRuntimeEnvelopeBins = kVoxPvocBins;
 constexpr uint32_t kVoxFactoryPresetCount = 13u;
+constexpr uint32_t kVoxFactoryPresetOrder = 3u;
 constexpr std::array<int, kVoxWorldPitchAnchorCount> kVoxWorldPitchAnchorSemitones {
     -24, -12, 0, 12, 24
 };
@@ -1802,6 +1803,7 @@ struct VoxFactoryPresetDefinition {
 VoxPresetSnapshot makeVoxDefaultSnapshot()
 {
     VoxPresetSnapshot preset {};
+    preset.params.order = kVoxFactoryPresetOrder;
     preset.params.preset = s3g::AmbiVotPreset::User;
     preset.params.vectorX = 0.72f;
     preset.params.vectorY = 0.64f;
@@ -1856,7 +1858,6 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
     case 3u:
         preset.name = "SATB CHORALE";
         preset.phrase = "a ve lu men a ve lu men";
-        params.order = 5u;
         params.voices = 8u;
         params.baseNote = 48.0f;
         params.scale = s3g::AmbiVotScale::Major;
@@ -1877,7 +1878,6 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
     case 4u:
         preset.name = "DOUBLE CHOIR";
         preset.phrase = "o ra li a o ra li a";
-        params.order = 7u;
         params.voices = 16u;
         params.scale = s3g::AmbiVotScale::Minor;
         params.pitchSpread = 0.78f;
@@ -1896,7 +1896,6 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
     case 5u:
         preset.name = "WIDE CHORUS";
         preset.phrase = "ha ya he yo ha ya he yo";
-        params.order = 5u;
         params.voices = 12u;
         params.pitchSpread = 0.92f;
         params.detune = 0.24f;
@@ -1915,7 +1914,6 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
     case 6u:
         preset.name = "FOUR PART ROUND";
         preset.phrase = "ka na ri o so la mi re";
-        params.order = 5u;
         params.voices = 12u;
         params.motionScene = s3g::AmbiVotMotionScene::Orbit;
         params.motionRateHz = 0.032f;
@@ -1934,7 +1932,6 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
     case 7u:
         preset.name = "SEMITONE CLUSTER";
         preset.phrase = "u o a e i u o a e i";
-        params.order = 7u;
         params.voices = 16u;
         params.baseNote = 55.0f;
         params.scale = s3g::AmbiVotScale::Chromatic;
@@ -1952,7 +1949,6 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
     case 8u:
         preset.name = "AIR CHOIR";
         preset.phrase = "sha ha sa he shu ho";
-        params.order = 5u;
         params.voices = 12u;
         params.motionSpread = 0.88f;
         params.motionCoherence = 0.48f;
@@ -1985,7 +1981,6 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
     case 10u:
         preset.name = "FROZEN TEXTURE";
         preset.phrase = "a e i o u";
-        params.order = 7u;
         params.voices = 16u;
         params.motionRateHz = 0.009f;
         params.motionSpread = 0.94f;
@@ -2003,7 +1998,6 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
     case 11u:
         preset.name = "ORBITING CHORUS";
         preset.phrase = "la ri a la ri a la ri a";
-        params.order = 5u;
         params.voices = 12u;
         params.motionScene = s3g::AmbiVotMotionScene::Orbit;
         params.motionRateHz = 0.080f;
@@ -2019,9 +2013,8 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
         vox.worldVoiceDeviation = 0.32f;
         break;
     case 12u:
-        preset.name = "FULL 7OA CHOIR";
+        preset.name = "FULL 3OA CHOIR";
         preset.phrase = "a ve o ra lu men a ve o ra";
-        params.order = 7u;
         params.voices = 16u;
         params.scale = s3g::AmbiVotScale::Major;
         params.pitchSpread = 0.72f;
@@ -2042,6 +2035,7 @@ VoxFactoryPresetDefinition voxFactoryPreset(uint32_t index)
     default:
         break;
     }
+    params.order = kVoxFactoryPresetOrder;
     return preset;
 }
 
@@ -8490,7 +8484,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         @"VOX DEFAULT", @"SOLO SPEAK", @"CLOSE UNISON", @"SATB CHORALE",
         @"DOUBLE CHOIR", @"WIDE CHORUS", @"FOUR PART ROUND", @"SEMITONE CLUSTER",
         @"AIR CHOIR", @"DARK VOWELS", @"FROZEN TEXTURE", @"ORBITING CHORUS",
-        @"FULL 7OA CHOIR"
+        @"FULL 3OA CHOIR"
     };
     NSString** items = modeItems;
     int selected = 0;

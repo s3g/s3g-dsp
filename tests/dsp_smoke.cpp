@@ -57,6 +57,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -5359,6 +5360,224 @@ int main()
     if (windPeak <= 0.000001f || windPeak > 1.01f || windMutedPeak > 0.000001f) {
         std::cerr << "Ambi Wind peak/order failed: " << windPeak << " / " << windMutedPeak << "\n";
         return 1;
+    }
+
+    auto windRenderDiff = [](s3g::AmbiWindParams a, s3g::AmbiWindParams b) {
+        constexpr uint32_t frames = 4096u;
+        constexpr uint32_t channels = 4u;
+        std::array<std::array<float, frames>, channels> aBuffers {};
+        std::array<std::array<float, frames>, channels> bBuffers {};
+        std::array<float*, channels> aOutputs {};
+        std::array<float*, channels> bOutputs {};
+        for (uint32_t ch = 0u; ch < channels; ++ch) {
+            aOutputs[ch] = aBuffers[ch].data();
+            bOutputs[ch] = bBuffers[ch].data();
+        }
+        s3g::AmbiWindEncoder aEncoder;
+        s3g::AmbiWindEncoder bEncoder;
+        a.order = 1u;
+        b.order = 1u;
+        a.voices = 16u;
+        b.voices = 16u;
+        a.outputGainDb = -9.0f;
+        b.outputGainDb = -9.0f;
+        aEncoder.prepare(48000.0);
+        bEncoder.prepare(48000.0);
+        aEncoder.setParams(a);
+        bEncoder.setParams(b);
+        aEncoder.process(aOutputs.data(), channels, frames);
+        bEncoder.process(bOutputs.data(), channels, frames);
+        float diff = 0.0f;
+        float energy = 0.0f;
+        for (uint32_t ch = 0u; ch < channels; ++ch) {
+            for (uint32_t frame = 0u; frame < frames; ++frame) {
+                diff += std::abs(aBuffers[ch][frame] - bBuffers[ch][frame]);
+                energy += std::abs(aBuffers[ch][frame]) + std::abs(bBuffers[ch][frame]);
+            }
+        }
+        return diff / std::max(0.000001f, energy);
+    };
+
+    auto windSensitivityBase = s3g::ambiWindFactoryPreset(0u);
+    windSensitivityBase.wind = 0.36f;
+    windSensitivityBase.gustDepth = 0.40f;
+    windSensitivityBase.material = 0.42f;
+    windSensitivityBase.air = 0.36f;
+    windSensitivityBase.hiss = 0.34f;
+    windSensitivityBase.center = 0.42f;
+    windSensitivityBase.q = 0.42f;
+    windSensitivityBase.body = 0.48f;
+    windSensitivityBase.motionFlow = 0.38f;
+    windSensitivityBase.motionShear = 0.32f;
+    windSensitivityBase.motionCurl = 0.42f;
+    windSensitivityBase.field = 0.46f;
+    auto windLow = windSensitivityBase;
+    auto windHigh = windSensitivityBase;
+    windLow.wind = 0.04f;
+    windHigh.wind = 0.84f;
+    auto toneLow = windSensitivityBase;
+    auto toneHigh = windSensitivityBase;
+    toneLow.center = 0.08f;
+    toneLow.q = 0.08f;
+    toneLow.air = 0.04f;
+    toneLow.hiss = 0.04f;
+    toneHigh.center = 0.88f;
+    toneHigh.q = 0.84f;
+    toneHigh.air = 0.92f;
+    toneHigh.hiss = 0.88f;
+    auto materialLow = windSensitivityBase;
+    auto materialHigh = windSensitivityBase;
+    materialLow.material = 0.03f;
+    materialLow.materialMode = 0u;
+    materialHigh.material = 0.86f;
+    materialHigh.materialMode = 5u;
+    auto motionLow = windSensitivityBase;
+    auto motionHigh = windSensitivityBase;
+    motionLow.motionFlow = 0.0f;
+    motionLow.motionShear = 0.0f;
+    motionLow.motionCurl = 0.0f;
+    motionLow.field = 0.02f;
+    motionHigh.motionFlow = 0.95f;
+    motionHigh.motionShear = 0.90f;
+    motionHigh.motionCurl = 0.92f;
+    motionHigh.field = 0.92f;
+    auto vectorRateLow = windSensitivityBase;
+    auto vectorRateHigh = windSensitivityBase;
+    vectorRateLow.vectorRateHz = 0.0f;
+    vectorRateLow.motionFlow = 0.86f;
+    vectorRateLow.field = 0.82f;
+    vectorRateLow.spatialFollow = 0.18f;
+    vectorRateHigh = vectorRateLow;
+    vectorRateHigh.vectorRateHz = 0.5f;
+    const float windAmountDiff = windRenderDiff(windLow, windHigh);
+    const float windToneDiff = windRenderDiff(toneLow, toneHigh);
+    const float windMaterialDiff = windRenderDiff(materialLow, materialHigh);
+    const float windMotionDiff = windRenderDiff(motionLow, motionHigh);
+    const float windVectorRateDiff = windRenderDiff(vectorRateLow, vectorRateHigh);
+    if (windAmountDiff < 0.12f || windToneDiff < 0.08f || windMaterialDiff < 0.06f
+        || windMotionDiff < 0.03f || windVectorRateDiff < 0.002f) {
+        std::cerr << "Ambi Wind controls are insufficiently coupled: "
+                  << windAmountDiff << " / " << windToneDiff << " / "
+                  << windMaterialDiff << " / " << windMotionDiff << " / "
+                  << windVectorRateDiff << "\n";
+        return 1;
+    }
+
+    {
+        constexpr uint32_t stressFrames = 256u;
+        constexpr uint32_t stressChannels = 16u;
+        std::array<std::array<float, stressFrames>, stressChannels> stressBuffers {};
+        std::array<float*, stressChannels> stressOutputs {};
+        std::array<float, stressChannels> previousLast {};
+        for (uint32_t ch = 0u; ch < stressChannels; ++ch) stressOutputs[ch] = stressBuffers[ch].data();
+
+        s3g::AmbiWindEncoder stressEncoder;
+        stressEncoder.prepare(48000.0);
+        auto extreme = s3g::ambiWindFactoryPreset(16u);
+        extreme.order = 3u;
+        extreme.voices = 64u;
+        extreme.wind = 1.0f;
+        extreme.gustDepth = 1.0f;
+        extreme.turbulence = 1.0f;
+        extreme.flutter = 1.0f;
+        extreme.material = 1.0f;
+        extreme.air = 1.0f;
+        extreme.hiss = 1.0f;
+        extreme.center = 1.0f;
+        extreme.sweep = 1.0f;
+        extreme.q = 1.0f;
+        extreme.shrill = 1.0f;
+        extreme.body = 1.0f;
+        extreme.grit = 1.0f;
+        extreme.field = 1.0f;
+        extreme.motionRateHz = 2.0f;
+        extreme.motionFlow = 1.0f;
+        extreme.motionShear = 1.0f;
+        extreme.motionCurl = 1.0f;
+        extreme.motionUpdraft = 1.0f;
+        extreme.outputGainDb = 12.0f;
+        stressEncoder.setParams(extreme);
+
+        float stressPeak = 0.0f;
+        float stressMovement = 0.0f;
+        float previousW = 0.0f;
+        for (uint32_t block = 0u; block < 192u; ++block) {
+            extreme.materialMode = block % 10u;
+            stressEncoder.setParams(extreme);
+            stressEncoder.process(stressOutputs.data(), stressChannels, stressFrames);
+            for (uint32_t ch = 0u; ch < stressChannels; ++ch) {
+                for (uint32_t frame = 0u; frame < stressFrames; ++frame) {
+                    const float value = stressBuffers[ch][frame];
+                    if (!std::isfinite(value)) {
+                        std::cerr << "Ambi Wind sustained resonance produced non-finite output\n";
+                        return 1;
+                    }
+                    stressPeak = std::max(stressPeak, std::abs(value));
+                }
+            }
+            for (uint32_t frame = 0u; frame < stressFrames; ++frame) {
+                stressMovement += std::abs(stressBuffers[0][frame] - previousW);
+                previousW = stressBuffers[0][frame];
+            }
+        }
+        if (stressPeak <= 0.0001f || stressPeak > 1.01f || stressMovement < 0.1f) {
+            std::cerr << "Ambi Wind sustained resonance latched or escaped limiter: "
+                      << stressPeak << " / " << stressMovement << "\n";
+            return 1;
+        }
+
+        for (uint32_t ch = 0u; ch < stressChannels; ++ch) previousLast[ch] = stressBuffers[ch][stressFrames - 1u];
+        float boundaryJump = 0.0f;
+        for (uint32_t recall = 0u; recall < s3g::kAmbiWindFactoryPresetCount * 4u; ++recall) {
+            auto recalled = s3g::ambiWindFactoryPreset(recall % s3g::kAmbiWindFactoryPresetCount);
+            recalled.order = 3u;
+            stressEncoder.setParams(recalled);
+            stressEncoder.beginTransition();
+            stressEncoder.process(stressOutputs.data(), stressChannels, stressFrames);
+            for (uint32_t ch = 0u; ch < stressChannels; ++ch) {
+                boundaryJump = std::max(boundaryJump, std::abs(stressBuffers[ch][0] - previousLast[ch]));
+                for (float value : stressBuffers[ch]) {
+                    if (!std::isfinite(value)) {
+                        std::cerr << "Ambi Wind preset recall produced non-finite output\n";
+                        return 1;
+                    }
+                }
+                previousLast[ch] = stressBuffers[ch][stressFrames - 1u];
+            }
+        }
+        if (boundaryJump > 0.00001f) {
+            std::cerr << "Ambi Wind preset transition is discontinuous: " << boundaryJump << "\n";
+            return 1;
+        }
+
+        auto invalid = s3g::ambiWindFactoryPreset(0u);
+        invalid.center = std::numeric_limits<float>::infinity();
+        invalid.q = std::numeric_limits<float>::quiet_NaN();
+        invalid.centerAzimuthDeg = -std::numeric_limits<float>::infinity();
+        invalid.outputGainDb = std::numeric_limits<float>::quiet_NaN();
+        stressEncoder.setParams(invalid);
+        stressEncoder.beginTransition();
+        float recoveryMovement = 0.0f;
+        previousW = 0.0f;
+        for (uint32_t block = 0u; block < 32u; ++block) {
+            stressEncoder.process(stressOutputs.data(), stressChannels, stressFrames);
+            for (uint32_t ch = 0u; ch < stressChannels; ++ch) {
+                for (float value : stressBuffers[ch]) {
+                    if (!std::isfinite(value)) {
+                        std::cerr << "Ambi Wind did not recover from invalid parameter input\n";
+                        return 1;
+                    }
+                }
+            }
+            for (uint32_t frame = 0u; frame < stressFrames; ++frame) {
+                recoveryMovement += std::abs(stressBuffers[0][frame] - previousW);
+                previousW = stressBuffers[0][frame];
+            }
+        }
+        if (recoveryMovement < 0.01f) {
+            std::cerr << "Ambi Wind remained latched after recovery: " << recoveryMovement << "\n";
+            return 1;
+        }
     }
 
     std::cout << "s3g-dsp smoke test passed\n";
