@@ -11,3 +11,5 @@ _deps/
 *.dSYM/
 .vscode/
 .idea/
+__pycache__/
+*.py[cod]

@@ -36,8 +36,8 @@
         <ol>
           <li>Insert <code>s3g Ambi Wave Terrain Encoder 64</code> on a 64-channel REAPER track.</li>
           <li>Use <code>FREE</code> mode for a sustained terrain oscillator bank, <code>MIDI</code> mode for note-triggered voices, or <code>BOTH</code>.</li>
-          <li>Choose a terrain <code>SKIN</code>, its relief controls, and a <code>READ</code> interpretation.</li>
-          <li>Shape each contour with <code>TRACE</code>, <code>RADIUS</code>, <code>ASPECT</code>, <code>ROTATE</code>, and <code>WARP</code>.</li>
+          <li>Use the <code>FORM</code>, <code>SKIN</code>, <code>WARP</code>, and <code>READ</code> terrain tabs to construct and interpret the surface.</li>
+          <li>Shape each contour with <code>TRACE</code> and its curved or polygon-specific controls.</li>
           <li>Compose movement with the selection <code>LAW</code>, transition <code>JOIN</code>, and time-field controls.</li>
           <li>Set <code>ORDER</code>, <code>VOICES</code>, and the AED projection controls.</li>
           <li>Follow with an ambisonic decoder or energy meter.</li>
@@ -50,19 +50,25 @@
             <tr><th>Control</th><th>Meaning</th></tr>
           </thead>
           <tbody>
+            <tr><td>FORM</td><td>Selects Sphere, Tetrahedron, Cube, Octahedron, Dodecahedron, or Icosahedron radial construction.</td></tr>
+            <tr><td>FACET / BEVEL</td><td>Morphs the selected polyhedron into the procedural terrain and rounds its face intersections.</td></tr>
+            <tr><td>ORIENT</td><td>Rotates the polyhedral face structure beneath the scan field.</td></tr>
             <tr><td>SKIN</td><td>Selects Harmonic, FBM, Cellular, VOT, Ridges, Dunes, Craters, or Tectonic surface construction.</td></tr>
             <tr><td>DEPTH</td><td>Morphs the scan profile from its smooth geometric carrier toward the procedural terrain.</td></tr>
             <tr><td>ROUGH</td><td>Changes the frequency and weight of the four terrain layers.</td></tr>
             <tr><td>FOLD</td><td>Folds terrain height for sharper peaks and more complex waveforms.</td></tr>
             <tr><td>RELIEF</td><td>Scales both visible radial displacement and the terrain contribution to the scan profile.</td></tr>
-            <tr><td>READ</td><td>Derives the waveform from terrain Height, Edge, Curvature, or a Blend. Height is the factory default.</td></tr>
-            <tr><td>MIX</td><td>Balances height with the selected differential interpretation in Blend mode.</td></tr>
+            <tr><td>TERRACE / STEPS</td><td>Quantizes terrain height into a controllable number of plateaus.</td></tr>
+            <tr><td>RIDGE / ERODE</td><td>Sharpens ridge structure or compresses exposed peaks.</td></tr>
+            <tr><td>DOMAIN / TWIST</td><td>Warps the terrain coordinates or progressively rotates longitude by latitude.</td></tr>
+            <tr><td>READ</td><td>Derives the waveform as Height, Edge, Curvature, Blend, Gradient, Ridge, Valley, Normal, Cross, or Vector data.</td></tr>
+            <tr><td>MIX</td><td>Balances height with the derived data in Blend and Vector modes.</td></tr>
           </tbody>
         </table>
 
         <h2 id="field-composition">Field Composition</h2>
 
-        <p><code>TRACE</code> chooses an Orbit, Lissajous, Rosette, or Fold contour. <code>RADIUS</code>, <code>ASPECT</code>, <code>ROTATE</code>, and <code>WARP</code> shape that contour around each selected region. Five progressively smoothed table levels reduce aliasing as oscillator pitch rises.</p>
+        <p><code>TRACE</code> chooses an Orbit, Lissajous, Rosette, Fold, or Polygon contour. <code>RADIUS</code>, <code>ASPECT</code>, <code>ROTATE</code>, and <code>WARP</code> shape curved traces. Polygon exposes <code>SIDES</code>, <code>ROUND</code>, <code>STAR</code>, and <code>SKEW</code>; discrete side changes generate a new table and use the normal table crossfade. Four higher table levels are reconstructed from progressively restricted harmonic sets with tapered cutoffs, keeping sharp facets, terraces, and corners cleaner as pitch rises.</p>
 
         <p><code>MOTION: ROTATE</code> is the factory behavior. It keeps voices active and moves each scan region continuously with independent saw-phase <code>AZ RATE</code> and <code>EL RATE</code> clocks measured in rotations per minute. Elevation continues through the far side of the sphere with the corresponding azimuth turn at each pole, producing a full rotation instead of a sinusoidal reversal. <code>RATE DEV</code> gives every voice a deterministic rate variation. Current and next contours remain continuously crossfaded, so this motion does not require a duration/rest score.</p>
 
@@ -80,7 +86,7 @@
 
         <p><code>TERRAIN VOICE FIELD</code> uses neutral relief lighting for the shared surface. Every white line is an active waveform-reading contour moving across the terrain, and its bright point is the voice's actual AED center. Click anywhere along a contour to select its voice. The selected voice also shows faint cyan and magenta references for its current and next regions.</p>
 
-        <p><code>TERRAIN TO WAVEFORM</code> places the sampled scan profile above the interpreted oscillator waveform. The profile begins with the contour's geometric carrier and morphs toward terrain height by <code>DEPTH × RELIEF</code>. A circular Orbit over a smooth sphere therefore produces a low-harmonic sinusoidal profile rather than retaining hidden terrain detail. In Height mode both graphs correspond directly apart from DC removal and normalization. Edge and Curvature are calculated from this displayed one-dimensional profile; Blend combines them.</p>
+        <p><code>TERRAIN TO WAVEFORM</code> places the sampled scan profile above the interpreted oscillator waveform. The profile begins with the contour's geometric carrier and morphs toward terrain height by <code>DEPTH × RELIEF</code>. A circular Orbit over a smooth sphere therefore produces a low-harmonic sinusoidal profile rather than retaining hidden terrain detail. Edge, Curvature, Ridge, and Valley are derived along the displayed profile. Gradient and Normal inspect the local two-dimensional surface, Cross compares terrain on both sides of the trace, and Vector combines these readings.</p>
 
         <h2 id="routing">Order and Routing</h2>
 

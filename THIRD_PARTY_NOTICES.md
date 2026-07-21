@@ -42,7 +42,7 @@ SOFTWARE.
 
 WORLD is used by the Ambi Vox Encoder CLAP plugin when `S3G_ENABLE_WORLD` is
 enabled at CMake configure time. It provides speech analysis and synthesis used
-for the plugin's WORLD WAV source path.
+for the plugin's vocal WAV and voicebank alias paths.
 
 - Project: <https://github.com/mmorise/World>
 - License: BSD-style 3-clause license

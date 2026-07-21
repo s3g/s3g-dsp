@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Ray Encoder - s3g-dsp</title>
+    <meta name="description" content="Ambi Ray Encoder room-field and routing documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Ray Encoder</h1>
+
+        <p><code>s3g Ambi Ray Encoder</code> places one mono source inside a sampled room field and produces a 64-channel <code>ACN/SN3D</code> output bus. Source motion changes the direct path, early reflection directions and delays, and the late room profile.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Open <a href="https://s3g.github.io/s3g-mc/utilities-ray-sketch.html" target="_blank" rel="noopener noreferrer">s3g-mc Ray Sketch</a> and design, generate, or import a space.</li>
+          <li>Place the listener and default source, then choose the source-sampling grid and reflection-slot count.</li>
+          <li>Export a <code>.s3gray</code> Ray Field.</li>
+          <li>Insert the plugin on a 64-channel REAPER track, route a mono source to its input, and load the field.</li>
+          <li>Set the ambisonic order, move the source in the top and side views, and balance direct, early, and late sound.</li>
+          <li>Follow the encoder with an ambisonic decoder or meter.</li>
+        </ol>
+
+        <h2 id="field">Ray Field</h2>
+
+        <p>The built-in room makes the plugin immediately usable. <code>LOAD</code> accepts version 1 <code>.s3gray</code> files with the format identifier <code>s3g-ambi-ray-field</code>. A field stores room and navigation bounds, listener and default source positions, and 1 to 256 sampled cells. Each cell can hold as many as 32 directional early reflections plus a late response profile. See the <a href="s3gray-format.html"><code>.s3gray</code> format reference</a> for the complete runtime contract.</p>
+
+        <p>At runtime, the encoder blends the four nearest cells as the source moves. Loaded field data is stored with the REAPER project state, so the original <code>.s3gray</code> file does not need to remain beside the project for recall.</p>
+
+        <h2 id="interpretation">Musical Interpretation</h2>
+
+        <p>Ray Sketch resolves the designed space into a compact map of stable reflection slots and late-room profiles. The plugin owns the live source position: its direct path is calculated continuously from source to listener, while nearby map cells smoothly reshape the early and late field. Moving a source therefore does not require rebuilding or streaming a new ray trace.</p>
+
+        <p>The result is intentionally a musical room instrument rather than an architectural simulator. Material curves, path losses, and late estimates preserve a space's directional character and repeatable motion behavior without claiming measurement-grade acoustics.</p>
+
+        <h2 id="position">Position and Motion</h2>
+
+        <p><code>SOURCE X</code>, <code>SOURCE Y</code>, and <code>SOURCE Z</code> are normalized automation parameters mapped to the loaded field's navigation bounds. The GUI reports their positions in metres. <code>MOVEMENT</code> sets the smoothing time used when the source changes position.</p>
+
+        <p>The display places a top view and side view next to each other. Both show the listener, source, sampled cells, nearby geometry, and active reflection paths. Drag the source in the top view for X/Y or in the side view for X/Z. Source automation is continuous; loading a new field constructs a replacement room runtime outside the audio callback.</p>
+
+        <h2 id="room-controls">Room Controls</h2>
+
+        <ul>
+          <li><code>DIRECT</code> sets the distance-delayed source component.</li>
+          <li><code>EARLY</code> sets the interpolated directional reflection field.</li>
+          <li><code>LATE</code> sets the diffuse late response.</li>
+          <li><code>SIZE</code> scales propagation and room timing.</li>
+          <li><code>SCATTER</code> increases reflection variation and diffusion.</li>
+          <li><code>WIDTH</code> scales the directional spread of the room response.</li>
+          <li><code>AIR</code> adds distance-dependent high-frequency damping.</li>
+          <li><code>BYPASS ROOM</code> removes early and late energy while retaining direct spatial encoding.</li>
+        </ul>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <p>The direct source can use first through seventh order. The room response is represented through third order, and channels above the selected order are cleared. Decode the output with <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, or <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-path-encoder.html">
+            <span>Previous</span>
+            Ambi Path Encoder
+          </a>
+          <a class="page-nav-link next" href="ambi-imprint.html">
+            <span>Next</span>
+            Ambi Imprint
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics Pages</h2>
+          <a href="3oafx.html">Ambisonics Overview</a>
+          <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-path-encoder.html">Path Encoder</a>
+          <a href="ambi-ray-encoder.html">Ray Encoder</a>
+          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+          <a href="ambi-imprint.html">Ambi Imprint</a>
+          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
+          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
+          <a href="ambisonic-head-decoder.html">Head Decoder</a>
+          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#field">Ray Field</a>
+          <a href="#interpretation">Musical Interpretation</a>
+          <a href="#position">Position and Motion</a>
+          <a href="#room-controls">Room Controls</a>
+          <a href="#routing">Order and Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

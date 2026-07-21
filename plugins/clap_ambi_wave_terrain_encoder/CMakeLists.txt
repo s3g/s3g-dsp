@@ -7,7 +7,7 @@ target_include_directories(s3g_ambi_wave_terrain_encoder_clap PRIVATE ${S3G_CLAP
 
 if(APPLE)
   set_source_files_properties(s3g_ambi_wave_terrain_encoder_clap.cpp PROPERTIES LANGUAGE OBJCXX)
-  target_link_libraries(s3g_ambi_wave_terrain_encoder_clap PRIVATE "-framework Cocoa")
+  target_link_libraries(s3g_ambi_wave_terrain_encoder_clap PRIVATE "-framework Cocoa" "-framework Accelerate")
 endif()
 
 set_target_properties(s3g_ambi_wave_terrain_encoder_clap PROPERTIES

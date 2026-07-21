@@ -4,7 +4,10 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 src_root="$repo_root/build-clap/plugins"
 dist_root="$repo_root/dist"
-package_name="${1:-s3g-dsp-macos-clap-pre-release}"
+release_version="${S3G_RELEASE_VERSION:-0.4.0-pre}"
+release_date="${S3G_RELEASE_DATE:-$(date +%F)}"
+codesign_identity="${S3G_CODESIGN_IDENTITY:--}"
+package_name="${1:-s3g-dsp-macos-clap-$release_version}"
 staging="$dist_root/$package_name"
 zip_path="$dist_root/$package_name.zip"
 
@@ -26,7 +29,9 @@ bundles=(
   "$src_root/clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap"
   "$src_root/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap"
   "$src_root/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap"
+  "$src_root/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder.clap"
   "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"
+  "$src_root/clap_ambi_ray_encoder/s3g_ambi_ray_encoder.clap"
   "$src_root/clap_ambi_path_encoder/s3g_ambi_path_encoder.clap"
   "$src_root/clap_3oafx_speaker_decoder/s3g_3oafx_speaker_decoder.clap"
   "$src_root/clap_layout_panner/s3g_layout_panner.clap"
@@ -41,6 +46,9 @@ bundles=(
   "$src_root/clap_macro_delay/s3g_24ch_macro_delay.clap"
   "$src_root/clap_macro_pitch/s3g_macro_pitch.clap"
   "$src_root/clap_macro_pitch/s3g_24ch_macro_pitch.clap"
+  "$src_root/clap_macro_shred/s3g_macro_shred_mono.clap"
+  "$src_root/clap_macro_shred/s3g_macro_shred.clap"
+  "$src_root/clap_macro_shred/s3g_24ch_macro_shred.clap"
   "$src_root/clap_buffer_processor/s3g_buffer_processor.clap"
   "$src_root/clap_wave_geometry_processor/s3g_wave_geometry_processor.clap"
   "$src_root/clap_multichannel_meter/s3g_multichannel_meter.clap"
@@ -83,6 +91,7 @@ bundles=(
   "$src_root/clap_orbit_delay/s3g_orbit_delay.clap"
   "$src_root/clap_cascade_taps/s3g_cascade_taps.clap"
 )
+bundle_count="${#bundles[@]}"
 
 for bundle in "${bundles[@]}"; do
   if [[ ! -d "$bundle" ]]; then
@@ -96,23 +105,29 @@ rm -rf "$staging" "$zip_path"
 mkdir -p "$staging"
 
 for bundle in "${bundles[@]}"; do
-  cp -R "$bundle" "$staging/"
+  staged_bundle="$staging/$(basename "$bundle")"
+  cp -R "$bundle" "$staged_bundle"
+  codesign --force --deep --sign "$codesign_identity" "$staged_bundle"
+  codesign --verify --deep --strict "$staged_bundle"
 done
 
 cp -R "$repo_root/wavetables/vot" "$staging/VOT Wavetables"
-cp -R "$repo_root/examples/ambi-vox-lpc" "$staging/Ambi Vox LPC Examples"
+cp -R "$repo_root/examples/voicebanks/s3g-demo-synthetic" "$staging/Ambi Vox Demo Voicebank"
 cp "$repo_root/LICENSE" "$staging/LICENSE.txt"
 cp "$repo_root/THIRD_PARTY_NOTICES.md" "$staging/THIRD_PARTY_NOTICES.md"
 
-cat > "$staging/README.txt" <<'EOF'
+cat > "$staging/README.txt" <<EOF
 s3g-dsp pre-release macOS CLAP builds for REAPER testing.
 
-Version: 0.4.0-pre
-Release date: 2026-07-15
+Version: $release_version
+Release date: $release_date
 
 These binaries are provided for early testing only. Plugin names, parameter
 mappings, state compatibility, and the included plugin set may change before a
 stable release.
+
+The bundles are ad-hoc signed by default for bundle-integrity verification but
+are not Apple notarized.
 
 Install by copying the .clap bundles to:
 
@@ -120,7 +135,7 @@ Install by copying the .clap bundles to:
 
 Then rescan CLAP plugins in REAPER.
 
-Included plugins:
+Included plugins ($bundle_count bundles):
 
 - s3g 24ch Passthrough Test
 - s3g Delay Processor 8ch
@@ -139,7 +154,9 @@ Included plugins:
 - s3g Ambi Vox Encoder 64
 - s3g Ambi Wave Terrain Encoder 64
 - s3g Ambi Stochastic Encoder 64
+- s3g Ambi Wrangler Encoder 64
 - s3g Ambi Imprint 64
+- s3g Ambi Ray Encoder
 - s3g Ambi Path Encoder 64
 - s3g Ambi Speaker Decoder 64
 - s3g Layout Panner
@@ -154,6 +171,9 @@ Included plugins:
 - s3g Macro Delay 24ch
 - s3g Macro Pitch 8ch
 - s3g Macro Pitch 24ch
+- s3g Macro Shred Mono
+- s3g Macro Shred 8ch
+- s3g Macro Shred 24ch
 - s3g Buffer Processor 8ch
 - s3g Wave Geometry Processor 8ch
 - s3g Multichannel Meter 64
@@ -204,7 +224,8 @@ License:
 
 s3g-dsp is distributed under the BSD 3-Clause License. See LICENSE.txt.
 Third-party notices, including WORLD speech vocoder attribution for Ambi Vox
-Encoder's WORLD WAV source path, are included in THIRD_PARTY_NOTICES.md.
+Encoder's WORLD WAV and voicebank paths, are included in
+THIRD_PARTY_NOTICES.md.
 
 VOT Wavetable Library:
 
@@ -212,16 +233,12 @@ Use the LOAD button in s3g Ambi VOT Encoder 64 to load any WAV file from the
 included VOT Wavetables folder. The library contains twenty-eight 4 x 4 banks,
 including four vocal-source atlases.
 
-Ambi Vox LPC Examples:
+Ambi Vox Demo Voicebank:
 
-Use the LOAD button in the s3g Ambi Vox Encoder 64 PHRASE panel to load .hex
-files from the included Ambi Vox LPC Examples folder. These are synthetic test
-files for the encoded-frame loader, not borrowed Speak & Spell ROM data.
-
-Ambi Vox WORLD WAV Source:
-
-When built with WORLD support, the same PHRASE panel LOAD button can load WAV
-files for WORLD analysis/resynthesis before Ambi Vox spatialization.
+Use the LOAD button in the s3g Ambi Vox Encoder 64 PHRASE panel to select the
+included Ambi Vox Demo Voicebank folder. It is a small synthetic UTAU-style
+test bank with WAV aliases, oto.ini timing, and pronunciation examples. The
+same button can load a vocal WAV for WORLD analysis and resynthesis.
 EOF
 
 (cd "$dist_root" && zip -qry "$zip_path" "$package_name")

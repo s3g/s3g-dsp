@@ -48,8 +48,10 @@
 #include "s3g_mc_to_quad.h"
 #include "s3g_macro_delay.h"
 #include "s3g_macro_pitch.h"
+#include "s3g_macro_shred.h"
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -359,6 +361,118 @@ int main()
         std::cerr << "Ambi Wave Terrain Encoder smooth orbit was not low harmonic\n";
         return 1;
     }
+    auto timbreTerrain = std::make_unique<s3g::AmbiWaveTerrainEncoder>();
+    auto timbreParams = waveTerrainParams;
+    timbreParams.voices = 1u;
+    timbreParams.motionMode = s3g::AmbiWaveTerrainMotionMode::Rotate;
+    timbreParams.azimuthRateRpm = 0.0f;
+    timbreParams.elevationRateRpm = 0.0f;
+    timbreParams.rotationRateDeviation = 0.0f;
+    timbreParams.terrainFacet = 1.0f;
+    timbreParams.terrainBevel = 0.0f;
+    timbreTerrain->setParams(timbreParams);
+    timbreTerrain->prepare(48000.0);
+    timbreParams.terrainForm = s3g::AmbiWaveTerrainForm::Cube;
+    timbreTerrain->setParams(timbreParams);
+    const float cubeFormHeight = timbreTerrain->terrainHeight(0.137f, 0.613f);
+    timbreParams.terrainForm = s3g::AmbiWaveTerrainForm::Icosa;
+    timbreTerrain->setParams(timbreParams);
+    const float icosaFormHeight = timbreTerrain->terrainHeight(0.137f, 0.613f);
+    if (!std::isfinite(cubeFormHeight) || !std::isfinite(icosaFormHeight)
+        || std::abs(cubeFormHeight - icosaFormHeight) < 0.02f) {
+        std::cerr << "Ambi Wave Terrain Encoder polyhedral forms did not produce distinct terrain\n";
+        return 1;
+    }
+    const s3g::AmbiWaveTerrainRegion polygonRegion { 0.5f, 0.5f, 0.20f, 1.0f, 0.0f, s3g::AmbiWaveTerrainTrace::Polygon };
+    timbreParams.trace = s3g::AmbiWaveTerrainTrace::Polygon;
+    timbreParams.polygonSides = 4u;
+    timbreParams.polygonRound = 0.0f;
+    timbreParams.polygonStar = 0.0f;
+    timbreTerrain->setParams(timbreParams);
+    const auto squareEdge = timbreTerrain->contourPoint(polygonRegion, 0.125f);
+    timbreParams.polygonStar = 1.0f;
+    timbreTerrain->setParams(timbreParams);
+    const auto starValley = timbreTerrain->contourPoint(polygonRegion, 0.125f);
+    const float squareRadius = std::hypot(squareEdge[0] - polygonRegion.u, squareEdge[1] - polygonRegion.v);
+    const float starRadius = std::hypot(starValley[0] - polygonRegion.u, starValley[1] - polygonRegion.v);
+    if (!(starRadius < squareRadius * 0.55f)) {
+        std::cerr << "Ambi Wave Terrain Encoder star control did not deform its polygon scan\n";
+        return 1;
+    }
+    timbreParams.interpretation = s3g::AmbiWaveTerrainInterpretation::Gradient;
+    timbreParams.terrainTerrace = 1.0f;
+    timbreParams.terrainTerraceSteps = 5u;
+    timbreTerrain->setParams(timbreParams);
+    timbreTerrain->process(waveTerrainPtrs, s3g::kAmbiWaveTerrainMaxChannels, terrainFrames);
+    float gradientMinimum = 1.0f, gradientMaximum = -1.0f;
+    float fullVariation = 0.0f, limitedVariation = 0.0f;
+    for (uint32_t index = 0u; index < s3g::kAmbiWaveTerrainTableSize; ++index) {
+        const uint32_t previous = (index + s3g::kAmbiWaveTerrainTableSize - 1u) % s3g::kAmbiWaveTerrainTableSize;
+        const float full = timbreTerrain->tableValue(0u, true, index, 0u);
+        const float limited = timbreTerrain->tableValue(0u, true, index, s3g::kAmbiWaveTerrainMipLevels - 1u);
+        gradientMinimum = std::min(gradientMinimum, full);
+        gradientMaximum = std::max(gradientMaximum, full);
+        fullVariation += std::abs(full - timbreTerrain->tableValue(0u, true, previous, 0u));
+        limitedVariation += std::abs(limited - timbreTerrain->tableValue(0u, true, previous, s3g::kAmbiWaveTerrainMipLevels - 1u));
+    }
+    if (gradientMaximum - gradientMinimum < 0.05f || !(limitedVariation < fullVariation * 0.72f)) {
+        std::cerr << "Ambi Wave Terrain Encoder derived read or harmonic-limited table was ineffective\n";
+        return 1;
+    }
+    auto automatedTerrain = std::make_unique<s3g::AmbiWaveTerrainEncoder>();
+    auto automatedParams = waveTerrainParams;
+    automatedParams.order = 1u;
+    automatedParams.voices = 1u;
+    automatedParams.motionMode = s3g::AmbiWaveTerrainMotionMode::Rotate;
+    automatedParams.azimuthRateRpm = 0.0f;
+    automatedParams.elevationRateRpm = 0.0f;
+    automatedParams.rotationRateDeviation = 0.0f;
+    automatedParams.interpretation = s3g::AmbiWaveTerrainInterpretation::Height;
+    automatedParams.tableXfadeMs = 40.0f;
+    automatedParams.attackMs = 1.0f;
+    automatedTerrain->setParams(automatedParams);
+    automatedTerrain->prepare(48000.0);
+    for (uint32_t block = 0u; block < 24u; ++block)
+        automatedTerrain->process(waveTerrainPtrs, s3g::kAmbiWaveTerrainMaxChannels, terrainFrames);
+    float automatedPrevious = waveTerrainOut[0][terrainFrames - 1u];
+    float automatedPeak = 0.0f;
+    float automatedMaximumStep = 0.0f;
+    double automatedRenderMicros = 0.0;
+    constexpr uint32_t kAutomationBlocks = 48u;
+    for (uint32_t block = 0u; block < kAutomationBlocks; ++block) {
+        automatedParams.terrainRoughness = 0.05f + 0.90f * static_cast<float>(block % 17u) / 16.0f;
+        automatedTerrain->setParams(automatedParams);
+        const auto renderStart = std::chrono::steady_clock::now();
+        automatedTerrain->process(waveTerrainPtrs, s3g::kAmbiWaveTerrainMaxChannels, terrainFrames);
+        automatedRenderMicros += std::chrono::duration<double, std::micro>(
+            std::chrono::steady_clock::now() - renderStart).count();
+        for (uint32_t frame = 0u; frame < terrainFrames; ++frame) {
+            const float value = waveTerrainOut[0][frame];
+            if (!std::isfinite(value)) {
+                std::cerr << "Ambi Wave Terrain Encoder slider automation produced non-finite output\n";
+                return 1;
+            }
+            automatedPeak = std::max(automatedPeak, std::abs(value));
+            automatedMaximumStep = std::max(automatedMaximumStep, std::abs(value - automatedPrevious));
+            automatedPrevious = value;
+        }
+    }
+    const double automatedAverageMicros = automatedRenderMicros / static_cast<double>(kAutomationBlocks);
+    if (automatedPeak < 0.0001f || automatedMaximumStep > 0.20f) {
+        std::cerr << "Ambi Wave Terrain Encoder slider automation was discontinuous: "
+                  << automatedPeak << " / " << automatedMaximumStep << "\n";
+        return 1;
+    }
+#if defined(__APPLE__)
+    constexpr double kAudioBlockMicros = static_cast<double>(terrainFrames) / 48000.0 * 1000000.0;
+    if (automatedAverageMicros >= kAudioBlockMicros) {
+        std::cerr << "Ambi Wave Terrain Encoder slider rebuild exceeded its audio-block budget: "
+                  << automatedAverageMicros << " us\n";
+        return 1;
+    }
+#endif
+    std::cout << "Ambi Wave Terrain automation peak/step/render us: "
+              << automatedPeak << " / " << automatedMaximumStep << " / " << automatedAverageMicros << "\n";
     auto traversalTerrain = std::make_unique<s3g::AmbiWaveTerrainEncoder>();
     s3g::AmbiWaveTerrainParams traversalParams;
     traversalParams.voices = 1u;
@@ -1330,6 +1444,131 @@ int main()
     }
     if (macroPitchPeak <= 0.00001f || macroPitchPeak > 1.0f) {
         std::cerr << "Macro Pitch peak outside expected range: " << macroPitchPeak << "\n";
+        return 1;
+    }
+
+    s3g::MacroShredCore macroShredCore;
+    macroShredCore.prepare(48000.0);
+    s3g::MacroShredCoreParams macroShredCoreParams;
+    macroShredCoreParams.inputGainDb = 18.0f;
+    macroShredCoreParams.pressure = 0.82f;
+    macroShredCoreParams.shred = 0.88f;
+    macroShredCoreParams.feedback = 1.0f;
+    macroShredCoreParams.color = 0.37f;
+    macroShredCoreParams.react = 1.0f;
+    macroShredCoreParams.body = 0.42f;
+    macroShredCoreParams.mix = 1.0f;
+    macroShredCoreParams.outputGainDb = 6.0f;
+    macroShredCore.setParams(macroShredCoreParams);
+    float macroShredCorePeak = 0.0f;
+    float macroShredTailPeak = 0.0f;
+    for (int i = 0; i < 96000; ++i) {
+        const float input = i < 24000
+            ? std::sin(6.28318530718f * 137.0f * static_cast<float>(i) / 48000.0f) * 0.18f
+                + ((i % 4001) == 0 ? 0.9f : 0.0f)
+            : 0.0f;
+        const float value = macroShredCore.processSample(input);
+        if (!std::isfinite(value)) {
+            std::cerr << "Macro Shred mono core output is not finite\n";
+            return 1;
+        }
+        macroShredCorePeak = std::max(macroShredCorePeak, std::abs(value));
+        if (i >= 24000) {
+            macroShredTailPeak = std::max(macroShredTailPeak, std::abs(value));
+        }
+    }
+    if (macroShredCorePeak <= 0.00001f || macroShredCorePeak > 1.0001f) {
+        std::cerr << "Macro Shred mono core peak outside expected range: " << macroShredCorePeak << "\n";
+        return 1;
+    }
+    if (macroShredTailPeak <= 0.000001f) {
+        std::cerr << "Macro Shred mono core did not preserve a feedback tail\n";
+        return 1;
+    }
+    macroShredCore.reset();
+    for (int i = 0; i < 4096; ++i) {
+        const float value = macroShredCore.processSample(0.0f);
+        if (!std::isfinite(value) || std::abs(value) > 0.000001f) {
+            std::cerr << "Macro Shred mono core panic reset did not clear the loop\n";
+            return 1;
+        }
+    }
+
+    const auto measureMacroShredTuning = [](float frequencyHz) {
+        s3g::MacroShredCore core;
+        s3g::MacroShredCoreParams params;
+        params.inputGainDb = 0.0f;
+        params.pressure = 0.20f;
+        params.shred = 0.15f;
+        params.feedback = 0.55f;
+        params.color = 0.50f;
+        params.react = 0.25f;
+        params.tune = 1.0f;
+        params.body = 0.50f;
+        params.mix = 1.0f;
+        params.outputGainDb = -12.0f;
+        core.setParams(params);
+        core.prepare(48000.0);
+        for (int i = 0; i < 96000; ++i) {
+            const float input = std::sin(6.28318530718f * frequencyHz * static_cast<float>(i) / 48000.0f) * 0.12f;
+            core.processSample(input);
+        }
+        return std::array<float, 2> { core.centroidHz(), core.feedbackFrequencyHz() };
+    };
+    const auto macroShredLowTune = measureMacroShredTuning(220.0f);
+    const auto macroShredHighTune = measureMacroShredTuning(3500.0f);
+    if (!(macroShredHighTune[0] > macroShredLowTune[0] * 2.5f)
+        || !(macroShredHighTune[1] > macroShredLowTune[1] * 1.8f)) {
+        std::cerr << "Macro Shred centroid tuning did not follow input spectrum: "
+                  << macroShredLowTune[0] << " / " << macroShredHighTune[0] << " -> "
+                  << macroShredLowTune[1] << " / " << macroShredHighTune[1] << "\n";
+        return 1;
+    }
+
+    s3g::MacroShred macroShred;
+    macroShred.prepare(48000.0, s3g::kMacroShredChannels);
+    s3g::MacroShredParams macroShredParams;
+    macroShredParams.inputGainDb = 6.0f;
+    macroShredParams.pressure = 0.55f;
+    macroShredParams.shred = 0.62f;
+    macroShredParams.feedback = 0.74f;
+    macroShredParams.color = 0.48f;
+    macroShredParams.react = 0.60f;
+    macroShredParams.body = 0.58f;
+    macroShredParams.spread = 0.72f;
+    macroShredParams.deviation = 0.45f;
+    macroShredParams.skew = -0.32f;
+    macroShredParams.center = 0.44f;
+    macroShredParams.glideMs = 80.0f;
+    macroShredParams.mix = 0.86f;
+    macroShredParams.outputGainDb = -3.0f;
+    macroShred.setParams(macroShredParams);
+    float macroShredIn[s3g::kMacroShredChannels] {};
+    float macroShredOut[s3g::kMacroShredChannels] {};
+    float macroShredPeak = 0.0f;
+    float macroShredLaneDifference = 0.0f;
+    for (int i = 0; i < 48000; ++i) {
+        const float common = std::sin(6.28318530718f * 173.0f * static_cast<float>(i) / 48000.0f) * 0.14f;
+        for (uint32_t ch = 0; ch < s3g::kMacroShredChannels; ++ch) {
+            macroShredIn[ch] = common;
+        }
+        macroShred.processFrame(macroShredIn, macroShredOut);
+        for (float value : macroShredOut) {
+            if (!std::isfinite(value)) {
+                std::cerr << "Macro Shred multichannel output is not finite\n";
+                return 1;
+            }
+            macroShredPeak = std::max(macroShredPeak, std::abs(value));
+        }
+        macroShredLaneDifference = std::max(macroShredLaneDifference,
+            std::abs(macroShredOut[0] - macroShredOut[s3g::kMacroShredChannels - 1u]));
+    }
+    if (macroShredPeak <= 0.00001f || macroShredPeak > 1.0001f) {
+        std::cerr << "Macro Shred multichannel peak outside expected range: " << macroShredPeak << "\n";
+        return 1;
+    }
+    if (macroShredLaneDifference <= 0.00001f) {
+        std::cerr << "Macro Shred lane relationships did not create channel variation\n";
         return 1;
     }
 
@@ -4740,17 +4979,17 @@ int main()
         densityParams.releaseMs = 5.0f;
         densityParams.outputGainDb = -60.0f;
 
-        s3g::AmbiStochasticEncoder densityEncoder;
-        densityEncoder.prepare(48000.0);
-        densityEncoder.setParams(densityParams);
-        densityEncoder.reset();
+        auto densityEncoder = std::make_unique<s3g::AmbiStochasticEncoder>();
+        densityEncoder->prepare(48000.0);
+        densityEncoder->setParams(densityParams);
+        densityEncoder->reset();
         uint64_t activeStates = 0u;
         uint64_t measuredStates = 0u;
         for (uint32_t block = 0u; block < 180u; ++block) {
-            densityEncoder.process(stochasticOutputs.data(), 4u, stochasticFrames);
+            densityEncoder->process(stochasticOutputs.data(), 4u, stochasticFrames);
             if (block < 20u) continue;
             for (uint32_t voice = 0u; voice < voices; ++voice) {
-                activeStates += densityEncoder.voiceFieldActive(voice) ? 1u : 0u;
+                activeStates += densityEncoder->voiceFieldActive(voice) ? 1u : 0u;
                 ++measuredStates;
             }
         }
@@ -4947,6 +5186,10 @@ int main()
     std::cout << "macro delay peak: " << macroPeak << "\n";
     std::cout << "macro delay tail peak: " << macroTailPeak << "\n";
     std::cout << "macro pitch peak: " << macroPitchPeak << "\n";
+    std::cout << "macro shred mono/multichannel peaks: " << macroShredCorePeak << " / " << macroShredPeak << "\n";
+    std::cout << "macro shred centroid/feedback low-high: "
+              << macroShredLowTune[0] << " / " << macroShredHighTune[0] << " -> "
+              << macroShredLowTune[1] << " / " << macroShredHighTune[1] << "\n";
     std::cout << "buffer processor peak/step: " << bufferPeak << " / " << bufferMaxStep << "\n";
     std::cout << "wave geometry peak/delta: " << waveGeometryPeak << " / " << waveGeometryDelta << "\n";
     std::cout << "ambi sub decoder peak/spread: " << ambiSubPeak << " / " << ambiSubSpread << "\n";

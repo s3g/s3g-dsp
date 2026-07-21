@@ -365,10 +365,38 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
+
+    static constexpr const char* assign[] { "ONE", "ROUND", "SOURCE" };
+    static constexpr const char* playback[] { "OFF", "RUN", "SCRUB" };
+    static constexpr const char* sync[] { "FREE", "SYNC" };
+    static constexpr const char* loop[] { "ONE", "LOOP", "PAL" };
+    static constexpr const char* interpolation[] { "LINEAR", "CATMULL", "HOLD" };
+
+    const char* const* names = nullptr;
+    uint32_t count = 0u;
+    if (id == kAssignParamId) { names = assign; count = static_cast<uint32_t>(std::size(assign)); }
+    else if (id == kPlaybackParamId) { names = playback; count = static_cast<uint32_t>(std::size(playback)); }
+    else if (id == kSyncParamId) { names = sync; count = static_cast<uint32_t>(std::size(sync)); }
+    else if (id == kLoopParamId) { names = loop; count = static_cast<uint32_t>(std::size(loop)); }
+    else if (id == kInterpParamId) { names = interpolation; count = static_cast<uint32_t>(std::size(interpolation)); }
+    if (names) {
+        for (uint32_t index = 0u; index < count; ++index) {
+            if (std::strcmp(display, names[index]) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
+
     *value = std::atof(display);
+    if (id == kPhaseParamId || id == kPhaseSpreadParamId || id == kSmoothParamId
+        || id == kEaseParamId || id == kDopplerParamId || id == kAirParamId) {
+        *value *= 0.01;
+    }
     return true;
 }
 
@@ -858,15 +886,19 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
 - (s3g::AmbiPathPoint)pointFromScreen:(NSPoint)pt inRect:(NSRect)rect preserving:(s3g::AmbiPathPoint)oldPoint
 {
     const CGFloat scale = std::min(rect.size.width, rect.size.height) * 0.38 * std::clamp(_viewZoom, 0.55, 2.4);
-    const double nx = std::clamp((pt.x - NSMidX(rect)) / std::max<CGFloat>(1.0, scale), -2.0, 2.0);
-    const double ny = std::clamp((NSMidY(rect) - pt.y) / std::max<CGFloat>(1.0, scale), -2.0, 2.0);
-    if (_viewMode == 0) {
-        oldPoint.x = static_cast<float>(ny);
-        oldPoint.y = static_cast<float>(-nx);
-    } else if (_viewMode == 1) {
-        oldPoint.y = static_cast<float>(-nx);
-        oldPoint.z = static_cast<float>(ny);
-    }
+    const double x1 = std::clamp((pt.x - NSMidX(rect)) / std::max<CGFloat>(1.0, scale), -2.0, 2.0);
+    const double y2 = std::clamp((NSMidY(rect) - pt.y) / std::max<CGFloat>(1.0, scale), -2.0, 2.0);
+    const double az = _viewAzDeg * M_PI / 180.0;
+    const double el = _viewElDeg * M_PI / 180.0;
+    const double ca = std::cos(az), sa = std::sin(az);
+    const double ce = std::cos(el), se = std::sin(el);
+    const double oldY1 = sa * oldPoint.x + ca * oldPoint.y;
+    const double oldZ2 = -se * oldY1 + ce * oldPoint.z;
+    const double y1 = ce * y2 - se * oldZ2;
+    const double z = se * y2 + ce * oldZ2;
+    oldPoint.x = static_cast<float>(std::clamp(ca * x1 + sa * y1, -2.0, 2.0));
+    oldPoint.y = static_cast<float>(std::clamp(-sa * x1 + ca * y1, -2.0, 2.0));
+    oldPoint.z = static_cast<float>(std::clamp(z, -2.0, 2.0));
     return oldPoint;
 }
 
@@ -892,7 +924,7 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
 
 - (void)updateSelectedPointFromScreen:(NSPoint)pt
 {
-    if (_selectedPoint < 0 || (_viewMode != 0 && _viewMode != 1)) return;
+    if (_selectedPoint < 0) return;
     auto paths = _plugin->encoder.paths();
     const uint32_t pathIndex = _plugin->params.selectedPath;
     auto& path = paths[pathIndex];
@@ -910,7 +942,6 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
 
 - (void)addPointAtScreen:(NSPoint)pt
 {
-    if (_viewMode != 0 && _viewMode != 1) return;
     auto paths = _plugin->encoder.paths();
     const uint32_t pathIndex = _plugin->params.selectedPath;
     auto& path = paths[pathIndex];
@@ -1011,7 +1042,7 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
         NSFrameRect(NSMakeRect(std::round(pt.x - r), std::round(pt.y - r), r * 2.0, r * 2.0));
     }
     NSString* viewText = _editMode
-        ? (_viewMode == 0 ? @"EDIT TOP: CLICK/DRAG POINTS" : (_viewMode == 1 ? @"EDIT SIDE: CLICK/DRAG POINTS" : @"EDIT: SELECT POINTS"))
+        ? (_viewMode == 0 ? @"EDIT TOP: CLICK/DRAG POINTS" : (_viewMode == 1 ? @"EDIT SIDE: CLICK/DRAG POINTS" : @"EDIT: CLICK/DRAG POINTS"))
         : @"PLAY: CLICK/DRAG CAMERA";
     [viewText drawAtPoint:NSMakePoint(rect.origin.x + 10, NSMaxY(rect) - 22) withAttributes:attrs];
 }
@@ -1301,11 +1332,11 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
             const int hit = [self hitPathPoint:pt inRect:field];
             if (hit >= 0) {
                 _selectedPoint = hit;
-                _dragPoint = _editMode && (_viewMode == 0 || _viewMode == 1);
+                _dragPoint = _editMode;
                 [self setNeedsDisplay:YES];
                 if (_editMode) return;
             }
-            if (_editMode && (_viewMode == 0 || _viewMode == 1)) {
+            if (_editMode) {
                 [self addPointAtScreen:pt];
                 _dragPoint = YES;
                 [self setNeedsDisplay:YES];

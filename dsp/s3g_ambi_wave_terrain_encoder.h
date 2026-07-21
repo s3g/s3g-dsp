@@ -4,6 +4,10 @@
 #include "s3g_math.h"
 #include "s3g_realtime.h"
 
+#if defined(__APPLE__)
+#include <Accelerate/Accelerate.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -25,14 +29,20 @@ enum class AmbiWaveTerrainPitchScale : uint32_t {
     Free = 0, Chromatic = 1, Major = 2, Minor = 3,
     Pentatonic = 4, WholeTone = 5, HarmonicMinor = 6,
 };
+enum class AmbiWaveTerrainForm : uint32_t {
+    Sphere = 0, Tetra = 1, Cube = 2, Octa = 3, Dodeca = 4, Icosa = 5,
+};
 enum class AmbiWaveTerrainSkin : uint32_t {
     Harmonic = 0, Fbm = 1, Cellular = 2, Vot = 3,
     Ridges = 4, Dunes = 5, Craters = 6, Tectonic = 7,
 };
-enum class AmbiWaveTerrainTrace : uint32_t { Orbit = 0, Lissajous = 1, Rosette = 2, Fold = 3 };
+enum class AmbiWaveTerrainTrace : uint32_t { Orbit = 0, Lissajous = 1, Rosette = 2, Fold = 3, Polygon = 4 };
 enum class AmbiWaveTerrainSelection : uint32_t { Random = 0, Series = 1, Weight = 2, Tendency = 3, Markov = 4, Walk = 5 };
 enum class AmbiWaveTerrainTransition : uint32_t { Link = 0, Merge = 1, Vary = 2 };
-enum class AmbiWaveTerrainInterpretation : uint32_t { Height = 0, Edge = 1, Curvature = 2, Blend = 3 };
+enum class AmbiWaveTerrainInterpretation : uint32_t {
+    Height = 0, Edge = 1, Curvature = 2, Blend = 3, Gradient = 4,
+    Ridge = 5, Valley = 6, Normal = 7, Cross = 8, Vector = 9,
+};
 
 struct AmbiWaveTerrainParams {
     uint32_t order = 3;
@@ -87,6 +97,22 @@ struct AmbiWaveTerrainParams {
     float elevationRateRpm = 0.43f;
     float rotationRateDeviation = 0.28f;
     AmbiWaveTerrainPitchScale pitchScale = AmbiWaveTerrainPitchScale::Free;
+
+    AmbiWaveTerrainForm terrainForm = AmbiWaveTerrainForm::Sphere;
+    float terrainFacet = 0.0f;
+    float terrainBevel = 0.18f;
+    float terrainOrientation = 0.0f;
+    float terrainTerrace = 0.0f;
+    uint32_t terrainTerraceSteps = 8u;
+    float terrainRidge = 0.0f;
+    float terrainErosion = 0.0f;
+    float terrainDomainWarp = 0.0f;
+    float terrainTwist = 0.0f;
+
+    uint32_t polygonSides = 6u;
+    float polygonRound = 0.18f;
+    float polygonStar = 0.0f;
+    float polygonSkew = 0.0f;
 };
 
 inline int ambiWaveTerrainScaleDegreeSemitones(AmbiWaveTerrainPitchScale scale, int degree)
@@ -264,9 +290,23 @@ struct AmbiWaveTerrainVoice {
 
 class AmbiWaveTerrainEncoder {
 public:
+    ~AmbiWaveTerrainEncoder()
+    {
+#if defined(__APPLE__)
+        if (fftSetup_) vDSP_destroy_fftsetup(fftSetup_);
+#endif
+    }
+
+    AmbiWaveTerrainEncoder() = default;
+    AmbiWaveTerrainEncoder(const AmbiWaveTerrainEncoder&) = delete;
+    AmbiWaveTerrainEncoder& operator=(const AmbiWaveTerrainEncoder&) = delete;
+
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1.0, sampleRate);
+#if defined(__APPLE__)
+        if (!fftSetup_) fftSetup_ = vDSP_create_fftsetup(9u, kFFTRadix2);
+#endif
         reset();
     }
 
@@ -317,8 +357,8 @@ public:
         params.terrainRoughness = clamp(params.terrainRoughness, 0.0f, 1.0f);
         params.terrainFold = clamp(params.terrainFold, 0.0f, 1.0f);
         params.terrainRelief = clamp(params.terrainRelief, 0.0f, 1.0f);
-        params.trace = static_cast<AmbiWaveTerrainTrace>(std::clamp<uint32_t>(static_cast<uint32_t>(params.trace), 0u, 3u));
-        params.interpretation = static_cast<AmbiWaveTerrainInterpretation>(std::clamp<uint32_t>(static_cast<uint32_t>(params.interpretation), 0u, 3u));
+        params.trace = static_cast<AmbiWaveTerrainTrace>(std::clamp<uint32_t>(static_cast<uint32_t>(params.trace), 0u, 4u));
+        params.interpretation = static_cast<AmbiWaveTerrainInterpretation>(std::clamp<uint32_t>(static_cast<uint32_t>(params.interpretation), 0u, 9u));
         params.interpretationMix = clamp(params.interpretationMix, 0.0f, 1.0f);
         params.scanRadius = clamp(params.scanRadius, 0.005f, 0.48f);
         params.scanAspect = clamp(params.scanAspect, 0.05f, 1.0f);
@@ -354,6 +394,21 @@ public:
         params.rotationRateDeviation = clamp(params.rotationRateDeviation, 0.0f, 1.0f);
         params.pitchScale = static_cast<AmbiWaveTerrainPitchScale>(
             std::clamp<uint32_t>(static_cast<uint32_t>(params.pitchScale), 0u, 6u));
+        params.terrainForm = static_cast<AmbiWaveTerrainForm>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(params.terrainForm), 0u, 5u));
+        params.terrainFacet = clamp(params.terrainFacet, 0.0f, 1.0f);
+        params.terrainBevel = clamp(params.terrainBevel, 0.0f, 1.0f);
+        params.terrainOrientation = clamp(params.terrainOrientation, -1.0f, 1.0f);
+        params.terrainTerrace = clamp(params.terrainTerrace, 0.0f, 1.0f);
+        params.terrainTerraceSteps = std::clamp<uint32_t>(params.terrainTerraceSteps, 2u, 24u);
+        params.terrainRidge = clamp(params.terrainRidge, 0.0f, 1.0f);
+        params.terrainErosion = clamp(params.terrainErosion, 0.0f, 1.0f);
+        params.terrainDomainWarp = clamp(params.terrainDomainWarp, 0.0f, 1.0f);
+        params.terrainTwist = clamp(params.terrainTwist, -1.0f, 1.0f);
+        params.polygonSides = std::clamp<uint32_t>(params.polygonSides, 3u, 12u);
+        params.polygonRound = clamp(params.polygonRound, 0.0f, 1.0f);
+        params.polygonStar = clamp(params.polygonStar, 0.0f, 1.0f);
+        params.polygonSkew = clamp(params.polygonSkew, -1.0f, 1.0f);
 
         const bool motionModeChanged = params.motionMode != params_.motionMode;
         const bool terrainChanged = params.skin != params_.skin
@@ -368,6 +423,20 @@ public:
             || params.scanAspect != params_.scanAspect
             || params.scanRotation != params_.scanRotation
             || params.scanWarp != params_.scanWarp
+            || params.terrainForm != params_.terrainForm
+            || params.terrainFacet != params_.terrainFacet
+            || params.terrainBevel != params_.terrainBevel
+            || params.terrainOrientation != params_.terrainOrientation
+            || params.terrainTerrace != params_.terrainTerrace
+            || params.terrainTerraceSteps != params_.terrainTerraceSteps
+            || params.terrainRidge != params_.terrainRidge
+            || params.terrainErosion != params_.terrainErosion
+            || params.terrainDomainWarp != params_.terrainDomainWarp
+            || params.terrainTwist != params_.terrainTwist
+            || params.polygonSides != params_.polygonSides
+            || params.polygonRound != params_.polygonRound
+            || params.polygonStar != params_.polygonStar
+            || params.polygonSkew != params_.polygonSkew
             || params.centerAzimuthDeg != params_.centerAzimuthDeg
             || params.centerElevationDeg != params_.centerElevationDeg
             || params.centerDistance != params_.centerDistance
@@ -407,10 +476,11 @@ public:
         const auto& v = voices_[std::min<uint32_t>(voice, kAmbiWaveTerrainMaxVoices - 1u)];
         return next ? v.next.region : v.current.region;
     }
-    float tableValue(uint32_t voice, bool next, uint32_t index) const
+    float tableValue(uint32_t voice, bool next, uint32_t index, uint32_t level = 0u) const
     {
         const auto& v = voices_[std::min<uint32_t>(voice, kAmbiWaveTerrainMaxVoices - 1u)];
-        return (next ? v.next : v.current).levels[0][index % kAmbiWaveTerrainTableSize];
+        return (next ? v.next : v.current).levels[std::min<uint32_t>(level, kAmbiWaveTerrainMipLevels - 1u)]
+            [index % kAmbiWaveTerrainTableSize];
     }
     float terrainProfileValue(uint32_t voice, bool next, uint32_t index) const
     {
@@ -419,6 +489,10 @@ public:
     }
 
     float terrainHeight(float u, float v) const { return terrain(fract(u), clamp(v, 0.0f, 1.0f)); }
+    std::array<float, 2> contourPoint(const AmbiWaveTerrainRegion& region, float phase) const
+    {
+        return contour(region, phase);
+    }
 
     AmbiWaveTerrainPoint surfacePoint(float u, float v) const
     {
@@ -612,8 +686,77 @@ private:
         }
     }
 
+    float terrainForm(float u, float v) const
+    {
+        if (params_.terrainForm == AmbiWaveTerrainForm::Sphere) return 0.0f;
+        Vec3 direction = directionFromAed((u - 0.5f) * 360.0f, (v - 0.5f) * 180.0f);
+        const float yaw = params_.terrainOrientation * kPi;
+        const float pitch = params_.terrainOrientation * kPi * 0.37f;
+        const float cy = std::cos(yaw), sy = std::sin(yaw);
+        const float cp = std::cos(pitch), sp = std::sin(pitch);
+        const float x1 = cy * direction.x - sy * direction.y;
+        const float y1 = sy * direction.x + cy * direction.y;
+        direction = { cp * x1 + sp * direction.z, y1, -sp * x1 + cp * direction.z };
+
+        std::array<float, 20> dots {};
+        uint32_t count = 0u;
+        const auto addNormal = [&](float x, float y, float z) {
+            const float inverseLength = 1.0f / std::sqrt(std::max(0.000001f, x * x + y * y + z * z));
+            dots[count++] = direction.x * x * inverseLength + direction.y * y * inverseLength + direction.z * z * inverseLength;
+        };
+        if (params_.terrainForm == AmbiWaveTerrainForm::Cube) {
+            addNormal(1.0f, 0.0f, 0.0f); addNormal(-1.0f, 0.0f, 0.0f);
+            addNormal(0.0f, 1.0f, 0.0f); addNormal(0.0f, -1.0f, 0.0f);
+            addNormal(0.0f, 0.0f, 1.0f); addNormal(0.0f, 0.0f, -1.0f);
+        } else if (params_.terrainForm == AmbiWaveTerrainForm::Octa) {
+            for (int x : { -1, 1 }) for (int y : { -1, 1 }) for (int z : { -1, 1 }) {
+                addNormal(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+            }
+        } else if (params_.terrainForm == AmbiWaveTerrainForm::Tetra) {
+            addNormal(1.0f, 1.0f, 1.0f); addNormal(1.0f, -1.0f, -1.0f);
+            addNormal(-1.0f, 1.0f, -1.0f); addNormal(-1.0f, -1.0f, 1.0f);
+        } else if (params_.terrainForm == AmbiWaveTerrainForm::Dodeca) {
+            constexpr float phi = 1.61803398875f;
+            for (int a : { -1, 1 }) for (int b : { -1, 1 }) {
+                addNormal(0.0f, static_cast<float>(a), static_cast<float>(b) * phi);
+                addNormal(static_cast<float>(a), static_cast<float>(b) * phi, 0.0f);
+                addNormal(static_cast<float>(a) * phi, 0.0f, static_cast<float>(b));
+            }
+        } else {
+            constexpr float phi = 1.61803398875f;
+            constexpr float inversePhi = 0.61803398875f;
+            for (int x : { -1, 1 }) for (int y : { -1, 1 }) for (int z : { -1, 1 }) {
+                addNormal(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+            }
+            for (int a : { -1, 1 }) for (int b : { -1, 1 }) {
+                addNormal(0.0f, static_cast<float>(a) * inversePhi, static_cast<float>(b) * phi);
+                addNormal(static_cast<float>(a) * inversePhi, static_cast<float>(b) * phi, 0.0f);
+                addNormal(static_cast<float>(a) * phi, 0.0f, static_cast<float>(b) * inversePhi);
+            }
+        }
+
+        float maximum = dots[0];
+        for (uint32_t index = 1u; index < count; ++index) maximum = std::max(maximum, dots[index]);
+        float support = maximum;
+        if (params_.terrainBevel > 0.0001f) {
+            const float sharpness = lerp(80.0f, 6.0f, params_.terrainBevel);
+            float sum = 0.0f;
+            for (uint32_t index = 0u; index < count; ++index) sum += std::exp((dots[index] - maximum) * sharpness);
+            support += std::log(std::max(1.0f, sum)) / sharpness;
+        }
+        const float radial = 1.0f / std::max(0.18f, support);
+        return softSat((radial - 1.0f) * 4.0f - 0.28f);
+    }
+
     float terrain(float u, float v) const
     {
+        u = fract(u + params_.terrainTwist * (v - 0.5f) * 0.42f);
+        if (params_.terrainDomainWarp > 0.0001f) {
+            const float warpU = std::sin(kAmbiWaveTerrainTwoPi * (v * 1.73f + std::sin(u * kAmbiWaveTerrainTwoPi) * 0.19f));
+            const float warpV = std::sin(kAmbiWaveTerrainTwoPi * (u * 1.31f - std::cos(v * kAmbiWaveTerrainTwoPi) * 0.23f));
+            u = fract(u + warpU * params_.terrainDomainWarp * 0.11f);
+            v = clamp(v + warpV * params_.terrainDomainWarp * 0.085f, 0.0f, 1.0f);
+        }
         float value = 0.0f;
         float weight = 0.0f;
         for (uint32_t layer = 0; layer < 4u; ++layer) {
@@ -623,7 +766,21 @@ private:
         }
         value = weight > 0.0f ? value / weight : 0.0f;
         const float folded = std::sin(value * (1.0f + 6.0f * params_.terrainFold));
-        return softSat(lerp(value, folded, params_.terrainFold) * 1.45f);
+        value = softSat(lerp(value, folded, params_.terrainFold) * 1.45f);
+        const float ridge = 1.0f - 2.0f * std::fabs(value);
+        value = lerp(value, ridge, params_.terrainRidge);
+        const float eroded = value / (1.0f + params_.terrainErosion * 2.8f * std::fabs(value));
+        value = lerp(value, eroded, params_.terrainErosion);
+        if (params_.terrainForm != AmbiWaveTerrainForm::Sphere && params_.terrainFacet > 0.0001f) {
+            const float form = terrainForm(u, v);
+            value = lerp(value, form * 0.88f + value * 0.22f, params_.terrainFacet);
+        }
+        if (params_.terrainTerrace > 0.0001f) {
+            const float steps = static_cast<float>(params_.terrainTerraceSteps);
+            const float terraced = std::round(value * steps) / steps;
+            value = lerp(value, terraced, params_.terrainTerrace);
+        }
+        return softSat(value);
     }
 
     struct ContourSample {
@@ -631,6 +788,43 @@ private:
         float v = 0.5f;
         float carrier = 0.0f;
     };
+
+    std::array<float, 2> polygonPoint(float phase) const
+    {
+        const uint32_t sides = std::clamp<uint32_t>(params_.polygonSides, 3u, 12u);
+        const float sectorPosition = fract(phase) * static_cast<float>(sides);
+        const uint32_t sector = static_cast<uint32_t>(std::floor(sectorPosition)) % sides;
+        const float local = sectorPosition - std::floor(sectorPosition);
+        const float angle0 = kAmbiWaveTerrainTwoPi * static_cast<float>(sector) / static_cast<float>(sides);
+        const float angle1 = kAmbiWaveTerrainTwoPi * static_cast<float>(sector + 1u) / static_cast<float>(sides);
+        const std::array<float, 2> outer0 { std::cos(angle0), std::sin(angle0) };
+        const std::array<float, 2> outer1 { std::cos(angle1), std::sin(angle1) };
+        const std::array<float, 2> edgeMidpoint {
+            (outer0[0] + outer1[0]) * 0.5f,
+            (outer0[1] + outer1[1]) * 0.5f,
+        };
+        const float middleAngle = (angle0 + angle1) * 0.5f;
+        const float innerRadius = 1.0f - params_.polygonStar * 0.78f;
+        const std::array<float, 2> starPoint {
+            std::cos(middleAngle) * innerRadius,
+            std::sin(middleAngle) * innerRadius,
+        };
+        const std::array<float, 2> inner {
+            lerp(edgeMidpoint[0], starPoint[0], params_.polygonStar),
+            lerp(edgeMidpoint[1], starPoint[1], params_.polygonStar),
+        };
+        std::array<float, 2> polygon {};
+        if (local < 0.5f) {
+            polygon = { lerp(outer0[0], inner[0], local * 2.0f), lerp(outer0[1], inner[1], local * 2.0f) };
+        } else {
+            polygon = { lerp(inner[0], outer1[0], (local - 0.5f) * 2.0f), lerp(inner[1], outer1[1], (local - 0.5f) * 2.0f) };
+        }
+        const float angle = kAmbiWaveTerrainTwoPi * fract(phase);
+        polygon[0] = lerp(polygon[0], std::cos(angle), params_.polygonRound);
+        polygon[1] = lerp(polygon[1], std::sin(angle), params_.polygonRound);
+        polygon[0] += polygon[1] * params_.polygonSkew * 0.68f;
+        return polygon;
+    }
 
     ContourSample contourSample(const AmbiWaveTerrainRegion& region, float phase) const
     {
@@ -640,6 +834,10 @@ private:
         switch (region.trace) {
         case AmbiWaveTerrainTrace::Orbit:
             x = std::cos(angle); y = std::sin(angle); break;
+        case AmbiWaveTerrainTrace::Polygon: {
+            const auto point = polygonPoint(phase);
+            x = point[0]; y = point[1]; break;
+        }
         case AmbiWaveTerrainTrace::Rosette:
             x = std::cos(angle) * (0.58f + 0.42f * std::cos(angle * 5.0f));
             y = std::sin(angle) * (0.58f + 0.42f * std::cos(angle * 5.0f));
@@ -671,14 +869,135 @@ private:
         return { sample.u, sample.v };
     }
 
+    void buildBandLimitedLevels(AmbiWaveTerrainTable& table) const
+    {
+        static constexpr std::array<uint32_t, kAmbiWaveTerrainMipLevels - 1u> cutoffs {{ 96u, 48u, 24u, 12u }};
+
+#if defined(__APPLE__)
+        if (fftSetup_) {
+            std::array<float, kAmbiWaveTerrainTableSize> spectrumReal {};
+            std::array<float, kAmbiWaveTerrainTableSize> spectrumImag {};
+            std::array<float, kAmbiWaveTerrainTableSize> workReal {};
+            std::array<float, kAmbiWaveTerrainTableSize> workImag {};
+            std::copy(table.levels[0].begin(), table.levels[0].end(), spectrumReal.begin());
+            DSPSplitComplex spectrum { spectrumReal.data(), spectrumImag.data() };
+            vDSP_fft_zip(fftSetup_, &spectrum, 1, 9u, FFT_FORWARD);
+
+            for (uint32_t level = 1u; level < kAmbiWaveTerrainMipLevels; ++level) {
+                workReal = spectrumReal;
+                workImag = spectrumImag;
+                const uint32_t cutoff = cutoffs[level - 1u];
+                const float taperStart = static_cast<float>(cutoff) * 0.82f;
+                for (uint32_t bin = 0u; bin < kAmbiWaveTerrainTableSize; ++bin) {
+                    const uint32_t harmonic = std::min(bin, kAmbiWaveTerrainTableSize - bin);
+                    float taper = harmonic > 0u && harmonic <= cutoff ? 1.0f : 0.0f;
+                    if (taper > 0.0f && static_cast<float>(harmonic) > taperStart) {
+                        const float amount = (static_cast<float>(harmonic) - taperStart)
+                            / std::max(1.0f, static_cast<float>(cutoff) - taperStart);
+                        taper = 0.5f + 0.5f * std::cos(clamp(amount, 0.0f, 1.0f) * kPi);
+                    }
+                    workReal[bin] *= taper;
+                    workImag[bin] *= taper;
+                }
+                DSPSplitComplex work { workReal.data(), workImag.data() };
+                vDSP_fft_zip(fftSetup_, &work, 1, 9u, FFT_INVERSE);
+                const float inverseSize = 1.0f / static_cast<float>(kAmbiWaveTerrainTableSize);
+                for (uint32_t index = 0u; index < kAmbiWaveTerrainTableSize; ++index)
+                    table.levels[level][index] = workReal[index] * inverseSize;
+            }
+            return;
+        }
+#endif
+
+        constexpr uint32_t kMaximumBandHarmonic = 96u;
+        std::array<float, kMaximumBandHarmonic + 1u> cosineCoefficients {};
+        std::array<float, kMaximumBandHarmonic + 1u> sineCoefficients {};
+        constexpr float kCoefficientScale = 2.0f / static_cast<float>(kAmbiWaveTerrainTableSize);
+        for (uint32_t harmonic = 1u; harmonic <= kMaximumBandHarmonic; ++harmonic) {
+            const float step = kAmbiWaveTerrainTwoPi * static_cast<float>(harmonic)
+                / static_cast<float>(kAmbiWaveTerrainTableSize);
+            const float cosineStep = std::cos(step), sineStep = std::sin(step);
+            float cosine = 1.0f, sine = 0.0f;
+            float cosineSum = 0.0f, sineSum = 0.0f;
+            for (uint32_t index = 0u; index < kAmbiWaveTerrainTableSize; ++index) {
+                cosineSum += table.levels[0][index] * cosine;
+                sineSum += table.levels[0][index] * sine;
+                const float nextCosine = cosine * cosineStep - sine * sineStep;
+                sine = sine * cosineStep + cosine * sineStep;
+                cosine = nextCosine;
+            }
+            cosineCoefficients[harmonic] = cosineSum * kCoefficientScale;
+            sineCoefficients[harmonic] = sineSum * kCoefficientScale;
+        }
+        for (uint32_t level = 1u; level < kAmbiWaveTerrainMipLevels; ++level) {
+            auto& target = table.levels[level];
+            const uint32_t cutoff = cutoffs[level - 1u];
+            const float taperStart = static_cast<float>(cutoff) * 0.82f;
+            for (uint32_t index = 0u; index < kAmbiWaveTerrainTableSize; ++index) {
+                const float angle = kAmbiWaveTerrainTwoPi * static_cast<float>(index)
+                    / static_cast<float>(kAmbiWaveTerrainTableSize);
+                const float cosineStep = std::cos(angle), sineStep = std::sin(angle);
+                float cosine = cosineStep, sine = sineStep;
+                float value = 0.0f;
+                for (uint32_t harmonic = 1u; harmonic <= cutoff; ++harmonic) {
+                    float taper = 1.0f;
+                    if (static_cast<float>(harmonic) > taperStart) {
+                        const float amount = (static_cast<float>(harmonic) - taperStart)
+                            / std::max(1.0f, static_cast<float>(cutoff) - taperStart);
+                        taper = 0.5f + 0.5f * std::cos(clamp(amount, 0.0f, 1.0f) * kPi);
+                    }
+                    value += (cosineCoefficients[harmonic] * cosine + sineCoefficients[harmonic] * sine) * taper;
+                    const float nextCosine = cosine * cosineStep - sine * sineStep;
+                    sine = sine * cosineStep + cosine * sineStep;
+                    cosine = nextCosine;
+                }
+                target[index] = value;
+            }
+        }
+    }
+
     void renderTable(AmbiWaveTerrainTable& table, const AmbiWaveTerrainRegion& region) const
     {
         table.region = region;
         const float terrainAmount = params_.terrainDepth * params_.terrainRelief;
+        const bool needsGradient = params_.interpretation == AmbiWaveTerrainInterpretation::Gradient
+            || params_.interpretation == AmbiWaveTerrainInterpretation::Normal
+            || params_.interpretation == AmbiWaveTerrainInterpretation::Vector;
+        const bool needsCross = params_.interpretation == AmbiWaveTerrainInterpretation::Cross
+            || params_.interpretation == AmbiWaveTerrainInterpretation::Vector;
+        std::array<float, kAmbiWaveTerrainTableSize> gradientProfile {};
+        std::array<float, kAmbiWaveTerrainTableSize> normalProfile {};
+        std::array<float, kAmbiWaveTerrainTableSize> crossProfile {};
+        constexpr float kGradientOffset = 0.0025f;
+        constexpr float kPhaseStep = 1.0f / static_cast<float>(kAmbiWaveTerrainTableSize);
         for (uint32_t index = 0; index < kAmbiWaveTerrainTableSize; ++index) {
-            const auto sample = contourSample(region, static_cast<float>(index) / static_cast<float>(kAmbiWaveTerrainTableSize));
+            const float phase = static_cast<float>(index) / static_cast<float>(kAmbiWaveTerrainTableSize);
+            const auto sample = contourSample(region, phase);
             const float terrainValue = terrain(sample.u, sample.v);
             table.terrainProfile[index] = lerp(sample.carrier, terrainValue, terrainAmount);
+            if (needsGradient) {
+                const float dx = (terrain(fract(sample.u + kGradientOffset), sample.v)
+                    - terrain(fract(sample.u - kGradientOffset), sample.v)) * 0.5f;
+                const float dy = (terrain(sample.u, clamp(sample.v + kGradientOffset, 0.0f, 1.0f))
+                    - terrain(sample.u, clamp(sample.v - kGradientOffset, 0.0f, 1.0f))) * 0.5f;
+                const float gradient = std::sqrt(dx * dx + dy * dy);
+                gradientProfile[index] = softSat(gradient * 3.5f) * terrainAmount;
+                normalProfile[index] = (2.0f / std::sqrt(1.0f + gradient * gradient * 96.0f) - 1.0f) * terrainAmount;
+            }
+            if (needsCross) {
+                const auto before = contourSample(region, phase - kPhaseStep);
+                const auto after = contourSample(region, phase + kPhaseStep);
+                float tangentU = after.u - before.u;
+                if (tangentU > 0.5f) tangentU -= 1.0f;
+                else if (tangentU < -0.5f) tangentU += 1.0f;
+                const float tangentV = after.v - before.v;
+                const float inverseTangent = 1.0f / std::sqrt(std::max(0.0000001f, tangentU * tangentU + tangentV * tangentV));
+                const float offsetU = -tangentV * inverseTangent * region.radius * 0.11f;
+                const float offsetV = tangentU * inverseTangent * region.radius * 0.11f;
+                const float acrossA = terrain(fract(sample.u + offsetU), clamp(sample.v + offsetV, 0.0f, 1.0f));
+                const float acrossB = terrain(fract(sample.u - offsetU), clamp(sample.v - offsetV, 0.0f, 1.0f));
+                crossProfile[index] = softSat((acrossA - acrossB) * 1.8f) * terrainAmount;
+            }
         }
 
         constexpr float kDerivativeScale = static_cast<float>(kAmbiWaveTerrainTableSize) / kAmbiWaveTerrainTwoPi;
@@ -695,6 +1014,15 @@ private:
             else if (params_.interpretation == AmbiWaveTerrainInterpretation::Curvature) value = curvature;
             else if (params_.interpretation == AmbiWaveTerrainInterpretation::Blend) {
                 value = lerp(height, lerp(edge, curvature, 0.35f), params_.interpretationMix);
+            } else if (params_.interpretation == AmbiWaveTerrainInterpretation::Gradient) value = gradientProfile[index];
+            else if (params_.interpretation == AmbiWaveTerrainInterpretation::Ridge) value = std::max(0.0f, curvature);
+            else if (params_.interpretation == AmbiWaveTerrainInterpretation::Valley) value = std::max(0.0f, -curvature);
+            else if (params_.interpretation == AmbiWaveTerrainInterpretation::Normal) value = normalProfile[index];
+            else if (params_.interpretation == AmbiWaveTerrainInterpretation::Cross) value = crossProfile[index];
+            else if (params_.interpretation == AmbiWaveTerrainInterpretation::Vector) {
+                const float derived = edge * 0.38f + curvature * 0.24f
+                    + gradientProfile[index] * 0.20f + crossProfile[index] * 0.18f;
+                value = lerp(height, softSat(derived * 1.35f), params_.interpretationMix);
             }
             table.levels[0][index] = value;
             mean += value;
@@ -722,17 +1050,7 @@ private:
         }
         const float closeX = firstWorld.x - previousWorld.x, closeY = firstWorld.y - previousWorld.y, closeZ = firstWorld.z - previousWorld.z;
         table.traversalLength = std::max(0.05f, traversalLength + std::sqrt(closeX * closeX + closeY * closeY + closeZ * closeZ));
-        for (uint32_t level = 1; level < kAmbiWaveTerrainMipLevels; ++level) {
-            const auto& source = table.levels[level - 1u];
-            auto& target = table.levels[level];
-            for (uint32_t index = 0; index < kAmbiWaveTerrainTableSize; ++index) {
-                const uint32_t im2 = (index + kAmbiWaveTerrainTableSize - 2u) % kAmbiWaveTerrainTableSize;
-                const uint32_t im1 = (index + kAmbiWaveTerrainTableSize - 1u) % kAmbiWaveTerrainTableSize;
-                const uint32_t ip1 = (index + 1u) % kAmbiWaveTerrainTableSize;
-                const uint32_t ip2 = (index + 2u) % kAmbiWaveTerrainTableSize;
-                target[index] = (source[im2] + 4.0f * source[im1] + 6.0f * source[index] + 4.0f * source[ip1] + source[ip2]) * 0.0625f;
-            }
-        }
+        buildBandLimitedLevels(table);
     }
 
     static float tableSample(const AmbiWaveTerrainTable& table, float phase, float frequency)
@@ -1023,6 +1341,9 @@ private:
     }
 
     double sampleRate_ = 48000.0;
+#if defined(__APPLE__)
+    FFTSetup fftSetup_ = nullptr;
+#endif
     AmbiWaveTerrainParams params_ {};
     std::array<AmbiWaveTerrainVoice, kAmbiWaveTerrainMaxVoices> voices_ {};
     std::array<AmbiWaveTerrainPoint, kAmbiWaveTerrainMaxVoices> points_ {};
@@ -1053,6 +1374,11 @@ inline const char* ambiWaveTerrainPitchScaleName(AmbiWaveTerrainPitchScale scale
     static constexpr const char* names[] { "FREE", "CHROM", "MAJOR", "MINOR", "PENTA", "WHOLE", "HARM MIN" };
     return names[std::min<uint32_t>(static_cast<uint32_t>(scale), 6u)];
 }
+inline const char* ambiWaveTerrainFormName(AmbiWaveTerrainForm form)
+{
+    static constexpr const char* names[] { "SPHERE", "TETRA", "CUBE", "OCTA", "DODECA", "ICOSA" };
+    return names[std::min<uint32_t>(static_cast<uint32_t>(form), 5u)];
+}
 inline const char* ambiWaveTerrainMotionModeName(AmbiWaveTerrainMotionMode mode)
 {
     return mode == AmbiWaveTerrainMotionMode::Rotate ? "ROTATE" : "FIELD";
@@ -1064,8 +1390,8 @@ inline const char* ambiWaveTerrainSkinName(AmbiWaveTerrainSkin skin)
 }
 inline const char* ambiWaveTerrainTraceName(AmbiWaveTerrainTrace trace)
 {
-    static constexpr const char* names[] { "ORBIT", "LISSAJOUS", "ROSETTE", "FOLD" };
-    return names[std::min<uint32_t>(static_cast<uint32_t>(trace), 3u)];
+    static constexpr const char* names[] { "ORBIT", "LISSAJOUS", "ROSETTE", "FOLD", "POLYGON" };
+    return names[std::min<uint32_t>(static_cast<uint32_t>(trace), 4u)];
 }
 inline const char* ambiWaveTerrainSelectionName(AmbiWaveTerrainSelection selection)
 {
@@ -1079,8 +1405,11 @@ inline const char* ambiWaveTerrainTransitionName(AmbiWaveTerrainTransition trans
 }
 inline const char* ambiWaveTerrainInterpretationName(AmbiWaveTerrainInterpretation interpretation)
 {
-    static constexpr const char* names[] { "HEIGHT", "EDGE", "CURVE", "BLEND" };
-    return names[std::min<uint32_t>(static_cast<uint32_t>(interpretation), 3u)];
+    static constexpr const char* names[] {
+        "HEIGHT", "EDGE", "CURVE", "BLEND", "GRADIENT",
+        "RIDGE", "VALLEY", "NORMAL", "CROSS", "VECTOR",
+    };
+    return names[std::min<uint32_t>(static_cast<uint32_t>(interpretation), 9u)];
 }
 
 } // namespace s3g

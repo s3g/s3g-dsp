@@ -1,6 +1,7 @@
 # s3g-dsp
 
-CLAP audio plugins for multichannel work in REAPER. `s3g-dsp` is a sibling
+A pre-release collection of CLAP audio plugins for multichannel work in
+REAPER. `s3g-dsp` is a sibling
 project to the `s3g-mc` multichannel REAPER package and the `s3g-max` Max/MSP
 externals package. It can be used with those projects or on its own.
 
@@ -19,8 +20,11 @@ DAWs are not support targets at this stage.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-The current macOS package installs 73 CLAP bundles, including fixed-width
+The current macOS package installs 78 CLAP bundles, including fixed-width
 variants for several processors, bus tools, and speaker-array utilities.
+All bundles build, but clap-validator conformance remains in progress for some
+older wrappers, chiefly around parameter text conversion and buffered state
+I/O. The package should continue to be treated as a pre-release.
 
 Plugin areas:
 
@@ -34,7 +38,8 @@ Plugin areas:
   Displacement Score player for time-varying 24-point field warps authored in
   the related `s3g-mc` browser utility.
 - [Instruments](https://s3g.github.io/s3g-dsp/instruments.html): loaded-loop,
-  granular, vector-wavetable, LPC-style vocal, and stochastic instruments.
+  granular, vector-wavetable, WORLD/voicebank vocal, and stochastic
+  instruments.
 
 The [installation page](https://s3g.github.io/s3g-dsp/installing-plugins.html)
 lists the included families and the REAPER routing notes that matter for wide
@@ -46,6 +51,8 @@ tracks and true stereo outputs.
 - Plugin wrappers live in `plugins/`.
 - VOT-compatible 4 x 4 atlases live in `wavetables/vot/`; plugin loader
   examples live in `examples/`.
+- The included Ambi Vox test bank uses a documented UTAU-style folder with
+  WAV aliases and `oto.ini` timing.
 - Fixed-width CLAP plugins are used where REAPER pin routing needs to be
   predictable.
 - Relationship controls keep automation compact where that suits the plugin;
@@ -66,7 +73,6 @@ Requirements:
 - A C++17 compiler
 - macOS for the current CLAP GUI/plugin bundle targets
 - REAPER as the primary tested DAW/host
-- Optional docs tooling: an active Node.js LTS release newer than Node.js 20
 
 Build the DSP smoke test:
 
@@ -95,7 +101,8 @@ cmake --build build-clap
 ```
 
 WORLD speech vocoder support is enabled by default for CLAP builds and is used
-by Ambi Vox Encoder's WORLD WAV source path. It can be disabled with:
+by Ambi Vox Encoder's WORLD WAV and voicebank paths. The default FetchContent
+revision is pinned for reproducible builds. WORLD support can be disabled with:
 
 ```sh
 cmake -S . -B build-clap \
@@ -139,32 +146,47 @@ Build output is not committed to this repository. Packaged binaries, when
 available, should be downloaded from the GitHub releases page rather than from
 the source tree.
 
-## Validate
-
-The local smoke test exercises shared DSP code:
+Create the local pre-release zip after a complete CLAP build with:
 
 ```sh
-./build-clap/s3g_dsp_smoke
+./scripts/package-macos-clap-prerelease.sh
 ```
 
-The smoke test covers multichannel routing, loop playback, finite output,
-bounded peaks, de-click stress, and high-order encoder/decoder paths.
+The package contains 78 CLAP bundles, the VOT wavetable library, the Ambi Vox
+demo voicebank, and the applicable license notices. The packaging script
+ad-hoc signs and strictly verifies every bundle by default. Set
+`S3G_CODESIGN_IDENTITY` to use a different macOS signing identity; notarization
+is a separate release step.
 
-If `clap-validator` is installed, validate installed bundles with:
+## Validate
+
+The local smoke executables exercise shared DSP code:
 
 ```sh
-clap-validator validate \
-  ~/Library/Audio/Plug-Ins/CLAP/s3g_8ch_delay_processor.clap --only-failed
-clap-validator validate \
-  ~/Library/Audio/Plug-Ins/CLAP/s3g_24ch_delay_processor.clap --only-failed
-clap-validator validate \
-  ~/Library/Audio/Plug-Ins/CLAP/s3g_mc_to_stereo_autogain.clap --only-failed
-clap-validator validate \
-  ~/Library/Audio/Plug-Ins/CLAP/s3g_mc_to_quad_autogain.clap --only-failed
-clap-validator validate \
-  ~/Library/Audio/Plug-Ins/CLAP/s3g_ambi_depth_16.clap --only-failed
-clap-validator validate \
-  ~/Library/Audio/Plug-Ins/CLAP/s3g_spectral_spray.clap --only-failed
+./build/s3g_dsp_smoke
+./build/s3g_3oafx_displacement_smoke
+./build/s3g_ambi_imprint_safety_smoke
+./build/s3g_ambi_ray_encoder_smoke
+```
+
+The smoke tests cover multichannel routing, loop playback, finite output,
+bounded peaks, de-click stress, high-order encoder/decoder paths, Ambi Imprint
+safety, and Ambi Ray room-response behavior.
+
+Check the static documentation and advisory GUI conventions with:
+
+```sh
+python3 scripts/check-docs.py
+./scripts/audit-gui-style.sh
+```
+
+If `clap-validator` is installed, validate one or more installed bundles with:
+
+```sh
+clap-validator validate --only-failed \
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_macro_shred_mono.clap \
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_macro_shred.clap \
+  ~/Library/Audio/Plug-Ins/CLAP/s3g_24ch_macro_shred.clap
 ```
 
 ## Related Projects

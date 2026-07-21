@@ -28,7 +28,7 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiWaveTerrainMaxChannels;
-constexpr uint32_t kStateVersion = 3u;
+constexpr uint32_t kStateVersion = 4u;
 
 constexpr clap_id kOrderParamId = 1;
 constexpr clap_id kVoicesParamId = 2;
@@ -76,6 +76,20 @@ constexpr clap_id kAzimuthRateParamId = 43;
 constexpr clap_id kElevationRateParamId = 44;
 constexpr clap_id kRotationDeviationParamId = 45;
 constexpr clap_id kPitchScaleParamId = 46;
+constexpr clap_id kTerrainFormParamId = 47;
+constexpr clap_id kTerrainFacetParamId = 48;
+constexpr clap_id kTerrainBevelParamId = 49;
+constexpr clap_id kTerrainOrientationParamId = 50;
+constexpr clap_id kTerrainTerraceParamId = 51;
+constexpr clap_id kTerrainTerraceStepsParamId = 52;
+constexpr clap_id kTerrainRidgeParamId = 53;
+constexpr clap_id kTerrainErosionParamId = 54;
+constexpr clap_id kTerrainDomainWarpParamId = 55;
+constexpr clap_id kTerrainTwistParamId = 56;
+constexpr clap_id kPolygonSidesParamId = 57;
+constexpr clap_id kPolygonRoundParamId = 58;
+constexpr clap_id kPolygonStarParamId = 59;
+constexpr clap_id kPolygonSkewParamId = 60;
 
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; bool stepped; };
 constexpr ParamDef kParams[] {
@@ -91,8 +105,8 @@ constexpr ParamDef kParams[] {
     { kTerrainRoughnessParamId, "Terrain Roughness", 0.0, 1.0, 0.58, false },
     { kTerrainFoldParamId, "Terrain Fold", 0.0, 1.0, 0.24, false },
     { kTerrainReliefParamId, "Terrain Relief", 0.0, 1.0, 0.62, false },
-    { kTraceParamId, "Scan Trace", 0.0, 3.0, 1.0, true },
-    { kInterpretationParamId, "Interpretation", 0.0, 3.0, 0.0, true },
+    { kTraceParamId, "Scan Trace", 0.0, 4.0, 1.0, true },
+    { kInterpretationParamId, "Interpretation", 0.0, 9.0, 0.0, true },
     { kInterpretationMixParamId, "Interpretation Mix", 0.0, 1.0, 0.32, false },
     { kScanRadiusParamId, "Scan Radius", 0.005, 0.48, 0.16, false },
     { kScanAspectParamId, "Scan Aspect", 0.05, 1.0, 0.68, false },
@@ -125,6 +139,20 @@ constexpr ParamDef kParams[] {
     { kElevationRateParamId, "Elevation Rotation Rate", -12.0, 12.0, 0.43, false },
     { kRotationDeviationParamId, "Rotation Rate Deviation", 0.0, 1.0, 0.28, false },
     { kPitchScaleParamId, "Pitch Scale", 0.0, 6.0, 0.0, true },
+    { kTerrainFormParamId, "Terrain Form", 0.0, 5.0, 0.0, true },
+    { kTerrainFacetParamId, "Terrain Facet", 0.0, 1.0, 0.0, false },
+    { kTerrainBevelParamId, "Terrain Bevel", 0.0, 1.0, 0.18, false },
+    { kTerrainOrientationParamId, "Terrain Orientation", -1.0, 1.0, 0.0, false },
+    { kTerrainTerraceParamId, "Terrain Terrace", 0.0, 1.0, 0.0, false },
+    { kTerrainTerraceStepsParamId, "Terrain Terrace Steps", 2.0, 24.0, 8.0, true },
+    { kTerrainRidgeParamId, "Terrain Ridge", 0.0, 1.0, 0.0, false },
+    { kTerrainErosionParamId, "Terrain Erosion", 0.0, 1.0, 0.0, false },
+    { kTerrainDomainWarpParamId, "Terrain Domain Warp", 0.0, 1.0, 0.0, false },
+    { kTerrainTwistParamId, "Terrain Twist", -1.0, 1.0, 0.0, false },
+    { kPolygonSidesParamId, "Polygon Sides", 3.0, 12.0, 6.0, true },
+    { kPolygonRoundParamId, "Polygon Round", 0.0, 1.0, 0.18, false },
+    { kPolygonStarParamId, "Polygon Star", 0.0, 1.0, 0.0, false },
+    { kPolygonSkewParamId, "Polygon Skew", -1.0, 1.0, 0.0, false },
 };
 
 struct Plugin {
@@ -246,6 +274,20 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kElevationRateParamId: v.elevationRateRpm = static_cast<float>(value); break;
     case kRotationDeviationParamId: v.rotationRateDeviation = static_cast<float>(value); break;
     case kPitchScaleParamId: v.pitchScale = static_cast<s3g::AmbiWaveTerrainPitchScale>(static_cast<uint32_t>(std::lround(value))); break;
+    case kTerrainFormParamId: v.terrainForm = static_cast<s3g::AmbiWaveTerrainForm>(static_cast<uint32_t>(std::lround(value))); break;
+    case kTerrainFacetParamId: v.terrainFacet = static_cast<float>(value); break;
+    case kTerrainBevelParamId: v.terrainBevel = static_cast<float>(value); break;
+    case kTerrainOrientationParamId: v.terrainOrientation = static_cast<float>(value); break;
+    case kTerrainTerraceParamId: v.terrainTerrace = static_cast<float>(value); break;
+    case kTerrainTerraceStepsParamId: v.terrainTerraceSteps = static_cast<uint32_t>(std::lround(value)); break;
+    case kTerrainRidgeParamId: v.terrainRidge = static_cast<float>(value); break;
+    case kTerrainErosionParamId: v.terrainErosion = static_cast<float>(value); break;
+    case kTerrainDomainWarpParamId: v.terrainDomainWarp = static_cast<float>(value); break;
+    case kTerrainTwistParamId: v.terrainTwist = static_cast<float>(value); break;
+    case kPolygonSidesParamId: v.polygonSides = static_cast<uint32_t>(std::lround(value)); break;
+    case kPolygonRoundParamId: v.polygonRound = static_cast<float>(value); break;
+    case kPolygonStarParamId: v.polygonStar = static_cast<float>(value); break;
+    case kPolygonSkewParamId: v.polygonSkew = static_cast<float>(value); break;
     default: break;
     }
     p.engine.setParams(v);
@@ -446,6 +488,20 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kElevationRateParamId: *value = p.elevationRateRpm; break;
     case kRotationDeviationParamId: *value = p.rotationRateDeviation; break;
     case kPitchScaleParamId: *value = static_cast<uint32_t>(p.pitchScale); break;
+    case kTerrainFormParamId: *value = static_cast<uint32_t>(p.terrainForm); break;
+    case kTerrainFacetParamId: *value = p.terrainFacet; break;
+    case kTerrainBevelParamId: *value = p.terrainBevel; break;
+    case kTerrainOrientationParamId: *value = p.terrainOrientation; break;
+    case kTerrainTerraceParamId: *value = p.terrainTerrace; break;
+    case kTerrainTerraceStepsParamId: *value = p.terrainTerraceSteps; break;
+    case kTerrainRidgeParamId: *value = p.terrainRidge; break;
+    case kTerrainErosionParamId: *value = p.terrainErosion; break;
+    case kTerrainDomainWarpParamId: *value = p.terrainDomainWarp; break;
+    case kTerrainTwistParamId: *value = p.terrainTwist; break;
+    case kPolygonSidesParamId: *value = p.polygonSides; break;
+    case kPolygonRoundParamId: *value = p.polygonRound; break;
+    case kPolygonStarParamId: *value = p.polygonStar; break;
+    case kPolygonSkewParamId: *value = p.polygonSkew; break;
     default: return false;
     }
     return true;
@@ -455,6 +511,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     if (!display || size == 0u) return false;
     if (id == kOrderParamId) std::snprintf(display, size, "%.0fOA", value);
     else if (id == kModeParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainModeName(static_cast<s3g::AmbiWaveTerrainMode>(static_cast<uint32_t>(std::lround(value)))));
+    else if (id == kTerrainFormParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainFormName(static_cast<s3g::AmbiWaveTerrainForm>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kSkinParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainSkinName(static_cast<s3g::AmbiWaveTerrainSkin>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kTraceParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainTraceName(static_cast<s3g::AmbiWaveTerrainTrace>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kInterpretationParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainInterpretationName(static_cast<s3g::AmbiWaveTerrainInterpretation>(static_cast<uint32_t>(std::lround(value)))));
@@ -464,6 +521,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kPitchScaleParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainPitchScaleName(static_cast<s3g::AmbiWaveTerrainPitchScale>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kMotionModeParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainMotionModeName(static_cast<s3g::AmbiWaveTerrainMotionMode>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kAzimuthRateParamId || id == kElevationRateParamId) std::snprintf(display, size, "%+.2f rpm", value);
+    else if (id == kTerrainOrientationParamId || id == kTerrainTwistParamId) std::snprintf(display, size, "%+.0f deg", value * 180.0);
+    else if (id == kPolygonSkewParamId) std::snprintf(display, size, "%+.0f%%", value * 100.0);
+    else if (id == kTerrainTerraceStepsParamId || id == kPolygonSidesParamId) std::snprintf(display, size, "%.0f", value);
     else if (id == kTuneParamId || id == kDetuneParamId) std::snprintf(display, size, "%+.0f ct", value);
     else if (id == kAzimuthParamId || id == kElevationParamId) std::snprintf(display, size, "%+.1f deg", value);
     else if (id == kAttackParamId || id == kDecayParamId || id == kReleaseParamId || id == kTableXfadeParamId) std::snprintf(display, size, "%.0f ms", value);
@@ -473,7 +533,11 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         || id == kInterpretationMixParamId || id == kScanAspectParamId || id == kScanWarpParamId || id == kFieldDensityParamId
         || id == kFieldContrastParamId || id == kSelectionMemoryParamId || id == kRegionDeviationParamId || id == kNeighborTransferParamId
         || id == kSustainParamId || id == kSpatialSpreadParamId || id == kSpatialFollowParamId
-        || id == kRotationDeviationParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
+        || id == kRotationDeviationParamId || id == kTerrainFacetParamId || id == kTerrainBevelParamId
+        || id == kTerrainTerraceParamId || id == kTerrainRidgeParamId || id == kTerrainErosionParamId
+        || id == kTerrainDomainWarpParamId || id == kPolygonRoundParamId || id == kPolygonStarParamId) {
+        std::snprintf(display, size, "%.0f%%", value * 100.0);
+    }
     else std::snprintf(display, size, "%.2f", value);
     return true;
 }
@@ -481,9 +545,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* text, doubl
 {
     if (!text || !value) return false;
     static constexpr const char* mode[] { "FREE", "MIDI", "BOTH" };
+    static constexpr const char* form[] { "SPHERE", "TETRA", "CUBE", "OCTA", "DODECA", "ICOSA" };
     static constexpr const char* skin[] { "HARMONIC", "FBM", "CELL", "VOT", "RIDGES", "DUNES", "CRATERS", "TECTONIC" };
-    static constexpr const char* trace[] { "ORBIT", "LISSAJOUS", "ROSETTE", "FOLD" };
-    static constexpr const char* interpretation[] { "HEIGHT", "EDGE", "CURVE", "BLEND" };
+    static constexpr const char* trace[] { "ORBIT", "LISSAJOUS", "ROSETTE", "FOLD", "POLYGON" };
+    static constexpr const char* interpretation[] { "HEIGHT", "EDGE", "CURVE", "BLEND", "GRADIENT", "RIDGE", "VALLEY", "NORMAL", "CROSS", "VECTOR" };
     static constexpr const char* selection[] { "RANDOM", "SERIES", "WEIGHT", "TENDENCY", "MARKOV", "WALK" };
     static constexpr const char* transition[] { "LINK", "MERGE", "VARY" };
     static constexpr const char* pitch[] { "NOTE", "TRAVEL" };
@@ -493,6 +558,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* text, doubl
     const char* const* names = nullptr;
     uint32_t count = 0u;
     if (id == kModeParamId) { names = mode; count = static_cast<uint32_t>(std::size(mode)); }
+    else if (id == kTerrainFormParamId) { names = form; count = static_cast<uint32_t>(std::size(form)); }
     else if (id == kSkinParamId) { names = skin; count = static_cast<uint32_t>(std::size(skin)); }
     else if (id == kTraceParamId) { names = trace; count = static_cast<uint32_t>(std::size(trace)); }
     else if (id == kInterpretationParamId) { names = interpretation; count = static_cast<uint32_t>(std::size(interpretation)); }
@@ -517,8 +583,12 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* text, doubl
         || id == kScanAspectParamId || id == kScanWarpParamId || id == kFieldDensityParamId
         || id == kFieldContrastParamId || id == kSelectionMemoryParamId || id == kRegionDeviationParamId
         || id == kNeighborTransferParamId || id == kSustainParamId || id == kSpatialSpreadParamId
-        || id == kSpatialFollowParamId || id == kRotationDeviationParamId;
+        || id == kSpatialFollowParamId || id == kRotationDeviationParamId || id == kTerrainFacetParamId
+        || id == kTerrainBevelParamId || id == kTerrainTerraceParamId || id == kTerrainRidgeParamId
+        || id == kTerrainErosionParamId || id == kTerrainDomainWarpParamId || id == kPolygonRoundParamId
+        || id == kPolygonStarParamId || id == kPolygonSkewParamId;
     if (percent) *value *= 0.01;
+    if (id == kTerrainOrientationParamId || id == kTerrainTwistParamId) *value /= 180.0;
     return true;
 }
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readEvents(*self(plugin), in); }
@@ -545,6 +615,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else if (version == 2u) {
         constexpr size_t legacyBytes = offsetof(s3g::AmbiWaveTerrainParams, pitchScale);
         if (!readExact(stream, &loaded, legacyBytes)) return false;
+    } else if (version == 3u) {
+        constexpr size_t legacyBytes = offsetof(s3g::AmbiWaveTerrainParams, terrainForm);
+        if (!readExact(stream, &loaded, legacyBytes)) return false;
     } else if (version == kStateVersion) {
         if (!readExact(stream, &loaded, sizeof(loaded))) return false;
     } else return false;
@@ -567,19 +640,26 @@ constexpr GuiRow kGuiRows[] {
     { "VOICES", kVoicesParamId, 630, 130, false }, { "BASE", kBaseNoteParamId, 630, 156, false },
     { "SPREAD", kPitchSpreadParamId, 630, 182, false }, { "TUNE", kTuneParamId, 630, 208, false },
     { "DETUNE", kDetuneParamId, 630, 234, false },
+    { "FORM", kTerrainFormParamId, 630, 318, true }, { "FACET", kTerrainFacetParamId, 630, 344, false },
+    { "BEVEL", kTerrainBevelParamId, 630, 370, false }, { "ORIENT", kTerrainOrientationParamId, 630, 396, false },
     { "SKIN", kSkinParamId, 630, 318, true }, { "DEPTH", kTerrainDepthParamId, 630, 344, false },
     { "ROUGH", kTerrainRoughnessParamId, 630, 370, false }, { "FOLD", kTerrainFoldParamId, 630, 396, false },
-    { "RELIEF", kTerrainReliefParamId, 630, 422, false }, { "READ", kInterpretationParamId, 630, 448, true },
-    { "MIX", kInterpretationMixParamId, 630, 474, false },
+    { "RELIEF", kTerrainReliefParamId, 630, 422, false },
+    { "TERRACE", kTerrainTerraceParamId, 630, 318, false }, { "STEPS", kTerrainTerraceStepsParamId, 630, 344, false },
+    { "RIDGE", kTerrainRidgeParamId, 630, 370, false }, { "ERODE", kTerrainErosionParamId, 630, 396, false },
+    { "DOMAIN", kTerrainDomainWarpParamId, 630, 422, false }, { "TWIST", kTerrainTwistParamId, 630, 448, false },
+    { "READ", kInterpretationParamId, 630, 318, true }, { "MIX", kInterpretationMixParamId, 630, 344, false },
     { "ATTACK", kAttackParamId, 630, 544, false }, { "DECAY", kDecayParamId, 630, 570, false },
     { "SUSTAIN", kSustainParamId, 630, 596, false }, { "RELEASE", kReleaseParamId, 630, 622, false },
     { "PITCH", kPitchModeParamId, 630, 706, true }, { "SCALE", kPitchScaleParamId, 630, 732, true },
     { "OUT", kOutputParamId, 630, 758, false },
     { "TRACE", kTraceParamId, 896, 78, true }, { "RADIUS", kScanRadiusParamId, 896, 104, false },
     { "ASPECT", kScanAspectParamId, 896, 130, false }, { "ROTATE", kScanRotationParamId, 896, 156, false },
-    { "WARP", kScanWarpParamId, 896, 182, false }, { "XFADE", kTableXfadeParamId, 896, 208, false },
-    { "LAW", kSelectionParamId, 896, 292, true }, { "JOIN", kTransitionParamId, 896, 318, true },
-    { "XFER", kNeighborTransferParamId, 896, 344, false }, { "MEM", kSelectionMemoryParamId, 896, 370, false },
+    { "WARP", kScanWarpParamId, 896, 182, false }, { "XFADE", kTableXfadeParamId, 896, 234, false },
+    { "SIDES", kPolygonSidesParamId, 896, 130, false }, { "ROUND", kPolygonRoundParamId, 896, 156, false },
+    { "STAR", kPolygonStarParamId, 896, 182, false }, { "SKEW", kPolygonSkewParamId, 896, 208, false },
+    { "LAW", kSelectionParamId, 896, 318, true }, { "JOIN", kTransitionParamId, 896, 344, true },
+    { "XFER", kNeighborTransferParamId, 896, 370, false }, { "MEM", kSelectionMemoryParamId, 896, 396, false },
     { "MOTION", kMotionModeParamId, 896, 454, true },
     { "DENS", kFieldDensityParamId, 896, 480, false }, { "DUR", kFieldDurationParamId, 896, 506, false },
     { "REST", kFieldRestParamId, 896, 532, false }, { "CONT", kFieldContrastParamId, 896, 558, false },
@@ -597,7 +677,20 @@ const GuiRow* guiRow(clap_id param)
     return nullptr;
 }
 
-bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion)
+int terrainPageForParam(clap_id param)
+{
+    if (param == kTerrainFormParamId || param == kTerrainFacetParamId
+        || param == kTerrainBevelParamId || param == kTerrainOrientationParamId) return 0;
+    if (param == kSkinParamId || param == kTerrainDepthParamId || param == kTerrainRoughnessParamId
+        || param == kTerrainFoldParamId || param == kTerrainReliefParamId) return 1;
+    if (param == kTerrainTerraceParamId || param == kTerrainTerraceStepsParamId || param == kTerrainRidgeParamId
+        || param == kTerrainErosionParamId || param == kTerrainDomainWarpParamId || param == kTerrainTwistParamId) return 2;
+    if (param == kInterpretationParamId || param == kInterpretationMixParamId) return 3;
+    return -1;
+}
+
+bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int terrainPage,
+                   s3g::AmbiWaveTerrainTrace trace)
 {
     const bool fieldOnly = row.param == kFieldDensityParamId || row.param == kFieldDurationParamId
         || row.param == kFieldRestParamId || row.param == kFieldContrastParamId
@@ -606,6 +699,14 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion)
         || row.param == kNeighborTransferParamId || row.param == kSelectionMemoryParamId;
     const bool rotateOnly = row.param == kAzimuthRateParamId || row.param == kElevationRateParamId
         || row.param == kRotationDeviationParamId;
+    const int page = terrainPageForParam(row.param);
+    const bool polygonOnly = row.param == kPolygonSidesParamId || row.param == kPolygonRoundParamId
+        || row.param == kPolygonStarParamId || row.param == kPolygonSkewParamId;
+    const bool curvedScanOnly = row.param == kScanAspectParamId || row.param == kScanRotationParamId
+        || row.param == kScanWarpParamId;
+    if (page >= 0 && page != terrainPage) return false;
+    if (polygonOnly) return trace == s3g::AmbiWaveTerrainTrace::Polygon;
+    if (curvedScanOnly && trace == s3g::AmbiWaveTerrainTrace::Polygon) return false;
     if (fieldOnly) return motion == s3g::AmbiWaveTerrainMotionMode::Field;
     if (rotateOnly) return motion == s3g::AmbiWaveTerrainMotionMode::Rotate;
     return true;
@@ -622,6 +723,7 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion)
     int _hoverMenuItem;
     uint32_t _selectedVoice;
     int _viewMode;
+    int _terrainPage;
     BOOL _dragView;
     NSPoint _lastDragPoint;
     double _viewAzDeg;
@@ -639,7 +741,7 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion)
     self = [super initWithFrame:NSMakeRect(0, 0, 1158, 828)];
     if (self) {
         _plugin = plugin; _timer = nil; _dragParam = 0; _openMenuParam = 0; _menuItemCount = 0u;
-        _hoverMenuItem = -1; _selectedVoice = 0u; _viewMode = 2; _dragView = NO;
+        _hoverMenuItem = -1; _selectedVoice = 0u; _viewMode = 2; _terrainPage = 0; _dragView = NO;
         _viewAzDeg = 38.0; _viewElDeg = 32.0; _viewZoom = 1.0; [self setWantsLayer:YES];
     }
     return self;
@@ -664,6 +766,10 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion)
 {
     const NSRect panel = [self fieldPanelRect];
     return NSMakeRect(NSMaxX(panel) - 200.0 + index * 28.0, panel.origin.y + 3.0, 22.0, 16.0);
+}
+- (NSRect)terrainTabRect:(int)index
+{
+    return NSMakeRect(704.0 + index * 42.0, 285.0, 38.0, 16.0);
 }
 - (void)setViewPreset:(int)mode
 {
@@ -733,24 +839,7 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion)
 
 - (std::array<float, 2>)contourUv:(s3g::AmbiWaveTerrainRegion)region phase:(float)phase
 {
-    const float angle = s3g::kAmbiWaveTerrainTwoPi * phase;
-    float x = 0.0f, y = 0.0f;
-    switch (region.trace) {
-    case s3g::AmbiWaveTerrainTrace::Orbit: x = std::cos(angle); y = std::sin(angle); break;
-    case s3g::AmbiWaveTerrainTrace::Rosette:
-        x = std::cos(angle) * (0.58f + 0.42f * std::cos(angle * 5.0f));
-        y = std::sin(angle) * (0.58f + 0.42f * std::cos(angle * 5.0f)); break;
-    case s3g::AmbiWaveTerrainTrace::Fold:
-        x = std::sin(angle); y = std::asin(std::clamp(std::sin(angle * 2.0f + x * 1.4f), -1.0f, 1.0f)) / (s3g::kPi * 0.5f); break;
-    case s3g::AmbiWaveTerrainTrace::Lissajous:
-    default: x = std::sin(angle * 2.0f + s3g::kPi * 0.5f); y = std::sin(angle * 3.0f); break;
-    }
-    const auto params = _plugin->params;
-    x += std::sin(angle * 7.0f) * params.scanWarp * 0.16f;
-    y += std::cos(angle * 5.0f) * params.scanWarp * 0.16f;
-    const float ca = std::cos(region.rotation * s3g::kPi), sa = std::sin(region.rotation * s3g::kPi);
-    return { region.u + x * region.radius * ca - y * region.radius * region.aspect * sa,
-             region.v + x * region.radius * sa + y * region.radius * region.aspect * ca };
+    return _plugin->engine.contourPoint(region, phase);
 }
 
 - (void)drawVoiceField:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -891,17 +980,22 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion)
 {
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 228, style); s3g::clap_gui::drawPanelHeader(@"ENGINE", true, 630, 42, 250, 21, attrs, style);
     s3g::clap_gui::drawPanelFrame(630, 282, 250, 202, style); s3g::clap_gui::drawPanelHeader(@"TERRAIN", true, 630, 282, 250, 21, attrs, style);
+    static NSString* terrainTabs[] = { @"FORM", @"SKIN", @"WARP", @"READ" };
+    for (int index = 0; index < 4; ++index) {
+        s3g::clap_gui::drawHeaderButton([self terrainTabRect:index], NSMakeRect(630, 282, 250, 202),
+            terrainTabs[index], index == _terrainPage, attrs, style);
+    }
     s3g::clap_gui::drawPanelFrame(630, 508, 250, 150, style); s3g::clap_gui::drawPanelHeader(@"ENVELOPE", true, 630, 508, 250, 21, attrs, style);
     s3g::clap_gui::drawPanelFrame(630, 670, 250, 138, style); s3g::clap_gui::drawPanelHeader(@"PITCH / OUTPUT", true, 630, 670, 250, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(896, 42, 246, 202, style); s3g::clap_gui::drawPanelHeader(@"SCAN", true, 896, 42, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(896, 42, 246, 228, style); s3g::clap_gui::drawPanelHeader(@"SCAN", true, 896, 42, 246, 21, attrs, style);
     if (_plugin->params.motionMode == s3g::AmbiWaveTerrainMotionMode::Field) {
-        s3g::clap_gui::drawPanelFrame(896, 256, 246, 150, style); s3g::clap_gui::drawPanelHeader(@"SELECTION", true, 896, 256, 246, 21, attrs, style);
+        s3g::clap_gui::drawPanelFrame(896, 282, 246, 124, style); s3g::clap_gui::drawPanelHeader(@"SELECTION", true, 896, 282, 246, 21, attrs, style);
     }
     s3g::clap_gui::drawPanelFrame(896, 418, 246, 228, style);
     s3g::clap_gui::drawPanelHeader(_plugin->params.motionMode == s3g::AmbiWaveTerrainMotionMode::Rotate ? @"ROTATION" : @"TIME FIELDS", true, 896, 418, 246, 21, attrs, style);
     s3g::clap_gui::drawPanelFrame(896, 658, 246, 150, style); s3g::clap_gui::drawPanelHeader(@"PROJECTION", true, 896, 658, 246, 21, attrs, style);
     for (const auto& row : kGuiRows) {
-        if (!guiRowVisible(row, _plugin->params.motionMode)) continue;
+        if (!guiRowVisible(row, _plugin->params.motionMode, _terrainPage, _plugin->params.trace)) continue;
         NSString* label = [NSString stringWithUTF8String:row.label];
         if (row.menu) s3g::clap_gui::drawMenu(label, [self valueText:row.param], row.y, attrs, valueAttrs, style, row.panelX + 16, row.panelX + 108, 124);
         else {
@@ -916,9 +1010,10 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion)
 {
     static NSString* mode[] = { @"FREE", @"MIDI", @"BOTH" };
     static NSString* order[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
+    static NSString* form[] = { @"SPHERE", @"TETRA", @"CUBE", @"OCTA", @"DODECA", @"ICOSA" };
     static NSString* skin[] = { @"HARMONIC", @"FBM", @"CELL", @"VOT", @"RIDGES", @"DUNES", @"CRATERS", @"TECTONIC" };
-    static NSString* read[] = { @"HEIGHT", @"EDGE", @"CURVE", @"BLEND" };
-    static NSString* trace[] = { @"ORBIT", @"LISSAJOUS", @"ROSETTE", @"FOLD" };
+    static NSString* read[] = { @"HEIGHT", @"EDGE", @"CURVE", @"BLEND", @"GRADIENT", @"RIDGE", @"VALLEY", @"NORMAL", @"CROSS", @"VECTOR" };
+    static NSString* trace[] = { @"ORBIT", @"LISSAJOUS", @"ROSETTE", @"FOLD", @"POLYGON" };
     static NSString* law[] = { @"RANDOM", @"SERIES", @"WEIGHT", @"TENDENCY", @"MARKOV", @"WALK" };
     static NSString* join[] = { @"LINK", @"MERGE", @"VARY" };
     static NSString* pitch[] = { @"NOTE", @"TRAVEL" };
@@ -927,9 +1022,10 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion)
     double value = 0.0; paramsGetValue(&_plugin->plugin, param, &value); *selected = static_cast<int>(std::lround(value));
     if (param == kModeParamId) { *count = 3; return mode; }
     if (param == kOrderParamId) { *count = 7; *selected -= 1; return order; }
+    if (param == kTerrainFormParamId) { *count = 6; return form; }
     if (param == kSkinParamId) { *count = 8; return skin; }
-    if (param == kInterpretationParamId) { *count = 4; return read; }
-    if (param == kTraceParamId) { *count = 4; return trace; }
+    if (param == kInterpretationParamId) { *count = 10; return read; }
+    if (param == kTraceParamId) { *count = 5; return trace; }
     if (param == kSelectionParamId) { *count = 6; return law; }
     if (param == kPitchModeParamId) { *count = 2; return pitch; }
     if (param == kPitchScaleParamId) { *count = 7; return scale; }
@@ -1001,12 +1097,13 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion)
         if (hit >= 0) applyParam(*_plugin, _openMenuParam, _openMenuParam == kOrderParamId ? hit + 1 : hit);
         _openMenuParam = 0; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; return;
     }
+    for (int index = 0; index < 4; ++index) if (NSPointInRect(point, [self terrainTabRect:index])) { _terrainPage = index; [self setNeedsDisplay:YES]; return; }
     for (int index = 0; index < 3; ++index) if (NSPointInRect(point, [self viewButtonRect:index])) { [self setViewPreset:index]; return; }
     for (int index = 0; index < 2; ++index) if (NSPointInRect(point, [self zoomButtonRect:index])) { _viewZoom = std::clamp(_viewZoom + (index ? 0.15 : -0.15), 0.55, 2.4); [self setNeedsDisplay:YES]; return; }
     const int voice = [self hitVoice:point]; if (voice >= 0) { _selectedVoice = static_cast<uint32_t>(voice); _plugin->guiSelectedVoice.store(_selectedVoice); [self setNeedsDisplay:YES]; return; }
     if (NSPointInRect(point, [self fieldRect])) { _dragView = YES; _lastDragPoint = point; return; }
     for (const auto& row : kGuiRows) {
-        if (!guiRowVisible(row, _plugin->params.motionMode)) continue;
+        if (!guiRowVisible(row, _plugin->params.motionMode, _terrainPage, _plugin->params.trace)) continue;
         if (!NSPointInRect(point, NSMakeRect(row.panelX + 8, row.y - 8, 232, 24))) continue;
         if (row.menu) { _openMenuParam = row.param; int selected = 0; [self menuItems:row.param count:&_menuItemCount selected:&selected]; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; }
         else { _dragParam = row.param; [self setParam:row.param point:point]; }

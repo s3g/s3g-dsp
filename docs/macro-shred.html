@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Macro Shred - s3g-dsp</title>
+    <meta name="description" content="Macro Shred voice distortion and centroid-tuned feedback processor documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Macro Shred</h1>
+
+        <p><code>s3g Macro Shred</code> is a pressure, wavefolding, and bounded resonant-feedback processor designed for voice and microphone input. The same mono DSP kernel is available as Mono, 8-channel, and 24-channel CLAP plugins.</p>
+
+        <h2 id="versions">Versions and Routing</h2>
+
+        <ul>
+          <li><code>s3g Macro Shred Mono</code>: one input and one output channel with the core voice controls.</li>
+          <li><code>s3g Macro Shred 8ch</code>: eight independent kernels with shared controls and lane relationships.</li>
+          <li><code>s3g Macro Shred 24ch</code>: twenty-four independent kernels with the same multichannel control model.</li>
+        </ul>
+
+        <p>Set the REAPER track channel count before inserting an 8-channel or 24-channel version. Each input lane is processed independently; the plugin does not mix or ambisonically encode its channels.</p>
+
+        <h2 id="voice-controls">Voice Controls</h2>
+
+        <table>
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>INPUT</td><td>Applies gain before envelope analysis, pressure, and the feedback loop.</td></tr>
+            <tr><td>PRESSURE</td><td>Raises pre-saturation density and compression-like vocal force.</td></tr>
+            <tr><td>SHRED</td><td>Morphs the nonlinear path from saturation toward stronger wavefolding.</td></tr>
+            <tr><td>FEEDBACK</td><td>Raises the bounded internal resonant loop. It is not an acoustic microphone-feedback path.</td></tr>
+            <tr><td>COLOR</td><td>Sets the fixed loop frequency. With centroid tuning active, it biases the tracked frequency by as much as one octave down or up.</td></tr>
+            <tr><td>REACT</td><td>Lets input energy and transients push pressure and feedback more strongly.</td></tr>
+            <tr><td>TUNE</td><td>Blends from the fixed Color frequency toward a smoothed estimate of the input spectral centroid.</td></tr>
+            <tr><td>BODY</td><td>Restores a lower, cleaner vocal component alongside the folded signal.</td></tr>
+            <tr><td>MIX / OUTPUT</td><td>Sets the processed blend and final level.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="centroid-tuning">Centroid Tuning</h2>
+
+        <p><code>TUNE</code> uses a lightweight four-band log-frequency estimate rather than an FFT. Confidence gating prevents very quiet input from steering the loop, and smoothing keeps consonants from producing abrupt frequency jumps. At <code>0%</code>, feedback follows <code>COLOR</code> alone. At <code>100%</code>, the input centroid provides the main tuning target while <code>COLOR</code> remains an octave offset.</p>
+
+        <p>The <code>LOOP</code> readout shows the current feedback frequency beside its activity meter. In the multichannel versions it shows the geometric center of the active lane frequencies.</p>
+
+        <h2 id="relationships">Multichannel Relationships</h2>
+
+        <p>The 8-channel and 24-channel versions add the same relationship controls used by Macro Delay and Macro Pitch:</p>
+
+        <ul>
+          <li><code>SPREAD</code> distributes feedback tuning around the center lane.</li>
+          <li><code>DEVIATION</code> adds repeatable lane-specific tuning and intensity variation.</li>
+          <li><code>SKEW</code> biases the field from its first lane toward its last lane.</li>
+          <li><code>CENTER</code> moves the neutral point of the spread.</li>
+          <li><code>GLIDE</code> smooths relationship changes.</li>
+        </ul>
+
+        <h2 id="containment">Containment</h2>
+
+        <p>The internal loop caps its feedback gain, removes DC, monitors its own energy, and reduces regeneration when the loop becomes too dense. A final limiter keeps output finite at extreme settings. <code>PANIC</code> clears the loop immediately without changing the current parameter values.</p>
+
+        <p>These safeguards constrain digital output, but high monitoring gain can still be hazardous. Begin with low monitor level and raise <code>FEEDBACK</code> deliberately when using a live microphone.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="processors.html">
+            <span>Previous</span>
+            Processors
+          </a>
+          <a class="page-nav-link next" href="mix-pan.html">
+            <span>Next</span>
+            Mix / Pan
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Processor Pages</h2>
+          <a href="processors.html">Processors Overview</a>
+          <a href="delay-processor.html">Delay Processor</a>
+          <a href="wave-geometry-processor.html">Wave Geometry Processor</a>
+          <a href="spectral-topology-processor.html">Spectral Topology Processor</a>
+          <a href="macro-shred.html">Macro Shred</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#versions">Versions and Routing</a>
+          <a href="#voice-controls">Voice Controls</a>
+          <a href="#centroid-tuning">Centroid Tuning</a>
+          <a href="#relationships">Relationships</a>
+          <a href="#containment">Containment</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

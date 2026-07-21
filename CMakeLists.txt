@@ -30,6 +30,9 @@ if(APPLE)
   target_link_libraries(s3g_ambi_imprint_safety_smoke PRIVATE "-framework Accelerate")
 endif()
 
+add_executable(s3g_ambi_ray_encoder_smoke tests/ambi_ray_encoder_smoke.cpp)
+target_link_libraries(s3g_ambi_ray_encoder_smoke PRIVATE s3g_dsp)
+
 add_custom_target(audit_gui_style
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/audit-gui-style.sh
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -43,7 +46,7 @@ set(S3G_CLAP_INCLUDE_DIR "" CACHE PATH "Path containing clap/clap.h")
 set(S3G_CLAP_GIT_REPOSITORY "https://github.com/free-audio/clap.git" CACHE STRING "CLAP git repository used by FetchContent")
 set(S3G_CLAP_GIT_TAG "1.2.6" CACHE STRING "CLAP git tag or commit used by FetchContent")
 set(S3G_WORLD_GIT_REPOSITORY "https://github.com/mmorise/World.git" CACHE STRING "WORLD git repository used by FetchContent")
-set(S3G_WORLD_GIT_TAG "master" CACHE STRING "WORLD git tag or commit used by FetchContent")
+set(S3G_WORLD_GIT_TAG "d625e7608ca23a870018f01e7c562ac683d9847f" CACHE STRING "WORLD git tag or commit used by FetchContent")
 
 if(S3G_BUILD_CLAP_PLUGIN)
   if(NOT S3G_CLAP_INCLUDE_DIR)
@@ -72,7 +75,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       world
       GIT_REPOSITORY ${S3G_WORLD_GIT_REPOSITORY}
       GIT_TAG ${S3G_WORLD_GIT_TAG}
-      GIT_SHALLOW TRUE
+      GIT_SHALLOW FALSE
     )
     FetchContent_MakeAvailable(world)
   endif()
@@ -90,7 +93,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_vox_encoder)
   add_subdirectory(plugins/clap_ambi_wave_terrain_encoder)
   add_subdirectory(plugins/clap_ambi_stochastic_encoder)
+  add_subdirectory(plugins/clap_ambi_wrangler_encoder)
   add_subdirectory(plugins/clap_ambi_imprint)
+  add_subdirectory(plugins/clap_ambi_ray_encoder)
   add_subdirectory(plugins/clap_ambi_path_encoder)
   add_subdirectory(plugins/clap_3oafx_speaker_decoder)
   add_subdirectory(plugins/clap_layout_panner)
@@ -103,6 +108,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_grain_processor)
   add_subdirectory(plugins/clap_macro_delay)
   add_subdirectory(plugins/clap_macro_pitch)
+  add_subdirectory(plugins/clap_macro_shred)
   add_subdirectory(plugins/clap_buffer_processor)
   add_subdirectory(plugins/clap_wave_geometry_processor)
   add_subdirectory(plugins/clap_multichannel_meter)

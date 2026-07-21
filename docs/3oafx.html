@@ -29,7 +29,7 @@
 
         <p>Ambisonics pages cover ambisonics-specific plugins and infrastructure. These tools are separate from the general multichannel effects and instruments because channel order, spatial format, and host routing are part of the instrument.</p>
 
-        <p>The supported target is REAPER on macOS, using <code>ACN/SN3D</code> ambisonics and fixed-width buses where predictable routing matters. The point encoder and 3OAFX effects are third-order; the VOT, Vox, stochastic, cloud, terrain, and path encoders, decoders, and utilities support first through seventh order where noted.</p>
+        <p>The supported target is REAPER on macOS, using <code>ACN/SN3D</code> ambisonics and fixed-width buses where predictable routing matters. The point encoder and 3OAFX effects are third-order; the VOT, Vox, stochastic, Wrangler, cloud, terrain, path, and Ray encoders, decoders, and utilities support first through seventh order where noted.</p>
 
         <h2 id="plugins">Plugin Areas</h2>
 
@@ -40,10 +40,12 @@
           <li><a href="ambi-cloud-encoder.html">Ambi Cloud Encoder</a>: up to 64 source lanes distributed into one to four first-through-seventh-order ambisonic clouds.</li>
           <li><a href="ambi-terrain-navigator.html">Ambi Terrain Navigator</a>: up to 64 source lanes encoded while AED coordinates traverse nested procedural wave-terrain spheres.</li>
           <li><a href="ambi-path-encoder.html">Ambi Path Encoder</a>: up to 64 source lanes encoded along saved, imported, or drawn path trajectories.</li>
+          <li><a href="ambi-ray-encoder.html">Ambi Ray Encoder</a>: a moving mono source encoded with a position-dependent direct path, early reflection field, and late room response loaded from a Ray Sketch <code>.s3gray</code> field.</li>
           <li><a href="ambi-vot-encoder.html">Ambi VOT Encoder</a>: 64-voice vector-wavetable instrument with composed U/V scoring and first-through-seventh-order <code>ACN/SN3D</code> output.</li>
-          <li><a href="ambi-vox-encoder.html">Ambi Vox Encoder</a>: 64-voice vocal vector-wavetable instrument with phrase articulation and spatial voice motion.</li>
+          <li><a href="ambi-vox-encoder.html">Ambi Vox Encoder</a>: 64-voice WORLD and UTAU-style voicebank instrument with typed phrase mapping and spatial voice motion.</li>
           <li><a href="ambi-wave-terrain-encoder.html">Ambi Wave Terrain Encoder</a>: 64-voice stochastic wave-terrain instrument with direct first-through-seventh-order output.</li>
           <li><a href="ambi-stochastic-encoder.html">Ambi Stochastic Encoder</a>: 64-voice stochastic instrument with generator selection, time-fields, and topology-driven AED placement.</li>
+          <li><a href="ambi-wrangler-encoder.html">Ambi Wrangler Encoder</a>: autonomous 64-voice Benjolin/rungler-style logic synthesis with topology-driven spatial placement.</li>
           <li><a href="ambi-imprint.html">Ambi Imprint</a>: directional convolution for <code>.s3gimprint</code> space responses exported directly by <code>s3g-mc Imprint Sketch</code>.</li>
           <li><a href="3oafx-speaker-decoder.html">Ambi Decoder family</a>: Speaker, Object, Adaptive, and Sub decoders for speaker layouts, object-focused paths, adaptive decode behavior, and low-frequency sub feeds.</li>
           <li><a href="ambisonic-rotate.html">Ambi Rotate</a>, <a href="ambisonic-bus-processors.html#field-depth">Ambi Depth</a>, and <a href="ambisonic-order-band-tool.html">Ambi Order / Band</a>: field utilities for encoded material.</li>
@@ -92,10 +94,12 @@
           <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
           <a href="ambi-terrain-navigator.html">Terrain Navigator</a>
           <a href="ambi-path-encoder.html">Path Encoder</a>
+          <a href="ambi-ray-encoder.html">Ray Encoder</a>
           <a href="ambi-vot-encoder.html">VOT Encoder</a>
           <a href="ambi-vox-encoder.html">Vox Encoder</a>
           <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
           <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
+          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
           <a href="ambi-imprint.html">Ambi Imprint</a>
           <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
           <a href="ambisonic-rotate.html">Rotate</a>

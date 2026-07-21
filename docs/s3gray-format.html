@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>.s3gray Format - s3g-dsp</title>
+    <meta name="description" content="Version 1 interchange format for s3g Ambi Ray Encoder and s3g-mc Ray Sketch.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="processors.html">Processors</a>
+        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="topology-framework.html">Framework</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1><code>.s3gray</code> Format</h1>
+
+        <p><code>.s3gray</code> is the runtime interchange format between <code>s3g-mc Ray Sketch</code> and <code>s3g Ambi Ray Encoder</code>. It is UTF-8 JSON with a dedicated extension, separate from the editable Ray Sketch project. It contains resolved directional events rather than audio or a realtime geometry engine.</p>
+
+        <h2 id="version">Version 1</h2>
+
+        <p>The root object contains:</p>
+        <ul>
+          <li><code>format</code>: <code>s3g-ambi-ray-field</code></li>
+          <li><code>version</code>: <code>1</code></li>
+          <li><code>ambisonics</code>: ACN/SN3D metadata</li>
+          <li><code>interpolation</code>: sampled-cell and stable-slot interpretation metadata</li>
+          <li><code>space</code>: optional generalized geometry, regions, portals, and display provenance</li>
+          <li><code>room</code>: dimensions, top-view polygon, ceiling profile, navigation bounds, and material summary</li>
+          <li><code>listener_position_m</code> and <code>default_source_position_m</code>: XYZ positions in metres</li>
+          <li><code>grid</code>: authoring-grid dimensions, source-sampling metadata, and the optional global stable-slot key list</li>
+          <li><code>cells</code>: one to 256 sampled source positions</li>
+        </ul>
+
+        <p>Each cell has a <code>position_m</code>, up to 32 <code>early_reflections</code>, and one <code>late</code> profile. Every early reflection carries a stable <code>slot</code>, delay in milliseconds, gain, azimuth, elevation, and normalized damping. A slot may be absent from a cell when that path is not active there; readers treat its gain as zero. The late profile carries start time, decay time, level, diffusion, and damping.</p>
+
+        <h2 id="runtime">Runtime Interpretation</h2>
+
+        <p>The source XYZ parameters map to the field's navigation bounds. Ambi Ray Encoder computes source-to-listener distance, delay, attenuation, and direction continuously for the direct sound. It blends stable reflection slots and late profiles from the four nearest cells using inverse-distance weights. Position and field changes are smoothed by the plugin's <code>MOVEMENT</code> control.</p>
+
+        <p>The direct component follows the selected first-through-seventh ambisonic order. Early and late room components are represented through third order. Timing is sample-rate independent in the file and compiled for the current host rate. Imported JSON is embedded in CLAP project state.</p>
+
+        <h2 id="compatibility">Compatibility</h2>
+
+        <p>The editable Ray Sketch project uses the <code>s3g-ray-sketch</code> format identifier and is not a plugin input. Ray Sketch may import Imprint Sketch and legacy room-sketch projects as authoring sources, but Ambi Ray Encoder loads only a version 1 <code>s3g-ambi-ray-field</code> runtime file.</p>
+
+        <p>Geometry, materials, path losses, and decay values are creative acoustic estimates intended for repeatable spatial composition. Readers should derive sound from the resolved cells; the generalized geometry is provenance and display data, not a requirement to ray trace on the audio thread.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-ray-encoder.html">
+            <span>Previous</span>
+            Ambi Ray Encoder
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Reference Pages</h2>
+          <a href="ambi-ray-encoder.html">Ambi Ray Encoder</a>
+          <a href="s3gray-format.html"><code>.s3gray</code> Format</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#version">Version 1</a>
+          <a href="#runtime">Runtime Interpretation</a>
+          <a href="#compatibility">Compatibility</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>
