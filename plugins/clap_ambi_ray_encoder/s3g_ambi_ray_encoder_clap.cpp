@@ -91,6 +91,8 @@ struct GuiReflectionSnapshot {
     float gain = 0.0f;
     float azimuthDeg = 0.0f;
     float elevationDeg = 0.0f;
+    s3g::Vec3 bouncePositionMetres {};
+    bool hasBouncePosition = false;
 };
 
 struct GuiSnapshot {
@@ -295,7 +297,8 @@ GuiSnapshot guiSnapshot(Plugin& plugin)
             result.reflections.reserve(count);
             for (uint32_t index = 0u; index < count; ++index) {
                 const auto& event = cell.reflections[index];
-                result.reflections.push_back({ event.delayMs, event.gain, event.azimuthDeg, event.elevationDeg });
+                result.reflections.push_back({ event.delayMs, event.gain, event.azimuthDeg, event.elevationDeg,
+                    event.bouncePositionMetres, event.hasBouncePosition });
             }
         }
     }
@@ -474,14 +477,19 @@ bool parseRayData(NSData* data,
             id reflectionItem = [reflections objectAtIndex:reflectionIndex];
             if (![reflectionItem isKindOfClass:[NSDictionary class]]) continue;
             auto* reflection = static_cast<NSDictionary*>(reflectionItem);
-            cell.reflections.push_back({
+            s3g::AmbiRayReflection event {
                 unsignedValue(reflection, @"slot", reflectionIndex),
                 numberValue(reflection, @"delay_ms", 20.0f),
                 numberValue(reflection, @"gain", 0.0f),
                 numberValue(reflection, @"azimuth_deg", 0.0f),
                 numberValue(reflection, @"elevation_deg", 0.0f),
                 numberValue(reflection, @"damping", 0.25f)
-            });
+            };
+            if (NSDictionary* bounce = dictionaryValue(reflection, @"bounce_position_m")) {
+                event.bouncePositionMetres = parseVector3(bounce);
+                event.hasBouncePosition = true;
+            }
+            cell.reflections.push_back(event);
         }
         if (NSDictionary* late = dictionaryValue(source, @"late")) {
             cell.late.startMs = numberValue(late, @"start_ms", 45.0f);
@@ -508,7 +516,14 @@ bool parseRayData(NSData* data,
 }
 #endif
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin)
+{
+    auto* instance = self(plugin);
+    instance->hostTail = instance->host && instance->host->get_extension
+        ? static_cast<const clap_host_tail_t*>(instance->host->get_extension(instance->host, CLAP_EXT_TAIL))
+        : nullptr;
+    return true;
+}
 
 void destroy(const clap_plugin_t* plugin)
 {
@@ -845,6 +860,10 @@ GuiWorldBounds guiWorldBounds(const GuiSnapshot& snapshot)
     include(snapshot.listener.x, snapshot.listener.y, snapshot.listener.z);
     include(snapshot.source.x, snapshot.source.y, snapshot.source.z);
     for (const auto& cell : snapshot.cells) include(cell.x, cell.y, cell.z);
+    for (const auto& reflection : snapshot.reflections) {
+        if (reflection.hasBouncePosition) include(reflection.bouncePositionMetres.x,
+            reflection.bouncePositionMetres.y, reflection.bouncePositionMetres.z);
+    }
     if (bounds.maximumX < bounds.minimumX + 0.1f) bounds.maximumX = bounds.minimumX + 0.1f;
     if (bounds.maximumY < bounds.minimumY + 0.1f) bounds.maximumY = bounds.minimumY + 0.1f;
     if (bounds.maximumZ < bounds.minimumZ + 0.1f) bounds.maximumZ = bounds.minimumZ + 0.1f;
@@ -991,7 +1010,7 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
     NSRectFill(field);
     [s3g::clap_gui::color(0x4b5052) setStroke];
     NSFrameRect(field);
-    NSString* label = side ? @"SIDE  X / Z" : @"TOP  X / Y";
+    NSString* label = side ? @"SIDE  PATHS / ARRIVALS  X / Z" : @"TOP  PATHS / ARRIVALS  X / Y";
     [label drawAtPoint:NSMakePoint(field.origin.x + 9, field.origin.y + 8) withAttributes:attrs];
 
     const GuiWorldBounds bounds = guiWorldBounds(snapshot);
@@ -1003,6 +1022,23 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
             : (y - bounds.minimumY) / std::max(0.001f, bounds.maximumY - bounds.minimumY);
         return NSMakePoint(plot.origin.x + nx * plot.size.width,
             plot.origin.y + (1.0f - vertical) * plot.size.height);
+    };
+    auto drawInwardArrow = [&](NSPoint from, NSPoint to, NSColor* color) {
+        const CGFloat dx = to.x - from.x;
+        const CGFloat dy = to.y - from.y;
+        const CGFloat length = std::sqrt(dx * dx + dy * dy);
+        if (length < 12.0) return;
+        const CGFloat ux = dx / length;
+        const CGFloat uy = dy / length;
+        const NSPoint tip = NSMakePoint(from.x + dx * 0.78, from.y + dy * 0.78);
+        const NSPoint base = NSMakePoint(tip.x - ux * 6.0, tip.y - uy * 6.0);
+        NSBezierPath* arrow = [NSBezierPath bezierPath];
+        [arrow moveToPoint:NSMakePoint(base.x - uy * 3.0, base.y + ux * 3.0)];
+        [arrow lineToPoint:tip];
+        [arrow lineToPoint:NSMakePoint(base.x + uy * 3.0, base.y - ux * 3.0)];
+        [arrow setLineWidth:1.0];
+        [color setStroke];
+        [arrow stroke];
     };
 
     [NSGraphicsContext saveGraphicsState];
@@ -1060,10 +1096,12 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
                 project(0.0f, 0.0f, branch.baseHeight + branch.height).y,
                 project(maximumX, 0.0f, 0.0f).x - project(minimumX, 0.0f, 0.0f).x,
                 project(0.0f, 0.0f, branch.baseHeight).y - project(0.0f, 0.0f, branch.baseHeight + branch.height).y);
+            NSBezierPath* branchPath = [NSBezierPath bezierPathWithRect:branchRect];
             [s3g::clap_gui::color(0x668b78, 0.07) setFill];
-            NSRectFill(branchRect);
+            [branchPath fill];
             [s3g::clap_gui::color(0x78ad91, 0.54) setStroke];
-            NSFrameRect(branchRect);
+            [branchPath setLineWidth:1.0];
+            [branchPath stroke];
         }
     }
 
@@ -1100,18 +1138,45 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
     const float worldSpan = side ? std::max(bounds.maximumX - bounds.minimumX, bounds.maximumZ - bounds.minimumZ)
                                  : std::max(bounds.maximumX - bounds.minimumX, bounds.maximumY - bounds.minimumY);
     for (const auto& reflection : snapshot.reflections) {
-        const float azimuth = reflection.azimuthDeg * s3g::kPi / 180.0f;
-        const float elevation = reflection.elevationDeg * s3g::kPi / 180.0f;
-        const float length = worldSpan * (0.14f + 0.32f * s3g::clamp(reflection.delayMs / 220.0f, 0.0f, 1.0f));
-        const float dx = std::sin(azimuth) * std::cos(elevation) * length;
-        const float dy = std::cos(azimuth) * std::cos(elevation) * length;
-        const float dz = std::sin(elevation) * length;
-        const NSPoint end = project(snapshot.listener.x + dx, snapshot.listener.y + dy, snapshot.listener.z + dz);
-        [s3g::clap_gui::color(0x7fb9c2, s3g::clamp(std::abs(reflection.gain) * 3.2f, 0.12f, 0.54f)) setStroke];
-        [NSBezierPath strokeLineFromPoint:listener toPoint:end];
+        const float alpha = s3g::clamp(std::abs(reflection.gain) * 3.2f, 0.14f, 0.58f);
+        if (reflection.hasBouncePosition) {
+            const NSPoint bounce = project(reflection.bouncePositionMetres.x,
+                reflection.bouncePositionMetres.y, reflection.bouncePositionMetres.z);
+            NSColor* pathColor = s3g::clap_gui::color(0x87c1ac, alpha);
+            NSBezierPath* path = [NSBezierPath bezierPath];
+            [path moveToPoint:source];
+            [path lineToPoint:bounce];
+            [path lineToPoint:listener];
+            [path setLineWidth:1.0];
+            [pathColor setStroke];
+            [path stroke];
+            [s3g::clap_gui::color(0xd3aa65, std::max(0.42f, alpha)) setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(bounce.x - 2.2, bounce.y - 2.2, 4.4, 4.4)] fill];
+            drawInwardArrow(bounce, listener, pathColor);
+        } else {
+            const float azimuth = reflection.azimuthDeg * s3g::kPi / 180.0f;
+            const float elevation = reflection.elevationDeg * s3g::kPi / 180.0f;
+            const float length = worldSpan * (0.14f + 0.32f * s3g::clamp(reflection.delayMs / 220.0f, 0.0f, 1.0f));
+            const float dx = std::sin(azimuth) * std::cos(elevation) * length;
+            const float dy = std::cos(azimuth) * std::cos(elevation) * length;
+            const float dz = std::sin(elevation) * length;
+            const NSPoint end = project(snapshot.listener.x + dx, snapshot.listener.y + dy, snapshot.listener.z + dz);
+            NSColor* arrivalColor = s3g::clap_gui::color(0x7fb9c2, alpha);
+            NSBezierPath* arrival = [NSBezierPath bezierPath];
+            [arrival moveToPoint:end];
+            [arrival lineToPoint:listener];
+            const CGFloat arrivalDash[] = { 3.0, 3.0 };
+            [arrival setLineDash:arrivalDash count:2 phase:0.0];
+            [arrival setLineWidth:1.0];
+            [arrivalColor setStroke];
+            [arrival stroke];
+            drawInwardArrow(end, listener, arrivalColor);
+        }
     }
-    [s3g::clap_gui::color(0xb8b8b8, 0.62) setStroke];
-    [NSBezierPath strokeLineFromPoint:listener toPoint:source];
+    NSColor* directColor = s3g::clap_gui::color(0xb8b8b8, 0.62);
+    [directColor setStroke];
+    [NSBezierPath strokeLineFromPoint:source toPoint:listener];
+    drawInwardArrow(source, listener, directColor);
     [s3g::clap_gui::color(0xb7b7b7) setFill];
     NSRectFill(NSMakeRect(listener.x - 4.0, listener.y - 4.0, 8.0, 8.0));
     [s3g::clap_gui::color(0x90d3dc) setFill];
@@ -1443,9 +1508,6 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     auto* instance = new (std::nothrow) Plugin();
     if (!instance) return nullptr;
     instance->host = host;
-    instance->hostTail = host && host->get_extension
-        ? static_cast<const clap_host_tail_t*>(host->get_extension(host, CLAP_EXT_TAIL))
-        : nullptr;
     const s3g::Vec3 normalized = s3g::AmbiRayEncoder::normalizedSourcePosition(
         instance->descriptor, instance->descriptor.defaultSourcePositionMetres);
     instance->params.sourceX = normalized.x;

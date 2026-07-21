@@ -51,6 +51,16 @@ int main()
         std::cerr << "Ambi Ray default scene was not constructed\n";
         return 1;
     }
+    for (const auto& cell : descriptor.cells) {
+        for (const auto& reflection : cell.reflections) {
+            const auto& bounce = reflection.bouncePositionMetres;
+            if (!reflection.hasBouncePosition || !std::isfinite(bounce.x)
+                || !std::isfinite(bounce.y) || !std::isfinite(bounce.z)) {
+                std::cerr << "Ambi Ray default reflection has no display bounce point\n";
+                return 1;
+            }
+        }
+    }
 
     s3g::AmbiRayEncoder directEncoder;
     s3g::AmbiRayEncoderParams directParams;

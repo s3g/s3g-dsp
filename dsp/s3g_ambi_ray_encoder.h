@@ -30,6 +30,8 @@ struct AmbiRayReflection {
     float azimuthDeg = 0.0f;
     float elevationDeg = 0.0f;
     float damping = 0.25f;
+    Vec3 bouncePositionMetres {};
+    bool hasBouncePosition = false;
 };
 
 struct AmbiRayLateProfile {
@@ -368,6 +370,16 @@ inline AmbiRayDescriptor sanitizeAmbiRayDescriptor(AmbiRayDescriptor descriptor)
             event.azimuthDeg = std::remainder(ambi_ray_detail::finiteOr(event.azimuthDeg, 0.0f), 360.0f);
             event.elevationDeg = clamp(ambi_ray_detail::finiteOr(event.elevationDeg, 0.0f), -90.0f, 90.0f);
             event.damping = clamp(ambi_ray_detail::finiteOr(event.damping, 0.25f), 0.0f, 1.0f);
+            if (event.hasBouncePosition) {
+                event.hasBouncePosition = std::isfinite(event.bouncePositionMetres.x)
+                    && std::isfinite(event.bouncePositionMetres.y)
+                    && std::isfinite(event.bouncePositionMetres.z);
+                if (event.hasBouncePosition) {
+                    event.bouncePositionMetres.x = clamp(event.bouncePositionMetres.x, -1000.0f, 1000.0f);
+                    event.bouncePositionMetres.y = clamp(event.bouncePositionMetres.y, -1000.0f, 1000.0f);
+                    event.bouncePositionMetres.z = clamp(event.bouncePositionMetres.z, -1000.0f, 1000.0f);
+                }
+            }
         }
         auto& late = cell.late;
         late.startMs = clamp(ambi_ray_detail::finiteOr(late.startMs, 45.0f), 0.0f, kAmbiRayMaximumDelaySeconds * 1000.0f);
@@ -397,6 +409,23 @@ inline AmbiRayDescriptor makeDefaultAmbiRayDescriptor()
                     { x, -y, z }, { x, 20.0f - y, z },
                     { x, y, -z }, { x, y, 6.0f - z }
                 }};
+                const auto listener = descriptor.listenerPositionMetres;
+                const auto bounceOnPlane = [listener](Vec3 image, uint32_t axis, float plane) {
+                    const float start = axis == 0u ? listener.x : axis == 1u ? listener.y : listener.z;
+                    const float finish = axis == 0u ? image.x : axis == 1u ? image.y : image.z;
+                    const float delta = finish - start;
+                    const float amount = clamp((plane - start) / (std::abs(delta) > 0.000001f ? delta : 0.000001f), 0.0f, 1.0f);
+                    Vec3 bounce = ambi_ray_detail::mixVec(listener, image, amount);
+                    if (axis == 0u) bounce.x = plane;
+                    else if (axis == 1u) bounce.y = plane;
+                    else bounce.z = plane;
+                    return bounce;
+                };
+                const std::array<Vec3, 6> bounces {{
+                    bounceOnPlane(images[0], 0u, 0.0f), bounceOnPlane(images[1], 0u, 8.0f),
+                    bounceOnPlane(images[2], 1u, 0.0f), bounceOnPlane(images[3], 1u, 10.0f),
+                    bounceOnPlane(images[4], 2u, 0.0f), bounceOnPlane(images[5], 2u, 3.0f)
+                }};
                 for (uint32_t index = 0u; index < images.size(); ++index) {
                     const Vec3 offset {
                         images[index].x - descriptor.listenerPositionMetres.x,
@@ -406,7 +435,8 @@ inline AmbiRayDescriptor makeDefaultAmbiRayDescriptor()
                     const float path = std::max(0.1f, std::sqrt(offset.x * offset.x + offset.y * offset.y + offset.z * offset.z));
                     const auto aed = ambi_ray_detail::aedFromWorldVector(offset);
                     cell.reflections.push_back({ index, path / 343.0f * 1000.0f,
-                        (index < 4u ? 0.62f : 0.48f) / std::max(1.0f, path), aed[0], aed[1], index < 4u ? 0.24f : 0.35f });
+                        (index < 4u ? 0.62f : 0.48f) / std::max(1.0f, path), aed[0], aed[1],
+                        index < 4u ? 0.24f : 0.35f, bounces[index], true });
                 }
                 cell.late.decaySeconds = 1.65f + 0.25f * (y / 10.0f);
                 cell.late.level = 0.18f;

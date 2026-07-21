@@ -44,7 +44,7 @@
           <li><code>cells</code>: one to 256 sampled source positions</li>
         </ul>
 
-        <p>Each cell has a <code>position_m</code>, up to 32 <code>early_reflections</code>, and one <code>late</code> profile. Every early reflection carries a stable <code>slot</code>, delay in milliseconds, gain, azimuth, elevation, and normalized damping. A slot may be absent from a cell when that path is not active there; readers treat its gain as zero. The late profile carries start time, decay time, level, diffusion, and damping.</p>
+        <p>Each cell has a <code>position_m</code>, up to 32 <code>early_reflections</code>, and one <code>late</code> profile. Every early reflection carries a stable <code>slot</code>, delay in milliseconds, gain, azimuth, elevation, and normalized damping. It may also carry <code>bounce_position_m</code>, an optional XYZ wall, floor, ceiling, portal, or echo-path point used for path display. A slot may be absent from a cell when that path is not active there; readers treat its gain as zero. The late profile carries start time, decay time, level, diffusion, and damping.</p>
 
         <h2 id="runtime">Runtime Interpretation</h2>
 
@@ -56,7 +56,7 @@
 
         <p>The editable Ray Sketch project uses the <code>s3g-ray-sketch</code> format identifier and is not a plugin input. Ray Sketch may import Imprint Sketch and legacy room-sketch projects as authoring sources, but Ambi Ray Encoder loads only a version 1 <code>s3g-ambi-ray-field</code> runtime file.</p>
 
-        <p>Geometry, materials, path losses, and decay values are creative acoustic estimates intended for repeatable spatial composition. Readers should derive sound from the resolved cells; the generalized geometry is provenance and display data, not a requirement to ray trace on the audio thread.</p>
+        <p>Geometry, materials, path losses, bounce points, and decay values are creative acoustic estimates intended for repeatable spatial composition. Readers derive sound from the resolved delay, gain, and AED values; <code>bounce_position_m</code> and generalized geometry are optional display provenance, not a requirement to ray trace on the audio thread. Version 1 readers may ignore the bounce field.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambi-ray-encoder.html">
