@@ -35,7 +35,7 @@
           <li>Insert the instrument on a 64-channel REAPER track.</li>
           <li>Choose <code>FREE</code>, <code>MIDI</code>, or <code>BOTH</code>.</li>
           <li>Load a UTAU-style voicebank folder or a vocal WAV file.</li>
-          <li>Enter a phrase, then set the voice count, scale, pitch spread, and timing spread.</li>
+          <li>Enter a phrase, then set the voice count, pitch relationships, and voice-delay spread.</li>
           <li>Follow the instrument with an ambisonic decoder or meter.</li>
         </ol>
 
@@ -45,13 +45,13 @@
 
         <p>Voicebank preparation caches five formant-preserving WORLD pitch anchors from two octaves below through two octaves above each alias's detected base pitch. Runtime voices select the nearest anchor, which keeps wide MIDI and scale intervals closer to the original vocal character.</p>
 
-        <p>Words are mapped to available voicebank aliases and romaji sample keys by a small English grapheme-to-phoneme layer. The phrase panel shows the resolved alias sequence and a live voice-1 timeline. <code>SPEAK</code> prioritizes phrase timing. <code>SING</code> holds syllables longer and keeps every voice on the same phrase sequence. <code>TEXTURE</code> treats loaded samples as a continuously moving source field.</p>
+        <p>Words are mapped to available voicebank aliases and romaji sample keys by a small English grapheme-to-phoneme layer. The phrase panel shows the resolved alias sequence and a live voice-1 timeline. <code>SPEAK</code> plays every resolved alias once, reads the complete phrase in order, then loops after the phrase-end pause. <code>SING</code> can sustain vowels while keeping every voice on the same phrase sequence. <code>TEXTURE</code> treats loaded samples as a continuously moving source field.</p>
 
-        <p><code>TIME STEP</code> delays each successive rendered voice by as much as 1000 ms; <code>TIME DEV</code> adds a repeatable deviation around that cascade. These controls retarget crossfaded delay taps. Moving them does not recompile or restart the phrase.</p>
+        <p><code>VOICE STEP</code> delays each successive rendered voice by as much as 1000 ms; <code>VOICE DEV</code> adds a repeatable deviation around that cascade. These controls retarget crossfaded delay taps. Moving them does not recompile or restart the phrase.</p>
 
         <h2 id="voicebank-timing">Voicebank Timing and Pronunciation</h2>
 
-        <p>The renderer honors each <code>oto.ini</code> entry's offset, consonant/fixed region, cutoff, preutterance, and overlap. Consonant regions run at their original timing. Vowels can sustain after the fixed region, and adjacent aliases crossfade using their preutterance and overlap values. <code>BLEND</code> scales that transition. If a legacy CV bank supplies zeros for every timing field, Ambi Vox derives a short onset and a vowel-only sustain region instead of looping the complete recording.</p>
+        <p>The renderer honors each <code>oto.ini</code> entry's offset, consonant/fixed region, cutoff, preutterance, and overlap. Adjacent aliases crossfade using their preutterance and overlap values, and <code>BLEND</code> scales that transition. In <code>SPEAK</code>, the complete alias is one-shot and never wraps inside its phrase event. In <code>SING</code>, the consonant region runs once and the vowel can sustain after the fixed region. If a legacy CV bank supplies zeros for every timing field, Ambi Vox derives a short onset and vowel region from the recording.</p>
 
         <p>A bank can override the built-in word mapping with an optional <code>s3g-pronunciations.txt</code> file in its root folder. Put one lower-case word and its alias sequence on each line:</p>
 
@@ -66,24 +66,25 @@ sorrow=so ro</code></pre>
         <ul>
           <li><code>ROOT</code> and <code>SCALE</code> define the pitch grid.</li>
           <li><code>SPREAD</code> expands or contracts scale-degree relationships while keeping voices on the selected scale.</li>
-          <li><code>DEV</code> adds a deterministic pitch deviation per voice; <code>TUNE</code> and <code>TRANSPOSE</code> shift the resulting field.</li>
-          <li><code>PORT</code> sets pitch glide time. <code>VIBRATO</code> and <code>VIB RATE</code> add per-voice phase-offset vibrato, with full depth in <code>SING</code>.</li>
-          <li><code>FORM</code>, <code>EDGE</code>, <code>AIR</code>, and <code>DRIVE</code> shape the reconstructed voice.</li>
+          <li><code>TRANSPOSE</code> shifts the complete field after scale relationships are calculated; <code>DEVIATION</code> adds a repeatable pitch offset per voice.</li>
+          <li><code>GLIDE</code> sets pitch transition time. <code>VIBRATO</code> and <code>VIB SPEED</code> add per-voice phase-offset vibrato, with full depth in <code>SING</code>.</li>
         </ul>
+
+        <p>When an older project state is loaded, its separate tune offset is folded into <code>TRANSPOSE</code>. Retired Character coloration is reset to the clean WORLD/voicebank path so no hidden control continues changing the sound.</p>
 
         <h2 id="phrase">MIDI and Phrase Voices</h2>
 
         <p>In <code>FREE</code>, active points take scale degrees around the root. In <code>MIDI</code>, each held note is allocated to one voice; chords therefore become spatially distinct voices. Notes are quantized to the selected scale before pitch spread and deviation are applied. <code>BOTH</code> retains the free-running field and lets held MIDI notes take over allocated voices.</p>
 
-        <h2 id="pvoc">PVOC Timing</h2>
+        <h2 id="pvoc">Playback Timing</h2>
 
-        <p>The phrase-panel <code>RATE</code> control sets spoken or sung syllable pacing. Word spaces and punctuation produce explicit short, medium, and sentence-length gaps. The WORLD-panel <code>RATE</code>, loop, freeze, and scrub controls shape continuous <code>TEXTURE</code> playback and do not warp aliases in <code>SPEAK</code> or <code>SING</code>.</p>
+        <p>The playback panel changes with <code>VOICE</code> mode so that only relevant timing controls are shown. In <code>SPEAK</code> and <code>SING</code>, <code>PACE</code> schedules phrase events; word spaces and punctuation produce explicit short, medium, and sentence-length gaps. In <code>TEXTURE</code>, <code>SPEED</code>, loop start/end, freeze, and position control the continuously read source. Texture speed has no effect on phrase playback.</p>
 
-        <p><code>STRETCH</code> changes target syllable duration from 0.25x to 4x without changing the selected musical pitch; fixed consonant timing is preserved and vowels provide the flexible sustain region. <code>TRANSIENT</code> controls phase resets at consonant and attack boundaries; higher values preserve sharper attacks. For voicebanks, the phase vocoder handles residual tuning between cached WORLD pitch anchors rather than carrying the full pitch shift.</p>
+        <p><code>STRETCH</code> changes playback duration from 0.25x to 4x without changing the selected musical pitch. In <code>SPEAK</code>, each alias remains one-shot; in <code>SING</code>, the fixed consonant region is preserved while vowels can sustain. <code>TRANSIENT</code> controls phase resets at consonant and attack boundaries, while <code>BLEND</code> sets adjacent phrase-alias overlap. For voicebanks, the phase vocoder handles residual tuning between cached WORLD pitch anchors rather than carrying the full pitch shift.</p>
 
         <h2 id="motion">Motion</h2>
 
-        <p><code>MANUAL</code>, <code>ORBIT</code>, <code>FLOW</code>, <code>PATH</code>, and <code>PULSE</code> move voices in the AED field. Motion can run freely or follow the REAPER transport.</p>
+        <p><code>MANUAL</code>, <code>ORBIT</code>, <code>FLOW</code>, <code>PATH</code>, and <code>PULSE</code> move voices in the AED field. Motion <code>SPEED</code> changes only this spatial movement and does not alter phrase or audio playback speed. Motion can run freely or follow the REAPER transport.</p>
 
         <h2 id="routing">Order and Routing</h2>
 
@@ -121,7 +122,7 @@ sorrow=so ro</code></pre>
           <a href="#voicebank-timing">Voicebank Timing</a>
           <a href="#vocal-layer">Vocal Layer</a>
           <a href="#phrase">MIDI and Phrase Voices</a>
-          <a href="#pvoc">PVOC Timing</a>
+          <a href="#pvoc">Playback Timing</a>
           <a href="#motion">Motion</a>
           <a href="#routing">Order and Routing</a>
         </div>

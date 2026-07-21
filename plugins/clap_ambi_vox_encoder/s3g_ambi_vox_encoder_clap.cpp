@@ -45,9 +45,9 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiVotMaxChannels;
-constexpr uint32_t kStateVersion = 17;
+constexpr uint32_t kStateVersion = 18;
 constexpr uint32_t kGuiW = 1160;
-constexpr uint32_t kGuiH = 1030;
+constexpr uint32_t kGuiH = 920;
 constexpr uint32_t kVoxPhraseMaxChars = 256;
 constexpr uint32_t kVoxLoadedNameMaxChars = 96;
 constexpr uint32_t kVoxCompiledMaxFrames = 512;
@@ -545,10 +545,10 @@ struct VoxParamsV16 {
 };
 
 struct VoxParams {
-    float rasp = 0.34f;
-    float breath = 0.14f;
+    float rasp = 0.0f;
+    float breath = 0.0f;
     float throat = 0.52f;
-    float drive = 0.30f;
+    float drive = 0.0f;
     float jitter = 0.12f;
     float vowelSpread = 0.22f;
     float pitchScoop = 0.12f;
@@ -870,7 +870,8 @@ public:
                   float pitchRatio,
                   float transientPreserve,
                   float freeze,
-                  float scrub)
+                  float scrub,
+                  bool loop = true)
     {
         if (samples.empty()) return 0.0f;
         rangeStart = std::clamp(rangeStart, 0.0, static_cast<double>(samples.size() - 1u));
@@ -882,17 +883,21 @@ public:
             const double scrubPosition = rangeStart + rangeLength * static_cast<double>(std::clamp(scrub, 0.0f, 1.0f));
             const double freezeMix = static_cast<double>(std::clamp(freeze, 0.0f, 1.0f));
             const double position = state.analysisPosition + (scrubPosition - state.analysisPosition) * freezeMix;
-            const float value = sampleAt(samples, position, rangeStart, rangeEnd);
-            state.analysisPosition = wrapPosition(
-                state.analysisPosition + static_cast<double>(sourceRateRatio * timelineRate * pitchRatio)
-                    * (1.0 - static_cast<double>(std::clamp(freeze, 0.0f, 1.0f))),
-                rangeStart, rangeEnd);
+            const float value = loop
+                ? sampleAt(samples, position, rangeStart, rangeEnd)
+                : sampleAtOneShot(samples, position, rangeStart, rangeEnd);
+            const double nextPosition = state.analysisPosition
+                + static_cast<double>(sourceRateRatio * timelineRate / std::max(0.25f, stretch))
+                    * (1.0 - static_cast<double>(std::clamp(freeze, 0.0f, 1.0f)));
+            state.analysisPosition = loop
+                ? wrapPosition(nextPosition, rangeStart, rangeEnd)
+                : nextPosition;
             return value;
         }
 
         if (state.samplesUntilHop == 0u) {
             synthesize(state, samples, rangeStart, rangeEnd, sourceRateRatio, timelineRate,
-                       stretch, pitchRatio, transientPreserve, freeze, scrub);
+                       stretch, pitchRatio, transientPreserve, freeze, scrub, loop);
             state.samplesUntilHop = kVoxPvocHopSize;
         }
         const uint32_t readPosition = state.outputReadPosition;
@@ -921,6 +926,16 @@ private:
         return s3g::lerp(samples[i0], samples[i1], static_cast<float>(position - std::floor(position)));
     }
 
+    static float sampleAtOneShot(const std::vector<float>& samples, double position, double start, double end)
+    {
+        if (position < start || position >= end || position < 0.0
+            || position >= static_cast<double>(samples.size())) return 0.0f;
+        const size_t i0 = std::min(samples.size() - 1u, static_cast<size_t>(position));
+        const size_t i1 = std::min(samples.size() - 1u, i0 + 1u);
+        const float next = static_cast<double>(i1) < end ? samples[i1] : 0.0f;
+        return s3g::lerp(samples[i0], next, static_cast<float>(position - std::floor(position)));
+    }
+
     static float wrapPhase(float phase)
     {
         return std::remainder(phase, 2.0f * s3g::kPi);
@@ -936,7 +951,8 @@ private:
                     float pitchRatio,
                     float transientPreserve,
                     float freeze,
-                    float scrub)
+                    float scrub,
+                    bool loop)
     {
 #if defined(__APPLE__)
         sourceRateRatio = std::clamp(sourceRateRatio, 0.125f, 8.0f);
@@ -953,7 +969,10 @@ private:
             static_cast<float>(kVoxPvocHopSize) * sourceRateRatio * timelineRate / stretch);
 
         for (uint32_t i = 0u; i < kVoxPvocFftSize; ++i) {
-            frame_[i] = sampleAt(samples, framePosition + static_cast<double>(i), rangeStart, rangeEnd) * window_[i];
+            const double position = framePosition + static_cast<double>(i);
+            frame_[i] = (loop
+                ? sampleAt(samples, position, rangeStart, rangeEnd)
+                : sampleAtOneShot(samples, position, rangeStart, rangeEnd)) * window_[i];
         }
 
         DSPSplitComplex split { splitReal_.data(), splitImag_.data() };
@@ -1025,9 +1044,11 @@ private:
             const uint32_t outputPosition = (state.outputReadPosition + i) % kVoxPvocFftSize;
             state.outputRing[outputPosition] += frame_[i] * window_[i] * synthesisScale;
         }
-        state.analysisPosition = wrapPosition(
-            state.analysisPosition + static_cast<double>(analysisHop) * (1.0 - static_cast<double>(freeze) * 0.999),
-            rangeStart, rangeEnd);
+        const double nextPosition = state.analysisPosition
+            + static_cast<double>(analysisHop) * (1.0 - static_cast<double>(freeze) * 0.999);
+        state.analysisPosition = loop
+            ? wrapPosition(nextPosition, rangeStart, rangeEnd)
+            : nextPosition;
         state.primed = true;
 #else
         (void)state;
@@ -1041,6 +1062,7 @@ private:
         (void)transientPreserve;
         (void)freeze;
         (void)scrub;
+        (void)loop;
 #endif
     }
 
@@ -2929,7 +2951,7 @@ float processVoicebankEntry(Plugin& plugin,
                             const VoxVoicebankEntry& entry,
                             uint32_t anchor,
                             float pitchRatio,
-                            bool phraseMode,
+                            VoxSpeechMode speechMode,
                             uint8_t eventFlags)
 {
     if (!entry.audio || entry.audio->sampleRate <= 0) return 0.0f;
@@ -2940,11 +2962,13 @@ float processVoicebankEntry(Plugin& plugin,
     const double eventEnd = std::clamp(
         entry.endSample > entry.startSample ? entry.endSample : sourceLength,
         eventStart + 1.0, sourceLength);
+    const bool phraseMode = speechMode != VoxSpeechMode::Texture;
+    const bool sustainMode = speechMode == VoxSpeechMode::Sing;
     const double phase = state.analysisPosition;
     const bool consonant = phraseMode && phase < std::max(entry.fixedSample, eventStart + 1.0);
     double rangeStart = eventStart;
     double rangeEnd = eventEnd;
-    if (phraseMode && !consonant) {
+    if (sustainMode && !consonant) {
         const double sustainStart = (eventFlags & kVoxBankEventVowel) != 0u
             ? std::max(entry.fixedSample, entry.loopStart)
             : entry.fixedSample;
@@ -2967,12 +2991,15 @@ float processVoicebankEntry(Plugin& plugin,
     const float timelineRate = phraseMode
         ? 1.0f
         : 0.25f + plugin.voxWorldRateSmooth * 1.75f;
-    const float stretch = phraseMode ? 1.0f : plugin.voxPvocStretchSmooth;
+    const float stretch = speechMode == VoxSpeechMode::Sing
+        ? 1.0f
+        : plugin.voxPvocStretchSmooth;
     return plugin.pvoc.process(state, source, rangeStart, rangeEnd,
         sourceRateRatio, timelineRate, stretch, pitchRatio,
         plugin.voxPvocTransientSmooth,
         phraseMode ? 0.0f : plugin.voxWorldFreezeSmooth,
-        phraseMode ? 0.0f : plugin.voxWorldScrubSmooth);
+        phraseMode ? 0.0f : plugin.voxWorldScrubSmooth,
+        speechMode != VoxSpeechMode::Speak);
 }
 
 void resetWorldPhases(Plugin& plugin)
@@ -3242,7 +3269,7 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
             plugin.voxPitchRatioSmooth[voice] += (targetPitchRatio - plugin.voxPitchRatioSmooth[voice]) * toneSmooth;
             float value = processVoicebankEntry(plugin, plugin.voxPvocVoice[voice],
                 entry, pitchAnchor, plugin.voxPitchRatioSmooth[voice],
-                speechMode != VoxSpeechMode::Texture, currentFlags);
+                speechMode, currentFlags);
             const double phase = plugin.voxPvocVoice[voice].analysisPosition;
             plugin.voxWorldPhase[voice] = phase;
             if (speechMode != VoxSpeechMode::Texture) {
@@ -3269,7 +3296,7 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
                             plugin, next, nextAnchor, targetNote);
                         const float nextValue = processVoicebankEntry(plugin,
                             plugin.voxPvocNextVoice[voice], next, nextAnchor,
-                            nextPitchRatio, true, plugin.voxBankVoiceNextFlags[voice]);
+                            nextPitchRatio, speechMode, plugin.voxBankVoiceNextFlags[voice]);
                         value = s3g::lerp(value, nextValue, smoothMix);
                     }
                 }
@@ -4329,9 +4356,9 @@ struct ParamDef {
 constexpr ParamDef kParams[] {
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
     { kVoicesParamId, "Voices", 1.0, 64.0, 8.0, true },
-    { kModeParamId, "Mode", 0.0, 2.0, 0.0, true },
+    { kModeParamId, "Trigger Mode", 0.0, 2.0, 0.0, true },
     { kBaseNoteParamId, "Pitch Root", 12.0, 96.0, 48.0, false },
-    { kTuneParamId, "Pitch Tune", -1200.0, 1200.0, 0.0, false },
+    { kTuneParamId, "Legacy Pitch Tune", -1200.0, 1200.0, 0.0, false },
     { kScaleParamId, "Pitch Scale", 0.0, 5.0, 0.0, true },
     { kPitchSpreadParamId, "Pitch Spread", 0.0, 2.0, 1.0, false },
     { kDetuneParamId, "Pitch Deviation", 0.0, 1.0, 0.10, false },
@@ -4349,31 +4376,89 @@ constexpr ParamDef kParams[] {
     { kCenterAzimuthParamId, "Center Azimuth", -180.0, 180.0, 0.0, false },
     { kCenterElevationParamId, "Center Elevation", -90.0, 90.0, 0.0, false },
     { kCenterDistanceParamId, "Center Distance", 0.15, 2.0, 1.0, false },
-    { kRaspParamId, "WORLD Edge", 0.0, 1.0, 0.34, false },
-    { kBreathParamId, "WORLD Air", 0.0, 1.0, 0.14, false },
-    { kDriveParamId, "WORLD Drive", 0.0, 1.0, 0.30, false },
-    { kSpeechModeParamId, "Speech Mode", 0.0, 2.0, 1.0, true },
-    { kPhraseRateParamId, "Phrase Rate", 0.0, 1.0, 0.34, false },
-    { kCircuitModeParamId, "Circuit", 0.0, 3.0, 0.0, true },
-    { kFormantMacroParamId, "WORLD Formant", -1.0, 1.0, 0.0, false },
-    { kBendMacroParamId, "WORLD Flutter", 0.0, 1.0, 0.0, false },
-    { kCrushMacroParamId, "WORLD Degrade", 0.0, 1.0, 0.0, false },
-    { kWorldRateParamId, "WORLD Rate", 0.0, 1.0, 0.50, false },
-    { kWorldPitchParamId, "WORLD Pitch", -2400.0, 2400.0, 0.0, false },
-    { kWorldLoopStartParamId, "WORLD Loop Start", 0.0, 1.0, 0.0, false },
-    { kWorldLoopEndParamId, "WORLD Loop End", 0.0, 1.0, 1.0, false },
-    { kWorldVoiceSpreadParamId, "Voice Time Step", 0.0, 1.0, 0.0, false },
-    { kWorldVoiceDeviationParamId, "Voice Time Deviation", 0.0, 1.0, 0.0, false },
-    { kWorldFreezeParamId, "WORLD Freeze", 0.0, 1.0, 0.0, false },
-    { kWorldScrubParamId, "WORLD Scrub", 0.0, 1.0, 0.0, false },
-    { kWorldVoicingParamId, "WORLD Voicing", 0.0, 1.0, 0.50, false },
-    { kPvocStretchParamId, "PVOC Stretch", 0.25, 4.0, 1.0, false },
-    { kPvocTransientParamId, "PVOC Transient", 0.0, 1.0, 0.65, false },
-    { kPortamentoParamId, "Pitch Portamento", 0.0, 1.0, 0.18, false },
+    { kRaspParamId, "Legacy WORLD Edge", 0.0, 1.0, 0.0, false },
+    { kBreathParamId, "Legacy WORLD Air", 0.0, 1.0, 0.0, false },
+    { kDriveParamId, "Legacy WORLD Drive", 0.0, 1.0, 0.0, false },
+    { kSpeechModeParamId, "Voice Mode", 0.0, 2.0, 1.0, true },
+    { kPhraseRateParamId, "Phrase Pace", 0.0, 1.0, 0.34, false },
+    { kCircuitModeParamId, "Legacy Circuit", 0.0, 3.0, 0.0, true },
+    { kFormantMacroParamId, "Legacy WORLD Formant", -1.0, 1.0, 0.0, false },
+    { kBendMacroParamId, "Legacy WORLD Flutter", 0.0, 1.0, 0.0, false },
+    { kCrushMacroParamId, "Legacy WORLD Degrade", 0.0, 1.0, 0.0, false },
+    { kWorldRateParamId, "Texture Speed", 0.0, 1.0, 0.50, false },
+    { kWorldPitchParamId, "Pitch Transpose", -2400.0, 2400.0, 0.0, false },
+    { kWorldLoopStartParamId, "Texture Loop Start", 0.0, 1.0, 0.0, false },
+    { kWorldLoopEndParamId, "Texture Loop End", 0.0, 1.0, 1.0, false },
+    { kWorldVoiceSpreadParamId, "Voice Delay Step", 0.0, 1.0, 0.0, false },
+    { kWorldVoiceDeviationParamId, "Voice Delay Deviation", 0.0, 1.0, 0.0, false },
+    { kWorldFreezeParamId, "Texture Freeze", 0.0, 1.0, 0.0, false },
+    { kWorldScrubParamId, "Texture Position", 0.0, 1.0, 0.0, false },
+    { kWorldVoicingParamId, "Voicing", 0.0, 1.0, 0.50, false },
+    { kPvocStretchParamId, "Playback Stretch", 0.25, 4.0, 1.0, false },
+    { kPvocTransientParamId, "Playback Transient", 0.0, 1.0, 0.65, false },
+    { kPortamentoParamId, "Pitch Glide", 0.0, 1.0, 0.18, false },
     { kVibratoDepthParamId, "Pitch Vibrato Depth", 0.0, 1.0, 0.12, false },
-    { kVibratoRateParamId, "Pitch Vibrato Rate", 0.1, 12.0, 5.2, false },
-    { kTransitionParamId, "Phrase Transition", 0.0, 1.0, 0.65, false },
+    { kVibratoRateParamId, "Pitch Vibrato Speed", 0.1, 12.0, 5.2, false },
+    { kTransitionParamId, "Phrase Blend", 0.0, 1.0, 0.65, false },
 };
+
+constexpr bool isLegacyHiddenParam(clap_id id)
+{
+    switch (id) {
+    case kTuneParamId:
+    case kRaspParamId:
+    case kBreathParamId:
+    case kDriveParamId:
+    case kCircuitModeParamId:
+    case kFormantMacroParamId:
+    case kBendMacroParamId:
+    case kCrushMacroParamId:
+        return true;
+    default:
+        return false;
+    }
+}
+
+const char* paramModule(clap_id id)
+{
+    if (isLegacyHiddenParam(id)) return "Legacy";
+    switch (id) {
+    case kOrderParamId:
+    case kVoicesParamId:
+    case kModeParamId:
+    case kSpeechModeParamId:
+        return "Encoder";
+    case kBaseNoteParamId:
+    case kTuneParamId:
+    case kScaleParamId:
+    case kPitchSpreadParamId:
+    case kDetuneParamId:
+    case kWorldPitchParamId:
+    case kPortamentoParamId:
+    case kVibratoDepthParamId:
+    case kVibratoRateParamId:
+        return "Pitch";
+    case kPhraseRateParamId:
+    case kTransitionParamId:
+        return "Phrase Playback";
+    case kWorldRateParamId:
+    case kWorldLoopStartParamId:
+    case kWorldLoopEndParamId:
+    case kWorldFreezeParamId:
+    case kWorldScrubParamId:
+        return "Texture Playback";
+    case kWorldVoiceSpreadParamId:
+    case kWorldVoiceDeviationParamId:
+    case kWorldVoicingParamId:
+    case kPvocStretchParamId:
+    case kPvocTransientParamId:
+        return "Voice Playback";
+    case kOutputParamId:
+        return "Output";
+    default:
+        return "Motion";
+    }
+}
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
 
@@ -4382,9 +4467,11 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     if (!info || index >= paramsCount(nullptr)) return false;
     const auto& def = kParams[index];
     info->id = def.id;
-    info->flags = CLAP_PARAM_IS_AUTOMATABLE | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0);
+    info->flags = CLAP_PARAM_IS_AUTOMATABLE
+        | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0)
+        | (isLegacyHiddenParam(def.id) ? CLAP_PARAM_IS_HIDDEN : 0);
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, "Ambi Vox Encoder", sizeof(info->module));
+    std::strncpy(info->module, paramModule(def.id), sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -4966,7 +5053,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state->guiViewElDeg = std::clamp(legacy.guiViewElDeg, -85.0f, 85.0f);
         state->guiViewZoom = std::clamp(legacy.guiViewZoom, 0.55f, 2.4f);
 #endif
-    } else if (version == kStateVersion) {
+    } else if (version == 17u || version == kStateVersion) {
         SavedState saved {};
         saved.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&saved) + sizeof(version), sizeof(saved) - sizeof(version))) return false;
@@ -4991,6 +5078,18 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 #endif
     } else {
         return false;
+    }
+    if (version < kStateVersion) {
+        state->vox.worldPitchCents = std::clamp(
+            state->vox.worldPitchCents + state->params.tuneCents, -2400.0f, 2400.0f);
+        state->params.tuneCents = 0.0f;
+        state->vox.circuitMode = VoxCircuitMode::Clean;
+        state->vox.formantMacro = 0.0f;
+        state->vox.bendMacro = 0.0f;
+        state->vox.crushMacro = 0.0f;
+        state->vox.rasp = 0.0f;
+        state->vox.breath = 0.0f;
+        state->vox.drive = 0.0f;
     }
     compileVoxPhrase(*state);
     std::atomic_store_explicit(&state->userBank, std::move(restoredUserBank), std::memory_order_release);
@@ -6024,46 +6123,48 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 {
     const auto p = _plugin->params;
     const auto v = _plugin->vox;
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 202, style);
+    s3g::clap_gui::drawPanelFrame(630, 42, 250, 150, style);
     s3g::clap_gui::drawPanelHeader(@"ENCODER", true, 630, 42, 250, 21, attrs, style);
-    [self drawMenu:@"PLAY" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:78 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"TRIGGER" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:78 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:64 y:130 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"TRANSPOSE" param:kWorldPitchParamId value:v.worldPitchCents min:-2400 max:2400 y:156 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"DEV" param:kDetuneParamId value:p.detune min:0 max:1 y:182 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"VOICE" value:[NSString stringWithUTF8String:voxSpeechModeName(v.speechMode)] y:156 attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 256, 250, 254, style);
-    s3g::clap_gui::drawPanelHeader(@"WORLD", true, 630, 256, 250, 21, attrs, style);
-    [self drawSlider:@"RATE" param:kWorldRateParamId value:v.worldRate min:0 max:1 y:292 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"LOOP A" param:kWorldLoopStartParamId value:v.worldLoopStart min:0 max:1 y:318 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"LOOP B" param:kWorldLoopEndParamId value:v.worldLoopEnd min:0 max:1 y:344 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"TIME STEP" param:kWorldVoiceSpreadParamId value:v.worldVoiceSpread min:0 max:1 y:370 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"TIME DEV" param:kWorldVoiceDeviationParamId value:v.worldVoiceDeviation min:0 max:1 y:396 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FREEZE" param:kWorldFreezeParamId value:v.worldFreeze min:0 max:1 y:422 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"SCRUB" param:kWorldScrubParamId value:v.worldScrub min:0 max:1 y:448 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"VOICING" param:kWorldVoicingParamId value:v.worldVoicing min:0 max:1 y:474 attrs:attrs valueAttrs:valueAttrs style:style];
+    const bool textureMode = v.speechMode == VoxSpeechMode::Texture;
+    s3g::clap_gui::drawPanelFrame(630, 204, 250, 294, style);
+    s3g::clap_gui::drawPanelHeader(textureMode ? @"TEXTURE PLAYBACK" : @"PHRASE PLAYBACK",
+        true, 630, 204, 250, 21, attrs, style);
+    if (textureMode) {
+        [self drawSlider:@"SPEED" param:kWorldRateParamId value:v.worldRate min:0 max:1 y:240 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"LOOP START" param:kWorldLoopStartParamId value:v.worldLoopStart min:0 max:1 y:266 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"LOOP END" param:kWorldLoopEndParamId value:v.worldLoopEnd min:0 max:1 y:292 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"FREEZE" param:kWorldFreezeParamId value:v.worldFreeze min:0 max:1 y:318 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"POSITION" param:kWorldScrubParamId value:v.worldScrub min:0 max:1 y:344 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"STRETCH" param:kPvocStretchParamId value:v.pvocStretch min:0.25 max:4 y:370 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"TRANSIENT" param:kPvocTransientParamId value:v.pvocTransient min:0 max:1 y:396 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"VOICING" param:kWorldVoicingParamId value:v.worldVoicing min:0 max:1 y:422 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"VOICE STEP" param:kWorldVoiceSpreadParamId value:v.worldVoiceSpread min:0 max:1 y:448 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"VOICE DEV" param:kWorldVoiceDeviationParamId value:v.worldVoiceDeviation min:0 max:1 y:474 attrs:attrs valueAttrs:valueAttrs style:style];
+    } else {
+        [self drawSlider:@"PACE" param:kPhraseRateParamId value:v.phraseRate min:0 max:1 y:240 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"STRETCH" param:kPvocStretchParamId value:v.pvocStretch min:0.25 max:4 y:266 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"TRANSIENT" param:kPvocTransientParamId value:v.pvocTransient min:0 max:1 y:292 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"BLEND" param:kTransitionParamId value:v.transition min:0 max:1 y:318 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"VOICING" param:kWorldVoicingParamId value:v.worldVoicing min:0 max:1 y:344 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"VOICE STEP" param:kWorldVoiceSpreadParamId value:v.worldVoiceSpread min:0 max:1 y:370 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"VOICE DEV" param:kWorldVoiceDeviationParamId value:v.worldVoiceDeviation min:0 max:1 y:396 attrs:attrs valueAttrs:valueAttrs style:style];
+    }
 
-    s3g::clap_gui::drawPanelFrame(630, 522, 250, 204, style);
-    s3g::clap_gui::drawPanelHeader(@"CHARACTER", true, 630, 522, 250, 21, attrs, style);
-    [self drawMenu:@"VOICE" value:[NSString stringWithUTF8String:voxSpeechModeName(v.speechMode)] y:558 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"CIRCUIT" value:[NSString stringWithUTF8String:voxCircuitModeName(v.circuitMode)] y:584 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FORM" param:kFormantMacroParamId value:v.formantMacro min:-1 max:1 y:610 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FLUTTER" param:kBendMacroParamId value:v.bendMacro min:0 max:1 y:634 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"DEGRADE" param:kCrushMacroParamId value:v.crushMacro min:0 max:1 y:658 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"EDGE" param:kRaspParamId value:v.rasp min:0 max:1 y:682 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"AIR" param:kBreathParamId value:v.breath min:0 max:1 y:706 attrs:attrs valueAttrs:valueAttrs style:style];
-
-    s3g::clap_gui::drawPanelFrame(630, 738, 250, 90, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 738, 250, 21, attrs, style);
-    [self drawSlider:@"DRIVE" param:kDriveParamId value:v.drive min:0 max:1 y:774 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:800 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(630, 510, 250, 64, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 510, 250, 21, attrs, style);
+    [self drawSlider:@"LEVEL" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:546 attrs:attrs valueAttrs:valueAttrs style:style];
 
     constexpr CGFloat motionX = 896;
     s3g::clap_gui::drawPanelFrame(motionX, 42, 246, 426, style);
     s3g::clap_gui::drawPanelHeader(@"MOTION", true, motionX, 42, 246, 21, attrs, style);
     [self drawMenuAtX:motionX name:@"SCENE" value:[NSString stringWithUTF8String:s3g::ambiVotMotionSceneName(p.motionScene)] y:78 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenuAtX:motionX name:@"CLOCK" value:[NSString stringWithUTF8String:s3g::ambiVotMotionClockName(p.motionClock)] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"RATE" param:kMotionRateParamId value:p.motionRateHz min:0.001 max:2 y:130 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"SPEED" param:kMotionRateParamId value:p.motionRateHz min:0.001 max:2 y:130 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSliderAtX:motionX name:@"DIV" param:kSyncDivisionParamId value:p.syncDivisionBeats min:0.25 max:64 y:156 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSliderAtX:motionX name:@"AMOUNT" param:kMotionAmountParamId value:p.motionAmount min:0 max:1 y:182 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSliderAtX:motionX name:@"SPREAD" param:kSpreadParamId value:p.motionSpread min:0 max:1 y:208 attrs:attrs valueAttrs:valueAttrs style:style];
@@ -6109,8 +6210,6 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
             [NSString stringWithUTF8String:resolvedText.c_str()]];
         [aliases drawAtPoint:NSMakePoint(motionX + 16, 562) withAttributes:valueAttrs];
     }
-    [self drawSliderAtX:motionX name:@"RATE" param:kPhraseRateParamId
-        value:v.phraseRate min:0 max:1 y:584 attrs:attrs valueAttrs:valueAttrs style:style];
     const uint32_t phraseEventCount = _plugin
         ? std::min<uint32_t>(_plugin->voxBankCompiledCount.load(std::memory_order_acquire), kVoxCompiledMaxFrames)
         : 0u;
@@ -6151,16 +6250,11 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     [self drawSliderAtX:motionX name:@"ROOT" param:kBaseNoteParamId value:p.baseNote min:12 max:96 y:680 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenuAtX:motionX name:@"SCALE" value:[NSString stringWithUTF8String:s3g::ambiVotScaleName(p.scale)] y:706 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSliderAtX:motionX name:@"SPREAD" param:kPitchSpreadParamId value:p.pitchSpread min:0 max:2 y:732 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"TUNE" param:kTuneParamId value:p.tuneCents min:-1200 max:1200 y:758 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"PORT" param:kPortamentoParamId value:v.portamento min:0 max:1 y:784 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"VIBRATO" param:kVibratoDepthParamId value:v.vibratoDepth min:0 max:1 y:810 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"VIB RATE" param:kVibratoRateParamId value:v.vibratoRateHz min:0.1 max:12 y:836 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"BLEND" param:kTransitionParamId value:v.transition min:0 max:1 y:862 attrs:attrs valueAttrs:valueAttrs style:style];
-
-    s3g::clap_gui::drawPanelFrame(motionX, 902, 246, 90, style);
-    s3g::clap_gui::drawPanelHeader(@"PVOC", true, motionX, 902, 246, 21, attrs, style);
-    [self drawSliderAtX:motionX name:@"STRETCH" param:kPvocStretchParamId value:v.pvocStretch min:0.25 max:4 y:938 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"TRANSIENT" param:kPvocTransientParamId value:v.pvocTransient min:0 max:1 y:964 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"TRANSPOSE" param:kWorldPitchParamId value:v.worldPitchCents min:-2400 max:2400 y:758 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"DEVIATION" param:kDetuneParamId value:p.detune min:0 max:1 y:784 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"GLIDE" param:kPortamentoParamId value:v.portamento min:0 max:1 y:810 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"VIBRATO" param:kVibratoDepthParamId value:v.vibratoDepth min:0 max:1 y:836 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"VIB SPEED" param:kVibratoRateParamId value:v.vibratoRateHz min:0.1 max:12 y:862 attrs:attrs valueAttrs:valueAttrs style:style];
 }
 
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -6175,7 +6269,6 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     static NSString* scoreModeItems[] = { @"OFF", @"ONE", @"LOOP", @"PING" };
     static NSString* curveItems[] = { @"LINEAR", @"SMOOTH", @"EXP", @"HOLD" };
     static NSString* speechItems[] = { @"TEXTURE", @"SPEAK", @"SING" };
-    static NSString* circuitItems[] = { @"CLEAN", @"BENT", @"CHIP", @"BROKEN" };
     NSString** items = modeItems;
     int selected = 0;
     if (_openMenu == 1) selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.mode));
@@ -6200,9 +6293,6 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     } else if (_openMenu == 9) {
         items = speechItems;
         selected = static_cast<int>(static_cast<uint32_t>(_plugin->vox.speechMode));
-    } else if (_openMenu == 10) {
-        items = circuitItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->vox.circuitMode));
     } else {
         items = curveItems;
         const auto score = loadScore(*_plugin);
@@ -6642,7 +6732,6 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         else if (_openMenu == 6) applyParam(*_plugin, kScaleParamId, hit);
         else if (_openMenu == 7) applyParam(*_plugin, kScoreModeParamId, hit);
         else if (_openMenu == 9) applyParam(*_plugin, kSpeechModeParamId, hit);
-        else if (_openMenu == 10) applyParam(*_plugin, kCircuitModeParamId, hit);
         else if (_openMenu == 8) {
             auto score = loadScore(*_plugin);
             const uint32_t node = std::min<uint32_t>(_selectedScoreNode, score.nodeCount - 1u);
@@ -6792,7 +6881,7 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     struct MenuHit { int menu; uint32_t count; CGFloat x; CGFloat y; CGFloat width; };
     static constexpr MenuHit menus[] {
         { 1, 3, 738, 78, 124 }, { 3, 7, 738, 104, 124 },
-        { 9, 3, 738, 558, 124 }, { 10, 4, 738, 584, 124 },
+        { 9, 3, 738, 156, 124 },
         { 4, 5, 1004, 78, 124 }, { 5, 2, 1004, 104, 124 },
         { 6, 6, 1004, 706, 124 },
     };
@@ -6803,38 +6892,52 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         }
     }
     struct SliderHit { clap_id param; CGFloat x; CGFloat y; int area; };
-    static constexpr SliderHit sliders[] {
-        { kVoicesParamId, 638, 130, 1 }, { kWorldPitchParamId, 638, 156, 1 }, { kDetuneParamId, 638, 182, 1 },
-        { kWorldRateParamId, 638, 292, 1 }, { kWorldLoopStartParamId, 638, 318, 1 },
-        { kWorldLoopEndParamId, 638, 344, 1 }, { kWorldVoiceSpreadParamId, 638, 370, 1 },
-        { kWorldVoiceDeviationParamId, 638, 396, 1 }, { kWorldFreezeParamId, 638, 422, 1 },
-        { kWorldScrubParamId, 638, 448, 1 }, { kWorldVoicingParamId, 638, 474, 1 },
-        { kFormantMacroParamId, 638, 610, 1 }, { kBendMacroParamId, 638, 634, 1 },
-        { kCrushMacroParamId, 638, 658, 1 }, { kRaspParamId, 638, 682, 1 },
-        { kBreathParamId, 638, 706, 1 },
-        { kDriveParamId, 638, 774, 1 }, { kOutputParamId, 638, 800, 1 },
+    static constexpr SliderHit commonSliders[] {
+        { kVoicesParamId, 638, 130, 1 }, { kOutputParamId, 638, 546, 1 },
         { kMotionRateParamId, 904, 130, 7 }, { kSyncDivisionParamId, 904, 156, 7 },
         { kMotionAmountParamId, 904, 182, 7 }, { kSpreadParamId, 904, 208, 7 },
         { kCoherenceParamId, 904, 234, 7 }, { kChaosParamId, 904, 260, 7 },
         { kLinkParamId, 904, 286, 7 }, { kSmoothParamId, 904, 312, 7 },
         { kCenterAzimuthParamId, 904, 338, 7 }, { kCenterElevationParamId, 904, 364, 7 },
         { kCenterDistanceParamId, 904, 390, 7 },
-        { kPhraseRateParamId, 904, 584, 7 },
         { kBaseNoteParamId, 904, 680, 7 }, { kPitchSpreadParamId, 904, 732, 7 },
-        { kTuneParamId, 904, 758, 7 }, { kPortamentoParamId, 904, 784, 7 },
-        { kVibratoDepthParamId, 904, 810, 7 }, { kVibratoRateParamId, 904, 836, 7 },
-        { kTransitionParamId, 904, 862, 7 }, { kPvocStretchParamId, 904, 938, 7 },
-        { kPvocTransientParamId, 904, 964, 7 },
+        { kWorldPitchParamId, 904, 758, 7 }, { kDetuneParamId, 904, 784, 7 },
+        { kPortamentoParamId, 904, 810, 7 }, { kVibratoDepthParamId, 904, 836, 7 },
+        { kVibratoRateParamId, 904, 862, 7 },
     };
-    for (const auto& slider : sliders) {
-        if (NSPointInRect(point, NSMakeRect(slider.x, slider.y - 8, 232, 24))) {
+    static constexpr SliderHit phraseSliders[] {
+        { kPhraseRateParamId, 638, 240, 1 }, { kPvocStretchParamId, 638, 266, 1 },
+        { kPvocTransientParamId, 638, 292, 1 }, { kTransitionParamId, 638, 318, 1 },
+        { kWorldVoicingParamId, 638, 344, 1 }, { kWorldVoiceSpreadParamId, 638, 370, 1 },
+        { kWorldVoiceDeviationParamId, 638, 396, 1 },
+    };
+    static constexpr SliderHit textureSliders[] {
+        { kWorldRateParamId, 638, 240, 1 }, { kWorldLoopStartParamId, 638, 266, 1 },
+        { kWorldLoopEndParamId, 638, 292, 1 }, { kWorldFreezeParamId, 638, 318, 1 },
+        { kWorldScrubParamId, 638, 344, 1 }, { kPvocStretchParamId, 638, 370, 1 },
+        { kPvocTransientParamId, 638, 396, 1 }, { kWorldVoicingParamId, 638, 422, 1 },
+        { kWorldVoiceSpreadParamId, 638, 448, 1 }, { kWorldVoiceDeviationParamId, 638, 474, 1 },
+    };
+    const auto hitSlider = [&](const SliderHit& slider) {
+        if (!NSPointInRect(point, NSMakeRect(slider.x, slider.y - 8, 232, 24))) return false;
             if ([event clickCount] >= 2) applyParam(*_plugin, slider.param, [self defaultValueForParam:slider.param]);
             else {
                 _dragParam = slider.param;
                 _dragArea = slider.area;
                 [self updateDraggedSlider:point];
             }
-            return;
+        return true;
+    };
+    for (const auto& slider : commonSliders) {
+        if (hitSlider(slider)) return;
+    }
+    if (_plugin->vox.speechMode == VoxSpeechMode::Texture) {
+        for (const auto& slider : textureSliders) {
+            if (hitSlider(slider)) return;
+        }
+    } else {
+        for (const auto& slider : phraseSliders) {
+            if (hitSlider(slider)) return;
         }
     }
 }

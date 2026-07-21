@@ -16,12 +16,15 @@ constexpr uint32_t kAmbiWaveTerrainMaxOrder = 7;
 constexpr uint32_t kAmbiWaveTerrainMaxChannels = 64;
 constexpr uint32_t kAmbiWaveTerrainTableSize = 512;
 constexpr uint32_t kAmbiWaveTerrainMipLevels = 5;
-constexpr uint32_t kAmbiWaveTerrainSpatialTableSize = 64;
 constexpr float kAmbiWaveTerrainTwoPi = 6.28318530717958647692f;
 
 enum class AmbiWaveTerrainMode : uint32_t { Free = 0, Midi = 1, Both = 2 };
 enum class AmbiWaveTerrainPitchMode : uint32_t { Note = 0, Traversal = 1 };
 enum class AmbiWaveTerrainMotionMode : uint32_t { Field = 0, Rotate = 1 };
+enum class AmbiWaveTerrainPitchScale : uint32_t {
+    Free = 0, Chromatic = 1, Major = 2, Minor = 3,
+    Pentatonic = 4, WholeTone = 5, HarmonicMinor = 6,
+};
 enum class AmbiWaveTerrainSkin : uint32_t {
     Harmonic = 0, Fbm = 1, Cellular = 2, Vot = 3,
     Ridges = 4, Dunes = 5, Craters = 6, Tectonic = 7,
@@ -83,7 +86,75 @@ struct AmbiWaveTerrainParams {
     float azimuthRateRpm = 0.70f;
     float elevationRateRpm = 0.43f;
     float rotationRateDeviation = 0.28f;
+    AmbiWaveTerrainPitchScale pitchScale = AmbiWaveTerrainPitchScale::Free;
 };
+
+inline int ambiWaveTerrainScaleDegreeSemitones(AmbiWaveTerrainPitchScale scale, int degree)
+{
+    static constexpr std::array<int, 12> chromatic {{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }};
+    static constexpr std::array<int, 7> major {{ 0, 2, 4, 5, 7, 9, 11 }};
+    static constexpr std::array<int, 7> minor {{ 0, 2, 3, 5, 7, 8, 10 }};
+    static constexpr std::array<int, 5> pentatonic {{ 0, 2, 4, 7, 9 }};
+    static constexpr std::array<int, 6> wholeTone {{ 0, 2, 4, 6, 8, 10 }};
+    static constexpr std::array<int, 7> harmonicMinor {{ 0, 2, 3, 5, 7, 8, 11 }};
+
+    const int* values = chromatic.data();
+    int count = static_cast<int>(chromatic.size());
+    switch (scale) {
+    case AmbiWaveTerrainPitchScale::Major: values = major.data(); count = static_cast<int>(major.size()); break;
+    case AmbiWaveTerrainPitchScale::Minor: values = minor.data(); count = static_cast<int>(minor.size()); break;
+    case AmbiWaveTerrainPitchScale::Pentatonic: values = pentatonic.data(); count = static_cast<int>(pentatonic.size()); break;
+    case AmbiWaveTerrainPitchScale::WholeTone: values = wholeTone.data(); count = static_cast<int>(wholeTone.size()); break;
+    case AmbiWaveTerrainPitchScale::HarmonicMinor: values = harmonicMinor.data(); count = static_cast<int>(harmonicMinor.size()); break;
+    case AmbiWaveTerrainPitchScale::Free:
+    case AmbiWaveTerrainPitchScale::Chromatic:
+    default: break;
+    }
+
+    int octave = degree / count;
+    int index = degree % count;
+    if (index < 0) {
+        index += count;
+        --octave;
+    }
+    return octave * 12 + values[index];
+}
+
+inline int ambiWaveTerrainScaleSize(AmbiWaveTerrainPitchScale scale)
+{
+    switch (scale) {
+    case AmbiWaveTerrainPitchScale::Pentatonic: return 5;
+    case AmbiWaveTerrainPitchScale::WholeTone: return 6;
+    case AmbiWaveTerrainPitchScale::Major:
+    case AmbiWaveTerrainPitchScale::Minor:
+    case AmbiWaveTerrainPitchScale::HarmonicMinor: return 7;
+    case AmbiWaveTerrainPitchScale::Free:
+    case AmbiWaveTerrainPitchScale::Chromatic:
+    default: return 12;
+    }
+}
+
+inline float ambiWaveTerrainQuantizeToScale(float note, float root, AmbiWaveTerrainPitchScale scale)
+{
+    if (scale == AmbiWaveTerrainPitchScale::Free) return note;
+    const float relative = note - root;
+    const int scaleSize = ambiWaveTerrainScaleSize(scale);
+    const int approximateOctave = static_cast<int>(std::floor(relative / 12.0f));
+    float bestNote = root;
+    float bestDistance = 100000.0f;
+    for (int octave = approximateOctave - 1; octave <= approximateOctave + 1; ++octave) {
+        for (int index = 0; index < scaleSize; ++index) {
+            const int degree = octave * scaleSize + index;
+            const float candidate = root + static_cast<float>(ambiWaveTerrainScaleDegreeSemitones(scale, degree));
+            const float distance = std::fabs(candidate - note);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestNote = candidate;
+            }
+        }
+    }
+    return bestNote;
+}
 
 struct AmbiWaveTerrainPoint {
     float azimuthDeg = 0.0f;
@@ -100,6 +171,24 @@ struct AmbiWaveTerrainRegion {
     float rotation = 0.0f;
     AmbiWaveTerrainTrace trace = AmbiWaveTerrainTrace::Lissajous;
 };
+
+inline std::array<float, 2> ambiWaveTerrainRotationUv(float azimuthPhase, float elevationPhase)
+{
+    azimuthPhase -= std::floor(azimuthPhase);
+    elevationPhase -= std::floor(elevationPhase);
+    const float azimuthAngle = (azimuthPhase - 0.5f) * kAmbiWaveTerrainTwoPi;
+    const float elevationAngle = elevationPhase * kAmbiWaveTerrainTwoPi;
+    const float ce = std::cos(elevationAngle);
+    const Vec3 direction {
+        ce * std::cos(azimuthAngle),
+        ce * std::sin(azimuthAngle),
+        std::sin(elevationAngle),
+    };
+    float u = std::atan2(direction.y, direction.x) / kAmbiWaveTerrainTwoPi + 0.5f;
+    u -= std::floor(u);
+    const float v = 0.5f + std::asin(clamp(direction.z, -1.0f, 1.0f)) / kPi;
+    return { u, clamp(v, 0.0f, 1.0f) };
+}
 
 enum class AmbiWaveTerrainEnvelopeStage : uint8_t { Idle = 0, Attack, Decay, Sustain, Release };
 
@@ -144,7 +233,6 @@ struct AmbiWaveTerrainEnvelope {
 struct AmbiWaveTerrainTable {
     std::array<std::array<float, kAmbiWaveTerrainTableSize>, kAmbiWaveTerrainMipLevels> levels {};
     std::array<float, kAmbiWaveTerrainTableSize> terrainProfile {};
-    std::array<std::array<float, kAmbiWaveTerrainMaxChannels>, kAmbiWaveTerrainSpatialTableSize> spatialBasis {};
     float traversalLength = 4.0f;
     AmbiWaveTerrainRegion region {};
 };
@@ -166,6 +254,7 @@ struct AmbiWaveTerrainVoice {
     float elevationPhase = 0.0f;
     std::array<float, kAmbiWaveTerrainMaxChannels> freeSpatial {};
     std::array<float, kAmbiWaveTerrainMaxChannels> midiSpatial {};
+    std::array<float, kAmbiWaveTerrainMaxChannels> centerSpatial {};
     uint32_t randomState = 1u;
     uint32_t seriesCursor = 0u;
     int midiNote = 60;
@@ -207,6 +296,7 @@ public:
                 ? 1.0f + static_cast<float>(voice) * 0.003f * static_cast<float>(sampleRate_)
                 : eventDurationSamples(v, true) + static_cast<float>(voice) * 0.017f * static_cast<float>(sampleRate_);
             points_[voice] = pointForRegion(region);
+            updateSpatialTarget(v, points_[voice]);
             previousPoints_[voice] = points_[voice];
             fieldActive_[voice] = 1u;
             neighbor_[voice] = (voice + 1u) % kAmbiWaveTerrainMaxVoices;
@@ -262,6 +352,8 @@ public:
         params.azimuthRateRpm = clamp(params.azimuthRateRpm, -12.0f, 12.0f);
         params.elevationRateRpm = clamp(params.elevationRateRpm, -12.0f, 12.0f);
         params.rotationRateDeviation = clamp(params.rotationRateDeviation, 0.0f, 1.0f);
+        params.pitchScale = static_cast<AmbiWaveTerrainPitchScale>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(params.pitchScale), 0u, 6u));
 
         const bool motionModeChanged = params.motionMode != params_.motionMode;
         const bool terrainChanged = params.skin != params_.skin
@@ -293,6 +385,16 @@ public:
     const std::array<uint32_t, kAmbiWaveTerrainMaxVoices>& neighbors() const { return neighbor_; }
     float voiceEnergy(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiWaveTerrainMaxVoices - 1u)].energy; }
     float voiceTransition(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiWaveTerrainMaxVoices - 1u)].transition; }
+    float voiceTraversalLength(uint32_t voice, bool next = true) const
+    {
+        const auto& v = voices_[std::min<uint32_t>(voice, kAmbiWaveTerrainMaxVoices - 1u)];
+        return next ? v.next.traversalLength : v.current.traversalLength;
+    }
+    float voiceFrequencyHz(uint32_t voice) const
+    {
+        voice = std::min<uint32_t>(voice, kAmbiWaveTerrainMaxVoices - 1u);
+        return frequencyForVoice(params_.baseNote, voice, false);
+    }
     float voiceScanPhase(uint32_t voice) const
     {
         const auto& v = voices_[std::min<uint32_t>(voice, kAmbiWaveTerrainMaxVoices - 1u)];
@@ -398,9 +500,7 @@ public:
                         const float sample = lerp(scan.current, scan.next, transition);
                         voiceSample += sample * amplitude;
                         for (uint32_t channel = 0; channel < ambiChannels; ++channel) {
-                            const float currentBasis = spatialSample(v.current, scan, channel);
-                            const float nextBasis = spatialSample(v.next, scan, channel);
-                            const float targetBasis = lerp(currentBasis, nextBasis, transition);
+                            const float targetBasis = v.centerSpatial[channel];
                             smoothedSpatial[channel] += (targetBasis - smoothedSpatial[channel]) * spatialCoefficient;
                             if (outputs[channel]) {
                                 outputs[channel][frame] = flushDenormal(outputs[channel][frame]
@@ -607,8 +707,9 @@ private:
         Vec3 firstWorld {};
         Vec3 previousWorld {};
         float traversalLength = 0.0f;
-        for (uint32_t index = 0; index < kAmbiWaveTerrainSpatialTableSize; ++index) {
-            const auto uv = contour(region, static_cast<float>(index) / static_cast<float>(kAmbiWaveTerrainSpatialTableSize));
+        constexpr uint32_t kTraversalSamples = 64u;
+        for (uint32_t index = 0; index < kTraversalSamples; ++index) {
+            const auto uv = contour(region, static_cast<float>(index) / static_cast<float>(kTraversalSamples));
             const auto point = surfacePoint(uv[0], uv[1]);
             const auto direction = directionFromAed(point.azimuthDeg, point.elevationDeg);
             const Vec3 world { direction.x * point.distance, direction.y * point.distance, direction.z * point.distance };
@@ -618,11 +719,6 @@ private:
                 traversalLength += std::sqrt(dx * dx + dy * dy + dz * dz);
             }
             previousWorld = world;
-            const auto basis = acnSn3dBasis7(direction);
-            const float distanceGain = 1.0f / std::max(0.25f, point.distance);
-            for (uint32_t channel = 0; channel < kAmbiWaveTerrainMaxChannels; ++channel) {
-                table.spatialBasis[index][channel] = basis[channel] * distanceGain;
-            }
         }
         const float closeX = firstWorld.x - previousWorld.x, closeY = firstWorld.y - previousWorld.y, closeZ = firstWorld.z - previousWorld.z;
         table.traversalLength = std::max(0.05f, traversalLength + std::sqrt(closeX * closeX + closeY * closeY + closeZ * closeZ));
@@ -663,16 +759,7 @@ private:
     struct ScanSample {
         float current = 0.0f;
         float next = 0.0f;
-        uint32_t spatialIndex = 0u;
-        uint32_t spatialNext = 0u;
-        float spatialMix = 0.0f;
     };
-
-    static float spatialSample(const AmbiWaveTerrainTable& table, const ScanSample& scan, uint32_t channel)
-    {
-        return lerp(table.spatialBasis[scan.spatialIndex][channel],
-                    table.spatialBasis[scan.spatialNext][channel], scan.spatialMix);
-    }
 
     ScanSample oscillator(AmbiWaveTerrainVoice& voice, float& phase, float frequency) const
     {
@@ -680,21 +767,27 @@ private:
         ScanSample sample {};
         sample.current = tableSample(voice.current, phase, frequency);
         sample.next = tableSample(voice.next, phase, frequency);
-        const float spatialPosition = phase * static_cast<float>(kAmbiWaveTerrainSpatialTableSize);
-        sample.spatialIndex = static_cast<uint32_t>(std::floor(spatialPosition)) % kAmbiWaveTerrainSpatialTableSize;
-        sample.spatialNext = (sample.spatialIndex + 1u) % kAmbiWaveTerrainSpatialTableSize;
-        sample.spatialMix = spatialPosition - std::floor(spatialPosition);
         return sample;
     }
 
-    float frequencyForVoice(float note, uint32_t voice, bool midi) const
+    float frequencyForVoice(float note, uint32_t voiceIndex, bool midi) const
     {
         const float center = (static_cast<float>(std::max<uint32_t>(1u, params_.voices)) - 1.0f) * 0.5f;
-        const float position = center > 0.0f ? (static_cast<float>(voice) - center) / center : 0.0f;
+        const float position = center > 0.0f ? (static_cast<float>(voiceIndex) - center) / center : 0.0f;
         const float spread = midi ? 0.0f : position * params_.pitchSpreadSemitones * 0.5f;
-        const float detune = deterministicSigned(voice * 29u + 7u) * params_.detuneCents;
-        const float tuned = note + spread + (params_.tuneCents + detune) / 100.0f;
-        return std::min(440.0f * std::pow(2.0f, (tuned - 69.0f) / 12.0f), static_cast<float>(sampleRate_) * 0.45f);
+        const float detune = deterministicSigned(voiceIndex * 29u + 7u) * params_.detuneCents;
+        float terrainNote = note + spread;
+        if (!midi && params_.pitchMode == AmbiWaveTerrainPitchMode::Traversal) {
+            const auto& voice = voices_[voiceIndex];
+            const float length = lerp(voice.current.traversalLength, voice.next.traversalLength, voice.transition);
+            constexpr float kReferenceTraversalLength = 4.0f;
+            const float traversalRatio = kReferenceTraversalLength / std::max(0.05f, length);
+            terrainNote += 12.0f * std::log2(traversalRatio);
+        }
+        if (!midi) terrainNote = ambiWaveTerrainQuantizeToScale(terrainNote, params_.baseNote, params_.pitchScale);
+        const float tuned = terrainNote + (params_.tuneCents + detune) / 100.0f;
+        const float frequency = 440.0f * std::pow(2.0f, (tuned - 69.0f) / 12.0f);
+        return std::min(frequency, static_cast<float>(sampleRate_) * 0.45f);
     }
 
     AmbiWaveTerrainRegion initialRegion(uint32_t voice) const
@@ -799,12 +892,6 @@ private:
                 voice.current.terrainProfile[index] = lerp(
                     voice.current.terrainProfile[index], voice.next.terrainProfile[index], t);
             }
-            for (uint32_t index = 0; index < kAmbiWaveTerrainSpatialTableSize; ++index) {
-                for (uint32_t channel = 0; channel < kAmbiWaveTerrainMaxChannels; ++channel) {
-                    voice.current.spatialBasis[index][channel] = lerp(
-                        voice.current.spatialBasis[index][channel], voice.next.spatialBasis[index][channel], t);
-                }
-            }
             voice.current.traversalLength = lerp(voice.current.traversalLength, voice.next.traversalLength, t);
             voice.current.region.u = lerpWrappedUnit(voice.current.region.u, voice.next.region.u, t);
             voice.current.region.v = lerp(voice.current.region.v, voice.next.region.v, t);
@@ -821,6 +908,34 @@ private:
     void updateField(uint32_t voiceIndex, uint32_t frames)
     {
         auto& voice = voices_[voiceIndex];
+        if (params_.motionMode == AmbiWaveTerrainMotionMode::Rotate) {
+            const float seconds = static_cast<float>(frames) / static_cast<float>(sampleRate_);
+            const float deviation = params_.rotationRateDeviation * 1.5f;
+            const float azimuthScale = std::exp2(deterministicSigned(voiceIndex * 43u + 11u) * deviation);
+            const float elevationScale = std::exp2(deterministicSigned(voiceIndex * 47u + 19u) * deviation);
+            voice.azimuthPhase = fract(voice.azimuthPhase + params_.azimuthRateRpm * azimuthScale * seconds / 60.0f);
+            voice.elevationPhase = fract(voice.elevationPhase + params_.elevationRateRpm * elevationScale * seconds / 60.0f);
+            voice.eventSamples -= static_cast<float>(frames);
+            if (voice.eventSamples > 0.0f) return;
+
+            AmbiWaveTerrainRegion region = voice.next.region;
+            const auto uv = ambiWaveTerrainRotationUv(voice.azimuthPhase, voice.elevationPhase);
+            region.u = uv[0];
+            region.v = uv[1];
+            region.radius = params_.scanRadius;
+            region.aspect = params_.scanAspect;
+            region.rotation = params_.scanRotation;
+            region.trace = params_.trace;
+            const float updateSeconds = std::max(0.75f, params_.tableXfadeMs * 0.001f);
+            beginTransition(voiceIndex, region);
+            voice.transitionStep = 1.0f / std::max(1.0f, updateSeconds * static_cast<float>(sampleRate_));
+            voice.fieldActive = true;
+            fieldActive_[voiceIndex] = 1u;
+            neighbor_[voiceIndex] = voiceIndex;
+            voice.eventSamples = updateSeconds * static_cast<float>(sampleRate_);
+            return;
+        }
+
         voice.eventSamples -= static_cast<float>(frames);
         if (voice.eventSamples > 0.0f) return;
         if (voice.fieldActive) {
@@ -834,30 +949,46 @@ private:
     }
 
     AmbiWaveTerrainPoint pointForRegion(const AmbiWaveTerrainRegion& region) const { return surfacePoint(region.u, region.v); }
-    AmbiWaveTerrainPoint scanPointForRegion(const AmbiWaveTerrainRegion& region, float phase) const
+    void updateSpatialTarget(AmbiWaveTerrainVoice& voice, const AmbiWaveTerrainPoint& point) const
     {
-        const auto uv = contour(region, phase);
-        return surfacePoint(uv[0], uv[1]);
+        const auto basis = acnSn3dBasis7(directionFromAed(point.azimuthDeg, point.elevationDeg));
+        const float distanceGain = 1.0f / std::max(0.25f, point.distance);
+        for (uint32_t channel = 0; channel < kAmbiWaveTerrainMaxChannels; ++channel) {
+            voice.centerSpatial[channel] = basis[channel] * distanceGain;
+        }
     }
 
     void updatePoint(uint32_t voiceIndex)
     {
         auto& voice = voices_[voiceIndex];
-        const float phase = voiceScanPhase(voiceIndex);
-        const auto from = scanPointForRegion(voice.current.region, phase);
-        const auto to = scanPointForRegion(voice.next.region, phase);
+        const auto from = pointForRegion(voice.current.region);
+        const auto to = pointForRegion(voice.next.region);
         AmbiWaveTerrainPoint target {};
         const float t = voice.transition;
-        target.azimuthDeg = wrapSignedDeg(from.azimuthDeg + wrapSignedDeg(to.azimuthDeg - from.azimuthDeg) * t);
-        target.elevationDeg = lerp(from.elevationDeg, to.elevationDeg, t);
+        const auto fromDirection = directionFromAed(from.azimuthDeg, from.elevationDeg);
+        const auto toDirection = directionFromAed(to.azimuthDeg, to.elevationDeg);
+        const auto targetDirection = normalize(Vec3 {
+            lerp(fromDirection.x, toDirection.x, t),
+            lerp(fromDirection.y, toDirection.y, t),
+            lerp(fromDirection.z, toDirection.z, t),
+        });
+        target.azimuthDeg = wrapSignedDeg(std::atan2(targetDirection.y, targetDirection.x) * 180.0f / kPi);
+        target.elevationDeg = std::asin(clamp(targetDirection.z, -1.0f, 1.0f)) * 180.0f / kPi;
         target.distance = lerp(from.distance, to.distance, t);
         target.terrain = lerp(from.terrain, to.terrain, t);
         const float follow = 1.0f - params_.spatialFollow;
         auto& point = points_[voiceIndex];
-        point.azimuthDeg = wrapSignedDeg(point.azimuthDeg + wrapSignedDeg(target.azimuthDeg - point.azimuthDeg) * follow);
-        point.elevationDeg += (target.elevationDeg - point.elevationDeg) * follow;
+        const auto pointDirection = directionFromAed(point.azimuthDeg, point.elevationDeg);
+        const auto smoothedDirection = normalize(Vec3 {
+            lerp(pointDirection.x, targetDirection.x, follow),
+            lerp(pointDirection.y, targetDirection.y, follow),
+            lerp(pointDirection.z, targetDirection.z, follow),
+        });
+        point.azimuthDeg = wrapSignedDeg(std::atan2(smoothedDirection.y, smoothedDirection.x) * 180.0f / kPi);
+        point.elevationDeg = std::asin(clamp(smoothedDirection.z, -1.0f, 1.0f)) * 180.0f / kPi;
         point.distance += (target.distance - point.distance) * follow;
         point.terrain += (target.terrain - point.terrain) * follow;
+        updateSpatialTarget(voice, point);
         previousPoints_[voiceIndex] = point;
     }
 
@@ -912,6 +1043,19 @@ private:
 inline const char* ambiWaveTerrainModeName(AmbiWaveTerrainMode mode)
 {
     switch (mode) { case AmbiWaveTerrainMode::Midi: return "MIDI"; case AmbiWaveTerrainMode::Both: return "BOTH"; default: return "FREE"; }
+}
+inline const char* ambiWaveTerrainPitchModeName(AmbiWaveTerrainPitchMode mode)
+{
+    return mode == AmbiWaveTerrainPitchMode::Traversal ? "TRAVEL" : "NOTE";
+}
+inline const char* ambiWaveTerrainPitchScaleName(AmbiWaveTerrainPitchScale scale)
+{
+    static constexpr const char* names[] { "FREE", "CHROM", "MAJOR", "MINOR", "PENTA", "WHOLE", "HARM MIN" };
+    return names[std::min<uint32_t>(static_cast<uint32_t>(scale), 6u)];
+}
+inline const char* ambiWaveTerrainMotionModeName(AmbiWaveTerrainMotionMode mode)
+{
+    return mode == AmbiWaveTerrainMotionMode::Rotate ? "ROTATE" : "FIELD";
 }
 inline const char* ambiWaveTerrainSkinName(AmbiWaveTerrainSkin skin)
 {

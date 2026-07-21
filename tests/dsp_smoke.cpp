@@ -236,14 +236,60 @@ int main()
         std::cerr << "Ambi Wave Terrain Encoder produced no free-running output\n";
         return 1;
     }
-    const auto scanPointBefore = waveTerrain->points()[0u];
+    const auto terrainCenterBefore = waveTerrain->points()[0u];
     waveTerrain->process(waveTerrainPtrs, s3g::kAmbiWaveTerrainMaxChannels, terrainFrames);
-    const auto scanPointAfter = waveTerrain->points()[0u];
-    const float scanPointMotion = std::abs(scanPointAfter.azimuthDeg - scanPointBefore.azimuthDeg)
-        + std::abs(scanPointAfter.elevationDeg - scanPointBefore.elevationDeg)
-        + std::abs(scanPointAfter.distance - scanPointBefore.distance);
-    if (!std::isfinite(scanPointMotion) || scanPointMotion < 0.001f) {
-        std::cerr << "Ambi Wave Terrain Encoder scan head did not traverse its contour\n";
+    const auto terrainCenterAfter = waveTerrain->points()[0u];
+    const float terrainCenterMotion = std::abs(terrainCenterAfter.azimuthDeg - terrainCenterBefore.azimuthDeg)
+        + std::abs(terrainCenterAfter.elevationDeg - terrainCenterBefore.elevationDeg)
+        + std::abs(terrainCenterAfter.distance - terrainCenterBefore.distance);
+    if (!std::isfinite(terrainCenterMotion) || terrainCenterMotion < 0.001f) {
+        std::cerr << "Ambi Wave Terrain Encoder center did not follow terrain motion\n";
+        return 1;
+    }
+    const auto nearSide = s3g::ambiWaveTerrainRotationUv(0.5f, 0.125f);
+    const auto farSide = s3g::ambiWaveTerrainRotationUv(0.5f, 0.375f);
+    const float sideSeparation = std::abs(nearSide[0] - farSide[0]);
+    if (std::abs(sideSeparation - 0.5f) > 0.001f || std::abs(nearSide[1] - farSide[1]) > 0.001f) {
+        std::cerr << "Ambi Wave Terrain Encoder elevation rotation retraced instead of crossing the far side\n";
+        return 1;
+    }
+    auto staticCenterTerrain = std::make_unique<s3g::AmbiWaveTerrainEncoder>();
+    auto staticCenterParams = waveTerrainParams;
+    staticCenterParams.voices = 1u;
+    staticCenterParams.motionMode = s3g::AmbiWaveTerrainMotionMode::Rotate;
+    staticCenterParams.azimuthRateRpm = 0.0f;
+    staticCenterParams.elevationRateRpm = 0.0f;
+    staticCenterParams.rotationRateDeviation = 0.0f;
+    staticCenterParams.spatialFollow = 0.0f;
+    staticCenterTerrain->setParams(staticCenterParams);
+    staticCenterTerrain->prepare(48000.0);
+    for (uint32_t block = 0u; block < 768u; ++block) {
+        staticCenterTerrain->process(waveTerrainPtrs, s3g::kAmbiWaveTerrainMaxChannels, terrainFrames);
+    }
+    const auto staticPointBefore = staticCenterTerrain->points()[0u];
+    const auto staticRegionBefore = staticCenterTerrain->voiceRegion(0u);
+    const auto staticNextBefore = staticCenterTerrain->voiceRegion(0u, true);
+    const float staticTransitionBefore = staticCenterTerrain->voiceTransition(0u);
+    const float staticPhaseBefore = staticCenterTerrain->voiceScanPhase(0u);
+    staticCenterTerrain->process(waveTerrainPtrs, s3g::kAmbiWaveTerrainMaxChannels, terrainFrames);
+    const auto staticPointAfter = staticCenterTerrain->points()[0u];
+    const auto staticRegionAfter = staticCenterTerrain->voiceRegion(0u);
+    const auto staticNextAfter = staticCenterTerrain->voiceRegion(0u, true);
+    const float staticTransitionAfter = staticCenterTerrain->voiceTransition(0u);
+    const float staticPhaseAfter = staticCenterTerrain->voiceScanPhase(0u);
+    const float staticPointMotion = std::abs(std::remainder(staticPointAfter.azimuthDeg - staticPointBefore.azimuthDeg, 360.0f))
+        + std::abs(staticPointAfter.elevationDeg - staticPointBefore.elevationDeg)
+        + std::abs(staticPointAfter.distance - staticPointBefore.distance);
+    const float scanPhaseMotion = std::min(std::abs(staticPhaseAfter - staticPhaseBefore),
+        1.0f - std::abs(staticPhaseAfter - staticPhaseBefore));
+    if (staticPointMotion > 0.0001f || scanPhaseMotion < 0.01f) {
+        std::cerr << "Ambi Wave Terrain Encoder spatial center remained coupled to oscillator scan phase: "
+                  << staticPointMotion << " / " << scanPhaseMotion
+                  << "  AED " << staticPointBefore.azimuthDeg << "," << staticPointBefore.elevationDeg << "," << staticPointBefore.distance
+                  << " -> " << staticPointAfter.azimuthDeg << "," << staticPointAfter.elevationDeg << "," << staticPointAfter.distance
+                  << "  UV " << staticRegionBefore.u << "," << staticRegionBefore.v << " -> " << staticRegionAfter.u << "," << staticRegionAfter.v
+                  << "  NEXT " << staticNextBefore.u << "," << staticNextBefore.v << " -> " << staticNextAfter.u << "," << staticNextAfter.v
+                  << "  X " << staticTransitionBefore << " -> " << staticTransitionAfter << "\n";
         return 1;
     }
     float tableMin = 1.0f;
@@ -311,6 +357,65 @@ int main()
         / std::sqrt(std::max(0.0000001f, orbitSineEnergy * orbitTableEnergy));
     if (!std::isfinite(orbitSineCorrelation) || orbitSineCorrelation < 0.995f) {
         std::cerr << "Ambi Wave Terrain Encoder smooth orbit was not low harmonic\n";
+        return 1;
+    }
+    auto traversalTerrain = std::make_unique<s3g::AmbiWaveTerrainEncoder>();
+    s3g::AmbiWaveTerrainParams traversalParams;
+    traversalParams.voices = 1u;
+    traversalParams.mode = s3g::AmbiWaveTerrainMode::Free;
+    traversalParams.pitchMode = s3g::AmbiWaveTerrainPitchMode::Traversal;
+    traversalParams.motionMode = s3g::AmbiWaveTerrainMotionMode::Field;
+    traversalParams.baseNote = 69.0f;
+    traversalParams.pitchSpreadSemitones = 0.0f;
+    traversalParams.detuneCents = 0.0f;
+    traversalParams.trace = s3g::AmbiWaveTerrainTrace::Orbit;
+    traversalParams.scanAspect = 1.0f;
+    traversalParams.scanWarp = 0.0f;
+    traversalParams.terrainDepth = 0.0f;
+    traversalParams.terrainRelief = 0.0f;
+    traversalParams.scanRadius = 0.06f;
+    traversalTerrain->setParams(traversalParams);
+    traversalTerrain->prepare(48000.0);
+    const float shortTraversalLength = traversalTerrain->voiceTraversalLength(0u);
+    const float shortTraversalFrequency = traversalTerrain->voiceFrequencyHz(0u);
+    traversalParams.scanRadius = 0.28f;
+    traversalTerrain->setParams(traversalParams);
+    traversalTerrain->reset();
+    const float longTraversalLength = traversalTerrain->voiceTraversalLength(0u);
+    const float longTraversalFrequency = traversalTerrain->voiceFrequencyHz(0u);
+    if (!(longTraversalLength > shortTraversalLength * 1.5f)
+        || !(longTraversalFrequency < shortTraversalFrequency * 0.80f)) {
+        std::cerr << "Ambi Wave Terrain Encoder travel pitch did not follow contour length\n";
+        return 1;
+    }
+    if (std::abs(s3g::ambiWaveTerrainQuantizeToScale(61.0f, 60.0f, s3g::AmbiWaveTerrainPitchScale::Major) - 60.0f) > 0.0001f
+        || std::abs(s3g::ambiWaveTerrainQuantizeToScale(66.0f, 60.0f, s3g::AmbiWaveTerrainPitchScale::Major) - 65.0f) > 0.0001f) {
+        std::cerr << "Ambi Wave Terrain Encoder scale quantizer did not follow major scale rules\n";
+        return 1;
+    }
+    auto scaleTerrain = std::make_unique<s3g::AmbiWaveTerrainEncoder>();
+    auto scaleParams = traversalParams;
+    scaleParams.pitchMode = s3g::AmbiWaveTerrainPitchMode::Note;
+    scaleParams.pitchScale = s3g::AmbiWaveTerrainPitchScale::Major;
+    scaleParams.voices = 3u;
+    scaleParams.pitchSpreadSemitones = 6.0f;
+    scaleTerrain->setParams(scaleParams);
+    scaleTerrain->prepare(48000.0);
+    const float scaledNoteFrequency = scaleTerrain->voiceFrequencyHz(2u);
+    const float scaledNoteMidi = 69.0f + 12.0f * std::log2(scaledNoteFrequency / 440.0f);
+    if (std::abs(scaledNoteMidi - 71.0f) > 0.001f) {
+        std::cerr << "Ambi Wave Terrain Encoder note pitch did not quantize its voice spread\n";
+        return 1;
+    }
+    traversalParams.pitchScale = s3g::AmbiWaveTerrainPitchScale::Major;
+    traversalTerrain->setParams(traversalParams);
+    traversalTerrain->reset();
+    const float scaledTravelFrequency = traversalTerrain->voiceFrequencyHz(0u);
+    const float scaledTravelMidi = 69.0f + 12.0f * std::log2(scaledTravelFrequency / 440.0f);
+    const float requantizedTravelMidi = s3g::ambiWaveTerrainQuantizeToScale(
+        scaledTravelMidi, traversalParams.baseNote, traversalParams.pitchScale);
+    if (std::abs(scaledTravelMidi - requantizedTravelMidi) > 0.001f) {
+        std::cerr << "Ambi Wave Terrain Encoder travel pitch did not quantize after contour measurement\n";
         return 1;
     }
     const float tectonicHeight = waveTerrain->terrainHeight(0.23f, 0.61f);

@@ -17,6 +17,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -27,7 +28,7 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiWaveTerrainMaxChannels;
-constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kStateVersion = 3u;
 
 constexpr clap_id kOrderParamId = 1;
 constexpr clap_id kVoicesParamId = 2;
@@ -69,6 +70,12 @@ constexpr clap_id kDistanceParamId = 37;
 constexpr clap_id kSpatialSpreadParamId = 38;
 constexpr clap_id kSpatialFollowParamId = 39;
 constexpr clap_id kOutputParamId = 40;
+constexpr clap_id kPitchModeParamId = 41;
+constexpr clap_id kMotionModeParamId = 42;
+constexpr clap_id kAzimuthRateParamId = 43;
+constexpr clap_id kElevationRateParamId = 44;
+constexpr clap_id kRotationDeviationParamId = 45;
+constexpr clap_id kPitchScaleParamId = 46;
 
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; bool stepped; };
 constexpr ParamDef kParams[] {
@@ -112,9 +119,13 @@ constexpr ParamDef kParams[] {
     { kSpatialSpreadParamId, "Spatial Spread", 0.0, 1.0, 0.82, false },
     { kSpatialFollowParamId, "Spatial Follow", 0.0, 0.995, 0.90, false },
     { kOutputParamId, "Output", -60.0, 12.0, -22.0, false },
+    { kPitchModeParamId, "Pitch Mode", 0.0, 1.0, 0.0, true },
+    { kMotionModeParamId, "Motion Mode", 0.0, 1.0, 1.0, true },
+    { kAzimuthRateParamId, "Azimuth Rotation Rate", -12.0, 12.0, 0.70, false },
+    { kElevationRateParamId, "Elevation Rotation Rate", -12.0, 12.0, 0.43, false },
+    { kRotationDeviationParamId, "Rotation Rate Deviation", 0.0, 1.0, 0.28, false },
+    { kPitchScaleParamId, "Pitch Scale", 0.0, 6.0, 0.0, true },
 };
-
-struct SavedState { uint32_t version = kStateVersion; s3g::AmbiWaveTerrainParams params {}; };
 
 struct Plugin {
     clap_plugin_t plugin {};
@@ -126,8 +137,11 @@ struct Plugin {
     std::atomic<uint32_t> lastMidiNote { 0u };
     std::atomic<uint32_t> guiSelectedVoice { 0u };
     std::array<std::atomic<float>, s3g::kAmbiWaveTerrainMaxVoices> guiEnergy {};
+    std::array<std::atomic<float>, s3g::kAmbiWaveTerrainMaxVoices> guiFrequency {};
     std::array<std::atomic<float>, s3g::kAmbiWaveTerrainMaxVoices> guiTransition {};
-    std::array<std::atomic<float>, s3g::kAmbiWaveTerrainMaxVoices> guiScanPhase {};
+    std::array<std::atomic<float>, s3g::kAmbiWaveTerrainMaxVoices> guiPointAzimuth {};
+    std::array<std::atomic<float>, s3g::kAmbiWaveTerrainMaxVoices> guiPointElevation {};
+    std::array<std::atomic<float>, s3g::kAmbiWaveTerrainMaxVoices> guiPointDistance {};
     std::array<std::atomic<float>, s3g::kAmbiWaveTerrainMaxVoices> guiCurrentRegionU {};
     std::array<std::atomic<float>, s3g::kAmbiWaveTerrainMaxVoices> guiCurrentRegionV {};
     std::array<std::atomic<float>, s3g::kAmbiWaveTerrainMaxVoices> guiCurrentRadius {};
@@ -226,6 +240,12 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kSpatialSpreadParamId: v.spatialSpread = static_cast<float>(value); break;
     case kSpatialFollowParamId: v.spatialFollow = static_cast<float>(value); break;
     case kOutputParamId: v.outputGainDb = static_cast<float>(value); break;
+    case kPitchModeParamId: v.pitchMode = static_cast<s3g::AmbiWaveTerrainPitchMode>(static_cast<uint32_t>(std::lround(value))); break;
+    case kMotionModeParamId: v.motionMode = static_cast<s3g::AmbiWaveTerrainMotionMode>(static_cast<uint32_t>(std::lround(value))); break;
+    case kAzimuthRateParamId: v.azimuthRateRpm = static_cast<float>(value); break;
+    case kElevationRateParamId: v.elevationRateRpm = static_cast<float>(value); break;
+    case kRotationDeviationParamId: v.rotationRateDeviation = static_cast<float>(value); break;
+    case kPitchScaleParamId: v.pitchScale = static_cast<s3g::AmbiWaveTerrainPitchScale>(static_cast<uint32_t>(std::lround(value))); break;
     default: break;
     }
     p.engine.setParams(v);
@@ -235,10 +255,14 @@ void applyParam(Plugin& p, clap_id id, double value)
 void snapshotGui(Plugin& p)
 {
     const auto& active = p.engine.fieldActive();
+    const auto& points = p.engine.points();
     for (uint32_t voice = 0; voice < s3g::kAmbiWaveTerrainMaxVoices; ++voice) {
         p.guiEnergy[voice].store(p.engine.voiceEnergy(voice), std::memory_order_relaxed);
+        p.guiFrequency[voice].store(p.engine.voiceFrequencyHz(voice), std::memory_order_relaxed);
         p.guiTransition[voice].store(p.engine.voiceTransition(voice), std::memory_order_relaxed);
-        p.guiScanPhase[voice].store(p.engine.voiceScanPhase(voice), std::memory_order_relaxed);
+        p.guiPointAzimuth[voice].store(points[voice].azimuthDeg, std::memory_order_relaxed);
+        p.guiPointElevation[voice].store(points[voice].elevationDeg, std::memory_order_relaxed);
+        p.guiPointDistance[voice].store(points[voice].distance, std::memory_order_relaxed);
         const auto current = p.engine.voiceRegion(voice, false);
         p.guiCurrentRegionU[voice].store(current.u, std::memory_order_relaxed);
         p.guiCurrentRegionV[voice].store(current.v, std::memory_order_relaxed);
@@ -416,6 +440,12 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kSpatialSpreadParamId: *value = p.spatialSpread; break;
     case kSpatialFollowParamId: *value = p.spatialFollow; break;
     case kOutputParamId: *value = p.outputGainDb; break;
+    case kPitchModeParamId: *value = static_cast<uint32_t>(p.pitchMode); break;
+    case kMotionModeParamId: *value = static_cast<uint32_t>(p.motionMode); break;
+    case kAzimuthRateParamId: *value = p.azimuthRateRpm; break;
+    case kElevationRateParamId: *value = p.elevationRateRpm; break;
+    case kRotationDeviationParamId: *value = p.rotationRateDeviation; break;
+    case kPitchScaleParamId: *value = static_cast<uint32_t>(p.pitchScale); break;
     default: return false;
     }
     return true;
@@ -430,6 +460,10 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kInterpretationParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainInterpretationName(static_cast<s3g::AmbiWaveTerrainInterpretation>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kSelectionParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainSelectionName(static_cast<s3g::AmbiWaveTerrainSelection>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kTransitionParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainTransitionName(static_cast<s3g::AmbiWaveTerrainTransition>(static_cast<uint32_t>(std::lround(value)))));
+    else if (id == kPitchModeParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainPitchModeName(static_cast<s3g::AmbiWaveTerrainPitchMode>(static_cast<uint32_t>(std::lround(value)))));
+    else if (id == kPitchScaleParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainPitchScaleName(static_cast<s3g::AmbiWaveTerrainPitchScale>(static_cast<uint32_t>(std::lround(value)))));
+    else if (id == kMotionModeParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainMotionModeName(static_cast<s3g::AmbiWaveTerrainMotionMode>(static_cast<uint32_t>(std::lround(value)))));
+    else if (id == kAzimuthRateParamId || id == kElevationRateParamId) std::snprintf(display, size, "%+.2f rpm", value);
     else if (id == kTuneParamId || id == kDetuneParamId) std::snprintf(display, size, "%+.0f ct", value);
     else if (id == kAzimuthParamId || id == kElevationParamId) std::snprintf(display, size, "%+.1f deg", value);
     else if (id == kAttackParamId || id == kDecayParamId || id == kReleaseParamId || id == kTableXfadeParamId) std::snprintf(display, size, "%.0f ms", value);
@@ -438,27 +472,84 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kTerrainDepthParamId || id == kTerrainRoughnessParamId || id == kTerrainFoldParamId || id == kTerrainReliefParamId
         || id == kInterpretationMixParamId || id == kScanAspectParamId || id == kScanWarpParamId || id == kFieldDensityParamId
         || id == kFieldContrastParamId || id == kSelectionMemoryParamId || id == kRegionDeviationParamId || id == kNeighborTransferParamId
-        || id == kSustainParamId || id == kSpatialSpreadParamId || id == kSpatialFollowParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
+        || id == kSustainParamId || id == kSpatialSpreadParamId || id == kSpatialFollowParamId
+        || id == kRotationDeviationParamId) std::snprintf(display, size, "%.0f%%", value * 100.0);
     else std::snprintf(display, size, "%.2f", value);
     return true;
 }
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* text, double* value) { if (!text || !value) return false; *value = std::atof(text); return true; }
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* text, double* value)
+{
+    if (!text || !value) return false;
+    static constexpr const char* mode[] { "FREE", "MIDI", "BOTH" };
+    static constexpr const char* skin[] { "HARMONIC", "FBM", "CELL", "VOT", "RIDGES", "DUNES", "CRATERS", "TECTONIC" };
+    static constexpr const char* trace[] { "ORBIT", "LISSAJOUS", "ROSETTE", "FOLD" };
+    static constexpr const char* interpretation[] { "HEIGHT", "EDGE", "CURVE", "BLEND" };
+    static constexpr const char* selection[] { "RANDOM", "SERIES", "WEIGHT", "TENDENCY", "MARKOV", "WALK" };
+    static constexpr const char* transition[] { "LINK", "MERGE", "VARY" };
+    static constexpr const char* pitch[] { "NOTE", "TRAVEL" };
+    static constexpr const char* scale[] { "FREE", "CHROM", "MAJOR", "MINOR", "PENTA", "WHOLE", "HARM MIN" };
+    static constexpr const char* motion[] { "FIELD", "ROTATE" };
+
+    const char* const* names = nullptr;
+    uint32_t count = 0u;
+    if (id == kModeParamId) { names = mode; count = static_cast<uint32_t>(std::size(mode)); }
+    else if (id == kSkinParamId) { names = skin; count = static_cast<uint32_t>(std::size(skin)); }
+    else if (id == kTraceParamId) { names = trace; count = static_cast<uint32_t>(std::size(trace)); }
+    else if (id == kInterpretationParamId) { names = interpretation; count = static_cast<uint32_t>(std::size(interpretation)); }
+    else if (id == kSelectionParamId) { names = selection; count = static_cast<uint32_t>(std::size(selection)); }
+    else if (id == kTransitionParamId) { names = transition; count = static_cast<uint32_t>(std::size(transition)); }
+    else if (id == kPitchModeParamId) { names = pitch; count = static_cast<uint32_t>(std::size(pitch)); }
+    else if (id == kPitchScaleParamId) { names = scale; count = static_cast<uint32_t>(std::size(scale)); }
+    else if (id == kMotionModeParamId) { names = motion; count = static_cast<uint32_t>(std::size(motion)); }
+    if (names) {
+        for (uint32_t index = 0u; index < count; ++index) {
+            if (std::strcmp(text, names[index]) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    *value = std::atof(text);
+    const bool percent = id == kTerrainDepthParamId || id == kTerrainRoughnessParamId
+        || id == kTerrainFoldParamId || id == kTerrainReliefParamId || id == kInterpretationMixParamId
+        || id == kScanAspectParamId || id == kScanWarpParamId || id == kFieldDensityParamId
+        || id == kFieldContrastParamId || id == kSelectionMemoryParamId || id == kRegionDeviationParamId
+        || id == kNeighborTransferParamId || id == kSustainParamId || id == kSpatialSpreadParamId
+        || id == kSpatialFollowParamId || id == kRotationDeviationParamId;
+    if (percent) *value *= 0.01;
+    return true;
+}
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readEvents(*self(plugin), in); }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
-    SavedState state { kStateVersion, self(plugin)->params };
-    return writeExact(stream, &state, sizeof(state));
+    const uint32_t version = kStateVersion;
+    const auto params = self(plugin)->params;
+    return writeExact(stream, &version, sizeof(version)) && writeExact(stream, &params, sizeof(params));
 }
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
-    SavedState state {};
-    if (!readExact(stream, &state, sizeof(state)) || state.version != kStateVersion) return false;
+    uint32_t version = 0u;
+    if (!readExact(stream, &version, sizeof(version))) return false;
+    s3g::AmbiWaveTerrainParams loaded {};
+    if (version == 1u) {
+        loaded.pitchMode = s3g::AmbiWaveTerrainPitchMode::Note;
+        loaded.motionMode = s3g::AmbiWaveTerrainMotionMode::Field;
+        constexpr size_t legacyBytes = offsetof(s3g::AmbiWaveTerrainParams, pitchMode);
+        if (!readExact(stream, &loaded, legacyBytes)) return false;
+    } else if (version == 2u) {
+        constexpr size_t legacyBytes = offsetof(s3g::AmbiWaveTerrainParams, pitchScale);
+        if (!readExact(stream, &loaded, legacyBytes)) return false;
+    } else if (version == kStateVersion) {
+        if (!readExact(stream, &loaded, sizeof(loaded))) return false;
+    } else return false;
     auto* p = self(plugin);
-    p->params = state.params;
+    p->params = loaded;
     p->engine.setParams(p->params);
     p->params = p->engine.params();
     return true;
@@ -482,15 +573,19 @@ constexpr GuiRow kGuiRows[] {
     { "MIX", kInterpretationMixParamId, 630, 474, false },
     { "ATTACK", kAttackParamId, 630, 544, false }, { "DECAY", kDecayParamId, 630, 570, false },
     { "SUSTAIN", kSustainParamId, 630, 596, false }, { "RELEASE", kReleaseParamId, 630, 622, false },
-    { "OUT", kOutputParamId, 630, 706, false },
+    { "PITCH", kPitchModeParamId, 630, 706, true }, { "SCALE", kPitchScaleParamId, 630, 732, true },
+    { "OUT", kOutputParamId, 630, 758, false },
     { "TRACE", kTraceParamId, 896, 78, true }, { "RADIUS", kScanRadiusParamId, 896, 104, false },
     { "ASPECT", kScanAspectParamId, 896, 130, false }, { "ROTATE", kScanRotationParamId, 896, 156, false },
     { "WARP", kScanWarpParamId, 896, 182, false }, { "XFADE", kTableXfadeParamId, 896, 208, false },
     { "LAW", kSelectionParamId, 896, 292, true }, { "JOIN", kTransitionParamId, 896, 318, true },
     { "XFER", kNeighborTransferParamId, 896, 344, false }, { "MEM", kSelectionMemoryParamId, 896, 370, false },
-    { "DENS", kFieldDensityParamId, 896, 454, false }, { "DUR", kFieldDurationParamId, 896, 480, false },
-    { "REST", kFieldRestParamId, 896, 506, false }, { "CONT", kFieldContrastParamId, 896, 532, false },
-    { "DEV", kRegionDeviationParamId, 896, 558, false }, { "MACRO", kMacroDurationParamId, 896, 584, false },
+    { "MOTION", kMotionModeParamId, 896, 454, true },
+    { "DENS", kFieldDensityParamId, 896, 480, false }, { "DUR", kFieldDurationParamId, 896, 506, false },
+    { "REST", kFieldRestParamId, 896, 532, false }, { "CONT", kFieldContrastParamId, 896, 558, false },
+    { "DEV", kRegionDeviationParamId, 896, 584, false }, { "MACRO", kMacroDurationParamId, 896, 610, false },
+    { "AZ RATE", kAzimuthRateParamId, 896, 480, false }, { "EL RATE", kElevationRateParamId, 896, 506, false },
+    { "RATE DEV", kRotationDeviationParamId, 896, 532, false },
     { "AZIM", kAzimuthParamId, 896, 694, false }, { "ELEV", kElevationParamId, 896, 720, false },
     { "DIST", kDistanceParamId, 896, 746, false }, { "SPACE", kSpatialSpreadParamId, 896, 772, false },
     { "FOLLOW", kSpatialFollowParamId, 896, 798, false },
@@ -500,6 +595,20 @@ const GuiRow* guiRow(clap_id param)
 {
     for (const auto& row : kGuiRows) if (row.param == param) return &row;
     return nullptr;
+}
+
+bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion)
+{
+    const bool fieldOnly = row.param == kFieldDensityParamId || row.param == kFieldDurationParamId
+        || row.param == kFieldRestParamId || row.param == kFieldContrastParamId
+        || row.param == kRegionDeviationParamId || row.param == kMacroDurationParamId
+        || row.param == kSelectionParamId || row.param == kTransitionParamId
+        || row.param == kNeighborTransferParamId || row.param == kSelectionMemoryParamId;
+    const bool rotateOnly = row.param == kAzimuthRateParamId || row.param == kElevationRateParamId
+        || row.param == kRotationDeviationParamId;
+    if (fieldOnly) return motion == s3g::AmbiWaveTerrainMotionMode::Field;
+    if (rotateOnly) return motion == s3g::AmbiWaveTerrainMotionMode::Rotate;
+    return true;
 }
 
 } // namespace
@@ -554,7 +663,7 @@ const GuiRow* guiRow(clap_id param)
 - (NSRect)zoomButtonRect:(int)index
 {
     const NSRect panel = [self fieldPanelRect];
-    return NSMakeRect(NSMaxX(panel) - 164.0 + index * 28.0, panel.origin.y + 3.0, 22.0, 16.0);
+    return NSMakeRect(NSMaxX(panel) - 200.0 + index * 28.0, panel.origin.y + 3.0, 22.0, 16.0);
 }
 - (void)setViewPreset:(int)mode
 {
@@ -691,7 +800,6 @@ const GuiRow* guiRow(clap_id param)
             const bool selected = voice == _selectedVoice;
             if (selected != (pass == 1)) continue;
             const bool active = _plugin->guiFieldActive[voice].load(std::memory_order_relaxed) != 0u;
-            const float phase = _plugin->guiScanPhase[voice].load(std::memory_order_relaxed);
             const CGFloat activityAlpha = active ? 1.0 : 0.24;
             const uint32_t segments = selected ? 112u : 30u;
             const auto current = [self snapshotRegion:voice next:NO];
@@ -714,11 +822,14 @@ const GuiRow* guiRow(clap_id param)
             }
             drawPath(region, [NSColor colorWithCalibratedWhite:0.94 alpha:1.0], selected ? 0.94 : 0.30, selected ? 1.65 : 0.62);
 
-            const auto headUv = [self contourUv:region phase:phase];
-            const NSPoint head = [self project:[self worldPoint:_plugin->engine.surfacePoint(headUv[0], headUv[1])] rect:field depth:nullptr];
+            s3g::AmbiWaveTerrainPoint spatialPoint {};
+            spatialPoint.azimuthDeg = _plugin->guiPointAzimuth[voice].load(std::memory_order_relaxed);
+            spatialPoint.elevationDeg = _plugin->guiPointElevation[voice].load(std::memory_order_relaxed);
+            spatialPoint.distance = _plugin->guiPointDistance[voice].load(std::memory_order_relaxed);
+            const NSPoint center = [self project:[self worldPoint:spatialPoint] rect:field depth:nullptr];
             const float energy = _plugin->guiEnergy[voice].load(std::memory_order_relaxed);
             const CGFloat size = (selected ? 9.0 : 5.0) + std::clamp<CGFloat>(energy * 20.0f, 0.0, 4.0);
-            const NSRect marker = NSMakeRect(head.x - size * 0.5, head.y - size * 0.5, size, size);
+            const NSRect marker = NSMakeRect(center.x - size * 0.5, center.y - size * 0.5, size, size);
             [[NSColor colorWithCalibratedWhite:0.98 alpha:activityAlpha] setFill];
             [[NSBezierPath bezierPathWithOvalInRect:marker] fill];
             [[NSColor colorWithCalibratedWhite:selected ? 0.06 : 0.34 alpha:activityAlpha] setStroke];
@@ -726,10 +837,16 @@ const GuiRow* guiRow(clap_id param)
         }
     }
     [NSGraphicsContext restoreGraphicsState];
-    [[NSString stringWithFormat:@"VOICE %u  %@ / %@", _selectedVoice + 1u,
-        [NSString stringWithUTF8String:s3g::ambiWaveTerrainSelectionName(_plugin->params.selection)],
-        [NSString stringWithUTF8String:s3g::ambiWaveTerrainTransitionName(_plugin->params.transition)]]
-        drawAtPoint:NSMakePoint(field.origin.x + 10, NSMaxY(field) - 20) withAttributes:attrs];
+    NSString* voiceStatus = nil;
+    if (_plugin->params.motionMode == s3g::AmbiWaveTerrainMotionMode::Rotate) {
+        voiceStatus = [NSString stringWithFormat:@"VOICE %u  AZ %+.2f / EL %+.2f RPM", _selectedVoice + 1u,
+            static_cast<double>(_plugin->params.azimuthRateRpm), static_cast<double>(_plugin->params.elevationRateRpm)];
+    } else {
+        voiceStatus = [NSString stringWithFormat:@"VOICE %u  %@ / %@", _selectedVoice + 1u,
+            [NSString stringWithUTF8String:s3g::ambiWaveTerrainSelectionName(_plugin->params.selection)],
+            [NSString stringWithUTF8String:s3g::ambiWaveTerrainTransitionName(_plugin->params.transition)]];
+    }
+    [voiceStatus drawAtPoint:NSMakePoint(field.origin.x + 10, NSMaxY(field) - 20) withAttributes:attrs];
 }
 
 - (void)drawWaveform:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -759,8 +876,9 @@ const GuiRow* guiRow(clap_id param)
     drawProfile(terrainRect, true);
     drawProfile(waveRect, false);
     [@"TOPOGRAPHY" drawAtPoint:NSMakePoint(terrainRect.origin.x + 8, terrainRect.origin.y + 5) withAttributes:attrs];
-    [[NSString stringWithFormat:@"OSCILLATOR / %@   A -> B %.0f%%",
+    [[NSString stringWithFormat:@"OSCILLATOR / %@   %.1f HZ   A -> B %.0f%%",
         [NSString stringWithUTF8String:s3g::ambiWaveTerrainInterpretationName(_plugin->params.interpretation)],
+        static_cast<double>(_plugin->guiFrequency[_selectedVoice].load(std::memory_order_relaxed)),
         static_cast<double>(transition * 100.0f)] drawAtPoint:NSMakePoint(waveRect.origin.x + 8, waveRect.origin.y + 5) withAttributes:attrs];
 }
 
@@ -774,12 +892,16 @@ const GuiRow* guiRow(clap_id param)
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 228, style); s3g::clap_gui::drawPanelHeader(@"ENGINE", true, 630, 42, 250, 21, attrs, style);
     s3g::clap_gui::drawPanelFrame(630, 282, 250, 202, style); s3g::clap_gui::drawPanelHeader(@"TERRAIN", true, 630, 282, 250, 21, attrs, style);
     s3g::clap_gui::drawPanelFrame(630, 508, 250, 150, style); s3g::clap_gui::drawPanelHeader(@"ENVELOPE", true, 630, 508, 250, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(630, 670, 250, 72, style); s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 670, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 670, 250, 138, style); s3g::clap_gui::drawPanelHeader(@"PITCH / OUTPUT", true, 630, 670, 250, 21, attrs, style);
     s3g::clap_gui::drawPanelFrame(896, 42, 246, 202, style); s3g::clap_gui::drawPanelHeader(@"SCAN", true, 896, 42, 246, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(896, 256, 246, 150, style); s3g::clap_gui::drawPanelHeader(@"SELECTION", true, 896, 256, 246, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(896, 418, 246, 228, style); s3g::clap_gui::drawPanelHeader(@"TIME FIELDS", true, 896, 418, 246, 21, attrs, style);
+    if (_plugin->params.motionMode == s3g::AmbiWaveTerrainMotionMode::Field) {
+        s3g::clap_gui::drawPanelFrame(896, 256, 246, 150, style); s3g::clap_gui::drawPanelHeader(@"SELECTION", true, 896, 256, 246, 21, attrs, style);
+    }
+    s3g::clap_gui::drawPanelFrame(896, 418, 246, 228, style);
+    s3g::clap_gui::drawPanelHeader(_plugin->params.motionMode == s3g::AmbiWaveTerrainMotionMode::Rotate ? @"ROTATION" : @"TIME FIELDS", true, 896, 418, 246, 21, attrs, style);
     s3g::clap_gui::drawPanelFrame(896, 658, 246, 150, style); s3g::clap_gui::drawPanelHeader(@"PROJECTION", true, 896, 658, 246, 21, attrs, style);
     for (const auto& row : kGuiRows) {
+        if (!guiRowVisible(row, _plugin->params.motionMode)) continue;
         NSString* label = [NSString stringWithUTF8String:row.label];
         if (row.menu) s3g::clap_gui::drawMenu(label, [self valueText:row.param], row.y, attrs, valueAttrs, style, row.panelX + 16, row.panelX + 108, 124);
         else {
@@ -799,6 +921,9 @@ const GuiRow* guiRow(clap_id param)
     static NSString* trace[] = { @"ORBIT", @"LISSAJOUS", @"ROSETTE", @"FOLD" };
     static NSString* law[] = { @"RANDOM", @"SERIES", @"WEIGHT", @"TENDENCY", @"MARKOV", @"WALK" };
     static NSString* join[] = { @"LINK", @"MERGE", @"VARY" };
+    static NSString* pitch[] = { @"NOTE", @"TRAVEL" };
+    static NSString* scale[] = { @"FREE", @"CHROM", @"MAJOR", @"MINOR", @"PENTA", @"WHOLE", @"HARM MIN" };
+    static NSString* motion[] = { @"FIELD", @"ROTATE" };
     double value = 0.0; paramsGetValue(&_plugin->plugin, param, &value); *selected = static_cast<int>(std::lround(value));
     if (param == kModeParamId) { *count = 3; return mode; }
     if (param == kOrderParamId) { *count = 7; *selected -= 1; return order; }
@@ -806,12 +931,18 @@ const GuiRow* guiRow(clap_id param)
     if (param == kInterpretationParamId) { *count = 4; return read; }
     if (param == kTraceParamId) { *count = 4; return trace; }
     if (param == kSelectionParamId) { *count = 6; return law; }
+    if (param == kPitchModeParamId) { *count = 2; return pitch; }
+    if (param == kPitchScaleParamId) { *count = 7; return scale; }
+    if (param == kMotionModeParamId) { *count = 2; return motion; }
     *count = 3; return join;
 }
 - (NSRect)openMenuRect
 {
     const GuiRow* row = guiRow(_openMenuParam); if (!row) return NSZeroRect;
-    return NSMakeRect(row->panelX + 108, row->y + 17, 124, 18.0 * _menuItemCount);
+    const CGFloat height = 18.0 * _menuItemCount;
+    CGFloat y = row->y + 17;
+    if (y + height > [self bounds].size.height - 4.0) y = row->y - height;
+    return NSMakeRect(row->panelX + 108, y, 124, height);
 }
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
@@ -875,6 +1006,7 @@ const GuiRow* guiRow(clap_id param)
     const int voice = [self hitVoice:point]; if (voice >= 0) { _selectedVoice = static_cast<uint32_t>(voice); _plugin->guiSelectedVoice.store(_selectedVoice); [self setNeedsDisplay:YES]; return; }
     if (NSPointInRect(point, [self fieldRect])) { _dragView = YES; _lastDragPoint = point; return; }
     for (const auto& row : kGuiRows) {
+        if (!guiRowVisible(row, _plugin->params.motionMode)) continue;
         if (!NSPointInRect(point, NSMakeRect(row.panelX + 8, row.y - 8, 232, 24))) continue;
         if (row.menu) { _openMenuParam = row.param; int selected = 0; [self menuItems:row.param count:&_menuItemCount selected:&selected]; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; }
         else { _dragParam = row.param; [self setParam:row.param point:point]; }
