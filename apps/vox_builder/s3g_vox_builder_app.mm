@@ -1,4 +1,5 @@
 #include "s3g_vox_builder.h"
+#include "s3g_vox_source_synth.h"
 #include "s3g_cocoa_gui.h"
 
 #import <AVFoundation/AVFoundation.h>
@@ -222,13 +223,33 @@ static NSString* cleanOtoAlias(NSString* alias)
     return result;
 }
 
-static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, bool enabled = true)
+enum class ActionButtonTone : uint8_t {
+    Neutral,
+    Required,
+    Ready,
+};
+
+static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs,
+                             bool enabled = true,
+                             ActionButtonTone tone = ActionButtonTone::Neutral)
 {
-    [color(enabled ? 0x202020 : 0x151515) setFill];
+    uint32_t fill = enabled ? 0x202020 : 0x151515;
+    uint32_t outer = enabled ? 0x9a9a9a : 0x444444;
+    uint32_t inner = enabled ? 0x303030 : 0x1b1b1b;
+    if (tone == ActionButtonTone::Required) {
+        fill = 0x3b2023;
+        outer = 0xa65d63;
+        inner = 0x602f34;
+    } else if (tone == ActionButtonTone::Ready) {
+        fill = 0x203329;
+        outer = 0x69a17b;
+        inner = 0x345542;
+    }
+    [color(fill) setFill];
     NSRectFill(rect);
-    [color(enabled ? 0x9a9a9a : 0x444444) setStroke];
+    [color(outer) setStroke];
     NSFrameRect(rect);
-    [color(enabled ? 0x303030 : 0x1b1b1b) setStroke];
+    [color(inner) setStroke];
     NSFrameRect(NSInsetRect(rect, 1.0, 1.0));
     const NSSize size = [label sizeWithAttributes:attrs];
     [label drawAtPoint:NSMakePoint(
@@ -237,11 +258,43 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
         withAttributes:attrs];
 }
 
+static bool writeViewSnapshot(NSView* view, NSString* path)
+{
+    if (!view || [path length] == 0u) return false;
+    [view layoutSubtreeIfNeeded];
+    [view displayIfNeeded];
+    NSBitmapImageRep* bitmap = [view bitmapImageRepForCachingDisplayInRect:[view bounds]];
+    if (!bitmap) return false;
+    [view cacheDisplayInRect:[view bounds] toBitmapImageRep:bitmap];
+    NSData* png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+    return png && [png writeToFile:path atomically:YES];
+}
+
 } // namespace
+
+@class S3GVoxGeneratorView;
 
 @interface S3GVoxBuilderView : NSView <NSTextViewDelegate, NSTextFieldDelegate,
     NSComboBoxDelegate, NSDraggingDestination>
 - (BOOL)loadAudioURLs:(NSArray<NSURL*>*)selection;
+- (BOOL)hasSeedSource;
+- (NSString*)selectedSeedDescription;
+- (float)selectedSeedFrequency;
+- (BOOL)beginVoiceGeneration:(s3g::VoxSourceSynthParams)params
+                  vocabulary:(s3g::VoxSourceVocabulary)vocabulary;
+@end
+
+@interface S3GVoxGeneratorView : NSView
+- (instancetype)initWithFrame:(NSRect)frame builder:(S3GVoxBuilderView*)builder;
+- (void)refreshSeedState;
+@end
+
+@interface S3GVoxBuilderView ()
+- (void)showGenerator;
+- (void)installGeneratedVoicebank:(std::shared_ptr<s3g::VoxGeneratedVoicebank>)bank
+                       description:(NSString*)description
+                       synthParams:(s3g::VoxSourceSynthParams)params
+                        vocabulary:(s3g::VoxSourceVocabulary)vocabulary;
 @end
 
 @implementation S3GVoxBuilderView {
@@ -258,8 +311,11 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
     std::atomic<uint64_t> _analysisGeneration;
     std::atomic<uint32_t> _analysisProgress;
     std::atomic<bool> _analyzing;
+    std::atomic<bool> _generating;
 
     NSArray<NSURL*>* _sourceURLs;
+    NSString* _generatedSourceName;
+    NSDictionary* _generationMetadata;
     BOOL _multiFileSource;
     AVAudioPlayer* _previewPlayer;
     NSTimer* _timer;
@@ -278,6 +334,8 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
     std::vector<s3g::VoxBuilderSegment> _segmentsBeforeGuess;
     BOOL _canUndoGuess;
     BOOL _aliasesDirty;
+    NSPanel* _generatorWindow;
+    S3GVoxGeneratorView* _generatorView;
 }
 
 - (BOOL)isFlipped { return YES; }
@@ -294,6 +352,7 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
     _multiFileSource = NO;
     _canUndoGuess = NO;
     _aliasesDirty = NO;
+    _generating.store(false, std::memory_order_relaxed);
     _status = @"LOAD A VOICE RECORDING";
     _samples = std::make_shared<const std::vector<float>>();
     [self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
@@ -353,6 +412,7 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
 {
     [_timer invalidate];
     _analysisGeneration.fetch_add(1u, std::memory_order_acq_rel);
+    [_generatorWindow orderOut:nil];
 }
 
 - (NSTextField*)makeTextField:(NSRect)frame alignment:(NSTextAlignment)alignment
@@ -365,7 +425,8 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
 }
 
 - (NSRect)waveformRect { return NSMakeRect(30, 78, 746, 390); }
-- (NSRect)loadButtonRect { return NSMakeRect(820, 112, 244, 24); }
+- (NSRect)loadButtonRect { return NSMakeRect(820, 112, 116, 24); }
+- (NSRect)generateButtonRect { return NSMakeRect(948, 112, 116, 24); }
 - (NSRect)analyzeButtonRect { return NSMakeRect(820, 336, 116, 24); }
 - (NSRect)autoGuessButtonRect { return NSMakeRect(948, 336, 116, 24); }
 - (NSRect)aliasGuideButtonRect { return NSMakeRect(664, 486, 112, 22); }
@@ -378,6 +439,7 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
 {
     (void)timer;
     if (_analyzing.load(std::memory_order_relaxed)
+        || _generating.load(std::memory_order_relaxed)
         || (_previewPlayer && [_previewPlayer isPlaying])) {
         [self setNeedsDisplay:YES];
     }
@@ -407,6 +469,14 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
 {
     _status = status ?: @"";
     [self setNeedsDisplay:YES];
+}
+
+- (BOOL)canExportVoicebank
+{
+    return _samples && !_samples->empty() && !_segments.empty() && _sampleRate > 0
+        && !_aliasesDirty
+        && !_analyzing.load(std::memory_order_acquire)
+        && !_generating.load(std::memory_order_acquire);
 }
 
 - (NSString*)aliasGuideText
@@ -506,10 +576,13 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
     }
     _analysisGeneration.fetch_add(1u, std::memory_order_acq_rel);
     _analyzing.store(false, std::memory_order_release);
+    _generating.store(false, std::memory_order_release);
     _samples = std::make_shared<const std::vector<float>>(std::move(decoded.samples));
     _sampleRate = decoded.sampleRate;
     _singleSourceLevel = decoded.level;
     _sourceURLs = @[ url ];
+    _generatedSourceName = nil;
+    _generationMetadata = nil;
     _multiFileSource = NO;
     _segments.clear();
     _segmentsBeforeGuess.clear();
@@ -659,9 +732,12 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
 
     _analysisGeneration.fetch_add(1u, std::memory_order_acq_rel);
     _analyzing.store(false, std::memory_order_release);
+    _generating.store(false, std::memory_order_release);
     _samples = std::move(samples);
     _sampleRate = sampleRate;
     _sourceURLs = [urls copy];
+    _generatedSourceName = nil;
+    _generationMetadata = nil;
     _multiFileSource = YES;
     _segments = std::move(segments);
     _segmentsBeforeGuess.clear();
@@ -691,6 +767,220 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
     [panel setAllowedFileTypes:@[ @"wav", @"wave" ]];
 #pragma clang diagnostic pop
     if ([panel runModal] == NSModalResponseOK) [self loadAudioURLs:[panel URLs]];
+}
+
+- (BOOL)hasSeedSource
+{
+    return _samples && !_samples->empty() && !_segments.empty();
+}
+
+- (NSString*)selectedSeedDescription
+{
+    if (![self hasSeedSource]) return @"LOAD AND SELECT A VOCAL SEGMENT";
+    const auto& segment = _segments[std::min(_selectedSegment, _segments.size() - 1u)];
+    return [NSString stringWithFormat:@"%@   MIDI %d",
+        [NSString stringWithUTF8String:segment.alias.c_str()], segment.baseMidi];
+}
+
+- (float)selectedSeedFrequency
+{
+    if (![self hasSeedSource]) return 150.0f;
+    const int midi = _segments[std::min(_selectedSegment, _segments.size() - 1u)].baseMidi;
+    return std::clamp(440.0f * std::pow(2.0f,
+        (static_cast<float>(midi) - 69.0f) / 12.0f), 55.0f, 520.0f);
+}
+
+- (void)showGenerator
+{
+    constexpr CGFloat width = 520.0;
+    constexpr CGFloat height = 580.0;
+    if (!_generatorWindow) {
+        const NSRect content = NSMakeRect(0, 0, width, height);
+        _generatorWindow = [[NSPanel alloc] initWithContentRect:content
+            styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+            backing:NSBackingStoreBuffered defer:NO];
+        [_generatorWindow setTitle:@"s3g Vox Source Generator"];
+        [_generatorWindow setReleasedWhenClosed:NO];
+        [_generatorWindow setFloatingPanel:YES];
+        [_generatorWindow setCollectionBehavior:NSWindowCollectionBehaviorMoveToActiveSpace];
+        _generatorView = [[S3GVoxGeneratorView alloc] initWithFrame:content builder:self];
+        [_generatorWindow setContentView:_generatorView];
+    }
+    [_generatorView refreshSeedState];
+    NSWindow* parent = [self window];
+    if (parent) {
+        const NSRect parentFrame = [parent frame];
+        const NSRect generatorFrame = [_generatorWindow frame];
+        [_generatorWindow setFrameOrigin:NSMakePoint(
+            NSMidX(parentFrame) - NSWidth(generatorFrame) * 0.5,
+            NSMidY(parentFrame) - NSHeight(generatorFrame) * 0.5)];
+    } else {
+        [_generatorWindow center];
+    }
+    [_generatorWindow makeKeyAndOrderFront:nil];
+}
+
+- (BOOL)beginVoiceGeneration:(s3g::VoxSourceSynthParams)params
+                  vocabulary:(s3g::VoxSourceVocabulary)vocabulary
+{
+    if (_generating.exchange(true, std::memory_order_acq_rel)) {
+        [self setStatus:@"VOICEBANK GENERATION IS ALREADY RUNNING"];
+        NSBeep();
+        return NO;
+    }
+
+    std::shared_ptr<const std::vector<float>> seedSamples;
+    uint64_t seedStart = 0u;
+    uint64_t seedEnd = 0u;
+    int seedSampleRate = 0;
+    std::string seedAlias;
+    float seedPitch = 0.0f;
+    if (params.seeded) {
+        if (![self hasSeedSource]) {
+            _generating.store(false, std::memory_order_release);
+            [self setStatus:@"SEEDED MODE NEEDS A SELECTED VOCAL SEGMENT"];
+            NSBeep();
+            return NO;
+        }
+        const auto& segment = _segments[std::min(_selectedSegment, _segments.size() - 1u)];
+        seedSamples = _samples;
+        seedStart = segment.startSample;
+        seedEnd = segment.endSample;
+        seedSampleRate = _sampleRate;
+        seedAlias = segment.alias;
+        seedPitch = [self selectedSeedFrequency];
+    }
+
+    params.sampleRate = 48000;
+    __block s3g::VoxSourceSynthParams generationParams = params;
+    const uint64_t generation = _analysisGeneration.fetch_add(
+        1u, std::memory_order_acq_rel) + 1u;
+    _analyzing.store(false, std::memory_order_release);
+    _status = params.seeded ? @"ANALYZING SEED AND SYNTHESIZING"
+                            : @"SYNTHESIZING PROCEDURAL VOICEBANK";
+    [self setNeedsDisplay:YES];
+    __strong S3GVoxBuilderView* strongSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        if (generationParams.seeded) {
+            generationParams.seedProfile = s3g::voxSourceAnalyzeSeed(*seedSamples, seedSampleRate,
+                seedStart, seedEnd, seedAlias, seedPitch);
+            if (!generationParams.seedProfile.valid) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (strongSelf->_analysisGeneration.load(std::memory_order_acquire) != generation) return;
+                    strongSelf->_generating.store(false, std::memory_order_release);
+                    [strongSelf setStatus:@"SELECTED SEGMENT IS NOT A USABLE VOCAL SEED"];
+                    NSBeep();
+                });
+                return;
+            }
+        }
+        auto bank = std::make_shared<s3g::VoxGeneratedVoicebank>(
+            s3g::voxSourceGenerateBank(generationParams, vocabulary));
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (strongSelf->_analysisGeneration.load(std::memory_order_acquire) != generation) return;
+            strongSelf->_generating.store(false, std::memory_order_release);
+            NSString* mode = generationParams.seeded ? @"SEEDED" : @"PROCEDURAL";
+            NSString* description = [NSString stringWithFormat:@"%@ / %s",
+                mode, s3g::voxSourceVocabularyName(vocabulary)];
+            [strongSelf installGeneratedVoicebank:std::move(bank)
+                description:description synthParams:generationParams vocabulary:vocabulary];
+        });
+    });
+    return YES;
+}
+
+- (void)installGeneratedVoicebank:(std::shared_ptr<s3g::VoxGeneratedVoicebank>)bank
+                       description:(NSString*)description
+                       synthParams:(s3g::VoxSourceSynthParams)params
+                        vocabulary:(s3g::VoxSourceVocabulary)vocabulary
+{
+    if (!bank || bank->entries.empty() || bank->sampleRate <= 0) {
+        [self setStatus:@"VOICEBANK GENERATION FAILED"];
+        NSBeep();
+        return;
+    }
+    uint64_t totalSamples = 0u;
+    for (const auto& entry : bank->entries) {
+        totalSamples += entry.samples.size();
+        if (totalSamples > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+            [self setStatus:@"GENERATED VOICEBANK IS TOO LARGE"];
+            NSBeep();
+            return;
+        }
+    }
+
+    auto samples = std::make_shared<std::vector<float>>();
+    samples->reserve(static_cast<size_t>(totalSamples));
+    std::vector<s3g::VoxBuilderSegment> segments;
+    segments.reserve(bank->entries.size());
+    const int baseMidi = std::clamp(static_cast<int>(std::lround(
+        69.0f + 12.0f * std::log2(std::max(1.0f, params.baseFrequencyHz) / 440.0f))), 0, 127);
+    for (const auto& entry : bank->entries) {
+        std::vector<float> conditioned = entry.samples;
+        const auto level = s3g::voxBuilderConditionAudio(conditioned, bank->sampleRate);
+        const uint64_t start = samples->size();
+        samples->insert(samples->end(), conditioned.begin(), conditioned.end());
+        s3g::VoxBuilderSegment segment {};
+        segment.alias = entry.alias;
+        segment.startSample = start;
+        segment.endSample = samples->size();
+        segment.baseMidi = baseMidi;
+        segment.aliasConfidence = 1.0f;
+        segment.aliasAssignment = s3g::VoxBuilderAliasAssignment::Manual;
+        segment.normalizationGainDb = level.normalizationGainDb;
+        segment.sourcePeakDb = level.sourcePeakDb;
+        segment.sourceClippedRatio = level.clippedRatio;
+        segment.normalizationLimited = level.boostLimited;
+        s3g::voxBuilderSetSuggestedTiming(segment, bank->sampleRate);
+        segments.push_back(std::move(segment));
+    }
+
+    _samples = std::move(samples);
+    _sampleRate = bank->sampleRate;
+    _sourceURLs = @[];
+    _generatedSourceName = [description copy];
+    NSMutableDictionary* generation = [@{
+        @"mode":params.seeded ? @"seeded" : @"procedural",
+        @"vocabulary":[NSString stringWithUTF8String:s3g::voxSourceVocabularyName(vocabulary)],
+        @"sampleRate":@(params.sampleRate),
+        @"baseFrequencyHz":@(params.baseFrequencyHz),
+        @"tractScale":@(params.tractScale),
+        @"breath":@(params.breath),
+        @"roughness":@(params.roughness),
+        @"articulation":@(params.articulation),
+        @"consonantStrength":@(params.consonantStrength),
+        @"durationMs":@(params.durationMs),
+        @"variation":@(params.variation),
+        @"randomSeed":@(params.randomSeed)
+    } mutableCopy];
+    if (params.seeded && params.seedProfile.valid) {
+        generation[@"seedProfile"] = @{
+            @"baseFrequencyHz":@(params.seedProfile.baseFrequencyHz),
+            @"formant1Scale":@(params.seedProfile.formant1Scale),
+            @"formant2Scale":@(params.seedProfile.formant2Scale),
+            @"formant3Scale":@(params.seedProfile.formant3Scale),
+            @"breath":@(params.seedProfile.breath),
+            @"roughness":@(params.seedProfile.roughness),
+            @"brightness":@(params.seedProfile.brightness),
+            @"periodicity":@(params.seedProfile.periodicity)
+        };
+    }
+    _generationMetadata = [generation copy];
+    _multiFileSource = YES;
+    _singleSourceLevel = {};
+    _segments = std::move(segments);
+    _segmentsBeforeGuess.clear();
+    _canUndoGuess = NO;
+    _selectedSegment = 0u;
+    [_nameField setStringValue:[description hasPrefix:@"SEEDED"]
+        ? @"s3g_seeded_voice" : @"s3g_procedural_voice"];
+    [self syncAliasEditorFromSegments];
+    [self rebuildWaveOverview];
+    [self refreshSegmentFields];
+    [self setStatus:[NSString stringWithFormat:@"GENERATED %zu ALIASES - WORLD ANALYSIS",
+        _segments.size()]];
+    [self startWorldAnalysis];
+    [[self window] invalidateCursorRectsForView:self];
 }
 
 - (void)analyzeSource
@@ -1056,6 +1346,21 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
 
 - (void)exportVoicebank
 {
+    if (_generating.load(std::memory_order_acquire)) {
+        [self setStatus:@"WAIT FOR VOICEBANK GENERATION TO FINISH"];
+        NSBeep();
+        return;
+    }
+    if (_analyzing.load(std::memory_order_acquire)) {
+        [self setStatus:@"WAIT FOR WORLD ANALYSIS TO FINISH"];
+        NSBeep();
+        return;
+    }
+    if (_aliasesDirty) {
+        [self setStatus:@"RUN ANALYZE TO APPLY EDITED ALIASES"];
+        NSBeep();
+        return;
+    }
     if (!_samples || _segments.empty() || _sampleRate <= 0) {
         [self setStatus:@"ANALYZE A SOURCE BEFORE EXPORT"];
         NSBeep();
@@ -1140,7 +1445,8 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
             @"sampleRate":@(_sampleRate),
             @"source":[sources count] > 0u ? [sources firstObject] : @"",
             @"sources":sources,
-            @"entries":entries
+            @"entries":entries,
+            @"generation":_generationMetadata ?: @{}
         };
         NSData* json = [NSJSONSerialization dataWithJSONObject:metadata
             options:NSJSONWritingPrettyPrinted error:&error];
@@ -1200,6 +1506,7 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     if (NSPointInRect(point, [self loadButtonRect])) { [self openSource]; return; }
+    if (NSPointInRect(point, [self generateButtonRect])) { [self showGenerator]; return; }
     if (NSPointInRect(point, [self analyzeButtonRect])) { [self analyzeSource]; return; }
     if (NSPointInRect(point, [self autoGuessButtonRect])) { [self autoGuessAliases]; return; }
     if (NSPointInRect(point, [self aliasGuideButtonRect])) { [self showAliasGuide]; return; }
@@ -1358,9 +1665,9 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
             toPoint:NSMakePoint(endX, NSMaxY(graph))];
     }
     [NSGraphicsContext restoreGraphicsState];
-    NSString* source = [_sourceURLs count] > 1u
+    NSString* source = _generatedSourceName ?: ([_sourceURLs count] > 1u
         ? [NSString stringWithFormat:@"%lu WAV FILES", static_cast<unsigned long>([_sourceURLs count])]
-        : [[_sourceURLs firstObject] lastPathComponent] ?: @"";
+        : [[_sourceURLs firstObject] lastPathComponent] ?: @"");
     NSString* detail = [NSString stringWithFormat:@"%@   %d HZ   %.2F S",
         source, _sampleRate, static_cast<double>(_samples->size()) / std::max(1, _sampleRate)];
     [detail drawAtPoint:NSMakePoint(NSMaxX(rect) - [detail sizeWithAttributes:valueAttrs].width - 8,
@@ -1377,10 +1684,12 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
     [style.bg setFill];
     NSRectFill([self bounds]);
     [@"s3g VOX BUILDER" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
-    NSString* topStatus = _analyzing.load(std::memory_order_relaxed)
-        ? [NSString stringWithFormat:@"WORLD  %u / %zu",
+    NSString* topStatus = _generating.load(std::memory_order_relaxed)
+        ? @"SYNTHESIZING VOICEBANK"
+        : (_analyzing.load(std::memory_order_relaxed)
+            ? [NSString stringWithFormat:@"WORLD  %u / %zu",
             _analysisProgress.load(std::memory_order_relaxed), _segments.size()]
-        : @"WORLD VOICEBANK AUTHORING";
+            : @"WORLD VOICEBANK AUTHORING");
     s3g::clap_gui::drawRightStatus(topStatus, kGuiWidth, 14, valueAttrs);
 
     s3g::clap_gui::drawPanelFrame(18, 42, 770, 720, style);
@@ -1392,10 +1701,13 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
     s3g::clap_gui::drawPanelFrame(kRightX, 42, kRightWidth, 150, style);
     s3g::clap_gui::drawPanelHeader(@"SOURCE", true, kRightX, 42, kRightWidth, 21, labelAttrs, style);
     [@"BANK" drawAtPoint:NSMakePoint(820, 80) withAttributes:labelAttrs];
-    drawActionButton([self loadButtonRect], @"LOAD WAV / FOLDER", labelAttrs);
-    NSString* sourceName = [_sourceURLs count] > 1u
+    drawActionButton([self loadButtonRect], @"LOAD", labelAttrs,
+        !_generating.load(std::memory_order_relaxed));
+    drawActionButton([self generateButtonRect], @"GENERATE", labelAttrs,
+        !_generating.load(std::memory_order_relaxed));
+    NSString* sourceName = _generatedSourceName ?: ([_sourceURLs count] > 1u
         ? [NSString stringWithFormat:@"%lu WAV FILES", static_cast<unsigned long>([_sourceURLs count])]
-        : [[_sourceURLs firstObject] lastPathComponent] ?: @"NO SOURCE";
+        : [[_sourceURLs firstObject] lastPathComponent] ?: @"NO SOURCE");
     NSString* sourceStatus = sourceName;
     if (!_segments.empty()) {
         float minimumGain = std::numeric_limits<float>::max();
@@ -1417,12 +1729,14 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
     s3g::clap_gui::drawPanelFrame(kRightX, 204, kRightWidth, 188, style);
     s3g::clap_gui::drawPanelHeader(@"ANALYSIS", true, kRightX, 204, kRightWidth, 21, labelAttrs, style);
     if (_multiFileSource) {
-        NSString* fileMode = _segments.size() == [_sourceURLs count]
-            ? @"FILE / ALIAS" : @"FILES + EDITS";
+        NSString* fileMode = _generatedSourceName ? @"GENERATED / ALIAS"
+            : (_segments.size() == [_sourceURLs count]
+                ? @"FILE / ALIAS" : @"FILES + EDITS");
         [@"MODE" drawAtPoint:NSMakePoint(820, 246) withAttributes:labelAttrs];
         [fileMode drawAtPoint:NSMakePoint(914, 246) withAttributes:valueAttrs];
         [@"ORDER" drawAtPoint:NSMakePoint(820, 276) withAttributes:labelAttrs];
-        [@"FILENAME" drawAtPoint:NSMakePoint(914, 276) withAttributes:valueAttrs];
+        [(_generatedSourceName ? @"SYNTH" : @"FILENAME")
+            drawAtPoint:NSMakePoint(914, 276) withAttributes:valueAttrs];
         [@"RATE" drawAtPoint:NSMakePoint(820, 306) withAttributes:labelAttrs];
         [[NSString stringWithFormat:@"%d HZ", _sampleRate]
             drawAtPoint:NSMakePoint(914, 306) withAttributes:valueAttrs];
@@ -1441,7 +1755,8 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
             820, kControlTrackX, 1028, kControlTrackWidth);
     }
     drawActionButton([self analyzeButtonRect], @"ANALYZE", labelAttrs,
-        _samples && !_samples->empty());
+        _samples && !_samples->empty(),
+        _aliasesDirty ? ActionButtonTone::Required : ActionButtonTone::Neutral);
     drawActionButton([self autoGuessButtonRect], _canUndoGuess ? @"UNDO GUESS" : @"AUTO GUESS",
         labelAttrs, !_segments.empty() && !_analyzing.load(std::memory_order_relaxed));
     size_t uncertain = 0u;
@@ -1484,8 +1799,274 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
 
     s3g::clap_gui::drawPanelFrame(kRightX, 654, kRightWidth, 108, style);
     s3g::clap_gui::drawPanelHeader(@"EXPORT", true, kRightX, 654, kRightWidth, 21, labelAttrs, style);
-    drawActionButton([self exportButtonRect], @"EXPORT VOICEBANK", labelAttrs, !_segments.empty());
+    const bool canExport = [self canExportVoicebank];
+    drawActionButton([self exportButtonRect], @"EXPORT VOICEBANK", labelAttrs, canExport,
+        canExport ? ActionButtonTone::Ready : ActionButtonTone::Required);
     [_status drawInRect:NSMakeRect(820, 724, 244, 28) withAttributes:valueAttrs];
+}
+
+@end
+
+@implementation S3GVoxGeneratorView {
+    __weak S3GVoxBuilderView* _builder;
+    s3g::VoxSourceSynthParams _params;
+    s3g::VoxSourceVocabulary _vocabulary;
+    NSInteger _mode;
+    NSInteger _openMenu;
+    NSInteger _hoverMenuItem;
+    NSInteger _dragControl;
+    NSTrackingArea* _trackingArea;
+    NSString* _seedDescription;
+}
+
+- (BOOL)isFlipped { return YES; }
+- (BOOL)acceptsFirstResponder { return YES; }
+
+- (instancetype)initWithFrame:(NSRect)frame builder:(S3GVoxBuilderView*)builder
+{
+    self = [super initWithFrame:frame];
+    if (!self) return nil;
+    _builder = builder;
+    _vocabulary = s3g::VoxSourceVocabulary::Core35;
+    _mode = 0;
+    _openMenu = 0;
+    _hoverMenuItem = -1;
+    _dragControl = 0;
+    _seedDescription = @"LOAD AND SELECT A VOCAL SEGMENT";
+    return self;
+}
+
+- (void)updateTrackingAreas
+{
+    if (_trackingArea) [self removeTrackingArea:_trackingArea];
+    _trackingArea = [[NSTrackingArea alloc] initWithRect:[self bounds]
+        options:NSTrackingMouseMoved | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect
+        owner:self userInfo:nil];
+    [self addTrackingArea:_trackingArea];
+    [super updateTrackingAreas];
+}
+
+- (NSRect)modeMenuRect { return NSMakeRect(172, 79, 164, 17); }
+- (NSRect)vocabularyMenuRect { return NSMakeRect(172, 107, 164, 17); }
+- (NSRect)cancelButtonRect { return NSMakeRect(278, 500, 104, 26); }
+- (NSRect)generateButtonRect { return NSMakeRect(394, 500, 108, 26); }
+
+- (void)refreshSeedState
+{
+    S3GVoxBuilderView* builder = _builder;
+    _seedDescription = builder ? [builder selectedSeedDescription]
+                               : @"LOAD AND SELECT A VOCAL SEGMENT";
+    [self setNeedsDisplay:YES];
+}
+
+- (CGFloat)normalizedValueForControl:(NSInteger)control
+{
+    switch (control) {
+    case 1: return (_params.baseFrequencyHz - 55.0f) / 385.0f;
+    case 2: return (_params.tractScale - 0.70f) / 0.65f;
+    case 3: return _params.breath;
+    case 4: return _params.roughness;
+    case 5: return _params.variation;
+    case 6: return (static_cast<float>(_params.randomSeed) - 1.0f) / 9998.0f;
+    case 7: return _params.articulation;
+    case 8: return _params.consonantStrength;
+    case 9: return (_params.durationMs - 300.0f) / 1100.0f;
+    default: return 0.0;
+    }
+}
+
+- (void)setControl:(NSInteger)control normalized:(CGFloat)normalized
+{
+    const float value = static_cast<float>(std::clamp(normalized, 0.0, 1.0));
+    switch (control) {
+    case 1: _params.baseFrequencyHz = 55.0f + value * 385.0f; break;
+    case 2: _params.tractScale = 0.70f + value * 0.65f; break;
+    case 3: _params.breath = value; break;
+    case 4: _params.roughness = value; break;
+    case 5: _params.variation = value; break;
+    case 6: _params.randomSeed = static_cast<uint32_t>(std::lround(1.0f + value * 9998.0f)); break;
+    case 7: _params.articulation = value; break;
+    case 8: _params.consonantStrength = value; break;
+    case 9: _params.durationMs = 300.0f + value * 1100.0f; break;
+    default: return;
+    }
+    [self setNeedsDisplay:YES];
+}
+
+- (CGFloat)rowForControl:(NSInteger)control
+{
+    if (control >= 1 && control <= 6) return 204.0 + static_cast<CGFloat>(control - 1) * 28.0;
+    if (control >= 7 && control <= 9) return 406.0 + static_cast<CGFloat>(control - 7) * 28.0;
+    return 0.0;
+}
+
+- (void)updateDraggedControl:(NSPoint)point
+{
+    if (_dragControl <= 0) return;
+    [self setControl:_dragControl normalized:(point.x - 172.0) / 190.0];
+}
+
+- (NSString*)valueTextForControl:(NSInteger)control
+{
+    switch (control) {
+    case 1: return [NSString stringWithFormat:@"%.1f HZ", _params.baseFrequencyHz];
+    case 2: return [NSString stringWithFormat:@"%.2f", _params.tractScale];
+    case 3: return [NSString stringWithFormat:@"%.0f%%", _params.breath * 100.0f];
+    case 4: return [NSString stringWithFormat:@"%.0f%%", _params.roughness * 100.0f];
+    case 5: return [NSString stringWithFormat:@"%.0f%%", _params.variation * 100.0f];
+    case 6: return [NSString stringWithFormat:@"%u", _params.randomSeed];
+    case 7: return [NSString stringWithFormat:@"%.0f%%", _params.articulation * 100.0f];
+    case 8: return [NSString stringWithFormat:@"%.0f%%", _params.consonantStrength * 100.0f];
+    case 9: return [NSString stringWithFormat:@"%.0f MS", _params.durationMs];
+    default: return @"";
+    }
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    const auto style = s3g::clap_gui::softTextStyle();
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
+    NSDictionary* labelAttrs = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
+    [style.bg setFill];
+    NSRectFill([self bounds]);
+    [@"s3g VOICE SOURCE GENERATOR" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
+    s3g::clap_gui::drawRightStatus(@"DRY MONO   48 KHZ", NSWidth([self bounds]), 14, valueAttrs);
+
+    s3g::clap_gui::drawPanelFrame(18, 42, 484, 118, style);
+    s3g::clap_gui::drawPanelHeader(@"SOURCE MODEL", true, 18, 42, 484, 21, labelAttrs, style);
+    s3g::clap_gui::drawMenu(@"MODE", _mode == 1 ? @"SEEDED" : @"PROCEDURAL", 80,
+        labelAttrs, valueAttrs, style, 34, 172, 164);
+    s3g::clap_gui::drawMenu(@"VOCAB", _vocabulary == s3g::VoxSourceVocabulary::Full92
+        ? @"FULL 92" : @"CORE 35", 108, labelAttrs, valueAttrs, style, 34, 172, 164);
+    [@"SEED" drawAtPoint:NSMakePoint(34, 136) withAttributes:labelAttrs];
+    NSString* seedText = _mode == 1 ? _seedDescription : @"DETERMINISTIC PARAMETER MODEL";
+    [seedText drawInRect:NSMakeRect(172, 134, 312, 18) withAttributes:valueAttrs];
+
+    s3g::clap_gui::drawPanelFrame(18, 172, 484, 184, style);
+    s3g::clap_gui::drawPanelHeader(@"VOICE", true, 18, 172, 484, 21, labelAttrs, style);
+    static NSString* voiceLabels[] = {
+        @"PITCH", @"TRACT", @"BREATH", @"ROUGH", @"VARIATION", @"SEED"
+    };
+    for (NSInteger control = 1; control <= 6; ++control) {
+        s3g::clap_gui::drawSlider(voiceLabels[control - 1],
+            [self valueTextForControl:control], [self normalizedValueForControl:control],
+            [self rowForControl:control], labelAttrs, valueAttrs, style,
+            34, 172, 382, 190);
+    }
+
+    s3g::clap_gui::drawPanelFrame(18, 368, 484, 112, style);
+    s3g::clap_gui::drawPanelHeader(@"ARTICULATION", true, 18, 368, 484, 21, labelAttrs, style);
+    static NSString* articulationLabels[] = { @"CLARITY", @"CONSONANT", @"DURATION" };
+    for (NSInteger control = 7; control <= 9; ++control) {
+        s3g::clap_gui::drawSlider(articulationLabels[control - 7],
+            [self valueTextForControl:control], [self normalizedValueForControl:control],
+            [self rowForControl:control], labelAttrs, valueAttrs, style,
+            34, 172, 382, 190);
+    }
+
+    const bool canGenerate = _mode == 0 || (_builder && [_builder hasSeedSource]);
+    drawActionButton([self cancelButtonRect], @"CANCEL", labelAttrs);
+    drawActionButton([self generateButtonRect], @"GENERATE", labelAttrs, canGenerate);
+    NSString* footer = _mode == 1 && !canGenerate
+        ? @"SEEDED MODE NEEDS A SELECTED VOCAL SEGMENT"
+        : [NSString stringWithFormat:@"%s ALIASES   REPRODUCIBLE SEED %u",
+            s3g::voxSourceVocabularyName(_vocabulary), _params.randomSeed];
+    [footer drawAtPoint:NSMakePoint(18, 544) withAttributes:valueAttrs];
+
+    if (_openMenu > 0) {
+        static NSString* modeItems[] = { @"PROCEDURAL", @"SEEDED" };
+        static NSString* vocabularyItems[] = { @"CORE 35", @"FULL 92" };
+        NSString* const* items = _openMenu == 1 ? modeItems : vocabularyItems;
+        const NSRect origin = _openMenu == 1 ? [self modeMenuRect] : [self vocabularyMenuRect];
+        const NSRect menu = NSMakeRect(origin.origin.x, NSMaxY(origin), origin.size.width, 36.0);
+        const int selected = _openMenu == 1 ? static_cast<int>(_mode)
+            : (_vocabulary == s3g::VoxSourceVocabulary::Full92 ? 1 : 0);
+        s3g::clap_gui::drawDropdownMenu(menu, 18.0, items, 2u,
+            selected, static_cast<int>(_hoverMenuItem), valueAttrs, style);
+    }
+}
+
+- (void)mouseDown:(NSEvent*)event
+{
+    const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (_openMenu > 0) {
+        const NSRect origin = _openMenu == 1 ? [self modeMenuRect] : [self vocabularyMenuRect];
+        const NSRect menu = NSMakeRect(origin.origin.x, NSMaxY(origin), origin.size.width, 36.0);
+        const int hit = s3g::clap_gui::dropdownHitIndex(point, menu, 18.0, 2u);
+        if (hit >= 0) {
+            if (_openMenu == 1) {
+                _mode = hit;
+                if (_mode == 1 && _builder && [_builder hasSeedSource]) {
+                    _params.baseFrequencyHz = [_builder selectedSeedFrequency];
+                }
+            } else {
+                _vocabulary = hit == 1 ? s3g::VoxSourceVocabulary::Full92
+                                       : s3g::VoxSourceVocabulary::Core35;
+            }
+        }
+        _openMenu = 0;
+        _hoverMenuItem = -1;
+        [self refreshSeedState];
+        return;
+    }
+    if (NSPointInRect(point, [self modeMenuRect])) {
+        _openMenu = 1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, [self vocabularyMenuRect])) {
+        _openMenu = 2;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, [self cancelButtonRect])) {
+        [[self window] orderOut:nil];
+        return;
+    }
+    if (NSPointInRect(point, [self generateButtonRect])) {
+        if (_mode == 1 && (!_builder || ![_builder hasSeedSource])) {
+            NSBeep();
+            return;
+        }
+        _params.seeded = _mode == 1;
+        if (_builder && [_builder beginVoiceGeneration:_params vocabulary:_vocabulary]) {
+            [[self window] orderOut:nil];
+        }
+        return;
+    }
+    for (NSInteger control = 1; control <= 9; ++control) {
+        const CGFloat row = [self rowForControl:control];
+        if (!NSPointInRect(point, NSMakeRect(164, row - 8, 210, 25))) continue;
+        _dragControl = control;
+        [self updateDraggedControl:point];
+        return;
+    }
+}
+
+- (void)mouseDragged:(NSEvent*)event
+{
+    [self updateDraggedControl:[self convertPoint:[event locationInWindow] fromView:nil]];
+}
+
+- (void)mouseUp:(NSEvent*)event
+{
+    (void)event;
+    _dragControl = 0;
+}
+
+- (void)mouseMoved:(NSEvent*)event
+{
+    if (_openMenu <= 0) return;
+    const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    const NSRect origin = _openMenu == 1 ? [self modeMenuRect] : [self vocabularyMenuRect];
+    const NSRect menu = NSMakeRect(origin.origin.x, NSMaxY(origin), origin.size.width, 36.0);
+    const NSInteger hover = s3g::clap_gui::dropdownHitIndex(point, menu, 18.0, 2u);
+    if (hover != _hoverMenuItem) {
+        _hoverMenuItem = hover;
+        [self setNeedsDisplay:YES];
+    }
 }
 
 @end
@@ -1508,6 +2089,7 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
     [_window setTitle:@"s3g Vox Builder"];
     [_window setReleasedWhenClosed:NO];
     [_window setSharingType:NSWindowSharingReadOnly];
+    [_window setCollectionBehavior:NSWindowCollectionBehaviorMoveToActiveSpace];
     _view = [[S3GVoxBuilderView alloc] initWithFrame:content];
     [_window setContentView:_view];
     NSScreen* screen = [NSScreen mainScreen] ?: [[NSScreen screens] firstObject];
@@ -1530,6 +2112,28 @@ static void drawActionButton(NSRect rect, NSString* label, NSDictionary* attrs, 
             if (![path hasPrefix:@"-"]) [urls addObject:[NSURL fileURLWithPath:path]];
         }
         if ([urls count] > 0u) [_view loadAudioURLs:urls];
+    }
+    NSString* snapshotDirectory = [[[NSProcessInfo processInfo] environment]
+        objectForKey:@"S3G_VOX_BUILDER_SNAPSHOT_DIR"];
+    if ([snapshotDirectory length] > 0u) {
+        [[NSFileManager defaultManager] createDirectoryAtPath:snapshotDirectory
+            withIntermediateDirectories:YES attributes:nil error:nil];
+        writeViewSnapshot(_view,
+            [snapshotDirectory stringByAppendingPathComponent:@"vox-builder-main.png"]);
+        S3GVoxGeneratorView* generator = [[S3GVoxGeneratorView alloc]
+            initWithFrame:NSMakeRect(0, 0, 520, 580) builder:_view];
+        NSPanel* generatorWindow = [[NSPanel alloc]
+            initWithContentRect:NSMakeRect(0, 0, 520, 580)
+            styleMask:NSWindowStyleMaskBorderless
+            backing:NSBackingStoreBuffered defer:NO];
+        [generatorWindow setContentView:generator];
+        [generatorWindow orderFront:nil];
+        [generatorWindow displayIfNeeded];
+        [generator refreshSeedState];
+        writeViewSnapshot(generator,
+            [snapshotDirectory stringByAppendingPathComponent:@"vox-builder-generator.png"]);
+        [generatorWindow orderOut:nil];
+        dispatch_async(dispatch_get_main_queue(), ^{ [NSApp terminate:nil]; });
     }
 }
 

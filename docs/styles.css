@@ -181,6 +181,20 @@ a:focus-visible {
   margin-top: 0.25rem;
 }
 
+.content .bibliography {
+  margin-top: 14px;
+}
+
+.content .bib-entry {
+  margin-bottom: 1.05rem;
+  padding-left: 1.35rem;
+  text-indent: -1.35rem;
+}
+
+.content .bib-entry a {
+  text-indent: 0;
+}
+
 .content strong {
   color: #9cdcfe;
 }

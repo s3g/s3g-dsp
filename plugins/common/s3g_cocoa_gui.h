@@ -7,8 +7,214 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 namespace s3g::clap_gui {
+
+// Encoder editors use a fixed-size drawing surface so their visual geometry,
+// hit testing, and native controls remain stable.  This state adds a resizable
+// viewport around that surface; hosts may make the window smaller and expose
+// the rest of the editor with standard Cocoa scrollers.
+struct ResponsiveViewport {
+    void* container = nullptr;
+    void* screenObserver = nullptr;
+    uint32_t width = 0u;
+    uint32_t height = 0u;
+    uint32_t nativeWidth = 0u;
+    uint32_t nativeHeight = 0u;
+    uint32_t minimumWidth = 480u;
+    uint32_t minimumHeight = 360u;
+};
+
+inline NSSize responsiveViewportSizeForScreen(uint32_t nativeWidth,
+                                              uint32_t nativeHeight,
+                                              uint32_t minimumWidth = 480u,
+                                              uint32_t minimumHeight = 360u,
+                                              NSScreen* screen = [NSScreen mainScreen])
+{
+    CGFloat width = static_cast<CGFloat>(nativeWidth);
+    CGFloat height = static_cast<CGFloat>(nativeHeight);
+    if (screen) {
+        const NSRect visible = [screen visibleFrame];
+        width = std::min(width, std::max(static_cast<CGFloat>(minimumWidth),
+            std::floor(visible.size.width * 0.90)));
+        height = std::min(height, std::max(static_cast<CGFloat>(minimumHeight),
+            std::floor(visible.size.height * 0.82)));
+    }
+    return NSMakeSize(width, height);
+}
+
+inline void clampResponsiveViewportSize(const ResponsiveViewport& state,
+                                        uint32_t& width,
+                                        uint32_t& height)
+{
+    width = std::clamp(width, state.minimumWidth, state.nativeWidth);
+    height = std::clamp(height, state.minimumHeight, state.nativeHeight);
+}
+
+inline bool createResponsiveViewport(ResponsiveViewport& state,
+                                     NSView* content,
+                                     uint32_t nativeWidth,
+                                     uint32_t nativeHeight,
+                                     uint32_t minimumWidth = 480u,
+                                     uint32_t minimumHeight = 360u)
+{
+    if (!content) return false;
+    if (state.container) return true;
+    state.nativeWidth = nativeWidth;
+    state.nativeHeight = nativeHeight;
+    state.minimumWidth = std::min(minimumWidth, nativeWidth);
+    state.minimumHeight = std::min(minimumHeight, nativeHeight);
+    const NSSize size = responsiveViewportSizeForScreen(nativeWidth, nativeHeight,
+        state.minimumWidth, state.minimumHeight);
+    state.width = static_cast<uint32_t>(size.width);
+    state.height = static_cast<uint32_t>(size.height);
+
+    auto* scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(
+        0.0, 0.0, size.width, size.height)];
+    if (!scrollView) return false;
+    [scrollView setBorderType:NSNoBorder];
+    [scrollView setDrawsBackground:NO];
+    [scrollView setHasVerticalScroller:YES];
+    [scrollView setHasHorizontalScroller:YES];
+    [scrollView setAutohidesScrollers:YES];
+    [scrollView setScrollerStyle:NSScrollerStyleOverlay];
+    [scrollView setScrollerKnobStyle:NSScrollerKnobStyleLight];
+    [scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    [scrollView setDocumentView:content];
+    [[scrollView contentView] scrollToPoint:NSMakePoint(0.0, 0.0)];
+    [scrollView reflectScrolledClipView:[scrollView contentView]];
+    state.container = scrollView;
+    return true;
+}
+
+inline void stopResponsiveScreenObservation(ResponsiveViewport& state)
+{
+    if (!state.screenObserver) return;
+    [[NSNotificationCenter defaultCenter] removeObserver:static_cast<id>(state.screenObserver)];
+    state.screenObserver = nullptr;
+}
+
+inline void destroyResponsiveViewport(ResponsiveViewport& state, void*& contentView)
+{
+    stopResponsiveScreenObservation(state);
+    if (state.container) {
+        auto* scrollView = static_cast<NSScrollView*>(state.container);
+        [scrollView setDocumentView:nil];
+        [scrollView removeFromSuperview];
+        [scrollView release];
+    }
+    if (contentView) {
+        auto* content = static_cast<NSView*>(contentView);
+        [content removeFromSuperview];
+        [content release];
+    }
+    state = {};
+    contentView = nullptr;
+}
+
+inline bool getResponsiveViewportSize(const ResponsiveViewport& state,
+                                      uint32_t nativeWidth,
+                                      uint32_t nativeHeight,
+                                      uint32_t* width,
+                                      uint32_t* height)
+{
+    if (!width || !height) return false;
+    if (state.width > 0u && state.height > 0u) {
+        *width = state.width;
+        *height = state.height;
+    } else {
+        const NSSize size = responsiveViewportSizeForScreen(nativeWidth, nativeHeight);
+        *width = static_cast<uint32_t>(size.width);
+        *height = static_cast<uint32_t>(size.height);
+    }
+    return true;
+}
+
+inline bool getResponsiveResizeHints(clap_gui_resize_hints_t* hints)
+{
+    if (!hints) return false;
+    hints->can_resize_horizontally = true;
+    hints->can_resize_vertically = true;
+    hints->preserve_aspect_ratio = false;
+    hints->aspect_ratio_width = 0u;
+    hints->aspect_ratio_height = 0u;
+    return true;
+}
+
+inline bool adjustResponsiveViewportSize(const ResponsiveViewport& state,
+                                         uint32_t nativeWidth,
+                                         uint32_t nativeHeight,
+                                         uint32_t* width,
+                                         uint32_t* height)
+{
+    if (!width || !height) return false;
+    const uint32_t minWidth = state.minimumWidth > 0u ? state.minimumWidth : std::min(480u, nativeWidth);
+    const uint32_t minHeight = state.minimumHeight > 0u ? state.minimumHeight : std::min(360u, nativeHeight);
+    *width = std::clamp(*width, minWidth, nativeWidth);
+    *height = std::clamp(*height, minHeight, nativeHeight);
+    return true;
+}
+
+inline bool setResponsiveViewportSize(ResponsiveViewport& state,
+                                      uint32_t width,
+                                      uint32_t height)
+{
+    if (!state.container) return false;
+    clampResponsiveViewportSize(state, width, height);
+    state.width = width;
+    state.height = height;
+    [static_cast<NSView*>(state.container) setFrameSize:NSMakeSize(width, height)];
+    return true;
+}
+
+inline void requestResponsiveViewportFit(ResponsiveViewport& state, const clap_host_t* host)
+{
+    if (!state.container || !host || !host->get_extension) return;
+    NSView* container = static_cast<NSView*>(state.container);
+    NSScreen* screen = [container window] ? [[container window] screen] : [NSScreen mainScreen];
+    const NSSize fit = responsiveViewportSizeForScreen(state.nativeWidth, state.nativeHeight,
+        state.minimumWidth, state.minimumHeight, screen);
+    const uint32_t targetWidth = std::min(state.width, static_cast<uint32_t>(std::floor(fit.width)));
+    const uint32_t targetHeight = std::min(state.height, static_cast<uint32_t>(std::floor(fit.height)));
+    if (targetWidth >= state.width && targetHeight >= state.height) return;
+    const auto* hostGui = static_cast<const clap_host_gui_t*>(host->get_extension(host, CLAP_EXT_GUI));
+    if (hostGui && hostGui->request_resize) {
+        hostGui->request_resize(host, targetWidth, targetHeight);
+    }
+}
+
+inline bool setResponsiveViewportParent(ResponsiveViewport& state,
+                                        NSView* parent,
+                                        const clap_host_t* host)
+{
+    if (!state.container || !parent) return false;
+    NSView* container = static_cast<NSView*>(state.container);
+    [parent addSubview:container];
+    [container setFrame:NSMakeRect(0.0, 0.0, state.width, state.height)];
+    stopResponsiveScreenObservation(state);
+    ResponsiveViewport* statePtr = &state;
+    const clap_host_t* hostPtr = host;
+    id observer = [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSWindowDidChangeScreenNotification
+                    object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification* notification) {
+                    NSWindow* window = [static_cast<NSView*>(statePtr->container) window];
+                    if (!window || ([notification object] && [notification object] != window)) return;
+                    requestResponsiveViewportFit(*statePtr, hostPtr);
+                }];
+    state.screenObserver = observer;
+    requestResponsiveViewportFit(state, host);
+    return true;
+}
+
+inline bool setResponsiveViewportHidden(const ResponsiveViewport& state, bool hidden)
+{
+    if (!state.container) return false;
+    [static_cast<NSView*>(state.container) setHidden:hidden ? YES : NO];
+    return true;
+}
 
 inline NSColor* color(int rgb, double alpha = 1.0)
 {
@@ -304,11 +510,6 @@ inline void drawDropdownMenu(NSRect menuRect,
     }
 }
 
-inline CGFloat headerTextY(NSRect headerRect)
-{
-    return headerRect.origin.y + 5.0;
-}
-
 inline void drawHeaderButton(NSRect button,
                              NSRect headerRect,
                              NSString* label,
@@ -322,8 +523,9 @@ inline void drawHeaderButton(NSRect button,
     NSFrameRect(button);
     const NSSize size = [label sizeWithAttributes:attrs];
     [label drawAtPoint:NSMakePoint(button.origin.x + (button.size.width - size.width) * 0.5,
-                                   headerTextY(headerRect))
+                                   button.origin.y + (button.size.height - size.height) * 0.5 - 0.5)
         withAttributes:attrs];
+    (void)headerRect;
 }
 
 inline void drawHeaderActionButton(NSRect button,
@@ -340,8 +542,9 @@ inline void drawHeaderActionButton(NSRect button,
     NSFrameRect(NSInsetRect(button, 1.0, 1.0));
     const NSSize size = [label sizeWithAttributes:attrs];
     [label drawAtPoint:NSMakePoint(button.origin.x + (button.size.width - size.width) * 0.5,
-                                   headerTextY(headerRect))
+                                   button.origin.y + (button.size.height - size.height) * 0.5 - 0.5)
         withAttributes:attrs];
+    (void)headerRect;
     (void)style;
 }
 

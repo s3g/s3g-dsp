@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambisonic Encoders - s3g-dsp</title>
+    <meta name="description" content="Ambisonic encoder and spatial instrument documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambisonic Encoders</h1>
+
+        <p>Encoders create an <code>ACN/SN3D</code> sound field from ordinary source lanes or generate an encoded field directly. Choose an audio-input encoder when a REAPER source already exists; choose a spatial instrument when the plugin itself is the sound source.</p>
+
+        <p>Encoder editors retain their native control geometry inside a responsive viewport. A host may resize the window down to 480 by 360 pixels; horizontal and vertical scrollers expose the complete editor without shrinking its controls or changing point-field hit testing. Moving an editor to a smaller display requests a screen-fitting viewport automatically.</p>
+
+        <h2 id="audio-input">Audio-input Encoders</h2>
+
+        <ul>
+          <li><a href="3oafx-point-encoder.html">Ambi Point Encoder</a>: 16-lane point-source AED and gain automation into selectable first- through seventh-order ambisonics.</li>
+          <li><a href="ambi-cloud-encoder.html">Ambi Cloud Encoder</a>: distributes as many as 64 source lanes into one to four first-through-seventh-order clouds.</li>
+          <li><a href="ambi-terrain-navigator.html">Ambi Terrain Navigator</a>: moves source-lane coordinates across nested procedural terrain spheres.</li>
+          <li><a href="ambi-path-encoder.html">Ambi Path Encoder</a>: follows saved, imported, or hand-drawn spatial trajectories.</li>
+          <li><a href="ambi-ray-encoder.html">Ambi Ray Encoder</a>: places a mono source and listener inside a direct, early-reflection, and late-room field.</li>
+          <li><a href="ambi-ray-bilocation-encoder.html">Ambi Ray Bilocation Encoder</a>: runs two Ray fields continuously and moves a mono source through their overlap.</li>
+        </ul>
+
+        <h2 id="instruments">Spatial Instruments</h2>
+
+        <ul>
+          <li><a href="ambi-vot-encoder.html">Ambi VOT Encoder</a>: vector-wavetable synthesis with an editable timbre path.</li>
+          <li><a href="ambi-vox-encoder.html">Ambi Vox Encoder</a>: WORLD and UTAU-style voicebank synthesis with phrase and ensemble motion.</li>
+          <li><a href="ambi-wave-terrain-encoder.html">Ambi Wave Terrain Encoder</a>: stochastic contour scans through a shared wave terrain.</li>
+          <li><a href="ambi-wind-encoder.html">Ambi Wind Encoder</a>: filtered-noise weather, resonant materials, and microweather motion.</li>
+          <li><a href="ambi-water-encoder.html">Ambi Water Encoder</a>: procedural flow, droplet, splash, and bubble fields.</li>
+          <li><a href="ambi-pulsar-encoder.html">Ambi Pulsar Encoder</a>: a multipoint pulsaret field with synchronized FM and neural waveform capture.</li>
+          <li><a href="ambi-stochastic-encoder.html">Ambi Stochastic Encoder</a>: second-order stochastic walks, time-fields, and topology-driven placement.</li>
+          <li><a href="ambi-wrangler-encoder.html">Ambi Wrangler Encoder</a>: autonomous Benjolin/rungler-style logic synthesis in a moving voice field.</li>
+        </ul>
+
+        <h2 id="routing">Routing Baseline</h2>
+
+        <p>Set the REAPER track width before inserting an encoder. The 64-channel encoders use the first <code>(order + 1)^2</code> channels and silence the unused higher-order channels. Follow the encoder with a tool from <a href="ambisonic-decoders.html">Decoders</a>, <a href="ambisonic-effects.html">Effects</a>, or <a href="ambisonic-utilities.html">Utilities</a>.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="3oafx.html">
+            <span>Previous</span>
+            Ambisonics Overview
+          </a>
+          <a class="page-nav-link next" href="3oafx-point-encoder.html">
+            <span>Next</span>
+            Ambi Point Encoder
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#audio-input">Audio-input Encoders</a>
+          <a href="#instruments">Spatial Instruments</a>
+          <a href="#routing">Routing Baseline</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

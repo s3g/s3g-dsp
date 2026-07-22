@@ -20,28 +20,30 @@ DAWs are not support targets at this stage.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-The current macOS package installs 80 CLAP bundles, including fixed-width
-variants for several processors, bus tools, and speaker-array utilities.
+The current macOS package installs 81 CLAP bundles, including fixed-width
+variants for several effects, bus tools, and speaker-array utilities.
 All bundles build, but clap-validator conformance remains in progress for some
 older wrappers, chiefly around parameter text conversion and buffered state
 I/O. The package should continue to be treated as a pre-release.
 
 Plugin areas:
 
-- [Processors](https://s3g.github.io/s3g-dsp/processors.html): topology,
-  macro, spectral, buffer, delay, and multichannel transformation effects.
-- [Mix / Pan](https://s3g.github.io/s3g-dsp/mix-pan.html): fold-down,
-  metering, direct panning, matrix and node mixing, and speaker calibration.
-- [Ambisonics](https://s3g.github.io/s3g-dsp/3oafx.html): 3OAFX,
-  `ACN/SN3D` encoders and decoders, field and bus tools, visualization, and
-  Ambi Imprint with its nineteen-space atlas. The 3OAFX family includes a
-  Displacement Score player for time-varying 24-point field warps authored in
-  the related `s3g-mc` browser utility.
+- [Multichannel](https://s3g.github.io/s3g-dsp/multichannel.html):
+  [effects](https://s3g.github.io/s3g-dsp/multichannel-effects.html),
+  fold-down, metering, direct panning, matrix and node mixing, and speaker
+  calibration for ordinary channel lanes.
+- [Ambisonics](https://s3g.github.io/s3g-dsp/3oafx.html): separate
+  [encoders](https://s3g.github.io/s3g-dsp/ambisonic-encoders.html),
+  [decoders](https://s3g.github.io/s3g-dsp/ambisonic-decoders.html),
+  [effects](https://s3g.github.io/s3g-dsp/ambisonic-effects.html), and
+  [utilities](https://s3g.github.io/s3g-dsp/ambisonic-utilities.html) for
+  `ACN/SN3D` workflows, including 3OAFX and Ambi Imprint.
 - [Instruments](https://s3g.github.io/s3g-dsp/instruments.html): loaded-loop,
-  granular, vector-wavetable, WORLD/voicebank vocal, and stochastic
-  instruments, including the eight-channel
-  [s3g Fault](https://s3g.github.io/s3g-dsp/fault.html) byte-field and codec
-  synthesizer.
+  granular, vector-wavetable, weather, liquid, WORLD/voicebank vocal, and
+  stochastic instruments, including the eight-channel
+  [Fault](https://s3g.github.io/s3g-dsp/fault.html) generated, raw-file,
+  and waveform-derived byte-field and codec synthesizer with free-running and
+  MIDI/ADSR performance modes.
 
 The [installation page](https://s3g.github.io/s3g-dsp/installing-plugins.html)
 lists the included families and the REAPER routing notes that matter for wide
@@ -67,7 +69,7 @@ tracks and true stereo outputs.
   of the editing workflow. For example, a top-view panner or decoder display
   should reopen that way with the project.
 - 24-channel 3OAFX-specific work is kept separate from general multichannel
-  lane processors.
+  lane effects.
 - C++ plugin and DSP work lives in `s3g-dsp`; generated RNBO exports use the
   separate `s3g-rnbo-clap` wrapper project.
 
@@ -119,8 +121,10 @@ cmake -S . -B build-clap \
 ## Voicebank Builder
 
 `s3g Vox Builder` is a macOS companion app for preparing Ambi Vox Encoder
-voicebanks from one continuous recording, several WAV files, or a folder of
-WAVs. It provides automatic silence-aware segmentation for a continuous source,
+voicebanks from a generated voice source, one continuous recording, several WAV
+files, or a folder of WAVs. Its procedural and source-seeded generator creates
+repeatable Core 35 or Full 92 alias banks without copying source samples. The
+app also provides automatic silence-aware segmentation for a continuous source,
 one-file-per-alias folder import, draggable boundaries, per-segment WORLD pitch
 and voicing analysis, guarded level conditioning, filename/order alias guesses,
 manual segment correction, audition, timing edits, and UTAU-style export.
@@ -173,7 +177,7 @@ Create the local pre-release zip after a complete CLAP build with:
 ./scripts/package-macos-clap-prerelease.sh
 ```
 
-The package contains 80 CLAP bundles, the VOT wavetable library, the Ambi Vox
+The package contains 81 CLAP bundles, the VOT wavetable library, the Ambi Vox
 demo voicebank, and the applicable license notices. The packaging script
 ad-hoc signs and strictly verifies every bundle by default. Set
 `S3G_CODESIGN_IDENTITY` to use a different macOS signing identity; notarization
@@ -188,6 +192,7 @@ The local smoke executables exercise shared DSP code:
 ./build/s3g_3oafx_displacement_smoke
 ./build/s3g_ambi_imprint_safety_smoke
 ./build/s3g_ambi_ray_encoder_smoke
+./build/s3g_ambi_ray_bilocation_encoder_smoke
 ./build/s3g_ambi_pulsar_encoder_smoke
 ./build/s3g_psd_raw_field_smoke
 ./build/s3g_psd_raw_field_parameter_audit

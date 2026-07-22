@@ -44,7 +44,8 @@ inline AmbiWaterParams ambiWaterFactoryPreset(uint32_t index)
     AmbiWaterParams p {};
     p.order = 3u;
     p.outputGainDb = -6.0f;
-    switch (std::min<uint32_t>(index, kAmbiWaterFactoryPresetCount - 1u)) {
+    const uint32_t preset = std::min<uint32_t>(index, kAmbiWaterFactoryPresetCount - 1u);
+    switch (preset) {
     case 0u: // Shallow Creek
         p.voices = 32u; p.regime = 0u; p.environment = 0u;
         p.water = 0.62f; p.flow = 0.58f; p.scale = 0.34f; p.turbulence = 0.42f; p.aeration = 0.32f;
@@ -158,6 +159,24 @@ inline AmbiWaterParams ambiWaterFactoryPreset(uint32_t index)
         p.depth = 0.76f; p.brightness = 0.22f; p.resonance = 0.42f; p.damping = 0.72f; p.contact = 0.08f;
         p.motionRateHz = 0.018f; p.current = 0.14f; p.slope = 0.0f; p.eddy = 0.18f; p.width = 0.58f;
         break;
+    }
+    switch (preset) {
+    case 0u: p.place = 4u; p.space = 0.16f; break; // Shallow Creek / Channel
+    case 1u: p.place = 0u; p.space = 0.10f; break; // Rain on Leaves / Open
+    case 2u: p.place = 4u; p.space = 0.28f; break; // Concrete Spillway / Channel
+    case 3u: p.place = 2u; p.space = 0.62f; break; // Cave Drips / Cave
+    case 4u: p.place = 0u; p.space = 0.14f; break; // Harbor Slosh / Open
+    case 5u: p.place = 5u; p.space = 0.42f; break; // Drain Vortex / Pipe
+    case 6u: p.place = 0u; p.space = 0.19f; break; // Distant Waterfall / Open
+    case 7u: p.place = 1u; p.space = 0.58f; break; // Underwater Bubbles / Submerged
+    case 8u: p.place = 4u; p.space = 0.22f; break; // Pebble Rapids / Channel
+    case 9u: p.place = 0u; p.space = 0.12f; break; // Window Rain / Open
+    case 10u: p.place = 3u; p.space = 0.54f; break; // Metal Cistern / Cistern
+    case 11u: p.place = 0u; p.space = 0.10f; break; // Slow Shoreline / Open
+    case 12u: p.place = 4u; p.space = 0.20f; break; // Mud Channel / Channel
+    case 13u: p.place = 5u; p.space = 0.50f; break; // Pipe Runoff / Pipe
+    case 14u: p.place = 0u; p.space = 0.12f; break; // Storm Sheet / Open
+    default: p.place = 0u; p.space = 0.08f; break; // Still Pool / Open
     }
     return p;
 }

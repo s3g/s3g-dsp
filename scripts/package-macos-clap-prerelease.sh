@@ -33,6 +33,7 @@ bundles=(
   "$src_root/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder.clap"
   "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"
   "$src_root/clap_ambi_ray_encoder/s3g_ambi_ray_encoder.clap"
+  "$src_root/clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder.clap"
   "$src_root/clap_ambi_path_encoder/s3g_ambi_path_encoder.clap"
   "$src_root/clap_3oafx_speaker_decoder/s3g_3oafx_speaker_decoder.clap"
   "$src_root/clap_layout_panner/s3g_layout_panner.clap"
@@ -160,6 +161,7 @@ Included plugins ($bundle_count bundles):
 - s3g Ambi Wrangler Encoder 64
 - s3g Ambi Imprint 64
 - s3g Ambi Ray Encoder
+- s3g Ambi Ray Bilocation Encoder
 - s3g Ambi Path Encoder 64
 - s3g Ambi Speaker Decoder 64
 - s3g Layout Panner
@@ -169,7 +171,7 @@ Included plugins ($bundle_count bundles):
 - s3g Sub Crossover
 - s3g Loop Processor 8ch
 - s3g Multi Loop Processor 8ch
-- s3g Fault
+- Fault
 - s3g Ambi Grain Processor
 - s3g Macro Delay 8ch
 - s3g Macro Delay 24ch

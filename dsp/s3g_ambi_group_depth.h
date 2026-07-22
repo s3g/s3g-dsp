@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_ambi_environment_field.h"
 #include "s3g_ambisonic_utilities.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
@@ -25,6 +26,9 @@ struct AmbiGroupDepthParams {
     float low = 0.0f;
     float width = 1.0f;
     float outputGainDb = 0.0f;
+    float environmentSize = 0.5f;
+    float environmentDecay = 0.5f;
+    float environmentDamping = 0.5f;
 };
 
 struct AmbiGroupDepthGroupState {
@@ -43,6 +47,9 @@ inline AmbiGroupDepthParams sanitizeAmbiGroupDepthParams(AmbiGroupDepthParams pa
     params.low = clamp(params.low, -1.0f, 1.0f);
     params.width = clamp(params.width, 0.0f, 1.5f);
     params.outputGainDb = clamp(params.outputGainDb, -60.0f, 12.0f);
+    params.environmentSize = clamp(params.environmentSize, 0.0f, 1.0f);
+    params.environmentDecay = clamp(params.environmentDecay, 0.0f, 1.0f);
+    params.environmentDamping = clamp(params.environmentDamping, 0.0f, 1.0f);
     return params;
 }
 
@@ -75,7 +82,12 @@ public:
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1000.0, sampleRate);
-        buildFdnBuffers();
+        if constexpr (Groups == 1u) {
+            environmentField_.setProfile(AmbiEnvironmentProfileId::Depth);
+            environmentField_.prepare(sampleRate_);
+        } else {
+            buildFdnBuffers();
+        }
         reset();
         rebuildTargets();
     }
@@ -90,11 +102,16 @@ public:
     {
         currentGain_ = targetGain_;
         currentTail_ = targetTail_;
+        currentWetOutputGain_ = targetWetOutputGain_;
         lpState_.fill(0.0f);
-        fdnLp_.fill(0.0f);
-        fdnPos_.fill(0u);
-        for (auto& delay : fdnDelay_) {
-            std::fill(delay.begin(), delay.end(), 0.0f);
+        if constexpr (Groups == 1u) {
+            environmentField_.reset();
+        } else {
+            fdnLp_.fill(0.0f);
+            fdnPos_.fill(0u);
+            for (auto& delay : fdnDelay_) {
+                std::fill(delay.begin(), delay.end(), 0.0f);
+            }
         }
     }
 
@@ -115,15 +132,39 @@ public:
                 std::fill(outputs[ch], outputs[ch] + frames, Sample {});
             }
         }
-        if (!inputs) {
+        if (!inputs && Groups != 1u) {
             return;
         }
 
         constexpr float kGainSmooth = 0.0012f;
         constexpr float kFilterSmooth = 0.0020f;
         constexpr float kTailSmooth = 0.0009f;
-        const uint32_t n = std::min<uint32_t>({ inputChannels, outputChannels, kChannels });
+        const uint32_t n = Groups == 1u
+            ? std::min<uint32_t>(outputChannels, kChannels)
+            : std::min<uint32_t>({ inputChannels, outputChannels, kChannels });
         for (uint32_t i = 0; i < frames; ++i) {
+            if constexpr (Groups == 1u) {
+                currentWetOutputGain_ += (targetWetOutputGain_ - currentWetOutputGain_) * kGainSmooth;
+                const auto sampleAt = [&](uint32_t channel) -> float {
+                    return inputs && channel < inputChannels && inputs[channel]
+                        ? static_cast<float>(inputs[channel][i]) : 0.0f;
+                };
+                environmentField_.beginFrame();
+                environmentField_.addHoaFrame(sampleAt(0u), sampleAt(1u), sampleAt(2u), sampleAt(3u),
+                    currentWetOutputGain_);
+                const auto environment = environmentField_.process();
+                for (uint32_t ch = 0u; ch < n; ++ch) {
+                    if (!outputs[ch]) continue;
+                    const float dry = sampleAt(ch);
+                    currentGain_[ch] += (targetGain_[ch] - currentGain_[ch]) * kGainSmooth;
+                    currentLp_[ch] += (targetLp_[ch] - currentLp_[ch]) * kFilterSmooth;
+                    lpState_[ch] += (dry - lpState_[ch]) * currentLp_[ch];
+                    const float shaped = lerp(dry, lpState_[ch], targetAirMix_[ch]) * currentGain_[ch]
+                        + environment[ch];
+                    outputs[ch][i] = static_cast<Sample>(std::clamp(shaped, -8.0f, 8.0f));
+                }
+                continue;
+            }
             for (uint32_t group = 0; group < Groups; ++group) {
                 const uint32_t base = group * kAmbiGroupDepthGroupChannels;
                 currentTail_[group] += (targetTail_[group] - currentTail_[group]) * kTailSmooth;
@@ -153,6 +194,7 @@ private:
     {
         params_ = sanitizeAmbiGroupDepthParams(params_);
         const float outGain = dbToGain(params_.outputGainDb);
+        targetWetOutputGain_ = outGain;
         for (uint32_t group = 0; group < Groups; ++group) {
             const auto state = ambiGroupDepthStateForGroup(params_, group, Groups);
             const float farAmount = std::max(0.0f, state.bipolarDepth);
@@ -165,7 +207,16 @@ private:
             const float airPresence = std::max(0.0f, -params_.air) * (0.25f + nearAmount * 0.75f);
             const float cutoff = lerp(19000.0f, 2200.0f, airDamping);
             const float lp = onePoleCoeff(cutoff);
-            targetTail_[group] = params_.tail * lerp(0.18f, 1.0f, farSoft) * lerp(0.45f, 1.0f, focusNorm);
+            if constexpr (Groups == 1u) {
+                targetTail_[group] = params_.tail * lerp(0.70f, 1.0f, farSoft)
+                    * lerp(0.90f, 1.0f, focusNorm);
+                environmentField_.setAmount(targetTail_[group]);
+                environmentField_.setShape(params_.environmentSize, params_.environmentDecay,
+                    params_.environmentDamping);
+            } else {
+                targetTail_[group] = params_.tail * lerp(0.18f, 1.0f, farSoft)
+                    * lerp(0.45f, 1.0f, focusNorm);
+            }
 
             for (uint32_t lane = 0; lane < kAmbiGroupDepthGroupChannels; ++lane) {
                 const uint32_t ch = group * kAmbiGroupDepthGroupChannels + lane;
@@ -278,6 +329,9 @@ private:
     std::array<std::vector<float>, Groups * 4u> fdnDelay_ {};
     std::array<uint32_t, Groups * 4u> fdnPos_ {};
     std::array<float, Groups * 4u> fdnLp_ {};
+    AmbiEnvironmentField environmentField_ {};
+    float currentWetOutputGain_ = 1.0f;
+    float targetWetOutputGain_ = 1.0f;
 };
 
 } // namespace s3g

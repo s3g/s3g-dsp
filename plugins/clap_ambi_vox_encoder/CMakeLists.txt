@@ -30,3 +30,20 @@ if(APPLE)
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
   )
 endif()
+
+if(APPLE AND TARGET world::core)
+  add_executable(s3g_ambi_vox_playback_probe EXCLUDE_FROM_ALL
+    s3g_ambi_vox_encoder_clap.cpp
+  )
+  target_link_libraries(s3g_ambi_vox_playback_probe PRIVATE
+    s3g_dsp
+    world::core
+    "-framework Cocoa"
+    "-framework Accelerate"
+  )
+  target_include_directories(s3g_ambi_vox_playback_probe PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+  target_compile_definitions(s3g_ambi_vox_playback_probe PRIVATE
+    S3G_HAS_WORLD=1
+    S3G_AMBI_VOX_PLAYBACK_PROBE=1
+  )
+endif()

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Generative Instruments - s3g-dsp</title>
+    <meta name="description" content="Generative and synthesis instrument documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Generative Instruments</h1>
+
+        <p>Generative instruments synthesize their source material internally. Some run without MIDI; others combine free-running voices with MIDI notes. Spatial instruments publish <code>ACN/SN3D</code> directly and are also organized under <a href="ambisonic-encoders.html">Ambisonic Encoders</a>.</p>
+
+        <h2 id="multichannel">Discrete Multichannel</h2>
+
+        <ul>
+          <li><a href="fault.html">Fault</a>: turns generated data or any file's literal bytes into a free-running or MIDI-playable eight-channel field of stochastic geometry, damaged codec models, and resonant wavefolding.</li>
+        </ul>
+
+        <h2 id="spatial">Ambisonic Synthesis</h2>
+
+        <ul>
+          <li><a href="ambi-vot-encoder.html">Ambi VOT Encoder</a>: vector-wavetable synthesis with editable timbre paths.</li>
+          <li><a href="ambi-wave-terrain-encoder.html">Ambi Wave Terrain Encoder</a>: contour-based oscillator scans through a procedural terrain.</li>
+          <li><a href="ambi-wind-encoder.html">Ambi Wind Encoder</a>: filtered-noise weather, gust, material, and microweather synthesis.</li>
+          <li><a href="ambi-water-encoder.html">Ambi Water Encoder</a>: procedural currents, droplets, splashes, and bubbles.</li>
+          <li><a href="ambi-pulsar-encoder.html">Ambi Pulsar Encoder</a>: multipoint pulsaret synthesis and neural waveform capture.</li>
+          <li><a href="ambi-stochastic-encoder.html">Ambi Stochastic Encoder</a>: dynamic-stochastic generators, time-fields, and topology projection.</li>
+          <li><a href="ambi-wrangler-encoder.html">Ambi Wrangler Encoder</a>: autonomous Benjolin/rungler-style logic synthesis.</li>
+        </ul>
+
+        <h2 id="routing">Routing</h2>
+
+        <p>Fault uses eight ordinary output lanes. The Ambi instruments use a fixed 64-channel bus with the active order occupying the first <code>(order + 1)^2</code> channels. Follow those instruments with an <a href="ambisonic-decoders.html">Ambisonic Decoder</a> or <a href="ambisonic-utilities.html">utility</a>.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="instruments.html">
+            <span>Previous</span>
+            Instruments Overview
+          </a>
+          <a class="page-nav-link next" href="fault.html">
+            <span>Next</span>
+            Fault
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instruments</h2>
+          <a href="instruments.html">Overview</a>
+          <a href="generative-instruments.html">Generative</a>
+          <a href="sample-instruments.html">Sample / Loop</a>
+          <a href="voice-instruments.html">Voice / Language</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#multichannel">Discrete Multichannel</a>
+          <a href="#spatial">Ambisonic Synthesis</a>
+          <a href="#routing">Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

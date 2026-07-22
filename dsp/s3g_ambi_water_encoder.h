@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_ambi_environment_field.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_realtime.h"
 
@@ -16,6 +17,7 @@ constexpr uint32_t kAmbiWaterMaxOrder = 7;
 constexpr uint32_t kAmbiWaterMaxChannels = 64;
 constexpr uint32_t kAmbiWaterRegimeCount = 8;
 constexpr uint32_t kAmbiWaterEnvironmentCount = 9;
+constexpr uint32_t kAmbiWaterPlaceCount = 6;
 constexpr uint32_t kAmbiWaterEventSlots = 2;
 constexpr uint32_t kAmbiWaterMicroSlots = 3;
 
@@ -53,7 +55,25 @@ struct AmbiWaterParams {
     float centerDistance = 1.0f;
     float spatialFollow = 0.72f;
     float outputGainDb = -6.0f;
+    uint32_t place = 0;
+    float space = 0.18f;
+    float environmentSize = 0.5f;
+    float environmentDecay = 0.5f;
+    float environmentDamping = 0.5f;
 };
+
+inline AmbiEnvironmentProfileId ambiWaterEnvironmentProfile(uint32_t place)
+{
+    constexpr std::array<AmbiEnvironmentProfileId, kAmbiWaterPlaceCount> profiles {
+        AmbiEnvironmentProfileId::Open,
+        AmbiEnvironmentProfileId::Submerged,
+        AmbiEnvironmentProfileId::Cave,
+        AmbiEnvironmentProfileId::Cistern,
+        AmbiEnvironmentProfileId::Channel,
+        AmbiEnvironmentProfileId::Pipe,
+    };
+    return profiles[std::min<uint32_t>(place, kAmbiWaterPlaceCount - 1u)];
+}
 
 struct AmbiWaterPoint {
     float azimuthDeg = 0.0f;
@@ -241,6 +261,7 @@ public:
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1.0, sampleRate);
+        environmentField_.prepare(sampleRate_);
         reset();
         setParams(params_);
     }
@@ -251,6 +272,10 @@ public:
         transitionFade_ = 1.0f;
         lastOutput_.fill(0.0f);
         transitionTail_.fill(0.0f);
+        environmentField_.setProfile(ambiWaterEnvironmentProfile(params_.place));
+        environmentField_.setAmount(ambiEnvironmentSpaceAmount(params_.space));
+        environmentField_.setShape(params_.environmentSize, params_.environmentDecay, params_.environmentDamping);
+        environmentField_.reset();
         smoothParams_ = params_;
         smoothReady_ = true;
         setOneHot(regimeWeights_, params_.regime);
@@ -301,6 +326,11 @@ public:
         params.centerDistance = clampFinite(params.centerDistance, params_.centerDistance, 0.15f, 2.0f);
         params.spatialFollow = clampFinite(params.spatialFollow, params_.spatialFollow, 0.0f, 1.0f);
         params.outputGainDb = clampFinite(params.outputGainDb, params_.outputGainDb, -60.0f, 12.0f);
+        params.place = std::clamp<uint32_t>(params.place, 0u, kAmbiWaterPlaceCount - 1u);
+        params.space = clampFinite(params.space, params_.space, 0.0f, 1.0f);
+        params.environmentSize = clampFinite(params.environmentSize, params_.environmentSize, 0.0f, 1.0f);
+        params.environmentDecay = clampFinite(params.environmentDecay, params_.environmentDecay, 0.0f, 1.0f);
+        params.environmentDamping = clampFinite(params.environmentDamping, params_.environmentDamping, 0.0f, 1.0f);
 
         const uint32_t oldVoices = params_.voices;
         params_ = params;
@@ -349,15 +379,28 @@ public:
             const float targetGain = dbToGain(smoothParams_.outputGainDb) * 1.12f
                 * smoothedSceneGain_ / voiceNorm;
 
+            environmentField_.setProfile(ambiWaterEnvironmentProfile(smoothParams_.place));
+            environmentField_.setAmount(ambiEnvironmentSpaceAmount(smoothParams_.space));
+            environmentField_.setShape(smoothParams_.environmentSize, smoothParams_.environmentDecay,
+                smoothParams_.environmentDamping);
+            const float fieldAzimuth = smoothParams_.centerAzimuthDeg
+                + wrapSignedDeg(points_[0].azimuthDeg - smoothParams_.centerAzimuthDeg) * 0.10f;
+            const float fieldElevation = smoothParams_.centerElevationDeg
+                + (points_[0].elevationDeg - smoothParams_.centerElevationDeg) * 0.08f;
+            environmentField_.setMotion(fieldAzimuth, fieldElevation);
+
             std::array<std::array<float, kAmbiWaterMaxChannels>, kAmbiWaterMaxVoices> basis {};
+            std::array<Vec3, kAmbiWaterMaxVoices> directions {};
             std::array<float, kAmbiWaterMaxVoices> distanceGain {};
             for (uint32_t voice = 0u; voice < voices; ++voice) {
-                basis[voice] = acnSn3dBasis7(directionFromAed(points_[voice].azimuthDeg, points_[voice].elevationDeg));
+                directions[voice] = directionFromAed(points_[voice].azimuthDeg, points_[voice].elevationDeg);
+                basis[voice] = acnSn3dBasis7(directions[voice]);
                 distanceGain[voice] = 1.0f / std::max(0.48f, points_[voice].distance);
             }
 
             for (uint32_t frame = chunkStart; frame < chunkStart + chunkFrames; ++frame) {
                 smoothedOutputGain_ += (targetGain - smoothedOutputGain_) * 0.0015f;
+                environmentField_.beginFrame();
                 for (uint32_t voice = 0u; voice < voices; ++voice) {
                     float sample = processVoice(voice) * smoothedOutputGain_ * distanceGain[voice];
                     if (!std::isfinite(sample)) {
@@ -367,9 +410,16 @@ public:
                     auto& state = voices_[voice];
                     state.energy += (sample * sample - state.energy) * 0.0012f;
                     if (std::fabs(sample) < 0.0000001f) continue;
+                    const float environmentSend = 1.05f + state.eventViz * 0.65f
+                        + smoothParams_.depth * 0.25f;
+                    environmentField_.addSource(sample, directions[voice], environmentSend);
                     for (uint32_t ch = 0u; ch < ambiChannels; ++ch) {
                         if (outputs[ch]) outputs[ch][frame] = flushDenormal(outputs[ch][frame] + sample * basis[voice][ch]);
                     }
+                }
+                const auto environment = environmentField_.process();
+                for (uint32_t ch = 0u; ch < std::min<uint32_t>(ambiChannels, kAmbiEnvironmentChannels); ++ch) {
+                    if (outputs[ch]) outputs[ch][frame] = flushDenormal(outputs[ch][frame] + environment[ch]);
                 }
             }
         }
@@ -645,6 +695,11 @@ private:
         smoothParams_.centerDistance = smoothToward(smoothParams_.centerDistance, params_.centerDistance, coeff);
         smoothParams_.spatialFollow = smoothToward(smoothParams_.spatialFollow, params_.spatialFollow, coeff);
         smoothParams_.outputGainDb = smoothToward(smoothParams_.outputGainDb, params_.outputGainDb, coeff);
+        smoothParams_.place = params_.place;
+        smoothParams_.space = smoothToward(smoothParams_.space, params_.space, coeff);
+        smoothParams_.environmentSize = smoothToward(smoothParams_.environmentSize, params_.environmentSize, coeff);
+        smoothParams_.environmentDecay = smoothToward(smoothParams_.environmentDecay, params_.environmentDecay, coeff);
+        smoothParams_.environmentDamping = smoothToward(smoothParams_.environmentDamping, params_.environmentDamping, coeff);
 
         const float regimeCoeff = 1.0f - std::exp(-dt * 7.5f);
         for (uint32_t mode = 0u; mode < regimeWeights_.size(); ++mode) {
@@ -1623,6 +1678,7 @@ private:
     std::array<float, kAmbiWaterEnvironmentCount> environmentWeights_ { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
     std::array<float, kAmbiWaterMaxChannels> lastOutput_ {};
     std::array<float, kAmbiWaterMaxChannels> transitionTail_ {};
+    AmbiEnvironmentField environmentField_ {};
     double sampleRate_ = 48000.0;
     float smoothedOutputGain_ = dbToGain(-6.0f);
     float smoothedSceneGain_ = 1.0f;

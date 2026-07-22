@@ -14,11 +14,10 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="processors.html">Processors</a>
-        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="multichannel.html">Multichannel</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
-        <a href="topology-framework.html">Framework</a>
+        <a href="references.html">References</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -42,11 +41,15 @@
 
         <h2 id="signal-flow">Signal Flow</h2>
 
+        <ol>
+          <li>Read the active ambisonic channels from the input bus.</li>
+          <li>Build a speaker matrix from the selected order and layout.</li>
+          <li>Write one output lane per active speaker and silence unused lanes.</li>
+        </ol>
+
         <figure class="doc-graphic">
           <img src="3oafx_speaker_decoder_map.svg" alt="Diagram of ACN/SN3D input, decoder matrix, speaker layout, and 64-channel output">
         </figure>
-
-        <p>The decoder reads ambisonic channels from the input bus, builds a speaker matrix from the selected order and layout, and writes one output lane per active speaker. Unused speaker lanes are silent.</p>
 
         <h2 id="decoder-variants">Decoder Variants</h2>
 
@@ -110,16 +113,21 @@
 
         <h2 id="controls">Controls</h2>
 
-        <ul>
-          <li><code>ORDER</code> selects the ambisonic order from <code>1OA</code> to <code>7OA</code>.</li>
-          <li><code>MODE</code> chooses the decoder matrix style: <code>BASIC</code>, <code>EPAD</code>, or <code>MMD</code>.</li>
-          <li><code>COUNT</code> sets how many output lanes are used, from 2 to 64. In <code>CUSTOM</code>, this also generates a new speaker field.</li>
-          <li><code>FIELD</code> chooses how <code>CUSTOM</code> layouts are generated: <code>SPHERE</code> distributes speakers over a full sphere, and <code>HEMI</code> keeps them in the upper hemisphere.</li>
-          <li><code>WGT</code> chooses ambisonic order weighting: <code>NONE</code>, <code>MAXRE</code>, or <code>INPHASE</code>.</li>
-          <li><code>WIDTH</code> is the broad decoder matrix trim.</li>
-          <li><code>MIXER</code> switches the large left view to per-speaker <code>GAIN</code> trims, mute/solo buttons, and the final <code>OUT</code> gain. Speaker gains are shown 16 at a time, with more pages as needed.</li>
-          <li><code>MAP</code> switches the large left view to a decoder map. It uses the current selected-speaker <code>AZ</code>/<code>EL</code> direction as a probe and shows which speakers receive energy from the current order, weighting, mode, gains, and layout.</li>
-        </ul>
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>ORDER</td><td>Selects the ambisonic order from <code>1OA</code> to <code>7OA</code>.</td></tr>
+            <tr><td>MODE</td><td>Chooses the decoder matrix style: <code>BASIC</code>, <code>EPAD</code>, or <code>MMD</code>.</td></tr>
+            <tr><td>COUNT</td><td>Sets how many output lanes are used, from 2 to 64. In <code>CUSTOM</code>, this also generates a new speaker field.</td></tr>
+            <tr><td>FIELD</td><td>Chooses how <code>CUSTOM</code> layouts are generated: <code>SPHERE</code> distributes speakers over a full sphere, and <code>HEMI</code> keeps them in the upper hemisphere.</td></tr>
+            <tr><td>WGT</td><td>Chooses ambisonic order weighting: <code>NONE</code>, <code>MAXRE</code>, or <code>INPHASE</code>.</td></tr>
+            <tr><td>WIDTH</td><td>Broad decoder matrix trim.</td></tr>
+            <tr><td>MIXER</td><td>Switches the large left view to per-speaker <code>GAIN</code> trims, mute/solo buttons, and the final <code>OUT</code> gain. Speaker gains are shown 16 at a time, with more pages as needed.</td></tr>
+            <tr><td>MAP</td><td>Switches the large left view to a decoder map. It uses the current selected-speaker <code>AZ</code>/<code>EL</code> direction as a probe and shows which speakers receive energy from the current order, weighting, mode, gains, and layout.</td></tr>
+          </tbody>
+        </table>
 
         <p>Changing <code>COUNT</code> or <code>FIELD</code> creates a new <code>CUSTOM</code> layout automatically. <code>SELECTED SPEAKER</code>, <code>AZIMUTH</code>, <code>ELEVATION</code>, and <code>DISTANCE</code> edit one speaker at a time. <code>AZIMUTH</code>, <code>ELEVATION</code>, and <code>DISTANCE</code> have sliders for quick movement and text boxes for exact entry. Any position edit keeps the layout in <code>CUSTOM</code>.</p>
 
@@ -144,38 +152,31 @@
         <p>For 3OAFX insert work, <code>SPHERE24</code> is the current virtual speaker reference. For real speaker playback, start with the layout closest to the room, then switch to <code>CUSTOM</code> for measured speaker positions.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambi-imprint.html">
+          <a class="page-nav-link" href="ambisonic-decoders.html">
             <span>Previous</span>
-            Ambi Imprint
+            Ambisonic Decoders
           </a>
-          <a class="page-nav-link next" href="ambisonic-rotate.html">
+          <a class="page-nav-link next" href="ambisonic-stereo-decoder.html">
             <span>Next</span>
-            Ambi Rotate
+            Ambi Stereo Decoder
           </a>
         </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
-          <h2>Ambisonics Pages</h2>
-          <a href="3oafx.html">Ambisonics Overview</a>
-          <a href="3oafx-effects.html">3OAFX Processors</a>
-          <a href="3oafx-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-imprint.html">Ambi Imprint</a>
-          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
-          <a href="ambisonic-rotate.html">Rotate</a>
-          <a href="ambisonic-bus-processors.html#field-depth">Depth</a>
-          <a href="ambisonic-bus-processors.html">Field / Bus</a>
-          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Decoder Pages</h2>
+          <a href="3oafx-speaker-decoder.html">Speaker Decoder Family</a>
           <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
           <a href="ambisonic-head-decoder.html">Head Decoder</a>
-          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
-          <a href="ambi-grain-processor.html">Grain Processor</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Monitoring / Fold-down - s3g-dsp</title>
+    <meta name="description" content="Multichannel monitoring, fold-down, and metering documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Monitoring / Fold-down</h1>
+
+        <p>Monitoring tools audition or inspect wide multichannel tracks without changing the source routing model. Use a fold-down for an ordinary stereo or quad monitor path and a passthrough meter when the original channel layout must remain available downstream.</p>
+
+        <h2 id="fold-down">Fold-down Plugins</h2>
+
+        <ul>
+          <li><a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a>: accepts as many as 128 input channels and produces a true stereo output with automatic energy management and 3D placement controls.</li>
+          <li><a href="mc-to-quad-autogain.html">MC to Quad Autogain</a>: produces <code>L</code>, <code>R</code>, <code>RB</code>, and <code>LB</code> quad output from a wide source track.</li>
+        </ul>
+
+        <h2 id="metering">Metering</h2>
+
+        <p><a href="multichannel-meter.html">Multichannel Meter 64</a> is a fixed-width passthrough meter with channel-grid, spatial-layout, and energy-over-time views. It is the better choice when the monitor display must not collapse the bus.</p>
+
+        <h2 id="host-routing">Host Routing</h2>
+
+        <p>The stereo and quad tools expose narrower output buses. In REAPER, inspect the plugin pin connector and enable <code>Zero out unmapped output channels</code> when unused track channels would otherwise pass around a fold-down plugin.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="distributed-output-processors.html">
+            <span>Previous</span>
+            Distributed-output Effects
+          </a>
+          <a class="page-nav-link next" href="mc-to-stereo-autogain.html">
+            <span>Next</span>
+            MC to Stereo Autogain
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Multichannel</h2>
+          <a href="multichannel.html">Overview</a>
+          <a href="multichannel-effects.html">Effects</a>
+          <a href="monitoring-fold-down.html">Monitoring / Fold-down</a>
+          <a href="direct-panning.html">Direct Panning</a>
+          <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
+          <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#fold-down">Fold-down Plugins</a>
+          <a href="#metering">Metering</a>
+          <a href="#host-routing">Host Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

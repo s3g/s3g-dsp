@@ -11,6 +11,12 @@ cmake --build --preset apps
 open "build-apps/apps/vox_builder/s3g Vox Builder.app"
 ```
 
+Choose `GENERATE` to create a repeatable dry voice source without a recording.
+`PROCEDURAL` uses the voice controls directly. After loading a recording and
+selecting a segment, `SEEDED` can measure its broad vocal character and condition
+a newly synthesized Core 35 or Full 92 bank without copying the source audio.
+The generated aliases can be auditioned, edited, and exported like any import.
+
 Drop `s3g_demo_voice_source.wav` into the waveform area. The app reads the
 aliases from its editor, detects the 35 regions, analyzes each region with
 WORLD, and lets you drag boundaries or edit timing before export.

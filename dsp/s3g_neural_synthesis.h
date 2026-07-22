@@ -280,6 +280,7 @@ public:
         historyFm_.fill(0.0f);
         writeIndex_ = 0u;
         filled_ = 0u;
+        generation_ = 0u;
         decimatorPhase_ = 0.0;
         decimatorPulsaret_ = 0.0f;
         decimatorEnvelope_ = 0.0f;

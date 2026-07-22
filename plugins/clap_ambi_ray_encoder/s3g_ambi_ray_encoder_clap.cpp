@@ -221,6 +221,7 @@ struct Plugin {
     double sampleRate = 48000.0;
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
 #endif
 };
@@ -666,10 +667,7 @@ void destroy(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
 #if defined(__APPLE__)
     if (instance->guiView) {
-        NSView* view = static_cast<NSView*>(instance->guiView);
-        [view removeFromSuperview];
-        [view release];
-        instance->guiView = nullptr;
+        s3g::clap_gui::destroyResponsiveViewport(instance->guiViewport, instance->guiView);
     }
 #endif
     delete instance;
@@ -1794,7 +1792,12 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     auto* instance = self(plugin);
     if (instance->guiView) return true;
     instance->guiView = [[S3GAmbiRayEncoderView alloc] initWithPlugin:instance];
-    return instance->guiView != nullptr;
+    if (!instance->guiView) return false;
+    if (!s3g::clap_gui::createResponsiveViewport(instance->guiViewport,
+            static_cast<NSView*>(instance->guiView), kGuiWidth, kGuiHeight)) {
+        [static_cast<NSView*>(instance->guiView) release]; instance->guiView = nullptr; return false;
+    }
+    return true;
 }
 
 void guiDestroy(const clap_plugin_t* plugin)
@@ -1804,22 +1807,20 @@ void guiDestroy(const clap_plugin_t* plugin)
     instance->guiVisible.store(false, std::memory_order_relaxed);
     auto* view = static_cast<S3GAmbiRayEncoderView*>(instance->guiView);
     [view stopRefreshTimer];
-    [view removeFromSuperview];
-    [view release];
-    instance->guiView = nullptr;
+    s3g::clap_gui::destroyResponsiveViewport(instance->guiViewport, instance->guiView);
 }
 
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* width, uint32_t* height) { if (!width || !height) return false; *width = kGuiWidth; *height = kGuiHeight; return true; }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { if (!hints) return false; hints->can_resize_horizontally = false; hints->can_resize_vertically = false; hints->preserve_aspect_ratio = false; hints->aspect_ratio_width = 0; hints->aspect_ratio_height = 0; return true; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t* width, uint32_t* height) { if (!width || !height) return false; *width = kGuiWidth; *height = kGuiHeight; return true; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height) { auto* instance = self(plugin); if (!instance->guiView) return false; [static_cast<NSView*>(instance->guiView) setFrameSize:NSMakeSize(width, height)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window) { if (!window || std::strcmp(window->api, CLAP_WINDOW_API_COCOA) != 0 || !window->cocoa) return false; auto* instance = self(plugin); if (!instance->guiView) return false; NSView* parent = static_cast<NSView*>(window->cocoa); NSView* view = static_cast<NSView*>(instance->guiView); [parent addSubview:view]; [view setFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)]; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, width, height); }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window) { if (!window || std::strcmp(window->api, CLAP_WINDOW_API_COCOA) != 0 || !window->cocoa) return false; auto* instance = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(instance->guiViewport, static_cast<NSView*>(window->cocoa), instance->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* instance = self(plugin); if (!instance->guiView) return false; instance->guiVisible.store(true, std::memory_order_relaxed); [static_cast<NSView*>(instance->guiView) setHidden:NO]; [static_cast<S3GAmbiRayEncoderView*>(instance->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* instance = self(plugin); if (!instance->guiView) return false; instance->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GAmbiRayEncoderView*>(instance->guiView) stopRefreshTimer]; [static_cast<NSView*>(instance->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* instance = self(plugin); if (!instance->guiView || !s3g::clap_gui::setResponsiveViewportHidden(instance->guiViewport, false)) return false; instance->guiVisible.store(true, std::memory_order_relaxed); [static_cast<S3GAmbiRayEncoderView*>(instance->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* instance = self(plugin); if (!instance->guiView) return false; instance->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GAmbiRayEncoderView*>(instance->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(instance->guiViewport, true); }
 
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif

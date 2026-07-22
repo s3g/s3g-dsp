@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambisonic Effects - s3g-dsp</title>
+    <meta name="description" content="Ambisonic field effect and bus processor documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambisonic Effects</h1>
+
+        <p>Ambisonic effects transform a complete encoded field while preserving the relationships among its channels. Place these after an encoder or ambisonic instrument and before the final decoder.</p>
+
+        <h2 id="field-effects">Field Effects</h2>
+
+        <ul>
+          <li><a href="3oafx-effects.html">3OAFX Effects</a>: third-order Delay, Filter, Gain, and Pitch inserts with an internal 24-point virtual-speaker layer.</li>
+          <li><a href="3oafx-displacement.html">3OAFX Displacement</a>: time-varying third-order field warps loaded from Displacement Score geometry.</li>
+          <li><a href="ambi-imprint.html">Ambi Imprint</a>: directional convolution using <code>.s3gimprint</code> space responses.</li>
+          <li><a href="ambisonic-rotate.html">Ambi Rotate</a>: coherent first-through-seventh-order field rotation.</li>
+        </ul>
+
+        <h2 id="bus-effects">Field and Bus Effects</h2>
+
+        <ul>
+          <li><a href="ambisonic-bus-processors.html#field-depth">Ambi Depth</a>: depth, focus, air, tail, low-body, and width shaping for one third-order field.</li>
+          <li><a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a>: group matrix, node mixing, rotation, and depth across lane-locked third-order feeds.</li>
+          <li><a href="ambi-grain-processor.html">Ambi Grain Processor</a>: loaded-media granulation with one shared grain event stream across all active ambisonic channels.</li>
+        </ul>
+
+        <h2 id="signal-chain">Signal-chain Rule</h2>
+
+        <pre><code>encoder or encoded media
+-&gt; ambisonic effects
+-&gt; decoder
+-&gt; speaker or stereo output</code></pre>
+
+        <p>Do not treat individual ambisonic channels as unrelated stems. Use the field-aware processors here when timing, filtering, geometry, or gain changes must remain coherent across the encoding.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambisonic-head-decoder.html">
+            <span>Previous</span>
+            Ambi Head Decoder
+          </a>
+          <a class="page-nav-link next" href="3oafx-effects.html">
+            <span>Next</span>
+            3OAFX Effects
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#field-effects">Field Effects</a>
+          <a href="#bus-effects">Field and Bus Effects</a>
+          <a href="#signal-chain">Signal-chain Rule</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

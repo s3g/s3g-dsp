@@ -14,13 +14,13 @@ struct AmbiPulsarFactoryPresetInfo {
 
 constexpr std::array<AmbiPulsarFactoryPresetInfo, 12> kAmbiPulsarFactoryPresets {{
     { "Crossing", "Three luminous trains crossing rhythm and pitch." },
-    { "Auditory Sieve", "Sparse residue pattern with displaced formant lanes." },
-    { "Low Constellation", "Slow, overlapping low pulsars in a broad field." },
-    { "Glass Semaphore", "Short bright pulses distributed between three positions." },
-    { "Folded Current", "Dense nonlinear pulsarets with slow orbital motion." },
-    { "Impulsion", "Bandlimited impulse trains moving from rhythm into tone." },
-    { "Pendular Choir", "Overlapping harmonic pulsarets with meso-scale beating." },
-    { "Dust Geometry", "Probabilistic noise pulsarets with a wide spatial trace." },
+    { "Auditory Sieve", "Clock-ratio formants articulate a sparse residue pattern." },
+    { "Low Constellation", "Free-running low carriers breathe through skewed windows." },
+    { "Glass Semaphore", "Short phase-FM pulses distributed through seven points." },
+    { "Folded Current", "Dense nonlinear FM pulsarets with slow orbital motion." },
+    { "Impulsion", "Clock-synchronous impulse ratios move rhythm into tone." },
+    { "Pendular Choir", "Continuous carriers revealed by overlapping pulsaret windows." },
+    { "Dust Geometry", "Idle-only subharmonic noise pulses trace a wide field." },
     { "Axon Choir", "The four neural timescales emerge as a direct spatial source." },
     { "Matrix Organism", "Signed cross-coupling imprints all three captured neural tables." },
     { "Slew Garden", "Slow control paths bend pulsaret envelope and FM trajectories." },
@@ -37,7 +37,8 @@ inline const AmbiPulsarFactoryPresetInfo& ambiPulsarFactoryPresetInfo(uint32_t i
 inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
 {
     AmbiPulsarParams p;
-    switch (std::min<uint32_t>(index, kAmbiPulsarFactoryPresetCount - 1u)) {
+    const uint32_t presetIndex = std::min<uint32_t>(index, kAmbiPulsarFactoryPresetCount - 1u);
+    switch (presetIndex) {
     case 11u: // Red Preamp
         p.emissionHz = 47.0f;
         p.emissionModDepth = 0.18f;
@@ -143,10 +144,16 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.probability = 0.96f;
         p.sieveModulo = 5u;
         p.sieveResidue = 2u;
-        p.laneDistribution = 0.34f;
+        p.pointRandomness = 0.34f;
         p.lanes[0] = { 190.0f, 1.65f, 0.90f, 0.00f, AmbiPulsarWaveform::Overtone };
         p.lanes[1] = { 815.0f, 0.82f, 0.70f, 0.31f, AmbiPulsarWaveform::Triangle };
         p.lanes[2] = { 2370.0f, 0.36f, 0.52f, 0.67f, AmbiPulsarWaveform::Impulse };
+        p.advancedLanes[0] = { 6.0f, 2.0f, 0.0f, 0.34f,
+            AmbiPulsarTuneMode::Ratio, AmbiPulsarRetriggerMode::Retrigger };
+        p.advancedLanes[1] = { 26.0f, 5.0f, 1.15f, 0.50f,
+            AmbiPulsarTuneMode::Ratio, AmbiPulsarRetriggerMode::Retrigger };
+        p.advancedLanes[2] = { 76.0f, 7.0f, 0.55f, 0.68f,
+            AmbiPulsarTuneMode::Ratio, AmbiPulsarRetriggerMode::Retrigger };
         p.envelope = AmbiPulsarEnvelope::Tukey;
         p.spatialWidth = 0.78f;
         p.orbitRateHz = -0.017f;
@@ -162,6 +169,12 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.lanes[0] = { 42.0f, 3.8f, 0.92f, 0.00f, AmbiPulsarWaveform::Sine };
         p.lanes[1] = { 67.0f, 2.7f, 0.76f, 0.23f, AmbiPulsarWaveform::Triangle };
         p.lanes[2] = { 109.0f, 2.2f, 0.62f, 0.52f, AmbiPulsarWaveform::Overtone };
+        p.advancedLanes[0].retriggerMode = AmbiPulsarRetriggerMode::Free;
+        p.advancedLanes[1].retriggerMode = AmbiPulsarRetriggerMode::Free;
+        p.advancedLanes[2].retriggerMode = AmbiPulsarRetriggerMode::Free;
+        p.advancedLanes[0].windowSkew = 0.32f;
+        p.advancedLanes[1].windowSkew = 0.50f;
+        p.advancedLanes[2].windowSkew = 0.72f;
         p.envelope = AmbiPulsarEnvelope::Welch;
         p.spatialWidth = 0.92f;
         p.orbitDepth = 0.66f;
@@ -171,7 +184,7 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         break;
     case 3u: // Glass Semaphore
         p.emissionHz = 54.0f;
-        p.laneDistribution = 0.90f;
+        p.pointRandomness = 0.90f;
         p.probability = 0.82f;
         p.burstOn = 7u;
         p.burstOff = 4u;
@@ -179,6 +192,12 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.lanes[0] = { 920.0f, 0.24f, 0.82f, 0.00f, AmbiPulsarWaveform::Sine };
         p.lanes[1] = { 1840.0f, 0.20f, 0.67f, 0.12f, AmbiPulsarWaveform::Overtone };
         p.lanes[2] = { 4100.0f, 0.14f, 0.52f, 0.26f, AmbiPulsarWaveform::Impulse };
+        p.advancedLanes[0] = { 4.0f, 2.0f, 0.62f, 0.22f,
+            AmbiPulsarTuneMode::Hertz, AmbiPulsarRetriggerMode::Retrigger };
+        p.advancedLanes[1] = { 7.0f, 3.0f, 1.28f, 0.46f,
+            AmbiPulsarTuneMode::Hertz, AmbiPulsarRetriggerMode::Retrigger };
+        p.advancedLanes[2] = { 11.0f, 5.0f, 2.15f, 0.74f,
+            AmbiPulsarTuneMode::Hertz, AmbiPulsarRetriggerMode::Retrigger };
         p.envelope = AmbiPulsarEnvelope::Percussive;
         p.envelopeEdge = 0.68f;
         p.spatialWidth = 0.70f;
@@ -195,6 +214,14 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.lanes[0] = { 118.0f, 4.2f, 0.72f, 0.00f, AmbiPulsarWaveform::Fold };
         p.lanes[1] = { 355.0f, 2.8f, 0.64f, 0.17f, AmbiPulsarWaveform::Fold };
         p.lanes[2] = { 1065.0f, 1.7f, 0.50f, 0.43f, AmbiPulsarWaveform::Saw };
+        p.advancedLanes[0].fmRatio = 1.5f;
+        p.advancedLanes[0].fmIndex = 2.4f;
+        p.advancedLanes[0].windowSkew = 0.38f;
+        p.advancedLanes[1].fmRatio = 2.5f;
+        p.advancedLanes[1].fmIndex = 3.2f;
+        p.advancedLanes[2].fmRatio = 4.0f;
+        p.advancedLanes[2].fmIndex = 1.4f;
+        p.advancedLanes[2].windowSkew = 0.64f;
         p.envelope = AmbiPulsarEnvelope::Tukey;
         p.quality = AmbiPulsarQuality::Ultra;
         p.spatialWidth = 0.62f;
@@ -210,6 +237,12 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.lanes[0] = { 96.0f, 0.58f, 0.88f, 0.00f, AmbiPulsarWaveform::Impulse };
         p.lanes[1] = { 430.0f, 0.42f, 0.67f, 0.21f, AmbiPulsarWaveform::Impulse };
         p.lanes[2] = { 1720.0f, 0.28f, 0.48f, 0.49f, AmbiPulsarWaveform::Impulse };
+        p.advancedLanes[0] = { 8.0f, 2.0f, 0.0f, 0.20f,
+            AmbiPulsarTuneMode::Ratio, AmbiPulsarRetriggerMode::Retrigger };
+        p.advancedLanes[1] = { 36.0f, 3.0f, 0.0f, 0.50f,
+            AmbiPulsarTuneMode::Ratio, AmbiPulsarRetriggerMode::Retrigger };
+        p.advancedLanes[2] = { 128.0f, 5.0f, 0.0f, 0.80f,
+            AmbiPulsarTuneMode::Ratio, AmbiPulsarRetriggerMode::Retrigger };
         p.envelope = AmbiPulsarEnvelope::Hann;
         p.quality = AmbiPulsarQuality::Ultra;
         p.spatialWidth = 0.56f;
@@ -225,6 +258,9 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.lanes[0] = { 144.0f, 3.6f, 0.88f, 0.00f, AmbiPulsarWaveform::Overtone };
         p.lanes[1] = { 216.0f, 3.1f, 0.72f, 0.14f, AmbiPulsarWaveform::Overtone };
         p.lanes[2] = { 324.0f, 2.6f, 0.62f, 0.37f, AmbiPulsarWaveform::Sine };
+        for (auto& lane : p.advancedLanes) lane.retriggerMode = AmbiPulsarRetriggerMode::Free;
+        p.advancedLanes[0].windowSkew = 0.30f;
+        p.advancedLanes[2].windowSkew = 0.70f;
         p.envelope = AmbiPulsarEnvelope::Welch;
         p.spatialWidth = 0.84f;
         p.orbitDepth = 0.58f;
@@ -238,12 +274,18 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.burstOff = 5u;
         p.sieveModulo = 3u;
         p.sieveResidue = 1u;
-        p.laneDistribution = 0.74f;
+        p.pointRandomness = 0.74f;
         p.formantScatterSemitones = 8.5f;
         p.phaseScatter = 1.0f;
         p.lanes[0] = { 580.0f, 0.28f, 0.72f, 0.00f, AmbiPulsarWaveform::Noise };
         p.lanes[1] = { 1460.0f, 0.20f, 0.60f, 0.28f, AmbiPulsarWaveform::Noise };
         p.lanes[2] = { 5200.0f, 0.12f, 0.44f, 0.63f, AmbiPulsarWaveform::Impulse };
+        p.advancedLanes[0] = { 2.0f, 2.0f, 0.0f, 0.18f,
+            AmbiPulsarTuneMode::Subharmonic, AmbiPulsarRetriggerMode::IdleOnly };
+        p.advancedLanes[1] = { 3.0f, 3.0f, 0.0f, 0.48f,
+            AmbiPulsarTuneMode::Subharmonic, AmbiPulsarRetriggerMode::IdleOnly };
+        p.advancedLanes[2] = { 5.0f, 5.0f, 0.75f, 0.82f,
+            AmbiPulsarTuneMode::Subharmonic, AmbiPulsarRetriggerMode::IdleOnly };
         p.envelope = AmbiPulsarEnvelope::Percussive;
         p.envelopeEdge = 0.76f;
         p.spatialWidth = 1.0f;
@@ -257,6 +299,10 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
     default:
         break;
     }
+    constexpr std::array<uint32_t, kAmbiPulsarFactoryPresetCount> pointCounts {
+        6u, 5u, 4u, 7u, 6u, 4u, 6u, 8u, 8u, 6u, 5u, 4u
+    };
+    p.points = pointCounts[presetIndex];
     return sanitizeAmbiPulsarParams(p);
 }
 

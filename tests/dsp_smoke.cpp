@@ -1776,38 +1776,55 @@ int main()
     pointParams.rateHz = 0.04f;
     pointParams.swirl = 0.05f;
     pointParams.outputGainDb = -12.0f;
+    pointParams.order = 7;
     pointEncoder.setParams(pointParams);
-    std::array<std::array<float, 512>, s3g::kAmbiPointEncoderPrototypePoints> pointInputBuffers {};
-    std::array<std::array<float, 512>, s3g::k3OaChannels> pointOutputBuffers {};
+    std::array<std::array<float, 128>, s3g::kAmbiPointEncoderPrototypePoints> pointInputBuffers {};
+    std::array<std::array<float, 128>, s3g::kAmbiPointEncoderMaxChannels> pointOutputBuffers {};
     std::array<const float*, s3g::kAmbiPointEncoderPrototypePoints> pointInputs {};
-    std::array<float*, s3g::k3OaChannels> pointOutputs {};
+    std::array<float*, s3g::kAmbiPointEncoderMaxChannels> pointOutputs {};
     for (uint32_t ch = 0; ch < s3g::kAmbiPointEncoderPrototypePoints; ++ch) {
         pointInputs[ch] = pointInputBuffers[ch].data();
     }
-    for (uint32_t ch = 0; ch < s3g::k3OaChannels; ++ch) {
+    for (uint32_t ch = 0; ch < s3g::kAmbiPointEncoderMaxChannels; ++ch) {
         pointOutputs[ch] = pointOutputBuffers[ch].data();
     }
     float pointEncoderPeak = 0.0f;
+    float pointEncoderHighOrderPeak = 0.0f;
     for (int block = 0; block < 32; ++block) {
         for (uint32_t ch = 0; ch < s3g::kAmbiPointEncoderPrototypePoints; ++ch) {
             for (uint32_t i = 0; i < pointInputBuffers[ch].size(); ++i) {
-                pointInputBuffers[ch][i] = std::sin(6.28318530718f * (90.0f + ch * 11.0f) * static_cast<float>(block * 512 + i) / 48000.0f) * 0.03f;
+                pointInputBuffers[ch][i] = std::sin(6.28318530718f * (90.0f + ch * 11.0f) * static_cast<float>(block * 128 + i) / 48000.0f) * 0.03f;
             }
         }
-        pointEncoder.processBlock(pointInputs.data(), pointOutputs.data(), static_cast<uint32_t>(pointOutputBuffers[0].size()));
-        for (const auto& channel : pointOutputBuffers) {
+        pointEncoder.processBlock(pointInputs.data(), pointOutputs.data(), s3g::kAmbiPointEncoderMaxChannels, static_cast<uint32_t>(pointOutputBuffers[0].size()));
+        for (uint32_t ch = 0; ch < pointOutputBuffers.size(); ++ch) {
+            const auto& channel = pointOutputBuffers[ch];
             for (float value : channel) {
                 if (!std::isfinite(value)) {
                     std::cerr << "Ambi Point Encoder output is not finite\n";
                     return 1;
                 }
                 pointEncoderPeak = std::max(pointEncoderPeak, std::abs(value));
+                if (ch >= s3g::k3OaChannels) pointEncoderHighOrderPeak = std::max(pointEncoderHighOrderPeak, std::abs(value));
             }
         }
     }
-    if (pointEncoderPeak <= 0.00001f || pointEncoderPeak > 1.0f) {
-        std::cerr << "Ambi Point Encoder peak outside expected range: " << pointEncoderPeak << "\n";
+    if (pointEncoderPeak <= 0.00001f || pointEncoderPeak > 1.0f || pointEncoderHighOrderPeak <= 0.00001f) {
+        std::cerr << "Ambi Point Encoder peak/high-order peak outside expected range: "
+                  << pointEncoderPeak << " / " << pointEncoderHighOrderPeak << "\n";
         return 1;
+    }
+    pointParams.order = 1;
+    pointEncoder.setParams(pointParams);
+    for (auto& channel : pointOutputBuffers) std::fill(channel.begin(), channel.end(), 0.25f);
+    pointEncoder.processBlock(pointInputs.data(), pointOutputs.data(), s3g::kAmbiPointEncoderMaxChannels, static_cast<uint32_t>(pointOutputBuffers[0].size()));
+    for (uint32_t ch = s3g::ambiChannelsForOrder(pointParams.order); ch < pointOutputBuffers.size(); ++ch) {
+        for (float value : pointOutputBuffers[ch]) {
+            if (value != 0.0f) {
+                std::cerr << "Ambi Point Encoder did not clear channels above selected order\n";
+                return 1;
+            }
+        }
     }
 
     s3g::AmbiCloudEncoder cloudEncoder;
@@ -3171,50 +3188,81 @@ int main()
     }
 
     {
-        s3g::AmbiGroupDepthProcessor<1> tailDepth;
-        tailDepth.prepare(48000.0);
+        s3g::AmbiGroupDepthProcessor<1> positiveDepth;
+        s3g::AmbiGroupDepthProcessor<1> negativeDepth;
+        positiveDepth.prepare(48000.0);
+        negativeDepth.prepare(48000.0);
         s3g::AmbiGroupDepthParams tailParams {};
         tailParams.depth = 0.85f;
         tailParams.tail = 1.0f;
         tailParams.air = 0.20f;
-        tailDepth.setParams(tailParams);
-        tailDepth.reset();
+        positiveDepth.setParams(tailParams);
+        negativeDepth.setParams(tailParams);
+        positiveDepth.reset();
+        negativeDepth.reset();
         constexpr uint32_t tailFrames = 64u;
-        std::array<std::array<float, tailFrames>, s3g::kAmbiGroupDepthGroupChannels> tailInBuffers {};
-        std::array<std::array<float, tailFrames>, s3g::kAmbiGroupDepthGroupChannels> tailOutBuffers {};
-        std::array<float*, s3g::kAmbiGroupDepthGroupChannels> tailIn {};
-        std::array<float*, s3g::kAmbiGroupDepthGroupChannels> tailOut {};
+        using DepthTailBuffers = std::array<std::array<float, tailFrames>, s3g::kAmbiGroupDepthGroupChannels>;
+        DepthTailBuffers positiveInBuffers {};
+        DepthTailBuffers negativeInBuffers {};
+        DepthTailBuffers positiveOutBuffers {};
+        DepthTailBuffers negativeOutBuffers {};
+        std::array<float*, s3g::kAmbiGroupDepthGroupChannels> positiveIn {};
+        std::array<float*, s3g::kAmbiGroupDepthGroupChannels> negativeIn {};
+        std::array<float*, s3g::kAmbiGroupDepthGroupChannels> positiveOut {};
+        std::array<float*, s3g::kAmbiGroupDepthGroupChannels> negativeOut {};
         for (uint32_t ch = 0; ch < s3g::kAmbiGroupDepthGroupChannels; ++ch) {
-            tailIn[ch] = tailInBuffers[ch].data();
-            tailOut[ch] = tailOutBuffers[ch].data();
+            positiveIn[ch] = positiveInBuffers[ch].data();
+            negativeIn[ch] = negativeInBuffers[ch].data();
+            positiveOut[ch] = positiveOutBuffers[ch].data();
+            negativeOut[ch] = negativeOutBuffers[ch].data();
         }
-        tailInBuffers[0][0] = 0.9f;
-        tailInBuffers[1][0] = 0.25f;
-        tailInBuffers[2][0] = -0.2f;
-        tailDepth.process(tailIn.data(), s3g::kAmbiGroupDepthGroupChannels, tailOut.data(), s3g::kAmbiGroupDepthGroupChannels, tailFrames);
-        for (auto& ch : tailInBuffers) {
-            std::fill(ch.begin(), ch.end(), 0.0f);
-        }
+        positiveInBuffers[0][0] = negativeInBuffers[0][0] = 0.72f;
+        positiveInBuffers[3][0] = 0.58f;
+        negativeInBuffers[3][0] = -0.58f;
+        positiveDepth.process(positiveIn.data(), s3g::kAmbiGroupDepthGroupChannels,
+            positiveOut.data(), s3g::kAmbiGroupDepthGroupChannels, tailFrames);
+        negativeDepth.process(negativeIn.data(), s3g::kAmbiGroupDepthGroupChannels,
+            negativeOut.data(), s3g::kAmbiGroupDepthGroupChannels, tailFrames);
+        for (auto& ch : positiveInBuffers) std::fill(ch.begin(), ch.end(), 0.0f);
+        for (auto& ch : negativeInBuffers) std::fill(ch.begin(), ch.end(), 0.0f);
         float tailPeak = 0.0f;
-        for (uint32_t block = 0; block < 120u; ++block) {
-            for (auto& ch : tailOutBuffers) {
-                std::fill(ch.begin(), ch.end(), 0.0f);
+        float highOrderPeak = 0.0f;
+        double directionalDifference = 0.0;
+        double tailEnergy = 0.0;
+        for (uint32_t block = 0; block < 180u; ++block) {
+            for (auto& ch : positiveOutBuffers) std::fill(ch.begin(), ch.end(), 0.0f);
+            for (auto& ch : negativeOutBuffers) std::fill(ch.begin(), ch.end(), 0.0f);
+            if (block > 24u) {
+                positiveDepth.process<float>(nullptr, s3g::kAmbiGroupDepthGroupChannels,
+                    positiveOut.data(), s3g::kAmbiGroupDepthGroupChannels, tailFrames);
+            } else {
+                positiveDepth.process(positiveIn.data(), s3g::kAmbiGroupDepthGroupChannels,
+                    positiveOut.data(), s3g::kAmbiGroupDepthGroupChannels, tailFrames);
             }
-            tailDepth.process(tailIn.data(), s3g::kAmbiGroupDepthGroupChannels, tailOut.data(), s3g::kAmbiGroupDepthGroupChannels, tailFrames);
+            negativeDepth.process(negativeIn.data(), s3g::kAmbiGroupDepthGroupChannels,
+                negativeOut.data(), s3g::kAmbiGroupDepthGroupChannels, tailFrames);
             if (block > 8u) {
-                for (const auto& ch : tailOutBuffers) {
-                    for (float value : ch) {
-                        if (!std::isfinite(value)) {
-                            std::cerr << "Ambi Depth FDN tail output is not finite\n";
+                for (uint32_t ch = 0u; ch < s3g::kAmbiGroupDepthGroupChannels; ++ch) {
+                    for (uint32_t frame = 0u; frame < tailFrames; ++frame) {
+                        const float positive = positiveOutBuffers[ch][frame];
+                        const float negative = negativeOutBuffers[ch][frame];
+                        if (!std::isfinite(positive) || !std::isfinite(negative)) {
+                            std::cerr << "Ambi Depth environment tail output is not finite\n";
                             return 1;
                         }
-                        tailPeak = std::max(tailPeak, std::abs(value));
+                        tailPeak = std::max({ tailPeak, std::abs(positive), std::abs(negative) });
+                        if (ch >= 4u) highOrderPeak = std::max({ highOrderPeak, std::abs(positive), std::abs(negative) });
+                        directionalDifference += std::abs(positive - negative);
+                        tailEnergy += std::abs(positive) + std::abs(negative);
                     }
                 }
             }
         }
-        if (tailPeak <= 0.000001f || tailPeak > 1.0f) {
-            std::cerr << "Ambi Depth FDN tail peak outside expected range: " << tailPeak << "\n";
+        const double directionRatio = directionalDifference / std::max(0.000001, tailEnergy);
+        if (tailPeak <= 0.0001f || tailPeak > 1.0f || highOrderPeak <= 0.00001f
+            || directionRatio < 0.025) {
+            std::cerr << "Ambi Depth directional tail failed: " << tailPeak << " / "
+                      << highOrderPeak << " / " << directionRatio << "\n";
             return 1;
         }
     }
@@ -5338,6 +5386,100 @@ int main()
         return 1;
     }
 
+    {
+        s3g::AmbiEnvironmentField dryField;
+        dryField.prepare(48000.0);
+        dryField.setAmount(0.0f);
+        float dryPeak = 0.0f;
+        for (uint32_t frame = 0u; frame < 4096u; ++frame) {
+            dryField.beginFrame();
+            if (frame == 0u) dryField.addSource(0.5f, s3g::directionFromAed(24.0f, 18.0f));
+            for (float value : dryField.process()) dryPeak = std::max(dryPeak, std::abs(value));
+        }
+        if (dryPeak > 0.000001f) {
+            std::cerr << "Ambi Environment SPACE zero leaked: " << dryPeak << "\n";
+            return 1;
+        }
+
+        float quietestProfile = 1000.0f;
+        float loudestProfile = 0.0f;
+        for (uint32_t profile = 0u; profile <= static_cast<uint32_t>(s3g::AmbiEnvironmentProfileId::Depth); ++profile) {
+            s3g::AmbiEnvironmentField field;
+            field.prepare(48000.0);
+            field.setProfile(static_cast<s3g::AmbiEnvironmentProfileId>(profile));
+            field.setAmount(0.72f);
+            field.reset();
+            float peak = 0.0f;
+            float tail = 0.0f;
+            for (uint32_t frame = 0u; frame < 12000u; ++frame) {
+                field.beginFrame();
+                if (frame == 0u) field.addSource(0.35f, s3g::directionFromAed(-42.0f, 21.0f));
+                const auto output = field.process();
+                for (float value : output) {
+                    if (!std::isfinite(value)) {
+                        std::cerr << "Ambi Environment profile output is not finite\n";
+                        return 1;
+                    }
+                    peak = std::max(peak, std::abs(value));
+                    if (frame > 4200u) tail = std::max(tail, std::abs(value));
+                }
+            }
+            if (peak <= 0.000001f || peak > 0.73f || tail <= 0.0000001f) {
+                std::cerr << "Ambi Environment profile peak/tail failed: "
+                          << profile << " / " << peak << " / " << tail << "\n";
+                return 1;
+            }
+            quietestProfile = std::min(quietestProfile, peak);
+            loudestProfile = std::max(loudestProfile, peak);
+        }
+        if (loudestProfile / std::max(0.000001f, quietestProfile) > 40.0f) {
+            std::cerr << "Ambi Environment profile levels diverged: "
+                      << quietestProfile << " / " << loudestProfile << "\n";
+            return 1;
+        }
+
+        auto shapeDifference = [](float sizeA, float decayA, float dampingA,
+                                   float sizeB, float decayB, float dampingB) {
+            s3g::AmbiEnvironmentField fieldA;
+            s3g::AmbiEnvironmentField fieldB;
+            fieldA.setProfile(s3g::AmbiEnvironmentProfileId::Room);
+            fieldB.setProfile(s3g::AmbiEnvironmentProfileId::Room);
+            fieldA.setAmount(0.78f);
+            fieldB.setAmount(0.78f);
+            fieldA.setShape(sizeA, decayA, dampingA);
+            fieldB.setShape(sizeB, decayB, dampingB);
+            fieldA.prepare(48000.0);
+            fieldB.prepare(48000.0);
+            double difference = 0.0;
+            double energy = 0.0;
+            for (uint32_t frame = 0u; frame < 36000u; ++frame) {
+                fieldA.beginFrame();
+                fieldB.beginFrame();
+                if (frame == 0u) {
+                    const auto direction = s3g::directionFromAed(37.0f, -14.0f);
+                    fieldA.addSource(0.42f, direction);
+                    fieldB.addSource(0.42f, direction);
+                }
+                const auto outputA = fieldA.process();
+                const auto outputB = fieldB.process();
+                for (uint32_t channel = 0u; channel < outputA.size(); ++channel) {
+                    difference += std::abs(outputA[channel] - outputB[channel]);
+                    energy += std::abs(outputA[channel]) + std::abs(outputB[channel]);
+                }
+            }
+            return static_cast<float>(difference / std::max(0.000001, energy));
+        };
+        const float sizeDifference = shapeDifference(0.12f, 0.5f, 0.5f, 0.88f, 0.5f, 0.5f);
+        const float decayDifference = shapeDifference(0.5f, 0.08f, 0.5f, 0.5f, 0.92f, 0.5f);
+        const float dampingDifference = shapeDifference(0.5f, 0.5f, 0.08f, 0.5f, 0.5f, 0.92f);
+        if (sizeDifference < 0.08f || decayDifference < 0.05f || dampingDifference < 0.03f) {
+            std::cerr << "Ambi Environment shape controls are insufficiently coupled: "
+                      << sizeDifference << " / " << decayDifference << " / "
+                      << dampingDifference << "\n";
+            return 1;
+        }
+    }
+
     s3g::AmbiWindEncoder windEncoder;
     windEncoder.prepare(48000.0);
     auto windParams = s3g::ambiWindFactoryPreset(0u);
@@ -5368,15 +5510,16 @@ int main()
     }
 
     auto windRenderDiff = [](s3g::AmbiWindParams a, s3g::AmbiWindParams b) {
-        constexpr uint32_t frames = 4096u;
+        constexpr uint32_t frames = 8192u;
         constexpr uint32_t channels = 4u;
-        std::array<std::array<float, frames>, channels> aBuffers {};
-        std::array<std::array<float, frames>, channels> bBuffers {};
+        using WindDiffBuffers = std::array<std::array<float, frames>, channels>;
+        auto aBuffers = std::make_unique<WindDiffBuffers>();
+        auto bBuffers = std::make_unique<WindDiffBuffers>();
         std::array<float*, channels> aOutputs {};
         std::array<float*, channels> bOutputs {};
         for (uint32_t ch = 0u; ch < channels; ++ch) {
-            aOutputs[ch] = aBuffers[ch].data();
-            bOutputs[ch] = bBuffers[ch].data();
+            aOutputs[ch] = (*aBuffers)[ch].data();
+            bOutputs[ch] = (*bBuffers)[ch].data();
         }
         s3g::AmbiWindEncoder aEncoder;
         s3g::AmbiWindEncoder bEncoder;
@@ -5396,8 +5539,8 @@ int main()
         float energy = 0.0f;
         for (uint32_t ch = 0u; ch < channels; ++ch) {
             for (uint32_t frame = 0u; frame < frames; ++frame) {
-                diff += std::abs(aBuffers[ch][frame] - bBuffers[ch][frame]);
-                energy += std::abs(aBuffers[ch][frame]) + std::abs(bBuffers[ch][frame]);
+                diff += std::abs((*aBuffers)[ch][frame] - (*bBuffers)[ch][frame]);
+                energy += std::abs((*aBuffers)[ch][frame]) + std::abs((*bBuffers)[ch][frame]);
             }
         }
         return diff / std::max(0.000001f, energy);
@@ -5454,17 +5597,31 @@ int main()
     vectorRateLow.spatialFollow = 0.18f;
     vectorRateHigh = vectorRateLow;
     vectorRateHigh.vectorRateHz = 0.5f;
+    auto spaceLow = windSensitivityBase;
+    auto spaceHigh = windSensitivityBase;
+    spaceLow.space = 0.0f;
+    spaceHigh.space = 0.78f;
+    spaceLow.place = spaceHigh.place = 3u;
+    auto windPlaceLow = windSensitivityBase;
+    auto windPlaceHigh = windSensitivityBase;
+    windPlaceLow.space = windPlaceHigh.space = 0.72f;
+    windPlaceLow.place = 0u;
+    windPlaceHigh.place = 4u;
     const float windAmountDiff = windRenderDiff(windLow, windHigh);
     const float windToneDiff = windRenderDiff(toneLow, toneHigh);
     const float windMaterialDiff = windRenderDiff(materialLow, materialHigh);
     const float windMotionDiff = windRenderDiff(motionLow, motionHigh);
     const float windVectorRateDiff = windRenderDiff(vectorRateLow, vectorRateHigh);
+    const float windSpaceDiff = windRenderDiff(spaceLow, spaceHigh);
+    const float windPlaceDiff = windRenderDiff(windPlaceLow, windPlaceHigh);
     if (windAmountDiff < 0.12f || windToneDiff < 0.08f || windMaterialDiff < 0.06f
-        || windMotionDiff < 0.03f || windVectorRateDiff < 0.002f) {
+        || windMotionDiff < 0.03f || windVectorRateDiff < 0.002f
+        || windSpaceDiff < 0.015f || windPlaceDiff < 0.01f) {
         std::cerr << "Ambi Wind controls are insufficiently coupled: "
                   << windAmountDiff << " / " << windToneDiff << " / "
                   << windMaterialDiff << " / " << windMotionDiff << " / "
-                  << windVectorRateDiff << "\n";
+                  << windVectorRateDiff << " / " << windSpaceDiff << " / "
+                  << windPlaceDiff << "\n";
         return 1;
     }
 
@@ -5500,6 +5657,7 @@ int main()
         extreme.motionShear = 1.0f;
         extreme.motionCurl = 1.0f;
         extreme.motionUpdraft = 1.0f;
+        extreme.space = 1.0f;
         extreme.outputGainDb = 12.0f;
         stressEncoder.setParams(extreme);
 
@@ -5508,6 +5666,7 @@ int main()
         float previousW = 0.0f;
         for (uint32_t block = 0u; block < 192u; ++block) {
             extreme.materialMode = block % 10u;
+            extreme.place = block % s3g::kAmbiWindPlaceCount;
             stressEncoder.setParams(extreme);
             stressEncoder.process(stressOutputs.data(), stressChannels, stressFrames);
             for (uint32_t ch = 0u; ch < stressChannels; ++ch) {
@@ -5838,10 +5997,22 @@ int main()
     waterMotionHigh.current = 0.94f;
     waterMotionHigh.eddy = 0.88f;
     waterMotionHigh.convergence = 0.96f;
+    auto waterSpaceLow = waterBase;
+    auto waterSpaceHigh = waterBase;
+    waterSpaceLow.space = 0.0f;
+    waterSpaceHigh.space = 0.78f;
+    waterSpaceLow.place = waterSpaceHigh.place = 2u;
+    auto waterPlaceLow = waterBase;
+    auto waterPlaceHigh = waterBase;
+    waterPlaceLow.space = waterPlaceHigh.space = 0.72f;
+    waterPlaceLow.place = 0u;
+    waterPlaceHigh.place = 2u;
     const float waterBodyDiff = waterRenderDiff(bodyLow, bodyHigh);
     const float waterEventDiff = waterRenderDiff(eventLow, eventHigh);
     const float waterMaterialDiff = waterRenderDiff(waterMaterialLow, waterMaterialHigh);
     const float waterMotionDiff = waterRenderDiff(waterMotionLow, waterMotionHigh);
+    const float waterSpaceDiff = waterRenderDiff(waterSpaceLow, waterSpaceHigh);
+    const float waterPlaceDiff = waterRenderDiff(waterPlaceLow, waterPlaceHigh);
     auto dropSilent = waterBase;
     auto dropActive = waterBase;
     dropSilent.regime = 1u;
@@ -5929,14 +6100,16 @@ int main()
         || waterDropDiff < 0.002f || waterBubbleDiff < 0.002f
         || waterCavityDiff < 0.01f || waterLengthDiff < 0.005f
         || waterRiseDiff < 0.005f || waterBoundaryDiff < 0.005f
-        || waterDropSizeDiff < 0.01f || waterDryWetDiff < 0.01f) {
+        || waterDropSizeDiff < 0.01f || waterDryWetDiff < 0.01f
+        || waterSpaceDiff < 0.015f || waterPlaceDiff < 0.01f) {
         std::cerr << "Ambi Water controls are insufficiently coupled: "
                   << waterBodyDiff << " / " << waterEventDiff << " / "
                   << waterMaterialDiff << " / " << waterMotionDiff << " / "
                   << waterDropDiff << " / " << waterBubbleDiff << " / "
                   << waterCavityDiff << " / " << waterLengthDiff << " / "
                   << waterRiseDiff << " / " << waterBoundaryDiff << " / "
-                  << waterDropSizeDiff << " / " << waterDryWetDiff << "\n";
+                  << waterDropSizeDiff << " / " << waterDryWetDiff << " / "
+                  << waterSpaceDiff << " / " << waterPlaceDiff << "\n";
         return 1;
     }
 
@@ -5976,6 +6149,7 @@ int main()
         extreme.eddy = 1.0f;
         extreme.convergence = 1.0f;
         extreme.width = 1.0f;
+        extreme.space = 1.0f;
         extreme.outputGainDb = 12.0f;
         encoder->setParams(extreme);
 
@@ -5986,6 +6160,7 @@ int main()
         for (uint32_t block = 0u; block < 128u; ++block) {
             extreme.regime = block % s3g::kAmbiWaterRegimeCount;
             extreme.environment = block % s3g::kAmbiWaterEnvironmentCount;
+            extreme.place = block % s3g::kAmbiWaterPlaceCount;
             encoder->setParams(extreme);
             encoder->process(outputs.data(), channels, frames);
             for (uint32_t ch = 0u; ch < channels; ++ch) {

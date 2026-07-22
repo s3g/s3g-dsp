@@ -14,11 +14,10 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="processors.html">Processors</a>
-        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="multichannel.html">Multichannel</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
-        <a href="topology-framework.html">Framework</a>
+        <a href="references.html">References</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -27,95 +26,59 @@
       <main class="content" id="content">
         <h1>Ambisonics</h1>
 
-        <p>Ambisonics pages cover ambisonics-specific plugins and infrastructure. These tools are separate from the general multichannel effects and instruments because channel order, spatial format, and host routing are part of the instrument.</p>
+        <p>Ambisonics pages cover plugins and infrastructure whose channel order, normalization, and host routing are part of the signal model. The section is organized by the job each tool performs instead of one growing plugin list.</p>
 
-        <p>The supported target is REAPER on macOS, using <code>ACN/SN3D</code> ambisonics and fixed-width buses where predictable routing matters. The point encoder and 3OAFX effects are third-order; the VOT, Vox, stochastic, Wrangler, cloud, terrain, path, and Ray encoders, decoders, and utilities support first through seventh order where noted.</p>
+        <p>The supported target is REAPER on macOS. These plugins use <code>ACN/SN3D</code> ambisonics and fixed-width buses where predictable routing matters.</p>
 
-        <h2 id="plugins">Plugin Areas</h2>
+        <h2 id="sections">Sections</h2>
 
         <ul>
-          <li><a href="3oafx-effects.html">3OAFX single-effect processors</a>: Delay, Filter, Gain, and Pitch for third-order inserts with an internal 24-point virtual speaker layer.</li>
-          <li><a href="3oafx-displacement.html">3OAFX Displacement</a>: plays geometry scores from the <code>s3g-mc</code> Displacement Score utility as time-varying third-order field warps.</li>
-          <li><a href="3oafx-point-encoder.html">Ambi Point Encoder</a>: point-source AED/gain automation into third-order <code>ACN/SN3D</code>.</li>
-          <li><a href="ambi-cloud-encoder.html">Ambi Cloud Encoder</a>: up to 64 source lanes distributed into one to four first-through-seventh-order ambisonic clouds.</li>
-          <li><a href="ambi-terrain-navigator.html">Ambi Terrain Navigator</a>: up to 64 source lanes encoded while AED coordinates traverse nested procedural wave-terrain spheres.</li>
-          <li><a href="ambi-path-encoder.html">Ambi Path Encoder</a>: up to 64 source lanes encoded along saved, imported, or drawn path trajectories.</li>
-          <li><a href="ambi-ray-encoder.html">Ambi Ray Encoder</a>: a mono source and listener moving through a position-dependent direct path, early reflection field, and late room response from a bundled atlas or Ray Sketch <code>.s3gray</code> field.</li>
-          <li><a href="ambi-vot-encoder.html">Ambi VOT Encoder</a>: 64-voice vector-wavetable instrument with composed U/V scoring and first-through-seventh-order <code>ACN/SN3D</code> output.</li>
-          <li><a href="ambi-vox-encoder.html">Ambi Vox Encoder</a>: 64-voice WORLD and UTAU-style voicebank instrument with typed phrase mapping and spatial voice motion.</li>
-          <li><a href="ambi-wave-terrain-encoder.html">Ambi Wave Terrain Encoder</a>: 64-voice stochastic wave-terrain instrument with direct first-through-seventh-order output.</li>
-          <li><a href="ambi-pulsar-encoder.html">Ambi Pulsar Encoder</a>: three formant lanes driven by one rhythm-to-tone emission clock, plus a sixteen-node neural circuit and captured pulsaret/envelope/FM tables, with direct first-through-seventh-order output.</li>
-          <li><a href="ambi-stochastic-encoder.html">Ambi Stochastic Encoder</a>: 64-voice stochastic instrument with generator selection, time-fields, and topology-driven AED placement.</li>
-          <li><a href="ambi-wrangler-encoder.html">Ambi Wrangler Encoder</a>: autonomous 64-voice Benjolin/rungler-style logic synthesis with topology-driven spatial placement.</li>
-          <li><a href="ambi-imprint.html">Ambi Imprint</a>: directional convolution for <code>.s3gimprint</code> space responses exported directly by <code>s3g-mc Imprint Sketch</code>.</li>
-          <li><a href="3oafx-speaker-decoder.html">Ambi Decoder family</a>: Speaker, Object, Adaptive, and Sub decoders for speaker layouts, object-focused paths, adaptive decode behavior, and low-frequency sub feeds.</li>
-          <li><a href="ambisonic-rotate.html">Ambi Rotate</a>, <a href="ambisonic-bus-processors.html#field-depth">Ambi Depth</a>, and <a href="ambisonic-order-band-tool.html">Ambi Order / Band</a>: field utilities for encoded material.</li>
-          <li><a href="ambisonic-bus-processors.html">Ambi Field / Bus Processors</a>: group matrix, node, rotate, and depth tools for lane-locked 3OA feeds.</li>
-          <li><a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, and <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>: monitoring and visualization tools.</li>
-          <li><a href="ambi-grain-processor.html">Ambi Grain Processor</a>: loaded-media ambisonic instrument with channel-locked grain events.</li>
+          <li><a href="ambisonic-encoders.html"><strong>Encoders</strong></a>: turn ordinary audio into an ambisonic field or generate an encoded field directly.</li>
+          <li><a href="ambisonic-decoders.html"><strong>Decoders</strong></a>: render a field to speaker layouts, object and sub feeds, stereo, or headphones.</li>
+          <li><a href="ambisonic-effects.html"><strong>Effects</strong></a>: transform complete encoded fields, including 3OAFX, displacement, convolution, rotation, depth, bus, and granular tools.</li>
+          <li><a href="ambisonic-utilities.html"><strong>Utilities</strong></a>: inspect orders and energy or work with the <code>.s3gimprint</code> and <code>.s3gray</code> interchange formats.</li>
         </ul>
 
-        <p>Direct speaker panners are documented under <a href="mix-pan.html">Mix / Pan</a>. They share layout language with the ambisonic tools, but they do not encode or decode an ambisonic stream.</p>
+        <h2 id="processing-flow">Processing Flow</h2>
 
-        <h2 id="processing-flow">3OAFX Processing Flow</h2>
+        <pre><code>audio-input encoder or ambisonic instrument
+-&gt; optional ambisonic effects
+-&gt; optional order and energy utilities
+-&gt; speaker, stereo, or head decoder</code></pre>
 
-        <p>Current CLAP 3OAFX effects are ordinary third-order <code>ACN/SN3D</code> inserts:</p>
+        <p>A complete order contains <code>(order + 1)^2</code> channels. Set the REAPER track width before inserting a plugin, keep the order and <code>ACN/SN3D</code> convention consistent through the chain, and decode only when the field reaches its listening destination.</p>
 
-        <pre><code>3OA source
--&gt; s3g 3OAFX Delay, Filter, Gain, or Pitch
--&gt; optional s3g 3OAFX Displacement geometry score
--&gt; optional additional 3OAFX effects
--&gt; Ambi Speaker Decoder, Ambi Stereo Decoder, or Ambi Head Decoder</code></pre>
-
-        <p>Inside each effect, dry and wet paths stay separate until the masked mixer stage. Stack separate plugin instances in series when order matters. For parallel combinations, use REAPER routing.</p>
+        <p>Direct speaker panners are documented under <a href="direct-panning.html">Direct Panning</a>. They share layout language with the ambisonic tools, but they do not encode or decode an ambisonic stream.</p>
 
         <h2 id="s3g-mc">s3g-mc Context</h2>
 
         <p>The larger 3OAFX workflow is documented in <a href="https://s3g.github.io/s3g-mc/process-guides-3oafx.html" target="_blank" rel="noopener noreferrer">the s3g-mc 3OAFX process guide</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="3oafx-layout-panner.html">
+          <a class="page-nav-link" href="speaker-array-utilities.html">
             <span>Previous</span>
-            Layout Panner
+            Speaker-array Utilities
           </a>
-          <a class="page-nav-link next" href="3oafx-effects.html">
+          <a class="page-nav-link next" href="ambisonic-encoders.html">
             <span>Next</span>
-            3OAFX Processors
+            Ambisonic Encoders
           </a>
         </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
-          <h2>Ambisonics Pages</h2>
-          <a href="3oafx.html">Ambisonics Overview</a>
-          <a href="3oafx-effects.html">3OAFX Processors</a>
-          <a href="3oafx-displacement.html">3OAFX Displacement</a>
-          <a href="3oafx-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
-          <a href="ambi-terrain-navigator.html">Terrain Navigator</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-ray-encoder.html">Ray Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
-          <a href="ambi-imprint.html">Ambi Imprint</a>
-          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
-          <a href="ambisonic-rotate.html">Rotate</a>
-          <a href="ambisonic-bus-processors.html#field-depth">Depth</a>
-          <a href="ambisonic-bus-processors.html">Field / Bus</a>
-          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
-          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
-          <a href="ambisonic-head-decoder.html">Head Decoder</a>
-          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
-          <a href="ambi-grain-processor.html">Grain Processor</a>
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
-          <a href="#plugins">Plugin Areas</a>
-          <a href="#processing-flow">3OAFX Processing Flow</a>
+          <a href="#sections">Sections</a>
+          <a href="#processing-flow">Processing Flow</a>
           <a href="#s3g-mc">s3g-mc Context</a>
         </div>
       </aside>

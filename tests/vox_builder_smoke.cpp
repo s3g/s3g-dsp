@@ -1,4 +1,5 @@
 #include "s3g_vox_builder.h"
+#include "s3g_vox_source_synth.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -109,6 +110,105 @@ int main()
     if (std::string(s3g::voxBuilderAliasAssignmentName(
         s3g::VoxBuilderAliasAssignment::Acoustic)) != "acoustic") {
         fail("alias assignment name");
+    }
+
+    s3g::VoxSourceSynthParams sourceParams;
+    sourceParams.sampleRate = 12000;
+    sourceParams.baseFrequencyHz = 150.0f;
+    sourceParams.durationMs = 280.0f;
+    sourceParams.randomSeed = 8128u;
+    const auto procedural = s3g::voxSourceGenerateAlias("sa", sourceParams, 7u);
+    const auto proceduralRepeat = s3g::voxSourceGenerateAlias("sa", sourceParams, 7u);
+    if (procedural.size() < 3000u || procedural != proceduralRepeat) {
+        fail("deterministic procedural source");
+    }
+    float proceduralPeak = 0.0f;
+    for (const float sample : procedural) {
+        if (!std::isfinite(sample)) fail("procedural source finite output");
+        proceduralPeak = std::max(proceduralPeak, std::fabs(sample));
+    }
+    if (proceduralPeak < 0.1f || proceduralPeak > 0.70f) {
+        fail("procedural source level");
+    }
+    const auto generatedA = s3g::voxSourceGenerateAlias("a", sourceParams, 0u);
+    const auto generatedI = s3g::voxSourceGenerateAlias("i", sourceParams, 2u);
+    const auto generatedU = s3g::voxSourceGenerateAlias("u", sourceParams, 4u);
+    const auto acousticA = s3g::voxBuilderAnalyzeAcoustics(
+        generatedA, sourceParams.sampleRate, 0u, generatedA.size());
+    const auto acousticI = s3g::voxBuilderAnalyzeAcoustics(
+        generatedI, sourceParams.sampleRate, 0u, generatedI.size());
+    const auto acousticU = s3g::voxBuilderAnalyzeAcoustics(
+        generatedU, sourceParams.sampleRate, 0u, generatedU.size());
+    if (!(acousticA.formant1Hz > acousticI.formant1Hz * 1.15f
+        && acousticI.formant2Hz > acousticU.formant2Hz * 1.25f)) {
+        std::cerr << "Generated vowel F1/F2 a=" << acousticA.formant1Hz << "/"
+                  << acousticA.formant2Hz << " i=" << acousticI.formant1Hz << "/"
+                  << acousticI.formant2Hz << " u=" << acousticU.formant1Hz << "/"
+                  << acousticU.formant2Hz << '\n';
+        fail("procedural vowel separation");
+    }
+    const auto generatedM = s3g::voxSourceGenerateAlias("ma", sourceParams, 25u);
+    const auto acousticS = s3g::voxBuilderAnalyzeAcoustics(
+        procedural, sourceParams.sampleRate, 0u, procedural.size());
+    const auto acousticM = s3g::voxBuilderAnalyzeAcoustics(
+        generatedM, sourceParams.sampleRate, 0u, generatedM.size());
+    if (acousticS.onsetHighness <= acousticM.onsetHighness + 0.08f) {
+        fail("procedural onset contrast");
+    }
+
+    auto seedParams = sourceParams;
+    seedParams.tractScale = 0.82f;
+    seedParams.breath = 0.48f;
+    const auto seedWave = s3g::voxSourceGenerateAlias("a", seedParams, 0u);
+    const auto seedProfile = s3g::voxSourceAnalyzeSeed(
+        seedWave, sourceParams.sampleRate, 0u, seedWave.size(), "a", 150.0f);
+    if (!seedProfile.valid || std::fabs(seedProfile.baseFrequencyHz - 150.0f) > 0.01f
+        || !std::isfinite(seedProfile.formant1Scale)
+        || !std::isfinite(seedProfile.formant2Scale)) {
+        fail("seed profile analysis");
+    }
+    auto seededParams = sourceParams;
+    seededParams.seeded = true;
+    seededParams.seedProfile = seedProfile;
+    const auto seeded = s3g::voxSourceGenerateAlias("sa", seededParams, 7u);
+    double sourceDifference = 0.0;
+    for (size_t i = 0u; i < std::min(procedural.size(), seeded.size()); ++i) {
+        sourceDifference += std::fabs(static_cast<double>(procedural[i] - seeded[i]));
+    }
+    if (sourceDifference < 1.0) fail("seed profile synthesis influence");
+
+    const auto generatedBank = s3g::voxSourceGenerateBank(
+        sourceParams, s3g::VoxSourceVocabulary::Core35);
+    if (generatedBank.entries.size() != 35u
+        || generatedBank.entries.front().alias != "a"
+        || generatedBank.entries.back().alias != "ru") {
+        fail("procedural core bank");
+    }
+    uint64_t generatedDiscontinuities = 0u;
+    const float generatedDerivativeRelease = std::exp(
+        -1.0f / (0.040f * static_cast<float>(sourceParams.sampleRate)));
+    for (const auto& entry : generatedBank.entries) {
+        float previous = 0.0f;
+        float derivativeEnvelope = 0.0f;
+        for (const float sample : entry.samples) {
+            const float step = std::fabs(sample - previous);
+            const float allowedStep = std::max(0.081f, derivativeEnvelope * 1.51f);
+            if (step > allowedStep) ++generatedDiscontinuities;
+            if (step > derivativeEnvelope) {
+                derivativeEnvelope += (step - derivativeEnvelope) * 0.08f;
+            } else {
+                derivativeEnvelope *= generatedDerivativeRelease;
+            }
+            previous = sample;
+        }
+    }
+    if (generatedDiscontinuities != 0u) {
+        std::cerr << "Generated voicebank discontinuities: "
+                  << generatedDiscontinuities << '\n';
+        fail("procedural voicebank discontinuity guard");
+    }
+    if (s3g::voxSourceAliases(s3g::VoxSourceVocabulary::Full92).size() != 92u) {
+        fail("procedural full vocabulary");
     }
 
     std::cout << "Vox Builder smoke test passed\n";

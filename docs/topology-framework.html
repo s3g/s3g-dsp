@@ -14,11 +14,10 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="processors.html">Processors</a>
-        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="multichannel.html">Multichannel</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
-        <a href="topology-framework.html">Framework</a>
+        <a href="references.html">References</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -27,13 +26,13 @@
       <main class="content" id="content">
         <h1>Topology Framework</h1>
 
-        <p>Topology is a shared control model for s3g-dsp plugins. In lane processors, active patch-matrix lanes become points. In instruments and encoders, voices or sources provide the points. The points form a network, and each plugin maps that network to sound.</p>
+        <p>Topology is a shared control model for s3g-dsp plugins. In multichannel effects, active patch-matrix lanes become points. In instruments and encoders, voices or sources provide the points. The points form a network, and each plugin maps that network to sound.</p>
 
         <p>This keeps automation compact. REAPER sees global controls while per-lane variation stays inside the plugin.</p>
 
         <h2 id="roadmap">Roadmap Diagram</h2>
 
-        <p>The diagram shows the generic model. A delay, filter, spatial mixer, or another processor can reuse the same topology layer and map it to different parameters.</p>
+        <p>The diagram shows the generic model. A delay, filter, spatial mixer, or another effect can reuse the same topology layer and map it to different parameters.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -44,7 +43,7 @@
         <h2 id="control-model">Control Model</h2>
 
         <ul>
-          <li>The host pin connector feeds fixed-width processor inputs.</li>
+          <li>The host pin connector feeds fixed-width effect inputs.</li>
           <li>A patch matrix, voice count, or source count determines the active points.</li>
           <li>Shape and displacement controls position active lanes as points.</li>
           <li>Animation and variants move the point field over time.</li>
@@ -74,22 +73,33 @@
         </figure>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambi-grain-processor.html">
+          <a class="page-nav-link" href="topology-processors.html">
             <span>Previous</span>
-            Ambi Grain Processor
+            Topology Effects
+          </a>
+          <a class="page-nav-link next" href="delay-processor.html">
+            <span>Next</span>
+            Delay Processor
           </a>
         </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
-          <h2>Topology Pages</h2>
+          <h2>Multichannel</h2>
+          <a href="multichannel.html">Overview</a>
+          <a href="multichannel-effects.html">Effects</a>
+          <a href="monitoring-fold-down.html">Monitoring / Fold-down</a>
+          <a href="direct-panning.html">Direct Panning</a>
+          <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
+          <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Topology Effect Pages</h2>
           <a href="topology-framework.html">Topology Framework</a>
-          <a href="delay-processor.html">Delay Processor Mapping</a>
+          <a href="delay-processor.html">Delay Processor</a>
           <a href="wave-geometry-processor.html">Wave Geometry Processor</a>
           <a href="spectral-topology-processor.html">Spectral Topology Processor</a>
-          <a href="3oafx-point-encoder.html">Ambi Point Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Ambi Stochastic Encoder</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>

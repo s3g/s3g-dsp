@@ -14,11 +14,10 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="processors.html">Processors</a>
-        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="multichannel.html">Multichannel</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
-        <a href="topology-framework.html">Framework</a>
+        <a href="references.html">References</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -43,7 +42,7 @@
 
         <p>The title-bar <code>PRESET</code> menu provides thirteen starting points spanning solo speech, unison, SATB and double choirs, chorus, round, cluster, spectral color, texture, spatial orbit, and a full 16-voice choir. Every factory preset starts at 3OA and sets Output to <code>-6 dB</code>. Selecting one updates the registered host parameters and phrase with a short output transition; <code>ORDER</code> can then be changed manually from 1OA through 7OA.</p>
 
-        <p><code>LOAD</code> and <code>SAVE</code> beside the preset menu read and write <code>.s3gvox</code> JSON files. A user preset stores the editable instrument parameters, lyric cue sheet, and camera view. Vocal WAV files, voicebank folders, and analyzed WORLD audio are deliberately not embedded: loading a preset keeps the currently loaded sound source in place, so one performance design can be auditioned with different voices. The normal CLAP project state also remembers the selected factory or user preset name.</p>
+        <p><code>LOAD</code> and <code>SAVE</code> beside the preset menu read and write <code>.s3gvox</code> JSON files. A user preset stores the editable instrument parameters, lyric cue sheet, phrase-generator recipe, and camera view. Vocal WAV files, voicebank folders, and analyzed WORLD audio are deliberately not embedded: loading a preset keeps the currently loaded sound source in place, so one performance design can be auditioned with different voices. The normal CLAP project state also remembers the selected factory or user preset name.</p>
 
         <h2 id="phrase-source">Phrase Source</h2>
 
@@ -64,6 +63,8 @@
         <h2 id="lyrics-field">Lyrics Field</h2>
 
         <p>The left-side <code>LYRICS</code> page is a cue sheet. Each non-empty line becomes one independently compiled lyric cue, up to 32 cues. The cue map shows the selected line and the line currently being performed. Clicking a cue selects it; the single-line phrase field remains a quick editor for that selected cue. <code>PHR SPREAD</code> is always contained within the active cue, so a round can begin at different syllables without spilling into the next line.</p>
+
+        <p><code>TEXT</code> opens the cue editor. <code>GENERATE</code> opens a deterministic pseudo-language composer whose output returns to that same editable cue sheet. <code>FORM</code> chooses drift, call-and-response, round, bloom, or pulse relationships; <code>COLOR</code> biases vowel families; and <code>GROUPS</code>, <code>CUES / GROUP</code>, <code>LENGTH</code>, <code>VARIATION</code>, <code>HARDNESS</code>, <code>REST</code>, and <code>SEED</code> shape the result. The available syllables are checked against the loaded voicebank. <code>GENERATE</code> restarts from the seed, <code>MUTATE</code> keeps the underlying group motifs while deriving a new generation, and <code>APPEND</code> adds a generation without exceeding the 32-cue limit.</p>
 
         <ul>
           <li><code>LOOP</code> repeats the selected cue.</li>
@@ -93,7 +94,7 @@ sorrow=so ro</code></pre>
           <li><code>ROOT</code> and <code>SCALE</code> define the pitch grid.</li>
           <li><code>SPREAD</code> expands or contracts scale-degree relationships while keeping voices on the selected scale.</li>
           <li><code>TRANSPOSE</code> shifts the complete field after scale relationships are calculated; <code>DEVIATION</code> adds a repeatable pitch offset per voice.</li>
-          <li><code>GLIDE</code> sets pitch transition time. <code>VIBRATO</code> and <code>VIB SPEED</code> add per-voice phase-offset vibrato, with full depth in <code>SING</code>.</li>
+          <li><code>GLIDE</code> sets the user-facing pitch transition time. A short fixed resynthesis smoother also suppresses discontinuities at voicebank and WORLD pitch changes. <code>VIBRATO</code> and <code>VIB SPEED</code> add per-voice phase-offset vibrato, with full depth in <code>SING</code>.</li>
         </ul>
 
         <p>When an older project state is loaded, its separate tune offset is folded into <code>TRANSPOSE</code>. Retired Character coloration is reset to the clean WORLD/voicebank path so no hidden control continues changing the sound.</p>
@@ -112,7 +113,7 @@ sorrow=so ro</code></pre>
         <h2 id="ensemble">Ensemble Direction</h2>
 
         <ul>
-          <li><code>INDIVIDUAL</code> keeps the original scale-field behavior and normal per-note MIDI allocation.</li>
+          <li><code>INDIVIDUAL</code> keeps the original free-running scale-field behavior. In <code>MIDI</code>, every ensemble direction now retains normal per-note point allocation.</li>
           <li><code>UNISON</code> shares one root with small deterministic entrance and tuning differences.</li>
           <li><code>CHORALE</code> repeats an open SATB voicing across the field and keeps soprano, alto, tenor, and bass parts inside practical tessitura.</li>
           <li><code>CHORUS</code> distributes unison and octave doubles with wider entrance and tuning variation.</li>
@@ -120,19 +121,23 @@ sorrow=so ro</code></pre>
           <li><code>CLUSTER</code> alternates voices above and below the root in semitone steps.</li>
         </ul>
 
-        <p><code>SPREAD</code> contracts or expands an ensemble's interval pattern. In <code>MIDI</code> or <code>BOTH</code>, a non-<code>INDIVIDUAL</code> ensemble takes the newest held note as its common root; <code>INDIVIDUAL</code> continues to turn held chords into separately allocated spatial voices.</p>
+        <p><code>SPREAD</code> contracts or expands an ensemble's interval pattern. In <code>MIDI</code>, held notes always become separately allocated spatial voices, independent of the ensemble choice. In <code>BOTH</code>, a non-<code>INDIVIDUAL</code> ensemble can still take the newest held note as the common root of the free-running choir.</p>
 
         <p>The field keeps each source point's azimuth/elevation/distance color and adds a muted ensemble-role frame. Chorale points are marked <code>S</code>, <code>A</code>, <code>T</code>, or <code>B</code>; chorus and round cohorts receive corresponding labels and faint same-role links. The outer square pulses at each voice's phrase position, making staggered entries visible without confusing orchestration with spatial location.</p>
 
         <h2 id="phrase">MIDI and Phrase Voices</h2>
 
-        <p>In <code>FREE</code>, active points take scale degrees or the selected ensemble relationship around the root. With <code>INDIVIDUAL</code> selected, <code>MIDI</code> allocates each held note to one voice, so chords become spatially distinct voices; <code>BOTH</code> retains the free-running field and lets held MIDI notes take over allocated voices. Other ensemble directions use the newest held MIDI note as a conductor root for the complete active choir.</p>
+        <p>In <code>FREE</code>, active points take scale degrees or the selected ensemble relationship around the root. In <code>MIDI</code>, the first held note activates point 1, the second activates point 2, and so on through the selected <code>VOICES</code> limit. Releasing a note silences and frees its point; the next note reuses the lowest free point, and excess notes steal the oldest active point. The field display mutes inactive squares so this allocation remains visible. <code>BOTH</code> retains the free-running field and lets held MIDI notes influence its pitch behavior.</p>
 
         <h2 id="pvoc">Playback Timing</h2>
 
         <p>The playback panel changes with <code>VOICE</code> mode so that only relevant timing controls are shown. In <code>SPEAK</code> and <code>SING</code>, <code>PACE</code> schedules phrase events; word spaces and punctuation produce explicit short, medium, and sentence-length gaps. In <code>TEXTURE</code>, <code>SPEED</code>, loop start/end, freeze, and position control the continuously read source. Texture speed has no effect on phrase playback.</p>
 
-        <p><code>STRETCH</code> changes playback duration from 0.25x to 4x without changing the selected musical pitch. In <code>SPEAK</code>, each alias remains one-shot; in <code>SING</code>, the fixed consonant region is preserved while vowels can sustain. <code>TRANSIENT</code> controls phase resets at consonant and attack boundaries, while <code>BLEND</code> sets adjacent phrase-alias overlap. For voicebanks, the phase vocoder handles residual tuning between cached WORLD pitch anchors rather than carrying the full pitch shift.</p>
+        <p><code>STRETCH</code> changes playback duration from 0.25x to 4x without changing the selected musical pitch. In <code>SPEAK</code>, each alias remains one-shot; in <code>SING</code>, the fixed consonant region is preserved while vowels can sustain. <code>TRANSIENT</code> spans soft to preserved attacks in every voice mode: lower settings use fewer phase resets, longer event fades, reduced fixed-consonant energy, and per-voice onset conditioning; higher settings retain the source articulation and its potentially percussive character. <code>BLEND</code> sets adjacent phrase-alias overlap. For voicebanks, the phase vocoder handles residual tuning between cached WORLD pitch anchors rather than carrying the full pitch shift.</p>
+
+        <h2 id="output">Output and Plosive Control</h2>
+
+        <p><code>POP FILTER</code> dynamically reduces short low-frequency pressure bursts and the broadband crack that can make a synthetic plosive resemble a drum hit. A shared detector follows the ambisonic W channel and applies matching low-band and transient reduction to every active output channel, preserving spatial coherence. Sustained bass and consonant detail return as the detector releases; 0% is transparent and 100% provides the strongest plosive reduction.</p>
 
         <h2 id="motion">Motion</h2>
 
@@ -140,7 +145,22 @@ sorrow=so ro</code></pre>
 
         <h2 id="routing">Order and Routing</h2>
 
-        <p>The output bus remains 64 channels wide even though synthesis is capped at 16 source voices. <code>ORDER</code> activates the corresponding <code>ACN/SN3D</code> channels from 1OA through 7OA and clears all higher outputs. Project states saved with an older voice count above 16 load at the new 16-voice maximum.</p>
+        <p>The output bus remains 64 channels wide even though synthesis is capped at 16 source voices. <code>ORDER</code> activates the corresponding <code>ACN/SN3D</code> channels and clears all higher outputs. Project states saved with an older voice count above 16 load at the new 16-voice maximum.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Order</th><th>Active channels</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
 
         <p>Follow the instrument with an <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>.</p>
 
@@ -149,25 +169,38 @@ sorrow=so ro</code></pre>
             <span>Previous</span>
             Ambi VOT Encoder
           </a>
-          <a class="page-nav-link next" href="ambi-stochastic-encoder.html">
+          <a class="page-nav-link next" href="ambi-wave-terrain-encoder.html">
             <span>Next</span>
-            Ambi Stochastic Encoder
+            Ambi Wave Terrain Encoder
           </a>
         </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
-          <h2>Instrument Pages</h2>
-          <a href="instruments.html">Instruments Overview</a>
-          <a href="fault.html">s3g Fault</a>
-          <a href="loop-processor.html">Loop Processor</a>
-          <a href="multi-loop-processor.html">Multi Loop Processor</a>
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Encoder Pages</h2>
+          <a href="3oafx-point-encoder.html">Point Encoder</a>
+          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-terrain-navigator.html">Terrain Navigator</a>
+          <a href="ambi-path-encoder.html">Path Encoder</a>
+          <a href="ambi-ray-encoder.html">Ray Encoder</a>
+          <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>
           <a href="ambi-vot-encoder.html">VOT Encoder</a>
           <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="vox-builder.html">Vox Builder</a>
+          <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
+          <a href="ambi-wind-encoder.html">Wind Encoder</a>
+          <a href="ambi-water-encoder.html">Water Encoder</a>
+          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
           <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-grain-processor.html">Grain Processor</a>
+          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
@@ -181,6 +214,7 @@ sorrow=so ro</code></pre>
           <a href="#ensemble">Ensemble Direction</a>
           <a href="#phrase">MIDI and Phrase Voices</a>
           <a href="#pvoc">Playback Timing</a>
+          <a href="#output">Output and Plosive Control</a>
           <a href="#motion">Motion</a>
           <a href="#routing">Order and Routing</a>
         </div>

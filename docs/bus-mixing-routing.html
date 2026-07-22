@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bus Mixing / Routing - s3g-dsp</title>
+    <meta name="description" content="Multichannel group matrix, node bus, and routing utility documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Bus Mixing / Routing</h1>
+
+        <p>Bus tools treat a wide REAPER track as a collection of fixed-size source blocks. They mix or validate those blocks without assuming that the channels form an ambisonic field.</p>
+
+        <h2 id="matrix">Group Matrix</h2>
+
+        <p><strong>Group Matrix 32/64</strong> routes complete source blocks through a matrix. The 32-channel build supports stereo, 4-channel, and 8-channel groups; the 64-channel build supports 4-channel, 8-channel, and 16-channel groups. Every crosspoint moves the selected block together.</p>
+
+        <h2 id="node">Node Bus Mixer</h2>
+
+        <p><strong>Node Bus Mixer 128</strong> represents source blocks as nodes around a movable cursor. Node radius, focus, influence, and position turn cursor motion into coordinated source gains, providing a relationship-based alternative to a conventional matrix.</p>
+
+        <h2 id="diagnostics">Routing Diagnostics</h2>
+
+        <p><strong>Passthrough Test 24ch</strong> is a fixed-width gain and routing check for REAPER pin assignments and CLAP bundle validation. Use it before diagnosing a more complex processor when a 24-channel insert appears to lose, swap, or bypass lanes.</p>
+
+        <p>When every block is a complete third-order <code>ACN/SN3D</code> field, use <a href="ambisonic-bus-processors.html">Ambi Field / Bus Effects</a> so all sixteen channels in each field remain locked.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="3oafx-layout-panner.html">
+            <span>Previous</span>
+            Layout Panner
+          </a>
+          <a class="page-nav-link next" href="speaker-array-utilities.html">
+            <span>Next</span>
+            Speaker Array Utilities
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Multichannel</h2>
+          <a href="multichannel.html">Overview</a>
+          <a href="multichannel-effects.html">Effects</a>
+          <a href="monitoring-fold-down.html">Monitoring / Fold-down</a>
+          <a href="direct-panning.html">Direct Panning</a>
+          <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
+          <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#matrix">Group Matrix</a>
+          <a href="#node">Node Bus Mixer</a>
+          <a href="#diagnostics">Routing Diagnostics</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

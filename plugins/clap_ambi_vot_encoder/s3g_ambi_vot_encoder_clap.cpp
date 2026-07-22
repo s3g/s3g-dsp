@@ -271,6 +271,7 @@ struct Plugin {
     std::atomic<uint32_t> lastMidiNote { 0u };
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
     std::array<std::atomic<float>, s3g::kAmbiVotMaxVoices> guiAzimuth {};
     std::array<std::atomic<float>, s3g::kAmbiVotMaxVoices> guiElevation {};
@@ -2447,7 +2448,12 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     auto* state = self(plugin);
     if (state->guiView) return true;
     state->guiView = [[S3GAmbiVotEncoderView alloc] initWithPlugin:state];
-    return state->guiView != nullptr;
+    if (!state->guiView) return false;
+    if (!s3g::clap_gui::createResponsiveViewport(state->guiViewport,
+            static_cast<NSView*>(state->guiView), kGuiW, kGuiH)) {
+        [static_cast<NSView*>(state->guiView) release]; state->guiView = nullptr; return false;
+    }
+    return true;
 }
 
 void guiDestroy(const clap_plugin_t* plugin)
@@ -2457,48 +2463,36 @@ void guiDestroy(const clap_plugin_t* plugin)
     state->guiVisible.store(false, std::memory_order_relaxed);
     auto* view = static_cast<S3GAmbiVotEncoderView*>(state->guiView);
     [view stopRefreshTimer];
-    [view removeFromSuperview];
-    [view release];
-    state->guiView = nullptr;
+    s3g::clap_gui::destroyResponsiveViewport(state->guiViewport, state->guiView);
 }
 
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* width, uint32_t* height)
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
 {
-    if (!width || !height) return false;
-    *width = kGuiW;
-    *height = kGuiH;
-    return true;
+    return s3g::clap_gui::getResponsiveViewportSize(
+        self(plugin)->guiViewport, kGuiW, kGuiH, width, height);
 }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiW, kGuiH, width, height); }
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
 {
-    auto* state = self(plugin);
-    if (!state->guiView) return false;
-    [static_cast<NSView*>(state->guiView) setFrameSize:NSMakeSize(width, height)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, width, height);
 }
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
 {
     if (!window || !window->api || std::strcmp(window->api, CLAP_WINDOW_API_COCOA) != 0 || !window->cocoa) return false;
     auto* state = self(plugin);
-    if (!state->guiView) return false;
-    NSView* parent = static_cast<NSView*>(window->cocoa);
-    NSView* view = static_cast<NSView*>(state->guiView);
-    [parent addSubview:view];
-    [view setFrame:NSMakeRect(0, 0, kGuiW, kGuiH)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportParent(state->guiViewport,
+        static_cast<NSView*>(window->cocoa), state->host);
 }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin)
 {
     auto* state = self(plugin);
-    if (!state->guiView) return false;
+    if (!state->guiView || !s3g::clap_gui::setResponsiveViewportHidden(state->guiViewport, false)) return false;
     state->guiVisible.store(true, std::memory_order_relaxed);
-    [static_cast<NSView*>(state->guiView) setHidden:NO];
     [static_cast<S3GAmbiVotEncoderView*>(state->guiView) startRefreshTimer];
     return true;
 }
@@ -2508,8 +2502,7 @@ bool guiHide(const clap_plugin_t* plugin)
     if (!state->guiView) return false;
     state->guiVisible.store(false, std::memory_order_relaxed);
     [static_cast<S3GAmbiVotEncoderView*>(state->guiView) stopRefreshTimer];
-    [static_cast<NSView*>(state->guiView) setHidden:YES];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportHidden(state->guiViewport, true);
 }
 
 const clap_plugin_gui_t guiExt {

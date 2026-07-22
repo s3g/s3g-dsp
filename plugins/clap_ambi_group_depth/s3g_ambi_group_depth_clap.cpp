@@ -55,8 +55,8 @@ constexpr bool kSingleField = false;
 #endif
 
 constexpr uint32_t kGuiWidth = 820;
-constexpr uint32_t kGuiHeight = 456;
-constexpr uint32_t kStateVersion = 2;
+constexpr uint32_t kGuiHeight = kSingleField ? 496u : 456u;
+constexpr uint32_t kStateVersion = 3;
 
 enum ParamId : clap_id {
     kParamDepth = 1,
@@ -67,6 +67,9 @@ enum ParamId : clap_id {
     kParamWidth = 6,
     kParamOutput = 7,
     kParamTail = 8,
+    kParamEnvironmentSize = 9,
+    kParamEnvironmentDecay = 10,
+    kParamEnvironmentDamping = 11,
 };
 
 using Processor = s3g::AmbiGroupDepthProcessor<kGroups>;
@@ -90,6 +93,46 @@ struct OldSavedStateV1 {
     uint32_t version = 1;
     OldAmbiGroupDepthParamsV1 params {};
 };
+
+struct OldAmbiGroupDepthParamsV2 {
+    float depth = 0.0f;
+    float spread = 0.0f;
+    float focus = 0.0f;
+    float air = 0.0f;
+    float tail = 0.0f;
+    float low = 0.0f;
+    float width = 1.0f;
+    float outputGainDb = 0.0f;
+};
+
+struct OldSavedStateV2 {
+    uint32_t version = 2;
+    OldAmbiGroupDepthParamsV2 params {};
+};
+
+bool streamWriteAll(const clap_ostream_t* stream, const void* source, size_t size)
+{
+    const auto* bytes = static_cast<const uint8_t*>(source);
+    size_t position = 0u;
+    while (position < size) {
+        const int64_t wrote = stream->write(stream, bytes + position, size - position);
+        if (wrote <= 0) return false;
+        position += static_cast<size_t>(wrote);
+    }
+    return true;
+}
+
+bool streamReadAll(const clap_istream_t* stream, void* destination, size_t size)
+{
+    auto* bytes = static_cast<uint8_t*>(destination);
+    size_t position = 0u;
+    while (position < size) {
+        const int64_t got = stream->read(stream, bytes + position, size - position);
+        if (got <= 0) return false;
+        position += static_cast<size_t>(got);
+    }
+    return true;
+}
 
 struct Plugin {
     clap_plugin_t plugin {};
@@ -118,6 +161,9 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kParamLow: p.params.low = static_cast<float>(value); break;
     case kParamWidth: p.params.width = static_cast<float>(value); break;
     case kParamOutput: p.params.outputGainDb = static_cast<float>(value); break;
+    case kParamEnvironmentSize: p.params.environmentSize = static_cast<float>(value); break;
+    case kParamEnvironmentDecay: p.params.environmentDecay = static_cast<float>(value); break;
+    case kParamEnvironmentDamping: p.params.environmentDamping = static_cast<float>(value); break;
     default: return;
     }
     p.params = s3g::sanitizeAmbiGroupDepthParams(p.params);
@@ -138,6 +184,9 @@ double getParam(const Plugin& p, clap_id id)
     case kParamLow: return p.params.low;
     case kParamWidth: return p.params.width;
     case kParamOutput: return p.params.outputGainDb;
+    case kParamEnvironmentSize: return p.params.environmentSize;
+    case kParamEnvironmentDecay: return p.params.environmentDecay;
+    case kParamEnvironmentDamping: return p.params.environmentDamping;
     default: return 0.0;
     }
 }
@@ -210,13 +259,38 @@ clap_process_status processTyped(Plugin& p, const clap_audio_buffer_t& input, co
     return CLAP_PROCESS_CONTINUE;
 }
 
+template <typename Sample>
+clap_process_status processTailOnly(Plugin& p, const clap_audio_buffer_t& output, uint32_t frames, Sample** out)
+{
+    s3g::clearAudioBuffer(output, frames);
+    if (!out) return CLAP_PROCESS_CONTINUE;
+    const uint32_t outChannels = std::min<uint32_t>(output.channel_count, kChannels);
+    p.processor.process<Sample>(nullptr, kChannels, out, outChannels, frames);
+    s3g::clearAudioBufferFromChannel(output, kChannels, frames);
+    float peak = 0.0f;
+    for (uint32_t ch = 0; ch < outChannels; ++ch) {
+        if (!out[ch]) continue;
+        for (uint32_t i = 0; i < frames; ++i) peak = std::max(peak, static_cast<float>(std::abs(out[ch][i])));
+    }
+    p.outputPeak.store(std::max(p.outputPeak.load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);
+    return CLAP_PROCESS_CONTINUE;
+}
+
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
     readParamEvents(*p, proc->in_events);
-    if (proc->audio_inputs_count == 0 || proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
-    const auto& input = proc->audio_inputs[0];
+    if (proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto& output = proc->audio_outputs[0];
+    if (proc->audio_inputs_count == 0) {
+        if constexpr (kSingleField) {
+            if (output.data32) return processTailOnly<float>(*p, output, proc->frames_count, output.data32);
+            if (output.data64) return processTailOnly<double>(*p, output, proc->frames_count, output.data64);
+        }
+        s3g::clearAudioBuffer(output, proc->frames_count);
+        return CLAP_PROCESS_CONTINUE;
+    }
+    const auto& input = proc->audio_inputs[0];
     if (input.data32 && output.data32) return processTyped<float>(*p, input, output, proc->frames_count, input.data32, output.data32);
     if (input.data64 && output.data64) return processTyped<double>(*p, input, output, proc->frames_count, input.data64, output.data64);
     s3g::clearAudioBuffer(output, proc->frames_count);
@@ -252,40 +326,62 @@ bool isParamId(clap_id paramId)
             || paramId == kParamTail
             || paramId == kParamLow
             || paramId == kParamWidth
-            || paramId == kParamOutput;
+            || paramId == kParamOutput
+            || paramId == kParamEnvironmentSize
+            || paramId == kParamEnvironmentDecay
+            || paramId == kParamEnvironmentDamping;
     }
     return paramId >= kParamDepth && paramId <= kParamTail;
 }
 
-uint32_t paramsCount(const clap_plugin_t*) { return kSingleField ? 7u : 8u; }
+uint32_t paramsCount(const clap_plugin_t*) { return kSingleField ? 10u : 8u; }
+
+const char* paramModule(clap_id id)
+{
+    if (id == kParamOutput) return "Output";
+    if constexpr (kSingleField) {
+        if (id == kParamTail || id == kParamEnvironmentSize
+            || id == kParamEnvironmentDecay || id == kParamEnvironmentDamping) {
+            return "Environment Field";
+        }
+    }
+    return "Depth";
+}
+
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
     if (!info) return false;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
-    std::strncpy(info->module, kSingleField ? "Ambi Depth" : "Ambi Group Depth", sizeof(info->module));
     if constexpr (kSingleField) {
         switch (index) {
-        case 0: info->id = kParamDepth; std::strncpy(info->name, "Depth", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
-        case 1: info->id = kParamFocus; std::strncpy(info->name, "Focus", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
-        case 2: info->id = kParamAir; std::strncpy(info->name, "Air damping", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
-        case 3: info->id = kParamTail; std::strncpy(info->name, "Distance tail", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0; return true;
-        case 4: info->id = kParamLow; std::strncpy(info->name, "Low body", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
-        case 5: info->id = kParamWidth; std::strncpy(info->name, "Order width", sizeof(info->name)); info->min_value = 0; info->max_value = 1.5; info->default_value = 1; return true;
-        case 6: info->id = kParamOutput; std::strncpy(info->name, "Output gain", sizeof(info->name)); info->min_value = -60; info->max_value = 12; info->default_value = 0; return true;
+        case 0: info->id = kParamDepth; std::strncpy(info->name, "Depth", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; break;
+        case 1: info->id = kParamFocus; std::strncpy(info->name, "Focus", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; break;
+        case 2: info->id = kParamAir; std::strncpy(info->name, "Air Damping", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; break;
+        case 3: info->id = kParamTail; std::strncpy(info->name, "Tail", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0; break;
+        case 4: info->id = kParamEnvironmentSize; std::strncpy(info->name, "Env Size", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; break;
+        case 5: info->id = kParamEnvironmentDecay; std::strncpy(info->name, "Env Decay", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; break;
+        case 6: info->id = kParamEnvironmentDamping; std::strncpy(info->name, "Env Damping", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; break;
+        case 7: info->id = kParamLow; std::strncpy(info->name, "Low Body", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; break;
+        case 8: info->id = kParamWidth; std::strncpy(info->name, "Order Width", sizeof(info->name)); info->min_value = 0; info->max_value = 1.5; info->default_value = 1; break;
+        case 9: info->id = kParamOutput; std::strncpy(info->name, "Output", sizeof(info->name)); info->min_value = -60; info->max_value = 12; info->default_value = 0; break;
         default: return false;
         }
+        std::strncpy(info->module, paramModule(info->id), sizeof(info->module));
+        return true;
     }
     switch (index) {
-    case 0: info->id = kParamDepth; std::strncpy(info->name, "Depth", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
-    case 1: info->id = kParamSpread; std::strncpy(info->name, "Group spread", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
-    case 2: info->id = kParamFocus; std::strncpy(info->name, "Focus", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
-    case 3: info->id = kParamAir; std::strncpy(info->name, "Air damping", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
-    case 4: info->id = kParamTail; std::strncpy(info->name, "Distance tail", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0; return true;
-    case 5: info->id = kParamLow; std::strncpy(info->name, "Low body", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; return true;
-    case 6: info->id = kParamWidth; std::strncpy(info->name, "Order width", sizeof(info->name)); info->min_value = 0; info->max_value = 1.5; info->default_value = 1; return true;
-    case 7: info->id = kParamOutput; std::strncpy(info->name, "Output gain", sizeof(info->name)); info->min_value = -60; info->max_value = 12; info->default_value = 0; return true;
+    case 0: info->id = kParamDepth; std::strncpy(info->name, "Depth", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; break;
+    case 1: info->id = kParamSpread; std::strncpy(info->name, "Group Spread", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; break;
+    case 2: info->id = kParamFocus; std::strncpy(info->name, "Focus", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; break;
+    case 3: info->id = kParamAir; std::strncpy(info->name, "Air Damping", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; break;
+    case 4: info->id = kParamTail; std::strncpy(info->name, "Tail", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0; break;
+    case 5: info->id = kParamLow; std::strncpy(info->name, "Low Body", sizeof(info->name)); info->min_value = -1; info->max_value = 1; info->default_value = 0; break;
+    case 6: info->id = kParamWidth; std::strncpy(info->name, "Order Width", sizeof(info->name)); info->min_value = 0; info->max_value = 1.5; info->default_value = 1; break;
+    case 7: info->id = kParamOutput; std::strncpy(info->name, "Output", sizeof(info->name)); info->min_value = -60; info->max_value = 12; info->default_value = 0; break;
     default: return false;
     }
+    std::strncpy(info->module, paramModule(info->id), sizeof(info->module));
+    return true;
 }
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
@@ -304,7 +400,10 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
     case kParamFocus:
     case kParamAir:
     case kParamLow: std::snprintf(display, size, "%+.0f%%", value * 100.0); return true;
-    case kParamTail: std::snprintf(display, size, "%.0f%%", value * 100.0); return true;
+    case kParamTail:
+    case kParamEnvironmentSize:
+    case kParamEnvironmentDecay:
+    case kParamEnvironmentDamping: std::snprintf(display, size, "%.0f%%", value * 100.0); return true;
     case kParamWidth: std::snprintf(display, size, "%.2f", value); return true;
     case kParamOutput: std::snprintf(display, size, "%+.1f dB", value); return true;
     default: return false;
@@ -314,8 +413,22 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
 bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* display, double* value)
 {
     if (!display || !value) return false;
-    *value = std::atof(display);
-    return isParamId(paramId);
+    if (!isParamId(paramId)) return false;
+    double parsed = std::atof(display);
+    switch (paramId) {
+    case kParamDepth:
+    case kParamSpread:
+    case kParamFocus:
+    case kParamAir:
+    case kParamLow:
+    case kParamTail:
+    case kParamEnvironmentSize:
+    case kParamEnvironmentDecay:
+    case kParamEnvironmentDamping: parsed *= 0.01; break;
+    default: break;
+    }
+    *value = parsed;
+    return true;
 }
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
@@ -324,29 +437,50 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     const SavedState state { kStateVersion, self(plugin)->params };
-    return stream->write(stream, &state, sizeof(state)) == static_cast<int64_t>(sizeof(state));
+    return streamWriteAll(stream, &state, sizeof(state));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
-    SavedState state {};
-    const int64_t got = stream->read(stream, &state, sizeof(state));
+    uint32_t version = 0u;
+    if (!streamReadAll(stream, &version, sizeof(version))) return false;
     auto* p = self(plugin);
-    if (got == static_cast<int64_t>(sizeof(state)) && state.version == kStateVersion) {
+    if (version == kStateVersion) {
+        SavedState state {};
+        state.version = version;
+        auto* remainder = reinterpret_cast<uint8_t*>(&state) + sizeof(version);
+        if (!streamReadAll(stream, remainder, sizeof(state) - sizeof(version))) return false;
         p->params = s3g::sanitizeAmbiGroupDepthParams(state.params);
-    } else if (got == static_cast<int64_t>(sizeof(OldSavedStateV1))) {
-        const auto* old = reinterpret_cast<const OldSavedStateV1*>(&state);
-        if (old->version != 1u) return false;
+    } else if (version == 2u) {
+        OldSavedStateV2 old {};
+        old.version = version;
+        auto* remainder = reinterpret_cast<uint8_t*>(&old) + sizeof(version);
+        if (!streamReadAll(stream, remainder, sizeof(old) - sizeof(version))) return false;
         p->params = s3g::sanitizeAmbiGroupDepthParams({
-            old->params.depth,
-            old->params.spread,
-            old->params.focus,
-            old->params.air,
+            old.params.depth,
+            old.params.spread,
+            old.params.focus,
+            old.params.air,
+            old.params.tail,
+            old.params.low,
+            old.params.width,
+            old.params.outputGainDb,
+        });
+    } else if (version == 1u) {
+        OldSavedStateV1 old {};
+        old.version = version;
+        auto* remainder = reinterpret_cast<uint8_t*>(&old) + sizeof(version);
+        if (!streamReadAll(stream, remainder, sizeof(old) - sizeof(version))) return false;
+        p->params = s3g::sanitizeAmbiGroupDepthParams({
+            old.params.depth,
+            old.params.spread,
+            old.params.focus,
+            old.params.air,
             0.0f,
-            old->params.low,
-            old->params.width,
-            old->params.outputGainDb,
+            old.params.low,
+            old.params.width,
+            old.params.outputGainDb,
         });
     } else {
         return false;
@@ -362,7 +496,11 @@ uint32_t tailGet(const clap_plugin_t* plugin)
     if (!p || p->params.tail <= 0.0001f) return 0u;
     const double amount = std::clamp(static_cast<double>(p->params.tail), 0.0, 1.0);
     const double far = std::max(0.0, static_cast<double>(p->params.depth));
-    const double tailSeconds = std::clamp(1.5 + amount * 7.0 + far * 3.0, 1.0, 12.0);
+    const double decayScale = static_cast<double>(s3g::ambiEnvironmentDecayScale(p->params.environmentDecay));
+    const double sizeScale = static_cast<double>(s3g::ambiEnvironmentSizeScale(p->params.environmentSize));
+    const double tailSeconds = kSingleField
+        ? std::clamp(0.35 + amount * (1.42 * decayScale + 0.22 * sizeScale) + far * 0.35, 0.5, 8.0)
+        : std::clamp(1.5 + amount * 7.0 + far * 3.0, 1.0, 12.0);
     return static_cast<uint32_t>(std::ceil(tailSeconds * p->sampleRate));
 }
 
@@ -428,10 +566,10 @@ const clap_plugin_tail_t tailExt { tailGet };
     [headerInfo drawAtPoint:NSMakePoint(infoX, 13) withAttributes:small];
     [peakText drawAtPoint:NSMakePoint(peakX, 13) withAttributes:small];
 
-    NSRect fieldPanel = NSMakeRect(12, 34, 506, 370);
+    NSRect fieldPanel = NSMakeRect(12, 34, 506, kSingleField ? 444 : 370);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(kSingleField ? @"DEPTH FIELD" : @"GROUP DEPTH FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
-    NSRect field = NSMakeRect(28, 70, 474, 306);
+    NSRect field = NSMakeRect(28, 70, 474, kSingleField ? 382 : 306);
     [s3g::clap_gui::color(0x101010) setFill]; NSRectFill(field);
     [style.grid setStroke]; NSFrameRect(field);
 
@@ -469,13 +607,18 @@ const clap_plugin_tail_t tailExt { tailGet };
             [haze stroke];
         }
     }
-    const CGFloat tailAmount = static_cast<CGFloat>(p->params.tail * std::max(0.0f, p->params.depth));
+    const CGFloat tailDepth = kSingleField
+        ? 0.52 + 0.43 * std::pow(std::max(0.0f, p->params.depth), 2.0f)
+        : std::max(0.0f, p->params.depth);
+    const CGFloat tailAmount = static_cast<CGFloat>(p->params.tail * tailDepth);
     if (tailAmount > 0.01) {
         [[NSColor colorWithCalibratedWhite:0.78 alpha:0.06 + 0.20 * tailAmount] setStroke];
         for (uint32_t group = 0; group < kGroups; ++group) {
             const NSPoint p0 = points[group];
-            const CGFloat w = 28.0 + 52.0 * tailAmount;
-            const CGFloat h = 12.0 + 24.0 * tailAmount;
+            const CGFloat sizeShape = kSingleField ? 0.72 + p->params.environmentSize * 0.56 : 1.0;
+            const CGFloat decayShape = kSingleField ? 0.74 + p->params.environmentDecay * 0.52 : 1.0;
+            const CGFloat w = (28.0 + 52.0 * tailAmount) * sizeShape;
+            const CGFloat h = (12.0 + 24.0 * tailAmount) * decayShape;
             NSBezierPath* wake = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(p0.x - w * 0.5, p0.y - h * 0.5, w, h)];
             [wake setLineWidth:0.5 + 1.1 * tailAmount];
             [wake stroke];
@@ -496,7 +639,7 @@ const clap_plugin_tail_t tailExt { tailGet };
         [[NSString stringWithFormat:@"G%u", group + 1u] drawAtPoint:NSMakePoint(points[group].x + size * 0.62, points[group].y - 7.0) withAttributes:small];
     }
 
-    NSRect meter = NSMakeRect(34, 377, 456, 10);
+    NSRect meter = NSMakeRect(34, kSingleField ? 455 : 377, 456, 10);
     [style.strip setFill]; NSRectFill(meter);
     [style.grid setStroke]; NSFrameRect(meter);
     for (uint32_t group = 0; group < kGroups; ++group) {
@@ -506,29 +649,35 @@ const clap_plugin_tail_t tailExt { tailGet };
         NSRectFill(NSMakeRect(x, meter.origin.y - 3.0, 3.0, 16.0));
     }
 
-    NSRect depth = NSMakeRect(532, 34, 270, 250);
-    NSRect output = NSMakeRect(532, 300, 270, 96);
+    NSRect depth = NSMakeRect(532, 34, 270, kSingleField ? 198 : 250);
+    NSRect environment = NSMakeRect(532, 246, 270, 148);
+    NSRect output = NSMakeRect(532, kSingleField ? 408 : 300, 270, kSingleField ? 70 : 96);
     s3g::clap_gui::drawPanelFrame(depth.origin.x, depth.origin.y, depth.size.width, depth.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"DEPTH", true, depth.origin.x, depth.origin.y, depth.size.width, 21, text, style);
-    [self drawSlider:@"DEP" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.depth * 100.0f)] norm:(p->params.depth + 1.0) * 0.5 y:74 attrs:small style:style];
+    [self drawSlider:@"DEPTH" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.depth * 100.0f)] norm:(p->params.depth + 1.0) * 0.5 y:74 attrs:small style:style];
     if constexpr (!kSingleField) {
-        [self drawSlider:@"SPRD" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.spread * 100.0f)] norm:(p->params.spread + 1.0) * 0.5 y:100 attrs:small style:style];
-        [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.focus * 100.0f)] norm:(p->params.focus + 1.0) * 0.5 y:126 attrs:small style:style];
-        [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.air * 100.0f)] norm:(p->params.air + 1.0) * 0.5 y:152 attrs:small style:style];
+        [self drawSlider:@"GROUP SPREAD" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.spread * 100.0f)] norm:(p->params.spread + 1.0) * 0.5 y:100 attrs:small style:style];
+        [self drawSlider:@"FOCUS" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.focus * 100.0f)] norm:(p->params.focus + 1.0) * 0.5 y:126 attrs:small style:style];
+        [self drawSlider:@"AIR DAMPING" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.air * 100.0f)] norm:(p->params.air + 1.0) * 0.5 y:152 attrs:small style:style];
         [self drawSlider:@"TAIL" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.tail * 100.0f)] norm:p->params.tail y:178 attrs:small style:style];
-        [self drawSlider:@"LOW" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.low * 100.0f)] norm:(p->params.low + 1.0) * 0.5 y:204 attrs:small style:style];
-        [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.width)] norm:p->params.width / 1.5 y:230 attrs:small style:style];
+        [self drawSlider:@"LOW BODY" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.low * 100.0f)] norm:(p->params.low + 1.0) * 0.5 y:204 attrs:small style:style];
+        [self drawSlider:@"ORDER WIDTH" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.width)] norm:p->params.width / 1.5 y:230 attrs:small style:style];
     } else {
-        [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.focus * 100.0f)] norm:(p->params.focus + 1.0) * 0.5 y:100 attrs:small style:style];
-        [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.air * 100.0f)] norm:(p->params.air + 1.0) * 0.5 y:126 attrs:small style:style];
-        [self drawSlider:@"TAIL" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.tail * 100.0f)] norm:p->params.tail y:152 attrs:small style:style];
-        [self drawSlider:@"LOW" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.low * 100.0f)] norm:(p->params.low + 1.0) * 0.5 y:178 attrs:small style:style];
-        [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.width)] norm:p->params.width / 1.5 y:204 attrs:small style:style];
+        [self drawSlider:@"FOCUS" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.focus * 100.0f)] norm:(p->params.focus + 1.0) * 0.5 y:100 attrs:small style:style];
+        [self drawSlider:@"AIR DAMPING" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.air * 100.0f)] norm:(p->params.air + 1.0) * 0.5 y:126 attrs:small style:style];
+        [self drawSlider:@"LOW BODY" value:[NSString stringWithFormat:@"%+.0f%%", static_cast<double>(p->params.low * 100.0f)] norm:(p->params.low + 1.0) * 0.5 y:152 attrs:small style:style];
+        [self drawSlider:@"ORDER WIDTH" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.width)] norm:p->params.width / 1.5 y:178 attrs:small style:style];
+        s3g::clap_gui::drawPanelFrame(environment.origin.x, environment.origin.y, environment.size.width, environment.size.height, style);
+        s3g::clap_gui::drawPanelHeader(@"ENVIRONMENT FIELD", true, environment.origin.x, environment.origin.y, environment.size.width, 21, text, style);
+        [self drawSlider:@"TAIL" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.tail * 100.0f)] norm:p->params.tail y:282 attrs:small style:style];
+        [self drawSlider:@"ENV SIZE" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.environmentSize * 100.0f)] norm:p->params.environmentSize y:308 attrs:small style:style];
+        [self drawSlider:@"ENV DECAY" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.environmentDecay * 100.0f)] norm:p->params.environmentDecay y:334 attrs:small style:style];
+        [self drawSlider:@"ENV DAMPING" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.environmentDamping * 100.0f)] norm:p->params.environmentDamping y:360 attrs:small style:style];
     }
 
     s3g::clap_gui::drawPanelFrame(output.origin.x, output.origin.y, output.size.width, output.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, output.origin.x, output.origin.y, output.size.width, 21, text, style);
-    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 60.0) / 72.0 y:340 attrs:small style:style];
+    [self drawSlider:@"OUTPUT" value:[NSString stringWithFormat:@"%+.1f dB", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 60.0) / 72.0 y:(kSingleField ? 448 : 340) attrs:small style:style];
 }
 - (void)resetSlider:(int)index
 {
@@ -537,10 +686,13 @@ const clap_plugin_tail_t tailExt { tailGet };
         case 0: [self setParam:kParamDepth value:0.0]; break;
         case 1: [self setParam:kParamFocus value:0.0]; break;
         case 2: [self setParam:kParamAir value:0.0]; break;
-        case 3: [self setParam:kParamTail value:0.0]; break;
-        case 4: [self setParam:kParamLow value:0.0]; break;
-        case 5: [self setParam:kParamWidth value:1.0]; break;
-        case 6: [self setParam:kParamOutput value:0.0]; break;
+        case 3: [self setParam:kParamLow value:0.0]; break;
+        case 4: [self setParam:kParamWidth value:1.0]; break;
+        case 5: [self setParam:kParamTail value:0.0]; break;
+        case 6: [self setParam:kParamEnvironmentSize value:0.5]; break;
+        case 7: [self setParam:kParamEnvironmentDecay value:0.5]; break;
+        case 8: [self setParam:kParamEnvironmentDamping value:0.5]; break;
+        case 9: [self setParam:kParamOutput value:0.0]; break;
         default: break;
         }
     } else {
@@ -565,10 +717,13 @@ const clap_plugin_tail_t tailExt { tailGet };
         case 0: [self setParam:kParamDepth value:-1.0 + norm * 2.0]; break;
         case 1: [self setParam:kParamFocus value:-1.0 + norm * 2.0]; break;
         case 2: [self setParam:kParamAir value:-1.0 + norm * 2.0]; break;
-        case 3: [self setParam:kParamTail value:norm]; break;
-        case 4: [self setParam:kParamLow value:-1.0 + norm * 2.0]; break;
-        case 5: [self setParam:kParamWidth value:norm * 1.5]; break;
-        case 6: [self setParam:kParamOutput value:-60.0 + norm * 72.0]; break;
+        case 3: [self setParam:kParamLow value:-1.0 + norm * 2.0]; break;
+        case 4: [self setParam:kParamWidth value:norm * 1.5]; break;
+        case 5: [self setParam:kParamTail value:norm]; break;
+        case 6: [self setParam:kParamEnvironmentSize value:norm]; break;
+        case 7: [self setParam:kParamEnvironmentDecay value:norm]; break;
+        case 8: [self setParam:kParamEnvironmentDamping value:norm]; break;
+        case 9: [self setParam:kParamOutput value:-60.0 + norm * 72.0]; break;
         default: break;
         }
         return;
@@ -589,9 +744,9 @@ const clap_plugin_tail_t tailExt { tailGet };
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     const CGFloat groupYs[] = { 74, 100, 126, 152, 178, 204, 230, 340 };
-    const CGFloat singleYs[] = { 74, 100, 126, 152, 178, 204, 340 };
+    const CGFloat singleYs[] = { 74, 100, 126, 152, 178, 282, 308, 334, 360, 448 };
     const CGFloat* ys = kSingleField ? singleYs : groupYs;
-    const int count = kSingleField ? 7 : 8;
+    const int count = kSingleField ? 10 : 8;
     for (int i = 0; i < count; ++i) {
         if (NSPointInRect(pt, NSMakeRect(538, ys[i] - 8, 246, 24))) {
             if ([event clickCount] >= 2) {

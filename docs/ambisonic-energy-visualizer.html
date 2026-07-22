@@ -14,11 +14,10 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="processors.html">Processors</a>
-        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="multichannel.html">Multichannel</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
-        <a href="topology-framework.html">Framework</a>
+        <a href="references.html">References</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -45,10 +44,15 @@
 
         <h2 id="controls">Controls</h2>
 
-        <ul>
-          <li><code>MAP</code> chooses between <code>FIELD</code>, <code>BLUE</code>, <code>INK</code>, <code>VOLT</code>, <code>CLASSIC</code>, <code>INFERNO</code>, <code>VIRIDIS</code>, and <code>MAGMA</code>. It changes only the display.</li>
-          <li><code>SIZE</code> selects <code>NORMAL</code> or <code>LARGE</code>. <code>LARGE</code> asks REAPER to expand the embedded GUI near the available screen size; <code>NORMAL</code> restores the default <code>980 x 560</code> view.</li>
-        </ul>
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>MAP</td><td>Chooses between <code>FIELD</code>, <code>BLUE</code>, <code>INK</code>, <code>VOLT</code>, <code>CLASSIC</code>, <code>INFERNO</code>, <code>VIRIDIS</code>, and <code>MAGMA</code>. It changes only the display.</td></tr>
+            <tr><td>SIZE</td><td>Selects <code>NORMAL</code> or <code>LARGE</code>. <code>LARGE</code> asks REAPER to expand the embedded GUI near the available screen size; <code>NORMAL</code> restores the default <code>980 x 560</code> view.</td></tr>
+          </tbody>
+        </table>
 
         <p>The CLAP plugin controls its canvas size, while REAPER owns the surrounding FX window. For an OS-level fullscreen view, float or maximize that REAPER window after selecting <code>LARGE</code>.</p>
 
@@ -59,38 +63,32 @@
         <p>Field analysis and GPU drawing run only while the custom GUI is open. Closing the window leaves the channel-for-channel passthrough active without visual-analysis work.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambisonic-head-decoder.html">
+          <a class="page-nav-link" href="ambisonic-order-band-tool.html">
             <span>Previous</span>
-            Ambi Head Decoder
+            Ambi Order / Band
           </a>
-          <a class="page-nav-link next" href="instruments.html">
+          <a class="page-nav-link next" href="s3gimprint-format.html">
             <span>Next</span>
-            Instruments
+            .s3gimprint Format
           </a>
         </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
-          <h2>Ambisonics Pages</h2>
-          <a href="3oafx.html">Ambisonics Overview</a>
-          <a href="3oafx-effects.html">3OAFX Processors</a>
-          <a href="3oafx-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-imprint.html">Ambi Imprint</a>
-          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
-          <a href="ambisonic-rotate.html">Rotate</a>
-          <a href="ambisonic-bus-processors.html#field-depth">Depth</a>
-          <a href="ambisonic-bus-processors.html">Field / Bus</a>
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Utility Pages</h2>
           <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
-          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
-          <a href="ambisonic-head-decoder.html">Head Decoder</a>
           <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
-          <a href="ambi-grain-processor.html">Grain Processor</a>
+          <a href="s3gimprint-format.html">.s3gimprint Format</a>
+          <a href="s3gray-format.html">.s3gray Format</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Macro Effects - s3g-dsp</title>
+    <meta name="description" content="Compact macro processor documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Macro Effects</h1>
+
+        <p>Macro effects expose a compact engine plus a small set of lane-relationship controls. They are intended for fast multichannel shaping when a full topology editor would be unnecessary.</p>
+
+        <h2 id="plugins">Plugins</h2>
+
+        <ul>
+          <li><strong>Macro Delay 8ch/24ch</strong>: shared delay, feedback, filtering, and mix controls with lane time, feedback, and level relationships.</li>
+          <li><strong>Macro Pitch 8ch/24ch</strong>: shared pitch-shift controls with coordinated lane offsets and movement.</li>
+          <li><a href="macro-shred.html">Macro Shred Mono/8ch/24ch</a>: pressure, wavefolding, and bounded resonant feedback for voice, microphone, and general audio input.</li>
+        </ul>
+
+        <h2 id="relationship-controls">Relationship Controls</h2>
+
+        <p>The multichannel builds describe how lanes differ around a shared setting instead of publishing a complete parameter bank per channel. Spread, slope, alternating, and motion controls create repeatable relationships with fewer automation lanes.</p>
+
+        <p>Use a topology effect when the result should respond to an editable point network. Use a Macro effect when the main goal is a compact shared sound with controlled lane variation.</p>
+
+        <h2 id="widths">Plugin Widths</h2>
+
+        <p>Insert the 8-channel or 24-channel build on a matching REAPER track. Macro Shred also includes a mono build for direct voice and microphone processing.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="spectral-topology-processor.html">
+            <span>Previous</span>
+            Spectral Topology Processor
+          </a>
+          <a class="page-nav-link next" href="macro-shred.html">
+            <span>Next</span>
+            Macro Shred
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Multichannel</h2>
+          <a href="multichannel.html">Overview</a>
+          <a href="multichannel-effects.html">Effects</a>
+          <a href="monitoring-fold-down.html">Monitoring / Fold-down</a>
+          <a href="direct-panning.html">Direct Panning</a>
+          <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
+          <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Effect Families</h2>
+          <a href="topology-processors.html">Topology</a>
+          <a href="macro-processors.html">Macro</a>
+          <a href="spectral-buffer-processors.html">Spectral / Buffer</a>
+          <a href="distributed-output-processors.html">Distributed Output</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#plugins">Plugins</a>
+          <a href="#relationship-controls">Relationship Controls</a>
+          <a href="#widths">Plugin Widths</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

@@ -127,6 +127,23 @@ inline AmbiWindParams ambiWindFactoryPreset(uint32_t index)
     p.centerDistance = v.centerDistance;
     p.spatialFollow = 1.0f - v.spatialFollow;
     p.outputGainDb = std::min(v.outputGainDb + 6.0f, -4.0f);
+    switch (index) {
+    case 2u: p.place = 1u; p.space = 0.24f; break; // Pine Needle Hiss / Canopy
+    case 3u: p.place = 3u; p.space = 0.28f; break; // Window Crack Whistle / Room
+    case 4u: p.place = 5u; p.space = 0.54f; break; // Canyon Rotor / Canyon
+    case 5u: p.place = 6u; p.space = 0.34f; break; // Tin Vent Flutter / Tunnel
+    case 6u: p.place = 1u; p.space = 0.18f; break; // Distant Tree Line / Canopy
+    case 9u: p.place = 3u; p.space = 0.30f; break; // Room Tone Draft / Room
+    case 12u: p.place = 6u; p.space = 0.46f; break; // Pipe Mouth / Tunnel
+    case 13u: p.place = 6u; p.space = 0.30f; break; // Broken Fan Intake / Tunnel
+    case 14u: p.place = 2u; p.space = 0.22f; break; // Frozen Overpass / Porch
+    case 15u: p.place = 4u; p.space = 0.38f; break; // Backwash Weather / Hangar
+    case 17u: p.place = 2u; p.space = 0.30f; break; // Wind Chime Porch / Porch
+    case 18u: p.place = 2u; p.space = 0.26f; break; // Hanging Wood Blocks / Porch
+    case 20u: p.place = 1u; p.space = 0.20f; break; // Reed Screen Rattle / Canopy
+    case 21u: p.place = 2u; p.space = 0.18f; break; // Loose Tarp Gusts / Porch
+    default: p.place = 0u; p.space = index == 16u ? 0.10f : 0.12f; break;
+    }
     return p;
 }
 

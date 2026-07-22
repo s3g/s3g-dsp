@@ -22,8 +22,8 @@
 namespace {
 
 constexpr uint32_t kPointCount = s3g::kAmbiPointEncoderPrototypePoints;
-constexpr uint32_t kOutputChannels = s3g::k3OaChannels;
-constexpr uint32_t kStateVersion = 10;
+constexpr uint32_t kOutputChannels = s3g::kAmbiPointEncoderMaxChannels;
+constexpr uint32_t kStateVersion = 11;
 
 constexpr clap_id kPointParamId = 1;
 constexpr clap_id kAzimuthParamId = 2;
@@ -52,6 +52,7 @@ constexpr clap_id kPoltergeistChaosParamId = 24;
 constexpr clap_id kPoltergeistRadiusParamId = 25;
 constexpr clap_id kDopplerParamId = 26;
 constexpr clap_id kAirParamId = 27;
+constexpr clap_id kOrderParamId = 28;
 constexpr clap_id kPerPointParamBase = 1000;
 constexpr clap_id kPerPointParamStride = 8;
 
@@ -74,11 +75,87 @@ struct SavedState {
     double guiViewZoom = 1.0;
 };
 
+struct LegacyAmbiPointEncoderParams {
+    uint32_t activePoints = s3g::kAmbiPointEncoderPrototypePoints;
+    uint32_t selectedPoint = 0;
+    float selectedAzimuthDeg = 0.0f;
+    float selectedElevationDeg = 0.0f;
+    float selectedDistance = 1.0f;
+    float selectedGain = 1.0f;
+    bool selectedEnabled = true;
+    bool upperHemisphereOnly = false;
+    uint32_t motionScene = 0;
+    s3g::AmbiPointMotionMode motionMode = s3g::AmbiPointMotionMode::Off;
+    float motionAmount = 0.0f;
+    float rateHz = 0.035f;
+    float attract = 0.05f;
+    float repel = 0.03f;
+    float drag = 0.94f;
+    float swirl = 0.0f;
+    float brownian = 0.0f;
+    float collision = 0.0f;
+    float impact = 0.0f;
+    float physicsScale = 1.0f;
+    float poltergeist = 0.0f;
+    float poltergeistRate = 1.0f;
+    float poltergeistReach = 0.55f;
+    float poltergeistRadius = 0.28f;
+    float poltergeistChaos = 0.0f;
+    float doppler = 0.0f;
+    float air = 0.0f;
+    float outputGainDb = -6.0f;
+};
+
+struct SavedStateV10 {
+    uint32_t version = 10;
+    LegacyAmbiPointEncoderParams params {};
+    std::array<s3g::AmbiPoint, s3g::kAmbiPointEncoderMaxPoints> points {};
+    int32_t guiViewMode = 2;
+    double guiViewAzDeg = -35.0;
+    double guiViewElDeg = 34.0;
+    double guiViewZoom = 1.0;
+};
+
 struct SavedStateV9 {
     uint32_t version = 9;
-    s3g::AmbiPointEncoderParams params {};
+    LegacyAmbiPointEncoderParams params {};
     std::array<s3g::AmbiPoint, s3g::kAmbiPointEncoderMaxPoints> points {};
 };
+
+s3g::AmbiPointEncoderParams upgradeLegacyParams(const LegacyAmbiPointEncoderParams& old)
+{
+    s3g::AmbiPointEncoderParams params {};
+    params.activePoints = old.activePoints;
+    params.selectedPoint = old.selectedPoint;
+    params.selectedAzimuthDeg = old.selectedAzimuthDeg;
+    params.selectedElevationDeg = old.selectedElevationDeg;
+    params.selectedDistance = old.selectedDistance;
+    params.selectedGain = old.selectedGain;
+    params.selectedEnabled = old.selectedEnabled;
+    params.upperHemisphereOnly = old.upperHemisphereOnly;
+    params.motionScene = old.motionScene;
+    params.motionMode = old.motionMode;
+    params.motionAmount = old.motionAmount;
+    params.rateHz = old.rateHz;
+    params.attract = old.attract;
+    params.repel = old.repel;
+    params.drag = old.drag;
+    params.swirl = old.swirl;
+    params.brownian = old.brownian;
+    params.collision = old.collision;
+    params.impact = old.impact;
+    params.physicsScale = old.physicsScale;
+    params.poltergeist = old.poltergeist;
+    params.poltergeistRate = old.poltergeistRate;
+    params.poltergeistReach = old.poltergeistReach;
+    params.poltergeistRadius = old.poltergeistRadius;
+    params.poltergeistChaos = old.poltergeistChaos;
+    params.doppler = old.doppler;
+    params.air = old.air;
+    params.outputGainDb = old.outputGainDb;
+    params.order = 3;
+    return params;
+}
 
 struct Plugin {
     clap_plugin_t plugin {};
@@ -90,6 +167,7 @@ struct Plugin {
     std::atomic<float> outputPeak { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
     int guiViewMode = 2;
     double guiViewAzDeg = -35.0;
@@ -330,6 +408,7 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kPoltergeistChaosParamId: p.params.poltergeistChaos = static_cast<float>(std::clamp(value, 0.0, 1.0)); p.params.motionScene = 6; break;
     case kDopplerParamId: p.params.doppler = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kAirParamId: p.params.air = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kOrderParamId: p.params.order = static_cast<uint32_t>(std::clamp(std::round(value), 1.0, static_cast<double>(s3g::kAmbiPointEncoderMaxOrder))); break;
     default: break;
     }
     p.params.activePoints = kPointCount;
@@ -418,7 +497,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     }
 
     p->encoder.setParams(p->params);
-    p->encoder.processBlock(inputPtrs.data(), outputPtrs.data(), frames);
+    p->encoder.processBlock(inputPtrs.data(), outputPtrs.data(), outChannels, frames);
     p->params = p->encoder.params();
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
 
@@ -441,7 +520,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 {
     if (index != 0 || !info) return false;
     info->id = isInput ? 10 : 20;
-    std::strncpy(info->name, isInput ? "16 Point In" : "3OA ACN/SN3D Out", sizeof(info->name));
+    std::strncpy(info->name, isInput ? "16 Point In" : "1-7OA ACN/SN3D Out", sizeof(info->name));
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = isInput ? kPointCount : kOutputChannels;
     info->port_type = CLAP_PORT_SURROUND;
@@ -474,6 +553,7 @@ constexpr ParamDef kParamDefs[] {
     { kPoltergeistChaosParamId, "Poltergeist Chaos", 0.0, 1.0, 0.0 },
     { kDopplerParamId, "Doppler", 0.0, 1.0, 0.0 },
     { kAirParamId, "Air", 0.0, 1.0, 0.0 },
+    { kOrderParamId, "Order", 1.0, 7.0, 3.0 },
 };
 
 constexpr uint32_t kBaseParamCount = static_cast<uint32_t>(sizeof(kParamDefs) / sizeof(kParamDefs[0]));
@@ -488,7 +568,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     if (index < kBaseParamCount) {
         const auto& def = kParamDefs[index];
         info->id = def.id;
-        if (def.id == kPointParamId || def.id == kMotionModeParamId || def.id == kPointMuteParamId || def.id == kUpperHemisphereParamId || def.id == kMotionSceneParamId) {
+        if (def.id == kPointParamId || def.id == kMotionModeParamId || def.id == kPointMuteParamId || def.id == kUpperHemisphereParamId || def.id == kMotionSceneParamId || def.id == kOrderParamId) {
             info->flags |= CLAP_PARAM_IS_STEPPED;
         }
         std::strncpy(info->name, def.name, sizeof(info->name));
@@ -567,6 +647,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kPoltergeistChaosParamId: *value = p.poltergeistChaos; return true;
     case kDopplerParamId: *value = p.doppler; return true;
     case kAirParamId: *value = p.air; return true;
+    case kOrderParamId: *value = static_cast<double>(p.order); return true;
     default: return false;
     }
 }
@@ -599,6 +680,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kPoltergeistRadiusParamId) std::snprintf(display, size, "%.2f", value);
     else if (id == kPhysicsScaleParamId) std::snprintf(display, size, "%.2f", value);
     else if (id == kOutputParamId) std::snprintf(display, size, "%+.1f dB", value);
+    else if (id == kOrderParamId) std::snprintf(display, size, "%.0fOA", value);
     else std::snprintf(display, size, "%.0f%%", value * 100.0);
     return true;
 }
@@ -638,11 +720,21 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (version == kStateVersion) {
         s.version = version;
         if (!readExact(stream, reinterpret_cast<char*>(&s) + sizeof(version), sizeof(s) - sizeof(version))) return false;
+    } else if (version == 10) {
+        SavedStateV10 old {};
+        old.version = version;
+        if (!readExact(stream, reinterpret_cast<char*>(&old) + sizeof(version), sizeof(old) - sizeof(version))) return false;
+        s.params = upgradeLegacyParams(old.params);
+        s.points = old.points;
+        s.guiViewMode = old.guiViewMode;
+        s.guiViewAzDeg = old.guiViewAzDeg;
+        s.guiViewElDeg = old.guiViewElDeg;
+        s.guiViewZoom = old.guiViewZoom;
     } else if (version == 9) {
         SavedStateV9 old {};
         old.version = version;
         if (!readExact(stream, reinterpret_cast<char*>(&old) + sizeof(version), sizeof(old) - sizeof(version))) return false;
-        s.params = old.params;
+        s.params = upgradeLegacyParams(old.params);
         s.points = old.points;
     } else {
         return false;
@@ -818,10 +910,12 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     static NSString* hemiItems[] = { @"FULL SPHERE", @"UPPER HEMI" };
     static NSString* motionItems[] = { @"OFF", @"DRIFT", @"ORBIT", @"SWARM", @"PULSE", @"PHYS" };
     static NSString* sceneItems[] = { @"MANUAL", @"DRIFT", @"ORBIT", @"BOUNCE", @"COLLIDE", @"SCATTER", @"CUSTOM", @"ELASTIC" };
+    static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
     NSString** items = motionItems;
     if (_openMenu == 1) items = muteItems;
     else if (_openMenu == 2) items = hemiItems;
     else if (_openMenu == 4) items = sceneItems;
+    else if (_openMenu == 5) items = orderItems;
     const CGFloat itemH = 18.0;
     const CGFloat w = 124.0;
     NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, w, itemH * static_cast<CGFloat>(_menuItemCount));
@@ -834,6 +928,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         else if (_openMenu == 2) selected = prm.upperHemisphereOnly ? 1 : 0;
         else if (_openMenu == 3) selected = static_cast<int>(prm.motionMode);
         else if (_openMenu == 4) selected = static_cast<int>(prm.motionScene);
+        else if (_openMenu == 5) selected = static_cast<int>(prm.order) - 1;
     }
     s3g::clap_gui::drawDropdownMenu(menuRect, itemH, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
@@ -1353,7 +1448,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     [@"s3g AMBI POINT ENCODER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
     [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(716,14) withAttributes:small];
-    [@"16PT > 3OA" drawAtPoint:NSMakePoint(810,14) withAttributes:small];
+    [[NSString stringWithFormat:@"16PT > %uOA", p->params.order] drawAtPoint:NSMakePoint(802,14) withAttributes:small];
 
     NSRect leftPage = NSMakeRect(18, 42, 590, 656);
     if (_leftPage == 0) {
@@ -1362,10 +1457,10 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         [self drawPointMixer:leftPage attrs:small labelAttrs:small];
     }
 
-    s3g::clap_gui::drawPanelFrame(626, 42, 256, 180, style);
+    s3g::clap_gui::drawPanelFrame(626, 42, 256, 202, style);
     s3g::clap_gui::drawPanelHeader(@"POINT", true, 626, 42, 256, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(626, 236, 256, 406, style);
-    s3g::clap_gui::drawPanelHeader(@"PHYSICS", true, 626, 236, 256, 21, lab, style);
+    s3g::clap_gui::drawPanelFrame(626, 258, 256, 406, style);
+    s3g::clap_gui::drawPanelHeader(@"PHYSICS", true, 626, 258, 256, 21, lab, style);
 
     const auto prm = p->params;
     [self drawSlider:@"POINT" value:[NSString stringWithFormat:@"%u", prm.selectedPoint + 1u] norm:static_cast<CGFloat>(prm.selectedPoint) / static_cast<CGFloat>(kPointCount - 1u) y:76 attrs:small small:small];
@@ -1374,24 +1469,25 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     [self drawSlider:@"DISTANCE" value:[NSString stringWithFormat:@"%.2f", prm.selectedDistance] norm:(prm.selectedDistance - 0.15f) / 1.85f y:151 attrs:small small:small];
     [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%.2f", prm.selectedGain] norm:prm.selectedGain / 2.0f y:176 attrs:small small:small];
     [self drawMenu:@"MUTE" value:(prm.selectedEnabled ? @"ON" : @"MUTED") y:201 attrs:small small:small];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", prm.order] y:223 attrs:small small:small];
 
-    [self drawMenu:@"SCENE" value:[NSString stringWithUTF8String:sceneName(prm.motionScene)] y:270 attrs:small small:small];
-    [self drawMenu:@"HEMISPHERE" value:(prm.upperHemisphereOnly ? @"UPPER HEMI" : @"FULL SPHERE") y:292 attrs:small small:small];
-    [self drawMenu:@"MOTION" value:[NSString stringWithUTF8String:motionDisplayName(static_cast<uint32_t>(prm.motionMode))] y:314 attrs:small small:small];
-    [self drawSlider:@"AMOUNT" value:[NSString stringWithFormat:@"%.0f%%", prm.motionAmount * 100.0f] norm:prm.motionAmount y:336 attrs:small small:small];
-    [self drawSlider:@"SCALE" value:[NSString stringWithFormat:@"%.2f", prm.physicsScale] norm:(prm.physicsScale - 0.25f) / 1.75f y:358 attrs:small small:small];
-    [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", prm.rateHz] norm:(prm.rateHz - 0.005f) / 0.495f y:380 attrs:small small:small];
-    [self drawSlider:@"COLLISION" value:[NSString stringWithFormat:@"%.0f%%", prm.collision * 100.0f] norm:prm.collision y:402 attrs:small small:small];
-    [self drawSlider:@"IMPACT" value:[NSString stringWithFormat:@"%.0f%%", prm.impact * 100.0f] norm:prm.impact y:424 attrs:small small:small];
-    [self drawSlider:@"DRAG" value:[NSString stringWithFormat:@"%.2f", prm.drag] norm:(prm.drag - 0.45f) / 0.545f y:446 attrs:small small:small];
-    [self drawSlider:@"SWIRL" value:[NSString stringWithFormat:@"%+.2f", prm.swirl] norm:(prm.swirl + 0.24f) / 0.48f y:468 attrs:small small:small];
-    [self drawSlider:@"POLTER" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeist * 100.0f] norm:prm.poltergeist y:490 attrs:small small:small];
-    [self drawSlider:@"G-RATE" value:[NSString stringWithFormat:@"%.2fx", prm.poltergeistRate] norm:(prm.poltergeistRate - 0.05f) / 3.95f y:512 attrs:small small:small];
-    [self drawSlider:@"G-REACH" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistReach * 100.0f] norm:prm.poltergeistReach y:534 attrs:small small:small];
-    [self drawSlider:@"G-RAD" value:[NSString stringWithFormat:@"%.2f", prm.poltergeistRadius] norm:(prm.poltergeistRadius - 0.04f) / 0.96f y:556 attrs:small small:small];
-    [self drawSlider:@"G-CHAOS" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistChaos * 100.0f] norm:prm.poltergeistChaos y:578 attrs:small small:small];
-    [self drawSlider:@"DOPPLER" value:[NSString stringWithFormat:@"%.0f%%", prm.doppler * 100.0f] norm:prm.doppler y:600 attrs:small small:small];
-    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%.0f%%", prm.air * 100.0f] norm:prm.air y:622 attrs:small small:small];
+    [self drawMenu:@"SCENE" value:[NSString stringWithUTF8String:sceneName(prm.motionScene)] y:292 attrs:small small:small];
+    [self drawMenu:@"HEMISPHERE" value:(prm.upperHemisphereOnly ? @"UPPER HEMI" : @"FULL SPHERE") y:314 attrs:small small:small];
+    [self drawMenu:@"MOTION" value:[NSString stringWithUTF8String:motionDisplayName(static_cast<uint32_t>(prm.motionMode))] y:336 attrs:small small:small];
+    [self drawSlider:@"AMOUNT" value:[NSString stringWithFormat:@"%.0f%%", prm.motionAmount * 100.0f] norm:prm.motionAmount y:358 attrs:small small:small];
+    [self drawSlider:@"SCALE" value:[NSString stringWithFormat:@"%.2f", prm.physicsScale] norm:(prm.physicsScale - 0.25f) / 1.75f y:380 attrs:small small:small];
+    [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", prm.rateHz] norm:(prm.rateHz - 0.005f) / 0.495f y:402 attrs:small small:small];
+    [self drawSlider:@"COLLISION" value:[NSString stringWithFormat:@"%.0f%%", prm.collision * 100.0f] norm:prm.collision y:424 attrs:small small:small];
+    [self drawSlider:@"IMPACT" value:[NSString stringWithFormat:@"%.0f%%", prm.impact * 100.0f] norm:prm.impact y:446 attrs:small small:small];
+    [self drawSlider:@"DRAG" value:[NSString stringWithFormat:@"%.2f", prm.drag] norm:(prm.drag - 0.45f) / 0.545f y:468 attrs:small small:small];
+    [self drawSlider:@"SWIRL" value:[NSString stringWithFormat:@"%+.2f", prm.swirl] norm:(prm.swirl + 0.24f) / 0.48f y:490 attrs:small small:small];
+    [self drawSlider:@"POLTER" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeist * 100.0f] norm:prm.poltergeist y:512 attrs:small small:small];
+    [self drawSlider:@"G-RATE" value:[NSString stringWithFormat:@"%.2fx", prm.poltergeistRate] norm:(prm.poltergeistRate - 0.05f) / 3.95f y:534 attrs:small small:small];
+    [self drawSlider:@"G-REACH" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistReach * 100.0f] norm:prm.poltergeistReach y:556 attrs:small small:small];
+    [self drawSlider:@"G-RAD" value:[NSString stringWithFormat:@"%.2f", prm.poltergeistRadius] norm:(prm.poltergeistRadius - 0.04f) / 0.96f y:578 attrs:small small:small];
+    [self drawSlider:@"G-CHAOS" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistChaos * 100.0f] norm:prm.poltergeistChaos y:600 attrs:small small:small];
+    [self drawSlider:@"DOPPLER" value:[NSString stringWithFormat:@"%.0f%%", prm.doppler * 100.0f] norm:prm.doppler y:622 attrs:small small:small];
+    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%.0f%%", prm.air * 100.0f] norm:prm.air y:644 attrs:small small:small];
 
     [self drawOpenMenu:small];
 }
@@ -1406,23 +1502,24 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     case 4: applyParam(*p, kDistanceParamId, 0.15 + n * 1.85); break;
     case 5: applyParam(*p, kPointGainParamId, n * 2.0); break;
     case 6: applyParam(*p, kPointMuteParamId, n >= 0.5 ? 1.0 : 0.0); break;
-    case 7: applyParam(*p, kMotionSceneParamId, n * 7.0); break;
-    case 8: applyParam(*p, kUpperHemisphereParamId, n >= 0.5 ? 1.0 : 0.0); break;
-    case 9: applyParam(*p, kMotionModeParamId, n * 5.0); break;
-    case 10: applyParam(*p, kMotionAmountParamId, n); break;
-    case 11: applyParam(*p, kPhysicsScaleParamId, 0.25 + n * 1.75); break;
-    case 12: applyParam(*p, kRateParamId, 0.005 + n * 0.495); break;
-    case 13: applyParam(*p, kCollisionParamId, n); break;
-    case 14: applyParam(*p, kImpactParamId, n); break;
-    case 15: applyParam(*p, kDragParamId, 0.45 + n * 0.545); break;
-    case 16: applyParam(*p, kSwirlParamId, -0.24 + n * 0.48); break;
-    case 17: applyParam(*p, kPoltergeistParamId, n); break;
-    case 18: applyParam(*p, kPoltergeistRateParamId, 0.05 + n * 3.95); break;
-    case 19: applyParam(*p, kPoltergeistReachParamId, n); break;
-    case 20: applyParam(*p, kPoltergeistRadiusParamId, 0.04 + n * 0.96); break;
-    case 21: applyParam(*p, kPoltergeistChaosParamId, n); break;
-    case 22: applyParam(*p, kDopplerParamId, n); break;
-    case 23: applyParam(*p, kAirParamId, n); break;
+    case 7: applyParam(*p, kOrderParamId, 1.0 + n * 6.0); break;
+    case 8: applyParam(*p, kMotionSceneParamId, n * 7.0); break;
+    case 9: applyParam(*p, kUpperHemisphereParamId, n >= 0.5 ? 1.0 : 0.0); break;
+    case 10: applyParam(*p, kMotionModeParamId, n * 5.0); break;
+    case 11: applyParam(*p, kMotionAmountParamId, n); break;
+    case 12: applyParam(*p, kPhysicsScaleParamId, 0.25 + n * 1.75); break;
+    case 13: applyParam(*p, kRateParamId, 0.005 + n * 0.495); break;
+    case 14: applyParam(*p, kCollisionParamId, n); break;
+    case 15: applyParam(*p, kImpactParamId, n); break;
+    case 16: applyParam(*p, kDragParamId, 0.45 + n * 0.545); break;
+    case 17: applyParam(*p, kSwirlParamId, -0.24 + n * 0.48); break;
+    case 18: applyParam(*p, kPoltergeistParamId, n); break;
+    case 19: applyParam(*p, kPoltergeistRateParamId, 0.05 + n * 3.95); break;
+    case 20: applyParam(*p, kPoltergeistReachParamId, n); break;
+    case 21: applyParam(*p, kPoltergeistRadiusParamId, 0.04 + n * 0.96); break;
+    case 22: applyParam(*p, kPoltergeistChaosParamId, n); break;
+    case 23: applyParam(*p, kDopplerParamId, n); break;
+    case 24: applyParam(*p, kAirParamId, n); break;
     default: break;
     }
     [self setNeedsDisplay:YES];
@@ -1450,6 +1547,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
                 applyParam(*p, kMotionModeParamId, static_cast<double>(index));
             } else if (_openMenu == 4) {
                 applyParam(*p, kMotionSceneParamId, static_cast<double>(index));
+            } else if (_openMenu == 5) {
+                applyParam(*p, kOrderParamId, static_cast<double>(index + 1u));
             }
         }
         _openMenu = 0;
@@ -1543,13 +1642,13 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
             return;
         }
     }
-    const CGFloat rows[] = { 76, 101, 126, 151, 176, 201, 270, 292, 314, 336, 358, 380, 402, 424, 446, 468, 490, 512, 534, 556, 578, 600, 622 };
-    for (int i = 0; i < 23; ++i) {
+    const CGFloat rows[] = { 76, 101, 126, 151, 176, 201, 223, 292, 314, 336, 358, 380, 402, 424, 446, 468, 490, 512, 534, 556, 578, 600, 622, 644 };
+    for (int i = 0; i < 24; ++i) {
         if (NSPointInRect(pt, NSMakeRect(636, rows[i] - 8, 236, 24))) {
-            if (i == 5 || i == 6 || i == 7 || i == 8) {
-                _openMenu = i == 5 ? 1 : (i == 6 ? 4 : (i == 7 ? 2 : 3));
+            if (i == 5 || i == 6 || i == 7 || i == 8 || i == 9) {
+                _openMenu = i == 5 ? 1 : (i == 6 ? 5 : (i == 7 ? 4 : (i == 8 ? 2 : 3)));
                 _hoverMenuItem = -1;
-                _menuItemCount = i == 6 ? 8u : (i == 8 ? 6u : 2u);
+                _menuItemCount = i == 6 ? 7u : (i == 7 ? 8u : (i == 9 ? 6u : 2u));
                 _menuOrigin = menuOrigin(rows[i] + 18.0, _menuItemCount);
                 [self setNeedsDisplay:YES];
                 return;
@@ -1601,19 +1700,19 @@ namespace {
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3G3OAFXPointEncoderView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3G3OAFXPointEncoderView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3G3OAFXPointEncoderView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), 900u, 716u)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; [static_cast<S3G3OAFXPointEncoderView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = 900; *h = 716; return true; }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,900,716)]; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, 900u, 716u, w, h); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, 900u, 716u, w, h); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, w, h); }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3G3OAFXPointEncoderView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3G3OAFXPointEncoderView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3G3OAFXPointEncoderView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3G3OAFXPointEncoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 
@@ -1639,7 +1738,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.1.0",
-    "16 point-source input to third-order ACN/SN3D ambisonic encoder with AED placement and prototype physics motion.",
+    "16 point-source input to selectable first- through seventh-order ACN/SN3D ambisonics with AED placement and physics motion.",
     features
 };
 

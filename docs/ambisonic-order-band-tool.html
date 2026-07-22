@@ -14,11 +14,10 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="processors.html">Processors</a>
-        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="multichannel.html">Multichannel</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
-        <a href="topology-framework.html">Framework</a>
+        <a href="references.html">References</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -37,13 +36,18 @@
 
         <h2 id="controls">Controls</h2>
 
-        <ul>
-          <li><code>ORD</code>: active ambisonic order, from <code>1OA</code> to <code>7OA</code>. Channels above the selected order are muted.</li>
-          <li><code>WGT</code>: weighting preset. <code>Flat</code> leaves orders level, <code>MaxRE</code> applies max-rE-style order weighting, <code>In-phase</code> applies a more conservative taper, and <code>Custom</code> uses only the order trims.</li>
-          <li><code>AMT</code>: weighting amount. At <code>0%</code>, only per-order trims are heard. At <code>100%</code>, the selected preset is fully applied.</li>
-          <li><code>O0</code> through <code>O7</code>: per-order gain trims. These are useful for comparing localization, diffuse energy, and decoder stability.</li>
-          <li><code>OUT</code>: final output gain.</li>
-        </ul>
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>ORD</td><td>Active ambisonic order, from <code>1OA</code> to <code>7OA</code>. Channels above the selected order are muted.</td></tr>
+            <tr><td>WGT</td><td>Weighting preset. <code>Flat</code> leaves orders level, <code>MaxRE</code> applies max-rE-style order weighting, <code>In-phase</code> applies a more conservative taper, and <code>Custom</code> uses only the order trims.</td></tr>
+            <tr><td>AMT</td><td>Weighting amount. At <code>0%</code>, only per-order trims are heard. At <code>100%</code>, the selected preset is fully applied.</td></tr>
+            <tr><td>O0–O7</td><td>Per-order gain trims. These are useful for comparing localization, diffuse energy, and decoder stability.</td></tr>
+            <tr><td>OUT</td><td>Final output gain.</td></tr>
+          </tbody>
+        </table>
 
         <h2 id="starting-points">Starting Points</h2>
 
@@ -59,38 +63,32 @@
         <p>The plugin exposes one 64-channel input bus and one 64-channel output bus. Unused lanes are cleared. Keep it on a 64-channel REAPER track when using it in a 7OA-capable chain.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="ambisonic-bus-processors.html">
+          <a class="page-nav-link" href="ambisonic-utilities.html">
             <span>Previous</span>
-            Ambi Field / Bus
+            Ambisonic Utilities
           </a>
-          <a class="page-nav-link next" href="ambisonic-stereo-decoder.html">
+          <a class="page-nav-link next" href="ambisonic-energy-visualizer.html">
             <span>Next</span>
-            Ambi Stereo Decoder
+            Ambi Energy Visualizer
           </a>
         </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
-          <h2>Ambisonics Pages</h2>
-          <a href="3oafx.html">Ambisonics Overview</a>
-          <a href="3oafx-effects.html">3OAFX Processors</a>
-          <a href="3oafx-point-encoder.html">Point Encoder</a>
-          <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
-          <a href="ambi-path-encoder.html">Path Encoder</a>
-          <a href="ambi-vot-encoder.html">VOT Encoder</a>
-          <a href="ambi-vox-encoder.html">Vox Encoder</a>
-          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-imprint.html">Ambi Imprint</a>
-          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
-          <a href="ambisonic-rotate.html">Rotate</a>
-          <a href="ambisonic-bus-processors.html#field-depth">Depth</a>
-          <a href="ambisonic-bus-processors.html">Field / Bus</a>
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Utility Pages</h2>
           <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
-          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
-          <a href="ambisonic-head-decoder.html">Head Decoder</a>
           <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
-          <a href="ambi-grain-processor.html">Grain Processor</a>
+          <a href="s3gimprint-format.html">.s3gimprint Format</a>
+          <a href="s3gray-format.html">.s3gray Format</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>

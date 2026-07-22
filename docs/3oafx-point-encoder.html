@@ -14,11 +14,10 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="processors.html">Processors</a>
-        <a href="mix-pan.html">Mix / Pan</a>
+        <a href="multichannel.html">Multichannel</a>
         <a href="3oafx.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
-        <a href="topology-framework.html">Framework</a>
+        <a href="references.html">References</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </header>
@@ -29,7 +28,17 @@
 
         <p><code>s3g Ambi Point Encoder</code> is a 16-point ambisonic encoder. Each mono input lane is treated as a point source with azimuth, elevation, distance, gain, mute, and solo state.</p>
 
-        <p>The output is third-order ambisonics in <code>ACN/SN3D</code>. The plugin is for point-source placement and motion-controlled spatial scenes, not for generic channel fold-down.</p>
+        <p>The selectable output spans first- through seventh-order ambisonics in <code>ACN/SN3D</code>. The plugin is for point-source placement and motion-controlled spatial scenes, not for generic channel fold-down.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Set the REAPER track to 64 channels and route as many as 16 mono source lanes to the plugin's first 16 inputs.</li>
+          <li>Place each active point with azimuth, elevation, distance, and gain.</li>
+          <li>Use <code>MANUAL</code> for direct editing or REAPER automation, or select an internal motion scene.</li>
+          <li>Use the field, mixer, and physics views to refine the point relationships.</li>
+          <li>Select the ambisonic order and follow the encoder with a decoder or visualizer configured for the same order.</li>
+        </ol>
 
         <h2 id="field">Field View</h2>
 
@@ -147,10 +156,29 @@
 
         <p><code>HEMISPHERE</code> is global. When set to upper hemisphere, points and auxiliary motion sources are constrained to non-negative elevation.</p>
 
+        <h2 id="routing">Order and Routing</h2>
+
+        <p>The plugin accepts as many as 16 mono input lanes and exposes the same fixed 64-channel <code>ACN/SN3D</code> output bus as the other encoders. <code>ORDER</code> selects 1OA through 7OA; channels above the selected order are cleared. Keep the REAPER track and output pin connector at 64 channels, and place decoding or field analysis after the encoder.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Order</th><th>Active channels</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
+
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="3oafx-effects.html">
+          <a class="page-nav-link" href="ambisonic-encoders.html">
             <span>Previous</span>
-            3OAFX Processors
+            Ambisonic Encoders
           </a>
           <a class="page-nav-link next" href="ambi-cloud-encoder.html">
             <span>Next</span>
@@ -161,34 +189,40 @@
 
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
-          <h2>Ambisonics Pages</h2>
-          <a href="3oafx.html">Ambisonics Overview</a>
-          <a href="3oafx-effects.html">3OAFX Processors</a>
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Encoder Pages</h2>
           <a href="3oafx-point-encoder.html">Point Encoder</a>
           <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
+          <a href="ambi-terrain-navigator.html">Terrain Navigator</a>
           <a href="ambi-path-encoder.html">Path Encoder</a>
+          <a href="ambi-ray-encoder.html">Ray Encoder</a>
+          <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>
           <a href="ambi-vot-encoder.html">VOT Encoder</a>
           <a href="ambi-vox-encoder.html">Vox Encoder</a>
+          <a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a>
+          <a href="ambi-wind-encoder.html">Wind Encoder</a>
+          <a href="ambi-water-encoder.html">Water Encoder</a>
+          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
           <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
-          <a href="ambi-imprint.html">Ambi Imprint</a>
-          <a href="3oafx-speaker-decoder.html">Speaker Decoder</a>
-          <a href="ambisonic-rotate.html">Rotate</a>
-          <a href="ambisonic-bus-processors.html#field-depth">Depth</a>
-          <a href="ambisonic-bus-processors.html">Field / Bus</a>
-          <a href="ambisonic-order-band-tool.html">Order / Band Tool</a>
-          <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
-          <a href="ambisonic-head-decoder.html">Head Decoder</a>
-          <a href="ambisonic-energy-visualizer.html">Energy Visualizer</a>
-          <a href="ambi-grain-processor.html">Grain Processor</a>
+          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
           <a href="#field">Field View</a>
           <a href="#point-editing">Point Editing</a>
           <a href="#scenes">Scenes and Automation</a>
           <a href="#spatial-score">Spatial Score Automation</a>
           <a href="#physics">Physics Controls</a>
           <a href="#geist">Reading Geist Motion</a>
+          <a href="#routing">Order and Routing</a>
         </div>
       </aside>
     </div>

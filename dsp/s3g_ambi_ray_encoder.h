@@ -678,6 +678,8 @@ public:
         currentScatter_ = params_.scatter;
         currentAir_ = params_.air;
         currentDoppler_ = params_.doppler;
+        currentOutputYawDeg_ = targetOutputYawDeg_;
+        lateBasisYawDeg_ = std::numeric_limits<float>::quiet_NaN();
         currentLateStartMs_ = 45.0f;
         currentLateDecay_ = 1.8f;
         currentLateLevel_ = 0.18f;
@@ -695,6 +697,11 @@ public:
     void setParams(AmbiRayEncoderParams params)
     {
         params_ = sanitizeAmbiRayEncoderParams(params);
+    }
+
+    void setOutputYawDegrees(float yawDegrees)
+    {
+        targetOutputYawDeg_ = std::remainder(std::isfinite(yawDegrees) ? yawDegrees : 0.0f, 360.0f);
     }
 
     const AmbiRayEncoderParams& params() const { return params_; }
@@ -904,6 +911,11 @@ private:
         currentScatter_ += (params_.scatter - currentScatter_) * parameterAlpha;
         currentAir_ += (params_.air - currentAir_) * parameterAlpha;
         currentDoppler_ += (params_.doppler - currentDoppler_) * parameterAlpha;
+        const float yawDelta = std::remainder(targetOutputYawDeg_ - currentOutputYawDeg_, 360.0f);
+        currentOutputYawDeg_ = std::remainder(currentOutputYawDeg_ + yawDelta * parameterAlpha, 360.0f);
+        const float outputYawRadians = currentOutputYawDeg_ * kPi / 180.0f;
+        const float outputYawCosine = std::cos(outputYawRadians);
+        const float outputYawSine = std::sin(outputYawRadians);
 
         const Vec3 source = sourcePositionMetres();
         const Vec3 listener = listenerPositionMetres();
@@ -914,7 +926,8 @@ private:
         };
         const float directDistance = std::max(0.02f, std::sqrt(
             directWorld.x * directWorld.x + directWorld.y * directWorld.y + directWorld.z * directWorld.z));
-        directBasis_ = acnSn3dBasis7(ambi_ray_detail::ambisonicDirectionFromWorldVector(directWorld));
+        directBasis_ = acnSn3dBasis7(outputYawRotated(
+            ambi_ray_detail::ambisonicDirectionFromWorldVector(directWorld), outputYawCosine, outputYawSine));
         directDelayFrames_ = directDistance / 343.0f * static_cast<float>(sampleRate_) * currentSize_;
         directDelayTap_.setTarget(directDelayFrames_, frames, immediate);
         directDistanceGain_ = 1.0f / std::sqrt(std::max(1.0f, directDistance));
@@ -983,7 +996,7 @@ private:
             runtime.gain += (target.gain - runtime.gain) * eventAlpha;
             runtime.direction = normalize(ambi_ray_detail::mixVec(runtime.direction, target.direction, eventAlpha));
             runtime.damping += (target.damping - runtime.damping) * eventAlpha;
-            runtime.basis = acnSn3dBasis7(runtime.direction);
+            runtime.basis = acnSn3dBasis7(outputYawRotated(runtime.direction, outputYawCosine, outputYawSine));
             const float distanceSeconds = runtime.delayFrames / static_cast<float>(sampleRate_);
             const float cutoff = clamp(19000.0f * std::exp(-currentAir_ * distanceSeconds * 18.0f)
                     * (1.0f - runtime.damping * 0.78f),
@@ -996,15 +1009,56 @@ private:
             roomOrderScale_[channel] = order == 0u ? 1.0f : std::pow(1.0f - currentScatter_ * 0.56f, static_cast<float>(order));
             lateOrderScale_[channel] = order == 0u ? 1.0f : std::pow(1.0f - currentScatter_ * 0.32f, static_cast<float>(order));
         }
-        if (lateBasis_[0][0] == 0.0f) {
+        if (lateBaseBasis_[0][0] == 0.0f) {
             constexpr std::array<std::array<float, 2>, kAmbiRayLateLines> directions {{
                 { 45.0f, 35.264f }, { -45.0f, 35.264f }, { 135.0f, 35.264f }, { -135.0f, 35.264f },
                 { 45.0f, -35.264f }, { -45.0f, -35.264f }, { 135.0f, -35.264f }, { -135.0f, -35.264f }
             }};
             for (uint32_t line = 0u; line < kAmbiRayLateLines; ++line)
-                lateBasis_[line] = acnSn3dBasis7(directionFromAed(directions[line][0], directions[line][1]));
+                lateBaseBasis_[line] = acnSn3dBasis7(directionFromAed(directions[line][0], directions[line][1]));
+        }
+        if (!std::isfinite(lateBasisYawDeg_)
+            || std::abs(std::remainder(currentOutputYawDeg_ - lateBasisYawDeg_, 360.0f)) > 0.001f) {
+            std::array<float, kAmbiRayRoomOrder + 1u> yawCos {};
+            std::array<float, kAmbiRayRoomOrder + 1u> yawSin {};
+            yawCos[0] = 1.0f;
+            for (uint32_t m = 1u; m <= kAmbiRayRoomOrder; ++m) {
+                yawCos[m] = yawCos[m - 1u] * outputYawCosine - yawSin[m - 1u] * outputYawSine;
+                yawSin[m] = yawSin[m - 1u] * outputYawCosine + yawCos[m - 1u] * outputYawSine;
+            }
+            for (uint32_t line = 0u; line < kAmbiRayLateLines; ++line)
+                rotateBasisYaw(lateBaseBasis_[line], lateBasis_[line], yawCos, yawSin);
+            lateBasisYawDeg_ = currentOutputYawDeg_;
         }
         safetyRelease_ = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.100));
+    }
+
+    static Vec3 outputYawRotated(Vec3 direction, float cosine, float sine)
+    {
+        return {
+            direction.x * cosine - direction.y * sine,
+            direction.x * sine + direction.y * cosine,
+            direction.z
+        };
+    }
+
+    static void rotateBasisYaw(const std::array<float, kAmbiRayMaxChannels>& source,
+                               std::array<float, kAmbiRayMaxChannels>& destination,
+                               const std::array<float, kAmbiRayRoomOrder + 1u>& yawCos,
+                               const std::array<float, kAmbiRayRoomOrder + 1u>& yawSin)
+    {
+        destination = source;
+        for (uint32_t order = 1u; order <= kAmbiRayRoomOrder; ++order) {
+            const uint32_t centre = order * (order + 1u);
+            for (uint32_t m = 1u; m <= order; ++m) {
+                const uint32_t negative = centre - m;
+                const uint32_t positive = centre + m;
+                const float cosine = yawCos[m];
+                const float sine = yawSin[m];
+                destination[negative] = source[negative] * cosine + source[positive] * sine;
+                destination[positive] = source[positive] * cosine - source[negative] * sine;
+            }
+        }
     }
 
     double sampleRate_ = 48000.0;
@@ -1018,6 +1072,7 @@ private:
     std::array<RuntimeEvent, kAmbiRayMaxReflections> events_ {};
     std::array<float, kAmbiRayMaxReflections> eventFilters_ {};
     std::array<float, kAmbiRayMaxChannels> directBasis_ {};
+    std::array<std::array<float, kAmbiRayMaxChannels>, kAmbiRayLateLines> lateBaseBasis_ {};
     std::array<std::array<float, kAmbiRayMaxChannels>, kAmbiRayLateLines> lateBasis_ {};
     std::array<float, kAmbiRayRoomChannels> roomOrderScale_ {};
     std::array<float, kAmbiRayRoomChannels> lateOrderScale_ {};
@@ -1039,6 +1094,9 @@ private:
     float currentWidth_ = 1.0f;
     float currentAir_ = 0.2f;
     float currentDoppler_ = 0.5f;
+    float targetOutputYawDeg_ = 0.0f;
+    float currentOutputYawDeg_ = 0.0f;
+    float lateBasisYawDeg_ = std::numeric_limits<float>::quiet_NaN();
     float currentOutput_ = 0.5f;
     float currentLateStartMs_ = 45.0f;
     float currentLateDecay_ = 1.8f;

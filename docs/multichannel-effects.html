@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Multichannel Effects - s3g-dsp</title>
+    <meta name="description" content="Multichannel effect plugin documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Multichannel Effects</h1>
+
+        <p>Multichannel effects transform incoming REAPER track audio without assuming an ambisonic format. Use the other <a href="multichannel.html">Multichannel</a> sections for routing, fold-down, metering, and direct speaker panning. Use <a href="ambisonic-effects.html">Ambisonic Effects</a> when the channels form an <code>ACN/SN3D</code> field.</p>
+
+        <h2 id="sections">Sections</h2>
+
+        <ul>
+          <li><a href="topology-processors.html">Topology Effects</a>: multichannel effects whose lane relationships form a moving point network.</li>
+          <li><a href="macro-processors.html">Macro Effects</a>: compact delay, pitch, and shred interfaces with shared controls and lane relationship parameters.</li>
+          <li><a href="spectral-buffer-processors.html">Spectral / Buffer Effects</a>: FFT-bin transformations and deliberately unstable buffer-window treatments.</li>
+          <li><a href="distributed-output-processors.html">Distributed Output Effects</a>: stereo-input effects that distribute grains, delays, or taps across 16 ordinary output lanes.</li>
+        </ul>
+
+        <h2 id="choose">Choose a Family</h2>
+
+        <p>Start with topology effects when the relationship among input lanes should drive the result. Use a Macro effect for a smaller performance surface, Spectral / Buffer for transformations inside frequency or memory representations, and Distributed Output when a stereo source should emerge as a wide discrete-channel scene.</p>
+
+        <h2 id="routing">Routing</h2>
+
+        <p>Effect widths describe ordinary input and output lanes, not an ambisonic order. Match the plugin build to the REAPER track width, and use the <a href="multichannel.html">Multichannel</a> monitoring, panning, or routing sections for the result.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="multichannel.html">
+            <span>Previous</span>
+            Multichannel Overview
+          </a>
+          <a class="page-nav-link next" href="topology-processors.html">
+            <span>Next</span>
+            Topology Effects
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Multichannel</h2>
+          <a href="multichannel.html">Overview</a>
+          <a href="multichannel-effects.html">Effects</a>
+          <a href="monitoring-fold-down.html">Monitoring / Fold-down</a>
+          <a href="direct-panning.html">Direct Panning</a>
+          <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
+          <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#sections">Sections</a>
+          <a href="#choose">Choose a Family</a>
+          <a href="#routing">Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

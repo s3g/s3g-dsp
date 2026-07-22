@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_ambi_environment_field.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_realtime.h"
 
@@ -14,6 +15,7 @@ namespace s3g {
 constexpr uint32_t kAmbiWindMaxVoices = 64;
 constexpr uint32_t kAmbiWindMaxOrder = 7;
 constexpr uint32_t kAmbiWindMaxChannels = 64;
+constexpr uint32_t kAmbiWindPlaceCount = 7;
 
 struct AmbiWindParams {
     uint32_t order = 3;
@@ -50,12 +52,37 @@ struct AmbiWindParams {
     float centerDistance = 1.0f;
     float spatialFollow = 0.90f;
     float outputGainDb = -6.0f;
+    uint32_t place = 0;
+    float space = 0.14f;
+    float environmentSize = 0.5f;
+    float environmentDecay = 0.5f;
+    float environmentDamping = 0.5f;
 };
+
+inline AmbiEnvironmentProfileId ambiWindEnvironmentProfile(uint32_t place)
+{
+    constexpr std::array<AmbiEnvironmentProfileId, kAmbiWindPlaceCount> profiles {
+        AmbiEnvironmentProfileId::Open,
+        AmbiEnvironmentProfileId::Canopy,
+        AmbiEnvironmentProfileId::Porch,
+        AmbiEnvironmentProfileId::Room,
+        AmbiEnvironmentProfileId::Hangar,
+        AmbiEnvironmentProfileId::Canyon,
+        AmbiEnvironmentProfileId::Tunnel,
+    };
+    return profiles[std::min<uint32_t>(place, kAmbiWindPlaceCount - 1u)];
+}
 
 struct AmbiWindPoint {
     float azimuthDeg = 0.0f;
     float elevationDeg = 0.0f;
     float distance = 1.0f;
+};
+
+struct AmbiWindVoiceOutput {
+    float direct = 0.0f;
+    float airSend = 0.0f;
+    float objectSend = 0.0f;
 };
 
 struct AmbiWindSvf {
@@ -136,6 +163,7 @@ public:
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1.0, sampleRate);
+        environmentField_.prepare(sampleRate_);
         reset();
         setParams(params_);
     }
@@ -148,6 +176,10 @@ public:
         transitionRequested_.store(false, std::memory_order_relaxed);
         lastOutput_.fill(0.0f);
         transitionTail_.fill(0.0f);
+        environmentField_.setProfile(ambiWindEnvironmentProfile(params_.place));
+        environmentField_.setAmount(ambiEnvironmentSpaceAmount(params_.space));
+        environmentField_.setShape(params_.environmentSize, params_.environmentDecay, params_.environmentDamping);
+        environmentField_.reset();
         smoothedOutputGain_ = normalizedOutputGain(params_);
         smoothParams_ = params_;
         setMaterialWeights(params_.materialMode);
@@ -197,6 +229,11 @@ public:
         params.centerDistance = clampFinite(params.centerDistance, params_.centerDistance, 0.15f, 2.0f);
         params.spatialFollow = clampFinite(params.spatialFollow, params_.spatialFollow, 0.0f, 1.0f);
         params.outputGainDb = clampFinite(params.outputGainDb, params_.outputGainDb, -60.0f, 12.0f);
+        params.place = std::clamp<uint32_t>(params.place, 0u, kAmbiWindPlaceCount - 1u);
+        params.space = clampFinite(params.space, params_.space, 0.0f, 1.0f);
+        params.environmentSize = clampFinite(params.environmentSize, params_.environmentSize, 0.0f, 1.0f);
+        params.environmentDecay = clampFinite(params.environmentDecay, params_.environmentDecay, 0.0f, 1.0f);
+        params.environmentDamping = clampFinite(params.environmentDamping, params_.environmentDamping, 0.0f, 1.0f);
 
         const uint32_t oldVoices = params_.voices;
         params_ = params;
@@ -236,26 +273,51 @@ public:
             updateMotion(chunkDt);
             const float targetGain = dbToGain(smoothParams_.outputGainDb) * 1.30f / voiceNorm;
 
+            environmentField_.setProfile(ambiWindEnvironmentProfile(smoothParams_.place));
+            environmentField_.setAmount(ambiEnvironmentSpaceAmount(smoothParams_.space));
+            environmentField_.setShape(smoothParams_.environmentSize, smoothParams_.environmentDecay,
+                smoothParams_.environmentDamping);
+            const float fieldPhase = vectorPhase_ * kPi * 2.0f;
+            const float fieldAzimuth = smoothParams_.centerAzimuthDeg
+                + std::sin(fieldPhase) * smoothParams_.motionFlow * 18.0f
+                + std::sin(motionPhase_ * kPi * 2.0f) * smoothParams_.motionCurl * 7.0f;
+            const float fieldElevation = smoothParams_.centerElevationDeg * 0.18f
+                + std::sin(fieldPhase * 0.71f + 0.9f) * smoothParams_.motionUpdraft * 8.0f;
+            environmentField_.setMotion(fieldAzimuth, fieldElevation);
+
             std::array<std::array<float, kAmbiWindMaxChannels>, kAmbiWindMaxVoices> basis {};
+            std::array<Vec3, kAmbiWindMaxVoices> directions {};
             std::array<float, kAmbiWindMaxVoices> distGain {};
             for (uint32_t v = 0u; v < voices; ++v) {
-                basis[v] = acnSn3dBasis7(directionFromAed(points_[v].azimuthDeg, points_[v].elevationDeg));
+                directions[v] = directionFromAed(points_[v].azimuthDeg, points_[v].elevationDeg);
+                basis[v] = acnSn3dBasis7(directions[v]);
                 distGain[v] = 1.0f / std::max(0.44f, points_[v].distance);
             }
 
             for (uint32_t frame = chunkStart; frame < chunkStart + chunkFrames; ++frame) {
                 smoothedOutputGain_ += (targetGain - smoothedOutputGain_) * 0.0014f;
+                environmentField_.beginFrame();
                 for (uint32_t v = 0u; v < voices; ++v) {
-                    float sample = processVoice(v) * smoothedOutputGain_ * distGain[v];
+                    const auto voiceOutput = processVoice(v);
+                    float sample = voiceOutput.direct * smoothedOutputGain_ * distGain[v];
                     if (!std::isfinite(sample)) {
                         initializeVoice(v);
                         sample = 0.0f;
                     }
                     voices_[v].energy += (sample * sample - voices_[v].energy) * 0.0008f;
                     if (std::fabs(sample) < 0.0000001f) continue;
+                    const float fieldSample = (voiceOutput.airSend
+                        * (0.22f + voices_[v].gustViz * 0.58f)
+                        + voiceOutput.objectSend * 0.92f)
+                        * smoothedOutputGain_ * distGain[v] * 3.0f;
+                    environmentField_.addSource(fieldSample, directions[v]);
                     for (uint32_t ch = 0u; ch < ambiChannels; ++ch) {
                         if (outputs[ch]) outputs[ch][frame] = flushDenormal(outputs[ch][frame] + sample * basis[v][ch]);
                     }
+                }
+                const auto environment = environmentField_.process();
+                for (uint32_t ch = 0u; ch < std::min<uint32_t>(ambiChannels, kAmbiEnvironmentChannels); ++ch) {
+                    if (outputs[ch]) outputs[ch][frame] = flushDenormal(outputs[ch][frame] + environment[ch]);
                 }
             }
         }
@@ -469,6 +531,11 @@ private:
         smoothParams_.centerDistance = smoothToward(smoothParams_.centerDistance, params_.centerDistance, coeff);
         smoothParams_.spatialFollow = smoothToward(smoothParams_.spatialFollow, params_.spatialFollow, coeff);
         smoothParams_.outputGainDb = smoothToward(smoothParams_.outputGainDb, params_.outputGainDb, coeff);
+        smoothParams_.place = params_.place;
+        smoothParams_.space = smoothToward(smoothParams_.space, params_.space, coeff);
+        smoothParams_.environmentSize = smoothToward(smoothParams_.environmentSize, params_.environmentSize, coeff);
+        smoothParams_.environmentDecay = smoothToward(smoothParams_.environmentDecay, params_.environmentDecay, coeff);
+        smoothParams_.environmentDamping = smoothToward(smoothParams_.environmentDamping, params_.environmentDamping, coeff);
         const float materialCoeff = 1.0f - std::exp(-dt * 12.0f);
         for (uint32_t mode = 0u; mode < materialWeights_.size(); ++mode) {
             const float target = mode == params_.materialMode ? 1.0f : 0.0f;
@@ -541,7 +608,7 @@ private:
         }
     }
 
-    float processVoice(uint32_t index)
+    AmbiWindVoiceOutput processVoice(uint32_t index)
     {
         const auto& p = smoothParams_;
         auto& voice = voices_[index];
@@ -673,13 +740,19 @@ private:
             + airBand * (0.030f + air * 0.44f + hiss * 0.20f)
             + bodyBand * (0.050f + body * 0.52f)
             + objectTone;
+        const float airMixed = toneBand * (0.32f + material * 0.30f + q * 0.10f)
+            + airBand * (0.030f + air * 0.44f + hiss * 0.20f)
+            + bodyBand * (0.050f + body * 0.52f);
         const float drive = 0.82f + p.grit * 3.3f + turbulence * 1.0f + p.shrill * 0.38f;
-        const float output = std::tanh(clamp(mixed * drive, -3.8f, 3.8f)) * (0.14f + wind * 0.82f + gustDepth * 0.14f);
-        if (!std::isfinite(output)) {
+        const float amplitude = 0.14f + wind * 0.82f + gustDepth * 0.14f;
+        const float direct = std::tanh(clamp(mixed * drive, -3.8f, 3.8f)) * amplitude;
+        const float airSend = std::tanh(clamp(airMixed * std::min(drive, 2.4f), -3.2f, 3.2f)) * amplitude;
+        const float objectSend = std::tanh(clamp(objectTone * drive, -3.2f, 3.2f)) * amplitude;
+        if (!std::isfinite(direct) || !std::isfinite(airSend) || !std::isfinite(objectSend)) {
             initializeVoice(index);
-            return 0.0f;
+            return {};
         }
-        return output;
+        return { direct, airSend, objectSend };
     }
 
     AmbiWindParams params_ {};
@@ -696,6 +769,7 @@ private:
     bool smoothReady_ = false;
     std::array<float, kAmbiWindMaxChannels> lastOutput_ {};
     std::array<float, kAmbiWindMaxChannels> transitionTail_ {};
+    AmbiEnvironmentField environmentField_ {};
     std::atomic<bool> transitionRequested_ { false };
 };
 

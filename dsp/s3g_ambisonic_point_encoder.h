@@ -2,6 +2,7 @@
 
 #include "s3g_3oafx.h"
 #include "s3g_ambi_encoder_depth.h"
+#include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
 
@@ -14,6 +15,8 @@ namespace s3g {
 
 constexpr uint32_t kAmbiPointEncoderMaxPoints = 64;
 constexpr uint32_t kAmbiPointEncoderPrototypePoints = 16;
+constexpr uint32_t kAmbiPointEncoderMaxOrder = 7;
+constexpr uint32_t kAmbiPointEncoderMaxChannels = 64;
 
 enum class AmbiPointMotionMode : uint32_t {
     Off = 0,
@@ -62,6 +65,7 @@ struct AmbiPointEncoderParams {
     float doppler = 0.0f;
     float air = 0.0f;
     float outputGainDb = -6.0f;
+    uint32_t order = 3;
 };
 
 class AmbiPointEncoder {
@@ -235,17 +239,19 @@ public:
         syncSelectedParamsFromPoint();
     }
 
-    void processBlock(const float* const* inputs, float* const* outputs, uint32_t frames)
+    void processBlock(const float* const* inputs, float* const* outputs, uint32_t outputChannels, uint32_t frames)
     {
         if (!outputs || frames == 0) {
             return;
         }
-        for (uint32_t ch = 0; ch < k3OaChannels; ++ch) {
+        outputChannels = std::min<uint32_t>(outputChannels, kAmbiPointEncoderMaxChannels);
+        for (uint32_t ch = 0; ch < outputChannels; ++ch) {
             if (outputs[ch]) {
                 std::fill(outputs[ch], outputs[ch] + frames, 0.0f);
             }
         }
 
+        const uint32_t ambiChannels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), outputChannels);
         const uint32_t active = std::min<uint32_t>(params_.activePoints, pointCount_);
         const float gain = dbToGain(params_.outputGainDb);
         bool anySolo = false;
@@ -259,13 +265,13 @@ public:
             advanceMotion(static_cast<float>(static_cast<double>(chunkFrames) / sampleRate_));
             smoothScene();
 
-            std::array<std::array<float, k3OaChannels>, kAmbiPointEncoderPrototypePoints> basis {};
+            std::array<std::array<float, kAmbiPointEncoderMaxChannels>, kAmbiPointEncoderPrototypePoints> basis {};
             std::array<float, kAmbiPointEncoderPrototypePoints> laneGain {};
             std::array<float, kAmbiPointEncoderPrototypePoints> distances {};
             for (uint32_t p = 0; p < std::min<uint32_t>(active, kAmbiPointEncoderPrototypePoints); ++p) {
                 const auto& point = smoothPoints_[p];
                 const Vec3 dir = directionFromAed(point.azimuthDeg, point.elevationDeg);
-                basis[p] = acnSn3dBasis(dir);
+                basis[p] = acnSn3dBasis7(dir);
                 distances[p] = point.distance;
                 const float distanceGain = 1.0f / std::max(0.15f, distances[p]);
                 const bool audible = point.enabled && (!anySolo || point.solo);
@@ -279,7 +285,7 @@ public:
                     if (sample == 0.0f) {
                         continue;
                     }
-                    for (uint32_t ch = 0; ch < k3OaChannels; ++ch) {
+                    for (uint32_t ch = 0; ch < ambiChannels; ++ch) {
                         if (outputs[ch]) {
                             outputs[ch][i] = flushDenormal(outputs[ch][i] + sample * basis[p][ch]);
                         }
@@ -288,6 +294,13 @@ public:
                 depth_.advance();
             }
         }
+    }
+
+    // Preserve the original direct-DSP API: callers with a 16-channel output
+    // allocation remain safely limited to third order.
+    void processBlock(const float* const* inputs, float* const* outputs, uint32_t frames)
+    {
+        processBlock(inputs, outputs, k3OaChannels, frames);
     }
 
 private:
@@ -326,6 +339,7 @@ private:
         params.doppler = clamp(params.doppler, 0.0f, 1.0f);
         params.air = clamp(params.air, 0.0f, 1.0f);
         params.outputGainDb = clamp(params.outputGainDb, -60.0f, 12.0f);
+        params.order = std::clamp<uint32_t>(params.order, 1u, kAmbiPointEncoderMaxOrder);
         return params;
     }
 
