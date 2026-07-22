@@ -33,6 +33,9 @@ endif()
 add_executable(s3g_ambi_ray_encoder_smoke tests/ambi_ray_encoder_smoke.cpp)
 target_link_libraries(s3g_ambi_ray_encoder_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_ambi_pulsar_encoder_smoke tests/pulsar_encoder_smoke.cpp)
+target_link_libraries(s3g_ambi_pulsar_encoder_smoke PRIVATE s3g_dsp)
+
 add_executable(s3g_vox_builder_smoke tests/vox_builder_smoke.cpp)
 target_link_libraries(s3g_vox_builder_smoke PRIVATE s3g_dsp)
 
@@ -104,6 +107,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_stochastic_encoder)
   add_subdirectory(plugins/clap_ambi_wrangler_encoder)
   add_subdirectory(plugins/clap_ambi_wind_encoder)
+  add_subdirectory(plugins/clap_ambi_water_encoder)
+  add_subdirectory(plugins/clap_ambi_pulsar_encoder)
   add_subdirectory(plugins/clap_ambi_imprint)
   add_subdirectory(plugins/clap_ambi_ray_encoder)
   add_subdirectory(plugins/clap_ambi_path_encoder)

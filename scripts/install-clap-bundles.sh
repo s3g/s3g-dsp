@@ -58,6 +58,7 @@ copy_bundle "$src_root/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator.cl
 copy_bundle "$src_root/clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap"
 copy_bundle "$src_root/clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap"
 copy_bundle "$src_root/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap"
+copy_bundle "$src_root/clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder.clap"
 copy_bundle "$src_root/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap"
 copy_bundle "$src_root/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder.clap"
 copy_bundle "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"

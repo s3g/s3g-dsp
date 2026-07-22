@@ -20,7 +20,7 @@ DAWs are not support targets at this stage.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-The current macOS package installs 79 CLAP bundles, including fixed-width
+The current macOS package installs 80 CLAP bundles, including fixed-width
 variants for several processors, bus tools, and speaker-array utilities.
 All bundles build, but clap-validator conformance remains in progress for some
 older wrappers, chiefly around parameter text conversion and buffered state
@@ -173,7 +173,7 @@ Create the local pre-release zip after a complete CLAP build with:
 ./scripts/package-macos-clap-prerelease.sh
 ```
 
-The package contains 79 CLAP bundles, the VOT wavetable library, the Ambi Vox
+The package contains 80 CLAP bundles, the VOT wavetable library, the Ambi Vox
 demo voicebank, and the applicable license notices. The packaging script
 ad-hoc signs and strictly verifies every bundle by default. Set
 `S3G_CODESIGN_IDENTITY` to use a different macOS signing identity; notarization
@@ -188,6 +188,7 @@ The local smoke executables exercise shared DSP code:
 ./build/s3g_3oafx_displacement_smoke
 ./build/s3g_ambi_imprint_safety_smoke
 ./build/s3g_ambi_ray_encoder_smoke
+./build/s3g_ambi_pulsar_encoder_smoke
 ./build/s3g_psd_raw_field_smoke
 ./build/s3g_psd_raw_field_parameter_audit
 ```

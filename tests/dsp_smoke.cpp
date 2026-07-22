@@ -10,6 +10,8 @@
 #include "s3g_ambi_stochastic_presets.h"
 #include "s3g_ambi_wind_encoder.h"
 #include "s3g_ambi_wind_presets.h"
+#include "s3g_ambi_water_encoder.h"
+#include "s3g_ambi_water_presets.h"
 #include "s3g_ambi_vot_encoder.h"
 #include "s3g_ambi_vox_encoder.h"
 #include "s3g_ambi_path_encoder.h"
@@ -3016,16 +3018,19 @@ int main()
 
     auto runGroupDepthSmoke = [](auto& processor, uint32_t channels, const char* label) -> bool {
         constexpr uint32_t frames = 128u;
-        std::array<std::array<float, frames>, s3g::kAmbiGroupDepthMaxChannels> inBuffers {};
-        std::array<std::array<float, frames>, s3g::kAmbiGroupDepthMaxChannels> outBuffers {};
+        using GroupDepthBuffers = std::array<std::array<float, frames>, s3g::kAmbiGroupDepthMaxChannels>;
+        auto inBuffers = std::make_unique<GroupDepthBuffers>();
+        auto outBuffers = std::make_unique<GroupDepthBuffers>();
         std::array<float*, s3g::kAmbiGroupDepthMaxChannels> inPtrs {};
         std::array<float*, s3g::kAmbiGroupDepthMaxChannels> outPtrs {};
         for (uint32_t ch = 0; ch < channels; ++ch) {
-            inPtrs[ch] = inBuffers[ch].data();
-            outPtrs[ch] = outBuffers[ch].data();
+            inPtrs[ch] = (*inBuffers)[ch].data();
+            outPtrs[ch] = (*outBuffers)[ch].data();
             const uint32_t order = s3g::ambiUtilityOrderForChannel(ch % s3g::kAmbiGroupDepthGroupChannels);
             for (uint32_t i = 0; i < frames; ++i) {
-                inBuffers[ch][i] = std::sin(static_cast<float>(i) * 0.09f + static_cast<float>(ch) * 0.19f) * (0.04f + 0.01f * static_cast<float>(order));
+                (*inBuffers)[ch][i] = std::sin(static_cast<float>(i) * 0.09f
+                        + static_cast<float>(ch) * 0.19f)
+                    * (0.04f + 0.01f * static_cast<float>(order));
             }
         }
         s3g::AmbiGroupDepthParams params;
@@ -3048,7 +3053,7 @@ int main()
         for (uint32_t ch = 0; ch < channels; ++ch) {
             const uint32_t lane = ch % s3g::kAmbiGroupDepthGroupChannels;
             const uint32_t order = s3g::ambiUtilityOrderForChannel(lane);
-            for (float value : outBuffers[ch]) {
+            for (float value : (*outBuffers)[ch]) {
                 if (!std::isfinite(value)) {
                     std::cerr << label << " output is not finite\n";
                     return false;
@@ -5580,6 +5585,483 @@ int main()
         }
     }
 
+    constexpr std::array<uint32_t, s3g::kAmbiWaterFactoryPresetCount> expectedWaterRegimes {
+        0u, 1u, 2u, 6u, 5u, 4u, 2u, 7u, 0u, 1u, 6u, 3u, 0u, 0u, 1u, 5u
+    };
+    if (s3g::kAmbiWaterRegimeCount != 8u) {
+        std::cerr << "Ambi Water regime taxonomy is incomplete\n";
+        return 1;
+    }
+    float waterPresetPeak = 0.0f;
+    float waterMinimumCompensationDb = 100.0f;
+    float waterMaximumCompensationDb = -100.0f;
+    for (uint32_t preset = 0u; preset < s3g::kAmbiWaterFactoryPresetCount; ++preset) {
+        constexpr uint32_t frames = 512u;
+        using WaterPresetBuffers = std::array<std::array<float, frames>, s3g::kAmbiWaterMaxChannels>;
+        auto buffers = std::make_unique<WaterPresetBuffers>();
+        std::array<float*, s3g::kAmbiWaterMaxChannels> outputs {};
+        for (uint32_t ch = 0u; ch < outputs.size(); ++ch) {
+            outputs[ch] = (*buffers)[ch].data();
+        }
+
+        auto waterParams = s3g::ambiWaterFactoryPreset(preset);
+        if (waterParams.order != 3u || waterParams.outputGainDb != -6.0f) {
+            std::cerr << "Ambi Water factory preset does not default to 3OA at -6 dB\n";
+            return 1;
+        }
+        if (waterParams.regime != expectedWaterRegimes[preset]) {
+            std::cerr << "Ambi Water factory preset uses the wrong regime: " << preset
+                      << " / " << waterParams.regime << "\n";
+            return 1;
+        }
+        auto encoder = std::make_unique<s3g::AmbiWaterEncoder>();
+        encoder->prepare(48000.0);
+        encoder->setParams(waterParams);
+        encoder->beginTransition();
+        const uint32_t activeChannels = s3g::ambiChannelsForOrder(waterParams.order);
+        float presetPeak = 0.0f;
+        float mutedPeak = 0.0f;
+        float presetMaxStep = 0.0f;
+        std::array<float, s3g::kAmbiWaterMaxChannels> previousSample {};
+        std::array<double, s3g::kAmbiWaterMaxChannels> channelSum {};
+        for (uint32_t block = 0u; block < 8u; ++block) {
+            encoder->process(outputs.data(), static_cast<uint32_t>(outputs.size()), frames);
+            for (uint32_t ch = 0u; ch < outputs.size(); ++ch) {
+                for (const float value : (*buffers)[ch]) {
+                    if (!std::isfinite(value)) {
+                        std::cerr << "Ambi Water factory preset produced non-finite output\n";
+                        return 1;
+                    }
+                    if (ch < activeChannels) {
+                        presetPeak = std::max(presetPeak, std::abs(value));
+                        presetMaxStep = std::max(presetMaxStep,
+                            std::abs(value - previousSample[ch]));
+                        previousSample[ch] = value;
+                        channelSum[ch] += value;
+                    } else {
+                        mutedPeak = std::max(mutedPeak, std::abs(value));
+                    }
+                }
+            }
+        }
+        float presetDc = 0.0f;
+        for (uint32_t ch = 0u; ch < activeChannels; ++ch) {
+            presetDc = std::max(presetDc, static_cast<float>(std::abs(channelSum[ch])
+                / static_cast<double>(frames * 8u)));
+        }
+        if (presetPeak <= 0.000001f || presetPeak > 1.01f || mutedPeak > 0.000001f
+            || presetMaxStep > 0.80f || presetDc > 0.01f) {
+            std::cerr << "Ambi Water factory preset peak/order failed: "
+                      << preset << " / " << presetPeak << " / " << mutedPeak
+                      << " / " << presetMaxStep << " / " << presetDc << "\n";
+            return 1;
+        }
+        waterPresetPeak = std::max(waterPresetPeak, presetPeak);
+        waterMinimumCompensationDb = std::min(waterMinimumCompensationDb,
+            encoder->sceneCompensationDb());
+        waterMaximumCompensationDb = std::max(waterMaximumCompensationDb,
+            encoder->sceneCompensationDb());
+    }
+    if (waterMinimumCompensationDb < -10.001f || waterMinimumCompensationDb > -8.0f
+        || waterMaximumCompensationDb < 14.0f || waterMaximumCompensationDb > 15.001f) {
+        std::cerr << "Ambi Water predictive compensation range failed: "
+                  << waterMinimumCompensationDb << " / " << waterMaximumCompensationDb << "\n";
+        return 1;
+    }
+
+    float waterBubbleStressStep = 0.0f;
+    {
+        constexpr uint32_t frames = 256u;
+        constexpr uint32_t blocks = 1500u;
+        using WaterBubbleBuffers = std::array<std::array<float, frames>, s3g::kAmbiWaterMaxChannels>;
+        auto buffers = std::make_unique<WaterBubbleBuffers>();
+        std::array<float*, s3g::kAmbiWaterMaxChannels> outputs {};
+        for (uint32_t ch = 0u; ch < outputs.size(); ++ch) {
+            outputs[ch] = (*buffers)[ch].data();
+        }
+
+        auto encoder = std::make_unique<s3g::AmbiWaterEncoder>();
+        encoder->prepare(48000.0);
+        encoder->setParams(s3g::ambiWaterFactoryPreset(7u));
+        encoder->beginTransition();
+        float previous = 0.0f;
+        float peak = 0.0f;
+        for (uint32_t block = 0u; block < blocks; ++block) {
+            encoder->process(outputs.data(), static_cast<uint32_t>(outputs.size()), frames);
+            if (block < 32u) continue;
+            for (const float value : (*buffers)[0]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi Water bubble stress output is not finite\n";
+                    return 1;
+                }
+                peak = std::max(peak, std::abs(value));
+                waterBubbleStressStep = std::max(waterBubbleStressStep,
+                    std::abs(value - previous));
+                previous = value;
+            }
+        }
+        if (peak <= 0.015f || waterBubbleStressStep > 0.015f) {
+            std::cerr << "Ambi Water bubble integrator is discontinuous: "
+                      << peak << " / " << waterBubbleStressStep << "\n";
+            return 1;
+        }
+    }
+
+    float waterCaveDripsPeak = 0.0f;
+    float waterCaveDripsStep = 0.0f;
+    float waterCaveDripsRms = 0.0f;
+    {
+        constexpr uint32_t frames = 256u;
+        constexpr uint32_t blocks = 750u;
+        using WaterCaveBuffers = std::array<std::array<float, frames>, s3g::kAmbiWaterMaxChannels>;
+        auto buffers = std::make_unique<WaterCaveBuffers>();
+        std::array<float*, s3g::kAmbiWaterMaxChannels> outputs {};
+        for (uint32_t ch = 0u; ch < outputs.size(); ++ch) {
+            outputs[ch] = (*buffers)[ch].data();
+        }
+
+        auto encoder = std::make_unique<s3g::AmbiWaterEncoder>();
+        encoder->prepare(48000.0);
+        encoder->setParams(s3g::ambiWaterFactoryPreset(3u));
+        encoder->beginTransition();
+        float previous = 0.0f;
+        double energy = 0.0;
+        uint64_t sampleCount = 0u;
+        for (uint32_t block = 0u; block < blocks; ++block) {
+            encoder->process(outputs.data(), static_cast<uint32_t>(outputs.size()), frames);
+            if (block < 32u) continue;
+            for (const float value : (*buffers)[0]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Ambi Water Cave Drips output is not finite\n";
+                    return 1;
+                }
+                waterCaveDripsPeak = std::max(waterCaveDripsPeak, std::abs(value));
+                waterCaveDripsStep = std::max(waterCaveDripsStep,
+                    std::abs(value - previous));
+                energy += static_cast<double>(value) * value;
+                ++sampleCount;
+                previous = value;
+            }
+        }
+        waterCaveDripsRms = static_cast<float>(std::sqrt(energy
+            / static_cast<double>(std::max<uint64_t>(1u, sampleCount))));
+        if (waterCaveDripsPeak < 0.02f || waterCaveDripsPeak > 0.20f
+            || waterCaveDripsStep > 0.012f || waterCaveDripsRms < 0.001f
+            || waterCaveDripsPeak / waterCaveDripsRms > 30.0f) {
+            std::cerr << "Ambi Water Cave Drips level/step/crest failed: "
+                      << waterCaveDripsPeak << " / " << waterCaveDripsStep
+                      << " / " << waterCaveDripsRms << "\n";
+            return 1;
+        }
+    }
+
+    auto waterRenderDiff = [](s3g::AmbiWaterParams a, s3g::AmbiWaterParams b) {
+        constexpr uint32_t frames = 16384u;
+        constexpr uint32_t channels = 4u;
+        using WaterDiffBuffers = std::array<std::array<float, frames>, channels>;
+        auto aBuffers = std::make_unique<WaterDiffBuffers>();
+        auto bBuffers = std::make_unique<WaterDiffBuffers>();
+        std::array<float*, channels> aOutputs {};
+        std::array<float*, channels> bOutputs {};
+        for (uint32_t ch = 0u; ch < channels; ++ch) {
+            aOutputs[ch] = (*aBuffers)[ch].data();
+            bOutputs[ch] = (*bBuffers)[ch].data();
+        }
+        a.order = 1u;
+        b.order = 1u;
+        a.voices = 16u;
+        b.voices = 16u;
+        a.outputGainDb = -9.0f;
+        b.outputGainDb = -9.0f;
+        auto aEncoder = std::make_unique<s3g::AmbiWaterEncoder>();
+        auto bEncoder = std::make_unique<s3g::AmbiWaterEncoder>();
+        aEncoder->prepare(48000.0);
+        bEncoder->prepare(48000.0);
+        aEncoder->setParams(a);
+        bEncoder->setParams(b);
+        aEncoder->beginTransition();
+        bEncoder->beginTransition();
+        aEncoder->process(aOutputs.data(), channels, frames);
+        bEncoder->process(bOutputs.data(), channels, frames);
+        float diff = 0.0f;
+        float energy = 0.0f;
+        for (uint32_t ch = 0u; ch < channels; ++ch) {
+            for (uint32_t frame = 0u; frame < frames; ++frame) {
+                diff += std::abs((*aBuffers)[ch][frame] - (*bBuffers)[ch][frame]);
+                energy += std::abs((*aBuffers)[ch][frame]) + std::abs((*bBuffers)[ch][frame]);
+            }
+        }
+        return diff / std::max(0.000001f, energy);
+    };
+
+    auto waterBase = s3g::ambiWaterFactoryPreset(0u);
+    auto bodyLow = waterBase;
+    auto bodyHigh = waterBase;
+    bodyLow.water = 0.06f;
+    bodyLow.flow = 0.08f;
+    bodyLow.depth = 0.08f;
+    bodyLow.brightness = 0.12f;
+    bodyHigh.water = 0.92f;
+    bodyHigh.flow = 0.88f;
+    bodyHigh.depth = 0.88f;
+    bodyHigh.brightness = 0.86f;
+    auto eventLow = waterBase;
+    auto eventHigh = waterBase;
+    eventLow.drops = 0.0f;
+    eventLow.splash = 0.0f;
+    eventLow.bubbles = 0.0f;
+    eventLow.contact = 0.0f;
+    eventHigh.regime = 1u;
+    eventHigh.drops = 0.94f;
+    eventHigh.splash = 0.86f;
+    eventHigh.bubbles = 0.82f;
+    eventHigh.density = 0.96f;
+    eventHigh.contact = 0.82f;
+    auto waterMaterialLow = waterBase;
+    auto waterMaterialHigh = waterBase;
+    waterMaterialLow.environment = 3u;
+    waterMaterialLow.resonance = 0.06f;
+    waterMaterialLow.damping = 0.92f;
+    waterMaterialHigh.environment = 6u;
+    waterMaterialHigh.resonance = 0.88f;
+    waterMaterialHigh.damping = 0.12f;
+    waterMaterialHigh.contact = 0.88f;
+    auto waterMotionLow = waterBase;
+    auto waterMotionHigh = waterBase;
+    waterMotionLow.regime = 0u;
+    waterMotionLow.motionRateHz = 0.004f;
+    waterMotionLow.current = 0.02f;
+    waterMotionLow.eddy = 0.0f;
+    waterMotionLow.convergence = 0.0f;
+    waterMotionHigh.regime = 4u;
+    waterMotionHigh.motionRateHz = 1.2f;
+    waterMotionHigh.current = 0.94f;
+    waterMotionHigh.eddy = 0.88f;
+    waterMotionHigh.convergence = 0.96f;
+    const float waterBodyDiff = waterRenderDiff(bodyLow, bodyHigh);
+    const float waterEventDiff = waterRenderDiff(eventLow, eventHigh);
+    const float waterMaterialDiff = waterRenderDiff(waterMaterialLow, waterMaterialHigh);
+    const float waterMotionDiff = waterRenderDiff(waterMotionLow, waterMotionHigh);
+    auto dropSilent = waterBase;
+    auto dropActive = waterBase;
+    dropSilent.regime = 1u;
+    dropSilent.water = 0.12f;
+    dropSilent.flow = 0.08f;
+    dropSilent.drops = 0.0f;
+    dropSilent.splash = 0.0f;
+    dropSilent.bubbles = 0.0f;
+    dropSilent.density = 0.92f;
+    dropActive = dropSilent;
+    dropActive.drops = 0.94f;
+    dropActive.contact = 0.72f;
+    auto bubbleSilent = waterBase;
+    auto bubbleActive = waterBase;
+    bubbleSilent.regime = 7u;
+    bubbleSilent.water = 0.12f;
+    bubbleSilent.flow = 0.06f;
+    bubbleSilent.drops = 0.0f;
+    bubbleSilent.splash = 0.0f;
+    bubbleSilent.bubbles = 0.0f;
+    bubbleSilent.density = 0.92f;
+    bubbleActive = bubbleSilent;
+    bubbleActive.bubbles = 0.96f;
+    bubbleActive.resonance = 0.82f;
+    const float waterDropDiff = waterRenderDiff(dropSilent, dropActive);
+    const float waterBubbleDiff = waterRenderDiff(bubbleSilent, bubbleActive);
+    auto cavitySmall = dropSilent;
+    cavitySmall.regime = 4u;
+    cavitySmall.water = 0.04f;
+    cavitySmall.flow = 0.02f;
+    cavitySmall.aeration = 0.42f;
+    cavitySmall.drops = 0.72f;
+    cavitySmall.bubbles = 0.84f;
+    cavitySmall.density = 0.92f;
+    cavitySmall.contact = 0.36f;
+    cavitySmall.eventSize = 0.05f;
+    cavitySmall.eventDecay = 0.45f;
+    auto cavityLarge = cavitySmall;
+    cavityLarge.eventSize = 0.95f;
+    auto lengthShort = cavitySmall;
+    lengthShort.eventSize = 0.52f;
+    lengthShort.eventDecay = 0.0f;
+    auto lengthLong = lengthShort;
+    lengthLong.eventDecay = 1.0f;
+    const float waterCavityDiff = waterRenderDiff(cavitySmall, cavityLarge);
+    const float waterLengthDiff = waterRenderDiff(lengthShort, lengthLong);
+    auto riseSlow = bubbleActive;
+    riseSlow.water = 0.04f;
+    riseSlow.flow = 0.02f;
+    riseSlow.aeration = 0.20f;
+    riseSlow.density = 0.94f;
+    riseSlow.eventDecay = 0.92f;
+    riseSlow.resonance = 0.0f;
+    auto riseFast = riseSlow;
+    riseFast.resonance = 1.0f;
+    auto boundaryOpen = riseSlow;
+    boundaryOpen.environment = 0u;
+    boundaryOpen.resonance = 0.58f;
+    auto boundaryRigid = boundaryOpen;
+    boundaryRigid.environment = 6u;
+    const float waterRiseDiff = waterRenderDiff(riseSlow, riseFast);
+    const float waterBoundaryDiff = waterRenderDiff(boundaryOpen, boundaryRigid);
+    auto fineDryRain = s3g::ambiWaterFactoryPreset(1u);
+    fineDryRain.water = 0.02f;
+    fineDryRain.flow = 0.0f;
+    fineDryRain.turbulence = 0.08f;
+    fineDryRain.aeration = 0.02f;
+    fineDryRain.splash = 0.0f;
+    fineDryRain.bubbles = 0.0f;
+    fineDryRain.density = 0.92f;
+    fineDryRain.eventSize = 0.04f;
+    fineDryRain.contact = 0.58f;
+    auto coarseDryRain = fineDryRain;
+    coarseDryRain.eventSize = 0.86f;
+    const float waterDropSizeDiff = waterRenderDiff(fineDryRain, coarseDryRain);
+    auto wetImpactRain = coarseDryRain;
+    wetImpactRain.environment = 0u;
+    wetImpactRain.splash = 0.72f;
+    wetImpactRain.aeration = 0.62f;
+    wetImpactRain.depth = 0.52f;
+    wetImpactRain.contact = 0.18f;
+    const float waterDryWetDiff = waterRenderDiff(coarseDryRain, wetImpactRain);
+    if (waterBodyDiff < 0.08f || waterEventDiff < 0.02f
+        || waterMaterialDiff < 0.04f || waterMotionDiff < 0.01f
+        || waterDropDiff < 0.002f || waterBubbleDiff < 0.002f
+        || waterCavityDiff < 0.01f || waterLengthDiff < 0.005f
+        || waterRiseDiff < 0.005f || waterBoundaryDiff < 0.005f
+        || waterDropSizeDiff < 0.01f || waterDryWetDiff < 0.01f) {
+        std::cerr << "Ambi Water controls are insufficiently coupled: "
+                  << waterBodyDiff << " / " << waterEventDiff << " / "
+                  << waterMaterialDiff << " / " << waterMotionDiff << " / "
+                  << waterDropDiff << " / " << waterBubbleDiff << " / "
+                  << waterCavityDiff << " / " << waterLengthDiff << " / "
+                  << waterRiseDiff << " / " << waterBoundaryDiff << " / "
+                  << waterDropSizeDiff << " / " << waterDryWetDiff << "\n";
+        return 1;
+    }
+
+    {
+        constexpr uint32_t frames = 256u;
+        constexpr uint32_t channels = 16u;
+        using WaterStressBuffers = std::array<std::array<float, frames>, channels>;
+        auto buffers = std::make_unique<WaterStressBuffers>();
+        std::array<float*, channels> outputs {};
+        std::array<float, channels> previousLast {};
+        for (uint32_t ch = 0u; ch < channels; ++ch) outputs[ch] = (*buffers)[ch].data();
+
+        auto encoder = std::make_unique<s3g::AmbiWaterEncoder>();
+        encoder->prepare(48000.0);
+        auto extreme = s3g::ambiWaterFactoryPreset(5u);
+        extreme.order = 3u;
+        extreme.voices = 64u;
+        extreme.water = 1.0f;
+        extreme.flow = 1.0f;
+        extreme.scale = 1.0f;
+        extreme.turbulence = 1.0f;
+        extreme.aeration = 1.0f;
+        extreme.drops = 1.0f;
+        extreme.splash = 1.0f;
+        extreme.bubbles = 1.0f;
+        extreme.density = 1.0f;
+        extreme.eventSize = 1.0f;
+        extreme.eventDecay = 1.0f;
+        extreme.depth = 1.0f;
+        extreme.brightness = 1.0f;
+        extreme.resonance = 1.0f;
+        extreme.damping = 0.0f;
+        extreme.contact = 1.0f;
+        extreme.motionRateHz = 3.0f;
+        extreme.current = 1.0f;
+        extreme.slope = -1.0f;
+        extreme.eddy = 1.0f;
+        extreme.convergence = 1.0f;
+        extreme.width = 1.0f;
+        extreme.outputGainDb = 12.0f;
+        encoder->setParams(extreme);
+
+        float stressPeak = 0.0f;
+        float stressMovement = 0.0f;
+        float previousW = 0.0f;
+        const auto pointBefore = encoder->voicePoint(0u);
+        for (uint32_t block = 0u; block < 128u; ++block) {
+            extreme.regime = block % s3g::kAmbiWaterRegimeCount;
+            extreme.environment = block % s3g::kAmbiWaterEnvironmentCount;
+            encoder->setParams(extreme);
+            encoder->process(outputs.data(), channels, frames);
+            for (uint32_t ch = 0u; ch < channels; ++ch) {
+                for (const float value : (*buffers)[ch]) {
+                    if (!std::isfinite(value)) {
+                        std::cerr << "Ambi Water stress render produced non-finite output\n";
+                        return 1;
+                    }
+                    stressPeak = std::max(stressPeak, std::abs(value));
+                }
+            }
+            for (uint32_t frame = 0u; frame < frames; ++frame) {
+                stressMovement += std::abs((*buffers)[0][frame] - previousW);
+                previousW = (*buffers)[0][frame];
+            }
+        }
+        const auto pointAfter = encoder->voicePoint(0u);
+        const float pointMovement = std::abs(pointAfter.azimuthDeg - pointBefore.azimuthDeg)
+            + std::abs(pointAfter.elevationDeg - pointBefore.elevationDeg)
+            + std::abs(pointAfter.distance - pointBefore.distance);
+        if (stressPeak <= 0.0001f || stressPeak > 1.01f
+            || stressMovement < 0.1f || pointMovement < 0.1f) {
+            std::cerr << "Ambi Water stress render latched or stopped moving: "
+                      << stressPeak << " / " << stressMovement << " / " << pointMovement << "\n";
+            return 1;
+        }
+
+        for (uint32_t ch = 0u; ch < channels; ++ch) {
+            previousLast[ch] = (*buffers)[ch][frames - 1u];
+        }
+        float boundaryJump = 0.0f;
+        for (uint32_t preset = 0u; preset < s3g::kAmbiWaterFactoryPresetCount; ++preset) {
+            encoder->setParams(s3g::ambiWaterFactoryPreset(preset));
+            encoder->beginTransition();
+            encoder->process(outputs.data(), channels, frames);
+            for (uint32_t ch = 0u; ch < channels; ++ch) {
+                boundaryJump = std::max(boundaryJump,
+                    std::abs((*buffers)[ch][0] - previousLast[ch]));
+                previousLast[ch] = (*buffers)[ch][frames - 1u];
+            }
+        }
+        if (boundaryJump > 0.00001f) {
+            std::cerr << "Ambi Water preset transition is discontinuous: " << boundaryJump << "\n";
+            return 1;
+        }
+
+        auto invalid = s3g::ambiWaterFactoryPreset(0u);
+        invalid.flow = std::numeric_limits<float>::infinity();
+        invalid.resonance = std::numeric_limits<float>::quiet_NaN();
+        invalid.centerAzimuthDeg = -std::numeric_limits<float>::infinity();
+        invalid.outputGainDb = std::numeric_limits<float>::quiet_NaN();
+        encoder->setParams(invalid);
+        encoder->beginTransition();
+        float recoveryMovement = 0.0f;
+        previousW = 0.0f;
+        for (uint32_t block = 0u; block < 24u; ++block) {
+            encoder->process(outputs.data(), channels, frames);
+            for (uint32_t ch = 0u; ch < channels; ++ch) {
+                for (const float value : (*buffers)[ch]) {
+                    if (!std::isfinite(value)) {
+                        std::cerr << "Ambi Water did not recover from invalid parameter input\n";
+                        return 1;
+                    }
+                }
+            }
+            for (uint32_t frame = 0u; frame < frames; ++frame) {
+                recoveryMovement += std::abs((*buffers)[0][frame] - previousW);
+                previousW = (*buffers)[0][frame];
+            }
+        }
+        if (recoveryMovement < 0.01f) {
+            std::cerr << "Ambi Water remained latched after recovery: " << recoveryMovement << "\n";
+            return 1;
+        }
+    }
+
     std::cout << "s3g-dsp smoke test passed\n";
     std::cout << "layout speakers: " << s3g::kVirtualSpeakerCount << "\n";
     std::cout << "gain ch1 sample4: " << samples[0][3] << "\n";
@@ -5633,6 +6115,20 @@ int main()
               << seededFrequency << " / " << heldFrequency << " / " << resetFrequency << "\n";
     std::cout << "Ambi Stochastic factory presets: "
               << s3g::kAmbiStochasticFactoryPresetCount << "\n";
+    std::cout << "Ambi Water preset/control peaks: "
+              << waterPresetPeak << " / " << waterBodyDiff << " / "
+              << waterEventDiff << " / " << waterMaterialDiff << " / "
+              << waterMotionDiff << " / " << waterDropDiff << " / "
+              << waterBubbleDiff << " / " << waterCavityDiff << " / "
+              << waterLengthDiff << " / " << waterRiseDiff << " / "
+              << waterBoundaryDiff << " / " << waterDropSizeDiff << " / "
+              << waterDryWetDiff << "\n";
+    std::cout << "Ambi Water scene compensation dB: "
+              << waterMinimumCompensationDb << " / " << waterMaximumCompensationDb << "\n";
+    std::cout << "Ambi Water bubble stress step: " << waterBubbleStressStep << "\n";
+    std::cout << "Ambi Water Cave Drips peak: " << waterCaveDripsPeak << "\n";
+    std::cout << "Ambi Water Cave Drips step: " << waterCaveDripsStep << "\n";
+    std::cout << "Ambi Water Cave Drips RMS: " << waterCaveDripsRms << "\n";
     std::cout << "Ambi point encoder peak: " << pointEncoderPeak << "\n";
     std::cout << "Ambi speaker decoder peak: " << speakerDecoderPeak << "\n";
     std::cout << "Ambi object decoder peak: " << objectDecoderPeak << "\n";

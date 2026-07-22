@@ -28,6 +28,7 @@ bundles=(
   "$src_root/clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap"
   "$src_root/clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap"
   "$src_root/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap"
+  "$src_root/clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder.clap"
   "$src_root/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap"
   "$src_root/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder.clap"
   "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"
@@ -154,6 +155,7 @@ Included plugins ($bundle_count bundles):
 - s3g Ambi VOT Encoder 64
 - s3g Ambi Vox Encoder 64
 - s3g Ambi Wave Terrain Encoder 64
+- s3g Ambi Pulsar Encoder 64
 - s3g Ambi Stochastic Encoder 64
 - s3g Ambi Wrangler Encoder 64
 - s3g Ambi Imprint 64
