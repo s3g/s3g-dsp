@@ -37,7 +37,7 @@
           <li>Use <code>FREE</code> mode for a sustained terrain oscillator bank, <code>MIDI</code> mode for note-triggered voices, or <code>BOTH</code>.</li>
           <li>Use the <code>FORM</code>, <code>SKIN</code>, <code>WARP</code>, and <code>READ</code> terrain tabs to construct and interpret the surface.</li>
           <li>Shape each contour with <code>TRACE</code> and its curved or polygon-specific controls.</li>
-          <li>Compose movement with the selection <code>LAW</code>, transition <code>JOIN</code>, and time-field controls.</li>
+          <li>Compose movement with the selection <code>LAW</code>, transition <code>JOIN</code>, time-field controls, and optional <code>LISTEN</code> mode.</li>
           <li>Set <code>ORDER</code>, <code>VOICES</code>, and the AED projection controls.</li>
           <li>Follow with an ambisonic decoder or energy meter.</li>
         </ol>
@@ -72,6 +72,8 @@
         <p><code>MOTION: ROTATE</code> is the factory behavior. It keeps voices active and moves each scan region continuously with independent saw-phase <code>AZ RATE</code> and <code>EL RATE</code> clocks measured in rotations per minute. Elevation continues through the far side of the sphere with the corresponding azimuth turn at each pole, producing a full rotation instead of a sinusoidal reversal. <code>RATE DEV</code> gives every voice a deterministic rate variation. Current and next contours remain continuously crossfaded, so this motion does not require a duration/rest score.</p>
 
         <p><code>MOTION: FIELD</code> restores the composed stochastic scheduler. <code>LAW</code> chooses Random, Series, Weight, Tendency, Markov, or Walk region selection. <code>JOIN</code> chooses link, neighbor merge, or local variation. Density, duration, rest, contrast, deviation, memory, transfer, and macro duration compose activity over time. <code>XFADE</code> controls its current-to-next table interpolation.</p>
+
+        <p><code>LISTEN</code> makes the output field an internal score. Eight cube-corner virtual microphones decode the instrument's pre-output-gain <code>ACN/SN3D</code> field and retain a short directional memory. <code>FOLLOW</code> attracts region choice, Markov weighting, scan orientation, and activity toward recently active directions. <code>COUNTER</code> applies the same relationships to their antipodes. <code>BALANCE</code> favors underexposed directions. The response pulls continuously toward a target rather than teleporting a scan, and it also operates in <code>ROTATE</code> mode. <code>OFF</code> leaves the original traversal unchanged.</p>
 
         <h2 id="voice-model">Voice Model</h2>
 

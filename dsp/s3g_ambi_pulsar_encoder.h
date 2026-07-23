@@ -11,6 +11,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace s3g {
 
@@ -21,6 +22,10 @@ constexpr uint32_t kAmbiPulsarMaxGrainsPerLane = 16u;
 constexpr uint32_t kAmbiPulsarPendingPerLane = 8u;
 constexpr uint32_t kAmbiPulsarMaxOrder = 7u;
 constexpr uint32_t kAmbiPulsarMaxChannels = 64u;
+constexpr uint32_t kAmbiPulsarNeuralLobes = 4u;
+constexpr uint32_t kAmbiPulsarNeuralMaxNodes = kAmbiPulsarNeuralLobes * kNeuralSynthesisNodes;
+constexpr uint32_t kAmbiPulsarNeuralMaxClusters = kAmbiPulsarNeuralLobes * kNeuralSynthesisClusters;
+constexpr uint32_t kAmbiPulsarListeningPickups = 8u;
 constexpr float kAmbiPulsarTwoPi = 6.28318530717958647692f;
 
 enum class AmbiPulsarWaveform : uint32_t {
@@ -66,6 +71,36 @@ enum class AmbiPulsarRetriggerMode : uint32_t {
     Retrigger = 0u,
     Free = 1u,
     IdleOnly = 2u,
+};
+
+enum class AmbiPulsarNeuralSet : uint32_t {
+    Nodes16 = 0u,
+    Nodes32 = 1u,
+    Nodes64 = 2u,
+};
+
+enum class AmbiPulsarPickupSet : uint32_t {
+    Tetra4 = 0u,
+    Cube8 = 1u,
+};
+
+enum class AmbiPulsarListeningMode : uint32_t {
+    Local = 0u,
+    Cross = 1u,
+    Diffuse = 2u,
+    Roaming = 3u,
+};
+
+struct AmbiPulsarListeningParams {
+    AmbiPulsarNeuralSet neuralSet = AmbiPulsarNeuralSet::Nodes16;
+    uint32_t enabled = 0u;
+    uint32_t bypass = 0u;
+    AmbiPulsarPickupSet pickupSet = AmbiPulsarPickupSet::Tetra4;
+    AmbiPulsarListeningMode mode = AmbiPulsarListeningMode::Local;
+    float fieldReturn = 0.34f;
+    float propagationMs = 24.0f;
+    float focus = 0.72f;
+    float laneInfluence = 0.0f;
 };
 
 struct AmbiPulsarLaneParams {
@@ -140,6 +175,9 @@ struct AmbiPulsarParams {
     }};
     // Appended in state version 5 so version 1-4 raw parameter prefixes remain valid.
     AmbiPulsarMotionMode motionMode = AmbiPulsarMotionMode::Free;
+    // Appended in state version 8. Listening is disabled by default so sessions
+    // and factory states from versions 1-7 retain their exact synthesis path.
+    AmbiPulsarListeningParams listening {};
 };
 
 inline float ambiPulsarWrapSignedDeg(float value)
@@ -211,6 +249,18 @@ inline AmbiPulsarParams sanitizeAmbiPulsarParams(AmbiPulsarParams params)
     }
     params.motionMode = static_cast<AmbiPulsarMotionMode>(
         std::min<uint32_t>(static_cast<uint32_t>(params.motionMode), 4u));
+    params.listening.neuralSet = static_cast<AmbiPulsarNeuralSet>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.listening.neuralSet), 2u));
+    params.listening.enabled = std::min<uint32_t>(params.listening.enabled, 1u);
+    params.listening.bypass = std::min<uint32_t>(params.listening.bypass, 1u);
+    params.listening.pickupSet = static_cast<AmbiPulsarPickupSet>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.listening.pickupSet), 1u));
+    params.listening.mode = static_cast<AmbiPulsarListeningMode>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.listening.mode), 3u));
+    params.listening.fieldReturn = clamp(params.listening.fieldReturn, 0.0f, 1.0f);
+    params.listening.propagationMs = clamp(params.listening.propagationMs, 0.0f, 180.0f);
+    params.listening.focus = clamp(params.listening.focus, 0.0f, 1.0f);
+    params.listening.laneInfluence = clamp(params.listening.laneInfluence, 0.0f, 1.0f);
     return params;
 }
 
@@ -278,6 +328,41 @@ inline float envelope(AmbiPulsarEnvelope shape, float phase, float edge)
     }
 }
 
+class ListeningDelay {
+public:
+    void prepare(double sampleRate)
+    {
+        const uint32_t frames = std::max<uint32_t>(16u,
+            static_cast<uint32_t>(std::ceil(std::max(1.0, sampleRate) * 0.200)) + 4u);
+        data_.assign(frames, 0.0f);
+        reset();
+    }
+
+    void reset()
+    {
+        std::fill(data_.begin(), data_.end(), 0.0f);
+        write_ = 0u;
+    }
+
+    float process(float input, float delaySamples)
+    {
+        if (data_.size() < 4u) return 0.0f;
+        data_[write_] = flushDenormal(input);
+        delaySamples = clamp(delaySamples, 1.0f, static_cast<float>(data_.size() - 3u));
+        float read = static_cast<float>(write_) - delaySamples;
+        while (read < 0.0f) read += static_cast<float>(data_.size());
+        const uint32_t first = static_cast<uint32_t>(read) % static_cast<uint32_t>(data_.size());
+        const uint32_t second = (first + 1u) % static_cast<uint32_t>(data_.size());
+        const float output = lerp(data_[first], data_[second], read - std::floor(read));
+        write_ = (write_ + 1u) % static_cast<uint32_t>(data_.size());
+        return output;
+    }
+
+private:
+    std::vector<float> data_ {};
+    uint32_t write_ = 0u;
+};
+
 } // namespace ambi_pulsar_detail
 
 class AmbiPulsarEncoder {
@@ -286,7 +371,9 @@ public:
     {
         sampleRate_ = std::max(1.0, sampleRate);
         depth_.prepare(sampleRate_);
-        neuralNetwork_.prepare(sampleRate_);
+        for (auto& network : neuralNetwork_) network.prepare(sampleRate_);
+        for (auto& delay : listeningDelay_) delay.prepare(sampleRate_);
+        initializeListeningBody();
         neuralCapture_.prepare(sampleRate_);
         reset();
     }
@@ -302,6 +389,7 @@ public:
         basisTarget_ = {};
         pointEnergy_.fill(0.0f);
         pointPulse_.fill(0.0f);
+        pointEmissionCount_.fill(0u);
         pointSamples_.fill(0.0f);
         pointPosition_ = {};
         pointTarget_ = {};
@@ -314,9 +402,18 @@ public:
         freeModPhase_.fill(0.0f);
         freeModIncrement_.fill(0.0f);
         lastCarrierHz_.fill(0.0f);
+        lastTriggeredLevel_.fill(0.0f);
         laneNormalization_.fill(1.0f);
         pointActivation_.fill(0.0f);
         channelActivation_.fill(0.0f);
+        listeningPickupValue_.fill(0.0f);
+        listeningPickupEnergy_.fill(0.0f);
+        listeningPickupFilter_.fill(0.0f);
+        listeningLobeReturn_.fill(0.0f);
+        neuralLobeOutput_.fill(0.0f);
+        neuralLobeActivation_.fill(0.0f);
+        for (auto& frame : neuralFrame_) frame = {};
+        for (auto& delay : listeningDelay_) delay.reset();
         eventPhase_ = 0.0;
         emissionModPhase_ = 0.0;
         formantModPhase_ = 0.0;
@@ -340,6 +437,13 @@ public:
         smoothedAir_ = params_.air;
         smoothedDoppler_ = params_.doppler;
         smoothedNeuralParams_ = params_.neural;
+        smoothedListeningAnalysis_ = params_.listening.enabled ? 1.0f : 0.0f;
+        smoothedListeningInfluence_ = params_.listening.enabled && !params_.listening.bypass ? 1.0f : 0.0f;
+        smoothedFieldReturn_ = params_.listening.fieldReturn;
+        smoothedPropagationMs_ = params_.listening.propagationMs;
+        smoothedPickupFocus_ = params_.listening.focus;
+        smoothedLaneListening_ = params_.listening.laneInfluence;
+        listeningRoamPhase_ = 0.0;
         startupGain_ = 0.0f;
         pulsarFeedback_ = 0.0f;
         captureRequested_ = false;
@@ -356,8 +460,13 @@ public:
             initializeFreeMotionPoint(point, params_.points);
         }
         depth_.reset();
-        neuralNetwork_.setParams(params_.neural);
-        neuralNetwork_.reset();
+        for (uint32_t lobe = 0u; lobe < kAmbiPulsarNeuralLobes; ++lobe) {
+            neuralNetwork_[lobe].setParams(neuralParamsForLobe(lobe));
+            neuralNetwork_[lobe].reset();
+            neuralFrame_[lobe] = neuralNetwork_[lobe].frame();
+        }
+        const uint32_t lobes = activeNeuralLobes(params_.listening.neuralSet);
+        for (uint32_t lobe = 0u; lobe < lobes; ++lobe) neuralLobeActivation_[lobe] = 1.0f;
         neuralCapture_.reset();
         updateSpatialTargets(0.0f);
         pointPosition_ = pointTarget_;
@@ -404,18 +513,52 @@ public:
     {
         return pointPulse_[std::min<uint32_t>(index, kAmbiPulsarMaxPoints - 1u)];
     }
+    uint64_t pointEmissionCount(uint32_t index) const
+    {
+        return pointEmissionCount_[
+            std::min<uint32_t>(index, kAmbiPulsarMaxPoints - 1u)];
+    }
     float neuralNode(uint32_t node) const
     {
-        return neuralNetwork_.frame().nodes[std::min<uint32_t>(node, kNeuralSynthesisNodes - 1u)];
+        node = std::min<uint32_t>(node, kAmbiPulsarNeuralMaxNodes - 1u);
+        return neuralFrame_[node / kNeuralSynthesisNodes].nodes[node % kNeuralSynthesisNodes];
     }
     float neuralCluster(uint32_t cluster) const
     {
-        return neuralNetwork_.frame().clusters[std::min<uint32_t>(cluster, kNeuralSynthesisClusters - 1u)];
+        cluster = std::min<uint32_t>(cluster, kAmbiPulsarNeuralMaxClusters - 1u);
+        return neuralFrame_[cluster / kNeuralSynthesisClusters].clusters[cluster % kNeuralSynthesisClusters];
     }
+    uint32_t neuralNodeCount() const
+    {
+        return activeNeuralLobes(params_.listening.neuralSet) * kNeuralSynthesisNodes;
+    }
+    float listeningPickupValue(uint32_t pickup) const
+    {
+        return listeningPickupValue_[std::min<uint32_t>(pickup, kAmbiPulsarListeningPickups - 1u)];
+    }
+    float listeningPickupEnergy(uint32_t pickup) const
+    {
+        return listeningPickupEnergy_[std::min<uint32_t>(pickup, kAmbiPulsarListeningPickups - 1u)];
+    }
+    AmbiPulsarPoint listeningPickupDirection(uint32_t pickup) const
+    {
+        pickup = std::min<uint32_t>(pickup, kAmbiPulsarListeningPickups - 1u);
+        return listeningPickupDirection_[pickup];
+    }
+    float listeningLobeReturn(uint32_t lobe) const
+    {
+        return listeningLobeReturn_[std::min<uint32_t>(lobe, kAmbiPulsarNeuralLobes - 1u)];
+    }
+    float listeningAnalysisInfluence() const { return smoothedListeningAnalysis_; }
+    float listeningInfluence() const { return smoothedListeningInfluence_; }
     uint32_t neuralCaptureGeneration() const { return neuralCapture_.generation(); }
     float lastTriggeredCarrierHz(uint32_t lane) const
     {
         return lastCarrierHz_[std::min<uint32_t>(lane, kAmbiPulsarLanes - 1u)];
+    }
+    float lastTriggeredLevel(uint32_t lane) const
+    {
+        return lastTriggeredLevel_[std::min<uint32_t>(lane, kAmbiPulsarLanes - 1u)];
     }
     float neuralCaptureProgress() const
     {
@@ -469,8 +612,62 @@ public:
             smoothedNeuralParams_.selfModulation += (params_.neural.selfModulation - smoothedNeuralParams_.selfModulation) * parameterCoefficient;
             smoothedNeuralParams_.audioFeedback += (params_.neural.audioFeedback - smoothedNeuralParams_.audioFeedback) * parameterCoefficient;
             smoothedNeuralParams_.seed = params_.neural.seed;
-            neuralNetwork_.setParams(smoothedNeuralParams_);
-            const NeuralSynthesisFrame neuralFrame = neuralNetwork_.process(pulsarFeedback_);
+            const float listeningAnalysisTarget = params_.listening.enabled ? 1.0f : 0.0f;
+            const float listeningReturnTarget
+                = params_.listening.enabled && !params_.listening.bypass ? 1.0f : 0.0f;
+            smoothedListeningAnalysis_ += (listeningAnalysisTarget - smoothedListeningAnalysis_)
+                * parameterCoefficient;
+            smoothedListeningInfluence_ += (listeningReturnTarget - smoothedListeningInfluence_)
+                * parameterCoefficient;
+            smoothedFieldReturn_ += (params_.listening.fieldReturn - smoothedFieldReturn_) * parameterCoefficient;
+            smoothedPropagationMs_ += (params_.listening.propagationMs - smoothedPropagationMs_) * parameterCoefficient;
+            smoothedPickupFocus_ += (params_.listening.focus - smoothedPickupFocus_) * parameterCoefficient;
+            smoothedLaneListening_ += (params_.listening.laneInfluence - smoothedLaneListening_) * parameterCoefficient;
+
+            const uint32_t activeLobes = activeNeuralLobes(params_.listening.neuralSet);
+            for (uint32_t lobe = 0u; lobe < kAmbiPulsarNeuralLobes; ++lobe) {
+                const float target = lobe < activeLobes ? 1.0f : 0.0f;
+                neuralLobeActivation_[lobe] += (target - neuralLobeActivation_[lobe]) * parameterCoefficient;
+            }
+            const auto previousLobes = neuralLobeOutput_;
+            static constexpr std::array<float, 16> kLobeMatrix {{
+                 0.00f,  0.31f, -0.17f,  0.10f,
+                -0.28f,  0.00f,  0.23f,  0.13f,
+                 0.16f, -0.26f,  0.00f,  0.29f,
+                -0.12f,  0.19f, -0.25f,  0.00f,
+            }};
+            NeuralSynthesisFrame neuralFrame {};
+            float neuralFrameWeight = 0.0f;
+            for (uint32_t lobe = 0u; lobe < kAmbiPulsarNeuralLobes; ++lobe) {
+                NeuralSynthesisParams lobeParams = smoothedNeuralParams_;
+                lobeParams.seed = neuralSeedForLobe(smoothedNeuralParams_.seed, lobe);
+                neuralNetwork_[lobe].setParams(lobeParams);
+                float cross = 0.0f;
+                for (uint32_t source = 0u; source < kAmbiPulsarNeuralLobes; ++source) {
+                    cross += previousLobes[source] * kLobeMatrix[lobe * kAmbiPulsarNeuralLobes + source]
+                        * neuralLobeActivation_[source];
+                }
+                const float legacyReturn = pulsarFeedback_ * smoothedNeuralParams_.audioFeedback;
+                const float fieldReturn = listeningLobeReturn_[lobe] * smoothedFieldReturn_
+                    * smoothedListeningInfluence_;
+                const float lobeReturn = cross * smoothedNeuralParams_.coupling * 0.18f;
+                neuralFrame_[lobe] = neuralNetwork_[lobe].processWeightedExternal(
+                    legacyReturn + fieldReturn + lobeReturn);
+                neuralLobeOutput_[lobe] = neuralFrame_[lobe].output * neuralLobeActivation_[lobe];
+                const float weight = neuralLobeActivation_[lobe];
+                neuralFrameWeight += weight;
+                for (uint32_t node = 0u; node < kNeuralSynthesisNodes; ++node) {
+                    neuralFrame.nodes[node] += neuralFrame_[lobe].nodes[node] * weight;
+                }
+                for (uint32_t cluster = 0u; cluster < kNeuralSynthesisClusters; ++cluster) {
+                    neuralFrame.clusters[cluster] += neuralFrame_[lobe].clusters[cluster] * weight;
+                }
+                neuralFrame.output += neuralFrame_[lobe].output * weight;
+            }
+            const float inverseNeuralWeight = 1.0f / std::max(1.0f, neuralFrameWeight);
+            for (float& node : neuralFrame.nodes) node *= inverseNeuralWeight;
+            for (float& cluster : neuralFrame.clusters) cluster *= inverseNeuralWeight;
+            neuralFrame.output *= inverseNeuralWeight;
             neuralCapture_.push(neuralFrame);
             if ((captureRequested_ && neuralCapture_.ready())
                 || (autoCapturePending_ && neuralCapture_.ready())) {
@@ -550,6 +747,7 @@ public:
             }
             const float spatialCoefficient = lerp(0.22f, 0.0025f, smoothedSpatialFollow_);
             float feedbackSum = 0.0f;
+            std::array<float, kAmbiPulsarMaxChannels> listeningHoaFrame {};
             for (uint32_t pointIndex = 0u; pointIndex < kAmbiPulsarMaxPoints; ++pointIndex) {
                 pointPosition_[pointIndex].azimuthDeg = ambiPulsarWrapSignedDeg(
                     pointPosition_[pointIndex].azimuthDeg
@@ -565,10 +763,13 @@ public:
                 }
 
                 float mono = renderPoint(pointIndex);
+                const uint32_t neuralLobe = neuralLobeForPoint(pointIndex, activeLobes);
                 const uint32_t cluster = pointIndex % kNeuralSynthesisClusters;
-                const uint32_t node = cluster * kNeuralNodesPerCluster + ((pointIndex * 3u + 1u) % kNeuralNodesPerCluster);
-                const float neuralVoice = std::tanh(neuralFrame.clusters[cluster] * 0.72f
-                    + neuralFrame.nodes[node] * 0.46f);
+                const uint32_t node = cluster * kNeuralNodesPerCluster
+                    + ((pointIndex * 3u + 1u) % kNeuralNodesPerCluster);
+                const float neuralVoice = std::tanh(neuralFrame_[neuralLobe].clusters[cluster] * 0.72f
+                    + neuralFrame_[neuralLobe].nodes[node] * 0.46f)
+                    * neuralLobeActivation_[neuralLobe];
                 mono += neuralVoice * smoothedNeuralLevel_ * 0.62f
                     / std::sqrt(std::max(1.0f, activePointWeight));
                 mono *= pointActivation_[pointIndex];
@@ -583,6 +784,9 @@ public:
                 pointEnergy_[pointIndex] += (std::fabs(mono) - pointEnergy_[pointIndex]) * 0.025f;
 
                 for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+                    if (channel < desiredAmbiChannels) {
+                        listeningHoaFrame[channel] += mono * basisCurrent_[pointIndex][channel];
+                    }
                     if (outputs[channel]) {
                         outputs[channel][frame] = flushDenormal(outputs[channel][frame]
                             + mono * smoothedGain_ * startupGain_ * channelActivation_[channel]
@@ -599,11 +803,255 @@ public:
             }
             pulsarFeedback_ = std::tanh(feedbackSum * 0.42f
                 / std::sqrt(static_cast<float>(params_.points)));
+            updateListeningReturns(listeningHoaFrame, desiredAmbiChannels);
             depth_.advance();
         }
     }
 
 private:
+    static uint32_t activeNeuralLobes(AmbiPulsarNeuralSet set)
+    {
+        switch (set) {
+        case AmbiPulsarNeuralSet::Nodes64: return 4u;
+        case AmbiPulsarNeuralSet::Nodes32: return 2u;
+        case AmbiPulsarNeuralSet::Nodes16:
+        default: return 1u;
+        }
+    }
+
+    static uint32_t neuralSeedForLobe(uint32_t seed, uint32_t lobe)
+    {
+        if (lobe == 0u) return seed ? seed : 1u;
+        uint32_t result = (seed ? seed : 1u) ^ (0x9e3779b9u * (lobe + 1u));
+        result ^= result >> 16u;
+        result *= 0x7feb352du;
+        result ^= result >> 15u;
+        return result ? result : lobe + 1u;
+    }
+
+    NeuralSynthesisParams neuralParamsForLobe(uint32_t lobe) const
+    {
+        NeuralSynthesisParams result = params_.neural;
+        result.seed = neuralSeedForLobe(result.seed, lobe);
+        return result;
+    }
+
+    void initializeListeningBody()
+    {
+        constexpr float kInverseRootThree = 0.5773502691896258f;
+        static constexpr std::array<Vec3, kAmbiPulsarListeningPickups> kCube {{
+            {  kInverseRootThree,  kInverseRootThree,  kInverseRootThree },
+            { -kInverseRootThree, -kInverseRootThree,  kInverseRootThree },
+            { -kInverseRootThree,  kInverseRootThree, -kInverseRootThree },
+            {  kInverseRootThree, -kInverseRootThree, -kInverseRootThree },
+            { -kInverseRootThree, -kInverseRootThree, -kInverseRootThree },
+            {  kInverseRootThree,  kInverseRootThree, -kInverseRootThree },
+            {  kInverseRootThree, -kInverseRootThree,  kInverseRootThree },
+            { -kInverseRootThree,  kInverseRootThree,  kInverseRootThree },
+        }};
+        for (uint32_t pickup = 0u; pickup < kAmbiPulsarListeningPickups; ++pickup) {
+            listeningDirectionVector_[pickup] = kCube[pickup];
+            listeningPickupBasis_[pickup] = acnSn3dBasis7(kCube[pickup]);
+            listeningPickupDirection_[pickup] = {
+                std::atan2(kCube[pickup].y, kCube[pickup].x) * 180.0f / kPi,
+                std::asin(clamp(kCube[pickup].z, -1.0f, 1.0f)) * 180.0f / kPi,
+                1.0f
+            };
+        }
+    }
+
+    uint32_t neuralLobeForPoint(uint32_t point, uint32_t activeLobes) const
+    {
+        if (activeLobes <= 1u) return 0u;
+        point = std::min<uint32_t>(point, kAmbiPulsarMaxPoints - 1u);
+        const Vec3 direction = directionFromAed(pointPosition_[point].azimuthDeg,
+            pointPosition_[point].elevationDeg);
+        if (activeLobes == 2u) return direction.x >= 0.0f ? 1u : 0u;
+        uint32_t best = 0u;
+        float bestDot = -2.0f;
+        for (uint32_t lobe = 0u; lobe < 4u; ++lobe) {
+            const Vec3 anchor = listeningDirectionVector_[lobe];
+            const float value = direction.x * anchor.x + direction.y * anchor.y + direction.z * anchor.z;
+            if (value > bestDot) {
+                bestDot = value;
+                best = lobe;
+            }
+        }
+        return best;
+    }
+
+    float laneListeningSignal(uint32_t lane) const
+    {
+        lane = std::min<uint32_t>(lane, kAmbiPulsarLanes - 1u);
+        const uint32_t activeLobes = activeNeuralLobes(params_.listening.neuralSet);
+        if (activeLobes <= 1u) return listeningLobeReturn_[0];
+        if (lane == 0u) return listeningLobeReturn_[0];
+        if (lane == 1u) {
+            return activeLobes == 2u ? listeningLobeReturn_[1]
+                : (listeningLobeReturn_[1] + listeningLobeReturn_[2]) * 0.5f;
+        }
+        return listeningLobeReturn_[activeLobes - 1u];
+    }
+
+    float listeningResponseAmount() const
+    {
+        return clamp(smoothedLaneListening_ * smoothedListeningAnalysis_, 0.0f, 1.0f);
+    }
+
+    float listeningFieldActivity() const
+    {
+        const uint32_t pickupCount =
+            params_.listening.pickupSet == AmbiPulsarPickupSet::Cube8 ? 8u : 4u;
+        float total = 0.0f;
+        for (uint32_t pickup = 0u; pickup < pickupCount; ++pickup) {
+            total += listeningPickupEnergy_[pickup];
+        }
+        return clamp(total / static_cast<float>(pickupCount) * 2.4f, 0.0f, 1.0f);
+    }
+
+    float laneListeningEnergy(uint32_t lane) const
+    {
+        lane = std::min<uint32_t>(lane, kAmbiPulsarLanes - 1u);
+        const uint32_t pickupCount =
+            params_.listening.pickupSet == AmbiPulsarPickupSet::Cube8 ? 8u : 4u;
+        static constexpr std::array<std::array<uint32_t, 4>, kAmbiPulsarLanes> kGroups {{
+            {{ 0u, 0u, 4u, 4u }},
+            {{ 1u, 2u, 5u, 6u }},
+            {{ 3u, 3u, 7u, 7u }},
+        }};
+        float total = 0.0f;
+        uint32_t count = 0u;
+        for (uint32_t index : kGroups[lane]) {
+            if (index < pickupCount) {
+                total += listeningPickupEnergy_[index];
+                ++count;
+            }
+        }
+        return count > 0u ? clamp(total / static_cast<float>(count) * 2.0f, 0.0f, 1.0f)
+                          : 0.0f;
+    }
+
+    float pointListeningPreference(uint32_t point) const
+    {
+        point = std::min<uint32_t>(point, params_.points - 1u);
+        const Vec3 direction = directionFromAed(pointPosition_[point].azimuthDeg,
+            pointPosition_[point].elevationDeg);
+        const uint32_t pickupCount =
+            params_.listening.pickupSet == AmbiPulsarPickupSet::Cube8 ? 8u : 4u;
+        float weighted = 0.0f;
+        float norm = 0.0f;
+        for (uint32_t pickup = 0u; pickup < pickupCount; ++pickup) {
+            const Vec3 ear = listeningDirectionVector_[pickup];
+            const float dot = std::max(0.0f,
+                direction.x * ear.x + direction.y * ear.y + direction.z * ear.z);
+            const float kernel = 0.06f + dot * dot * dot * dot;
+            weighted += listeningPickupEnergy_[pickup] * kernel;
+            norm += kernel;
+        }
+        return norm > 0.0f ? clamp(weighted / norm * 2.4f, 0.0f, 1.0f) : 0.0f;
+    }
+
+    uint32_t listeningPointChoice(uint32_t fallback)
+    {
+        const float response = listeningResponseAmount();
+        const float activity = listeningFieldActivity();
+        if (response <= 0.0001f || activity <= 0.0001f
+            || randomUnit() > response * (0.25f + activity * 0.65f)) {
+            return fallback;
+        }
+        float total = 0.0f;
+        std::array<float, kAmbiPulsarMaxPoints> weights {};
+        for (uint32_t point = 0u; point < params_.points; ++point) {
+            weights[point] = 0.08f + pointListeningPreference(point) * 2.4f;
+            total += weights[point];
+        }
+        float target = randomUnit() * std::max(0.0001f, total);
+        for (uint32_t point = 0u; point < params_.points; ++point) {
+            target -= weights[point];
+            if (target <= 0.0f) return point;
+        }
+        return fallback;
+    }
+
+    void updateListeningReturns(
+        const std::array<float, kAmbiPulsarMaxChannels>& hoaFrame, uint32_t channels)
+    {
+        channels = std::min<uint32_t>(channels, kAmbiPulsarMaxChannels);
+        const uint32_t pickupCount = params_.listening.pickupSet == AmbiPulsarPickupSet::Cube8 ? 8u : 4u;
+        const float energyCoefficient = 1.0f
+            - std::exp(-1.0f / std::max(1.0f, static_cast<float>(sampleRate_ * 0.080)));
+        for (uint32_t pickup = 0u; pickup < kAmbiPulsarListeningPickups; ++pickup) {
+            float directional = 0.0f;
+            float norm = 0.0f;
+            for (uint32_t channel = 0u; channel < channels; ++channel) {
+                directional += hoaFrame[channel] * listeningPickupBasis_[pickup][channel];
+                norm += listeningPickupBasis_[pickup][channel] * listeningPickupBasis_[pickup][channel];
+            }
+            directional /= std::max(1.0f, norm);
+            const float omni = channels > 0u ? hoaFrame[0] : 0.0f;
+            const float heard = lerp(omni, directional, smoothedPickupFocus_)
+                * smoothedListeningAnalysis_;
+            const float spread = kAmbiPulsarListeningPickups > 1u
+                ? static_cast<float>(pickup) / static_cast<float>(kAmbiPulsarListeningPickups - 1u) : 0.0f;
+            const float delayMs = smoothedPropagationMs_ * (0.18f + spread * 0.82f);
+            const float cutoffHz = lerp(16000.0f, 1800.0f,
+                clamp(delayMs / 180.0f, 0.0f, 1.0f));
+            const float pole = std::exp(-2.0f * kPi * cutoffHz / static_cast<float>(sampleRate_));
+            listeningPickupFilter_[pickup] = flushDenormal(
+                heard * (1.0f - pole) + listeningPickupFilter_[pickup] * pole);
+            const float delayed = listeningDelay_[pickup].process(listeningPickupFilter_[pickup],
+                1.0f + delayMs * static_cast<float>(sampleRate_) * 0.001f);
+            const float value = std::tanh(delayed * 1.6f);
+            listeningPickupValue_[pickup] = value;
+            const float energyTarget = pickup < pickupCount ? std::fabs(value) : 0.0f;
+            listeningPickupEnergy_[pickup] += (energyTarget - listeningPickupEnergy_[pickup])
+                * energyCoefficient;
+        }
+
+        if (params_.listening.enabled && params_.listening.mode == AmbiPulsarListeningMode::Roaming) {
+            listeningRoamPhase_ += 0.037 / sampleRate_;
+            listeningRoamPhase_ -= std::floor(listeningRoamPhase_);
+        }
+        for (uint32_t lobe = 0u; lobe < kAmbiPulsarNeuralLobes; ++lobe) {
+            float mixed = 0.0f;
+            switch (params_.listening.mode) {
+            case AmbiPulsarListeningMode::Cross: {
+                const uint32_t primary = (lobe + 1u) % pickupCount;
+                mixed = listeningPickupValue_[primary];
+                if (pickupCount == 8u) mixed = mixed * 0.78f
+                    + listeningPickupValue_[(primary + 4u) % 8u] * 0.22f;
+                break;
+            }
+            case AmbiPulsarListeningMode::Diffuse:
+                for (uint32_t pickup = 0u; pickup < pickupCount; ++pickup) {
+                    const float sign = ((pickup + lobe) % 3u) == 0u ? -0.62f : 1.0f;
+                    mixed += listeningPickupValue_[pickup] * sign;
+                }
+                mixed /= static_cast<float>(pickupCount);
+                break;
+            case AmbiPulsarListeningMode::Roaming: {
+                const float position = static_cast<float>(listeningRoamPhase_) * pickupCount
+                    + static_cast<float>(lobe) * static_cast<float>(pickupCount)
+                        / static_cast<float>(kAmbiPulsarNeuralLobes);
+                const uint32_t first = static_cast<uint32_t>(std::floor(position)) % pickupCount;
+                const uint32_t second = (first + 1u) % pickupCount;
+                mixed = lerp(listeningPickupValue_[first], listeningPickupValue_[second],
+                    position - std::floor(position));
+                break;
+            }
+            case AmbiPulsarListeningMode::Local:
+            default: {
+                const uint32_t primary = lobe % pickupCount;
+                mixed = listeningPickupValue_[primary];
+                if (pickupCount == 8u) mixed = mixed * 0.78f
+                    + listeningPickupValue_[primary + 4u] * 0.22f;
+                break;
+            }
+            }
+            listeningLobeReturn_[lobe] = std::tanh(mixed * 1.2f);
+        }
+    }
+
     struct Grain {
         bool active = false;
         uint32_t point = 0u;
@@ -761,7 +1209,11 @@ private:
         const bool burst = params_.burstOff == 0u || cycle == 0u || (index % cycle) < params_.burstOn;
         const bool sieve = params_.sieveModulo <= 1u
             || (index % params_.sieveModulo) == params_.sieveResidue;
-        return burst && sieve && randomUnit() <= params_.probability;
+        const float response = listeningResponseAmount();
+        const float responseScale = lerp(1.0f,
+            0.68f + listeningFieldActivity() * 0.90f, response);
+        const float probability = clamp(params_.probability * responseScale, 0.0f, 1.0f);
+        return burst && sieve && randomUnit() <= probability;
     }
 
     void scheduleEvent(float effectiveEmission, float ageSamples)
@@ -776,7 +1228,9 @@ private:
             pointIndex = std::min<uint32_t>(params_.points - 1u,
                 static_cast<uint32_t>(randomUnit() * static_cast<float>(params_.points)));
         }
+        pointIndex = listeningPointChoice(pointIndex);
         pointPulse_[pointIndex] = 1.0f;
+        ++pointEmissionCount_[pointIndex];
         pointAzimuthScatter_[pointIndex] = randomSigned() * params_.spatialScatter * 48.0f;
         pointElevationScatter_[pointIndex] = randomSigned() * params_.spatialScatter * 24.0f;
         for (uint32_t lane = 0u; lane < kAmbiPulsarLanes; ++lane) {
@@ -842,8 +1296,13 @@ private:
         const auto& laneParams = params_.lanes[lane];
         const float duration = clamp(laneParams.overlap * periodSamples, 2.0f, static_cast<float>(sampleRate_ * 2.0));
         const float modPhase = static_cast<float>(formantModPhase_) * kAmbiPulsarTwoPi + static_cast<float>(lane) * 2.094395102f;
-        const float semitones = std::sin(modPhase) * params_.formantModDepthSemitones
+        float semitones = std::sin(modPhase) * params_.formantModDepthSemitones
             + randomSigned() * params_.formantScatterSemitones;
+        static constexpr std::array<float, kAmbiPulsarLanes> kListeningRangeSemitones {{
+            2.5f, 5.0f, 9.0f
+        }};
+        semitones += laneListeningSignal(lane) * smoothedLaneListening_
+            * smoothedListeningAnalysis_ * kListeningRangeSemitones[lane];
         const float schedulerHz = static_cast<float>(sampleRate_) / std::max(1.0f, periodSamples);
         float baseCarrierHz = smoothedFormant_[lane];
         if (advanced.tuneMode == AmbiPulsarTuneMode::Ratio) {
@@ -869,7 +1328,10 @@ private:
             : selected->ageSamples * selected->phaseIncrement) + phaseScatter, 1.0f);
         if (selected->phase < 0.0f) selected->phase += 1.0f;
         selected->modPhase = std::fmod(selected->ageSamples * selected->modPhaseIncrement, 1.0f);
-        selected->level = laneParams.level;
+        const float levelResponse = lerp(1.0f,
+            0.62f + laneListeningEnergy(lane) * 0.96f, listeningResponseAmount());
+        selected->level = laneParams.level * clamp(levelResponse, 0.45f, 1.58f);
+        lastTriggeredLevel_[lane] = selected->level;
         selected->waveform = laneParams.waveform;
         selected->envelope = params_.envelope;
         selected->quality = params_.quality;
@@ -1249,8 +1711,20 @@ private:
     double sampleRate_ = 48000.0;
     AmbiPulsarParams params_ {};
     AmbiEncoderDepthProcessor<kAmbiPulsarMaxPoints> depth_ {};
-    NeuralSynthesisNetwork neuralNetwork_ {};
+    std::array<NeuralSynthesisNetwork, kAmbiPulsarNeuralLobes> neuralNetwork_ {};
+    std::array<NeuralSynthesisFrame, kAmbiPulsarNeuralLobes> neuralFrame_ {};
+    std::array<float, kAmbiPulsarNeuralLobes> neuralLobeOutput_ {};
+    std::array<float, kAmbiPulsarNeuralLobes> neuralLobeActivation_ {};
     NeuralWaveformCapture neuralCapture_ {};
+    std::array<ambi_pulsar_detail::ListeningDelay, kAmbiPulsarListeningPickups> listeningDelay_ {};
+    std::array<std::array<float, kAmbiPulsarMaxChannels>, kAmbiPulsarListeningPickups>
+        listeningPickupBasis_ {};
+    std::array<Vec3, kAmbiPulsarListeningPickups> listeningDirectionVector_ {};
+    std::array<AmbiPulsarPoint, kAmbiPulsarListeningPickups> listeningPickupDirection_ {};
+    std::array<float, kAmbiPulsarListeningPickups> listeningPickupValue_ {};
+    std::array<float, kAmbiPulsarListeningPickups> listeningPickupEnergy_ {};
+    std::array<float, kAmbiPulsarListeningPickups> listeningPickupFilter_ {};
+    std::array<float, kAmbiPulsarNeuralLobes> listeningLobeReturn_ {};
     std::array<std::array<Grain, kAmbiPulsarMaxGrainsPerLane>, kAmbiPulsarLanes> grains_ {};
     std::array<std::array<bool, kAmbiPulsarPendingPerLane>, kAmbiPulsarLanes> pending_ {};
     std::array<std::array<double, kAmbiPulsarPendingPerLane>, kAmbiPulsarLanes> pendingSamples_ {};
@@ -1262,6 +1736,7 @@ private:
     std::array<float, kAmbiPulsarLanes> freeModPhase_ {};
     std::array<float, kAmbiPulsarLanes> freeModIncrement_ {};
     std::array<float, kAmbiPulsarLanes> lastCarrierHz_ {};
+    std::array<float, kAmbiPulsarLanes> lastTriggeredLevel_ {};
     std::array<float, kAmbiPulsarLanes> laneNormalization_ {};
     std::array<float, kAmbiPulsarMaxPoints> pointActivation_ {};
     std::array<float, kAmbiPulsarMaxChannels> channelActivation_ {};
@@ -1270,6 +1745,7 @@ private:
     std::array<float, kAmbiPulsarMaxPoints> pointSamples_ {};
     std::array<float, kAmbiPulsarMaxPoints> pointEnergy_ {};
     std::array<float, kAmbiPulsarMaxPoints> pointPulse_ {};
+    std::array<uint64_t, kAmbiPulsarMaxPoints> pointEmissionCount_ {};
     std::array<float, kAmbiPulsarMaxPoints> pointAzimuthScatter_ {};
     std::array<float, kAmbiPulsarMaxPoints> pointElevationScatter_ {};
     std::array<Vec3, kAmbiPulsarMaxPoints> freeMotionVelocity_ {};
@@ -1295,6 +1771,13 @@ private:
     float smoothedSpatialFollow_ = 0.72f;
     float smoothedAir_ = 0.10f;
     float smoothedDoppler_ = 0.0f;
+    float smoothedListeningAnalysis_ = 0.0f;
+    float smoothedListeningInfluence_ = 0.0f;
+    float smoothedFieldReturn_ = 0.34f;
+    float smoothedPropagationMs_ = 24.0f;
+    float smoothedPickupFocus_ = 0.72f;
+    float smoothedLaneListening_ = 0.0f;
+    double listeningRoamPhase_ = 0.0;
     NeuralSynthesisParams smoothedNeuralParams_ {};
     float startupGain_ = 0.0f;
     uint64_t eventIndex_ = 0u;

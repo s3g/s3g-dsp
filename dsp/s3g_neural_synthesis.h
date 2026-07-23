@@ -101,6 +101,14 @@ public:
 
     NeuralSynthesisFrame process(float externalAudio = 0.0f)
     {
+        return processWeightedExternal(externalAudio * params_.audioFeedback);
+    }
+
+    // Processes an already weighted external signal. This keeps the original
+    // mono feedback parameter behavior intact while allowing spatial
+    // instruments to add independently scaled, directional auditory returns.
+    NeuralSynthesisFrame processWeightedExternal(float weightedExternalAudio)
+    {
         previousOutput_ = output_;
         const auto previousClusters = clusterOutput_;
 
@@ -108,8 +116,8 @@ public:
         controlCounter_ = (controlCounter_ + 1u) % kControlInterval;
 
         const float hpPole = std::exp(-2.0f * kPi * 12.0f / static_cast<float>(sampleRate_));
-        const float externalHp = externalAudio - externalInput_ + hpPole * externalHighpass_;
-        externalInput_ = externalAudio;
+        const float externalHp = weightedExternalAudio - externalInput_ + hpPole * externalHighpass_;
+        externalInput_ = weightedExternalAudio;
         externalHighpass_ = flushDenormal(externalHp);
         const float cyberneticInput = std::tanh((externalHighpass_ * 0.72f + networkFeedback_ * 0.38f) * 1.6f);
 
@@ -159,7 +167,7 @@ public:
                 const float feedback = ring * params_.feedback * (1.0f + weightWander * 0.32f);
                 const float hierarchyDrive = cluster == 0u ? 0.0f
                     : previousClusters[cluster - 1u] * params_.hierarchy * 0.62f;
-                const float audioDrive = cyberneticInput * params_.audioFeedback * kAudioSigns[node] * 0.58f;
+                const float audioDrive = cyberneticInput * kAudioSigns[node] * 0.58f;
                 const float summed = bias + feedback * parentGate + cross * params_.coupling + hierarchyDrive + audioDrive;
                 const float target = std::tanh(summed * params_.drive);
                 state_[node] = flushDenormal(state_[node] + (target - state_[node]) * alpha);

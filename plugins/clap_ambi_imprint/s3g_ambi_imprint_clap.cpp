@@ -19,6 +19,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -36,7 +37,7 @@ constexpr uint32_t kChannels = 64u;
 constexpr uint32_t kGuiWidth = 900u;
 constexpr uint32_t kGuiHeight = 480u;
 constexpr uint32_t kStateMagic = 0x5347494du;
-constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kStateVersion = 2u;
 constexpr uint32_t kGuiStateMagic = 0x53474956u;
 constexpr uint32_t kGuiStateVersion = 1u;
 constexpr uint32_t kMaximumStateJsonBytes = 2u * 1024u * 1024u;
@@ -51,6 +52,31 @@ enum ParamId : clap_id {
     kParamWidth = 4,
     kParamOutput = 5,
     kParamBypass = 6,
+    kParamFieldListen = 7,
+};
+
+struct AmbiImprintParamsV1 {
+    uint32_t order;
+    float mix;
+    float focus;
+    float width;
+    float outputGainDb;
+    bool bypass;
+};
+
+static_assert(sizeof(AmbiImprintParamsV1)
+    == offsetof(s3g::AmbiImprintParams, fieldListenMode));
+
+struct SavedStatePrefix {
+    uint32_t magic;
+    uint32_t version;
+};
+
+struct SavedStateHeaderV1 {
+    uint32_t magic;
+    uint32_t version;
+    AmbiImprintParamsV1 params;
+    uint32_t jsonBytes;
 };
 
 struct SavedStateHeader {
@@ -59,6 +85,9 @@ struct SavedStateHeader {
     s3g::AmbiImprintParams params {};
     uint32_t jsonBytes = 0u;
 };
+
+static_assert(sizeof(SavedStateHeaderV1)
+    == offsetof(SavedStateHeader, jsonBytes));
 
 struct SavedGuiStateTail {
     uint32_t magic = kGuiStateMagic;
@@ -76,6 +105,8 @@ struct GuiProfileSnapshot {
     float sourceY = 0.0f;
     float sourceZ = 0.0f;
     float rt60 = 0.0f;
+    float listenEnvelope = 0.0f;
+    float listenWeight = 1.0f;
     uint32_t reflections = 0u;
 };
 
@@ -141,6 +172,8 @@ struct Plugin {
     std::atomic<bool> active { false };
     std::atomic<bool> hasImprint { false };
     std::atomic<float> outputPeak { 0.0f };
+    std::array<std::atomic<float>, s3g::kAmbiImprintMaxProfiles> listenEnvelope {};
+    std::array<std::atomic<float>, s3g::kAmbiImprintMaxProfiles> listenWeight {};
     double sampleRate = 48000.0;
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -187,6 +220,10 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kParamWidth: plugin.params.width = static_cast<float>(value); break;
     case kParamOutput: plugin.params.outputGainDb = static_cast<float>(value); break;
     case kParamBypass: plugin.params.bypass = value >= 0.5; break;
+    case kParamFieldListen:
+        plugin.params.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 3u));
+        break;
     default: return;
     }
     plugin.params = s3g::sanitizeAmbiImprintParams(plugin.params);
@@ -202,6 +239,8 @@ double getParam(const Plugin& plugin, clap_id id)
     case kParamWidth: return plugin.params.width;
     case kParamOutput: return plugin.params.outputGainDb;
     case kParamBypass: return plugin.params.bypass ? 1.0 : 0.0;
+    case kParamFieldListen:
+        return static_cast<uint32_t>(plugin.params.fieldListenMode);
     default: return 0.0;
     }
 }
@@ -274,6 +313,10 @@ GuiSnapshot guiSnapshot(Plugin& plugin)
         target.sourceY = source.sourceYMetres;
         target.sourceZ = source.sourceZMetres;
         target.reflections = static_cast<uint32_t>(source.earlyReflections.size());
+        target.listenEnvelope =
+            plugin.listenEnvelope[i].load(std::memory_order_relaxed);
+        target.listenWeight =
+            plugin.listenWeight[i].load(std::memory_order_relaxed);
         float rt60 = 0.0f;
         for (float value : source.late.rt60SecondsByBand) rt60 += value;
         target.rt60 = rt60 / static_cast<float>(s3g::kAmbiImprintBands);
@@ -618,6 +661,10 @@ void reset(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
     if (auto* processor = instance->activeProcessor.load(std::memory_order_acquire)) processor->reset();
     instance->outputPeak.store(0.0f, std::memory_order_relaxed);
+    for (uint32_t profile = 0u; profile < s3g::kAmbiImprintMaxProfiles; ++profile) {
+        instance->listenEnvelope[profile].store(0.0f, std::memory_order_relaxed);
+        instance->listenWeight[profile].store(1.0f, std::memory_order_relaxed);
+    }
 }
 
 void readParamEvents(Plugin& plugin, const clap_input_events_t* inputEvents)
@@ -646,6 +693,12 @@ clap_process_status processTyped(Plugin& plugin,
     if (!processor || !inputData || !outputData) return CLAP_PROCESS_CONTINUE;
     processor->setParams(plugin.params);
     processor->process(inputData, input.channel_count, outputData, output.channel_count, frames);
+    for (uint32_t profile = 0u; profile < s3g::kAmbiImprintMaxProfiles; ++profile) {
+        plugin.listenEnvelope[profile].store(
+            processor->fieldListenEnvelope(profile), std::memory_order_relaxed);
+        plugin.listenWeight[profile].store(
+            processor->fieldListenWeight(profile), std::memory_order_relaxed);
+    }
     float peak = 0.0f;
     const uint32_t channels = std::min<uint32_t>(output.channel_count, kChannels);
     for (uint32_t channel = 0; channel < channels; ++channel) {
@@ -688,7 +741,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
-uint32_t paramsCount(const clap_plugin_t*) { return 6u; }
+uint32_t paramsCount(const clap_plugin_t*) { return 7u; }
 
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
@@ -702,13 +755,14 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     case 3: info->id = kParamWidth; std::strncpy(info->name, "Wet order width", sizeof(info->name)); info->min_value = 0; info->max_value = 1.5; info->default_value = 1; return true;
     case 4: info->id = kParamOutput; std::strncpy(info->name, "Output gain", sizeof(info->name)); info->min_value = -60; info->max_value = 12; info->default_value = 0; return true;
     case 5: info->id = kParamBypass; info->flags |= CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_BYPASS; std::strncpy(info->name, "Bypass", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0; return true;
+    case 6: info->id = kParamFieldListen; info->flags |= CLAP_PARAM_IS_STEPPED; std::strncpy(info->name, "Field listen", sizeof(info->name)); info->min_value = 0; info->max_value = 3; info->default_value = 0; return true;
     default: return false;
     }
 }
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
 {
-    if (!value || paramId < kParamOrder || paramId > kParamBypass) return false;
+    if (!value || paramId < kParamOrder || paramId > kParamFieldListen) return false;
     *value = getParam(*self(plugin), paramId);
     return true;
 }
@@ -723,19 +777,32 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
     case kParamWidth: std::snprintf(display, size, "%.2f", value); return true;
     case kParamOutput: std::snprintf(display, size, "%+.1f dB", value); return true;
     case kParamBypass: std::snprintf(display, size, "%s", value >= 0.5 ? "On" : "Off"); return true;
+    case kParamFieldListen: {
+        static constexpr const char* names[] { "Off", "Follow", "Counter", "Balance" };
+        const uint32_t index = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 0u, 3u);
+        std::snprintf(display, size, "%s", names[index]);
+        return true;
+    }
     default: return false;
     }
 }
 
 bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* display, double* value)
 {
-    if (!display || !value || paramId < kParamOrder || paramId > kParamBypass) return false;
+    if (!display || !value || paramId < kParamOrder || paramId > kParamFieldListen) return false;
     switch (paramId) {
     case kParamMix:
     case kParamFocus: *value = std::atof(display) * 0.01; break;
     case kParamBypass:
         *value = (display[0] == 'O' || display[0] == 'o')
             && (display[1] == 'N' || display[1] == 'n') ? 1.0 : 0.0;
+        break;
+    case kParamFieldListen:
+        if (display[0] == 'F' || display[0] == 'f') *value = 1.0;
+        else if (display[0] == 'C' || display[0] == 'c') *value = 2.0;
+        else if (display[0] == 'B' || display[0] == 'b') *value = 3.0;
+        else *value = std::atof(display);
         break;
     default: *value = std::atof(display); break;
     }
@@ -799,11 +866,36 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
-    SavedStateHeader header;
-    if (!streamReadAll(stream, &header, sizeof(header))
-        || header.magic != kStateMagic
-        || header.version != kStateVersion
-        || header.jsonBytes > kMaximumStateJsonBytes) return false;
+    SavedStatePrefix prefix {};
+    if (!streamReadAll(stream, &prefix, sizeof(prefix))
+        || prefix.magic != kStateMagic) return false;
+
+    SavedStateHeader header {};
+    header.magic = prefix.magic;
+    header.version = prefix.version;
+    if (prefix.version == 1u) {
+        SavedStateHeaderV1 legacy {};
+        legacy.magic = prefix.magic;
+        legacy.version = prefix.version;
+        auto* bytes = reinterpret_cast<uint8_t*>(&legacy);
+        if (!streamReadAll(stream, bytes + sizeof(prefix),
+                sizeof(legacy) - sizeof(prefix))) return false;
+        header.params.order = legacy.params.order;
+        header.params.mix = legacy.params.mix;
+        header.params.focus = legacy.params.focus;
+        header.params.width = legacy.params.width;
+        header.params.outputGainDb = legacy.params.outputGainDb;
+        header.params.bypass = legacy.params.bypass;
+        header.params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+        header.jsonBytes = legacy.jsonBytes;
+    } else if (prefix.version == kStateVersion) {
+        auto* bytes = reinterpret_cast<uint8_t*>(&header);
+        if (!streamReadAll(stream, bytes + sizeof(prefix),
+                sizeof(header) - sizeof(prefix))) return false;
+    } else {
+        return false;
+    }
+    if (header.jsonBytes > kMaximumStateJsonBytes) return false;
     auto* instance = self(plugin);
     instance->params = s3g::sanitizeAmbiImprintParams(header.params);
     if (header.jsonBytes > 0u) {
@@ -1308,16 +1400,39 @@ NSRect imprintAtlasMenuRect()
     }
 
     const NSPoint listener = projectPoint(snapshot.listenerX, snapshot.listenerY, snapshot.listenerZ);
+    float maximumListenEnvelope = 0.0f;
+    for (uint32_t i = 0u; i < snapshot.profileCount; ++i) {
+        maximumListenEnvelope =
+            std::max(maximumListenEnvelope, snapshot.profiles[i].listenEnvelope);
+    }
+    const bool listening =
+        _plugin->params.fieldListenMode != s3g::AmbiFieldListenMode::Off;
     for (uint32_t i = 0; i < snapshot.profileCount; ++i) {
         const auto& profile = snapshot.profiles[i];
         const NSPoint source = projectPoint(profile.sourceX, profile.sourceY, profile.sourceZ);
-        [s3g::clap_gui::color(0x6a6a6a, 0.42) setStroke];
-        [NSBezierPath strokeLineFromPoint:listener toPoint:source];
+        const float heard = maximumListenEnvelope > 1.0e-7f
+            ? std::clamp(profile.listenEnvelope / maximumListenEnvelope, 0.0f, 1.0f)
+            : 0.0f;
+        NSBezierPath* listenPath = [NSBezierPath bezierPath];
+        [listenPath moveToPoint:listener];
+        [listenPath lineToPoint:source];
+        [s3g::clap_gui::color(
+            listening ? 0x9aa9ad : 0x6a6a6a,
+            listening ? 0.24 + heard * 0.62 : 0.42) setStroke];
+        [listenPath setLineWidth:listening ? 0.8 + heard * 1.35 : 1.0];
+        [listenPath stroke];
+        const CGFloat halfSize = listening ? 4.5 + heard * 2.5 : 5.0;
         [imprintPointColor(profile.azimuthDeg, profile.elevationDeg) setFill];
-        NSRectFill(NSMakeRect(source.x - 5.0, source.y - 5.0, 10.0, 10.0));
+        NSRectFill(NSMakeRect(
+            source.x - halfSize, source.y - halfSize, halfSize * 2.0, halfSize * 2.0));
         [s3g::clap_gui::color(0x111111, 0.8) setStroke];
-        NSFrameRect(NSMakeRect(source.x - 5.0, source.y - 5.0, 10.0, 10.0));
-        [[NSString stringWithFormat:@"%u", i + 1u] drawAtPoint:NSMakePoint(source.x + 8.0, source.y - 7.0) withAttributes:attrs];
+        NSFrameRect(NSMakeRect(
+            source.x - halfSize, source.y - halfSize, halfSize * 2.0, halfSize * 2.0));
+        NSString* label = listening
+            ? [NSString stringWithFormat:@"%u  %.2fx", i + 1u, profile.listenWeight]
+            : [NSString stringWithFormat:@"%u", i + 1u];
+        [label drawAtPoint:NSMakePoint(source.x + halfSize + 3.0, source.y - 7.0)
+            withAttributes:attrs];
     }
     [s3g::clap_gui::color(0xb0b0b0) setFill];
     NSRectFill(NSMakeRect(listener.x - 4.0, listener.y - 4.0, 8.0, 8.0));
@@ -1389,6 +1504,15 @@ NSRect imprintAtlasMenuRect()
     [self drawSlider:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", _plugin->params.mix * 100.0f] norm:_plugin->params.mix y:240 attrs:value style:style];
     [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%.0f%%", _plugin->params.focus * 100.0f] norm:_plugin->params.focus y:266 attrs:value style:style];
     [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", _plugin->params.width] norm:_plugin->params.width / 1.5f y:292 attrs:value style:style];
+    [@"LST" drawAtPoint:NSMakePoint(634, 320) withAttributes:text];
+    static NSString* listenLabels[] = { @"OFF", @"FOL", @"CTR", @"BAL" };
+    const uint32_t listenMode =
+        static_cast<uint32_t>(_plugin->params.fieldListenMode);
+    for (uint32_t mode = 0u; mode < 4u; ++mode) {
+        const NSRect button = NSMakeRect(718 + mode * 38, 316, 35, 18);
+        s3g::clap_gui::drawHeaderButton(
+            button, processPanel, listenLabels[mode], mode == listenMode, value, style);
+    }
 
     s3g::clap_gui::drawPanelFrame(outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, outputPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, 21, text, style);
@@ -1480,6 +1604,12 @@ NSRect imprintAtlasMenuRect()
         _orderMenuOpen = true;
         [self setNeedsDisplay:YES];
         return;
+    }
+    for (uint32_t mode = 0u; mode < 4u; ++mode) {
+        if (NSPointInRect(point, NSMakeRect(718 + mode * 38, 316, 35, 18))) {
+            [self setParam:kParamFieldListen value:mode];
+            return;
+        }
     }
     if (NSPointInRect(point, NSMakeRect(718, 423, 64, 18))) {
         [self setParam:kParamBypass value:_plugin->params.bypass ? 0.0 : 1.0];
@@ -1643,7 +1773,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.1.0",
+    "0.2.0",
     kPluginDesc,
     features
 };
@@ -1656,6 +1786,9 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     instance->host = host;
     instance->hostTail = host && host->get_extension ? static_cast<const clap_host_tail_t*>(host->get_extension(host, CLAP_EXT_TAIL)) : nullptr;
     instance->params = s3g::sanitizeAmbiImprintParams(instance->params);
+    for (auto& weight : instance->listenWeight) {
+        weight.store(1.0f, std::memory_order_relaxed);
+    }
     instance->plugin.desc = &descriptor;
     instance->plugin.plugin_data = instance;
     instance->plugin.init = init;

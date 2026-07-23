@@ -28,7 +28,7 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiWaveTerrainMaxChannels;
-constexpr uint32_t kStateVersion = 4u;
+constexpr uint32_t kStateVersion = 5u;
 
 constexpr clap_id kOrderParamId = 1;
 constexpr clap_id kVoicesParamId = 2;
@@ -90,6 +90,7 @@ constexpr clap_id kPolygonSidesParamId = 57;
 constexpr clap_id kPolygonRoundParamId = 58;
 constexpr clap_id kPolygonStarParamId = 59;
 constexpr clap_id kPolygonSkewParamId = 60;
+constexpr clap_id kFieldListenModeParamId = 61;
 
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; bool stepped; };
 constexpr ParamDef kParams[] {
@@ -153,6 +154,7 @@ constexpr ParamDef kParams[] {
     { kPolygonRoundParamId, "Polygon Round", 0.0, 1.0, 0.18, false },
     { kPolygonStarParamId, "Polygon Star", 0.0, 1.0, 0.0, false },
     { kPolygonSkewParamId, "Polygon Skew", -1.0, 1.0, 0.0, false },
+    { kFieldListenModeParamId, "Field Listener", 0.0, 3.0, 0.0, true },
 };
 
 struct Plugin {
@@ -289,6 +291,8 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kPolygonRoundParamId: v.polygonRound = static_cast<float>(value); break;
     case kPolygonStarParamId: v.polygonStar = static_cast<float>(value); break;
     case kPolygonSkewParamId: v.polygonSkew = static_cast<float>(value); break;
+    case kFieldListenModeParamId: v.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(
+        static_cast<uint32_t>(std::lround(value))); break;
     default: break;
     }
     p.engine.setParams(v);
@@ -503,6 +507,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kPolygonRoundParamId: *value = p.polygonRound; break;
     case kPolygonStarParamId: *value = p.polygonStar; break;
     case kPolygonSkewParamId: *value = p.polygonSkew; break;
+    case kFieldListenModeParamId: *value = static_cast<uint32_t>(p.fieldListenMode); break;
     default: return false;
     }
     return true;
@@ -521,6 +526,11 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kPitchModeParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainPitchModeName(static_cast<s3g::AmbiWaveTerrainPitchMode>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kPitchScaleParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainPitchScaleName(static_cast<s3g::AmbiWaveTerrainPitchScale>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kMotionModeParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainMotionModeName(static_cast<s3g::AmbiWaveTerrainMotionMode>(static_cast<uint32_t>(std::lround(value)))));
+    else if (id == kFieldListenModeParamId) {
+        static constexpr const char* names[] { "OFF", "FOLLOW", "COUNTER", "BALANCE" };
+        std::snprintf(display, size, "%s", names[std::min<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 3u)]);
+    }
     else if (id == kAzimuthRateParamId || id == kElevationRateParamId) std::snprintf(display, size, "%+.2f rpm", value);
     else if (id == kTerrainOrientationParamId || id == kTerrainTwistParamId) std::snprintf(display, size, "%+.0f deg", value * 180.0);
     else if (id == kPolygonSkewParamId) std::snprintf(display, size, "%+.0f%%", value * 100.0);
@@ -555,6 +565,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* text, doubl
     static constexpr const char* pitch[] { "NOTE", "TRAVEL" };
     static constexpr const char* scale[] { "FREE", "CHROM", "MAJOR", "MINOR", "PENTA", "WHOLE", "HARM MIN" };
     static constexpr const char* motion[] { "FIELD", "ROTATE" };
+    static constexpr const char* listener[] { "OFF", "FOLLOW", "COUNTER", "BALANCE" };
 
     const char* const* names = nullptr;
     uint32_t count = 0u;
@@ -568,6 +579,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* text, doubl
     else if (id == kPitchModeParamId) { names = pitch; count = static_cast<uint32_t>(std::size(pitch)); }
     else if (id == kPitchScaleParamId) { names = scale; count = static_cast<uint32_t>(std::size(scale)); }
     else if (id == kMotionModeParamId) { names = motion; count = static_cast<uint32_t>(std::size(motion)); }
+    else if (id == kFieldListenModeParamId) { names = listener; count = static_cast<uint32_t>(std::size(listener)); }
     if (names) {
         for (uint32_t index = 0u; index < count; ++index) {
             if (std::strcmp(text, names[index]) == 0) {
@@ -619,6 +631,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else if (version == 3u) {
         constexpr size_t legacyBytes = offsetof(s3g::AmbiWaveTerrainParams, terrainForm);
         if (!readExact(stream, &loaded, legacyBytes)) return false;
+    } else if (version == 4u) {
+        constexpr size_t legacyBytes = offsetof(s3g::AmbiWaveTerrainParams, fieldListenMode);
+        if (!readExact(stream, &loaded, legacyBytes)) return false;
     } else if (version == kStateVersion) {
         if (!readExact(stream, &loaded, sizeof(loaded))) return false;
     } else return false;
@@ -653,7 +668,7 @@ constexpr GuiRow kGuiRows[] {
     { "ATTACK", kAttackParamId, 630, 544, false }, { "DECAY", kDecayParamId, 630, 570, false },
     { "SUSTAIN", kSustainParamId, 630, 596, false }, { "RELEASE", kReleaseParamId, 630, 622, false },
     { "PITCH", kPitchModeParamId, 630, 706, true }, { "SCALE", kPitchScaleParamId, 630, 732, true },
-    { "OUT", kOutputParamId, 630, 758, false },
+    { "OUT", kOutputParamId, 630, 758, false }, { "LISTEN", kFieldListenModeParamId, 630, 784, true },
     { "TRACE", kTraceParamId, 896, 78, true }, { "RADIUS", kScanRadiusParamId, 896, 104, false },
     { "ASPECT", kScanAspectParamId, 896, 130, false }, { "ROTATE", kScanRotationParamId, 896, 156, false },
     { "WARP", kScanWarpParamId, 896, 182, false }, { "XFADE", kTableXfadeParamId, 896, 234, false },
@@ -1020,6 +1035,7 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int
     static NSString* pitch[] = { @"NOTE", @"TRAVEL" };
     static NSString* scale[] = { @"FREE", @"CHROM", @"MAJOR", @"MINOR", @"PENTA", @"WHOLE", @"HARM MIN" };
     static NSString* motion[] = { @"FIELD", @"ROTATE" };
+    static NSString* listener[] = { @"OFF", @"FOLLOW", @"COUNTER", @"BALANCE" };
     double value = 0.0; paramsGetValue(&_plugin->plugin, param, &value); *selected = static_cast<int>(std::lround(value));
     if (param == kModeParamId) { *count = 3; return mode; }
     if (param == kOrderParamId) { *count = 7; *selected -= 1; return order; }
@@ -1031,6 +1047,7 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int
     if (param == kPitchModeParamId) { *count = 2; return pitch; }
     if (param == kPitchScaleParamId) { *count = 7; return scale; }
     if (param == kMotionModeParamId) { *count = 2; return motion; }
+    if (param == kFieldListenModeParamId) { *count = 4; return listener; }
     *count = 3; return join;
 }
 - (NSRect)openMenuRect
@@ -1188,8 +1205,8 @@ const clap_plugin_descriptor_t descriptor {
     "s3g Ambi Wave Terrain Encoder 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.4.1-pre",
-    "64-voice stochastic wave-terrain instrument with direct HOA ACN/SN3D output.",
+    "", "", "0.5.0-pre",
+    "64-voice stochastic wave-terrain instrument with an optional ambisonic field listener.",
     features
 };
 

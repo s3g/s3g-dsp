@@ -38,7 +38,7 @@
           <li>Choose <code>FREE</code>, <code>MIDI</code>, or <code>BOTH</code>.</li>
           <li>Set the ambisonic <code>ORDER</code> and active voice count.</li>
           <li>Choose a generator selection law and transition method.</li>
-          <li>Shape the random walks, time-fields, topology, and AED projection.</li>
+          <li>Shape the random walks, time-fields, topology, AED projection, and optional field <code>LISTEN</code> mode.</li>
           <li>Follow the instrument with an ambisonic decoder or meter.</li>
         </ol>
 
@@ -69,7 +69,7 @@
 
         <h3 id="user-presets">User Presets</h3>
 
-        <p><code>SAVE</code> writes the current state as a portable <code>.s3gstochastic</code> file. <code>LOAD</code> restores one through the macOS file chooser. The file contains every synthesis, selection, time-field, envelope, topology, projection, ambisonic-order, and output setting.</p>
+        <p><code>SAVE</code> writes the current state as a portable <code>.s3gstochastic</code> file. <code>LOAD</code> restores one through the macOS file chooser. The file contains every synthesis, selection, time-field, envelope, topology, projection, listener, ambisonic-order, and output setting.</p>
 
         <p>User presets are versioned JSON documents and can be moved between systems or kept with a project archive. Changing a control after loading or selecting a preset marks the current state as <code>CUSTOM</code>. REAPER project state continues to store the complete plugin state independently.</p>
 
@@ -131,6 +131,12 @@
         <p>The autonomous engine also moves through metastable macro scenes. A scene slowly changes four internal relationships together: activity, event duration, pressure-curve mutation, and cascade strength. <code>MACRO</code> sets the approximate time spent in each region. Higher <code>MEM</code> makes the changes smaller and more persistent; lower values allow wider movement between contrasting states.</p>
 
         <p>In <code>MIDI</code> mode, note gates replace the autonomous time-fields. <code>BOTH</code> allows either source to open a voice.</p>
+
+        <h2 id="field-listener">Field Listener</h2>
+
+        <p><code>LISTEN</code> decodes the instrument's pre-output-gain <code>ACN/SN3D</code> field through eight cube-corner virtual microphones. Their smoothed directional energy becomes an internal score rather than an audio return. <code>FOLLOW</code> attracts traversal and event probability toward active directions, <code>COUNTER</code> seeks their antipodes, and <code>BALANCE</code> favors quieter regions. <code>OFF</code> preserves the original autonomous system.</p>
+
+        <p>The score biases Weight and Tendency centers, Markov probabilities, the second-order selection walk, topology travel, and time-field activity. It does not replace any selected law: it supplies directional pressure inside that law. Because the listener reads the full ambisonic field after all voices have been encoded, activity in one region can redirect subsequent choices elsewhere in the topology.</p>
 
         <h2 id="topology">Topology and Projection</h2>
 
@@ -221,6 +227,7 @@
           <a href="#selection">Generator Selection</a>
           <a href="#time-fields">Time-Fields</a>
           <a href="#macro-scenes">Macro Scenes</a>
+          <a href="#field-listener">Field Listener</a>
           <a href="#topology">Topology and Projection</a>
           <a href="#pressure-display">Pressure Display</a>
           <a href="#routing">Order and Routing</a>

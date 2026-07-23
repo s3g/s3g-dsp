@@ -62,9 +62,11 @@
 
         <p><code>PLACE</code> selects <code>OPEN</code>, <code>SUBMERGED</code>, <code>CAVE</code>, <code>CISTERN</code>, <code>CHANNEL</code>, or <code>PIPE</code>. <code>ENV RETURN</code>, <code>ENV SIZE</code>, <code>ENV DECAY</code>, and <code>ENV DAMPING</code> mix and shape the encoded environment response independently of the contact material.</p>
 
+        <p><code>LISTEN</code> lets the generated ambisonic environment affect what happens next. Eight virtual directional pickups decode the combined direct water field and Environment Field return; their slowly changing energy envelopes give the synthesis loop directional memory. <code>FOLLOW</code> draws current and eddies toward accumulated energy, <code>COUNTER</code> steers toward its opposite, and <code>BALANCE</code> favors less occupied directions. The same directional score also biases turbulence and droplet, splash, and bubble event density. Motion is interpolated continuously rather than jumping between pickup directions. <code>OFF</code>—the factory-preset default—keeps the original open-loop behavior while the pickups continue warming their memory.</p>
+
         <h2 id="presets">Presets</h2>
 
-        <p>The 16 factory presets include creeks, rain surfaces, spillways, drips, slosh, vortices, waterfalls, bubbles, rapids, runoff, storms, and still water. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3gwater</code> presets, with the default folder at <code>~/Music/s3g/Presets/Ambi Water Encoder/</code>.</p>
+        <p>The 16 factory presets include creeks, rain surfaces, spillways, drips, slosh, vortices, waterfalls, bubbles, rapids, runoff, storms, and still water. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3gwater</code> presets, including the listener mode, with the default folder at <code>~/Music/s3g/Presets/Ambi Water Encoder/</code>. <code>RANDOM</code> also chooses a listener mode, so a randomized scene may immediately become self-steering.</p>
 
         <h2 id="routing">Order and Routing</h2>
 

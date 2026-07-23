@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
@@ -87,6 +88,7 @@ struct AmbiImprintParams {
     float width = 1.0f;
     float outputGainDb = 0.0f;
     bool bypass = false;
+    AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
 };
 
 inline AmbiImprintParams sanitizeAmbiImprintParams(AmbiImprintParams params)
@@ -96,6 +98,7 @@ inline AmbiImprintParams sanitizeAmbiImprintParams(AmbiImprintParams params)
     params.focus = clamp(params.focus, 0.0f, 1.0f);
     params.width = clamp(params.width, 0.0f, 1.5f);
     params.outputGainDb = clamp(params.outputGainDb, -60.0f, 12.0f);
+    params.fieldListenMode = sanitizeAmbiFieldListenMode(params.fieldListenMode);
     return params;
 }
 
@@ -495,6 +498,14 @@ public:
             if (!runtime.convolver->prepare(kernel)) return false;
             profiles_.push_back(std::move(runtime));
         }
+        std::array<Vec3, kAmbiImprintMaxProfiles> listenerDirections {};
+        for (uint32_t profile = 0u; profile < profiles_.size(); ++profile) {
+            listenerDirections[profile] = profiles_[profile].direction;
+        }
+        fieldListener_.prepare(sampleRate_);
+        fieldListener_.setMemorySeconds(0.42f);
+        fieldListener_.setDirections(
+            listenerDirections.data(), static_cast<uint32_t>(profiles_.size()));
         const uint32_t maximumResponseFrames = static_cast<uint32_t>(std::ceil(
             std::min(descriptor_.durationSeconds, kAmbiImprintMaxKernelSeconds) * sampleRate_));
         for (uint32_t sourceIndex = 0; sourceIndex < profiles_.size(); ++sourceIndex) {
@@ -548,11 +559,19 @@ public:
         wetSafetyGain_ = 1.0f;
         inputSafetyRelease_ = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.080));
         wetSafetyRelease_ = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.120));
+        listenWeightCoefficient_ = 1.0f - std::exp(
+            -1.0f / static_cast<float>(sampleRate_ * 0.52));
+        listenModeCoefficient_ = 1.0f - std::exp(
+            -1.0f / static_cast<float>(sampleRate_ * 0.045));
         params_ = sanitizeAmbiImprintParams(params_);
         currentMix_ = params_.mix;
         currentFocus_ = params_.focus;
         currentWidth_ = params_.width;
         currentOutput_ = dbToGain(params_.outputGainDb);
+        currentListenMix_ =
+            params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 1.0f;
+        currentProfileWeight_.fill(1.0f);
+        targetProfileWeight_.fill(1.0f);
         return S3G_HAS_AMBI_IMPRINT_FFT != 0;
     }
 
@@ -564,6 +583,16 @@ public:
     uint32_t tailFrames() const { return static_cast<uint32_t>(std::ceil(std::min(descriptor_.durationSeconds, kAmbiImprintMaxKernelSeconds) * sampleRate_)) + latencyFrames(); }
     float directTapScale() const { return directTapScale_; }
     float reflectionTapScale() const { return reflectionTapScale_; }
+    float fieldListenEnvelope(uint32_t profile) const
+    {
+        return profile < profiles_.size() ? fieldListener_.envelope(profile) : 0.0f;
+    }
+    float fieldListenWeight(uint32_t profile) const
+    {
+        return profile < profiles_.size()
+            ? lerp(1.0f, currentProfileWeight_[profile], currentListenMix_)
+            : 1.0f;
+    }
 
     void reset()
     {
@@ -575,12 +604,17 @@ public:
         for (auto& channel : dryDelay_) std::fill(channel.begin(), channel.end(), 0.0f);
         dryPosition_ = 0u;
         for (auto& filter : inputHighpass_) filter.reset();
+        fieldListener_.reset();
         inputSafetyGain_ = 1.0f;
         wetSafetyGain_ = 1.0f;
         currentMix_ = params_.mix;
         currentFocus_ = params_.focus;
         currentWidth_ = params_.width;
         currentOutput_ = dbToGain(params_.outputGainDb);
+        currentListenMix_ =
+            params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 1.0f;
+        currentProfileWeight_.fill(1.0f);
+        targetProfileWeight_.fill(1.0f);
     }
 
     template <typename Sample>
@@ -594,6 +628,15 @@ public:
             currentFocus_ += (params_.focus - currentFocus_) * 0.0018f;
             currentWidth_ += (params_.width - currentWidth_) * 0.0018f;
             currentOutput_ += (dbToGain(params_.outputGainDb) - currentOutput_) * 0.0018f;
+            const float listenTarget =
+                params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 1.0f;
+            currentListenMix_ +=
+                (listenTarget - currentListenMix_) * listenModeCoefficient_;
+            for (uint32_t profile = 0u; profile < profiles_.size(); ++profile) {
+                currentProfileWeight_[profile] +=
+                    (targetProfileWeight_[profile] - currentProfileWeight_[profile])
+                    * listenWeightCoefficient_;
+            }
             wet_.fill(0.0f);
             wetBins_.fill(0.0f);
 
@@ -632,7 +675,9 @@ public:
                 wetBins_[sourceIndex] += profile.convolver->processSample(beam) * profile.weight;
             }
             for (uint32_t outputProfile = 0; outputProfile < profiles_.size(); ++outputProfile) {
-                const float response = wetBins_[outputProfile];
+                const float listenWeight = lerp(
+                    1.0f, currentProfileWeight_[outputProfile], currentListenMix_);
+                const float response = wetBins_[outputProfile] * listenWeight;
                 for (uint32_t channel = 0; channel < activeChannels; ++channel) wet_[channel] += response * profiles_[outputProfile].basis[channel];
             }
 
@@ -645,6 +690,8 @@ public:
                 wetShaped_[channel] = value;
                 wetPeak = std::max(wetPeak, std::abs(value));
             }
+            fieldListener_.processFrame(wetShaped_.data(), activeChannels);
+            updateFieldListenTargets();
             const float wetSafetyTarget = wetPeak > kAmbiImprintSafetyCeiling
                 ? kAmbiImprintSafetyCeiling / wetPeak
                 : 1.0f;
@@ -673,6 +720,73 @@ public:
     }
 
 private:
+    void updateFieldListenTargets()
+    {
+        const uint32_t count = static_cast<uint32_t>(profiles_.size());
+        if (params_.fieldListenMode == AmbiFieldListenMode::Off || count == 0u) {
+            targetProfileWeight_.fill(1.0f);
+            return;
+        }
+
+        std::array<float, kAmbiImprintMaxProfiles> energy {};
+        float mean = 0.0f;
+        for (uint32_t profile = 0u; profile < count; ++profile) {
+            energy[profile] = std::max(0.0f, fieldListener_.envelope(profile));
+            mean += energy[profile];
+        }
+        mean /= static_cast<float>(count);
+        if (mean < 1.0e-7f) {
+            targetProfileWeight_.fill(1.0f);
+            return;
+        }
+
+        std::array<float, kAmbiImprintMaxProfiles> raw {};
+        float baseTotal = 0.0f;
+        float weightedTotal = 0.0f;
+        for (uint32_t profile = 0u; profile < count; ++profile) {
+            float observed = energy[profile];
+            float polarity = 1.0f;
+            float strength = 0.64f;
+            if (params_.fieldListenMode == AmbiFieldListenMode::Counter) {
+                float opposing = 0.0f;
+                float opposingWeight = 0.0f;
+                const Vec3 direction = profiles_[profile].direction;
+                for (uint32_t other = 0u; other < count; ++other) {
+                    const Vec3 candidate = profiles_[other].direction;
+                    const float antipodal = std::max(0.0f,
+                        -(direction.x * candidate.x
+                            + direction.y * candidate.y
+                            + direction.z * candidate.z));
+                    const float kernel = antipodal * antipodal * antipodal * antipodal;
+                    opposing += energy[other] * kernel;
+                    opposingWeight += kernel;
+                }
+                observed = opposingWeight > 1.0e-4f
+                    ? opposing / opposingWeight
+                    : std::max(0.0f, mean * 2.0f - energy[profile]);
+                strength = 0.72f;
+            } else if (params_.fieldListenMode == AmbiFieldListenMode::Balance) {
+                polarity = -1.0f;
+                strength = 0.54f;
+            }
+            const float contrast = clamp(
+                (observed - mean) / std::max(1.0e-6f, mean), -1.0f, 1.0f);
+            raw[profile] = std::exp(clamp(
+                polarity * strength * contrast, -0.58f, 0.58f));
+            baseTotal += profiles_[profile].weight;
+            weightedTotal += profiles_[profile].weight * raw[profile];
+        }
+        const float normalization = baseTotal
+            / std::max(1.0e-6f, weightedTotal);
+        for (uint32_t profile = 0u; profile < count; ++profile) {
+            targetProfileWeight_[profile] =
+                clamp(raw[profile] * normalization, 0.40f, 2.50f);
+        }
+        for (uint32_t profile = count; profile < kAmbiImprintMaxProfiles; ++profile) {
+            targetProfileWeight_[profile] = 1.0f;
+        }
+    }
+
     struct SparseTap {
         uint32_t delayFrames = 0u;
         uint32_t outputProfile = 0u;
@@ -698,6 +812,9 @@ private:
     std::array<float, kAmbiImprintChannels> wet_ {};
     std::array<float, kAmbiImprintChannels> wetShaped_ {};
     std::array<float, kAmbiImprintMaxProfiles> wetBins_ {};
+    AmbiFieldListener fieldListener_ {};
+    std::array<float, kAmbiImprintMaxProfiles> currentProfileWeight_ {};
+    std::array<float, kAmbiImprintMaxProfiles> targetProfileWeight_ {};
     std::array<ambi_imprint_detail::Biquad, 4u> inputHighpass_ {};
     float directTapScale_ = 1.0f;
     float reflectionTapScale_ = 1.0f;
@@ -709,6 +826,9 @@ private:
     float currentFocus_ = 1.0f;
     float currentWidth_ = 1.0f;
     float currentOutput_ = 1.0f;
+    float currentListenMix_ = 0.0f;
+    float listenWeightCoefficient_ = 0.00004f;
+    float listenModeCoefficient_ = 0.0005f;
 };
 
 } // namespace s3g

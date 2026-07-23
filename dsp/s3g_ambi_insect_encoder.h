@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_ambi_environment_field.h"
+#include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_realtime.h"
 
@@ -15,10 +16,93 @@ namespace s3g {
 constexpr uint32_t kAmbiInsectMaxVoices = 64u;
 constexpr uint32_t kAmbiInsectMaxOrder = 7u;
 constexpr uint32_t kAmbiInsectMaxChannels = 64u;
-constexpr uint32_t kAmbiInsectRegimeCount = 6u;
+constexpr uint32_t kAmbiInsectRegimeCount = 7u;
+constexpr uint32_t kAmbiInsectCallTypeCount = 11u;
 constexpr uint32_t kAmbiInsectPlaceCount = 7u;
 constexpr uint32_t kAmbiInsectSineTableSize = 4096u;
 constexpr float kAmbiInsectInvTwoPi = 0.15915494309f;
+constexpr uint32_t kAmbiInsectMixedRegime = 5u;
+constexpr uint32_t kAmbiInsectTremulationRegime = 6u;
+constexpr uint32_t kAmbiInsectProductionMethodCount = 6u;
+constexpr uint32_t kAmbiInsectMaxColonies = 4u;
+constexpr uint32_t kAmbiInsectDefaultSceneSeed = 0x7f4a7c15u;
+
+struct AmbiInsectTemperatureResponse {
+    float phrase = 0.35f;
+    float chirp = 0.80f;
+    float pulse = 1.30f;
+    float pitch = 0.25f;
+};
+
+inline AmbiInsectTemperatureResponse ambiInsectTemperatureResponse(
+    uint32_t productionMethod)
+{
+    switch (std::min<uint32_t>(
+        productionMethod, kAmbiInsectProductionMethodCount - 1u)) {
+    case 0u: return { 0.45f, 1.00f, 1.90f, 0.42f }; // Chirpers
+    case 1u: return { 0.38f, 1.15f, 1.80f, 0.38f }; // Trillers
+    case 2u: return { 0.30f, 0.85f, 1.20f, 0.18f }; // Cicadas
+    case 3u: return { 0.24f, 0.42f, 0.55f, 0.62f }; // Flyers
+    case 4u: return { 0.20f, 0.55f, 0.65f, 0.20f }; // Tickers
+    default: return { 0.24f, 0.65f, 0.80f, 0.18f }; // Tremulators
+    }
+}
+
+inline float ambiInsectTemperatureScale(
+    float temperature, float response)
+{
+    return std::exp2((clamp(temperature, 0.0f, 1.0f) - 0.5f) * response);
+}
+
+struct AmbiInsectCallProfile {
+    float phraseRateScale = 1.0f;
+    float chirpRateScale = 1.0f;
+    float pulseRateScale = 1.0f;
+    float phraseDutyBias = 0.0f;
+    float chirpDutyBias = 0.0f;
+    float callProbabilityBias = 0.0f;
+    float synchronyBias = 0.0f;
+    float level = 1.0f;
+    float alternatePhase = 0.0f;
+    float sustain = 0.0f;
+};
+
+inline AmbiInsectCallProfile ambiInsectCallProfile(uint32_t callType)
+{
+    switch (std::min<uint32_t>(callType, kAmbiInsectCallTypeCount - 1u)) {
+    case 1u: // Congregational song
+        return { 0.82f, 1.06f, 1.02f, 0.12f, 0.10f, 0.12f, 0.22f, 1.00f, 0.0f, 0.08f };
+    case 2u: // Response call
+        return { 1.18f, 0.86f, 0.96f, -0.10f, -0.05f, -0.04f, 0.10f, 0.94f, 0.50f, 0.0f };
+    case 3u: // Premating song
+        return { 0.76f, 0.92f, 0.96f, 0.08f, 0.10f, 0.05f, 0.06f, 0.92f, 0.25f, 0.04f };
+    case 4u: // Courtship song
+        return { 0.68f, 1.24f, 1.08f, 0.12f, 0.07f, 0.08f, 0.12f, 0.88f, 0.125f, 0.06f };
+    case 5u: // Agreement song
+        return { 0.90f, 1.00f, 1.00f, 0.05f, 0.08f, 0.12f, 0.34f, 1.00f, 0.0f, 0.08f };
+    case 6u: // Jumping song
+        return { 0.58f, 0.54f, 0.76f, -0.42f, -0.24f, -0.18f, -0.08f, 1.08f, 0.0f, 0.0f };
+    case 7u: // Rivalry call
+        return { 1.28f, 0.80f, 1.16f, -0.15f, -0.10f, 0.05f, -0.16f, 1.12f, 0.50f, 0.0f };
+    case 8u: // Postcopulatory call
+        return { 0.46f, 0.74f, 0.78f, -0.34f, -0.18f, -0.22f, -0.10f, 0.80f, 0.0f, 0.0f };
+    case 9u: // Defensive call
+        return { 1.75f, 1.40f, 1.44f, -0.24f, 0.05f, 0.20f, -0.12f, 1.18f, 0.0f, 0.02f };
+    case 10u: // Flight noise
+        return { 0.38f, 0.58f, 1.00f, 0.40f, 0.30f, 0.24f, 0.08f, 0.94f, 0.0f, 0.78f };
+    default: // Calling song
+        return {};
+    }
+}
+
+inline uint32_t ambiInsectProductionMethod(uint32_t selectedRegime, uint32_t voice)
+{
+    if (selectedRegime == kAmbiInsectMixedRegime) {
+        return voice % kAmbiInsectProductionMethodCount;
+    }
+    if (selectedRegime == kAmbiInsectTremulationRegime) return 5u;
+    return std::min<uint32_t>(selectedRegime, 4u);
+}
 
 struct AmbiInsectSineTable {
     std::array<float, kAmbiInsectSineTableSize + 1u> value {};
@@ -91,6 +175,9 @@ struct AmbiInsectParams {
     float environmentSize = 0.5f;
     float environmentDecay = 0.5f;
     float environmentDamping = 0.5f;
+    uint32_t callType = 0u;
+    uint32_t sceneSeed = kAmbiInsectDefaultSceneSeed;
+    AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
 };
 
 inline AmbiEnvironmentProfileId ambiInsectEnvironmentProfile(uint32_t place)
@@ -111,6 +198,22 @@ struct AmbiInsectPoint {
     float azimuthDeg = 0.0f;
     float elevationDeg = 0.0f;
     float distance = 1.0f;
+};
+
+struct AmbiInsectColony {
+    uint32_t productionMethod = 0u;
+    uint32_t voiceCount = 0u;
+    float phrasePhase = 0.0f;
+    float phraseRateScale = 1.0f;
+    float chirpRateScale = 1.0f;
+    float pulseRateScale = 1.0f;
+    float pitchScale = 1.0f;
+    float pitchOffsetOctaves = 0.0f;
+    float activityBias = 0.0f;
+    float azimuthDeg = 0.0f;
+    float elevationDeg = 0.0f;
+    float distanceScale = 1.0f;
+    float motionPhase = 0.0f;
 };
 
 struct AmbiInsectVoiceOutput {
@@ -213,6 +316,9 @@ struct AmbiInsectVoice {
     float wingPitchJitterTarget = 0.0f;
     float wingPairOffset = 0.03f;
     float wingPairOffsetTarget = 0.03f;
+    float cicadaEntrainmentScale = 1.0f;
+    float cicadaEntrainmentTarget = 1.0f;
+    uint32_t cicadaEntrainmentMode = 1u;
     float signatureA = 0.0f;
     float signatureB = 0.0f;
     float activityThreshold = 0.5f;
@@ -242,6 +348,9 @@ public:
         sampleRate_ = std::max(1000.0, sampleRate);
         updateAudioRateCoefficients();
         environmentField_.prepare(sampleRate_);
+        fieldListener_.prepare(sampleRate_);
+        fieldListener_.setMemorySeconds(0.42f);
+        initializeFieldListener();
         reset();
         setParams(params_);
     }
@@ -258,14 +367,21 @@ public:
         environmentField_.setAmount(ambiEnvironmentSpaceAmount(params_.space));
         environmentField_.setShape(params_.environmentSize, params_.environmentDecay, params_.environmentDamping);
         environmentField_.reset();
+        fieldListener_.reset();
+        currentListenWeights_.fill(1.0f);
+        targetListenWeights_.fill(1.0f);
+        currentListenMix_ =
+            params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 1.0f;
         smoothParams_ = params_;
+        callProfile_ = ambiInsectCallProfile(params_.callType);
         smoothReady_ = true;
         smoothedOutputGain_ = normalizedOutputGain(params_);
+        rebuildColonies();
         for (uint32_t voice = 0u; voice < kAmbiInsectMaxVoices; ++voice) {
             voices_[voice] = {};
-            voices_[voice].identity = 0x1b56c4e9u + voice * 0x9e3779b9u;
+            voices_[voice].identity = voiceIdentity(voice);
             initializeVoice(voice);
-            points_[voice] = basePoint(voice, std::max<uint32_t>(1u, params_.voices), params_.regime);
+            points_[voice] = basePoint(voice);
             targetPoints_[voice] = points_[voice];
         }
     }
@@ -308,11 +424,18 @@ public:
         params.environmentSize = clampFinite(params.environmentSize, params_.environmentSize, 0.0f, 1.0f);
         params.environmentDecay = clampFinite(params.environmentDecay, params_.environmentDecay, 0.0f, 1.0f);
         params.environmentDamping = clampFinite(params.environmentDamping, params_.environmentDamping, 0.0f, 1.0f);
+        params.callType = std::clamp<uint32_t>(params.callType, 0u, kAmbiInsectCallTypeCount - 1u);
+        params.fieldListenMode =
+            sanitizeAmbiFieldListenMode(params.fieldListenMode);
+        if (params.sceneSeed == 0u) params.sceneSeed = kAmbiInsectDefaultSceneSeed;
 
         const uint32_t oldVoices = params_.voices;
         params_ = params;
         if (params.voices > oldVoices) {
-            for (uint32_t voice = oldVoices; voice < params.voices; ++voice) initializeVoice(voice);
+            for (uint32_t voice = oldVoices; voice < params.voices; ++voice) {
+                voices_[voice].identity = voiceIdentity(voice);
+                initializeVoice(voice);
+            }
         }
     }
 
@@ -320,7 +443,27 @@ public:
     void beginTransition() { transitionRequested_.store(true, std::memory_order_release); }
     float voiceEnergy(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u)].energy; }
     float voiceCallLevel(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u)].callViz; }
+    float voicePitchHz(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u)].basePitchHz; }
+    float voiceCicadaEntrainmentScale(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u)].cicadaEntrainmentScale; }
+    uint32_t voiceCicadaEntrainmentMode(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u)].cicadaEntrainmentMode; }
+    uint32_t voiceColony(uint32_t voice) const { return voiceColony_[std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u)]; }
+    uint32_t voiceProductionMethod(uint32_t voice) const
+    {
+        const uint32_t colony = voiceColony(voice);
+        return colonies_[std::min<uint32_t>(colony, kAmbiInsectMaxColonies - 1u)].productionMethod;
+    }
+    uint32_t colonyCount() const { return colonyCount_; }
     AmbiInsectPoint voicePoint(uint32_t voice) const { return points_[std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u)]; }
+    float fieldListenEnvelope(uint32_t lobe) const
+    {
+        return fieldListener_.envelope(lobe);
+    }
+    float fieldListenWeight(uint32_t lobe) const
+    {
+        return lobe < kAmbiFieldListenerMaxLobes
+            ? lerp(1.0f, currentListenWeights_[lobe], currentListenMix_)
+            : 1.0f;
+    }
 
     void process(float* const* outputs, uint32_t outputChannels, uint32_t frames)
     {
@@ -352,24 +495,44 @@ public:
             std::array<std::array<float, kAmbiInsectMaxChannels>, kAmbiInsectMaxVoices> basis {};
             std::array<Vec3, kAmbiInsectMaxVoices> directions {};
             std::array<float, kAmbiInsectMaxVoices> distanceGain {};
+            std::array<float, kAmbiInsectMaxVoices> listenGain {};
+            advanceFieldListener(chunkDt);
+            const bool listenerActive =
+                params_.fieldListenMode != AmbiFieldListenMode::Off
+                || currentListenMix_ > 1.0e-4f;
             for (uint32_t voice = 0u; voice < voices; ++voice) {
                 directions[voice] = directionFromAed(points_[voice].azimuthDeg, points_[voice].elevationDeg);
                 basis[voice] = acnSn3dBasis7(directions[voice]);
                 distanceGain[voice] = 1.0f / std::max(0.42f, points_[voice].distance);
+                listenGain[voice] =
+                    listenerActive ? fieldListenGain(directions[voice]) : 1.0f;
             }
 
             for (uint32_t frame = chunkStart; frame < chunkStart + chunkFrames; ++frame) {
                 smoothedOutputGain_ += (targetGain - smoothedOutputGain_) * 0.0014f;
-                const float temperatureScale = std::exp2((smoothParams_.temperature - 0.5f) * 1.35f);
-                globalPhrasePhase_ = wrapUnit(globalPhrasePhase_
-                    + smoothParams_.phraseRateHz * temperatureScale / static_cast<float>(sampleRate_));
-                flightConvergence_ = 1.0f
+                for (uint32_t colony = 0u; colony < colonyCount_; ++colony) {
+                    auto& profile = colonies_[colony];
+                    const auto temperature = ambiInsectTemperatureResponse(
+                        profile.productionMethod);
+                    profile.phrasePhase = wrapUnit(
+                        profile.phrasePhase
+                        + smoothParams_.phraseRateHz
+                            * callProfile_.phraseRateScale
+                            * profile.phraseRateScale
+                            * ambiInsectTemperatureScale(
+                                smoothParams_.temperature,
+                                temperature.phrase)
+                            / static_cast<float>(sampleRate_));
+                }
+                globalPhrasePhase_ = colonies_[0].phrasePhase;
+                flightChorusGain_ = 1.0f
                     + ambiInsectSin(globalPhrasePhase_)
                         * smoothParams_.coupling * 0.08f;
                 environmentField_.beginFrame();
                 for (uint32_t voice = 0u; voice < voices; ++voice) {
                     const auto voiceOutput = processVoice(voice);
-                    float sample = voiceOutput.direct * smoothedOutputGain_ * distanceGain[voice];
+                    float sample = voiceOutput.direct * smoothedOutputGain_
+                        * distanceGain[voice] * listenGain[voice];
                     if (!std::isfinite(sample)) {
                         initializeVoice(voice);
                         sample = 0.0f;
@@ -377,7 +540,8 @@ public:
                     voices_[voice].energy += (sample * sample - voices_[voice].energy) * 0.0012f;
                     if (std::fabs(sample) < 0.0000001f) continue;
                     environmentField_.addSource(voiceOutput.fieldSend * smoothedOutputGain_
-                        * distanceGain[voice] * 2.2f, directions[voice]);
+                        * distanceGain[voice] * listenGain[voice] * 2.2f,
+                        directions[voice]);
                     for (uint32_t channel = 0u; channel < ambiChannels; ++channel) {
                         if (outputs[channel]) outputs[channel][frame] = flushDenormal(outputs[channel][frame]
                             + sample * basis[voice][channel]);
@@ -387,7 +551,15 @@ public:
                 for (uint32_t channel = 0u; channel < std::min<uint32_t>(ambiChannels, kAmbiEnvironmentChannels); ++channel) {
                     if (outputs[channel]) outputs[channel][frame] = flushDenormal(outputs[channel][frame] + environment[channel]);
                 }
+                if (listenerActive) {
+                    for (uint32_t channel = 0u; channel < ambiChannels; ++channel) {
+                        listenerFrame_[channel] = outputs[channel]
+                            ? outputs[channel][frame] : 0.0f;
+                    }
+                    fieldListener_.processFrame(listenerFrame_.data(), ambiChannels);
+                }
             }
+            updateFieldListenerTargets();
         }
 
         const float transitionStep = 1.0f / std::max(1.0f, static_cast<float>(sampleRate_) * 0.030f);
@@ -406,6 +578,120 @@ public:
     }
 
 private:
+    void initializeFieldListener()
+    {
+        constexpr std::array<Vec3, kAmbiFieldListenerMaxLobes> corners {{
+            { 1.0f, 1.0f, 1.0f },
+            { -1.0f, 1.0f, 1.0f },
+            { -1.0f, -1.0f, 1.0f },
+            { 1.0f, -1.0f, 1.0f },
+            { 1.0f, 1.0f, -1.0f },
+            { -1.0f, 1.0f, -1.0f },
+            { -1.0f, -1.0f, -1.0f },
+            { 1.0f, -1.0f, -1.0f },
+        }};
+        for (uint32_t lobe = 0u; lobe < corners.size(); ++lobe) {
+            listenDirections_[lobe] = normalize(corners[lobe]);
+        }
+        fieldListener_.setDirections(
+            listenDirections_.data(), static_cast<uint32_t>(listenDirections_.size()));
+    }
+
+    void advanceFieldListener(float dt)
+    {
+        const float mixTarget =
+            params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 1.0f;
+        const float mixCoefficient =
+            1.0f - std::exp(-std::max(0.0f, dt) / 0.045f);
+        const float weightCoefficient =
+            1.0f - std::exp(-std::max(0.0f, dt) / 0.52f);
+        currentListenMix_ +=
+            (mixTarget - currentListenMix_) * mixCoefficient;
+        for (uint32_t lobe = 0u; lobe < currentListenWeights_.size(); ++lobe) {
+            currentListenWeights_[lobe] +=
+                (targetListenWeights_[lobe] - currentListenWeights_[lobe])
+                * weightCoefficient;
+        }
+    }
+
+    float fieldListenGain(Vec3 direction) const
+    {
+        float weight = 0.0f;
+        float total = 0.0f;
+        for (uint32_t lobe = 0u; lobe < listenDirections_.size(); ++lobe) {
+            const Vec3 listener = listenDirections_[lobe];
+            const float dot = std::max(0.0f,
+                direction.x * listener.x
+                    + direction.y * listener.y
+                    + direction.z * listener.z);
+            const float kernel = dot * dot * dot * dot;
+            weight += currentListenWeights_[lobe] * kernel;
+            total += kernel;
+        }
+        const float shaped = total > 1.0e-5f ? weight / total : 1.0f;
+        return lerp(1.0f, shaped, currentListenMix_);
+    }
+
+    void updateFieldListenerTargets()
+    {
+        if (params_.fieldListenMode == AmbiFieldListenMode::Off) {
+            targetListenWeights_.fill(1.0f);
+            return;
+        }
+        std::array<float, kAmbiFieldListenerMaxLobes> energy {};
+        float mean = 0.0f;
+        for (uint32_t lobe = 0u; lobe < energy.size(); ++lobe) {
+            energy[lobe] = std::max(0.0f, fieldListener_.envelope(lobe));
+            mean += energy[lobe];
+        }
+        mean /= static_cast<float>(energy.size());
+        if (mean < 1.0e-7f) {
+            targetListenWeights_.fill(1.0f);
+            return;
+        }
+
+        std::array<float, kAmbiFieldListenerMaxLobes> raw {};
+        float total = 0.0f;
+        for (uint32_t lobe = 0u; lobe < raw.size(); ++lobe) {
+            float observed = energy[lobe];
+            float polarity = 1.0f;
+            float strength = 0.64f;
+            if (params_.fieldListenMode == AmbiFieldListenMode::Counter) {
+                const Vec3 direction = listenDirections_[lobe];
+                float opposing = 0.0f;
+                float opposingWeight = 0.0f;
+                for (uint32_t other = 0u; other < raw.size(); ++other) {
+                    const Vec3 candidate = listenDirections_[other];
+                    const float antipodal = std::max(0.0f,
+                        -(direction.x * candidate.x
+                            + direction.y * candidate.y
+                            + direction.z * candidate.z));
+                    const float kernel =
+                        antipodal * antipodal * antipodal * antipodal;
+                    opposing += energy[other] * kernel;
+                    opposingWeight += kernel;
+                }
+                observed = opposingWeight > 1.0e-5f
+                    ? opposing / opposingWeight : mean;
+                strength = 0.72f;
+            } else if (params_.fieldListenMode == AmbiFieldListenMode::Balance) {
+                polarity = -1.0f;
+                strength = 0.54f;
+            }
+            const float contrast = clamp(
+                (observed - mean) / std::max(1.0e-6f, mean), -1.0f, 1.0f);
+            raw[lobe] = std::exp(clamp(
+                polarity * strength * contrast, -0.58f, 0.58f));
+            total += raw[lobe];
+        }
+        const float normalization =
+            static_cast<float>(raw.size()) / std::max(1.0e-6f, total);
+        for (uint32_t lobe = 0u; lobe < raw.size(); ++lobe) {
+            targetListenWeights_[lobe] =
+                clamp(raw[lobe] * normalization, 0.40f, 2.50f);
+        }
+    }
+
     static float clampFinite(float value, float fallback, float low, float high)
     {
         return clamp(std::isfinite(value) ? value : fallback, low, high);
@@ -467,6 +753,159 @@ private:
     }
 
     static float hashSigned(uint32_t value) { return hash01(value) * 2.0f - 1.0f; }
+
+    static float flyerPopulationPitchOffset(uint32_t voice, uint32_t voices)
+    {
+        if (voices <= 1u) return 0.0f;
+        constexpr float inverseGoldenRatio = 0.61803398875f;
+        const float quasiPosition = wrapUnit(
+            static_cast<float>(voice + 1u) * inverseGoldenRatio);
+        const float density = std::sqrt(clamp(
+            static_cast<float>(voices - 1u) / 31.0f, 0.0f, 1.0f));
+        return (quasiPosition * 2.0f - 1.0f) * density * 0.24f;
+    }
+
+    uint32_t voiceIdentity(uint32_t voice) const
+    {
+        const uint32_t identity = hash(
+            params_.sceneSeed ^ (0x1b56c4e9u + voice * 0x9e3779b9u));
+        return identity == 0u ? 1u + voice : identity;
+    }
+
+    void rebuildColonies()
+    {
+        const uint32_t voices = std::max<uint32_t>(1u, params_.voices);
+        const bool mixed = params_.regime == kAmbiInsectMixedRegime;
+        colonyCount_ = mixed
+            ? (voices < 2u ? 1u : voices < 12u ? 2u
+                : voices < 36u ? 3u : 4u)
+            : (voices < 10u ? 1u : voices < 32u ? 2u : 3u);
+        colonyCount_ = std::min<uint32_t>(
+            colonyCount_, std::min<uint32_t>(voices, kAmbiInsectMaxColonies));
+
+        std::array<float, kAmbiInsectMaxColonies> weights {};
+        if (mixed && colonyCount_ > 1u) {
+            const float dominantShare = 0.50f
+                + hash01(params_.sceneSeed + 0x91e10da5u) * 0.17f;
+            float satelliteWeight = 0.0f;
+            for (uint32_t colony = 1u; colony < colonyCount_; ++colony) {
+                weights[colony] = 0.55f
+                    + hash01(params_.sceneSeed + colony * 0x632be59bu)
+                        * 0.70f;
+                satelliteWeight += weights[colony];
+            }
+            weights[0] = dominantShare;
+            for (uint32_t colony = 1u; colony < colonyCount_; ++colony) {
+                weights[colony] = (1.0f - dominantShare)
+                    * weights[colony] / std::max(0.001f, satelliteWeight);
+            }
+        } else {
+            for (uint32_t colony = 0u; colony < colonyCount_; ++colony) {
+                weights[colony] = 0.82f
+                    + hash01(params_.sceneSeed + colony * 0x632be59bu)
+                        * 0.36f;
+            }
+        }
+
+        std::array<uint32_t, kAmbiInsectMaxColonies> counts {};
+        std::array<uint32_t, kAmbiInsectMaxColonies> extra {};
+        for (uint32_t colony = 0u; colony < colonyCount_; ++colony) {
+            counts[colony] = 1u;
+        }
+        for (uint32_t remaining = voices - colonyCount_;
+             remaining > 0u; --remaining) {
+            uint32_t selected = 0u;
+            float selectedScore = static_cast<float>(extra[0])
+                / std::max(0.001f, weights[0]);
+            for (uint32_t colony = 1u; colony < colonyCount_; ++colony) {
+                const float score = static_cast<float>(extra[colony])
+                    / std::max(0.001f, weights[colony]);
+                if (score < selectedScore) {
+                    selected = colony;
+                    selectedScore = score;
+                }
+            }
+            ++counts[selected];
+            ++extra[selected];
+        }
+
+        static constexpr std::array<float, kAmbiInsectProductionMethodCount>
+            mixedPitchScale { 1.00f, 1.55f, 1.00f, 0.11f, 0.42f, 0.11f };
+        static constexpr std::array<float, kAmbiInsectProductionMethodCount>
+            mixedPhraseScale { 0.82f, 1.18f, 0.72f, 0.54f, 0.88f, 0.74f };
+        static constexpr std::array<float, kAmbiInsectProductionMethodCount>
+            mixedChirpScale { 0.72f, 2.00f, 3.20f, 0.48f, 0.70f, 1.30f };
+        static constexpr std::array<float, kAmbiInsectProductionMethodCount>
+            mixedPulseScale { 0.62f, 1.80f, 6.00f, 1.00f, 1.20f, 0.45f };
+
+        uint32_t usedMethods = 0u;
+        const float sceneRotation = hashSigned(
+            params_.sceneSeed + 0x4f1bbcdcu) * 35.0f;
+        for (uint32_t colony = 0u; colony < colonyCount_; ++colony) {
+            const uint32_t colonySeed = hash(
+                params_.sceneSeed ^ (0x85ebca6bu + colony * 0xc2b2ae35u));
+            uint32_t method = ambiInsectProductionMethod(params_.regime, 0u);
+            if (mixed) {
+                method = hash(colonySeed + 0x27d4eb2du)
+                    % kAmbiInsectProductionMethodCount;
+                while ((usedMethods & (1u << method)) != 0u) {
+                    method = (method + 1u) % kAmbiInsectProductionMethodCount;
+                }
+                usedMethods |= 1u << method;
+            }
+
+            auto& profile = colonies_[colony];
+            profile = {};
+            profile.productionMethod = method;
+            profile.voiceCount = counts[colony];
+            profile.phrasePhase = hash01(colonySeed + 11u);
+            const float sharedRateOffset = hashSigned(colonySeed + 29u) * 0.12f;
+            profile.phraseRateScale = std::exp2(
+                sharedRateOffset + hashSigned(colonySeed + 31u) * 0.035f);
+            profile.chirpRateScale = std::exp2(
+                sharedRateOffset + hashSigned(colonySeed + 37u) * 0.055f);
+            profile.pulseRateScale = std::exp2(
+                sharedRateOffset + hashSigned(colonySeed + 41u) * 0.075f);
+            profile.pitchScale = std::exp2(
+                hashSigned(colonySeed + 43u) * 0.07f);
+            if (mixed) {
+                profile.phraseRateScale *= mixedPhraseScale[method];
+                profile.chirpRateScale *= mixedChirpScale[method];
+                profile.pulseRateScale *= mixedPulseScale[method];
+                profile.pitchScale *= mixedPitchScale[method];
+            }
+            profile.pitchOffsetOctaves = hashSigned(colonySeed + 47u);
+            profile.activityBias = hashSigned(colonySeed + 53u) * 0.08f;
+            if (colonyCount_ > 1u) {
+                const float position = (
+                    (static_cast<float>(colony) + 0.5f)
+                        / static_cast<float>(colonyCount_) - 0.5f) * 300.0f;
+                profile.azimuthDeg = wrapSignedDeg(
+                    position + sceneRotation + hashSigned(colonySeed + 59u) * 14.0f);
+            }
+            profile.elevationDeg = hashSigned(colonySeed + 61u) * 9.0f;
+            profile.distanceScale = 0.82f
+                + hash01(colonySeed + 67u) * 0.40f;
+            profile.motionPhase = hash01(colonySeed + 71u);
+        }
+        for (uint32_t colony = colonyCount_;
+             colony < kAmbiInsectMaxColonies; ++colony) {
+            colonies_[colony] = {};
+        }
+
+        uint32_t voice = 0u;
+        for (uint32_t colony = 0u; colony < colonyCount_; ++colony) {
+            for (uint32_t local = 0u; local < counts[colony]; ++local) {
+                voiceColony_[voice] = colony;
+                voiceIndexInColony_[voice] = local;
+                ++voice;
+            }
+        }
+        for (; voice < kAmbiInsectMaxVoices; ++voice) {
+            voiceColony_[voice] = 0u;
+            voiceIndexInColony_[voice] = voice;
+        }
+    }
 
     static float normalizedOutputGain(const AmbiInsectParams& params)
     {
@@ -554,27 +993,99 @@ private:
         };
     }
 
-    static uint32_t voiceRegime(uint32_t selectedRegime, uint32_t voice)
+    uint32_t voiceRegime(uint32_t voice) const
     {
-        return selectedRegime == 5u ? voice % 5u : selectedRegime;
+        const uint32_t colony = voiceColony_[
+            std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u)];
+        return colonies_[std::min<uint32_t>(
+            colony, kAmbiInsectMaxColonies - 1u)].productionMethod;
     }
 
-    static AmbiInsectPoint basePoint(uint32_t voice, uint32_t voices, uint32_t selectedRegime)
+    AmbiInsectPoint basePoint(uint32_t voice) const
     {
-        const float lane = (static_cast<float>(voice) + 0.5f) / static_cast<float>(std::max<uint32_t>(1u, voices));
-        const float azimuth = wrapSignedDeg(lane * 360.0f - 180.0f + hashSigned(voice * 101u + 7u) * 20.0f);
-        const uint32_t regime = voiceRegime(selectedRegime, voice);
+        const uint32_t colonyIndex = voiceColony_[
+            std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u)];
+        const auto& colony = colonies_[std::min<uint32_t>(
+            colonyIndex, kAmbiInsectMaxColonies - 1u)];
+        const uint32_t localIndex = voiceIndexInColony_[voice];
+        const uint32_t localCount = std::max<uint32_t>(1u, colony.voiceCount);
+        const float lane = (
+            (static_cast<float>(localIndex) + 0.5f)
+                / static_cast<float>(localCount)) - 0.5f;
+        const float localSpread = localCount > 1u ? 68.0f : 0.0f;
+        const float azimuth = wrapSignedDeg(
+            colony.azimuthDeg + lane * localSpread
+                + hashSigned(voiceIdentity(voice) + 7u) * 12.0f);
+        const uint32_t regime = colony.productionMethod;
         float elevation = -20.0f + hashSigned(voice * 137u + 19u) * 12.0f;
         if (regime == 2u) elevation = 32.0f + hashSigned(voice * 137u + 19u) * 17.0f;
         else if (regime == 3u) elevation = 10.0f + hashSigned(voice * 137u + 19u) * 30.0f;
         else if (regime == 4u) elevation = -28.0f + hashSigned(voice * 137u + 19u) * 8.0f;
-        return { azimuth, clamp(elevation, -80.0f, 80.0f), 0.78f + hash01(voice * 173u + 31u) * 0.52f };
+        else if (regime == 5u) elevation = -36.0f + hashSigned(voice * 137u + 19u) * 7.0f;
+        elevation += colony.elevationDeg;
+        const float distance = colony.distanceScale
+            * (0.82f + hash01(voiceIdentity(voice) + 31u) * 0.34f);
+        return {
+            azimuth,
+            clamp(elevation, -80.0f, 80.0f),
+            clamp(distance, 0.52f, 1.62f),
+        };
     }
 
     float noise(AmbiInsectVoice& voice)
     {
         voice.rngState = hash(voice.rngState + 0x6d2b79f5u);
         return static_cast<float>(static_cast<int32_t>(voice.rngState)) / 2147483648.0f;
+    }
+
+    void selectCicadaEntrainment(
+        uint32_t index, uint32_t eventSeed, bool immediate)
+    {
+        auto& voice = voices_[index];
+        if (voiceRegime(index) != 2u) {
+            voice.cicadaEntrainmentMode = 1u;
+            voice.cicadaEntrainmentTarget = 1.0f;
+            if (immediate) voice.cicadaEntrainmentScale = 1.0f;
+            return;
+        }
+
+        const auto& params = smoothReady_ ? smoothParams_ : params_;
+        float halfProbability = 0.08f
+            + (1.0f - params.activity) * 0.20f
+            + std::max(0.0f, 0.5f - params.temperature) * 0.18f;
+        float doubleProbability = 0.06f
+            + params.activity * 0.16f
+            + std::max(0.0f, params.temperature - 0.5f) * 0.20f;
+        float irregularProbability = 0.025f + params.variation * 0.16f;
+        const float nonLocked = halfProbability + doubleProbability
+            + irregularProbability;
+        if (nonLocked > 0.72f) {
+            const float scale = 0.72f / nonLocked;
+            halfProbability *= scale;
+            doubleProbability *= scale;
+            irregularProbability *= scale;
+        }
+
+        const float choice = hash01(eventSeed + 0x51ed270bu);
+        if (choice < halfProbability) {
+            voice.cicadaEntrainmentMode = 0u;
+            voice.cicadaEntrainmentTarget = 0.5f;
+        } else if (choice < halfProbability + doubleProbability) {
+            voice.cicadaEntrainmentMode = 2u;
+            voice.cicadaEntrainmentTarget = 2.0f;
+        } else if (choice < halfProbability + doubleProbability
+            + irregularProbability) {
+            voice.cicadaEntrainmentMode = 3u;
+            voice.cicadaEntrainmentTarget = 0.68f
+                + hash01(eventSeed + 0x94d049bbu) * 0.82f;
+        } else {
+            voice.cicadaEntrainmentMode = 1u;
+            voice.cicadaEntrainmentTarget = 1.0f;
+        }
+        if (immediate) {
+            voice.cicadaEntrainmentScale =
+                voice.cicadaEntrainmentTarget;
+        }
     }
 
     void initializeVoice(uint32_t index)
@@ -609,6 +1120,18 @@ private:
         voice.signatureB = hashSigned(identity + 911u);
         voice.activityThreshold = hash01(identity + 1237u);
         voice.flutterRateHz = 1.8f + hash01(identity + 1597u) * 4.2f;
+        if (voiceIndexInColony_[index] == 0u) {
+            const uint32_t colony = voiceColony_[index];
+            voice.phrasePhase = 0.012f
+                + hash01(identity + 1709u) * 0.015f;
+            voice.chirpPhase = 0.82f
+                + hash01(identity + 1783u) * 0.12f
+                + static_cast<float>(colony) * 0.007f;
+            voice.chirpPhase = wrapUnit(voice.chirpPhase);
+            voice.activityThreshold *= 0.08f;
+        }
+        selectCicadaEntrainment(
+            index, identity ^ params_.sceneSeed, true);
     }
 
     bool voiceHealthy(const AmbiInsectVoice& voice) const
@@ -623,6 +1146,8 @@ private:
             && std::isfinite(voice.wingCycleGain) && std::isfinite(voice.wingCycleGainTarget)
             && std::isfinite(voice.wingPitchJitter) && std::isfinite(voice.wingPitchJitterTarget)
             && std::isfinite(voice.wingPairOffset) && std::isfinite(voice.wingPairOffsetTarget)
+            && std::isfinite(voice.cicadaEntrainmentScale)
+            && std::isfinite(voice.cicadaEntrainmentTarget)
             && std::isfinite(voice.signatureA) && std::isfinite(voice.signatureB)
             && std::isfinite(voice.activityThreshold) && std::isfinite(voice.flutterRateHz)
             && std::isfinite(voice.lane) && std::isfinite(voice.clockScale)
@@ -641,8 +1166,13 @@ private:
         transitionTail_ = lastOutput_;
         transitionFade_ = 0.0f;
         smoothParams_ = params_;
+        callProfile_ = ambiInsectCallProfile(params_.callType);
         smoothedOutputGain_ = normalizedOutputGain(params_);
-        for (uint32_t voice = 0u; voice < kAmbiInsectMaxVoices; ++voice) initializeVoice(voice);
+        rebuildColonies();
+        for (uint32_t voice = 0u; voice < kAmbiInsectMaxVoices; ++voice) {
+            voices_[voice].identity = voiceIdentity(voice);
+            initializeVoice(voice);
+        }
     }
 
     void updateAudioRateCoefficients()
@@ -653,6 +1183,7 @@ private:
         envelopeAttackCoefficient_ = coefficientForRate(420.0f, sampleRate_);
         callVizCoefficient_ = coefficientForRate(22.0f, sampleRate_);
         wingPairCoefficient_ = coefficientForRate(7.0f, sampleRate_);
+        cicadaEntrainmentCoefficient_ = coefficientForRate(5.0f, sampleRate_);
     }
 
     void updateSmoothedParams(float dt)
@@ -666,7 +1197,11 @@ private:
         smoothParams_.order = params_.order;
         smoothParams_.voices = params_.voices;
         smoothParams_.regime = params_.regime;
+        smoothParams_.callType = params_.callType;
         smoothParams_.place = params_.place;
+        smoothParams_.sceneSeed = params_.sceneSeed;
+        smoothParams_.fieldListenMode = params_.fieldListenMode;
+        callProfile_ = ambiInsectCallProfile(params_.callType);
 #define S3G_SMOOTH_INSECT_PARAM(name) smoothParams_.name = smoothToward(smoothParams_.name, params_.name, coefficient)
         S3G_SMOOTH_INSECT_PARAM(activity);
         S3G_SMOOTH_INSECT_PARAM(temperature);
@@ -711,9 +1246,14 @@ private:
         const uint32_t voices = params.voices;
         for (uint32_t index = 0u; index < voices; ++index) {
             auto& voice = voices_[index];
-            const uint32_t regime = voiceRegime(params.regime, index);
-            const auto base = basePoint(index, voices, params.regime);
-            const float lane = (static_cast<float>(index) + 0.5f) / static_cast<float>(voices);
+            const uint32_t colonyIndex = voiceColony_[index];
+            const auto& colony = colonies_[colonyIndex];
+            const uint32_t regime = colony.productionMethod;
+            const auto base = basePoint(index);
+            const float lane = (
+                static_cast<float>(voiceIndexInColony_[index]) + 0.5f)
+                / static_cast<float>(std::max<uint32_t>(
+                    1u, colony.voiceCount));
             const float seedA = hash01(voice.identity + 1009u);
             const float seedB = hash01(voice.identity + 2027u);
             const float flight = regime == 3u ? 1.0f : (regime == 2u ? 0.16f : 0.04f);
@@ -721,16 +1261,29 @@ private:
                 + lane * kPi * 2.0f + seedA * kPi * 2.0f;
             const float wanderPhase = fieldAngle * (0.21f + params.roam * 1.8f)
                 + seedB * kPi * 2.0f;
+            const float colonyPhase = fieldAngle
+                * (0.14f + params.roam * 0.72f)
+                + colony.motionPhase * kPi * 2.0f;
             const float clusterScale = 1.0f - params.cohesion * 0.62f;
             const float radial = clusterScale * (0.16f + params.scatter * 0.62f)
                 + std::sin(wanderPhase * 1.31f) * params.roam * 0.20f;
-            float azimuth = params.centerAzimuthDeg + base.azimuthDeg * clusterScale
-                + std::sin(wanderPhase) * params.scatter * 54.0f
+            const float localAzimuth = wrapSignedDeg(
+                base.azimuthDeg - colony.azimuthDeg);
+            float azimuth = params.centerAzimuthDeg
+                + colony.azimuthDeg * (0.72f + clusterScale * 0.28f)
+                + localAzimuth * clusterScale
+                + std::sin(colonyPhase) * params.roam * 22.0f
+                + std::sin(wanderPhase) * params.scatter * 34.0f
                 + std::sin(orbitPhase) * params.orbit * (65.0f + flight * 105.0f);
             float elevation = params.centerElevationDeg + base.elevationDeg
-                + std::sin(wanderPhase * 0.73f + 0.8f) * params.roam * (8.0f + flight * 28.0f)
+                + std::sin(colonyPhase * 0.81f + 0.4f)
+                    * params.lift * (5.0f + flight * 11.0f)
+                + std::sin(wanderPhase * 0.73f + 0.8f)
+                    * params.roam * clusterScale * (8.0f + flight * 28.0f)
                 + params.lift * (regime == 2u ? 28.0f : flight * 42.0f);
-            float distance = params.centerDistance * (0.74f + radial)
+            float distance = params.centerDistance * colony.distanceScale
+                    * (0.74f + radial)
+                + std::sin(colonyPhase * 0.67f) * params.roam * 0.10f
                 + std::cos(orbitPhase) * params.orbit * 0.26f;
             if (flight > 0.5f) {
                 const float pass = 0.5f + 0.5f * std::sin(wanderPhase * 1.83f + seedA * 4.0f);
@@ -751,8 +1304,6 @@ private:
     {
         const auto& params = smoothParams_;
         const uint32_t voices = std::max<uint32_t>(1u, params.voices);
-        const float temperatureScale = std::exp2(
-            (params.temperature - 0.5f) * 1.35f);
         const float sizeScale = std::exp2(
             (0.5f - params.bodySize) * 1.4f);
         const float maximumPitch = static_cast<float>(sampleRate_) * 0.40f;
@@ -761,37 +1312,57 @@ private:
         for (uint32_t index = 0u; index < voices; ++index) {
             auto& voice = voices_[index];
             if (!voiceHealthy(voice)) initializeVoice(index);
-            const uint32_t regime = voiceRegime(params.regime, index);
+            const uint32_t colonyIndex = voiceColony_[index];
+            const auto& colony = colonies_[colonyIndex];
+            const uint32_t regime = colony.productionMethod;
+            const auto temperature = ambiInsectTemperatureResponse(regime);
             voice.lane = static_cast<float>(index)
                 / static_cast<float>(std::max<uint32_t>(1u, voices - 1u));
+            const float localLane = colony.voiceCount > 1u
+                ? static_cast<float>(voiceIndexInColony_[index])
+                    / static_cast<float>(colony.voiceCount - 1u)
+                : 0.5f;
             const float rateVariation = std::exp2(
-                voice.signatureA * params.variation * 1.8f
-                + (voice.lane - 0.5f) * params.variation * 0.7f);
-            voice.clockScale = temperatureScale * rateVariation;
+                voice.signatureA * params.variation * 1.45f
+                + (localLane - 0.5f) * params.variation * 0.55f);
+            voice.clockScale = rateVariation;
             voice.activeWeight = clamp(
-                (params.activity - voice.activityThreshold * 0.72f) * 4.0f
-                    + 0.15f,
+                (params.activity + colony.activityBias
+                    - voice.activityThreshold * 0.72f) * 4.0f + 0.15f,
                 0.0f, 1.0f);
 
-            const float pitchVariation = std::exp2(
-                voice.signatureB * params.variation * 1.4f
-                + (voice.lane - 0.5f) * params.scatter * 0.30f);
-            float pitch = params.bodyPitchHz * pitchVariation;
-            pitch = regime == 3u
-                ? clamp(pitch, 90.0f, 1600.0f)
-                : clamp(pitch, 180.0f, maximumPitch);
-            const float driftScale = std::exp2(voice.pitchDrift);
-            pitch = clamp(pitch * sizeScale * driftScale, 70.0f, maximumPitch);
+            const bool dedicatedFlyerRegime =
+                regime == 3u && params.regime != kAmbiInsectMixedRegime;
+            float pitchCenterHz = params.bodyPitchHz
+                * (dedicatedFlyerRegime ? 1.0f : colony.pitchScale);
+            float pitchOffsetOctaves = voice.signatureB
+                * params.variation * 1.4f
+                + (localLane - 0.5f) * params.scatter * 0.24f
+                + colony.pitchOffsetOctaves
+                    * (0.035f + params.variation * 0.16f);
             if (regime == 3u) {
-                const float sharedPitch = clamp(
-                    params.bodyPitchHz * sizeScale * driftScale,
-                    70.0f, 1600.0f);
-                const float convergence = params.coupling * 0.38f;
-                pitch = std::exp2(lerp(
-                    std::log2(std::max(1.0f, pitch)),
-                    std::log2(std::max(1.0f, sharedPitch)),
-                    convergence));
+                const uint32_t flyerIndex = params.regime
+                        == kAmbiInsectMixedRegime
+                    ? voiceIndexInColony_[index] : index;
+                const uint32_t flyerVoices = params.regime
+                        == kAmbiInsectMixedRegime
+                    ? colony.voiceCount : voices;
+                pitchOffsetOctaves = flyerPopulationPitchOffset(
+                    flyerIndex, flyerVoices)
+                    + voice.signatureB * params.variation * 0.86f
+                    + voice.signatureA * params.scatter * 0.055f;
             }
+            float pitch = pitchCenterHz * std::exp2(pitchOffsetOctaves)
+                * ambiInsectTemperatureScale(
+                    params.temperature, temperature.pitch);
+            if (regime == 3u) pitch = clamp(pitch, 90.0f, 1600.0f);
+            else if (regime == 5u) pitch = clamp(pitch, 70.0f, 1800.0f);
+            else pitch = clamp(pitch, 180.0f, maximumPitch);
+            const float driftScale = std::exp2(voice.pitchDrift);
+            const float regimeMaximumPitch = regime == 3u
+                ? 1800.0f : maximumPitch;
+            pitch = clamp(pitch * sizeScale * driftScale,
+                70.0f, regimeMaximumPitch);
             voice.basePitchHz = pitch;
         }
     }
@@ -800,31 +1371,55 @@ private:
     {
         const auto& params = smoothParams_;
         auto& voice = voices_[index];
-        const uint32_t regime = voiceRegime(params.regime, index);
+        const uint32_t colonyIndex = voiceColony_[index];
+        const auto& colony = colonies_[colonyIndex];
+        const uint32_t regime = colony.productionMethod;
+        const auto temperature = ambiInsectTemperatureResponse(regime);
+        const float phraseTemperature = ambiInsectTemperatureScale(
+            params.temperature, temperature.phrase);
+        const float chirpTemperature = ambiInsectTemperatureScale(
+            params.temperature, temperature.chirp);
+        const float pulseTemperature = ambiInsectTemperatureScale(
+            params.temperature, temperature.pulse);
         const float lane = voice.lane;
         const float randomA = voice.signatureA;
         const float randomB = voice.signatureB;
         const float clockScale = voice.clockScale;
+        const auto& call = callProfile_;
         const float dt = 1.0f / static_cast<float>(sampleRate_);
 
         const float previousPhrasePhase = voice.phrasePhase;
         voice.phrasePhase = wrapUnit(voice.phrasePhase
-            + params.phraseRateHz * clockScale * dt);
+            + params.phraseRateHz * call.phraseRateScale
+                * colony.phraseRateScale * phraseTemperature
+                * clockScale * dt);
+        const float chorusTarget = wrapUnit(colony.phrasePhase
+            + ((voiceIndexInColony_[index] & 1u) != 0u
+                    ? call.alternatePhase : 0.0f));
+        const float effectiveCoupling = clamp(
+            params.coupling + call.synchronyBias, 0.0f, 1.0f);
         voice.phrasePhase = wrapUnit(voice.phrasePhase
-            + phaseDelta(globalPhrasePhase_, voice.phrasePhase) * params.coupling * (0.00018f + params.activity * 0.00032f));
+            + phaseDelta(chorusTarget, voice.phrasePhase)
+                * effectiveCoupling
+                * (0.00018f + params.activity * 0.00032f));
         if (voice.phrasePhase < previousPhrasePhase) {
             ++voice.phraseGeneration;
             const uint32_t eventSeed = hash(
                 voice.identity ^ (voice.phraseGeneration * 0x9e3779b9u));
             const float callChoice = hash01(eventSeed + 17u);
             const float callProbability = clamp(
-                0.34f + params.activity * 0.78f - params.rest * 0.18f,
+                0.34f + params.activity * 0.78f - params.rest * 0.18f
+                    + call.callProbabilityBias,
                 0.08f, 0.98f);
             voice.phraseAccentTarget = callChoice < callProbability
                 ? 0.68f + hash01(eventSeed + 41u) * 0.42f
                 : 0.0f;
             voice.pitchDriftTarget = hashSigned(eventSeed + 73u)
                 * params.variation * 0.085f;
+            if (regime == 2u) {
+                selectCicadaEntrainment(
+                    index, eventSeed ^ params.sceneSeed, false);
+            }
         }
         const float phraseAccentRate = voice.phraseAccentTarget > voice.phraseAccent
             ? phraseAccentAttackCoefficient_ : phraseAccentReleaseCoefficient_;
@@ -832,12 +1427,27 @@ private:
             * phraseAccentRate;
         voice.pitchDrift += (voice.pitchDriftTarget - voice.pitchDrift)
             * pitchDriftCoefficient_;
+        voice.cicadaEntrainmentScale += (
+            voice.cicadaEntrainmentTarget
+                - voice.cicadaEntrainmentScale)
+            * cicadaEntrainmentCoefficient_;
         voice.chirpPhase = wrapUnit(
-            voice.chirpPhase + params.chirpRateHz * clockScale * dt);
+            voice.chirpPhase + params.chirpRateHz * call.chirpRateScale
+                * colony.chirpRateScale * chirpTemperature
+                * clockScale * dt);
+        float entrainmentScale = regime == 2u
+            ? voice.cicadaEntrainmentScale : 1.0f;
+        if (regime == 2u && voice.cicadaEntrainmentMode == 3u) {
+            entrainmentScale *= 1.0f
+                + ambiInsectSin(
+                    voice.flutterPhase * 0.37f + randomB * 0.23f)
+                    * (0.035f + params.variation * 0.075f);
+        }
         const float previousPulsePhase = voice.pulsePhase;
         voice.pulsePhase = wrapUnit(voice.pulsePhase
-            + params.pulseRateHz * clockScale
-                * voice.pulseRateScale * dt);
+            + params.pulseRateHz * call.pulseRateScale * clockScale
+                * colony.pulseRateScale * pulseTemperature
+                * voice.pulseRateScale * entrainmentScale * dt);
         if (voice.pulsePhase < previousPulsePhase) {
             ++voice.pulseGeneration;
             const uint32_t eventSeed = hash(
@@ -848,21 +1458,38 @@ private:
             voice.pulseAccent = hash01(eventSeed + 19u) < omission
                 ? 0.0f
                 : 0.58f + hash01(eventSeed + 43u) * 0.54f;
+            const float pulseJitter = regime == 2u
+                    && voice.cicadaEntrainmentMode == 3u
+                ? 0.10f + params.variation * 0.18f
+                : params.variation * (regime == 3u ? 0.08f : 0.035f);
             voice.pulseRateScale = 1.0f + hashSigned(eventSeed + 67u)
-                * params.variation * (regime == 3u ? 0.08f : 0.035f);
+                * pulseJitter;
         }
 
         const float activeWeight = voice.activeWeight;
-        const float phraseDuty = clamp(0.94f - params.rest * 0.82f, 0.08f, 0.94f);
+        const float phraseDuty = clamp(
+            0.94f - params.rest * 0.82f + call.phraseDutyBias,
+            0.04f, 0.98f);
         const float phraseGate = periodicGate(voice.phrasePhase, phraseDuty, 0.035f + params.rest * 0.055f);
         float chirpDuty = 0.08f + params.callLength * 0.80f;
         if (regime == 1u || regime == 2u) chirpDuty = 0.42f + params.callLength * 0.52f;
         if (regime == 3u) chirpDuty = 0.70f + params.callLength * 0.26f;
+        if (regime == 5u) chirpDuty = 0.26f + params.callLength * 0.62f;
+        chirpDuty = clamp(chirpDuty + call.chirpDutyBias, 0.025f, 0.98f);
         const float chirpGate = periodicGate(voice.chirpPhase, chirpDuty, 0.018f + params.callLength * 0.035f);
-        float targetEnvelope = activeWeight * voice.phraseAccent * phraseGate * chirpGate;
+        const float articulatedEnvelope = activeWeight * voice.phraseAccent
+            * phraseGate * chirpGate;
+        const float sustainedEnvelope = activeWeight
+            * (0.28f + voice.phraseAccent * 0.72f)
+            * (0.38f + phraseGate * 0.62f);
+        float targetEnvelope = lerp(
+            articulatedEnvelope, sustainedEnvelope, call.sustain) * call.level;
         if (regime == 3u) {
-            targetEnvelope = activeWeight * (0.18f + voice.phraseAccent * 0.82f)
-                * (0.22f + phraseGate * 0.78f) * (0.58f + chirpGate * 0.42f);
+            const float flightEnvelope = activeWeight
+                * (0.18f + voice.phraseAccent * 0.82f)
+                * (0.22f + phraseGate * 0.78f)
+                * (0.58f + chirpGate * 0.42f) * call.level;
+            targetEnvelope = lerp(targetEnvelope, flightEnvelope, 0.72f);
         }
         const float envelopeCoefficient = targetEnvelope > voice.callEnvelope
             ? envelopeAttackCoefficient_ : envelopeReleaseCoefficient_;
@@ -1052,7 +1679,10 @@ private:
             ribs += snapPulse(voice.pulsePhase, 0.18f);
             ribs += snapPulse(voice.pulsePhase - 0.075f, 0.15f) * 0.86f;
             ribs += snapPulse(voice.pulsePhase - 0.145f, 0.13f) * 0.72f;
-            ribs *= voice.pulseAccent;
+            const float driveNormalization = clamp(
+                1.0f / std::sqrt(std::max(0.45f, entrainmentScale)),
+                0.72f, 1.16f);
+            ribs *= voice.pulseAccent * driveNormalization;
             const float buckling = ribs
                 * (roughNoise * (0.48f + params.rasp * 0.38f)
                     + airNoise * 0.20f);
@@ -1120,13 +1750,13 @@ private:
                     180.0f, static_cast<float>(sampleRate_) * 0.40f),
                 0.08f + params.resonance * 0.14f,
                 static_cast<float>(sampleRate_)) * 1.32f;
-            wingLayer = aerodynamicWing * flightConvergence_
+            wingLayer = aerodynamicWing * flightChorusGain_
                 + wakeBody * (0.22f + params.bodySize * 0.36f)
                 + wingAir * (0.22f + params.brightness * 0.24f);
             source = thorax * (0.36f + params.bodySize * 0.34f)
                 + wingLayer * (0.34f + params.wing * 0.54f)
                 + wakeExcitation * params.rasp * (0.045f + params.bodySize * 0.065f);
-        } else {
+        } else if (regime == 4u) {
             const float tick = snapPulse(
                 voice.chirpPhase, 0.08f + params.callLength * 0.10f);
             const float scrape = tick
@@ -1143,6 +1773,36 @@ private:
                 + wingLayer * params.wing * 0.22f;
             contactExcitation = tick * (roughNoise * 0.62f + 0.38f)
                 + shell * 0.18f;
+        } else {
+            const float bodyMotion = ambiInsectSin(voice.chirpPhase);
+            const float bodyVelocity = ambiInsectCos(voice.chirpPhase);
+            const float contactGate = periodicGate(
+                voice.pulsePhase,
+                0.18f + params.callLength * 0.34f,
+                0.06f + params.bodySize * 0.05f);
+            const float pressure = 0.24f + std::fabs(bodyMotion) * 0.76f;
+            const float slip = contactGate
+                * (roughNoise * (0.34f + params.rasp * 0.46f)
+                    + bodyVelocity * (0.08f + params.wing * 0.16f));
+            const float substrateDrive = slip * pressure
+                + airNoise * bodyMotion * params.rasp * 0.08f;
+            const float substrateBody = voice.bodyFilter.process(
+                substrateDrive,
+                pitch,
+                0.10f + params.resonance * 0.30f,
+                static_cast<float>(sampleRate_)) * 1.48f;
+            const float contactOvertone = voice.wingFilter.process(
+                substrateDrive + substrateBody * 0.10f,
+                clamp(pitch * (1.72f + params.brightness * 1.38f),
+                    120.0f, static_cast<float>(sampleRate_) * 0.30f),
+                0.07f + params.resonance * 0.18f,
+                static_cast<float>(sampleRate_)) * 0.62f;
+            wingLayer = contactOvertone;
+            source = substrateBody * (0.66f + params.bodySize * 0.34f)
+                + contactOvertone * (0.14f + params.wing * 0.32f)
+                + substrateDrive * (0.10f + params.rasp * 0.16f);
+            contactExcitation = substrateDrive
+                + substrateBody * (0.24f + params.bodySize * 0.18f);
         }
 
         const float raspBand = voice.raspFilter.process(roughNoise * params.rasp * voice.callEnvelope,
@@ -1162,16 +1822,22 @@ private:
         const float tonalLevel = regime == 3u
             ? 0.38f + params.wing * 0.16f
             : 0.28f + params.resonance * 0.24f;
-        static constexpr std::array<float, 5> regimeCompensation { 4.5f, 3.0f, 4.5f, 1.0f, 6.0f };
-        const float regimeGain = regimeCompensation[std::min<uint32_t>(regime, 4u)];
+        static constexpr std::array<float, kAmbiInsectProductionMethodCount> regimeCompensation {
+            4.5f, 3.0f, 4.5f, 1.0f, 6.0f, 4.2f
+        };
+        const float regimeGain = regimeCompensation[
+            std::min<uint32_t>(regime, kAmbiInsectProductionMethodCount - 1u)];
+        const float substrateMix = regime == 5u
+            ? 0.24f + params.bodySize * 0.22f
+            : 0.035f + params.bodySize * 0.075f;
         const float mixed = (source * tonalLevel + raspBand * (0.08f + params.rasp * 0.24f)
             + airBand * (0.04f + params.air * 0.20f)
-            + substrate * (0.035f + params.bodySize * 0.075f))
+            + substrate * substrateMix)
             * voice.callEnvelope * (0.62f + bodyLevel);
         const float direct = std::tanh(clamp(mixed * regimeGain * (1.0f + params.brightness * 0.38f), -3.6f, 3.6f));
         const float fieldSend = std::tanh(clamp(
             (source * 0.32f + raspBand * 0.22f + airBand * 0.34f
-                + substrate * 0.58f)
+                + substrate * (regime == 5u ? 0.92f : 0.58f))
                 * voice.callEnvelope * regimeGain,
             -3.0f, 3.0f));
         if (!std::isfinite(direct) || !std::isfinite(fieldSend)) {
@@ -1184,6 +1850,10 @@ private:
     AmbiInsectParams params_ {};
     AmbiInsectParams smoothParams_ {};
     std::array<AmbiInsectVoice, kAmbiInsectMaxVoices> voices_ {};
+    std::array<AmbiInsectColony, kAmbiInsectMaxColonies> colonies_ {};
+    std::array<uint32_t, kAmbiInsectMaxVoices> voiceColony_ {};
+    std::array<uint32_t, kAmbiInsectMaxVoices> voiceIndexInColony_ {};
+    uint32_t colonyCount_ = 1u;
     std::array<AmbiInsectPoint, kAmbiInsectMaxVoices> points_ {};
     std::array<AmbiInsectPoint, kAmbiInsectMaxVoices> targetPoints_ {};
     double sampleRate_ = 48000.0;
@@ -1191,7 +1861,7 @@ private:
     float globalPhrasePhase_ = 0.0f;
     float transitionFade_ = 1.0f;
     float smoothedOutputGain_ = dbToGain(-6.0f);
-    float flightConvergence_ = 1.0f;
+    float flightChorusGain_ = 1.0f;
     float phraseAccentAttackCoefficient_ = 0.000375f;
     float phraseAccentReleaseCoefficient_ = 0.000094f;
     float pitchDriftCoefficient_ = 0.000015f;
@@ -1199,9 +1869,17 @@ private:
     float envelopeReleaseCoefficient_ = 0.001145f;
     float callVizCoefficient_ = 0.000458f;
     float wingPairCoefficient_ = 0.000146f;
+    float cicadaEntrainmentCoefficient_ = 0.000104f;
+    AmbiInsectCallProfile callProfile_ {};
     bool smoothReady_ = false;
     std::array<float, kAmbiInsectMaxChannels> lastOutput_ {};
     std::array<float, kAmbiInsectMaxChannels> transitionTail_ {};
+    std::array<float, kAmbiInsectMaxChannels> listenerFrame_ {};
+    std::array<Vec3, kAmbiFieldListenerMaxLobes> listenDirections_ {};
+    std::array<float, kAmbiFieldListenerMaxLobes> currentListenWeights_ {};
+    std::array<float, kAmbiFieldListenerMaxLobes> targetListenWeights_ {};
+    AmbiFieldListener fieldListener_ {};
+    float currentListenMix_ = 0.0f;
     AmbiEnvironmentField environmentField_ {};
     std::atomic<bool> transitionRequested_ { false };
 };

@@ -94,23 +94,23 @@
 
         <h2 id="codec">Codec Damage</h2>
 
-        <p>The codec section treats the generated or file-derived signal as material for destructive encoding. These modes are synthesis models, not interoperable media codecs:</p>
+        <p>The codec section treats the generated or file-derived signal as material for destructive encoding. These modes are synthesis models, not interoperable media codecs. Their design sources are collected in the <a href="references.html#codec">Codec references</a>.</p>
 
         <ul>
           <li><code>PCM</code> applies direct bit quantization.</li>
           <li><code>DELTA</code> quantizes the difference from a running predictor.</li>
-          <li><code>ADPCM</code> adds an adaptive error step to the predictor path.</li>
-          <li><code>MU-LAW</code> and <code>A-LAW</code> pass the signal through quantized companding curves.</li>
-          <li><code>CELP</code> uses damaged pitch, gain, codebook, and packet-concealment behavior. It is not a G.729 encoder, decoder, or bitstream implementation.</li>
-          <li><code>DISC</code> introduces block errors followed by interpolation, stale-data repetition, muting, or concealment fades inspired by optical-media playback. It does not implement CD or DVD framing, modulation, or error correction.</li>
-          <li><code>CVSD</code> tracks the signal with a one-bit adaptive slope whose bit decisions, run lengths, and reconstruction smoothing can fail.</li>
-          <li><code>SUBBAND</code> splits low and high content into independently damaged adaptive-prediction paths.</li>
+          <li><code>ADPCM</code> quantizes prediction error with a multiplicatively adapted step: large codes expand it quickly and small codes contract it slowly.</li>
+          <li><code>MU-LAW</code> and <code>A-LAW</code> encode and decode eight-bit G.711-style sign, segment, and mantissa codewords. <code>BITS</code> removes low codeword planes below eight bits, while <code>DAMAGE</code> flips code bits.</li>
+          <li><code>CELP</code> uses damaged pitch, gain, and codebook behavior. Missing packets replay pitch-synchronous history with progressive attenuation, followed by a short recovery crossfade. It is not a G.729 encoder, decoder, or bitstream implementation.</li>
+          <li><code>DISC</code> introduces block errors whose duration selects the response: short gaps are interpolated with a 32-sample lookahead, medium gaps repeat or extrapolate fading history, and long gaps decay toward mute. It does not implement CD or DVD framing, modulation, or error correction.</li>
+          <li><code>CVSD</code> tracks the signal with a one-bit adaptive slope. Three identical decisions expand the step; alternating decisions contract it; bit errors and a clock-relative reconstruction filter expose failure.</li>
+          <li><code>SUBBAND</code> uses a downsampled two-band Haar quadrature-mirror bank with independently damaged adaptive quantizers for its low and high bands.</li>
           <li><code>LPC</code> replaces increasing amounts of prediction residual with pulse and noise excitation through an adaptive all-pole model.</li>
-          <li><code>TRANSFORM</code> performs short block transforms, then quantizes, discards, or corrupts spectral coefficients before reconstruction.</li>
+          <li><code>TRANSFORM</code> performs 32-sample DCT blocks with a damaged scale factor, frequency-weighted coefficient bit allocation, missing blocks, and coefficient-bit upsets.</li>
           <li><code>PREDICT</code> uses a second-order predictor with quantized residuals, missing corrections, and occasional residual upsets.</li>
           <li><code>MODEM</code> maps amplitude into damaged FSK-like symbols and carrier tones.</li>
-          <li><code>FAX</code> maps level and slope into quadrature symbols, then exposes equalizer lag, phase slips, and training-like interruptions.</li>
-          <li><code>SIGMA 1-BIT</code> uses an error-feedback one-bit stream followed by a deliberately under-resolved reconstruction filter.</li>
+          <li><code>FAX</code> maps level and slope into fixed QPSK, eight-QAM, or sixteen-QAM constellations, then exposes raised-cosine symbol transitions, training sequences, equalizer lag, and phase slips.</li>
+          <li><code>SIGMA 1-BIT</code> uses a first-order integrated error-feedback loop followed by a bit-clock-relative reconstruction filter.</li>
           <li><code>HYBRID</code> combines a predictive base layer with a correction layer that can thin, vanish, or invert.</li>
         </ul>
 

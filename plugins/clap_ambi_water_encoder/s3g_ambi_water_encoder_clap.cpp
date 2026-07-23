@@ -26,9 +26,9 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiWaterMaxChannels;
-constexpr uint32_t kStateVersion = 3;
+constexpr uint32_t kStateVersion = 4;
 constexpr uint32_t kCustomPresetMagic = 0x31544157u; // WAT1
-constexpr uint32_t kCustomPresetVersion = 3;
+constexpr uint32_t kCustomPresetVersion = 4;
 
 constexpr clap_id kPresetParamId = 1;
 constexpr clap_id kOrderParamId = 2;
@@ -69,6 +69,7 @@ constexpr clap_id kSpaceParamId = 36;
 constexpr clap_id kEnvironmentSizeParamId = 37;
 constexpr clap_id kEnvironmentDecayParamId = 38;
 constexpr clap_id kEnvironmentDampingParamId = 39;
+constexpr clap_id kFieldListenModeParamId = 40;
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -158,12 +159,17 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
     bool ok = std::fread(&file.magic, 1, sizeof(file.magic), handle) == sizeof(file.magic)
         && std::fread(&file.version, 1, sizeof(file.version), handle) == sizeof(file.version)
         && file.magic == kCustomPresetMagic
-        && (file.version == 1u || file.version == 2u || file.version == kCustomPresetVersion)
+        && (file.version == 1u || file.version == 2u || file.version == 3u
+            || file.version == kCustomPresetVersion)
         && std::fread(file.name, 1, sizeof(file.name), handle) == sizeof(file.name);
     if (ok) {
         const size_t paramsSize = file.version == 1u
             ? offsetof(s3g::AmbiWaterParams, place)
-            : (file.version == 2u ? offsetof(s3g::AmbiWaterParams, environmentSize) : sizeof(file.params));
+            : (file.version == 2u
+                    ? offsetof(s3g::AmbiWaterParams, environmentSize)
+                    : (file.version == 3u
+                            ? offsetof(s3g::AmbiWaterParams, fieldListenMode)
+                            : sizeof(file.params)));
         ok = std::fread(&file.params, 1, paramsSize, handle) == paramsSize;
     }
     std::fclose(handle);
@@ -202,6 +208,10 @@ constexpr const char* kEnvironmentNames[] = {
 
 constexpr const char* kPlaceNames[] = {
     "OPEN", "SUBMERGED", "CAVE", "CISTERN", "CHANNEL", "PIPE"
+};
+
+constexpr const char* kFieldListenNames[] = {
+    "OFF", "FOLLOW", "COUNTER", "BALANCE"
 };
 
 void randomizeSafe(Plugin& plugin)
@@ -245,6 +255,7 @@ void randomizeSafe(Plugin& plugin)
     p.environmentSize = randomRange(seed, 0.30f, 0.74f);
     p.environmentDecay = randomRange(seed, 0.34f, 0.78f);
     p.environmentDamping = randomRange(seed, 0.26f, 0.76f);
+    p.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(randomChoice(seed, 4u));
     p.outputGainDb = -6.0f;
 
     switch (p.regime) {
@@ -352,6 +363,10 @@ bool assignParam(s3g::AmbiWaterParams& params, clap_id id, double value)
     case kEnvironmentSizeParamId: params.environmentSize = static_cast<float>(value); return true;
     case kEnvironmentDecayParamId: params.environmentDecay = static_cast<float>(value); return true;
     case kEnvironmentDampingParamId: params.environmentDamping = static_cast<float>(value); return true;
+    case kFieldListenModeParamId:
+        params.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(
+            static_cast<uint32_t>(std::lround(value)));
+        return true;
     default: return false;
     }
 }
@@ -514,6 +529,7 @@ constexpr ParamDef kParams[] {
     { kEnvironmentSizeParamId, "Env Size", 0.0, 1.0, 0.5, false },
     { kEnvironmentDecayParamId, "Env Decay", 0.0, 1.0, 0.5, false },
     { kEnvironmentDampingParamId, "Env Damping", 0.0, 1.0, 0.5, false },
+    { kFieldListenModeParamId, "Field Listen", 0.0, 3.0, 0.0, true },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
@@ -559,7 +575,8 @@ const char* paramModule(clap_id id)
     case kSpaceParamId:
     case kEnvironmentSizeParamId:
     case kEnvironmentDecayParamId:
-    case kEnvironmentDampingParamId: return "Environment Field";
+    case kEnvironmentDampingParamId:
+    case kFieldListenModeParamId: return "Environment Field";
     default: return "Ambi Water Encoder";
     }
 }
@@ -623,6 +640,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kEnvironmentSizeParamId: *value = params.environmentSize; return true;
     case kEnvironmentDecayParamId: *value = params.environmentDecay; return true;
     case kEnvironmentDampingParamId: *value = params.environmentDamping; return true;
+    case kFieldListenModeParamId: *value = static_cast<uint32_t>(params.fieldListenMode); return true;
     default: return false;
     }
 }
@@ -642,6 +660,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     } else if (id == kPlaceParamId) {
         std::snprintf(display, size, "%s", kPlaceNames[std::min<uint32_t>(
             static_cast<uint32_t>(std::lround(value)), s3g::kAmbiWaterPlaceCount - 1u)]);
+    } else if (id == kFieldListenModeParamId) {
+        std::snprintf(display, size, "%s", kFieldListenNames[std::min<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 3u)]);
     } else if (id == kMotionRateParamId) {
         std::snprintf(display, size, "%.3f Hz", value);
     } else if (id == kAzimuthParamId || id == kElevationParamId) {
@@ -701,6 +722,14 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
             }
         }
     }
+    if (id == kFieldListenModeParamId) {
+        for (uint32_t index = 0u; index < std::size(kFieldListenNames); ++index) {
+            if (std::strcmp(display, kFieldListenNames[index]) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    }
 
     *value = std::atof(display);
     if (id == kWaterParamId || id == kFlowParamId || id == kScaleParamId
@@ -745,6 +774,17 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->params = state.params;
         p->presetIndex = std::min<uint32_t>(state.presetIndex, s3g::kAmbiWaterFactoryPresetCount - 1u);
         std::snprintf(p->customPresetName, sizeof(p->customPresetName), "%s", state.customPresetName);
+    } else if (version == 3u) {
+        s3g::AmbiWaterParams params {};
+        uint32_t presetIndex = 0u;
+        char customPresetName[64] {};
+        constexpr size_t legacyParamsSize = offsetof(s3g::AmbiWaterParams, fieldListenMode);
+        if (!readExact(stream, &params, legacyParamsSize)
+            || !readExact(stream, &presetIndex, sizeof(presetIndex))
+            || !readExact(stream, customPresetName, sizeof(customPresetName))) return false;
+        p->params = params;
+        p->presetIndex = std::min<uint32_t>(presetIndex, s3g::kAmbiWaterFactoryPresetCount - 1u);
+        std::snprintf(p->customPresetName, sizeof(p->customPresetName), "%s", customPresetName);
     } else if (version == 2u) {
         s3g::AmbiWaterParams params {};
         uint32_t presetIndex = 0u;
@@ -1232,7 +1272,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     [self drawSlider:@"ELEVATION" param:kElevationParamId value:p.centerElevationDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RANGE" param:kDistanceParamId value:p.centerDistance attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(896, 496, 246, 166, style);
+    s3g::clap_gui::drawPanelFrame(896, 496, 246, 192, style);
     s3g::clap_gui::drawPanelHeader(@"ENVIRONMENT FIELD", true, 896, 496, 246, 21, attrs, style);
     [self drawMenu:@"PLACE" value:[NSString stringWithUTF8String:kPlaceNames[
         std::min<uint32_t>(p.place, s3g::kAmbiWaterPlaceCount - 1u)]] panelX:896 y:532 attrs:attrs valueAttrs:valueAttrs style:style];
@@ -1240,6 +1280,9 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     [self drawSlider:@"ENV SIZE" param:kEnvironmentSizeParamId value:p.environmentSize attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ENV DECAY" param:kEnvironmentDecayParamId value:p.environmentDecay attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ENV DAMPING" param:kEnvironmentDampingParamId value:p.environmentDamping attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"LISTEN" value:[NSString stringWithUTF8String:kFieldListenNames[
+        std::min<uint32_t>(static_cast<uint32_t>(p.fieldListenMode), 3u)]]
+        panelX:896 y:662 attrs:attrs valueAttrs:valueAttrs style:style];
 }
 
 - (NSRect)menuBoxRect:(int)menu
@@ -1249,7 +1292,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     case 2: return NSMakeRect(738, 103, 124, 15);
     case 3: return NSMakeRect(738, 129, 124, 15);
     case 4: return NSMakeRect(1004, 531, 124, 15);
-    case 5: return NSZeroRect;
+    case 5: return NSMakeRect(1004, 661, 124, 15);
     case 6: return NSZeroRect;
     case 7: return NSZeroRect;
     case 8: return NSZeroRect;
@@ -1266,7 +1309,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     case 2: return s3g::kAmbiWaterRegimeCount;
     case 3: return s3g::kAmbiWaterEnvironmentCount;
     case 4: return s3g::kAmbiWaterPlaceCount;
-    case 5: return 0u;
+    case 5: return 4u;
     case 6: return 0u;
     case 7: return 0u;
     case 8: return 0u;
@@ -1298,6 +1341,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         @"VORTEX", @"SLOSH", @"DRIP", @"BUBBLE PLUME" };
     static NSString* environmentItems[] = { @"OPEN", @"ROCK", @"LEAVES", @"MUD", @"CONCRETE", @"METAL", @"GLASS", @"PIPE", @"CAVE" };
     static NSString* placeItems[] = { @"OPEN", @"SUBMERGED", @"CAVE", @"CISTERN", @"CHANNEL", @"PIPE" };
+    static NSString* listenItems[] = { @"OFF", @"FOLLOW", @"COUNTER", @"BALANCE" };
     static NSString* presetItems[s3g::kAmbiWaterFactoryPresetCount];
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -1314,6 +1358,9 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     } else if (_openMenu == 4) {
         items = placeItems;
         selected = static_cast<int>(_plugin->params.place);
+    } else if (_openMenu == 5) {
+        items = listenItems;
+        selected = static_cast<int>(_plugin->params.fieldListenMode);
     } else if (_openMenu == 10) {
         items = orderItems;
         selected = static_cast<int>(_plugin->params.order) - 1;
@@ -1377,6 +1424,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
             else if (_openMenu == 2) applyParam(*_plugin, kRegimeParamId, hit);
             else if (_openMenu == 3) applyParam(*_plugin, kEnvironmentParamId, hit);
             else if (_openMenu == 4) applyParam(*_plugin, kPlaceParamId, hit);
+            else if (_openMenu == 5) applyParam(*_plugin, kFieldListenModeParamId, hit);
             else if (_openMenu == 10) applyParam(*_plugin, kOrderParamId, hit + 1);
         }
         _openMenu = 0;
@@ -1397,6 +1445,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     if (NSPointInRect(point, NSMakeRect(738, 103, 124, 15))) { [self openMenu:2]; return; }
     if (NSPointInRect(point, NSMakeRect(738, 129, 124, 15))) { [self openMenu:3]; return; }
     if (NSPointInRect(point, NSMakeRect(1004, 531, 124, 15))) { [self openMenu:4]; return; }
+    if (NSPointInRect(point, NSMakeRect(1004, 661, 124, 15))) { [self openMenu:5]; return; }
     const NSRect panel = [self fieldPanelRect];
     if (NSPointInRect(point, panel)) {
         for (int i = 0; i < 2; ++i) {
@@ -1559,8 +1608,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.1.0",
-    "Procedural flow, droplet, splash, and bubble field with direct 7OA ACN/SN3D output.",
+    "0.2.0",
+    "Procedural water environment whose 7OA ACN/SN3D field can steer its own current, eddies, and events.",
     features
 };
 

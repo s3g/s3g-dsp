@@ -166,6 +166,7 @@ int main()
     }
 
     std::array<float, frames> pcmReference {};
+    std::array<double, s3g::kPsdRawFieldCodecModeCount> modeMeanSquare {};
     for (uint32_t mode = 0; mode < s3g::kPsdRawFieldCodecModeCount; ++mode) {
         params.codecMode = static_cast<s3g::PsdRawFieldCodecMode>(mode);
         field.prepare(48000.0);
@@ -192,6 +193,8 @@ int main()
             if (mode > 0u) pcmDelta += std::abs(static_cast<double>(output[0][i] - pcmReference[i]));
         }
         if (mode == 0u) std::copy(output[0].begin(), output[0].end(), pcmReference.begin());
+        modeMeanSquare[mode] = totalEnergy
+            / static_cast<double>(frames * s3g::kPsdRawFieldChannels);
 
         if (totalEnergy <= 0.0001 || crossDelta <= 0.001 || peak > 1.0f
             || (mode > 0u && pcmDelta <= 0.05)) {
@@ -201,6 +204,70 @@ int main()
                       << " pcmDelta=" << pcmDelta
                       << " peak=" << peak << "\n";
             return 1;
+        }
+    }
+    const auto modeEnergyBounds = std::minmax_element(
+        modeMeanSquare.begin(), modeMeanSquare.end());
+    if (*modeEnergyBounds.second > *modeEnergyBounds.first * 16.0) {
+        std::cerr << "Fault codec level calibration exceeded a 12 dB cross-mode window: min="
+                  << *modeEnergyBounds.first << " max=" << *modeEnergyBounds.second << "\n";
+        return 1;
+    }
+
+    constexpr std::array<s3g::PsdRawFieldCodecMode, 10> upgradedModes {
+        s3g::PsdRawFieldCodecMode::Adpcm,
+        s3g::PsdRawFieldCodecMode::MuLaw,
+        s3g::PsdRawFieldCodecMode::ALaw,
+        s3g::PsdRawFieldCodecMode::CelpScramble,
+        s3g::PsdRawFieldCodecMode::DiscConceal,
+        s3g::PsdRawFieldCodecMode::Cvsd,
+        s3g::PsdRawFieldCodecMode::SubbandAdpcm,
+        s3g::PsdRawFieldCodecMode::BlockTransform,
+        s3g::PsdRawFieldCodecMode::FaxQam,
+        s3g::PsdRawFieldCodecMode::SigmaOneBit,
+    };
+    std::array<float, frames> lowDamageProfile {};
+    std::array<float, frames> highDamageProfile {};
+    auto upgradedParams = params;
+    upgradedParams.codecRate = 0.42f;
+    upgradedParams.bitDepth = 7.0f;
+    upgradedParams.drive = 0.0f;
+    upgradedParams.shred = 0.0f;
+    upgradedParams.resonance = 0.0f;
+    for (const auto mode : upgradedModes) {
+        upgradedParams.codecMode = mode;
+        upgradedParams.codecDamage = 0.0f;
+        field.prepare(48000.0);
+        field.setParams(upgradedParams);
+        field.reset();
+        field.process(pointers.data(), s3g::kPsdRawFieldChannels, frames);
+        std::copy(output[0].begin(), output[0].end(), lowDamageProfile.begin());
+
+        upgradedParams.codecDamage = 0.86f;
+        field.setParams(upgradedParams);
+        field.reset();
+        field.process(pointers.data(), s3g::kPsdRawFieldChannels, frames);
+        std::copy(output[0].begin(), output[0].end(), highDamageProfile.begin());
+
+        double damageDifference = 0.0;
+        for (uint32_t i = 0u; i < frames; ++i) {
+            damageDifference += std::abs(
+                static_cast<double>(highDamageProfile[i] - lowDamageProfile[i]));
+        }
+        if (damageDifference <= 0.01) {
+            std::cerr << "Fault upgraded codec did not respond to DAMAGE in mode "
+                      << static_cast<uint32_t>(mode) << "\n";
+            return 1;
+        }
+
+        field.reset();
+        field.process(pointers.data(), s3g::kPsdRawFieldChannels, frames);
+        for (uint32_t i = 0u; i < frames; ++i) {
+            if (output[0][i] != highDamageProfile[i]) {
+                std::cerr << "Fault upgraded codec reset was not deterministic in mode "
+                          << static_cast<uint32_t>(mode) << " at sample " << i << "\n";
+                return 1;
+            }
         }
     }
 

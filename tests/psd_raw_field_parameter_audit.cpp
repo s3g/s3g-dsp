@@ -158,7 +158,20 @@ int main()
         { "codecRate", &Params::codecRate, 0.0f, 1.0f, {} },
         { "bitDepth", &Params::bitDepth, 2.0f, 16.0f, {} },
         { "codecDamage", &Params::codecDamage, 0.0f, 1.0f, {} },
+        { "codecDamage ADPCM", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Adpcm; } },
+        { "codecDamage MU-LAW", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::MuLaw; } },
+        { "codecDamage A-LAW", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::ALaw; } },
         { "codecDamage CELP", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::CelpScramble; } },
+        { "codecDamage DISC", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::DiscConceal; } },
+        { "codecDamage CVSD", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Cvsd; } },
+        { "codecDamage SUBBAND", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::SubbandAdpcm; } },
+        { "codecDamage TRANS", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::BlockTransform; } },
+        { "codecDamage FAX", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::FaxQam; } },
+        { "codecDamage SIGMA", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::SigmaOneBit; } },
+        { "codecRate CVSD", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Cvsd; } },
+        { "codecRate SUBBAND", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::SubbandAdpcm; } },
+        { "codecRate FAX", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::FaxQam; } },
+        { "codecRate SIGMA", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::SigmaOneBit; } },
         { "drive", &Params::drive, 0.0f, 1.0f, {} },
         { "shred", &Params::shred, 0.0f, 1.0f, {} },
         { "resonance", &Params::resonance, 0.0f, 1.0f, {} },
@@ -172,7 +185,7 @@ int main()
               << std::setw(12) << "space dB" << '\n';
     for (const auto& test : cases) printCase(test);
 
-    printEnumCase("codecMode", &Params::codecMode, 6u);
+    printEnumCase("codecMode", &Params::codecMode, s3g::kPsdRawFieldCodecModeCount);
     printEnumCase("channelScheme", &Params::channelScheme, 5u);
     return 0;
 }

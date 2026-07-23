@@ -12,7 +12,7 @@ struct AmbiPulsarFactoryPresetInfo {
     const char* description;
 };
 
-constexpr std::array<AmbiPulsarFactoryPresetInfo, 12> kAmbiPulsarFactoryPresets {{
+constexpr std::array<AmbiPulsarFactoryPresetInfo, 15> kAmbiPulsarFactoryPresets {{
     { "Crossing", "Three luminous trains crossing rhythm and pitch." },
     { "Auditory Sieve", "Clock-ratio formants articulate a sparse residue pattern." },
     { "Low Constellation", "Free-running low carriers breathe through skewed windows." },
@@ -21,10 +21,13 @@ constexpr std::array<AmbiPulsarFactoryPresetInfo, 12> kAmbiPulsarFactoryPresets 
     { "Impulsion", "Clock-synchronous impulse ratios move rhythm into tone." },
     { "Pendular Choir", "Continuous carriers revealed by overlapping pulsaret windows." },
     { "Dust Geometry", "Idle-only subharmonic noise pulses trace a wide field." },
-    { "Axon Choir", "The four neural timescales emerge as a direct spatial source." },
-    { "Matrix Organism", "Signed cross-coupling imprints all three captured neural tables." },
-    { "Slew Garden", "Slow control paths bend pulsaret envelope and FM trajectories." },
-    { "Red Preamp", "Driven cybernetic feedback approaches the unstable edge." },
+    { "Axon Choir", "A 64-node tetrahedral ecology hears its direct spatial source." },
+    { "Matrix Organism", "Eight diffuse ears imprint all three captured neural tables." },
+    { "Slew Garden", "A roaming 32-node listener bends lane and captured trajectories." },
+    { "Red Preamp", "Cross-wired field return approaches the unstable edge." },
+    { "Ecology A: Listen Off", "Reference circuit with directional listening completely switched off." },
+    { "Ecology B: Ears Only", "The same circuit listens and bends its lanes while neural return is bypassed." },
+    { "Ecology C: Closed Loop", "The same listening field also returns to the 64-node neural ecology." },
 }};
 
 constexpr uint32_t kAmbiPulsarFactoryPresetCount = static_cast<uint32_t>(kAmbiPulsarFactoryPresets.size());
@@ -38,7 +41,59 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
 {
     AmbiPulsarParams p;
     const uint32_t presetIndex = std::min<uint32_t>(index, kAmbiPulsarFactoryPresetCount - 1u);
+    const auto configureListeningProof = [&](uint32_t enabled, uint32_t bypass) {
+        p.order = 3u;
+        p.emissionHz = 19.0f;
+        p.emissionModRateHz = 0.047f;
+        p.emissionModDepth = 0.08f;
+        p.formantModDepthSemitones = 0.0f;
+        p.formantScatterSemitones = 0.0f;
+        p.phaseScatter = 0.0f;
+        p.probability = 1.0f;
+        p.burstOff = 0u;
+        p.sieveModulo = 1u;
+        p.pointRandomness = 0.08f;
+        p.lanes[0] = { 96.0f, 2.9f, 0.72f, 0.00f, AmbiPulsarWaveform::Sine };
+        p.lanes[1] = { 384.0f, 2.1f, 0.62f, 0.24f, AmbiPulsarWaveform::Overtone };
+        p.lanes[2] = { 1536.0f, 1.3f, 0.52f, 0.52f, AmbiPulsarWaveform::Triangle };
+        p.envelope = AmbiPulsarEnvelope::Welch;
+        p.neuralLevel = 0.68f;
+        p.neural.drive = 2.82f;
+        p.neural.feedback = 0.95f;
+        p.neural.coupling = 0.72f;
+        p.neural.hierarchy = 0.62f;
+        p.neural.phaseShift = 0.61f;
+        p.neural.brownian = 0.04f;
+        p.neural.drift = 0.08f;
+        p.neural.selfModulation = 0.48f;
+        p.neural.audioFeedback = 0.0f;
+        p.neuralPulsaretMix = 0.72f;
+        p.neuralEnvelopeMix = 0.48f;
+        p.neuralFmDepthSemitones = 5.2f;
+        p.listening.neuralSet = AmbiPulsarNeuralSet::Nodes64;
+        p.listening.enabled = enabled;
+        p.listening.bypass = bypass;
+        p.listening.pickupSet = AmbiPulsarPickupSet::Cube8;
+        p.listening.mode = AmbiPulsarListeningMode::Cross;
+        p.listening.fieldReturn = 0.88f;
+        p.listening.propagationMs = 13.0f;
+        p.listening.focus = 1.0f;
+        p.listening.laneInfluence = 1.0f;
+        p.spatialWidth = 1.0f;
+        p.orbitDepth = 0.72f;
+        p.orbitRateHz = 0.027f;
+        p.outputGainDb = -20.0f;
+    };
     switch (presetIndex) {
+    case 14u: // Ecology C: Closed Loop
+        configureListeningProof(1u, 0u);
+        break;
+    case 13u: // Ecology B: Ears Only
+        configureListeningProof(1u, 1u);
+        break;
+    case 12u: // Ecology A: Listen Off
+        configureListeningProof(0u, 0u);
+        break;
     case 11u: // Red Preamp
         p.emissionHz = 47.0f;
         p.emissionModDepth = 0.18f;
@@ -61,6 +116,14 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.neuralPulsaretMix = 0.44f;
         p.neuralEnvelopeMix = 0.20f;
         p.neuralFmDepthSemitones = 4.5f;
+        p.listening.neuralSet = AmbiPulsarNeuralSet::Nodes64;
+        p.listening.enabled = 1u;
+        p.listening.pickupSet = AmbiPulsarPickupSet::Tetra4;
+        p.listening.mode = AmbiPulsarListeningMode::Cross;
+        p.listening.fieldReturn = 0.46f;
+        p.listening.propagationMs = 7.0f;
+        p.listening.focus = 0.86f;
+        p.listening.laneInfluence = 0.28f;
         p.spatialWidth = 0.88f;
         p.orbitDepth = 0.62f;
         p.outputGainDb = -18.0f;
@@ -87,6 +150,14 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.neuralPulsaretMix = 0.18f;
         p.neuralEnvelopeMix = 0.82f;
         p.neuralFmDepthSemitones = 7.0f;
+        p.listening.neuralSet = AmbiPulsarNeuralSet::Nodes32;
+        p.listening.enabled = 1u;
+        p.listening.pickupSet = AmbiPulsarPickupSet::Cube8;
+        p.listening.mode = AmbiPulsarListeningMode::Roaming;
+        p.listening.fieldReturn = 0.28f;
+        p.listening.propagationMs = 74.0f;
+        p.listening.focus = 0.62f;
+        p.listening.laneInfluence = 0.68f;
         p.spatialWidth = 0.94f;
         p.orbitRateHz = -0.008f;
         p.outputGainDb = -15.0f;
@@ -113,6 +184,14 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.neuralPulsaretMix = 0.78f;
         p.neuralEnvelopeMix = 0.46f;
         p.neuralFmDepthSemitones = 3.6f;
+        p.listening.neuralSet = AmbiPulsarNeuralSet::Nodes64;
+        p.listening.enabled = 1u;
+        p.listening.pickupSet = AmbiPulsarPickupSet::Cube8;
+        p.listening.mode = AmbiPulsarListeningMode::Diffuse;
+        p.listening.fieldReturn = 0.42f;
+        p.listening.propagationMs = 31.0f;
+        p.listening.focus = 0.76f;
+        p.listening.laneInfluence = 0.38f;
         p.spatialWidth = 0.76f;
         p.orbitDepth = 0.74f;
         p.outputGainDb = -16.0f;
@@ -135,6 +214,14 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.neural.drift = 0.28f;
         p.neural.selfModulation = 0.48f;
         p.neural.audioFeedback = 0.08f;
+        p.listening.neuralSet = AmbiPulsarNeuralSet::Nodes64;
+        p.listening.enabled = 1u;
+        p.listening.pickupSet = AmbiPulsarPickupSet::Tetra4;
+        p.listening.mode = AmbiPulsarListeningMode::Local;
+        p.listening.fieldReturn = 0.30f;
+        p.listening.propagationMs = 19.0f;
+        p.listening.focus = 0.72f;
+        p.listening.laneInfluence = 0.16f;
         p.spatialWidth = 1.0f;
         p.orbitDepth = 0.28f;
         p.outputGainDb = -17.0f;
@@ -300,7 +387,7 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         break;
     }
     constexpr std::array<uint32_t, kAmbiPulsarFactoryPresetCount> pointCounts {
-        6u, 5u, 4u, 7u, 6u, 4u, 6u, 8u, 8u, 6u, 5u, 4u
+        6u, 5u, 4u, 7u, 6u, 4u, 6u, 8u, 8u, 6u, 5u, 4u, 8u, 8u, 8u
     };
     p.points = pointCounts[presetIndex];
     return sanitizeAmbiPulsarParams(p);

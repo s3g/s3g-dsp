@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
@@ -113,6 +114,7 @@ struct AmbiWaveTerrainParams {
     float polygonRound = 0.18f;
     float polygonStar = 0.0f;
     float polygonSkew = 0.0f;
+    AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
 };
 
 inline int ambiWaveTerrainScaleDegreeSemitones(AmbiWaveTerrainPitchScale scale, int degree)
@@ -304,6 +306,10 @@ public:
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1.0, sampleRate);
+        fieldListener_.prepare(sampleRate_);
+        fieldListener_.setMemorySeconds(0.48f);
+        const auto& directions = ambiFieldListenerCubeDirections();
+        fieldListener_.setDirections(directions.data(), static_cast<uint32_t>(directions.size()));
 #if defined(__APPLE__)
         if (!fftSetup_) fftSetup_ = vDSP_create_fftsetup(9u, kFFTRadix2);
 #endif
@@ -312,6 +318,7 @@ public:
 
     void reset()
     {
+        fieldListener_.reset();
         macroU_ = 0.5f;
         macroV_ = 0.5f;
         macroStartU_ = macroU_;
@@ -409,6 +416,7 @@ public:
         params.polygonRound = clamp(params.polygonRound, 0.0f, 1.0f);
         params.polygonStar = clamp(params.polygonStar, 0.0f, 1.0f);
         params.polygonSkew = clamp(params.polygonSkew, -1.0f, 1.0f);
+        params.fieldListenMode = sanitizeAmbiFieldListenMode(params.fieldListenMode);
 
         const bool motionModeChanged = params.motionMode != params_.motionMode;
         const bool terrainChanged = params.skin != params_.skin
@@ -489,6 +497,8 @@ public:
     }
 
     float terrainHeight(float u, float v) const { return terrain(fract(u), clamp(v, 0.0f, 1.0f)); }
+    float fieldListenEnvelope(uint32_t lobe) const { return fieldListener_.envelope(lobe); }
+    float fieldListenActivity() const { return fieldListener_.activity(); }
     std::array<float, 2> contourPoint(const AmbiWaveTerrainRegion& region, float phase) const
     {
         return contour(region, phase);
@@ -563,6 +573,7 @@ public:
             }
 
             for (uint32_t frame = chunkStart; frame < chunkStart + chunkFrames; ++frame) {
+                std::array<float, kAmbiWaveTerrainMaxChannels> listenerFrame {};
                 for (uint32_t voice = 0; voice < params_.voices; ++voice) {
                     auto& v = voices_[voice];
                     const float activity = v.fieldActive ? 1.0f : 1.0f - params_.fieldContrast;
@@ -576,6 +587,7 @@ public:
                         for (uint32_t channel = 0; channel < ambiChannels; ++channel) {
                             const float targetBasis = v.centerSpatial[channel];
                             smoothedSpatial[channel] += (targetBasis - smoothedSpatial[channel]) * spatialCoefficient;
+                            listenerFrame[channel] += sample * amplitude * activity * smoothedSpatial[channel];
                             if (outputs[channel]) {
                                 outputs[channel][frame] = flushDenormal(outputs[channel][frame]
                                     + sample * amplitude * gain * activity * smoothedSpatial[channel]);
@@ -599,6 +611,7 @@ public:
                     if (v.transition < 1.0f) v.transition = std::min(1.0f, v.transition + v.transitionStep);
                     v.energy += (std::fabs(voiceSample * gain * activity) - v.energy) * 0.025f;
                 }
+                fieldListener_.processFrame(listenerFrame.data(), ambiChannels);
             }
         }
         for (uint32_t channel = 0; channel < ambiChannels; ++channel) {
@@ -1159,7 +1172,30 @@ private:
             targetV = clamp(lerp(region.v, macroV_, 0.18f + params_.regionDeviation * 0.42f) + randomSigned(voice) * step * 0.35f, 0.03f, 0.97f);
             break;
         case AmbiWaveTerrainSelection::Markov: {
-            const uint32_t direction = std::min<uint32_t>(7u, static_cast<uint32_t>(randomUnit(voice) * 8.0f));
+            uint32_t direction = std::min<uint32_t>(7u,
+                static_cast<uint32_t>(randomUnit(voice) * 8.0f));
+            if (params_.fieldListenMode != AmbiFieldListenMode::Off
+                && fieldListener_.activity() > 0.0001f) {
+                std::array<float, 8> weights {};
+                float total = 0.0f;
+                for (uint32_t candidate = 0u; candidate < weights.size(); ++candidate) {
+                    const float candidateAngle =
+                        static_cast<float>(candidate) * kAmbiWaveTerrainTwoPi / 8.0f;
+                    const float u = fract(region.u + std::cos(candidateAngle) * step);
+                    const float v = clamp(region.v + std::sin(candidateAngle) * step,
+                        0.03f, 0.97f);
+                    weights[candidate] = 0.08f + listenerPreference(u, v) * 2.4f;
+                    total += weights[candidate];
+                }
+                float target = randomUnit(voice) * std::max(0.0001f, total);
+                for (uint32_t candidate = 0u; candidate < weights.size(); ++candidate) {
+                    target -= weights[candidate];
+                    if (target <= 0.0f) {
+                        direction = candidate;
+                        break;
+                    }
+                }
+            }
             const float angle = static_cast<float>(direction) * kAmbiWaveTerrainTwoPi / 8.0f;
             targetU = fract(region.u + std::cos(angle) * step);
             targetV = clamp(region.v + std::sin(angle) * step, 0.03f, 0.97f);
@@ -1170,6 +1206,14 @@ private:
             targetU = fract(region.u + randomSigned(voice) * step);
             targetV = clamp(region.v + randomSigned(voice) * step, 0.03f, 0.97f);
             break;
+        }
+
+        const float listenAmount = fieldListener_.activity()
+            * (params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 0.46f);
+        if (listenAmount > 0.0001f) {
+            const auto target = listenerTargetUv();
+            targetU = lerpWrappedUnit(targetU, target[0], listenAmount);
+            targetV = clamp(lerp(targetV, target[1], listenAmount), 0.03f, 0.97f);
         }
 
         if (params_.transition == AmbiWaveTerrainTransition::Merge) {
@@ -1191,6 +1235,16 @@ private:
         region.radius = clamp(params_.scanRadius * std::exp2(randomSigned(voice) * params_.regionDeviation), 0.005f, 0.48f);
         region.aspect = clamp(params_.scanAspect + randomSigned(voice) * params_.regionDeviation * 0.28f, 0.05f, 1.0f);
         region.rotation = clamp(params_.scanRotation + randomSigned(voice) * params_.regionDeviation, -1.0f, 1.0f);
+        if (listenAmount > 0.0001f) {
+            const auto target = listenerTargetUv();
+            float du = target[0] - region.u;
+            if (du > 0.5f) du -= 1.0f;
+            else if (du < -0.5f) du += 1.0f;
+            const float dv = target[1] - region.v;
+            const float listenerRotation = std::atan2(dv, du) / kPi;
+            region.rotation = clamp(lerp(region.rotation, listenerRotation,
+                listenAmount * 0.82f), -1.0f, 1.0f);
+        }
         region.trace = params_.trace;
         return region;
     }
@@ -1244,6 +1298,13 @@ private:
             region.aspect = params_.scanAspect;
             region.rotation = params_.scanRotation;
             region.trace = params_.trace;
+            const float listenAmount = fieldListener_.activity()
+                * (params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 0.34f);
+            if (listenAmount > 0.0001f) {
+                const auto target = listenerTargetUv();
+                region.u = lerpWrappedUnit(region.u, target[0], listenAmount);
+                region.v = clamp(lerp(region.v, target[1], listenAmount), 0.03f, 0.97f);
+            }
             const float updateSeconds = std::max(0.75f, params_.tableXfadeMs * 0.001f);
             beginTransition(voiceIndex, region);
             voice.transitionStep = 1.0f / std::max(1.0f, updateSeconds * static_cast<float>(sampleRate_));
@@ -1258,7 +1319,14 @@ private:
         if (voice.eventSamples > 0.0f) return;
         if (voice.fieldActive) {
             beginTransition(voiceIndex, chooseRegion(voiceIndex));
-            voice.fieldActive = randomUnit(voice) <= params_.fieldDensity;
+            float density = params_.fieldDensity;
+            if (params_.fieldListenMode != AmbiFieldListenMode::Off) {
+                const float preference = listenerPreference(
+                    voice.next.region.u, voice.next.region.v);
+                density = clamp(density + (preference - 0.5f)
+                    * fieldListener_.activity() * 0.72f, 0.01f, 0.995f);
+            }
+            voice.fieldActive = randomUnit(voice) <= density;
         } else {
             voice.fieldActive = true;
         }
@@ -1340,6 +1408,32 @@ private:
         ++dirtyVoice_;
     }
 
+    float listenerPreference(float u, float v) const
+    {
+        const AmbiWaveTerrainPoint point = surfacePoint(u, v);
+        return fieldListener_.preference(
+            directionFromAed(point.azimuthDeg, point.elevationDeg),
+            params_.fieldListenMode);
+    }
+
+    std::array<float, 2> listenerTargetUv() const
+    {
+        const Vec3 direction = fieldListener_.preferredDirection(params_.fieldListenMode);
+        const float length = std::sqrt(direction.x * direction.x
+            + direction.y * direction.y + direction.z * direction.z);
+        if (length < 1.0e-7f) return { macroU_, macroV_ };
+        const float azimuth = std::atan2(direction.y, direction.x) * 180.0f / kPi;
+        const float elevation = std::asin(clamp(direction.z / length, -1.0f, 1.0f))
+            * 180.0f / kPi;
+        const float spread = std::max(0.05f, params_.spatialSpread);
+        const float azimuthOffset = wrapSignedDeg(azimuth - params_.centerAzimuthDeg);
+        const float u = fract(0.5f + azimuthOffset / (360.0f * spread));
+        const float v = clamp(0.5f
+            + (elevation - params_.centerElevationDeg) / (180.0f * spread),
+            0.03f, 0.97f);
+        return { u, v };
+    }
+
     double sampleRate_ = 48000.0;
 #if defined(__APPLE__)
     FFTSetup fftSetup_ = nullptr;
@@ -1359,6 +1453,7 @@ private:
     float macroTargetU_ = 0.67f;
     float macroTargetV_ = 0.38f;
     float macroPhase_ = 0.0f;
+    AmbiFieldListener fieldListener_ {};
 };
 
 inline const char* ambiWaveTerrainModeName(AmbiWaveTerrainMode mode)

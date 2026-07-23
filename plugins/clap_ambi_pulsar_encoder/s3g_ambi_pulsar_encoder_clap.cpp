@@ -26,10 +26,14 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiPulsarMaxChannels;
-constexpr uint32_t kStateVersion = 7u;
+constexpr uint32_t kStateVersion = 8u;
 constexpr uint32_t kCustomPresetMagic = 0x50473353u; // "S3GP" on little-endian hosts
-constexpr uint32_t kCustomPresetVersion = 1u;
+constexpr uint32_t kCustomPresetVersion = 2u;
 constexpr uint32_t kParamBankSize = 128u;
+constexpr size_t kLegacyParamsSize = offsetof(s3g::AmbiPulsarParams, listening);
+static_assert(kLegacyParamsSize + sizeof(s3g::AmbiPulsarListeningParams)
+        == sizeof(s3g::AmbiPulsarParams),
+    "listening parameters must remain an appended state suffix");
 
 constexpr clap_id kPresetParamId = 1u;
 constexpr clap_id kOrderParamId = 2u;
@@ -92,13 +96,15 @@ constexpr std::array<clap_id, s3g::kAmbiPulsarLanes> kLaneFmRatioIds {{ 83u, 89u
 constexpr std::array<clap_id, s3g::kAmbiPulsarLanes> kLaneFmIndexIds {{ 84u, 90u, 96u }};
 constexpr std::array<clap_id, s3g::kAmbiPulsarLanes> kLaneWindowSkewIds {{ 85u, 91u, 97u }};
 
-struct LegacySavedStateV6 {
-    uint32_t version = 6u;
-    s3g::AmbiPulsarParams params {};
-    uint32_t presetIndex = 0u;
-    int32_t guiViewMode = 2;
-    float guiViewZoom = 1.0f;
-};
+constexpr clap_id kNeuralSetParamId = 100u;
+constexpr clap_id kListeningEnableParamId = 101u;
+constexpr clap_id kListeningBypassParamId = 102u;
+constexpr clap_id kPickupSetParamId = 103u;
+constexpr clap_id kListeningModeParamId = 104u;
+constexpr clap_id kFieldReturnParamId = 105u;
+constexpr clap_id kPropagationParamId = 106u;
+constexpr clap_id kPickupFocusParamId = 107u;
+constexpr clap_id kLaneListeningParamId = 108u;
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -108,9 +114,6 @@ struct SavedState {
     float guiViewZoom = 1.0f;
     char customPresetName[64] {};
 };
-
-static_assert(sizeof(LegacySavedStateV6) == offsetof(SavedState, customPresetName),
-    "state version 7 must preserve the complete version 6 binary prefix");
 
 struct CustomPresetFile {
     uint32_t magic = kCustomPresetMagic;
@@ -145,8 +148,13 @@ struct Plugin {
     std::atomic<uint32_t> guiSelectedPoint { 0u };
     int32_t guiViewMode = 2;
     float guiViewZoom = 1.0f;
-    std::array<std::atomic<float>, s3g::kNeuralSynthesisNodes> guiNeuralNode {};
-    std::array<std::atomic<float>, s3g::kNeuralSynthesisClusters> guiNeuralCluster {};
+    std::array<std::atomic<float>, s3g::kAmbiPulsarNeuralMaxNodes> guiNeuralNode {};
+    std::array<std::atomic<float>, s3g::kAmbiPulsarNeuralMaxClusters> guiNeuralCluster {};
+    std::array<std::atomic<float>, s3g::kAmbiPulsarListeningPickups> guiListeningPickup {};
+    std::array<std::atomic<float>, s3g::kAmbiPulsarListeningPickups> guiListeningEnergy {};
+    std::array<std::atomic<float>, s3g::kAmbiPulsarNeuralLobes> guiListeningReturn {};
+    std::atomic<float> guiListeningAnalysis { 0.0f };
+    std::atomic<float> guiListeningInfluence { 0.0f };
     std::atomic<float> guiCaptureProgress { 0.0f };
     std::atomic<uint32_t> guiCaptureGeneration { 0u };
     std::atomic<uint32_t> guiCaptureRequestSerial { 0u };
@@ -210,8 +218,18 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
     FILE* handle = std::fopen(path, "rb");
     if (!handle) return false;
     file = {};
-    const bool ok = std::fread(&file, 1u, sizeof(file), handle) == sizeof(file)
-        && file.magic == kCustomPresetMagic && file.version == kCustomPresetVersion;
+    uint32_t magic = 0u;
+    uint32_t version = 0u;
+    bool ok = std::fread(&magic, 1u, sizeof(magic), handle) == sizeof(magic)
+        && std::fread(&version, 1u, sizeof(version), handle) == sizeof(version)
+        && magic == kCustomPresetMagic && (version == 1u || version == kCustomPresetVersion);
+    file.magic = magic;
+    file.version = kCustomPresetVersion;
+    if (ok) ok = std::fread(file.name, 1u, sizeof(file.name), handle) == sizeof(file.name);
+    if (ok) {
+        const size_t paramsSize = version == 1u ? kLegacyParamsSize : sizeof(file.params);
+        ok = std::fread(&file.params, 1u, paramsSize, handle) == paramsSize;
+    }
     std::fclose(handle);
     if (!ok) return false;
     file.name[sizeof(file.name) - 1u] = '\0';
@@ -309,6 +327,18 @@ void randomizeSafe(Plugin& plugin)
     p.neuralPulsaretMix = randomUnit(seed) < 0.60f ? 0.0f : randomRange(seed, 0.08f, 0.72f);
     p.neuralEnvelopeMix = randomUnit(seed) < 0.68f ? 0.0f : randomRange(seed, 0.08f, 0.62f);
     p.neuralFmDepthSemitones = randomUnit(seed) < 0.66f ? 0.0f : randomRange(seed, 0.25f, 7.0f);
+    p.listening.neuralSet = static_cast<s3g::AmbiPulsarNeuralSet>(
+        static_cast<uint32_t>(randomUnit(seed) * 3.0f) % 3u);
+    p.listening.enabled = randomUnit(seed) < 0.58f ? 1u : 0u;
+    p.listening.bypass = 0u;
+    p.listening.pickupSet = randomUnit(seed) < 0.52f
+        ? s3g::AmbiPulsarPickupSet::Tetra4 : s3g::AmbiPulsarPickupSet::Cube8;
+    p.listening.mode = static_cast<s3g::AmbiPulsarListeningMode>(
+        static_cast<uint32_t>(randomUnit(seed) * 4.0f) % 4u);
+    p.listening.fieldReturn = randomRange(seed, 0.12f, 0.58f);
+    p.listening.propagationMs = randomRange(seed, 2.0f, 96.0f);
+    p.listening.focus = randomRange(seed, 0.28f, 0.96f);
+    p.listening.laneInfluence = randomRange(seed, 0.0f, 0.72f);
     plugin.randomSeed = seed;
     plugin.customPresetActive.store(false, std::memory_order_relaxed);
     publishParams(plugin, s3g::sanitizeAmbiPulsarParams(p), 0u, true);
@@ -374,6 +404,18 @@ bool assignParam(s3g::AmbiPulsarParams& p, clap_id id, double value)
     case kNeuralEnvelopeParamId: p.neuralEnvelopeMix = static_cast<float>(value); return true;
     case kNeuralFmParamId: p.neuralFmDepthSemitones = static_cast<float>(value); return true;
     case kNeuralCaptureParamId: p.neuralCapture = static_cast<uint32_t>(std::lround(value)); return true;
+    case kNeuralSetParamId: p.listening.neuralSet = static_cast<s3g::AmbiPulsarNeuralSet>(
+        static_cast<uint32_t>(std::lround(value))); return true;
+    case kListeningEnableParamId: p.listening.enabled = static_cast<uint32_t>(std::lround(value)); return true;
+    case kListeningBypassParamId: p.listening.bypass = static_cast<uint32_t>(std::lround(value)); return true;
+    case kPickupSetParamId: p.listening.pickupSet = static_cast<s3g::AmbiPulsarPickupSet>(
+        static_cast<uint32_t>(std::lround(value))); return true;
+    case kListeningModeParamId: p.listening.mode = static_cast<s3g::AmbiPulsarListeningMode>(
+        static_cast<uint32_t>(std::lround(value))); return true;
+    case kFieldReturnParamId: p.listening.fieldReturn = static_cast<float>(value); return true;
+    case kPropagationParamId: p.listening.propagationMs = static_cast<float>(value); return true;
+    case kPickupFocusParamId: p.listening.focus = static_cast<float>(value); return true;
+    case kLaneListeningParamId: p.listening.laneInfluence = static_cast<float>(value); return true;
     default: break;
     }
     if (laneForParam(id, kLaneFormantIds, [&](uint32_t lane) { p.lanes[lane].formantHz = static_cast<float>(value); })) return true;
@@ -451,6 +493,15 @@ double paramValue(const s3g::AmbiPulsarParams& p, clap_id id)
     case kNeuralEnvelopeParamId: return p.neuralEnvelopeMix;
     case kNeuralFmParamId: return p.neuralFmDepthSemitones;
     case kNeuralCaptureParamId: return p.neuralCapture;
+    case kNeuralSetParamId: return static_cast<uint32_t>(p.listening.neuralSet);
+    case kListeningEnableParamId: return p.listening.enabled;
+    case kListeningBypassParamId: return p.listening.bypass;
+    case kPickupSetParamId: return static_cast<uint32_t>(p.listening.pickupSet);
+    case kListeningModeParamId: return static_cast<uint32_t>(p.listening.mode);
+    case kFieldReturnParamId: return p.listening.fieldReturn;
+    case kPropagationParamId: return p.listening.propagationMs;
+    case kPickupFocusParamId: return p.listening.focus;
+    case kLaneListeningParamId: return p.listening.laneInfluence;
     default: break;
     }
     double value = 0.0;
@@ -604,12 +655,25 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         p->guiEnergy[index].store(p->engine.pointEnergy(index), std::memory_order_relaxed);
         p->guiEvent[index].store(p->engine.pointPulse(index), std::memory_order_relaxed);
     }
-    for (uint32_t node = 0u; node < s3g::kNeuralSynthesisNodes; ++node) {
+    for (uint32_t node = 0u; node < s3g::kAmbiPulsarNeuralMaxNodes; ++node) {
         p->guiNeuralNode[node].store(p->engine.neuralNode(node), std::memory_order_relaxed);
     }
-    for (uint32_t cluster = 0u; cluster < s3g::kNeuralSynthesisClusters; ++cluster) {
+    for (uint32_t cluster = 0u; cluster < s3g::kAmbiPulsarNeuralMaxClusters; ++cluster) {
         p->guiNeuralCluster[cluster].store(p->engine.neuralCluster(cluster), std::memory_order_relaxed);
     }
+    for (uint32_t pickup = 0u; pickup < s3g::kAmbiPulsarListeningPickups; ++pickup) {
+        p->guiListeningPickup[pickup].store(
+            p->engine.listeningPickupValue(pickup), std::memory_order_relaxed);
+        p->guiListeningEnergy[pickup].store(
+            p->engine.listeningPickupEnergy(pickup), std::memory_order_relaxed);
+    }
+    for (uint32_t lobe = 0u; lobe < s3g::kAmbiPulsarNeuralLobes; ++lobe) {
+        p->guiListeningReturn[lobe].store(
+            p->engine.listeningLobeReturn(lobe), std::memory_order_relaxed);
+    }
+    p->guiListeningAnalysis.store(
+        p->engine.listeningAnalysisInfluence(), std::memory_order_relaxed);
+    p->guiListeningInfluence.store(p->engine.listeningInfluence(), std::memory_order_relaxed);
     const uint32_t captureGeneration = p->engine.neuralCaptureGeneration();
     p->guiCaptureProgress.store(p->engine.neuralCaptureProgress(), std::memory_order_relaxed);
     p->guiCaptureGeneration.store(captureGeneration, std::memory_order_relaxed);
@@ -709,6 +773,15 @@ constexpr ParamDef kParams[] {
     { kNeuralEnvelopeParamId, "Captured Envelope Mix", 0.0, 1.0, 0.0, false },
     { kNeuralFmParamId, "Captured FM Depth", 0.0, 24.0, 0.0, false },
     { kNeuralCaptureParamId, "Capture Neural Tables", 0.0, 65535.0, 0.0, true },
+    { kNeuralSetParamId, "Neural Population", 0.0, 2.0, 0.0, true },
+    { kListeningEnableParamId, "Listening Enable", 0.0, 1.0, 0.0, true },
+    { kListeningBypassParamId, "Listening Bypass", 0.0, 1.0, 0.0, true },
+    { kPickupSetParamId, "Listening Ears", 0.0, 1.0, 0.0, true },
+    { kListeningModeParamId, "Listening Topology", 0.0, 3.0, 0.0, true },
+    { kFieldReturnParamId, "Listening Field Return", 0.0, 1.0, 0.34, false },
+    { kPropagationParamId, "Listening Propagation", 0.0, 180.0, 24.0, false },
+    { kPickupFocusParamId, "Listening Focus", 0.0, 1.0, 0.72, false },
+    { kLaneListeningParamId, "Listening Field Response", 0.0, 1.0, 0.0, false },
     { kLaneTuneModeIds[0], "Lane A Tuning Mode", 0.0, 2.0, 0.0, true },
     { kLaneCarrierRatioIds[0], "Lane A Clock Ratio", 0.125, 128.0, 4.0, false },
     { kLaneRetriggerModeIds[0], "Lane A Retrigger Mode", 0.0, 2.0, 0.0, true },
@@ -806,8 +879,11 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->flags = CLAP_PARAM_IS_AUTOMATABLE | (param.stepped ? CLAP_PARAM_IS_STEPPED : 0u);
     std::strncpy(info->name, param.name, sizeof(info->name));
     info->name[sizeof(info->name) - 1u] = '\0';
-    const char* module = param.id >= kNeuralLevelParamId && param.id <= kNeuralCaptureParamId
-        ? "Neural Synthesis" : param.id >= kLaneTuneModeIds[0] ? "Pulsaret Lanes" : "Pulsar Encoder";
+    const char* module = param.id >= kNeuralSetParamId && param.id <= kLaneListeningParamId
+        ? "Field Listening"
+        : param.id >= kNeuralLevelParamId && param.id <= kNeuralCaptureParamId
+        ? "Neural Synthesis" : param.id >= kLaneTuneModeIds[0] && param.id <= kLaneWindowSkewIds[2]
+        ? "Pulsaret Lanes" : "Pulsar Encoder";
     std::strncpy(info->module, module, sizeof(info->module));
     info->module[sizeof(info->module) - 1u] = '\0';
     info->min_value = param.minimum;
@@ -830,6 +906,9 @@ constexpr const char* kQualityNames[] { "ECO", "HIGH", "ULTRA" };
 constexpr const char* kMotionModeNames[] { "FREE", "ORBIT", "SWAY", "FIGURE 8", "FORSY" };
 constexpr const char* kTuneModeNames[] { "HZ", "RATIO", "SUB" };
 constexpr const char* kRetriggerModeNames[] { "RETRIGGER", "FREE", "IDLE ONLY" };
+constexpr const char* kNeuralSetNames[] { "16 NODES", "32 NODES", "64 NODES" };
+constexpr const char* kPickupSetNames[] { "TETRA 4", "CUBE 8" };
+constexpr const char* kListeningModeNames[] { "LOCAL", "CROSS", "DIFFUSE", "ROAMING" };
 
 template <size_t N>
 bool isLaneParam(clap_id id, const std::array<clap_id, N>& ids)
@@ -852,6 +931,16 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         std::snprintf(display, capacity, "%s", kQualityNames[std::clamp<int>(static_cast<int>(std::lround(value)), 0, 2)]);
     } else if (id == kMotionModeParamId) {
         std::snprintf(display, capacity, "%s", kMotionModeNames[std::clamp<int>(static_cast<int>(std::lround(value)), 0, 4)]);
+    } else if (id == kNeuralSetParamId) {
+        std::snprintf(display, capacity, "%s", kNeuralSetNames[std::clamp<int>(static_cast<int>(std::lround(value)), 0, 2)]);
+    } else if (id == kPickupSetParamId) {
+        std::snprintf(display, capacity, "%s", kPickupSetNames[std::clamp<int>(static_cast<int>(std::lround(value)), 0, 1)]);
+    } else if (id == kListeningModeParamId) {
+        std::snprintf(display, capacity, "%s", kListeningModeNames[std::clamp<int>(static_cast<int>(std::lround(value)), 0, 3)]);
+    } else if (id == kListeningEnableParamId) {
+        std::snprintf(display, capacity, "%s", value >= 0.5 ? "ON" : "OFF");
+    } else if (id == kListeningBypassParamId) {
+        std::snprintf(display, capacity, "%s", value >= 0.5 ? "BYPASSED" : "ACTIVE");
     } else if (id == kLaneWaveformIds[0] || id == kLaneWaveformIds[1] || id == kLaneWaveformIds[2]) {
         std::snprintf(display, capacity, "%s", kWaveformNames[std::clamp<int>(static_cast<int>(std::lround(value)), 0, 7)]);
     } else if (isLaneParam(id, kLaneTuneModeIds)) {
@@ -869,6 +958,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         std::snprintf(display, capacity, "%+.1f deg", value);
     } else if (id == kDistanceParamId) {
         std::snprintf(display, capacity, "%.2f", value);
+    } else if (id == kPropagationParamId) {
+        std::snprintf(display, capacity, "%.1f ms", value);
     } else if (id == kOutputParamId) {
         std::snprintf(display, capacity, "%+.1f dB", value);
     } else if (id == kNeuralCaptureParamId) {
@@ -906,6 +997,30 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         for (uint32_t index = 0u; index < std::size(kMotionModeNames); ++index) {
             if (std::strcmp(display, kMotionModeNames[index]) == 0) { *value = index; return true; }
         }
+    }
+    if (id == kNeuralSetParamId) {
+        for (uint32_t index = 0u; index < std::size(kNeuralSetNames); ++index) {
+            if (std::strcmp(display, kNeuralSetNames[index]) == 0) { *value = index; return true; }
+        }
+    }
+    if (id == kPickupSetParamId) {
+        for (uint32_t index = 0u; index < std::size(kPickupSetNames); ++index) {
+            if (std::strcmp(display, kPickupSetNames[index]) == 0) { *value = index; return true; }
+        }
+    }
+    if (id == kListeningModeParamId) {
+        for (uint32_t index = 0u; index < std::size(kListeningModeNames); ++index) {
+            if (std::strcmp(display, kListeningModeNames[index]) == 0) { *value = index; return true; }
+        }
+    }
+    if (id == kListeningEnableParamId && (std::strcmp(display, "ON") == 0 || std::strcmp(display, "OFF") == 0)) {
+        *value = std::strcmp(display, "ON") == 0 ? 1.0 : 0.0;
+        return true;
+    }
+    if (id == kListeningBypassParamId
+        && (std::strcmp(display, "BYPASSED") == 0 || std::strcmp(display, "ACTIVE") == 0)) {
+        *value = std::strcmp(display, "BYPASSED") == 0 ? 1.0 : 0.0;
+        return true;
     }
     if (id == kLaneWaveformIds[0] || id == kLaneWaveformIds[1] || id == kLaneWaveformIds[2]) {
         for (uint32_t index = 0u; index < std::size(kWaveformNames); ++index) {
@@ -1013,20 +1128,43 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->guiViewMode = std::clamp<int32_t>(guiViewMode, 0, 2);
         p->guiViewZoom = std::clamp(guiViewZoom, 0.55f, 2.20f);
     } else if (version == 5u || version == 6u) {
-        LegacySavedStateV6 state;
-        state.version = version;
-        if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(version), sizeof(state) - sizeof(version))) return false;
+        s3g::AmbiPulsarParams upgraded {};
+        uint32_t presetIndex = 0u;
+        int32_t guiViewMode = 2;
+        float guiViewZoom = 1.0f;
+        if (!readExact(stream, &upgraded, kLegacyParamsSize)
+            || !readExact(stream, &presetIndex, sizeof(presetIndex))
+            || !readExact(stream, &guiViewMode, sizeof(guiViewMode))
+            || !readExact(stream, &guiViewZoom, sizeof(guiViewZoom))) return false;
         // Version 5 stored ROTATE/SWAY/FIGURE 8 as 0/1/2. FREE is inserted at
         // zero in version 6, so retain the exact legacy motion selection.
         if (version == 5u) {
             const uint32_t legacyMotion = std::min<uint32_t>(
-                static_cast<uint32_t>(state.params.motionMode), 2u);
-            state.params.motionMode = static_cast<s3g::AmbiPulsarMotionMode>(legacyMotion + 1u);
+                static_cast<uint32_t>(upgraded.motionMode), 2u);
+            upgraded.motionMode = static_cast<s3g::AmbiPulsarMotionMode>(legacyMotion + 1u);
         }
-        p->params = s3g::sanitizeAmbiPulsarParams(state.params);
-        p->presetIndex = std::min<uint32_t>(state.presetIndex, s3g::kAmbiPulsarFactoryPresetCount - 1u);
-        p->guiViewMode = std::clamp<int32_t>(state.guiViewMode, 0, 2);
-        p->guiViewZoom = std::clamp(state.guiViewZoom, 0.55f, 2.20f);
+        p->params = s3g::sanitizeAmbiPulsarParams(upgraded);
+        p->presetIndex = std::min<uint32_t>(presetIndex, s3g::kAmbiPulsarFactoryPresetCount - 1u);
+        p->guiViewMode = std::clamp<int32_t>(guiViewMode, 0, 2);
+        p->guiViewZoom = std::clamp(guiViewZoom, 0.55f, 2.20f);
+    } else if (version == 7u) {
+        s3g::AmbiPulsarParams upgraded {};
+        uint32_t presetIndex = 0u;
+        int32_t guiViewMode = 2;
+        float guiViewZoom = 1.0f;
+        std::array<char, 64u> customPresetName {};
+        if (!readExact(stream, &upgraded, kLegacyParamsSize)
+            || !readExact(stream, &presetIndex, sizeof(presetIndex))
+            || !readExact(stream, &guiViewMode, sizeof(guiViewMode))
+            || !readExact(stream, &guiViewZoom, sizeof(guiViewZoom))
+            || !readExact(stream, customPresetName.data(), customPresetName.size())) return false;
+        p->params = s3g::sanitizeAmbiPulsarParams(upgraded);
+        p->presetIndex = std::min<uint32_t>(presetIndex, s3g::kAmbiPulsarFactoryPresetCount - 1u);
+        p->guiViewMode = std::clamp<int32_t>(guiViewMode, 0, 2);
+        p->guiViewZoom = std::clamp(guiViewZoom, 0.55f, 2.20f);
+        std::strncpy(p->customPresetName, customPresetName.data(), sizeof(p->customPresetName) - 1u);
+        p->customPresetName[sizeof(p->customPresetName) - 1u] = '\0';
+        p->customPresetActive.store(p->customPresetName[0] != '\0', std::memory_order_relaxed);
     } else if (version == kStateVersion) {
         SavedState state;
         state.version = version;
@@ -1110,6 +1248,11 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kNeuralEnvelopeParamId, "ENVELOPE", 896.0, 636.0, 82.0 },
     { kNeuralFmParamId, "FM DEPTH", 896.0, 662.0, 82.0 },
 
+    { kFieldReturnParamId, "FIELD RETURN", 38.0, 540.0, 82.0 },
+    { kPropagationParamId, "PROPAGATION", 38.0, 574.0, 82.0 },
+    { kPickupFocusParamId, "FOCUS", 314.0, 540.0, 82.0 },
+    { kLaneListeningParamId, "FIELD RESPONSE", 314.0, 574.0, 82.0 },
+
     { kLaneFormantIds[0], "CARRIER HZ", 18.0, 702.0, 82.0 },
     { kLaneCarrierRatioIds[0], "CLOCK RATIO", 18.0, 726.0, 82.0 },
     { kLaneOverlapIds[0], "OVERLAP", 18.0, 750.0, 82.0 },
@@ -1135,6 +1278,11 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kLaneFmIndexIds[2], "FM INDEX", 314.0, 726.0, 82.0 },
     { kLaneWindowSkewIds[2], "WIN SKEW", 314.0, 750.0, 82.0 },
 };
+
+bool listeningGuiParam(clap_id id)
+{
+    return id >= kNeuralSetParamId && id <= kLaneListeningParamId;
+}
 
 int guiLaneForParam(clap_id id)
 {
@@ -1320,9 +1468,14 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
 - (NSRect)pageButtonRect:(int)index
 {
     const NSRect panel = [self fieldPanelRect];
-    return NSMakeRect(panel.origin.x + 116.0 + static_cast<CGFloat>(index) * 88.0,
-        panel.origin.y + 4.0, 82.0, 13.0);
+    return NSMakeRect(panel.origin.x + 98.0 + static_cast<CGFloat>(index) * 74.0,
+        panel.origin.y + 4.0, 70.0, 13.0);
 }
+- (NSRect)neuralSetRect { return NSMakeRect(112.0, 484.0, 104.0, 15.0); }
+- (NSRect)pickupSetRect { return NSMakeRect(306.0, 484.0, 104.0, 15.0); }
+- (NSRect)listeningModeRect { return NSMakeRect(488.0, 484.0, 104.0, 15.0); }
+- (NSRect)listeningEnableRect { return NSMakeRect(46.0, 610.0, 118.0, 15.0); }
+- (NSRect)listeningBypassRect { return NSMakeRect(172.0, 610.0, 118.0, 15.0); }
 - (NSRect)laneButtonRect:(uint32_t)lane
 {
     const NSRect panel = [self lanePanelRect];
@@ -1442,6 +1595,9 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     case 7: return [self retriggerModeRect:_selectedLane];
     case 8: return [self waveformRect:_selectedLane];
     case 9: return [self motionRect];
+    case 10: return [self neuralSetRect];
+    case 11: return [self pickupSetRect];
+    case 12: return [self listeningModeRect];
     default: return NSZeroRect;
     }
 }
@@ -1458,6 +1614,9 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     case 7: return 3u;
     case 8: return 8u;
     case 9: return 5u;
+    case 10: return 3u;
+    case 11: return 2u;
+    case 12: return 4u;
     default: return 0u;
     }
 }
@@ -1491,6 +1650,9 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     static NSString* waveformItems[] = { @"SINE", @"TRIANGLE", @"SAW", @"SQUARE",
         @"OVERTONE", @"FOLD", @"IMPULSE", @"NOISE" };
     static NSString* motionItems[] = { @"FREE", @"ORBIT", @"SWAY", @"FIGURE 8", @"FORSY" };
+    static NSString* neuralSetItems[] = { @"16 NODES", @"32 NODES", @"64 NODES" };
+    static NSString* pickupSetItems[] = { @"TETRA 4", @"CUBE 8" };
+    static NSString* listeningModeItems[] = { @"LOCAL", @"CROSS", @"DIFFUSE", @"ROAMING" };
     static NSString* presetItems[s3g::kAmbiPulsarFactoryPresetCount];
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -1518,6 +1680,15 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     } else if (_openMenu == 9) {
         items = motionItems;
         selected = static_cast<int>(_plugin->params.motionMode);
+    } else if (_openMenu == 10) {
+        items = neuralSetItems;
+        selected = static_cast<int>(_plugin->params.listening.neuralSet);
+    } else if (_openMenu == 11) {
+        items = pickupSetItems;
+        selected = static_cast<int>(_plugin->params.listening.pickupSet);
+    } else if (_openMenu == 12) {
+        items = listeningModeItems;
+        selected = static_cast<int>(_plugin->params.listening.mode);
     }
     s3g::clap_gui::drawDropdownMenu(_openMenuRect, 21.0, items, _menuItemCount,
         selected, _hoverMenuItem, attrs, style);
@@ -1736,77 +1907,78 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     NSRectFill(field);
     [s3g::clap_gui::color(0x555555) setStroke];
     NSFrameRect(field);
-    [@"SIGNED R-C RINGS / SLOW-TO-FAST HIERARCHY" drawAtPoint:NSMakePoint(field.origin.x + 12.0,
+    [@"FOUR LOBES / SIXTEEN SIGNED R-C RINGS" drawAtPoint:NSMakePoint(field.origin.x + 12.0,
         field.origin.y + 12.0) withAttributes:s3g::clap_gui::softValueAttrs()];
 
     const float progress = _plugin->guiCaptureProgress.load(std::memory_order_relaxed);
     const uint32_t generation = _plugin->guiCaptureGeneration.load(std::memory_order_relaxed);
-    NSString* state = generation > 0u
-        ? [NSString stringWithFormat:@"CAPTURE TABLE %02u", generation]
-        : [NSString stringWithFormat:@"CAPTURE BUFFER %3.0f%%", progress * 100.0f];
+    const uint32_t activeLobes = _plugin->params.listening.neuralSet == s3g::AmbiPulsarNeuralSet::Nodes64
+        ? 4u : _plugin->params.listening.neuralSet == s3g::AmbiPulsarNeuralSet::Nodes32 ? 2u : 1u;
+    NSString* state = [NSString stringWithFormat:@"%u NEURONS / %@ %02u",
+        activeLobes * s3g::kNeuralSynthesisNodes,
+        generation > 0u ? @"TABLE" : @"BUFFER",
+        generation > 0u ? generation : static_cast<uint32_t>(progress * 100.0f)];
     s3g::clap_gui::drawRightStatus(state, NSMaxX(field), field.origin.y + 12.0,
         s3g::clap_gui::softValueAttrs(), 12.0);
 
-    static constexpr const char* labels[] { "CLUSTER 1 / 80 MS", "CLUSTER 2 / 32 MS",
-        "CLUSTER 3 / 9.5 MS", "CLUSTER 4 / 2 MS" };
-    std::array<NSPoint, s3g::kNeuralSynthesisClusters> centers {};
-    for (uint32_t cluster = 0u; cluster < s3g::kNeuralSynthesisClusters; ++cluster) {
-        const CGFloat x = field.origin.x + 12.0 + static_cast<CGFloat>(cluster) * 136.0;
-        const NSRect box = NSMakeRect(x, field.origin.y + 58.0, 128.0, 430.0);
-        centers[cluster] = NSMakePoint(NSMidX(box), NSMidY(box));
-    }
-
-    [s3g::clap_gui::color(0x777777, 0.46) setStroke];
-    for (uint32_t cluster = 1u; cluster < s3g::kNeuralSynthesisClusters; ++cluster) {
-        NSBezierPath* hierarchy = [NSBezierPath bezierPath];
-        [hierarchy moveToPoint:NSMakePoint(centers[cluster - 1u].x + 46.0, centers[cluster - 1u].y)];
-        [hierarchy lineToPoint:NSMakePoint(centers[cluster].x - 46.0, centers[cluster].y)];
-        [hierarchy setLineWidth:1.0];
-        [hierarchy stroke];
-    }
-
-    for (uint32_t cluster = 0u; cluster < s3g::kNeuralSynthesisClusters; ++cluster) {
-        const CGFloat x = field.origin.x + 12.0 + static_cast<CGFloat>(cluster) * 136.0;
-        const NSRect box = NSMakeRect(x, field.origin.y + 58.0, 128.0, 430.0);
-        [s3g::clap_gui::color(0x111111) setFill];
-        NSRectFill(box);
-        [s3g::clap_gui::color(0x3b3b3b) setStroke];
-        NSFrameRect(box);
-        [[NSString stringWithUTF8String:labels[cluster]] drawAtPoint:NSMakePoint(x + 9.0, box.origin.y + 12.0)
+    static NSString* timeLabels[] = { @"80", @"32", @"9.5", @"2" };
+    for (uint32_t lobe = 0u; lobe < s3g::kAmbiPulsarNeuralLobes; ++lobe) {
+        const uint32_t column = lobe % 2u;
+        const uint32_t row = lobe / 2u;
+        const NSRect lobeBox = NSMakeRect(field.origin.x + 10.0 + column * 272.0,
+            field.origin.y + 45.0 + row * 224.0, 264.0, 210.0);
+        const BOOL active = lobe < activeLobes;
+        [s3g::clap_gui::color(active ? 0x121212 : 0x0d0d0d) setFill];
+        NSRectFill(lobeBox);
+        [s3g::clap_gui::color(active ? 0x5b5b5b : 0x292929) setStroke];
+        NSFrameRect(lobeBox);
+        [[NSString stringWithFormat:@"LOBE %c / %@", static_cast<char>('A' + lobe),
+            active ? @"ACTIVE" : @"STANDBY"]
+            drawAtPoint:NSMakePoint(lobeBox.origin.x + 8.0, lobeBox.origin.y + 7.0)
             withAttributes:s3g::clap_gui::softLabelAttrs()];
 
-        std::array<NSPoint, s3g::kNeuralNodesPerCluster> points {{
-            NSMakePoint(x + 30.0, box.origin.y + 142.0), NSMakePoint(x + 98.0, box.origin.y + 142.0),
-            NSMakePoint(x + 98.0, box.origin.y + 286.0), NSMakePoint(x + 30.0, box.origin.y + 286.0),
-        }};
+        for (uint32_t cluster = 0u; cluster < s3g::kNeuralSynthesisClusters; ++cluster) {
+            const uint32_t clusterColumn = cluster % 2u;
+            const uint32_t clusterRow = cluster / 2u;
+            const NSPoint center = NSMakePoint(lobeBox.origin.x + 67.0 + clusterColumn * 130.0,
+                lobeBox.origin.y + 70.0 + clusterRow * 91.0);
+            std::array<NSPoint, s3g::kNeuralNodesPerCluster> points {{
+                NSMakePoint(center.x - 20.0, center.y - 20.0),
+                NSMakePoint(center.x + 20.0, center.y - 20.0),
+                NSMakePoint(center.x + 20.0, center.y + 20.0),
+                NSMakePoint(center.x - 20.0, center.y + 20.0),
+            }};
+            [[NSString stringWithFormat:@"C%u / %@ MS", cluster + 1u, timeLabels[cluster]]
+                drawAtPoint:NSMakePoint(center.x - 42.0, center.y - 39.0)
+                withAttributes:s3g::clap_gui::softValueAttrs()];
         NSBezierPath* ring = [NSBezierPath bezierPath];
         [ring moveToPoint:points[0]];
         for (uint32_t local = 1u; local < points.size(); ++local) [ring lineToPoint:points[local]];
         [ring closePath];
-        [s3g::clap_gui::color(0x565656, 0.72) setStroke];
-        [ring setLineWidth:1.0];
+            [s3g::clap_gui::color(active ? 0x686868 : 0x303030, 0.72) setStroke];
+            [ring setLineWidth:0.8];
         [ring stroke];
 
         for (uint32_t local = 0u; local < s3g::kNeuralNodesPerCluster; ++local) {
-            const uint32_t node = cluster * s3g::kNeuralNodesPerCluster + local;
+                const uint32_t node = lobe * s3g::kNeuralSynthesisNodes
+                    + cluster * s3g::kNeuralNodesPerCluster + local;
             const float value = _plugin->guiNeuralNode[node].load(std::memory_order_relaxed);
-            const CGFloat radius = 7.0 + std::fabs(value) * 10.0;
-            const int shade = static_cast<int>(std::clamp(112.0f + value * 112.0f, 22.0f, 234.0f));
-            [s3g::clap_gui::color((shade << 16) | (shade << 8) | shade, 0.94) setFill];
+                const CGFloat radius = active ? 3.5 + std::fabs(value) * 5.5 : 3.0;
+                const int shade = active
+                    ? static_cast<int>(std::clamp(108.0f + value * 116.0f, 20.0f, 238.0f)) : 38;
+                [s3g::clap_gui::color((shade << 16) | (shade << 8) | shade, active ? 0.94 : 0.5) setFill];
             [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(points[local].x - radius,
                 points[local].y - radius, radius * 2.0, radius * 2.0)] fill];
-            [s3g::clap_gui::color(value >= 0.0f ? 0xd8d8d8 : 0x777777, 0.88) setStroke];
-            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(points[local].x - radius,
-                points[local].y - radius, radius * 2.0, radius * 2.0)] stroke];
+                [s3g::clap_gui::color(value >= 0.0f ? 0xd8d8d8 : 0x777777, active ? 0.74 : 0.24) setStroke];
+                [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(points[local].x - radius,
+                    points[local].y - radius, radius * 2.0, radius * 2.0)] stroke];
+            }
         }
-        const float clusterValue = _plugin->guiNeuralCluster[cluster].load(std::memory_order_relaxed);
-        [[NSString stringWithFormat:@"OUTPUT %+.3f", clusterValue] drawAtPoint:NSMakePoint(x + 22.0,
-            NSMaxY(box) - 27.0)
-            withAttributes:s3g::clap_gui::softValueAttrs()];
     }
 
-    [@"BROWNIAN WEIGHTS + AUTONOMOUS DRIFT + AUDIO FEEDBACK" drawAtPoint:NSMakePoint(
+    [@"BROWNIAN + DRIFT + LOBE MATRIX + DIRECTIONAL FIELD RETURN" drawAtPoint:NSMakePoint(
         field.origin.x + 12.0, NSMaxY(field) - 27.0) withAttributes:s3g::clap_gui::softValueAttrs()];
+    (void)style;
 }
 
 - (void)drawPulsaretPage:(const s3g::clap_gui::Style&)style
@@ -1841,6 +2013,125 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     }
 }
 
+- (void)drawListeningPage:(const s3g::clap_gui::Style&)style
+{
+    const NSRect field = [self fieldRect];
+    [s3g::clap_gui::color(0x090909) setFill];
+    NSRectFill(field);
+    [s3g::clap_gui::color(0x555555) setStroke];
+    NSFrameRect(field);
+    NSDictionary* labels = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* values = s3g::clap_gui::softValueAttrs();
+    [@"AMBISONIC AUDITORY BODY / PREVIOUS-SAMPLE RETURN" drawAtPoint:NSMakePoint(
+        field.origin.x + 10.0, field.origin.y + 10.0) withAttributes:values];
+
+    const uint32_t pickupCount = _plugin->params.listening.pickupSet
+        == s3g::AmbiPulsarPickupSet::Cube8 ? 8u : 4u;
+    constexpr float inverseRootThree = 0.5773502691896258f;
+    static constexpr std::array<s3g::Vec3, s3g::kAmbiPulsarListeningPickups> directions {{
+        {  inverseRootThree,  inverseRootThree,  inverseRootThree },
+        { -inverseRootThree, -inverseRootThree,  inverseRootThree },
+        { -inverseRootThree,  inverseRootThree, -inverseRootThree },
+        {  inverseRootThree, -inverseRootThree, -inverseRootThree },
+        { -inverseRootThree, -inverseRootThree, -inverseRootThree },
+        {  inverseRootThree,  inverseRootThree, -inverseRootThree },
+        {  inverseRootThree, -inverseRootThree,  inverseRootThree },
+        { -inverseRootThree,  inverseRootThree,  inverseRootThree },
+    }};
+    const NSPoint center = NSMakePoint(NSMidX(field), field.origin.y + 215.0);
+    const CGFloat radius = 148.0;
+    [s3g::clap_gui::color(0x303030) setStroke];
+    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(center.x - radius, center.y - radius,
+        radius * 2.0, radius * 2.0)] stroke];
+
+    std::array<NSPoint, s3g::kAmbiPulsarListeningPickups> ears {};
+    const float cameraAz = static_cast<float>(38.0 * s3g::kPi / 180.0);
+    const float cameraEl = static_cast<float>(32.0 * s3g::kPi / 180.0);
+    for (uint32_t pickup = 0u; pickup < pickupCount; ++pickup) {
+        const auto direction = directions[pickup];
+        const float x1 = std::cos(cameraAz) * direction.x - std::sin(cameraAz) * direction.y;
+        const float y1 = std::sin(cameraAz) * direction.x + std::cos(cameraAz) * direction.y;
+        const float y2 = std::cos(cameraEl) * y1 - std::sin(cameraEl) * direction.z;
+        ears[pickup] = NSMakePoint(center.x + x1 * radius, center.y - y2 * radius);
+    }
+    std::array<NSPoint, s3g::kAmbiPulsarNeuralLobes> lobes {{
+        NSMakePoint(center.x - 40.0, center.y - 26.0),
+        NSMakePoint(center.x + 40.0, center.y - 26.0),
+        NSMakePoint(center.x + 40.0, center.y + 26.0),
+        NSMakePoint(center.x - 40.0, center.y + 26.0),
+    }};
+
+    [s3g::clap_gui::color(0x707070, 0.38) setStroke];
+    for (uint32_t lobe = 0u; lobe < s3g::kAmbiPulsarNeuralLobes; ++lobe) {
+        uint32_t pickup = lobe % pickupCount;
+        if (_plugin->params.listening.mode == s3g::AmbiPulsarListeningMode::Cross) {
+            pickup = (lobe + 1u) % pickupCount;
+        } else if (_plugin->params.listening.mode == s3g::AmbiPulsarListeningMode::Roaming) {
+            pickup = (lobe + static_cast<uint32_t>(
+                [NSDate timeIntervalSinceReferenceDate] * 0.037 * pickupCount)) % pickupCount;
+        }
+        NSBezierPath* path = [NSBezierPath bezierPath];
+        [path moveToPoint:ears[pickup]];
+        [path lineToPoint:lobes[lobe]];
+        [path setLineWidth:0.7 + std::fabs(
+            _plugin->guiListeningReturn[lobe].load(std::memory_order_relaxed)) * 2.2];
+        [path stroke];
+    }
+
+    for (uint32_t pickup = 0u; pickup < pickupCount; ++pickup) {
+        const float energy = std::clamp(
+            _plugin->guiListeningEnergy[pickup].load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const CGFloat size = 8.0 + std::sqrt(energy) * 18.0;
+        [[s3g::clap_gui::color(0xc8c8c8, 0.04 + energy * 0.20)
+            colorWithAlphaComponent:0.04 + energy * 0.20] setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(ears[pickup].x - size,
+            ears[pickup].y - size, size * 2.0, size * 2.0)] fill];
+        NSBezierPath* diamond = [NSBezierPath bezierPath];
+        [diamond moveToPoint:NSMakePoint(ears[pickup].x, ears[pickup].y - 6.0)];
+        [diamond lineToPoint:NSMakePoint(ears[pickup].x + 6.0, ears[pickup].y)];
+        [diamond lineToPoint:NSMakePoint(ears[pickup].x, ears[pickup].y + 6.0)];
+        [diamond lineToPoint:NSMakePoint(ears[pickup].x - 6.0, ears[pickup].y)];
+        [diamond closePath];
+        [s3g::clap_gui::color(0x9a9a9a, 0.35 + energy * 0.65) setFill];
+        [diamond fill];
+        [[NSString stringWithFormat:@"E%u", pickup + 1u] drawAtPoint:NSMakePoint(
+            ears[pickup].x + 8.0, ears[pickup].y - 6.0) withAttributes:values];
+    }
+    for (uint32_t lobe = 0u; lobe < s3g::kAmbiPulsarNeuralLobes; ++lobe) {
+        const float value = _plugin->guiListeningReturn[lobe].load(std::memory_order_relaxed);
+        const int shade = static_cast<int>(std::clamp(118.0f + value * 116.0f, 22.0f, 234.0f));
+        [s3g::clap_gui::color((shade << 16) | (shade << 8) | shade, 0.94) setFill];
+        NSRectFill(NSMakeRect(lobes[lobe].x - 10.0, lobes[lobe].y - 10.0, 20.0, 20.0));
+        [[NSString stringWithFormat:@"%c", static_cast<char>('A' + lobe)] drawAtPoint:NSMakePoint(
+            lobes[lobe].x - 3.0, lobes[lobe].y - 7.0)
+            withAttributes:s3g::clap_gui::textAttrs(s3g::clap_gui::color(0x080808), 8.0)];
+    }
+
+    [self drawMenuLabel:@"NODES" value:[NSString stringWithUTF8String:
+        kNeuralSetNames[static_cast<uint32_t>(_plugin->params.listening.neuralSet)]]
+        rect:[self neuralSetRect] style:style];
+    [self drawMenuLabel:@"EARS" value:[NSString stringWithUTF8String:
+        kPickupSetNames[static_cast<uint32_t>(_plugin->params.listening.pickupSet)]]
+        rect:[self pickupSetRect] style:style];
+    [self drawMenuLabel:@"LISTENING" value:[NSString stringWithUTF8String:
+        kListeningModeNames[static_cast<uint32_t>(_plugin->params.listening.mode)]]
+        rect:[self listeningModeRect] style:style];
+    for (const auto& slider : kGuiSliders) {
+        if (listeningGuiParam(slider.id)) [self drawSlider:slider style:style];
+    }
+    const NSRect controlHeader = NSMakeRect(field.origin.x, 604.0, field.size.width, 27.0);
+    s3g::clap_gui::drawHeaderButton([self listeningEnableRect], controlHeader,
+        _plugin->params.listening.enabled ? @"LISTEN ON" : @"LISTEN OFF",
+        _plugin->params.listening.enabled != 0u, labels, style);
+    s3g::clap_gui::drawHeaderButton([self listeningBypassRect], controlHeader,
+        _plugin->params.listening.bypass ? @"BYPASSED" : @"RETURN ACTIVE",
+        _plugin->params.listening.bypass != 0u, labels, style);
+    NSString* status = [NSString stringWithFormat:@"EARS %3.0f%%  RETURN %3.0f%%",
+        _plugin->guiListeningAnalysis.load(std::memory_order_relaxed) * 100.0f,
+        _plugin->guiListeningInfluence.load(std::memory_order_relaxed) * 100.0f];
+    s3g::clap_gui::drawRightStatus(status, NSMaxX(field) - 4.0, 610.0, values, 0.0);
+}
+
 - (void)drawVisualPanel:(const s3g::clap_gui::Style&)style
 {
     const NSRect panel = [self fieldPanelRect];
@@ -1849,8 +2140,8 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"PULSAR VISUAL", true, panel.origin.x, panel.origin.y,
         panel.size.width, 21.0, attrs, style);
-    static NSString* pageNames[] = { @"POINT FIELD", @"PULSARETS", @"NEURAL" };
-    for (int index = 0; index < 3; ++index) {
+    static NSString* pageNames[] = { @"FIELD", @"PULSARETS", @"NEURAL", @"LISTEN" };
+    for (int index = 0; index < 4; ++index) {
         s3g::clap_gui::drawHeaderButton([self pageButtonRect:index], header, pageNames[index],
             index == _visualPage, attrs, style);
     }
@@ -1865,8 +2156,10 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
         [self drawPointField:style];
     } else if (_visualPage == 1) {
         [self drawPulsaretPage:style];
-    } else {
+    } else if (_visualPage == 2) {
         [self drawNeuralNetwork:style];
+    } else {
+        [self drawListeningPage:style];
     }
 }
 
@@ -1931,7 +2224,9 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     s3g::clap_gui::drawPanelHeader(@"CAPTURE UTILITY", true, 896, 574, 246, 21, attrs, style);
 
     for (const auto& slider : kGuiSliders) {
-        if (guiLaneForParam(slider.id) < 0) [self drawSlider:slider style:style];
+        if (guiLaneForParam(slider.id) < 0 && !listeningGuiParam(slider.id)) {
+            [self drawSlider:slider style:style];
+        }
     }
     [self drawMenuLabel:@"ORDER" value:[NSString stringWithFormat:@"%uOA", _plugin->params.order]
                    rect:[self orderRect] style:style];
@@ -2052,6 +2347,9 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
             else if (_openMenu == 7) applyParam(*_plugin, kLaneRetriggerModeIds[_selectedLane], hit);
             else if (_openMenu == 8) applyParam(*_plugin, kLaneWaveformIds[_selectedLane], hit);
             else if (_openMenu == 9) applyParam(*_plugin, kMotionModeParamId, hit);
+            else if (_openMenu == 10) applyParam(*_plugin, kNeuralSetParamId, hit);
+            else if (_openMenu == 11) applyParam(*_plugin, kPickupSetParamId, hit);
+            else if (_openMenu == 12) applyParam(*_plugin, kListeningModeParamId, hit);
         }
         _openMenu = 0;
         _hoverMenuItem = -1;
@@ -2074,7 +2372,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
         return;
     }
     if (NSPointInRect(point, [self fieldPanelRect])) {
-        for (int index = 0; index < 3; ++index) {
+        for (int index = 0; index < 4; ++index) {
             if (NSPointInRect(point, [self pageButtonRect:index])) {
                 _visualPage = index;
                 [self setNeedsDisplay:YES];
@@ -2112,6 +2410,22 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
                     return;
                 }
             }
+        } else if (_visualPage == 3) {
+            if (NSPointInRect(point, [self neuralSetRect])) { [self openMenu:10]; return; }
+            if (NSPointInRect(point, [self pickupSetRect])) { [self openMenu:11]; return; }
+            if (NSPointInRect(point, [self listeningModeRect])) { [self openMenu:12]; return; }
+            if (NSPointInRect(point, [self listeningEnableRect])) {
+                applyParam(*_plugin, kListeningEnableParamId,
+                    _plugin->params.listening.enabled ? 0.0 : 1.0);
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, [self listeningBypassRect])) {
+                applyParam(*_plugin, kListeningBypassParamId,
+                    _plugin->params.listening.bypass ? 0.0 : 1.0);
+                [self setNeedsDisplay:YES];
+                return;
+            }
         }
     }
     if (NSPointInRect(point, [self lanePanelRect])) {
@@ -2137,6 +2451,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     }
     _dragParam = CLAP_INVALID_ID;
     for (const auto& slider : kGuiSliders) {
+        if (listeningGuiParam(slider.id) && _visualPage != 3) continue;
         const int sliderLane = guiLaneForParam(slider.id);
         if (sliderLane >= 0 && sliderLane != static_cast<int>(_selectedLane)) continue;
         if (NSPointInRect(point, guiSliderHitRect(slider))) {
@@ -2303,8 +2618,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.11.0",
-    "Four-to-thirty-two-point, three-lane pulsar and 16-neuron recurrent instrument with direct 1-7OA ACN/SN3D output.",
+    "0.11.1",
+    "Four-to-thirty-two-point, three-lane pulsar and 16-to-64-node recurrent instrument with direct 1-7OA ACN/SN3D output.",
     features,
 };
 

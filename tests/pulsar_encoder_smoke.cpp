@@ -43,6 +43,66 @@ bool testFactoryPresets()
             return false;
         }
     }
+    const auto listenOff = s3g::ambiPulsarFactoryPreset(12u);
+    const auto earsOnly = s3g::ambiPulsarFactoryPreset(13u);
+    const auto closedLoop = s3g::ambiPulsarFactoryPreset(14u);
+    if (listenOff.listening.enabled != 0u || listenOff.listening.bypass != 0u
+        || earsOnly.listening.enabled != 1u || earsOnly.listening.bypass != 1u
+        || closedLoop.listening.enabled != 1u || closedLoop.listening.bypass != 0u
+        || listenOff.emissionHz != earsOnly.emissionHz
+        || earsOnly.emissionHz != closedLoop.emissionHz
+        || listenOff.listening.fieldReturn != earsOnly.listening.fieldReturn
+        || earsOnly.listening.fieldReturn != closedLoop.listening.fieldReturn
+        || listenOff.listening.laneInfluence != earsOnly.listening.laneInfluence
+        || earsOnly.listening.laneInfluence != closedLoop.listening.laneInfluence) {
+        std::cerr << "Pulsar listening proof presets are not a matched OFF/EARS/LOOP set\n";
+        return false;
+    }
+
+    s3g::AmbiPulsarEncoder offEncoder;
+    s3g::AmbiPulsarEncoder earsEncoder;
+    s3g::AmbiPulsarEncoder loopEncoder;
+    offEncoder.prepare(48000.0);
+    earsEncoder.prepare(48000.0);
+    loopEncoder.prepare(48000.0);
+    offEncoder.setParams(listenOff);
+    earsEncoder.setParams(earsOnly);
+    loopEncoder.setParams(closedLoop);
+    offEncoder.reset();
+    earsEncoder.reset();
+    loopEncoder.reset();
+    Buffer offBuffer {};
+    Buffer earsBuffer {};
+    Buffer loopBuffer {};
+    std::array<float*, s3g::kAmbiPulsarMaxChannels> offOutputs {};
+    std::array<float*, s3g::kAmbiPulsarMaxChannels> earsOutputs {};
+    std::array<float*, s3g::kAmbiPulsarMaxChannels> loopOutputs {};
+    for (uint32_t channel = 0u; channel < s3g::kAmbiPulsarMaxChannels; ++channel) {
+        offOutputs[channel] = offBuffer[channel].data();
+        earsOutputs[channel] = earsBuffer[channel].data();
+        loopOutputs[channel] = loopBuffer[channel].data();
+    }
+    double offToEarsDifference = 0.0;
+    double earsToLoopDifference = 0.0;
+    for (uint32_t block = 0u; block < 220u; ++block) {
+        offEncoder.process(offOutputs.data(), s3g::kAmbiPulsarMaxChannels, kFrames);
+        earsEncoder.process(earsOutputs.data(), s3g::kAmbiPulsarMaxChannels, kFrames);
+        loopEncoder.process(loopOutputs.data(), s3g::kAmbiPulsarMaxChannels, kFrames);
+        if (block < 60u) continue;
+        for (uint32_t channel = 0u; channel < 16u; ++channel) {
+            for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                offToEarsDifference += std::fabs(
+                    offBuffer[channel][frame] - earsBuffer[channel][frame]);
+                earsToLoopDifference += std::fabs(
+                    earsBuffer[channel][frame] - loopBuffer[channel][frame]);
+            }
+        }
+    }
+    if (!(offToEarsDifference > 1.0) || !(earsToLoopDifference > 1.0)) {
+        std::cerr << "Pulsar listening proof presets are not audibly distinct: "
+                  << offToEarsDifference << " / " << earsToLoopDifference << "\n";
+        return false;
+    }
     return true;
 }
 
@@ -169,6 +229,15 @@ bool testSanitizationAndQuality()
     unsafe.centerElevationDeg = 180.0f;
     unsafe.points = 99u;
     unsafe.motionMode = static_cast<s3g::AmbiPulsarMotionMode>(99u);
+    unsafe.listening.neuralSet = static_cast<s3g::AmbiPulsarNeuralSet>(99u);
+    unsafe.listening.enabled = 99u;
+    unsafe.listening.bypass = 99u;
+    unsafe.listening.pickupSet = static_cast<s3g::AmbiPulsarPickupSet>(99u);
+    unsafe.listening.mode = static_cast<s3g::AmbiPulsarListeningMode>(99u);
+    unsafe.listening.fieldReturn = 99.0f;
+    unsafe.listening.propagationMs = 999.0f;
+    unsafe.listening.focus = -1.0f;
+    unsafe.listening.laneInfluence = 99.0f;
     const auto safe = s3g::sanitizeAmbiPulsarParams(unsafe);
     if (safe.order != 7u || safe.emissionHz != 0.05f || safe.sieveModulo != 1u
         || safe.sieveResidue != 0u || safe.lanes[0].overlap != 8.0f
@@ -178,7 +247,13 @@ bool testSanitizationAndQuality()
         || safe.advancedLanes[0].tuneMode != s3g::AmbiPulsarTuneMode::Subharmonic
         || safe.advancedLanes[0].retriggerMode != s3g::AmbiPulsarRetriggerMode::IdleOnly
         || safe.centerElevationDeg != 89.0f || safe.points != 32u
-        || safe.motionMode != s3g::AmbiPulsarMotionMode::Forsy) {
+        || safe.motionMode != s3g::AmbiPulsarMotionMode::Forsy
+        || safe.listening.neuralSet != s3g::AmbiPulsarNeuralSet::Nodes64
+        || safe.listening.enabled != 1u || safe.listening.bypass != 1u
+        || safe.listening.pickupSet != s3g::AmbiPulsarPickupSet::Cube8
+        || safe.listening.mode != s3g::AmbiPulsarListeningMode::Roaming
+        || safe.listening.fieldReturn != 1.0f || safe.listening.propagationMs != 180.0f
+        || safe.listening.focus != 0.0f || safe.listening.laneInfluence != 1.0f) {
         std::cerr << "Pulsar parameter sanitization failed\n";
         return false;
     }
@@ -661,6 +736,20 @@ bool testContinuityRepairs()
     far.air = 0.0f;
     if (!transitionIsSmooth("air", far, [](auto& p) { p.air = 1.0f; })) return false;
     if (!transitionIsSmooth("point count", neuralParams(), [](auto& p) { p.points = 4u; })) return false;
+    auto listening = neuralParams();
+    listening.listening.neuralSet = s3g::AmbiPulsarNeuralSet::Nodes64;
+    listening.listening.enabled = 1u;
+    listening.listening.pickupSet = s3g::AmbiPulsarPickupSet::Cube8;
+    listening.listening.mode = s3g::AmbiPulsarListeningMode::Cross;
+    listening.listening.fieldReturn = 0.52f;
+    listening.listening.propagationMs = 18.0f;
+    listening.listening.focus = 0.82f;
+    if (!transitionIsSmooth("listening bypass", listening,
+            [](auto& p) { p.listening.bypass = 1u; })) return false;
+    if (!transitionIsSmooth("listening enable", listening,
+            [](auto& p) { p.listening.enabled = 0u; })) return false;
+    if (!transitionIsSmooth("neural population", listening,
+            [](auto& p) { p.listening.neuralSet = s3g::AmbiPulsarNeuralSet::Nodes16; })) return false;
 
     s3g::AmbiPulsarEncoder startup;
     startup.prepare(48000.0);
@@ -800,6 +889,147 @@ bool testNeuralEncoderIntegration()
     return true;
 }
 
+bool testAmbisonicSelfListening()
+{
+    auto params = s3g::ambiPulsarFactoryPreset(0u);
+    params.order = 3u;
+    params.points = 12u;
+    params.emissionHz = 29.0f;
+    params.neuralLevel = 0.42f;
+    params.neural.audioFeedback = 0.0f;
+    params.outputGainDb = -18.0f;
+    params.listening.neuralSet = s3g::AmbiPulsarNeuralSet::Nodes64;
+    params.listening.enabled = 1u;
+    params.listening.bypass = 0u;
+    params.listening.pickupSet = s3g::AmbiPulsarPickupSet::Cube8;
+    params.listening.mode = s3g::AmbiPulsarListeningMode::Local;
+    params.listening.fieldReturn = 0.72f;
+    params.listening.propagationMs = 5.0f;
+    params.listening.focus = 1.0f;
+    params.listening.laneInfluence = 0.68f;
+
+    s3g::AmbiPulsarEncoder listening;
+    s3g::AmbiPulsarEncoder bypassed;
+    s3g::AmbiPulsarEncoder disabled;
+    listening.prepare(48000.0);
+    bypassed.prepare(48000.0);
+    disabled.prepare(48000.0);
+    listening.setParams(params);
+    auto bypassedParams = params;
+    bypassedParams.listening.bypass = 1u;
+    bypassed.setParams(bypassedParams);
+    auto disabledParams = params;
+    disabledParams.listening.enabled = 0u;
+    disabled.setParams(disabledParams);
+    listening.reset();
+    bypassed.reset();
+    disabled.reset();
+
+    Buffer a {};
+    Buffer b {};
+    Buffer c {};
+    std::array<float*, s3g::kAmbiPulsarMaxChannels> aPointers {};
+    std::array<float*, s3g::kAmbiPulsarMaxChannels> bPointers {};
+    std::array<float*, s3g::kAmbiPulsarMaxChannels> cPointers {};
+    for (uint32_t channel = 0u; channel < s3g::kAmbiPulsarMaxChannels; ++channel) {
+        aPointers[channel] = a[channel].data();
+        bPointers[channel] = b[channel].data();
+        cPointers[channel] = c[channel].data();
+    }
+
+    double returnDifference = 0.0;
+    double analysisDifference = 0.0;
+    float node63Peak = 0.0f;
+    for (uint32_t block = 0u; block < 260u; ++block) {
+        listening.process(aPointers.data(), s3g::kAmbiPulsarMaxChannels, kFrames);
+        bypassed.process(bPointers.data(), s3g::kAmbiPulsarMaxChannels, kFrames);
+        disabled.process(cPointers.data(), s3g::kAmbiPulsarMaxChannels, kFrames);
+        node63Peak = std::max(node63Peak, std::fabs(listening.neuralNode(63u)));
+        if (block < 80u) continue;
+        for (uint32_t channel = 0u; channel < 16u; ++channel) {
+            for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                returnDifference += std::fabs(a[channel][frame] - b[channel][frame]);
+                analysisDifference += std::fabs(b[channel][frame] - c[channel][frame]);
+            }
+        }
+    }
+
+    float listeningEnergy = 0.0f;
+    float bypassEnergy = 0.0f;
+    float disabledEnergy = 0.0f;
+    for (uint32_t pickup = 0u; pickup < s3g::kAmbiPulsarListeningPickups; ++pickup) {
+        listeningEnergy += listening.listeningPickupEnergy(pickup);
+        bypassEnergy += bypassed.listeningPickupEnergy(pickup);
+        disabledEnergy += disabled.listeningPickupEnergy(pickup);
+    }
+    if (listening.neuralNodeCount() != 64u || !(node63Peak > 1.0e-4f)) {
+        std::cerr << "Pulsar expanded neural population did not activate: count="
+                  << listening.neuralNodeCount() << " node63=" << node63Peak << "\n";
+        return false;
+    }
+    if (!(listeningEnergy > 1.0e-4f) || !(bypassEnergy > 1.0e-4f)) {
+        std::cerr << "Pulsar listening ears did not remain warm: "
+                  << listeningEnergy << " / " << bypassEnergy << "\n";
+        return false;
+    }
+    if (!(disabledEnergy < 1.0e-5f)) {
+        std::cerr << "Pulsar disabled listening ears did not fall silent: "
+                  << disabledEnergy << "\n";
+        return false;
+    }
+    if (!(listening.listeningAnalysisInfluence() > 0.98f)
+        || !(bypassed.listeningAnalysisInfluence() > 0.98f)
+        || disabled.listeningAnalysisInfluence() > 0.01f
+        || !(listening.listeningInfluence() > 0.98f)
+        || bypassed.listeningInfluence() > 0.01f
+        || disabled.listeningInfluence() > 0.01f) {
+        std::cerr << "Pulsar listening analysis/return influence failed: "
+                  << listening.listeningAnalysisInfluence() << " / "
+                  << bypassed.listeningAnalysisInfluence() << " / "
+                  << disabled.listeningAnalysisInfluence() << " ; "
+                  << listening.listeningInfluence() << " / "
+                  << bypassed.listeningInfluence() << " / "
+                  << disabled.listeningInfluence() << "\n";
+        return false;
+    }
+    if (!(returnDifference > 1.0)) {
+        std::cerr << "Pulsar Ambisonic return had no material synthesis influence: "
+                  << returnDifference << "\n";
+        return false;
+    }
+    if (!(analysisDifference > 1.0)) {
+        std::cerr << "Pulsar listening analysis had no material field-response influence: "
+                  << analysisDifference << "\n";
+        return false;
+    }
+    uint64_t pointChoiceDifference = 0u;
+    for (uint32_t point = 0u; point < params.points; ++point) {
+        const uint64_t heard = bypassed.pointEmissionCount(point);
+        const uint64_t unhearing = disabled.pointEmissionCount(point);
+        pointChoiceDifference += heard > unhearing ? heard - unhearing : unhearing - heard;
+    }
+    bool laneLevelMoved = false;
+    bool formantMoved = false;
+    for (uint32_t lane = 0u; lane < s3g::kAmbiPulsarLanes; ++lane) {
+        laneLevelMoved = laneLevelMoved
+            || std::fabs(bypassed.lastTriggeredLevel(lane)
+                - bypassedParams.lanes[lane].level) > 0.005f;
+        formantMoved = formantMoved
+            || std::fabs(bypassed.lastTriggeredCarrierHz(lane)
+                - disabled.lastTriggeredCarrierHz(lane)) > 0.25f;
+    }
+    if (bypassed.emittedEventCount() == disabled.emittedEventCount()
+        || pointChoiceDifference == 0u || !laneLevelMoved || !formantMoved) {
+        std::cerr << "Pulsar field response did not reach emission/point/lane/formant paths: "
+                  << bypassed.emittedEventCount() << " / "
+                  << disabled.emittedEventCount() << ", point delta "
+                  << pointChoiceDifference << ", lane " << laneLevelMoved
+                  << ", formant " << formantMoved << "\n";
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -816,6 +1046,7 @@ int main()
     if (!testContinuityRepairs()) return 1;
     if (!testNeuralCircuit()) return 1;
     if (!testNeuralEncoderIntegration()) return 1;
+    if (!testAmbisonicSelfListening()) return 1;
     std::cout << "s3g Pulsar Encoder smoke test passed\n";
     return 0;
 }

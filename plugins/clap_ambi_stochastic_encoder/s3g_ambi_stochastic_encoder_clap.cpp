@@ -19,6 +19,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -29,7 +30,7 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiStochasticMaxChannels;
-constexpr uint32_t kStateVersion = 8u;
+constexpr uint32_t kStateVersion = 9u;
 constexpr uint32_t kGuiWidth = 1160u;
 constexpr uint32_t kGuiHeight = 860u;
 constexpr uint32_t kGuiWaveSamples = 256u;
@@ -74,6 +75,7 @@ constexpr clap_id kOutputParamId = 37;
 constexpr clap_id kFrequencyFloorParamId = 38;
 constexpr clap_id kFieldRestParamId = 39;
 constexpr clap_id kMacroDurationParamId = 40;
+constexpr clap_id kFieldListenModeParamId = 41;
 
 struct LegacyAmbiStochasticParamsV7 {
     uint32_t order = 3;
@@ -129,6 +131,17 @@ struct SavedState {
     float guiViewZoom = 1.0f;
 };
 
+struct LegacySavedStateV8 {
+    uint32_t version = 8u;
+    std::array<uint8_t, offsetof(s3g::AmbiStochasticParams, fieldListenMode)> params {};
+    int32_t factoryPresetIndex = 0;
+    char presetName[64] {};
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+};
+
 struct LegacySavedStateV7 {
     uint32_t version = 7u;
     LegacyAmbiStochasticParamsV7 params {};
@@ -149,8 +162,10 @@ struct LegacySavedStateV6 {
     float guiViewZoom = 1.0f;
 };
 
-static_assert(sizeof(s3g::AmbiStochasticParams) == 160u);
-static_assert(sizeof(SavedState) == 248u);
+static_assert(offsetof(s3g::AmbiStochasticParams, fieldListenMode) == 160u);
+static_assert(sizeof(s3g::AmbiStochasticParams) == 164u);
+static_assert(sizeof(SavedState) == 252u);
+static_assert(sizeof(LegacySavedStateV8) == 248u);
 static_assert(sizeof(LegacySavedStateV7) == 240u);
 static_assert(sizeof(LegacySavedStateV6) == 172u);
 
@@ -334,6 +349,8 @@ bool assignParam(s3g::AmbiStochasticParams& params, clap_id id, double value)
     case kDistanceParamId: params.centerDistance = static_cast<float>(value); break;
     case kSpatialFollowParamId: params.spatialFollow = static_cast<float>(value); break;
     case kOutputParamId: params.outputGainDb = static_cast<float>(value); break;
+    case kFieldListenModeParamId: params.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(
+        static_cast<uint32_t>(std::lround(value))); break;
     default: return false;
     }
     return true;
@@ -408,6 +425,7 @@ s3g::AmbiStochasticParams makeSafeRandomParams(Plugin& plugin)
     p.centerDistance = randomRange(seed, 0.82f, 1.34f);
     p.spatialFollow = randomRange(seed, 0.78f, 0.98f);
     p.outputGainDb = -6.0f;
+    p.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(randomChoice(seed, 4u));
     plugin.randomSeed = seed;
     return p;
 }
@@ -768,6 +786,7 @@ constexpr ParamDef kParams[] {
     { kOutputParamId, "Output", -60.0, 6.0, -6.0, false },
     { kFieldRestParamId, "Minimum Rest", 0.02, 8.0, 0.12, false },
     { kMacroDurationParamId, "Macro Duration", 2.0, 300.0, 24.0, false },
+    { kFieldListenModeParamId, "Field Listener", 0.0, 3.0, 0.0, true },
 };
 
 struct PresetJsonField {
@@ -816,9 +835,10 @@ constexpr std::array<PresetJsonField, std::size(kParams)> kPresetJsonFields {{
     { kOutputParamId, "output_gain_db" },
     { kFieldRestParamId, "field_rest_seconds" },
     { kMacroDurationParamId, "macro_duration_seconds" },
+    { kFieldListenModeParamId, "field_listener_mode" },
 }};
 constexpr uint32_t kLegacyPresetJsonFieldCount = 38u;
-static_assert(kPresetJsonFields.size() == 40u);
+static_assert(kPresetJsonFields.size() == 41u);
 
 const ParamDef* paramDef(clap_id id)
 {
@@ -888,6 +908,7 @@ bool parameterValue(const s3g::AmbiStochasticParams& params, clap_id id, double*
     case kDistanceParamId: *value = params.centerDistance; return true;
     case kSpatialFollowParamId: *value = params.spatialFollow; return true;
     case kOutputParamId: *value = params.outputGainDb; return true;
+    case kFieldListenModeParamId: *value = static_cast<uint32_t>(params.fieldListenMode); return true;
     default: return false;
     }
 }
@@ -912,6 +933,10 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         std::snprintf(display, size, "%s", s3g::topologyShapeName(static_cast<uint32_t>(std::lround(value))));
     } else if (id == kTopologyMotionParamId) {
         std::snprintf(display, size, "%s", s3g::topologyMotionModeName(static_cast<uint32_t>(std::lround(value))));
+    } else if (id == kFieldListenModeParamId) {
+        static constexpr const char* names[] { "OFF", "FOLLOW", "COUNTER", "BALANCE" };
+        std::snprintf(display, size, "%s", names[std::min<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 3u)]);
     } else if (id == kOrderParamId) {
         std::snprintf(display, size, "%.0fOA", value);
     } else if (id == kVoicesParamId || id == kBreakpointsParamId) {
@@ -950,6 +975,15 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     if (!display || !value) return false;
     const auto* definition = paramDef(id);
     if (!definition) return false;
+    if (id == kFieldListenModeParamId) {
+        static constexpr const char* names[] { "OFF", "FOLLOW", "COUNTER", "BALANCE" };
+        for (uint32_t index = 0u; index < std::size(names); ++index) {
+            if (std::strcmp(display, names[index]) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    }
     *value = std::clamp(std::atof(display), definition->minimum, definition->maximum);
     return true;
 }
@@ -1017,6 +1051,18 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
                 sizeof(saved) - sizeof(version))) return false;
         loadedParams = saved.params;
+        loadedPresetIndex = saved.factoryPresetIndex;
+        std::strncpy(loadedPresetName, saved.presetName, sizeof(loadedPresetName) - 1u);
+        loadedViewMode = saved.guiViewMode;
+        loadedViewAzDeg = saved.guiViewAzDeg;
+        loadedViewElDeg = saved.guiViewElDeg;
+        loadedViewZoom = saved.guiViewZoom;
+    } else if (version == 8u) {
+        LegacySavedStateV8 saved {};
+        saved.version = version;
+        if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
+                sizeof(saved) - sizeof(version))) return false;
+        std::memcpy(&loadedParams, saved.params.data(), saved.params.size());
         loadedPresetIndex = saved.factoryPresetIndex;
         std::strncpy(loadedPresetName, saved.presetName, sizeof(loadedPresetName) - 1u);
         loadedViewMode = saved.guiViewMode;
@@ -1665,9 +1711,13 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     [self drawSlider:@"SUSTAIN" param:kSustainParamId value:params.sustain attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RELEASE" param:kReleaseParamId value:params.releaseMs attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 684, 250, 72, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 684, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 684, 250, 98, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / LISTENER", true, 630, 684, 250, 21, attrs, style);
     [self drawSlider:@"OUT" param:kOutputParamId value:params.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
+    static NSString* listenerNames[] = { @"OFF", @"FOLLOW", @"COUNTER", @"BALANCE" };
+    [self drawMenu:@"LISTEN" value:listenerNames[std::min<uint32_t>(
+        static_cast<uint32_t>(params.fieldListenMode), 3u)]
+        panelX:630 y:746 attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(896, 42, 246, 150, style);
     s3g::clap_gui::drawPanelHeader(@"SELECTION", true, 896, 42, 246, 21, attrs, style);
@@ -1719,6 +1769,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         @"BINARY FRACTURE", @"SLOW CONSTELLATION", @"MIDI PRESSURE", @"HYBRID FIELD",
         @"FULL 7OA FIELD"
     };
+    static NSString* listenerItems[] = { @"OFF", @"FOLLOW", @"COUNTER", @"BALANCE" };
     NSString** items = modeItems;
     int selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.mode));
     if (_openMenu == 2) {
@@ -1745,6 +1796,9 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     } else if (_openMenu == 9) {
         items = factoryItems;
         selected = _plugin->factoryPresetIndex;
+    } else if (_openMenu == 10) {
+        items = listenerItems;
+        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.fieldListenMode));
     }
     s3g::clap_gui::drawDropdownMenu(_openMenuRect, 21.0, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
@@ -1906,6 +1960,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     case 7: return NSMakeRect(1004, 427, 124, 15);
     case 8: return NSMakeRect(1004, 453, 124, 15);
     case 9: return [self presetMenuRect];
+    case 10: return NSMakeRect(738, 745, 124, 15);
     default: return NSZeroRect;
     }
 }
@@ -1922,6 +1977,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     case 7: return 12u;
     case 8: return 18u;
     case 9: return s3g::kAmbiStochasticFactoryPresetCount;
+    case 10: return 4u;
     default: return 0u;
     }
 }
@@ -1957,6 +2013,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     case 6: applyParam(*_plugin, kDurationDistributionParamId, item); break;
     case 7: applyParam(*_plugin, kTopologyShapeParamId, item); break;
     case 8: applyParam(*_plugin, kTopologyMotionParamId, item); break;
+    case 10: applyParam(*_plugin, kFieldListenModeParamId, item); break;
     default: break;
     }
     [self markPresetCustom];
@@ -2001,7 +2058,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         [self randomizePreset];
         return;
     }
-    for (int menu = 1; menu <= 9; ++menu) {
+    for (int menu = 1; menu <= 10; ++menu) {
         if (NSPointInRect(point, [self menuBoxRect:menu])) {
             [self openMenu:menu];
             return;
@@ -2217,8 +2274,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.2.0",
-    "Second-order stochastic generator banks with topology-driven ACN/SN3D output.",
+    "0.3.0",
+    "Second-order stochastic generator banks with an optional ambisonic field listener.",
     features,
 };
 

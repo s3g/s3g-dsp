@@ -57,9 +57,11 @@
 
         <p><code>PLACE</code> selects <code>OPEN</code>, <code>CANOPY</code>, <code>PORCH</code>, <code>ROOM</code>, <code>HANGAR</code>, <code>CANYON</code>, or <code>TUNNEL</code>. <code>ENV RETURN</code>, <code>ENV SIZE</code>, <code>ENV DECAY</code>, and <code>ENV DAMPING</code> mix and shape the corresponding encoded environment response.</p>
 
+        <p><code>LISTEN</code> closes a directional loop around the generated environment. Eight virtual pickups decode the combined direct wind field and Environment Field return ambisonically, and their energy envelopes retain where recent pressure collected. <code>FOLLOW</code> attracts the macro flow and active gust parcels to that energy, <code>COUNTER</code> seeks its antipode, and <code>BALANCE</code> favors underexposed directions. The score also biases turbulence and gust renewal density, so the response is audible as both motion and changed activity. Steering is continuously interpolated; it does not teleport among pickup lobes. <code>OFF</code>—the factory-preset default—preserves the original open-loop behavior while listener memory continues to update.</p>
+
         <h2 id="presets">Presets</h2>
 
-        <p>The 22 factory presets range from the restrained <code>PAIA Bench Wind</code> reference patch to tree-line, architectural, storm, material, and aeolian scenes. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3gwind</code> presets, with the default folder at <code>~/Music/s3g/Presets/Ambi Wind Encoder/</code>.</p>
+        <p>The 22 factory presets range from the restrained <code>PAIA Bench Wind</code> reference patch to tree-line, architectural, storm, material, and aeolian scenes. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3gwind</code> presets, including the listener mode, with the default folder at <code>~/Music/s3g/Presets/Ambi Wind Encoder/</code>. <code>RANDOM</code> also chooses a listener mode, so a randomized scene may immediately become self-steering.</p>
 
         <h2 id="routing">Order and Routing</h2>
 

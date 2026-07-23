@@ -28,7 +28,7 @@
 
         <p><code>s3g Ambi Pulsar Encoder 64</code> is a zero-input pulsar and neural-synthesis instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. It distributes three-layer sound objects across a field of four to thirty-two encoded points.</p>
 
-        <p>Pulsar synthesis repeats short, windowed waveforms called pulsarets. Slow emission rates produce separate events and rhythms; faster rates fuse into beating textures and continuous pitch. The A, B, and C layers provide independent waveforms, tuning, overlap, and synchronized FM, while a sixteen-node recurrent circuit can sound directly or supply captured pulsaret, envelope, and FM shapes.</p>
+        <p>Pulsar synthesis repeats short, windowed waveforms called pulsarets. Slow emission rates produce separate events and rhythms; faster rates fuse into beating textures and continuous pitch. The A, B, and C layers provide independent waveforms, tuning, overlap, and synchronized FM, while a selectable sixteen-, thirty-two-, or sixty-four-node recurrent ecology can sound directly or supply captured pulsaret, envelope, and FM shapes. Four or eight internal Ambisonic ears can return the spatial field to that ecology.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -39,6 +39,7 @@
           <li>Use <code>FM RATIO</code> and <code>FM INDEX</code> for clock-synchronous phase modulation, <code>WIN SKEW</code> to move the window peak, and <code>TRIGGER</code> to choose reset, continuous-phase, or idle-only behavior.</li>
           <li>Choose four to thirty-two <code>POINTS</code>, then combine probability, burst/rest, sieve, and point-randomness controls.</li>
           <li>Raise <code>DIRECT</code> to hear the neural circuit, then shape its signed ring and matrix feedback. After the capture meter arms, press <code>CAPTURE</code> to snapshot new pulsaret, envelope, and FM tables.</li>
+          <li>Open <code>LISTEN</code>, choose 16, 32, or 64 nodes and a <code>TETRA 4</code> or <code>CUBE 8</code> auditory body, then enable listening. <code>FIELD RESPONSE</code> turns previously emitted pulses into a score for later pulses; <code>RETURN BYPASS</code> opens only the deeper neural-audio feedback loop.</li>
           <li>Set the field center, width, scatter, motion shape, orbit rate/depth, air, and Doppler behavior.</li>
           <li>Select the Ambisonic order and follow the instrument with an Ambisonic decoder or energy meter.</li>
         </ol>
@@ -84,28 +85,51 @@
 
         <h2 id="neural">Neural Synthesis</h2>
 
-        <p>The neural section is a Tudor-inspired recurrent sound circuit rather than a literal emulation of a specific neural chip. Sixteen leaky <code>tanh</code> nodes are arranged as four clusters running at progressively faster nominal R-C times of 80, 32, 9.5, and 2 ms.</p>
+        <p>The neural section is a Tudor-inspired recurrent sound circuit rather than a literal emulation of a specific neural chip. One, two, or four independently seeded lobes provide sixteen, thirty-two, or sixty-four leaky <code>tanh</code> nodes. Every lobe contains four clusters running at progressively faster nominal R-C times of 80, 32, 9.5, and 2 ms.</p>
 
-        <p>Each cluster is a four-stage signed ring. A sparse signed matrix also mixes every cluster into the others. Slower clusters gate the faster rings, and <code>SLOW &gt; FAST</code> varies their effective R-C time. First-order allpass memories put phase-bearing paths inside the feedback web. The topology therefore has the three ingredients highlighted by the feedback-network demonstration: nonlinear nodes, independently invertible paths, and phase or slew processes inside the loop.</p>
+        <p>Each cluster is a four-stage signed ring. A sparse signed matrix mixes the four clusters inside every lobe, while a second signed matrix exchanges bounded activity between lobes. Slower clusters gate the faster rings, and <code>SLOW &gt; FAST</code> varies their effective R-C time. First-order allpass memories put phase-bearing paths inside the feedback web. Population changes use smoothed lobe activation, so adding or retiring neural material does not hard-switch a completed audio signal.</p>
 
         <table class="readout-table">
           <thead><tr><th>Control</th><th>Meaning</th></tr></thead>
           <tbody>
-            <tr><td>DIRECT</td><td>Distributes complementary cluster/node mixtures across the active spatial points.</td></tr>
+            <tr><td>DIRECT</td><td>Distributes complementary cluster/node mixtures across the active spatial points. With multiple lobes, point direction selects an associated bilateral or tetrahedral region.</td></tr>
             <tr><td>SIGMOID</td><td>Drive into each neuron's bounded <code>tanh</code> transfer function.</td></tr>
             <tr><td>RING FB</td><td>Feedback around the four signed within-cluster rings.</td></tr>
-            <tr><td>MATRIX</td><td>Cross-coupling through the signed four-by-four cluster matrix.</td></tr>
+            <tr><td>MATRIX</td><td>Cross-coupling through the signed cluster and lobe matrices.</td></tr>
             <tr><td>HIERARCHY</td><td>Amount by which each slower cluster gates and drives the next faster one.</td></tr>
             <tr><td>PHASE</td><td>Blends phase-shifted allpass paths into the ring feedback.</td></tr>
             <tr><td>BROWNIAN</td><td>Depth of bounded, mean-reverting random walks applied to weights and biases.</td></tr>
-            <tr><td>DRIFT</td><td>Independent ultra-slow bias movement for all sixteen nodes.</td></tr>
+            <tr><td>DRIFT</td><td>Independent ultra-slow bias movement for every active node.</td></tr>
             <tr><td>AUDIO FB</td><td>Returns the previous lane mixture and network output to signed neural inputs. The path is high-pass conditioned, saturated, and one sample delayed.</td></tr>
           </tbody>
         </table>
 
+        <h2 id="listening">Ambisonic Self-Listening</h2>
+
+        <p>The original <code>AUDIO FB</code> path remains available: it returns a conditioned mono sum of the Pulsar field to every neural lobe. Field listening is a second path that retains direction. The complete, post-depth point field is encoded internally to the currently selected HOA order, then decoded through four tetrahedral or eight cube-corner ears. The delayed ear signals are distributed among the neural lobes before the next sample is evaluated. Motion, width, source direction, air, distance, and HOA order can therefore change subsequent synthesis rather than only repositioning finished sound.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Listening control</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>NODES</td><td>Selects one 16-node lobe, a bilateral 32-node pair, or the complete four-lobe 64-node ecology.</td></tr>
+            <tr><td>LISTEN ON/OFF</td><td>Starts or stops directional HOA analysis. Turning it off ramps the ears, lane response, and neural return away, and pauses roaming traversal.</td></tr>
+            <tr><td>RETURN ACTIVE/BYPASSED</td><td>Opens only the return from the delayed ear signals into the neural equations. The HOA decoder, propagation delays, meters, roaming listener, and <code>FIELD RESPONSE</code> remain active, so this is not equivalent to <code>LISTEN OFF</code>.</td></tr>
+            <tr><td>EARS</td><td><code>TETRA 4</code> uses four tetrahedral directions. <code>CUBE 8</code> adds their opposites.</td></tr>
+            <tr><td>LISTENING</td><td><code>LOCAL</code> associates lobes with nearby ears; <code>CROSS</code> rotates those associations; <code>DIFFUSE</code> uses a normalized signed mixture; <code>ROAMING</code> continuously interpolates the dominant ear.</td></tr>
+            <tr><td>FIELD RETURN</td><td>Amount of delayed directional audio entering the neural equations independently of the legacy mono <code>AUDIO FB</code> depth.</td></tr>
+            <tr><td>PROPAGATION</td><td>Spreads the ears from the mandatory one-sample causal delay through 180 ms and progressively darkens longer paths.</td></tr>
+            <tr><td>FOCUS</td><td>Interpolates from the omnidirectional field component to complete directional HOA decoding.</td></tr>
+            <tr><td>FIELD RESPONSE</td><td>Determines how strongly delayed ear energy governs the next emission probability, spatial point choice, A/B/C lane balance, and formant movement. It never retunes an already active grain.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The matched factory states <code>Ecology A: Listen Off</code>, <code>Ecology B: Ears Only</code>, and <code>Ecology C: Closed Loop</code> hold the underlying synthesis settings constant. Step through them in order to hear the unlistening reference, pulse-to-pulse field response without neural return, and the complete self-listening feedback ecology.</p>
+
+        <p>Both enable and bypass are smoothed. Every return is high-pass conditioned inside the neurons, low-pass conditioned according to propagation distance, normalized during HOA decoding, and bounded before re-entry. Output trim is outside the internal return, so changing final gain does not alter the ecology.</p>
+
         <h2 id="capture">Neural Capture Utility</h2>
 
-        <p>The utility samples the running network at 4096 Hz into a half-second rolling window. <code>CAPTURE</code> derives three different 2048-point tables: fast bipolar activity becomes the pulsaret, rectified slow activity becomes the envelope, and a zero-mean mid/fast mixture becomes the FM contour. An initial snapshot is taken automatically once the window is full.</p>
+        <p>The utility samples the running network at 4096 Hz into a half-second rolling window. With 32 or 64 nodes, corresponding node and cluster positions are averaged across smoothly active lobes before capture. <code>CAPTURE</code> derives three different 2048-point tables: fast bipolar activity becomes the pulsaret, rectified slow activity becomes the envelope, and a zero-mean mid/fast mixture becomes the FM contour. An initial snapshot is taken automatically once the window is full.</p>
 
         <p><code>PULSARET</code> and <code>ENVELOPE</code> blend those captured tables with the selected analytic waveform and envelope. <code>FM DEPTH</code> reads the captured FM contour across each grain and expresses its depth in semitones. Pulsaret and FM captures receive eight progressively filtered mip levels; playback selects and interpolates levels from the instantaneous phase increment. New captures crossfade over 80 ms so active grains never see a one-sample table swap.</p>
 
@@ -119,7 +143,7 @@
 
         <p>The point count is constrained to four through thirty-two. Grains retain their assigned point for their complete lifetime; the three lane sums at each point are combined, conditioned, and multiplied by that point's complete spherical-harmonic basis vector. Point 1 starts at the field origin, while the surrounding points use polyhedral or Fibonacci-sphere anchors. <code>MOTION: FREE</code> applies the Stochastic Encoder's bounded three-axis random walk: Cauchy, logistic, and Gaussian perturbations drive reflected velocities and positions without collecting at an edge. The local 3D cloud is rotated around the chosen center as a complete sphere, rather than compressing its azimuth and elevation into a center sector; <code>SPATIAL INERTIA</code> now affects only trajectory smoothing in this mode. <code>FORSY</code> imports the family topology used by Stochastic and Wrangler: a three-axis, interlaced sine structure under their FREE topology modulation, with the bounded secondary random walk retained underneath. Its main trajectory now uses a reflected 0-to-1-to-0 phase, retracing like a palindrome instead of wrapping to a new position; a bounded angular slew also protects points at topology-basis crossings. <code>ORBIT</code>, constant-speed triangular <code>SWAY</code>, and two-axis <code>FIGURE 8</code> retain deterministic alternatives. <code>ORBIT RATE</code> and <code>ORBIT DEPTH</code> control motion speed and excursion. Individual HOA channels are never moved or scaled independently. With width and motion depth at zero, every point collapses exactly to the selected center direction.</p>
 
-        <p>The upper-left visual viewport follows the Encoder-family layout used by Water, Wind, Path, and the other spatial instruments. Its <code>POINT FIELD</code> page provides the projected sphere, numbered square markers, ring links, event and energy halos, selectable points, zoom, and <code>TOP</code>, <code>SIDE</code>, and <code>3/4</code> camera presets. <code>PULSARETS</code> shows the window, waveform, synchronized FM, and current mode of all three lanes; selecting a trace also selects that lane in the compact editor below. <code>NEURAL</code> expands the four signed R-C rings and their live node states into the same viewport.</p>
+        <p>The upper-left visual viewport follows the Encoder-family layout used by Water, Wind, Path, and the other spatial instruments. Its <code>FIELD</code> page provides the projected sphere, numbered square markers, ring links, event and energy halos, selectable points, zoom, and <code>TOP</code>, <code>SIDE</code>, and <code>3/4</code> camera presets. <code>PULSARETS</code> shows the window, waveform, synchronized FM, and current mode of all three lanes; selecting a trace also selects that lane in the compact editor below. <code>NEURAL</code> shows all four lobes and marks inactive populations as standby. <code>LISTEN</code> shows the tetrahedral/cube auditory body, live ear energy, ear-to-lobe relationships, return state, and the listening controls.</p>
 
         <p>The complete control surface retains its native 1160-by-858 layout and control sizes. On a smaller display the plug-in opens inside a screen-fitted native scroll viewport, with horizontal and vertical access as needed. Hosts that support CLAP GUI resizing may reduce or restore the viewport freely; moving the window to a smaller screen requests a fitting viewport automatically instead of leaving controls beyond the visible desktop.</p>
 
@@ -188,6 +212,7 @@
           <a href="#synthesis">Synthesis Model</a>
           <a href="#lanes">Pulsaret Lanes</a>
           <a href="#neural">Neural Synthesis</a>
+          <a href="#listening">Self-Listening</a>
           <a href="#capture">Capture Utility</a>
           <a href="#masks">Composable Masks</a>
           <a href="#spatial">Spatial Model</a>

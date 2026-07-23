@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 
 namespace s3g {
@@ -13,14 +14,14 @@ struct AmbiInsectPresetInfo {
     const char* description;
 };
 
-inline constexpr uint32_t kAmbiInsectFactoryPresetCount = 16u;
+inline constexpr uint32_t kAmbiInsectFactoryPresetCount = 18u;
 
 inline constexpr std::array<AmbiInsectPresetInfo, kAmbiInsectFactoryPresetCount> kAmbiInsectPresetInfo {{
     { "Dusk Cricket Choir", "Layered field-cricket chirps with loose phrase coupling." },
     { "Katydid Waves", "Bright trills propagate through a broad elevated population." },
     { "Cicada Canopy", "Tymbal-like rib sequences radiate through a damped canopy." },
     { "Periodical Cicada Wall", "A dense synchronized cicada field with slow massed surges." },
-    { "Mosquito Halo", "Close harmonic wingbeats circle and pass the listener." },
+    { "Mosquito Halo", "Close layered wingbeats circle and pass the listener." },
     { "Bee Passage", "Lower wingbeat bodies travel through a loose moving cluster." },
     { "Marsh Chorus", "Warm coupled chirpers spread across a low open field." },
     { "Porch at Midnight", "A small near-field choir reflected by a wooden porch." },
@@ -29,9 +30,11 @@ inline constexpr std::array<AmbiInsectPresetInfo, kAmbiInsectFactoryPresetCount>
     { "Greenhouse Flyers", "Small flyers roam vertically through a reflective interior." },
     { "High Meadow Trill", "Fast fine stridulation in a wide, airy meadow." },
     { "Sparse Winter Ticks", "Cold isolated body clicks with long rests." },
-    { "Harmonic Swarm", "Wingbeat fundamentals pull toward shared harmonic motion." },
+    { "Inharmonic Swarm", "Coordinated call motion with independently spaced wingbeat fundamentals." },
     { "Forest Layers", "Ground chirpers, canopy cicadas, and passing flyers coexist." },
     { "Mixed Summer Night", "A complete warm-night population across several strata." },
+    { "Leaf Tremulation", "Substrate-borne body oscillations travel through a low leaf layer." },
+    { "Tremulation Duet", "Alternating response calls move through a coupled substrate pair." },
 }};
 
 inline AmbiInsectPresetInfo ambiInsectFactoryPresetInfo(uint32_t index)
@@ -169,7 +172,7 @@ inline AmbiInsectParams ambiInsectFactoryPreset(uint32_t index)
         params.cohesion = 0.18f; params.scatter = 0.72f; params.orbit = 0.00f; params.lift = 0.00f;
         params.nearPass = 0.00f; params.spatialFollow = 0.99f; params.place = 1u; params.space = 0.14f;
         break;
-    case 13u: // Harmonic Swarm
+    case 13u: // Inharmonic Swarm
         params.voices = 26u; params.regime = 3u; params.activity = 0.82f; params.temperature = 0.70f;
         params.variation = 0.12f; params.coupling = 0.88f; params.phraseRateHz = 0.22f; params.chirpRateHz = 2.0f;
         params.pulseRateHz = 610.0f; params.callLength = 0.86f; params.rest = 0.18f; params.bodyPitchHz = 430.0f;
@@ -187,7 +190,7 @@ inline AmbiInsectParams ambiInsectFactoryPreset(uint32_t index)
         params.cohesion = 0.48f; params.scatter = 0.72f; params.orbit = 0.18f; params.lift = 0.46f;
         params.nearPass = 0.18f; params.spatialFollow = 0.82f; params.place = 1u; params.space = 0.24f;
         break;
-    default: // Mixed Summer Night
+    case 15u: // Mixed Summer Night
         params.voices = 64u; params.regime = 5u; params.activity = 0.82f; params.temperature = 0.76f;
         params.variation = 0.42f; params.coupling = 0.34f; params.phraseRateHz = 0.36f; params.chirpRateHz = 8.8f;
         params.pulseRateHz = 150.0f; params.callLength = 0.58f; params.rest = 0.34f; params.bodyPitchHz = 4200.0f;
@@ -196,8 +199,288 @@ inline AmbiInsectParams ambiInsectFactoryPreset(uint32_t index)
         params.cohesion = 0.52f; params.scatter = 0.82f; params.orbit = 0.24f; params.lift = 0.48f;
         params.nearPass = 0.24f; params.spatialFollow = 0.78f; params.place = 0u; params.space = 0.16f;
         break;
+    case 16u: // Leaf Tremulation
+        params.voices = 18u; params.regime = 6u; params.activity = 0.62f; params.temperature = 0.55f;
+        params.variation = 0.24f; params.coupling = 0.36f; params.phraseRateHz = 0.18f; params.chirpRateHz = 9.0f;
+        params.pulseRateHz = 42.0f; params.callLength = 0.68f; params.rest = 0.38f; params.bodyPitchHz = 320.0f;
+        params.bodySize = 0.66f; params.rasp = 0.26f; params.wing = 0.38f; params.brightness = 0.28f;
+        params.resonance = 0.46f; params.air = 0.06f; params.fieldRateHz = 0.012f; params.roam = 0.14f;
+        params.cohesion = 0.58f; params.scatter = 0.64f; params.orbit = 0.02f; params.lift = 0.00f;
+        params.nearPass = 0.00f; params.spatialFollow = 0.96f; params.centerDistance = 0.92f;
+        params.place = 1u; params.space = 0.14f; params.environmentDamping = 0.68f;
+        break;
+    default: // Tremulation Duet
+        params.voices = 12u; params.regime = 6u; params.activity = 0.70f; params.temperature = 0.60f;
+        params.variation = 0.14f; params.coupling = 0.62f; params.phraseRateHz = 0.28f; params.chirpRateHz = 6.2f;
+        params.pulseRateHz = 34.0f; params.callLength = 0.56f; params.rest = 0.42f; params.bodyPitchHz = 240.0f;
+        params.bodySize = 0.74f; params.rasp = 0.18f; params.wing = 0.44f; params.brightness = 0.22f;
+        params.resonance = 0.52f; params.air = 0.04f; params.fieldRateHz = 0.008f; params.roam = 0.08f;
+        params.cohesion = 0.72f; params.scatter = 0.48f; params.orbit = 0.00f; params.lift = 0.00f;
+        params.nearPass = 0.00f; params.spatialFollow = 0.98f; params.centerDistance = 0.86f;
+        params.place = 1u; params.space = 0.12f; params.environmentDamping = 0.74f;
+        break;
+    }
+    constexpr std::array<uint32_t, kAmbiInsectFactoryPresetCount> callTypes {
+        1u, 1u, 0u, 1u, 10u, 10u, 1u, 0u, 0u,
+        2u, 10u, 0u, 0u, 10u, 1u, 1u, 4u, 2u
+    };
+    constexpr std::array<uint32_t, kAmbiInsectFactoryPresetCount> sceneSeeds {
+        0xa511e9b3u, 0x63d83595u, 0x9e3779b9u, 0x7f4a7c15u,
+        0x94d049bbu, 0x369dea0fu, 0xdb4f0b91u, 0xbb67ae85u,
+        0x3c6ef372u, 0xa54ff53au, 0x510e527fu, 0x1f83d9abu,
+        0x5be0cd19u, 0xc2b2ae35u, 0x27d4eb2du, 0x165667b1u,
+        0x85ebca6bu, 0xd3a2646cu,
+    };
+    params.callType = callTypes[index];
+    params.sceneSeed = sceneSeeds[index];
+    return params;
+}
+
+struct AmbiInsectCinematicBounds {
+    float pitchLow;
+    float pitchHigh;
+    float phraseLow;
+    float phraseHigh;
+    float chirpLow;
+    float chirpHigh;
+    float pulseLow;
+    float pulseHigh;
+    float lengthLow;
+    float lengthHigh;
+    float restLow;
+    float restHigh;
+};
+
+inline uint32_t ambiInsectRandomBits(uint32_t& seed)
+{
+    seed += 0x9e3779b9u;
+    uint32_t value = seed;
+    value = (value ^ (value >> 16u)) * 0x21f0aaadu;
+    value = (value ^ (value >> 15u)) * 0x735a2d97u;
+    return value ^ (value >> 15u);
+}
+
+inline float ambiInsectRandomUnit(uint32_t& seed)
+{
+    return static_cast<float>(ambiInsectRandomBits(seed) & 0x00ffffffu)
+        / static_cast<float>(0x01000000u);
+}
+
+inline uint32_t ambiInsectRandomChoice(uint32_t& seed, uint32_t count)
+{
+    if (count == 0u) return 0u;
+    return std::min<uint32_t>(count - 1u,
+        static_cast<uint32_t>(
+            ambiInsectRandomUnit(seed) * static_cast<float>(count)));
+}
+
+inline float ambiInsectExponentialRange(
+    float low, float high, float amount)
+{
+    return low * std::pow(
+        std::max(1.0f, high / std::max(0.0001f, low)),
+        clamp(amount, 0.0f, 1.0f));
+}
+
+inline AmbiInsectCinematicBounds ambiInsectCinematicBounds(
+    uint32_t regime)
+{
+    switch (std::min<uint32_t>(regime, kAmbiInsectRegimeCount - 1u)) {
+    case 0u:
+        return { 1800.0f, 6200.0f, 0.045f, 0.45f, 0.8f, 5.0f,
+            42.0f, 96.0f, 0.08f, 0.34f, 0.18f, 0.68f };
+    case 1u:
+        return { 4200.0f, 9400.0f, 0.08f, 0.70f, 8.0f, 34.0f,
+            110.0f, 420.0f, 0.42f, 0.90f, 0.18f, 0.55f };
+    case 2u:
+        return { 2200.0f, 6500.0f, 0.05f, 0.36f, 12.0f, 34.0f,
+            480.0f, 1300.0f, 0.58f, 0.94f, 0.10f, 0.50f };
+    case 3u:
+        return { 180.0f, 760.0f, 0.06f, 0.50f, 0.8f, 4.5f,
+            180.0f, 760.0f, 0.55f, 0.94f, 0.10f, 0.48f };
+    case 4u:
+        return { 500.0f, 3000.0f, 0.06f, 0.60f, 0.8f, 7.0f,
+            60.0f, 300.0f, 0.06f, 0.35f, 0.42f, 0.88f };
+    case 5u:
+        return { 1800.0f, 5200.0f, 0.08f, 0.60f, 2.0f, 11.0f,
+            80.0f, 320.0f, 0.35f, 0.80f, 0.18f, 0.58f };
+    default:
+        return { 140.0f, 780.0f, 0.06f, 0.45f, 2.0f, 18.0f,
+            24.0f, 120.0f, 0.35f, 0.85f, 0.18f, 0.65f };
+    }
+}
+
+inline uint32_t ambiInsectCinematicCallType(
+    uint32_t& seed, uint32_t regime)
+{
+    constexpr std::array<uint32_t, 5> social {
+        0u, 1u, 4u, 7u, 9u
+    };
+    constexpr std::array<uint32_t, 4> flight {
+        10u, 10u, 0u, 4u
+    };
+    constexpr std::array<uint32_t, 5> percussion {
+        0u, 2u, 7u, 9u, 9u
+    };
+    constexpr std::array<uint32_t, 6> tremulation {
+        0u, 2u, 3u, 4u, 5u, 7u
+    };
+    if (regime == 3u) {
+        return flight[ambiInsectRandomChoice(
+            seed, static_cast<uint32_t>(flight.size()))];
+    }
+    if (regime == 4u) {
+        return percussion[ambiInsectRandomChoice(
+            seed, static_cast<uint32_t>(percussion.size()))];
+    }
+    if (regime == kAmbiInsectTremulationRegime) {
+        return tremulation[ambiInsectRandomChoice(
+            seed, static_cast<uint32_t>(tremulation.size()))];
+    }
+    return social[ambiInsectRandomChoice(
+        seed, static_cast<uint32_t>(social.size()))];
+}
+
+inline AmbiInsectParams ambiInsectCinematicRandomParamsForRegime(
+    uint32_t& seed, uint32_t regime)
+{
+    regime = std::min<uint32_t>(regime, kAmbiInsectRegimeCount - 1u);
+    const auto bounds = ambiInsectCinematicBounds(regime);
+    const float metabolism = ambiInsectRandomUnit(seed);
+    const float morphology = ambiInsectRandomUnit(seed);
+    const float articulation = ambiInsectRandomUnit(seed);
+    const float social = ambiInsectRandomUnit(seed);
+    const float texture = ambiInsectRandomUnit(seed);
+    const float density = ambiInsectRandomUnit(seed);
+    const float motion = ambiInsectRandomUnit(seed);
+    const float habitat = ambiInsectRandomUnit(seed);
+    const float rhythmicDrive = clamp(
+        metabolism * 0.62f + articulation * 0.38f, 0.0f, 1.0f);
+
+    AmbiInsectParams params {};
+    params.order = 3u;
+    params.regime = regime;
+    params.callType = ambiInsectCinematicCallType(seed, regime);
+    const uint32_t minimumVoices = regime == kAmbiInsectMixedRegime
+        ? 24u : regime == 3u ? 8u : 10u;
+    const uint32_t maximumVoices = regime == kAmbiInsectMixedRegime
+        ? 64u : regime == 3u ? 36u : 56u;
+    params.voices = minimumVoices + static_cast<uint32_t>(
+        std::lround(density
+            * static_cast<float>(maximumVoices - minimumVoices)));
+    params.temperature = 0.18f + metabolism * 0.72f;
+    params.activity = clamp(
+        0.30f + (metabolism * 0.62f + density * 0.38f) * 0.56f,
+        0.30f, 0.90f);
+    params.variation = clamp(
+        0.08f + (texture * 0.62f + (1.0f - social) * 0.38f)
+            * 0.48f,
+        0.08f, 0.58f);
+    params.coupling = clamp(
+        0.02f + social * (0.52f + density * 0.26f),
+        0.02f, 0.82f);
+
+    params.bodyPitchHz = ambiInsectExponentialRange(
+        bounds.pitchLow, bounds.pitchHigh, morphology);
+    params.bodySize = clamp(
+        0.86f - morphology * 0.68f + (texture - 0.5f) * 0.08f,
+        0.12f, 0.88f);
+    params.phraseRateHz = ambiInsectExponentialRange(
+        bounds.phraseLow, bounds.phraseHigh,
+        rhythmicDrive * 0.58f + social * 0.42f);
+    params.chirpRateHz = ambiInsectExponentialRange(
+        bounds.chirpLow, bounds.chirpHigh,
+        rhythmicDrive * 0.72f + social * 0.28f);
+    params.pulseRateHz = regime == 3u
+        ? params.bodyPitchHz
+        : ambiInsectExponentialRange(
+            bounds.pulseLow, bounds.pulseHigh,
+            metabolism * 0.76f + morphology * 0.24f);
+    const float sustained = clamp(
+        articulation * 0.55f + social * 0.30f
+            + metabolism * 0.15f,
+        0.0f, 1.0f);
+    params.callLength = lerp(
+        bounds.lengthLow, bounds.lengthHigh, sustained);
+    params.rest = lerp(
+        bounds.restHigh, bounds.restLow,
+        params.activity * 0.58f + articulation * 0.42f);
+
+    static constexpr std::array<float, kAmbiInsectRegimeCount> raspBase {
+        0.24f, 0.30f, 0.28f, 0.03f, 0.36f, 0.24f, 0.12f
+    };
+    static constexpr std::array<float, kAmbiInsectRegimeCount> raspRange {
+        0.38f, 0.40f, 0.34f, 0.16f, 0.46f, 0.36f, 0.28f
+    };
+    static constexpr std::array<float, kAmbiInsectRegimeCount> wingBase {
+        0.05f, 0.08f, 0.22f, 0.62f, 0.02f, 0.18f, 0.20f
+    };
+    static constexpr std::array<float, kAmbiInsectRegimeCount> wingRange {
+        0.17f, 0.22f, 0.38f, 0.32f, 0.14f, 0.34f, 0.34f
+    };
+    params.rasp = clamp(
+        raspBase[regime] + texture * raspRange[regime], 0.0f, 0.90f);
+    params.wing = clamp(
+        wingBase[regime] + (0.62f * articulation + 0.38f * motion)
+            * wingRange[regime],
+        0.0f, 0.96f);
+    params.brightness = clamp(
+        0.20f + morphology * 0.58f + texture * 0.10f,
+        0.18f, 0.90f);
+    params.resonance = clamp(
+        0.28f + (1.0f - texture) * 0.26f
+            + params.bodySize * 0.18f,
+        0.24f, 0.78f);
+    params.air = clamp(
+        0.05f + habitat * 0.20f + params.brightness * 0.22f,
+        0.04f, 0.52f);
+
+    params.fieldRateHz = ambiInsectExponentialRange(
+        0.004f, regime == 3u ? 0.30f : 0.075f, motion);
+    params.roam = clamp(0.06f + motion * 0.72f, 0.06f, 0.82f);
+    params.cohesion = clamp(
+        0.18f + social * 0.62f, 0.12f, 0.86f);
+    params.scatter = clamp(
+        0.26f + (1.0f - social) * 0.34f + density * 0.28f,
+        0.22f, 0.90f);
+    params.orbit = clamp(
+        motion * (regime == 3u ? 0.90f : 0.30f), 0.0f, 0.92f);
+    params.lift = clamp(
+        motion * (regime == 2u || regime == 3u ? 0.78f : 0.28f),
+        0.0f, 0.82f);
+    params.nearPass = clamp(
+        motion * (regime == 3u ? 0.88f : 0.18f), 0.0f, 0.92f);
+    params.spatialFollow = clamp(
+        0.92f - motion * 0.58f, 0.26f, 0.96f);
+    params.centerAzimuthDeg =
+        (ambiInsectRandomUnit(seed) * 2.0f - 1.0f) * 35.0f;
+    params.centerElevationDeg =
+        (ambiInsectRandomUnit(seed) * 2.0f - 1.0f) * 20.0f;
+    params.centerDistance = 0.84f
+        + ambiInsectRandomUnit(seed) * 0.52f;
+    params.place = ambiInsectRandomChoice(seed, kAmbiInsectPlaceCount);
+    params.space = clamp(
+        0.05f + habitat * (params.place == 0u ? 0.20f : 0.46f),
+        0.04f, 0.54f);
+    params.environmentSize = 0.28f + habitat * 0.52f;
+    params.environmentDecay = 0.30f
+        + (habitat * 0.68f + social * 0.32f) * 0.48f;
+    params.environmentDamping = 0.24f
+        + (1.0f - params.brightness) * 0.34f
+        + habitat * 0.18f;
+    params.outputGainDb = -6.0f;
+    params.sceneSeed = ambiInsectRandomBits(seed);
+    if (params.sceneSeed == 0u) {
+        params.sceneSeed = kAmbiInsectDefaultSceneSeed;
     }
     return params;
+}
+
+inline AmbiInsectParams ambiInsectCinematicRandomParams(uint32_t& seed)
+{
+    const uint32_t regime = ambiInsectRandomChoice(
+        seed, kAmbiInsectRegimeCount);
+    return ambiInsectCinematicRandomParamsForRegime(seed, regime);
 }
 
 } // namespace s3g

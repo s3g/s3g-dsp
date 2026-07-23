@@ -2,11 +2,16 @@
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/params.h>
+#include <clap/ext/state.h>
+
+#include "../dsp/s3g_ambi_pulsar_encoder.h"
 
 #include <cmath>
 #include <cstring>
 #include <dlfcn.h>
 #include <iostream>
+#include <vector>
 
 namespace {
 
@@ -16,6 +21,30 @@ void hostRequest(const clap_host_t*) {}
 bool closeEnough(CGFloat a, CGFloat b)
 {
     return std::fabs(a - b) < 0.5;
+}
+
+struct MemoryState {
+    std::vector<uint8_t> bytes {};
+    size_t readOffset = 0u;
+};
+
+int64_t stateWrite(const clap_ostream_t* stream, const void* buffer, uint64_t size)
+{
+    auto* state = static_cast<MemoryState*>(stream->ctx);
+    const auto* bytes = static_cast<const uint8_t*>(buffer);
+    state->bytes.insert(state->bytes.end(), bytes, bytes + size);
+    return static_cast<int64_t>(size);
+}
+
+int64_t stateRead(const clap_istream_t* stream, void* buffer, uint64_t size)
+{
+    auto* state = static_cast<MemoryState*>(stream->ctx);
+    const size_t available = state->bytes.size() - std::min(state->readOffset, state->bytes.size());
+    const size_t count = std::min<size_t>(static_cast<size_t>(size), available);
+    if (count == 0u) return 0;
+    std::memcpy(buffer, state->bytes.data() + state->readOffset, count);
+    state->readOffset += count;
+    return static_cast<int64_t>(count);
 }
 
 } // namespace
@@ -64,9 +93,67 @@ int main(int argc, char** argv)
 
         const auto* gui = static_cast<const clap_plugin_gui_t*>(
             plugin->get_extension(plugin, CLAP_EXT_GUI));
+        const auto* params = static_cast<const clap_plugin_params_t*>(
+            plugin->get_extension(plugin, CLAP_EXT_PARAMS));
+        const auto* state = static_cast<const clap_plugin_state_t*>(
+            plugin->get_extension(plugin, CLAP_EXT_STATE));
         bool ok = gui
             && gui->is_api_supported(plugin, CLAP_WINDOW_API_COCOA, false)
-            && gui->can_resize(plugin);
+            && gui->can_resize(plugin)
+            && params && state;
+        uint32_t listeningParams = 0u;
+        if (params) {
+            const uint32_t count = params->count(plugin);
+            for (uint32_t index = 0u; index < count; ++index) {
+                clap_param_info_t info {};
+                if (params->get_info(plugin, index, &info)
+                    && info.id >= 100u && info.id <= 108u
+                    && std::strcmp(info.module, "Field Listening") == 0) {
+                    ++listeningParams;
+                }
+            }
+        }
+        double enabled = -1.0;
+        double bypass = -1.0;
+        ok = ok && listeningParams == 9u
+            && params->get_value(plugin, 101u, &enabled)
+            && params->get_value(plugin, 102u, &bypass)
+            && enabled == 0.0 && bypass == 0.0;
+        MemoryState savedState;
+        clap_ostream_t outputState { &savedState, stateWrite };
+        ok = ok && state->save(plugin, &outputState) && savedState.bytes.size() > 100u;
+        clap_istream_t inputState { &savedState, stateRead };
+        ok = ok && state->load(plugin, &inputState)
+            && savedState.readOffset == savedState.bytes.size();
+        // Version 8 appended a 36-byte listening suffix to the parameter
+        // struct. Reconstruct the immediately preceding version-7 stream from
+        // the saved state and verify that its legacy prefix still upgrades.
+        constexpr size_t kStateHeaderSize = sizeof(uint32_t);
+        constexpr size_t kStateTailSize = sizeof(uint32_t) + sizeof(int32_t)
+            + sizeof(float) + 64u;
+        constexpr size_t kListeningSuffixSize = sizeof(s3g::AmbiPulsarListeningParams);
+        if (ok && savedState.bytes.size() > kStateHeaderSize + kStateTailSize + kListeningSuffixSize) {
+            const size_t paramsSize = savedState.bytes.size() - kStateHeaderSize - kStateTailSize;
+            MemoryState legacyState;
+            const uint32_t version7 = 7u;
+            const auto* versionBytes = reinterpret_cast<const uint8_t*>(&version7);
+            legacyState.bytes.insert(legacyState.bytes.end(), versionBytes,
+                versionBytes + sizeof(version7));
+            legacyState.bytes.insert(legacyState.bytes.end(),
+                savedState.bytes.begin() + kStateHeaderSize,
+                savedState.bytes.begin() + kStateHeaderSize + paramsSize - kListeningSuffixSize);
+            legacyState.bytes.insert(legacyState.bytes.end(),
+                savedState.bytes.begin() + kStateHeaderSize + paramsSize,
+                savedState.bytes.end());
+            clap_istream_t legacyInput { &legacyState, stateRead };
+            ok = state->load(plugin, &legacyInput)
+                && legacyState.readOffset == legacyState.bytes.size()
+                && params->get_value(plugin, 101u, &enabled)
+                && params->get_value(plugin, 102u, &bypass)
+                && enabled == 0.0 && bypass == 0.0;
+        } else {
+            ok = false;
+        }
         clap_gui_resize_hints_t hints {};
         ok = ok && gui->get_resize_hints(plugin, &hints)
             && hints.can_resize_horizontally && hints.can_resize_vertically

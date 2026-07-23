@@ -26,40 +26,60 @@
       <main class="content" id="content">
         <h1>Ambi Insect Encoder</h1>
 
-        <p><code>s3g Ambi Insect Encoder 64</code> is a zero-input procedural instrument for spatial insect populations. As many as 64 independently timed voices use stridulation, tymbal-like snap trains, wingbeat harmonics, and resonant body models, then encode their moving positions directly to first-through-seventh-order <code>ACN/SN3D</code>.</p>
+        <p><code>s3g Ambi Insect Encoder 64</code> is a zero-input procedural instrument for spatial insect populations. As many as 64 independently timed voices use stridulation, tymbalisation, wing vibration, percussion, tremulation, and resonant body models, then encode their moving positions directly to first-through-seventh-order <code>ACN/SN3D</code>.</p>
 
         <p>The engine is a musical bioacoustic model, not a species-identification tool and not a sample player. Its controls preserve the separable time scales and sound-producing mechanisms found across insect communication while leaving room for imagined populations.</p>
 
         <h2 id="workflow">Workflow</h2>
         <ol>
           <li>Insert the plugin on a 64-channel track and choose a factory preset.</li>
-          <li>Select <code>REGIME</code>, then balance population <code>ACTIVITY</code>, <code>TEMPERATURE</code>, <code>VARIATION</code>, and <code>COUPLING</code>.</li>
-          <li>Shape the nested phrase, chirp, and pulse clocks before tuning body pitch and texture.</li>
-          <li>Place and animate the population with swarm motion, field origin, and environment controls.</li>
+          <li>Select a physical production <code>REGIME</code> and a communicative <code>CALL TYPE</code>, then balance population <code>ACTIVITY</code>, <code>TEMPERATURE</code>, <code>VARIATION</code>, and <code>COUPLING</code>.</li>
+          <li>Shape the regime-specific call clocks before tuning its body, contact, and radiation controls.</li>
+          <li>Place and animate the population with swarm motion, field origin, environment, and optional field-listener controls.</li>
           <li>Follow the instrument with an ambisonic decoder or meter.</li>
         </ol>
 
         <h2 id="source">Insect Source</h2>
-        <p><code>REGIME</code> selects <code>CHIRPERS</code>, <code>TRILLERS</code>, <code>CICADAS</code>, <code>FLYERS</code>, <code>TICKERS</code>, or <code>MIXED SWARM</code>. <code>TEMPERATURE</code> scales biological clock speed. <code>VARIATION</code> separates individuals, while <code>COUPLING</code> pulls phrase timing toward a shared chorus without making every voice identical.</p>
+        <p><code>REGIME</code> selects <code>CHIRPERS</code>, <code>TRILLERS</code>, <code>CICADAS</code>, <code>FLYERS</code>, <code>TICKERS</code>, <code>TREMULATORS</code>, or <code>MIXED SWARM</code>. The regime determines the physical production model. <code>TEMPERATURE</code> applies a regime-specific hierarchy: fine pulse articulation changes most, call rate changes less, and broad phrase timing changes least. It also shifts body pitch by a smaller amount. <code>VARIATION</code> separates individuals, while <code>COUPLING</code> pulls phrase timing toward a shared chorus without making every voice identical.</p>
+        <p><code>CALL TYPE</code> is separate from production method. It applies one of eleven functional phrasing templates: <code>CALLING SONG</code>, <code>CONGREGATIONAL SONG</code>, <code>RESPONSE CALL</code>, <code>PREMATING SONG</code>, <code>COURTSHIP SONG</code>, <code>AGREEMENT SONG</code>, <code>JUMPING SONG</code>, <code>RIVALRY CALL</code>, <code>POSTCOPULATORY CALL</code>, <code>DEFENSIVE CALL</code>, or <code>FLIGHT NOISE</code>. These templates reshape rate hierarchy, duty, call probability, alternation, synchrony, and sustain; they are compositional interpretations of the controlled vocabulary rather than claims about a particular species.</p>
 
         <h2 id="calls">Call Structure</h2>
-        <p><code>PHRASE RATE</code>, <code>CHIRP RATE</code>, and <code>PULSE RATE</code> are nested clocks expressed in hertz. They separate long calling/rest cycles, repeated calls, and the syllable, scraper-contact, or rib-snap texture inside a call. <code>BODY PITCH</code> sets the much faster tuned wing carrier for stridulators and the wingbeat fundamental for flyers. <code>CALL LENGTH</code> and <code>REST</code> shape the resulting smooth gates.</p>
+        <p>The call panel presents the clocks actually used by the selected regime. Generic phrase, call, and pulse controls become biologically legible names such as <code>TOOTH RATE</code>, <code>RIB RATE</code>, <code>IMPACT RATE</code>, or <code>TREM RATE</code>. Parameters that do not participate in a model are hidden. Length and rest controls retain smooth attack and release at every level.</p>
 
-        <h2 id="body">Body and Tone</h2>
-        <p><code>BODY PITCH</code> and <code>BODY SIZE</code> tune the resonant wing, tymbal/abdomen, or flight body. <code>WING</code> mixes a dedicated radiating-wing layer: tuned scraper/file resonance for chirpers and trillers, coupled tymbal radiation for cicadas, and a phase-locked bilateral wing model for flyers. Flyer sound combines an integer harmonic stack, bounded cycle-to-cycle thrust and timing variation, thorax response, and body-size-dependent wake turbulence; small bodies remain relatively tonal while larger bodies develop a denser buzz. <code>RASP</code>, <code>BRIGHTNESS</code>, <code>RESONANCE</code>, and <code>AIR</code> balance scrape noise, spectral emphasis, resonant decay, and high-frequency radiation. Regime changes and presets use a short transition crossfade.</p>
+        <h2 id="body">Production Models</h2>
+        <p>The lower-left toolbox names the active sound-production method and relabels its controls accordingly:</p>
+        <table class="readout-table">
+          <thead>
+            <tr><th>Regime</th><th>Production method</th><th>Exposed construction</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Chirpers / Trillers</td><td>Stridulation</td><td>Tooth rate, file roughness, wing resonance, wing radiation</td></tr>
+            <tr><td>Cicadas</td><td>Tymbalisation</td><td>Buckle train, rib rate, tymbal plate, abdomen size and Q</td></tr>
+            <tr><td>Flyers</td><td>Wing vibration</td><td>Wingbeat, bilateral wing radiation, wing partials, thorax Q, wake noise</td></tr>
+            <tr><td>Tickers</td><td>Percussion</td><td>Impact rate and hardness, shell pitch and Q, contact scrape</td></tr>
+            <tr><td>Tremulators</td><td>Tremulation</td><td>Body tremulation, contact rate, substrate resonance and Q, air leakage</td></tr>
+            <tr><td>Mixed Swarm</td><td>Mixed production</td><td>Generic controls shared across a population containing all methods</td></tr>
+          </tbody>
+        </table>
+        <p>Each flyer retains the periodic partial structure of an individual wing cycle, but population fundamentals are distributed across deterministic quasi-irrational log-frequency offsets. The spread increases with population size, and <code>COUPLING</code> coordinates calls without tuning wingbeats together. Mixed swarms map their flyer subset into the flight-frequency range before applying the same distribution, avoiding a shared upper-frequency clamp. Flyer sound also includes bounded cycle-to-cycle thrust and timing variation, thorax response, and body-size-dependent wake turbulence. Cicada colonies move slowly among locked, half-rate, double-rate, and irregular pulse states; changes are smoothed and energy-compensated so they read as massed actuation rather than level jumps. Tremulation uses body motion and intermittent contact to excite a low substrate path, with a smaller airborne component. Regime and call-type changes use a short transition crossfade.</p>
 
         <h2 id="model-basis">Model Basis</h2>
-        <p>The synthesis separates excitation from radiation: scraper impacts, rib snaps, flight strokes, and contact taps drive wing, body, abdomen, air, and substrate resonators. Stable per-voice identity controls placement and individual variation; a separate audio-rate random stream supplies texture, so noise no longer jitters pitch, activity, or motion. Slow phrase decisions and pitch drift keep the population irregular without making individual wing cycles unstable.</p>
-        <p>Development uses short-window spectral and band-energy checks for wingbeat texture alongside longer temporal checks for phrase behavior. Flyer presets must retain more temporal detail than a pure tone at the same effective wingbeat frequency without becoming unbounded noise. These are deterministic validation measures, not a machine-learning stage. See <a href="references.html#insect-bioacoustics">Insect Bioacoustics</a> on the central References page for the physiological, field-recording, and signal-analysis sources.</p>
+        <p>The synthesis separates excitation from radiation: scraper impacts, rib snaps, flight strokes, percussion contacts, and substrate motion drive wing, body, abdomen, air, and substrate resonators. Stable per-voice identity controls placement and individual variation; a separate audio-rate random stream supplies texture, so noise no longer jitters pitch, activity, or motion. Dense populations divide into deterministic colonies with related rate, pitch, activity, placement, and movement profiles. Mixed swarms use a dominant colony plus smaller satellite populations rather than assigning production methods in a round-robin sequence. Slow phrase decisions and pitch drift keep the population irregular without making individual wing cycles unstable.</p>
+        <p>The distinction between call function and sound-production method follows Baker and Chesmore's standardised terminology and the audioBlast controlled vocabularies. See <a href="references.html#voice-physical-modeling">Voice and Physical Modeling</a> for the source links.</p>
+        <p>Development uses short-window spectral and band-energy checks for wingbeat texture alongside longer temporal checks for phrase behavior. Flyer presets must retain more temporal detail than a pure tone at the same effective wingbeat frequency without becoming unbounded noise. These are deterministic validation measures, not a machine-learning stage. See <a href="references.html#voice-physical-modeling">Voice and Physical Modeling</a> on the central References page for the physiological, field-recording, and signal-analysis sources.</p>
 
         <h2 id="motion">Swarm Motion</h2>
-        <p><code>FIELD RATE</code>, <code>ROAM</code>, <code>COHESION</code>, <code>SCATTER</code>, <code>ORBIT</code>, <code>LIFT</code>, and <code>NEAR PASS</code> move the population. Ground calls remain low, cicadas favor canopy strata, and flyers can orbit and approach the listener. <code>INERTIA</code> controls positional following. Point size and halo intensity show each voice's current call envelope.</p>
+        <p><code>FIELD RATE</code>, <code>ROAM</code>, <code>COHESION</code>, <code>SCATTER</code>, <code>ORBIT</code>, <code>LIFT</code>, and <code>NEAR PASS</code> move the population. Colonies share broad trajectories while their individual voices wander locally. Percussion and tremulation remain near the substrate, cicadas favor canopy strata, and flyers can orbit and approach the listener. <code>INERTIA</code> controls positional following. Point size and halo intensity show each voice's current call envelope.</p>
 
         <h2 id="environment">Environment Field</h2>
         <p><code>PLACE</code> selects <code>MEADOW</code>, <code>FOREST FLOOR</code>, <code>CANOPY</code>, <code>MARSH</code>, <code>PORCH</code>, <code>GREENHOUSE</code>, or <code>INTERIOR WALL</code>. <code>ENV RETURN</code>, <code>ENV SIZE</code>, <code>ENV DECAY</code>, and <code>ENV DAMPING</code> mix and shape the encoded environment response.</p>
 
+        <h2 id="field-listener">Field Listener</h2>
+        <p>The optional field listener lets the completed insect ecology hear itself. Eight cubical virtual lobes analyze the generated <code>ACN/SN3D</code> field after the direct insects and environment return have been combined. Their slow envelopes reshape the gain of insects occupying corresponding directions on the following control interval. This is bounded control feedback, not sample recirculation.</p>
+        <p><code>OFF</code> leaves the original synthesis path unchanged. <code>FOLLOW</code> reinforces populated directions that the field hears strongly. <code>COUNTER</code> transfers that response toward opposing directions. <code>BALANCE</code> applies negative feedback to restrain dominant directions. The eight <code>HEARD</code> meters show relative lobe energy and the <code>GAIN</code> meters show the normalized response returned to the population. Mode changes glide rather than switching gains abruptly.</p>
+
         <h2 id="presets">Presets</h2>
-        <p>The 16 factory presets cover cricket choirs, katydid waves, cicada masses, mosquitoes, bees, beetles, interior ticks, layered forests, and mixed summer populations. Factory presets default to <code>3OA</code> and <code>-6 dB</code>. <code>RANDOM</code> stays inside bounded, regime-aware ranges. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3ginsect</code> presets in <code>~/Music/s3g/Presets/Ambi Insect Encoder/</code>.</p>
+        <p>The 18 factory presets cover cricket choirs, katydid waves, cicada masses, mosquitoes, bees, beetles, interior ticks, substrate tremulation, layered forests, and mixed summer populations. Factory presets default to <code>3OA</code>, <code>-6 dB</code>, and field listening <code>OFF</code>. <code>RANDOM</code> builds a seeded cinematic profile from related metabolism, morphology, articulation, social, density, motion, texture, and habitat traits while preserving the selected listener mode. It stays inside bounded regime-aware ranges while avoiding arbitrary combinations of every control. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3ginsect</code> presets in <code>~/Music/s3g/Presets/Ambi Insect Encoder/</code>; presets saved by earlier versions remain loadable.</p>
 
         <h2 id="routing">Order and Routing</h2>
         <p>The output bus remains 64 channels wide. <code>ORDER</code> activates 4, 9, 16, 25, 36, 49, or 64 ACN channels for 1OA through 7OA and clears the remainder.</p>
@@ -86,10 +106,11 @@
           <a href="#workflow">Workflow</a>
           <a href="#source">Insect Source</a>
           <a href="#calls">Call Structure</a>
-          <a href="#body">Body and Tone</a>
+          <a href="#body">Production Models</a>
           <a href="#model-basis">Model Basis</a>
           <a href="#motion">Swarm Motion</a>
           <a href="#environment">Environment Field</a>
+          <a href="#field-listener">Field Listener</a>
           <a href="#presets">Presets</a>
           <a href="#routing">Order and Routing</a>
         </div>

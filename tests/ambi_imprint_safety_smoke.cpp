@@ -6,8 +6,122 @@
 #include <cstdint>
 #include <iostream>
 
+namespace {
+
+bool fieldListenerDirectionCheck()
+{
+    s3g::AmbiFieldListener listener;
+    listener.prepare(48000.0);
+    listener.setMemorySeconds(0.08f);
+    const std::array<s3g::Vec3, 2u> directions {
+        s3g::directionFromAed(0.0f, 0.0f),
+        s3g::directionFromAed(180.0f, 0.0f)
+    };
+    listener.setDirections(directions.data(), static_cast<uint32_t>(directions.size()));
+    const auto field = s3g::acnSn3dBasis7(directions[0]);
+    for (uint32_t frame = 0u; frame < 24000u; ++frame) {
+        listener.processFrame(field.data(), 4u);
+    }
+    if (!(listener.envelope(0u) > listener.envelope(1u) * 1.5f)) {
+        std::cerr << "Ambi field listener did not preserve directional contrast: "
+                  << listener.envelope(0u) << " / " << listener.envelope(1u) << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool fieldListenModeCheck()
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr uint32_t frames = 256u;
+    constexpr uint32_t channels = 4u;
+
+    s3g::AmbiImprintDescriptor descriptor;
+    descriptor.durationSeconds = 0.1f;
+    for (float azimuth : { 0.0f, 180.0f }) {
+        s3g::AmbiImprintProfile profile;
+        profile.azimuthDeg = azimuth;
+        profile.elevationDeg = 0.0f;
+        profile.weight = 0.5f;
+        profile.directGain = 1.0f;
+        profile.late.durationSeconds = 0.1f;
+        profile.late.level = 0.0f;
+        descriptor.profiles.push_back(profile);
+    }
+
+    s3g::AmbiImprintProcessor processor;
+    if (!processor.prepare(sampleRate, descriptor)) {
+        std::cerr << "Ambi Imprint field-listen processor did not prepare\n";
+        return false;
+    }
+    s3g::AmbiImprintParams params;
+    params.order = 1u;
+    params.mix = 1.0f;
+    params.focus = 1.0f;
+    params.width = 1.0f;
+
+    std::array<std::array<float, frames>, channels> input {};
+    std::array<std::array<float, frames>, channels> output {};
+    std::array<float*, channels> inputs {};
+    std::array<float*, channels> outputs {};
+    for (uint32_t channel = 0u; channel < channels; ++channel) {
+        inputs[channel] = input[channel].data();
+        outputs[channel] = output[channel].data();
+    }
+    const auto sourceBasis =
+        s3g::acnSn3dBasis7(s3g::directionFromAed(0.0f, 0.0f));
+
+    auto runMode = [&](s3g::AmbiFieldListenMode mode) {
+        params.fieldListenMode = mode;
+        processor.setParams(params);
+        processor.reset();
+        uint64_t sample = 0u;
+        for (uint32_t block = 0u; block < 320u; ++block) {
+            for (uint32_t frame = 0u; frame < frames; ++frame, ++sample) {
+                const float signal = 0.12f * std::sin(
+                    2.0 * 3.14159265358979323846 * 220.0
+                    * static_cast<double>(sample) / sampleRate);
+                for (uint32_t channel = 0u; channel < channels; ++channel) {
+                    input[channel][frame] = signal * sourceBasis[channel];
+                }
+            }
+            processor.process(
+                inputs.data(), channels, outputs.data(), channels, frames);
+        }
+        return std::array<float, 2u> {
+            processor.fieldListenWeight(0u),
+            processor.fieldListenWeight(1u)
+        };
+    };
+
+    const auto off = runMode(s3g::AmbiFieldListenMode::Off);
+    const auto follow = runMode(s3g::AmbiFieldListenMode::Follow);
+    const auto counter = runMode(s3g::AmbiFieldListenMode::Counter);
+    const auto balance = runMode(s3g::AmbiFieldListenMode::Balance);
+    if (std::abs(off[0] - 1.0f) > 0.00001f
+        || std::abs(off[1] - 1.0f) > 0.00001f) {
+        std::cerr << "Ambi field listen Off altered profile weights: "
+                  << off[0] << " / " << off[1] << "\n";
+        return false;
+    }
+    if (!(follow[0] > follow[1] + 0.05f
+          && counter[1] > counter[0] + 0.05f
+          && balance[1] > balance[0] + 0.05f)) {
+        std::cerr << "Ambi field listen modes did not produce distinct directional behavior\n"
+                  << "follow " << follow[0] << " / " << follow[1]
+                  << ", counter " << counter[0] << " / " << counter[1]
+                  << ", balance " << balance[0] << " / " << balance[1] << "\n";
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
 int main()
 {
+    if (!fieldListenerDirectionCheck() || !fieldListenModeCheck()) return 1;
+
     constexpr double sampleRate = 48000.0;
     constexpr uint32_t frames = 256u;
     constexpr uint32_t channels = 4u;

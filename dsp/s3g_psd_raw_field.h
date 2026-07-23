@@ -19,6 +19,7 @@ constexpr uint32_t kPsdRawFieldTapeSize = 65536;
 constexpr uint32_t kPsdRawFieldCodebookSize = 32;
 constexpr uint32_t kPsdRawFieldTransformSize = 32;
 constexpr uint32_t kPsdRawFieldLpcOrder = 6;
+constexpr uint32_t kPsdRawFieldDiscLookahead = 32;
 constexpr std::size_t kPsdRawFieldMaxSourceBytes = 64u * 1024u * 1024u;
 
 struct PsdRawFieldSource {
@@ -218,9 +219,17 @@ public:
             codePitch_[ch] = 48u;
             pitch_[ch].fill(0.0f);
             pitchWrite_[ch] = 0u;
+            celpLossSamples_[ch] = 0u;
+            celpRecoveryRemaining_[ch] = 0u;
+            celpRecoveryTotal_[ch] = 1u;
+            celpRecoveryStart_[ch] = 0.0f;
+            celpLastOutput_[ch] = 0.0f;
             codecSample_[ch] = 0u;
+            heldTick_[ch] = true;
             discHistory_[ch].fill(0.0f);
+            discLossHistory_[ch].fill(false);
             discWrite_[ch] = 0u;
+            discBuffered_[ch] = 0u;
             discErrorRemaining_[ch] = 0u;
             discErrorTotal_[ch] = 1u;
             discErrorKind_[ch] = 0u;
@@ -228,6 +237,10 @@ public:
             discLastOutput_[ch] = 0.0f;
             discSlope_[ch] = 0.0f;
             discErrorStart_[ch] = 0.0f;
+            discWasConcealing_[ch] = false;
+            discRecoveryRemaining_[ch] = 0u;
+            discRecoveryTotal_[ch] = 1u;
+            discRecoveryStart_[ch] = 0.0f;
             cvsdIntegrator_[ch] = 0.0f;
             cvsdStep_[ch] = 0.02f;
             cvsdLastBit_[ch] = false;
@@ -239,6 +252,9 @@ public:
             subbandHighPredictor_[ch] = 0.0f;
             subbandLowStep_[ch] = 0.025f;
             subbandHighStep_[ch] = 0.02f;
+            subbandEvenOutput_[ch] = 0.0f;
+            subbandOddOutput_[ch] = 0.0f;
+            subbandPairPhase_[ch] = false;
             lpcInputHistory_[ch].fill(0.0f);
             lpcSynthHistory_[ch].fill(0.0f);
             lpcCoefficients_[ch].fill(0.0f);
@@ -250,6 +266,7 @@ public:
             transformRead_[ch] = 0u;
             transformReady_[ch] = false;
             transformBlock_[ch] = 0u;
+            transformLossBlocks_[ch] = 0u;
             predictiveOne_[ch] = 0.0f;
             predictiveTwo_[ch] = 0.0f;
             predictiveScale_[ch] = 0.08f;
@@ -264,9 +281,14 @@ public:
             faxClock_[ch] = 0.0f;
             faxI_[ch] = 0.0f;
             faxQ_[ch] = 0.0f;
+            faxPreviousI_[ch] = 0.0f;
+            faxPreviousQ_[ch] = 0.0f;
             faxTargetI_[ch] = 0.0f;
             faxTargetQ_[ch] = 0.0f;
             faxPreviousInput_[ch] = 0.0f;
+            faxTrainingRemaining_[ch] = 16u;
+            faxSymbol_[ch] = 0u;
+            faxWasDrop_[ch] = false;
             sigmaError_[ch] = 0.0f;
             sigmaOutput_[ch] = 0.0f;
             sigmaClock_[ch] = 0.0f;
@@ -968,68 +990,118 @@ private:
         return quantize(x / range, bits) * range;
     }
 
-    static float signum(float x) { return x < 0.0f ? -1.0f : 1.0f; }
-
-    static float encodeMuLaw(float x)
+    static uint8_t encodeMuLawCode(float x)
     {
-        constexpr float mu = 255.0f;
-        const float ax = std::abs(clamp(x, -1.0f, 1.0f));
-        return signum(x) * std::log1p(mu * ax) / std::log1p(mu);
+        int32_t sample = static_cast<int32_t>(
+            std::round(clamp(x, -1.0f, 1.0f) * 32767.0f));
+        const uint8_t mask = sample < 0 ? 0x7fu : 0xffu;
+        if (sample < 0) sample = -sample;
+        sample = std::min<int32_t>(sample, 32635) + 0x84;
+
+        uint32_t segment = 0u;
+        for (int32_t value = sample >> 7; value > 1 && segment < 7u; value >>= 1) {
+            ++segment;
+        }
+        const uint8_t mantissa = static_cast<uint8_t>((sample >> (segment + 3u)) & 0x0f);
+        return static_cast<uint8_t>(((segment << 4u) | mantissa) ^ mask);
     }
 
-    static float decodeMuLaw(float x)
+    static float decodeMuLawCode(uint8_t code)
     {
-        constexpr float mu = 255.0f;
-        const float ax = std::abs(clamp(x, -1.0f, 1.0f));
-        return signum(x) * (std::pow(1.0f + mu, ax) - 1.0f) / mu;
+        const uint8_t value = static_cast<uint8_t>(~code);
+        int32_t sample = (static_cast<int32_t>(value & 0x0fu) << 3) + 0x84;
+        sample <<= (value >> 4u) & 0x07u;
+        sample -= 0x84;
+        if ((value & 0x80u) != 0u) sample = -sample;
+        return clamp(static_cast<float>(sample) / 32768.0f, -1.0f, 1.0f);
     }
 
-    static float encodeALaw(float x)
+    static uint8_t encodeALawCode(float x)
     {
-        constexpr float a = 87.6f;
-        const float ax = std::abs(clamp(x, -1.0f, 1.0f));
-        const float y = ax < (1.0f / a)
-            ? (a * ax) / (1.0f + std::log(a))
-            : (1.0f + std::log(a * ax)) / (1.0f + std::log(a));
-        return signum(x) * y;
+        int32_t sample = static_cast<int32_t>(
+            std::round(clamp(x, -1.0f, 1.0f) * 32767.0f));
+        const uint8_t mask = sample >= 0 ? 0xd5u : 0x55u;
+        if (sample < 0) sample = -sample - 1;
+        sample >>= 3;
+
+        constexpr std::array<int32_t, 8> segmentEnds {
+            0x1f, 0x3f, 0x7f, 0xff, 0x1ff, 0x3ff, 0x7ff, 0xfff
+        };
+        uint32_t segment = 0u;
+        while (segment < segmentEnds.size() && sample > segmentEnds[segment]) ++segment;
+        if (segment >= segmentEnds.size()) return static_cast<uint8_t>(0x7fu ^ mask);
+
+        uint8_t value = static_cast<uint8_t>(segment << 4u);
+        value |= static_cast<uint8_t>(
+            (sample >> (segment < 2u ? 1u : segment)) & 0x0f);
+        return static_cast<uint8_t>(value ^ mask);
     }
 
-    static float decodeALaw(float x)
+    static float decodeALawCode(uint8_t code)
     {
-        constexpr float a = 87.6f;
-        const float ax = std::abs(clamp(x, -1.0f, 1.0f));
-        const float threshold = 1.0f / (1.0f + std::log(a));
-        const float y = ax < threshold
-            ? ax * (1.0f + std::log(a)) / a
-            : std::exp(ax * (1.0f + std::log(a)) - 1.0f) / a;
-        return signum(x) * y;
+        const uint8_t value = static_cast<uint8_t>(code ^ 0x55u);
+        int32_t sample = static_cast<int32_t>(value & 0x0fu) << 4;
+        const uint32_t segment = (value & 0x70u) >> 4u;
+        if (segment == 0u) {
+            sample += 8;
+        } else {
+            sample += 0x108;
+            if (segment > 1u) sample <<= segment - 1u;
+        }
+        if ((value & 0x80u) == 0u) sample = -sample;
+        return clamp(static_cast<float>(sample) / 32768.0f, -1.0f, 1.0f);
     }
 
-    float compandRoundTrip(float x, bool aLaw) const
+    uint8_t damageCodeword(uint8_t code, uint32_t ch, uint32_t salt) const
     {
-        if (aLaw) return decodeALaw(quantize(encodeALaw(x), params_.bitDepth));
-        return decodeMuLaw(quantize(encodeMuLaw(x), params_.bitDepth));
+        const uint32_t retainedBits = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::floor(params_.bitDepth)), 2u, 8u);
+        if (retainedBits < 8u) {
+            code &= static_cast<uint8_t>(0xffu << (8u - retainedBits));
+        }
+
+        const uint32_t h = hash(codecSample_[ch] * 0x9e3779b9u
+            ^ tapeSeed_ ^ (ch * 0x85ebca6bu) ^ salt);
+        if (hash01(h) < params_.codecDamage * params_.codecDamage * 0.20f) {
+            code ^= static_cast<uint8_t>(1u << ((h >> 19u) & 7u));
+        }
+        return code;
+    }
+
+    float compandRoundTrip(float x, bool aLaw, uint32_t ch) const
+    {
+        uint8_t code = aLaw ? encodeALawCode(x) : encodeMuLawCode(x);
+        code = damageCodeword(code, ch, aLaw ? 0xa511e9b3u : 0x632be59bu);
+        return aLaw ? decodeALawCode(code) : decodeMuLawCode(code);
     }
 
     float downsampleStage(float x, uint32_t ch)
     {
+        heldTick_[ch] = false;
         if (codecSample_[ch] == 0u) {
             hold_[ch] = 0.0f;
             held_[ch] = x;
+            heldTick_[ch] = true;
             return x;
         }
-        const float holdSamples = std::pow(2.0f, params_.codecRate * 14.0f);
+        const float holdSamples = codecInterval();
         hold_[ch] += 1.0f;
         if (hold_[ch] >= holdSamples) {
             hold_[ch] -= holdSamples;
             held_[ch] = x;
+            heldTick_[ch] = true;
         }
         return held_[ch];
     }
 
+    float codecInterval() const
+    {
+        return std::pow(2.0f, params_.codecRate * 14.0f);
+    }
+
     bool codecClockTick(float& clock) const
     {
-        const float interval = std::pow(2.0f, params_.codecRate * 14.0f);
+        const float interval = codecInterval();
         clock += 1.0f;
         if (clock < interval) return false;
         clock -= interval;
@@ -1053,7 +1125,10 @@ private:
             const uint32_t duration = static_cast<uint32_t>(8.0f + durationScale * durationRandom);
             discErrorTotal_[ch] = std::clamp<uint32_t>(duration, 8u, 4096u);
             discErrorRemaining_[ch] = discErrorTotal_[ch];
-            discErrorKind_[ch] = (h >> 18u) & 3u;
+            discErrorKind_[ch] = discErrorTotal_[ch] <= kPsdRawFieldDiscLookahead ? 0u
+                : discErrorTotal_[ch] <= 256u ? 1u
+                : discErrorTotal_[ch] <= 1024u ? 2u
+                : 3u;
             discRepeatLength_[ch] = 8u + ((h >> 21u) & 127u);
             discErrorStart_[ch] = discLastOutput_[ch];
         }
@@ -1067,7 +1142,7 @@ private:
             || params_.codecMode == PsdRawFieldCodecMode::FaxQam
             || params_.codecMode == PsdRawFieldCodecMode::SigmaOneBit;
         float x = ownsClock ? clean : downsampleStage(clean, ch);
-        if (static_cast<uint32_t>(params_.codecMode) <= static_cast<uint32_t>(PsdRawFieldCodecMode::CelpScramble)
+        if (static_cast<uint32_t>(params_.codecMode) < static_cast<uint32_t>(PsdRawFieldCodecMode::CelpScramble)
             && frameDrop_[ch]) {
             x = predictor_[ch] * lerp(0.68f, 0.985f, params_.codecDamage);
         }
@@ -1079,17 +1154,38 @@ private:
             break;
         }
         case PsdRawFieldCodecMode::Adpcm: {
+            if (!heldTick_[ch]) {
+                x = predictor_[ch];
+                break;
+            }
             const float error = x - predictor_[ch];
-            const float q = clamp(std::round(error / std::max(step_[ch], 0.0001f)), -7.0f, 7.0f);
-            x = predictor_[ch] + q * step_[ch];
-            step_[ch] += (std::abs(error) * lerp(0.24f, 0.46f, params_.codecDamage) + 0.006f - step_[ch]) * 0.012f;
+            const uint32_t codeBits = std::clamp<uint32_t>(
+                static_cast<uint32_t>(std::floor(params_.bitDepth)), 2u, 5u);
+            const float levels = static_cast<float>((1u << (codeBits - 1u)) - 1u);
+            float q = clamp(
+                std::round(error / std::max(step_[ch], 0.0001f)), -levels, levels);
+            const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_
+                ^ (ch * 0x9e3779b9u) ^ 0x68e31da4u);
+            if (hash01(h) < params_.codecDamage * params_.codecDamage * 0.12f) {
+                q = clamp(-q + ((h & 1u) ? 1.0f : -1.0f), -levels, levels);
+            }
+            x = clamp(predictor_[ch] + q * step_[ch], -1.2f, 1.2f);
+            const float normalizedCode = std::abs(q) / levels;
+            const float stepMultiplier = std::exp(lerp(
+                std::log(0.92f),
+                std::log(2.20f + params_.codecDamage * 0.55f),
+                std::pow(normalizedCode, 1.65f)));
+            step_[ch] *= stepMultiplier;
+            const float minimumStep = std::pow(2.0f, -std::min(14.0f, params_.bitDepth));
+            step_[ch] = clamp(step_[ch], minimumStep, 0.85f);
+            predictor_[ch] = x;
             break;
         }
         case PsdRawFieldCodecMode::MuLaw:
-            x = compandRoundTrip(x, false);
+            x = compandRoundTrip(x, false, ch);
             break;
         case PsdRawFieldCodecMode::ALaw:
-            x = compandRoundTrip(x, true);
+            x = compandRoundTrip(x, true, ch);
             break;
         case PsdRawFieldCodecMode::CelpScramble:
             x = celpScramble(x, ch);
@@ -1140,14 +1236,49 @@ private:
         const uint32_t delay = std::min<uint32_t>(codePitch_[ch], static_cast<uint32_t>(pitch_[ch].size() - 1u));
         const uint32_t read = (pitchWrite_[ch] + static_cast<uint32_t>(pitch_[ch].size()) - delay)
             % static_cast<uint32_t>(pitch_[ch].size());
-        const float adaptive = pitch_[ch][read] * lerp(0.15f, 0.86f, params_.codecDamage);
-        const uint32_t codeIndex = static_cast<uint32_t>((std::abs(x) * 32767.0f) + static_cast<float>(ch * 13u))
-            & (kPsdRawFieldCodebookSize - 1u);
-        const float code = readTapeAudio(codeIndex * 1543u + ch * 257u + tapeSeed_);
-        const float excitation = lerp(x, adaptive + code * codeGain_[ch], lerp(0.20f, 1.0f, params_.codecDamage));
-        const float coded = compandRoundTrip(excitation, (ch & 1u) != 0u);
+        float coded = 0.0f;
+        if (frameDrop_[ch]) {
+            const float adaptive = pitch_[ch][read];
+            const float attenuation = std::exp(
+                -static_cast<float>(celpLossSamples_[ch])
+                / static_cast<float>(sampleRate_ * lerp(0.045f, 0.16f, 1.0f - params_.codecDamage)));
+            const float noise = hash01(codecSample_[ch] ^ tapeSeed_
+                ^ (ch * 0x85ebca6bu) ^ 0x91e10da5u) * 2.0f - 1.0f;
+            coded = clamp((adaptive * 0.96f + noise * codeGain_[ch] * 0.035f)
+                * attenuation, -1.0f, 1.0f);
+            ++celpLossSamples_[ch];
+            celpRecoveryRemaining_[ch] = 0u;
+        } else {
+            const float adaptive = pitch_[ch][read] * lerp(0.15f, 0.86f, params_.codecDamage);
+            const uint32_t codeIndex = static_cast<uint32_t>(
+                (std::abs(x) * 32767.0f) + static_cast<float>(ch * 13u))
+                & (kPsdRawFieldCodebookSize - 1u);
+            const float code = readTapeAudio(codeIndex * 1543u + ch * 257u + tapeSeed_);
+            const float excitation = lerp(
+                x,
+                adaptive + code * codeGain_[ch],
+                lerp(0.20f, 1.0f, params_.codecDamage));
+            coded = compandRoundTrip(excitation, (ch & 1u) != 0u, ch);
+
+            if (celpLossSamples_[ch] > 0u) {
+                celpRecoveryTotal_[ch] = std::max<uint32_t>(
+                    8u, static_cast<uint32_t>(sampleRate_ * 0.004));
+                celpRecoveryRemaining_[ch] = celpRecoveryTotal_[ch];
+                celpRecoveryStart_[ch] = celpLastOutput_[ch];
+                celpLossSamples_[ch] = 0u;
+            }
+            if (celpRecoveryRemaining_[ch] > 0u) {
+                const float phase = 1.0f
+                    - static_cast<float>(celpRecoveryRemaining_[ch])
+                        / static_cast<float>(celpRecoveryTotal_[ch]);
+                const float smooth = phase * phase * (3.0f - 2.0f * phase);
+                coded = lerp(celpRecoveryStart_[ch], coded, smooth);
+                --celpRecoveryRemaining_[ch];
+            }
+        }
         pitch_[ch][pitchWrite_[ch]] = coded;
         pitchWrite_[ch] = (pitchWrite_[ch] + 1u) % static_cast<uint32_t>(pitch_[ch].size());
+        celpLastOutput_[ch] = coded;
         return coded;
     }
 
@@ -1155,40 +1286,108 @@ private:
     {
         const float clean = quantize(x, params_.bitDepth);
         auto& history = discHistory_[ch];
+        auto& losses = discLossHistory_[ch];
         const uint32_t size = static_cast<uint32_t>(history.size());
+        const bool currentLoss = discErrorRemaining_[ch] > 0u;
         history[discWrite_[ch]] = clean;
+        losses[discWrite_[ch]] = currentLoss;
         discWrite_[ch] = (discWrite_[ch] + 1u) % size;
+        discBuffered_[ch] = std::min<uint32_t>(size, discBuffered_[ch] + 1u);
+        if (currentLoss) --discErrorRemaining_[ch];
 
-        float output = clean;
-        if (discErrorRemaining_[ch] > 0u) {
-            const uint32_t elapsed = discErrorTotal_[ch] - discErrorRemaining_[ch];
-            const float phase = static_cast<float>(elapsed)
-                / static_cast<float>(std::max<uint32_t>(1u, discErrorTotal_[ch]));
-            switch (discErrorKind_[ch]) {
-            case 0u: {
+        const uint32_t newest = (discWrite_[ch] + size - 1u) % size;
+        const uint32_t readIndex = discBuffered_[ch] > kPsdRawFieldDiscLookahead
+            ? (newest + size - kPsdRawFieldDiscLookahead) % size
+            : newest;
+        const bool concealed = losses[readIndex];
+        float output = history[readIndex];
+
+        if (concealed) {
+            uint32_t previousDistance = 0u;
+            uint32_t nextDistance = 0u;
+            const uint32_t backwardLimit = std::min<uint32_t>(size - 1u, discBuffered_[ch] - 1u);
+            for (uint32_t distance = 1u; distance <= backwardLimit; ++distance) {
+                const uint32_t index = (readIndex + size - distance) % size;
+                if (!losses[index]) {
+                    previousDistance = distance;
+                    break;
+                }
+            }
+            if (discBuffered_[ch] > kPsdRawFieldDiscLookahead) {
+                for (uint32_t distance = 1u; distance <= kPsdRawFieldDiscLookahead; ++distance) {
+                    const uint32_t index = (readIndex + distance) % size;
+                    if (!losses[index]) {
+                        nextDistance = distance;
+                        break;
+                    }
+                }
+            }
+
+            const uint32_t elapsed = previousDistance > 0u ? previousDistance - 1u : 0u;
+            const float phase = clamp(
+                static_cast<float>(elapsed)
+                    / static_cast<float>(std::max<uint32_t>(1u, discErrorTotal_[ch])),
+                0.0f,
+                1.0f);
+            if (previousDistance > 0u && nextDistance > 0u) {
+                const uint32_t previousIndex = (readIndex + size - previousDistance) % size;
+                const uint32_t nextIndex = (readIndex + nextDistance) % size;
+                const float interpolationPhase = static_cast<float>(previousDistance)
+                    / static_cast<float>(previousDistance + nextDistance);
+                const float smooth = interpolationPhase * interpolationPhase
+                    * (3.0f - 2.0f * interpolationPhase);
+                output = lerp(history[previousIndex], history[nextIndex], smooth);
+            } else {
+                const uint32_t previousIndex = previousDistance > 0u
+                    ? (readIndex + size - previousDistance) % size
+                    : readIndex;
+                const float previous = previousDistance > 0u
+                    ? history[previousIndex] : discErrorStart_[ch];
+                const uint32_t olderIndex = (previousIndex + size - 1u) % size;
+                const float slope = losses[olderIndex]
+                    ? discSlope_[ch] : previous - history[olderIndex];
+                switch (discErrorKind_[ch]) {
+                case 0u:
+                    output = previous + slope * static_cast<float>(std::min<uint32_t>(elapsed, 12u));
+                    break;
+                case 1u: {
+                    const uint32_t repeatLength = std::min<uint32_t>(
+                        discRepeatLength_[ch], std::max<uint32_t>(1u, previousDistance));
+                    const uint32_t repeatIndex = (previousIndex + size
+                        - (elapsed % repeatLength)) % size;
+                    output = losses[repeatIndex] ? previous : history[repeatIndex];
+                    output *= lerp(1.0f, 0.68f, phase);
+                    break;
+                }
+                case 2u:
+                    output = (previous + slope * static_cast<float>(std::min<uint32_t>(elapsed, 16u)))
+                        * (1.0f - phase);
+                    break;
+                case 3u:
+                default:
+                    output = previous * std::exp(-static_cast<float>(elapsed) * 0.055f) * 0.08f;
+                    break;
+                }
+            }
+            discWasConcealing_[ch] = true;
+            discRecoveryRemaining_[ch] = 0u;
+        } else {
+            if (discWasConcealing_[ch]) {
+                discRecoveryTotal_[ch] = 24u;
+                discRecoveryRemaining_[ch] = discRecoveryTotal_[ch];
+                discRecoveryStart_[ch] = discLastOutput_[ch];
+                discWasConcealing_[ch] = false;
+            }
+            if (discRecoveryRemaining_[ch] > 0u) {
+                const float phase = 1.0f
+                    - static_cast<float>(discRecoveryRemaining_[ch])
+                        / static_cast<float>(discRecoveryTotal_[ch]);
                 const float smooth = phase * phase * (3.0f - 2.0f * phase);
-                output = lerp(discErrorStart_[ch], clean, smooth);
-                break;
+                output = lerp(discRecoveryStart_[ch], output, smooth);
+                --discRecoveryRemaining_[ch];
             }
-            case 1u: {
-                const uint32_t repeatLength = std::min<uint32_t>(discRepeatLength_[ch], size - 1u);
-                const uint32_t read = (discWrite_[ch] + size - repeatLength
-                    + (elapsed % repeatLength)) % size;
-                output = history[read];
-                break;
-            }
-            case 2u: {
-                const float remaining = 1.0f - phase;
-                output = discErrorStart_[ch] * remaining + clean * (1.0f - remaining) * 0.18f;
-                break;
-            }
-            case 3u:
-            default:
-                output = clean * 0.025f;
-                break;
-            }
-            --discErrorRemaining_[ch];
         }
+        output = clamp(output, -1.2f, 1.2f);
         discSlope_[ch] = lerp(discSlope_[ch], output - discLastOutput_[ch], 0.18f);
         discLastOutput_[ch] = output;
         return output;
@@ -1201,13 +1400,14 @@ private:
             const float flipChance = params_.codecDamage * params_.codecDamage * 0.28f;
             if (hash01(codecSample_[ch] ^ tapeSeed_ ^ (ch * 0x632be59bu)) < flipChance) bit = !bit;
 
-            if (bit == cvsdLastBit_[ch]) ++cvsdRun_[ch];
-            else cvsdRun_[ch] = 0u;
-            if (cvsdRun_[ch] >= 2u) {
-                cvsdStep_[ch] *= 1.07f + params_.codecDamage * 0.20f;
+            if (bit == cvsdLastBit_[ch]) {
+                cvsdRun_[ch] = std::min<uint32_t>(cvsdRun_[ch] + 1u, 255u);
             } else {
-                cvsdStep_[ch] *= lerp(0.76f, 0.90f, params_.codecDamage);
+                cvsdRun_[ch] = 1u;
             }
+            cvsdStep_[ch] *= cvsdRun_[ch] >= 3u
+                ? 1.32f + params_.codecDamage * 0.24f
+                : lerp(0.94f, 0.975f, params_.codecDamage);
             const float minimumStep = std::pow(2.0f, -std::min(14.0f, params_.bitDepth)) * 2.0f;
             const float maximumStep = lerp(0.18f, 0.78f, params_.codecDamage);
             cvsdStep_[ch] = clamp(cvsdStep_[ch], minimumStep, maximumStep);
@@ -1216,8 +1416,12 @@ private:
             cvsdIntegrator_[ch] = clamp(cvsdIntegrator_[ch], -1.0f, 1.0f);
             cvsdLastBit_[ch] = bit;
         }
-        const float detail = clamp((params_.bitDepth - 2.0f) / 14.0f, 0.0f, 1.0f);
-        cvsdOutput_[ch] += (cvsdIntegrator_[ch] - cvsdOutput_[ch]) * lerp(0.06f, 0.62f, detail);
+        const float bitRate = static_cast<float>(sampleRate_) / codecInterval();
+        const float cutoff = clamp(bitRate * lerp(0.11f, 0.24f,
+            clamp((params_.bitDepth - 2.0f) / 14.0f, 0.0f, 1.0f)), 12.0f, 12000.0f);
+        const float smoothing = 1.0f - std::exp(
+            -2.0f * kPi * cutoff / static_cast<float>(sampleRate_));
+        cvsdOutput_[ch] += (cvsdIntegrator_[ch] - cvsdOutput_[ch]) * smoothing;
         return cvsdOutput_[ch];
     }
 
@@ -1238,21 +1442,29 @@ private:
             code = clamp(code, -levels, levels);
         }
         const float reconstructed = predictor + code * step;
-        const float targetStep = 0.0015f + std::abs(error) / std::max(2.0f, levels * 0.72f);
-        step += (targetStep - step) * lerp(0.008f, 0.035f, params_.codecDamage);
+        const float normalizedCode = std::abs(code) / levels;
+        step *= std::exp(lerp(
+            std::log(0.94f),
+            std::log(1.82f + params_.codecDamage * 0.25f),
+            std::pow(normalizedCode, 1.55f)));
         step = clamp(step, 0.0002f, 0.65f);
-        predictor = lerp(predictor, reconstructed, lerp(0.58f, 0.88f, params_.codecDamage));
+        predictor = clamp(reconstructed, -1.2f, 1.2f);
         return clamp(reconstructed, -1.2f, 1.2f);
     }
 
     float subbandCodec(float x, uint32_t ch)
     {
-        const float cutoff = lerp(6800.0f, 720.0f, params_.codecRate);
-        const float coefficient = clamp(
-            1.0f - std::exp(-2.0f * kPi * cutoff / static_cast<float>(sampleRate_)), 0.001f, 0.82f);
-        subbandLowState_[ch] += (x - subbandLowState_[ch]) * coefficient;
-        const float low = subbandLowState_[ch];
-        const float high = x - low;
+        const float output = subbandPairPhase_[ch]
+            ? subbandOddOutput_[ch] : subbandEvenOutput_[ch];
+        if (!subbandPairPhase_[ch]) {
+            subbandLowState_[ch] = x;
+            subbandPairPhase_[ch] = true;
+            return output;
+        }
+
+        constexpr float inverseSqrtTwo = 0.7071067811865476f;
+        const float low = (subbandLowState_[ch] + x) * inverseSqrtTwo;
+        const float high = (subbandLowState_[ch] - x) * inverseSqrtTwo;
         const float lowBits = clamp(params_.bitDepth * 0.68f + 0.8f, 2.0f, 10.0f);
         const float highBits = clamp(params_.bitDepth * 0.44f, 2.0f, 8.0f);
         float lowCoded = adaptiveBandCodec(
@@ -1264,8 +1476,14 @@ private:
             highCoded *= 0.08f;
         }
         const float bandLeak = params_.codecDamage * 0.38f;
-        return clamp(lowCoded + highCoded * (1.0f - bandLeak)
-            + subbandHighPredictor_[ch] * bandLeak * 0.22f, -1.2f, 1.2f);
+        highCoded = highCoded * (1.0f - bandLeak)
+            + subbandHighPredictor_[ch] * bandLeak * 0.22f;
+        subbandEvenOutput_[ch] = clamp(
+            (lowCoded + highCoded) * inverseSqrtTwo, -1.2f, 1.2f);
+        subbandOddOutput_[ch] = clamp(
+            (lowCoded - highCoded) * inverseSqrtTwo, -1.2f, 1.2f);
+        subbandPairPhase_[ch] = false;
+        return output;
     }
 
     float lpcCodec(float x, uint32_t ch)
@@ -1325,7 +1543,15 @@ private:
     void renderTransformBlock(uint32_t ch)
     {
         ++transformBlock_[ch];
-        if (frameDrop_[ch] && transformReady_[ch]) return;
+        if (frameDrop_[ch] && transformReady_[ch]) {
+            ++transformLossBlocks_[ch];
+            const float attenuation = std::pow(0.86f, static_cast<float>(transformLossBlocks_[ch]));
+            for (uint32_t n = 0u; n < kPsdRawFieldTransformSize; ++n) {
+                transformOutput_[ch][n] *= attenuation;
+            }
+            return;
+        }
+        transformLossBlocks_[ch] = 0u;
 
         std::array<float, kPsdRawFieldTransformSize> coefficients {};
         float maximum = 0.0001f;
@@ -1339,6 +1565,14 @@ private:
         }
 
         const float detail = clamp((params_.bitDepth - 2.0f) / 14.0f, 0.0f, 1.0f);
+        float scale = std::pow(2.0f, std::ceil(std::log2(maximum)));
+        const uint32_t scaleHash = hash(
+            transformBlock_[ch] ^ tapeSeed_ ^ (ch * 0x85ebca6bu) ^ 0x45d9f3bu);
+        if (hash01(scaleHash) < params_.codecDamage * params_.codecDamage * 0.055f) {
+            const int32_t exponentShift = (scaleHash & 1u) != 0u ? 1 : -1;
+            scale *= std::pow(2.0f, static_cast<float>(exponentShift));
+        }
+        scale = clamp(scale, 0.0001f, 64.0f);
         const float keepRatio = clamp(
             1.0f - params_.codecDamage * 0.78f - (1.0f - detail) * 0.26f, 0.08f, 1.0f);
         const uint32_t keepBands = std::max<uint32_t>(2u,
@@ -1350,13 +1584,22 @@ private:
                 coefficients[k] = residue * maximum * params_.codecDamage * 0.10f;
                 continue;
             }
-            const float localBits = clamp(params_.bitDepth
-                - params_.codecDamage * static_cast<float>(k) * 7.0f
-                    / static_cast<float>(kPsdRawFieldTransformSize - 1u), 2.0f, 16.0f);
-            coefficients[k] = quantizeRange(coefficients[k], localBits, maximum);
+            const float spectralPosition = static_cast<float>(k)
+                / static_cast<float>(kPsdRawFieldTransformSize - 1u);
+            const float localBits = clamp(
+                params_.bitDepth + 1.0f - spectralPosition * (2.0f + params_.codecDamage * 7.0f),
+                2.0f,
+                16.0f);
+            coefficients[k] = quantizeRange(coefficients[k], localBits, scale);
             const float upset = params_.codecDamage * params_.codecDamage * 0.018f;
-            if (hash01(transformBlock_[ch] ^ (k * 0x9e3779b9u) ^ tapeSeed_) < upset) {
-                coefficients[k] *= -lerp(0.5f, 1.8f, params_.codecDamage);
+            const uint32_t coefficientHash = hash(
+                transformBlock_[ch] ^ (k * 0x9e3779b9u) ^ tapeSeed_ ^ (ch * 0x632be59bu));
+            if (hash01(coefficientHash) < upset) {
+                const float bitWeight = std::pow(
+                    2.0f,
+                    -static_cast<float>(1u + ((coefficientHash >> 17u) & 3u)));
+                coefficients[k] += ((coefficientHash & 1u) ? 1.0f : -1.0f)
+                    * scale * bitWeight;
             }
         }
 
@@ -1436,33 +1679,94 @@ private:
 
     float faxCodec(float x, uint32_t ch)
     {
-        if (codecSample_[ch] == 0u || codecClockTick(faxClock_[ch])) {
-            const uint32_t levels = 2u + std::min<uint32_t>(2u,
-                static_cast<uint32_t>(std::max(0.0f, params_.bitDepth - 2.0f)) / 5u);
-            auto quantizeAxis = [levels](float value) {
-                const float index = std::round((clamp(value, -1.0f, 1.0f) * 0.5f + 0.5f)
-                    * static_cast<float>(levels - 1u));
-                return index * 2.0f / static_cast<float>(levels - 1u) - 1.0f;
-            };
-            float nextI = quantizeAxis(x);
-            float nextQ = quantizeAxis((x - faxPreviousInput_[ch]) * 2.5f);
-            if (frameDrop_[ch]) {
-                const bool training = ((codecSample_[ch] >> 4u) & 1u) != 0u;
-                nextI = training ? 1.0f : -1.0f;
-                nextQ = ((codecSample_[ch] >> 5u) & 1u) ? 1.0f : -1.0f;
-            } else if (hash01(codecSample_[ch] ^ tapeSeed_ ^ 0xd1b54a35u)
-                < params_.codecDamage * params_.codecDamage * 0.22f) {
+        const bool symbolTick = codecSample_[ch] == 0u || codecClockTick(faxClock_[ch]);
+        if (symbolTick) {
+            faxPreviousI_[ch] = faxTargetI_[ch];
+            faxPreviousQ_[ch] = faxTargetQ_[ch];
+            if (frameDrop_[ch] && !faxWasDrop_[ch]) {
+                faxTrainingRemaining_[ch] = 12u
+                    + static_cast<uint32_t>(params_.codecDamage * 28.0f);
+            }
+            faxWasDrop_[ch] = frameDrop_[ch];
+
+            float nextI = 0.0f;
+            float nextQ = 0.0f;
+            if (faxTrainingRemaining_[ch] > 0u) {
+                constexpr std::array<std::array<float, 2>, 4> training {
+                    std::array<float, 2> { 0.7071f, 0.7071f },
+                    std::array<float, 2> { -0.7071f, 0.7071f },
+                    std::array<float, 2> { -0.7071f, -0.7071f },
+                    std::array<float, 2> { 0.7071f, -0.7071f },
+                };
+                const auto& point = training[faxSymbol_[ch] & 3u];
+                nextI = point[0];
+                nextQ = point[1];
+                --faxTrainingRemaining_[ch];
+            } else {
+                const float slope = clamp(
+                    (x - faxPreviousInput_[ch]) * lerp(1.4f, 4.5f, params_.codecDamage),
+                    -1.0f,
+                    1.0f);
+                const uint32_t amplitudeIndex = static_cast<uint32_t>(clamp(
+                    std::floor((x * 0.5f + 0.5f) * 4.0f), 0.0f, 3.0f));
+                const uint32_t slopeIndex = static_cast<uint32_t>(clamp(
+                    std::floor((slope * 0.5f + 0.5f) * 4.0f), 0.0f, 3.0f));
+                if (params_.bitDepth < 6.0f) {
+                    constexpr std::array<std::array<float, 2>, 4> qpsk {
+                        std::array<float, 2> { 0.7071f, 0.7071f },
+                        std::array<float, 2> { -0.7071f, 0.7071f },
+                        std::array<float, 2> { -0.7071f, -0.7071f },
+                        std::array<float, 2> { 0.7071f, -0.7071f },
+                    };
+                    const auto& point = qpsk[(amplitudeIndex ^ slopeIndex) & 3u];
+                    nextI = point[0];
+                    nextQ = point[1];
+                } else if (params_.bitDepth < 11.0f) {
+                    constexpr std::array<std::array<float, 2>, 8> qam8 {
+                        std::array<float, 2> { 1.0f, 0.0f },
+                        std::array<float, 2> { 0.65f, 0.65f },
+                        std::array<float, 2> { 0.0f, 1.0f },
+                        std::array<float, 2> { -0.65f, 0.65f },
+                        std::array<float, 2> { -1.0f, 0.0f },
+                        std::array<float, 2> { -0.65f, -0.65f },
+                        std::array<float, 2> { 0.0f, -1.0f },
+                        std::array<float, 2> { 0.65f, -0.65f },
+                    };
+                    const auto& point = qam8[
+                        ((amplitudeIndex << 1u) ^ slopeIndex ^ faxSymbol_[ch]) & 7u];
+                    nextI = point[0];
+                    nextQ = point[1];
+                } else {
+                    constexpr std::array<float, 4> levels {
+                        -1.0f, -0.3333333f, 0.3333333f, 1.0f
+                    };
+                    nextI = levels[amplitudeIndex];
+                    nextQ = levels[slopeIndex];
+                }
+            }
+
+            const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_
+                ^ (ch * 0x27d4eb2du) ^ 0xd1b54a35u);
+            if (hash01(h) < params_.codecDamage * params_.codecDamage * 0.22f) {
                 std::swap(nextI, nextQ);
                 nextQ = -nextQ;
-                faxPhase_[ch] += params_.codecDamage * 0.125f;
+                faxPhase_[ch] += ((h & 1u) ? 1.0f : -1.0f)
+                    * params_.codecDamage * 0.125f;
             }
             faxTargetI_[ch] = nextI;
             faxTargetQ_[ch] = nextQ;
             faxPreviousInput_[ch] = x;
+            ++faxSymbol_[ch];
         }
-        const float equalizer = lerp(0.42f, 0.035f, params_.codecDamage);
-        faxI_[ch] += (faxTargetI_[ch] - faxI_[ch]) * equalizer;
-        faxQ_[ch] += (faxTargetQ_[ch] - faxQ_[ch]) * equalizer;
+
+        const float symbolPhase = clamp(faxClock_[ch] / codecInterval(), 0.0f, 1.0f);
+        const float raisedCosine = 0.5f - 0.5f * std::cos(kPi * symbolPhase);
+        const float shapedI = lerp(faxPreviousI_[ch], faxTargetI_[ch], raisedCosine);
+        const float shapedQ = lerp(faxPreviousQ_[ch], faxTargetQ_[ch], raisedCosine);
+        const float equalizer = lerp(0.34f, 0.025f, params_.codecDamage);
+        const float coupling = params_.codecDamage * 0.08f;
+        faxI_[ch] += (shapedI + faxQ_[ch] * coupling - faxI_[ch]) * equalizer;
+        faxQ_[ch] += (shapedQ - faxI_[ch] * coupling - faxQ_[ch]) * equalizer;
         const float carrierFrequency = 1700.0f
             + (static_cast<float>(ch) - 3.5f) * 13.0f * params_.channelSpread;
         faxPhase_[ch] += carrierFrequency / static_cast<float>(sampleRate_);
@@ -1475,19 +1779,23 @@ private:
     float sigmaCodec(float x, uint32_t ch)
     {
         if (codecSample_[ch] == 0u || codecClockTick(sigmaClock_[ch])) {
-            const float loopInput = x + sigmaError_[ch] * lerp(0.85f, 1.65f, params_.codecDamage);
-            bool bit = loopInput >= 0.0f;
+            const float feedback = sigmaLastBit_[ch] ? 1.0f : -1.0f;
+            sigmaError_[ch] += x - feedback;
+            sigmaError_[ch] *= lerp(0.9998f, 0.996f, params_.codecDamage);
+            sigmaError_[ch] = clamp(sigmaError_[ch], -4.0f, 4.0f);
+            bool bit = sigmaError_[ch] >= 0.0f;
             const float flipChance = params_.codecDamage * params_.codecDamage * 0.20f;
             if (hash01(codecSample_[ch] ^ tapeSeed_ ^ 0x68e31da4u) < flipChance) bit = !bit;
-            const float encoded = bit ? 1.0f : -1.0f;
-            sigmaError_[ch] = clamp(loopInput - encoded
-                + sigmaError_[ch] * params_.codecDamage * 0.12f, -2.0f, 2.0f);
             sigmaLastBit_[ch] = bit;
         }
         const float detail = clamp((params_.bitDepth - 2.0f) / 14.0f, 0.0f, 1.0f);
         const float encoded = sigmaLastBit_[ch] ? 1.0f : -1.0f;
-        sigmaOutput_[ch] += (encoded - sigmaOutput_[ch]) * lerp(0.018f, 0.34f, detail);
-        return lerp(sigmaOutput_[ch], x, lerp(0.04f, 0.0f, params_.codecDamage));
+        const float bitRate = static_cast<float>(sampleRate_) / codecInterval();
+        const float cutoff = clamp(bitRate * lerp(0.08f, 0.22f, detail), 8.0f, 12000.0f);
+        const float reconstruction = 1.0f - std::exp(
+            -2.0f * kPi * cutoff / static_cast<float>(sampleRate_));
+        sigmaOutput_[ch] += (encoded - sigmaOutput_[ch]) * reconstruction;
+        return sigmaOutput_[ch];
     }
 
     float hybridCodec(float x, uint32_t ch)
@@ -1592,10 +1900,18 @@ private:
     std::array<uint32_t, kPsdRawFieldChannels> codePitch_ {};
     std::array<std::array<float, 160>, kPsdRawFieldChannels> pitch_ {};
     std::array<uint32_t, kPsdRawFieldChannels> pitchWrite_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> celpLossSamples_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> celpRecoveryRemaining_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> celpRecoveryTotal_ {};
+    std::array<float, kPsdRawFieldChannels> celpRecoveryStart_ {};
+    std::array<float, kPsdRawFieldChannels> celpLastOutput_ {};
     uint64_t codecFrameCounter_ = 0u;
     std::array<uint32_t, kPsdRawFieldChannels> codecSample_ {};
+    std::array<bool, kPsdRawFieldChannels> heldTick_ {};
     std::array<std::array<float, 256>, kPsdRawFieldChannels> discHistory_ {};
+    std::array<std::array<bool, 256>, kPsdRawFieldChannels> discLossHistory_ {};
     std::array<uint32_t, kPsdRawFieldChannels> discWrite_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> discBuffered_ {};
     std::array<uint32_t, kPsdRawFieldChannels> discErrorRemaining_ {};
     std::array<uint32_t, kPsdRawFieldChannels> discErrorTotal_ {};
     std::array<uint32_t, kPsdRawFieldChannels> discErrorKind_ {};
@@ -1603,6 +1919,10 @@ private:
     std::array<float, kPsdRawFieldChannels> discLastOutput_ {};
     std::array<float, kPsdRawFieldChannels> discSlope_ {};
     std::array<float, kPsdRawFieldChannels> discErrorStart_ {};
+    std::array<bool, kPsdRawFieldChannels> discWasConcealing_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> discRecoveryRemaining_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> discRecoveryTotal_ {};
+    std::array<float, kPsdRawFieldChannels> discRecoveryStart_ {};
     std::array<float, kPsdRawFieldChannels> cvsdIntegrator_ {};
     std::array<float, kPsdRawFieldChannels> cvsdStep_ {};
     std::array<bool, kPsdRawFieldChannels> cvsdLastBit_ {};
@@ -1614,6 +1934,9 @@ private:
     std::array<float, kPsdRawFieldChannels> subbandHighPredictor_ {};
     std::array<float, kPsdRawFieldChannels> subbandLowStep_ {};
     std::array<float, kPsdRawFieldChannels> subbandHighStep_ {};
+    std::array<float, kPsdRawFieldChannels> subbandEvenOutput_ {};
+    std::array<float, kPsdRawFieldChannels> subbandOddOutput_ {};
+    std::array<bool, kPsdRawFieldChannels> subbandPairPhase_ {};
     std::array<std::array<float, kPsdRawFieldLpcOrder>, kPsdRawFieldChannels> lpcInputHistory_ {};
     std::array<std::array<float, kPsdRawFieldLpcOrder>, kPsdRawFieldChannels> lpcSynthHistory_ {};
     std::array<std::array<float, kPsdRawFieldLpcOrder>, kPsdRawFieldChannels> lpcCoefficients_ {};
@@ -1626,6 +1949,7 @@ private:
     std::array<uint32_t, kPsdRawFieldChannels> transformRead_ {};
     std::array<bool, kPsdRawFieldChannels> transformReady_ {};
     std::array<uint32_t, kPsdRawFieldChannels> transformBlock_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> transformLossBlocks_ {};
     std::array<float, kPsdRawFieldChannels> predictiveOne_ {};
     std::array<float, kPsdRawFieldChannels> predictiveTwo_ {};
     std::array<float, kPsdRawFieldChannels> predictiveScale_ {};
@@ -1640,9 +1964,14 @@ private:
     std::array<float, kPsdRawFieldChannels> faxClock_ {};
     std::array<float, kPsdRawFieldChannels> faxI_ {};
     std::array<float, kPsdRawFieldChannels> faxQ_ {};
+    std::array<float, kPsdRawFieldChannels> faxPreviousI_ {};
+    std::array<float, kPsdRawFieldChannels> faxPreviousQ_ {};
     std::array<float, kPsdRawFieldChannels> faxTargetI_ {};
     std::array<float, kPsdRawFieldChannels> faxTargetQ_ {};
     std::array<float, kPsdRawFieldChannels> faxPreviousInput_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> faxTrainingRemaining_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> faxSymbol_ {};
+    std::array<bool, kPsdRawFieldChannels> faxWasDrop_ {};
     std::array<float, kPsdRawFieldChannels> sigmaError_ {};
     std::array<float, kPsdRawFieldChannels> sigmaOutput_ {};
     std::array<float, kPsdRawFieldChannels> sigmaClock_ {};

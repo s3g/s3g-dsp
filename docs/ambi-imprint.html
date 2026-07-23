@@ -32,6 +32,8 @@
 
         <p>The 64-channel input remains available as the full-order dry field. The wet path samples the field through four or eight symmetric directional probes, routes each discrete early reflection toward its two nearest output probes, convolves the late response, and re-encodes the bank into the selected output order. This gives the response a deliberately lower spatial rank than the dry source, which suits reflected and diffuse energy while retaining project routing through a fixed 64-channel bus.</p>
 
+        <p><strong>Field Listen</strong> lets that re-encoded wet field listen to itself. A bank of profile-aligned virtual microphones analyzes the <code>ACN/SN3D</code> field directly—there is no intermediate loudspeaker decode—and its slow envelopes continuously reshape the profile gains. This is control feedback rather than an audio feedback loop: the heard field changes how the next field is formed, but samples are not recirculated into the convolution input.</p>
+
         <p>The file stores timing and spectral descriptors rather than sample-rate-specific FIR arrays. When an imprint is loaded, the plugin prepares convolution kernels for the host sample rate. Responses are limited to four seconds and the plugin reports 1024 samples of latency.</p>
 
         <p>Imprint Sketch can describe connected wall, overhead, beneath, and stacked regions joined by rectangular, arched, circular, elliptical, slot, or irregular portals. Their path timing and directional loss are resolved into the loaded response profiles; the optional region graph drives the plugin's orbitable geometry display.</p>
@@ -56,6 +58,7 @@
             <tr><td>MIX</td><td>Blends the latency-aligned dry field with the convolved field.</td></tr>
             <tr><td>FOC</td><td>Changes how strongly first-order direction contributes to the response probes. At zero, the wet bank follows omnidirectional energy.</td></tr>
             <tr><td>WID</td><td>Scales higher orders in the re-encoded wet field.</td></tr>
+            <tr><td>LST</td><td><strong>OFF</strong> leaves the imprint fixed. <strong>FOL</strong> reinforces profiles heard strongly in the wet field. <strong>CTR</strong> transfers that tendency toward opposing directions. <strong>BAL</strong> applies slow negative feedback to restrain dominant directions. Source markers grow with detected activity and show their current gain multiplier.</td></tr>
             <tr><td>OUT</td><td>Output trim.</td></tr>
             <tr><td>BYP</td><td>Smoothly returns to the latency-aligned dry field.</td></tr>
           </tbody>
