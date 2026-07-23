@@ -110,6 +110,49 @@ DopplerProbe renderDopplerProbe()
     return result;
 }
 
+struct FieldListenProbe {
+    std::array<float, s3g::kAmbiFieldListenerMaxLobes> envelope {};
+    std::array<float, s3g::kAmbiFieldListenerMaxLobes> weight {};
+    float activity = 0.0f;
+};
+
+FieldListenProbe renderFieldListenProbe(
+    const s3g::AmbiRayDescriptor& descriptor,
+    s3g::AmbiFieldListenMode mode,
+    bool directOnly = false)
+{
+    s3g::AmbiRayEncoder encoder;
+    s3g::AmbiRayEncoderParams params;
+    params.order = 3u;
+    params.direct = directOnly ? 1.0f : 0.0f;
+    params.early = directOnly ? 0.0f : 1.0f;
+    params.late = 0.0f;
+    params.outputGainDb = -24.0f;
+    params.fieldListenMode = mode;
+    encoder.setParams(params);
+    if (!encoder.prepare(kSampleRate, descriptor)) return {};
+
+    std::array<float, kBlockFrames> input {};
+    RenderBuffer output(kBlockFrames);
+    uint32_t noise = 0x8a31f25du;
+    for (uint32_t block = 0u; block < 800u; ++block) {
+        for (uint32_t frame = 0u; frame < kBlockFrames; ++frame) {
+            noise = noise * 1664525u + 1013904223u;
+            input[frame] = (static_cast<float>((noise >> 8u) & 0xffffu)
+                / 32767.5f - 1.0f) * 0.08f;
+        }
+        encoder.process(input.data(), output.pointers.data(), 16u, kBlockFrames);
+    }
+
+    FieldListenProbe result;
+    result.activity = encoder.fieldListenActivity();
+    for (uint32_t lobe = 0u; lobe < result.envelope.size(); ++lobe) {
+        result.envelope[lobe] = encoder.fieldListenEnvelope(lobe);
+        result.weight[lobe] = encoder.fieldListenWeight(lobe);
+    }
+    return result;
+}
+
 } // namespace
 
 int main()
@@ -299,6 +342,54 @@ int main()
         return 1;
     }
 
+    auto listenerDescriptor = descriptor;
+    for (auto& cell : listenerDescriptor.cells) {
+        for (auto& reflection : cell.reflections) {
+            reflection.gain *= reflection.slot == 0u ? 4.0f : 0.08f;
+        }
+    }
+    const auto offListen = renderFieldListenProbe(
+        listenerDescriptor, s3g::AmbiFieldListenMode::Off);
+    const auto followListen = renderFieldListenProbe(
+        listenerDescriptor, s3g::AmbiFieldListenMode::Follow);
+    const auto counterListen = renderFieldListenProbe(
+        listenerDescriptor, s3g::AmbiFieldListenMode::Counter);
+    const auto balanceListen = renderFieldListenProbe(
+        listenerDescriptor, s3g::AmbiFieldListenMode::Balance);
+    uint32_t strongestLobe = 0u;
+    for (uint32_t lobe = 1u; lobe < offListen.envelope.size(); ++lobe) {
+        if (offListen.envelope[lobe] > offListen.envelope[strongestLobe])
+            strongestLobe = lobe;
+    }
+    const uint32_t oppositeLobe =
+        static_cast<uint32_t>(offListen.envelope.size() - 1u) - strongestLobe;
+    for (float weight : offListen.weight) {
+        if (std::abs(weight - 1.0f) > 0.00001f) {
+            std::cerr << "Ambi Ray Field Listen Off changed room weights\n";
+            return 1;
+        }
+    }
+    if (!(offListen.activity > 0.02f)
+        || !(followListen.weight[strongestLobe] > 1.02f)
+        || !(counterListen.weight[oppositeLobe]
+            > counterListen.weight[strongestLobe] + 0.03f)
+        || !(balanceListen.weight[strongestLobe] < 0.98f)) {
+        std::cerr << "Ambi Ray Field Listen modes did not reshape the room: "
+                  << strongestLobe << " / " << oppositeLobe << ", follow "
+                  << followListen.weight[strongestLobe] << ", counter "
+                  << counterListen.weight[strongestLobe] << " / "
+                  << counterListen.weight[oppositeLobe] << ", balance "
+                  << balanceListen.weight[strongestLobe] << "\n";
+        return 1;
+    }
+    const auto directOnlyListen = renderFieldListenProbe(
+        listenerDescriptor, s3g::AmbiFieldListenMode::Follow, true);
+    if (directOnlyListen.activity > 0.00001f) {
+        std::cerr << "Ambi Ray direct path leaked into Field Listen: "
+                  << directOnlyListen.activity << "\n";
+        return 1;
+    }
+
     s3g::AmbiRayEncoder movingEncoder;
     auto movingParams = directParams;
     movingParams.sourceX = 0.1f;
@@ -350,6 +441,10 @@ int main()
     std::cout << "Ambi Ray listener front/right energy: " << listenerFrontEnergy << " / " << listenerRightEnergy << "\n";
     std::cout << "Ambi Ray room early/tail/directional energy: "
               << earlyEnergy << " / " << tailEnergy << " / " << directionalEnergy << "\n";
+    std::cout << "Ambi Ray Field Listen activity/follow/counter/balance: "
+              << offListen.activity << " / " << followListen.weight[strongestLobe]
+              << " / " << counterListen.weight[oppositeLobe]
+              << " / " << balanceListen.weight[strongestLobe] << "\n";
     std::cout << "Ambi Ray motion peak/step: " << peak << " / " << maximumStep << "\n";
     std::cout << "Ambi Ray Doppler 0/100/200 percent tone power: "
               << probePowers[0] << " / " << probePowers[1] << " / " << probePowers[2]

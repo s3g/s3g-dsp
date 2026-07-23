@@ -63,9 +63,17 @@ struct AmbiWranglerPreset {
     AmbiWranglerPresetValues values;
 };
 
-inline constexpr uint32_t kAmbiWranglerFactoryPresetCount = 18;
+inline constexpr uint32_t kAmbiWranglerBasePresetCount = 18;
+inline constexpr uint32_t kAmbiWranglerListenerPresetCount = 3;
+inline constexpr uint32_t kAmbiWranglerListenerPresetStart =
+    kAmbiWranglerBasePresetCount;
+inline constexpr uint32_t kAmbiWranglerCalmPresetCount = 5;
+inline constexpr uint32_t kAmbiWranglerCalmPresetStart =
+    kAmbiWranglerListenerPresetStart + kAmbiWranglerListenerPresetCount;
+inline constexpr uint32_t kAmbiWranglerFactoryPresetCount =
+    kAmbiWranglerCalmPresetStart + kAmbiWranglerCalmPresetCount;
 
-inline constexpr std::array<AmbiWranglerPreset, kAmbiWranglerFactoryPresetCount> kAmbiWranglerPresets {{
+inline constexpr std::array<AmbiWranglerPreset, kAmbiWranglerBasePresetCount> kAmbiWranglerPresets {{
     { { "Classic Slow Rungler", "Eight-step Benjolin drift with clear filter sweep and choir mask." }, { 3, 24, 0.180f, 0.115f, 0.18f, 0.14f, 0.38f, 0.32f, 0.18f, 0.08f, 8, 1, 1, 0, 0.48f, 0.46f, 0.42f, 0.52f, 0.36f, 0.44f, 0.34f, 0.66f, 2, 0.58f, 0.045f, 11, 1, 0.028f, 0.54f, 0.52f, 1.02f, 0.02f, 0.0f, 0.0f, 1.00f, 0.94f, -6.0f, 0.18f, 0.28f, 0, 0 } },
     { { "Subharmonic Loop", "LOW-range oscillator B recirculating the register into a large pad." }, { 3, 28, 0.320f, 0.220f, 0.10f, 0.22f, 0.62f, 0.40f, 0.22f, 0.10f, 8, 1, 0, 1, 0.42f, 0.52f, 0.36f, 0.46f, 0.48f, 0.30f, 0.42f, 0.74f, 3, 0.70f, 0.030f, 10, 4, 0.034f, 0.60f, 0.60f, 1.08f, 0.04f, -10.0f, 0.0f, 1.12f, 0.96f, -6.0f, 0.14f, 0.42f, 0, 0 } },
     { { "XOR Teeth", "XOR loop edges with snappy register ticks and sharper motion." }, { 3, 20, 0.460f, 0.380f, 0.24f, 0.52f, 0.48f, 0.66f, 0.16f, 0.12f, 8, 1, 1, 2, 0.72f, 0.30f, 0.34f, 0.64f, 0.32f, 0.24f, 0.50f, 0.82f, 4, 0.74f, 0.135f, 6, 3, 0.064f, 0.56f, 0.48f, 1.00f, 0.08f, 22.0f, 0.0f, 1.12f, 0.90f, -6.0f, 0.42f, 0.18f, 0, 0 } },
@@ -88,7 +96,24 @@ inline constexpr std::array<AmbiWranglerPreset, kAmbiWranglerFactoryPresetCount>
 
 inline AmbiWranglerPresetInfo ambiWranglerFactoryPresetInfo(uint32_t index)
 {
-    return kAmbiWranglerPresets[std::min<uint32_t>(index, kAmbiWranglerFactoryPresetCount - 1u)].info;
+    static constexpr std::array<AmbiWranglerPresetInfo, kAmbiWranglerListenerPresetCount> listenerPresets {{
+        { "Register A: Open Circuit", "Reference state: the register runs without hearing the ambisonic field." },
+        { "Register B: Field Written", "Matched state: eight HOA ears write bits and steer register-addressed motion." },
+        { "Register C: Audio Clocked", "Matched state: field-written bits plus delayed directional audio at the comparator." },
+    }};
+    static constexpr std::array<AmbiWranglerPresetInfo, kAmbiWranglerCalmPresetCount> calmPresets {{
+        { "Deep Current: Open", "One bounded circuit distributed over eight field nodes; a deep PWM line with slow register change." },
+        { "Twin Low Orbit", "Two bounded circuits and sixteen nodes circling a quiet sub-audio clock." },
+        { "Four Engine Dusk", "Four coherent circuits form a restrained low-register ambisonic pad." },
+        { "Eight Engine Constellation", "Eight gently detuned circuits inhabit a sixty-four-node field without becoming a noise wall." },
+        { "Deep Current: Settled", "The matched Deep Current patch with ambisonic homeostasis holding activity near a calm target." },
+    }};
+    index = std::min<uint32_t>(index, kAmbiWranglerFactoryPresetCount - 1u);
+    if (index < kAmbiWranglerBasePresetCount) return kAmbiWranglerPresets[index].info;
+    if (index < kAmbiWranglerCalmPresetStart) {
+        return listenerPresets[index - kAmbiWranglerListenerPresetStart];
+    }
+    return calmPresets[index - kAmbiWranglerCalmPresetStart];
 }
 
 inline float ambiWranglerPresetUnit(uint32_t seed)
@@ -160,10 +185,181 @@ inline void ambiWranglerFillPresetBreakpoints(AmbiWranglerParams& p, uint32_t pr
     }
 }
 
+inline AmbiWranglerParams ambiWranglerCalmFactoryPreset(uint32_t index)
+{
+    index = std::min<uint32_t>(index, kAmbiWranglerCalmPresetCount - 1u);
+    const bool settledDeepCurrent = index == 4u;
+    const uint32_t voiceVariant = settledDeepCurrent ? 0u : index;
+
+    AmbiWranglerParams p {};
+    p.order = 3u;
+    p.circuitLaw = AmbiWranglerCircuitLaw::Bounded;
+    p.rungSize = 8u;
+    p.rungLoop = 0u;
+    p.threshold = 0.50f;
+    p.pwmA = 0.50f;
+    p.pwmB = 0.50f;
+    p.rampA = 0.50f;
+    p.rampB = 0.50f;
+    p.inputA = 1u;
+    p.inputB = 1u;
+    p.voiceBreakpointsEnabled = false;
+    p.topologyShape = 0u;
+    p.topologyMotion = 9u;
+    p.topologyRateHz = 0.008f;
+    p.topologyAmount = 0.28f;
+    p.topologyDepth = 0.16f;
+    p.topologyScale = 0.92f;
+    p.topologyCollapse = 0.0f;
+    p.centerAzimuthDeg = 0.0f;
+    p.centerElevationDeg = -4.0f;
+    p.centerDistance = 1.02f;
+    p.spatialFollow = 0.995f;
+    p.outputGainDb = -6.0f;
+    p.maskMode = 0u;
+    p.maskDepth = 0.0f;
+    p.maskRateHz = 0.012f;
+    p.snap = 0.0f;
+    p.snapDecay = 0.50f;
+    p.listeningEnabled = 0u;
+    p.pickupSet = AmbiWranglerPickupSet::Cube8;
+    p.listenMode = AmbiWranglerListenMode::Trace;
+    p.fieldWrite = 0.0f;
+    p.registerMotion = 0.08f;
+    p.fieldReturn = 0.0f;
+    p.propagation = 0.18f;
+    p.returnBypass = 1u;
+    p.listenerResponse = AmbiWranglerListenerResponse::Settle;
+    p.settleAmount = 0.78f;
+    p.settleTarget = 0.22f;
+    p.settleRecoverySeconds = 4.5f;
+
+    switch (voiceVariant) {
+    case 0u:
+        p.voices = 8u;
+        p.engines = 1u;
+        p.rateA = 0.405f;
+        p.rateB = 0.500f;
+        p.rateModeA = 1u;
+        p.rateModeB = 0u;
+        p.fmAtoB = 0.040f;
+        p.fmBtoA = 0.055f;
+        p.runglerA = 0.120f;
+        p.runglerB = 0.080f;
+        p.spread = 0.008f;
+        p.deviation = 0.005f;
+        p.change = 0.10f;
+        p.color = 0.96f;
+        p.filter = 0.28f;
+        p.resonance = 0.36f;
+        p.filterRun = 0.10f;
+        p.filterSweep = 0.04f;
+        p.saturation = 0.055f;
+        p.field = 0.34f;
+        break;
+    case 1u:
+        p.voices = 16u;
+        p.engines = 2u;
+        p.rateA = 0.395f;
+        p.rateB = 0.515f;
+        p.rateModeA = 1u;
+        p.rateModeB = 0u;
+        p.fmAtoB = 0.060f;
+        p.fmBtoA = 0.080f;
+        p.runglerA = 0.150f;
+        p.runglerB = 0.100f;
+        p.spread = 0.025f;
+        p.deviation = 0.012f;
+        p.change = 0.14f;
+        p.color = 0.94f;
+        p.filter = 0.30f;
+        p.resonance = 0.40f;
+        p.filterRun = 0.12f;
+        p.filterSweep = 0.06f;
+        p.saturation = 0.070f;
+        p.field = 0.46f;
+        break;
+    case 2u:
+        p.voices = 32u;
+        p.engines = 4u;
+        p.rateA = 0.420f;
+        p.rateB = 0.370f;
+        p.rateModeA = 1u;
+        p.rateModeB = 1u;
+        p.fmAtoB = 0.070f;
+        p.fmBtoA = 0.090f;
+        p.runglerA = 0.120f;
+        p.runglerB = 0.120f;
+        p.spread = 0.045f;
+        p.deviation = 0.018f;
+        p.change = 0.18f;
+        p.color = 0.92f;
+        p.filter = 0.31f;
+        p.resonance = 0.38f;
+        p.filterRun = 0.14f;
+        p.filterSweep = 0.08f;
+        p.saturation = 0.085f;
+        p.field = 0.58f;
+        p.maskMode = 1u;
+        p.maskDepth = 0.16f;
+        p.maskRateHz = 0.018f;
+        break;
+    default:
+        p.voices = 64u;
+        p.engines = 8u;
+        p.rateA = 0.430f;
+        p.rateB = 0.345f;
+        p.rateModeA = 1u;
+        p.rateModeB = 1u;
+        p.fmAtoB = 0.080f;
+        p.fmBtoA = 0.100f;
+        p.runglerA = 0.160f;
+        p.runglerB = 0.120f;
+        p.spread = 0.065f;
+        p.deviation = 0.025f;
+        p.change = 0.23f;
+        p.color = 0.90f;
+        p.filter = 0.32f;
+        p.resonance = 0.36f;
+        p.filterRun = 0.16f;
+        p.filterSweep = 0.09f;
+        p.saturation = 0.10f;
+        p.field = 0.70f;
+        p.maskMode = 2u;
+        p.maskDepth = 0.22f;
+        p.maskRateHz = 0.014f;
+        break;
+    }
+
+    for (uint32_t voice = 0u; voice < kAmbiWranglerMaxVoices; ++voice) {
+        p.bpRateA[voice] = 0.5f;
+        p.bpRateB[voice] = 0.5f;
+        p.bpFmAtoB[voice] = 0.5f;
+        p.bpFmBtoA[voice] = 0.5f;
+        p.bpRunglerA[voice] = 0.5f;
+        p.bpRunglerB[voice] = 0.5f;
+        p.bpFilter[voice] = 0.5f;
+        p.bpThreshold[voice] = 0.5f;
+        p.bpPwmA[voice] = 0.5f;
+        p.bpPwmB[voice] = 0.5f;
+        p.bpRampA[voice] = 0.5f;
+        p.bpRampB[voice] = 0.5f;
+        p.bpAmp[voice] = 1.0f;
+    }
+
+    p.listeningEnabled = settledDeepCurrent ? 1u : 0u;
+    return p;
+}
+
 inline AmbiWranglerParams ambiWranglerFactoryPreset(uint32_t index)
 {
     index = std::min<uint32_t>(index, kAmbiWranglerFactoryPresetCount - 1u);
-    const auto& v = kAmbiWranglerPresets[index].values;
+    if (index >= kAmbiWranglerCalmPresetStart) {
+        return ambiWranglerCalmFactoryPreset(index - kAmbiWranglerCalmPresetStart);
+    }
+    const bool listenerPreset = index >= kAmbiWranglerListenerPresetStart;
+    const uint32_t sourceIndex = listenerPreset ? 0u : index;
+    const auto& v = kAmbiWranglerPresets[sourceIndex].values;
     AmbiWranglerParams p {};
     p.order = v.order;
     p.voices = v.voices;
@@ -202,15 +398,30 @@ inline AmbiWranglerParams ambiWranglerFactoryPreset(uint32_t index)
     p.centerDistance = v.centerDistance;
     p.spatialFollow = v.spatialFollow;
     p.outputGainDb = v.outputGainDb;
-    p.pwmA = std::clamp(0.46f + ambiWranglerPresetSigned(index * 331u + 17u) * 0.08f, 0.0f, 1.0f);
-    p.pwmB = std::clamp(0.54f + ambiWranglerPresetSigned(index * 337u + 19u) * 0.08f, 0.0f, 1.0f);
-    p.rampA = std::clamp(0.50f + ambiWranglerPresetSigned(index * 347u + 23u) * 0.16f, 0.0f, 1.0f);
-    p.rampB = std::clamp(0.50f + ambiWranglerPresetSigned(index * 349u + 29u) * 0.16f, 0.0f, 1.0f);
+    p.pwmA = std::clamp(0.46f + ambiWranglerPresetSigned(sourceIndex * 331u + 17u) * 0.08f, 0.0f, 1.0f);
+    p.pwmB = std::clamp(0.54f + ambiWranglerPresetSigned(sourceIndex * 337u + 19u) * 0.08f, 0.0f, 1.0f);
+    p.rampA = std::clamp(0.50f + ambiWranglerPresetSigned(sourceIndex * 347u + 23u) * 0.16f, 0.0f, 1.0f);
+    p.rampB = std::clamp(0.50f + ambiWranglerPresetSigned(sourceIndex * 349u + 29u) * 0.16f, 0.0f, 1.0f);
     p.inputA = std::min<uint32_t>(1u, v.inputA);
     p.inputB = std::min<uint32_t>(1u, v.inputB);
     p.snap = v.snap;
     p.snapDecay = v.snapDecay;
-    ambiWranglerFillPresetBreakpoints(p, index);
+    p.circuitLaw = AmbiWranglerCircuitLaw::Legacy;
+    p.engines = p.voices;
+    p.change = 1.0f;
+    p.listenerResponse = AmbiWranglerListenerResponse::Write;
+    ambiWranglerFillPresetBreakpoints(p, sourceIndex);
+    if (listenerPreset) {
+        const uint32_t variant = index - kAmbiWranglerListenerPresetStart;
+        p.listeningEnabled = variant == 0u ? 0u : 1u;
+        p.pickupSet = AmbiWranglerPickupSet::Cube8;
+        p.listenMode = AmbiWranglerListenMode::Ring;
+        p.fieldWrite = 0.32f;
+        p.registerMotion = 0.20f;
+        p.fieldReturn = 0.18f;
+        p.propagation = 0.24f;
+        p.returnBypass = variant == 1u ? 1u : 0u;
+    }
     return p;
 }
 

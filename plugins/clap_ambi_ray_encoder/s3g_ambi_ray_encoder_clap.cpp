@@ -36,7 +36,7 @@ constexpr uint32_t kOutputChannels = 64u;
 constexpr uint32_t kGuiWidth = 1040u;
 constexpr uint32_t kGuiHeight = 620u;
 constexpr uint32_t kStateMagic = 0x53475259u;
-constexpr uint32_t kStateVersion = 3u;
+constexpr uint32_t kStateVersion = 4u;
 constexpr uint32_t kMaximumStateJsonBytes = 8u * 1024u * 1024u;
 constexpr const char* kWorldToAedConvention = "azimuth_deg=atan2(-x_right,y_front)";
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-ray-encoder";
@@ -62,6 +62,7 @@ enum ParamId : clap_id {
     kParamListenerY = 16,
     kParamListenerZ = 17,
     kParamDoppler = 18,
+    kParamFieldListen = 19,
 };
 
 struct SavedAmbiRayEncoderParamsV1 {
@@ -149,6 +150,55 @@ s3g::AmbiRayEncoderParams paramsFromV2(const SavedAmbiRayEncoderParamsV2& saved)
     params.listenerX = saved.listenerX;
     params.listenerY = saved.listenerY;
     params.listenerZ = saved.listenerZ;
+    return params;
+}
+
+struct SavedAmbiRayEncoderParamsV3 {
+    uint32_t order = 3u;
+    float sourceX = 0.5f;
+    float sourceY = 0.25f;
+    float sourceZ = 0.5f;
+    float direct = 1.0f;
+    float early = 0.72f;
+    float late = 0.42f;
+    float size = 1.0f;
+    float scatter = 0.45f;
+    float width = 1.0f;
+    float air = 0.20f;
+    float movementMs = 60.0f;
+    float doppler = 0.50f;
+    float outputGainDb = -6.0f;
+    bool bypassRoom = false;
+    float listenerX = 0.5f;
+    float listenerY = 0.5f;
+    float listenerZ = 0.5f;
+};
+
+static_assert(sizeof(SavedAmbiRayEncoderParamsV3) == 72u,
+    "Ambi Ray v3 state compatibility requires the previous parameter layout");
+
+s3g::AmbiRayEncoderParams paramsFromV3(const SavedAmbiRayEncoderParamsV3& saved)
+{
+    s3g::AmbiRayEncoderParams params;
+    params.order = saved.order;
+    params.sourceX = saved.sourceX;
+    params.sourceY = saved.sourceY;
+    params.sourceZ = saved.sourceZ;
+    params.direct = saved.direct;
+    params.early = saved.early;
+    params.late = saved.late;
+    params.size = saved.size;
+    params.scatter = saved.scatter;
+    params.width = saved.width;
+    params.air = saved.air;
+    params.movementMs = saved.movementMs;
+    params.doppler = saved.doppler;
+    params.outputGainDb = saved.outputGainDb;
+    params.bypassRoom = saved.bypassRoom;
+    params.listenerX = saved.listenerX;
+    params.listenerY = saved.listenerY;
+    params.listenerZ = saved.listenerZ;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
     return params;
 }
 
@@ -303,6 +353,10 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kParamAir: plugin.params.air = static_cast<float>(value); break;
     case kParamMovement: plugin.params.movementMs = static_cast<float>(value); break;
     case kParamDoppler: plugin.params.doppler = static_cast<float>(value); break;
+    case kParamFieldListen:
+        plugin.params.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
     case kParamOutput: plugin.params.outputGainDb = static_cast<float>(value); break;
     case kParamBypass: plugin.params.bypassRoom = value >= 0.5; break;
     default: return;
@@ -330,6 +384,8 @@ double getParam(const Plugin& plugin, clap_id id)
     case kParamAir: return plugin.params.air;
     case kParamMovement: return plugin.params.movementMs;
     case kParamDoppler: return plugin.params.doppler;
+    case kParamFieldListen:
+        return static_cast<uint32_t>(plugin.params.fieldListenMode);
     case kParamOutput: return plugin.params.outputGainDb;
     case kParamBypass: return plugin.params.bypassRoom ? 1.0 : 0.0;
     default: return 0.0;
@@ -778,7 +834,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
-uint32_t paramsCount(const clap_plugin_t*) { return 18u; }
+uint32_t paramsCount(const clap_plugin_t*) { return 19u; }
 
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
@@ -787,7 +843,8 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     const char* module = index >= 1u && index <= 3u
         ? "Position/Source"
         : index >= 14u && index <= 16u ? "Position/Listener"
-        : index == 11u || index == 17u ? "Position/Motion" : "Ambi Ray Encoder";
+        : index == 11u || index == 17u ? "Position/Motion"
+        : index == 18u ? "Room/Field Listen" : "Ambi Ray Encoder";
     std::strncpy(info->module, module, sizeof(info->module));
     switch (index) {
     case 0: info->id = kParamOrder; info->flags |= CLAP_PARAM_IS_STEPPED; std::strncpy(info->name, "Order", sizeof(info->name)); info->min_value = 1; info->max_value = 7; info->default_value = 3; return true;
@@ -808,13 +865,14 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     case 15: info->id = kParamListenerY; std::strncpy(info->name, "Listener Y", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; return true;
     case 16: info->id = kParamListenerZ; std::strncpy(info->name, "Listener Z", sizeof(info->name)); info->min_value = 0; info->max_value = 1; info->default_value = 0.5; return true;
     case 17: info->id = kParamDoppler; std::strncpy(info->name, "Doppler", sizeof(info->name)); info->min_value = 0; info->max_value = 2; info->default_value = 0.5; return true;
+    case 18: info->id = kParamFieldListen; info->flags |= CLAP_PARAM_IS_STEPPED; std::strncpy(info->name, "Field listen", sizeof(info->name)); info->min_value = 0; info->max_value = 3; info->default_value = 0; return true;
     default: return false;
     }
 }
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
 {
-    if (!value || paramId < kParamOrder || paramId > kParamDoppler) return false;
+    if (!value || paramId < kParamOrder || paramId > kParamFieldListen) return false;
     *value = getParam(*self(plugin), paramId);
     return true;
 }
@@ -854,13 +912,20 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id paramId, double valu
     case kParamMovement: std::snprintf(display, size, "%.0f ms", value); return true;
     case kParamOutput: std::snprintf(display, size, "%+.1f dB", value); return true;
     case kParamBypass: std::snprintf(display, size, "%s", value >= 0.5 ? "On" : "Off"); return true;
+    case kParamFieldListen: {
+        static constexpr const char* names[] { "Off", "Follow", "Counter", "Balance" };
+        const uint32_t index = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 0u, 3u);
+        std::snprintf(display, size, "%s", names[index]);
+        return true;
+    }
     default: return false;
     }
 }
 
 bool paramsTextToValue(const clap_plugin_t* plugin, clap_id paramId, const char* display, double* value)
 {
-    if (!display || !value || paramId < kParamOrder || paramId > kParamDoppler) return false;
+    if (!display || !value || paramId < kParamOrder || paramId > kParamFieldListen) return false;
     const double parsed = std::atof(display);
     const auto* instance = self(plugin);
     switch (paramId) {
@@ -891,6 +956,12 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id paramId, const char*
     case kParamBypass:
         *value = (display[0] == 'O' || display[0] == 'o')
             && (display[1] == 'N' || display[1] == 'n') ? 1.0 : 0.0;
+        break;
+    case kParamFieldListen:
+        if (display[0] == 'F' || display[0] == 'f') *value = 1.0;
+        else if (display[0] == 'C' || display[0] == 'c') *value = 2.0;
+        else if (display[0] == 'B' || display[0] == 'b') *value = 3.0;
+        else *value = std::atof(display);
         break;
     default: *value = parsed; break;
     }
@@ -939,6 +1010,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         SavedAmbiRayEncoderParamsV2 saved;
         if (!streamReadAll(stream, &saved, sizeof(saved))) return false;
         loadedParams = paramsFromV2(saved);
+    } else if (version == 3u) {
+        SavedAmbiRayEncoderParamsV3 saved;
+        if (!streamReadAll(stream, &saved, sizeof(saved))) return false;
+        loadedParams = paramsFromV3(saved);
     } else if (version == kStateVersion) {
         if (!streamReadAll(stream, &loadedParams, sizeof(loadedParams))) return false;
     } else {
@@ -1086,6 +1161,10 @@ NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
 NSRect rayAtlasMenuRect() { return NSMakeRect(724, 56, 304, 18.0 * static_cast<CGFloat>(kRayAtlas.size())); }
 NSRect sourceModeRect() { return NSMakeRect(934, 152, 38, 17); }
 NSRect listenerModeRect() { return NSMakeRect(976, 152, 40, 17); }
+NSRect fieldListenButtonRect(uint32_t mode)
+{
+    return NSMakeRect(872 + static_cast<CGFloat>(mode) * 37.0, 320, 34, 17);
+}
 
 NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NSInteger view)
 {
@@ -1536,6 +1615,14 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 
     s3g::clap_gui::drawPanelFrame(roomPanel.origin.x, roomPanel.origin.y, roomPanel.size.width, roomPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"ROOM FIELD", true, roomPanel.origin.x, roomPanel.origin.y, roomPanel.size.width, 21, text, style);
+    [@"LST" drawAtPoint:NSMakePoint(842, 321) withAttributes:text];
+    static NSString* listenLabels[] = { @"OFF", @"FOL", @"CTR", @"BAL" };
+    const uint32_t listenMode = static_cast<uint32_t>(params.fieldListenMode);
+    for (uint32_t mode = 0u; mode < 4u; ++mode) {
+        s3g::clap_gui::drawHeaderButton(
+            fieldListenButtonRect(mode), roomPanel, listenLabels[mode],
+            mode == listenMode, value, style);
+    }
     [self drawSlider:@"DIR" value:[NSString stringWithFormat:@"%.0f%%", params.direct * 100.0f] norm:params.direct / 1.5f y:352 attrs:value style:style];
     [self drawSlider:@"EAR" value:[NSString stringWithFormat:@"%.0f%%", params.early * 100.0f] norm:params.early / 1.5f y:374 attrs:value style:style];
     [self drawSlider:@"LAT" value:[NSString stringWithFormat:@"%.0f%%", params.late * 100.0f] norm:params.late / 1.5f y:396 attrs:value style:style];
@@ -1679,6 +1766,12 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     if (NSPointInRect(point, NSMakeRect(974, 552, 42, 18))) {
         [self setParam:kParamBypass value:_plugin->params.bypassRoom ? 0.0 : 1.0];
         return;
+    }
+    for (uint32_t mode = 0u; mode < 4u; ++mode) {
+        if (NSPointInRect(point, fieldListenButtonRect(mode))) {
+            [self setParam:kParamFieldListen value:mode];
+            return;
+        }
     }
     if (NSPointInRect(point, sourceModeRect())) {
         _editListener = false;

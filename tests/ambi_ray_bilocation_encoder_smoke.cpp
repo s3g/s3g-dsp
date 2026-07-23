@@ -47,6 +47,32 @@ std::array<float, 4u> renderFirstOrderEnergy(s3g::AmbiRayBilocationEncoder& enco
     return energy;
 }
 
+bool driveFieldListener(s3g::AmbiRayBilocationEncoder& encoder)
+{
+    constexpr uint32_t frames = 128u;
+    std::array<float, frames> input {};
+    std::array<std::array<float, frames>, s3g::kAmbiRayMaxChannels> output {};
+    std::array<float*, s3g::kAmbiRayMaxChannels> pointers {};
+    for (uint32_t channel = 0u; channel < output.size(); ++channel)
+        pointers[channel] = output[channel].data();
+    uint32_t noise = 0xd7314a29u;
+    for (uint32_t block = 0u; block < 800u; ++block) {
+        for (uint32_t frame = 0u; frame < frames; ++frame) {
+            noise = noise * 1664525u + 1013904223u;
+            input[frame] = (static_cast<float>((noise >> 8u) & 0xffffu)
+                / 32767.5f - 1.0f) * 0.08f;
+        }
+        encoder.process(input.data(), pointers.data(),
+            static_cast<uint32_t>(pointers.size()), frames);
+        for (const auto& channel : output) {
+            for (float value : channel) {
+                if (!std::isfinite(value)) return false;
+            }
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -73,6 +99,14 @@ int main()
     s3g::AmbiRayBilocationEncoder encoder;
     auto roomA = s3g::makeDefaultAmbiRayDescriptor();
     auto roomB = roomA;
+    for (auto& cell : roomA.cells) {
+        for (auto& reflection : cell.reflections)
+            reflection.gain *= reflection.slot == 0u ? 4.0f : 0.08f;
+    }
+    for (auto& cell : roomB.cells) {
+        for (auto& reflection : cell.reflections)
+            reflection.gain *= reflection.slot == 1u ? 4.0f : 0.08f;
+    }
     roomB.durationSeconds = 4.0f;
     for (auto& cell : roomB.cells) {
         cell.late.decaySeconds = 3.0f;
@@ -100,11 +134,43 @@ int main()
         return 1;
     }
 
+    params.direct = 0.0f;
+    params.early = 1.0f;
+    params.late = 0.0f;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Follow;
+    encoder.setParams(params);
+    encoder.reset();
+    if (!driveFieldListener(encoder)
+        || !(encoder.fieldListenActivityA() > 0.02f)
+        || !(encoder.fieldListenActivityB() > 0.02f)) {
+        std::cerr << "Bilocation Field Listen did not hear both room branches\n";
+        return 1;
+    }
+    float maximumWeightA = 0.0f;
+    float maximumWeightB = 0.0f;
+    for (uint32_t lobe = 0u; lobe < s3g::kAmbiFieldListenerMaxLobes; ++lobe) {
+        maximumWeightA = std::max(maximumWeightA, encoder.fieldListenWeightA(lobe));
+        maximumWeightB = std::max(maximumWeightB, encoder.fieldListenWeightB(lobe));
+    }
+    if (!(maximumWeightA > 1.02f) || !(maximumWeightB > 1.02f)) {
+        std::cerr << "Bilocation Follow did not reinforce both room characters: "
+                  << maximumWeightA << " / " << maximumWeightB << "\n";
+        return 1;
+    }
+    auto unsafe = params;
+    unsafe.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(99u);
+    if (s3g::sanitizeAmbiRayBilocationParams(unsafe).fieldListenMode
+        != s3g::AmbiFieldListenMode::Balance) {
+        std::cerr << "Bilocation Field Listen mode sanitizer failed\n";
+        return 1;
+    }
+
     params.place = 0.0f;
     params.permeability = 0.0f;
     params.direct = 1.0f;
     params.early = 0.0f;
     params.late = 0.0f;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
     params.separationDeg = 0.0f;
     encoder.setParams(params);
     encoder.reset();
@@ -121,6 +187,7 @@ int main()
         return 1;
     }
 
-    std::cout << "Ambi Ray Bilocation Encoder smoke passed\n";
+    std::cout << "Ambi Ray Bilocation Encoder smoke passed (Field Listen "
+              << maximumWeightA << " / " << maximumWeightB << ")\n";
     return 0;
 }

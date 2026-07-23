@@ -26,14 +26,17 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiPulsarMaxChannels;
-constexpr uint32_t kStateVersion = 8u;
+constexpr uint32_t kStateVersion = 9u;
 constexpr uint32_t kCustomPresetMagic = 0x50473353u; // "S3GP" on little-endian hosts
-constexpr uint32_t kCustomPresetVersion = 2u;
+constexpr uint32_t kCustomPresetVersion = 3u;
 constexpr uint32_t kParamBankSize = 128u;
 constexpr size_t kLegacyParamsSize = offsetof(s3g::AmbiPulsarParams, listening);
-static_assert(kLegacyParamsSize + sizeof(s3g::AmbiPulsarListeningParams)
+constexpr size_t kV8ListeningParamsSize =
+    offsetof(s3g::AmbiPulsarListeningParams, response);
+constexpr size_t kV8ParamsSize = kLegacyParamsSize + kV8ListeningParamsSize;
+static_assert(kV8ParamsSize + sizeof(s3g::AmbiPulsarListenerResponse)
         == sizeof(s3g::AmbiPulsarParams),
-    "listening parameters must remain an appended state suffix");
+    "listener response must remain the appended state-version-9 suffix");
 
 constexpr clap_id kPresetParamId = 1u;
 constexpr clap_id kOrderParamId = 2u;
@@ -105,6 +108,7 @@ constexpr clap_id kFieldReturnParamId = 105u;
 constexpr clap_id kPropagationParamId = 106u;
 constexpr clap_id kPickupFocusParamId = 107u;
 constexpr clap_id kLaneListeningParamId = 108u;
+constexpr clap_id kListenerResponseParamId = 109u;
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -152,9 +156,14 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAmbiPulsarNeuralMaxClusters> guiNeuralCluster {};
     std::array<std::atomic<float>, s3g::kAmbiPulsarListeningPickups> guiListeningPickup {};
     std::array<std::atomic<float>, s3g::kAmbiPulsarListeningPickups> guiListeningEnergy {};
+    std::array<std::atomic<float>, s3g::kAmbiPulsarListeningPickups> guiListeningNovelty {};
+    std::array<std::atomic<float>, s3g::kAmbiPulsarListeningPickups> guiListeningCharge {};
     std::array<std::atomic<float>, s3g::kAmbiPulsarNeuralLobes> guiListeningReturn {};
     std::atomic<float> guiListeningAnalysis { 0.0f };
     std::atomic<float> guiListeningInfluence { 0.0f };
+    std::atomic<float> guiListeningEcologyActivity { 0.0f };
+    std::atomic<float> guiListeningEcologyCharge { 0.0f };
+    std::atomic<float> guiListeningEcologyNovelty { 0.0f };
     std::atomic<float> guiCaptureProgress { 0.0f };
     std::atomic<uint32_t> guiCaptureGeneration { 0u };
     std::atomic<uint32_t> guiCaptureRequestSerial { 0u };
@@ -222,16 +231,21 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
     uint32_t version = 0u;
     bool ok = std::fread(&magic, 1u, sizeof(magic), handle) == sizeof(magic)
         && std::fread(&version, 1u, sizeof(version), handle) == sizeof(version)
-        && magic == kCustomPresetMagic && (version == 1u || version == kCustomPresetVersion);
+        && magic == kCustomPresetMagic
+        && (version == 1u || version == 2u || version == kCustomPresetVersion);
     file.magic = magic;
     file.version = kCustomPresetVersion;
     if (ok) ok = std::fread(file.name, 1u, sizeof(file.name), handle) == sizeof(file.name);
     if (ok) {
-        const size_t paramsSize = version == 1u ? kLegacyParamsSize : sizeof(file.params);
+        const size_t paramsSize = version == 1u ? kLegacyParamsSize
+            : version == 2u ? kV8ParamsSize : sizeof(file.params);
         ok = std::fread(&file.params, 1u, paramsSize, handle) == paramsSize;
     }
     std::fclose(handle);
     if (!ok) return false;
+    if (version <= 2u) {
+        file.params.listening.response = s3g::AmbiPulsarListenerResponse::Legacy;
+    }
     file.name[sizeof(file.name) - 1u] = '\0';
     file.params = s3g::sanitizeAmbiPulsarParams(file.params);
     return true;
@@ -338,7 +352,10 @@ void randomizeSafe(Plugin& plugin)
     p.listening.fieldReturn = randomRange(seed, 0.12f, 0.58f);
     p.listening.propagationMs = randomRange(seed, 2.0f, 96.0f);
     p.listening.focus = randomRange(seed, 0.28f, 0.96f);
-    p.listening.laneInfluence = randomRange(seed, 0.0f, 0.72f);
+    p.listening.laneInfluence = p.listening.enabled
+        ? randomRange(seed, 0.38f, 0.92f) : randomRange(seed, 0.0f, 0.72f);
+    p.listening.response = static_cast<s3g::AmbiPulsarListenerResponse>(
+        1u + static_cast<uint32_t>(randomUnit(seed) * 3.0f) % 3u);
     plugin.randomSeed = seed;
     plugin.customPresetActive.store(false, std::memory_order_relaxed);
     publishParams(plugin, s3g::sanitizeAmbiPulsarParams(p), 0u, true);
@@ -416,6 +433,10 @@ bool assignParam(s3g::AmbiPulsarParams& p, clap_id id, double value)
     case kPropagationParamId: p.listening.propagationMs = static_cast<float>(value); return true;
     case kPickupFocusParamId: p.listening.focus = static_cast<float>(value); return true;
     case kLaneListeningParamId: p.listening.laneInfluence = static_cast<float>(value); return true;
+    case kListenerResponseParamId:
+        p.listening.response = static_cast<s3g::AmbiPulsarListenerResponse>(
+            static_cast<uint32_t>(std::lround(value)));
+        return true;
     default: break;
     }
     if (laneForParam(id, kLaneFormantIds, [&](uint32_t lane) { p.lanes[lane].formantHz = static_cast<float>(value); })) return true;
@@ -502,6 +523,7 @@ double paramValue(const s3g::AmbiPulsarParams& p, clap_id id)
     case kPropagationParamId: return p.listening.propagationMs;
     case kPickupFocusParamId: return p.listening.focus;
     case kLaneListeningParamId: return p.listening.laneInfluence;
+    case kListenerResponseParamId: return static_cast<uint32_t>(p.listening.response);
     default: break;
     }
     double value = 0.0;
@@ -666,6 +688,10 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
             p->engine.listeningPickupValue(pickup), std::memory_order_relaxed);
         p->guiListeningEnergy[pickup].store(
             p->engine.listeningPickupEnergy(pickup), std::memory_order_relaxed);
+        p->guiListeningNovelty[pickup].store(
+            p->engine.listeningPickupNovelty(pickup), std::memory_order_relaxed);
+        p->guiListeningCharge[pickup].store(
+            p->engine.listeningPickupCharge(pickup), std::memory_order_relaxed);
     }
     for (uint32_t lobe = 0u; lobe < s3g::kAmbiPulsarNeuralLobes; ++lobe) {
         p->guiListeningReturn[lobe].store(
@@ -674,6 +700,12 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     p->guiListeningAnalysis.store(
         p->engine.listeningAnalysisInfluence(), std::memory_order_relaxed);
     p->guiListeningInfluence.store(p->engine.listeningInfluence(), std::memory_order_relaxed);
+    p->guiListeningEcologyActivity.store(
+        p->engine.listeningEcologyActivity(), std::memory_order_relaxed);
+    p->guiListeningEcologyCharge.store(
+        p->engine.listeningEcologyCharge(), std::memory_order_relaxed);
+    p->guiListeningEcologyNovelty.store(
+        p->engine.listeningEcologyNovelty(), std::memory_order_relaxed);
     const uint32_t captureGeneration = p->engine.neuralCaptureGeneration();
     p->guiCaptureProgress.store(p->engine.neuralCaptureProgress(), std::memory_order_relaxed);
     p->guiCaptureGeneration.store(captureGeneration, std::memory_order_relaxed);
@@ -781,7 +813,8 @@ constexpr ParamDef kParams[] {
     { kFieldReturnParamId, "Listening Field Return", 0.0, 1.0, 0.34, false },
     { kPropagationParamId, "Listening Propagation", 0.0, 180.0, 24.0, false },
     { kPickupFocusParamId, "Listening Focus", 0.0, 1.0, 0.72, false },
-    { kLaneListeningParamId, "Listening Field Response", 0.0, 1.0, 0.0, false },
+    { kLaneListeningParamId, "Listening Ecology Depth", 0.0, 1.0, 0.62, false },
+    { kListenerResponseParamId, "Listening Response", 0.0, 3.0, 1.0, true },
     { kLaneTuneModeIds[0], "Lane A Tuning Mode", 0.0, 2.0, 0.0, true },
     { kLaneCarrierRatioIds[0], "Lane A Clock Ratio", 0.125, 128.0, 4.0, false },
     { kLaneRetriggerModeIds[0], "Lane A Retrigger Mode", 0.0, 2.0, 0.0, true },
@@ -879,7 +912,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->flags = CLAP_PARAM_IS_AUTOMATABLE | (param.stepped ? CLAP_PARAM_IS_STEPPED : 0u);
     std::strncpy(info->name, param.name, sizeof(info->name));
     info->name[sizeof(info->name) - 1u] = '\0';
-    const char* module = param.id >= kNeuralSetParamId && param.id <= kLaneListeningParamId
+    const char* module = param.id >= kNeuralSetParamId && param.id <= kListenerResponseParamId
         ? "Field Listening"
         : param.id >= kNeuralLevelParamId && param.id <= kNeuralCaptureParamId
         ? "Neural Synthesis" : param.id >= kLaneTuneModeIds[0] && param.id <= kLaneWindowSkewIds[2]
@@ -909,6 +942,7 @@ constexpr const char* kRetriggerModeNames[] { "RETRIGGER", "FREE", "IDLE ONLY" }
 constexpr const char* kNeuralSetNames[] { "16 NODES", "32 NODES", "64 NODES" };
 constexpr const char* kPickupSetNames[] { "TETRA 4", "CUBE 8" };
 constexpr const char* kListeningModeNames[] { "LOCAL", "CROSS", "DIFFUSE", "ROAMING" };
+constexpr const char* kListenerResponseNames[] { "CLASSIC", "RESONATE", "IMPRINT", "BALANCE" };
 
 template <size_t N>
 bool isLaneParam(clap_id id, const std::array<clap_id, N>& ids)
@@ -937,6 +971,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         std::snprintf(display, capacity, "%s", kPickupSetNames[std::clamp<int>(static_cast<int>(std::lround(value)), 0, 1)]);
     } else if (id == kListeningModeParamId) {
         std::snprintf(display, capacity, "%s", kListeningModeNames[std::clamp<int>(static_cast<int>(std::lround(value)), 0, 3)]);
+    } else if (id == kListenerResponseParamId) {
+        std::snprintf(display, capacity, "%s", kListenerResponseNames[
+            std::clamp<int>(static_cast<int>(std::lround(value)), 0, 3)]);
     } else if (id == kListeningEnableParamId) {
         std::snprintf(display, capacity, "%s", value >= 0.5 ? "ON" : "OFF");
     } else if (id == kListeningBypassParamId) {
@@ -1011,6 +1048,14 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     if (id == kListeningModeParamId) {
         for (uint32_t index = 0u; index < std::size(kListeningModeNames); ++index) {
             if (std::strcmp(display, kListeningModeNames[index]) == 0) { *value = index; return true; }
+        }
+    }
+    if (id == kListenerResponseParamId) {
+        for (uint32_t index = 0u; index < std::size(kListenerResponseNames); ++index) {
+            if (std::strcmp(display, kListenerResponseNames[index]) == 0) {
+                *value = index;
+                return true;
+            }
         }
     }
     if (id == kListeningEnableParamId && (std::strcmp(display, "ON") == 0 || std::strcmp(display, "OFF") == 0)) {
@@ -1165,6 +1210,30 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         std::strncpy(p->customPresetName, customPresetName.data(), sizeof(p->customPresetName) - 1u);
         p->customPresetName[sizeof(p->customPresetName) - 1u] = '\0';
         p->customPresetActive.store(p->customPresetName[0] != '\0', std::memory_order_relaxed);
+    } else if (version == 8u) {
+        s3g::AmbiPulsarParams upgraded {};
+        uint32_t presetIndex = 0u;
+        int32_t guiViewMode = 2;
+        float guiViewZoom = 1.0f;
+        std::array<char, 64u> customPresetName {};
+        if (!readExact(stream, &upgraded, kV8ParamsSize)
+            || !readExact(stream, &presetIndex, sizeof(presetIndex))
+            || !readExact(stream, &guiViewMode, sizeof(guiViewMode))
+            || !readExact(stream, &guiViewZoom, sizeof(guiViewZoom))
+            || !readExact(stream, customPresetName.data(), customPresetName.size())) {
+            return false;
+        }
+        upgraded.listening.response = s3g::AmbiPulsarListenerResponse::Legacy;
+        p->params = s3g::sanitizeAmbiPulsarParams(upgraded);
+        p->presetIndex = std::min<uint32_t>(
+            presetIndex, s3g::kAmbiPulsarFactoryPresetCount - 1u);
+        p->guiViewMode = std::clamp<int32_t>(guiViewMode, 0, 2);
+        p->guiViewZoom = std::clamp(guiViewZoom, 0.55f, 2.20f);
+        std::strncpy(p->customPresetName, customPresetName.data(),
+            sizeof(p->customPresetName) - 1u);
+        p->customPresetName[sizeof(p->customPresetName) - 1u] = '\0';
+        p->customPresetActive.store(
+            p->customPresetName[0] != '\0', std::memory_order_relaxed);
     } else if (version == kStateVersion) {
         SavedState state;
         state.version = version;
@@ -1251,7 +1320,7 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kFieldReturnParamId, "FIELD RETURN", 38.0, 540.0, 82.0 },
     { kPropagationParamId, "PROPAGATION", 38.0, 574.0, 82.0 },
     { kPickupFocusParamId, "FOCUS", 314.0, 540.0, 82.0 },
-    { kLaneListeningParamId, "FIELD RESPONSE", 314.0, 574.0, 82.0 },
+    { kLaneListeningParamId, "ECOLOGY", 314.0, 574.0, 82.0 },
 
     { kLaneFormantIds[0], "CARRIER HZ", 18.0, 702.0, 82.0 },
     { kLaneCarrierRatioIds[0], "CLOCK RATIO", 18.0, 726.0, 82.0 },
@@ -1281,7 +1350,7 @@ constexpr GuiSliderSpec kGuiSliders[] {
 
 bool listeningGuiParam(clap_id id)
 {
-    return id >= kNeuralSetParamId && id <= kLaneListeningParamId;
+    return id >= kNeuralSetParamId && id <= kListenerResponseParamId;
 }
 
 int guiLaneForParam(clap_id id)
@@ -1474,6 +1543,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
 - (NSRect)neuralSetRect { return NSMakeRect(112.0, 484.0, 104.0, 15.0); }
 - (NSRect)pickupSetRect { return NSMakeRect(306.0, 484.0, 104.0, 15.0); }
 - (NSRect)listeningModeRect { return NSMakeRect(488.0, 484.0, 104.0, 15.0); }
+- (NSRect)listenerResponseRect { return NSMakeRect(488.0, 510.0, 104.0, 15.0); }
 - (NSRect)listeningEnableRect { return NSMakeRect(46.0, 610.0, 118.0, 15.0); }
 - (NSRect)listeningBypassRect { return NSMakeRect(172.0, 610.0, 118.0, 15.0); }
 - (NSRect)laneButtonRect:(uint32_t)lane
@@ -1598,6 +1668,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     case 10: return [self neuralSetRect];
     case 11: return [self pickupSetRect];
     case 12: return [self listeningModeRect];
+    case 13: return [self listenerResponseRect];
     default: return NSZeroRect;
     }
 }
@@ -1617,6 +1688,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     case 10: return 3u;
     case 11: return 2u;
     case 12: return 4u;
+    case 13: return 4u;
     default: return 0u;
     }
 }
@@ -1653,6 +1725,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     static NSString* neuralSetItems[] = { @"16 NODES", @"32 NODES", @"64 NODES" };
     static NSString* pickupSetItems[] = { @"TETRA 4", @"CUBE 8" };
     static NSString* listeningModeItems[] = { @"LOCAL", @"CROSS", @"DIFFUSE", @"ROAMING" };
+    static NSString* listenerResponseItems[] = { @"CLASSIC", @"RESONATE", @"IMPRINT", @"BALANCE" };
     static NSString* presetItems[s3g::kAmbiPulsarFactoryPresetCount];
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -1689,6 +1762,9 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     } else if (_openMenu == 12) {
         items = listeningModeItems;
         selected = static_cast<int>(_plugin->params.listening.mode);
+    } else if (_openMenu == 13) {
+        items = listenerResponseItems;
+        selected = static_cast<int>(_plugin->params.listening.response);
     }
     s3g::clap_gui::drawDropdownMenu(_openMenuRect, 21.0, items, _menuItemCount,
         selected, _hoverMenuItem, attrs, style);
@@ -2022,7 +2098,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     NSFrameRect(field);
     NSDictionary* labels = s3g::clap_gui::softLabelAttrs();
     NSDictionary* values = s3g::clap_gui::softValueAttrs();
-    [@"AMBISONIC AUDITORY BODY / PREVIOUS-SAMPLE RETURN" drawAtPoint:NSMakePoint(
+    [@"AMBISONIC AUDITORY BODY / CHARGE, IMPRINT + RETURN" drawAtPoint:NSMakePoint(
         field.origin.x + 10.0, field.origin.y + 10.0) withAttributes:values];
 
     const uint32_t pickupCount = _plugin->params.listening.pickupSet
@@ -2081,11 +2157,24 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     for (uint32_t pickup = 0u; pickup < pickupCount; ++pickup) {
         const float energy = std::clamp(
             _plugin->guiListeningEnergy[pickup].load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const float novelty = std::clamp(
+            _plugin->guiListeningNovelty[pickup].load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const float charge = std::clamp(
+            _plugin->guiListeningCharge[pickup].load(std::memory_order_relaxed), 0.0f, 1.0f);
         const CGFloat size = 8.0 + std::sqrt(energy) * 18.0;
         [[s3g::clap_gui::color(0xc8c8c8, 0.04 + energy * 0.20)
             colorWithAlphaComponent:0.04 + energy * 0.20] setFill];
         [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(ears[pickup].x - size,
             ears[pickup].y - size, size * 2.0, size * 2.0)] fill];
+        if (charge > 0.01f || novelty > 0.01f) {
+            const CGFloat chargeSize = size + 4.0 + charge * 10.0;
+            [s3g::clap_gui::color(0xd8d8d8, 0.12 + charge * 0.58) setStroke];
+            NSBezierPath* chargeRing = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+                ears[pickup].x - chargeSize, ears[pickup].y - chargeSize,
+                chargeSize * 2.0, chargeSize * 2.0)];
+            [chargeRing setLineWidth:0.6 + novelty * 2.4];
+            [chargeRing stroke];
+        }
         NSBezierPath* diamond = [NSBezierPath bezierPath];
         [diamond moveToPoint:NSMakePoint(ears[pickup].x, ears[pickup].y - 6.0)];
         [diamond lineToPoint:NSMakePoint(ears[pickup].x + 6.0, ears[pickup].y)];
@@ -2116,6 +2205,9 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     [self drawMenuLabel:@"LISTENING" value:[NSString stringWithUTF8String:
         kListeningModeNames[static_cast<uint32_t>(_plugin->params.listening.mode)]]
         rect:[self listeningModeRect] style:style];
+    [self drawMenuLabel:@"RESPONSE" value:[NSString stringWithUTF8String:
+        kListenerResponseNames[static_cast<uint32_t>(_plugin->params.listening.response)]]
+        rect:[self listenerResponseRect] style:style];
     for (const auto& slider : kGuiSliders) {
         if (listeningGuiParam(slider.id)) [self drawSlider:slider style:style];
     }
@@ -2126,8 +2218,10 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     s3g::clap_gui::drawHeaderButton([self listeningBypassRect], controlHeader,
         _plugin->params.listening.bypass ? @"BYPASSED" : @"RETURN ACTIVE",
         _plugin->params.listening.bypass != 0u, labels, style);
-    NSString* status = [NSString stringWithFormat:@"EARS %3.0f%%  RETURN %3.0f%%",
-        _plugin->guiListeningAnalysis.load(std::memory_order_relaxed) * 100.0f,
+    NSString* status = [NSString stringWithFormat:@"A %3.0f  C %3.0f  N %3.0f  R %3.0f",
+        _plugin->guiListeningEcologyActivity.load(std::memory_order_relaxed) * 100.0f,
+        _plugin->guiListeningEcologyCharge.load(std::memory_order_relaxed) * 100.0f,
+        _plugin->guiListeningEcologyNovelty.load(std::memory_order_relaxed) * 100.0f,
         _plugin->guiListeningInfluence.load(std::memory_order_relaxed) * 100.0f];
     s3g::clap_gui::drawRightStatus(status, NSMaxX(field) - 4.0, 610.0, values, 0.0);
 }
@@ -2350,6 +2444,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
             else if (_openMenu == 10) applyParam(*_plugin, kNeuralSetParamId, hit);
             else if (_openMenu == 11) applyParam(*_plugin, kPickupSetParamId, hit);
             else if (_openMenu == 12) applyParam(*_plugin, kListeningModeParamId, hit);
+            else if (_openMenu == 13) applyParam(*_plugin, kListenerResponseParamId, hit);
         }
         _openMenu = 0;
         _hoverMenuItem = -1;
@@ -2414,6 +2509,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
             if (NSPointInRect(point, [self neuralSetRect])) { [self openMenu:10]; return; }
             if (NSPointInRect(point, [self pickupSetRect])) { [self openMenu:11]; return; }
             if (NSPointInRect(point, [self listeningModeRect])) { [self openMenu:12]; return; }
+            if (NSPointInRect(point, [self listenerResponseRect])) { [self openMenu:13]; return; }
             if (NSPointInRect(point, [self listeningEnableRect])) {
                 applyParam(*_plugin, kListeningEnableParamId,
                     _plugin->params.listening.enabled ? 0.0 : 1.0);

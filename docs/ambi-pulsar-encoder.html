@@ -28,7 +28,7 @@
 
         <p><code>s3g Ambi Pulsar Encoder 64</code> is a zero-input pulsar and neural-synthesis instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. It distributes three-layer sound objects across a field of four to thirty-two encoded points.</p>
 
-        <p>Pulsar synthesis repeats short, windowed waveforms called pulsarets. Slow emission rates produce separate events and rhythms; faster rates fuse into beating textures and continuous pitch. The A, B, and C layers provide independent waveforms, tuning, overlap, and synchronized FM, while a selectable sixteen-, thirty-two-, or sixty-four-node recurrent ecology can sound directly or supply captured pulsaret, envelope, and FM shapes. Four or eight internal Ambisonic ears can return the spatial field to that ecology.</p>
+        <p>Pulsar synthesis repeats short, windowed waveforms called pulsarets. Slow emission rates produce separate events and rhythms; faster rates fuse into beating textures and continuous pitch. The A, B, and C layers provide independent waveforms, tuning, overlap, and synchronized FM, while a selectable sixteen-, thirty-two-, or sixty-four-node recurrent ecology can sound directly or supply captured pulsaret, envelope, and FM shapes. Four or eight internal Ambisonic ears can now excite, imprint, or rebalance the emitted organism as well as return the spatial field to its neural circuit.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -39,7 +39,7 @@
           <li>Use <code>FM RATIO</code> and <code>FM INDEX</code> for clock-synchronous phase modulation, <code>WIN SKEW</code> to move the window peak, and <code>TRIGGER</code> to choose reset, continuous-phase, or idle-only behavior.</li>
           <li>Choose four to thirty-two <code>POINTS</code>, then combine probability, burst/rest, sieve, and point-randomness controls.</li>
           <li>Raise <code>DIRECT</code> to hear the neural circuit, then shape its signed ring and matrix feedback. After the capture meter arms, press <code>CAPTURE</code> to snapshot new pulsaret, envelope, and FM tables.</li>
-          <li>Open <code>LISTEN</code>, choose 16, 32, or 64 nodes and a <code>TETRA 4</code> or <code>CUBE 8</code> auditory body, then enable listening. <code>FIELD RESPONSE</code> turns previously emitted pulses into a score for later pulses; <code>RETURN BYPASS</code> opens only the deeper neural-audio feedback loop.</li>
+          <li>Open <code>LISTEN</code>, choose a <code>TETRA 4</code> or <code>CUBE 8</code> auditory body and a listening topology, then enable listening. Choose <code>RESONATE</code>, <code>IMPRINT</code>, or <code>BALANCE</code> as its response law and raise <code>ECOLOGY</code>; <code>RETURN BYPASS</code> controls only the deeper neural-audio feedback loop.</li>
           <li>Set the field center, width, scatter, motion shape, orbit rate/depth, air, and Doppler behavior.</li>
           <li>Select the Ambisonic order and follow the instrument with an Ambisonic decoder or energy meter.</li>
         </ol>
@@ -106,26 +106,27 @@
 
         <h2 id="listening">Ambisonic Self-Listening</h2>
 
-        <p>The original <code>AUDIO FB</code> path remains available: it returns a conditioned mono sum of the Pulsar field to every neural lobe. Field listening is a second path that retains direction. The complete, post-depth point field is encoded internally to the currently selected HOA order, then decoded through four tetrahedral or eight cube-corner ears. The delayed ear signals are distributed among the neural lobes before the next sample is evaluated. Motion, width, source direction, air, distance, and HOA order can therefore change subsequent synthesis rather than only repositioning finished sound.</p>
+        <p>The original <code>AUDIO FB</code> path remains available: it returns a conditioned mono sum of the Pulsar field to every neural lobe. Field listening is a second path that retains direction. The complete, post-depth point field is encoded internally to the currently selected HOA order, then decoded through four tetrahedral or eight cube-corner ears. Each ear tracks a fast and slow envelope, directional energy, onset novelty, slow habituation, and a consumable charge reservoir. Those features drive the selected response law and can also be distributed among the neural lobes before the next sample is evaluated. Motion, width, source direction, air, distance, and HOA order can therefore alter both what Pulsar hears and what it emits next.</p>
 
         <table class="readout-table">
           <thead><tr><th>Listening control</th><th>Meaning</th></tr></thead>
           <tbody>
             <tr><td>NODES</td><td>Selects one 16-node lobe, a bilateral 32-node pair, or the complete four-lobe 64-node ecology.</td></tr>
-            <tr><td>LISTEN ON/OFF</td><td>Starts or stops directional HOA analysis. Turning it off ramps the ears, lane response, and neural return away, and pauses roaming traversal.</td></tr>
-            <tr><td>RETURN ACTIVE/BYPASSED</td><td>Opens only the return from the delayed ear signals into the neural equations. The HOA decoder, propagation delays, meters, roaming listener, and <code>FIELD RESPONSE</code> remain active, so this is not equivalent to <code>LISTEN OFF</code>.</td></tr>
+            <tr><td>LISTEN ON/OFF</td><td>Starts or stops the directional HOA analysis and response ecology. Turning it off ramps the ears, future event response, and neural return away, and pauses roaming traversal. An imprint already latched into a sounding grain remains stable until that grain ends.</td></tr>
+            <tr><td>RETURN ACTIVE/BYPASSED</td><td>Opens only the return from the delayed ear signals into the neural equations. The HOA decoder, propagation delays, meters, roaming listener, and selected response law remain active, so this is not equivalent to <code>LISTEN OFF</code>.</td></tr>
             <tr><td>EARS</td><td><code>TETRA 4</code> uses four tetrahedral directions. <code>CUBE 8</code> adds their opposites.</td></tr>
-            <tr><td>LISTENING</td><td><code>LOCAL</code> associates lobes with nearby ears; <code>CROSS</code> rotates those associations; <code>DIFFUSE</code> uses a normalized signed mixture; <code>ROAMING</code> continuously interpolates the dominant ear.</td></tr>
+            <tr><td>LISTENING</td><td>Sets the topology used by both the response ecology and neural return. <code>LOCAL</code> follows the nearest ear; <code>CROSS</code> listens from the opposing ear; <code>DIFFUSE</code> gives each lane, point, or lobe a stable signed mixture of the whole body; <code>ROAMING</code> continuously interpolates moving read heads across adjacent ears.</td></tr>
+            <tr><td>RESPONSE</td><td><code>CLASSIC</code> preserves the original pulse-to-pulse field-response behavior. <code>RESONATE</code> lets novel directional energy accumulate as charge, accelerate the event clock, admit charged lanes, attract new points, and then be consumed by emitted events. <code>IMPRINT</code> keeps the base clock and lane admissions intact but latches the heard signal into each new grain's pitch, FM index, window, envelope, phase, and bounded waveshape. <code>BALANCE</code> slows an overactive ecology and favors quieter ears, under-heard points, and less saturated lanes.</td></tr>
             <tr><td>FIELD RETURN</td><td>Amount of delayed directional audio entering the neural equations independently of the legacy mono <code>AUDIO FB</code> depth.</td></tr>
             <tr><td>PROPAGATION</td><td>Spreads the ears from the mandatory one-sample causal delay through 180 ms and progressively darkens longer paths.</td></tr>
             <tr><td>FOCUS</td><td>Interpolates from the omnidirectional field component to complete directional HOA decoding.</td></tr>
-            <tr><td>FIELD RESPONSE</td><td>Determines how strongly delayed ear energy governs the next emission probability, spatial point choice, A/B/C lane balance, and formant movement. It never retunes an already active grain.</td></tr>
+            <tr><td>ECOLOGY</td><td>Crossfades from the unlistening synthesis law into the selected listener response. At zero, listener analysis and meters can remain visible while the synthesis result stays identical to listening off.</td></tr>
           </tbody>
         </table>
 
-        <p>The matched factory states <code>Ecology A: Listen Off</code>, <code>Ecology B: Ears Only</code>, and <code>Ecology C: Closed Loop</code> hold the underlying synthesis settings constant. Step through them in order to hear the unlistening reference, pulse-to-pulse field response without neural return, and the complete self-listening feedback ecology.</p>
+        <p>The matched factory states <code>Ecology A: Listen Off</code>, <code>Ecology B: Ears Only</code>, and <code>Ecology C: Closed Loop</code> hold the underlying synthesis settings constant and use <code>RESONATE</code>. Step through them in order to hear the unlistening reference, the ear-driven response ecology without neural return, and the complete self-listening feedback ecology. Because the response laws act directly on event and grain synthesis, listening remains audible even when neural <code>DIRECT</code>, captured-shape mixes, and <code>FIELD RETURN</code> are all zero.</p>
 
-        <p>Both enable and bypass are smoothed. Every return is high-pass conditioned inside the neurons, low-pass conditioned according to propagation distance, normalized during HOA decoding, and bounded before re-entry. Output trim is outside the internal return, so changing final gain does not alter the ecology.</p>
+        <p>Both enable and bypass are smoothed. Every neural return is high-pass conditioned inside the neurons, low-pass conditioned according to propagation distance, normalized during HOA decoding, and bounded before re-entry. Grain imprint is latched at trigger time, so an active pulse does not jump when a moving listener crosses an ear boundary. Output trim is outside the internal return, so changing final gain does not alter the ecology. Projects saved by the previous state version recall <code>CLASSIC</code> automatically.</p>
 
         <h2 id="capture">Neural Capture Utility</h2>
 

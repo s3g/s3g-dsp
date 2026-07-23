@@ -21,10 +21,10 @@ constexpr std::array<AmbiPulsarFactoryPresetInfo, 15> kAmbiPulsarFactoryPresets 
     { "Impulsion", "Clock-synchronous impulse ratios move rhythm into tone." },
     { "Pendular Choir", "Continuous carriers revealed by overlapping pulsaret windows." },
     { "Dust Geometry", "Idle-only subharmonic noise pulses trace a wide field." },
-    { "Axon Choir", "A 64-node tetrahedral ecology hears its direct spatial source." },
-    { "Matrix Organism", "Eight diffuse ears imprint all three captured neural tables." },
-    { "Slew Garden", "A roaming 32-node listener bends lane and captured trajectories." },
-    { "Red Preamp", "Cross-wired field return approaches the unstable edge." },
+    { "Axon Choir", "A 64-node tetrahedral ecology turns heard onsets into future pulsarets." },
+    { "Matrix Organism", "Eight diffuse ears recursively imprint the three pulsaret lanes." },
+    { "Slew Garden", "A roaming 32-node listener balances activity across the field." },
+    { "Red Preamp", "Cross-wired resonance and neural return approach the unstable edge." },
     { "Ecology A: Listen Off", "Reference circuit with directional listening completely switched off." },
     { "Ecology B: Ears Only", "The same circuit listens and bends its lanes while neural return is bypassed." },
     { "Ecology C: Closed Loop", "The same listening field also returns to the 64-node neural ecology." },
@@ -79,6 +79,7 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.listening.propagationMs = 13.0f;
         p.listening.focus = 1.0f;
         p.listening.laneInfluence = 1.0f;
+        p.listening.response = AmbiPulsarListenerResponse::Resonate;
         p.spatialWidth = 1.0f;
         p.orbitDepth = 0.72f;
         p.orbitRateHz = 0.027f;
@@ -124,6 +125,7 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.listening.propagationMs = 7.0f;
         p.listening.focus = 0.86f;
         p.listening.laneInfluence = 0.28f;
+        p.listening.response = AmbiPulsarListenerResponse::Resonate;
         p.spatialWidth = 0.88f;
         p.orbitDepth = 0.62f;
         p.outputGainDb = -18.0f;
@@ -158,6 +160,7 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.listening.propagationMs = 74.0f;
         p.listening.focus = 0.62f;
         p.listening.laneInfluence = 0.68f;
+        p.listening.response = AmbiPulsarListenerResponse::Balance;
         p.spatialWidth = 0.94f;
         p.orbitRateHz = -0.008f;
         p.outputGainDb = -15.0f;
@@ -192,6 +195,7 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.listening.propagationMs = 31.0f;
         p.listening.focus = 0.76f;
         p.listening.laneInfluence = 0.38f;
+        p.listening.response = AmbiPulsarListenerResponse::Imprint;
         p.spatialWidth = 0.76f;
         p.orbitDepth = 0.74f;
         p.outputGainDb = -16.0f;
@@ -222,6 +226,7 @@ inline AmbiPulsarParams ambiPulsarFactoryPreset(uint32_t index)
         p.listening.propagationMs = 19.0f;
         p.listening.focus = 0.72f;
         p.listening.laneInfluence = 0.16f;
+        p.listening.response = AmbiPulsarListenerResponse::Resonate;
         p.spatialWidth = 1.0f;
         p.orbitDepth = 0.28f;
         p.outputGainDb = -17.0f;

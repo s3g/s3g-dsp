@@ -51,6 +51,9 @@ if(APPLE)
   target_link_libraries(s3g_ambi_field_listener_generators_smoke PRIVATE "-framework Accelerate")
 endif()
 
+add_executable(s3g_ambi_wrangler_listener_smoke tests/ambi_wrangler_listener_smoke.cpp)
+target_link_libraries(s3g_ambi_wrangler_listener_smoke PRIVATE s3g_dsp)
+
 add_executable(s3g_vox_builder_smoke tests/vox_builder_smoke.cpp)
 target_link_libraries(s3g_vox_builder_smoke PRIVATE s3g_dsp)
 

@@ -52,6 +52,14 @@ enum class AmbiStochasticDistribution : uint32_t {
     Binary = 6,
 };
 
+enum class AmbiStochasticListenMode : uint32_t {
+    Off = 0u,
+    Local = 1u,
+    Cross = 2u,
+    Diffuse = 3u,
+    Roaming = 4u,
+};
+
 struct AmbiStochasticParams {
     uint32_t order = 3;
     uint32_t voices = 12;
@@ -93,13 +101,28 @@ struct AmbiStochasticParams {
     float centerDistance = 1.0f;
     float spatialFollow = 0.92f;
     float outputGainDb = -6.0f;
-    AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
+    AmbiStochasticListenMode fieldListenMode = AmbiStochasticListenMode::Off;
+    float fieldListenAmount = 0.62f;
 };
 
 struct AmbiStochasticPoint {
     float azimuthDeg = 0.0f;
     float elevationDeg = 0.0f;
     float distance = 1.0f;
+};
+
+struct AmbiStochasticListenerTelemetry {
+    uint32_t pickup = 0u;
+    uint32_t secondaryPickup = 0u;
+    float pickupMix = 0.0f;
+    float response = 0.5f;
+    float energy = 0.0f;
+    float signal = 0.0f;
+    float capture = 0.0f;
+    float mutationRate = 1.0f;
+    float evolutionRate = 1.0f;
+    float fieldClockRate = 1.0f;
+    float cascadeRate = 1.0f;
 };
 
 enum class AmbiStochasticEnvelopeStage : uint8_t {
@@ -204,6 +227,8 @@ struct AmbiStochasticVoice {
     float cascadeExcitation = 0.0f;
     float cascadeDelaySamples = 0.0f;
     float cascadePendingStrength = 0.0f;
+    float listenerCapture = 0.0f;
+    float listenerEvolutionAccumulator = 0.0f;
     bool fieldActive = true;
     int note = 48;
     bool midiGate = false;
@@ -257,6 +282,18 @@ inline const char* ambiStochasticDistributionName(AmbiStochasticDistribution dis
     }
 }
 
+inline const char* ambiStochasticListenModeName(AmbiStochasticListenMode mode)
+{
+    switch (mode) {
+    case AmbiStochasticListenMode::Local: return "LOCAL";
+    case AmbiStochasticListenMode::Cross: return "CROSS";
+    case AmbiStochasticListenMode::Diffuse: return "DIFFUSE";
+    case AmbiStochasticListenMode::Roaming: return "ROAMING";
+    case AmbiStochasticListenMode::Off:
+    default: return "OFF";
+    }
+}
+
 class AmbiStochasticEncoder {
 public:
     void prepare(double sampleRate)
@@ -273,6 +310,7 @@ public:
     {
         fieldListener_.reset();
         topologyPhase_ = 0.0f;
+        fieldListenPhase_ = 0.0f;
         topologySeed_ = 0x7f4a7c15u;
         macroSeed_ = 0x51ed270bu;
         macroCurrent_ = {};
@@ -361,7 +399,9 @@ public:
         params.centerDistance = clamp(params.centerDistance, 0.15f, 2.0f);
         params.spatialFollow = clamp(params.spatialFollow, 0.0f, 1.0f);
         params.outputGainDb = clamp(params.outputGainDb, -60.0f, 6.0f);
-        params.fieldListenMode = sanitizeAmbiFieldListenMode(params.fieldListenMode);
+        params.fieldListenMode = static_cast<AmbiStochasticListenMode>(
+            std::min<uint32_t>(static_cast<uint32_t>(params.fieldListenMode), 4u));
+        params.fieldListenAmount = clamp(params.fieldListenAmount, 0.0f, 1.0f);
 
         const uint32_t oldVoices = params_.voices;
         const uint32_t oldBreakpoints = params_.breakpoints;
@@ -409,6 +449,39 @@ public:
     float globalActivity() const { return globalActivity_; }
     float fieldListenEnvelope(uint32_t lobe) const { return fieldListener_.envelope(lobe); }
     float fieldListenActivity() const { return fieldListener_.activity(); }
+    AmbiStochasticListenerTelemetry fieldListenVoiceTelemetry(uint32_t voice) const
+    {
+        const uint32_t safe = std::min<uint32_t>(voice, params_.voices - 1u);
+        const ListenerVoiceScore score = listenerScoreForVoice(safe);
+        const bool listening = params_.fieldListenMode != AmbiStochasticListenMode::Off;
+        const float capture = listening ? voices_[safe].listenerCapture : 0.0f;
+        AmbiStochasticListenerTelemetry result {};
+        result.pickup = score.pickup;
+        result.secondaryPickup = score.secondaryPickup;
+        result.pickupMix = score.pickupMix;
+        result.response = score.response;
+        result.energy = score.energy;
+        result.signal = score.signal;
+        result.capture = capture;
+        result.mutationRate = listenerMutationRate(capture);
+        result.evolutionRate = listenerEvolutionRate(capture);
+        result.fieldClockRate = listenerFieldClockRate(capture);
+        result.cascadeRate = listenerCascadeRate(capture);
+        return result;
+    }
+    uint32_t fieldListenPickup(uint32_t voice) const
+    {
+        const AmbiStochasticListenerTelemetry telemetry = fieldListenVoiceTelemetry(voice);
+        return telemetry.pickupMix < 0.5f ? telemetry.pickup : telemetry.secondaryPickup;
+    }
+    float fieldListenVoiceResponse(uint32_t voice) const
+    {
+        return fieldListenVoiceTelemetry(voice).response;
+    }
+    float fieldListenVoiceReturn(uint32_t voice) const
+    {
+        return fieldListenVoiceTelemetry(voice).signal;
+    }
     float macroDensityScale() const { return macroCurrent_.density; }
     float macroDurationScale() const { return macroCurrent_.duration; }
     float macroMutationScale() const { return macroCurrent_.mutation; }
@@ -540,6 +613,10 @@ public:
         for (uint32_t chunkStart = 0u; chunkStart < frames; chunkStart += kControlFrames) {
             const uint32_t chunkFrames = std::min<uint32_t>(kControlFrames, frames - chunkStart);
             const float dt = static_cast<float>(chunkFrames / sampleRate_);
+            if (dt > 0.0f) {
+                fieldListenPhase_ = std::fmod(fieldListenPhase_ + 0.071f * dt, 1.0f);
+            }
+            updateListenerCapture(static_cast<float>(chunkFrames));
             updateTopology(dt);
             updateMacroScene(static_cast<float>(chunkFrames));
             updateCascadeState(static_cast<float>(chunkFrames));
@@ -617,6 +694,64 @@ private:
         float mutation = 1.0f;
         float cascade = 1.0f;
     };
+
+    struct ListenerVoiceScore {
+        uint32_t pickup = 0u;
+        uint32_t secondaryPickup = 0u;
+        float pickupMix = 0.0f;
+        float response = 0.5f;
+        float energy = 0.0f;
+        float signal = 0.0f;
+    };
+
+    static float listenerMutationRate(float capture)
+    {
+        return clamp(std::exp(-3.2f * clamp(capture, 0.0f, 1.0f)), 0.04f, 1.0f);
+    }
+
+    static float listenerEvolutionRate(float capture)
+    {
+        return clamp(std::exp(-4.2f * clamp(capture, 0.0f, 1.0f)), 0.03f, 1.0f);
+    }
+
+    static float listenerFieldClockRate(float capture)
+    {
+        return clamp(std::exp(-2.25f * clamp(capture, 0.0f, 1.0f)), 0.15f, 1.0f);
+    }
+
+    static float listenerCascadeRate(float capture)
+    {
+        const float open = 1.0f - clamp(capture, 0.0f, 1.0f);
+        return clamp(open * open * open, 0.02f, 1.0f);
+    }
+
+    void updateListenerCapture(float frames)
+    {
+        if (params_.fieldListenMode == AmbiStochasticListenMode::Off
+            || params_.fieldListenAmount <= 0.000001f) {
+            for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+                voices_[voice].listenerCapture = 0.0f;
+                voices_[voice].listenerEvolutionAccumulator = 0.0f;
+            }
+            return;
+        }
+        const float activity = fieldListener_.activity();
+        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+            auto& state = voices_[voice];
+            const ListenerVoiceScore score = listenerScoreForVoice(voice);
+            const float heardEnergy = clamp(score.energy, 0.0f, 1.0f);
+            const float target = clamp(params_.fieldListenAmount * activity
+                    * heardEnergy * std::sqrt(std::sqrt(heardEnergy)),
+                0.0f, 1.0f);
+            const float smoothingSeconds =
+                target > state.listenerCapture ? 0.14f : 2.20f;
+            const float coefficient = 1.0f - std::exp(-frames
+                / std::max(1.0f, static_cast<float>(sampleRate_) * smoothingSeconds));
+            state.listenerCapture = clamp(state.listenerCapture
+                    + (target - state.listenerCapture) * coefficient,
+                0.0f, 1.0f);
+        }
+    }
 
     static float wrapSignedDeg(float value)
     {
@@ -892,6 +1027,9 @@ private:
         auto& voice = voices_[voiceIndex];
         auto& generator = voice.generators[generatorIndex];
         const Vec3 topology = topologyPosition_[voiceIndex];
+        const float capture = voice.listenerCapture;
+        const float mutationRate = listenerMutationRate(capture);
+        const float velocityRetention = std::exp(-2.0f * capture);
         const float radius = topologyRadius_[voiceIndex];
         const float amplitudeLimit = amplitudePrimaryLimit(topology);
         const float durationLimit = durationPrimaryLimit(topology, generator);
@@ -905,22 +1043,50 @@ private:
             const float amplitudeAcceleration = randomSigned(generator.seed, params_.amplitudeDistribution)
                     * amplitudeLimit * amplitudeDrive
                 + topology.x * amplitudeLimit * 0.055f * params_.amplitudeStep;
-            generator.amplitudePrimary[point] = reflect(generator.amplitudePrimary[point] + amplitudeAcceleration,
-                -amplitudeLimit, amplitudeLimit);
-            generator.amplitudePrimary[point] = lerp(generator.amplitudePrimary[point],
-                neighborGenerator.amplitudePrimary[point], transfer);
-            generator.amplitudes[point] = reflect(generator.amplitudes[point] + generator.amplitudePrimary[point],
-                -1.0f, 1.0f);
+            if (capture <= 0.000001f) {
+                generator.amplitudePrimary[point] = reflect(
+                    generator.amplitudePrimary[point] + amplitudeAcceleration,
+                    -amplitudeLimit, amplitudeLimit);
+                generator.amplitudePrimary[point] = lerp(generator.amplitudePrimary[point],
+                    neighborGenerator.amplitudePrimary[point], transfer);
+                generator.amplitudes[point] = reflect(
+                    generator.amplitudes[point] + generator.amplitudePrimary[point],
+                    -1.0f, 1.0f);
+            } else {
+                generator.amplitudePrimary[point] = reflect(
+                    generator.amplitudePrimary[point] * velocityRetention
+                        + amplitudeAcceleration * mutationRate,
+                    -amplitudeLimit, amplitudeLimit);
+                generator.amplitudePrimary[point] = lerp(generator.amplitudePrimary[point],
+                    neighborGenerator.amplitudePrimary[point], transfer * mutationRate);
+                generator.amplitudes[point] = reflect(generator.amplitudes[point]
+                        + generator.amplitudePrimary[point] * mutationRate,
+                    -1.0f, 1.0f);
+            }
 
             const float durationAcceleration = randomSigned(generator.seed, params_.durationDistribution)
                     * durationLimit * durationDrive
                 + topology.z * durationLimit * 0.045f * params_.durationStep;
-            generator.durationPrimary[point] = reflect(generator.durationPrimary[point] + durationAcceleration,
-                -durationLimit, durationLimit);
-            generator.durationPrimary[point] = lerp(generator.durationPrimary[point],
-                neighborGenerator.durationPrimary[point], transfer * 0.72f);
-            generator.durations[point] = std::max(1.0f,
-                generator.durations[point] + generator.durationPrimary[point]);
+            if (capture <= 0.000001f) {
+                generator.durationPrimary[point] = reflect(
+                    generator.durationPrimary[point] + durationAcceleration,
+                    -durationLimit, durationLimit);
+                generator.durationPrimary[point] = lerp(generator.durationPrimary[point],
+                    neighborGenerator.durationPrimary[point], transfer * 0.72f);
+                generator.durations[point] = std::max(1.0f,
+                    generator.durations[point] + generator.durationPrimary[point]);
+            } else {
+                generator.durationPrimary[point] = reflect(
+                    generator.durationPrimary[point] * velocityRetention
+                        + durationAcceleration * mutationRate,
+                    -durationLimit, durationLimit);
+                generator.durationPrimary[point] = lerp(generator.durationPrimary[point],
+                    neighborGenerator.durationPrimary[point],
+                    transfer * 0.72f * mutationRate);
+                generator.durations[point] = std::max(1.0f,
+                    generator.durations[point]
+                        + generator.durationPrimary[point] * mutationRate);
+            }
         }
         constrainGeneratorPeriod(generator, topology, generatorIndex);
         renderGenerator(generator);
@@ -979,9 +1145,6 @@ private:
             return voice.nextGenerator;
         }
         const Vec3 topology = topologyPosition_[voiceIndex];
-        const float listenAmount = fieldListener_.activity()
-            * (params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 1.0f);
-        const float listenerGenerator = listenerGeneratorTarget();
         uint32_t selected = voice.nextGenerator;
         switch (params_.selection) {
         case AmbiStochasticSelection::Series:
@@ -990,8 +1153,7 @@ private:
             break;
         case AmbiStochasticSelection::Weight: {
             std::array<float, kAmbiStochasticGeneratorCount> weights {};
-            const float topologyTarget = (topology.x * 0.5f + 0.5f) * 3.0f;
-            const float target = lerp(topologyTarget, listenerGenerator, listenAmount * 0.62f);
+            const float target = (topology.x * 0.5f + 0.5f) * 3.0f;
             for (uint32_t generator = 0u; generator < kAmbiStochasticGeneratorCount; ++generator) {
                 const float distance = std::fabs(static_cast<float>(generator) - target);
                 weights[generator] = 0.08f + std::exp(-distance * (1.4f + params_.selectionMemory * 3.8f));
@@ -1000,8 +1162,7 @@ private:
             break;
         }
         case AmbiStochasticSelection::Tendency: {
-            const float topologyTarget = (topology.y * 0.5f + 0.5f) * 3.0f;
-            const float target = lerp(topologyTarget, listenerGenerator, listenAmount * 0.62f);
+            const float target = (topology.y * 0.5f + 0.5f) * 3.0f;
             const float follow = 0.04f + (1.0f - params_.selectionMemory) * 0.32f;
             voice.tendencyCenter += (target - voice.tendencyCenter) * follow;
             std::array<float, kAmbiStochasticGeneratorCount> weights {};
@@ -1019,18 +1180,13 @@ private:
             weights[(current + 1u) & 3u] = 0.45f + std::max(0.0f, topology.x) * 1.8f;
             weights[(current + 3u) & 3u] = 0.45f + std::max(0.0f, -topology.x) * 1.8f;
             weights[(current + 2u) & 3u] = 0.20f + std::fabs(topology.y) * 1.4f;
-            for (uint32_t generator = 0u; generator < kAmbiStochasticGeneratorCount; ++generator) {
-                const float distance = std::fabs(static_cast<float>(generator) - listenerGenerator);
-                weights[generator] += listenAmount * (0.10f + std::exp(-distance * 1.5f) * 2.2f);
-            }
             selected = weightedChoice(voice, weights);
             break;
         }
         case AmbiStochasticSelection::Walk: {
             const float acceleration = randomSigned(voice.seed, params_.durationDistribution)
                     * (0.08f + (1.0f - params_.selectionMemory) * 0.72f)
-                + topology.x * 0.06f
-                + (listenerGenerator - voice.selectorSecondary) * listenAmount * 0.045f;
+                + topology.x * 0.06f;
             voice.selectorPrimary = reflect(voice.selectorPrimary + acceleration, -0.85f, 0.85f);
             voice.selectorSecondary = reflect(voice.selectorSecondary + voice.selectorPrimary, 0.0f, 3.0f);
             selected = static_cast<uint32_t>(std::lround(voice.selectorSecondary));
@@ -1061,6 +1217,20 @@ private:
         voice.currentTable = voice.nextTable;
         voice.currentFrequency = voice.nextFrequency;
         voice.currentGenerator = voice.nextGenerator;
+        if (voice.listenerCapture > 0.000001f) {
+            voice.listenerEvolutionAccumulator += listenerEvolutionRate(
+                voice.listenerCapture);
+            if (voice.listenerEvolutionAccumulator < 1.0f) {
+                voice.nextTable = voice.currentTable;
+                voice.nextFrequency = voice.currentFrequency;
+                voice.nextGenerator = voice.currentGenerator;
+                selectionPulse_[voiceIndex] = 0.0f;
+                return;
+            }
+            voice.listenerEvolutionAccumulator -= 1.0f;
+        } else {
+            voice.listenerEvolutionAccumulator = 0.0f;
+        }
         const uint32_t selected = selectGenerator(voiceIndex);
         evolveGenerator(voiceIndex, selected);
         const auto& selectedGenerator = voice.generators[selected];
@@ -1150,9 +1320,11 @@ private:
         if (params_.neighborTransfer <= 0.0001f || params_.voices < 2u) return;
         auto& source = voices_[sourceIndex];
         const float baseStrength = params_.neighborTransfer
-            * (0.34f + params_.fieldContrast * 0.66f) * macroCurrent_.cascade;
+            * (0.34f + params_.fieldContrast * 0.66f) * macroCurrent_.cascade
+            * listenerCascadeRate(source.listenerCapture);
         const auto scheduleTarget = [&](uint32_t targetIndex, float scale) {
             if (targetIndex == sourceIndex || targetIndex >= params_.voices) return;
+            auto& target = voices_[targetIndex];
             const Vec3 sourcePoint = topologyPosition_[sourceIndex];
             const Vec3 targetPoint = topologyPosition_[targetIndex];
             const float dx = sourcePoint.x - targetPoint.x;
@@ -1160,11 +1332,12 @@ private:
             const float dz = sourcePoint.z - targetPoint.z;
             const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
             const float proximity = clamp(1.0f - distance / 2.4f, 0.12f, 1.0f);
-            const float strength = clamp(baseStrength * scale * proximity, 0.0f, 1.0f);
+            const float strength = clamp(baseStrength * scale * proximity
+                    * listenerCascadeRate(target.listenerCapture),
+                0.0f, 1.0f);
             if (strength <= 0.001f) return;
             const float delaySeconds = 0.015f + std::min(2.4f, distance) * 0.065f
                 + randomUnit(source.seed) * 0.018f;
-            auto& target = voices_[targetIndex];
             const float delaySamples = delaySeconds * static_cast<float>(sampleRate_);
             if (target.cascadePendingStrength <= 0.0001f
                 || delaySamples < target.cascadeDelaySamples) {
@@ -1193,11 +1366,13 @@ private:
             if (voice.cascadePendingStrength <= 0.0001f) continue;
             voice.cascadeDelaySamples -= frames;
             if (voice.cascadeDelaySamples > 0.0f) continue;
+            const float delivered = voice.cascadePendingStrength
+                * listenerCascadeRate(voice.listenerCapture);
             voice.cascadeExcitation = clamp(voice.cascadeExcitation
-                + voice.cascadePendingStrength, 0.0f, 1.5f);
+                + delivered, 0.0f, 1.5f);
             voice.cascadePendingStrength = 0.0f;
             voice.cascadeDelaySamples = 0.0f;
-            cascadePulse_[voiceIndex] = 1.0f;
+            cascadePulse_[voiceIndex] = delivered > 0.001f ? 1.0f : 0.0f;
         }
     }
 
@@ -1217,7 +1392,9 @@ private:
 
         for (uint32_t voiceIndex = 0u; voiceIndex < params_.voices; ++voiceIndex) {
             auto& voice = voices_[voiceIndex];
-            voice.fieldRemainingSamples -= frames;
+            const float fieldFrames = frames
+                * listenerFieldClockRate(voice.listenerCapture);
+            voice.fieldRemainingSamples -= fieldFrames;
             if (voice.fieldRemainingSamples > 0.0f) continue;
             if (voice.fieldActive) {
                 voice.fieldActive = false;
@@ -1232,12 +1409,8 @@ private:
             const Vec3 topology = topologyPosition_[voiceIndex];
             const float topologyBias = topology.y * params_.fieldContrast * 0.13f;
             const float cascadeBias = voice.cascadeExcitation * 0.58f;
-            const float listenerBias = params_.fieldListenMode == AmbiFieldListenMode::Off
-                ? 0.0f
-                : (listenerPreferenceForVoice(voiceIndex) - 0.5f)
-                    * fieldListener_.activity() * 0.62f;
             const float probability = clamp(targetActivity + topologyBias + cascadeBias
-                    + homeostasis + listenerBias,
+                    + homeostasis,
                 0.002f, 0.995f);
             if (randomUnit(voice.seed) < probability) {
                 voice.fieldActive = true;
@@ -1252,7 +1425,8 @@ private:
 
     void updateTopology(float dt)
     {
-        if (dt > 0.0f) topologyPhase_ = std::fmod(topologyPhase_ + params_.topologyRateHz * dt, 1.0f);
+        if (dt > 0.0f) topologyPhase_ = std::fmod(
+            topologyPhase_ + params_.topologyRateHz * dt, 1.0f);
         TopologyState state {};
         state.amount = params_.topologyAmount;
         state.jitter = params_.topologyDepth * 0.24f;
@@ -1299,14 +1473,6 @@ private:
                 static_cast<float>(anchor.y) * (1.0f - depth * 0.32f) + topologySecondary_[voice].y * depth * 0.88f,
                 static_cast<float>(anchor.z) * (1.0f - depth * 0.32f) + topologySecondary_[voice].z * depth * 0.88f
             };
-            const float listenAmount = fieldListener_.activity()
-                * (params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 0.34f);
-            if (listenAmount > 0.0001f) {
-                const Vec3 listenerTarget = listenerTopologyTarget();
-                target.x = lerp(target.x, listenerTarget.x, listenAmount);
-                target.y = lerp(target.y, listenerTarget.y, listenAmount);
-                target.z = lerp(target.z, listenerTarget.z, listenAmount);
-            }
             target.x = clamp(target.x * params_.topologyScale, -1.0f, 1.0f);
             target.y = clamp(target.y * params_.topologyScale, -1.0f, 1.0f);
             target.z = clamp(target.z * params_.topologyScale, -1.0f, 1.0f);
@@ -1400,27 +1566,113 @@ private:
         globalEnergy_ += (average - globalEnergy_) * 0.08f;
     }
 
-    Vec3 listenerTopologyTarget() const
+    uint32_t nearestListenerPickup(Vec3 direction) const
     {
-        const Vec3 direction = fieldListener_.preferredDirection(params_.fieldListenMode);
-        // Topology coordinates map (x,y,z) to (azimuth sine, elevation,
-        // azimuth cosine), while the ambisonic direction is Cartesian.
-        return { direction.y, direction.z, direction.x };
+        direction = normalize(direction);
+        uint32_t selected = 0u;
+        float best = -2.0f;
+        for (uint32_t pickup = 0u; pickup < fieldListener_.count(); ++pickup) {
+            const Vec3 ear = fieldListener_.direction(pickup);
+            const float dot = direction.x * ear.x
+                + direction.y * ear.y + direction.z * ear.z;
+            if (dot > best) {
+                best = dot;
+                selected = pickup;
+            }
+        }
+        return selected;
     }
 
-    float listenerGeneratorTarget() const
+    uint32_t oppositeListenerPickup(uint32_t pickup) const
     {
-        const Vec3 target = listenerTopologyTarget();
-        return clamp((target.x * 0.5f + 0.5f) * 3.0f, 0.0f, 3.0f);
+        if (fieldListener_.count() == 0u) return 0u;
+        pickup = std::min<uint32_t>(pickup, fieldListener_.count() - 1u);
+        const Vec3 direction = fieldListener_.direction(pickup);
+        uint32_t selected = 0u;
+        float best = 2.0f;
+        for (uint32_t candidate = 0u; candidate < fieldListener_.count(); ++candidate) {
+            const Vec3 ear = fieldListener_.direction(candidate);
+            const float dot = direction.x * ear.x
+                + direction.y * ear.y + direction.z * ear.z;
+            if (dot < best) {
+                best = dot;
+                selected = candidate;
+            }
+        }
+        return selected;
     }
 
-    float listenerPreferenceForVoice(uint32_t voice) const
+    ListenerVoiceScore listenerScoreForVoice(uint32_t voice) const
     {
+        ListenerVoiceScore result {};
+        const uint32_t count = fieldListener_.count();
+        const float peak = fieldListener_.peakEnvelope();
+        if (count == 0u || peak < 1.0e-7f
+            || params_.fieldListenMode == AmbiStochasticListenMode::Off) {
+            return result;
+        }
+        voice = std::min<uint32_t>(voice, params_.voices - 1u);
         const AmbiStochasticPoint& point =
-            points_[std::min<uint32_t>(voice, params_.voices - 1u)];
-        return fieldListener_.preference(
-            directionFromAed(point.azimuthDeg, point.elevationDeg),
-            params_.fieldListenMode);
+            points_[voice];
+        const uint32_t local = nearestListenerPickup(
+            directionFromAed(point.azimuthDeg, point.elevationDeg));
+        float envelope = 0.0f;
+        float signal = 0.0f;
+
+        switch (params_.fieldListenMode) {
+        case AmbiStochasticListenMode::Cross:
+            result.pickup = oppositeListenerPickup(local);
+            result.secondaryPickup = result.pickup;
+            envelope = fieldListener_.envelope(result.pickup);
+            signal = fieldListener_.signal(result.pickup);
+            break;
+        case AmbiStochasticListenMode::Diffuse: {
+            result.pickup = voice % count;
+            result.secondaryPickup = result.pickup;
+            float weightSum = 0.0f;
+            for (uint32_t pickup = 0u; pickup < count; ++pickup) {
+                const float weight = 0.38f + 0.62f * (
+                    deterministicSigned(voice * 4051u + pickup * 7919u + 17u) * 0.5f + 0.5f);
+                const float polarity = ((voice + pickup * 3u) & 2u) == 0u ? 1.0f : -0.72f;
+                envelope += fieldListener_.envelope(pickup) * weight;
+                signal += fieldListener_.signal(pickup) * weight * polarity;
+                weightSum += weight;
+            }
+            envelope /= std::max(0.0001f, weightSum);
+            signal /= std::max(0.0001f, weightSum);
+            break;
+        }
+        case AmbiStochasticListenMode::Roaming: {
+            const float position = (fieldListenPhase_ * static_cast<float>(count)
+                + static_cast<float>(voice) * 0.61803398875f);
+            const float wrapped = position - std::floor(position / static_cast<float>(count))
+                * static_cast<float>(count);
+            const uint32_t first = static_cast<uint32_t>(std::floor(wrapped)) % count;
+            const uint32_t second = (first + 1u) % count;
+            const float mix = wrapped - std::floor(wrapped);
+            result.pickup = first;
+            result.secondaryPickup = second;
+            result.pickupMix = mix;
+            envelope = lerp(fieldListener_.envelope(first), fieldListener_.envelope(second), mix);
+            signal = lerp(fieldListener_.signal(first), fieldListener_.signal(second), mix);
+            break;
+        }
+        case AmbiStochasticListenMode::Local:
+        default:
+            result.pickup = local;
+            result.secondaryPickup = result.pickup;
+            envelope = fieldListener_.envelope(result.pickup);
+            signal = fieldListener_.signal(result.pickup);
+            break;
+        }
+
+        const float mean = fieldListener_.meanEnvelope();
+        result.energy = clamp(envelope / peak, 0.0f, 1.0f);
+        result.response = clamp(0.5f + (envelope - mean)
+            / std::max(0.0001f, peak) * 0.5f, 0.0f, 1.0f);
+        result.signal = std::tanh(signal
+            / std::max(0.006f, envelope + 0.006f) * 1.35f);
+        return result;
     }
 
     double sampleRate_ = 48000.0;
@@ -1440,6 +1692,7 @@ private:
     std::array<float, kAmbiStochasticMaxVoices> selectionPulse_ {};
     std::array<float, kAmbiStochasticMaxVoices> cascadePulse_ {};
     float topologyPhase_ = 0.0f;
+    float fieldListenPhase_ = 0.0f;
     uint32_t topologySeed_ = 0x7f4a7c15u;
     uint32_t macroSeed_ = 0x51ed270bu;
     MacroScene macroCurrent_ {};

@@ -46,6 +46,7 @@ struct AmbiRayBilocationParams {
     float doppler = 0.50f;
     float outputGainDb = -9.0f;
     bool bypassRoom = false;
+    AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
 };
 
 inline AmbiRayBilocationParams sanitizeAmbiRayBilocationParams(AmbiRayBilocationParams params)
@@ -77,6 +78,7 @@ inline AmbiRayBilocationParams sanitizeAmbiRayBilocationParams(AmbiRayBilocation
     params.movementMs = clamp(params.movementMs, 10.0f, 500.0f);
     params.doppler = clamp(params.doppler, 0.0f, 2.0f);
     params.outputGainDb = clamp(params.outputGainDb, -60.0f, 12.0f);
+    params.fieldListenMode = sanitizeAmbiFieldListenMode(params.fieldListenMode);
     return params;
 }
 
@@ -140,6 +142,16 @@ public:
     const AmbiRayBilocationParams& params() const { return params_; }
     const AmbiRayDescriptor& descriptorA() const { return descriptorA_; }
     const AmbiRayDescriptor& descriptorB() const { return descriptorB_; }
+    float fieldListenActivityA() const { return encoderA_.fieldListenActivity(); }
+    float fieldListenActivityB() const { return encoderB_.fieldListenActivity(); }
+    float fieldListenWeightA(uint32_t lobe) const
+    {
+        return encoderA_.fieldListenWeight(lobe);
+    }
+    float fieldListenWeightB(uint32_t lobe) const
+    {
+        return encoderB_.fieldListenWeight(lobe);
+    }
 
     void reset()
     {
@@ -234,6 +246,7 @@ private:
             result.doppler = params_.doppler;
             result.outputGainDb = 0.0f;
             result.bypassRoom = params_.bypassRoom;
+            result.fieldListenMode = params_.fieldListenMode;
             return result;
         };
         encoderA_.setParams(makeParams(false));

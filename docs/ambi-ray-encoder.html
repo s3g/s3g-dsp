@@ -49,7 +49,7 @@
 
         <p><code>ATLAS</code> opens nineteen deterministic spaces generated through the Ray Sketch engine. The collection spans architecture, caves, caverns, tunnels, canyons, clearings, focused echo designs, and abstract connected spaces. Each entry is a complete sampled <code>.s3gray</code> field with stable reflection slots, listener-resolvable bounce points, and a directional late profile.</p>
 
-        <p>Choosing an atlas entry loads its map and authored source and reference-listener positions while preserving the order, direct/early/late balance, room shaping, movement smoothing, Doppler amount, bypass, and output gain. Atlas data is embedded into project state exactly like a user-loaded field.</p>
+        <p>Choosing an atlas entry loads its map and authored source and reference-listener positions while preserving the order, direct/early/late balance, room shaping, Field Listen mode, movement smoothing, Doppler amount, bypass, and output gain. Atlas data is embedded into project state exactly like a user-loaded field.</p>
 
         <h2 id="interpretation">Musical Interpretation</h2>
 
@@ -69,6 +69,19 @@
 
         <p>The late field remains a directional room bed interpolated from source cells. Its excitation pre-delay retargets without continuous pitch modulation, so moving the source or listener does not bend the entire reverb tail. Listener motion reshapes direct and early geometry but does not claim a second sampled late-field dimension.</p>
 
+        <h2 id="field-listen">Field Listen</h2>
+
+        <p><code>FIELD LISTEN</code> gives the room response a slow spatial memory. Eight virtual directional microphones analyze only the early and late field after Width; the direct source is excluded. Their envelopes apply bounded, energy-normalized gain changes to the directional early reflections and late lines. This is control feedback rather than an audio feedback loop, so samples are never recirculated and the authored ray geometry, delay, Doppler, decay, and material damping remain unchanged.</p>
+
+        <ul>
+          <li><code>OFF</code> leaves the authored room response fixed.</li>
+          <li><code>FOLLOW</code> reinforces recently dominant reflection corridors and late-field directions, allowing the room's directional character to persist.</li>
+          <li><code>COUNTER</code> transfers that reinforcement toward opposing directions.</li>
+          <li><code>BALANCE</code> restrains dominant directions and favors quieter parts of the room field.</li>
+        </ul>
+
+        <p>The response is most apparent with transient or broadband sources, moving endpoints, and asymmetric spaces such as tunnels, portals, caves, and focused echo networks. Symmetric rooms and sustained material naturally produce a subtler result. Mode changes are smoothed, and <code>OFF</code> is the default for exact legacy behavior.</p>
+
         <h2 id="room-controls">Room Controls</h2>
 
         <ul>
@@ -79,6 +92,7 @@
           <li><code>SCATTER</code> increases reflection variation and diffusion.</li>
           <li><code>WIDTH</code> scales the directional spread of the room response.</li>
           <li><code>AIR</code> adds distance-dependent high-frequency damping.</li>
+          <li><code>FIELD LISTEN</code> selects Off, Follow, Counter, or Balance room-memory behavior.</li>
           <li><code>BYPASS ROOM</code> removes early and late energy while retaining direct spatial encoding.</li>
         </ul>
 
@@ -148,6 +162,7 @@
           <a href="#atlas">Ray Atlas</a>
           <a href="#interpretation">Musical Interpretation</a>
           <a href="#position">Position and Motion</a>
+          <a href="#field-listen">Field Listen</a>
           <a href="#room-controls">Room Controls</a>
           <a href="#routing">Order and Routing</a>
         </div>

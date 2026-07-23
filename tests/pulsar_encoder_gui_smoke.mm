@@ -107,7 +107,7 @@ int main(int argc, char** argv)
             for (uint32_t index = 0u; index < count; ++index) {
                 clap_param_info_t info {};
                 if (params->get_info(plugin, index, &info)
-                    && info.id >= 100u && info.id <= 108u
+                    && info.id >= 100u && info.id <= 109u
                     && std::strcmp(info.module, "Field Listening") == 0) {
                     ++listeningParams;
                 }
@@ -115,25 +115,47 @@ int main(int argc, char** argv)
         }
         double enabled = -1.0;
         double bypass = -1.0;
-        ok = ok && listeningParams == 9u
+        double response = -1.0;
+        ok = ok && listeningParams == 10u
             && params->get_value(plugin, 101u, &enabled)
             && params->get_value(plugin, 102u, &bypass)
-            && enabled == 0.0 && bypass == 0.0;
+            && params->get_value(plugin, 109u, &response)
+            && enabled == 0.0 && bypass == 0.0 && response == 1.0;
         MemoryState savedState;
         clap_ostream_t outputState { &savedState, stateWrite };
         ok = ok && state->save(plugin, &outputState) && savedState.bytes.size() > 100u;
         clap_istream_t inputState { &savedState, stateRead };
         ok = ok && state->load(plugin, &inputState)
             && savedState.readOffset == savedState.bytes.size();
-        // Version 8 appended a 36-byte listening suffix to the parameter
-        // struct. Reconstruct the immediately preceding version-7 stream from
-        // the saved state and verify that its legacy prefix still upgrades.
+        // Version 9 appended the four-byte response law. Reconstruct a version-8
+        // stream and verify that it upgrades to CLASSIC before also checking the
+        // version-7 stream with the complete 40-byte listening suffix removed.
         constexpr size_t kStateHeaderSize = sizeof(uint32_t);
         constexpr size_t kStateTailSize = sizeof(uint32_t) + sizeof(int32_t)
             + sizeof(float) + 64u;
+        constexpr size_t kResponseSuffixSize =
+            sizeof(s3g::AmbiPulsarListenerResponse);
         constexpr size_t kListeningSuffixSize = sizeof(s3g::AmbiPulsarListeningParams);
         if (ok && savedState.bytes.size() > kStateHeaderSize + kStateTailSize + kListeningSuffixSize) {
             const size_t paramsSize = savedState.bytes.size() - kStateHeaderSize - kStateTailSize;
+            MemoryState version8State;
+            const uint32_t version8 = 8u;
+            const auto* version8Bytes = reinterpret_cast<const uint8_t*>(&version8);
+            version8State.bytes.insert(version8State.bytes.end(), version8Bytes,
+                version8Bytes + sizeof(version8));
+            version8State.bytes.insert(version8State.bytes.end(),
+                savedState.bytes.begin() + kStateHeaderSize,
+                savedState.bytes.begin() + kStateHeaderSize
+                    + paramsSize - kResponseSuffixSize);
+            version8State.bytes.insert(version8State.bytes.end(),
+                savedState.bytes.begin() + kStateHeaderSize + paramsSize,
+                savedState.bytes.end());
+            clap_istream_t version8Input { &version8State, stateRead };
+            ok = state->load(plugin, &version8Input)
+                && version8State.readOffset == version8State.bytes.size()
+                && params->get_value(plugin, 109u, &response)
+                && response == 0.0;
+
             MemoryState legacyState;
             const uint32_t version7 = 7u;
             const auto* versionBytes = reinterpret_cast<const uint8_t*>(&version7);
@@ -150,7 +172,8 @@ int main(int argc, char** argv)
                 && legacyState.readOffset == legacyState.bytes.size()
                 && params->get_value(plugin, 101u, &enabled)
                 && params->get_value(plugin, 102u, &bypass)
-                && enabled == 0.0 && bypass == 0.0;
+                && params->get_value(plugin, 109u, &response)
+                && enabled == 0.0 && bypass == 0.0 && response == 1.0;
         } else {
             ok = false;
         }

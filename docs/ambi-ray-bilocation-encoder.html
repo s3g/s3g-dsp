@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Ambi Ray Bilocation Encoder - s3g-dsp</title>
-    <meta name="description" content="Dual-space ambisonic Ray encoder with permeable transitions, room memory, contrasting atlas pairs, and linked spatial motion.">
+    <meta name="description" content="Dual-space ambisonic Ray encoder with permeable transitions, independent field listening, contrasting atlas pairs, and linked spatial motion.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -46,6 +46,12 @@
 
         <p><code>SEPARATION</code> rotates the complete A and B ambisonic scenes in opposite directions. At zero degrees the fields share one directional frame. Larger settings unfold them toward opposing regions without changing either room's path lengths.</p>
 
+        <h2 id="field-listen">Field Listen</h2>
+
+        <p>Field Listen runs independently inside the two linked Ray encoders. Each space analyzes only its own early and late response after that branch's Width and Separation rotation; neither direct path participates. <code>FOLLOW</code> therefore reinforces the recently dominant character of A and B separately rather than making both spaces converge on one shared response. <code>COUNTER</code> favors opposing arrivals, while <code>BALANCE</code> restrains dominant regions.</p>
+
+        <p>The two control-feedback loops remain bounded and energy-normalized. They alter directional room gains without changing either field's geometry, delays, Doppler, decay, or the bilocation send and return-memory topology. <code>OFF</code> preserves the fixed authored responses and is the default.</p>
+
         <h2 id="motion">Position Mapping</h2>
 
         <p>The two large maps show both acoustic worlds at once. Drag either map to set shared normalized source or listener X/Y, select <code>SRC</code> or <code>LIS</code> at the central membrane, and use the Z controls below. Coordinates are mapped independently into each field's navigation bounds.</p>
@@ -73,6 +79,7 @@
           <tbody>
             <tr><td>DIRECT / EARLY / LATE</td><td>Set the shared component balance.</td></tr>
             <tr><td>SIZE / SCATTER / WIDTH / AIR</td><td>Set the independent character of each space.</td></tr>
+            <tr><td>FIELD LISTEN</td><td>Selects Off, Follow, Counter, or Balance for two independent room-only listening loops.</td></tr>
             <tr><td>ORDER</td><td>Selects first through seventh order. Direct energy uses the selected order; both room fields use up to third order.</td></tr>
             <tr><td>BYPASS ROOM</td><td>Removes early and late energy in both fields while preserving the two direct encodings.</td></tr>
             <tr><td>OUTPUT</td><td>Sets final gain after a shared linked safety stage protects the combined ambisonic field.</td></tr>
@@ -142,6 +149,7 @@
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
           <a href="#topology">Bilocation Topology</a>
+          <a href="#field-listen">Field Listen</a>
           <a href="#motion">Position Mapping</a>
           <a href="#pairs">Contrasting Pairs</a>
           <a href="#controls">Controls</a>

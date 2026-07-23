@@ -37,7 +37,7 @@ constexpr uint32_t kOutputChannels = 64u;
 constexpr uint32_t kGuiWidth = 1240u;
 constexpr uint32_t kGuiHeight = 900u;
 constexpr uint32_t kStateMagic = 0x5347424cu;
-constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kStateVersion = 2u;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-ray-bilocation-encoder";
 constexpr const char* kPluginName = "s3g Ambi Ray Bilocation Encoder";
 constexpr const char* kPluginDesc = "One mono source simultaneously inhabiting two contrasting ambisonic ray fields.";
@@ -70,6 +70,7 @@ enum ParamId : clap_id {
     kParamDoppler,
     kParamOutput,
     kParamBypass,
+    kParamFieldListen,
 };
 
 struct PairPreset {
@@ -111,6 +112,75 @@ struct FieldState {
     std::string json;
     std::string name = "BUILT-IN ROOM";
 };
+
+struct SavedAmbiRayBilocationParamsV1 {
+    uint32_t order = 3u;
+    float sourceX = 0.5f;
+    float sourceY = 0.25f;
+    float sourceZ = 0.5f;
+    float listenerX = 0.5f;
+    float listenerY = 0.5f;
+    float listenerZ = 0.5f;
+    float place = 0.5f;
+    float permeability = 0.65f;
+    float memorySeconds = 2.0f;
+    float separationDeg = 90.0f;
+    s3g::AmbiRayBilocationMapMode mapMode =
+        s3g::AmbiRayBilocationMapMode::Linked;
+    float direct = 1.0f;
+    float early = 0.72f;
+    float late = 0.42f;
+    float sizeA = 0.90f;
+    float sizeB = 1.20f;
+    float scatterA = 0.30f;
+    float scatterB = 0.70f;
+    float widthA = 0.90f;
+    float widthB = 1.15f;
+    float airA = 0.12f;
+    float airB = 0.48f;
+    float movementMs = 60.0f;
+    float doppler = 0.50f;
+    float outputGainDb = -9.0f;
+    bool bypassRoom = false;
+};
+
+static_assert(sizeof(SavedAmbiRayBilocationParamsV1) == 108u,
+    "Ambi Ray Bilocation v1 compatibility requires the previous parameter layout");
+
+s3g::AmbiRayBilocationParams paramsFromV1(
+    const SavedAmbiRayBilocationParamsV1& saved)
+{
+    s3g::AmbiRayBilocationParams params;
+    params.order = saved.order;
+    params.sourceX = saved.sourceX;
+    params.sourceY = saved.sourceY;
+    params.sourceZ = saved.sourceZ;
+    params.listenerX = saved.listenerX;
+    params.listenerY = saved.listenerY;
+    params.listenerZ = saved.listenerZ;
+    params.place = saved.place;
+    params.permeability = saved.permeability;
+    params.memorySeconds = saved.memorySeconds;
+    params.separationDeg = saved.separationDeg;
+    params.mapMode = saved.mapMode;
+    params.direct = saved.direct;
+    params.early = saved.early;
+    params.late = saved.late;
+    params.sizeA = saved.sizeA;
+    params.sizeB = saved.sizeB;
+    params.scatterA = saved.scatterA;
+    params.scatterB = saved.scatterB;
+    params.widthA = saved.widthA;
+    params.widthB = saved.widthB;
+    params.airA = saved.airA;
+    params.airB = saved.airB;
+    params.movementMs = saved.movementMs;
+    params.doppler = saved.doppler;
+    params.outputGainDb = saved.outputGainDb;
+    params.bypassRoom = saved.bypassRoom;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+    return params;
+}
 
 struct SavedStateHeader {
     uint32_t magic = kStateMagic;
@@ -201,6 +271,10 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kParamDoppler: p.doppler = static_cast<float>(value); break;
     case kParamOutput: p.outputGainDb = static_cast<float>(value); break;
     case kParamBypass: p.bypassRoom = value >= 0.5; break;
+    case kParamFieldListen:
+        p.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(
+            static_cast<uint32_t>(std::lround(value)));
+        break;
     default: return;
     }
     p = s3g::sanitizeAmbiRayBilocationParams(p);
@@ -238,6 +312,7 @@ double getParam(const Plugin& plugin, clap_id id)
     case kParamDoppler: return p.doppler;
     case kParamOutput: return p.outputGainDb;
     case kParamBypass: return p.bypassRoom ? 1.0 : 0.0;
+    case kParamFieldListen: return static_cast<uint32_t>(p.fieldListenMode);
     default: return 0.0;
     }
 }
@@ -415,7 +490,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 
 const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 
-uint32_t paramsCount(const clap_plugin_t*) { return 27u; }
+uint32_t paramsCount(const clap_plugin_t*) { return 28u; }
 
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
@@ -461,13 +536,14 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     case 26:
         info->flags |= CLAP_PARAM_IS_BYPASS;
         return set(kParamBypass, "Bypass room", "Output", 0, 1, 0, true);
+    case 27: return set(kParamFieldListen, "Field listen", "Room", 0, 3, 0, true);
     default: return false;
     }
 }
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
-    if (!value || id < kParamOrder || id > kParamBypass) return false;
+    if (!value || id < kParamOrder || id > kParamFieldListen) return false;
     *value = getParam(*self(plugin), id);
     return true;
 }
@@ -497,13 +573,20 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     case kParamMovement: std::snprintf(display, size, "%.0f ms", value); return true;
     case kParamOutput: std::snprintf(display, size, "%+.1f dB", value); return true;
     case kParamBypass: std::snprintf(display, size, "%s", value >= 0.5 ? "On" : "Off"); return true;
+    case kParamFieldListen: {
+        static constexpr const char* names[] { "Off", "Follow", "Counter", "Balance" };
+        const uint32_t index = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 0u, 3u);
+        std::snprintf(display, size, "%s", names[index]);
+        return true;
+    }
     default: return false;
     }
 }
 
 bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
-    if (!display || !value || id < kParamOrder || id > kParamBypass) return false;
+    if (!display || !value || id < kParamOrder || id > kParamFieldListen) return false;
     if (id == kParamMapMode) {
         for (uint32_t mode = 0u; mode < 4u; ++mode) {
             if (std::strstr(display, mapModeName(mode))) { *value = mode; return true; }
@@ -519,6 +602,12 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     case kParamBypass:
         *value = (display[0] == 'O' || display[0] == 'o')
             && (display[1] == 'N' || display[1] == 'n') ? 1.0 : 0.0;
+        break;
+    case kParamFieldListen:
+        if (display[0] == 'F' || display[0] == 'f') *value = 1.0;
+        else if (display[0] == 'C' || display[0] == 'c') *value = 2.0;
+        else if (display[0] == 'B' || display[0] == 'b') *value = 3.0;
+        else *value = std::atof(display);
         break;
     default: *value = parsed; break;
     }
@@ -557,14 +646,31 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
-    SavedStateHeader header;
-    if (!streamReadAll(stream, &header, sizeof(header)) || header.magic != kStateMagic || header.version != kStateVersion) return false;
+    uint32_t magic = 0u;
+    uint32_t version = 0u;
+    if (!streamReadAll(stream, &magic, sizeof(magic))
+        || !streamReadAll(stream, &version, sizeof(version))
+        || magic != kStateMagic) return false;
+    s3g::AmbiRayBilocationParams loadedParams;
+    uint32_t jsonBytesA = 0u;
+    uint32_t jsonBytesB = 0u;
+    if (version == 1u) {
+        SavedAmbiRayBilocationParamsV1 saved;
+        if (!streamReadAll(stream, &saved, sizeof(saved))) return false;
+        loadedParams = paramsFromV1(saved);
+    } else if (version == kStateVersion) {
+        if (!streamReadAll(stream, &loadedParams, sizeof(loadedParams))) return false;
+    } else {
+        return false;
+    }
+    if (!streamReadAll(stream, &jsonBytesA, sizeof(jsonBytesA))
+        || !streamReadAll(stream, &jsonBytesB, sizeof(jsonBytesB))) return false;
 #if defined(__APPLE__)
-    if (header.jsonBytesA > s3g::ray_field_loader::kMaximumJsonBytes
-        || header.jsonBytesB > s3g::ray_field_loader::kMaximumJsonBytes) return false;
+    if (jsonBytesA > s3g::ray_field_loader::kMaximumJsonBytes
+        || jsonBytesB > s3g::ray_field_loader::kMaximumJsonBytes) return false;
 #endif
     auto* instance = self(plugin);
-    instance->params = s3g::sanitizeAmbiRayBilocationParams(header.params);
+    instance->params = s3g::sanitizeAmbiRayBilocationParams(loadedParams);
     FieldState fieldA;
     FieldState fieldB;
     auto readField = [&](uint32_t bytes, FieldState& field, const char* name) {
@@ -582,9 +688,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         return false;
 #endif
     };
-    if (!readField(header.jsonBytesA, fieldA, "PROJECT A") || !readField(header.jsonBytesB, fieldB, "PROJECT B")) return false;
-    if (header.jsonBytesA == 0u) fieldA = instance->fieldA;
-    if (header.jsonBytesB == 0u) fieldB = instance->fieldB;
+    if (!readField(jsonBytesA, fieldA, "PROJECT A")
+        || !readField(jsonBytesB, fieldB, "PROJECT B")) return false;
+    if (jsonBytesA == 0u) fieldA = instance->fieldA;
+    if (jsonBytesB == 0u) fieldB = instance->fieldB;
     std::string error;
     if (!installFields(*instance, std::move(fieldA), std::move(fieldB), "PROJECT PAIR", -1, error)) return false;
     if (auto* processor = instance->activeProcessor.load(std::memory_order_acquire)) processor->setParams(instance->params);
@@ -691,6 +798,11 @@ NSRect loadBButtonRect() { return NSMakeRect(1146, 36, 68, 18); }
 NSRect sourceModeRect() { return NSMakeRect(594, 78, 52, 20); }
 NSRect listenerModeRect() { return NSMakeRect(594, 104, 52, 20); }
 NSRect placeTrackRect() { return NSMakeRect(36, 616, 1168, 12); }
+NSRect fieldListenButtonRect(uint32_t mode)
+{
+    return NSMakeRect(1080 + static_cast<CGFloat>(mode) * 35.0, 840, 32, 17);
+}
+NSRect bypassButtonRect() { return NSMakeRect(1098, 868, 54, 15); }
 
 struct SliderLayout {
     clap_id id = CLAP_INVALID_ID;
@@ -1340,7 +1452,18 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
     s3g::clap_gui::drawPanelFrame(1028, 656, 200, 230, style);
     s3g::clap_gui::drawPanelHeader(@"FIELD / OUTPUT", true, 1028, 656, 200, 21, labelAttrs, style);
     for (const auto& layout : sliderLayouts()) [self drawSlider:layout params:snapshot.params attrs:valueAttrs style:style];
-    s3g::clap_gui::drawToggle(@"BYP", snapshot.params.bypassRoom, 848, labelAttrs, valueAttrs, style, 1044, 1098, 54);
+    [@"LST" drawAtPoint:NSMakePoint(1044, 841) withAttributes:labelAttrs];
+    static NSString* listenLabels[] = { @"OFF", @"FOL", @"CTR", @"BAL" };
+    const uint32_t listenMode =
+        static_cast<uint32_t>(snapshot.params.fieldListenMode);
+    const NSRect outputPanel = NSMakeRect(1028, 656, 200, 230);
+    for (uint32_t mode = 0u; mode < 4u; ++mode) {
+        s3g::clap_gui::drawHeaderButton(
+            fieldListenButtonRect(mode), outputPanel, listenLabels[mode],
+            mode == listenMode, valueAttrs, style);
+    }
+    s3g::clap_gui::drawToggle(@"BYP", snapshot.params.bypassRoom, 869,
+        labelAttrs, valueAttrs, style, 1044, 1098, 54);
 
     if (_pairMenuOpen) {
         NSString* names[kPairPresets.size()];
@@ -1422,8 +1545,14 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
     if (NSPointInRect(point, loadBButtonRect())) { [self loadField:2]; return; }
     if (NSPointInRect(point, sourceModeRect())) { _editListener = false; [self setNeedsDisplay:YES]; return; }
     if (NSPointInRect(point, listenerModeRect())) { _editListener = true; [self setNeedsDisplay:YES]; return; }
-    if (NSPointInRect(point, NSMakeRect(1090, 840, 80, 28))) {
+    if (NSPointInRect(point, NSInsetRect(bypassButtonRect(), -4, -3))) {
         [self setParam:kParamBypass value:_plugin->params.bypassRoom ? 0.0 : 1.0]; return;
+    }
+    for (uint32_t mode = 0u; mode < 4u; ++mode) {
+        if (NSPointInRect(point, fieldListenButtonRect(mode))) {
+            [self setParam:kParamFieldListen value:mode];
+            return;
+        }
     }
     if (NSPointInRect(point, NSInsetRect(placeTrackRect(), -8, -8))) {
         _dragParam = kParamPlace; [self updateSlider:_dragParam point:point]; return;

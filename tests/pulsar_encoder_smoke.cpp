@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 
 namespace {
 
@@ -54,7 +55,9 @@ bool testFactoryPresets()
         || listenOff.listening.fieldReturn != earsOnly.listening.fieldReturn
         || earsOnly.listening.fieldReturn != closedLoop.listening.fieldReturn
         || listenOff.listening.laneInfluence != earsOnly.listening.laneInfluence
-        || earsOnly.listening.laneInfluence != closedLoop.listening.laneInfluence) {
+        || earsOnly.listening.laneInfluence != closedLoop.listening.laneInfluence
+        || listenOff.listening.response != earsOnly.listening.response
+        || earsOnly.listening.response != closedLoop.listening.response) {
         std::cerr << "Pulsar listening proof presets are not a matched OFF/EARS/LOOP set\n";
         return false;
     }
@@ -238,6 +241,7 @@ bool testSanitizationAndQuality()
     unsafe.listening.propagationMs = 999.0f;
     unsafe.listening.focus = -1.0f;
     unsafe.listening.laneInfluence = 99.0f;
+    unsafe.listening.response = static_cast<s3g::AmbiPulsarListenerResponse>(99u);
     const auto safe = s3g::sanitizeAmbiPulsarParams(unsafe);
     if (safe.order != 7u || safe.emissionHz != 0.05f || safe.sieveModulo != 1u
         || safe.sieveResidue != 0u || safe.lanes[0].overlap != 8.0f
@@ -253,7 +257,8 @@ bool testSanitizationAndQuality()
         || safe.listening.pickupSet != s3g::AmbiPulsarPickupSet::Cube8
         || safe.listening.mode != s3g::AmbiPulsarListeningMode::Roaming
         || safe.listening.fieldReturn != 1.0f || safe.listening.propagationMs != 180.0f
-        || safe.listening.focus != 0.0f || safe.listening.laneInfluence != 1.0f) {
+        || safe.listening.focus != 0.0f || safe.listening.laneInfluence != 1.0f
+        || safe.listening.response != s3g::AmbiPulsarListenerResponse::Balance) {
         std::cerr << "Pulsar parameter sanitization failed\n";
         return false;
     }
@@ -1030,6 +1035,192 @@ bool testAmbisonicSelfListening()
     return true;
 }
 
+bool testListenerEcologyResponses()
+{
+    s3g::AmbiPulsarParams base {};
+    base.order = 1u;
+    base.points = 8u;
+    base.emissionHz = 42.0f;
+    base.emissionModDepth = 0.0f;
+    base.probability = 1.0f;
+    base.burstOn = 8u;
+    base.burstOff = 0u;
+    base.sieveModulo = 1u;
+    base.pointRandomness = 0.0f;
+    base.formantModDepthSemitones = 0.0f;
+    base.formantScatterSemitones = 0.0f;
+    base.phaseScatter = 0.0f;
+    base.lanes[0] = { 118.0f, 1.7f, 0.74f, 0.00f, s3g::AmbiPulsarWaveform::Sine };
+    base.lanes[1] = { 472.0f, 1.1f, 0.58f, 0.17f, s3g::AmbiPulsarWaveform::Overtone };
+    base.lanes[2] = { 1888.0f, 0.72f, 0.42f, 0.39f, s3g::AmbiPulsarWaveform::Triangle };
+    base.motionMode = s3g::AmbiPulsarMotionMode::Orbit;
+    base.spatialWidth = 1.0f;
+    base.orbitDepth = 0.48f;
+    base.orbitRateHz = 0.061f;
+    base.outputGainDb = -15.0f;
+    base.neuralLevel = 0.0f;
+    base.neuralPulsaretMix = 0.0f;
+    base.neuralEnvelopeMix = 0.0f;
+    base.neuralFmDepthSemitones = 0.0f;
+    base.neural.audioFeedback = 0.0f;
+    base.listening.neuralSet = s3g::AmbiPulsarNeuralSet::Nodes16;
+    base.listening.enabled = 1u;
+    base.listening.bypass = 1u;
+    base.listening.pickupSet = s3g::AmbiPulsarPickupSet::Cube8;
+    base.listening.mode = s3g::AmbiPulsarListeningMode::Local;
+    base.listening.fieldReturn = 0.0f;
+    base.listening.propagationMs = 8.0f;
+    base.listening.focus = 1.0f;
+    base.listening.laneInfluence = 0.92f;
+    base.listening.response = s3g::AmbiPulsarListenerResponse::Resonate;
+
+    auto crossParams = base;
+    crossParams.listening.mode = s3g::AmbiPulsarListeningMode::Cross;
+    auto diffuseParams = base;
+    diffuseParams.listening.mode = s3g::AmbiPulsarListeningMode::Diffuse;
+    auto roamingParams = base;
+    roamingParams.listening.mode = s3g::AmbiPulsarListeningMode::Roaming;
+    auto imprintParams = base;
+    imprintParams.listening.response = s3g::AmbiPulsarListenerResponse::Imprint;
+    auto balanceParams = base;
+    balanceParams.listening.response = s3g::AmbiPulsarListenerResponse::Balance;
+    auto offParams = base;
+    offParams.listening.enabled = 0u;
+    offParams.listening.laneInfluence = 0.0f;
+    offParams.listening.response = s3g::AmbiPulsarListenerResponse::Imprint;
+    auto zeroParams = offParams;
+    zeroParams.listening.enabled = 1u;
+
+    auto makeEncoder = [](const s3g::AmbiPulsarParams& params) {
+        auto encoder = std::make_unique<s3g::AmbiPulsarEncoder>();
+        encoder->prepare(48000.0);
+        encoder->setParams(params);
+        encoder->reset();
+        return encoder;
+    };
+    auto resonate = makeEncoder(base);
+    auto cross = makeEncoder(crossParams);
+    auto diffuse = makeEncoder(diffuseParams);
+    auto roaming = makeEncoder(roamingParams);
+    auto imprint = makeEncoder(imprintParams);
+    auto balance = makeEncoder(balanceParams);
+    auto off = makeEncoder(offParams);
+    auto zero = makeEncoder(zeroParams);
+
+    Buffer resonateBuffer {};
+    Buffer crossBuffer {};
+    Buffer diffuseBuffer {};
+    Buffer roamingBuffer {};
+    Buffer imprintBuffer {};
+    Buffer balanceBuffer {};
+    Buffer offBuffer {};
+    Buffer zeroBuffer {};
+    const auto pointers = [](Buffer& buffer) {
+        std::array<float*, s3g::kAmbiPulsarMaxChannels> result {};
+        for (uint32_t channel = 0u; channel < result.size(); ++channel) {
+            result[channel] = buffer[channel].data();
+        }
+        return result;
+    };
+    auto resonateOutputs = pointers(resonateBuffer);
+    auto crossOutputs = pointers(crossBuffer);
+    auto diffuseOutputs = pointers(diffuseBuffer);
+    auto roamingOutputs = pointers(roamingBuffer);
+    auto imprintOutputs = pointers(imprintBuffer);
+    auto balanceOutputs = pointers(balanceBuffer);
+    auto offOutputs = pointers(offBuffer);
+    auto zeroOutputs = pointers(zeroBuffer);
+
+    double crossDifference = 0.0;
+    double diffuseDifference = 0.0;
+    double roamingDifference = 0.0;
+    double imprintDifference = 0.0;
+    double balanceDifference = 0.0;
+    double zeroDepthDifference = 0.0;
+    float peak = 0.0f;
+    for (uint32_t block = 0u; block < 140u; ++block) {
+        resonate->process(resonateOutputs.data(), 4u, kFrames);
+        cross->process(crossOutputs.data(), 4u, kFrames);
+        diffuse->process(diffuseOutputs.data(), 4u, kFrames);
+        roaming->process(roamingOutputs.data(), 4u, kFrames);
+        imprint->process(imprintOutputs.data(), 4u, kFrames);
+        balance->process(balanceOutputs.data(), 4u, kFrames);
+        off->process(offOutputs.data(), 4u, kFrames);
+        zero->process(zeroOutputs.data(), 4u, kFrames);
+        for (uint32_t channel = 0u; channel < 4u; ++channel) {
+            for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                const float values[] {
+                    resonateBuffer[channel][frame], crossBuffer[channel][frame],
+                    diffuseBuffer[channel][frame], roamingBuffer[channel][frame],
+                    imprintBuffer[channel][frame], balanceBuffer[channel][frame],
+                    offBuffer[channel][frame], zeroBuffer[channel][frame]
+                };
+                for (float value : values) {
+                    if (!std::isfinite(value)) {
+                        std::cerr << "Pulsar listener ecology generated a non-finite sample\n";
+                        return false;
+                    }
+                    peak = std::max(peak, std::fabs(value));
+                }
+                zeroDepthDifference += std::fabs(
+                    offBuffer[channel][frame] - zeroBuffer[channel][frame]);
+                if (block >= 30u) {
+                    crossDifference += std::fabs(
+                        resonateBuffer[channel][frame] - crossBuffer[channel][frame]);
+                    diffuseDifference += std::fabs(
+                        resonateBuffer[channel][frame] - diffuseBuffer[channel][frame]);
+                    roamingDifference += std::fabs(
+                        resonateBuffer[channel][frame] - roamingBuffer[channel][frame]);
+                    imprintDifference += std::fabs(
+                        resonateBuffer[channel][frame] - imprintBuffer[channel][frame]);
+                    balanceDifference += std::fabs(
+                        resonateBuffer[channel][frame] - balanceBuffer[channel][frame]);
+                }
+            }
+        }
+    }
+
+    float charge = 0.0f;
+    float novelty = 0.0f;
+    for (uint32_t pickup = 0u; pickup < s3g::kAmbiPulsarListeningPickups; ++pickup) {
+        charge += resonate->listeningPickupCharge(pickup);
+        novelty += resonate->listeningPickupNovelty(pickup);
+    }
+    bool selectiveLanes = false;
+    for (uint32_t lane = 0u; lane < s3g::kAmbiPulsarLanes; ++lane) {
+        selectiveLanes = selectiveLanes
+            || resonate->laneTriggerCount(lane) + 2u < resonate->emittedEventCount();
+    }
+    float imprintDepth = 0.0f;
+    for (uint32_t lane = 0u; lane < s3g::kAmbiPulsarLanes; ++lane) {
+        imprintDepth = std::max(imprintDepth, imprint->lastListenerImprint(lane));
+    }
+    if (!(peak > 1.0e-5f) || peak > 4.0f
+        || zeroDepthDifference > 1.0e-7
+        || !(crossDifference > 1.0)
+        || !(diffuseDifference > 1.0)
+        || !(roamingDifference > 1.0)
+        || !(imprintDifference > 1.0)
+        || !(balanceDifference > 1.0)
+        || !(charge > 1.0e-4f) || !(novelty > 1.0e-4f)
+        || !selectiveLanes || !(imprintDepth > 0.02f)
+        || resonate->emittedEventCount() == imprint->emittedEventCount()) {
+        std::cerr << "Pulsar listener ecology responses were not causally distinct: "
+                  << peak << ", zero " << zeroDepthDifference
+                  << ", topology " << crossDifference
+                  << " / " << diffuseDifference << " / " << roamingDifference
+                  << ", imprint " << imprintDifference
+                  << ", balance " << balanceDifference
+                  << ", charge " << charge << ", novelty " << novelty
+                  << ", selective " << selectiveLanes
+                  << ", imprint depth " << imprintDepth
+                  << ", events " << resonate->emittedEventCount()
+                  << " / " << imprint->emittedEventCount() << "\n";
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -1047,6 +1238,7 @@ int main()
     if (!testNeuralCircuit()) return 1;
     if (!testNeuralEncoderIntegration()) return 1;
     if (!testAmbisonicSelfListening()) return 1;
+    if (!testListenerEcologyResponses()) return 1;
     std::cout << "s3g Pulsar Encoder smoke test passed\n";
     return 0;
 }

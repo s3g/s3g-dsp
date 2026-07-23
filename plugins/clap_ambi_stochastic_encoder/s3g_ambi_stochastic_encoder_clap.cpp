@@ -30,7 +30,7 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiStochasticMaxChannels;
-constexpr uint32_t kStateVersion = 9u;
+constexpr uint32_t kStateVersion = 10u;
 constexpr uint32_t kGuiWidth = 1160u;
 constexpr uint32_t kGuiHeight = 860u;
 constexpr uint32_t kGuiWaveSamples = 256u;
@@ -76,6 +76,7 @@ constexpr clap_id kFrequencyFloorParamId = 38;
 constexpr clap_id kFieldRestParamId = 39;
 constexpr clap_id kMacroDurationParamId = 40;
 constexpr clap_id kFieldListenModeParamId = 41;
+constexpr clap_id kFieldListenAmountParamId = 42;
 
 struct LegacyAmbiStochasticParamsV7 {
     uint32_t order = 3;
@@ -131,6 +132,17 @@ struct SavedState {
     float guiViewZoom = 1.0f;
 };
 
+struct LegacySavedStateV9 {
+    uint32_t version = 9u;
+    std::array<uint8_t, offsetof(s3g::AmbiStochasticParams, fieldListenAmount)> params {};
+    int32_t factoryPresetIndex = 0;
+    char presetName[64] {};
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+};
+
 struct LegacySavedStateV8 {
     uint32_t version = 8u;
     std::array<uint8_t, offsetof(s3g::AmbiStochasticParams, fieldListenMode)> params {};
@@ -163,8 +175,10 @@ struct LegacySavedStateV6 {
 };
 
 static_assert(offsetof(s3g::AmbiStochasticParams, fieldListenMode) == 160u);
-static_assert(sizeof(s3g::AmbiStochasticParams) == 164u);
-static_assert(sizeof(SavedState) == 252u);
+static_assert(offsetof(s3g::AmbiStochasticParams, fieldListenAmount) == 164u);
+static_assert(sizeof(s3g::AmbiStochasticParams) == 168u);
+static_assert(sizeof(SavedState) == 256u);
+static_assert(sizeof(LegacySavedStateV9) == 252u);
 static_assert(sizeof(LegacySavedStateV8) == 248u);
 static_assert(sizeof(LegacySavedStateV7) == 240u);
 static_assert(sizeof(LegacySavedStateV6) == 172u);
@@ -283,6 +297,19 @@ struct Plugin {
     std::array<std::atomic<uint32_t>, s3g::kAmbiStochasticMaxVoices> guiNextGenerator {};
     std::array<std::atomic<uint32_t>, s3g::kAmbiStochasticMaxVoices> guiFieldActive {};
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiFrequency {};
+    std::array<std::atomic<uint32_t>, s3g::kAmbiStochasticMaxVoices> guiListenerPickup {};
+    std::array<std::atomic<uint32_t>, s3g::kAmbiStochasticMaxVoices> guiListenerSecondaryPickup {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiListenerPickupMix {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiListenerResponse {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiListenerEnergy {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiListenerSignal {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiListenerCapture {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiListenerMutationRate {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiListenerEvolutionRate {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiListenerFieldClockRate {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiListenerCascadeRate {};
+    std::array<std::atomic<float>, s3g::kAmbiFieldListenerMaxLobes> guiListenerEnvelope {};
+    std::atomic<float> guiListenerActivity { 0.0f };
     std::array<std::atomic<float>, kGuiWaveSamples> guiCurrentWaveform {};
     std::array<std::atomic<float>, kGuiWaveSamples> guiNextWaveform {};
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxBreakpoints> guiBreakpointPosition {};
@@ -349,8 +376,9 @@ bool assignParam(s3g::AmbiStochasticParams& params, clap_id id, double value)
     case kDistanceParamId: params.centerDistance = static_cast<float>(value); break;
     case kSpatialFollowParamId: params.spatialFollow = static_cast<float>(value); break;
     case kOutputParamId: params.outputGainDb = static_cast<float>(value); break;
-    case kFieldListenModeParamId: params.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(
+    case kFieldListenModeParamId: params.fieldListenMode = static_cast<s3g::AmbiStochasticListenMode>(
         static_cast<uint32_t>(std::lround(value))); break;
+    case kFieldListenAmountParamId: params.fieldListenAmount = static_cast<float>(value); break;
     default: return false;
     }
     return true;
@@ -425,7 +453,8 @@ s3g::AmbiStochasticParams makeSafeRandomParams(Plugin& plugin)
     p.centerDistance = randomRange(seed, 0.82f, 1.34f);
     p.spatialFollow = randomRange(seed, 0.78f, 0.98f);
     p.outputGainDb = -6.0f;
-    p.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(randomChoice(seed, 4u));
+    p.fieldListenMode = static_cast<s3g::AmbiStochasticListenMode>(randomChoice(seed, 5u));
+    p.fieldListenAmount = randomRange(seed, 0.28f, 0.88f);
     plugin.randomSeed = seed;
     return p;
 }
@@ -541,7 +570,24 @@ void publishGuiSnapshot(Plugin& plugin)
         plugin.guiNextGenerator[voice].store(plugin.engine.nextGenerator(voice), std::memory_order_relaxed);
         plugin.guiFieldActive[voice].store(plugin.engine.voiceFieldActive(voice) ? 1u : 0u, std::memory_order_relaxed);
         plugin.guiFrequency[voice].store(plugin.engine.voiceFrequency(voice), std::memory_order_relaxed);
+        const auto listening = plugin.engine.fieldListenVoiceTelemetry(voice);
+        plugin.guiListenerPickup[voice].store(listening.pickup, std::memory_order_relaxed);
+        plugin.guiListenerSecondaryPickup[voice].store(listening.secondaryPickup, std::memory_order_relaxed);
+        plugin.guiListenerPickupMix[voice].store(listening.pickupMix, std::memory_order_relaxed);
+        plugin.guiListenerResponse[voice].store(listening.response, std::memory_order_relaxed);
+        plugin.guiListenerEnergy[voice].store(listening.energy, std::memory_order_relaxed);
+        plugin.guiListenerSignal[voice].store(listening.signal, std::memory_order_relaxed);
+        plugin.guiListenerCapture[voice].store(listening.capture, std::memory_order_relaxed);
+        plugin.guiListenerMutationRate[voice].store(listening.mutationRate, std::memory_order_relaxed);
+        plugin.guiListenerEvolutionRate[voice].store(listening.evolutionRate, std::memory_order_relaxed);
+        plugin.guiListenerFieldClockRate[voice].store(listening.fieldClockRate, std::memory_order_relaxed);
+        plugin.guiListenerCascadeRate[voice].store(listening.cascadeRate, std::memory_order_relaxed);
     }
+    for (uint32_t ear = 0u; ear < s3g::kAmbiFieldListenerMaxLobes; ++ear) {
+        plugin.guiListenerEnvelope[ear].store(
+            plugin.engine.fieldListenEnvelope(ear), std::memory_order_relaxed);
+    }
+    plugin.guiListenerActivity.store(plugin.engine.fieldListenActivity(), std::memory_order_relaxed);
     plugin.guiGlobalEnergy.store(plugin.engine.globalEnergy(), std::memory_order_relaxed);
     plugin.guiGlobalKinetic.store(plugin.engine.globalKinetic(), std::memory_order_relaxed);
     const uint32_t selected = std::min<uint32_t>(plugin.guiSelectedVoice.load(std::memory_order_relaxed),
@@ -786,7 +832,8 @@ constexpr ParamDef kParams[] {
     { kOutputParamId, "Output", -60.0, 6.0, -6.0, false },
     { kFieldRestParamId, "Minimum Rest", 0.02, 8.0, 0.12, false },
     { kMacroDurationParamId, "Macro Duration", 2.0, 300.0, 24.0, false },
-    { kFieldListenModeParamId, "Field Listener", 0.0, 3.0, 0.0, true },
+    { kFieldListenModeParamId, "Field Listener", 0.0, 4.0, 0.0, true },
+    { kFieldListenAmountParamId, "Listener Capture", 0.0, 1.0, 0.62, false },
 };
 
 struct PresetJsonField {
@@ -836,9 +883,10 @@ constexpr std::array<PresetJsonField, std::size(kParams)> kPresetJsonFields {{
     { kFieldRestParamId, "field_rest_seconds" },
     { kMacroDurationParamId, "macro_duration_seconds" },
     { kFieldListenModeParamId, "field_listener_mode" },
+    { kFieldListenAmountParamId, "field_listener_response" },
 }};
 constexpr uint32_t kLegacyPresetJsonFieldCount = 38u;
-static_assert(kPresetJsonFields.size() == 41u);
+static_assert(kPresetJsonFields.size() == 42u);
 
 const ParamDef* paramDef(clap_id id)
 {
@@ -909,6 +957,7 @@ bool parameterValue(const s3g::AmbiStochasticParams& params, clap_id id, double*
     case kSpatialFollowParamId: *value = params.spatialFollow; return true;
     case kOutputParamId: *value = params.outputGainDb; return true;
     case kFieldListenModeParamId: *value = static_cast<uint32_t>(params.fieldListenMode); return true;
+    case kFieldListenAmountParamId: *value = params.fieldListenAmount; return true;
     default: return false;
     }
 }
@@ -934,9 +983,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     } else if (id == kTopologyMotionParamId) {
         std::snprintf(display, size, "%s", s3g::topologyMotionModeName(static_cast<uint32_t>(std::lround(value))));
     } else if (id == kFieldListenModeParamId) {
-        static constexpr const char* names[] { "OFF", "FOLLOW", "COUNTER", "BALANCE" };
+        static constexpr const char* names[] { "OFF", "LOCAL", "CROSS", "DIFFUSE", "ROAMING" };
         std::snprintf(display, size, "%s", names[std::min<uint32_t>(
-            static_cast<uint32_t>(std::lround(value)), 3u)]);
+            static_cast<uint32_t>(std::lround(value)), 4u)]);
     } else if (id == kOrderParamId) {
         std::snprintf(display, size, "%.0fOA", value);
     } else if (id == kVoicesParamId || id == kBreakpointsParamId) {
@@ -976,13 +1025,16 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     const auto* definition = paramDef(id);
     if (!definition) return false;
     if (id == kFieldListenModeParamId) {
-        static constexpr const char* names[] { "OFF", "FOLLOW", "COUNTER", "BALANCE" };
+        static constexpr const char* names[] { "OFF", "LOCAL", "CROSS", "DIFFUSE", "ROAMING" };
         for (uint32_t index = 0u; index < std::size(names); ++index) {
             if (std::strcmp(display, names[index]) == 0) {
                 *value = static_cast<double>(index);
                 return true;
             }
         }
+        if (std::strcmp(display, "FOLLOW") == 0) { *value = 1.0; return true; }
+        if (std::strcmp(display, "COUNTER") == 0) { *value = 2.0; return true; }
+        if (std::strcmp(display, "BALANCE") == 0) { *value = 3.0; return true; }
     }
     *value = std::clamp(std::atof(display), definition->minimum, definition->maximum);
     return true;
@@ -1051,6 +1103,18 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
                 sizeof(saved) - sizeof(version))) return false;
         loadedParams = saved.params;
+        loadedPresetIndex = saved.factoryPresetIndex;
+        std::strncpy(loadedPresetName, saved.presetName, sizeof(loadedPresetName) - 1u);
+        loadedViewMode = saved.guiViewMode;
+        loadedViewAzDeg = saved.guiViewAzDeg;
+        loadedViewElDeg = saved.guiViewElDeg;
+        loadedViewZoom = saved.guiViewZoom;
+    } else if (version == 9u) {
+        LegacySavedStateV9 saved {};
+        saved.version = version;
+        if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
+                sizeof(saved) - sizeof(version))) return false;
+        std::memcpy(&loadedParams, saved.params.data(), saved.params.size());
         loadedPresetIndex = saved.factoryPresetIndex;
         std::strncpy(loadedPresetName, saved.presetName, sizeof(loadedPresetName) - 1u);
         loadedViewMode = saved.guiViewMode;
@@ -1137,7 +1201,7 @@ struct GuiSliderSpec {
     bool logarithmic;
 };
 
-constexpr std::array<GuiSliderSpec, 32> kGuiSliders {{
+constexpr std::array<GuiSliderSpec, 33> kGuiSliders {{
     { kVoicesParamId, 630, 130, 1.0, 64.0, false },
     { kBaseNoteParamId, 630, 156, 12.0, 96.0, false },
     { kSeedSpreadParamId, 630, 182, 0.0, 48.0, false },
@@ -1153,6 +1217,7 @@ constexpr std::array<GuiSliderSpec, 32> kGuiSliders {{
     { kSustainParamId, 630, 610, 0.0, 1.0, false },
     { kReleaseParamId, 630, 636, 5.0, 12000.0, true },
     { kOutputParamId, 630, 720, -60.0, 6.0, false },
+    { kFieldListenAmountParamId, 630, 772, 0.0, 1.0, false },
     { kNeighborTransferParamId, 896, 130, 0.0, 1.0, false },
     { kSelectionMemoryParamId, 896, 156, 0.0, 1.0, false },
     { kFieldDensityParamId, 896, 240, 0.0, 1.0, false },
@@ -1271,6 +1336,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     uint32_t _menuItemCount;
     NSRect _openMenuRect;
     uint32_t _selectedVoice;
+    int _fieldPage;
     int _viewMode;
     CGFloat _viewAzDeg;
     CGFloat _viewElDeg;
@@ -1297,6 +1363,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         _menuItemCount = 0u;
         _openMenuRect = NSZeroRect;
         _selectedVoice = 0u;
+        _fieldPage = 0;
         _viewMode = plugin ? plugin->guiViewMode : 2;
         _viewAzDeg = plugin ? plugin->guiViewAzDeg : 38.0;
         _viewElDeg = plugin ? plugin->guiViewElDeg : 32.0;
@@ -1366,6 +1433,19 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 - (NSRect)presetLoadButtonRect { return NSMakeRect(580, 13, 48, 15); }
 - (NSRect)presetSaveButtonRect { return NSMakeRect(636, 13, 48, 15); }
 - (NSRect)randomizeButtonRect { return NSMakeRect(692, 13, 66, 15); }
+
+- (NSRect)pageButtonRect:(int)index
+{
+    const NSRect panel = [self fieldPanelRect];
+    return NSMakeRect(panel.origin.x + 98.0 + index * 74.0,
+        panel.origin.y + 4.0, 70.0, 13.0);
+}
+
+- (NSRect)listenerVoiceRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0, NSMaxY(field) - 42.0, 92.0, 15.0);
+}
 
 - (NSString*)presetDisplayName
 {
@@ -1500,6 +1580,323 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     return best;
 }
 
+- (void)drawListenerPage:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs
+    style:(const s3g::clap_gui::Style&)style
+{
+    (void)attrs;
+    const NSRect field = [self fieldRect];
+    [s3g::clap_gui::color(0x090909) setFill];
+    NSRectFill(field);
+    [s3g::clap_gui::color(0x555555) setStroke];
+    NSFrameRect(field);
+    [@"AMBISONIC AUDITORY BODY / NEGATIVE-FEEDBACK VISCOSITY" drawAtPoint:
+        NSMakePoint(field.origin.x + 10.0, field.origin.y + 10.0)
+        withAttributes:valueAttrs];
+
+    const auto& params = _plugin->params;
+    const uint32_t voices = std::clamp<uint32_t>(
+        params.voices, 1u, s3g::kAmbiStochasticMaxVoices);
+    _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
+    _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
+    constexpr uint32_t pickupCount = s3g::kAmbiFieldListenerMaxLobes;
+    const auto listenMode = params.fieldListenMode;
+    const bool listening = listenMode != s3g::AmbiStochasticListenMode::Off;
+    const bool roaming = listenMode == s3g::AmbiStochasticListenMode::Roaming;
+    const bool diffuse = listenMode == s3g::AmbiStochasticListenMode::Diffuse;
+    const uint32_t primary = _plugin->guiListenerPickup[_selectedVoice].load(
+        std::memory_order_relaxed) % pickupCount;
+    const uint32_t secondary = _plugin->guiListenerSecondaryPickup[_selectedVoice].load(
+        std::memory_order_relaxed) % pickupCount;
+    const float pickupMix = std::clamp(_plugin->guiListenerPickupMix[_selectedVoice].load(
+        std::memory_order_relaxed), 0.0f, 1.0f);
+    const uint32_t readEar = roaming && pickupMix >= 0.5f ? secondary : primary;
+    const float activity = std::clamp(
+        _plugin->guiListenerActivity.load(std::memory_order_relaxed), 0.0f, 1.0f);
+    const float energy = std::clamp(
+        _plugin->guiListenerEnergy[_selectedVoice].load(std::memory_order_relaxed),
+        0.0f, 1.0f);
+    const float capture = std::clamp(
+        _plugin->guiListenerCapture[_selectedVoice].load(std::memory_order_relaxed),
+        0.0f, 1.0f);
+    const float mutationRate = std::clamp(
+        _plugin->guiListenerMutationRate[_selectedVoice].load(std::memory_order_relaxed),
+        0.0f, 1.0f);
+    const float evolutionRate = std::clamp(
+        _plugin->guiListenerEvolutionRate[_selectedVoice].load(std::memory_order_relaxed),
+        0.0f, 1.0f);
+    const float fieldClockRate = std::clamp(
+        _plugin->guiListenerFieldClockRate[_selectedVoice].load(std::memory_order_relaxed),
+        0.0f, 1.0f);
+    const float cascadeRate = std::clamp(
+        _plugin->guiListenerCascadeRate[_selectedVoice].load(std::memory_order_relaxed),
+        0.0f, 1.0f);
+    const uint32_t current = std::min<uint32_t>(
+        _plugin->guiCurrentGenerator[_selectedVoice].load(std::memory_order_relaxed), 3u);
+    const uint32_t next = std::min<uint32_t>(
+        _plugin->guiNextGenerator[_selectedVoice].load(std::memory_order_relaxed), 3u);
+    const bool fieldActive = _plugin->guiFieldActive[_selectedVoice].load(
+        std::memory_order_relaxed) != 0u;
+
+    auto drawInset = [&](NSRect rect, NSString* title) {
+        [s3g::clap_gui::color(0x101010) setFill];
+        NSRectFill(rect);
+        [s3g::clap_gui::color(0x464646) setStroke];
+        NSFrameRect(rect);
+        [title drawAtPoint:NSMakePoint(rect.origin.x + 8.0, rect.origin.y + 6.0)
+            withAttributes:valueAttrs];
+    };
+    auto drawRateMeter = [&](NSString* label, float value, NSRect rect) {
+        value = std::clamp(value, 0.0f, 1.0f);
+        [label drawAtPoint:NSMakePoint(rect.origin.x, rect.origin.y - 3.0)
+            withAttributes:valueAttrs];
+        const NSRect track = NSMakeRect(rect.origin.x + 72.0, rect.origin.y,
+            rect.size.width - 72.0, 8.0);
+        [s3g::clap_gui::color(0x202020) setFill];
+        NSRectFill(track);
+        [s3g::clap_gui::color(0x444444) setStroke];
+        NSFrameRect(track);
+        const CGFloat extent = value * (track.size.width - 2.0);
+        [s3g::clap_gui::color(0xbdbdbd, 0.30 + value * 0.62) setFill];
+        NSRectFill(NSMakeRect(track.origin.x + 1.0, track.origin.y + 1.0,
+            extent, track.size.height - 2.0));
+    };
+
+    const NSPoint bodyCenter = NSMakePoint(field.origin.x + 164.0, field.origin.y + 216.0);
+    const CGFloat bodyRadius = 126.0;
+    [s3g::clap_gui::color(0x303030) setStroke];
+    NSBezierPath* body = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+        bodyCenter.x - bodyRadius, bodyCenter.y - bodyRadius,
+        bodyRadius * 2.0, bodyRadius * 2.0)];
+    [body setLineWidth:0.8];
+    [body stroke];
+    [s3g::clap_gui::color(0x242424) setStroke];
+    [NSBezierPath strokeLineFromPoint:NSMakePoint(bodyCenter.x - bodyRadius, bodyCenter.y)
+        toPoint:NSMakePoint(bodyCenter.x + bodyRadius, bodyCenter.y)];
+    [NSBezierPath strokeLineFromPoint:NSMakePoint(bodyCenter.x, bodyCenter.y - bodyRadius)
+        toPoint:NSMakePoint(bodyCenter.x, bodyCenter.y + bodyRadius)];
+
+    const float cameraAz = 38.0f * s3g::kPi / 180.0f;
+    const float cameraEl = 32.0f * s3g::kPi / 180.0f;
+    auto projectDirection = [&](s3g::Vec3 direction) {
+        const float x1 = std::cos(cameraAz) * direction.x
+            - std::sin(cameraAz) * direction.y;
+        const float y1 = std::sin(cameraAz) * direction.x
+            + std::cos(cameraAz) * direction.y;
+        const float y2 = std::cos(cameraEl) * y1
+            - std::sin(cameraEl) * direction.z;
+        return NSMakePoint(bodyCenter.x + x1 * bodyRadius,
+            bodyCenter.y - y2 * bodyRadius);
+    };
+
+    const auto& directions = s3g::ambiFieldListenerCubeDirections();
+    std::array<NSPoint, pickupCount> ears {};
+    std::array<uint32_t, pickupCount> voiceCounts {};
+    float peakEnvelope = 0.0f;
+    for (uint32_t ear = 0u; ear < pickupCount; ++ear) {
+        ears[ear] = projectDirection(directions[ear]);
+        peakEnvelope = std::max(peakEnvelope,
+            _plugin->guiListenerEnvelope[ear].load(std::memory_order_relaxed));
+    }
+    if (listening) {
+        if (diffuse) {
+            voiceCounts.fill(voices);
+        } else {
+            for (uint32_t voice = 0u; voice < voices; ++voice) {
+                const uint32_t first = _plugin->guiListenerPickup[voice].load(
+                    std::memory_order_relaxed) % pickupCount;
+                const uint32_t second = _plugin->guiListenerSecondaryPickup[voice].load(
+                    std::memory_order_relaxed) % pickupCount;
+                const float mix = _plugin->guiListenerPickupMix[voice].load(
+                    std::memory_order_relaxed);
+                ++voiceCounts[roaming && mix >= 0.5f ? second : first];
+            }
+        }
+    }
+
+    const auto selectedPoint = [self snapshotPoint:_selectedVoice];
+    const NSPoint voicePoint = projectDirection(s3g::directionFromAed(
+        selectedPoint.azimuthDeg, selectedPoint.elevationDeg));
+    if (listening) {
+        auto drawRoute = [&](uint32_t ear, float strength) {
+            NSBezierPath* route = [NSBezierPath bezierPath];
+            [route moveToPoint:voicePoint];
+            [route lineToPoint:ears[ear % pickupCount]];
+            [s3g::clap_gui::color(0xc7c7c7,
+                0.12f + std::clamp(strength, 0.0f, 1.0f) * 0.58f) setStroke];
+            [route setLineWidth:0.7 + std::clamp(strength, 0.0f, 1.0f) * 1.7];
+            [route stroke];
+        };
+        if (diffuse) {
+            for (uint32_t ear = 0u; ear < pickupCount; ++ear) {
+                drawRoute(ear, 0.24f + 0.20f * (
+                    _plugin->guiListenerEnvelope[ear].load(std::memory_order_relaxed)
+                    / std::max(0.0001f, peakEnvelope)));
+            }
+        } else if (roaming) {
+            drawRoute(primary, 1.0f - pickupMix);
+            drawRoute(secondary, pickupMix);
+        } else {
+            drawRoute(primary, 1.0f);
+        }
+    }
+
+    for (uint32_t ear = 0u; ear < pickupCount; ++ear) {
+        const float earEnergy = std::clamp(
+            _plugin->guiListenerEnvelope[ear].load(std::memory_order_relaxed)
+                / std::max(0.0001f, peakEnvelope),
+            0.0f, 1.0f);
+        const bool routed = listening && (diffuse || ear == readEar
+            || (roaming && (ear == primary || ear == secondary)));
+        const CGFloat halo = 7.0 + std::sqrt(earEnergy) * 16.0;
+        [s3g::clap_gui::color(0xc7c7c7, 0.03 + earEnergy * 0.18) setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            ears[ear].x - halo, ears[ear].y - halo, halo * 2.0, halo * 2.0)] fill];
+        const CGFloat diamondRadius = routed ? 7.0 : 5.5;
+        NSBezierPath* diamond = [NSBezierPath bezierPath];
+        [diamond moveToPoint:NSMakePoint(ears[ear].x, ears[ear].y - diamondRadius)];
+        [diamond lineToPoint:NSMakePoint(ears[ear].x + diamondRadius, ears[ear].y)];
+        [diamond lineToPoint:NSMakePoint(ears[ear].x, ears[ear].y + diamondRadius)];
+        [diamond lineToPoint:NSMakePoint(ears[ear].x - diamondRadius, ears[ear].y)];
+        [diamond closePath];
+        [s3g::clap_gui::color(routed ? 0xd8d8d8 : 0x767676,
+            0.30 + earEnergy * 0.62) setFill];
+        [diamond fill];
+        if (routed) {
+            [s3g::clap_gui::color(0xf0f0f0, 0.86) setStroke];
+            [diamond stroke];
+        }
+        NSString* earLabel = [NSString stringWithFormat:@"E%u %02u",
+            ear + 1u, voiceCounts[ear]];
+        [earLabel drawAtPoint:NSMakePoint(ears[ear].x + 8.0, ears[ear].y - 6.0)
+            withAttributes:valueAttrs];
+    }
+
+    const CGFloat voiceSize = 11.0;
+    [[pointColor(selectedPoint.azimuthDeg, selectedPoint.elevationDeg,
+        selectedPoint.distance, true) colorWithAlphaComponent:0.96] setFill];
+    NSRectFill(NSMakeRect(voicePoint.x - voiceSize * 0.5,
+        voicePoint.y - voiceSize * 0.5, voiceSize, voiceSize));
+    [s3g::clap_gui::color(0xf0f0f0, 0.84) setStroke];
+    NSFrameRect(NSMakeRect(voicePoint.x - voiceSize * 0.5,
+        voicePoint.y - voiceSize * 0.5, voiceSize, voiceSize));
+    [[NSString stringWithFormat:@"V%02u", _selectedVoice + 1u] drawAtPoint:
+        NSMakePoint(voicePoint.x + 8.0, voicePoint.y - 7.0)
+        withAttributes:valueAttrs];
+
+    const NSRect decision = NSMakeRect(field.origin.x + 354.0,
+        field.origin.y + 29.0, 200.0, 128.0);
+    drawInset(decision, @"AUDITORY CAPTURE");
+    NSString* routeLabel = @"--";
+    if (diffuse) {
+        routeLabel = @"ALL EARS";
+    } else if (roaming) {
+        routeLabel = [NSString stringWithFormat:@"E%u > E%u  %02.0f%%",
+            primary + 1u, secondary + 1u, pickupMix * 100.0f];
+    } else if (listening) {
+        routeLabel = [NSString stringWithFormat:@"E%u", readEar + 1u];
+    }
+    NSString* heardText = listening
+        ? [NSString stringWithFormat:@"V%02u / %@    ENERGY %3.0f%%",
+            _selectedVoice + 1u, routeLabel, energy * 100.0f]
+        : [NSString stringWithFormat:@"V%02u / LISTENER OFF", _selectedVoice + 1u];
+    [heardText drawAtPoint:NSMakePoint(decision.origin.x + 8.0,
+        decision.origin.y + 25.0) withAttributes:valueAttrs];
+    NSString* responseText = listening
+        ? [NSString stringWithFormat:@"CAPTURE %3.0f%%    EVOLVE x%.2f",
+            capture * 100.0f, evolutionRate]
+        : [NSString stringWithFormat:@"CAPTURE AMOUNT %3.0f%%",
+            params.fieldListenAmount * 100.0f];
+    [responseText drawAtPoint:NSMakePoint(decision.origin.x + 8.0,
+        decision.origin.y + 42.0) withAttributes:valueAttrs];
+    NSString* generatorText = [NSString stringWithFormat:
+        @"G%u > G%u    %@",
+        current + 1u, next + 1u,
+        listening && capture > 0.08f ? @"STATE HELD" : @"STATE OPEN"];
+    [generatorText drawAtPoint:NSMakePoint(decision.origin.x + 8.0,
+        decision.origin.y + 59.0) withAttributes:valueAttrs];
+    const CGFloat axisLeft = decision.origin.x + 17.0;
+    const CGFloat axisRight = NSMaxX(decision) - 17.0;
+    const CGFloat axisY = decision.origin.y + 91.0;
+    [s3g::clap_gui::color(0x505050) setStroke];
+    [NSBezierPath strokeLineFromPoint:NSMakePoint(axisLeft, axisY)
+        toPoint:NSMakePoint(axisRight, axisY)];
+    for (uint32_t generator = 0u; generator < 4u; ++generator) {
+        const CGFloat x = axisLeft + (axisRight - axisLeft)
+            * static_cast<CGFloat>(generator) / 3.0;
+        const NSRect cell = NSMakeRect(x - 9.0, axisY - 7.0, 18.0, 14.0);
+        [s3g::clap_gui::color(generator == next ? 0xa4a4a4 : 0x252525,
+            generator == next ? 0.82 : 1.0) setFill];
+        NSRectFill(cell);
+        [s3g::clap_gui::color(generator == current ? 0xe0e0e0 : 0x5a5a5a) setStroke];
+        NSFrameRect(cell);
+        NSDictionary* generatorAttrs = s3g::clap_gui::textAttrs(
+            s3g::clap_gui::color(generator == next ? 0x161616 : 0xc5c5c5), 7.0);
+        [[NSString stringWithFormat:@"G%u", generator + 1u] drawAtPoint:
+            NSMakePoint(x - 6.0, axisY - 5.0) withAttributes:generatorAttrs];
+    }
+    NSString* lawStatus = [NSString stringWithFormat:@"LAW %@    MUTATE x%.2f",
+        [NSString stringWithUTF8String:s3g::ambiStochasticSelectionName(params.selection)],
+        mutationRate];
+    [lawStatus drawAtPoint:NSMakePoint(decision.origin.x + 8.0,
+        decision.origin.y + 109.0) withAttributes:valueAttrs];
+
+    const NSRect mutation = NSMakeRect(field.origin.x + 354.0,
+        field.origin.y + 166.0, 200.0, 73.0);
+    drawInset(mutation, @"SECOND-ORDER FRICTION");
+    drawRateMeter([NSString stringWithFormat:@"A x%.2f", mutationRate], mutationRate,
+        NSMakeRect(mutation.origin.x + 8.0, mutation.origin.y + 29.0, 184.0, 8.0));
+    drawRateMeter([NSString stringWithFormat:@"T x%.2f", mutationRate], mutationRate,
+        NSMakeRect(mutation.origin.x + 8.0, mutation.origin.y + 49.0, 184.0, 8.0));
+
+    const NSRect renewal = NSMakeRect(field.origin.x + 354.0,
+        field.origin.y + 248.0, 200.0, 72.0);
+    drawInset(renewal, [NSString stringWithFormat:@"TEMPORAL HOLD / %@",
+        fieldActive ? @"ACTIVE" : @"REST"]);
+    drawRateMeter([NSString stringWithFormat:@"FIELD x%.2f", fieldClockRate],
+        fieldClockRate,
+        NSMakeRect(renewal.origin.x + 8.0, renewal.origin.y + 29.0, 184.0, 8.0));
+    drawRateMeter([NSString stringWithFormat:@"CASC x%.2f", cascadeRate],
+        cascadeRate,
+        NSMakeRect(renewal.origin.x + 8.0, renewal.origin.y + 49.0, 184.0, 8.0));
+
+    const NSRect summary = NSMakeRect(field.origin.x + 354.0,
+        field.origin.y + 329.0, 200.0, 64.0);
+    drawInset(summary, @"LISTENER STATE");
+    NSString* stateText = [NSString stringWithFormat:@"%@    EARS %3.0f%%",
+        [NSString stringWithUTF8String:s3g::ambiStochasticListenModeName(listenMode)],
+        activity * 100.0f];
+    [stateText drawAtPoint:NSMakePoint(summary.origin.x + 8.0,
+        summary.origin.y + 26.0) withAttributes:valueAttrs];
+    [[NSString stringWithFormat:@"CAPTURE %3.0f%%    CUBE 8 FIXED",
+        params.fieldListenAmount * 100.0f] drawAtPoint:
+        NSMakePoint(summary.origin.x + 8.0, summary.origin.y + 43.0)
+        withAttributes:valueAttrs];
+
+    const NSRect voiceControl = [self listenerVoiceRect];
+    [style.strip setFill];
+    NSRectFill(voiceControl);
+    [style.grid setStroke];
+    NSFrameRect(voiceControl);
+    [@"<" drawAtPoint:NSMakePoint(voiceControl.origin.x + 8.0,
+        voiceControl.origin.y + 1.0) withAttributes:valueAttrs];
+    [[NSString stringWithFormat:@"V%02u", _selectedVoice + 1u] drawAtPoint:
+        NSMakePoint(voiceControl.origin.x + 36.0, voiceControl.origin.y + 2.0)
+        withAttributes:valueAttrs];
+    [@">" drawAtPoint:NSMakePoint(NSMaxX(voiceControl) - 15.0,
+        voiceControl.origin.y + 1.0) withAttributes:valueAttrs];
+    [@"VOICE" drawAtPoint:NSMakePoint(voiceControl.origin.x,
+        voiceControl.origin.y - 16.0) withAttributes:valueAttrs];
+    NSString* bottomState = [NSString stringWithFormat:@"%@  /  EARS %3.0f%%  /  CAPTURE %3.0f%%",
+        [NSString stringWithUTF8String:s3g::ambiStochasticListenModeName(listenMode)],
+        activity * 100.0f, params.fieldListenAmount * 100.0f];
+    [bottomState drawAtPoint:NSMakePoint(voiceControl.origin.x + 112.0,
+        voiceControl.origin.y + 2.0) withAttributes:valueAttrs];
+    [@"SPATIAL LINK  NONE   /   TOPOLOGY UNCHANGED" drawAtPoint:
+        NSMakePoint(field.origin.x + 10.0, NSMaxY(field) - 18.0)
+        withAttributes:s3g::clap_gui::textAttrs(
+            s3g::clap_gui::color(0xd7d7d7), 8.0)];
+}
+
 - (void)drawField:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const NSRect panel = [self fieldPanelRect];
@@ -1507,6 +1904,14 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"VOICE FIELD", true, panel.origin.x, panel.origin.y, panel.size.width, 21, attrs, style);
     const NSRect header = NSMakeRect(panel.origin.x, panel.origin.y, panel.size.width, 21);
+    s3g::clap_gui::drawHeaderButton([self pageButtonRect:0], header,
+        @"FIELD", _fieldPage == 0, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self pageButtonRect:1], header,
+        @"LISTEN", _fieldPage == 1, attrs, style);
+    if (_fieldPage == 1) {
+        [self drawListenerPage:attrs valueAttrs:valueAttrs style:style];
+        return;
+    }
     static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
     s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
     s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
@@ -1711,13 +2116,14 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     [self drawSlider:@"SUSTAIN" param:kSustainParamId value:params.sustain attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RELEASE" param:kReleaseParamId value:params.releaseMs attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 684, 250, 98, style);
+    s3g::clap_gui::drawPanelFrame(630, 684, 250, 124, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT / LISTENER", true, 630, 684, 250, 21, attrs, style);
     [self drawSlider:@"OUT" param:kOutputParamId value:params.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
-    static NSString* listenerNames[] = { @"OFF", @"FOLLOW", @"COUNTER", @"BALANCE" };
+    static NSString* listenerNames[] = { @"OFF", @"LOCAL", @"CROSS", @"DIFFUSE", @"ROAMING" };
     [self drawMenu:@"LISTEN" value:listenerNames[std::min<uint32_t>(
-        static_cast<uint32_t>(params.fieldListenMode), 3u)]
+        static_cast<uint32_t>(params.fieldListenMode), 4u)]
         panelX:630 y:746 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"CAPTURE" param:kFieldListenAmountParamId value:params.fieldListenAmount attrs:attrs valueAttrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(896, 42, 246, 150, style);
     s3g::clap_gui::drawPanelHeader(@"SELECTION", true, 896, 42, 246, 21, attrs, style);
@@ -1769,7 +2175,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         @"BINARY FRACTURE", @"SLOW CONSTELLATION", @"MIDI PRESSURE", @"HYBRID FIELD",
         @"FULL 7OA FIELD"
     };
-    static NSString* listenerItems[] = { @"OFF", @"FOLLOW", @"COUNTER", @"BALANCE" };
+    static NSString* listenerItems[] = { @"OFF", @"LOCAL", @"CROSS", @"DIFFUSE", @"ROAMING" };
     NSString** items = modeItems;
     int selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.mode));
     if (_openMenu == 2) {
@@ -1977,7 +2383,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     case 7: return 12u;
     case 8: return 18u;
     case 9: return s3g::kAmbiStochasticFactoryPresetCount;
-    case 10: return 4u;
+    case 10: return 5u;
     default: return 0u;
     }
 }
@@ -2065,30 +2471,50 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         }
     }
     for (int index = 0; index < 2; ++index) {
-        if (NSPointInRect(point, [self zoomButtonRect:index])) {
-            _viewZoom = std::clamp(_viewZoom * (index == 0 ? 0.88 : 1.14), 0.55, 2.20);
-            [self storeViewState];
+        if (NSPointInRect(point, [self pageButtonRect:index])) {
+            _fieldPage = index;
             [self setNeedsDisplay:YES];
             return;
         }
     }
-    for (int index = 0; index < 3; ++index) {
-        if (NSPointInRect(point, [self viewButtonRect:index])) {
-            [self setViewPreset:index];
+    if (_fieldPage == 1) {
+        if (NSPointInRect(point, [self listenerVoiceRect])) {
+            _selectedVoice = point.x < NSMidX([self listenerVoiceRect])
+                ? (_selectedVoice + std::max<uint32_t>(1u, _plugin->params.voices) - 1u)
+                    % std::max<uint32_t>(1u, _plugin->params.voices)
+                : (_selectedVoice + 1u) % std::max<uint32_t>(1u, _plugin->params.voices);
+            _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
+            [self setNeedsDisplay:YES];
             return;
         }
-    }
-    const int voice = [self hitPoint:point];
-    if (voice >= 0) {
-        _selectedVoice = static_cast<uint32_t>(voice);
-        _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
-        [self setNeedsDisplay:YES];
-        return;
-    }
-    if (NSPointInRect(point, [self fieldRect])) {
-        _dragView = YES;
-        _lastDragPoint = point;
-        return;
+        if (NSPointInRect(point, [self fieldRect])) return;
+    } else {
+        for (int index = 0; index < 2; ++index) {
+            if (NSPointInRect(point, [self zoomButtonRect:index])) {
+                _viewZoom = std::clamp(_viewZoom * (index == 0 ? 0.88 : 1.14), 0.55, 2.20);
+                [self storeViewState];
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+        for (int index = 0; index < 3; ++index) {
+            if (NSPointInRect(point, [self viewButtonRect:index])) {
+                [self setViewPreset:index];
+                return;
+            }
+        }
+        const int voice = [self hitPoint:point];
+        if (voice >= 0) {
+            _selectedVoice = static_cast<uint32_t>(voice);
+            _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, [self fieldRect])) {
+            _dragView = YES;
+            _lastDragPoint = point;
+            return;
+        }
     }
     for (const auto& spec : kGuiSliders) {
         const NSRect hit = NSMakeRect(spec.panelX + 8, spec.y - 8, 232, 24);

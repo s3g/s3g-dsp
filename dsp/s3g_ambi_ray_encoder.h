@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
@@ -86,6 +87,7 @@ struct AmbiRayEncoderParams {
     float listenerX = 0.5f;
     float listenerY = 0.5f;
     float listenerZ = 0.5f;
+    AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
 };
 
 inline AmbiRayEncoderParams sanitizeAmbiRayEncoderParams(AmbiRayEncoderParams params)
@@ -107,6 +109,7 @@ inline AmbiRayEncoderParams sanitizeAmbiRayEncoderParams(AmbiRayEncoderParams pa
     params.movementMs = clamp(params.movementMs, 10.0f, 500.0f);
     params.doppler = clamp(params.doppler, 0.0f, 2.0f);
     params.outputGainDb = clamp(params.outputGainDb, -60.0f, 12.0f);
+    params.fieldListenMode = sanitizeAmbiFieldListenMode(params.fieldListenMode);
     return params;
 }
 
@@ -651,6 +654,11 @@ public:
         delay_.prepare(sampleRate_, kAmbiRayMaximumDelaySeconds * 4.05f);
         roomDelay_.prepare(sampleRate_, kAmbiRayMaximumDelaySeconds * 4.05f);
         lateField_.prepare(sampleRate_);
+        fieldListener_.prepare(sampleRate_);
+        fieldListener_.setMemorySeconds(0.58f);
+        const auto& listenerDirections = ambiFieldListenerCubeDirections();
+        fieldListener_.setDirections(
+            listenerDirections.data(), static_cast<uint32_t>(listenerDirections.size()));
         params_ = sanitizeAmbiRayEncoderParams(params_);
         reset();
         return !descriptor_.cells.empty();
@@ -661,12 +669,15 @@ public:
         delay_.reset();
         roomDelay_.reset();
         lateField_.reset();
+        fieldListener_.reset();
         dcInput_ = 0.0f;
         dcOutput_ = 0.0f;
         directFilter_ = 0.0f;
         eventFilters_.fill(0.0f);
         safetyGain_ = 1.0f;
         frame_.fill(0.0f);
+        roomFrame_.fill(0.0f);
+        listenerFrame_.fill(0.0f);
         currentNormalized_ = { params_.sourceX, params_.sourceY, params_.sourceZ };
         currentListenerNormalized_ = { params_.listenerX, params_.listenerY, params_.listenerZ };
         currentDirect_ = params_.direct;
@@ -685,6 +696,10 @@ public:
         currentLateLevel_ = 0.18f;
         currentLateDiffusion_ = 0.72f;
         currentLateDamping_ = 0.38f;
+        currentListenMix_ =
+            params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 1.0f;
+        currentListenWeights_.fill(1.0f);
+        targetListenWeights_.fill(1.0f);
         directDelayTap_.prepare(sampleRate_);
         lateDelayTap_.prepare(sampleRate_);
         for (auto& event : events_) {
@@ -706,6 +721,17 @@ public:
 
     const AmbiRayEncoderParams& params() const { return params_; }
     const AmbiRayDescriptor& descriptor() const { return descriptor_; }
+    float fieldListenEnvelope(uint32_t lobe) const
+    {
+        return fieldListener_.envelope(lobe);
+    }
+    float fieldListenWeight(uint32_t lobe) const
+    {
+        return lobe < kAmbiFieldListenerMaxLobes
+            ? lerp(1.0f, currentListenWeights_[lobe], currentListenMix_)
+            : 1.0f;
+    }
+    float fieldListenActivity() const { return fieldListener_.activity(); }
 
     Vec3 sourcePositionMetres() const
     {
@@ -767,6 +793,7 @@ public:
                 dcOutput_ = wetInput;
                 roomDelay_.write(wetInput);
                 frame_.fill(0.0f);
+                roomFrame_.fill(0.0f);
 
                 const float directSample = directDelayTap_.read(delay_, currentDoppler_);
                 directFilter_ += (directSample - directFilter_) * directFilterCoefficient_;
@@ -780,9 +807,13 @@ public:
                         auto& event = events_[eventIndex];
                         const float reflected = event.delayTap.read(roomDelay_, currentDoppler_);
                         eventFilters_[eventIndex] += (reflected - eventFilters_[eventIndex]) * event.filterCoefficient;
-                        const float value = eventFilters_[eventIndex] * event.gain * currentEarly_;
+                        const float value = eventFilters_[eventIndex] * event.gain
+                            * currentEarly_ * event.listenGain;
                         for (uint32_t channel = 0u; channel < roomChannels; ++channel) {
-                            frame_[channel] += value * event.basis[channel] * roomOrderScale_[channel];
+                            const float contribution =
+                                value * event.basis[channel] * roomOrderScale_[channel];
+                            frame_[channel] += contribution;
+                            roomFrame_[channel] += contribution;
                         }
                     }
 
@@ -790,9 +821,13 @@ public:
                     const auto lateLines = lateField_.process(lateExcitation);
                     const float lateGain = currentLate_ * currentLateLevel_ * 0.52f;
                     for (uint32_t line = 0u; line < kAmbiRayLateLines; ++line) {
-                        const float value = lateLines[line] * lateGain;
+                        const float value =
+                            lateLines[line] * lateGain * lateListenGains_[line];
                         for (uint32_t channel = 0u; channel < roomChannels; ++channel) {
-                            frame_[channel] += value * lateBasis_[line][channel] * lateOrderScale_[channel];
+                            const float contribution =
+                                value * lateBasis_[line][channel] * lateOrderScale_[channel];
+                            frame_[channel] += contribution;
+                            roomFrame_[channel] += contribution;
                         }
                     }
                 } else {
@@ -801,6 +836,16 @@ public:
                     lateDelayTap_.read(roomDelay_, 0.0f);
                     lateField_.process(0.0f);
                 }
+
+                for (uint32_t channel = 0u; channel < roomChannels; ++channel) {
+                    const uint32_t order = static_cast<uint32_t>(
+                        std::sqrt(static_cast<float>(channel)));
+                    const float width = order == 0u ? 1.0f
+                        : std::pow(std::max(0.0f, currentWidth_),
+                            static_cast<float>(order) / static_cast<float>(params_.order));
+                    listenerFrame_[channel] = roomFrame_[channel] * width;
+                }
+                fieldListener_.processFrame(listenerFrame_.data(), roomChannels);
 
                 float peak = 0.0f;
                 for (uint32_t channel = 0u; channel < activeChannels; ++channel) {
@@ -821,6 +866,7 @@ public:
                 delay_.advance();
                 roomDelay_.advance();
             }
+            updateFieldListenTargets();
         }
     }
 
@@ -831,6 +877,8 @@ private:
         Vec3 direction { 1.0f, 0.0f, 0.0f };
         float damping = 0.25f;
         float filterCoefficient = 0.5f;
+        Vec3 outputDirection { 1.0f, 0.0f, 0.0f };
+        float listenGain = 1.0f;
         ambi_ray_detail::DopplerDelayTap delayTap;
         std::array<float, kAmbiRayMaxChannels> basis {};
     };
@@ -911,6 +959,20 @@ private:
         currentScatter_ += (params_.scatter - currentScatter_) * parameterAlpha;
         currentAir_ += (params_.air - currentAir_) * parameterAlpha;
         currentDoppler_ += (params_.doppler - currentDoppler_) * parameterAlpha;
+        const float listenerDt = static_cast<float>(frames) / static_cast<float>(sampleRate_);
+        const float listenMixTarget =
+            params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 1.0f;
+        const float listenMixCoefficient = immediate ? 1.0f
+            : 1.0f - std::exp(-listenerDt / 0.045f);
+        const float listenWeightCoefficient = immediate ? 1.0f
+            : 1.0f - std::exp(-listenerDt / 0.52f);
+        currentListenMix_ +=
+            (listenMixTarget - currentListenMix_) * listenMixCoefficient;
+        for (uint32_t lobe = 0u; lobe < currentListenWeights_.size(); ++lobe) {
+            currentListenWeights_[lobe] +=
+                (targetListenWeights_[lobe] - currentListenWeights_[lobe])
+                * listenWeightCoefficient;
+        }
         const float yawDelta = std::remainder(targetOutputYawDeg_ - currentOutputYawDeg_, 360.0f);
         currentOutputYawDeg_ = std::remainder(currentOutputYawDeg_ + yawDelta * parameterAlpha, 360.0f);
         const float outputYawRadians = currentOutputYawDeg_ * kPi / 180.0f;
@@ -996,7 +1058,10 @@ private:
             runtime.gain += (target.gain - runtime.gain) * eventAlpha;
             runtime.direction = normalize(ambi_ray_detail::mixVec(runtime.direction, target.direction, eventAlpha));
             runtime.damping += (target.damping - runtime.damping) * eventAlpha;
-            runtime.basis = acnSn3dBasis7(outputYawRotated(runtime.direction, outputYawCosine, outputYawSine));
+            runtime.outputDirection =
+                outputYawRotated(runtime.direction, outputYawCosine, outputYawSine);
+            runtime.listenGain = fieldListenGain(runtime.outputDirection);
+            runtime.basis = acnSn3dBasis7(runtime.outputDirection);
             const float distanceSeconds = runtime.delayFrames / static_cast<float>(sampleRate_);
             const float cutoff = clamp(19000.0f * std::exp(-currentAir_ * distanceSeconds * 18.0f)
                     * (1.0f - runtime.damping * 0.78f),
@@ -1009,11 +1074,11 @@ private:
             roomOrderScale_[channel] = order == 0u ? 1.0f : std::pow(1.0f - currentScatter_ * 0.56f, static_cast<float>(order));
             lateOrderScale_[channel] = order == 0u ? 1.0f : std::pow(1.0f - currentScatter_ * 0.32f, static_cast<float>(order));
         }
+        constexpr std::array<std::array<float, 2>, kAmbiRayLateLines> directions {{
+            { 45.0f, 35.264f }, { -45.0f, 35.264f }, { 135.0f, 35.264f }, { -135.0f, 35.264f },
+            { 45.0f, -35.264f }, { -45.0f, -35.264f }, { 135.0f, -35.264f }, { -135.0f, -35.264f }
+        }};
         if (lateBaseBasis_[0][0] == 0.0f) {
-            constexpr std::array<std::array<float, 2>, kAmbiRayLateLines> directions {{
-                { 45.0f, 35.264f }, { -45.0f, 35.264f }, { 135.0f, 35.264f }, { -135.0f, 35.264f },
-                { 45.0f, -35.264f }, { -45.0f, -35.264f }, { 135.0f, -35.264f }, { -135.0f, -35.264f }
-            }};
             for (uint32_t line = 0u; line < kAmbiRayLateLines; ++line)
                 lateBaseBasis_[line] = acnSn3dBasis7(directionFromAed(directions[line][0], directions[line][1]));
         }
@@ -1026,11 +1091,96 @@ private:
                 yawCos[m] = yawCos[m - 1u] * outputYawCosine - yawSin[m - 1u] * outputYawSine;
                 yawSin[m] = yawSin[m - 1u] * outputYawCosine + yawCos[m - 1u] * outputYawSine;
             }
-            for (uint32_t line = 0u; line < kAmbiRayLateLines; ++line)
+            for (uint32_t line = 0u; line < kAmbiRayLateLines; ++line) {
                 rotateBasisYaw(lateBaseBasis_[line], lateBasis_[line], yawCos, yawSin);
+                lateOutputDirections_[line] = outputYawRotated(
+                    directionFromAed(directions[line][0], directions[line][1]),
+                    outputYawCosine, outputYawSine);
+            }
             lateBasisYawDeg_ = currentOutputYawDeg_;
         }
+        for (uint32_t line = 0u; line < kAmbiRayLateLines; ++line)
+            lateListenGains_[line] = fieldListenGain(lateOutputDirections_[line]);
         safetyRelease_ = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.100));
+    }
+
+    float fieldListenGain(Vec3 direction) const
+    {
+        if (params_.fieldListenMode == AmbiFieldListenMode::Off
+            && currentListenMix_ <= 0.000001f) return 1.0f;
+        const auto& directions = ambiFieldListenerCubeDirections();
+        float weight = 0.0f;
+        float total = 0.0f;
+        for (uint32_t lobe = 0u; lobe < directions.size(); ++lobe) {
+            const Vec3 listener = directions[lobe];
+            const float dot = std::max(0.0f,
+                direction.x * listener.x
+                    + direction.y * listener.y
+                    + direction.z * listener.z);
+            const float kernel = dot * dot * dot * dot;
+            weight += currentListenWeights_[lobe] * kernel;
+            total += kernel;
+        }
+        const float shaped = total > 1.0e-5f ? weight / total : 1.0f;
+        return lerp(1.0f, shaped, currentListenMix_);
+    }
+
+    void updateFieldListenTargets()
+    {
+        if (params_.fieldListenMode == AmbiFieldListenMode::Off) {
+            targetListenWeights_.fill(1.0f);
+            return;
+        }
+        std::array<float, kAmbiFieldListenerMaxLobes> energy {};
+        float mean = 0.0f;
+        for (uint32_t lobe = 0u; lobe < energy.size(); ++lobe) {
+            energy[lobe] = std::max(0.0f, fieldListener_.envelope(lobe));
+            mean += energy[lobe];
+        }
+        mean /= static_cast<float>(energy.size());
+        if (mean < 1.0e-7f) {
+            targetListenWeights_.fill(1.0f);
+            return;
+        }
+
+        const auto& directions = ambiFieldListenerCubeDirections();
+        std::array<float, kAmbiFieldListenerMaxLobes> raw {};
+        float total = 0.0f;
+        for (uint32_t lobe = 0u; lobe < raw.size(); ++lobe) {
+            float observed = energy[lobe];
+            float polarity = 1.0f;
+            float strength = 0.64f;
+            if (params_.fieldListenMode == AmbiFieldListenMode::Counter) {
+                float opposing = 0.0f;
+                float opposingWeight = 0.0f;
+                for (uint32_t other = 0u; other < raw.size(); ++other) {
+                    const float antipodal = std::max(0.0f,
+                        -(directions[lobe].x * directions[other].x
+                            + directions[lobe].y * directions[other].y
+                            + directions[lobe].z * directions[other].z));
+                    const float kernel = antipodal * antipodal * antipodal * antipodal;
+                    opposing += energy[other] * kernel;
+                    opposingWeight += kernel;
+                }
+                observed = opposingWeight > 1.0e-5f
+                    ? opposing / opposingWeight : mean;
+                strength = 0.72f;
+            } else if (params_.fieldListenMode == AmbiFieldListenMode::Balance) {
+                polarity = -1.0f;
+                strength = 0.54f;
+            }
+            const float contrast = clamp(
+                (observed - mean) / std::max(1.0e-6f, mean), -1.0f, 1.0f);
+            raw[lobe] = std::exp(clamp(
+                polarity * strength * contrast, -0.58f, 0.58f));
+            total += raw[lobe];
+        }
+        const float normalization =
+            static_cast<float>(raw.size()) / std::max(1.0e-6f, total);
+        for (uint32_t lobe = 0u; lobe < raw.size(); ++lobe) {
+            targetListenWeights_[lobe] =
+                clamp(raw[lobe] * normalization, 0.40f, 2.50f);
+        }
     }
 
     static Vec3 outputYawRotated(Vec3 direction, float cosine, float sine)
@@ -1074,9 +1224,18 @@ private:
     std::array<float, kAmbiRayMaxChannels> directBasis_ {};
     std::array<std::array<float, kAmbiRayMaxChannels>, kAmbiRayLateLines> lateBaseBasis_ {};
     std::array<std::array<float, kAmbiRayMaxChannels>, kAmbiRayLateLines> lateBasis_ {};
+    std::array<Vec3, kAmbiRayLateLines> lateOutputDirections_ {};
+    std::array<float, kAmbiRayLateLines> lateListenGains_ {
+        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f
+    };
     std::array<float, kAmbiRayRoomChannels> roomOrderScale_ {};
     std::array<float, kAmbiRayRoomChannels> lateOrderScale_ {};
     std::array<float, kAmbiRayMaxChannels> frame_ {};
+    std::array<float, kAmbiRayMaxChannels> roomFrame_ {};
+    std::array<float, kAmbiRayMaxChannels> listenerFrame_ {};
+    AmbiFieldListener fieldListener_ {};
+    std::array<float, kAmbiFieldListenerMaxLobes> currentListenWeights_ {};
+    std::array<float, kAmbiFieldListenerMaxLobes> targetListenWeights_ {};
     Vec3 currentNormalized_ { 0.5f, 0.25f, 0.5f };
     Vec3 currentListenerNormalized_ { 0.5f, 0.5f, 0.5f };
     uint32_t activeEventCount_ = 0u;
@@ -1103,6 +1262,7 @@ private:
     float currentLateLevel_ = 0.18f;
     float currentLateDiffusion_ = 0.72f;
     float currentLateDamping_ = 0.38f;
+    float currentListenMix_ = 0.0f;
     float safetyGain_ = 1.0f;
     float safetyRelease_ = 0.0002f;
 };

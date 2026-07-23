@@ -91,6 +91,13 @@ enum class AmbiPulsarListeningMode : uint32_t {
     Roaming = 3u,
 };
 
+enum class AmbiPulsarListenerResponse : uint32_t {
+    Legacy = 0u,
+    Resonate = 1u,
+    Imprint = 2u,
+    Balance = 3u,
+};
+
 struct AmbiPulsarListeningParams {
     AmbiPulsarNeuralSet neuralSet = AmbiPulsarNeuralSet::Nodes16;
     uint32_t enabled = 0u;
@@ -100,7 +107,10 @@ struct AmbiPulsarListeningParams {
     float fieldReturn = 0.34f;
     float propagationMs = 24.0f;
     float focus = 0.72f;
-    float laneInfluence = 0.0f;
+    float laneInfluence = 0.62f;
+    // Appended in state version 9. Version-8 states are upgraded to Legacy so
+    // their scalar field-response path remains sample-for-sample compatible.
+    AmbiPulsarListenerResponse response = AmbiPulsarListenerResponse::Resonate;
 };
 
 struct AmbiPulsarLaneParams {
@@ -261,6 +271,8 @@ inline AmbiPulsarParams sanitizeAmbiPulsarParams(AmbiPulsarParams params)
     params.listening.propagationMs = clamp(params.listening.propagationMs, 0.0f, 180.0f);
     params.listening.focus = clamp(params.listening.focus, 0.0f, 1.0f);
     params.listening.laneInfluence = clamp(params.listening.laneInfluence, 0.0f, 1.0f);
+    params.listening.response = static_cast<AmbiPulsarListenerResponse>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.listening.response), 3u));
     return params;
 }
 
@@ -370,6 +382,19 @@ public:
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1.0, sampleRate);
+        const auto onePoleCoefficient = [this](double seconds) {
+            return 1.0f - std::exp(-1.0f
+                / std::max(1.0f, static_cast<float>(sampleRate_ * seconds)));
+        };
+        listeningEnergyCoefficient_ = onePoleCoefficient(0.080);
+        listeningFastCoefficient_ = onePoleCoefficient(0.012);
+        listeningSlowCoefficient_ = onePoleCoefficient(0.280);
+        listeningNoveltyRelease_ = onePoleCoefficient(0.180);
+        listeningNoveltyAttack_ = onePoleCoefficient(0.008);
+        listeningHabituationAttack_ = onePoleCoefficient(0.72);
+        listeningHabituationRelease_ = onePoleCoefficient(1.80);
+        listeningChargeDeposit_ = onePoleCoefficient(0.16);
+        listeningChargeLeak_ = onePoleCoefficient(1.35);
         depth_.prepare(sampleRate_);
         for (auto& network : neuralNetwork_) network.prepare(sampleRate_);
         for (auto& delay : listeningDelay_) delay.prepare(sampleRate_);
@@ -403,13 +428,22 @@ public:
         freeModIncrement_.fill(0.0f);
         lastCarrierHz_.fill(0.0f);
         lastTriggeredLevel_.fill(0.0f);
+        laneTriggerCount_.fill(0u);
+        lastListenerImprint_.fill(0.0f);
         laneNormalization_.fill(1.0f);
         pointActivation_.fill(0.0f);
         channelActivation_.fill(0.0f);
         listeningPickupValue_.fill(0.0f);
         listeningPickupEnergy_.fill(0.0f);
         listeningPickupFilter_.fill(0.0f);
+        listeningFastEnergy_.fill(0.0f);
+        listeningSlowEnergy_.fill(0.0f);
+        listeningRelativeEnergy_.fill(0.0f);
+        listeningNovelty_.fill(0.0f);
+        listeningCharge_.fill(0.0f);
+        listeningHabituation_.fill(0.0f);
         listeningLobeReturn_.fill(0.0f);
+        listeningLaneAccumulator_.fill(1.0f);
         neuralLobeOutput_.fill(0.0f);
         neuralLobeActivation_.fill(0.0f);
         for (auto& frame : neuralFrame_) frame = {};
@@ -444,6 +478,9 @@ public:
         smoothedPickupFocus_ = params_.listening.focus;
         smoothedLaneListening_ = params_.listening.laneInfluence;
         listeningRoamPhase_ = 0.0;
+        listeningGlobalActivity_ = 0.0f;
+        listeningGlobalCharge_ = 0.0f;
+        listeningGlobalNovelty_ = 0.0f;
         startupGain_ = 0.0f;
         pulsarFeedback_ = 0.0f;
         captureRequested_ = false;
@@ -540,6 +577,19 @@ public:
     {
         return listeningPickupEnergy_[std::min<uint32_t>(pickup, kAmbiPulsarListeningPickups - 1u)];
     }
+    float listeningPickupNovelty(uint32_t pickup) const
+    {
+        return listeningNovelty_[std::min<uint32_t>(
+            pickup, kAmbiPulsarListeningPickups - 1u)];
+    }
+    float listeningPickupCharge(uint32_t pickup) const
+    {
+        return listeningCharge_[std::min<uint32_t>(
+            pickup, kAmbiPulsarListeningPickups - 1u)];
+    }
+    float listeningEcologyActivity() const { return listeningGlobalActivity_; }
+    float listeningEcologyCharge() const { return listeningGlobalCharge_; }
+    float listeningEcologyNovelty() const { return listeningGlobalNovelty_; }
     AmbiPulsarPoint listeningPickupDirection(uint32_t pickup) const
     {
         pickup = std::min<uint32_t>(pickup, kAmbiPulsarListeningPickups - 1u);
@@ -559,6 +609,14 @@ public:
     float lastTriggeredLevel(uint32_t lane) const
     {
         return lastTriggeredLevel_[std::min<uint32_t>(lane, kAmbiPulsarLanes - 1u)];
+    }
+    uint64_t laneTriggerCount(uint32_t lane) const
+    {
+        return laneTriggerCount_[std::min<uint32_t>(lane, kAmbiPulsarLanes - 1u)];
+    }
+    float lastListenerImprint(uint32_t lane) const
+    {
+        return lastListenerImprint_[std::min<uint32_t>(lane, kAmbiPulsarLanes - 1u)];
     }
     float neuralCaptureProgress() const
     {
@@ -716,7 +774,10 @@ public:
             }
 
             const float emissionLfo = std::sin(static_cast<float>(emissionModPhase_) * kAmbiPulsarTwoPi);
-            const float effectiveEmission = clamp(smoothedEmissionHz_ * (1.0f + params_.emissionModDepth * emissionLfo), 0.05f, 2000.0f);
+            const float effectiveEmission = clamp(smoothedEmissionHz_
+                    * (1.0f + params_.emissionModDepth * emissionLfo)
+                    * listeningEmissionScale(),
+                0.05f, 2000.0f);
             const double eventIncrement = static_cast<double>(effectiveEmission) / sampleRate_;
             eventPhase_ += eventIncrement;
             while (eventPhase_ >= 1.0) {
@@ -898,10 +959,132 @@ private:
         return clamp(smoothedLaneListening_ * smoothedListeningAnalysis_, 0.0f, 1.0f);
     }
 
+    struct ListeningScore {
+        uint32_t pickup = 0u;
+        uint32_t secondaryPickup = 0u;
+        float pickupMix = 0.0f;
+        float signal = 0.0f;
+        float energy = 0.0f;
+        float novelty = 0.0f;
+        float charge = 0.0f;
+        float habituation = 0.0f;
+    };
+
+    uint32_t listeningPickupCount() const
+    {
+        return params_.listening.pickupSet == AmbiPulsarPickupSet::Cube8 ? 8u : 4u;
+    }
+
+    uint32_t nearestListeningPickup(Vec3 direction) const
+    {
+        const uint32_t count = listeningPickupCount();
+        uint32_t selected = 0u;
+        float best = -2.0f;
+        for (uint32_t pickup = 0u; pickup < count; ++pickup) {
+            const Vec3 ear = listeningDirectionVector_[pickup];
+            const float dot = direction.x * ear.x + direction.y * ear.y + direction.z * ear.z;
+            if (dot > best) {
+                best = dot;
+                selected = pickup;
+            }
+        }
+        return selected;
+    }
+
+    uint32_t oppositeListeningPickup(uint32_t pickup) const
+    {
+        const uint32_t count = listeningPickupCount();
+        pickup = std::min<uint32_t>(pickup, count - 1u);
+        const Vec3 direction = listeningDirectionVector_[pickup];
+        uint32_t selected = 0u;
+        float best = 2.0f;
+        for (uint32_t candidate = 0u; candidate < count; ++candidate) {
+            const Vec3 ear = listeningDirectionVector_[candidate];
+            const float dot = direction.x * ear.x + direction.y * ear.y + direction.z * ear.z;
+            if (dot < best) {
+                best = dot;
+                selected = candidate;
+            }
+        }
+        return selected;
+    }
+
+    ListeningScore listeningScoreForDirection(Vec3 direction, uint32_t identity) const
+    {
+        ListeningScore result {};
+        const uint32_t count = listeningPickupCount();
+        const uint32_t local = nearestListeningPickup(direction);
+        const auto readPickup = [&](uint32_t pickup) {
+            ListeningScore score {};
+            score.pickup = pickup % count;
+            score.secondaryPickup = score.pickup;
+            score.signal = listeningPickupValue_[score.pickup];
+            score.energy = listeningRelativeEnergy_[score.pickup];
+            score.novelty = listeningNovelty_[score.pickup];
+            score.charge = listeningCharge_[score.pickup];
+            score.habituation = listeningHabituation_[score.pickup];
+            return score;
+        };
+
+        switch (params_.listening.mode) {
+        case AmbiPulsarListeningMode::Cross:
+            return readPickup(oppositeListeningPickup(local));
+        case AmbiPulsarListeningMode::Diffuse: {
+            result.pickup = identity % count;
+            result.secondaryPickup = result.pickup;
+            float weightSum = 0.0f;
+            for (uint32_t pickup = 0u; pickup < count; ++pickup) {
+                uint32_t hash = (identity + 1u) * 0x9e3779b9u
+                    ^ (pickup + 1u) * 0x7f4a7c15u;
+                hash ^= hash >> 16u;
+                hash *= 0x7feb352du;
+                const float unit = static_cast<float>((hash >> 8u) & 0xffffu) / 65535.0f;
+                const float weight = 0.38f + unit * 0.62f;
+                const float polarity = ((identity + pickup * 3u) & 2u) == 0u ? 1.0f : -0.72f;
+                result.signal += listeningPickupValue_[pickup] * weight * polarity;
+                result.energy += listeningRelativeEnergy_[pickup] * weight;
+                result.novelty += listeningNovelty_[pickup] * weight;
+                result.charge += listeningCharge_[pickup] * weight;
+                result.habituation += listeningHabituation_[pickup] * weight;
+                weightSum += weight;
+            }
+            const float inverse = 1.0f / std::max(0.0001f, weightSum);
+            result.signal = std::tanh(result.signal * inverse * 1.35f);
+            result.energy = clamp(result.energy * inverse, 0.0f, 1.0f);
+            result.novelty = clamp(result.novelty * inverse, 0.0f, 1.0f);
+            result.charge = clamp(result.charge * inverse, 0.0f, 1.0f);
+            result.habituation = clamp(result.habituation * inverse, 0.0f, 1.0f);
+            return result;
+        }
+        case AmbiPulsarListeningMode::Roaming: {
+            const float position = static_cast<float>(listeningRoamPhase_) * count
+                + static_cast<float>(identity) * 0.61803398875f;
+            const float wrapped = position - std::floor(position / static_cast<float>(count))
+                * static_cast<float>(count);
+            const uint32_t first = static_cast<uint32_t>(std::floor(wrapped)) % count;
+            const uint32_t second = (first + 1u) % count;
+            const float mix = wrapped - std::floor(wrapped);
+            const ListeningScore a = readPickup(first);
+            const ListeningScore b = readPickup(second);
+            result.pickup = first;
+            result.secondaryPickup = second;
+            result.pickupMix = mix;
+            result.signal = lerp(a.signal, b.signal, mix);
+            result.energy = lerp(a.energy, b.energy, mix);
+            result.novelty = lerp(a.novelty, b.novelty, mix);
+            result.charge = lerp(a.charge, b.charge, mix);
+            result.habituation = lerp(a.habituation, b.habituation, mix);
+            return result;
+        }
+        case AmbiPulsarListeningMode::Local:
+        default:
+            return readPickup(local);
+        }
+    }
+
     float listeningFieldActivity() const
     {
-        const uint32_t pickupCount =
-            params_.listening.pickupSet == AmbiPulsarPickupSet::Cube8 ? 8u : 4u;
+        const uint32_t pickupCount = listeningPickupCount();
         float total = 0.0f;
         for (uint32_t pickup = 0u; pickup < pickupCount; ++pickup) {
             total += listeningPickupEnergy_[pickup];
@@ -954,15 +1137,59 @@ private:
     uint32_t listeningPointChoice(uint32_t fallback)
     {
         const float response = listeningResponseAmount();
-        const float activity = listeningFieldActivity();
-        if (response <= 0.0001f || activity <= 0.0001f
-            || randomUnit() > response * (0.25f + activity * 0.65f)) {
+        if (response <= 0.0001f) {
             return fallback;
         }
+
+        if (params_.listening.response == AmbiPulsarListenerResponse::Legacy) {
+            const float activity = listeningFieldActivity();
+            if (activity <= 0.0001f
+                || randomUnit() > response * (0.25f + activity * 0.65f)) {
+                return fallback;
+            }
+            float total = 0.0f;
+            std::array<float, kAmbiPulsarMaxPoints> weights {};
+            for (uint32_t point = 0u; point < params_.points; ++point) {
+                weights[point] = 0.08f + pointListeningPreference(point) * 2.4f;
+                total += weights[point];
+            }
+            float target = randomUnit() * std::max(0.0001f, total);
+            for (uint32_t point = 0u; point < params_.points; ++point) {
+                target -= weights[point];
+                if (target <= 0.0f) return point;
+            }
+            return fallback;
+        }
+
+        float selectionChance = response;
+        if (params_.listening.response == AmbiPulsarListenerResponse::Resonate) {
+            selectionChance *= 0.42f + listeningGlobalCharge_ * 0.58f;
+        } else if (params_.listening.response == AmbiPulsarListenerResponse::Imprint) {
+            selectionChance *= 0.58f;
+        } else {
+            selectionChance *= 0.58f + listeningGlobalActivity_ * 0.34f;
+        }
+        if (randomUnit() > selectionChance) return fallback;
+
         float total = 0.0f;
         std::array<float, kAmbiPulsarMaxPoints> weights {};
         for (uint32_t point = 0u; point < params_.points; ++point) {
-            weights[point] = 0.08f + pointListeningPreference(point) * 2.4f;
+            const Vec3 direction = directionFromAed(pointPosition_[point].azimuthDeg,
+                pointPosition_[point].elevationDeg);
+            const ListeningScore score = listeningScoreForDirection(direction, point);
+            switch (params_.listening.response) {
+            case AmbiPulsarListenerResponse::Imprint:
+                weights[point] = 0.10f + score.energy * 1.15f + score.novelty * 1.25f;
+                break;
+            case AmbiPulsarListenerResponse::Balance:
+                weights[point] = 0.08f + (1.0f - score.energy) * 2.35f
+                    + score.habituation * 0.72f;
+                break;
+            case AmbiPulsarListenerResponse::Resonate:
+            default:
+                weights[point] = 0.06f + score.charge * 2.85f + score.novelty * 1.20f;
+                break;
+            }
             total += weights[point];
         }
         float target = randomUnit() * std::max(0.0001f, total);
@@ -973,13 +1200,75 @@ private:
         return fallback;
     }
 
+    float listeningEmissionScale() const
+    {
+        const float response = listeningResponseAmount();
+        if (response <= 0.0001f
+            || params_.listening.response == AmbiPulsarListenerResponse::Legacy
+            || params_.listening.response == AmbiPulsarListenerResponse::Imprint) {
+            return 1.0f;
+        }
+        float target = 1.0f;
+        if (params_.listening.response == AmbiPulsarListenerResponse::Resonate) {
+            target = clamp(0.30f + listeningGlobalCharge_ * 1.48f
+                    + listeningGlobalNovelty_ * 0.42f,
+                0.25f, 2.15f);
+        } else {
+            target = clamp(1.28f - listeningGlobalActivity_ * 0.78f
+                    - listeningGlobalNovelty_ * 0.18f,
+                0.30f, 1.28f);
+        }
+        return lerp(1.0f, target, response);
+    }
+
+    bool listeningLanePasses(uint32_t lane)
+    {
+        const float response = listeningResponseAmount();
+        if (response <= 0.0001f
+            || params_.listening.response == AmbiPulsarListenerResponse::Legacy
+            || params_.listening.response == AmbiPulsarListenerResponse::Imprint) {
+            return true;
+        }
+        lane = std::min<uint32_t>(lane, kAmbiPulsarLanes - 1u);
+        const ListeningScore score = listeningScoreForDirection(
+            listeningDirectionVector_[lane], lane);
+        float target = 1.0f;
+        if (params_.listening.response == AmbiPulsarListenerResponse::Resonate) {
+            target = 0.20f + score.charge * 0.62f + score.novelty * 0.24f;
+        } else {
+            target = 0.26f + (1.0f - score.energy) * 0.74f;
+        }
+        const float admission = clamp(lerp(1.0f, target, response), 0.08f, 1.0f);
+        listeningLaneAccumulator_[lane] += admission;
+        if (listeningLaneAccumulator_[lane] < 1.0f) return false;
+        listeningLaneAccumulator_[lane] -= 1.0f;
+        return true;
+    }
+
+    void consumeListeningCharge(Vec3 direction, uint32_t identity, float amount)
+    {
+        if (amount <= 0.0f) return;
+        const uint32_t count = listeningPickupCount();
+        if (params_.listening.mode == AmbiPulsarListeningMode::Diffuse) {
+            const float shared = amount / static_cast<float>(count);
+            for (uint32_t pickup = 0u; pickup < count; ++pickup) {
+                listeningCharge_[pickup] = std::max(0.0f, listeningCharge_[pickup] - shared);
+            }
+            return;
+        }
+        const ListeningScore score = listeningScoreForDirection(direction, identity);
+        const float mix = clamp(score.pickupMix, 0.0f, 1.0f);
+        listeningCharge_[score.pickup] = std::max(
+            0.0f, listeningCharge_[score.pickup] - amount * (1.0f - mix));
+        listeningCharge_[score.secondaryPickup] = std::max(
+            0.0f, listeningCharge_[score.secondaryPickup] - amount * mix);
+    }
+
     void updateListeningReturns(
         const std::array<float, kAmbiPulsarMaxChannels>& hoaFrame, uint32_t channels)
     {
         channels = std::min<uint32_t>(channels, kAmbiPulsarMaxChannels);
-        const uint32_t pickupCount = params_.listening.pickupSet == AmbiPulsarPickupSet::Cube8 ? 8u : 4u;
-        const float energyCoefficient = 1.0f
-            - std::exp(-1.0f / std::max(1.0f, static_cast<float>(sampleRate_ * 0.080)));
+        const uint32_t pickupCount = listeningPickupCount();
         for (uint32_t pickup = 0u; pickup < kAmbiPulsarListeningPickups; ++pickup) {
             float directional = 0.0f;
             float norm = 0.0f;
@@ -991,8 +1280,13 @@ private:
             const float omni = channels > 0u ? hoaFrame[0] : 0.0f;
             const float heard = lerp(omni, directional, smoothedPickupFocus_)
                 * smoothedListeningAnalysis_;
-            const float spread = kAmbiPulsarListeningPickups > 1u
-                ? static_cast<float>(pickup) / static_cast<float>(kAmbiPulsarListeningPickups - 1u) : 0.0f;
+            const uint32_t spreadCount =
+                params_.listening.response == AmbiPulsarListenerResponse::Legacy
+                ? kAmbiPulsarListeningPickups : pickupCount;
+            const float spread = spreadCount > 1u
+                ? static_cast<float>(std::min<uint32_t>(pickup, spreadCount - 1u))
+                    / static_cast<float>(spreadCount - 1u)
+                : 0.0f;
             const float delayMs = smoothedPropagationMs_ * (0.18f + spread * 0.82f);
             const float cutoffHz = lerp(16000.0f, 1800.0f,
                 clamp(delayMs / 180.0f, 0.0f, 1.0f));
@@ -1005,8 +1299,73 @@ private:
             listeningPickupValue_[pickup] = value;
             const float energyTarget = pickup < pickupCount ? std::fabs(value) : 0.0f;
             listeningPickupEnergy_[pickup] += (energyTarget - listeningPickupEnergy_[pickup])
-                * energyCoefficient;
+                * listeningEnergyCoefficient_;
+            listeningFastEnergy_[pickup] += (
+                energyTarget - listeningFastEnergy_[pickup]) * listeningFastCoefficient_;
+            listeningSlowEnergy_[pickup] += (
+                energyTarget - listeningSlowEnergy_[pickup]) * listeningSlowCoefficient_;
         }
+
+        float meanEnergy = 0.0f;
+        float peakEnergy = 0.0f;
+        for (uint32_t pickup = 0u; pickup < pickupCount; ++pickup) {
+            meanEnergy += listeningPickupEnergy_[pickup];
+            peakEnergy = std::max(peakEnergy, listeningPickupEnergy_[pickup]);
+        }
+        meanEnergy /= static_cast<float>(pickupCount);
+        listeningGlobalActivity_ = clamp(meanEnergy * 2.4f, 0.0f, 1.0f);
+        float totalCharge = 0.0f;
+        float totalNovelty = 0.0f;
+        for (uint32_t pickup = 0u; pickup < kAmbiPulsarListeningPickups; ++pickup) {
+            if (pickup >= pickupCount) {
+                listeningRelativeEnergy_[pickup] = 0.0f;
+                listeningNovelty_[pickup] += (
+                    0.0f - listeningNovelty_[pickup]) * listeningNoveltyRelease_;
+                listeningHabituation_[pickup] += (
+                    0.0f - listeningHabituation_[pickup]) * listeningHabituationRelease_;
+                listeningCharge_[pickup] += (
+                    0.0f - listeningCharge_[pickup]) * listeningChargeLeak_;
+                continue;
+            }
+            const float relative = peakEnergy > 1.0e-6f
+                ? clamp(0.5f + (listeningPickupEnergy_[pickup] - meanEnergy)
+                        / std::max(0.004f, peakEnergy) * 0.5f,
+                    0.0f, 1.0f)
+                : 0.0f;
+            listeningRelativeEnergy_[pickup] = relative;
+            const float onset = clamp(
+                (listeningFastEnergy_[pickup] - listeningSlowEnergy_[pickup])
+                    / std::max(0.004f, listeningSlowEnergy_[pickup] + meanEnergy * 0.18f)
+                    * 0.82f,
+                0.0f, 1.0f);
+            const float noveltyCoefficient =
+                onset > listeningNovelty_[pickup]
+                ? listeningNoveltyAttack_ : listeningNoveltyRelease_;
+            listeningNovelty_[pickup] += (
+                onset - listeningNovelty_[pickup]) * noveltyCoefficient;
+            const float sustained = clamp(
+                listeningSlowEnergy_[pickup] / std::max(0.006f, peakEnergy + 0.006f),
+                0.0f, 1.0f);
+            const float habituationCoefficient =
+                sustained > listeningHabituation_[pickup]
+                ? listeningHabituationAttack_ : listeningHabituationRelease_;
+            listeningHabituation_[pickup] += (
+                sustained - listeningHabituation_[pickup]) * habituationCoefficient;
+            const float freshness = 1.0f - listeningHabituation_[pickup] * 0.72f;
+            const float deposit = (listeningNovelty_[pickup] * 0.90f
+                    + relative * 0.10f)
+                * freshness * smoothedListeningAnalysis_;
+            listeningCharge_[pickup] = clamp(listeningCharge_[pickup]
+                    + deposit * listeningChargeDeposit_
+                    - listeningCharge_[pickup] * listeningChargeLeak_,
+                0.0f, 1.0f);
+            totalCharge += listeningCharge_[pickup];
+            totalNovelty += listeningNovelty_[pickup];
+        }
+        listeningGlobalCharge_ = clamp(
+            totalCharge / static_cast<float>(pickupCount) * 1.45f, 0.0f, 1.0f);
+        listeningGlobalNovelty_ = clamp(
+            totalNovelty / static_cast<float>(pickupCount) * 1.80f, 0.0f, 1.0f);
 
         if (params_.listening.enabled && params_.listening.mode == AmbiPulsarListeningMode::Roaming) {
             listeningRoamPhase_ += 0.037 / sampleRate_;
@@ -1014,39 +1373,44 @@ private:
         }
         for (uint32_t lobe = 0u; lobe < kAmbiPulsarNeuralLobes; ++lobe) {
             float mixed = 0.0f;
-            switch (params_.listening.mode) {
-            case AmbiPulsarListeningMode::Cross: {
-                const uint32_t primary = (lobe + 1u) % pickupCount;
-                mixed = listeningPickupValue_[primary];
-                if (pickupCount == 8u) mixed = mixed * 0.78f
-                    + listeningPickupValue_[(primary + 4u) % 8u] * 0.22f;
-                break;
-            }
-            case AmbiPulsarListeningMode::Diffuse:
-                for (uint32_t pickup = 0u; pickup < pickupCount; ++pickup) {
-                    const float sign = ((pickup + lobe) % 3u) == 0u ? -0.62f : 1.0f;
-                    mixed += listeningPickupValue_[pickup] * sign;
+            if (params_.listening.response != AmbiPulsarListenerResponse::Legacy) {
+                mixed = listeningScoreForDirection(
+                    listeningDirectionVector_[lobe], lobe).signal;
+            } else {
+                switch (params_.listening.mode) {
+                case AmbiPulsarListeningMode::Cross: {
+                    const uint32_t primary = (lobe + 1u) % pickupCount;
+                    mixed = listeningPickupValue_[primary];
+                    if (pickupCount == 8u) mixed = mixed * 0.78f
+                        + listeningPickupValue_[(primary + 4u) % 8u] * 0.22f;
+                    break;
                 }
-                mixed /= static_cast<float>(pickupCount);
-                break;
-            case AmbiPulsarListeningMode::Roaming: {
-                const float position = static_cast<float>(listeningRoamPhase_) * pickupCount
-                    + static_cast<float>(lobe) * static_cast<float>(pickupCount)
-                        / static_cast<float>(kAmbiPulsarNeuralLobes);
-                const uint32_t first = static_cast<uint32_t>(std::floor(position)) % pickupCount;
-                const uint32_t second = (first + 1u) % pickupCount;
-                mixed = lerp(listeningPickupValue_[first], listeningPickupValue_[second],
-                    position - std::floor(position));
-                break;
-            }
-            case AmbiPulsarListeningMode::Local:
-            default: {
-                const uint32_t primary = lobe % pickupCount;
-                mixed = listeningPickupValue_[primary];
-                if (pickupCount == 8u) mixed = mixed * 0.78f
-                    + listeningPickupValue_[primary + 4u] * 0.22f;
-                break;
-            }
+                case AmbiPulsarListeningMode::Diffuse:
+                    for (uint32_t pickup = 0u; pickup < pickupCount; ++pickup) {
+                        const float sign = ((pickup + lobe) % 3u) == 0u ? -0.62f : 1.0f;
+                        mixed += listeningPickupValue_[pickup] * sign;
+                    }
+                    mixed /= static_cast<float>(pickupCount);
+                    break;
+                case AmbiPulsarListeningMode::Roaming: {
+                    const float position = static_cast<float>(listeningRoamPhase_) * pickupCount
+                        + static_cast<float>(lobe) * static_cast<float>(pickupCount)
+                            / static_cast<float>(kAmbiPulsarNeuralLobes);
+                    const uint32_t first = static_cast<uint32_t>(std::floor(position)) % pickupCount;
+                    const uint32_t second = (first + 1u) % pickupCount;
+                    mixed = lerp(listeningPickupValue_[first], listeningPickupValue_[second],
+                        position - std::floor(position));
+                    break;
+                }
+                case AmbiPulsarListeningMode::Local:
+                default: {
+                    const uint32_t primary = lobe % pickupCount;
+                    mixed = listeningPickupValue_[primary];
+                    if (pickupCount == 8u) mixed = mixed * 0.78f
+                        + listeningPickupValue_[primary + 4u] * 0.22f;
+                    break;
+                }
+                }
             }
             listeningLobeReturn_[lobe] = std::tanh(mixed * 1.2f);
         }
@@ -1071,6 +1435,8 @@ private:
         float neuralPulsaretMix = 0.0f;
         float neuralEnvelopeMix = 0.0f;
         float neuralFmDepthSemitones = 0.0f;
+        float listenerImprint = 0.0f;
+        float listenerSignal = 0.0f;
         bool freeRunning = false;
         bool firstSample = true;
         uint32_t randomState = 1u;
@@ -1209,10 +1575,13 @@ private:
         const bool burst = params_.burstOff == 0u || cycle == 0u || (index % cycle) < params_.burstOn;
         const bool sieve = params_.sieveModulo <= 1u
             || (index % params_.sieveModulo) == params_.sieveResidue;
-        const float response = listeningResponseAmount();
-        const float responseScale = lerp(1.0f,
-            0.68f + listeningFieldActivity() * 0.90f, response);
-        const float probability = clamp(params_.probability * responseScale, 0.0f, 1.0f);
+        float probability = params_.probability;
+        if (params_.listening.response == AmbiPulsarListenerResponse::Legacy) {
+            const float response = listeningResponseAmount();
+            const float responseScale = lerp(1.0f,
+                0.68f + listeningFieldActivity() * 0.90f, response);
+            probability = clamp(probability * responseScale, 0.0f, 1.0f);
+        }
         return burst && sieve && randomUnit() <= probability;
     }
 
@@ -1229,11 +1598,21 @@ private:
                 static_cast<uint32_t>(randomUnit() * static_cast<float>(params_.points)));
         }
         pointIndex = listeningPointChoice(pointIndex);
+        const Vec3 eventDirection = directionFromAed(pointPosition_[pointIndex].azimuthDeg,
+            pointPosition_[pointIndex].elevationDeg);
+        if (params_.listening.response == AmbiPulsarListenerResponse::Resonate) {
+            consumeListeningCharge(eventDirection, pointIndex,
+                listeningResponseAmount() * 0.26f);
+        } else if (params_.listening.response == AmbiPulsarListenerResponse::Imprint) {
+            consumeListeningCharge(eventDirection, pointIndex,
+                listeningResponseAmount() * 0.08f);
+        }
         pointPulse_[pointIndex] = 1.0f;
         ++pointEmissionCount_[pointIndex];
         pointAzimuthScatter_[pointIndex] = randomSigned() * params_.spatialScatter * 48.0f;
         pointElevationScatter_[pointIndex] = randomSigned() * params_.spatialScatter * 24.0f;
         for (uint32_t lane = 0u; lane < kAmbiPulsarLanes; ++lane) {
+            if (!listeningLanePasses(lane)) continue;
             const double delay = static_cast<double>(params_.lanes[lane].triggerOffset * periodSamples - ageSamples);
             if (delay <= 0.0) {
                 triggerLane(lane, pointIndex, static_cast<float>(-delay), periodSamples);
@@ -1298,11 +1677,28 @@ private:
         const float modPhase = static_cast<float>(formantModPhase_) * kAmbiPulsarTwoPi + static_cast<float>(lane) * 2.094395102f;
         float semitones = std::sin(modPhase) * params_.formantModDepthSemitones
             + randomSigned() * params_.formantScatterSemitones;
+        const Vec3 eventDirection = directionFromAed(pointPosition_[pointIndex].azimuthDeg,
+            pointPosition_[pointIndex].elevationDeg);
+        const ListeningScore listenerScore = listeningScoreForDirection(
+            eventDirection, pointIndex * kAmbiPulsarLanes + lane);
+        const float listenerResponse = listeningResponseAmount();
         static constexpr std::array<float, kAmbiPulsarLanes> kListeningRangeSemitones {{
             2.5f, 5.0f, 9.0f
         }};
-        semitones += laneListeningSignal(lane) * smoothedLaneListening_
-            * smoothedListeningAnalysis_ * kListeningRangeSemitones[lane];
+        if (params_.listening.response == AmbiPulsarListenerResponse::Legacy) {
+            semitones += laneListeningSignal(lane) * smoothedLaneListening_
+                * smoothedListeningAnalysis_ * kListeningRangeSemitones[lane];
+        } else {
+            float pitchDepth = 0.0f;
+            switch (params_.listening.response) {
+            case AmbiPulsarListenerResponse::Imprint: pitchDepth = 1.0f; break;
+            case AmbiPulsarListenerResponse::Balance: pitchDepth = -0.38f; break;
+            case AmbiPulsarListenerResponse::Resonate:
+            default: pitchDepth = 0.72f; break;
+            }
+            semitones += listenerScore.signal * listenerResponse
+                * pitchDepth * kListeningRangeSemitones[lane];
+        }
         const float schedulerHz = static_cast<float>(sampleRate_) / std::max(1.0f, periodSamples);
         float baseCarrierHz = smoothedFormant_[lane];
         if (advanced.tuneMode == AmbiPulsarTuneMode::Ratio) {
@@ -1321,22 +1717,53 @@ private:
         selected->phaseIncrement = formant / static_cast<float>(sampleRate_);
         selected->modPhaseIncrement = clamp(schedulerHz * advanced.fmRatio
             / static_cast<float>(sampleRate_), 1.0e-7f, 0.48f);
-        selected->fmIndex = advanced.fmIndex;
+        float listenerImprint = 0.0f;
+        if (params_.listening.response == AmbiPulsarListenerResponse::Resonate) {
+            listenerImprint = listenerResponse * (0.12f
+                + listenerScore.charge * 0.30f + listenerScore.novelty * 0.28f);
+        } else if (params_.listening.response == AmbiPulsarListenerResponse::Imprint) {
+            listenerImprint = listenerResponse * (0.32f
+                + listenerScore.energy * 0.38f + listenerScore.novelty * 0.30f);
+        } else if (params_.listening.response == AmbiPulsarListenerResponse::Balance) {
+            listenerImprint = listenerResponse * (1.0f - listenerScore.energy) * 0.14f;
+        }
+        listenerImprint = clamp(listenerImprint, 0.0f, 1.0f);
+        selected->listenerImprint = listenerImprint;
+        selected->listenerSignal = listenerScore.signal;
+        lastListenerImprint_[lane] = listenerImprint;
+        ++laneTriggerCount_[lane];
+        selected->fmIndex = clamp(advanced.fmIndex
+                + std::fabs(listenerScore.signal) * listenerImprint * 2.6f,
+            0.0f, 20.0f);
         selected->freeRunning = advanced.retriggerMode == AmbiPulsarRetriggerMode::Free;
         const float phaseScatter = randomSigned() * params_.phaseScatter;
         selected->phase = std::fmod((selected->freeRunning ? 0.0f
             : selected->ageSamples * selected->phaseIncrement) + phaseScatter, 1.0f);
         if (selected->phase < 0.0f) selected->phase += 1.0f;
         selected->modPhase = std::fmod(selected->ageSamples * selected->modPhaseIncrement, 1.0f);
-        const float levelResponse = lerp(1.0f,
-            0.62f + laneListeningEnergy(lane) * 0.96f, listeningResponseAmount());
+        float levelTarget = 1.0f;
+        if (params_.listening.response == AmbiPulsarListenerResponse::Legacy) {
+            levelTarget = 0.62f + laneListeningEnergy(lane) * 0.96f;
+        } else if (params_.listening.response == AmbiPulsarListenerResponse::Resonate) {
+            levelTarget = 0.80f + listenerScore.charge * 0.30f
+                + listenerScore.novelty * 0.16f;
+        } else if (params_.listening.response == AmbiPulsarListenerResponse::Imprint) {
+            levelTarget = 0.92f + listenerScore.energy * 0.12f;
+        } else {
+            levelTarget = 0.78f + (1.0f - listenerScore.energy) * 0.30f;
+        }
+        const float levelResponse = lerp(1.0f, levelTarget, listenerResponse);
         selected->level = laneParams.level * clamp(levelResponse, 0.45f, 1.58f);
         lastTriggeredLevel_[lane] = selected->level;
         selected->waveform = laneParams.waveform;
         selected->envelope = params_.envelope;
         selected->quality = params_.quality;
-        selected->envelopeEdge = params_.envelopeEdge;
-        selected->windowSkew = advanced.windowSkew;
+        selected->envelopeEdge = clamp(params_.envelopeEdge
+                * std::exp2(-listenerScore.signal * listenerImprint * 0.48f),
+            0.01f, 1.0f);
+        selected->windowSkew = clamp(advanced.windowSkew
+                + listenerScore.signal * listenerImprint * 0.24f,
+            0.02f, 0.98f);
         selected->neuralPulsaretMix = params_.neuralPulsaretMix;
         selected->neuralEnvelopeMix = params_.neuralEnvelopeMix;
         selected->neuralFmDepthSemitones = params_.neuralFmDepthSemitones;
@@ -1454,13 +1881,16 @@ private:
 
         const float carrierPhase = grain.freeRunning ? freeCarrierPhase_[lane] + grain.phase : grain.phase;
         const float modulatorPhase = grain.freeRunning ? freeModPhase_[lane] : grain.modPhase;
+        const float listenerPhaseWarp = grain.listenerSignal * grain.listenerImprint * 0.075f
+            * std::sin(kAmbiPulsarTwoPi * carrierPhase);
+        const float imprintedCarrierPhase = carrierPhase + listenerPhaseWarp;
         const auto fmPhaseOffset = [&](float phase) {
             return grain.fmIndex * std::sin(kAmbiPulsarTwoPi * phase) / kAmbiPulsarTwoPi;
         };
 
         float sample = 0.0f;
         if (oversampling == 1u) {
-            sample = waveformAt(grain, carrierPhase + effectiveIncrement * 0.5f
+            sample = waveformAt(grain, imprintedCarrierPhase + effectiveIncrement * 0.5f
                 + fmPhaseOffset(modulatorPhase + baseModIncrement * 0.5f), bandlimitIncrement);
         } else {
             // Two cascaded one-poles provide the reconstruction filtering that a
@@ -1468,7 +1898,7 @@ private:
             const float pole = std::exp(-kPi * 0.82f / static_cast<float>(oversampling));
             for (uint32_t sub = 0u; sub < oversampling; ++sub) {
                 const float fraction = (static_cast<float>(sub) + 0.5f) / static_cast<float>(oversampling);
-                const float subPhase = carrierPhase + effectiveIncrement * fraction
+                const float subPhase = imprintedCarrierPhase + effectiveIncrement * fraction
                     + fmPhaseOffset(modulatorPhase + baseModIncrement * fraction);
                 const float value = waveformAt(grain, subPhase,
                     bandlimitIncrement / static_cast<float>(oversampling));
@@ -1476,6 +1906,15 @@ private:
                 grain.oversampleState2 = grain.oversampleState1 * (1.0f - pole) + grain.oversampleState2 * pole;
             }
             sample = grain.oversampleState2;
+        }
+        if (grain.listenerImprint > 0.0001f) {
+            const float drive = 1.0f + grain.listenerImprint * 2.4f;
+            const float returnedPartial = std::sin(kAmbiPulsarTwoPi
+                    * (imprintedCarrierPhase * 2.0f + grain.listenerSignal * 0.125f))
+                * grain.listenerSignal * grain.listenerImprint * 0.24f;
+            const float shaped = std::tanh(sample * drive + returnedPartial)
+                / std::max(0.0001f, std::tanh(drive));
+            sample = lerp(sample, shaped, grain.listenerImprint * 0.72f);
         }
         if (!grain.freeRunning) {
             grain.phase += effectiveIncrement;
@@ -1724,7 +2163,14 @@ private:
     std::array<float, kAmbiPulsarListeningPickups> listeningPickupValue_ {};
     std::array<float, kAmbiPulsarListeningPickups> listeningPickupEnergy_ {};
     std::array<float, kAmbiPulsarListeningPickups> listeningPickupFilter_ {};
+    std::array<float, kAmbiPulsarListeningPickups> listeningFastEnergy_ {};
+    std::array<float, kAmbiPulsarListeningPickups> listeningSlowEnergy_ {};
+    std::array<float, kAmbiPulsarListeningPickups> listeningRelativeEnergy_ {};
+    std::array<float, kAmbiPulsarListeningPickups> listeningNovelty_ {};
+    std::array<float, kAmbiPulsarListeningPickups> listeningCharge_ {};
+    std::array<float, kAmbiPulsarListeningPickups> listeningHabituation_ {};
     std::array<float, kAmbiPulsarNeuralLobes> listeningLobeReturn_ {};
+    std::array<float, kAmbiPulsarLanes> listeningLaneAccumulator_ {};
     std::array<std::array<Grain, kAmbiPulsarMaxGrainsPerLane>, kAmbiPulsarLanes> grains_ {};
     std::array<std::array<bool, kAmbiPulsarPendingPerLane>, kAmbiPulsarLanes> pending_ {};
     std::array<std::array<double, kAmbiPulsarPendingPerLane>, kAmbiPulsarLanes> pendingSamples_ {};
@@ -1737,6 +2183,8 @@ private:
     std::array<float, kAmbiPulsarLanes> freeModIncrement_ {};
     std::array<float, kAmbiPulsarLanes> lastCarrierHz_ {};
     std::array<float, kAmbiPulsarLanes> lastTriggeredLevel_ {};
+    std::array<uint64_t, kAmbiPulsarLanes> laneTriggerCount_ {};
+    std::array<float, kAmbiPulsarLanes> lastListenerImprint_ {};
     std::array<float, kAmbiPulsarLanes> laneNormalization_ {};
     std::array<float, kAmbiPulsarMaxPoints> pointActivation_ {};
     std::array<float, kAmbiPulsarMaxChannels> channelActivation_ {};
@@ -1778,6 +2226,18 @@ private:
     float smoothedPickupFocus_ = 0.72f;
     float smoothedLaneListening_ = 0.0f;
     double listeningRoamPhase_ = 0.0;
+    float listeningGlobalActivity_ = 0.0f;
+    float listeningGlobalCharge_ = 0.0f;
+    float listeningGlobalNovelty_ = 0.0f;
+    float listeningEnergyCoefficient_ = 0.0f;
+    float listeningFastCoefficient_ = 0.0f;
+    float listeningSlowCoefficient_ = 0.0f;
+    float listeningNoveltyRelease_ = 0.0f;
+    float listeningNoveltyAttack_ = 0.0f;
+    float listeningHabituationAttack_ = 0.0f;
+    float listeningHabituationRelease_ = 0.0f;
+    float listeningChargeDeposit_ = 0.0f;
+    float listeningChargeLeak_ = 0.0f;
     NeuralSynthesisParams smoothedNeuralParams_ {};
     float startupGain_ = 0.0f;
     uint64_t eventIndex_ = 0u;
