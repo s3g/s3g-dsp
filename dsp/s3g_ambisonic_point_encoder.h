@@ -17,6 +17,7 @@ constexpr uint32_t kAmbiPointEncoderMaxPoints = 64;
 constexpr uint32_t kAmbiPointEncoderPrototypePoints = 16;
 constexpr uint32_t kAmbiPointEncoderMaxOrder = 7;
 constexpr uint32_t kAmbiPointEncoderMaxChannels = 64;
+constexpr uint32_t kAmbiPointEncoderMaxMotionScene = 17;
 
 enum class AmbiPointMotionMode : uint32_t {
     Off = 0,
@@ -84,7 +85,16 @@ public:
     {
         const uint32_t count = std::max<uint32_t>(1u, pointCount_);
         for (uint32_t i = 0; i < kAmbiPointEncoderMaxPoints; ++i) {
-            const float u = (static_cast<float>(i) + 0.5f) / static_cast<float>(std::max<uint32_t>(1u, count));
+            // Keep the original 16-point scene intact, then distribute any
+            // expanded lanes across a second full-sphere Fibonacci set.
+            const bool expandedPoint = count > kAmbiPointEncoderPrototypePoints
+                && i >= kAmbiPointEncoderPrototypePoints;
+            const uint32_t distributionIndex = expandedPoint ? i - kAmbiPointEncoderPrototypePoints : i;
+            const uint32_t distributionCount = count > kAmbiPointEncoderPrototypePoints
+                ? (expandedPoint ? count - kAmbiPointEncoderPrototypePoints : kAmbiPointEncoderPrototypePoints)
+                : count;
+            const float u = (static_cast<float>(distributionIndex) + 0.5f)
+                / static_cast<float>(std::max<uint32_t>(1u, distributionCount));
             const float az = wrapSignedDeg(i * 137.507764f);
             const float el = std::asin(clamp(1.0f - 2.0f * u, -1.0f, 1.0f)) * 180.0f / kPi;
             points_[i] = { az, el, 1.0f, 1.0f, i < count };
@@ -165,7 +175,6 @@ public:
         point.elevationDeg = clamp(point.elevationDeg, params_.upperHemisphereOnly ? 0.0f : -90.0f, 90.0f);
         point.distance = clamp(point.distance, 0.15f, 2.0f);
         point.gain = clamp(point.gain, 0.0f, 2.0f);
-        point.enabled = point.enabled && index < params_.activePoints;
         points_[index] = point;
         basePoints_[index] = point;
         prevPositions_[index] = toVec(point);
@@ -255,7 +264,7 @@ public:
         const uint32_t active = std::min<uint32_t>(params_.activePoints, pointCount_);
         const float gain = dbToGain(params_.outputGainDb);
         bool anySolo = false;
-        for (uint32_t p = 0; p < std::min<uint32_t>(active, kAmbiPointEncoderPrototypePoints); ++p) {
+        for (uint32_t p = 0; p < active; ++p) {
             anySolo = anySolo || smoothPoints_[p].solo;
         }
         constexpr uint32_t kMotionChunkFrames = 16;
@@ -265,10 +274,10 @@ public:
             advanceMotion(static_cast<float>(static_cast<double>(chunkFrames) / sampleRate_));
             smoothScene();
 
-            std::array<std::array<float, kAmbiPointEncoderMaxChannels>, kAmbiPointEncoderPrototypePoints> basis {};
-            std::array<float, kAmbiPointEncoderPrototypePoints> laneGain {};
-            std::array<float, kAmbiPointEncoderPrototypePoints> distances {};
-            for (uint32_t p = 0; p < std::min<uint32_t>(active, kAmbiPointEncoderPrototypePoints); ++p) {
+            std::array<std::array<float, kAmbiPointEncoderMaxChannels>, kAmbiPointEncoderMaxPoints> basis {};
+            std::array<float, kAmbiPointEncoderMaxPoints> laneGain {};
+            std::array<float, kAmbiPointEncoderMaxPoints> distances {};
+            for (uint32_t p = 0; p < active; ++p) {
                 const auto& point = smoothPoints_[p];
                 const Vec3 dir = directionFromAed(point.azimuthDeg, point.elevationDeg);
                 basis[p] = acnSn3dBasis7(dir);
@@ -279,7 +288,7 @@ public:
             }
 
             for (uint32_t i = chunkStart; i < chunkStart + chunkFrames; ++i) {
-                for (uint32_t p = 0; p < std::min<uint32_t>(active, kAmbiPointEncoderPrototypePoints); ++p) {
+                for (uint32_t p = 0; p < active; ++p) {
                     const float raw = inputs && inputs[p] ? inputs[p][i] * laneGain[p] : 0.0f;
                     const float sample = depth_.process(p, raw, distances[p]);
                     if (sample == 0.0f) {
@@ -320,7 +329,7 @@ private:
         params.selectedDistance = clamp(params.selectedDistance, 0.15f, 2.0f);
         params.selectedGain = clamp(params.selectedGain, 0.0f, 2.0f);
         params.selectedEnabled = params.selectedEnabled && params.selectedPoint < params.activePoints;
-        params.motionScene = std::min<uint32_t>(params.motionScene, 7u);
+        params.motionScene = std::min<uint32_t>(params.motionScene, kAmbiPointEncoderMaxMotionScene);
         params.motionAmount = clamp(params.motionAmount, 0.0f, 1.0f);
         params.rateHz = clamp(params.rateHz, 0.005f, 0.50f);
         params.attract = clamp(params.attract, 0.0f, 0.24f);
@@ -1182,7 +1191,7 @@ private:
     float phase_ = 0.0f;
     float motionTime_ = 0.0f;
     uint32_t seed_ = 0x1234abcdU;
-    AmbiEncoderDepthProcessor<kAmbiPointEncoderPrototypePoints> depth_ {};
+    AmbiEncoderDepthProcessor<kAmbiPointEncoderMaxPoints> depth_ {};
     bool perturbationPrimed_ = false;
 };
 

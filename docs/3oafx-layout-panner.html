@@ -28,7 +28,7 @@
 
         <p><code>s3g Layout Panner</code> is a direct spatial panner: source inputs are distributed across a fixed 64-channel speaker output bus. It does not encode to ambisonics internally. It is useful when the speaker layout itself is the target.</p>
 
-        <p>The panner is documented under <a href="direct-panning.html">Direct Panning</a> because it writes directly to speaker channels. Ambisonics pages cross-link here where the same speaker-layout language is useful.</p>
+        <p>Its outputs already correspond to physical speakers, so no ambisonic decoder follows it. Use an <a href="ambisonic-encoders.html">Ambisonic Encoder</a> instead when the spatial field must remain independent of the final speaker layout.</p>
 
         <figure>
           <div class="doc-graphic">

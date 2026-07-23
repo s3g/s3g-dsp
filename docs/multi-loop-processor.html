@@ -28,7 +28,7 @@
 
         <p><code>s3g Multi Loop Processor 8ch</code> is a CLAP instrument plugin for combining up to four loaded audio files into one eight-lane loop instrument.</p>
 
-        <p>It shares the stable loop engine model with <a href="loop-processor.html">Loop Processor</a>: lane playheads, loop region controls, seam crossfade, lane relationship controls, and an eight-channel output bus. The difference is the source layer. Multi Loop builds an internal eight-channel composite from several files before the loop engine plays it.</p>
+        <p>Like <a href="loop-processor.html">Loop Processor</a>, it provides lane playheads, loop-region controls, seam crossfade, lane relationships, and an eight-channel output bus. Multi Loop first assigns and blends the loaded files into an eight-channel composite, then plays that composite as a loop.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -37,7 +37,7 @@
           <li>Click <code>LOAD</code> and select up to four files in the file picker.</li>
           <li>Choose a <code>RULE</code> to decide how files feed the eight lanes.</li>
           <li>Use <code>SRAT</code> and <code>XBLD</code> to shape the source layer.</li>
-          <li>Use the shared loop engine controls to set rate, loop region, seam crossfade, and output gain.</li>
+          <li>Set the playback rate, loop region, seam crossfade, and output gain.</li>
           <li>Optionally set <code>MIDI</code> to <code>GATE</code> or <code>TRIG</code> so note input can launch and transpose playback.</li>
           <li>Use <code>SYNC</code> to realign lane playheads after editing loop timing.</li>
         </ul>
@@ -83,7 +83,7 @@
           </tbody>
         </table>
 
-        <p><code>SRAT</code> and <code>XBLD</code> rebuild the source composite after the control is released. This keeps the audio thread stable while still allowing audible source-layer changes.</p>
+        <p><code>SRAT</code> and <code>XBLD</code> update the source composite after the control is released, so the new source assignment enters as one complete change.</p>
 
         <h2 id="loop-engine">Loop Engine</h2>
 
@@ -129,21 +129,15 @@
 
         <h2 id="standalone-app">Standalone App</h2>
 
-        <p>The macOS standalone app uses the same shared DSP engine, but runs outside REAPER with <code>AVAudioEngine</code> and <code>CoreMIDI</code>. Its MIDI map follows the nanoKONTROL2 control layout.</p>
+        <p>The macOS standalone app runs outside REAPER and provides a MIDI map based on the nanoKONTROL2 control layout.</p>
 
         <p>Sliders <code>CC0-CC7</code> control rate, spread, drift, center, glide, start, length, and output. Knobs <code>CC16</code> and <code>CC17</code> control crossfade and ducking. SOLO buttons <code>CC32-CC35</code> choose the source rule. Transport buttons control play, stop, sync, rule advance, rebuild, and toggle play. MIDI notes are ignored in the standalone app.</p>
 
         <p>If the active audio device has fewer than eight outputs, the app folds the eight internal lanes down across the available output channels for auditioning.</p>
 
-        <h2 id="practical-notes">Practical Notes</h2>
-
-        <p>Multi Loop Processor is separate from topology plugins. It is a loaded-audio instrument with source rules and lane relationships, not a point-field processor.</p>
+        <h2 id="choosing">Choosing Loop or Multi Loop</h2>
 
         <p>For a simpler single-file workflow, use <a href="loop-processor.html">Loop Processor</a>. Use Multi Loop when several loops, textures, or multichannel files should be arranged into one eight-lane playable instrument.</p>
-
-        <h2 id="session-checks">Session Checks</h2>
-
-        <p>For multichannel sessions, place a meter after the plugin and try combinations such as mono plus stereo, stereo plus quad, stereo plus 8-channel, and stereo plus 24-channel files. The eight output lanes should match the selected source rule while loop-region, crossfade, ducking, rate, spread, drift, and center changes remain smooth.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="loop-processor.html">
@@ -180,8 +174,7 @@
           <a href="#loop-engine">Loop Engine</a>
           <a href="#relationships">Relationships</a>
           <a href="#standalone-app">Standalone App</a>
-          <a href="#practical-notes">Practical Notes</a>
-          <a href="#session-checks">Session Checks</a>
+          <a href="#choosing">Choosing Loop or Multi Loop</a>
         </div>
       </aside>
     </div>

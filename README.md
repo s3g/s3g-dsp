@@ -177,7 +177,7 @@ Create the local pre-release zip after a complete CLAP build with:
 ./scripts/package-macos-clap-prerelease.sh
 ```
 
-The package contains 81 CLAP bundles, the VOT wavetable library, the Ambi Vox
+The package contains 82 CLAP bundles, the VOT wavetable library, the Ambi Vox
 demo voicebank, and the applicable license notices. The packaging script
 ad-hoc signs and strictly verifies every bundle by default. Set
 `S3G_CODESIGN_IDENTITY` to use a different macOS signing identity; notarization
@@ -194,6 +194,7 @@ The local smoke executables exercise shared DSP code:
 ./build/s3g_ambi_ray_encoder_smoke
 ./build/s3g_ambi_ray_bilocation_encoder_smoke
 ./build/s3g_ambi_pulsar_encoder_smoke
+./build/s3g_ambi_neural_ecology_smoke
 ./build/s3g_psd_raw_field_smoke
 ./build/s3g_psd_raw_field_parameter_audit
 ```

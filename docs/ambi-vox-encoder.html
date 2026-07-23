@@ -28,6 +28,8 @@
 
         <p><code>s3g Ambi Vox Encoder 64</code> is a 16-voice voicebank and WORLD-based vocal instrument with a fixed 64-channel, first-through-seventh-order <code>ACN/SN3D</code> output. It maps a typed phrase across independently pitched and positioned vocal sources; the 64 channels describe the ambisonic field, not the source-voice count.</p>
 
+        <p>WORLD analysis separates a recorded voice into pitch, spectral envelope, and aperiodic or noise components. Ambi Vox resynthesizes those components at new pitches and timings while retaining more of the source's vocal character than ordinary sample-rate transposition.</p>
+
         <h2 id="workflow">Workflow</h2>
 
         <ol>
@@ -40,17 +42,17 @@
 
         <h2 id="presets">Presets</h2>
 
-        <p>The title-bar <code>PRESET</code> menu provides thirteen starting points spanning solo speech, unison, SATB and double choirs, chorus, round, cluster, spectral color, texture, spatial orbit, and a full 16-voice choir. Every factory preset starts at 3OA and sets Output to <code>-6 dB</code>. Selecting one updates the registered host parameters and phrase with a short output transition; <code>ORDER</code> can then be changed manually from 1OA through 7OA.</p>
+        <p>The title-bar <code>PRESET</code> menu provides thirteen starting points spanning solo speech, unison, SATB and double choirs, chorus, round, cluster, spectral color, texture, spatial orbit, and a full 16-voice choir. Every factory preset starts at 3OA and sets Output to <code>-6 dB</code>. Selecting one updates the instrument controls and phrase with a short output transition; <code>ORDER</code> can then be changed manually from 1OA through 7OA.</p>
 
         <p><code>LOAD</code> and <code>SAVE</code> beside the preset menu read and write <code>.s3gvox</code> JSON files. A user preset stores the editable instrument parameters, lyric cue sheet, phrase-generator recipe, and camera view. Vocal WAV files, voicebank folders, and analyzed WORLD audio are deliberately not embedded: loading a preset keeps the currently loaded sound source in place, so one performance design can be auditioned with different voices. The normal CLAP project state also remembers the selected factory or user preset name.</p>
 
         <h2 id="phrase-source">Phrase Source</h2>
 
-        <p>The <code>LOAD</code> button accepts either a voicebank folder containing WAV files and <code>oto.ini</code>, or a single vocal WAV file. Every loaded voicebank alias is analyzed and resynthesized by WORLD before playback. Offline analysis uses Harvest for continuous pitch tracking, with DIO and StoneMask as fallback, plus CheapTrick spectral envelopes and D4C aperiodicity. Compact WORLD parameters are retained with the rendered audio instead of being discarded after import.</p>
+        <p>The <code>LOAD</code> button accepts either a voicebank folder containing WAV files and <code>oto.ini</code>, or a single vocal WAV file. Every loaded voicebank alias is analyzed and resynthesized by WORLD before playback. Analysis follows pitch with Harvest, DIO, and StoneMask, captures the spectral envelope with CheapTrick, and measures aperiodic energy with D4C.</p>
 
         <p><a href="vox-builder.html">s3g Vox Builder</a> prepares compatible voicebank folders from a continuous vocal recording. It detects the ordered aliases, shows editable segment boundaries, estimates root pitch and voicing with WORLD, auditions each slice, and exports WAV files with <code>oto.ini</code> timing.</p>
 
-        <p>The first voicebank load writes a persistent cache in <code>~/Library/Caches/org.s3g.s3g-dsp/AmbiVoxWorld</code>; later loads reuse it until the source WAV changes. Older cache revisions are analyzed again once. The included synthetic test bank is in <code>examples/voicebanks/s3g-demo-synthetic</code>.</p>
+        <p>The first voicebank load writes a persistent analysis cache in <code>~/Library/Caches/org.s3g.s3g-dsp/AmbiVoxWorld</code>. Later loads reuse it until a source WAV changes.</p>
 
         <p>Voicebank preparation caches five formant-preserving WORLD pitch anchors from two octaves below through two octaves above each alias's detected base pitch. Runtime voices select the nearest anchor, which keeps wide MIDI and scale intervals closer to the original vocal character.</p>
 
@@ -71,10 +73,10 @@
           <li><code>MIDI STEP</code> advances one cue for each note-on received on the dedicated cue channel.</li>
           <li><code>MIDI CUE</code> maps consecutive notes from <code>BASE NOTE</code> to consecutive cue lines.</li>
           <li><code>TRANSPORT</code> assigns consecutive cue lines to equal <code>CUE BEATS</code> windows on the host beat timeline and wraps after the final cue.</li>
-          <li><code>AUTO</code> advances through the cue lines on a free-running <code>CUE BEATS</code> clock. It uses the project tempo even while transport is stopped, or 120 BPM when the host supplies no tempo.</li>
+          <li><code>AUTO</code> performs each compiled cue once, then advances to the next line and wraps after the final cue. Its one-pass interval follows the cue's rests, <code>PACE</code>, <code>STRETCH</code>, and voicebank segment durations instead of the host transport.</li>
         </ul>
 
-        <p><code>MIDI CH</code> defaults to channel 16. In either MIDI cue mode, notes on that channel are consumed as cue control and do not trigger vocal voices. Other MIDI channels retain their normal instrument behavior. Clicking a line while <code>AUTO</code> is active starts its full cue interval again. Cue selection occurs at an audio processing boundary; <code>PACE</code>, <code>STRETCH</code>, and voice timing continue to control performance inside the selected line.</p>
+        <p><code>MIDI CH</code> defaults to channel 16. In either MIDI cue mode, notes on that channel are consumed as cue control and do not trigger vocal voices. Other MIDI channels retain their normal instrument behavior. <code>CUE BEATS</code> sets the window length for <code>TRANSPORT</code>; clicking a line while <code>AUTO</code> is active restarts that cue's single performance. Cue selection occurs at an audio processing boundary, and voice timing continues to control performance inside the selected line.</p>
 
         <h2 id="voicebank-timing">Voicebank Timing and Pronunciation</h2>
 
@@ -96,8 +98,6 @@ sorrow=so ro</code></pre>
           <li><code>TRANSPOSE</code> shifts the complete field after scale relationships are calculated; <code>DEVIATION</code> adds a repeatable pitch offset per voice.</li>
           <li><code>GLIDE</code> sets the user-facing pitch transition time. A short fixed resynthesis smoother also suppresses discontinuities at voicebank and WORLD pitch changes. <code>VIBRATO</code> and <code>VIB SPEED</code> add per-voice phase-offset vibrato, with full depth in <code>SING</code>.</li>
         </ul>
-
-        <p>When an older project state is loaded, its separate tune offset is folded into <code>TRANSPOSE</code>. Retired Character coloration is reset to the clean WORLD/voicebank path so no hidden control continues changing the sound.</p>
 
         <h2 id="world-model">WORLD Voice Model</h2>
 
@@ -137,7 +137,7 @@ sorrow=so ro</code></pre>
 
         <h2 id="output">Output and Plosive Control</h2>
 
-        <p><code>POP FILTER</code> dynamically reduces short low-frequency pressure bursts and the broadband crack that can make a synthetic plosive resemble a drum hit. A shared detector follows the ambisonic W channel and applies matching low-band and transient reduction to every active output channel, preserving spatial coherence. Sustained bass and consonant detail return as the detector releases; 0% is transparent and 100% provides the strongest plosive reduction.</p>
+        <p><code>POP FILTER</code> dynamically reduces short low-frequency pressure bursts and the broadband crack that can make a synthetic plosive resemble a drum hit. It first softens abrupt per-voice onset regions, then derives one shared detector from the strongest low-band and broadband onset across the active ambisonic bus. Matching reduction is applied to every output channel, preserving spatial coherence even when a directional burst is weak in W but strong in higher-order channels. Sustained bass and consonant detail return as the detector releases; 0% leaves this stage transparent and 100% provides the strongest plosive reduction.</p>
 
         <h2 id="motion">Motion</h2>
 
@@ -145,7 +145,7 @@ sorrow=so ro</code></pre>
 
         <h2 id="routing">Order and Routing</h2>
 
-        <p>The output bus remains 64 channels wide even though synthesis is capped at 16 source voices. <code>ORDER</code> activates the corresponding <code>ACN/SN3D</code> channels and clears all higher outputs. Project states saved with an older voice count above 16 load at the new 16-voice maximum.</p>
+        <p>The output bus remains 64 channels wide even though synthesis is capped at 16 source voices. <code>ORDER</code> activates the corresponding <code>ACN/SN3D</code> channels and clears all higher outputs.</p>
 
         <table class="readout-table">
           <thead>

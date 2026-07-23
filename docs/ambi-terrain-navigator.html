@@ -28,7 +28,7 @@
 
         <p><code>s3g Ambi Terrain Navigator 64</code> is a 64-in, first-through-seventh-order <code>ACN/SN3D</code> ambisonic navigator. Each input lane becomes a point in AED and follows a predefined trace across one displaced procedural terrain shell.</p>
 
-        <p>The model is inherited from wave-terrain synthesis and the VOT family: a point traverses a surface, and the sampled surface bends the output. The field view draws that shell as a faceted height surface, so its hills, valleys, traces, and current spatial positions can be read together. For terrain as a sound source, use <a href="ambi-wave-terrain-encoder.html">Ambi Wave Terrain Encoder</a>.</p>
+        <p>Wave-terrain mapping normally scans a surface to produce sound; here the sampled height bends each source's azimuth, elevation, and distance instead. The field view draws the shell, traces, and source positions together. For terrain used as the sound source itself, choose <a href="ambi-wave-terrain-encoder.html">Ambi Wave Terrain Encoder</a>.</p>
 
         <h2 id="workflow">Workflow</h2>
 

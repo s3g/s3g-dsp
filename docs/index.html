@@ -28,9 +28,9 @@
 
         <p>CLAP audio plugins for multichannel work in REAPER. <code>s3g-dsp</code> is a sibling project to the <a href="https://s3g.github.io/s3g-mc/" target="_blank" rel="noopener noreferrer"><code>s3g-mc</code> multichannel REAPER package</a> and the <a href="https://github.com/s3g/s3g-max" target="_blank" rel="noopener noreferrer"><code>s3g-max</code> Max/MSP externals package</a>. It can be used with those projects or on its own.</p>
 
-        <p>The current focus is predictable multichannel routing, compact automation, and clear multichannel control models. Some plugins use topology; others use simpler relationship controls when that better fits the sound.</p>
+        <p>The collection emphasizes predictable multichannel routing, compact automation, and clear multichannel control models. Some plugins use topology; others use simpler relationship controls when that better fits the sound.</p>
 
-        <p>The supported target is macOS + REAPER. Other operating systems and DAWs are not support targets at this stage.</p>
+        <p>The supported platform is macOS with REAPER.</p>
 
         <h2 id="start-here">Start Here</h2>
 
@@ -47,16 +47,15 @@
 
         <p>This is a pre-release project. Plugin names, parameters, included bundles, and saved states may change. The current macOS package installs 81 CLAP bundles, including fixed-width variants for several effects and routing tools.</p>
 
-        <p>For the current installable bundle list, use <a href="installing-plugins.html#included">Installing Pre-release Plugins</a>. The front page stays short so it remains useful as the package grows.</p>
+        <p>For the installable bundle list, see <a href="installing-plugins.html#included">Installing Pre-release Plugins</a>.</p>
 
-        <h2 id="design">Design</h2>
+        <h2 id="using-the-collection">Using the Collection</h2>
 
         <ul>
-          <li>Reusable DSP lives in <code>dsp/</code>; CLAP wrappers live in <code>plugins/</code>.</li>
-          <li>Fixed-width plugins are used where REAPER pin routing needs to stay predictable.</li>
-          <li>Many plugins expose compact relationship controls instead of one automation lane for every channel.</li>
-          <li>Multichannel, Ambisonics, and Instruments are the main documentation groups; each separates effects from routing or source-generation workflows.</li>
-          <li>The central References page groups external sources by method and uses the same author–date style as <code>s3g-mc</code>.</li>
+          <li>Match a fixed-width plugin to the REAPER track width before setting its pin routing.</li>
+          <li>Use lane-relationship controls when several channels should vary around one shared setting.</li>
+          <li>Use Multichannel tools for ordinary audio lanes or speaker feeds and Ambisonics tools for encoded <code>ACN/SN3D</code> fields.</li>
+          <li>Follow an ambisonic instrument or encoder with field effects, utilities, and a decoder configured for the same order.</li>
         </ul>
 
         <h2 id="topology-layer">Topology Layer</h2>
@@ -71,11 +70,9 @@
 
         <p><a href="https://github.com/s3g/s3g-max" target="_blank" rel="noopener noreferrer"><code>s3g-max</code></a> is the related Max/MSP package for <code>.mxo</code> externals, help patches, V8UI displays, and Max package workflows.</p>
 
-        <p><a href="https://github.com/s3g/s3g-rnbo-clap" target="_blank" rel="noopener noreferrer"><code>s3g-rnbo-clap</code></a> is a separate wrapper lab for adapting RNBO C++ exports as CLAP plugins in the same visual and release style.</p>
-
         <h2 id="license">License and Attribution</h2>
 
-        <p>BSD-3-Clause for the code in this repository unless a subdirectory states otherwise. CLAP headers are MIT licensed and are fetched at build time unless an existing SDK path is supplied.</p>
+        <p><code>s3g-dsp</code> is available under the BSD-3-Clause license. The CLAP headers it uses are MIT licensed.</p>
 
         <p>Attribution is appreciated for software development, publications, research, teaching materials, and projects that build on or adapt this package. See <code>CITATION.cff</code>.</p>
 
@@ -92,7 +89,7 @@
           <h2>On This Page</h2>
           <a href="#start-here">Start Here</a>
           <a href="#status">Status</a>
-          <a href="#design">Design</a>
+          <a href="#using-the-collection">Using the Collection</a>
           <a href="#topology-layer">Topology Layer</a>
           <a href="#related-projects">Related Projects</a>
           <a href="#license">License</a>

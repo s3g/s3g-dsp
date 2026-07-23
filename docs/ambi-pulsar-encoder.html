@@ -26,9 +26,9 @@
       <main class="content" id="content">
         <h1>Ambi Pulsar Encoder</h1>
 
-        <p><code>s3g Ambi Pulsar Encoder 64</code> is a zero-input pulsar and neural-synthesis instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. One master emission clock places complete three-lane objects into a field of four to thirty-two independently encoded points. The A, B, and C chains each have an independent pulsaret waveform, carrier tuning, overlap, amplitude, trigger policy, synchronized phase FM, window skew, and trigger displacement. A separate sixteen-node recurrent circuit can sound directly, close an audio-feedback loop around the field, or be captured into pulsaret, envelope, and FM tables.</p>
+        <p><code>s3g Ambi Pulsar Encoder 64</code> is a zero-input pulsar and neural-synthesis instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. It distributes three-layer sound objects across a field of four to thirty-two encoded points.</p>
 
-        <p>Slow emission rates produce individual events and rhythms. Raising the same clock carries the result through beating textures into continuous pitch. A lane can retain an independent Hertz carrier, multiply the clock by a ratio, or divide it into a subharmonic.</p>
+        <p>Pulsar synthesis repeats short, windowed waveforms called pulsarets. Slow emission rates produce separate events and rhythms; faster rates fuse into beating textures and continuous pitch. The A, B, and C layers provide independent waveforms, tuning, overlap, and synchronized FM, while a sixteen-node recurrent circuit can sound directly or supply captured pulsaret, envelope, and FM shapes.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -43,13 +43,13 @@
           <li>Select the Ambisonic order and follow the instrument with an Ambisonic decoder or energy meter.</li>
         </ol>
 
-        <p>User presets are stored by default in <code>~/Music/s3g/Presets/Ambi Pulsar Encoder</code>. A preset contains every editable synthesis, event, lane, neural, spatial, motion, order, and output parameter. Neural capture tables are runtime material and are not embedded: loading a preset preserves the currently captured table while restoring its pulsaret, envelope, and FM mix settings. The custom preset name is retained in normal CLAP project state.</p>
+        <p>User presets are stored by default in <code>~/Music/s3g/Presets/Ambi Pulsar Encoder</code>. A preset contains every editable synthesis, event, lane, neural, spatial, motion, order, and output parameter. Captured neural tables are not stored in preset files: loading a preset preserves the captured table already in memory while restoring its pulsaret, envelope, and FM mix settings. The custom preset name is retained in normal CLAP project state.</p>
 
         <h2 id="synthesis">Synthesis Model</h2>
 
-        <p>The master clock uses a double-precision phase accumulator, so long renders do not acquire integer-sample timing drift. Pulse crossings retain their fractional-sample age when a lane voice starts. The first and last samples are weighted by their fractional event coverage, reducing boundary error at non-integer crossings. Each lane owns a fixed pool of overlapping voices; the oldest tail is replaced only if all sixteen slots are occupied.</p>
+        <p>Pulsar synthesis separates the repetition rate from the short waveform, or pulsaret, heard inside each event. At slow emission rates the events form rhythms; as the rate rises, their repetition becomes a continuous tone whose spectrum depends on the pulsaret, carrier, window, and overlap.</p>
 
-        <p>Every event latches its waveform, window, skew, level, quality, FM, and neural-capture mix. Automation therefore shapes the next event without rewriting a pulsaret already in flight. Captured tables may still crossfade safely when a new neural snapshot replaces the stored bank. Short safety tapers protect even one-sided windows at grain boundaries, voice replacement carries a brief release tail, and active-voice normalization moves continuously as overlaps change.</p>
+        <p>Each emission launches the A, B, and C lane pulsarets as one spatial object. <code>OVERLAP</code> controls whether events remain separate or layer into denser textures, and automation applies to newly launched events without reshaping those already sounding.</p>
 
         <table class="readout-table">
           <thead><tr><th>Control</th><th>Meaning</th></tr></thead>
@@ -84,7 +84,7 @@
 
         <h2 id="neural">Neural Synthesis</h2>
 
-        <p>The neural section is a Tudor-inspired recurrent sound circuit, not a literal emulation of Intel's <code>80170NX</code>. Tudor's instrument used a 64-neuron analog chip with manually configured weights. This implementation follows the newer sixteen-node reduction described by nuPG: four clusters of four leaky <code>tanh</code> neurons use nominal R-C times of 80, 32, 9.5, and 2 ms.</p>
+        <p>The neural section is a Tudor-inspired recurrent sound circuit rather than a literal emulation of a specific neural chip. Sixteen leaky <code>tanh</code> nodes are arranged as four clusters running at progressively faster nominal R-C times of 80, 32, 9.5, and 2 ms.</p>
 
         <p>Each cluster is a four-stage signed ring. A sparse signed matrix also mixes every cluster into the others. Slower clusters gate the faster rings, and <code>SLOW &gt; FAST</code> varies their effective R-C time. First-order allpass memories put phase-bearing paths inside the feedback web. The topology therefore has the three ingredients highlighted by the feedback-network demonstration: nonlinear nodes, independently invertible paths, and phase or slew processes inside the loop.</p>
 
@@ -148,9 +148,9 @@
             <span>Previous</span>
             Ambi Water Encoder
           </a>
-          <a class="page-nav-link next" href="ambi-stochastic-encoder.html">
+          <a class="page-nav-link next" href="ambi-neural-ecology.html">
             <span>Next</span>
-            Ambi Stochastic Encoder
+            Ambi Neural Ecology
           </a>
         </nav>
       </main>
@@ -178,6 +178,7 @@
           <a href="ambi-wind-encoder.html">Wind Encoder</a>
           <a href="ambi-water-encoder.html">Water Encoder</a>
           <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
+          <a href="ambi-neural-ecology.html">Neural Ecology</a>
           <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
           <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
         </div>

@@ -229,6 +229,7 @@ struct Plugin {
     std::atomic<uint32_t> waveWrite { 0u };
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
 #endif
 };
@@ -2652,7 +2653,12 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     auto* p = self(plugin);
     if (p->guiView) return true;
     p->guiView = [[S3GPsdRawFieldView alloc] initWithPlugin:p];
-    return p->guiView != nullptr;
+    if (!p->guiView) return false;
+    if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport,
+            static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) {
+        [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false;
+    }
+    return true;
 }
 void guiDestroy(const clap_plugin_t* plugin)
 {
@@ -2661,48 +2667,36 @@ void guiDestroy(const clap_plugin_t* plugin)
         p->guiVisible = false;
         auto* view = static_cast<S3GPsdRawFieldView*>(p->guiView);
         [view stopRefreshTimer];
-        [view removeFromSuperview];
-        [view release];
-        p->guiView = nullptr;
+        s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
     }
 }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* width, uint32_t* height)
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
 {
-    if (!width || !height) return false;
-    *width = kGuiWidth;
-    *height = kGuiHeight;
-    return true;
+    return s3g::clap_gui::getResponsiveViewportSize(
+        self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height);
 }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height); }
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
 {
-    auto* p = self(plugin);
-    if (!p->guiView) return false;
-    [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(width, height)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, width, height);
 }
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
 {
     if (!window || std::strcmp(window->api, CLAP_WINDOW_API_COCOA) != 0 || !window->cocoa) return false;
     auto* p = self(plugin);
-    if (!p->guiView) return false;
-    NSView* parent = static_cast<NSView*>(window->cocoa);
-    NSView* view = static_cast<NSView*>(p->guiView);
-    [parent addSubview:view];
-    [view setFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport,
+        static_cast<NSView*>(window->cocoa), p->host);
 }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
-    if (!p->guiView) return false;
+    if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false;
     p->guiVisible = true;
-    [static_cast<NSView*>(p->guiView) setHidden:NO];
     [static_cast<S3GPsdRawFieldView*>(p->guiView) startRefreshTimer];
     return true;
 }
@@ -2712,8 +2706,7 @@ bool guiHide(const clap_plugin_t* plugin)
     if (!p->guiView) return false;
     p->guiVisible = false;
     [static_cast<S3GPsdRawFieldView*>(p->guiView) stopRefreshTimer];
-    [static_cast<NSView*>(p->guiView) setHidden:YES];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true);
 }
 const clap_plugin_gui_t guiExt {
     guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale,

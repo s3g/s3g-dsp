@@ -57,7 +57,7 @@ struct AmbiHeadParams {
     float xtcHfRolloffHz = 6500.0f;
     float xtcLowProtectHz = 120.0f;
     float stereoPreservePercent = 0.0f;
-    float outputGainDb = -6.0f;
+    float outputGainDb = 0.0f;
 };
 
 struct AmbiHeadProfileSpec {

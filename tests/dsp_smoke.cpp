@@ -1764,9 +1764,9 @@ int main()
     }
 
     s3g::AmbiPointEncoder pointEncoder;
-    pointEncoder.prepare(48000.0, s3g::kAmbiPointEncoderPrototypePoints);
+    pointEncoder.prepare(48000.0, s3g::kAmbiPointEncoderMaxPoints);
     s3g::AmbiPointEncoderParams pointParams;
-    pointParams.activePoints = s3g::kAmbiPointEncoderPrototypePoints;
+    pointParams.activePoints = s3g::kAmbiPointEncoderMaxPoints;
     pointParams.selectedPoint = 0;
     pointParams.selectedAzimuthDeg = -35.0f;
     pointParams.selectedElevationDeg = 18.0f;
@@ -1778,11 +1778,11 @@ int main()
     pointParams.outputGainDb = -12.0f;
     pointParams.order = 7;
     pointEncoder.setParams(pointParams);
-    std::array<std::array<float, 128>, s3g::kAmbiPointEncoderPrototypePoints> pointInputBuffers {};
-    std::array<std::array<float, 128>, s3g::kAmbiPointEncoderMaxChannels> pointOutputBuffers {};
-    std::array<const float*, s3g::kAmbiPointEncoderPrototypePoints> pointInputs {};
+    std::array<std::array<float, 64>, s3g::kAmbiPointEncoderMaxPoints> pointInputBuffers {};
+    std::array<std::array<float, 64>, s3g::kAmbiPointEncoderMaxChannels> pointOutputBuffers {};
+    std::array<const float*, s3g::kAmbiPointEncoderMaxPoints> pointInputs {};
     std::array<float*, s3g::kAmbiPointEncoderMaxChannels> pointOutputs {};
-    for (uint32_t ch = 0; ch < s3g::kAmbiPointEncoderPrototypePoints; ++ch) {
+    for (uint32_t ch = 0; ch < s3g::kAmbiPointEncoderMaxPoints; ++ch) {
         pointInputs[ch] = pointInputBuffers[ch].data();
     }
     for (uint32_t ch = 0; ch < s3g::kAmbiPointEncoderMaxChannels; ++ch) {
@@ -1791,9 +1791,9 @@ int main()
     float pointEncoderPeak = 0.0f;
     float pointEncoderHighOrderPeak = 0.0f;
     for (int block = 0; block < 32; ++block) {
-        for (uint32_t ch = 0; ch < s3g::kAmbiPointEncoderPrototypePoints; ++ch) {
+        for (uint32_t ch = 0; ch < s3g::kAmbiPointEncoderMaxPoints; ++ch) {
             for (uint32_t i = 0; i < pointInputBuffers[ch].size(); ++i) {
-                pointInputBuffers[ch][i] = std::sin(6.28318530718f * (90.0f + ch * 11.0f) * static_cast<float>(block * 128 + i) / 48000.0f) * 0.03f;
+                pointInputBuffers[ch][i] = std::sin(6.28318530718f * (90.0f + ch * 11.0f) * static_cast<float>(block * 64 + i) / 48000.0f) * 0.01f;
             }
         }
         pointEncoder.processBlock(pointInputs.data(), pointOutputs.data(), s3g::kAmbiPointEncoderMaxChannels, static_cast<uint32_t>(pointOutputBuffers[0].size()));
@@ -1814,6 +1814,42 @@ int main()
                   << pointEncoderPeak << " / " << pointEncoderHighOrderPeak << "\n";
         return 1;
     }
+    for (auto& channel : pointInputBuffers) std::fill(channel.begin(), channel.end(), 0.0f);
+    for (uint32_t frame = 0; frame < pointInputBuffers.back().size(); ++frame) {
+        pointInputBuffers.back()[frame] = std::sin(6.28318530718f * 431.0f * static_cast<float>(frame) / 48000.0f) * 0.03f;
+    }
+    pointParams.motionMode = s3g::AmbiPointMotionMode::Off;
+    pointParams.motionAmount = 0.0f;
+    pointParams.order = 7;
+    pointParams.activePoints = s3g::kAmbiPointEncoderPrototypePoints;
+    pointEncoder.setParams(pointParams);
+    pointEncoder.processBlock(pointInputs.data(), pointOutputs.data(), s3g::kAmbiPointEncoderMaxChannels, static_cast<uint32_t>(pointOutputBuffers[0].size()));
+    float inactiveUpperLanePeak = 0.0f;
+    for (const auto& channel : pointOutputBuffers) {
+        for (float value : channel) inactiveUpperLanePeak = std::max(inactiveUpperLanePeak, std::abs(value));
+    }
+    pointParams.activePoints = s3g::kAmbiPointEncoderMaxPoints;
+    pointEncoder.setParams(pointParams);
+    pointEncoder.processBlock(pointInputs.data(), pointOutputs.data(), s3g::kAmbiPointEncoderMaxChannels, static_cast<uint32_t>(pointOutputBuffers[0].size()));
+    float activeUpperLanePeak = 0.0f;
+    for (const auto& channel : pointOutputBuffers) {
+        for (float value : channel) activeUpperLanePeak = std::max(activeUpperLanePeak, std::abs(value));
+    }
+    if (inactiveUpperLanePeak != 0.0f || activeUpperLanePeak <= 0.00001f) {
+        std::cerr << "Ambi Point Encoder active-point gating failed: "
+                  << inactiveUpperLanePeak << " / " << activeUpperLanePeak << "\n";
+        return 1;
+    }
+    pointEncoder.setPointEnabled(s3g::kAmbiPointEncoderMaxPoints - 1u, false);
+    pointParams.activePoints = s3g::kAmbiPointEncoderPrototypePoints;
+    pointEncoder.setParams(pointParams);
+    pointParams.activePoints = s3g::kAmbiPointEncoderMaxPoints;
+    pointEncoder.setParams(pointParams);
+    if (pointEncoder.editPoint(s3g::kAmbiPointEncoderMaxPoints - 1u).enabled) {
+        std::cerr << "Ambi Point Encoder did not retain an inactive point's mute state\n";
+        return 1;
+    }
+    pointEncoder.setPointEnabled(s3g::kAmbiPointEncoderMaxPoints - 1u, true);
     pointParams.order = 1;
     pointEncoder.setParams(pointParams);
     for (auto& channel : pointOutputBuffers) std::fill(channel.begin(), channel.end(), 0.25f);
@@ -1916,6 +1952,10 @@ int main()
     s3g::AmbiSpeakerDecoder speakerDecoder;
     speakerDecoder.prepare(48000.0);
     s3g::AmbiSpeakerDecoderParams speakerParams;
+    if (speakerParams.outputGainDb != 0.0f) {
+        std::cerr << "Ambi Speaker Decoder default output gain is not 0 dB\n";
+        return 1;
+    }
     speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Sphere24;
     speakerParams.mode = s3g::AmbiSpeakerDecoderMode::Epad;
     speakerParams.weighting = s3g::AmbiSpeakerDecoderWeighting::MaxRe;
@@ -1946,6 +1986,10 @@ int main()
     s3g::AmbiObjectDecoder objectDecoder;
     objectDecoder.prepare(48000.0);
     s3g::AmbiObjectDecoderParams objectParams;
+    if (objectParams.decoder.outputGainDb != 0.0f) {
+        std::cerr << "Ambi Object Decoder default output gain is not 0 dB\n";
+        return 1;
+    }
     objectParams.decoder.layout = s3g::AmbiSpeakerLayoutPreset::QuadOverhead6;
     objectParams.decoder.mode = s3g::AmbiSpeakerDecoderMode::Epad;
     objectParams.decoder.weighting = s3g::AmbiSpeakerDecoderWeighting::MaxRe;
@@ -1983,6 +2027,10 @@ int main()
     s3g::AmbiAdaptiveDecoder adaptiveDecoder;
     adaptiveDecoder.prepare(48000.0);
     s3g::AmbiAdaptiveDecoderParams adaptiveParams;
+    if (adaptiveParams.decoder.outputGainDb != 0.0f) {
+        std::cerr << "Ambi Adaptive Decoder default output gain is not 0 dB\n";
+        return 1;
+    }
     adaptiveParams.decoder.layout = s3g::AmbiSpeakerLayoutPreset::QuadOverhead6;
     adaptiveParams.decoder.mode = s3g::AmbiSpeakerDecoderMode::Epad;
     adaptiveParams.decoder.weighting = s3g::AmbiSpeakerDecoderWeighting::MaxRe;
@@ -2111,6 +2159,10 @@ int main()
     s3g::AmbiStereoDecoder ambiStereo;
     ambiStereo.prepare(48000.0);
     s3g::AmbiStereoParams ambiStereoParams;
+    if (ambiStereoParams.outputGainDb != 0.0f) {
+        std::cerr << "Ambi Stereo Decoder default output gain is not 0 dB\n";
+        return 1;
+    }
     ambiStereoParams.order = 7;
     ambiStereoParams.layout = s3g::AmbiStereoVirtualLayout::Dome24;
     ambiStereoParams.method = s3g::AmbiStereoMethod::XyCardioid;
@@ -2169,6 +2221,10 @@ int main()
     s3g::AmbiHeadDecoder headDecoder;
     headDecoder.prepare(48000.0);
     s3g::AmbiHeadParams headParams;
+    if (headParams.outputGainDb != 0.0f) {
+        std::cerr << "Ambi Head Decoder default output gain is not 0 dB\n";
+        return 1;
+    }
     headParams.order = 7;
     headParams.layout = s3g::AmbiStereoVirtualLayout::Dome24;
     headParams.head = s3g::AmbiHeadProfile::SyntheticMedium;
@@ -4309,6 +4365,10 @@ int main()
     s3g::AmbiSubDecoder ambiSubDecoder;
     ambiSubDecoder.prepare(48000.0);
     s3g::AmbiSubDecoderParams ambiSubParams {};
+    if (ambiSubParams.outputGainDb != 0.0f) {
+        std::cerr << "Ambi Sub Decoder default output gain is not 0 dB\n";
+        return 1;
+    }
     ambiSubParams.order = 3;
     ambiSubParams.subCount = 4;
     ambiSubParams.cutoffHz = 140.0f;

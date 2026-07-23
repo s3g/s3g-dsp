@@ -401,7 +401,7 @@ constexpr ParamDef kParams[] {
     { kFieldGainParamId, "Field Gain", -60.0, 18.0, 0.0, false },
     { kObjectGainParamId, "Object Gain", -60.0, 18.0, 0.0, false },
     { kDirectionSmoothingParamId, "Direction Smooth", 0.0, 500.0, 25.0, false },
-    { kOutputParamId, "Output", -60.0, 12.0, -6.0, false },
+    { kOutputParamId, "Output", -60.0, 12.0, 0.0, false },
     { kObjectConfidenceParamId, "Object Confidence", 0.0, 0.95, 0.18, false },
     { kObjectHighpassParamId, "Object Crossover", 0.0, 5000.0, 250.0, false },
 };

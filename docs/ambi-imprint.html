@@ -32,7 +32,7 @@
 
         <p>The 64-channel input remains available as the full-order dry field. The wet path samples the field through four or eight symmetric directional probes, routes each discrete early reflection toward its two nearest output probes, convolves the late response, and re-encodes the bank into the selected output order. This gives the response a deliberately lower spatial rank than the dry source, which suits reflected and diffuse energy while retaining project routing through a fixed 64-channel bus.</p>
 
-        <p>Kernel generation happens when an imprint is loaded, never in the audio callback. The file stores timing and spectral descriptors rather than sample-rate-specific FIR arrays, so the plugin builds kernels for the current host rate. Version 1 uses a four-second realtime response limit and reports 1024 samples of latency.</p>
+        <p>The file stores timing and spectral descriptors rather than sample-rate-specific FIR arrays. When an imprint is loaded, the plugin prepares convolution kernels for the host sample rate. Responses are limited to four seconds and the plugin reports 1024 samples of latency.</p>
 
         <p>Imprint Sketch can describe connected wall, overhead, beneath, and stacked regions joined by rectangular, arched, circular, elliptical, slot, or irregular portals. Their path timing and directional loss are resolved into the loaded response profiles; the optional region graph drives the plugin's orbitable geometry display.</p>
 
@@ -64,8 +64,6 @@
         <h2 id="atlas">Imprint Atlas</h2>
 
         <p>The bundled atlas contains nineteen deterministic, precomposed spaces. It includes conventional rooms, contrasting natural enclosures, open spaces, coupled passage systems, five geometry-derived echo designs, and mixed impossible networks. Atlas choices use the same <code>.s3gimprint</code> parser and DSP path as user files.</p>
-
-        <p>The repository also retains an editable <code>s3g-imprint-sketch</code> project for every atlas entry. The generation script rebuilds both forms from named seeds through the actual Imprint Sketch authoring engine and validates geometry, profiles, reflection values, and spectral bands before writing them.</p>
 
         <h2 id="workflow">Imprint Sketch Workflow</h2>
 

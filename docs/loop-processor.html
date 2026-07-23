@@ -28,7 +28,7 @@
 
         <p><code>s3g Loop Processor 8ch</code> is a CLAP instrument plugin for loaded audio loops. It does not process track input; it plays a selected sound file across eight output lanes.</p>
 
-        <p>The current model is lane based rather than topology based. A loaded mono, stereo, or multichannel file is repeated across the eight outputs, and each lane has its own playhead, phase, rate relationship, and shared loop region.</p>
+        <p>Playback is lane based rather than topology based. A loaded mono, stereo, or multichannel file is repeated across the eight outputs, and each lane has its own playhead, phase, and rate relationship within a shared loop region.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -115,10 +115,6 @@
           <li>Stop pauses and returns all lane playheads to the start.</li>
         </ul>
 
-        <h2 id="current-notes">Current Notes</h2>
-
-        <p>Loop Processor is intentionally separate from the topology framework. It borrows the idea of compact relationship controls, but its visual and DSP model is built around loop lanes, playheads, region motion, and seamless loop playback.</p>
-
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="sample-instruments.html">
             <span>Previous</span>
@@ -152,7 +148,6 @@
           <a href="#engine">Engine</a>
           <a href="#relationships">Relationships</a>
           <a href="#transport">Transport</a>
-          <a href="#current-notes">Current Notes</a>
         </div>
       </aside>
     </div>

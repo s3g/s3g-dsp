@@ -49,7 +49,7 @@
 
         <p><code>ATLAS</code> opens nineteen deterministic spaces generated through the Ray Sketch engine. The collection spans architecture, caves, caverns, tunnels, canyons, clearings, focused echo designs, and abstract connected spaces. Each entry is a complete sampled <code>.s3gray</code> field with stable reflection slots, listener-resolvable bounce points, and a directional late profile.</p>
 
-        <p>Choosing an atlas entry loads its map and authored source and reference-listener positions. The current order, direct/early/late balance, room shaping, movement smoothing, Doppler amount, bypass, and output gain remain in place. Atlas data is embedded into project state exactly like a user-loaded field. Editable Ray Sketch projects and a deterministic generation script are retained with the repository.</p>
+        <p>Choosing an atlas entry loads its map and authored source and reference-listener positions while preserving the order, direct/early/late balance, room shaping, movement smoothing, Doppler amount, bypass, and output gain. Atlas data is embedded into project state exactly like a user-loaded field.</p>
 
         <h2 id="interpretation">Musical Interpretation</h2>
 
@@ -65,7 +65,7 @@
 
         <p>The world view uses X right, Y front, and Z up. At the ambisonic boundary, world +X maps to <code>-90</code> degrees on the right, world -X maps to <code>+90</code> degrees on the left, world +Y maps to <code>0</code> degrees in front, and world +Z maps upward. This matches the ACN/SN3D convention used by the other s3g encoders and decoders.</p>
 
-        <p>The display places a top view and side view next to each other. Select <code>SRC</code> or <code>LIS</code> in the Position panel, or grab either marker directly, then drag in the top view for X/Y or the side view for X/Z. Solid green lines run from source through an exported amber bounce point to the listener. Dashed cyan events without a defensible bounce point use a stable world-space arrival anchor derived from the field's reference listener. The grey source-to-listener line is the direct path. Position automation is continuous; loading a new field constructs a replacement room runtime outside the audio callback.</p>
+        <p>The display places a top view and side view next to each other. Select <code>SRC</code> or <code>LIS</code> in the Position panel, or grab either marker directly, then drag in the top view for X/Y or the side view for X/Z. Solid green lines run from source through an exported amber bounce point to the listener. Dashed cyan events without a defensible bounce point use a stable world-space arrival anchor derived from the field's reference listener. The grey source-to-listener line is the direct path. Position automation is continuous, and loading a new field changes rooms without interrupting the audio path.</p>
 
         <p>The late field remains a directional room bed interpolated from source cells. Its excitation pre-delay retargets without continuous pitch modulation, so moving the source or listener does not bend the entire reverb tail. Listener motion reshapes direct and early geometry but does not claim a second sampled late-field dimension.</p>
 

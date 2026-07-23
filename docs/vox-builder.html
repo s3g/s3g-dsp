@@ -30,7 +30,7 @@
 
         <h2 id="generation">Voice Generation</h2>
 
-        <p><code>GENERATE</code> opens the Voice Source Generator. It creates a dry mono source at 48 kHz using an original source-filter voice model with voiced excitation, breath and turbulence, formant motion, consonant bursts, and alias-specific articulation. <code>CORE 35</code> generates the compact five-vowel by seven-onset recording matrix; <code>FULL 92</code> generates every CV alias used by the built-in English phrase mapper.</p>
+        <p><code>GENERATE</code> opens the Voice Source Generator. It creates a dry mono source at 48 kHz using a procedural source-filter voice model with voiced excitation, breath and turbulence, formant motion, consonant bursts, and alias-specific articulation. <code>CORE 35</code> generates the compact five-vowel by seven-onset recording matrix; <code>FULL 92</code> generates every CV alias used by the built-in English phrase mapper.</p>
 
         <p><code>PROCEDURAL</code> starts from the generator controls alone. <code>SEEDED</code> first measures the currently selected segment's pitch, broad formant balance, breath, roughness, brightness, and periodicity, then uses those measurements to condition a newly synthesized bank. It does not copy or montage source samples. Seeded mode therefore preserves broad vocal character while still allowing substantial variation and a fully generated result.</p>
 
@@ -78,14 +78,6 @@
 
         <p><code>EXPORT VOICEBANK</code> creates a folder containing one WAV per alias plus <code>oto.ini</code>, <code>character.txt</code>, <code>phonemes.txt</code>, <code>markers.csv</code>, and <code>voicebank.json</code>. Load that folder from Ambi Vox Encoder.</p>
 
-        <h2 id="build">Build</h2>
-
-        <pre><code>cmake --preset apps
-cmake --build --preset apps
-open "build-apps/apps/vox_builder/s3g Vox Builder.app"</code></pre>
-
-        <p>The host-independent segmentation check is <code>./build-apps/s3g_vox_builder_smoke</code>. The older <code>tools/voicebank_builder.py</code> remains available for noninteractive and CSV-marker workflows.</p>
-
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="voice-instruments.html">
             <span>Previous</span>
@@ -119,7 +111,6 @@ open "build-apps/apps/vox_builder/s3g Vox Builder.app"</code></pre>
           <a href="#aliases">Aliases</a>
           <a href="#editing">Editing</a>
           <a href="#export">Export</a>
-          <a href="#build">Build</a>
         </div>
       </aside>
     </div>

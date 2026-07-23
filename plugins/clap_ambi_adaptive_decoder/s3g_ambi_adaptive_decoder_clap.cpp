@@ -360,7 +360,7 @@ constexpr ParamDef kParams[] {
     { kConfidenceParamId, "Confidence", 0.0, 1.0, 0.70, false },
     { kTransientParamId, "Transient", 0.0, 1.0, 0.35, false },
     { kSmoothingParamId, "Adaptive Smooth", 0.0, 500.0, 45.0, false },
-    { kOutputParamId, "Output", -60.0, 12.0, -6.0, false },
+    { kOutputParamId, "Output", -60.0, 12.0, 0.0, false },
     { kCrossoverParamId, "Crossover", 20.0, 5000.0, 650.0, false },
 };
 

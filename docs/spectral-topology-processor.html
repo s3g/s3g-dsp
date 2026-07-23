@@ -28,7 +28,7 @@
 
         <p><code>s3g Spectral Topology Processor 8ch/24ch</code> is a topology-shaped spectral processor for fixed-width multichannel tracks. It uses the shared topology model to vary spectral spray, freeze, damage, repeat, and phase behavior across active lanes.</p>
 
-        <p>Use it when a source should move into blurred, held, repeated, or broken spectral motion while still keeping each channel as its own lane. The processor is more experimental than the Macro effects and more spectral than Wave Geometry.</p>
+        <p>The processor analyzes short overlapping FFT frames, then moves, holds, repeats, removes, or blurs their frequency bins before resynthesis. Use it for spectral motion that remains coordinated across lanes; choose Wave Geometry for direct waveform shaping or a Macro effect for a smaller shared control set.</p>
 
         <h2 id="signal-flow">Signal Flow</h2>
 
@@ -70,11 +70,11 @@
 
         <h2 id="patching">Patch Matrix</h2>
 
-        <p>The internal patch matrix follows the Delay Processor model. Use it when the REAPER track width is wider than the source material, or when one input should feed multiple spectral lanes. The 24-channel build uses a compact matrix so all lanes remain visible.</p>
+        <p>The patch matrix selects which REAPER inputs feed the spectral lanes. Use it when the track is wider than the source material or when one input should feed several lanes. The 24-channel build uses a compact matrix so all lanes remain visible.</p>
 
         <h2 id="reaper">REAPER Notes</h2>
 
-        <p>Use the 8-channel build for smaller multichannel tests and the 24-channel build when the processor is inserted into wider fixed-width workflows. In either case, route the REAPER FX pins first, then use the plugin matrix for lane-level decisions.</p>
+        <p>Use the 8-channel build for eight-lane material and the 24-channel build for wider fixed-width workflows. In either case, route the REAPER FX pins first, then use the plugin matrix for lane-level decisions.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="wave-geometry-processor.html">

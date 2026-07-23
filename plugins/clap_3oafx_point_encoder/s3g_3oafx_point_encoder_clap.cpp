@@ -21,9 +21,12 @@
 
 namespace {
 
-constexpr uint32_t kPointCount = s3g::kAmbiPointEncoderPrototypePoints;
+constexpr uint32_t kPointCount = s3g::kAmbiPointEncoderMaxPoints;
+constexpr uint32_t kDefaultPointCount = s3g::kAmbiPointEncoderPrototypePoints;
+constexpr uint32_t kMixerBankSize = 16u;
+constexpr uint32_t kMixerBankCount = kPointCount / kMixerBankSize;
 constexpr uint32_t kOutputChannels = s3g::kAmbiPointEncoderMaxChannels;
-constexpr uint32_t kStateVersion = 11;
+constexpr uint32_t kStateVersion = 12;
 
 constexpr clap_id kPointParamId = 1;
 constexpr clap_id kAzimuthParamId = 2;
@@ -53,6 +56,7 @@ constexpr clap_id kPoltergeistRadiusParamId = 25;
 constexpr clap_id kDopplerParamId = 26;
 constexpr clap_id kAirParamId = 27;
 constexpr clap_id kOrderParamId = 28;
+constexpr clap_id kActivePointsParamId = 29;
 constexpr clap_id kPerPointParamBase = 1000;
 constexpr clap_id kPerPointParamStride = 8;
 
@@ -67,6 +71,16 @@ enum class PerPointParamKind : uint32_t {
 
 struct SavedState {
     uint32_t version = kStateVersion;
+    s3g::AmbiPointEncoderParams params {};
+    std::array<s3g::AmbiPoint, s3g::kAmbiPointEncoderMaxPoints> points {};
+    int32_t guiViewMode = 2;
+    double guiViewAzDeg = -35.0;
+    double guiViewElDeg = 34.0;
+    double guiViewZoom = 1.0;
+};
+
+struct SavedStateV11 {
+    uint32_t version = 11;
     s3g::AmbiPointEncoderParams params {};
     std::array<s3g::AmbiPoint, s3g::kAmbiPointEncoderMaxPoints> points {};
     int32_t guiViewMode = 2;
@@ -190,6 +204,18 @@ bool readExact(const clap_istream_t* stream, void* data, size_t size)
     return true;
 }
 
+bool writeExact(const clap_ostream_t* stream, const void* data, size_t size)
+{
+    const auto* bytes = static_cast<const uint8_t*>(data);
+    size_t offset = 0;
+    while (offset < size) {
+        const int64_t wrote = stream->write(stream, bytes + offset, size - offset);
+        if (wrote <= 0) return false;
+        offset += static_cast<size_t>(wrote);
+    }
+    return true;
+}
+
 const char* motionName(uint32_t index)
 {
     static constexpr const char* kNames[] { "OFF", "DRFT", "ORBT", "SWRM", "PULS", "PHYS" };
@@ -204,13 +230,105 @@ const char* motionDisplayName(uint32_t index)
 
 const char* sceneName(uint32_t index)
 {
-    static constexpr const char* kNames[] { "MANUAL", "DRIFT", "ORBIT", "BOUNCE", "COLLIDE", "SCATTER", "CUSTOM", "ELASTIC" };
-    return kNames[std::min<uint32_t>(index, 7u)];
+    static constexpr const char* kNames[] {
+        "MANUAL",
+        "DRIFT: BREEZE",
+        "ORBIT: GLIDE",
+        "PHYS: BOUNCE",
+        "PHYS: COLLIDE",
+        "PHYS: SCATTER",
+        "CUSTOM",
+        "PHYS: ELASTIC",
+        "DRIFT: MEANDER",
+        "DRIFT: CROSSWIND",
+        "ORBIT: WIDE",
+        "ORBIT: TIGHT",
+        "SWARM: FLOCK",
+        "SWARM: CLOUD",
+        "SWARM: FRENZY",
+        "PULSE: BREATHE",
+        "PULSE: RIPPLE",
+        "PULSE: THROB",
+    };
+    return kNames[std::min<uint32_t>(index, s3g::kAmbiPointEncoderMaxMotionScene)];
+}
+
+const char* styleName(uint32_t scene)
+{
+    static constexpr const char* kNames[] {
+        "MANUAL", "BREEZE", "GLIDE", "BOUNCE", "COLLIDE", "SCATTER", "CUSTOM", "ELASTIC",
+        "MEANDER", "CROSSWIND", "WIDE", "TIGHT", "FLOCK", "CLOUD", "FRENZY", "BREATHE", "RIPPLE", "THROB",
+    };
+    return kNames[std::min<uint32_t>(scene, s3g::kAmbiPointEncoderMaxMotionScene)];
+}
+
+struct MotionStyleList {
+    const uint32_t* scenes = nullptr;
+    uint32_t count = 0;
+};
+
+MotionStyleList motionStyleList(s3g::AmbiPointMotionMode mode)
+{
+    static constexpr std::array<uint32_t, 1> kOff { 0u };
+    static constexpr std::array<uint32_t, 4> kDrift { 1u, 8u, 9u, 6u };
+    static constexpr std::array<uint32_t, 4> kOrbit { 2u, 10u, 11u, 6u };
+    static constexpr std::array<uint32_t, 4> kSwarm { 12u, 13u, 14u, 6u };
+    static constexpr std::array<uint32_t, 4> kPulse { 15u, 16u, 17u, 6u };
+    static constexpr std::array<uint32_t, 5> kPhysics { 3u, 4u, 5u, 7u, 6u };
+    switch (mode) {
+    case s3g::AmbiPointMotionMode::Drift: return { kDrift.data(), static_cast<uint32_t>(kDrift.size()) };
+    case s3g::AmbiPointMotionMode::Orbit: return { kOrbit.data(), static_cast<uint32_t>(kOrbit.size()) };
+    case s3g::AmbiPointMotionMode::Swarm: return { kSwarm.data(), static_cast<uint32_t>(kSwarm.size()) };
+    case s3g::AmbiPointMotionMode::Pulse: return { kPulse.data(), static_cast<uint32_t>(kPulse.size()) };
+    case s3g::AmbiPointMotionMode::Phys: return { kPhysics.data(), static_cast<uint32_t>(kPhysics.size()) };
+    default: return { kOff.data(), static_cast<uint32_t>(kOff.size()) };
+    }
+}
+
+uint32_t defaultSceneForMotion(s3g::AmbiPointMotionMode mode)
+{
+    const MotionStyleList styles = motionStyleList(mode);
+    return styles.scenes[0];
+}
+
+int styleMenuIndex(s3g::AmbiPointMotionMode mode, uint32_t scene)
+{
+    const MotionStyleList styles = motionStyleList(mode);
+    for (uint32_t i = 0; i < styles.count; ++i) {
+        if (styles.scenes[i] == scene) return static_cast<int>(i);
+    }
+    return -1;
 }
 
 void applyMotionSceneDefaults(s3g::AmbiPointEncoderParams& params, uint32_t scene)
 {
-    params.motionScene = std::min<uint32_t>(scene, 7u);
+    params.motionScene = std::min<uint32_t>(scene, s3g::kAmbiPointEncoderMaxMotionScene);
+    auto setKinematicStyle = [&](s3g::AmbiPointMotionMode mode,
+                                 float amount,
+                                 float rate,
+                                 float attract,
+                                 float repel,
+                                 float drag,
+                                 float swirl,
+                                 float brownian,
+                                 float scale) {
+        params.motionMode = mode;
+        params.motionAmount = amount;
+        params.rateHz = rate;
+        params.attract = attract;
+        params.repel = repel;
+        params.drag = drag;
+        params.swirl = swirl;
+        params.brownian = brownian;
+        params.collision = 0.0f;
+        params.impact = 0.0f;
+        params.physicsScale = scale;
+        params.poltergeist = 0.0f;
+        params.poltergeistRate = 1.0f;
+        params.poltergeistReach = 0.55f;
+        params.poltergeistRadius = 0.28f;
+        params.poltergeistChaos = 0.0f;
+    };
     switch (params.motionScene) {
     case 0:
         params.motionMode = s3g::AmbiPointMotionMode::Off;
@@ -338,6 +456,46 @@ void applyMotionSceneDefaults(s3g::AmbiPointEncoderParams& params, uint32_t scen
         params.poltergeistRadius = 0.30f;
         params.poltergeistChaos = 0.18f;
         break;
+    case 8:
+        setKinematicStyle(s3g::AmbiPointMotionMode::Drift,
+                          0.58f, 0.014f, 0.012f, 0.025f, 0.975f, 0.012f, 0.0f, 1.35f);
+        break;
+    case 9:
+        setKinematicStyle(s3g::AmbiPointMotionMode::Drift,
+                          0.76f, 0.085f, 0.035f, 0.055f, 0.88f, 0.075f, 0.0f, 1.10f);
+        break;
+    case 10:
+        setKinematicStyle(s3g::AmbiPointMotionMode::Orbit,
+                          0.58f, 0.012f, 0.008f, 0.075f, 0.95f, 0.018f, 0.0f, 1.55f);
+        break;
+    case 11:
+        setKinematicStyle(s3g::AmbiPointMotionMode::Orbit,
+                          0.72f, 0.095f, 0.12f, 0.012f, 0.84f, 0.09f, 0.0f, 0.62f);
+        break;
+    case 12:
+        setKinematicStyle(s3g::AmbiPointMotionMode::Swarm,
+                          0.62f, 0.035f, 0.070f, 0.065f, 0.92f, 0.012f, 0.055f, 1.0f);
+        break;
+    case 13:
+        setKinematicStyle(s3g::AmbiPointMotionMode::Swarm,
+                          0.42f, 0.018f, 0.014f, 0.022f, 0.978f, 0.0f, 0.028f, 1.60f);
+        break;
+    case 14:
+        setKinematicStyle(s3g::AmbiPointMotionMode::Swarm,
+                          0.95f, 0.13f, 0.035f, 0.14f, 0.74f, 0.055f, 0.24f, 1.20f);
+        break;
+    case 15:
+        setKinematicStyle(s3g::AmbiPointMotionMode::Pulse,
+                          0.48f, 0.022f, 0.040f, 0.018f, 0.95f, 0.0f, 0.0f, 1.0f);
+        break;
+    case 16:
+        setKinematicStyle(s3g::AmbiPointMotionMode::Pulse,
+                          0.74f, 0.085f, 0.055f, 0.060f, 0.88f, 0.018f, 0.0f, 1.25f);
+        break;
+    case 17:
+        setKinematicStyle(s3g::AmbiPointMotionMode::Pulse,
+                          0.94f, 0.22f, 0.11f, 0.085f, 0.79f, -0.030f, 0.0f, 0.82f);
+        break;
     default:
         break;
     }
@@ -381,12 +539,18 @@ void applyParam(Plugin& p, clap_id id, double value)
         return;
     }
     switch (id) {
-    case kPointParamId: p.params.selectedPoint = static_cast<uint32_t>(std::clamp(std::round(value), 1.0, static_cast<double>(kPointCount))) - 1u; break;
+    case kPointParamId: p.params.selectedPoint = static_cast<uint32_t>(std::clamp(std::round(value), 1.0, static_cast<double>(std::max<uint32_t>(1u, p.params.activePoints)))) - 1u; break;
     case kAzimuthParamId: p.params.selectedAzimuthDeg = static_cast<float>(std::clamp(value, -180.0, 180.0)); break;
     case kElevationParamId: p.params.selectedElevationDeg = static_cast<float>(std::clamp(value, p.params.upperHemisphereOnly ? 0.0 : -90.0, 90.0)); break;
     case kDistanceParamId: p.params.selectedDistance = static_cast<float>(std::clamp(value, 0.15, 2.0)); break;
     case kPointGainParamId: p.params.selectedGain = static_cast<float>(std::clamp(value, 0.0, 2.0)); break;
-    case kMotionModeParamId: p.params.motionMode = static_cast<s3g::AmbiPointMotionMode>(static_cast<uint32_t>(std::clamp(std::round(value), 0.0, 5.0))); p.params.motionScene = 6; break;
+    case kMotionModeParamId: {
+        const auto mode = static_cast<s3g::AmbiPointMotionMode>(static_cast<uint32_t>(std::clamp(std::round(value), 0.0, 5.0)));
+        if (mode != p.params.motionMode) {
+            applyMotionSceneDefaults(p.params, defaultSceneForMotion(mode));
+        }
+        break;
+    }
     case kMotionAmountParamId: p.params.motionAmount = static_cast<float>(std::clamp(value, 0.0, 1.0)); p.params.motionScene = 6; break;
     case kRateParamId: p.params.rateHz = static_cast<float>(std::clamp(value, 0.005, 0.50)); p.params.motionScene = 6; break;
     case kAttractParamId: p.params.attract = static_cast<float>(std::clamp(value, 0.0, 0.24)); p.params.motionScene = 6; break;
@@ -397,7 +561,7 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kOutputParamId: p.params.outputGainDb = static_cast<float>(std::clamp(value, -60.0, 12.0)); break;
     case kPointMuteParamId: p.params.selectedEnabled = value < 0.5; break;
     case kUpperHemisphereParamId: p.params.upperHemisphereOnly = value >= 0.5; break;
-    case kMotionSceneParamId: applyMotionSceneDefaults(p.params, static_cast<uint32_t>(std::clamp(std::round(value), 0.0, 7.0))); break;
+    case kMotionSceneParamId: applyMotionSceneDefaults(p.params, static_cast<uint32_t>(std::clamp(std::round(value), 0.0, static_cast<double>(s3g::kAmbiPointEncoderMaxMotionScene)))); break;
     case kCollisionParamId: p.params.collision = static_cast<float>(std::clamp(value, 0.0, 1.0)); p.params.motionScene = 6; break;
     case kImpactParamId: p.params.impact = static_cast<float>(std::clamp(value, 0.0, 1.0)); p.params.motionScene = 6; break;
     case kPhysicsScaleParamId: p.params.physicsScale = static_cast<float>(std::clamp(value, 0.25, 2.0)); p.params.motionScene = 6; break;
@@ -409,14 +573,23 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kDopplerParamId: p.params.doppler = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kAirParamId: p.params.air = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kOrderParamId: p.params.order = static_cast<uint32_t>(std::clamp(std::round(value), 1.0, static_cast<double>(s3g::kAmbiPointEncoderMaxOrder))); break;
+    case kActivePointsParamId: p.params.activePoints = static_cast<uint32_t>(std::clamp(std::round(value), 1.0, static_cast<double>(kPointCount))); break;
     default: break;
     }
-    p.params.activePoints = kPointCount;
     p.encoder.setParams(p.params);
     p.params = p.encoder.params();
 }
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    // State may be restored before activate(), so establish the fixed 64-point
+    // scene and depth allocation as soon as the CLAP instance is initialized.
+    p->encoder.prepare(p->sampleRate, kPointCount);
+    p->encoder.setParams(p->params);
+    p->params = p->encoder.params();
+    return true;
+}
 
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
@@ -433,11 +606,12 @@ void destroy(const clap_plugin_t* plugin)
 bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t maxFrames)
 {
     auto* p = self(plugin);
+    const auto scene = p->encoder.editPoints();
     p->sampleRate = sampleRate;
     p->maxFrames = maxFrames;
-    p->params.activePoints = kPointCount;
     p->encoder.prepare(sampleRate, kPointCount);
     p->encoder.setParams(p->params);
+    p->encoder.setScene(scene);
     p->params = p->encoder.params();
     return true;
 }
@@ -520,7 +694,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 {
     if (index != 0 || !info) return false;
     info->id = isInput ? 10 : 20;
-    std::strncpy(info->name, isInput ? "16 Point In" : "1-7OA ACN/SN3D Out", sizeof(info->name));
+    std::strncpy(info->name, isInput ? "64 Point In" : "1-7OA ACN/SN3D Out", sizeof(info->name));
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = isInput ? kPointCount : kOutputChannels;
     info->port_type = CLAP_PORT_SURROUND;
@@ -542,7 +716,7 @@ constexpr ParamDef kParamDefs[] {
     { kBrownianParamId, "Brownian", 0.0, 0.24, 0.0 },
     { kOutputParamId, "Output", -60.0, 12.0, -6.0 },
     { kUpperHemisphereParamId, "Upper Hemisphere", 0.0, 1.0, 0.0 },
-    { kMotionSceneParamId, "Physics Scene", 0.0, 7.0, 0.0 },
+    { kMotionSceneParamId, "Motion Style", 0.0, static_cast<double>(s3g::kAmbiPointEncoderMaxMotionScene), 0.0 },
     { kCollisionParamId, "Collision", 0.0, 1.0, 0.0 },
     { kImpactParamId, "Impact", 0.0, 1.0, 0.0 },
     { kPhysicsScaleParamId, "Physics Scale", 0.25, 2.0, 1.0 },
@@ -554,6 +728,7 @@ constexpr ParamDef kParamDefs[] {
     { kDopplerParamId, "Doppler", 0.0, 1.0, 0.0 },
     { kAirParamId, "Air", 0.0, 1.0, 0.0 },
     { kOrderParamId, "Order", 1.0, 7.0, 3.0 },
+    { kActivePointsParamId, "Active Points", 1.0, 64.0, 16.0 },
 };
 
 constexpr uint32_t kBaseParamCount = static_cast<uint32_t>(sizeof(kParamDefs) / sizeof(kParamDefs[0]));
@@ -568,7 +743,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     if (index < kBaseParamCount) {
         const auto& def = kParamDefs[index];
         info->id = def.id;
-        if (def.id == kPointParamId || def.id == kMotionModeParamId || def.id == kPointMuteParamId || def.id == kUpperHemisphereParamId || def.id == kMotionSceneParamId || def.id == kOrderParamId) {
+        if (def.id == kPointParamId || def.id == kMotionModeParamId || def.id == kPointMuteParamId || def.id == kUpperHemisphereParamId || def.id == kMotionSceneParamId || def.id == kOrderParamId || def.id == kActivePointsParamId) {
             info->flags |= CLAP_PARAM_IS_STEPPED;
         }
         std::strncpy(info->name, def.name, sizeof(info->name));
@@ -648,6 +823,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kDopplerParamId: *value = p.doppler; return true;
     case kAirParamId: *value = p.air; return true;
     case kOrderParamId: *value = static_cast<double>(p.order); return true;
+    case kActivePointsParamId: *value = static_cast<double>(p.activePoints); return true;
     default: return false;
     }
 }
@@ -681,6 +857,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else if (id == kPhysicsScaleParamId) std::snprintf(display, size, "%.2f", value);
     else if (id == kOutputParamId) std::snprintf(display, size, "%+.1f dB", value);
     else if (id == kOrderParamId) std::snprintf(display, size, "%.0fOA", value);
+    else if (id == kActivePointsParamId) std::snprintf(display, size, "%.0f", value);
     else std::snprintf(display, size, "%.0f%%", value * 100.0);
     return true;
 }
@@ -708,7 +885,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     s.guiViewElDeg = p->guiViewElDeg;
     s.guiViewZoom = p->guiViewZoom;
 #endif
-    return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
+    return writeExact(stream, &s, sizeof(s));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -717,9 +894,21 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     SavedState s {};
     uint32_t version = 0;
     if (!readExact(stream, &version, sizeof(version))) return false;
+    bool initializeExpandedPoints = false;
     if (version == kStateVersion) {
         s.version = version;
         if (!readExact(stream, reinterpret_cast<char*>(&s) + sizeof(version), sizeof(s) - sizeof(version))) return false;
+    } else if (version == 11) {
+        SavedStateV11 old {};
+        old.version = version;
+        if (!readExact(stream, reinterpret_cast<char*>(&old) + sizeof(version), sizeof(old) - sizeof(version))) return false;
+        s.params = old.params;
+        s.points = old.points;
+        s.guiViewMode = old.guiViewMode;
+        s.guiViewAzDeg = old.guiViewAzDeg;
+        s.guiViewElDeg = old.guiViewElDeg;
+        s.guiViewZoom = old.guiViewZoom;
+        initializeExpandedPoints = true;
     } else if (version == 10) {
         SavedStateV10 old {};
         old.version = version;
@@ -730,18 +919,26 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         s.guiViewAzDeg = old.guiViewAzDeg;
         s.guiViewElDeg = old.guiViewElDeg;
         s.guiViewZoom = old.guiViewZoom;
+        initializeExpandedPoints = true;
     } else if (version == 9) {
         SavedStateV9 old {};
         old.version = version;
         if (!readExact(stream, reinterpret_cast<char*>(&old) + sizeof(version), sizeof(old) - sizeof(version))) return false;
         s.params = upgradeLegacyParams(old.params);
         s.points = old.points;
+        initializeExpandedPoints = true;
     } else {
         return false;
     }
     auto* p = self(plugin);
+    if (initializeExpandedPoints) {
+        const auto defaults = p->encoder.editPoints();
+        for (uint32_t point = kDefaultPointCount; point < kPointCount; ++point) {
+            s.points[point] = defaults[point];
+        }
+        s.params.activePoints = kDefaultPointCount;
+    }
     p->params = s.params;
-    p->params.activePoints = kPointCount;
     p->encoder.setParams(p->params);
     p->encoder.setScene(s.points);
     p->params = p->encoder.params();
@@ -768,6 +965,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     NSTimer* _timer;
     int _viewMode;
     int _leftPage;
+    uint32_t _mixerBank;
     CGFloat _viewAzDeg;
     CGFloat _viewElDeg;
     CGFloat _viewZoom;
@@ -791,9 +989,11 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs;
 - (void)drawZoomButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs;
 - (void)drawPageButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs;
+- (void)drawMixerBankButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs;
 - (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect;
 - (NSRect)zoomButtonRect:(int)index inRect:(NSRect)rect;
 - (NSRect)pageButtonRect:(int)index inRect:(NSRect)rect;
+- (NSRect)mixerBankButtonRect:(uint32_t)index inRect:(NSRect)rect;
 - (void)setViewPreset:(int)mode;
 - (CGFloat)viewScaleForRect:(NSRect)rect;
 - (NSPoint)projectWorldPoint:(s3g::Vec3)p rect:(NSRect)rect depth:(CGFloat*)depth;
@@ -856,6 +1056,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         auto* p = static_cast<Plugin*>(plugin);
         _viewMode = p ? p->guiViewMode : 2;
         _leftPage = 0;
+        _mixerBank = p ? p->params.selectedPoint / kMixerBankSize : 0u;
         _viewAzDeg = p ? p->guiViewAzDeg : -35.0;
         _viewElDeg = p ? p->guiViewElDeg : 34.0;
         _viewZoom = p ? p->guiViewZoom : 1.0;
@@ -909,12 +1110,11 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     static NSString* muteItems[] = { @"ON", @"MUTED" };
     static NSString* hemiItems[] = { @"FULL SPHERE", @"UPPER HEMI" };
     static NSString* motionItems[] = { @"OFF", @"DRIFT", @"ORBIT", @"SWARM", @"PULSE", @"PHYS" };
-    static NSString* sceneItems[] = { @"MANUAL", @"DRIFT", @"ORBIT", @"BOUNCE", @"COLLIDE", @"SCATTER", @"CUSTOM", @"ELASTIC" };
     static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
+    std::array<NSString*, 5> styleItems {};
     NSString** items = motionItems;
     if (_openMenu == 1) items = muteItems;
     else if (_openMenu == 2) items = hemiItems;
-    else if (_openMenu == 4) items = sceneItems;
     else if (_openMenu == 5) items = orderItems;
     const CGFloat itemH = 18.0;
     const CGFloat w = 124.0;
@@ -924,10 +1124,17 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     int selected = -1;
     if (p) {
         const auto prm = p->encoder.params();
+        if (_openMenu == 4) {
+            const MotionStyleList styles = motionStyleList(prm.motionMode);
+            for (uint32_t i = 0; i < styles.count; ++i) {
+                styleItems[i] = [NSString stringWithUTF8String:styleName(styles.scenes[i])];
+            }
+            items = styleItems.data();
+        }
         if (_openMenu == 1) selected = prm.selectedEnabled ? 0 : 1;
         else if (_openMenu == 2) selected = prm.upperHemisphereOnly ? 1 : 0;
         else if (_openMenu == 3) selected = static_cast<int>(prm.motionMode);
-        else if (_openMenu == 4) selected = static_cast<int>(prm.motionScene);
+        else if (_openMenu == 4) selected = styleMenuIndex(prm.motionMode, prm.motionScene);
         else if (_openMenu == 5) selected = static_cast<int>(prm.order) - 1;
     }
     s3g::clap_gui::drawDropdownMenu(menuRect, itemH, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
@@ -967,12 +1174,34 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     const CGFloat gap = 5.0;
     return NSMakeRect(rect.origin.x + 104.0 + static_cast<CGFloat>(index) * (w + gap), rect.origin.y + 4.0, w, h);
 }
+- (NSRect)mixerBankButtonRect:(uint32_t)index inRect:(NSRect)rect
+{
+    const CGFloat w = 42.0;
+    const CGFloat h = 13.0;
+    const CGFloat gap = 4.0;
+    const CGFloat total = static_cast<CGFloat>(kMixerBankCount) * w + static_cast<CGFloat>(kMixerBankCount - 1u) * gap;
+    return NSMakeRect(NSMaxX(rect) - 10.0 - total + static_cast<CGFloat>(index) * (w + gap), rect.origin.y + 4.0, w, h);
+}
 - (void)drawPageButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
 {
     static NSString* labels[] = { @"FIELD", @"MIXER" };
     s3g::clap_gui::Style style;
     for (int i = 0; i < 2; ++i) {
         s3g::clap_gui::drawHeaderButton([self pageButtonRect:i inRect:rect], rect, labels[i], i == _leftPage, attrs, style);
+    }
+}
+- (void)drawMixerBankButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    const uint32_t active = p ? std::clamp<uint32_t>(p->params.activePoints, 1u, kPointCount) : kDefaultPointCount;
+    const uint32_t bankCount = std::max<uint32_t>(1u, (active + kMixerBankSize - 1u) / kMixerBankSize);
+    _mixerBank = std::min<uint32_t>(_mixerBank, bankCount - 1u);
+    s3g::clap_gui::Style style;
+    for (uint32_t bank = 0; bank < bankCount; ++bank) {
+        const uint32_t first = bank * kMixerBankSize + 1u;
+        const uint32_t last = std::min<uint32_t>((bank + 1u) * kMixerBankSize, active);
+        NSString* label = [NSString stringWithFormat:@"%u-%u", first, last];
+        s3g::clap_gui::drawHeaderButton([self mixerBankButtonRect:bank inRect:rect], rect, label, bank == _mixerBank, attrs, style);
     }
 }
 - (void)drawZoomButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
@@ -1047,9 +1276,10 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
 {
     auto* p = static_cast<Plugin*>(_plugin);
     const auto points = p->encoder.points();
+    const uint32_t active = std::clamp<uint32_t>(p->params.activePoints, 1u, kPointCount);
     int hit = -1;
     CGFloat best = 999999.0;
-    for (uint32_t i = 0; i < kPointCount; ++i) {
+    for (uint32_t i = 0; i < active; ++i) {
         const auto& point = points[i];
         if (!point.enabled) continue;
         CGFloat depth = 0.0;
@@ -1072,6 +1302,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     const auto collisionEnergy = p->encoder.collisionEnergy();
     const auto bondRelease = p->encoder.bondRelease();
     const auto params = p->params;
+    const uint32_t active = std::clamp<uint32_t>(params.activePoints, 1u, kPointCount);
     [c(0x111111) setFill]; NSRectFill(rect);
     [c(0x565656) setStroke]; NSFrameRect(rect);
     [c(0x131313) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 21));
@@ -1095,7 +1326,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     std::array<NSPoint, kPointCount> projected {};
     std::array<s3g::Vec3, kPointCount> scenePositions {};
     std::array<bool, kPointCount> visible {};
-    for (uint32_t i = 0; i < kPointCount; ++i) {
+    for (uint32_t i = 0; i < active; ++i) {
         order[i] = i;
         const auto& point = points[i];
         const s3g::Vec3 dir = s3g::directionFromAed(point.azimuthDeg, point.elevationDeg);
@@ -1103,7 +1334,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         visible[i] = point.enabled;
         projected[i] = [self projectDirection:dir distance:point.distance rect:rect depth:&depths[i]];
     }
-    std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return depths[a] < depths[b]; });
+    std::sort(order.begin(), order.begin() + active, [&](uint32_t a, uint32_t b) { return depths[a] < depths[b]; });
 
     if (params.motionMode == s3g::AmbiPointMotionMode::Phys && params.motionAmount > 0.0001f && params.poltergeist > 0.0001f) {
         const s3g::Vec3 source = p->encoder.perturbationSource();
@@ -1183,13 +1414,13 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     }
 
     std::array<std::array<bool, kPointCount>, kPointCount> edges {};
-    for (uint32_t i = 0; i < kPointCount; ++i) {
+    for (uint32_t i = 0; i < active; ++i) {
         if (!visible[i]) continue;
         float bestA = 999999.0f;
         float bestB = 999999.0f;
         int neighborA = -1;
         int neighborB = -1;
-        for (uint32_t j = 0; j < kPointCount; ++j) {
+        for (uint32_t j = 0; j < active; ++j) {
             if (i == j || !visible[j]) continue;
             const float dx = scenePositions[i].x - scenePositions[j].x;
             const float dy = scenePositions[i].y - scenePositions[j].y;
@@ -1217,8 +1448,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         }
     }
 
-    for (uint32_t a = 0; a < kPointCount; ++a) {
-        for (uint32_t b = a + 1u; b < kPointCount; ++b) {
+    for (uint32_t a = 0; a < active; ++a) {
+        for (uint32_t b = a + 1u; b < active; ++b) {
             if (!edges[a][b]) continue;
             const CGFloat release = std::clamp<CGFloat>(std::max(bondRelease[a], bondRelease[b]) / 2.0f, 0.0, 1.0);
             if (release > 0.64) continue;
@@ -1233,7 +1464,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         }
     }
 
-    for (uint32_t sortedIndex = 0; sortedIndex < kPointCount; ++sortedIndex) {
+    for (uint32_t sortedIndex = 0; sortedIndex < active; ++sortedIndex) {
         const uint32_t i = order[sortedIndex];
         const auto& point = points[i];
         if (!point.enabled) continue;
@@ -1281,19 +1512,19 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
 - (NSRect)mixerGainRect:(uint32_t)index inRect:(NSRect)rect
 {
     const CGFloat laneW = 34.0;
-    const CGFloat x = rect.origin.x + 12.0 + static_cast<CGFloat>(index) * laneW;
+    const CGFloat x = rect.origin.x + 12.0 + static_cast<CGFloat>(index % kMixerBankSize) * laneW;
     return NSMakeRect(x + 8.0, rect.origin.y + 128.0, 12.0, rect.size.height - 196.0);
 }
 - (NSRect)mixerMuteRect:(uint32_t)index inRect:(NSRect)rect
 {
     const CGFloat laneW = 34.0;
-    const CGFloat x = rect.origin.x + 12.0 + static_cast<CGFloat>(index) * laneW;
+    const CGFloat x = rect.origin.x + 12.0 + static_cast<CGFloat>(index % kMixerBankSize) * laneW;
     return NSMakeRect(x + 1.0, NSMaxY(rect) - 42.0, 14.0, 14.0);
 }
 - (NSRect)mixerSoloRect:(uint32_t)index inRect:(NSRect)rect
 {
     const CGFloat laneW = 34.0;
-    const CGFloat x = rect.origin.x + 12.0 + static_cast<CGFloat>(index) * laneW;
+    const CGFloat x = rect.origin.x + 12.0 + static_cast<CGFloat>(index % kMixerBankSize) * laneW;
     return NSMakeRect(x + 17.0, NSMaxY(rect) - 42.0, 14.0, 14.0);
 }
 - (NSRect)mixerOutputTrackRect:(NSRect)rect
@@ -1305,8 +1536,13 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     auto* p = static_cast<Plugin*>(_plugin);
     const auto points = p->encoder.editPoints();
     const auto params = p->params;
+    const uint32_t active = std::clamp<uint32_t>(params.activePoints, 1u, kPointCount);
+    const uint32_t bankCount = std::max<uint32_t>(1u, (active + kMixerBankSize - 1u) / kMixerBankSize);
+    _mixerBank = std::min<uint32_t>(_mixerBank, bankCount - 1u);
+    const uint32_t firstPoint = _mixerBank * kMixerBankSize;
+    const uint32_t pointEnd = std::min<uint32_t>(firstPoint + kMixerBankSize, active);
     bool anySolo = false;
-    for (uint32_t i = 0; i < kPointCount; ++i) anySolo = anySolo || points[i].solo;
+    for (uint32_t i = 0; i < active; ++i) anySolo = anySolo || points[i].solo;
 
     [c(0x111111) setFill]; NSRectFill(rect);
     [c(0x565656) setStroke]; NSFrameRect(rect);
@@ -1314,6 +1550,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     [c(0xb8b8b8) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 2));
     [@"POINT MIXER" drawAtPoint:NSMakePoint(rect.origin.x + 10, rect.origin.y + 5) withAttributes:labelAttrs];
     [self drawPageButtonsInRect:rect attrs:attrs];
+    [self drawMixerBankButtonsInRect:rect attrs:attrs];
 
     s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
     s3g::clap_gui::drawSlider(@"OUTPUT",
@@ -1329,9 +1566,10 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
                                rect.size.width - 182.0);
 
     const CGFloat laneW = 34.0;
-    for (uint32_t i = 0; i < kPointCount; ++i) {
+    for (uint32_t i = firstPoint; i < pointEnd; ++i) {
         const auto& point = points[i];
-        const CGFloat laneX = rect.origin.x + 12.0 + static_cast<CGFloat>(i) * laneW;
+        const uint32_t slot = i - firstPoint;
+        const CGFloat laneX = rect.origin.x + 12.0 + static_cast<CGFloat>(slot) * laneW;
         const bool selected = _hasPointSelection && i == params.selectedPoint;
         const bool audible = point.enabled && (!anySolo || point.solo);
         if (selected) {
@@ -1448,7 +1686,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     [@"s3g AMBI POINT ENCODER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
     [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(716,14) withAttributes:small];
-    [[NSString stringWithFormat:@"16PT > %uOA", p->params.order] drawAtPoint:NSMakePoint(802,14) withAttributes:small];
+    [[NSString stringWithFormat:@"%uPT > %uOA", p->params.activePoints, p->params.order] drawAtPoint:NSMakePoint(794,14) withAttributes:small];
 
     NSRect leftPage = NSMakeRect(18, 42, 590, 656);
     if (_leftPage == 0) {
@@ -1457,37 +1695,38 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         [self drawPointMixer:leftPage attrs:small labelAttrs:small];
     }
 
-    s3g::clap_gui::drawPanelFrame(626, 42, 256, 202, style);
+    s3g::clap_gui::drawPanelFrame(626, 42, 256, 224, style);
     s3g::clap_gui::drawPanelHeader(@"POINT", true, 626, 42, 256, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(626, 258, 256, 406, style);
-    s3g::clap_gui::drawPanelHeader(@"PHYSICS", true, 626, 258, 256, 21, lab, style);
+    s3g::clap_gui::drawPanelFrame(626, 280, 256, 406, style);
+    s3g::clap_gui::drawPanelHeader(@"MOTION", true, 626, 280, 256, 21, lab, style);
 
     const auto prm = p->params;
-    [self drawSlider:@"POINT" value:[NSString stringWithFormat:@"%u", prm.selectedPoint + 1u] norm:static_cast<CGFloat>(prm.selectedPoint) / static_cast<CGFloat>(kPointCount - 1u) y:76 attrs:small small:small];
-    [self drawSlider:@"AZIMUTH" value:[NSString stringWithFormat:@"%+.0f", prm.selectedAzimuthDeg] norm:(prm.selectedAzimuthDeg + 180.0f) / 360.0f y:101 attrs:small small:small];
-    [self drawSlider:@"ELEV" value:[NSString stringWithFormat:@"%+.0f", prm.selectedElevationDeg] norm:(prm.selectedElevationDeg - (prm.upperHemisphereOnly ? 0.0f : -90.0f)) / (prm.upperHemisphereOnly ? 90.0f : 180.0f) y:126 attrs:small small:small];
-    [self drawSlider:@"DISTANCE" value:[NSString stringWithFormat:@"%.2f", prm.selectedDistance] norm:(prm.selectedDistance - 0.15f) / 1.85f y:151 attrs:small small:small];
-    [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%.2f", prm.selectedGain] norm:prm.selectedGain / 2.0f y:176 attrs:small small:small];
-    [self drawMenu:@"MUTE" value:(prm.selectedEnabled ? @"ON" : @"MUTED") y:201 attrs:small small:small];
-    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", prm.order] y:223 attrs:small small:small];
+    [self drawSlider:@"POINT" value:[NSString stringWithFormat:@"%u", prm.selectedPoint + 1u] norm:static_cast<CGFloat>(prm.selectedPoint) / static_cast<CGFloat>(std::max<uint32_t>(1u, prm.activePoints - 1u)) y:76 attrs:small small:small];
+    [self drawSlider:@"POINTS" value:[NSString stringWithFormat:@"%u", prm.activePoints] norm:static_cast<CGFloat>(prm.activePoints - 1u) / static_cast<CGFloat>(kPointCount - 1u) y:101 attrs:small small:small];
+    [self drawSlider:@"AZIMUTH" value:[NSString stringWithFormat:@"%+.0f", prm.selectedAzimuthDeg] norm:(prm.selectedAzimuthDeg + 180.0f) / 360.0f y:126 attrs:small small:small];
+    [self drawSlider:@"ELEV" value:[NSString stringWithFormat:@"%+.0f", prm.selectedElevationDeg] norm:(prm.selectedElevationDeg - (prm.upperHemisphereOnly ? 0.0f : -90.0f)) / (prm.upperHemisphereOnly ? 90.0f : 180.0f) y:151 attrs:small small:small];
+    [self drawSlider:@"DISTANCE" value:[NSString stringWithFormat:@"%.2f", prm.selectedDistance] norm:(prm.selectedDistance - 0.15f) / 1.85f y:176 attrs:small small:small];
+    [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%.2f", prm.selectedGain] norm:prm.selectedGain / 2.0f y:201 attrs:small small:small];
+    [self drawMenu:@"MUTE" value:(prm.selectedEnabled ? @"ON" : @"MUTED") y:223 attrs:small small:small];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", prm.order] y:245 attrs:small small:small];
 
-    [self drawMenu:@"SCENE" value:[NSString stringWithUTF8String:sceneName(prm.motionScene)] y:292 attrs:small small:small];
-    [self drawMenu:@"HEMISPHERE" value:(prm.upperHemisphereOnly ? @"UPPER HEMI" : @"FULL SPHERE") y:314 attrs:small small:small];
-    [self drawMenu:@"MOTION" value:[NSString stringWithUTF8String:motionDisplayName(static_cast<uint32_t>(prm.motionMode))] y:336 attrs:small small:small];
-    [self drawSlider:@"AMOUNT" value:[NSString stringWithFormat:@"%.0f%%", prm.motionAmount * 100.0f] norm:prm.motionAmount y:358 attrs:small small:small];
-    [self drawSlider:@"SCALE" value:[NSString stringWithFormat:@"%.2f", prm.physicsScale] norm:(prm.physicsScale - 0.25f) / 1.75f y:380 attrs:small small:small];
-    [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", prm.rateHz] norm:(prm.rateHz - 0.005f) / 0.495f y:402 attrs:small small:small];
-    [self drawSlider:@"COLLISION" value:[NSString stringWithFormat:@"%.0f%%", prm.collision * 100.0f] norm:prm.collision y:424 attrs:small small:small];
-    [self drawSlider:@"IMPACT" value:[NSString stringWithFormat:@"%.0f%%", prm.impact * 100.0f] norm:prm.impact y:446 attrs:small small:small];
-    [self drawSlider:@"DRAG" value:[NSString stringWithFormat:@"%.2f", prm.drag] norm:(prm.drag - 0.45f) / 0.545f y:468 attrs:small small:small];
-    [self drawSlider:@"SWIRL" value:[NSString stringWithFormat:@"%+.2f", prm.swirl] norm:(prm.swirl + 0.24f) / 0.48f y:490 attrs:small small:small];
-    [self drawSlider:@"POLTER" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeist * 100.0f] norm:prm.poltergeist y:512 attrs:small small:small];
-    [self drawSlider:@"G-RATE" value:[NSString stringWithFormat:@"%.2fx", prm.poltergeistRate] norm:(prm.poltergeistRate - 0.05f) / 3.95f y:534 attrs:small small:small];
-    [self drawSlider:@"G-REACH" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistReach * 100.0f] norm:prm.poltergeistReach y:556 attrs:small small:small];
-    [self drawSlider:@"G-RAD" value:[NSString stringWithFormat:@"%.2f", prm.poltergeistRadius] norm:(prm.poltergeistRadius - 0.04f) / 0.96f y:578 attrs:small small:small];
-    [self drawSlider:@"G-CHAOS" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistChaos * 100.0f] norm:prm.poltergeistChaos y:600 attrs:small small:small];
-    [self drawSlider:@"DOPPLER" value:[NSString stringWithFormat:@"%.0f%%", prm.doppler * 100.0f] norm:prm.doppler y:622 attrs:small small:small];
-    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%.0f%%", prm.air * 100.0f] norm:prm.air y:644 attrs:small small:small];
+    [self drawMenu:@"MOTION" value:[NSString stringWithUTF8String:motionDisplayName(static_cast<uint32_t>(prm.motionMode))] y:314 attrs:small small:small];
+    [self drawMenu:@"STYLE" value:[NSString stringWithUTF8String:(styleMenuIndex(prm.motionMode, prm.motionScene) >= 0 ? styleName(prm.motionScene) : "CUSTOM")] y:336 attrs:small small:small];
+    [self drawMenu:@"HEMISPHERE" value:(prm.upperHemisphereOnly ? @"UPPER HEMI" : @"FULL SPHERE") y:358 attrs:small small:small];
+    [self drawSlider:@"AMOUNT" value:[NSString stringWithFormat:@"%.0f%%", prm.motionAmount * 100.0f] norm:prm.motionAmount y:380 attrs:small small:small];
+    [self drawSlider:@"SCALE" value:[NSString stringWithFormat:@"%.2f", prm.physicsScale] norm:(prm.physicsScale - 0.25f) / 1.75f y:402 attrs:small small:small];
+    [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", prm.rateHz] norm:(prm.rateHz - 0.005f) / 0.495f y:424 attrs:small small:small];
+    [self drawSlider:@"COLLISION" value:[NSString stringWithFormat:@"%.0f%%", prm.collision * 100.0f] norm:prm.collision y:446 attrs:small small:small];
+    [self drawSlider:@"IMPACT" value:[NSString stringWithFormat:@"%.0f%%", prm.impact * 100.0f] norm:prm.impact y:468 attrs:small small:small];
+    [self drawSlider:@"DRAG" value:[NSString stringWithFormat:@"%.2f", prm.drag] norm:(prm.drag - 0.45f) / 0.545f y:490 attrs:small small:small];
+    [self drawSlider:@"SWIRL" value:[NSString stringWithFormat:@"%+.2f", prm.swirl] norm:(prm.swirl + 0.24f) / 0.48f y:512 attrs:small small:small];
+    [self drawSlider:@"POLTER" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeist * 100.0f] norm:prm.poltergeist y:534 attrs:small small:small];
+    [self drawSlider:@"G-RATE" value:[NSString stringWithFormat:@"%.2fx", prm.poltergeistRate] norm:(prm.poltergeistRate - 0.05f) / 3.95f y:556 attrs:small small:small];
+    [self drawSlider:@"G-REACH" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistReach * 100.0f] norm:prm.poltergeistReach y:578 attrs:small small:small];
+    [self drawSlider:@"G-RAD" value:[NSString stringWithFormat:@"%.2f", prm.poltergeistRadius] norm:(prm.poltergeistRadius - 0.04f) / 0.96f y:600 attrs:small small:small];
+    [self drawSlider:@"G-CHAOS" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistChaos * 100.0f] norm:prm.poltergeistChaos y:622 attrs:small small:small];
+    [self drawSlider:@"DOPPLER" value:[NSString stringWithFormat:@"%.0f%%", prm.doppler * 100.0f] norm:prm.doppler y:644 attrs:small small:small];
+    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%.0f%%", prm.air * 100.0f] norm:prm.air y:666 attrs:small small:small];
 
     [self drawOpenMenu:small];
 }
@@ -1496,32 +1735,34 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     auto* p = static_cast<Plugin*>(_plugin);
     const double n = std::clamp((point.x - 726.0) / 104.0, 0.0, 1.0);
     switch (_dragSlider) {
-    case 1: applyParam(*p, kPointParamId, 1.0 + n * static_cast<double>(kPointCount - 1u)); break;
-    case 2: applyParam(*p, kAzimuthParamId, -180.0 + n * 360.0); break;
-    case 3: applyParam(*p, kElevationParamId, p->params.upperHemisphereOnly ? n * 90.0 : -90.0 + n * 180.0); break;
-    case 4: applyParam(*p, kDistanceParamId, 0.15 + n * 1.85); break;
-    case 5: applyParam(*p, kPointGainParamId, n * 2.0); break;
-    case 6: applyParam(*p, kPointMuteParamId, n >= 0.5 ? 1.0 : 0.0); break;
-    case 7: applyParam(*p, kOrderParamId, 1.0 + n * 6.0); break;
-    case 8: applyParam(*p, kMotionSceneParamId, n * 7.0); break;
-    case 9: applyParam(*p, kUpperHemisphereParamId, n >= 0.5 ? 1.0 : 0.0); break;
-    case 10: applyParam(*p, kMotionModeParamId, n * 5.0); break;
-    case 11: applyParam(*p, kMotionAmountParamId, n); break;
-    case 12: applyParam(*p, kPhysicsScaleParamId, 0.25 + n * 1.75); break;
-    case 13: applyParam(*p, kRateParamId, 0.005 + n * 0.495); break;
-    case 14: applyParam(*p, kCollisionParamId, n); break;
-    case 15: applyParam(*p, kImpactParamId, n); break;
-    case 16: applyParam(*p, kDragParamId, 0.45 + n * 0.545); break;
-    case 17: applyParam(*p, kSwirlParamId, -0.24 + n * 0.48); break;
-    case 18: applyParam(*p, kPoltergeistParamId, n); break;
-    case 19: applyParam(*p, kPoltergeistRateParamId, 0.05 + n * 3.95); break;
-    case 20: applyParam(*p, kPoltergeistReachParamId, n); break;
-    case 21: applyParam(*p, kPoltergeistRadiusParamId, 0.04 + n * 0.96); break;
-    case 22: applyParam(*p, kPoltergeistChaosParamId, n); break;
-    case 23: applyParam(*p, kDopplerParamId, n); break;
-    case 24: applyParam(*p, kAirParamId, n); break;
+    case 1: applyParam(*p, kPointParamId, 1.0 + n * static_cast<double>(std::max<uint32_t>(1u, p->params.activePoints) - 1u)); break;
+    case 2: applyParam(*p, kActivePointsParamId, 1.0 + n * static_cast<double>(kPointCount - 1u)); break;
+    case 3: applyParam(*p, kAzimuthParamId, -180.0 + n * 360.0); break;
+    case 4: applyParam(*p, kElevationParamId, p->params.upperHemisphereOnly ? n * 90.0 : -90.0 + n * 180.0); break;
+    case 5: applyParam(*p, kDistanceParamId, 0.15 + n * 1.85); break;
+    case 6: applyParam(*p, kPointGainParamId, n * 2.0); break;
+    case 7: applyParam(*p, kPointMuteParamId, n >= 0.5 ? 1.0 : 0.0); break;
+    case 8: applyParam(*p, kOrderParamId, 1.0 + n * 6.0); break;
+    case 9: applyParam(*p, kMotionModeParamId, n * 5.0); break;
+    case 10: break;
+    case 11: applyParam(*p, kUpperHemisphereParamId, n >= 0.5 ? 1.0 : 0.0); break;
+    case 12: applyParam(*p, kMotionAmountParamId, n); break;
+    case 13: applyParam(*p, kPhysicsScaleParamId, 0.25 + n * 1.75); break;
+    case 14: applyParam(*p, kRateParamId, 0.005 + n * 0.495); break;
+    case 15: applyParam(*p, kCollisionParamId, n); break;
+    case 16: applyParam(*p, kImpactParamId, n); break;
+    case 17: applyParam(*p, kDragParamId, 0.45 + n * 0.545); break;
+    case 18: applyParam(*p, kSwirlParamId, -0.24 + n * 0.48); break;
+    case 19: applyParam(*p, kPoltergeistParamId, n); break;
+    case 20: applyParam(*p, kPoltergeistRateParamId, 0.05 + n * 3.95); break;
+    case 21: applyParam(*p, kPoltergeistReachParamId, n); break;
+    case 22: applyParam(*p, kPoltergeistRadiusParamId, 0.04 + n * 0.96); break;
+    case 23: applyParam(*p, kPoltergeistChaosParamId, n); break;
+    case 24: applyParam(*p, kDopplerParamId, n); break;
+    case 25: applyParam(*p, kAirParamId, n); break;
     default: break;
     }
+    if (_dragSlider == 1 || _dragSlider == 2) _mixerBank = p->params.selectedPoint / kMixerBankSize;
     [self setNeedsDisplay:YES];
 }
 - (void)mouseDown:(NSEvent*)event
@@ -1546,7 +1787,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
             } else if (_openMenu == 3) {
                 applyParam(*p, kMotionModeParamId, static_cast<double>(index));
             } else if (_openMenu == 4) {
-                applyParam(*p, kMotionSceneParamId, static_cast<double>(index));
+                const MotionStyleList styles = motionStyleList(p->params.motionMode);
+                applyParam(*p, kMotionSceneParamId, static_cast<double>(styles.scenes[std::min<uint32_t>(index, styles.count - 1u)]));
             } else if (_openMenu == 5) {
                 applyParam(*p, kOrderParamId, static_cast<double>(index + 1u));
             }
@@ -1563,6 +1805,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         for (int i = 0; i < 2; ++i) {
             if (NSPointInRect(pt, [self pageButtonRect:i inRect:leftPage])) {
                 _leftPage = i;
+                if (i == 1) _mixerBank = static_cast<Plugin*>(_plugin)->params.selectedPoint / kMixerBankSize;
                 _dragView = NO;
                 _dragMixerPoint = -1;
                 _dragPoint = -1;
@@ -1574,12 +1817,25 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
 
     if (_leftPage == 1 && NSPointInRect(pt, leftPage)) {
         auto* p = static_cast<Plugin*>(_plugin);
+        const uint32_t active = std::clamp<uint32_t>(p->params.activePoints, 1u, kPointCount);
+        const uint32_t bankCount = std::max<uint32_t>(1u, (active + kMixerBankSize - 1u) / kMixerBankSize);
+        for (uint32_t bank = 0; bank < bankCount; ++bank) {
+            if (NSPointInRect(pt, [self mixerBankButtonRect:bank inRect:leftPage])) {
+                _mixerBank = bank;
+                _dragMixerPoint = -1;
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+        _mixerBank = std::min<uint32_t>(_mixerBank, bankCount - 1u);
+        const uint32_t firstPoint = _mixerBank * kMixerBankSize;
+        const uint32_t pointEnd = std::min<uint32_t>(firstPoint + kMixerBankSize, active);
         if (NSPointInRect(pt, NSInsetRect([self mixerOutputTrackRect:leftPage], -8.0, -8.0))) {
             _dragMixerOutput = YES;
             [self updateMixerOutput:pt inRect:leftPage];
             return;
         }
-        for (uint32_t i = 0; i < kPointCount; ++i) {
+        for (uint32_t i = firstPoint; i < pointEnd; ++i) {
             if (NSPointInRect(pt, [self mixerMuteRect:i inRect:leftPage])) {
                 const auto point = p->encoder.editPoint(i);
                 applyPerPointParam(*p, i, PerPointParamKind::Mute, point.enabled ? 1.0 : 0.0);
@@ -1625,6 +1881,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         if (hit >= 0) {
             auto* p = static_cast<Plugin*>(_plugin);
             applyParam(*p, kPointParamId, static_cast<double>(hit + 1));
+            _mixerBank = static_cast<uint32_t>(hit) / kMixerBankSize;
             _hasPointSelection = YES;
             if (_viewMode == 0 || _viewMode == 1) {
                 _dragPoint = hit;
@@ -1642,19 +1899,22 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
             return;
         }
     }
-    const CGFloat rows[] = { 76, 101, 126, 151, 176, 201, 223, 292, 314, 336, 358, 380, 402, 424, 446, 468, 490, 512, 534, 556, 578, 600, 622, 644 };
-    for (int i = 0; i < 24; ++i) {
+    const CGFloat rows[] = { 76, 101, 126, 151, 176, 201, 223, 245, 314, 336, 358, 380, 402, 424, 446, 468, 490, 512, 534, 556, 578, 600, 622, 644, 666 };
+    for (int i = 0; i < 25; ++i) {
         if (NSPointInRect(pt, NSMakeRect(636, rows[i] - 8, 236, 24))) {
-            if (i == 5 || i == 6 || i == 7 || i == 8 || i == 9) {
-                _openMenu = i == 5 ? 1 : (i == 6 ? 5 : (i == 7 ? 4 : (i == 8 ? 2 : 3)));
+            if (i == 6 || i == 7 || i == 8 || i == 9 || i == 10) {
+                _openMenu = i == 6 ? 1 : (i == 7 ? 5 : (i == 8 ? 3 : (i == 9 ? 4 : 2)));
                 _hoverMenuItem = -1;
-                _menuItemCount = i == 6 ? 7u : (i == 7 ? 8u : (i == 9 ? 6u : 2u));
+                if (i == 7) _menuItemCount = 7u;
+                else if (i == 8) _menuItemCount = 6u;
+                else if (i == 9) _menuItemCount = motionStyleList(static_cast<Plugin*>(_plugin)->params.motionMode).count;
+                else _menuItemCount = 2u;
                 _menuOrigin = menuOrigin(rows[i] + 18.0, _menuItemCount);
                 [self setNeedsDisplay:YES];
                 return;
             }
             _dragSlider = i + 1;
-            if (i <= 5) _hasPointSelection = YES;
+            if (i <= 6) _hasPointSelection = YES;
             [self updateSlider:pt];
             return;
         }
@@ -1738,7 +1998,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.1.0",
-    "16 point-source input to selectable first- through seventh-order ACN/SN3D ambisonics with AED placement and physics motion.",
+    "Up to 64 point-source inputs to selectable first- through seventh-order ACN/SN3D ambisonics with AED placement and physics motion.",
     features
 };
 
@@ -1747,7 +2007,7 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     if (std::strcmp(pluginId, descriptor.id) != 0) return nullptr;
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
-    p->params.activePoints = kPointCount;
+    p->params.activePoints = kDefaultPointCount;
     p->host = host;
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;

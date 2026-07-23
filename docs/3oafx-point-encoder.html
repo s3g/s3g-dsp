@@ -26,16 +26,16 @@
       <main class="content" id="content">
         <h1>Ambi Point Encoder</h1>
 
-        <p><code>s3g Ambi Point Encoder</code> is a 16-point ambisonic encoder. Each mono input lane is treated as a point source with azimuth, elevation, distance, gain, mute, and solo state.</p>
+        <p><code>s3g Ambi Point Encoder</code> is a variable 1-to-64-point ambisonic encoder. Each mono input lane is treated as a point source with azimuth, elevation, distance, gain, mute, and solo state. New instances begin with 16 active points for compatibility.</p>
 
         <p>The selectable output spans first- through seventh-order ambisonics in <code>ACN/SN3D</code>. The plugin is for point-source placement and motion-controlled spatial scenes, not for generic channel fold-down.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Set the REAPER track to 64 channels and route as many as 16 mono source lanes to the plugin's first 16 inputs.</li>
+          <li>Set the REAPER track to 64 channels, choose <code>POINTS</code> from 1 to 64, and route mono source lanes to the corresponding inputs.</li>
           <li>Place each active point with azimuth, elevation, distance, and gain.</li>
-          <li>Use <code>MANUAL</code> for direct editing or REAPER automation, or select an internal motion scene.</li>
+          <li>Use <code>MOTION: OFF</code> / <code>MANUAL</code> for direct editing or REAPER automation, or choose a motion engine and compatible style.</li>
           <li>Use the field, mixer, and physics views to refine the point relationships.</li>
           <li>Select the ambisonic order and follow the encoder with a decoder or visualizer configured for the same order.</li>
         </ol>
@@ -73,66 +73,65 @@
           <li>In <code>3/4</code> or manually rotated views, clicking selects points and blank-field dragging rotates the view.</li>
         </ul>
 
-        <p>The right-side POINT panel edits the selected point. The MIXER page provides one lane per point with gain faders plus mute and solo buttons.</p>
+        <p>The right-side POINT panel edits the selected point. <code>POINTS</code> sets the active range from 1 to 64 without discarding the position, gain, mute, or solo state of temporarily inactive points. The MIXER page provides gain, mute, and solo controls in four 16-point banks.</p>
 
         <h2 id="scenes">Scenes and Automation</h2>
 
-        <p>The SCENE menu controls whether the internal motion engine is active.</p>
+        <p><code>MOTION</code> selects the motion engine. The <code>STYLE</code> menu directly below it shows only behaviors that belong to that engine. Editing a motion or physics trim changes the current style to <code>CUSTOM</code> without changing the selected motion engine.</p>
 
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Scene</th>
+                <th>Motion</th>
+                <th>Styles</th>
                 <th>Use</th>
               </tr>
             </thead>
             <tbody>
               <tr>
+                <td><code>OFF</code></td>
                 <td><code>MANUAL</code></td>
                 <td>Internal motion off. Use this when REAPER automation lanes should drive point AED/gain directly.</td>
               </tr>
               <tr>
                 <td><code>DRIFT</code></td>
-                <td>Slow independent motion.</td>
+                <td><code>BREEZE</code>, <code>MEANDER</code>, <code>CROSSWIND</code></td>
+                <td>Independent sinusoidal movement ranging from a gentle legacy drift through broad wandering to faster lateral circulation.</td>
               </tr>
               <tr>
                 <td><code>ORBIT</code></td>
-                <td>Slow circulation with per-point wobble.</td>
+                <td><code>GLIDE</code>, <code>WIDE</code>, <code>TIGHT</code></td>
+                <td>Circulation with per-point wobble. Wide expands into a slow large field; Tight pulls points into a quicker compact orbit.</td>
               </tr>
               <tr>
-                <td><code>BOUNCE</code></td>
-                <td>Physics motion with boundary rebound and point collisions. Fixed nearest-neighbor bonds are disabled.</td>
+                <td><code>SWARM</code></td>
+                <td><code>FLOCK</code>, <code>CLOUD</code>, <code>FRENZY</code></td>
+                <td>Stochastic collective motion. Flock balances attraction and separation, Cloud drifts loosely, and Frenzy emphasizes rapid random pressure.</td>
               </tr>
               <tr>
-                <td><code>COLLIDE</code></td>
-                <td>Point-to-point pressure, stronger collision impulses, and temporary links that can be broken by Geist strikes.</td>
+                <td><code>PULSE</code></td>
+                <td><code>BREATHE</code>, <code>RIPPLE</code>, <code>THROB</code></td>
+                <td>Radial expansion and contraction, from slow breathing through layered ripples to a compact fast pulse.</td>
               </tr>
               <tr>
-                <td><code>SCATTER</code></td>
-                <td>Non-orbital burst/random energy with no nearest-neighbor net.</td>
-              </tr>
-              <tr>
-                <td><code>CUSTOM</code></td>
-                <td>Shown after motion or physics trims are edited by hand. This keeps a moderate recoverable web unless Poltergeist dissolves it.</td>
-              </tr>
-              <tr>
-                <td><code>ELASTIC</code></td>
-                <td>Explicit nearest-neighbor net. Use this when the point field should feel like a connected elastic structure.</td>
+                <td><code>PHYS</code></td>
+                <td><code>BOUNCE</code>, <code>COLLIDE</code>, <code>SCATTER</code>, <code>ELASTIC</code></td>
+                <td>Persistent point-world behaviors: boundary rebound, collision pressure, free impulse scattering, or an explicit nearest-neighbor elastic net.</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <p>Per-point azimuth, elevation, distance, gain, mute, and solo are exposed to REAPER automation. GUI-only selection is not meant to be an automation target.</p>
+        <p><code>Active Points</code> and every point's azimuth, elevation, distance, gain, mute, and solo are exposed to REAPER automation. All 64 point parameter IDs remain available even when their points are outside the active range, so prepared scenes can be edited before those lanes are activated. GUI-only selection is not meant to be an automation target.</p>
 
         <h3 id="spatial-score">Spatial Score Automation</h3>
 
-        <p>The <a href="https://s3g.github.io/s3g-mc/utilities-spatial-score.html" target="_blank" rel="noopener noreferrer">Spatial Score</a> browser utility in <code>s3g-mc</code> can compose larger point-motion scores outside REAPER. Export the Spatial Score JSON, focus an instance of <code>s3g Ambi Point Encoder</code>, set its scene to <code>MANUAL</code>, then run <code>Load Spatial Score JSON</code> from <code>s3g-mc</code>. The loader writes the score's azimuth, elevation, and distance lanes to the matching Point Encoder parameters; if the score contains more point paths than the plugin exposes, the first available points are used.</p>
+        <p>The <a href="https://s3g.github.io/s3g-mc/utilities-spatial-score.html" target="_blank" rel="noopener noreferrer">Spatial Score</a> browser utility in <code>s3g-mc</code> can compose larger point-motion scores outside REAPER. Export the Spatial Score JSON, focus an instance of <code>s3g Ambi Point Encoder</code>, set <code>MOTION</code> to <code>OFF</code> / <code>MANUAL</code>, then run <code>Load Spatial Score JSON</code> from <code>s3g-mc</code>. The loader writes the score's azimuth, elevation, and distance lanes to the matching Point Encoder parameters; if the score contains more point paths than the plugin exposes, the first available points are used.</p>
 
-        <h2 id="physics">Physics Controls</h2>
+        <h2 id="physics">Motion and Physics Controls</h2>
 
-        <p>The PHYSICS panel shapes internal motion scenes. Physics scenes use a persistent point world with boundary rebound, collision events, optional nearest-neighbor springs, and an automatable <code>POLTER</code> / Poltergeist cue-ball source.</p>
+        <p>The MOTION panel shapes all internal motion styles. The collision, impact, and Geist controls are primarily meaningful in <code>PHYS</code>. Physics styles use a persistent point world with boundary rebound, collision events, optional nearest-neighbor springs, and an automatable <code>POLTER</code> / Poltergeist cue-ball source.</p>
 
         <p><code>POLTER</code> also dissolves neighbor physics. At <code>0%</code>, a scene keeps its normal nearest-neighbor behavior. At <code>100%</code>, no nearest-neighbor springs are applied, so motion is driven by the Geist, point collisions, boundary rebound, and scene forces.</p>
 
@@ -158,7 +157,7 @@
 
         <h2 id="routing">Order and Routing</h2>
 
-        <p>The plugin accepts as many as 16 mono input lanes and exposes the same fixed 64-channel <code>ACN/SN3D</code> output bus as the other encoders. <code>ORDER</code> selects 1OA through 7OA; channels above the selected order are cleared. Keep the REAPER track and output pin connector at 64 channels, and place decoding or field analysis after the encoder.</p>
+        <p>The plugin exposes fixed 64-channel input and output buses, matching the other encoders. <code>POINTS</code> determines how many leading mono input lanes are encoded, while <code>ORDER</code> selects 1OA through 7OA; inactive inputs are ignored and output channels above the selected order are cleared. Keep the REAPER track and pin connectors at 64 channels, and place decoding or field analysis after the encoder.</p>
 
         <table class="readout-table">
           <thead>

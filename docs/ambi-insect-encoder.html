@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Insect Encoder - s3g-dsp</title>
+    <meta name="description" content="Ambi Insect Encoder bioacoustic synthesis, swarm motion, environment, preset, and routing documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Insect Encoder</h1>
+
+        <p><code>s3g Ambi Insect Encoder 64</code> is a zero-input procedural instrument for spatial insect populations. As many as 64 independently timed voices use stridulation, tymbal-like snap trains, wingbeat harmonics, and resonant body models, then encode their moving positions directly to first-through-seventh-order <code>ACN/SN3D</code>.</p>
+
+        <p>The engine is a musical bioacoustic model, not a species-identification tool and not a sample player. Its controls preserve the separable time scales and sound-producing mechanisms found across insect communication while leaving room for imagined populations.</p>
+
+        <h2 id="workflow">Workflow</h2>
+        <ol>
+          <li>Insert the plugin on a 64-channel track and choose a factory preset.</li>
+          <li>Select <code>REGIME</code>, then balance population <code>ACTIVITY</code>, <code>TEMPERATURE</code>, <code>VARIATION</code>, and <code>COUPLING</code>.</li>
+          <li>Shape the nested phrase, chirp, and pulse clocks before tuning body pitch and texture.</li>
+          <li>Place and animate the population with swarm motion, field origin, and environment controls.</li>
+          <li>Follow the instrument with an ambisonic decoder or meter.</li>
+        </ol>
+
+        <h2 id="source">Insect Source</h2>
+        <p><code>REGIME</code> selects <code>CHIRPERS</code>, <code>TRILLERS</code>, <code>CICADAS</code>, <code>FLYERS</code>, <code>TICKERS</code>, or <code>MIXED SWARM</code>. <code>TEMPERATURE</code> scales biological clock speed. <code>VARIATION</code> separates individuals, while <code>COUPLING</code> pulls phrase timing toward a shared chorus without making every voice identical.</p>
+
+        <h2 id="calls">Call Structure</h2>
+        <p><code>PHRASE RATE</code>, <code>CHIRP RATE</code>, and <code>PULSE RATE</code> are nested clocks expressed in hertz. They separate long calling/rest cycles, repeated calls, and the syllable, scraper-contact, or rib-snap texture inside a call. <code>BODY PITCH</code> sets the much faster tuned wing carrier for stridulators and the wingbeat fundamental for flyers. <code>CALL LENGTH</code> and <code>REST</code> shape the resulting smooth gates.</p>
+
+        <h2 id="body">Body and Tone</h2>
+        <p><code>BODY PITCH</code> and <code>BODY SIZE</code> tune the resonant wing, tymbal/abdomen, or flight body. <code>WING</code> mixes a dedicated radiating-wing layer: tuned scraper/file resonance for chirpers and trillers, coupled tymbal radiation for cicadas, and a phase-locked bilateral wing model for flyers. Flyer sound combines an integer harmonic stack, bounded cycle-to-cycle thrust and timing variation, thorax response, and body-size-dependent wake turbulence; small bodies remain relatively tonal while larger bodies develop a denser buzz. <code>RASP</code>, <code>BRIGHTNESS</code>, <code>RESONANCE</code>, and <code>AIR</code> balance scrape noise, spectral emphasis, resonant decay, and high-frequency radiation. Regime changes and presets use a short transition crossfade.</p>
+
+        <h2 id="model-basis">Model Basis</h2>
+        <p>The synthesis separates excitation from radiation: scraper impacts, rib snaps, flight strokes, and contact taps drive wing, body, abdomen, air, and substrate resonators. Stable per-voice identity controls placement and individual variation; a separate audio-rate random stream supplies texture, so noise no longer jitters pitch, activity, or motion. Slow phrase decisions and pitch drift keep the population irregular without making individual wing cycles unstable.</p>
+        <p>Development uses short-window spectral and band-energy checks for wingbeat texture alongside longer temporal checks for phrase behavior. Flyer presets must retain more temporal detail than a pure tone at the same effective wingbeat frequency without becoming unbounded noise. These are deterministic validation measures, not a machine-learning stage. See <a href="references.html#insect-bioacoustics">Insect Bioacoustics</a> on the central References page for the physiological, field-recording, and signal-analysis sources.</p>
+
+        <h2 id="motion">Swarm Motion</h2>
+        <p><code>FIELD RATE</code>, <code>ROAM</code>, <code>COHESION</code>, <code>SCATTER</code>, <code>ORBIT</code>, <code>LIFT</code>, and <code>NEAR PASS</code> move the population. Ground calls remain low, cicadas favor canopy strata, and flyers can orbit and approach the listener. <code>INERTIA</code> controls positional following. Point size and halo intensity show each voice's current call envelope.</p>
+
+        <h2 id="environment">Environment Field</h2>
+        <p><code>PLACE</code> selects <code>MEADOW</code>, <code>FOREST FLOOR</code>, <code>CANOPY</code>, <code>MARSH</code>, <code>PORCH</code>, <code>GREENHOUSE</code>, or <code>INTERIOR WALL</code>. <code>ENV RETURN</code>, <code>ENV SIZE</code>, <code>ENV DECAY</code>, and <code>ENV DAMPING</code> mix and shape the encoded environment response.</p>
+
+        <h2 id="presets">Presets</h2>
+        <p>The 16 factory presets cover cricket choirs, katydid waves, cicada masses, mosquitoes, bees, beetles, interior ticks, layered forests, and mixed summer populations. Factory presets default to <code>3OA</code> and <code>-6 dB</code>. <code>RANDOM</code> stays inside bounded, regime-aware ranges. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3ginsect</code> presets in <code>~/Music/s3g/Presets/Ambi Insect Encoder/</code>.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+        <p>The output bus remains 64 channels wide. <code>ORDER</code> activates 4, 9, 16, 25, 36, 49, or 64 ACN channels for 1OA through 7OA and clears the remainder.</p>
+        <table class="readout-table">
+          <thead>
+            <tr><th>Order</th><th>Active channels</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
+        <p>Follow it with an <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder</a>, <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a>, <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>, or <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a>.</p>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#source">Insect Source</a>
+          <a href="#calls">Call Structure</a>
+          <a href="#body">Body and Tone</a>
+          <a href="#model-basis">Model Basis</a>
+          <a href="#motion">Swarm Motion</a>
+          <a href="#environment">Environment Field</a>
+          <a href="#presets">Presets</a>
+          <a href="#routing">Order and Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

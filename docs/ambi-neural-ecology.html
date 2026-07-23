@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Neural Ecology - s3g-dsp</title>
+    <meta name="description" content="Ambi Neural Ecology recurrent self-listening Ambisonic instrument documentation for s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Neural Ecology</h1>
+
+        <p><code>s3g Ambi Neural Ecology 64</code> is a zero-input recurrent-circuit instrument with direct first-through-seventh-order <code>ACN/SN3D</code> output. It grows between four and sixty-four nonlinear nodes, places every active node in a nested spatial structure, and decodes its own Ambisonic field through four or eight virtual directional pickups that learn both what and where to hear. Those ears can also vote on movement through a folded Field Lattice of up to 128 situations, allowing the Ambisonic field to listen to and compositionally direct itself.</p>
+
+        <p>The result is not a neural model, a trained system, or an emulation of a historical device. It extends the signed rings and slow-to-fast recurrent cells shared with the Pulsar Encoder into a spatial ecology: location affects what the circuit hears, and what the circuit hears affects both its sound and its future position.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Ambi Neural Ecology 64</code> on a 64-channel REAPER track and follow it with an Ambisonic decoder or energy meter.</li>
+          <li>Choose a factory state and select a <code>NODE SET</code> from one ring through the complete sixty-four-node field.</li>
+          <li>Use <code>ACTIVITY</code>, <code>SIGMOID</code>, and <code>RING FB</code> to find the edge between dormancy, intermittent firing, sustained oscillation, and saturation.</li>
+          <li>Shape the organism with matrix coupling, hierarchy, phase paths, register, time spread, diversity, Brownian movement, and autonomous drift.</li>
+          <li>Raise <code>FIELD RETURN</code>. Choose the four-direction <code>TETRA 4</code> or eight-direction <code>CUBE 8</code> pickup aperture, set <code>PROPAGATION</code> and <code>PICKUP FOCUS</code>, then choose a local, cross-wired, diffuse, or roaming listening topology.</li>
+          <li>Raise <code>PICKUP ADAPT</code> to let the ears steer toward the parts of the living field that affect their connected lobes. <code>PICKUP ANCHOR</code> determines how strongly learned directions return toward the original tetra/cube body.</li>
+          <li>Use <code>AUDITORY PLASTIC</code> to evolve pickup-to-lobe relationships. <code>METABOLISM</code> sets desired lobe activity and <code>ADAPTATION</code> determines how quickly each lobe adjusts its operating bias toward that target.</li>
+          <li>Use <code>CIRCUIT PLASTIC</code> and its rule to evolve internal connections. <code>FREEZE</code> suspends weight, auditory, homeostatic, Brownian, drift, and roaming evolution without stopping recurrent audio.</li>
+          <li>Capture interesting living states into <code>GENOME A</code> and <code>GENOME B</code>. Use <code>GENOME MORPH</code> to define their interpolated parent and <code>HEREDITY</code> to control how strongly the living circuit is attracted back toward it. Either parent can be recalled immediately, or <code>BREED</code> can recombine them.</li>
+          <li>Use <code>RANDOM</code> for a new bounded parameter ecology inside the current structural and output choices, <code>MUTATE</code> plus <code>MUTATION DEPTH</code> to disturb the organism in place, or <code>RESEED</code> to restart a new deterministic organism with the current controls.</li>
+          <li>Open the <code>SCORE</code> view, choose one, two, four, or eight planes with the <code>1P/2P/4P/8P</code> buttons, and press <code>PLAY</code> or enable <code>FIELD</code>, <code>MIDI</code>, or <code>COUPLED</code> traversal. Each plane is a sixteen-situation sheet; marked directional folds carry the same pickup/MIDI vocabulary between sheets.</li>
+          <li><code>FOLLOW ACTIVE</code> keeps the visible page on the active cell. Clicking a plane tab suspends follow for editing. While stopped, selecting a situation recalls its stored eight-condition climate through a continuous glide; use <code>GO</code> to resume with a manual transition or <code>INSCRIBE SETTINGS</code> to derive a new climate from the current base controls.</li>
+          <li><code>STOP</code> freezes autonomous traversal while retaining score influence, so stored situations can be auditioned without the lattice moving on. <code>PLAY</code> resumes the most recently used Field, MIDI, or Coupled mode; <code>OFF</code> is the explicit score bypass. <code>AMOUNT</code> determines how strongly the score changes the underlying ecology; <code>DWELL</code> sets the interval before autonomous movement and <code>TRANSITION</code> sets the glide time between climates.</li>
+          <li>When the score is active, every governed slider row lights up. Its ordinary handle remains the user-editable base value and the outlined tick shows the effective scored value being heard.</li>
+          <li><code>SAVE</code> and <code>LOAD</code> preserve the parameters, both genome parents, every active lattice plane and fold, and the traversal trail as a portable user preset.</li>
+          <li>Set field and cell width, mobility, rotation, center, air, and Doppler, then choose the HOA order and output gain.</li>
+        </ol>
+
+        <h2 id="population">Node Sets and Growth</h2>
+
+        <p>The engine reserves sixty-four fixed node slots and never allocates while processing. A node-set change activates or retires a balanced structural population over a 120 ms transition. New nodes inherit energy from their parent lobe and cluster plus a deterministic seeded disturbance, so increasing population behaves as growth rather than a hard synthesizer reload.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Node set</th><th>Structure</th><th>Spatial form</th></tr></thead>
+          <tbody>
+            <tr><td>RING 4</td><td>One signed four-node R-C ring.</td><td>One tetrahedral cell centered in the field.</td></tr>
+            <tr><td>DUAL 8</td><td>Two mutually coupled slow and fast rings.</td><td>Two opposed cells.</td></tr>
+            <tr><td>CELL 16</td><td>Four slow-to-fast clusters in one lobe.</td><td>Four nested tetrahedral cells.</td></tr>
+            <tr><td>PAIR 32</td><td>Two complete sixteen-node lobes.</td><td>A bilateral field.</td></tr>
+            <tr><td>FIELD 64</td><td>Four lobes, sixteen clusters, and sixty-four nodes.</td><td>A self-similar four-by-four-by-four field.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="circuit">Recurrent Circuit</h2>
+
+        <p>Every cluster contains a signed four-node ring. Node output is fed to its neighbors through direct and first-order allpass paths, filtered by an R-C memory, and passed through a bounded nonlinear response. The four nominal cluster times are 80, 32, 9.5, and 2 ms. <code>REGISTER</code> scales them together, while <code>TIME SPREAD</code> contracts or expands their logarithmic separation.</p>
+
+        <p>A signed four-by-four matrix connects the clusters inside each lobe. A second signed matrix connects the four lobes. Slower active clusters gate and drive the faster ones. Each local node has a slightly different bias, ring polarity, pickup-return polarity, and optional nonlinear response, so <code>DIVERSITY</code> moves the network from uniform sigmoid cells toward a heterogeneous circuit without inserting conventional oscillators.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>ACTIVITY</td><td>Moves all nodes through their nonlinear operating point. Low values encourage dormancy; high values encourage switching and saturation.</td></tr>
+            <tr><td>SIGMOID</td><td>Gain into the bounded node response.</td></tr>
+            <tr><td>RING FB</td><td>Feedback around every active four-node ring.</td></tr>
+            <tr><td>MATRIX</td><td>Strength of signed cluster and lobe cross-coupling.</td></tr>
+            <tr><td>HIERARCHY</td><td>Amount by which an earlier, slower cluster gates and drives the next active cluster.</td></tr>
+            <tr><td>PHASE</td><td>Blends phase-bearing allpass paths into ring feedback.</td></tr>
+            <tr><td>DIVERSITY</td><td>Introduces asymmetric, trigonometric, driven, and soft sigmoid response variants across each four-node cell.</td></tr>
+            <tr><td>BROWNIAN / DRIFT</td><td>Bounded weight and bias movement at independent control timescales.</td></tr>
+            <tr><td>SLOW &gt; FAST</td><td>Lets slow cluster state alter faster R-C times.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="listening">The Field Listens to Itself</h2>
+
+        <p>Every active node is conditioned and multiplied by its complete spherical-harmonic basis vector. The resulting HOA frame is decoded internally by a selectable directional aperture. <code>TETRA 4</code> uses four tetrahedral directions. <code>CUBE 8</code> adds the opposite tetrahedron, producing eight cube-corner directions related to the eight-direction work in Ambi Imprint but used here as live feedback sensors rather than an analysis profile. These are real signal paths: the pickup meters show delayed audio, and a bounded four-by-four or four-by-eight auditory matrix distributes it among the four neural lobes. Bright lines in the field view show positive listening relationships, darker lines show inhibitory relationships, and their width shows connection strength.</p>
+
+        <p><code>PICKUP FOCUS</code> interpolates between the omnidirectional field component and directional HOA decoding. <code>PROPAGATION</code> supplies four or eight slightly different fractional delays, from one sample through 180 ms, and also increases high-frequency loss along the return. <code>FIELD RETURN</code> controls how strongly the matrix output enters the neural equations. Every matrix row is normalized by its absolute connection strength before bounded re-entry. The path is always kept warm, so return automation does not expose an empty delay.</p>
+
+        <h3>An adaptive auditory body</h3>
+
+        <p>Each pickup begins at a tetrahedron or cube-corner anchor but owns two bounded steering traits. <code>PICKUP ADAPT</code> controls how quickly these traits learn from the energy distribution of the neural lobe and the field signal being returned through that pickup. Positive auditory relationships steer toward active regions; predominantly inhibitory relationships steer away. <code>PICKUP ANCHOR</code> continuously decays the learned offset toward the original geometry. At zero Adapt the current learned direction remains active but stops learning; it is not erased.</p>
+
+        <p>No pickup can move more than 52 degrees from its anchor. A repulsion constraint acts when two ears approach within 32 degrees, preventing the auditory body from collapsing onto one direction. In the field view, the diamond is the current ear, the small square is its anchor, and the connecting line is its learned displacement. These directions generate the actual HOA decoding vectors used by the feedback path.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Listening topology</th><th>Auditory organization</th></tr></thead>
+          <tbody>
+            <tr><td>LOCAL</td><td>Each lobe primarily hears its corresponding pickup.</td></tr>
+            <tr><td>CROSS</td><td>Each lobe primarily hears the next pickup, retaining a quiet local path.</td></tr>
+            <tr><td>DIFFUSE</td><td>Every lobe hears a normalized mixture of all active pickups.</td></tr>
+            <tr><td>ROAMING</td><td>The dominant pickup for each lobe moves continuously around the four or eight listening directions.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Because node position changes the HOA field seen by the pickups, width, mobility, rotation, output order, air, and distance can alter the recurrent behavior rather than merely panning a completed mono sound. The feedback is one or more samples delayed and bounded before re-entry.</p>
+
+        <h2 id="score">Field Lattice Score</h2>
+
+        <p>The Field Lattice can contain one, two, four, or eight planes. Every plane is a four-by-four wrapping sheet of sixteen behavioral situations, giving a maximum of 128 situations. A situation is a climate rather than a snapshot: it holds normalized pressures for activity, feedback, time, field return, listening, space, heredity, and mutation. These pressures modulate a copy of the current controls. Moving through the lattice therefore does not overwrite parameter sliders, clear R-C memories, reset node phases, or replace the living genome.</p>
+
+        <p>The planes are connected by real directional folds, not by a separate “change plane” command. Most edges remain local to a sheet; a marked fold replaces one directional edge with a connection to another plane, and its paired reverse edge makes the whole score reachable. Each plane tab reports its page number; the active page also reports the active cell, and an incoming target page reports the target cell. <code>FOLLOW ACTIVE</code> automatically changes the visible page when playback crosses a fold. Clicking any page or cell suspends follow so the score can be edited without the view moving. Plane count is a performer-owned structural choice: <code>RANDOM</code> changes the climates and fold locations but preserves the selected count.</p>
+
+        <p>The scoring model brings Jerry Hunt and David Tudor into a deliberate but non-reconstructive relationship. Hunt's work is referenced as a precedent for an ecosystem of structuring principles and performing gestures. Tudor's work is referenced through the idea that choices of components, interconnections, feedback paths, and live interventions define the composition. Ambi Neural Ecology adds a different proposition: the Ambisonic auditory body performs part of the listening and traversal function itself. This is not an emulation of either artist's instrument or notation.</p>
+
+        <h3>Field, MIDI, and coupled traversal</h3>
+
+        <p>In <code>FIELD</code> mode the smoothed absolute energy of each active pickup votes on a neighboring lattice direction after the dwell interval. With <code>TETRA 4</code>, pickup indices address north, east, south, and west. With <code>CUBE 8</code>, the additional pickups address the four diagonal edges. A vote follows whichever local or folded edge occupies that direction. The lattice therefore has no terminal corner, yet a repeated gesture can enter a different plane when it encounters a fold. A transition continuously interpolates the two climates while the recurrent audio and learned genome continue uninterrupted.</p>
+
+        <p>In <code>MIDI</code> mode, a note-on moves directly: note number modulo four or eight selects a direction and velocity determines transition force, with stronger notes completing the edge more quickly. In <code>COUPLED</code> mode, ordinary notes bias the next field decision and high-velocity notes can force the requested edge. MIDI does not supply pitch or excitation to the synthesis circuit; it enters the same navigational language used by the ears. <code>STOP</code> cancels an unfinished autonomous move at the active cell but keeps that cell's climate applied. Selecting another cell while stopped begins a smooth climate recall using the <code>TRANSITION</code> time; its listening and pickup behavior therefore glide rather than teleport. <code>OFF</code> alone removes score modulation from the sound, and <code>PLAY</code> resumes the last non-Off traversal mode.</p>
+
+        <h3>Inscription and trail</h3>
+
+        <p>Click a plane page and then a situation to select it. Selection is distinct from playback: during playback the selected cell has a bright editor outline while the active cell has the brighter playback fill. When playback is stopped, the selected cell changes to a muted yellow fill with a bright yellow double outline and its stored climate is recalled continuously, identifying both what is being auditioned and exactly which cell <code>INSCRIBE SETTINGS</code> will overwrite. Its eight full-size climate meters can be clicked or dragged for direct editing. <code>GO</code> resumes playback and requests a transition to that situation. <code>INSCRIBE SETTINGS</code> analyzes the current user-controlled base settings into the eight climate pressures and stores them in the selected situation; it does not copy the score-modulated effective values, oscillator state, or genome contents. The SCORE view continuously names the viewed page, active cell, target cell, transport state, transition and dwell progress, four/eight live pickup votes, and the most recent thirty-two visited situations. This traversal trail is memory of how the instrument was encountered, not an exact automation replay.</p>
+
+        <p><code>AMOUNT</code> blends the lattice climate with the current parameter ecology. At zero, traversal remains visible but has no audible parameter influence. <code>DWELL</code> is the minimum time before the field may choose another edge. <code>TRANSITION</code> is the nominal interpolation time; MIDI velocity scales it from slower, lightly requested movement to faster, forceful movement. While any score mode is active, the GUI lights every parameter row governed by these climates. The filled slider and its handle remain the editable base control; the outlined tick follows the effective value after climate interpolation, so user structure and scored variation remain distinguishable.</p>
+
+        <h2 id="plasticity">Plasticity and Intervention</h2>
+
+        <p>Plasticity operates at control rate on the sparse cluster, lobe, auditory, and pickup-direction traits. Internal <code>CIRCUIT PLASTIC</code> relates node groups to one another. <code>AUDITORY PLASTIC</code> correlates each delayed pickup with each destination lobe, producing a learned offset around the selected listening topology. Pickup Adapt changes the directions used to decode that delayed signal. All adaptations are bounded. This is online circuit evolution driven only by the instrument's own recent state; it is not training against examples.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Rule</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>REINFORCE</td><td>Correlated source and destination activity strengthens their signed relationship.</td></tr>
+            <tr><td>INHIBIT</td><td>Correlation adds negative connection pressure.</td></tr>
+            <tr><td>BALANCE</td><td>Strongly correlated destinations are pushed away from their current relationship.</td></tr>
+            <tr><td>PRUNE</td><td>Weakly used paths decay while strongly active paths receive smaller correlation changes.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Homeostasis measures the smoothed absolute activity of every active lobe. <code>METABOLISM</code> maps to a target activity, while <code>ADAPTATION</code> determines the rate at which a bounded per-lobe bias approaches that target. The faint halo around each lobe visualizes this regulatory bias. It operates inside the recurrent equations rather than changing the final output level.</p>
+
+        <p><code>FREEZE</code> suspends circuit and auditory plasticity, pickup steering, homeostasis, heredity, Brownian movement, autonomous drift, and roaming topology motion while audio feedback continues. The three intervention buttons have deliberately different scopes: <code>RANDOM</code> chooses a new musically bounded parameter ecology, generates new coherent climate sheets and connected fold locations for the chosen plane count, chooses its starting cell, clears the previous trail, and restarts the organism. It preserves the chosen node set, HOA order, four/eight-pickup body, one/two/four/eight-plane structure, score mode and timing, and output trim; register randomization is population-aware, keeping <code>FIELD 64</code> in its more reliably audible high-register range. <code>MUTATE</code> alters the cluster, lobe, auditory, and pickup-direction traits plus active node states without resetting the sound or changing the score; <code>RESEED</code> keeps the controls and lattice but changes the deterministic organism seed and restarts. <code>MUTATION DEPTH</code> makes the in-place mutation visible and controllable, from no disturbance through the full bounded range.</p>
+
+        <h3>Genome parents and heredity</h3>
+
+        <p>The live organism may keep changing without making project state depend on the exact audio block in which it was saved. <code>CAP A</code> and <code>CAP B</code> commit its circuit weights, auditory weights, homeostatic biases, roaming phase, and sixteen pickup-steering coordinates to two explicit parents. <code>RECALL</code> replaces the living genome immediately with that parent but does not restart node state. <code>GENOME MORPH</code> interpolates every learned connection and ear direction between A and B; roaming phase takes the shortest circular path. If only one parent is held, that parent defines the target.</p>
+
+        <p><code>BREED</code> makes a live offspring by choosing complete functional rows from the cluster, lobe, and auditory matrices of A or B; homeostatic biases, roaming phase, and each complete two-coordinate ear direction are inherited as traits. <code>GENOME MORPH</code> sets the probability of inheritance from B, so its endpoints produce the corresponding parent and intermediate positions produce new recombinations. The parents are never overwritten; capture an offspring into A or B when it should become a persistent parent.</p>
+
+        <p><code>HEREDITY</code> turns the morphed parent into an attractor. At zero the organism is free to evolve away indefinitely. Higher settings continuously pull its living learned matrices back toward the inherited form while plasticity and self-listening continue to act. A and B are therefore not snapshots on an audio crossfade: they define a genetic field in which a changing offspring can live.</p>
+
+        <h3>User presets</h3>
+
+        <p><code>SAVE</code> writes the complete parameter set, both parent genomes, their held/empty status, every Field Lattice climate and directional fold, its current situation and traversal trail, and the preset name to a <code>.s3gne</code> file. <code>LOAD</code> restores that material and recalls the current A/B morph after the deterministic reset. The default location is <code>~/Music/s3g/Presets/Ambi Neural Ecology</code>. CLAP project state stores the same material. Earlier Neural Ecology states and presets remain compatible and open as a one-plane lattice.</p>
+
+        <h2 id="space">Spatial Field</h2>
+
+        <p>Four lobes occupy a large tetrahedron. Each lobe contains four tetrahedrally arranged clusters, and every cluster contains four local node positions. Smaller node sets recenter the active structure rather than leaving missing lobes on one side of the sphere.</p>
+
+        <p><code>FIELD WIDTH</code> moves lobe and cluster structure away from the selected center. <code>CELL WIDTH</code> separates the four nodes inside each cluster. <code>MOBILITY</code> derives local rotation, elevation, and radial changes from node, cluster, and auditory-return state. <code>INERTIA</code> smooths complete HOA basis vectors. <code>ROTATION</code> adds a global deterministic rotation while preserving the nested relationships.</p>
+
+        <p>Every node has an independent DC blocker and distance-aware air and Doppler path. Active-node energy is normalized by the square root of the current population. Individual HOA channels are never moved or normalized independently.</p>
+
+        <h2 id="routing">Order and Routing</h2>
+
+        <p>The output bus is always 64 channels wide. The selected order activates <code>(order + 1)²</code> ACN/SN3D channels and clears the remainder. The same active-order HOA frame feeds the virtual pickups, so changing order also changes the spatial resolution available to the self-listening circuit.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Order</th><th>Active channels</th></tr></thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td></tr>
+            <tr><td>2OA</td><td>9</td></tr>
+            <tr><td>3OA</td><td>16</td></tr>
+            <tr><td>4OA</td><td>25</td></tr>
+            <tr><td>5OA</td><td>36</td></tr>
+            <tr><td>6OA</td><td>49</td></tr>
+            <tr><td>7OA</td><td>64</td></tr>
+          </tbody>
+        </table>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-pulsar-encoder.html"><span>Previous</span>Ambi Pulsar Encoder</a>
+          <a class="page-nav-link next" href="ambi-stochastic-encoder.html"><span>Next</span>Ambi Stochastic Encoder</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Encoder Pages</h2>
+          <a href="ambi-pulsar-encoder.html">Pulsar Encoder</a>
+          <a href="ambi-neural-ecology.html">Neural Ecology</a>
+          <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
+          <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#population">Node Sets</a>
+          <a href="#circuit">Recurrent Circuit</a>
+          <a href="#listening">Field Listening</a>
+          <a href="#score">Field Lattice Score</a>
+          <a href="#plasticity">Plasticity</a>
+          <a href="#space">Spatial Field</a>
+          <a href="#routing">Order and Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

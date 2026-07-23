@@ -28,7 +28,7 @@
 
         <p><code>s3g Wave Geometry Processor 8ch</code> is a topology-shaped wave processor for fixed-width multichannel tracks. It is non-FFT and processes incoming audio directly: folding, rectification, clipping, sample-step motion, bit collapse, polarity patterns, and a dual tape-head loop layer are combined per lane.</p>
 
-        <p>The plugin is intentionally more destructive than the Macro effects. It is useful when the source should become fractured, bent, repeated, or pushed into hard-edged waveform behavior while still keeping an eight-lane topology model.</p>
+        <p>It produces fractured, bent, repeated, and hard-edged waveform changes while keeping the eight lanes coordinated through topology. Choose a Macro effect when a gentler process or smaller control set is more appropriate.</p>
 
         <h2 id="signal-flow">Signal Flow</h2>
 
@@ -69,7 +69,7 @@
 
         <h2 id="patching">Patch Matrix</h2>
 
-        <p>The internal patch matrix follows the Delay Processor model. Use it when the REAPER track width is wider than the material or when one input should feed multiple processed lanes. For a simple eight-channel insert, leave the matrix in its default full-lane routing.</p>
+        <p>The patch matrix selects which REAPER inputs feed the processed lanes. Use it when the track is wider than the material or when one input should feed several lanes. For a simple eight-channel insert, leave the matrix in its default full-lane routing.</p>
 
         <h2 id="tape-heads">Dual Tape Heads</h2>
 

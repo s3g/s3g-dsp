@@ -43,7 +43,7 @@
         <p>The matrix processors route one complete 3OA group into another complete 3OA group. A crosspoint routes all 16 channels together, preserving the spatial encoding while allowing bus-level mixing between feeds.</p>
 
         <ul>
-          <li><code>SHAPE</code>: generated gain pattern. Current choices include flow, pulse, chase, swirl, scatter, and hold.</li>
+          <li><code>SHAPE</code>: generated gain pattern. Choices include flow, pulse, chase, swirl, scatter, and hold.</li>
           <li><code>MODE</code>: free-running or transport-synced timing for animated patterns.</li>
           <li><code>DPTH</code>: how strongly the generated pattern enters the matrix.</li>
           <li><code>SPRD</code>, <code>MOT</code>, and related pattern controls: how wide, animated, or patterned the active matrix layer becomes.</li>
@@ -52,7 +52,7 @@
 
         <h2 id="node">Ambi Node Bus Mixer Model</h2>
 
-        <p>The Ambi Node Bus Mixer adapts the s3g-mc node-track concept to a CLAP bus insert. Route up to eight complete 3OA feeds into one 128-channel REAPER track. Node 1 uses channels 1-16, node 2 uses 17-32, through node 8 on channels 113-128.</p>
+        <p>The Ambi Node Bus Mixer combines as many as eight complete 3OA feeds on one 128-channel REAPER track. Node 1 uses channels 1-16, node 2 uses 17-32, through node 8 on channels 113-128.</p>
 
         <p>The mixer defaults to a flat relationship plane. With <code>LOCK Z</code> checked, all nodes and the cursor stay at <code>Z = 0</code>, so the top view becomes the normal mixing view. Uncheck <code>LOCK Z</code> when a mix needs full 3D node placement and side or 3/4 camera work.</p>
 

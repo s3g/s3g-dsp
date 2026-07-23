@@ -26,15 +26,13 @@
       <main class="content" id="content">
         <h1>Ambi Head Decoder</h1>
 
-        <p><code>s3g Ambi Head Decoder</code> decodes <code>ACN/SN3D</code> ambisonic input to stereo using a code-generated synthetic head model. It can run as a headphone-style binaural monitor or add a transaural crosstalk-cancellation stage for stereo loudspeakers.</p>
+        <p><code>s3g Ambi Head Decoder</code> decodes <code>ACN/SN3D</code> ambisonic input to stereo using a synthetic head model. It can run as a headphone-style binaural monitor or add a transaural crosstalk-cancellation stage for stereo loudspeakers.</p>
 
         <h2 id="model">Model</h2>
 
-        <p>The first version does not embed measured HRTF datasets and does not require external SOFA files. The decoder uses short interaural delays, head-shadow filtering, and simple pinna/width controls to create a lightweight synthetic head response.</p>
+        <p>The decoder uses short interaural delays, head-shadow filtering, and pinna and width controls to create a synthetic head response. It does not load measured HRTF datasets or external SOFA files.</p>
 
         <p><code>DIRECT</code> mode maps ambisonics to an internal spherical head grid without exposing a named speaker layout. <code>Virtual field</code> mode samples ambisonics through a selected virtual field before the head model. The field path is useful for matching the visual language of the speaker decoder; it is not required for binaural decoding.</p>
-
-        <p>This keeps the pre-release build simple: no external HRTF file paths, no dataset redistribution, and no extra license files. Measured HRTF or SOFA loading can be added later as a separate advanced layer.</p>
 
         <h2 id="head-profiles">Head Profiles</h2>
 
@@ -48,7 +46,7 @@
 
         <p><code>Binaural</code> is intended for headphones. <code>Transaural</code> starts with the same stereo ear signal, then applies a crosstalk-cancellation stage for loudspeaker playback. Transaural mode depends strongly on speaker angle, listener position, and room acoustics.</p>
 
-        <p>The transaural stage is based on the same practical model as the <code>s3g-mc</code> JSFX crosstalk canceller: delayed and filtered opposite-channel cancellation, optional matrix-inverse-style compensation, low-frequency protection, stereo preserve, and output safety gain.</p>
+        <p>The transaural stage uses delayed and filtered opposite-channel cancellation, optional matrix-inverse-style compensation, low-frequency protection, stereo preserve, and output safety gain.</p>
 
         <h2 id="controls">Controls</h2>
 
@@ -73,8 +71,6 @@
         <h2 id="reaper-routing">REAPER Routing</h2>
 
         <p>This plugin exposes a true stereo output bus. On wide REAPER tracks, higher track channels may still pass around a true stereo CLAP plugin unless the host pin connector clears them. If a following meter shows channels above 2, open the plugin pin connector and enable <code>Zero out unmapped output channels</code>.</p>
-
-        <p>This appears to be a host pin-routing behavior with true stereo CLAP outputs on wider REAPER tracks. Fixed-width s3g-dsp plugins can clear their own unused lanes because those lanes remain part of the plugin output bus. A true stereo decoder cannot reliably clear channels that REAPER routes around the plugin.</p>
 
         <p>Use <a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a> for loudspeaker-style stereo pickup models. Use this Head Decoder when the monitoring target is headphones or a transaural loudspeaker setup.</p>
 

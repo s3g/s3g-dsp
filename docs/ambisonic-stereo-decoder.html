@@ -69,8 +69,6 @@
 
         <p>This plugin exposes a true stereo output bus. In REAPER, a multichannel track can still preserve audio on higher track channels that are not mapped through the plugin output. If a following meter shows channels above 2 after the decoder, open REAPER's plugin pin connector and enable <code>Zero out unmapped output channels</code>.</p>
 
-        <p>This appears to be a host pin-routing behavior with true stereo CLAP outputs on wider REAPER tracks. Fixed-width s3g-dsp plugins can clear their own unused lanes because those lanes remain part of the plugin output bus. A true stereo decoder cannot reliably clear channels that REAPER routes around the plugin.</p>
-
         <p>For headphone-style monitoring, use <a href="ambisonic-head-decoder.html">Ambi Head Decoder</a>. For speaker layout playback, use <a href="3oafx-speaker-decoder.html">Ambi Speaker Decoder 64</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">

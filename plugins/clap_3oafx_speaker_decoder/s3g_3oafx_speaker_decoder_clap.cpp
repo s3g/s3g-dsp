@@ -273,7 +273,7 @@ constexpr ParamDef kParamDefs[] {
     { kDistanceParamId, "Speaker Distance", 0.15, 2.0, 1.0, false },
     { kSpeakerGainParamId, "Speaker Gain", 0.0, 2.0, 1.0, false },
     { kWidthParamId, "Width", 0.0, 1.50, 1.0, false },
-    { kOutputParamId, "Output", -60.0, 12.0, -6.0, false },
+    { kOutputParamId, "Output", -60.0, 12.0, 0.0, false },
     { kWeightingParamId, "Weighting", 0.0, 2.0, 1.0, true },
     { kCustomFieldParamId, "Custom Field", 0.0, 1.0, 0.0, true },
 };

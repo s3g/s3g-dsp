@@ -29,6 +29,7 @@ bundles=(
   "$src_root/clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap"
   "$src_root/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap"
   "$src_root/clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder.clap"
+  "$src_root/clap_ambi_neural_ecology/s3g_ambi_neural_ecology.clap"
   "$src_root/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap"
   "$src_root/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder.clap"
   "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"

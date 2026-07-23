@@ -72,7 +72,7 @@ struct AmbiSpeakerDecoderParams {
     float regularization = 0.018f;
     float width = 1.0f;
     float energy = 1.0f;
-    float outputGainDb = -6.0f;
+    float outputGainDb = 0.0f;
     float selectedAzimuthDeg = 0.0f;
     float selectedElevationDeg = 0.0f;
     float selectedDistance = 1.0f;

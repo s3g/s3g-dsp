@@ -2481,10 +2481,12 @@ float processVoxWorldTransient(Plugin& plugin,
     const float levelGate = std::clamp((fast - 0.00075f) / 0.018f, 0.0f, 1.0f);
     const float onsetContrast = std::clamp(
         (fast - slow * 1.40f) / (fast + 0.0015f), 0.0f, 1.0f);
-    const float softenLinear = 1.0f
-        - std::clamp(transientPreserve, 0.0f, 1.0f);
+    const float popSoften = std::clamp(plugin.voxPopAmountSmooth, 0.0f, 1.0f);
+    const float effectivePreserve = std::clamp(transientPreserve, 0.0f, 1.0f)
+        * (1.0f - popSoften * 0.86f);
+    const float softenLinear = 1.0f - effectivePreserve;
     const float soften = softenLinear * softenLinear;
-    const float target = 1.0f - soften * levelGate * onsetContrast * 0.82f;
+    const float target = 1.0f - soften * levelGate * onsetContrast * 0.90f;
     gain += (target - gain) * (target < gain
         ? coefficients.gainAttack : coefficients.gainRelease);
     return s3g::flushDenormal(input * gain);
@@ -2649,8 +2651,8 @@ void applyVoxPopFilter(Plugin& plugin, float* const* outputs,
     const float broadFastRelease = 1.0f - std::exp(-1.0f / (0.010f * sampleRate));
     const float broadSlowAttack = 1.0f - std::exp(-1.0f / (0.028f * sampleRate));
     const float broadSlowRelease = 1.0f - std::exp(-1.0f / (0.160f * sampleRate));
-    const float transientAttack = 1.0f - std::exp(-1.0f / (0.00015f * sampleRate));
-    const float transientRelease = 1.0f - std::exp(-1.0f / (0.085f * sampleRate));
+    const float transientAttack = 1.0f - std::exp(-1.0f / (0.00006f * sampleRate));
+    const float transientRelease = 1.0f - std::exp(-1.0f / (0.105f * sampleRate));
     const float amountTarget = std::clamp(plugin.popFilter, 0.0f, 1.0f);
 
     for (uint32_t frame = 0u; frame < frames; ++frame) {
@@ -2658,13 +2660,22 @@ void applyVoxPopFilter(Plugin& plugin, float* const* outputs,
             * amountCoefficient;
         const float pressure = outputs[0] ? outputs[0][frame] : 0.0f;
         plugin.voxPopDetectorLow += (pressure - plugin.voxPopDetectorLow) * lowCoefficient;
-        const float lowLevel = std::fabs(plugin.voxPopDetectorLow);
+        float lowLevel = std::fabs(plugin.voxPopDetectorLow);
+        float broadLevel = std::fabs(pressure - plugin.voxPopDetectorLow);
+        for (uint32_t channel = 0u; channel < channels; ++channel) {
+            if (!outputs[channel]) continue;
+            const float input = outputs[channel][frame];
+            const float prospectiveLow = plugin.voxPopLowState[channel]
+                + (input - plugin.voxPopLowState[channel]) * lowCoefficient;
+            lowLevel = std::max(lowLevel, std::fabs(prospectiveLow) * 0.65f);
+            broadLevel = std::max(
+                broadLevel, std::fabs(input - prospectiveLow) * 0.65f);
+        }
         plugin.voxPopFastEnvelope += (lowLevel - plugin.voxPopFastEnvelope)
             * (lowLevel > plugin.voxPopFastEnvelope ? fastAttack : fastRelease);
         plugin.voxPopSlowEnvelope += (lowLevel - plugin.voxPopSlowEnvelope)
             * (lowLevel > plugin.voxPopSlowEnvelope ? slowAttack : slowRelease);
 
-        const float broadLevel = std::fabs(pressure - plugin.voxPopDetectorLow);
         plugin.voxPopBroadFastEnvelope +=
             (broadLevel - plugin.voxPopBroadFastEnvelope)
             * (broadLevel > plugin.voxPopBroadFastEnvelope
@@ -2675,19 +2686,19 @@ void applyVoxPopFilter(Plugin& plugin, float* const* outputs,
                 ? broadSlowAttack : broadSlowRelease);
 
         const float levelGate = std::clamp(
-            (plugin.voxPopFastEnvelope - 0.0015f) / 0.020f, 0.0f, 1.0f);
+            (plugin.voxPopFastEnvelope - 0.00075f) / 0.014f, 0.0f, 1.0f);
         const float transientContrast = std::clamp(
             (plugin.voxPopFastEnvelope - plugin.voxPopSlowEnvelope * 1.35f)
                 / (plugin.voxPopFastEnvelope + 0.002f),
             0.0f, 1.0f);
         const float reduction = plugin.voxPopAmountSmooth
-            * levelGate * transientContrast * 0.92f;
+            * levelGate * transientContrast * 0.96f;
         const float gainTarget = 1.0f - reduction;
         plugin.voxPopGain += (gainTarget - plugin.voxPopGain)
             * (gainTarget < plugin.voxPopGain ? gainAttack : gainRelease);
 
         const float broadLevelGate = std::clamp(
-            (plugin.voxPopBroadFastEnvelope - 0.0010f) / 0.018f,
+            (plugin.voxPopBroadFastEnvelope - 0.00065f) / 0.012f,
             0.0f, 1.0f);
         const float broadContrast = std::clamp(
             (plugin.voxPopBroadFastEnvelope
@@ -2701,7 +2712,7 @@ void applyVoxPopFilter(Plugin& plugin, float* const* outputs,
         const float transientActivity = broadLevelGate
             * std::max(broadContrast, instantContrast * 0.72f);
         const float transientGainTarget = 1.0f
-            - plugin.voxPopAmountSmooth * transientActivity * 0.85f;
+            - plugin.voxPopAmountSmooth * transientActivity * 0.94f;
         plugin.voxPopTransientGain +=
             (transientGainTarget - plugin.voxPopTransientGain)
             * (transientGainTarget < plugin.voxPopTransientGain
@@ -5109,8 +5120,11 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
                 speechMode, currentFlags);
             const float transientSoftenLinear = 1.0f
                 - std::clamp(plugin.voxPvocTransientSmooth, 0.0f, 1.0f);
-            const float transientSoften = transientSoftenLinear * transientSoftenLinear;
-            if (consonantRegion) value *= 1.0f - transientSoften * 0.52f;
+            const float transientSoftenBase = transientSoftenLinear * transientSoftenLinear;
+            const float transientSoften = 1.0f
+                - (1.0f - transientSoftenBase)
+                    * (1.0f - std::clamp(plugin.voxPopAmountSmooth, 0.0f, 1.0f) * 0.88f);
+            if (consonantRegion) value *= 1.0f - transientSoften * 0.64f;
             const double phase = plugin.voxPvocVoice[voice].analysisPosition;
             plugin.voxWorldPhase[voice] = phase;
             if (speechMode != VoxSpeechMode::Texture) {
@@ -5118,7 +5132,7 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
                     plugin.voxBankVoicePhraseSamplesTotal[voice]
                         - plugin.voxBankVoicePhraseSamplesRemaining[voice]);
                 const double attackSeconds = 0.012
-                    + 0.100 * static_cast<double>(transientSoften);
+                    + 0.140 * static_cast<double>(transientSoften);
                 const float attackEnv = static_cast<float>(std::clamp(
                     elapsed / std::max(1.0, plugin.sampleRate * attackSeconds),
                     0.0, 1.0));
@@ -5144,7 +5158,7 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
                         const bool nextConsonantRegion = voxVoicebankConsonantRegion(
                             next, plugin.voxPvocNextVoice[voice], speechMode);
                         const float softenedNext = nextConsonantRegion
-                            ? nextValue * (1.0f - transientSoften * 0.52f)
+                            ? nextValue * (1.0f - transientSoften * 0.64f)
                             : nextValue;
                         value = s3g::lerp(value, softenedNext, smoothMix);
                     }
@@ -6181,6 +6195,62 @@ void updateVoxLyricTransport(Plugin& plugin, const clap_event_transport_t* trans
     plugin.lyricCueResetRequested.store(true, std::memory_order_release);
 }
 
+double voxLyricAutoCueSamples(const Plugin& plugin)
+{
+    if (plugin.sampleRate <= 0.0) return 0.0;
+
+    const auto bank = std::atomic_load_explicit(
+        &plugin.voicebank, std::memory_order_acquire);
+    const uint32_t bankEventCount = std::min<uint32_t>(
+        plugin.voxBankCompiledCount.load(std::memory_order_acquire),
+        kVoxCompiledMaxFrames);
+    if (bank && !bank->entries.empty()
+        && plugin.vox.speechMode != VoxSpeechMode::Texture
+        && bankEventCount > 0u) {
+        double samples = 0.0;
+        for (uint32_t event = 0u; event < bankEventCount; ++event) {
+            const uint32_t duration = plugin.voxBankCompiledDuration[event].load(
+                std::memory_order_relaxed);
+            const uint8_t flags = plugin.voxBankCompiledFlags[event].load(
+                std::memory_order_relaxed);
+            const VoxVoicebankEntry* entry = nullptr;
+            if ((flags & kVoxBankEventRest) == 0u) {
+                const uint32_t entryIndex = std::min<uint32_t>(
+                    plugin.voxBankCompiledIndex[event].load(
+                        std::memory_order_relaxed),
+                    static_cast<uint32_t>(bank->entries.size() - 1u));
+                entry = &bank->entries[entryIndex];
+            }
+            samples += voxVoicebankPhraseDurationSamples(
+                plugin, duration, entry, flags);
+        }
+        return std::max(1.0, samples);
+    }
+
+    const auto world = std::atomic_load_explicit(
+        &plugin.worldSample, std::memory_order_acquire);
+    const uint32_t synthEventCount = std::min<uint32_t>(
+        plugin.voxCompiledCount.load(std::memory_order_acquire),
+        kVoxCompiledMaxFrames);
+    if ((!world || world->samples.empty()) && synthEventCount > 0u) {
+        const bool speakMode = plugin.vox.speechMode == VoxSpeechMode::Speak;
+        const float phraseRate = std::clamp(
+            plugin.vox.phraseRate * (speakMode ? 0.58f : 1.0f), 0.0f, 1.0f);
+        const double phraseHz = speakMode
+            ? 4.5 + static_cast<double>(phraseRate) * 10.5
+            : 0.55 + static_cast<double>(phraseRate) * 8.45;
+        double phraseTicks = 1.0;
+        for (uint32_t event = 0u; event < synthEventCount; ++event) {
+            phraseTicks += static_cast<double>(std::max<uint32_t>(
+                1u, plugin.voxCompiledDuration[event].load(
+                    std::memory_order_relaxed))) + 1.0;
+        }
+        return std::max(1.0, plugin.sampleRate * phraseTicks / phraseHz);
+    }
+
+    return 0.0;
+}
+
 void updateVoxLyricAuto(Plugin& plugin,
                         const clap_event_transport_t* transport,
                         uint32_t frames)
@@ -6196,14 +6266,18 @@ void updateVoxLyricAuto(Plugin& plugin,
             false, std::memory_order_acq_rel)) {
         plugin.lyricAutoSamplesElapsed = 0.0;
     }
-    double tempo = 120.0;
-    if (transport && (transport->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0
-        && std::isfinite(transport->tempo) && transport->tempo > 0.0) {
-        tempo = std::clamp(transport->tempo, 1.0, 1000.0);
+    double cueSamples = voxLyricAutoCueSamples(plugin);
+    if (cueSamples <= 0.0) {
+        double tempo = 120.0;
+        if (transport && (transport->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0
+            && std::isfinite(transport->tempo) && transport->tempo > 0.0) {
+            tempo = std::clamp(transport->tempo, 1.0, 1000.0);
+        }
+        cueSamples = plugin.sampleRate
+            * std::max(0.25, static_cast<double>(plugin.lyric.cueBeats))
+            * 60.0 / tempo;
     }
-    const double cueSamples = std::max(1.0,
-        plugin.sampleRate * std::max(0.25, static_cast<double>(plugin.lyric.cueBeats))
-            * 60.0 / tempo);
+    cueSamples = std::max(1.0, cueSamples);
     plugin.lyricAutoSamplesElapsed += static_cast<double>(frames);
     const uint64_t advances = static_cast<uint64_t>(
         std::floor(plugin.lyricAutoSamplesElapsed / cueSamples));
@@ -7672,6 +7746,15 @@ static NSColor* votColor(int rgb, double alpha = 1.0)
     return s3g::clap_gui::color(rgb, alpha);
 }
 
+constexpr CGFloat kLyricsSliderTrackOffset = 110.0;
+constexpr CGFloat kGeneratorSliderTrackOffset = 126.0;
+constexpr CGFloat kLyricsSliderTrackWidth = 170.0;
+
+double voxSliderNormForPoint(CGFloat pointX, CGFloat trackX, CGFloat trackWidth)
+{
+    return std::clamp(static_cast<double>((pointX - trackX) / trackWidth), 0.0, 1.0);
+}
+
 static float votLinearToSrgb(float value)
 {
     const float x = std::clamp(value, 0.0f, 1.0f);
@@ -8460,9 +8543,9 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 {
     if (!_plugin || _generatorDrag <= 0) return;
     const NSRect content = [self leftContentRect];
-    const double norm = std::clamp(
-        static_cast<double>((point.x - (content.origin.x + 300.0)) / 170.0),
-        0.0, 1.0);
+    const double norm = voxSliderNormForPoint(point.x,
+        content.origin.x + kGeneratorSliderTrackOffset,
+        kLyricsSliderTrackWidth);
     switch (_generatorDrag) {
     case 1:
         _plugin->generator.groups = 1u + static_cast<uint32_t>(std::lround(norm * 7.0));
@@ -9156,49 +9239,49 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     NSFrameRect(generatorRect);
 
     const CGFloat labelX = rect.origin.x + 18.0;
-    const CGFloat valueX = rect.origin.x + 126.0;
-    const CGFloat trackX = rect.origin.x + 300.0;
-    constexpr CGFloat trackWidth = 170.0;
+    const CGFloat trackX = rect.origin.x + kGeneratorSliderTrackOffset;
+    const CGFloat valueX = rect.origin.x + 300.0;
+    constexpr CGFloat trackWidth = kLyricsSliderTrackWidth;
     s3g::clap_gui::drawMenu(@"FORM",
         [NSString stringWithUTF8String:voxPhraseFormName(generator.form)],
         rect.origin.y + 48.0, attrs, valueAttrs, style,
-        labelX, valueX, 180.0);
+        labelX, trackX, 180.0);
     s3g::clap_gui::drawMenu(@"COLOR",
         [NSString stringWithUTF8String:voxPhraseColorName(generator.color)],
         rect.origin.y + 76.0, attrs, valueAttrs, style,
-        labelX, valueX, 180.0);
+        labelX, trackX, 180.0);
     s3g::clap_gui::drawSlider(@"GROUPS",
         [NSString stringWithFormat:@"%u", generator.groups],
         static_cast<double>(generator.groups - 1u) / 7.0,
         rect.origin.y + 112.0, attrs, valueAttrs, style,
-        labelX, valueX, trackX, trackWidth);
+        labelX, trackX, valueX, trackWidth);
     s3g::clap_gui::drawSlider(@"CUES / GROUP",
         [NSString stringWithFormat:@"%u", generator.cuesPerGroup],
         static_cast<double>(generator.cuesPerGroup - 1u) / 7.0,
         rect.origin.y + 140.0, attrs, valueAttrs, style,
-        labelX, valueX, trackX, trackWidth);
+        labelX, trackX, valueX, trackWidth);
     s3g::clap_gui::drawSlider(@"LENGTH",
         [NSString stringWithFormat:@"%u", generator.syllables],
         static_cast<double>(generator.syllables - 1u) / 7.0,
         rect.origin.y + 168.0, attrs, valueAttrs, style,
-        labelX, valueX, trackX, trackWidth);
+        labelX, trackX, valueX, trackWidth);
     s3g::clap_gui::drawSlider(@"VARIATION",
         [NSString stringWithFormat:@"%.0f%%", generator.variation * 100.0f],
         generator.variation, rect.origin.y + 196.0,
-        attrs, valueAttrs, style, labelX, valueX, trackX, trackWidth);
+        attrs, valueAttrs, style, labelX, trackX, valueX, trackWidth);
     s3g::clap_gui::drawSlider(@"HARDNESS",
         [NSString stringWithFormat:@"%.0f%%", generator.hardness * 100.0f],
         generator.hardness, rect.origin.y + 224.0,
-        attrs, valueAttrs, style, labelX, valueX, trackX, trackWidth);
+        attrs, valueAttrs, style, labelX, trackX, valueX, trackWidth);
     s3g::clap_gui::drawSlider(@"REST",
         [NSString stringWithFormat:@"%.0f%%", generator.rest * 100.0f],
         generator.rest, rect.origin.y + 252.0,
-        attrs, valueAttrs, style, labelX, valueX, trackX, trackWidth);
+        attrs, valueAttrs, style, labelX, trackX, valueX, trackWidth);
     s3g::clap_gui::drawSlider(@"SEED",
         [NSString stringWithFormat:@"%u", generator.seed],
         static_cast<double>(generator.seed - 1u) / 999998.0,
         rect.origin.y + 280.0, attrs, valueAttrs, style,
-        labelX, valueX, trackX, trackWidth);
+        labelX, trackX, valueX, trackWidth);
 
     NSString* status = [NSString stringWithFormat:@"%u CUES   GEN %u",
         std::min<uint32_t>(kVoxLyricsMaxCues,
@@ -9265,19 +9348,22 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     const double beatNorm = (_plugin->lyric.cueBeats - 0.25) / 63.75;
     s3g::clap_gui::drawSlider(@"CUE BEATS", [NSString stringWithUTF8String:display],
         beatNorm, controlsY + 28, attrs, valueAttrs, style,
-        rect.origin.x + 8, rect.origin.x + 110, rect.origin.x + 302, 170);
+        rect.origin.x + 8, rect.origin.x + kLyricsSliderTrackOffset,
+        rect.origin.x + 302, kLyricsSliderTrackWidth);
     paramsValueToText(nullptr, kLyricCueNoteParamId, _plugin->lyric.cueBaseNote,
         display, sizeof(display));
     s3g::clap_gui::drawSlider(@"BASE NOTE", [NSString stringWithUTF8String:display],
         static_cast<double>(_plugin->lyric.cueBaseNote) / 127.0,
         controlsY + 56, attrs, valueAttrs, style,
-        rect.origin.x + 8, rect.origin.x + 110, rect.origin.x + 302, 170);
+        rect.origin.x + 8, rect.origin.x + kLyricsSliderTrackOffset,
+        rect.origin.x + 302, kLyricsSliderTrackWidth);
     paramsValueToText(nullptr, kLyricCueChannelParamId, _plugin->lyric.cueChannel,
         display, sizeof(display));
     s3g::clap_gui::drawSlider(@"MIDI CH", [NSString stringWithUTF8String:display],
         static_cast<double>(_plugin->lyric.cueChannel - 1u) / 15.0,
         controlsY + 84, attrs, valueAttrs, style,
-        rect.origin.x + 8, rect.origin.x + 110, rect.origin.x + 302, 170);
+        rect.origin.x + 8, rect.origin.x + kLyricsSliderTrackOffset,
+        rect.origin.x + 302, kLyricsSliderTrackWidth);
 }
 
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
@@ -10258,10 +10344,14 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 - (void)updateDraggedSlider:(NSPoint)point
 {
     if (_dragParam == CLAP_INVALID_ID) return;
+    const NSRect content = [self leftContentRect];
     const CGFloat trackX = _dragArea == 2 ? 120.0
-        : (_dragArea == 9 ? 336.0 : (_dragArea == 7 ? 1004.0 : 738.0));
-    const CGFloat trackWidth = (_dragArea == 2 || _dragArea == 9) ? 170.0 : 82.0;
-    [self setParam:_dragParam fromNorm:(point.x - trackX) / trackWidth];
+        : (_dragArea == 9 ? content.origin.x + kLyricsSliderTrackOffset
+            : (_dragArea == 7 ? 1004.0 : 738.0));
+    const CGFloat trackWidth = (_dragArea == 2 || _dragArea == 9)
+        ? kLyricsSliderTrackWidth : 82.0;
+    [self setParam:_dragParam fromNorm:voxSliderNormForPoint(
+        point.x, trackX, trackWidth)];
     [self setNeedsDisplay:YES];
 }
 
@@ -10944,6 +11034,7 @@ struct VoxPopFilterProbeResult {
     float tailRatio = 1.0f;
     float highRatio = 1.0f;
     float snareRatio = 1.0f;
+    float directionalRatio = 1.0f;
 };
 
 struct VoxProbeInputStream {
@@ -11139,6 +11230,54 @@ bool runVoxMidiPointProbe(Plugin& plugin)
     return initial && reuse;
 }
 
+bool runVoxLyricsSliderGeometryProbe()
+{
+    constexpr CGFloat contentX = 34.0;
+    const CGFloat lyricTrack = contentX + kLyricsSliderTrackOffset;
+    const CGFloat generatorTrack = contentX + kGeneratorSliderTrackOffset;
+    return voxSliderNormForPoint(lyricTrack, lyricTrack,
+               kLyricsSliderTrackWidth) == 0.0
+        && std::fabs(voxSliderNormForPoint(
+               lyricTrack + kLyricsSliderTrackWidth * 0.5,
+               lyricTrack, kLyricsSliderTrackWidth) - 0.5) < 0.0001
+        && voxSliderNormForPoint(lyricTrack + kLyricsSliderTrackWidth,
+               lyricTrack, kLyricsSliderTrackWidth) == 1.0
+        && std::fabs(voxSliderNormForPoint(
+               generatorTrack + kLyricsSliderTrackWidth * 0.5,
+               generatorTrack, kLyricsSliderTrackWidth) - 0.5) < 0.0001;
+}
+
+bool runVoxLyricsAutoSinglePassProbe(Plugin& plugin)
+{
+    plugin.lyric.mode = VoxLyricMode::Auto;
+    plugin.lyric.cueBeats = 64.0f;
+    plugin.vox.speechMode = VoxSpeechMode::Speak;
+    plugin.vox.phraseRate = 0.34f;
+    plugin.vox.pvocStretch = 1.0f;
+    plugin.requestedLyricCue.store(0u, std::memory_order_relaxed);
+    storeVoxLyricsText(plugin, "za a\nmi u");
+    rebuildVoxLyricScore(plugin);
+    applyPendingVoxLyricCue(plugin);
+
+    const double cueSamples = voxLyricAutoCueSamples(plugin);
+    if (!std::isfinite(cueSamples) || cueSamples < 2.0
+        || cueSamples > static_cast<double>(std::numeric_limits<uint32_t>::max())) {
+        return false;
+    }
+    const uint32_t boundary = static_cast<uint32_t>(std::ceil(cueSamples));
+    plugin.lyricAutoSamplesElapsed = 0.0;
+    plugin.lyricAutoClockResetRequested.store(false, std::memory_order_release);
+    updateVoxLyricAuto(plugin, nullptr, boundary - 1u);
+    const bool heldFirstCue =
+        plugin.requestedLyricCue.load(std::memory_order_relaxed) == 0u;
+    updateVoxLyricAuto(plugin, nullptr, 1u);
+    const bool advancedOnce =
+        plugin.requestedLyricCue.load(std::memory_order_relaxed) == 1u;
+    applyPendingVoxLyricCue(plugin);
+    return heldFirstCue && advancedOnce
+        && plugin.guiLyricCue.load(std::memory_order_relaxed) == 1u;
+}
+
 VoxPopFilterProbeResult runVoxPopFilterProbe(Plugin& plugin)
 {
     constexpr uint32_t sampleRate = 48000u;
@@ -11210,6 +11349,14 @@ VoxPopFilterProbeResult runVoxPopFilterProbe(Plugin& plugin)
     float* snareOutput[] { snare.data() };
     applyVoxPopFilter(plugin, snareOutput, 1u, snareSamples);
     result.snareRatio = rms(snare, 0u, 3840u)
+        / std::max(0.000001f, rms(snareInput, 0u, 3840u));
+
+    std::vector<float> silent(snareSamples, 0.0f);
+    std::vector<float> directional = snareInput;
+    resetPopFilter();
+    float* directionalOutput[] { silent.data(), directional.data() };
+    applyVoxPopFilter(plugin, directionalOutput, 2u, snareSamples);
+    result.directionalRatio = rms(directional, 0u, 3840u)
         / std::max(0.000001f, rms(snareInput, 0u, 3840u));
     return result;
 }
@@ -11337,6 +11484,8 @@ int main(int argc, char** argv)
         const bool generatedPhrases = loadedBank
             && runVoxPhraseGeneratorProbe(*loadedBank);
         const bool midiPoints = runVoxMidiPointProbe(*state);
+        const bool lyricSliders = runVoxLyricsSliderGeometryProbe();
+        const bool lyricAutoSinglePass = runVoxLyricsAutoSinglePassProbe(*state);
         const bool migratedV22 = runVoxV22StateProbe(instance);
         const bool migratedV23 = runVoxV23StateProbe(instance);
         const bool savedV24 = runVoxV24StateProbe(instance);
@@ -11368,7 +11517,8 @@ int main(int argc, char** argv)
         std::cout << "POP-FILTER onset-ratio=" << popFilter.onsetRatio
             << " tail-ratio=" << popFilter.tailRatio
             << " high-ratio=" << popFilter.highRatio
-            << " snare-ratio=" << popFilter.snareRatio << '\n';
+            << " snare-ratio=" << popFilter.snareRatio
+            << " directional-ratio=" << popFilter.directionalRatio << '\n';
         std::cout << "STATE-V22 pop-default/lyrics="
             << (migratedV22 ? "pass" : "fail") << '\n';
         std::cout << "STATE-V23 pop/generator-default="
@@ -11379,6 +11529,10 @@ int main(int argc, char** argv)
             << (generatedPhrases ? "pass" : "fail") << '\n';
         std::cout << "MIDI-POINTS allocation/gating="
             << (midiPoints ? "pass" : "fail") << '\n';
+        std::cout << "LYRICS-SLIDERS track-normalization="
+            << (lyricSliders ? "pass" : "fail") << '\n';
+        std::cout << "LYRICS-AUTO single-pass-advance="
+            << (lyricAutoSinglePass ? "pass" : "fail") << '\n';
 
         instance->deactivate(instance);
         instance->destroy(instance);
@@ -11408,12 +11562,15 @@ int main(int argc, char** argv)
             && popFilter.tailRatio > 0.90f
             && popFilter.highRatio > 0.95f
             && popFilter.snareRatio < 0.70f
+            && popFilter.directionalRatio < 0.70f
             && worldSoftening
             && migratedV22
             && migratedV23
             && savedV24
             && generatedPhrases
-            && midiPoints;
+            && midiPoints
+            && lyricSliders
+            && lyricAutoSinglePass;
         return finite && bounded ? 0 : 1;
     }
 }
