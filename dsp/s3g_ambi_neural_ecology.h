@@ -107,6 +107,9 @@ struct AmbiNeuralEcologyParams {
     float scoreAmount = 0.72f;
     float scoreDwellSeconds = 8.0f;
     float scoreTransitionSeconds = 3.0f;
+    float scoreVariation = 0.38f;
+    float scoreRecombine = 0.62f;
+    float scoreMemory = 0.45f;
 
     float centerAzimuthDeg = 0.0f;
     float centerElevationDeg = 0.0f;
@@ -173,6 +176,9 @@ inline AmbiNeuralEcologyParams sanitizeAmbiNeuralEcologyParams(AmbiNeuralEcology
     params.scoreAmount = clamp(params.scoreAmount, 0.0f, 1.0f);
     params.scoreDwellSeconds = clamp(params.scoreDwellSeconds, 0.25f, 60.0f);
     params.scoreTransitionSeconds = clamp(params.scoreTransitionSeconds, 0.05f, 30.0f);
+    params.scoreVariation = clamp(params.scoreVariation, 0.0f, 1.0f);
+    params.scoreRecombine = clamp(params.scoreRecombine, 0.0f, 1.0f);
+    params.scoreMemory = clamp(params.scoreMemory, 0.0f, 1.0f);
     params.centerAzimuthDeg = ambiNeuralWrapSignedDeg(params.centerAzimuthDeg);
     params.centerElevationDeg = clamp(params.centerElevationDeg, -89.0f, 89.0f);
     params.centerDistance = clamp(params.centerDistance, 0.10f, 8.0f);
@@ -480,6 +486,35 @@ public:
             pickupSteering_[index] = clamp(finite(values[117u + index]), -1.0f, 1.0f);
         }
         constrainPickupSteering();
+    }
+
+    void setGenomeTarget(
+        const std::array<float, kAmbiNeuralEcologyGenomeValues>& values,
+        float transitionSeconds, float amount = 1.0f)
+    {
+        genomeTransitionFrom_ = genomeValues();
+        genomeTransitionTarget_ = values;
+        sanitizeGenome(genomeTransitionTarget_);
+        amount = clamp(amount, 0.0f, 1.0f);
+        for (uint32_t index = 0u; index < genomeTransitionTarget_.size(); ++index) {
+            if (index == 116u) {
+                float delta = genomeTransitionTarget_[index] - genomeTransitionFrom_[index];
+                delta -= std::round(delta);
+                genomeTransitionTarget_[index] = genomeTransitionFrom_[index] + delta * amount;
+                genomeTransitionTarget_[index] -= std::floor(genomeTransitionTarget_[index]);
+            } else {
+                genomeTransitionTarget_[index] =
+                    lerp(genomeTransitionFrom_[index], genomeTransitionTarget_[index], amount);
+            }
+        }
+        genomeTransitionDuration_ = std::max(0.0f, transitionSeconds);
+        genomeTransitionProgress_ = 0.0f;
+        genomeTransitionActive_ = amount > 0.0f;
+        if (genomeTransitionActive_ && genomeTransitionDuration_ <= 1.0e-4f) {
+            restoreGenome(genomeTransitionTarget_);
+            genomeTransitionProgress_ = 1.0f;
+            genomeTransitionActive_ = false;
+        }
     }
 
     void setGenomeSlot(uint32_t slot,
@@ -876,6 +911,7 @@ private:
     void updateSlowControl(const std::array<float, 16>& clusters, const std::array<float, 4>& lobes)
     {
         const float seconds = static_cast<float>(kControlInterval / sampleRate_);
+        advanceGenomeTransition(seconds);
         if (params_.freeze == 0u) {
             for (uint32_t node = 0u; node < kAmbiNeuralEcologyMaxNodes; ++node) {
                 const uint32_t cluster = (node % 16u) / 4u;
@@ -903,6 +939,29 @@ private:
                 auditoryRoamPhase_ -= std::floor(auditoryRoamPhase_);
             }
         }
+    }
+
+    void advanceGenomeTransition(float seconds)
+    {
+        if (!genomeTransitionActive_) return;
+        genomeTransitionProgress_ = std::min(
+            1.0f, genomeTransitionProgress_ + seconds / std::max(1.0e-4f, genomeTransitionDuration_));
+        const float amount = genomeTransitionProgress_ * genomeTransitionProgress_
+            * (3.0f - 2.0f * genomeTransitionProgress_);
+        std::array<float, kAmbiNeuralEcologyGenomeValues> genome {};
+        for (uint32_t index = 0u; index < genome.size(); ++index) {
+            if (index == 116u) {
+                float delta = genomeTransitionTarget_[index] - genomeTransitionFrom_[index];
+                delta -= std::round(delta);
+                genome[index] = genomeTransitionFrom_[index] + delta * amount;
+                genome[index] -= std::floor(genome[index]);
+            } else {
+                genome[index] = lerp(
+                    genomeTransitionFrom_[index], genomeTransitionTarget_[index], amount);
+            }
+        }
+        restoreGenome(genome);
+        if (genomeTransitionProgress_ >= 1.0f) genomeTransitionActive_ = false;
     }
 
     float plasticDelta(float source, float destination) const
@@ -1347,6 +1406,11 @@ private:
     std::array<float, 64> channelActivation_ {};
     std::array<std::array<float, kAmbiNeuralEcologyGenomeValues>, 2u> genomeSlot_ {};
     std::array<bool, 2u> genomeSlotValid_ {{ false, false }};
+    std::array<float, kAmbiNeuralEcologyGenomeValues> genomeTransitionFrom_ {};
+    std::array<float, kAmbiNeuralEcologyGenomeValues> genomeTransitionTarget_ {};
+    float genomeTransitionProgress_ = 1.0f;
+    float genomeTransitionDuration_ = 0.0f;
+    bool genomeTransitionActive_ = false;
     AmbiEncoderDepthProcessor<64> depth_ {};
     uint32_t randomState_ = 1u;
     uint32_t controlCounter_ = 0u;

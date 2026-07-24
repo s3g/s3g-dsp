@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Ambi Wrangler Encoder</h1>
 
-        <p><code>s3g Ambi Wrangler Encoder 64</code> is an autonomous Benjolin/rungler-style logic instrument with as many as 64 spatial nodes and direct first-through-seventh-order <code>ACN/SN3D</code> output. One to 64 independent dual-oscillator engines can inhabit those nodes, so a large ambisonic organism no longer requires 64 unrelated chaos generators. It has no audio input or MIDI note input; use its parameters and factory states to shape a continuously evolving field.</p>
+        <p><code>s3g Ambi Wrangler Encoder 64</code> is an autonomous Benjolin/rungler-style logic instrument with as many as 64 independent voices and direct first-through-seventh-order <code>ACN/SN3D</code> output. One voice is one complete dual-oscillator, register, and state-variable-filter circuit at one ambisonic point. It has no audio input or MIDI note input; use its parameters and factory states to shape a continuously evolving field.</p>
 
         <p>Rungler synthesis compares two coupled oscillators and clocks the result through a feedback shift register. The changing bit pattern modulates oscillator pitch and filtering, producing repeating figures that continually slip into new, irregular states.</p>
 
@@ -34,21 +34,21 @@
 
         <ol>
           <li>Insert the plugin on a 64-channel REAPER track.</li>
-          <li>Choose a factory state, then set the spatial <code>NODES</code>, independent <code>ENGINES</code>, and ambisonic order.</li>
-          <li>Choose the recall-compatible <code>LEGACY</code> or pitch-centered <code>BOUNDED</code> circuit law.</li>
-          <li>Shape oscillator coupling, rungler behavior, filtering, and saturation.</li>
-          <li>Set topology motion and the field's AED center.</li>
+          <li>Choose a factory state, then set the independent <code>VOICES</code> and ambisonic order.</li>
+          <li>Choose the wide-ranging <code>LEGACY</code> or pitch-centered <code>BOUNDED</code> circuit law.</li>
+          <li>Shape oscillator coupling and rungler behavior, then move continuously from low-pass through an open center to high-pass.</li>
+          <li>Set topology motion and the field's azimuth, elevation, and distance.</li>
           <li>Open the <code>LISTEN</code> page to let the completed ambisonic field write and steer the registers.</li>
           <li>Follow the instrument with an ambisonic decoder or meter.</li>
         </ol>
 
         <h2 id="presets">Factory States</h2>
 
-        <p>The <code>PRESET</code> parameter recalls a complete starting state. The collection includes eighteen original rungler, mask, filter, clock-range, and topology states plus the matched listener demonstrations <code>Register A: Open Circuit</code>, <code>Register B: Field Written</code>, and <code>Register C: Audio Clocked</code>. These twenty-one states retain the <code>LEGACY</code> circuit and their original preset indices.</p>
+        <p>The <code>PRESET</code> parameter recalls a complete starting state. The collection ranges from unruly clocks, masks, filters, and moving topologies to slower bass, pad, and high-register fields.</p>
 
-        <p>Five <code>BOUNDED</code> states demonstrate the calmer architecture: <code>Deep Current: Open</code>, <code>Twin Low Orbit</code>, <code>Four Engine Dusk</code>, <code>Eight Engine Constellation</code>, and <code>Deep Current: Settled</code>. They progress from one engine across eight nodes to eight engines across all 64 nodes. The two Deep Current states are a matched open/settled pair for hearing the homeostatic listener directly.</p>
+        <p>Use <code>Register A: Open Circuit</code>, <code>Register B: Field Written</code>, and <code>Register C: Audio Clocked</code> to compare the listener's influence. <code>Deep Current: Open</code> and <code>Deep Current: Settled</code> are a second matched pair for hearing how <code>SETTLE</code> calms an evolving texture. <code>Sixteen Voice Undertow</code>, <code>Thirty-Two Voice Dusk</code>, and <code>Sixty-Four High Constellation</code> demonstrate increasingly dense bounded fields.</p>
 
-        <p><code>SAVE</code> and <code>LOAD</code> preserve circuit law, engine count, Change, and every listener control in portable <code>.s3gawp</code> files. Older project states and presets load as <code>LEGACY</code> with one engine per former voice, preserving their established sound. <code>RANDOM</code> has two deliberate branches: the energetic legacy generator remains available, while approximately 35 percent of presses produce a bounded two-to-six-engine bass or pad state with flat or shallow engine curves and usually engage <code>SETTLE</code>.</p>
+        <p><code>SAVE</code> and <code>LOAD</code> preserve the complete instrument in portable <code>.s3gawp</code> files, including the circuit law, voice count, DJ Filter, all per-voice curves, and listener settings. <code>RANDOM</code> can produce either an energetic, wide-ranging patch or a calmer bass or pad state. Use it as a starting point, then reduce coupling, choose <code>BOUNDED</code>, or engage <code>SETTLE</code> when you want a gentler result.</p>
 
         <h2 id="synthesis">Logic Synthesis</h2>
 
@@ -59,68 +59,99 @@
             <tr><th>Circuit law</th><th>Behavior</th></tr>
           </thead>
           <tbody>
-            <tr><td>LEGACY</td><td>Retains the original Wrangler frequency excursions, direct oscillator/register mixture, and one independent engine per node. Existing projects, user presets, and the original factory states recall here.</td></tr>
-            <tr><td>BOUNDED</td><td>Keeps FM and Rung influence relative to each oscillator's base pitch, provides an exact zero-depth state, eases register steps, emphasizes the filtered triangle-comparator PWM body, and uses the separate engine count.</td></tr>
+            <tr><td>LEGACY</td><td>Allows broad frequency excursions and mixes direct oscillator and register energy with the filtered sound. It is the more volatile option.</td></tr>
+            <tr><td>BOUNDED</td><td>Keeps FM and Rung influence close to each oscillator's base pitch, allows coupling to reach zero, softens register steps, and routes the audible source through the filter. It is better suited to basses and slowly evolving pads.</td></tr>
           </tbody>
         </table>
 
         <ul>
           <li><code>RATE A</code> and <code>RATE B</code> set the two oscillators. Their <code>LOW</code>, <code>SINGLE</code>, and <code>DOUBLE</code> ranges permit an audible bass oscillator to run against a sub-audio register clock.</li>
-          <li><code>NODES</code> is the number of spatial render points. <code>ENGINES</code> is the number of independent oscillator/register/filter circuits shared across those points. In <code>LEGACY</code>, the effective engine count remains one per node.</li>
-          <li><code>FM A&gt;B</code>, <code>FM B&gt;A</code>, <code>RUNG A</code>, and <code>RUNG B</code> set coupling. In <code>BOUNDED</code>, low values remain close to the base pitch instead of creating unrelated absolute-Hz excursions.</li>
-          <li><code>CHANGE</code> is the continuous register-mutation probability. At zero the bounded circuit recirculates its outgoing bit; raising it admits progressively more comparator decisions. <code>LOOP</code> and <code>XOR</code> retain their explicit legacy logic choices.</li>
-          <li><code>COLOR</code>, <code>FIL FRQ</code>, <code>FIL RES</code>, <code>FIL RUN</code>, <code>FIL SWP</code>, and <code>SAT</code> shape the filtered body. High Color and low Saturation are the most direct route to the new pad states.</li>
+          <li><code>VOICES</code> sets the number of complete synth circuits and spatial points. Increasing it makes the field denser; reducing it exposes individual patterns more clearly.</li>
+          <li><code>FM A&gt;B</code>, <code>FM B&gt;A</code>, <code>RUNG A</code>, and <code>RUNG B</code> set coupling. In <code>BOUNDED</code>, low values keep the sound close to the two base pitches.</li>
+          <li><code>CHANGE</code> controls how readily the register accepts a new bit. At zero the bounded circuit repeats its current pattern; raising it produces more variation. <code>LOOP</code> repeats the outgoing bit, while <code>XOR</code> combines it with the oscillator comparison.</li>
+          <li><code>DJ FILTER</code> is continuous: the left half moves from low-pass to an open center, and the right half moves from open to high-pass. The center keeps the instrument's saturation and body. In <code>BOUNDED</code> the complete sound follows this filter; in <code>LEGACY</code> some direct oscillator and register energy remains in the mix.</li>
+          <li><code>FIL FRQ</code>, <code>FIL RES</code>, <code>FIL RUN</code>, <code>FIL SWP</code>, and <code>SAT</code> shape the filter. <code>Z COLOR</code> adds drive and tonal variation.</li>
         </ul>
 
-        <p>The <code>CURVE</code> page edits per-engine rather than per-node parameter curves. Multiple nodes assigned to one engine therefore remain one coherent sound source while occupying several field positions.</p>
+        <p>The <code>CURVE</code> page edits one parameter at a time across the independent voices. Its selected marker is the same voice shown on the <code>FIELD</code> and <code>LISTEN</code> pages. The complete editor is described below.</p>
+
+        <p>Voice-count, synthesis, filter, curve, position, and ambisonic-order changes are smoothed so they can be adjusted or automated while the instrument plays. Rung mode and size take effect at the next register step and then glide into the new structure.</p>
+
+        <h2 id="voice-curves">Per-Voice Curves</h2>
+
+        <p>The Curve page is divided into two banks. <code>HIST · 19</code> is the main bank, with nineteen per-voice controls for the oscillators, register, feedback, and filter:</p>
+
+        <ol>
+          <li><code>RATE A</code>, <code>RUNG A</code>, <code>FM B&gt;A</code>, <code>COLOR A</code></li>
+          <li><code>RATE B</code>, <code>RUNG B</code>, <code>FM A&gt;B</code>, <code>COLOR B</code></li>
+          <li><code>FILTER FREQ A</code>, <code>FILTER FREQ B</code>, <code>FILTER RES</code>, <code>FILTER COMP</code>, <code>FILTER TYPE</code></li>
+          <li><code>CROSS A</code>, <code>CROSS B</code>, <code>CROSS LPF</code></li>
+          <li><code>RUNG MODE</code>, <code>RUNG THRESH</code>, <code>RUNG SIZE</code></li>
+        </ol>
+
+        <p><code>FILTER TYPE</code> moves each voice along the same low-pass → open → high-pass path as the global DJ Filter. <code>RUNG MODE</code> selects <code>COMMON</code>, <code>SPLIT</code>, or <code>SWAP</code>: one shared register influence, separate A/B taps, or exchanged taps. <code>RUNG SIZE</code> selects a two-through-eight-bit register.</p>
+
+        <p>The <code>MODERN · 5</code> bank contains <code>PWM A</code>, <code>PWM B</code>, <code>RAMP A</code>, <code>RAMP B</code>, and <code>LEVEL</code>. The global controls on the right remain usable while the Curve page is open.</p>
+
+        <p>Most curve points act as offsets around the corresponding global control: a centered point leaves the global setting unchanged, while points above or below it create voice-to-voice variation. Color, Cross, Filter Compensation, Cross LPF, Rung Mode, and Level use direct values instead. For <code>FILTER TYPE</code>, a stored value of <code>0.5</code> follows the global DJ Filter, while <code>0</code> forces low-pass and <code>1</code> forces high-pass. <code>RUNG SIZE</code> also follows the global setting at its midpoint but selects discrete register lengths.</p>
+
+        <p>The editor protects against accidental changes when many points are visible:</p>
+
+        <ul>
+          <li><code>CURVES ON/OFF</code> is the only Curve-page control that enables or disables curve influence. Turning it off preserves every stored point.</li>
+          <li>Clicking a parameter label only selects and arms that row. It never writes a point or silently turns curves on.</li>
+          <li>The four voice banks show voices 1–16, 17–32, 33–48, and 49–64 with enough horizontal separation to select one point reliably. Inactive voices can be prepared before increasing <code>VOICES</code>.</li>
+          <li>A mouse-down inside the graph locks both the armed parameter and nearest voice for the complete gesture. Dragging changes only its vertical value; moving sideways cannot jump to another point. Labels, voice numbers, button gaps, and the area outside the graph cannot write.</li>
+          <li>The chosen parameter button and chosen point remain yellow. The solid line and <code>EFFECTIVE</code> readout show the value currently heard after the global control; the dashed line and <code>STORED</code> readout show the saved curve setting. Filter Type is continuous; only Rung Mode and Rung Size use discrete steps.</li>
+        </ul>
 
         <h2 id="topology">Topology and Placement</h2>
 
         <p><code>TOPOLOGY</code> selects the shared spatial shape. <code>MOTION</code> offers <code>STATIC</code>, <code>ORBIT</code>, <code>DRIFT</code>, <code>FOLD</code>, and <code>STIR</code>. Motion rate, amount, depth, scale, and collapse reshape the field while it runs.</p>
 
-        <p><code>AZIMUTH</code>, <code>ELEVATION</code>, and <code>DISTANCE</code> place the field center. <code>SPATIAL FOLLOW</code> controls how fully each node follows its topology point instead of collapsing toward that center.</p>
+        <p><code>AZIMUTH</code>, <code>ELEVATION</code>, and <code>DISTANCE</code> place the field center. <code>SPATIAL FOLLOW</code> controls how fully each voice follows its topology point instead of collapsing toward that center.</p>
 
         <h2 id="field-listener">Field-Written Register</h2>
 
-        <p>The <code>LISTEN</code> page closes a tuned causal loop around Wrangler's own shift registers. Four tetrahedral or eight cubical virtual pickup lobes decode the completed <code>ACN/SN3D</code> field. Each engine listens near the center node of its spatial cluster. In <code>WRITE</code>, it samples a lobe only when oscillator B produces its register clock; the listener therefore writes at the instrument's existing temporal grain instead of adding a new sequencer.</p>
+        <p>The <code>LISTEN</code> page lets the completed ambisonic field influence what the instrument does next. Four tetrahedral or eight cubical virtual pickups listen in different directions, and each voice reads a pickup near its own position. In <code>WRITE</code>, the decoded field can influence the register whenever oscillator B produces a clock.</p>
 
         <table class="readout-table">
           <thead>
             <tr><th>Read mode</th><th>Register interpretation</th></tr>
           </thead>
           <tbody>
-            <tr><td>TRACE</td><td>Reads the pickup nearest the engine's anchor node and derives a bit from its decoded polarity.</td></tr>
+            <tr><td>TRACE</td><td>Reads the pickup nearest the voice's ambisonic point and derives a bit from its decoded polarity.</td></tr>
             <tr><td>RING</td><td>Advances through the pickup set on successive register clocks.</td></tr>
-            <tr><td>CROSS</td><td>Compares an ear with its opposing ear and writes the sign of their difference.</td></tr>
-            <tr><td>BALANCE</td><td>Visits the ears in sequence and writes according to whether each direction is below the field's mean recent energy.</td></tr>
+            <tr><td>CROSS</td><td>Compares a pickup with its opposing pickup and writes the sign of their difference.</td></tr>
+            <tr><td>BALANCE</td><td>Visits the pickups in sequence and writes according to whether each direction is below the field's mean recent energy.</td></tr>
           </tbody>
         </table>
 
-        <p><code>SETTLE</code> keeps each engine attached to its local pickup even when <code>RING</code> or <code>BALANCE</code> is selected, preventing the stabilizing sensor from jumping to a new direction on every register clock.</p>
+        <p><code>SETTLE</code> keeps each voice attached to its local pickup even when <code>RING</code> or <code>BALANCE</code> is selected, preventing the stabilizing sensor from jumping to a new direction on every register clock.</p>
 
         <table class="readout-table">
           <thead>
             <tr><th>Response</th><th>Function</th></tr>
           </thead>
           <tbody>
-            <tr><td>WRITE</td><td>Uses decoded polarity as a bounded source of new register bits and optionally returns delayed pickup audio to the comparator.</td></tr>
-            <tr><td>SETTLE</td><td>Measures directional signal roughness and engine-register transition density, then applies slow negative feedback when that local activity exceeds the calm target.</td></tr>
+            <tr><td>WRITE</td><td>Lets decoded pickup polarity influence new register bits and can return delayed pickup audio to the circuit.</td></tr>
+            <tr><td>SETTLE</td><td>Responds to excess directional activity by slowing register changes and gently reducing coupling and motion.</td></tr>
           </tbody>
         </table>
 
-        <p>In <code>WRITE</code>, <code>FIELD WRITE</code> sets how often the auditory bit replaces the oscillator/loop bit at the register input. Its squared response is deliberately conservative and field intervention is capped below half of the register clocks, preserving the native comparator and feedback logic as the instrument's principal cause. Ear polarity passes through a short smoother and adaptive hysteresis before becoming a bit, so minor zero crossings do not chatter through the register. The write decision is accumulated deterministically, so intermediate values create a stable mixture rather than block-rate randomness. <code>REG MOTION</code> interprets the low register bits as an address in the active pickup set; its squared, capped response blends that direction gently into the topology target. The existing <code>SPATIAL FOLLOW</code> interpolation remains in the path, so a changed register address bends the trajectory instead of teleporting a node.</p>
+        <p>In <code>WRITE</code>, <code>FIELD WRITE</code> sets how often the decoded field influences a new register bit. Low settings add occasional responses; higher settings make the field more involved without replacing the oscillator and register logic. <code>REG MOTION</code> lets the register steer the spatial destination. Movement remains smooth rather than jumping between pickups.</p>
 
-        <p><code>FIELD RETURN</code> is the audio-rate extension of <code>WRITE</code>. The selected pickup is DC-blocked, bounded, delayed by <code>PROPAGATE</code>, and added at reduced gain to the engine's comparator before its ordinary loop/XOR rule. This control also has a squared response, reserving its more unstable behavior for the end of the range. <code>RETURN BYPASS</code> opens only this delayed comparator path: HOA analysis, field writing, register motion, meters, and listener memory continue.</p>
+        <p><code>FIELD RETURN</code> sends a controlled amount of the selected pickup audio back into the circuit. <code>PROPAGATE</code> sets its delay, from a close response to a more separated echo through the field. <code>RETURN BYPASS</code> disables only this audible return; pickup analysis, field writing, register motion, meters, and listener memory continue.</p>
 
-        <p>In <code>SETTLE</code>, <code>VISCOSITY</code> sets the maximum homeostatic influence, <code>CALM TARGET</code> sets how much roughness and register novelty the circuit tolerates, and <code>RECOVERY</code> sets how slowly capture releases after activity falls. Tension above the target charges a slow per-engine capture state. Capture applies an exponential brake at the register's actual state-transition boundary: oscillator B continues to run and produce clock edges, but most edges hold the complete register word instead of rotating it. The oscillators therefore retain their base pitch while the rungler becomes increasingly reluctant to change.</p>
+        <p>In <code>SETTLE</code>, <code>VISCOSITY</code> sets how strongly the listener calms the instrument, <code>CALM TARGET</code> sets how much activity is tolerated, and <code>RECOVERY</code> sets how slowly the calming influence releases. When activity rises above the target, more register clocks hold the current pattern instead of changing it. The oscillators continue to run, so the result settles into a slower evolution rather than simply fading or stopping.</p>
 
-        <p>This event viscosity works in both <code>LEGACY</code> and <code>BOUNDED</code> circuit laws. Capture also reduces new oscillator/rungler coupling more gently and slows the topology phase clock, but it does not darken the filter, reduce saturation or output level, lengthen register slew, or slow spatial following. Register-addressed destination steering is inactive in <code>SETTLE</code>; spatial targets remain autonomous rather than being pulled toward listener ears. The audio-rate Return path is also inert, so neither Write nor Return can turn the stabilizer back into positive feedback. Bounded minimum evolution and topology rates let the system eventually thaw instead of locking permanently. <code>LISTEN OFF</code> and zero viscosity make the response exactly inert.</p>
+        <p><code>SETTLE</code> works in both circuit laws. It does not turn down the output or darken the filter; it mainly slows register evolution, coupling, and topology motion. Field Return is inactive in this response mode. <code>LISTEN OFF</code>, or a <code>VISCOSITY</code> value of zero, removes the listener's influence.</p>
 
-        <p>The display identifies both the selected node and its shared engine. In <code>WRITE</code> it shows pickup energy, active read head, comparator bit, auditory bit, final written bit, delayed-return value, and the complete register word; the input cell flashes when the field performs a write. In <code>SETTLE</code>, it shows tension, capture, effective register-evolution, coupling and topology rates, the current <code>HELD</code>/<code>OPEN</code> decision, and the cumulative number of held clock edges. Use the arrow buttons to inspect another node without changing its sound.</p>
+        <p>The display follows one selected voice. In <code>WRITE</code> it shows pickup energy, active read head, comparator bit, auditory bit, final written bit, delayed-return value, and that voice's complete register word; the input cell flashes when the field performs a write. In <code>SETTLE</code>, it shows tension, capture, effective register-evolution, coupling and topology rates, the current <code>HELD</code>/<code>OPEN</code> decision, and the cumulative number of held clock edges. Use the arrow buttons to inspect another voice without changing its sound.</p>
 
         <h2 id="routing">Order and Routing</h2>
 
-        <p>The output bus remains 64 channels wide. <code>ORDER</code> activates the corresponding ACN channels and clears the rest.</p>
+        <p>The output bus is 64 channels wide. <code>ORDER</code> activates the corresponding ACN channels and clears the rest. Higher voice counts and ambisonic orders create denser fields and use more CPU.</p>
 
         <table class="readout-table">
           <thead>
@@ -182,6 +213,7 @@
           <a href="#workflow">Workflow</a>
           <a href="#presets">Factory States</a>
           <a href="#synthesis">Logic Synthesis</a>
+          <a href="#voice-curves">Per-Voice Curves</a>
           <a href="#topology">Topology and Placement</a>
           <a href="#field-listener">Field-Written Register</a>
           <a href="#routing">Order and Routing</a>

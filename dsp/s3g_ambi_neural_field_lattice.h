@@ -15,32 +15,43 @@ constexpr uint32_t kAmbiNeuralLatticeMaxPlanes = 8u;
 constexpr uint32_t kAmbiNeuralLatticeCells =
     kAmbiNeuralLatticeCellsPerPlane * kAmbiNeuralLatticeMaxPlanes;
 constexpr uint32_t kAmbiNeuralLatticeDirections = 8u;
-constexpr uint32_t kAmbiNeuralLatticeMacros = 8u;
 constexpr uint32_t kAmbiNeuralLatticeTrail = 32u;
+constexpr uint32_t kAmbiNeuralLatticeExpressionValues = 8u;
 
-enum class AmbiNeuralLatticeMacro : uint32_t {
+enum class AmbiNeuralLatticeExpression : uint32_t {
     Activity = 0u,
-    Feedback = 1u,
-    Time = 2u,
-    Field = 3u,
-    Listening = 4u,
-    Space = 5u,
-    Heredity = 6u,
-    Mutation = 7u,
+    RingFeedback,
+    MatrixCoupling,
+    Diversity,
+    FieldReturn,
+    PickupAdapt,
+    FieldWidth,
+    Mobility,
 };
 
 struct AmbiNeuralLatticeCell {
-    std::array<float, kAmbiNeuralLatticeMacros> macro {};
+    std::array<float, kAmbiNeuralEcologyGenomeValues> genome {};
+    std::array<float, kAmbiNeuralLatticeExpressionValues> expression {};
+    uint32_t generation = 0u;
+};
+
+struct AmbiNeuralLatticeOffspring {
+    std::array<float, kAmbiNeuralEcologyGenomeValues> genome {};
+    std::array<float, kAmbiNeuralLatticeExpressionValues> expression {};
 };
 
 struct AmbiNeuralLatticeStorage {
     std::array<AmbiNeuralLatticeCell, kAmbiNeuralLatticeCells> cells {};
     std::array<uint32_t, kAmbiNeuralLatticeCells * kAmbiNeuralLatticeDirections> edges {};
+    std::array<uint32_t, kAmbiNeuralLatticeMaxPlanes> ingressCells {};
+    std::array<uint32_t, kAmbiNeuralLatticeMaxPlanes> egressCells {};
     std::array<uint32_t, kAmbiNeuralLatticeTrail> trail {};
     uint32_t planeCount = 1u;
     uint32_t trailCount = 1u;
     uint32_t currentCell = 5u;
     uint32_t selectedCell = 5u;
+    uint32_t breedingSeed = 0x4c415454u;
+    uint32_t birthCount = 0u;
 };
 
 inline uint32_t sanitizeAmbiNeuralLatticePlaneCount(uint32_t planes)
@@ -84,59 +95,21 @@ inline void resetAmbiNeuralLatticeEdges(AmbiNeuralLatticeStorage& storage)
     }
 }
 
-inline void connectAmbiNeuralLatticePlanes(
+inline void placeAmbiNeuralLatticePortals(
     AmbiNeuralLatticeStorage& storage, uint32_t salt = 0u)
 {
-    const uint32_t planes = sanitizeAmbiNeuralLatticePlaneCount(storage.planeCount);
-    for (uint32_t plane = 0u; plane + 1u < planes; ++plane) {
-        const uint32_t sourceLocal = (3u + plane * 5u + (salt >> ((plane % 4u) * 4u))) & 15u;
-        const uint32_t targetLocal = (11u + plane * 7u + (salt >> (((plane + 2u) % 4u) * 4u))) & 15u;
-        const uint32_t direction = (2u + plane * 3u + ((salt >> (plane % 16u)) & 7u)) & 7u;
-        const uint32_t reverse = (direction + 4u) & 7u;
-        const uint32_t source = plane * kAmbiNeuralLatticeCellsPerPlane + sourceLocal;
-        const uint32_t target = (plane + 1u) * kAmbiNeuralLatticeCellsPerPlane + targetLocal;
-        storage.edges[source * kAmbiNeuralLatticeDirections + direction] = target;
-        storage.edges[target * kAmbiNeuralLatticeDirections + reverse] = source;
-    }
-}
-
-inline AmbiNeuralLatticeCell sanitizeAmbiNeuralLatticeCell(AmbiNeuralLatticeCell cell)
-{
-    for (float& value : cell.macro) {
-        value = std::isfinite(value) ? clamp(value, 0.0f, 1.0f) : 0.5f;
-    }
-    return cell;
-}
-
-inline AmbiNeuralLatticeStorage defaultAmbiNeuralLattice(uint32_t planeCount = 1u)
-{
-    AmbiNeuralLatticeStorage storage {};
-    storage.planeCount = sanitizeAmbiNeuralLatticePlaneCount(planeCount);
     for (uint32_t plane = 0u; plane < kAmbiNeuralLatticeMaxPlanes; ++plane) {
-        const float z = static_cast<float>(plane) / 7.0f;
-        for (uint32_t row = 0u; row < kAmbiNeuralLatticeWidth; ++row) {
-            for (uint32_t column = 0u; column < kAmbiNeuralLatticeWidth; ++column) {
-                const uint32_t index = plane * kAmbiNeuralLatticeCellsPerPlane
-                    + row * kAmbiNeuralLatticeWidth + column;
-                const float x = static_cast<float>(column) / 3.0f;
-                const float y = static_cast<float>(row) / 3.0f;
-                const float diagonal = static_cast<float>((row + column + plane) % 4u) / 3.0f;
-                auto& macro = storage.cells[index].macro;
-                macro[0] = clamp(0.24f + y * 0.62f + (x - 0.5f) * 0.08f + z * 0.12f, 0.0f, 1.0f);
-                macro[1] = clamp(0.18f + x * 0.72f - z * 0.10f, 0.0f, 1.0f);
-                macro[2] = clamp(0.86f - y * 0.62f + (diagonal - 0.5f) * 0.18f - z * 0.16f, 0.0f, 1.0f);
-                macro[3] = clamp(0.18f + (x * 0.52f + y * 0.48f) * 0.72f + z * 0.08f, 0.0f, 1.0f);
-                macro[4] = clamp(0.16f + diagonal * 0.72f, 0.0f, 1.0f);
-                macro[5] = clamp(0.20f + (1.0f - std::fabs(x - y)) * 0.68f - z * 0.08f, 0.0f, 1.0f);
-                macro[6] = clamp(0.12f + (1.0f - x) * 0.72f + z * 0.12f, 0.0f, 1.0f);
-                macro[7] = clamp(0.10f + (x * 0.44f + y * 0.56f) * 0.78f + z * 0.14f, 0.0f, 1.0f);
-            }
-        }
+        const uint32_t base = plane * kAmbiNeuralLatticeCellsPerPlane;
+        const uint32_t ingressLocal =
+            (5u + plane * 7u
+                + ((salt >> ((plane % 4u) * 8u)) & 15u)) & 15u;
+        uint32_t egressLocal =
+            (10u + plane * 5u
+                + ((salt >> (((plane + 2u) % 4u) * 8u)) & 15u)) & 15u;
+        if (egressLocal == ingressLocal) egressLocal = (egressLocal + 5u) & 15u;
+        storage.ingressCells[plane] = base + ingressLocal;
+        storage.egressCells[plane] = base + egressLocal;
     }
-    resetAmbiNeuralLatticeEdges(storage);
-    connectAmbiNeuralLatticePlanes(storage);
-    storage.trail.fill(storage.currentCell);
-    return storage;
 }
 
 inline float ambiNeuralLatticeRandomUnit(uint32_t& seed)
@@ -148,72 +121,345 @@ inline float ambiNeuralLatticeRandomUnit(uint32_t& seed)
     value ^= value >> 15u;
     value *= 0x846ca68bu;
     value ^= value >> 16u;
-    return static_cast<float>(value & 0x00ffffffu) / static_cast<float>(0x01000000u);
+    return static_cast<float>(value & 0x00ffffffu)
+        / static_cast<float>(0x01000000u);
 }
 
-inline AmbiNeuralLatticeStorage randomAmbiNeuralLattice(
-    uint32_t& seed, uint32_t planeCount = 1u)
+inline float ambiNeuralGenomeRange(uint32_t index)
+{
+    if (index < 64u) return 0.42f;
+    if (index < 80u) return 0.38f;
+    if (index < 112u) return 0.65f;
+    if (index < 116u) return 0.24f;
+    if (index == 116u) return 0.5f;
+    return 1.0f;
+}
+
+inline AmbiNeuralLatticeCell sanitizeAmbiNeuralLatticeCell(
+    AmbiNeuralLatticeCell cell)
+{
+    for (uint32_t index = 0u; index < cell.genome.size(); ++index) {
+        float& value = cell.genome[index];
+        value = std::isfinite(value) ? value : 0.0f;
+        if (index < 64u) value = clamp(value, -0.42f, 0.42f);
+        else if (index < 80u) value = clamp(value, -0.38f, 0.38f);
+        else if (index < 112u) value = clamp(value, -0.65f, 0.65f);
+        else if (index < 116u) value = clamp(value, -0.24f, 0.24f);
+        else if (index == 116u) value -= std::floor(value);
+        else value = clamp(value, -1.0f, 1.0f);
+    }
+    for (float& value : cell.expression) {
+        value = std::isfinite(value) ? clamp(value, 0.0f, 1.0f) : 0.5f;
+    }
+    return cell;
+}
+
+inline std::array<float, kAmbiNeuralLatticeExpressionValues>
+ambiNeuralLatticeExpressionFromParams(const AmbiNeuralEcologyParams& source)
+{
+    const auto params = sanitizeAmbiNeuralEcologyParams(source);
+    return {{
+        params.activity,
+        params.ringFeedback / 1.25f,
+        params.matrixCoupling / 1.25f,
+        params.diversity,
+        params.fieldReturn,
+        params.pickupAdapt,
+        params.fieldWidth,
+        params.mobility,
+    }};
+}
+
+inline AmbiNeuralEcologyParams applyAmbiNeuralLatticeExpression(
+    const AmbiNeuralEcologyParams& source,
+    const std::array<float, kAmbiNeuralLatticeExpressionValues>& expression,
+    float amount)
+{
+    auto result = sanitizeAmbiNeuralEcologyParams(source);
+    std::array<float, kAmbiNeuralLatticeExpressionValues> values = expression;
+    for (float& value : values) {
+        value = std::isfinite(value) ? clamp(value, 0.0f, 1.0f) : 0.5f;
+    }
+    amount = clamp(amount, 0.0f, 1.0f);
+    result.activity = lerp(result.activity,
+        values[static_cast<uint32_t>(AmbiNeuralLatticeExpression::Activity)], amount);
+    result.ringFeedback = lerp(result.ringFeedback,
+        values[static_cast<uint32_t>(AmbiNeuralLatticeExpression::RingFeedback)] * 1.25f,
+        amount);
+    result.matrixCoupling = lerp(result.matrixCoupling,
+        values[static_cast<uint32_t>(AmbiNeuralLatticeExpression::MatrixCoupling)] * 1.25f,
+        amount);
+    result.diversity = lerp(result.diversity,
+        values[static_cast<uint32_t>(AmbiNeuralLatticeExpression::Diversity)], amount);
+    result.fieldReturn = lerp(result.fieldReturn,
+        values[static_cast<uint32_t>(AmbiNeuralLatticeExpression::FieldReturn)], amount);
+    result.pickupAdapt = lerp(result.pickupAdapt,
+        values[static_cast<uint32_t>(AmbiNeuralLatticeExpression::PickupAdapt)], amount);
+    result.fieldWidth = lerp(result.fieldWidth,
+        values[static_cast<uint32_t>(AmbiNeuralLatticeExpression::FieldWidth)], amount);
+    result.mobility = lerp(result.mobility,
+        values[static_cast<uint32_t>(AmbiNeuralLatticeExpression::Mobility)], amount);
+    return sanitizeAmbiNeuralEcologyParams(result);
+}
+
+inline std::array<float, kAmbiNeuralEcologyGenomeValues> sanitizeAmbiNeuralGenome(
+    const std::array<float, kAmbiNeuralEcologyGenomeValues>& source)
+{
+    AmbiNeuralLatticeCell cell {};
+    cell.genome = source;
+    return sanitizeAmbiNeuralLatticeCell(cell).genome;
+}
+
+inline std::array<float, kAmbiNeuralEcologyGenomeValues> blendAmbiNeuralGenomes(
+    const std::array<float, kAmbiNeuralEcologyGenomeValues>& source,
+    const std::array<float, kAmbiNeuralEcologyGenomeValues>& target, float amount)
+{
+    const auto a = sanitizeAmbiNeuralGenome(source);
+    const auto b = sanitizeAmbiNeuralGenome(target);
+    std::array<float, kAmbiNeuralEcologyGenomeValues> result {};
+    amount = clamp(amount, 0.0f, 1.0f);
+    for (uint32_t index = 0u; index < result.size(); ++index) {
+        if (index == 116u) {
+            float delta = b[index] - a[index];
+            delta -= std::round(delta);
+            result[index] = a[index] + delta * amount;
+            result[index] -= std::floor(result[index]);
+        } else {
+            result[index] = lerp(a[index], b[index], amount);
+        }
+    }
+    return sanitizeAmbiNeuralGenome(result);
+}
+
+inline std::array<float, kAmbiNeuralEcologyGenomeValues> breedAmbiNeuralGenomes(
+    const std::array<float, kAmbiNeuralEcologyGenomeValues>& source,
+    const std::array<float, kAmbiNeuralEcologyGenomeValues>& resident,
+    float recombine, float variation, uint32_t& seed)
+{
+    const auto parent = sanitizeAmbiNeuralGenome(source);
+    const auto mate = sanitizeAmbiNeuralGenome(resident);
+    std::array<float, kAmbiNeuralEcologyGenomeValues> child {};
+    recombine = clamp(recombine, 0.0f, 1.0f);
+    variation = clamp(variation, 0.0f, 1.0f);
+    bool inheritMate = false;
+    for (uint32_t index = 0u; index < child.size(); ++index) {
+        const bool blockStart = index < 80u
+            ? (index % 4u) == 0u
+            : (index < 112u
+                ? ((index - 80u) % 8u) == 0u
+                : (index < 116u
+                    ? index == 112u
+                    : (index == 116u
+                        || ((index - 117u) % 2u) == 0u)));
+        if (blockStart) {
+            inheritMate = ambiNeuralLatticeRandomUnit(seed) >= 0.5f;
+        }
+        const float inherited = inheritMate ? mate[index] : parent[index];
+        if (index == 116u) {
+            float delta = inherited - parent[index];
+            delta -= std::round(delta);
+            child[index] = parent[index] + delta * recombine
+                + (ambiNeuralLatticeRandomUnit(seed) * 2.0f - 1.0f)
+                    * variation * 0.30f;
+            child[index] -= std::floor(child[index]);
+        } else {
+            child[index] = lerp(parent[index], inherited, recombine)
+                + (ambiNeuralLatticeRandomUnit(seed) * 2.0f - 1.0f)
+                    * ambiNeuralGenomeRange(index) * variation * 0.52f;
+        }
+    }
+    return sanitizeAmbiNeuralGenome(child);
+}
+
+inline std::array<float, kAmbiNeuralLatticeExpressionValues>
+breedAmbiNeuralLatticeExpressions(
+    const std::array<float, kAmbiNeuralLatticeExpressionValues>& source,
+    const std::array<float, kAmbiNeuralLatticeExpressionValues>& resident,
+    float recombine, float variation, uint32_t& seed)
+{
+    std::array<float, kAmbiNeuralLatticeExpressionValues> child {};
+    recombine = clamp(recombine, 0.0f, 1.0f);
+    variation = clamp(variation, 0.0f, 1.0f);
+    for (uint32_t index = 0u; index < child.size(); ++index) {
+        const float parent = clamp(source[index], 0.0f, 1.0f);
+        const float mate = clamp(resident[index], 0.0f, 1.0f);
+        const float inherited =
+            ambiNeuralLatticeRandomUnit(seed) >= 0.5f ? mate : parent;
+        child[index] = clamp(
+            lerp(parent, inherited, recombine)
+                + (ambiNeuralLatticeRandomUnit(seed) * 2.0f - 1.0f)
+                    * variation * 0.46f,
+            0.0f, 1.0f);
+    }
+    return child;
+}
+
+inline std::array<float, 4u> ambiNeuralGenomeSignature(
+    const std::array<float, kAmbiNeuralEcologyGenomeValues>& source)
+{
+    const auto genome = sanitizeAmbiNeuralGenome(source);
+    std::array<float, 4u> signature {};
+    for (uint32_t index = 0u; index < 64u; ++index) {
+        signature[0u] += std::fabs(genome[index]) / (64.0f * 0.42f);
+    }
+    for (uint32_t index = 64u; index < 80u; ++index) {
+        signature[1u] += std::fabs(genome[index]) / (16.0f * 0.38f);
+    }
+    for (uint32_t index = 80u; index < 116u; ++index) {
+        signature[2u] += std::fabs(genome[index])
+            / (36.0f * ambiNeuralGenomeRange(index));
+    }
+    signature[2u] += std::fabs(genome[116u] - 0.5f) * 2.0f / 37.0f;
+    for (uint32_t index = 117u; index < genome.size(); ++index) {
+        signature[3u] += std::fabs(genome[index]) / 16.0f;
+    }
+    for (float& value : signature) value = clamp(value, 0.0f, 1.0f);
+    return signature;
+}
+
+inline AmbiNeuralLatticeStorage defaultAmbiNeuralLattice(
+    uint32_t planeCount = 1u)
 {
     AmbiNeuralLatticeStorage storage {};
     storage.planeCount = sanitizeAmbiNeuralLatticePlaneCount(planeCount);
-    for (uint32_t plane = 0u; plane < kAmbiNeuralLatticeMaxPlanes; ++plane) {
-        for (uint32_t macro = 0u; macro < kAmbiNeuralLatticeMacros; ++macro) {
-            const float center = 0.24f + ambiNeuralLatticeRandomUnit(seed) * 0.52f;
-            const float horizontal = (ambiNeuralLatticeRandomUnit(seed) * 2.0f - 1.0f) * 0.68f;
-            const float vertical = (ambiNeuralLatticeRandomUnit(seed) * 2.0f - 1.0f) * 0.68f;
-            const float diagonal = (ambiNeuralLatticeRandomUnit(seed) * 2.0f - 1.0f) * 0.28f;
-            const float texture = 0.04f + ambiNeuralLatticeRandomUnit(seed) * 0.14f;
-            for (uint32_t row = 0u; row < kAmbiNeuralLatticeWidth; ++row) {
-                for (uint32_t column = 0u; column < kAmbiNeuralLatticeWidth; ++column) {
-                    const float x = static_cast<float>(column) / 3.0f - 0.5f;
-                    const float y = static_cast<float>(row) / 3.0f - 0.5f;
-                    const float checker =
-                        ((row + column + macro + plane) % 2u) == 0u ? 1.0f : -1.0f;
-                    const float jitter =
-                        (ambiNeuralLatticeRandomUnit(seed) * 2.0f - 1.0f) * texture;
-                    const float value = center + x * horizontal + y * vertical
-                        + x * y * diagonal + checker * texture * 0.32f + jitter;
-                    const uint32_t cell = plane * kAmbiNeuralLatticeCellsPerPlane
-                        + row * kAmbiNeuralLatticeWidth + column;
-                    storage.cells[cell].macro[macro] = clamp(value, 0.02f, 0.98f);
-                }
-            }
-        }
-    }
     resetAmbiNeuralLatticeEdges(storage);
-    (void)ambiNeuralLatticeRandomUnit(seed);
-    const uint32_t foldSalt = seed ^ 0x464f4c44u;
-    connectAmbiNeuralLatticePlanes(storage, foldSalt);
-    const uint32_t activeCells = storage.planeCount * kAmbiNeuralLatticeCellsPerPlane;
-    storage.currentCell = std::min<uint32_t>(
-        static_cast<uint32_t>(ambiNeuralLatticeRandomUnit(seed)
-            * static_cast<float>(activeCells)),
-        activeCells - 1u);
+    placeAmbiNeuralLatticePortals(storage);
+    storage.currentCell = storage.ingressCells[0u];
     storage.selectedCell = storage.currentCell;
     storage.trail.fill(storage.currentCell);
-    storage.trailCount = 1u;
     return storage;
 }
 
-inline AmbiNeuralLatticeStorage sanitizeAmbiNeuralLatticeStorage(AmbiNeuralLatticeStorage storage)
+inline AmbiNeuralLatticeStorage growAmbiNeuralLattice(
+    const std::array<float, kAmbiNeuralEcologyGenomeValues>& founder,
+    const std::array<float, kAmbiNeuralLatticeExpressionValues>& founderExpression,
+    uint32_t seed, uint32_t planeCount, float variation, float recombine)
 {
-    for (auto& cell : storage.cells) cell = sanitizeAmbiNeuralLatticeCell(cell);
-    storage.planeCount = sanitizeAmbiNeuralLatticePlaneCount(storage.planeCount);
-    const uint32_t activeCells = storage.planeCount * kAmbiNeuralLatticeCellsPerPlane;
+    auto storage = defaultAmbiNeuralLattice(planeCount);
+    storage.breedingSeed = seed == 0u ? 1u : seed;
+    resetAmbiNeuralLatticeEdges(storage);
+    placeAmbiNeuralLatticePortals(
+        storage, storage.breedingSeed ^ 0x504f5254u);
+    storage.currentCell = storage.ingressCells[0u];
+    storage.selectedCell = storage.currentCell;
+    storage.trail.fill(storage.currentCell);
+    storage.trailCount = 1u;
+    storage.cells[storage.currentCell].genome =
+        sanitizeAmbiNeuralGenome(founder);
+    storage.cells[storage.currentCell].expression = founderExpression;
+
+    uint32_t breedSeed = storage.breedingSeed;
+    for (uint32_t plane = 0u; plane < storage.planeCount; ++plane) {
+        const uint32_t root = storage.ingressCells[plane];
+        if (plane > 0u) {
+            const uint32_t parent = storage.egressCells[plane - 1u];
+            const uint32_t mate = storage.ingressCells[plane - 1u];
+            storage.cells[root].genome = breedAmbiNeuralGenomes(
+                storage.cells[parent].genome, storage.cells[mate].genome,
+                recombine, variation, breedSeed);
+            storage.cells[root].expression =
+                breedAmbiNeuralLatticeExpressions(
+                    storage.cells[parent].expression,
+                    storage.cells[mate].expression,
+                    recombine, variation, breedSeed);
+            storage.cells[root].generation =
+                std::max(storage.cells[parent].generation,
+                    storage.cells[mate].generation) + 1u;
+        }
+
+        std::array<uint32_t, kAmbiNeuralLatticeCellsPerPlane> queue {};
+        std::array<bool, kAmbiNeuralLatticeCellsPerPlane> visited {};
+        uint32_t read = 0u;
+        uint32_t write = 1u;
+        queue[0u] = root;
+        visited[root % kAmbiNeuralLatticeCellsPerPlane] = true;
+        while (read < write) {
+            const uint32_t parentCell = queue[read++];
+            for (uint32_t direction = 0u;
+                direction < kAmbiNeuralLatticeDirections; ++direction) {
+                const uint32_t childCell =
+                    storage.edges[
+                        parentCell * kAmbiNeuralLatticeDirections + direction];
+                const uint32_t childLocal =
+                    childCell % kAmbiNeuralLatticeCellsPerPlane;
+                if (childCell / kAmbiNeuralLatticeCellsPerPlane != plane
+                    || visited[childLocal]) {
+                    continue;
+                }
+                visited[childLocal] = true;
+                queue[write++] = childCell;
+                const uint32_t mateCell =
+                    read > 1u ? queue[read - 2u] : root;
+                storage.cells[childCell].genome = breedAmbiNeuralGenomes(
+                    storage.cells[parentCell].genome,
+                    storage.cells[mateCell].genome,
+                    recombine, variation, breedSeed);
+                storage.cells[childCell].expression =
+                    breedAmbiNeuralLatticeExpressions(
+                        storage.cells[parentCell].expression,
+                        storage.cells[mateCell].expression,
+                        recombine, variation, breedSeed);
+                storage.cells[childCell].generation =
+                    storage.cells[parentCell].generation + 1u;
+            }
+        }
+    }
+    storage.breedingSeed = breedSeed;
+    return storage;
+}
+
+inline AmbiNeuralLatticeStorage sanitizeAmbiNeuralLatticeStorage(
+    AmbiNeuralLatticeStorage storage)
+{
+    for (auto& cell : storage.cells) {
+        cell = sanitizeAmbiNeuralLatticeCell(cell);
+    }
+    storage.planeCount =
+        sanitizeAmbiNeuralLatticePlaneCount(storage.planeCount);
+    const uint32_t activeCells =
+        storage.planeCount * kAmbiNeuralLatticeCellsPerPlane;
+    auto fallbackPortals = storage;
+    placeAmbiNeuralLatticePortals(
+        fallbackPortals, storage.breedingSeed ^ 0x504f5254u);
+    for (uint32_t plane = 0u;
+        plane < kAmbiNeuralLatticeMaxPlanes; ++plane) {
+        const uint32_t first = plane * kAmbiNeuralLatticeCellsPerPlane;
+        const uint32_t last = first + kAmbiNeuralLatticeCellsPerPlane;
+        if (storage.ingressCells[plane] < first
+            || storage.ingressCells[plane] >= last) {
+            storage.ingressCells[plane] =
+                fallbackPortals.ingressCells[plane];
+        }
+        if (storage.egressCells[plane] < first
+            || storage.egressCells[plane] >= last
+            || storage.egressCells[plane]
+                == storage.ingressCells[plane]) {
+            storage.egressCells[plane] =
+                fallbackPortals.egressCells[plane];
+        }
+    }
     for (uint32_t cell = 0u; cell < kAmbiNeuralLatticeCells; ++cell) {
-        for (uint32_t direction = 0u; direction < kAmbiNeuralLatticeDirections; ++direction) {
-            uint32_t& target = storage.edges[cell * kAmbiNeuralLatticeDirections + direction];
-            if (cell >= activeCells || target >= activeCells) {
+        for (uint32_t direction = 0u;
+            direction < kAmbiNeuralLatticeDirections; ++direction) {
+            uint32_t& target =
+                storage.edges[cell * kAmbiNeuralLatticeDirections + direction];
+            if (cell >= activeCells || target >= activeCells
+                || target / kAmbiNeuralLatticeCellsPerPlane
+                    != cell / kAmbiNeuralLatticeCellsPerPlane) {
                 target = ambiNeuralLatticeLocalNeighbor(cell, direction);
             }
         }
     }
-    storage.currentCell = std::min<uint32_t>(storage.currentCell, activeCells - 1u);
-    storage.selectedCell = std::min<uint32_t>(storage.selectedCell, activeCells - 1u);
-    storage.trailCount = std::clamp<uint32_t>(storage.trailCount, 1u, kAmbiNeuralLatticeTrail);
+    storage.currentCell =
+        std::min<uint32_t>(storage.currentCell, activeCells - 1u);
+    storage.selectedCell =
+        std::min<uint32_t>(storage.selectedCell, activeCells - 1u);
+    storage.trailCount =
+        std::clamp<uint32_t>(storage.trailCount, 1u, kAmbiNeuralLatticeTrail);
     for (uint32_t& cell : storage.trail) {
         cell = std::min<uint32_t>(cell, activeCells - 1u);
     }
+    if (storage.breedingSeed == 0u) storage.breedingSeed = 1u;
     return storage;
 }
 
@@ -223,107 +469,16 @@ inline AmbiNeuralLatticeStorage resizeAmbiNeuralLattice(
     storage = sanitizeAmbiNeuralLatticeStorage(storage);
     storage.planeCount = sanitizeAmbiNeuralLatticePlaneCount(planeCount);
     resetAmbiNeuralLatticeEdges(storage);
-    connectAmbiNeuralLatticePlanes(storage);
-    const uint32_t activeCells = storage.planeCount * kAmbiNeuralLatticeCellsPerPlane;
-    storage.currentCell = std::min<uint32_t>(storage.currentCell, activeCells - 1u);
-    storage.selectedCell = std::min<uint32_t>(storage.selectedCell, activeCells - 1u);
-    for (uint32_t& cell : storage.trail) cell = std::min<uint32_t>(cell, activeCells - 1u);
-    return sanitizeAmbiNeuralLatticeStorage(storage);
-}
-
-inline AmbiNeuralLatticeCell lerpAmbiNeuralLatticeCell(
-    const AmbiNeuralLatticeCell& a, const AmbiNeuralLatticeCell& b, float amount)
-{
-    AmbiNeuralLatticeCell result {};
-    amount = clamp(amount, 0.0f, 1.0f);
-    const float shaped = amount * amount * (3.0f - 2.0f * amount);
-    for (uint32_t index = 0u; index < result.macro.size(); ++index) {
-        result.macro[index] = lerp(a.macro[index], b.macro[index], shaped);
+    const uint32_t activeCells =
+        storage.planeCount * kAmbiNeuralLatticeCellsPerPlane;
+    storage.currentCell =
+        std::min<uint32_t>(storage.currentCell, activeCells - 1u);
+    storage.selectedCell =
+        std::min<uint32_t>(storage.selectedCell, activeCells - 1u);
+    for (uint32_t& cell : storage.trail) {
+        cell = std::min<uint32_t>(cell, activeCells - 1u);
     }
-    return result;
-}
-
-inline float normalizedRange(float value, float minimum, float maximum)
-{
-    return clamp((value - minimum) / std::max(1.0e-6f, maximum - minimum), 0.0f, 1.0f);
-}
-
-inline AmbiNeuralLatticeCell inscribeAmbiNeuralLatticeCell(const AmbiNeuralEcologyParams& source)
-{
-    const auto params = sanitizeAmbiNeuralEcologyParams(source);
-    AmbiNeuralLatticeCell cell {};
-    cell.macro[0] = 0.62f * normalizedRange(params.activity, 0.34f, 0.72f)
-        + 0.38f * normalizedRange(params.drive, 1.2f, 3.8f);
-    cell.macro[1] = 0.52f * normalizedRange(params.ringFeedback, 0.54f, 1.12f)
-        + 0.48f * normalizedRange(params.matrixCoupling, 0.08f, 1.02f);
-    cell.macro[2] = 0.48f * normalizedRange(params.registerSemitones, -28.0f, 20.0f)
-        + 0.52f * normalizedRange(params.timeSpread, 0.36f, 1.55f);
-    const float propagation = normalizedRange(std::log2(std::max(2.0f, params.propagationMs)),
-        1.0f, std::log2(150.0f));
-    cell.macro[3] = 0.62f * normalizedRange(params.fieldReturn, 0.08f, 0.88f)
-        + 0.38f * propagation;
-    cell.macro[4] = 0.46f * params.pickupAdapt + 0.34f * params.auditoryPlasticity
-        + 0.20f * params.adaptation;
-    cell.macro[5] = 0.44f * params.fieldWidth + 0.36f * params.mobility
-        + 0.20f * params.cellWidth;
-    cell.macro[6] = 0.44f * params.genomeMorph + 0.56f * params.heredity;
-    cell.macro[7] = 0.30f * params.brownian + 0.30f * params.drift
-        + 0.28f * params.plasticity + 0.12f * params.diversity;
-    return sanitizeAmbiNeuralLatticeCell(cell);
-}
-
-inline AmbiNeuralEcologyParams applyAmbiNeuralLatticeCell(
-    const AmbiNeuralEcologyParams& source, const AmbiNeuralLatticeCell& sourceCell, float amount)
-{
-    AmbiNeuralEcologyParams result = sanitizeAmbiNeuralEcologyParams(source);
-    const auto cell = sanitizeAmbiNeuralLatticeCell(sourceCell);
-    amount = clamp(amount, 0.0f, 1.0f);
-    auto climate = [amount](float base, float target) { return lerp(base, target, amount); };
-    const float activity = cell.macro[0];
-    const float feedback = cell.macro[1];
-    const float time = cell.macro[2];
-    const float field = cell.macro[3];
-    const float listening = cell.macro[4];
-    const float space = cell.macro[5];
-    const float heredity = cell.macro[6];
-    const float mutation = cell.macro[7];
-
-    result.activity = climate(result.activity, lerp(0.34f, 0.72f, activity));
-    result.drive = climate(result.drive, lerp(1.20f, 3.80f, activity));
-    result.ringFeedback = climate(result.ringFeedback, lerp(0.54f, 1.12f, feedback));
-    result.matrixCoupling = climate(result.matrixCoupling, lerp(0.08f, 1.02f, feedback));
-    result.hierarchy = climate(result.hierarchy, lerp(0.18f, 0.92f, feedback));
-
-    result.registerSemitones = climate(result.registerSemitones, lerp(-28.0f, 20.0f, time));
-    result.timeSpread = climate(result.timeSpread, lerp(0.36f, 1.55f, time));
-    result.phaseShift = climate(result.phaseShift, lerp(0.04f, 0.88f, 1.0f - time));
-    result.selfModulation = climate(result.selfModulation, lerp(0.08f, 0.92f, time));
-
-    result.fieldReturn = climate(result.fieldReturn, lerp(0.08f, 0.88f, field));
-    result.propagationMs = climate(result.propagationMs,
-        std::exp2(lerp(std::log2(2.0f), std::log2(150.0f), field)));
-    result.pickupFocus = climate(result.pickupFocus, lerp(0.42f, 0.98f, field));
-
-    result.pickupAdapt = climate(result.pickupAdapt, lerp(0.0f, 0.82f, listening));
-    result.pickupAnchor = climate(result.pickupAnchor, lerp(0.90f, 0.08f, listening));
-    result.auditoryPlasticity = climate(result.auditoryPlasticity, lerp(0.01f, 0.52f, listening));
-    result.adaptation = climate(result.adaptation, lerp(0.03f, 0.58f, listening));
-    result.metabolism = climate(result.metabolism, lerp(0.14f, 0.68f, listening));
-
-    result.fieldWidth = climate(result.fieldWidth, lerp(0.32f, 1.0f, space));
-    result.cellWidth = climate(result.cellWidth, lerp(0.16f, 0.94f, space));
-    result.mobility = climate(result.mobility, lerp(0.02f, 0.82f, space));
-    result.spatialInertia = climate(result.spatialInertia, lerp(0.96f, 0.48f, space));
-
-    result.genomeMorph = climate(result.genomeMorph, heredity);
-    result.heredity = climate(result.heredity, heredity * 0.82f);
-
-    result.brownian = climate(result.brownian, mutation * 0.62f);
-    result.drift = climate(result.drift, mutation * 0.72f);
-    result.plasticity = climate(result.plasticity, mutation * 0.48f);
-    result.diversity = climate(result.diversity, lerp(0.08f, 0.92f, mutation));
-    result.mutationDepth = climate(result.mutationDepth, lerp(0.12f, 0.88f, mutation));
-    return sanitizeAmbiNeuralEcologyParams(result);
+    return sanitizeAmbiNeuralLatticeStorage(storage);
 }
 
 class AmbiNeuralFieldLattice {
@@ -335,26 +490,21 @@ public:
         storage_ = sanitizeAmbiNeuralLatticeStorage(storage);
         currentCell_ = storage_.currentCell;
         targetCell_ = currentCell_;
-        fromClimate_ = storage_.cells[currentCell_];
         transitionProgress_ = 1.0f;
         dwellElapsed_ = 0.0f;
         pickupEnergy_.fill(0.0f);
         midiBias_.fill(0.0f);
+        movesOnPlane_ = 0u;
+        refreshPortalMoveLimit();
     }
 
-    AmbiNeuralLatticeStorage storage() const
-    {
-        auto copy = storage_;
-        copy.currentCell = currentCell_;
-        return copy;
-    }
+    const AmbiNeuralLatticeStorage& storage() const { return storage_; }
 
     void setCell(uint32_t index, AmbiNeuralLatticeCell cell)
     {
         index = std::min<uint32_t>(
             index, storage_.planeCount * kAmbiNeuralLatticeCellsPerPlane - 1u);
         storage_.cells[index] = sanitizeAmbiNeuralLatticeCell(cell);
-        if (index == currentCell_ && !transitioning()) fromClimate_ = storage_.cells[index];
     }
 
     const AmbiNeuralLatticeCell& cell(uint32_t index) const
@@ -363,25 +513,76 @@ public:
             index, storage_.planeCount * kAmbiNeuralLatticeCellsPerPlane - 1u)];
     }
 
+    AmbiNeuralLatticeOffspring performBirth(
+        float recombine, float variation, float memory)
+    {
+        const uint32_t activeCells =
+            storage_.planeCount * kAmbiNeuralLatticeCellsPerPlane;
+        const uint32_t source =
+            std::min<uint32_t>(eventSourceCell_, activeCells - 1u);
+        const uint32_t target =
+            std::min<uint32_t>(eventTargetCell_, activeCells - 1u);
+        AmbiNeuralLatticeOffspring child {};
+        child.genome = breedAmbiNeuralGenomes(
+            storage_.cells[source].genome, storage_.cells[target].genome,
+            recombine, variation, storage_.breedingSeed);
+        child.expression = breedAmbiNeuralLatticeExpressions(
+            storage_.cells[source].expression,
+            storage_.cells[target].expression,
+            recombine, variation, storage_.breedingSeed);
+        memory = clamp(memory, 0.0f, 1.0f);
+        if (memory > 1.0e-6f) {
+            auto resident = storage_.cells[target];
+            resident.genome =
+                blendAmbiNeuralGenomes(resident.genome, child.genome, memory);
+            for (uint32_t index = 0u; index < resident.expression.size(); ++index) {
+                resident.expression[index] = lerp(
+                    resident.expression[index], child.expression[index], memory);
+            }
+            resident.generation =
+                std::max(storage_.cells[source].generation, resident.generation) + 1u;
+            storage_.cells[target] = sanitizeAmbiNeuralLatticeCell(resident);
+        }
+        ++storage_.birthCount;
+        return child;
+    }
+
     void setEdge(uint32_t cell, uint32_t direction, uint32_t target)
     {
         const uint32_t activeCells =
             storage_.planeCount * kAmbiNeuralLatticeCellsPerPlane;
         cell = std::min<uint32_t>(cell, activeCells - 1u);
         target = std::min<uint32_t>(target, activeCells - 1u);
+        if (target / kAmbiNeuralLatticeCellsPerPlane
+            != cell / kAmbiNeuralLatticeCellsPerPlane) {
+            target = ambiNeuralLatticeLocalNeighbor(cell, direction);
+        }
         storage_.edges[cell * kAmbiNeuralLatticeDirections
             + direction % kAmbiNeuralLatticeDirections] = target;
-    }
-
-    AmbiNeuralLatticeCell climate() const
-    {
-        if (!transitioning()) return storage_.cells[currentCell_];
-        return lerpAmbiNeuralLatticeCell(fromClimate_, storage_.cells[targetCell_], transitionProgress_);
     }
 
     uint32_t currentCell() const { return currentCell_; }
     uint32_t targetCell() const { return targetCell_; }
     uint32_t planeCount() const { return storage_.planeCount; }
+    uint32_t ingressCell(uint32_t plane) const
+    {
+        return storage_.ingressCells[
+            std::min<uint32_t>(plane, storage_.planeCount - 1u)];
+    }
+    uint32_t egressCell(uint32_t plane) const
+    {
+        return storage_.egressCells[
+            std::min<uint32_t>(plane, storage_.planeCount - 1u)];
+    }
+    uint32_t portalDestination(uint32_t cell) const
+    {
+        if (storage_.planeCount <= 1u) return cell;
+        const uint32_t plane = std::min<uint32_t>(
+            cell / kAmbiNeuralLatticeCellsPerPlane,
+            storage_.planeCount - 1u);
+        if (cell != storage_.egressCells[plane]) return cell;
+        return storage_.ingressCells[(plane + 1u) % storage_.planeCount];
+    }
     uint32_t edge(uint32_t cell, uint32_t direction) const
     {
         const uint32_t activeCells =
@@ -394,17 +595,23 @@ public:
     float transitionProgress() const { return transitionProgress_; }
     float dwellProgress(float dwellSeconds) const
     {
-        return clamp(dwellElapsed_ / std::max(0.25f, dwellSeconds), 0.0f, 1.0f);
+        return clamp(
+            dwellElapsed_ / std::max(0.25f, dwellSeconds), 0.0f, 1.0f);
     }
     float pickupVote(uint32_t direction) const
     {
-        return direction < pickupEnergy_.size() ? pickupEnergy_[direction] : 0.0f;
+        return direction < pickupEnergy_.size()
+            ? pickupEnergy_[direction] : 0.0f;
     }
+    uint32_t eventSerial() const { return eventSerial_; }
+    uint32_t eventSourceCell() const { return eventSourceCell_; }
+    uint32_t eventTargetCell() const { return eventTargetCell_; }
+    bool eventIsReproductive() const { return eventReproductive_; }
+    float eventTransitionDuration() const { return eventTransitionDuration_; }
 
     void stop()
     {
         targetCell_ = currentCell_;
-        fromClimate_ = storage_.cells[currentCell_];
         transitionProgress_ = 1.0f;
         dwellElapsed_ = 0.0f;
         midiBias_.fill(0.0f);
@@ -415,64 +622,101 @@ public:
         if (!transitioning()) return;
         seconds = clamp(seconds, 0.0f, 1.0f);
         transitionProgress_ = std::min(1.0f,
-            transitionProgress_ + seconds / std::max(0.05f, transitionDuration_));
+            transitionProgress_
+                + seconds / std::max(0.05f, transitionDuration_));
         if (!transitioning()) {
+            const uint32_t previousPlane =
+                currentCell_ / kAmbiNeuralLatticeCellsPerPlane;
             currentCell_ = targetCell_;
             storage_.currentCell = currentCell_;
             appendTrail(currentCell_);
             dwellElapsed_ = 0.0f;
+            const uint32_t currentPlane =
+                currentCell_ / kAmbiNeuralLatticeCellsPerPlane;
+            if (currentPlane != previousPlane) {
+                movesOnPlane_ = 0u;
+                refreshPortalMoveLimit();
+            } else {
+                ++movesOnPlane_;
+            }
         }
     }
 
-    void requestCell(uint32_t cell, float force, float transitionSeconds)
+    void requestCell(
+        uint32_t cell, float force, float transitionSeconds,
+        bool reproductive = true)
     {
         cell = std::min<uint32_t>(
             cell, storage_.planeCount * kAmbiNeuralLatticeCellsPerPlane - 1u);
         if (cell == targetCell_ && transitioning()) return;
         if (cell == currentCell_ && !transitioning()) return;
-        fromClimate_ = climate();
         targetCell_ = cell;
         transitionProgress_ = 0.0f;
         transitionDuration_ = std::max(0.05f,
-            transitionSeconds * lerp(1.45f, 0.55f, clamp(force, 0.0f, 1.0f)));
+            transitionSeconds
+                * lerp(1.45f, 0.55f, clamp(force, 0.0f, 1.0f)));
         dwellElapsed_ = 0.0f;
+        eventSourceCell_ = currentCell_;
+        eventTargetCell_ = targetCell_;
+        eventReproductive_ = reproductive;
+        eventTransitionDuration_ = transitionDuration_;
+        ++eventSerial_;
     }
 
-    void requestDirection(uint32_t direction, float force, AmbiNeuralScoreMode mode,
+    void requestDirection(
+        uint32_t direction, float force, AmbiNeuralScoreMode mode,
         float transitionSeconds)
     {
-        direction %= 8u;
+        direction %= kAmbiNeuralLatticeDirections;
         force = clamp(force, 0.0f, 1.0f);
+        const uint32_t verticalTarget = portalDestination(currentCell_);
+        if (verticalTarget != currentCell_ && !transitioning()) {
+            requestCell(verticalTarget, std::max(force, 0.68f),
+                transitionSeconds);
+            return;
+        }
         if (mode == AmbiNeuralScoreMode::Midi) {
             requestCell(edge(currentCell_, direction), force, transitionSeconds);
         } else if (mode == AmbiNeuralScoreMode::Coupled) {
-            midiBias_[direction] = std::max(midiBias_[direction], 0.12f + force * 1.25f);
-            if (force > 0.82f) requestCell(edge(currentCell_, direction), force, transitionSeconds);
+            midiBias_[direction] =
+                std::max(midiBias_[direction], 0.12f + force * 1.25f);
+            if (force > 0.82f) {
+                requestCell(
+                    edge(currentCell_, direction), force, transitionSeconds);
+            }
         }
     }
 
-    void advance(float seconds, const std::array<float, kAmbiNeuralEcologyPickups>& pickups,
-        uint32_t pickupCount, AmbiNeuralScoreMode mode, float dwellSeconds, float transitionSeconds)
+    void advance(
+        float seconds,
+        const std::array<float, kAmbiNeuralEcologyPickups>& pickups,
+        uint32_t pickupCount, AmbiNeuralScoreMode mode,
+        float dwellSeconds, float transitionSeconds)
     {
         seconds = clamp(seconds, 0.0f, 1.0f);
         pickupCount = pickupCount >= 8u ? 8u : 4u;
         const float envelope = 1.0f - std::exp(-seconds / 0.36f);
-        for (uint32_t direction = 0u; direction < pickupEnergy_.size(); ++direction) {
-            pickupEnergy_[direction] += (0.0f - pickupEnergy_[direction]) * envelope;
+        for (float& energy : pickupEnergy_) {
+            energy += (0.0f - energy) * envelope;
         }
         if (pickupCount == 4u) {
-            static constexpr std::array<uint32_t, 4> direction {{ 0u, 2u, 4u, 6u }};
+            static constexpr std::array<uint32_t, 4u> direction {{
+                0u, 2u, 4u, 6u
+            }};
             for (uint32_t pickup = 0u; pickup < 4u; ++pickup) {
                 const float heard = std::fabs(pickups[pickup]);
-                pickupEnergy_[direction[pickup]] += (heard - pickupEnergy_[direction[pickup]]) * envelope;
+                pickupEnergy_[direction[pickup]] +=
+                    (heard - pickupEnergy_[direction[pickup]]) * envelope;
             }
         } else {
             for (uint32_t pickup = 0u; pickup < 8u; ++pickup) {
                 const float heard = std::fabs(pickups[pickup]);
-                pickupEnergy_[pickup] += (heard - pickupEnergy_[pickup]) * envelope;
+                pickupEnergy_[pickup] +=
+                    (heard - pickupEnergy_[pickup]) * envelope;
             }
         }
-        const float biasDecay = std::exp(-seconds / std::max(0.5f, dwellSeconds));
+        const float biasDecay =
+            std::exp(-seconds / std::max(0.5f, dwellSeconds));
         for (float& bias : midiBias_) bias *= biasDecay;
 
         if (transitioning()) {
@@ -481,55 +725,136 @@ public:
         }
 
         dwellElapsed_ += seconds;
-        if (mode != AmbiNeuralScoreMode::Field && mode != AmbiNeuralScoreMode::Coupled) return;
+        if (mode != AmbiNeuralScoreMode::Field
+            && mode != AmbiNeuralScoreMode::Coupled) {
+            return;
+        }
         if (dwellElapsed_ < std::max(0.25f, dwellSeconds)) return;
+
+        const uint32_t verticalTarget = portalDestination(currentCell_);
+        if (verticalTarget != currentCell_) {
+            requestCell(verticalTarget, 0.72f, transitionSeconds);
+            midiBias_.fill(0.0f);
+            ++decisionCounter_;
+            return;
+        }
 
         uint32_t bestDirection = 0u;
         float bestScore = -1.0f;
         float heardTotal = 0.0f;
-        for (uint32_t direction = 0u; direction < 8u; ++direction) {
-            const bool available = pickupCount == 8u || (direction % 2u) == 0u;
+        for (uint32_t direction = 0u;
+            direction < kAmbiNeuralLatticeDirections; ++direction) {
+            const bool available =
+                pickupCount == 8u || (direction % 2u) == 0u;
             if (!available) continue;
             heardTotal += pickupEnergy_[direction];
             const float score = pickupEnergy_[direction]
-                + (mode == AmbiNeuralScoreMode::Coupled ? midiBias_[direction] : 0.0f)
-                + 1.0e-5f * static_cast<float>((decisionCounter_ + direction * 5u) % 11u);
+                + (mode == AmbiNeuralScoreMode::Coupled
+                    ? midiBias_[direction] : 0.0f)
+                + 1.0e-5f
+                    * static_cast<float>(
+                        (decisionCounter_ + direction * 5u) % 11u);
             if (score > bestScore) {
                 bestScore = score;
                 bestDirection = direction;
             }
         }
+        const bool portalSeeking =
+            storage_.planeCount > 1u && movesOnPlane_ >= portalMoveLimit_;
+        if (portalSeeking) {
+            const uint32_t plane =
+                currentCell_ / kAmbiNeuralLatticeCellsPerPlane;
+            bestDirection = directionToward(
+                currentCell_, storage_.egressCells[plane], pickupCount);
+            bestScore = std::max(bestScore, 0.24f);
+        }
         if (heardTotal > 1.0e-6f || bestScore > 0.05f) {
             const float force = clamp(bestScore * 3.0f, 0.15f, 1.0f);
-            requestCell(edge(currentCell_, bestDirection), force, transitionSeconds);
+            requestCell(
+                edge(currentCell_, bestDirection), force, transitionSeconds);
             midiBias_.fill(0.0f);
             ++decisionCounter_;
         }
     }
 
 private:
+    uint32_t directionToward(
+        uint32_t source, uint32_t target, uint32_t directionCount) const
+    {
+        const int32_t sourceX = static_cast<int32_t>(
+            source % kAmbiNeuralLatticeCellsPerPlane
+                % kAmbiNeuralLatticeWidth);
+        const int32_t sourceY = static_cast<int32_t>(
+            source % kAmbiNeuralLatticeCellsPerPlane
+                / kAmbiNeuralLatticeWidth);
+        const int32_t targetX = static_cast<int32_t>(
+            target % kAmbiNeuralLatticeCellsPerPlane
+                % kAmbiNeuralLatticeWidth);
+        const int32_t targetY = static_cast<int32_t>(
+            target % kAmbiNeuralLatticeCellsPerPlane
+                / kAmbiNeuralLatticeWidth);
+        auto wrappedStep = [](int32_t from, int32_t to) {
+            int32_t delta = to - from;
+            if (delta > 2) delta -= 4;
+            if (delta < -2) delta += 4;
+            return delta == 0 ? 0 : (delta > 0 ? 1 : -1);
+        };
+        int32_t dx = wrappedStep(sourceX, targetX);
+        int32_t dy = wrappedStep(sourceY, targetY);
+        if (directionCount < 8u && dx != 0 && dy != 0) {
+            if ((decisionCounter_ & 1u) == 0u) dy = 0;
+            else dx = 0;
+        }
+        if (dx == 0 && dy < 0) return 0u;
+        if (dx > 0 && dy < 0) return 1u;
+        if (dx > 0 && dy == 0) return 2u;
+        if (dx > 0 && dy > 0) return 3u;
+        if (dx == 0 && dy > 0) return 4u;
+        if (dx < 0 && dy > 0) return 5u;
+        if (dx < 0 && dy == 0) return 6u;
+        if (dx < 0 && dy < 0) return 7u;
+        return 0u;
+    }
+
+    void refreshPortalMoveLimit()
+    {
+        uint32_t value = storage_.breedingSeed
+            ^ (currentCell_ / kAmbiNeuralLatticeCellsPerPlane
+                * 0x9e3779b9u)
+            ^ (storage_.birthCount * 0x85ebca6bu);
+        value ^= value >> 16u;
+        portalMoveLimit_ = 6u + value % 7u;
+    }
+
     void appendTrail(uint32_t cell)
     {
         if (storage_.trailCount < kAmbiNeuralLatticeTrail) {
             storage_.trail[storage_.trailCount++] = cell;
             return;
         }
-        for (uint32_t index = 1u; index < kAmbiNeuralLatticeTrail; ++index) {
+        for (uint32_t index = 1u;
+            index < kAmbiNeuralLatticeTrail; ++index) {
             storage_.trail[index - 1u] = storage_.trail[index];
         }
         storage_.trail.back() = cell;
     }
 
     AmbiNeuralLatticeStorage storage_ {};
-    AmbiNeuralLatticeCell fromClimate_ {};
-    std::array<float, 8> pickupEnergy_ {};
-    std::array<float, 8> midiBias_ {};
+    std::array<float, kAmbiNeuralLatticeDirections> pickupEnergy_ {};
+    std::array<float, kAmbiNeuralLatticeDirections> midiBias_ {};
     uint32_t currentCell_ = 5u;
     uint32_t targetCell_ = 5u;
     uint32_t decisionCounter_ = 0u;
+    uint32_t eventSerial_ = 0u;
+    uint32_t eventSourceCell_ = 5u;
+    uint32_t eventTargetCell_ = 5u;
+    bool eventReproductive_ = false;
+    float eventTransitionDuration_ = 1.0f;
     float transitionProgress_ = 1.0f;
     float transitionDuration_ = 1.0f;
     float dwellElapsed_ = 0.0f;
+    uint32_t movesOnPlane_ = 0u;
+    uint32_t portalMoveLimit_ = 8u;
 };
 
 } // namespace s3g

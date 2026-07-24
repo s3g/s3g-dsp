@@ -29,10 +29,10 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiNeuralEcologyMaxChannels;
-constexpr uint32_t kStateVersion = 7u;
+constexpr uint32_t kStateVersion = 11u;
 constexpr uint32_t kParamBankSize = 64u;
 constexpr uint32_t kCustomPresetMagic = 0x454e3353u; // "S3NE" on little-endian hosts
-constexpr uint32_t kCustomPresetVersion = 4u;
+constexpr uint32_t kCustomPresetVersion = 8u;
 constexpr uint32_t kGenomeValuesV2 = 101u;
 constexpr uint32_t kGenomeValuesV3 = 117u;
 
@@ -74,9 +74,9 @@ constexpr clap_id kListeningModeParamId = 35u;
 constexpr clap_id kAuditoryPlasticityParamId = 36u;
 constexpr clap_id kMetabolismParamId = 37u;
 constexpr clap_id kAdaptationParamId = 38u;
-constexpr clap_id kGenomeMorphParamId = 39u;
-constexpr clap_id kHeredityParamId = 40u;
-constexpr clap_id kMutationDepthParamId = 41u;
+constexpr clap_id kScoreVariationParamId = 39u;
+constexpr clap_id kScoreRecombineParamId = 40u;
+constexpr clap_id kScoreMemoryParamId = 41u;
 constexpr clap_id kPickupSetParamId = 42u;
 constexpr clap_id kPickupAdaptParamId = 43u;
 constexpr clap_id kPickupAnchorParamId = 44u;
@@ -117,7 +117,6 @@ constexpr ParamDef kParams[] {
     { kPlasticityParamId, "Plasticity", 0.0, 1.0, 0.0, false },
     { kPlasticityModeParamId, "Plasticity Rule", 0.0, 3.0, 2.0, true },
     { kFreezeParamId, "Freeze Evolution", 0.0, 1.0, 0.0, true },
-    { kMutateParamId, "Mutate Current Organism", 0.0, 65535.0, 0.0, true },
     { kAzimuthParamId, "Center Azimuth", -180.0, 180.0, 0.0, false },
     { kElevationParamId, "Center Elevation", -89.0, 89.0, 0.0, false },
     { kDistanceParamId, "Center Distance", 0.10, 8.0, 1.0, false },
@@ -129,14 +128,14 @@ constexpr ParamDef kParams[] {
     { kAirParamId, "Air", 0.0, 1.0, 0.10, false },
     { kDopplerParamId, "Doppler", 0.0, 1.0, 0.0, false },
     { kOutputParamId, "Output Gain", -60.0, 6.0, -18.0, false },
-    { kSeedParamId, "Organism Seed", 1.0, 65535.0, 17735.0, true },
+    { kSeedParamId, "Circuit Seed", 1.0, 65535.0, 17735.0, true },
     { kListeningModeParamId, "Listening Topology", 0.0, 3.0, 0.0, true },
     { kAuditoryPlasticityParamId, "Auditory Plasticity", 0.0, 1.0, 0.10, false },
     { kMetabolismParamId, "Metabolism Target", 0.0, 1.0, 0.32, false },
     { kAdaptationParamId, "Homeostatic Adaptation", 0.0, 1.0, 0.18, false },
-    { kGenomeMorphParamId, "Genome Morph", 0.0, 1.0, 0.0, false },
-    { kHeredityParamId, "Genome Heredity", 0.0, 1.0, 0.0, false },
-    { kMutationDepthParamId, "Mutation Depth", 0.0, 1.0, 0.35, false },
+    { kScoreVariationParamId, "Lattice Variation", 0.0, 1.0, 0.38, false },
+    { kScoreRecombineParamId, "Lattice Recombine", 0.0, 1.0, 0.62, false },
+    { kScoreMemoryParamId, "Lattice Memory", 0.0, 1.0, 0.45, false },
     { kPickupSetParamId, "Directional Pickups", 0.0, 1.0, 0.0, true },
     { kPickupAdaptParamId, "Pickup Adapt", 0.0, 1.0, 0.24, false },
     { kPickupAnchorParamId, "Pickup Anchor", 0.0, 1.0, 0.35, false },
@@ -452,8 +451,6 @@ struct SavedStateV5 {
 };
 
 static_assert(sizeof(ParamsV5) == 188u);
-static_assert(sizeof(AmbiNeuralLatticeStorageV1) == 652u);
-static_assert(sizeof(SavedStateV5) == 2004u);
 
 struct SavedStateV6 {
     uint32_t version;
@@ -473,6 +470,26 @@ struct SavedStateV6 {
     uint32_t guiLatticeViewPlane;
 };
 
+struct SavedStateV7 {
+    uint32_t version;
+    s3g::AmbiNeuralEcologyParams params;
+    uint32_t presetIndex;
+    int32_t guiViewMode;
+    float guiViewAzDeg;
+    float guiViewElDeg;
+    float guiViewZoom;
+    std::array<float, s3g::kAmbiNeuralEcologyGenomeValues> genomeA;
+    std::array<float, s3g::kAmbiNeuralEcologyGenomeValues> genomeB;
+    uint32_t genomeAValid;
+    uint32_t genomeBValid;
+    char customPresetName[64];
+    s3g::AmbiNeuralLatticeStorage lattice;
+    uint32_t guiScorePage;
+    uint32_t guiLatticeViewPlane;
+    // Legacy states had no separate transport: every non-Off score mode was running.
+    uint32_t scoreTransportRunning;
+};
+
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiNeuralEcologyParams params {};
@@ -485,15 +502,13 @@ struct SavedState {
     std::array<float, s3g::kAmbiNeuralEcologyGenomeValues> genomeB {};
     uint32_t genomeAValid = 0u;
     uint32_t genomeBValid = 0u;
+    std::array<float, s3g::kAmbiNeuralEcologyGenomeValues> liveGenome {};
     char customPresetName[64] {};
     s3g::AmbiNeuralLatticeStorage lattice = s3g::defaultAmbiNeuralLattice();
     uint32_t guiScorePage = 0u;
     uint32_t guiLatticeViewPlane = 0u;
-    // Legacy states had no separate transport: every non-Off score mode was running.
     uint32_t scoreTransportRunning = 1u;
 };
-
-static_assert(sizeof(SavedStateV6) == offsetof(SavedState, scoreTransportRunning));
 
 struct CustomPresetFile {
     uint32_t magic = kCustomPresetMagic;
@@ -504,6 +519,7 @@ struct CustomPresetFile {
     std::array<float, s3g::kAmbiNeuralEcologyGenomeValues> genomeB {};
     uint32_t genomeAValid = 0u;
     uint32_t genomeBValid = 0u;
+    std::array<float, s3g::kAmbiNeuralEcologyGenomeValues> liveGenome {};
     s3g::AmbiNeuralLatticeStorage lattice = s3g::defaultAmbiNeuralLattice();
 };
 
@@ -545,7 +561,18 @@ struct CustomPresetFileV3 {
     AmbiNeuralLatticeStorageV1 lattice;
 };
 
-static_assert(sizeof(CustomPresetFileV3) == 1984u);
+
+struct CustomPresetFileV4 {
+    uint32_t magic;
+    uint32_t version;
+    char name[64];
+    s3g::AmbiNeuralEcologyParams params;
+    std::array<float, s3g::kAmbiNeuralEcologyGenomeValues> genomeA;
+    std::array<float, s3g::kAmbiNeuralEcologyGenomeValues> genomeB;
+    uint32_t genomeAValid;
+    uint32_t genomeBValid;
+    s3g::AmbiNeuralLatticeStorage lattice;
+};
 
 struct Plugin {
     clap_plugin_t plugin {};
@@ -594,10 +621,20 @@ struct Plugin {
     std::atomic<uint32_t> genomeSlotsRequest { 0u };
     uint32_t audioGenomeSlotsSerial = 0u;
     std::array<std::atomic<float>,
-        s3g::kAmbiNeuralLatticeCells * s3g::kAmbiNeuralLatticeMacros> latticeCells {};
+        s3g::kAmbiNeuralLatticeCells * s3g::kAmbiNeuralEcologyGenomeValues> latticeGenomes {};
+    std::array<std::atomic<float>,
+        s3g::kAmbiNeuralLatticeCells * s3g::kAmbiNeuralLatticeExpressionValues>
+        latticeExpressions {};
+    std::array<std::atomic<uint32_t>, s3g::kAmbiNeuralLatticeCells> latticeGenerations {};
     std::array<std::atomic<uint32_t>,
         s3g::kAmbiNeuralLatticeCells * s3g::kAmbiNeuralLatticeDirections> latticeEdges {};
+    std::array<std::atomic<uint32_t>,
+        s3g::kAmbiNeuralLatticeMaxPlanes> latticeIngressCells {};
+    std::array<std::atomic<uint32_t>,
+        s3g::kAmbiNeuralLatticeMaxPlanes> latticeEgressCells {};
     std::atomic<uint32_t> latticePlaneCount { 1u };
+    std::atomic<uint32_t> latticeBreedingSeed { 0x4c415454u };
+    std::atomic<uint32_t> latticeBirthCount { 0u };
     std::atomic<uint32_t> latticeCellsRevision { 0u };
     uint32_t audioLatticeCellsRevision = 0u;
     std::array<std::atomic<uint32_t>, s3g::kAmbiNeuralLatticeTrail> pendingLatticeTrail {};
@@ -613,6 +650,13 @@ struct Plugin {
     std::atomic<uint32_t> pendingScoreRecallCell { 5u };
     std::atomic<uint32_t> scoreRecallRequest { 0u };
     uint32_t audioScoreRecallSerial = 0u;
+    uint32_t audioLatticeEventSerial = 0u;
+    std::array<float, s3g::kAmbiNeuralLatticeExpressionValues> audioExpressionCurrent {};
+    std::array<float, s3g::kAmbiNeuralLatticeExpressionValues> audioExpressionFrom {};
+    std::array<float, s3g::kAmbiNeuralLatticeExpressionValues> audioExpressionTarget {};
+    float audioExpressionProgress = 1.0f;
+    float audioExpressionDuration = 0.0f;
+    bool audioExpressionActive = false;
     std::atomic<bool> scoreTransportRunning { false };
     bool audioScoreTransportRunning = false;
     std::atomic<uint32_t> guiLatticeCurrentCell { 5u };
@@ -894,37 +938,17 @@ const ParamDef* findParam(clap_id id)
     return nullptr;
 }
 
-bool scoreGovernsParam(clap_id id)
+bool latticeExpressionGovernsParam(clap_id id)
 {
     switch (id) {
     case kActivityParamId:
-    case kDriveParamId:
     case kRingParamId:
     case kMatrixParamId:
-    case kHierarchyParamId:
-    case kPhaseParamId:
-    case kRegisterParamId:
-    case kTimeSpreadParamId:
     case kDiversityParamId:
-    case kBrownianParamId:
-    case kDriftParamId:
-    case kSelfModParamId:
     case kFieldReturnParamId:
-    case kPropagationParamId:
-    case kPickupFocusParamId:
     case kPickupAdaptParamId:
-    case kPickupAnchorParamId:
-    case kAuditoryPlasticityParamId:
-    case kMetabolismParamId:
-    case kAdaptationParamId:
-    case kGenomeMorphParamId:
-    case kHeredityParamId:
-    case kMutationDepthParamId:
-    case kPlasticityParamId:
     case kFieldWidthParamId:
-    case kCellWidthParamId:
     case kMobilityParamId:
-    case kInertiaParamId:
         return true;
     default:
         return false;
@@ -958,9 +982,9 @@ bool assignParam(s3g::AmbiNeuralEcologyParams& p, clap_id id, double value)
     case kAuditoryPlasticityParamId: p.auditoryPlasticity = static_cast<float>(value); return true;
     case kMetabolismParamId: p.metabolism = static_cast<float>(value); return true;
     case kAdaptationParamId: p.adaptation = static_cast<float>(value); return true;
-    case kGenomeMorphParamId: p.genomeMorph = static_cast<float>(value); return true;
-    case kHeredityParamId: p.heredity = static_cast<float>(value); return true;
-    case kMutationDepthParamId: p.mutationDepth = static_cast<float>(value); return true;
+    case kScoreVariationParamId: p.scoreVariation = static_cast<float>(value); return true;
+    case kScoreRecombineParamId: p.scoreRecombine = static_cast<float>(value); return true;
+    case kScoreMemoryParamId: p.scoreMemory = static_cast<float>(value); return true;
     case kPlasticityParamId: p.plasticity = static_cast<float>(value); return true;
     case kPlasticityModeParamId: p.plasticityMode = static_cast<s3g::AmbiNeuralPlasticityMode>(static_cast<uint32_t>(std::lround(value))); return true;
     case kFreezeParamId: p.freeze = static_cast<uint32_t>(std::lround(value)); return true;
@@ -1015,9 +1039,9 @@ double paramValue(const s3g::AmbiNeuralEcologyParams& p, clap_id id)
     case kAuditoryPlasticityParamId: return p.auditoryPlasticity;
     case kMetabolismParamId: return p.metabolism;
     case kAdaptationParamId: return p.adaptation;
-    case kGenomeMorphParamId: return p.genomeMorph;
-    case kHeredityParamId: return p.heredity;
-    case kMutationDepthParamId: return p.mutationDepth;
+    case kScoreVariationParamId: return p.scoreVariation;
+    case kScoreRecombineParamId: return p.scoreRecombine;
+    case kScoreMemoryParamId: return p.scoreMemory;
     case kPlasticityParamId: return p.plasticity;
     case kPlasticityModeParamId: return static_cast<uint32_t>(p.plasticityMode);
     case kFreezeParamId: return p.freeze;
@@ -1242,17 +1266,35 @@ void storeLatticeCells(Plugin& plugin, const s3g::AmbiNeuralLatticeStorage& sour
 {
     const auto storage = s3g::sanitizeAmbiNeuralLatticeStorage(source);
     for (uint32_t cell = 0u; cell < s3g::kAmbiNeuralLatticeCells; ++cell) {
-        for (uint32_t macro = 0u; macro < s3g::kAmbiNeuralLatticeMacros; ++macro) {
-            plugin.latticeCells[cell * s3g::kAmbiNeuralLatticeMacros + macro].store(
-                storage.cells[cell].macro[macro], std::memory_order_relaxed);
+        for (uint32_t gene = 0u; gene < s3g::kAmbiNeuralEcologyGenomeValues; ++gene) {
+            plugin.latticeGenomes[
+                cell * s3g::kAmbiNeuralEcologyGenomeValues + gene].store(
+                storage.cells[cell].genome[gene], std::memory_order_relaxed);
         }
+        for (uint32_t trait = 0u;
+            trait < s3g::kAmbiNeuralLatticeExpressionValues; ++trait) {
+            plugin.latticeExpressions[
+                cell * s3g::kAmbiNeuralLatticeExpressionValues + trait].store(
+                storage.cells[cell].expression[trait], std::memory_order_relaxed);
+        }
+        plugin.latticeGenerations[cell].store(
+            storage.cells[cell].generation, std::memory_order_relaxed);
         for (uint32_t direction = 0u; direction < s3g::kAmbiNeuralLatticeDirections; ++direction) {
             plugin.latticeEdges[cell * s3g::kAmbiNeuralLatticeDirections + direction].store(
                 storage.edges[cell * s3g::kAmbiNeuralLatticeDirections + direction],
                 std::memory_order_relaxed);
         }
     }
+    for (uint32_t plane = 0u;
+        plane < s3g::kAmbiNeuralLatticeMaxPlanes; ++plane) {
+        plugin.latticeIngressCells[plane].store(
+            storage.ingressCells[plane], std::memory_order_relaxed);
+        plugin.latticeEgressCells[plane].store(
+            storage.egressCells[plane], std::memory_order_relaxed);
+    }
     plugin.latticePlaneCount.store(storage.planeCount, std::memory_order_relaxed);
+    plugin.latticeBreedingSeed.store(storage.breedingSeed, std::memory_order_relaxed);
+    plugin.latticeBirthCount.store(storage.birthCount, std::memory_order_relaxed);
     plugin.latticeCellsRevision.fetch_add(1u, std::memory_order_release);
 }
 
@@ -1261,17 +1303,35 @@ s3g::AmbiNeuralLatticeStorage snapshotLattice(const Plugin& plugin)
     auto storage = s3g::defaultAmbiNeuralLattice(
         plugin.latticePlaneCount.load(std::memory_order_relaxed));
     for (uint32_t cell = 0u; cell < s3g::kAmbiNeuralLatticeCells; ++cell) {
-        for (uint32_t macro = 0u; macro < s3g::kAmbiNeuralLatticeMacros; ++macro) {
-            storage.cells[cell].macro[macro] = plugin.latticeCells[
-                cell * s3g::kAmbiNeuralLatticeMacros + macro].load(std::memory_order_relaxed);
+        for (uint32_t gene = 0u; gene < s3g::kAmbiNeuralEcologyGenomeValues; ++gene) {
+            storage.cells[cell].genome[gene] = plugin.latticeGenomes[
+                cell * s3g::kAmbiNeuralEcologyGenomeValues + gene]
+                    .load(std::memory_order_relaxed);
         }
+        for (uint32_t trait = 0u;
+            trait < s3g::kAmbiNeuralLatticeExpressionValues; ++trait) {
+            storage.cells[cell].expression[trait] = plugin.latticeExpressions[
+                cell * s3g::kAmbiNeuralLatticeExpressionValues + trait]
+                    .load(std::memory_order_relaxed);
+        }
+        storage.cells[cell].generation =
+            plugin.latticeGenerations[cell].load(std::memory_order_relaxed);
         for (uint32_t direction = 0u; direction < s3g::kAmbiNeuralLatticeDirections; ++direction) {
             storage.edges[cell * s3g::kAmbiNeuralLatticeDirections + direction] =
                 plugin.latticeEdges[cell * s3g::kAmbiNeuralLatticeDirections + direction]
                     .load(std::memory_order_relaxed);
         }
     }
+    for (uint32_t plane = 0u;
+        plane < s3g::kAmbiNeuralLatticeMaxPlanes; ++plane) {
+        storage.ingressCells[plane] =
+            plugin.latticeIngressCells[plane].load(std::memory_order_relaxed);
+        storage.egressCells[plane] =
+            plugin.latticeEgressCells[plane].load(std::memory_order_relaxed);
+    }
     storage.planeCount = plugin.guiLatticePlaneCount.load(std::memory_order_relaxed);
+    storage.breedingSeed = plugin.latticeBreedingSeed.load(std::memory_order_relaxed);
+    storage.birthCount = plugin.latticeBirthCount.load(std::memory_order_relaxed);
     storage.currentCell = plugin.guiLatticeCurrentCell.load(std::memory_order_relaxed);
     storage.selectedCell = std::min<uint32_t>(
         plugin.guiSelectedLatticeCell, s3g::kAmbiNeuralLatticeCells - 1u);
@@ -1337,6 +1397,7 @@ bool saveCustomPresetFile(const char* path, const Plugin& plugin, const char* na
     for (uint32_t index = 0u; index < file.genomeA.size(); ++index) {
         file.genomeA[index] = plugin.genomeA[index].load(std::memory_order_relaxed);
         file.genomeB[index] = plugin.genomeB[index].load(std::memory_order_relaxed);
+        file.liveGenome[index] = plugin.guiGenome[index].load(std::memory_order_relaxed);
     }
     file.genomeAValid = plugin.genomeAValid.load(std::memory_order_relaxed);
     file.genomeBValid = plugin.genomeBValid.load(std::memory_order_relaxed);
@@ -1357,7 +1418,12 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
     uint32_t header[2] {};
     bool ok = std::fread(header, 1u, sizeof(header), handle) == sizeof(header)
         && header[0] == kCustomPresetMagic;
+    if (!ok || header[1] != kCustomPresetVersion) {
+        std::fclose(handle);
+        return false;
+    }
     std::rewind(handle);
+    file.version = header[1];
     if (ok && header[1] == 1u) {
         CustomPresetFileV1 old {};
         ok = std::fread(&old, 1u, sizeof(old), handle) == sizeof(old);
@@ -1393,6 +1459,18 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
             file.genomeBValid = old.genomeBValid;
             file.lattice = upgradeLattice(old.lattice);
         }
+    } else if (ok && header[1] == 4u) {
+        CustomPresetFileV4 old {};
+        ok = std::fread(&old, 1u, sizeof(old), handle) == sizeof(old);
+        if (ok) {
+            std::memcpy(file.name, old.name, sizeof(file.name));
+            file.params = old.params;
+            file.genomeA = old.genomeA;
+            file.genomeB = old.genomeB;
+            file.genomeAValid = old.genomeAValid;
+            file.genomeBValid = old.genomeBValid;
+            file.lattice = old.lattice;
+        }
     } else if (ok && header[1] == kCustomPresetVersion) {
         ok = std::fread(&file, 1u, sizeof(file), handle) == sizeof(file);
     } else {
@@ -1404,6 +1482,7 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
     file.params = s3g::sanitizeAmbiNeuralEcologyParams(file.params);
     for (float& value : file.genomeA) if (!std::isfinite(value)) value = 0.0f;
     for (float& value : file.genomeB) if (!std::isfinite(value)) value = 0.0f;
+    for (float& value : file.liveGenome) if (!std::isfinite(value)) value = 0.0f;
     file.genomeAValid = std::min<uint32_t>(file.genomeAValid, 1u);
     file.genomeBValid = std::min<uint32_t>(file.genomeBValid, 1u);
     file.lattice = s3g::sanitizeAmbiNeuralLatticeStorage(file.lattice);
@@ -1472,18 +1551,33 @@ void randomizeSafe(Plugin& plugin)
     const auto params = s3g::randomizeAmbiNeuralEcologyParams(
         plugin.params,
         seed,
-        plugin.genomeAValid.load(std::memory_order_relaxed) != 0u,
-        plugin.genomeBValid.load(std::memory_order_relaxed) != 0u);
-    const auto lattice = s3g::randomAmbiNeuralLattice(
-        seed, s3g::ambiNeuralScorePlaneCount(params.scorePlanes));
+        false,
+        false);
     plugin.randomSeed = seed;
     std::snprintf(plugin.customPresetName, sizeof(plugin.customPresetName), "%s", "Random");
     plugin.customPresetActive.store(true, std::memory_order_relaxed);
     publishParams(plugin, params, 0u, true);
+}
+
+void growCurrentLattice(Plugin& plugin)
+{
+    syncGuiParams(plugin);
+    std::array<float, s3g::kAmbiNeuralEcologyGenomeValues> founder {};
+    for (uint32_t index = 0u; index < founder.size(); ++index) {
+        founder[index] = plugin.guiGenome[index].load(std::memory_order_relaxed);
+    }
+    plugin.randomSeed = plugin.randomSeed * 1664525u + 1013904223u;
+    const auto founderExpression =
+        s3g::ambiNeuralLatticeExpressionFromParams(plugin.params);
+    const auto lattice = s3g::growAmbiNeuralLattice(
+        founder, founderExpression, plugin.randomSeed,
+        s3g::ambiNeuralScorePlaneCount(plugin.params.scorePlanes),
+        plugin.params.scoreVariation, plugin.params.scoreRecombine);
+    std::snprintf(plugin.customPresetName, sizeof(plugin.customPresetName), "%s", "Grown Lattice");
+    plugin.customPresetActive.store(true, std::memory_order_relaxed);
     requestLatticeStorage(plugin, lattice);
     plugin.guiLatticeViewPlane =
         lattice.currentCell / s3g::kAmbiNeuralLatticeCellsPerPlane;
-    plugin.resetRequest.fetch_add(1u, std::memory_order_release);
 }
 
 bool init(const clap_plugin_t*) { return true; }
@@ -1527,10 +1621,19 @@ void syncAudioLattice(Plugin& plugin)
         auto storage = s3g::defaultAmbiNeuralLattice(
             plugin.pendingLatticePlaneCount.load(std::memory_order_relaxed));
         for (uint32_t cell = 0u; cell < s3g::kAmbiNeuralLatticeCells; ++cell) {
-            for (uint32_t macro = 0u; macro < s3g::kAmbiNeuralLatticeMacros; ++macro) {
-                storage.cells[cell].macro[macro] = plugin.latticeCells[
-                    cell * s3g::kAmbiNeuralLatticeMacros + macro].load(std::memory_order_relaxed);
+            for (uint32_t gene = 0u; gene < s3g::kAmbiNeuralEcologyGenomeValues; ++gene) {
+                storage.cells[cell].genome[gene] = plugin.latticeGenomes[
+                    cell * s3g::kAmbiNeuralEcologyGenomeValues + gene]
+                        .load(std::memory_order_relaxed);
             }
+            for (uint32_t trait = 0u;
+                trait < s3g::kAmbiNeuralLatticeExpressionValues; ++trait) {
+                storage.cells[cell].expression[trait] = plugin.latticeExpressions[
+                    cell * s3g::kAmbiNeuralLatticeExpressionValues + trait]
+                        .load(std::memory_order_relaxed);
+            }
+            storage.cells[cell].generation =
+                plugin.latticeGenerations[cell].load(std::memory_order_relaxed);
             for (uint32_t direction = 0u;
                 direction < s3g::kAmbiNeuralLatticeDirections; ++direction) {
                 storage.edges[cell * s3g::kAmbiNeuralLatticeDirections + direction] =
@@ -1538,14 +1641,32 @@ void syncAudioLattice(Plugin& plugin)
                         .load(std::memory_order_relaxed);
             }
         }
+        for (uint32_t plane = 0u;
+            plane < s3g::kAmbiNeuralLatticeMaxPlanes; ++plane) {
+            storage.ingressCells[plane] =
+                plugin.latticeIngressCells[plane].load(
+                    std::memory_order_relaxed);
+            storage.egressCells[plane] =
+                plugin.latticeEgressCells[plane].load(
+                    std::memory_order_relaxed);
+        }
         storage.planeCount = plugin.pendingLatticePlaneCount.load(std::memory_order_relaxed);
         storage.currentCell = plugin.pendingLatticeCurrentCell.load(std::memory_order_relaxed);
         storage.selectedCell = plugin.guiSelectedLatticeCell;
+        storage.breedingSeed =
+            plugin.latticeBreedingSeed.load(std::memory_order_relaxed);
+        storage.birthCount = plugin.latticeBirthCount.load(std::memory_order_relaxed);
         storage.trailCount = plugin.pendingLatticeTrailCount.load(std::memory_order_relaxed);
         for (uint32_t index = 0u; index < s3g::kAmbiNeuralLatticeTrail; ++index) {
             storage.trail[index] = plugin.pendingLatticeTrail[index].load(std::memory_order_relaxed);
         }
         plugin.lattice.setStorage(storage);
+        plugin.audioExpressionCurrent =
+            plugin.lattice.cell(plugin.lattice.currentCell()).expression;
+        plugin.audioExpressionFrom = plugin.audioExpressionCurrent;
+        plugin.audioExpressionTarget = plugin.audioExpressionCurrent;
+        plugin.audioExpressionProgress = 1.0f;
+        plugin.audioExpressionActive = false;
         plugin.audioLatticeCellsRevision =
             plugin.latticeCellsRevision.load(std::memory_order_acquire);
     } else {
@@ -1554,10 +1675,19 @@ void syncAudioLattice(Plugin& plugin)
             plugin.audioLatticeCellsRevision = cellsRevision;
             for (uint32_t cell = 0u; cell < s3g::kAmbiNeuralLatticeCells; ++cell) {
                 s3g::AmbiNeuralLatticeCell value {};
-                for (uint32_t macro = 0u; macro < s3g::kAmbiNeuralLatticeMacros; ++macro) {
-                    value.macro[macro] = plugin.latticeCells[
-                        cell * s3g::kAmbiNeuralLatticeMacros + macro].load(std::memory_order_relaxed);
+                for (uint32_t gene = 0u; gene < s3g::kAmbiNeuralEcologyGenomeValues; ++gene) {
+                    value.genome[gene] = plugin.latticeGenomes[
+                        cell * s3g::kAmbiNeuralEcologyGenomeValues + gene]
+                            .load(std::memory_order_relaxed);
                 }
+                for (uint32_t trait = 0u;
+                    trait < s3g::kAmbiNeuralLatticeExpressionValues; ++trait) {
+                    value.expression[trait] = plugin.latticeExpressions[
+                        cell * s3g::kAmbiNeuralLatticeExpressionValues + trait]
+                            .load(std::memory_order_relaxed);
+                }
+                value.generation =
+                    plugin.latticeGenerations[cell].load(std::memory_order_relaxed);
                 plugin.lattice.setCell(cell, value);
                 for (uint32_t direction = 0u;
                     direction < s3g::kAmbiNeuralLatticeDirections; ++direction) {
@@ -1573,6 +1703,12 @@ void syncAudioLattice(Plugin& plugin)
     if (plugin.lattice.planeCount() != desiredPlanes) {
         const auto resized = s3g::resizeAmbiNeuralLattice(plugin.lattice.storage(), desiredPlanes);
         plugin.lattice.setStorage(resized);
+        plugin.audioExpressionCurrent =
+            plugin.lattice.cell(plugin.lattice.currentCell()).expression;
+        plugin.audioExpressionFrom = plugin.audioExpressionCurrent;
+        plugin.audioExpressionTarget = plugin.audioExpressionCurrent;
+        plugin.audioExpressionProgress = 1.0f;
+        plugin.audioExpressionActive = false;
         storeLatticeCells(plugin, resized);
         plugin.audioLatticeCellsRevision =
             plugin.latticeCellsRevision.load(std::memory_order_acquire);
@@ -1596,14 +1732,20 @@ void syncAudioLattice(Plugin& plugin)
         plugin.scoreTransportRunning.load(std::memory_order_acquire);
     if (transportRunning != plugin.audioScoreTransportRunning) {
         plugin.audioScoreTransportRunning = transportRunning;
-        if (!transportRunning) plugin.lattice.stop();
+        if (!transportRunning) {
+            plugin.lattice.stop();
+            plugin.audioExpressionFrom = plugin.audioExpressionCurrent;
+            plugin.audioExpressionTarget = plugin.audioExpressionCurrent;
+            plugin.audioExpressionProgress = 1.0f;
+            plugin.audioExpressionActive = false;
+        }
     }
     const uint32_t recallSerial = plugin.scoreRecallRequest.load(std::memory_order_acquire);
     if (recallSerial != plugin.audioScoreRecallSerial) {
         plugin.audioScoreRecallSerial = recallSerial;
         plugin.lattice.requestCell(
             plugin.pendingScoreRecallCell.load(std::memory_order_relaxed),
-            0.5f, plugin.audioParams.scoreTransitionSeconds);
+            0.5f, plugin.audioParams.scoreTransitionSeconds, false);
     }
     if (plugin.audioParams.scoreMode == s3g::AmbiNeuralScoreMode::Off) {
         plugin.lattice.stop();
@@ -1639,6 +1781,74 @@ bool handleScoreEvent(Plugin& plugin, const clap_event_header_t* event)
     return true;
 }
 
+void publishLatticeResident(Plugin& plugin, uint32_t cell)
+{
+    const auto& resident = plugin.lattice.cell(cell);
+    for (uint32_t gene = 0u; gene < s3g::kAmbiNeuralEcologyGenomeValues; ++gene) {
+        plugin.latticeGenomes[
+            cell * s3g::kAmbiNeuralEcologyGenomeValues + gene].store(
+            resident.genome[gene], std::memory_order_relaxed);
+    }
+    for (uint32_t trait = 0u;
+        trait < s3g::kAmbiNeuralLatticeExpressionValues; ++trait) {
+        plugin.latticeExpressions[
+            cell * s3g::kAmbiNeuralLatticeExpressionValues + trait].store(
+            resident.expression[trait], std::memory_order_relaxed);
+    }
+    plugin.latticeGenerations[cell].store(
+        resident.generation, std::memory_order_relaxed);
+    const auto& storage = plugin.lattice.storage();
+    plugin.latticeBreedingSeed.store(storage.breedingSeed, std::memory_order_relaxed);
+    plugin.latticeBirthCount.store(storage.birthCount, std::memory_order_relaxed);
+}
+
+void applyLatticeGenomeEvent(Plugin& plugin)
+{
+    const uint32_t serial = plugin.lattice.eventSerial();
+    if (serial == plugin.audioLatticeEventSerial) return;
+    plugin.audioLatticeEventSerial = serial;
+    const uint32_t target = plugin.lattice.eventTargetCell();
+    s3g::AmbiNeuralLatticeOffspring offspring {};
+    if (plugin.lattice.eventIsReproductive()) {
+        offspring = plugin.lattice.performBirth(
+            plugin.audioParams.scoreRecombine,
+            plugin.audioParams.scoreVariation,
+            plugin.audioParams.scoreMemory);
+        publishLatticeResident(plugin, target);
+    } else {
+        offspring.genome = plugin.lattice.cell(target).genome;
+        offspring.expression = plugin.lattice.cell(target).expression;
+    }
+    plugin.audioExpressionFrom = plugin.audioExpressionCurrent;
+    plugin.audioExpressionTarget = offspring.expression;
+    plugin.audioExpressionProgress = 0.0f;
+    plugin.audioExpressionDuration = plugin.lattice.eventTransitionDuration();
+    plugin.audioExpressionActive = true;
+    plugin.engine.setGenomeTarget(
+        offspring.genome, plugin.lattice.eventTransitionDuration(),
+        plugin.audioParams.scoreAmount);
+}
+
+void advanceLatticeExpression(Plugin& plugin, float seconds)
+{
+    if (!plugin.audioExpressionActive) return;
+    plugin.audioExpressionProgress = std::min(1.0f,
+        plugin.audioExpressionProgress
+            + seconds / std::max(0.05f, plugin.audioExpressionDuration));
+    const float amount = plugin.audioExpressionProgress
+        * plugin.audioExpressionProgress
+        * (3.0f - 2.0f * plugin.audioExpressionProgress);
+    for (uint32_t index = 0u;
+        index < plugin.audioExpressionCurrent.size(); ++index) {
+        plugin.audioExpressionCurrent[index] = s3g::lerp(
+            plugin.audioExpressionFrom[index],
+            plugin.audioExpressionTarget[index], amount);
+    }
+    if (plugin.audioExpressionProgress >= 1.0f) {
+        plugin.audioExpressionActive = false;
+    }
+}
+
 void publishLatticeMeters(Plugin& plugin)
 {
     plugin.guiLatticePlaneCount.store(plugin.lattice.planeCount(), std::memory_order_relaxed);
@@ -1651,7 +1861,7 @@ void publishLatticeMeters(Plugin& plugin)
         plugin.guiLatticeVotes[direction].store(
             plugin.lattice.pickupVote(direction), std::memory_order_relaxed);
     }
-    const auto storage = plugin.lattice.storage();
+    const auto& storage = plugin.lattice.storage();
     plugin.guiLatticeTrailCount.store(storage.trailCount, std::memory_order_relaxed);
     for (uint32_t index = 0u; index < s3g::kAmbiNeuralLatticeTrail; ++index) {
         plugin.guiLatticeTrail[index].store(storage.trail[index], std::memory_order_relaxed);
@@ -1721,8 +1931,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         }
         const uint32_t pickupCount = p->audioParams.pickupSet == s3g::AmbiNeuralPickupSet::Cube8
             ? 8u : 4u;
+        const float seconds = static_cast<float>(frameCount / p->sampleRate);
         if (p->audioParams.scoreMode != s3g::AmbiNeuralScoreMode::Off) {
-            const float seconds = static_cast<float>(frameCount / p->sampleRate);
             if (p->scoreTransportRunning.load(std::memory_order_acquire)) {
                 p->lattice.advance(seconds, pickups, pickupCount,
                     p->audioParams.scoreMode, p->audioParams.scoreDwellSeconds,
@@ -1731,12 +1941,16 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
                 p->lattice.advanceTransition(seconds);
             }
         }
-        const auto renderParams = p->audioParams.scoreMode == s3g::AmbiNeuralScoreMode::Off
+        applyLatticeGenomeEvent(*p);
+        advanceLatticeExpression(*p, seconds);
+        const auto renderParams =
+            p->audioParams.scoreMode == s3g::AmbiNeuralScoreMode::Off
             ? p->audioParams
-            : s3g::applyAmbiNeuralLatticeCell(
-                p->audioParams, p->lattice.climate(), p->audioParams.scoreAmount);
+            : s3g::applyAmbiNeuralLatticeExpression(
+                p->audioParams, p->audioExpressionCurrent,
+                p->audioParams.scoreAmount);
         for (const auto& param : kParams) {
-            if (param.id < kParamBankSize && scoreGovernsParam(param.id)) {
+            if (param.id < kParamBankSize) {
                 p->guiEffectiveParameterValues[param.id].store(
                     paramValue(renderParams, param.id), std::memory_order_relaxed);
             }
@@ -2041,6 +2255,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     for (uint32_t index = 0u; index < state.genomeA.size(); ++index) {
         state.genomeA[index] = p->genomeA[index].load(std::memory_order_relaxed);
         state.genomeB[index] = p->genomeB[index].load(std::memory_order_relaxed);
+        state.liveGenome[index] = p->guiGenome[index].load(std::memory_order_relaxed);
     }
     state.genomeAValid = p->genomeAValid.load(std::memory_order_relaxed);
     state.genomeBValid = p->genomeBValid.load(std::memory_order_relaxed);
@@ -2061,6 +2276,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!stream || !stream->read) return false;
     uint32_t version = 0u;
     if (!readExact(stream, &version, sizeof(version))) return false;
+    if (version != kStateVersion) return false;
     SavedState state {};
     if (version == 1u) {
         SavedStateV1 old {};
@@ -2160,6 +2376,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.guiLatticeViewPlane = old.guiLatticeViewPlane;
         state.scoreTransportRunning =
             old.params.scoreMode == s3g::AmbiNeuralScoreMode::Off ? 0u : 1u;
+    } else if (version == 7u) {
+        SavedStateV7 old {};
+        old.version = version;
+        auto* bytes = reinterpret_cast<uint8_t*>(&old);
+        if (!readExact(stream, bytes + sizeof(version), sizeof(old) - sizeof(version))) return false;
+        std::memcpy(&state, &old, sizeof(old));
     } else if (version == kStateVersion) {
         state.version = version;
         auto* bytes = reinterpret_cast<uint8_t*>(&state);
@@ -2190,7 +2412,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     const bool validB = state.genomeBValid != 0u;
     storeGenomeSlots(*p, state.genomeA, state.genomeB, validA, validB);
     requestLatticeStorage(*p, state.lattice);
-    if (validA || validB) {
+    if (version == kStateVersion) {
+        requestGenomeRecall(*p, state.liveGenome);
+    } else if (validA || validB) {
         const auto target = morphGenomes(state.genomeA, state.genomeB,
             validA, validB, state.params.genomeMorph);
         requestGenomeRecall(*p, target);
@@ -2222,7 +2446,7 @@ enum GuiActionFeedback : int {
     kFeedbackScorePlay,
     kFeedbackScoreStop,
     kFeedbackScoreGo,
-    kFeedbackScoreInscribe,
+    kFeedbackGrowLattice,
 };
 
 struct GuiSliderSpec {
@@ -2259,9 +2483,9 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kAdaptationParamId, "ADAPTATION", 896, 298, 0.0, 1.0, false },
     { kPlasticityParamId, "CIRCUIT PLASTIC", 896, 322, 0.0, 1.0, false },
 
-    { kGenomeMorphParamId, "GENOME MORPH", 896, 600, 0.0, 1.0, false },
-    { kHeredityParamId, "HEREDITY", 896, 626, 0.0, 1.0, false },
-    { kMutationDepthParamId, "MUTATION DEPTH", 896, 652, 0.0, 1.0, false },
+    { kScoreVariationParamId, "VARIATION", 48, 664, 0.0, 1.0, false },
+    { kScoreRecombineParamId, "RECOMBINE", 48, 690, 0.0, 1.0, false },
+    { kScoreMemoryParamId, "MEMORY", 48, 716, 0.0, 1.0, false },
     { kScoreAmountParamId, "AMOUNT", 896, 778, 0.0, 1.0, false },
     { kScoreDwellParamId, "DWELL", 896, 802, 0.25, 60.0, true },
     { kScoreTransitionParamId, "TRANSITION", 896, 826, 0.05, 30.0, true },
@@ -2328,7 +2552,6 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     uint32_t _viewLatticePlane;
     BOOL _followLatticePlane;
     uint32_t _lastScoreMode;
-    int _dragLatticeMacro;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -2370,7 +2593,6 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
             && plugin->params.scoreMode != s3g::AmbiNeuralScoreMode::Off
             ? static_cast<uint32_t>(plugin->params.scoreMode)
             : static_cast<uint32_t>(s3g::AmbiNeuralScoreMode::Field);
-        _dragLatticeMacro = -1;
         [self setWantsLayer:YES];
     }
     return self;
@@ -2498,7 +2720,9 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
         file.genomeAValid != 0u, file.genomeBValid != 0u);
     requestLatticeStorage(*_plugin, file.lattice);
     _plugin->resetRequest.fetch_add(1u, std::memory_order_release);
-    if (file.genomeAValid || file.genomeBValid) {
+    if (file.version == kCustomPresetVersion) {
+        requestGenomeRecall(*_plugin, file.liveGenome);
+    } else if (file.genomeAValid || file.genomeBValid) {
         requestGenomeRecall(*_plugin, morphGenomes(file.genomeA, file.genomeB,
             file.genomeAValid != 0u, file.genomeBValid != 0u, file.params.genomeMorph));
     }
@@ -2558,7 +2782,7 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
 - (NSRect)scorePlayRect { return NSMakeRect(218, 783, 58, 18); }
 - (NSRect)scoreStopRect { return NSMakeRect(282, 783, 58, 18); }
 - (NSRect)scoreGoRect { return NSMakeRect(346, 783, 58, 18); }
-- (NSRect)scoreInscribeRect { return NSMakeRect(410, 783, 172, 18); }
+- (NSRect)scoreGrowRect { return NSMakeRect(410, 783, 172, 18); }
 
 - (NSRect)scorePageButtonRect:(int)index
 {
@@ -2593,29 +2817,6 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     const uint32_t row = local / 4u;
     return NSMakeRect(field.origin.x + 28.0 + column * 127.0,
         field.origin.y + 92.0 + row * 106.0, 112.0, 84.0);
-}
-
-- (NSRect)scoreMacroBarRect:(uint32_t)macro
-{
-    const NSRect field = [self fieldRect];
-    const uint32_t column = macro / 4u;
-    const uint32_t row = macro % 4u;
-    return NSMakeRect(field.origin.x + 122.0 + column * 204.0,
-        field.origin.y + 583.0 + row * 24.0, 74.0, 7.0);
-}
-
-- (void)setLatticeMacro:(uint32_t)macro fromPoint:(NSPoint)point
-{
-    macro = std::min<uint32_t>(macro, s3g::kAmbiNeuralLatticeMacros - 1u);
-    const NSRect bar = [self scoreMacroBarRect:macro];
-    const float value = std::clamp(static_cast<float>((point.x - bar.origin.x) / bar.size.width),
-        0.0f, 1.0f);
-    _plugin->latticeCells[_selectedLatticeCell * s3g::kAmbiNeuralLatticeMacros + macro].store(
-        value, std::memory_order_relaxed);
-    _plugin->latticeCellsRevision.fetch_add(1u, std::memory_order_release);
-    if (_plugin->host && _plugin->host->request_process) {
-        _plugin->host->request_process(_plugin->host);
-    }
 }
 
 - (NSRect)viewButtonRect:(int)index
@@ -2728,7 +2929,7 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
         [s3g::clap_gui::color(0xd8d8d8, 0.28 + vote * 0.72) setFill];
         NSRectFill(NSMakeRect(meter.origin.x, meter.origin.y, meter.size.width * vote, meter.size.height));
     }
-    [@"HUNT: LATTICE OF CONDITIONS    TUDOR: CIRCUIT AS SCORE    HERE: THE FIELD NAVIGATES"
+    [@"3D ROUTE: OUT ↑ ENTERS THE NEXT PLANE AT IN ↓  •  LAST PLANE WRAPS TO P1"
         drawAtPoint:NSMakePoint(field.origin.x + 12.0, field.origin.y + 52.0)
         withAttributes:valueAttrs];
     for (uint32_t plane = 0u; plane < planeCount; ++plane) {
@@ -2788,25 +2989,34 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     [trailPath setLineWidth:1.5];
     [trailPath stroke];
 
+    const uint32_t viewedIngress =
+        _plugin->latticeIngressCells[_viewLatticePlane].load(
+            std::memory_order_relaxed);
+    const uint32_t viewedEgress =
+        _plugin->latticeEgressCells[_viewLatticePlane].load(
+            std::memory_order_relaxed);
     for (uint32_t localCell = 0u;
         localCell < s3g::kAmbiNeuralLatticeCellsPerPlane; ++localCell) {
         const uint32_t cell =
             _viewLatticePlane * s3g::kAmbiNeuralLatticeCellsPerPlane + localCell;
         const NSRect rect = [self scoreCellRect:cell];
-        std::array<float, s3g::kAmbiNeuralLatticeMacros> macro {};
-        float mean = 0.0f;
-        for (uint32_t index = 0u; index < macro.size(); ++index) {
-            macro[index] = std::clamp(_plugin->latticeCells[
-                cell * s3g::kAmbiNeuralLatticeMacros + index].load(std::memory_order_relaxed),
-                0.0f, 1.0f);
-            mean += macro[index];
+        std::array<float, s3g::kAmbiNeuralEcologyGenomeValues> genome {};
+        for (uint32_t gene = 0u; gene < genome.size(); ++gene) {
+            genome[gene] = _plugin->latticeGenomes[
+                cell * s3g::kAmbiNeuralEcologyGenomeValues + gene]
+                    .load(std::memory_order_relaxed);
         }
-        mean /= static_cast<float>(macro.size());
+        const auto signature = s3g::ambiNeuralGenomeSignature(genome);
+        float mean = 0.0f;
+        for (const float value : signature) mean += value;
+        mean /= static_cast<float>(signature.size());
         const BOOL isCurrent = cell == current;
         const BOOL isTarget = cell == target && transition < 1.0f;
         const BOOL isSelected = cell == _selectedLatticeCell;
         const BOOL isStoppedSelection = isSelected
             && scoreEnabled && !transportRunning;
+        const BOOL isIngress = planeCount > 1u && cell == viewedIngress;
+        const BOOL isEgress = planeCount > 1u && cell == viewedEgress;
         const int shade = static_cast<int>(24.0f + mean * 32.0f + (isCurrent ? 34.0f : 0.0f));
         [s3g::clap_gui::color(isStoppedSelection
             ? 0x514722 : ((shade << 16) | (shade << 8) | shade)) setFill];
@@ -2822,73 +3032,81 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
             [s3g::clap_gui::color(0xd8d8d8, 0.72) setStroke];
             NSFrameRect(NSInsetRect(rect, 3.0, 3.0));
         }
+        if (isIngress || isEgress) {
+            [s3g::clap_gui::color(
+                isEgress ? 0xe0e0e0 : 0x909090, 0.88) setStroke];
+            NSFrameRect(NSInsetRect(rect, 4.0, 4.0));
+        }
         [[NSString stringWithFormat:@"%c%u",
             'A' + static_cast<int>(localCell / 4u), localCell % 4u + 1u]
             drawAtPoint:NSMakePoint(rect.origin.x + 7.0, rect.origin.y + 6.0)
             withAttributes:isStoppedSelection
                 ? s3g::clap_gui::textAttrs(s3g::clap_gui::color(0xffdf70), 9.0)
                 : (isCurrent ? s3g::clap_gui::softLabelAttrs() : valueAttrs)];
-        for (uint32_t macroIndex = 0u; macroIndex < macro.size(); ++macroIndex) {
-            const uint32_t column = macroIndex / 4u;
-            const uint32_t row = macroIndex % 4u;
-            const NSRect bar = NSMakeRect(rect.origin.x + 8.0 + column * 52.0,
-                rect.origin.y + 28.0 + row * 14.0, 43.0, 6.0);
+        [[NSString stringWithFormat:@"G%u",
+            _plugin->latticeGenerations[cell].load(std::memory_order_relaxed)]
+            drawAtPoint:NSMakePoint(rect.origin.x + 82.0, rect.origin.y + 6.0)
+            withAttributes:s3g::clap_gui::softLabelAttrs()];
+        if (isIngress || isEgress) {
+            [(isEgress ? @"OUT↑" : @"IN↓")
+                drawAtPoint:NSMakePoint(rect.origin.x + 38.0, rect.origin.y + 6.0)
+                withAttributes:isEgress
+                    ? s3g::clap_gui::softLabelAttrs() : valueAttrs];
+        }
+        static NSString* signatureNames[] = { @"C", @"L", @"E", @"P" };
+        for (uint32_t signatureIndex = 0u;
+            signatureIndex < signature.size(); ++signatureIndex) {
+            const CGFloat rowY =
+                rect.origin.y + 27.0 + signatureIndex * 13.0;
+            [signatureNames[signatureIndex]
+                drawAtPoint:NSMakePoint(rect.origin.x + 8.0, rowY - 3.0)
+                withAttributes:s3g::clap_gui::softLabelAttrs()];
+            const NSRect bar = NSMakeRect(rect.origin.x + 22.0,
+                rowY, 82.0, 6.0);
             [s3g::clap_gui::color(0x181818) setFill];
             NSRectFill(bar);
             [s3g::clap_gui::color(isStoppedSelection ? 0xe0bc4f
                 : (isCurrent ? 0xe0e0e0 : 0x9a9a9a),
-                0.32 + macro[macroIndex] * 0.68) setFill];
+                0.32 + signature[signatureIndex] * 0.68) setFill];
             NSRectFill(NSMakeRect(bar.origin.x, bar.origin.y,
-                bar.size.width * macro[macroIndex], bar.size.height));
-        }
-        uint32_t foldCount = 0u;
-        NSMutableString* folds = [NSMutableString string];
-        for (uint32_t direction = 0u;
-            direction < s3g::kAmbiNeuralLatticeDirections; ++direction) {
-            const uint32_t edge = _plugin->latticeEdges[
-                cell * s3g::kAmbiNeuralLatticeDirections + direction]
-                    .load(std::memory_order_relaxed);
-            const uint32_t edgePlane = edge / s3g::kAmbiNeuralLatticeCellsPerPlane;
-            if (edgePlane == _viewLatticePlane || edgePlane >= planeCount) continue;
-            if (foldCount++ > 0u) [folds appendString:@"  "];
-            [folds appendFormat:@"%@→P%u", directionNames[direction], edgePlane + 1u];
-        }
-        if ([folds length] > 0u) {
-            [folds drawAtPoint:NSMakePoint(rect.origin.x + 40.0, rect.origin.y + 6.0)
-                withAttributes:s3g::clap_gui::softLabelAttrs()];
+                bar.size.width * signature[signatureIndex], bar.size.height));
         }
     }
 
-    static NSString* macroNames[] = {
-        @"ACTIVITY", @"FEEDBACK", @"TIME", @"FIELD",
-        @"LISTEN", @"SPACE", @"HEREDITY", @"MUTATION"
-    };
-    const NSRect selected = [self scoreCellRect:_selectedLatticeCell];
-    (void)selected;
-    [[NSString stringWithFormat:@"SELECTED P%u:%c%u   —   INSCRIBE SETTINGS COPIES THE CURRENT BASE CONTROLS",
+    const uint32_t selectedGeneration =
+        _plugin->latticeGenerations[_selectedLatticeCell].load(std::memory_order_relaxed);
+    const uint32_t selectedPlane =
+        _selectedLatticeCell / s3g::kAmbiNeuralLatticeCellsPerPlane;
+    NSString* selectedPortal = @"";
+    if (planeCount > 1u
+        && _selectedLatticeCell
+            == _plugin->latticeIngressCells[selectedPlane].load(
+                std::memory_order_relaxed)) {
+        selectedPortal = [NSString stringWithFormat:@"   •   IN FROM P%u",
+            selectedPlane == 0u ? planeCount : selectedPlane];
+    } else if (planeCount > 1u
+        && _selectedLatticeCell
+            == _plugin->latticeEgressCells[selectedPlane].load(
+                std::memory_order_relaxed)) {
+        selectedPortal = [NSString stringWithFormat:@"   •   OUT TO P%u",
+            (selectedPlane + 1u) % planeCount + 1u];
+    }
+    [[NSString stringWithFormat:
+        @"SELECTED P%u:%c%u   —   RESIDENT GENERATION %u%@",
         _selectedLatticeCell / 16u + 1u,
         'A' + static_cast<int>((_selectedLatticeCell % 16u) / 4u),
-        _selectedLatticeCell % 4u + 1u]
+        _selectedLatticeCell % 4u + 1u,
+        selectedGeneration, selectedPortal]
         drawAtPoint:NSMakePoint(field.origin.x + 12.0, field.origin.y + 556.0)
         withAttributes:scoreEnabled && !transportRunning
             ? s3g::clap_gui::textAttrs(s3g::clap_gui::color(0xf0cb55), 9.0)
             : attrs];
-    for (uint32_t index = 0u; index < 8u; ++index) {
-        const uint32_t column = index / 4u;
-        const uint32_t row = index % 4u;
-        const CGFloat x = field.origin.x + 12.0 + column * 204.0;
-        const CGFloat y = field.origin.y + 580.0 + row * 24.0;
-        const float value = _plugin->latticeCells[
-            _selectedLatticeCell * 8u + index].load(std::memory_order_relaxed);
-        [macroNames[index] drawAtPoint:NSMakePoint(x, y) withAttributes:attrs];
-        [[NSString stringWithFormat:@"%3.0f%%", value * 100.0f]
-            drawAtPoint:NSMakePoint(x + 74.0, y) withAttributes:valueAttrs];
-        const NSRect bar = [self scoreMacroBarRect:index];
-        [s3g::clap_gui::color(0x242424) setFill];
-        NSRectFill(bar);
-        [s3g::clap_gui::color(0xc8c8c8) setFill];
-        NSRectFill(NSMakeRect(bar.origin.x, bar.origin.y,
-            bar.size.width * std::clamp(value, 0.0f, 1.0f), bar.size.height));
+    for (const auto& slider : kGuiSliders) {
+        if (slider.id == kScoreVariationParamId
+            || slider.id == kScoreRecombineParamId
+            || slider.id == kScoreMemoryParamId) {
+            [self drawSlider:slider style:style];
+        }
     }
     [self drawScoreToggleButton:(_followLatticePlane ? @"FOLLOWING ACTIVE" : @"FOLLOW ACTIVE")
         rect:[self scoreFollowRect] active:_followLatticePlane];
@@ -2897,9 +3115,9 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     [self drawOrganismActionButton:@"STOP" rect:[self scoreStopRect]
         action:kFeedbackScoreStop];
     [self drawOrganismActionButton:@"GO" rect:[self scoreGoRect] action:kFeedbackScoreGo];
-    [self drawOrganismActionButton:@"INSCRIBE SETTINGS" rect:[self scoreInscribeRect]
-        action:kFeedbackScoreInscribe];
-    [@"STOP: CLICK A CELL TO RECALL ITS CLIMATE.  TRANSITION SETS THE GLIDE TIME."
+    [self drawOrganismActionButton:@"GROW LATTICE" rect:[self scoreGrowRect]
+        action:kFeedbackGrowLattice];
+    [@"STOP: CLICK A CELL TO AUDITION ITS RESIDENT.  TRANSITION SETS GESTATION."
         drawAtPoint:NSMakePoint(field.origin.x + 12.0, field.origin.y + 730.0)
         withAttributes:valueAttrs];
 }
@@ -3097,15 +3315,17 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
 {
     double value = 0.0;
     paramsGetValue(&_plugin->plugin, slider.id, &value);
-    const BOOL scored = scoreGovernsParam(slider.id)
+    const BOOL expressed = latticeExpressionGovernsParam(slider.id)
         && _plugin->params.scoreMode != s3g::AmbiNeuralScoreMode::Off
         && _plugin->params.scoreAmount > 0.0001f;
-    if (scored) {
-        const NSRect row = NSMakeRect(slider.x + 8.0, slider.y - 5.0, 224.0, 19.0);
+    if (expressed) {
+        const NSRect row = NSMakeRect(
+            slider.x + 8.0, slider.y - 5.0, 224.0, 19.0);
         [s3g::clap_gui::color(0x343434, 0.78) setFill];
         NSRectFill(row);
         [s3g::clap_gui::color(0xe2e2e2, 0.82) setFill];
-        NSRectFill(NSMakeRect(row.origin.x, row.origin.y, 2.0, row.size.height));
+        NSRectFill(NSMakeRect(
+            row.origin.x, row.origin.y, 2.0, row.size.height));
     }
     char display[64] {};
     paramsValueToText(nullptr, slider.id, value, display, sizeof(display));
@@ -3113,13 +3333,19 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
         [NSString stringWithUTF8String:display], sliderNorm(slider, value), slider.y,
         s3g::clap_gui::softLabelAttrs(), s3g::clap_gui::softValueAttrs(), style,
         slider.x + 16.0, slider.x + 108.0, slider.x + 196.0, 82.0);
-    if (scored && _plugin->guiEffectiveParametersReady.load(std::memory_order_acquire)) {
+    if (expressed
+        && _plugin->guiEffectiveParametersReady.load(std::memory_order_acquire)) {
         const double effective =
-            _plugin->guiEffectiveParameterValues[slider.id].load(std::memory_order_relaxed);
-        const CGFloat markerX = slider.x + 108.0
-            + static_cast<CGFloat>(sliderNorm(slider, effective)) * 82.0;
-        [s3g::clap_gui::color(0xffffff) setStroke];
-        NSFrameRect(NSMakeRect(markerX - 2.0, slider.y - 1.0, 5.0, 13.0));
+            _plugin->guiEffectiveParameterValues[slider.id].load(
+                std::memory_order_relaxed);
+        if (std::fabs(effective - value) > 1.0e-5) {
+            const CGFloat markerX = slider.x + 108.0
+                + static_cast<CGFloat>(
+                    sliderNorm(slider, effective)) * 82.0;
+            [s3g::clap_gui::color(0xffffff) setStroke];
+            NSFrameRect(NSMakeRect(
+                markerX - 2.0, slider.y - 1.0, 5.0, 13.0));
+        }
     }
 }
 
@@ -3231,42 +3457,36 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     for (const auto& slider : kGuiSliders) if (slider.x == 630 && slider.y >= 500) [self drawSlider:slider style:style];
 
     s3g::clap_gui::drawPanelFrame(896, 450, 246, 284, style);
-    s3g::clap_gui::drawPanelHeader(@"ORGANISM", true, 896, 450, 246, 21, attrs, style);
-    [@"POPULATION" drawAtPoint:NSMakePoint(912, 486) withAttributes:attrs];
-    constexpr uint32_t kPopulationByNodeSet[] { 4u, 8u, 16u, 32u, 64u };
-    const uint32_t population = kPopulationByNodeSet[
-        std::min<uint32_t>(static_cast<uint32_t>(p.nodeSet), 4u)];
-    [[NSString stringWithFormat:@"%u NODES", population]
-        drawAtPoint:NSMakePoint(1004, 486) withAttributes:s3g::clap_gui::softValueAttrs()];
-    [@"SEED" drawAtPoint:NSMakePoint(912, 512) withAttributes:attrs];
-    [[NSString stringWithFormat:@"%u", p.seed]
-        drawAtPoint:NSMakePoint(1004, 512) withAttributes:s3g::clap_gui::softValueAttrs()];
-    [@"GENOME A" drawAtPoint:NSMakePoint(912, 538) withAttributes:attrs];
-    [self drawOrganismActionButton:@"CAP" rect:[self genomeCaptureRect:0u] action:kFeedbackCaptureA];
-    [self drawOrganismActionButton:@"RECALL" rect:[self genomeRecallRect:0u] action:kFeedbackRecallA];
-    NSString* genomeAStatus = [self feedbackActive:kFeedbackCaptureA] ? @"CAPTURED"
-        : [self feedbackActive:kFeedbackRecallA] ? (_feedbackSuccess ? @"RECALLED" : @"EMPTY")
-        : (_plugin->genomeAValid.load(std::memory_order_relaxed) ? @"HELD" : @"EMPTY");
-    [genomeAStatus
-        drawAtPoint:NSMakePoint(1077, 538) withAttributes:s3g::clap_gui::softValueAttrs()];
-    [@"GENOME B" drawAtPoint:NSMakePoint(912, 564) withAttributes:attrs];
-    [self drawOrganismActionButton:@"CAP" rect:[self genomeCaptureRect:1u] action:kFeedbackCaptureB];
-    [self drawOrganismActionButton:@"RECALL" rect:[self genomeRecallRect:1u] action:kFeedbackRecallB];
-    NSString* genomeBStatus = [self feedbackActive:kFeedbackCaptureB] ? @"CAPTURED"
-        : [self feedbackActive:kFeedbackRecallB] ? (_feedbackSuccess ? @"RECALLED" : @"EMPTY")
-        : (_plugin->genomeBValid.load(std::memory_order_relaxed) ? @"HELD" : @"EMPTY");
-    [genomeBStatus
-        drawAtPoint:NSMakePoint(1077, 564) withAttributes:s3g::clap_gui::softValueAttrs()];
-    for (const auto& slider : kGuiSliders) {
-        if (slider.x == 896 && slider.y >= 590 && slider.y < 734) [self drawSlider:slider style:style];
-    }
-    [@"OFFSPRING" drawAtPoint:NSMakePoint(912, 684) withAttributes:attrs];
-    [self drawOrganismActionButton:@"BREED" rect:[self breedRect] action:kFeedbackBreed];
-    NSString* breedStatus = [self feedbackActive:kFeedbackBreed]
-        ? (_feedbackSuccess ? @"BRED" : @"NEED A+B") : @"A x B";
-    [breedStatus drawAtPoint:NSMakePoint(1074, 684) withAttributes:s3g::clap_gui::softValueAttrs()];
-    [@"MUTATE: LIVING  /  RESEED: RESTART"
-        drawAtPoint:NSMakePoint(912, 710) withAttributes:s3g::clap_gui::softValueAttrs()];
+    s3g::clap_gui::drawPanelHeader(@"LATTICE STATUS", true, 896, 450, 246, 21, attrs, style);
+    const uint32_t latticeCells =
+        _plugin->guiLatticePlaneCount.load(std::memory_order_relaxed)
+        * s3g::kAmbiNeuralLatticeCellsPerPlane;
+    const uint32_t activeResident = std::min<uint32_t>(
+        _plugin->guiLatticeCurrentCell.load(std::memory_order_relaxed),
+        latticeCells - 1u);
+    [@"RESIDENTS" drawAtPoint:NSMakePoint(912, 486) withAttributes:attrs];
+    [[NSString stringWithFormat:@"%u", latticeCells]
+        drawAtPoint:NSMakePoint(1020, 486) withAttributes:s3g::clap_gui::softValueAttrs()];
+    [@"BIRTHS" drawAtPoint:NSMakePoint(912, 512) withAttributes:attrs];
+    [[NSString stringWithFormat:@"%u",
+        _plugin->latticeBirthCount.load(std::memory_order_relaxed)]
+        drawAtPoint:NSMakePoint(1020, 512) withAttributes:s3g::clap_gui::softValueAttrs()];
+    [@"ACTIVE CELL" drawAtPoint:NSMakePoint(912, 538) withAttributes:attrs];
+    [[NSString stringWithFormat:@"P%u:%c%u",
+        activeResident / 16u + 1u,
+        'A' + static_cast<int>((activeResident % 16u) / 4u),
+        activeResident % 4u + 1u]
+        drawAtPoint:NSMakePoint(1020, 538) withAttributes:s3g::clap_gui::softValueAttrs()];
+    [@"GENERATION" drawAtPoint:NSMakePoint(912, 564) withAttributes:attrs];
+    [[NSString stringWithFormat:@"%u",
+        _plugin->latticeGenerations[activeResident].load(std::memory_order_relaxed)]
+        drawAtPoint:NSMakePoint(1020, 564) withAttributes:s3g::clap_gui::softValueAttrs()];
+    [@"OPEN SCORE TO SET GENETICS"
+        drawAtPoint:NSMakePoint(912, 616) withAttributes:s3g::clap_gui::softValueAttrs()];
+    [@"GROW ONCE • THEN PLAY"
+        drawAtPoint:NSMakePoint(912, 642) withAttributes:s3g::clap_gui::softValueAttrs()];
+    [@"MOVES CREATE LIVE OFFSPRING"
+        drawAtPoint:NSMakePoint(912, 668) withAttributes:s3g::clap_gui::softValueAttrs()];
 
     s3g::clap_gui::drawPanelFrame(896, 750, 246, 96, style);
     s3g::clap_gui::drawPanelHeader(@"FIELD SCORE", true, 896, 750, 246, 21, attrs, style);
@@ -3365,10 +3585,6 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
         action:kFeedbackLoad attrs:attrs style:style];
     [self drawFeedbackActionButton:@"RANDOM" rect:[self randomRect]
         action:kFeedbackRandom attrs:attrs style:style];
-    [self drawFeedbackActionButton:@"MUTATE" rect:[self mutateRect]
-        action:kFeedbackMutate attrs:attrs style:style];
-    [self drawFeedbackActionButton:@"RESEED" rect:[self reseedRect]
-        action:kFeedbackReseed attrs:attrs style:style];
     s3g::clap_gui::drawRightStatus(s3g::clap_gui::peakDbText(
         _plugin->outputPeak.load(std::memory_order_relaxed)), kGuiWidth, 14, values, 18);
     [self drawField:attrs valueAttrs:values style:style];
@@ -3443,37 +3659,6 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
         randomizeSafe(*_plugin);
         [self showActionFeedback:kFeedbackRandom success:YES];
         return;
-    }
-    if (NSPointInRect(point, [self breedRect])) {
-        const BOOL bred = breedCurrentGenome(*_plugin) ? YES : NO;
-        [self showActionFeedback:kFeedbackBreed success:bred];
-        return;
-    }
-    if (NSPointInRect(point, [self mutateRect])) {
-        applyGuiParam(*_plugin, kMutateParamId, static_cast<double>((_plugin->params.mutate + 1u) & 0xffffu));
-        [self showActionFeedback:kFeedbackMutate success:YES];
-        return;
-    }
-    if (NSPointInRect(point, [self reseedRect])) {
-        uint32_t seed = _plugin->params.seed * 1664525u + 1013904223u;
-        seed = 1u + (seed % 65535u);
-        applyGuiParam(*_plugin, kSeedParamId, seed);
-        _plugin->resetRequest.fetch_add(1u, std::memory_order_release);
-        [self showActionFeedback:kFeedbackReseed success:YES];
-        return;
-    }
-    for (uint32_t slot = 0u; slot < 2u; ++slot) {
-        if (NSPointInRect(point, [self genomeCaptureRect:slot])) {
-            [self captureGenomeSlot:slot];
-            [self showActionFeedback:slot == 0u ? kFeedbackCaptureA : kFeedbackCaptureB success:YES];
-            return;
-        }
-        if (NSPointInRect(point, [self genomeRecallRect:slot])) {
-            const BOOL recalled = [self recallGenomeSlot:slot];
-            [self showActionFeedback:slot == 0u ? kFeedbackRecallA : kFeedbackRecallB
-                                  success:recalled];
-            return;
-        }
     }
     for (int index = 0; index < 2; ++index) {
         if (NSPointInRect(point, [self scorePageButtonRect:index])) {
@@ -3556,10 +3741,14 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
                 return;
             }
         }
-        for (uint32_t macro = 0u; macro < s3g::kAmbiNeuralLatticeMacros; ++macro) {
-            if (NSPointInRect(point, NSInsetRect([self scoreMacroBarRect:macro], 0.0, -6.0))) {
-                _dragLatticeMacro = static_cast<int>(macro);
-                [self setLatticeMacro:macro fromPoint:point];
+        for (const auto& slider : kGuiSliders) {
+            if ((slider.id == kScoreVariationParamId
+                    || slider.id == kScoreRecombineParamId
+                    || slider.id == kScoreMemoryParamId)
+                && NSPointInRect(point,
+                    NSMakeRect(slider.x + 8.0, slider.y - 8.0, 230.0, 24.0))) {
+                _dragParam = static_cast<int>(slider.id);
+                [self setParam:slider.id fromPoint:point];
                 return;
             }
         }
@@ -3574,17 +3763,14 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
             [self showActionFeedback:kFeedbackScoreGo success:YES];
             return;
         }
-        if (NSPointInRect(point, [self scoreInscribeRect])) {
-            syncGuiParams(*_plugin);
-            auto storage = snapshotLattice(*_plugin);
-            storage.cells[_selectedLatticeCell] =
-                s3g::inscribeAmbiNeuralLatticeCell(_plugin->params);
-            storage.selectedCell = _selectedLatticeCell;
-            storeLatticeCells(*_plugin, storage);
-            [self showActionFeedback:kFeedbackScoreInscribe success:YES];
-            if (_plugin->host && _plugin->host->request_process) {
-                _plugin->host->request_process(_plugin->host);
-            }
+        if (NSPointInRect(point, [self scoreGrowRect])) {
+            growCurrentLattice(*_plugin);
+            _selectedLatticeCell =
+                _plugin->guiLatticeCurrentCell.load(std::memory_order_relaxed);
+            _plugin->guiSelectedLatticeCell = _selectedLatticeCell;
+            _viewLatticePlane =
+                _selectedLatticeCell / s3g::kAmbiNeuralLatticeCellsPerPlane;
+            [self showActionFeedback:kFeedbackGrowLattice success:YES];
             return;
         }
         for (uint32_t localCell = 0u;
@@ -3635,9 +3821,7 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
 - (void)mouseDragged:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    if (_dragLatticeMacro >= 0) {
-        [self setLatticeMacro:static_cast<uint32_t>(_dragLatticeMacro) fromPoint:point];
-    } else if (_dragView) {
+    if (_dragView) {
         _viewAzDeg += (point.x - _lastDragPoint.x) * 0.35;
         _viewElDeg = std::clamp(_viewElDeg + (point.y - _lastDragPoint.y) * 0.35, -85.0, 85.0);
         _lastDragPoint = point;
@@ -3652,7 +3836,6 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     (void)event;
     _dragParam = 0;
     _dragView = NO;
-    _dragLatticeMacro = -1;
 }
 
 - (void)mouseMoved:(NSEvent*)event
@@ -3791,8 +3974,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.6.3",
-    "A recurrent Ambisonic ecology whose adaptive field navigates a folded multi-plane lattice score.",
+    "0.8.0",
+    "A recurrent Ambisonic ecology that breeds resident genomes through an ingress/egress lattice volume.",
     features
 };
 
@@ -3811,7 +3994,19 @@ const clap_plugin_t* create(const clap_host_t* host)
     p->engine.prepare(p->sampleRate);
     p->engine.setParams(p->audioParams);
     p->engine.reset();
-    requestLatticeStorage(*p, s3g::defaultAmbiNeuralLattice(), false);
+    const auto founder = p->engine.genomeValues();
+    const auto founderExpression =
+        s3g::ambiNeuralLatticeExpressionFromParams(p->params);
+    p->audioExpressionCurrent = founderExpression;
+    p->audioExpressionFrom = founderExpression;
+    p->audioExpressionTarget = founderExpression;
+    for (uint32_t index = 0u; index < founder.size(); ++index) {
+        p->guiGenome[index].store(founder[index], std::memory_order_relaxed);
+    }
+    requestLatticeStorage(*p, s3g::growAmbiNeuralLattice(
+        founder, founderExpression, p->randomSeed,
+        s3g::ambiNeuralScorePlaneCount(p->params.scorePlanes),
+        p->params.scoreVariation, p->params.scoreRecombine), false);
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;
     p->plugin.init = init;

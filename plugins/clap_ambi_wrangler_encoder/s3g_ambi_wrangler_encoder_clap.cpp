@@ -22,13 +22,17 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <vector>
 
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiWranglerMaxChannels;
-constexpr uint32_t kStateVersion = 11;
+constexpr uint32_t kStateVersion = 14;
 constexpr uint32_t kCustomPresetMagic = 0x33505741u; // AWP3
-constexpr uint32_t kCustomPresetVersion = 8;
+constexpr uint32_t kCustomPresetVersion = 11;
+constexpr double kMinimumSampleRate = 1000.0;
+constexpr double kMaximumSampleRate = 384000.0;
+constexpr uint32_t kMaximumActivationFrames = 1u << 20u;
 
 constexpr clap_id kPresetParamId = 1;
 constexpr clap_id kOrderParamId = 2;
@@ -85,29 +89,19 @@ constexpr clap_id kFieldReturnParamId = 52;
 constexpr clap_id kPropagationParamId = 53;
 constexpr clap_id kReturnBypassParamId = 54;
 constexpr clap_id kCircuitLawParamId = 55;
-constexpr clap_id kEnginesParamId = 56;
+constexpr clap_id kLegacyEnginesParamId = 56;
 constexpr clap_id kChangeParamId = 57;
 constexpr clap_id kListenerResponseParamId = 58;
 constexpr clap_id kSettleAmountParamId = 59;
 constexpr clap_id kSettleTargetParamId = 60;
 constexpr clap_id kSettleRecoveryParamId = 61;
-
-constexpr size_t kWranglerV9ParamsSize =
-    offsetof(s3g::AmbiWranglerParams, listeningEnabled);
-constexpr size_t kWranglerV10ParamsSize =
-    offsetof(s3g::AmbiWranglerParams, circuitLaw);
+constexpr clap_id kFilterMorphParamId = 62;
 
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiWranglerParams params {};
     uint32_t presetIndex = 0u;
     char customPresetName[64] {};
-};
-
-struct SavedStateV3 {
-    uint32_t version = 3u;
-    s3g::AmbiWranglerParams params {};
-    uint32_t presetIndex = 0u;
 };
 
 struct CustomPresetFile {
@@ -117,15 +111,76 @@ struct CustomPresetFile {
     s3g::AmbiWranglerParams params {};
 };
 
+static_assert(offsetof(s3g::AmbiWranglerParams, bpColorA) == 3576u);
+static_assert(sizeof(s3g::AmbiWranglerParams)
+    == offsetof(s3g::AmbiWranglerParams, bpColorA)
+        + sizeof(std::array<float, s3g::kAmbiWranglerMaxVoices>) * 11u);
+static_assert(sizeof(s3g::AmbiWranglerParams) == 6392u);
+static_assert(sizeof(SavedState) == 6464u);
+static_assert(sizeof(CustomPresetFile) == 6464u);
+static_assert(offsetof(SavedState, params) == sizeof(uint32_t));
+static_assert(offsetof(CustomPresetFile, params)
+    == sizeof(uint32_t) * 2u + 64u);
+static_assert(std::atomic<uint64_t>::is_always_lock_free,
+    "Wrangler real-time snapshot revisions require lock-free atomics");
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
+    std::atomic<bool> active { false };
+
+    // The engine and this render snapshot are audio-thread-owned. Control,
+    // state, and GUI code never call the engine or touch audioParams.
     s3g::AmbiWranglerEncoder engine {};
-    s3g::AmbiWranglerParams params {};
+    s3g::AmbiWranglerParams audioParams {};
+    uint32_t audioPresetIndex = 0u;
+    char audioCustomPresetName[64] {};
+    std::array<std::vector<float>, kOutputChannels>
+        doubleRenderScratch {};
+    uint32_t doubleRenderScratchFrames = 0u;
+
+    // Non-audio writers serialize through controlLock. Readers also take the
+    // lock so every state/GUI query observes one complete parameter snapshot.
+    std::atomic_flag controlLock = ATOMIC_FLAG_INIT;
+    s3g::AmbiWranglerParams controlParams {};
     uint32_t presetIndex = 0u;
     char customPresetName[64] {};
     uint32_t randomSeed = 0x6d2b79f5u;
+
+    // Latest-value control -> audio mailbox. Scalar GUI edits carry a dirty
+    // mask so they cannot replace unrelated host automation. Structural
+    // changes (state, presets, randomization, and curves) explicitly publish
+    // a full replacement. Writers may briefly wait; the audio thread performs
+    // at most one try-acquire and retries next block if the slot is occupied.
+    std::atomic_flag paramsMailboxLock = ATOMIC_FLAG_INIT;
+    s3g::AmbiWranglerParams paramsMailbox {};
+    uint32_t paramsMailboxPresetIndex = 0u;
+    char paramsMailboxCustomPresetName[64] {};
+    uint64_t paramsMailboxDirtyMask = 0u;
+    bool paramsMailboxFullReplace = true;
+    bool paramsMailboxPresetMetadataChanged = true;
+    std::atomic<uint64_t> paramsMailboxRevision { 0u };
+    uint64_t audioMailboxRevision = 0u;
+    std::array<uint64_t, 64u> controlParamEditRevision {};
+    uint64_t controlStructuralEditRevision = 0u;
+    uint64_t controlPresetEditRevision = 0u;
+
+    // Audio automation is mirrored back without touching controlParams on the
+    // audio thread. The next non-audio reader/writer merges the latest dirty
+    // host parameters while holding controlLock.
+    std::atomic_flag audioReportLock = ATOMIC_FLAG_INIT;
+    s3g::AmbiWranglerParams audioReportParams {};
+    uint32_t audioReportPresetIndex = 0u;
+    char audioReportCustomPresetName[64] {};
+    uint64_t audioReportDirtyMask = 0u;
+    bool audioReportPresetChanged = false;
+    uint64_t audioReportMailboxRevision = 0u;
+    std::atomic<uint64_t> audioReportRevision { 0u };
+    uint64_t controlAudioReportRevision = 0u;
+    uint64_t pendingAudioReportDirtyMask = 0u;
+    bool pendingAudioReportPresetChanged = false;
+
     std::atomic<float> outputPeak { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -152,7 +207,6 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAmbiWranglerMaxVoices> guiCouplingRate {};
     std::array<std::atomic<uint32_t>, s3g::kAmbiWranglerMaxVoices> guiRegisterHeld {};
     std::array<std::atomic<uint64_t>, s3g::kAmbiWranglerMaxVoices> guiHeldClockCount {};
-    std::array<std::atomic<uint32_t>, s3g::kAmbiWranglerMaxVoices> guiNodeEngine {};
     std::array<std::atomic<float>, s3g::kAmbiFieldListenerMaxLobes> guiListenerEnvelope {};
     std::array<std::atomic<float>, s3g::kAmbiFieldListenerMaxLobes> guiListenerSignal {};
     std::atomic<float> guiListenerActivity { 0.0f };
@@ -164,6 +218,160 @@ struct Plugin {
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+class AtomicFlagGuard {
+public:
+    explicit AtomicFlagGuard(std::atomic_flag& flag)
+        : flag_(flag)
+    {
+        while (flag_.test_and_set(std::memory_order_acquire)) {
+            // Control/state/GUI threads may wait for one short fixed-size copy.
+        }
+    }
+
+    ~AtomicFlagGuard()
+    {
+        flag_.clear(std::memory_order_release);
+    }
+
+    AtomicFlagGuard(const AtomicFlagGuard&) = delete;
+    AtomicFlagGuard& operator=(const AtomicFlagGuard&) = delete;
+
+private:
+    std::atomic_flag& flag_;
+};
+
+struct ControlStateSnapshot {
+    s3g::AmbiWranglerParams params {};
+    uint32_t presetIndex = 0u;
+    char customPresetName[64] {};
+    uint64_t mailboxRevision = 0u;
+};
+
+ControlStateSnapshot controlStateSnapshot(Plugin& plugin);
+void mergeAudioReportLocked(Plugin& plugin);
+bool assignParam(
+    s3g::AmbiWranglerParams& params, clap_id id, double value);
+bool paramValueFromParams(
+    const s3g::AmbiWranglerParams& params, clap_id id, double& value);
+
+void publishControlParamsLocked(Plugin& plugin)
+{
+    // `engines` is retained only to keep the core struct layout simple. It is
+    // no longer an independent control and must remain a canonical mirror so
+    // process-event and flush-event state serialization are identical.
+    plugin.controlParams.engines = plugin.controlParams.voices;
+    AtomicFlagGuard mailboxGuard(plugin.paramsMailboxLock);
+    plugin.paramsMailbox = plugin.controlParams;
+    plugin.paramsMailboxPresetIndex = plugin.presetIndex;
+    std::snprintf(plugin.paramsMailboxCustomPresetName,
+        sizeof(plugin.paramsMailboxCustomPresetName), "%s",
+        plugin.customPresetName);
+    plugin.paramsMailboxDirtyMask = 0u;
+    plugin.paramsMailboxFullReplace = true;
+    plugin.paramsMailboxPresetMetadataChanged = true;
+    const uint64_t revision =
+        plugin.paramsMailboxRevision.fetch_add(
+            1u, std::memory_order_release) + 1u;
+    plugin.controlParamEditRevision.fill(revision);
+    plugin.controlStructuralEditRevision = revision;
+    plugin.controlPresetEditRevision = revision;
+}
+
+void publishControlParamDeltasLocked(
+    Plugin& plugin, uint64_t dirtyMask)
+{
+    if (dirtyMask == 0u) return;
+    constexpr uint64_t voicesAliases =
+        (uint64_t { 1u } << kVoicesParamId)
+        | (uint64_t { 1u } << kLegacyEnginesParamId);
+    if ((dirtyMask & voicesAliases) != 0u) {
+        dirtyMask |= voicesAliases;
+    }
+    plugin.controlParams.engines = plugin.controlParams.voices;
+    AtomicFlagGuard mailboxGuard(plugin.paramsMailboxLock);
+    plugin.paramsMailbox = plugin.controlParams;
+    plugin.paramsMailboxPresetIndex = plugin.presetIndex;
+    std::snprintf(plugin.paramsMailboxCustomPresetName,
+        sizeof(plugin.paramsMailboxCustomPresetName), "%s",
+        plugin.customPresetName);
+    plugin.paramsMailboxDirtyMask |= dirtyMask;
+    const uint64_t revision =
+        plugin.paramsMailboxRevision.fetch_add(
+            1u, std::memory_order_release) + 1u;
+    for (clap_id id = 0u;
+        id < plugin.controlParamEditRevision.size(); ++id) {
+        if ((dirtyMask & (uint64_t { 1u } << id)) != 0u) {
+            plugin.controlParamEditRevision[id] = revision;
+        }
+    }
+}
+
+void publishControlPresetMetadataLocked(Plugin& plugin)
+{
+    AtomicFlagGuard mailboxGuard(plugin.paramsMailboxLock);
+    plugin.paramsMailbox = plugin.controlParams;
+    plugin.paramsMailboxPresetIndex = plugin.presetIndex;
+    std::snprintf(plugin.paramsMailboxCustomPresetName,
+        sizeof(plugin.paramsMailboxCustomPresetName), "%s",
+        plugin.customPresetName);
+    plugin.paramsMailboxPresetMetadataChanged = true;
+    const uint64_t revision =
+        plugin.paramsMailboxRevision.fetch_add(
+            1u, std::memory_order_release) + 1u;
+    plugin.controlPresetEditRevision = revision;
+}
+
+bool tryConsumeControlParams(Plugin& plugin)
+{
+    const uint64_t advertised =
+        plugin.paramsMailboxRevision.load(std::memory_order_acquire);
+    if (advertised == plugin.audioMailboxRevision) return false;
+    if (plugin.paramsMailboxLock.test_and_set(std::memory_order_acquire)) {
+        return false;
+    }
+    const uint64_t revision =
+        plugin.paramsMailboxRevision.load(std::memory_order_relaxed);
+    const bool consumed = revision != plugin.audioMailboxRevision;
+    if (consumed) {
+        if (plugin.paramsMailboxFullReplace) {
+            plugin.audioParams = plugin.paramsMailbox;
+            plugin.audioPresetIndex = plugin.paramsMailboxPresetIndex;
+            std::memcpy(plugin.audioCustomPresetName,
+                plugin.paramsMailboxCustomPresetName,
+                sizeof(plugin.audioCustomPresetName));
+            plugin.audioCustomPresetName[
+                sizeof(plugin.audioCustomPresetName) - 1u] = '\0';
+        } else {
+            for (clap_id id = 2u; id <= kFilterMorphParamId; ++id) {
+                const uint64_t bit = uint64_t { 1u } << id;
+                if ((plugin.paramsMailboxDirtyMask & bit) == 0u) {
+                    continue;
+                }
+                double value = 0.0;
+                if (paramValueFromParams(
+                        plugin.paramsMailbox, id, value)) {
+                    assignParam(plugin.audioParams, id, value);
+                }
+            }
+            if (plugin.paramsMailboxPresetMetadataChanged) {
+                plugin.audioPresetIndex =
+                    plugin.paramsMailboxPresetIndex;
+                std::memcpy(plugin.audioCustomPresetName,
+                    plugin.paramsMailboxCustomPresetName,
+                    sizeof(plugin.audioCustomPresetName));
+                plugin.audioCustomPresetName[
+                    sizeof(plugin.audioCustomPresetName) - 1u] = '\0';
+            }
+        }
+        plugin.paramsMailboxDirtyMask = 0u;
+        plugin.paramsMailboxFullReplace = false;
+        plugin.paramsMailboxPresetMetadataChanged = false;
+        plugin.audioMailboxRevision = revision;
+    }
+    plugin.paramsMailboxLock.clear(std::memory_order_release);
+    return consumed;
+}
 
 bool writeExact(const clap_ostream_t* stream, const void* data, size_t size)
 {
@@ -189,41 +397,92 @@ bool readExact(const clap_istream_t* stream, void* data, size_t size)
     return true;
 }
 
-std::array<float, s3g::kAmbiWranglerMaxVoices>& breakpointArray(s3g::AmbiWranglerParams& params, uint32_t row)
+using WranglerCurveDimension = s3g::AmbiWranglerCurveDimension;
+using WranglerCurveArray =
+    std::array<float, s3g::kAmbiWranglerMaxVoices>;
+
+WranglerCurveArray* breakpointArray(
+    s3g::AmbiWranglerParams& params, WranglerCurveDimension dimension)
 {
-    switch (row) {
-    case 0: return params.bpRateA;
-    case 1: return params.bpRateB;
-    case 2: return params.bpFmAtoB;
-    case 3: return params.bpFmBtoA;
-    case 4: return params.bpRunglerA;
-    case 5: return params.bpRunglerB;
-    case 6: return params.bpFilter;
-    case 7: return params.bpThreshold;
-    case 8: return params.bpPwmA;
-    case 9: return params.bpPwmB;
-    case 10: return params.bpRampA;
-    case 11: return params.bpRampB;
-    default: return params.bpAmp;
+    switch (dimension) {
+    case WranglerCurveDimension::RateA: return &params.bpRateA;
+    case WranglerCurveDimension::RungA: return &params.bpRunglerA;
+    case WranglerCurveDimension::FmBtoA: return &params.bpFmBtoA;
+    case WranglerCurveDimension::ColorA: return &params.bpColorA;
+    case WranglerCurveDimension::RateB: return &params.bpRateB;
+    case WranglerCurveDimension::RungB: return &params.bpRunglerB;
+    case WranglerCurveDimension::FmAtoB: return &params.bpFmAtoB;
+    case WranglerCurveDimension::ColorB: return &params.bpColorB;
+    case WranglerCurveDimension::FilterFreqA: return &params.bpFilter;
+    case WranglerCurveDimension::FilterFreqB: return &params.bpFilterFreqB;
+    case WranglerCurveDimension::FilterRes: return &params.bpFilterRes;
+    case WranglerCurveDimension::FilterComp: return &params.bpFilterComp;
+    case WranglerCurveDimension::FilterType: return &params.bpFilterType;
+    case WranglerCurveDimension::CrossA: return &params.bpCrossA;
+    case WranglerCurveDimension::CrossB: return &params.bpCrossB;
+    case WranglerCurveDimension::CrossLpf: return &params.bpCrossLpf;
+    case WranglerCurveDimension::RungMode: return &params.bpRungMode;
+    case WranglerCurveDimension::RungThresh: return &params.bpThreshold;
+    case WranglerCurveDimension::RungSize: return &params.bpRungSize;
+    case WranglerCurveDimension::PwmA: return &params.bpPwmA;
+    case WranglerCurveDimension::PwmB: return &params.bpPwmB;
+    case WranglerCurveDimension::RampA: return &params.bpRampA;
+    case WranglerCurveDimension::RampB: return &params.bpRampB;
+    case WranglerCurveDimension::Amp: return &params.bpAmp;
     }
+    return nullptr;
 }
 
-const std::array<float, s3g::kAmbiWranglerMaxVoices>& breakpointArray(const s3g::AmbiWranglerParams& params, uint32_t row)
+const WranglerCurveArray* breakpointArray(
+    const s3g::AmbiWranglerParams& params,
+    WranglerCurveDimension dimension)
 {
-    switch (row) {
-    case 0: return params.bpRateA;
-    case 1: return params.bpRateB;
-    case 2: return params.bpFmAtoB;
-    case 3: return params.bpFmBtoA;
-    case 4: return params.bpRunglerA;
-    case 5: return params.bpRunglerB;
-    case 6: return params.bpFilter;
-    case 7: return params.bpThreshold;
-    case 8: return params.bpPwmA;
-    case 9: return params.bpPwmB;
-    case 10: return params.bpRampA;
-    case 11: return params.bpRampB;
-    default: return params.bpAmp;
+    switch (dimension) {
+    case WranglerCurveDimension::RateA: return &params.bpRateA;
+    case WranglerCurveDimension::RungA: return &params.bpRunglerA;
+    case WranglerCurveDimension::FmBtoA: return &params.bpFmBtoA;
+    case WranglerCurveDimension::ColorA: return &params.bpColorA;
+    case WranglerCurveDimension::RateB: return &params.bpRateB;
+    case WranglerCurveDimension::RungB: return &params.bpRunglerB;
+    case WranglerCurveDimension::FmAtoB: return &params.bpFmAtoB;
+    case WranglerCurveDimension::ColorB: return &params.bpColorB;
+    case WranglerCurveDimension::FilterFreqA: return &params.bpFilter;
+    case WranglerCurveDimension::FilterFreqB: return &params.bpFilterFreqB;
+    case WranglerCurveDimension::FilterRes: return &params.bpFilterRes;
+    case WranglerCurveDimension::FilterComp: return &params.bpFilterComp;
+    case WranglerCurveDimension::FilterType: return &params.bpFilterType;
+    case WranglerCurveDimension::CrossA: return &params.bpCrossA;
+    case WranglerCurveDimension::CrossB: return &params.bpCrossB;
+    case WranglerCurveDimension::CrossLpf: return &params.bpCrossLpf;
+    case WranglerCurveDimension::RungMode: return &params.bpRungMode;
+    case WranglerCurveDimension::RungThresh: return &params.bpThreshold;
+    case WranglerCurveDimension::RungSize: return &params.bpRungSize;
+    case WranglerCurveDimension::PwmA: return &params.bpPwmA;
+    case WranglerCurveDimension::PwmB: return &params.bpPwmB;
+    case WranglerCurveDimension::RampA: return &params.bpRampA;
+    case WranglerCurveDimension::RampB: return &params.bpRampB;
+    case WranglerCurveDimension::Amp: return &params.bpAmp;
+    }
+    return nullptr;
+}
+
+void copyBreakpointState(
+    s3g::AmbiWranglerParams& destination,
+    const s3g::AmbiWranglerParams& source)
+{
+    destination.voiceBreakpointsEnabled =
+        source.voiceBreakpointsEnabled;
+    for (uint32_t raw = 0u;
+        raw < s3g::kAmbiWranglerCurveDimensionCount; ++raw) {
+        const auto dimension =
+            static_cast<WranglerCurveDimension>(raw);
+        auto* destinationValues =
+            breakpointArray(destination, dimension);
+        const auto* sourceValues =
+            breakpointArray(source, dimension);
+        if (destinationValues && sourceValues) {
+            *destinationValues = *sourceValues;
+        }
     }
 }
 
@@ -236,87 +495,239 @@ void canonicalizeParamsPadding(s3g::AmbiWranglerParams& params)
     std::memset(reinterpret_cast<uint8_t*>(&params) + start, 0, end - start);
 }
 
-void migratePreV11Params(s3g::AmbiWranglerParams& params)
+double breakpointFallback(
+    const s3g::AmbiWranglerParams& params,
+    WranglerCurveDimension dimension)
 {
-    params.circuitLaw = s3g::AmbiWranglerCircuitLaw::Legacy;
-    params.engines = std::clamp<uint32_t>(
-        params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
-    params.change = 1.0f;
-    params.listenerResponse = s3g::AmbiWranglerListenerResponse::Write;
-    params.settleAmount = 0.65f;
-    params.settleTarget = 0.30f;
-    params.settleRecoverySeconds = 3.0f;
-}
-
-double breakpointFallback(const s3g::AmbiWranglerParams& params, uint32_t row)
-{
-    switch (row) {
-    case 0: return params.rateA;
-    case 1: return params.rateB;
-    case 2: return params.fmAtoB;
-    case 3: return params.fmBtoA;
-    case 4: return params.runglerA;
-    case 5: return params.runglerB;
-    case 6: return params.filter;
-    case 7: return params.threshold;
-    case 8: return params.pwmA;
-    case 9: return params.pwmB;
-    case 10: return params.rampA;
-    case 11: return params.rampB;
-    default: return 1.0;
+    switch (dimension) {
+    case WranglerCurveDimension::RateA: return params.rateA;
+    case WranglerCurveDimension::RungA: return params.runglerA;
+    case WranglerCurveDimension::FmBtoA: return params.fmBtoA;
+    case WranglerCurveDimension::ColorA: return 0.0;
+    case WranglerCurveDimension::RateB: return params.rateB;
+    case WranglerCurveDimension::RungB: return params.runglerB;
+    case WranglerCurveDimension::FmAtoB: return params.fmAtoB;
+    case WranglerCurveDimension::ColorB: return 0.0;
+    case WranglerCurveDimension::FilterFreqA: return params.filter;
+    case WranglerCurveDimension::FilterFreqB: return params.filter;
+    case WranglerCurveDimension::FilterRes: return params.resonance;
+    case WranglerCurveDimension::FilterComp: return 0.0;
+    case WranglerCurveDimension::FilterType:
+        return params.filterMorph;
+    case WranglerCurveDimension::CrossA: return 0.0;
+    case WranglerCurveDimension::CrossB: return 0.0;
+    case WranglerCurveDimension::CrossLpf: return 0.25;
+    case WranglerCurveDimension::RungMode: return 0.0;
+    case WranglerCurveDimension::RungThresh: return params.threshold;
+    case WranglerCurveDimension::RungSize:
+        return static_cast<double>(
+            std::clamp<uint32_t>(params.rungSize, 2u, 8u) - 2u) / 6.0;
+    case WranglerCurveDimension::PwmA: return params.pwmA;
+    case WranglerCurveDimension::PwmB: return params.pwmB;
+    case WranglerCurveDimension::RampA: return params.rampA;
+    case WranglerCurveDimension::RampB: return params.rampB;
+    case WranglerCurveDimension::Amp: return 1.0;
     }
+    return 0.0;
 }
 
-double breakpointRange(uint32_t row)
+bool breakpointUsesTrim(WranglerCurveDimension dimension)
 {
-    switch (row) {
-    case 0:
-    case 1:
+    switch (dimension) {
+    case WranglerCurveDimension::RateA:
+    case WranglerCurveDimension::RungA:
+    case WranglerCurveDimension::FmBtoA:
+    case WranglerCurveDimension::RateB:
+    case WranglerCurveDimension::RungB:
+    case WranglerCurveDimension::FmAtoB:
+    case WranglerCurveDimension::FilterFreqA:
+    case WranglerCurveDimension::FilterFreqB:
+    case WranglerCurveDimension::FilterRes:
+    case WranglerCurveDimension::RungThresh:
+    case WranglerCurveDimension::PwmA:
+    case WranglerCurveDimension::PwmB:
+    case WranglerCurveDimension::RampA:
+    case WranglerCurveDimension::RampB:
+        return true;
+    case WranglerCurveDimension::ColorA:
+    case WranglerCurveDimension::ColorB:
+    case WranglerCurveDimension::FilterComp:
+    case WranglerCurveDimension::FilterType:
+    case WranglerCurveDimension::CrossA:
+    case WranglerCurveDimension::CrossB:
+    case WranglerCurveDimension::CrossLpf:
+    case WranglerCurveDimension::RungMode:
+    case WranglerCurveDimension::RungSize:
+    case WranglerCurveDimension::Amp:
+        return false;
+    }
+    return false;
+}
+
+double breakpointRange(WranglerCurveDimension dimension)
+{
+    switch (dimension) {
+    case WranglerCurveDimension::RateA:
+    case WranglerCurveDimension::RateB:
         return 0.85;
-    case 6:
-    case 7:
-    case 8:
-    case 9:
-    case 10:
-    case 11:
+    case WranglerCurveDimension::FilterFreqA:
+    case WranglerCurveDimension::FilterFreqB:
+    case WranglerCurveDimension::FilterRes:
+    case WranglerCurveDimension::RungThresh:
+    case WranglerCurveDimension::PwmA:
+    case WranglerCurveDimension::PwmB:
+    case WranglerCurveDimension::RampA:
+    case WranglerCurveDimension::RampB:
         return 0.70;
-    case 12:
-        return 1.0;
-    default:
+    case WranglerCurveDimension::RungA:
+    case WranglerCurveDimension::FmBtoA:
+    case WranglerCurveDimension::RungB:
+    case WranglerCurveDimension::FmAtoB:
         return 0.95;
+    case WranglerCurveDimension::ColorA:
+    case WranglerCurveDimension::ColorB:
+    case WranglerCurveDimension::FilterComp:
+    case WranglerCurveDimension::FilterType:
+    case WranglerCurveDimension::CrossA:
+    case WranglerCurveDimension::CrossB:
+    case WranglerCurveDimension::CrossLpf:
+    case WranglerCurveDimension::RungMode:
+    case WranglerCurveDimension::RungSize:
+    case WranglerCurveDimension::Amp:
+        return 1.0;
     }
+    return 1.0;
 }
 
-double breakpointFinalValue(const s3g::AmbiWranglerParams& params, uint32_t row, uint32_t voice)
+bool breakpointIsStepped(WranglerCurveDimension dimension)
 {
-    const auto& values = breakpointArray(params, row);
-    const double curve = values[std::min<uint32_t>(voice, s3g::kAmbiWranglerMaxVoices - 1u)];
-    if (row == 12u) return std::clamp(curve, 0.0, 1.0);
-    return std::clamp(breakpointFallback(params, row) + (curve - 0.5) * breakpointRange(row), 0.0, 1.0);
+    return dimension == WranglerCurveDimension::RungMode
+        || dimension == WranglerCurveDimension::RungSize;
+}
+
+double snapBreakpointEffective(
+    WranglerCurveDimension dimension, double value)
+{
+    value = std::clamp(value, 0.0, 1.0);
+    if (dimension == WranglerCurveDimension::RungMode) {
+        return std::round(value * 2.0) * 0.5;
+    }
+    if (dimension == WranglerCurveDimension::RungSize) {
+        return std::round(value * 6.0) / 6.0;
+    }
+    return value;
+}
+
+double breakpointStoredValue(
+    const s3g::AmbiWranglerParams& params,
+    WranglerCurveDimension dimension, uint32_t voice)
+{
+    const auto* values = breakpointArray(params, dimension);
+    if (!values) return 0.0;
+    return std::clamp<double>(
+        (*values)[std::min<uint32_t>(
+            voice, s3g::kAmbiWranglerMaxVoices - 1u)],
+        0.0, 1.0);
+}
+
+double breakpointFinalValue(
+    const s3g::AmbiWranglerParams& params,
+    WranglerCurveDimension dimension, uint32_t voice)
+{
+    if (!params.voiceBreakpointsEnabled) {
+        return breakpointFallback(params, dimension);
+    }
+    const double stored =
+        breakpointStoredValue(params, dimension, voice);
+    if (dimension == WranglerCurveDimension::FilterType
+        || dimension == WranglerCurveDimension::RungSize) {
+        const double fallback =
+            breakpointFallback(params, dimension);
+        const double effective = stored < 0.5
+            ? fallback * stored * 2.0
+            : fallback + (1.0 - fallback) * (stored - 0.5) * 2.0;
+        return snapBreakpointEffective(dimension, effective);
+    }
+    if (!breakpointUsesTrim(dimension)) {
+        return breakpointIsStepped(dimension)
+            ? snapBreakpointEffective(dimension, stored) : stored;
+    }
+    return std::clamp(
+        breakpointFallback(params, dimension)
+            + (stored - 0.5) * breakpointRange(dimension),
+        0.0, 1.0);
+}
+
+double breakpointStorageForEffective(
+    const s3g::AmbiWranglerParams& params,
+    WranglerCurveDimension dimension, double effective)
+{
+    effective = snapBreakpointEffective(dimension, effective);
+    if (dimension == WranglerCurveDimension::FilterType
+        || dimension == WranglerCurveDimension::RungSize) {
+        const double fallback =
+            breakpointFallback(params, dimension);
+        if (std::fabs(effective - fallback) < 1.0e-9) return 0.5;
+        if (effective < fallback) {
+            return fallback > 1.0e-9
+                ? std::clamp(0.5 * effective / fallback, 0.0, 0.5)
+                : 0.0;
+        }
+        return fallback < 1.0 - 1.0e-9
+            ? std::clamp(
+                0.5 + 0.5 * (effective - fallback)
+                    / (1.0 - fallback),
+                0.5, 1.0)
+            : 1.0;
+    }
+    if (breakpointUsesTrim(dimension)) {
+        return std::clamp(
+            0.5 + (effective - breakpointFallback(params, dimension))
+                / breakpointRange(dimension),
+            0.0, 1.0);
+    }
+    return effective;
 }
 
 void seedBreakpointsFromMacros(s3g::AmbiWranglerParams& params)
 {
-    const uint32_t engines = std::min<uint32_t>(
-        std::clamp<uint32_t>(params.engines, 1u, s3g::kAmbiWranglerMaxVoices),
-        std::clamp<uint32_t>(params.voices, 1u, s3g::kAmbiWranglerMaxVoices));
-    for (uint32_t row = 0u; row < 13u; ++row) {
-        auto& values = breakpointArray(params, row);
-        for (uint32_t voice = 0u; voice < s3g::kAmbiWranglerMaxVoices; ++voice) {
-            const float lane = static_cast<float>(voice % engines)
-                / static_cast<float>(std::max<uint32_t>(1u, engines - 1u));
-            const float tilt = row < 2u ? (lane - 0.5f) * params.spread * 0.18f : 0.0f;
-            values[voice] = row == 12u ? 1.0f : std::clamp(0.5f + tilt, 0.0f, 1.0f);
+    const uint32_t voices = std::clamp<uint32_t>(
+        params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+    for (uint32_t raw = 0u;
+        raw < s3g::kAmbiWranglerCurveDimensionCount; ++raw) {
+        const auto dimension =
+            static_cast<WranglerCurveDimension>(raw);
+        auto* values = breakpointArray(params, dimension);
+        if (!values) continue;
+        for (uint32_t voice = 0u;
+            voice < s3g::kAmbiWranglerMaxVoices; ++voice) {
+            const float lane = static_cast<float>(voice % voices)
+                / static_cast<float>(
+                    std::max<uint32_t>(1u, voices - 1u));
+            const float tilt =
+                (dimension == WranglerCurveDimension::RateA
+                    || dimension == WranglerCurveDimension::RateB)
+                ? (lane - 0.5f) * params.spread * 0.18f : 0.0f;
+            float stored = static_cast<float>(
+                breakpointFallback(params, dimension));
+            if (dimension == WranglerCurveDimension::FilterType
+                || dimension == WranglerCurveDimension::RungSize) {
+                stored = 0.5f;
+            }
+            if (breakpointUsesTrim(dimension)) {
+                stored = std::clamp(0.5f + tilt, 0.0f, 1.0f);
+            }
+            (*values)[voice] = stored;
         }
     }
 }
 
-bool saveCustomPresetFile(const char* path, const Plugin& plugin, const char* name)
+bool saveCustomPresetFile(const char* path, Plugin& plugin, const char* name)
 {
     if (!path || !*path) return false;
     CustomPresetFile file {};
     std::snprintf(file.name, sizeof(file.name), "%s", name && *name ? name : "Custom");
-    file.params = plugin.params;
+    file.params = controlStateSnapshot(plugin).params;
     canonicalizeParamsPadding(file.params);
     FILE* handle = std::fopen(path, "wb");
     if (!handle) return false;
@@ -331,46 +742,17 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
     FILE* handle = std::fopen(path, "rb");
     if (!handle) return false;
     file = {};
-    bool ok = std::fread(&file.magic, 1, sizeof(file.magic), handle) == sizeof(file.magic)
+    const bool ok =
+        std::fread(&file.magic, 1, sizeof(file.magic), handle)
+            == sizeof(file.magic)
         && std::fread(&file.version, 1, sizeof(file.version), handle) == sizeof(file.version)
         && file.magic == kCustomPresetMagic
-        && (file.version == kCustomPresetVersion || file.version == 7u
-            || file.version == 6u || file.version == 5u
-            || file.version == 4u || file.version == 3u)
-        && std::fread(file.name, 1, sizeof(file.name), handle) == sizeof(file.name);
-    if (ok) {
-        const uint32_t loadedVersion = file.version;
-        if (file.version == kCustomPresetVersion) {
-            ok = std::fread(&file.params, 1, sizeof(file.params), handle) == sizeof(file.params);
-        } else if (file.version == 7u) {
-            ok = std::fread(&file.params, 1, kWranglerV10ParamsSize, handle)
-                == kWranglerV10ParamsSize;
-        } else if (file.version == 6u) {
-            ok = std::fread(&file.params, 1, kWranglerV9ParamsSize, handle)
-                == kWranglerV9ParamsSize;
-        } else if (file.version == 5u || file.version == 4u) {
-            constexpr size_t kPresetV5ParamsSize = kWranglerV9ParamsSize - sizeof(uint32_t);
-            ok = std::fread(&file.params, 1, kPresetV5ParamsSize, handle) == kPresetV5ParamsSize;
-            file.params.rungLoop = 0u;
-            if (ok && loadedVersion == 4u) {
-                file.params.rateModeA = std::min<uint32_t>(2u, file.params.rateModeA + 1u);
-                file.params.rateModeB = std::min<uint32_t>(2u, file.params.rateModeB + 1u);
-            }
-        } else {
-            constexpr size_t kLegacyParamsV3Size = kWranglerV9ParamsSize - sizeof(float) * 2u - sizeof(uint32_t);
-            ok = std::fread(&file.params, 1, kLegacyParamsV3Size, handle) == kLegacyParamsV3Size;
-            file.params.snap = 0.0f;
-            file.params.snapDecay = 0.34f;
-            file.params.rungLoop = 0u;
-            file.params.rateModeA = std::min<uint32_t>(2u, file.params.rateModeA + 1u);
-            file.params.rateModeB = std::min<uint32_t>(2u, file.params.rateModeB + 1u);
-            file.version = kCustomPresetVersion;
-        }
-        if (ok && loadedVersion < kCustomPresetVersion) {
-            migratePreV11Params(file.params);
-            file.version = kCustomPresetVersion;
-        }
-    }
+        && file.version == kCustomPresetVersion
+        && std::fread(file.name, 1, sizeof(file.name), handle)
+            == sizeof(file.name)
+        && std::fread(&file.params, 1, sizeof(file.params), handle)
+            == sizeof(file.params);
+    file.name[sizeof(file.name) - 1u] = '\0';
     std::fclose(handle);
     return ok;
 }
@@ -397,16 +779,122 @@ uint32_t randomChoice(uint32_t& seed, uint32_t count)
     return std::min<uint32_t>(count - 1u, static_cast<uint32_t>(randomUnit(seed) * static_cast<float>(count)));
 }
 
+void randomizeBreakpointCurves(
+    s3g::AmbiWranglerParams& params, uint32_t& seed, bool calm)
+{
+    seedBreakpointsFromMacros(params);
+    params.voiceBreakpointsEnabled =
+        calm ? randomUnit(seed) < 0.42f : true;
+    if (!params.voiceBreakpointsEnabled) return;
+
+    const uint32_t voices = std::clamp<uint32_t>(
+        params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+    for (uint32_t raw = 0u;
+        raw < s3g::kAmbiWranglerCurveDimensionCount; ++raw) {
+        const auto dimension =
+            static_cast<WranglerCurveDimension>(raw);
+        auto* values = breakpointArray(params, dimension);
+        if (!values) continue;
+
+        const float phase = randomUnit(seed);
+        const float cycles = calm
+            ? 1.0f : 1.0f + static_cast<float>(randomChoice(seed, 5u));
+        float base = breakpointUsesTrim(dimension)
+            ? 0.5f : static_cast<float>(
+                breakpointFallback(params, dimension));
+        float depth = 0.0f;
+
+        if (dimension == WranglerCurveDimension::Amp) {
+            base = calm ? 0.90f : 0.68f;
+            depth = calm
+                ? randomRange(seed, 0.015f, 0.050f)
+                : randomRange(seed, 0.10f, 0.30f);
+        } else if (breakpointUsesTrim(dimension)) {
+            depth = calm
+                ? randomRange(seed, 0.006f, 0.028f)
+                : randomRange(seed, 0.04f, 0.24f);
+        } else if (dimension == WranglerCurveDimension::ColorA
+            || dimension == WranglerCurveDimension::ColorB
+            || dimension == WranglerCurveDimension::CrossA
+            || dimension == WranglerCurveDimension::CrossB
+            || dimension == WranglerCurveDimension::FilterComp) {
+            base = calm
+                ? randomRange(seed, 0.01f, 0.045f)
+                : randomRange(seed, 0.14f, 0.46f);
+            depth = calm
+                ? randomRange(seed, 0.005f, 0.025f)
+                : randomRange(seed, 0.06f, 0.30f);
+        } else if (dimension == WranglerCurveDimension::CrossLpf) {
+            base = calm
+                ? randomRange(seed, 0.22f, 0.30f)
+                : randomRange(seed, 0.12f, 0.72f);
+            depth = calm
+                ? randomRange(seed, 0.005f, 0.025f)
+                : randomRange(seed, 0.04f, 0.22f);
+        }
+
+        for (uint32_t voice = 0u;
+            voice < s3g::kAmbiWranglerMaxVoices; ++voice) {
+            const float lane = static_cast<float>(voice % voices)
+                / static_cast<float>(
+                    std::max<uint32_t>(1u, voices - 1u));
+            const float wave = std::sin(
+                (lane * cycles + phase) * s3g::kPi * 2.0f);
+            const float speck = calm
+                ? 0.0f : randomRange(seed, -0.035f, 0.035f);
+
+            float stored = base + wave * depth + speck;
+            if (dimension == WranglerCurveDimension::FilterType) {
+                if (calm) {
+                    stored = 0.5f;
+                } else {
+                    const double desired = randomUnit(seed);
+                    stored = static_cast<float>(
+                        breakpointStorageForEffective(
+                            params, dimension, desired));
+                }
+            } else if (dimension == WranglerCurveDimension::RungMode) {
+                stored = calm ? 0.0f
+                    : (randomUnit(seed) < 0.68f
+                        ? 0.0f : 0.5f * static_cast<float>(
+                            1u + randomChoice(seed, 2u)));
+            } else if (dimension == WranglerCurveDimension::RungSize) {
+                if (calm) {
+                    stored = 0.5f;
+                } else {
+                    const double desired =
+                        static_cast<double>(randomChoice(seed, 7u)) / 6.0;
+                    stored = static_cast<float>(
+                        breakpointStorageForEffective(
+                            params, dimension, desired));
+                }
+            } else if (dimension == WranglerCurveDimension::Amp) {
+                stored = std::clamp(stored,
+                    calm ? 0.74f : 0.12f, 1.0f);
+            }
+            (*values)[voice] = static_cast<float>(
+                std::clamp<double>(stored, 0.0, 1.0));
+        }
+    }
+}
+
 void randomizeSafe(Plugin& plugin)
 {
-    auto p = plugin.params;
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    auto p = plugin.controlParams;
     uint32_t seed = plugin.randomSeed ^ static_cast<uint32_t>(std::lround(plugin.outputPeak.load(std::memory_order_relaxed) * 1000000.0f));
     const bool calm = randomUnit(seed) < 0.35f;
     if (calm) {
         p.order = 3u;
         p.voices = 12u + randomChoice(seed, 29u);
-        p.engines = 2u + randomChoice(seed, 5u);
         p.circuitLaw = s3g::AmbiWranglerCircuitLaw::Bounded;
+        const float filterChoice = randomUnit(seed);
+        p.filterMorph = filterChoice < 0.58f
+            ? randomRange(seed, 0.0f, 0.20f)
+            : (filterChoice < 0.86f
+                ? randomRange(seed, 0.38f, 0.62f)
+                : randomRange(seed, 0.80f, 1.0f));
         p.change = randomRange(seed, 0.08f, 0.34f);
         p.rateA = randomRange(seed, 0.35f, 0.47f);
         p.rateB = randomRange(seed, 0.30f, 0.62f);
@@ -471,29 +959,7 @@ void randomizeSafe(Plugin& plugin)
         p.settleTarget = randomRange(seed, 0.18f, 0.36f);
         p.settleRecoverySeconds = randomRange(seed, 2.5f, 6.5f);
 
-        seedBreakpointsFromMacros(p);
-        p.voiceBreakpointsEnabled = randomUnit(seed) < 0.42f;
-        if (p.voiceBreakpointsEnabled) {
-            const uint32_t engines = std::clamp<uint32_t>(
-                p.engines, 1u, s3g::kAmbiWranglerMaxVoices);
-            for (uint32_t row = 0u; row < 13u; ++row) {
-                auto& values = breakpointArray(p, row);
-                const float depth = row == 12u
-                    ? randomRange(seed, 0.015f, 0.055f)
-                    : randomRange(seed, 0.006f, 0.028f);
-                const float phase = randomUnit(seed);
-                for (uint32_t voice = 0u;
-                    voice < s3g::kAmbiWranglerMaxVoices; ++voice) {
-                    const float lane = static_cast<float>(voice % engines)
-                        / static_cast<float>(std::max<uint32_t>(1u, engines - 1u));
-                    const float wave = std::sin(
-                        (lane + phase) * s3g::kPi * 2.0f);
-                    values[voice] = row == 12u
-                        ? std::clamp(0.88f + wave * depth, 0.72f, 1.0f)
-                        : std::clamp(0.5f + wave * depth, 0.0f, 1.0f);
-                }
-            }
-        }
+        randomizeBreakpointCurves(p, seed, true);
     } else {
     p.order = 3u;
     p.voices = 12u + randomChoice(seed, 29u);
@@ -526,6 +992,7 @@ void randomizeSafe(Plugin& plugin)
     p.filterRun = randomRange(seed, 0.06f, 0.62f);
     p.filterSweep = randomRange(seed, 0.04f, 0.62f);
     p.saturation = randomRange(seed, 0.16f, 0.58f);
+    p.filterMorph = randomRange(seed, 0.0f, 1.0f);
     p.snap = randomRange(seed, 0.04f, 0.46f);
     p.snapDecay = randomRange(seed, 0.08f, 0.54f);
     p.field = randomRange(seed, 0.36f, 0.92f);
@@ -556,44 +1023,29 @@ void randomizeSafe(Plugin& plugin)
     p.propagation = randomRange(seed, 0.04f, 0.72f);
     p.returnBypass = randomUnit(seed) < 0.20f ? 1u : 0u;
     p.circuitLaw = s3g::AmbiWranglerCircuitLaw::Legacy;
-    p.engines = p.voices;
     p.change = 1.0f;
     p.listenerResponse = s3g::AmbiWranglerListenerResponse::Write;
     p.settleAmount = 0.65f;
     p.settleTarget = 0.28f;
     p.settleRecoverySeconds = 3.0f;
 
-    seedBreakpointsFromMacros(p);
-    p.voiceBreakpointsEnabled = true;
-    const uint32_t voices = std::clamp<uint32_t>(p.voices, 1u, s3g::kAmbiWranglerMaxVoices);
-    for (uint32_t row = 0u; row < 13u; ++row) {
-        auto& values = breakpointArray(p, row);
-        const float depth = row == 12u ? randomRange(seed, 0.12f, 0.34f) : randomRange(seed, 0.04f, 0.24f);
-        const float phase = randomUnit(seed);
-        const float cycles = 1.0f + static_cast<float>(randomChoice(seed, 5u));
-        for (uint32_t voice = 0u; voice < s3g::kAmbiWranglerMaxVoices; ++voice) {
-            const float lane = static_cast<float>(voice % voices) / static_cast<float>(std::max<uint32_t>(1u, voices - 1u));
-            const float wave = std::sin((lane * cycles + phase) * s3g::kPi * 2.0f);
-            const float speck = randomRange(seed, -0.035f, 0.035f);
-            if (row == 12u) values[voice] = std::clamp(0.70f + wave * depth + speck, 0.12f, 1.0f);
-            else values[voice] = std::clamp(0.5f + wave * depth + speck, 0.0f, 1.0f);
-        }
-    }
+    randomizeBreakpointCurves(p, seed, false);
     }
 
     plugin.randomSeed = seed;
-    plugin.params = p;
+    plugin.controlParams = p;
     plugin.presetIndex = 0u;
     std::snprintf(plugin.customPresetName, sizeof(plugin.customPresetName), "Random");
-    plugin.engine.setParams(plugin.params);
-    plugin.params = plugin.engine.params();
+    publishControlParamsLocked(plugin);
 }
 
 bool assignParam(s3g::AmbiWranglerParams& params, clap_id id, double value)
 {
     switch (id) {
     case kOrderParamId: params.order = static_cast<uint32_t>(std::lround(value)); return true;
-    case kVoicesParamId: params.voices = static_cast<uint32_t>(std::lround(value)); return true;
+    case kVoicesParamId:
+        params.voices = static_cast<uint32_t>(std::lround(value));
+        return true;
     case kRateAParamId: params.rateA = static_cast<float>(value); return true;
     case kRateBParamId: params.rateB = static_cast<float>(value); return true;
     case kFmAtoBParamId: params.fmAtoB = static_cast<float>(value); return true;
@@ -649,7 +1101,11 @@ bool assignParam(s3g::AmbiWranglerParams& params, clap_id id, double value)
         params.circuitLaw = static_cast<s3g::AmbiWranglerCircuitLaw>(
             static_cast<uint32_t>(std::lround(value)));
         return true;
-    case kEnginesParamId: params.engines = static_cast<uint32_t>(std::lround(value)); return true;
+    case kLegacyEnginesParamId:
+        // ID 56 existed briefly. Keep accepting old automation without
+        // reintroducing a second synthesis count.
+        params.engines = params.voices;
+        return true;
     case kChangeParamId: params.change = static_cast<float>(value); return true;
     case kListenerResponseParamId:
         params.listenerResponse = static_cast<s3g::AmbiWranglerListenerResponse>(
@@ -658,23 +1114,245 @@ bool assignParam(s3g::AmbiWranglerParams& params, clap_id id, double value)
     case kSettleAmountParamId: params.settleAmount = static_cast<float>(value); return true;
     case kSettleTargetParamId: params.settleTarget = static_cast<float>(value); return true;
     case kSettleRecoveryParamId: params.settleRecoverySeconds = static_cast<float>(value); return true;
+    case kFilterMorphParamId:
+        // Keep the established host range 0..2 while the DSP uses 0..1.
+        params.filterMorph = static_cast<float>(
+            std::clamp(value * 0.5, 0.0, 1.0));
+        return true;
     default: return false;
     }
 }
 
-void applyParam(Plugin& p, clap_id id, double value)
+void applyParamToState(
+    s3g::AmbiWranglerParams& params, uint32_t& presetIndex,
+    char* customPresetName, clap_id id, double value)
 {
     if (id == kPresetParamId) {
-        p.presetIndex = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, s3g::kAmbiWranglerFactoryPresetCount - 1u);
-        p.customPresetName[0] = '\0';
-        p.params = s3g::ambiWranglerFactoryPreset(p.presetIndex);
-        p.engine.setParams(p.params);
-        p.params = p.engine.params();
+        presetIndex = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 0u,
+            s3g::kAmbiWranglerFactoryPresetCount - 1u);
+        if (customPresetName) customPresetName[0] = '\0';
+        params = s3g::ambiWranglerFactoryPreset(presetIndex);
         return;
     }
-    if (!assignParam(p.params, id, value)) return;
-    p.engine.setParams(p.params);
-    p.params = p.engine.params();
+    assignParam(params, id, value);
+}
+
+uint64_t controlEditRevisionForParam(
+    const Plugin& plugin, clap_id id)
+{
+    if (id >= plugin.controlParamEditRevision.size()) return 0u;
+    if (id == kVoicesParamId || id == kLegacyEnginesParamId) {
+        return std::max(
+            plugin.controlParamEditRevision[kVoicesParamId],
+            plugin.controlParamEditRevision[kLegacyEnginesParamId]);
+    }
+    return plugin.controlParamEditRevision[id];
+}
+
+void mergeAudioValuesIntoControlLocked(
+    Plugin& plugin, const s3g::AmbiWranglerParams& params,
+    uint32_t presetIndex, const char* customPresetName,
+    uint64_t dirtyMask, bool presetChanged,
+    uint64_t reportMailboxRevision)
+{
+    if (presetChanged) {
+        const auto currentParams = plugin.controlParams;
+        const uint32_t currentPresetIndex = plugin.presetIndex;
+        char currentCustomPresetName[64] {};
+        std::snprintf(currentCustomPresetName,
+            sizeof(currentCustomPresetName), "%s",
+            plugin.customPresetName);
+
+        plugin.controlParams = params;
+        for (clap_id id = 2u; id <= kFilterMorphParamId; ++id) {
+            if (controlEditRevisionForParam(plugin, id)
+                <= reportMailboxRevision) {
+                continue;
+            }
+            double value = 0.0;
+            if (paramValueFromParams(currentParams, id, value)) {
+                assignParam(plugin.controlParams, id, value);
+            }
+        }
+        if (plugin.controlStructuralEditRevision
+            > reportMailboxRevision) {
+            copyBreakpointState(
+                plugin.controlParams, currentParams);
+        }
+        if (plugin.controlPresetEditRevision
+            <= reportMailboxRevision) {
+            plugin.presetIndex = presetIndex;
+            std::snprintf(plugin.customPresetName,
+                sizeof(plugin.customPresetName), "%s",
+                customPresetName ? customPresetName : "");
+        } else {
+            plugin.presetIndex = currentPresetIndex;
+            std::snprintf(plugin.customPresetName,
+                sizeof(plugin.customPresetName), "%s",
+                currentCustomPresetName);
+        }
+        plugin.controlParams.engines =
+            plugin.controlParams.voices;
+        return;
+    }
+
+    for (clap_id id = 2u; id <= kFilterMorphParamId; ++id) {
+        const uint64_t bit = uint64_t { 1u } << id;
+        if ((dirtyMask & bit) == 0u) continue;
+        if (controlEditRevisionForParam(plugin, id)
+            > reportMailboxRevision) {
+            continue;
+        }
+        double value = 0.0;
+        if (paramValueFromParams(params, id, value)) {
+            assignParam(plugin.controlParams, id, value);
+        }
+    }
+    plugin.controlParams.engines =
+        plugin.controlParams.voices;
+}
+
+void mergeAudioReportLocked(Plugin& plugin)
+{
+    const uint64_t advertised =
+        plugin.audioReportRevision.load(std::memory_order_acquire);
+    if (advertised == plugin.controlAudioReportRevision) return;
+
+    AtomicFlagGuard reportGuard(plugin.audioReportLock);
+    const uint64_t revision =
+        plugin.audioReportRevision.load(std::memory_order_relaxed);
+    if (revision == plugin.controlAudioReportRevision) return;
+
+    mergeAudioValuesIntoControlLocked(
+        plugin, plugin.audioReportParams,
+        plugin.audioReportPresetIndex,
+        plugin.audioReportCustomPresetName,
+        plugin.audioReportDirtyMask,
+        plugin.audioReportPresetChanged,
+        plugin.audioReportMailboxRevision);
+    plugin.controlAudioReportRevision = revision;
+    plugin.audioReportDirtyMask = 0u;
+    plugin.audioReportPresetChanged = false;
+}
+
+ControlStateSnapshot controlStateSnapshot(Plugin& plugin)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    ControlStateSnapshot snapshot {};
+    snapshot.params = plugin.controlParams;
+    snapshot.presetIndex = plugin.presetIndex;
+    snapshot.mailboxRevision =
+        plugin.paramsMailboxRevision.load(
+            std::memory_order_relaxed);
+    std::snprintf(snapshot.customPresetName,
+        sizeof(snapshot.customPresetName), "%s",
+        plugin.customPresetName);
+    return snapshot;
+}
+
+void applyControlParam(Plugin& plugin, clap_id id, double value)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    if (id == kPresetParamId) {
+        applyParamToState(plugin.controlParams, plugin.presetIndex,
+            plugin.customPresetName, id, value);
+        publishControlParamsLocked(plugin);
+        return;
+    }
+    if (assignParam(plugin.controlParams, id, value) && id < 64u) {
+        publishControlParamDeltasLocked(
+            plugin, uint64_t { 1u } << id);
+    }
+}
+
+void replaceControlState(
+    Plugin& plugin, const s3g::AmbiWranglerParams& params,
+    uint32_t presetIndex, const char* customPresetName)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    plugin.controlParams = params;
+    plugin.presetIndex = std::min<uint32_t>(
+        presetIndex, s3g::kAmbiWranglerFactoryPresetCount - 1u);
+    std::snprintf(plugin.customPresetName,
+        sizeof(plugin.customPresetName), "%s",
+        customPresetName ? customPresetName : "");
+    publishControlParamsLocked(plugin);
+}
+
+void setControlCustomPresetName(Plugin& plugin, const char* name)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    std::snprintf(plugin.customPresetName,
+        sizeof(plugin.customPresetName), "%s", name ? name : "");
+    publishControlPresetMetadataLocked(plugin);
+}
+
+bool setControlBreakpointEffective(
+    Plugin& plugin, WranglerCurveDimension dimension,
+    uint32_t voice, double effective)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    if (!plugin.controlParams.voiceBreakpointsEnabled
+        || voice >= s3g::kAmbiWranglerMaxVoices) {
+        return false;
+    }
+    auto* values = breakpointArray(plugin.controlParams, dimension);
+    if (!values) return false;
+    (*values)[voice] = static_cast<float>(
+        breakpointStorageForEffective(
+            plugin.controlParams, dimension, effective));
+    publishControlParamsLocked(plugin);
+    return true;
+}
+
+void toggleControlBreakpoints(Plugin& plugin)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    plugin.controlParams.voiceBreakpointsEnabled =
+        !plugin.controlParams.voiceBreakpointsEnabled;
+    publishControlParamsLocked(plugin);
+}
+
+void applyControlEvents(Plugin& plugin, const clap_input_events_t* in)
+{
+    if (!in) return;
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    const uint32_t count = in->size(in);
+    uint64_t dirtyMask = 0u;
+    bool fullReplace = false;
+    for (uint32_t index = 0u; index < count; ++index) {
+        const clap_event_header_t* event = in->get(in, index);
+        if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID
+            || event->type != CLAP_EVENT_PARAM_VALUE) {
+            continue;
+        }
+        const auto* param =
+            reinterpret_cast<const clap_event_param_value_t*>(event);
+        if (param->param_id == kPresetParamId) {
+            applyParamToState(plugin.controlParams, plugin.presetIndex,
+                plugin.customPresetName,
+                param->param_id, param->value);
+            fullReplace = true;
+        } else if (assignParam(
+                plugin.controlParams,
+                param->param_id, param->value)
+            && param->param_id < 64u) {
+            dirtyMask |= uint64_t { 1u } << param->param_id;
+        }
+    }
+    if (fullReplace) {
+        publishControlParamsLocked(plugin);
+    } else {
+        publishControlParamDeltasLocked(plugin, dirtyMask);
+    }
 }
 
 bool init(const clap_plugin_t*) { return true; }
@@ -689,17 +1367,84 @@ void destroy(const clap_plugin_t* plugin)
     delete p;
 }
 
-bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t)
+bool activate(
+    const clap_plugin_t* plugin, double sampleRate,
+    uint32_t minimumFrames, uint32_t maximumFrames)
 {
     auto* p = self(plugin);
+    p->active.store(false, std::memory_order_release);
+    p->doubleRenderScratchFrames = 0u;
+    if (!std::isfinite(sampleRate)
+        || sampleRate < kMinimumSampleRate
+        || sampleRate > kMaximumSampleRate
+        || minimumFrames == 0u
+        || maximumFrames == 0u
+        || minimumFrames > maximumFrames
+        || maximumFrames > kMaximumActivationFrames) {
+        return false;
+    }
+
+    try {
+        for (auto& channel : p->doubleRenderScratch) {
+            channel.assign(maximumFrames, 0.0f);
+        }
+        const auto snapshot = controlStateSnapshot(*p);
+        p->audioParams = snapshot.params;
+        p->audioPresetIndex = snapshot.presetIndex;
+        std::snprintf(p->audioCustomPresetName,
+            sizeof(p->audioCustomPresetName), "%s",
+            snapshot.customPresetName);
+        p->engine.prepare(sampleRate);
+        p->engine.setParams(p->audioParams);
+        p->audioParams = p->engine.params();
+        {
+            AtomicFlagGuard mailboxGuard(p->paramsMailboxLock);
+            const uint64_t currentRevision =
+                p->paramsMailboxRevision.load(
+                    std::memory_order_relaxed);
+            p->audioMailboxRevision =
+                snapshot.mailboxRevision;
+            if (currentRevision == snapshot.mailboxRevision) {
+                p->paramsMailboxDirtyMask = 0u;
+                p->paramsMailboxFullReplace = false;
+                p->paramsMailboxPresetMetadataChanged = false;
+            }
+        }
+    } catch (...) {
+        for (auto& channel : p->doubleRenderScratch) {
+            std::vector<float> {}.swap(channel);
+        }
+        p->doubleRenderScratchFrames = 0u;
+        return false;
+    }
+
     p->sampleRate = sampleRate;
-    p->engine.prepare(sampleRate);
-    p->engine.setParams(p->params);
-    p->params = p->engine.params();
+    p->doubleRenderScratchFrames = maximumFrames;
+    p->active.store(true, std::memory_order_release);
     return true;
 }
 
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    p->active.store(false, std::memory_order_release);
+
+    // No audio callback can run after stop_processing. Complete any report
+    // publication which had to yield on the audio thread, then publish one
+    // canonical full snapshot so a stale pre-stop mailbox cannot win when the
+    // instance is activated again.
+    AtomicFlagGuard controlGuard(p->controlLock);
+    mergeAudioReportLocked(*p);
+    mergeAudioValuesIntoControlLocked(
+        *p, p->audioParams, p->audioPresetIndex,
+        p->audioCustomPresetName,
+        p->pendingAudioReportDirtyMask,
+        p->pendingAudioReportPresetChanged,
+        p->audioMailboxRevision);
+    p->pendingAudioReportDirtyMask = 0u;
+    p->pendingAudioReportPresetChanged = false;
+    publishControlParamsLocked(*p);
+}
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
@@ -709,45 +1454,175 @@ void reset(const clap_plugin_t* plugin)
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
 }
 
-void readParamEvents(Plugin& p, const clap_input_events_t* in)
+void publishAudioReportTry(Plugin& plugin)
 {
-    if (!in) return;
-    const uint32_t n = in->size(in);
-    for (uint32_t i = 0; i < n; ++i) {
-        const clap_event_header_t* ev = in->get(in, i);
-        if (ev && ev->space_id == CLAP_CORE_EVENT_SPACE_ID && ev->type == CLAP_EVENT_PARAM_VALUE) {
-            const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
-            applyParam(p, param->param_id, param->value);
-        }
+    if (plugin.pendingAudioReportDirtyMask == 0u
+        && !plugin.pendingAudioReportPresetChanged) {
+        return;
     }
+    if (plugin.audioReportLock.test_and_set(std::memory_order_acquire)) {
+        return;
+    }
+    plugin.audioReportParams = plugin.audioParams;
+    plugin.audioReportPresetIndex = plugin.audioPresetIndex;
+    std::memcpy(plugin.audioReportCustomPresetName,
+        plugin.audioCustomPresetName,
+        sizeof(plugin.audioReportCustomPresetName));
+    plugin.audioReportCustomPresetName[
+        sizeof(plugin.audioReportCustomPresetName) - 1u] = '\0';
+    plugin.audioReportDirtyMask |= plugin.pendingAudioReportDirtyMask;
+    plugin.audioReportPresetChanged =
+        plugin.audioReportPresetChanged
+        || plugin.pendingAudioReportPresetChanged;
+    plugin.audioReportMailboxRevision =
+        plugin.audioMailboxRevision;
+    plugin.pendingAudioReportDirtyMask = 0u;
+    plugin.pendingAudioReportPresetChanged = false;
+    plugin.audioReportRevision.fetch_add(1u, std::memory_order_release);
+    plugin.audioReportLock.clear(std::memory_order_release);
 }
 
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
-    readParamEvents(*p, proc->in_events);
-    if (proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
-    auto& output = proc->audio_outputs[0];
     const uint32_t frames = proc->frames_count;
-    const uint32_t outChannels = std::min<uint32_t>(output.channel_count, kOutputChannels);
-    if (output.data32) s3g::clearAudioBufferFromChannel(output, 0, frames);
-    if (!output.data32 || outChannels == 0u) return CLAP_PROCESS_CONTINUE;
+    clap_audio_buffer_t* output =
+        proc->audio_outputs_count > 0u ? &proc->audio_outputs[0] : nullptr;
+    const uint32_t outChannels = output
+        ? std::min<uint32_t>(output->channel_count, kOutputChannels)
+        : 0u;
+    const bool hasFloatOutput =
+        output && output->data32;
+    const bool hasDoubleOutput =
+        output && output->data64;
+    const bool canConvertDouble =
+        hasDoubleOutput
+        && frames <= p->doubleRenderScratchFrames;
+    const bool canRender =
+        outChannels > 0u
+        && (hasFloatOutput || canConvertDouble);
+    if (output) {
+        output->constant_mask = 0u;
+        s3g::clearAudioBuffer(*output, frames);
+    }
 
-    std::array<float*, kOutputChannels> outputs {};
-    for (uint32_t ch = 0u; ch < outChannels; ++ch) outputs[ch] = output.data32[ch];
-    p->engine.setParams(p->params);
-    p->engine.process(outputs.data(), outChannels, frames);
-    p->params = p->engine.params();
-    s3g::clearAudioBufferFromChannel(output, outChannels, frames);
+    auto renderSpan = [&](uint32_t offset, uint32_t count) {
+        if (!canRender || count == 0u) return;
+        std::array<float*, kOutputChannels> spanOutputs {};
+        for (uint32_t channel = 0u; channel < outChannels; ++channel) {
+            spanOutputs[channel] = hasFloatOutput
+                ? (output->data32[channel]
+                    ? output->data32[channel] + offset : nullptr)
+                : p->doubleRenderScratch[channel].data() + offset;
+        }
+        p->engine.process(spanOutputs.data(), outChannels, count);
+    };
+
+    bool paramsDirty = tryConsumeControlParams(*p);
+    uint32_t cursor = 0u;
+    const clap_input_events_t* events = proc->in_events;
+    const uint32_t eventCount = events ? events->size(events) : 0u;
+    uint32_t eventIndex = 0u;
+
+    while (eventIndex < eventCount) {
+        const clap_event_header_t* first =
+            events->get(events, eventIndex);
+        if (!first) {
+            ++eventIndex;
+            continue;
+        }
+        const uint32_t eventTime = std::clamp<uint32_t>(
+            first->time, cursor, frames);
+
+        if (eventTime > cursor) {
+            if (paramsDirty) {
+                p->engine.setParams(p->audioParams);
+                p->audioParams = p->engine.params();
+                paramsDirty = false;
+            }
+            renderSpan(cursor, eventTime - cursor);
+            cursor = eventTime;
+        }
+
+        bool timestampDirty = false;
+        while (eventIndex < eventCount) {
+            const clap_event_header_t* event =
+                events->get(events, eventIndex);
+            if (!event) {
+                ++eventIndex;
+                continue;
+            }
+            const uint32_t nextTime = std::clamp<uint32_t>(
+                event->time, cursor, frames);
+            if (nextTime != eventTime) break;
+            ++eventIndex;
+            if (event->space_id != CLAP_CORE_EVENT_SPACE_ID
+                || event->type != CLAP_EVENT_PARAM_VALUE) {
+                continue;
+            }
+            const auto* param =
+                reinterpret_cast<const clap_event_param_value_t*>(event);
+            if (param->param_id == kPresetParamId) {
+                applyParamToState(p->audioParams,
+                    p->audioPresetIndex,
+                    p->audioCustomPresetName,
+                    param->param_id, param->value);
+                p->pendingAudioReportPresetChanged = true;
+                p->pendingAudioReportDirtyMask |=
+                    uint64_t { 1u } << kPresetParamId;
+                timestampDirty = true;
+            } else if (assignParam(
+                    p->audioParams, param->param_id, param->value)) {
+                if (param->param_id < 64u) {
+                    p->pendingAudioReportDirtyMask |=
+                        uint64_t { 1u } << param->param_id;
+                }
+                timestampDirty = true;
+            }
+        }
+        paramsDirty = paramsDirty || timestampDirty;
+    }
+
+    if (paramsDirty) {
+        p->engine.setParams(p->audioParams);
+        p->audioParams = p->engine.params();
+    }
+    renderSpan(cursor, frames - cursor);
+    p->audioParams = p->engine.params();
+    publishAudioReportTry(*p);
+
+    if (!hasFloatOutput && canConvertDouble) {
+        for (uint32_t channel = 0u;
+            channel < outChannels; ++channel) {
+            if (!output->data64[channel]) continue;
+            for (uint32_t frame = 0u;
+                frame < frames; ++frame) {
+                output->data64[channel][frame] =
+                    static_cast<double>(
+                        p->doubleRenderScratch[channel][frame]);
+            }
+        }
+    }
 
     float peak = 0.0f;
-    for (uint32_t ch = 0u; ch < outChannels; ++ch) {
-        if (!output.data32[ch]) continue;
-        for (uint32_t frame = 0u; frame < frames; ++frame) peak = std::max(peak, std::fabs(output.data32[ch][frame]));
+    if (output) {
+        for (uint32_t ch = 0u; ch < outChannels; ++ch) {
+            for (uint32_t frame = 0u;
+                frame < frames; ++frame) {
+                const float value = hasFloatOutput
+                    ? (output->data32[ch]
+                        ? output->data32[ch][frame] : 0.0f)
+                    : (hasDoubleOutput && output->data64[ch]
+                        ? static_cast<float>(
+                            output->data64[ch][frame]) : 0.0f);
+                peak = std::max(peak, std::fabs(value));
+            }
+        }
     }
     p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);
 #if defined(__APPLE__)
-    const uint32_t voices = std::min<uint32_t>(p->params.voices, s3g::kAmbiWranglerMaxVoices);
+    const uint32_t voices = std::min<uint32_t>(
+        p->audioParams.voices, s3g::kAmbiWranglerMaxVoices);
     for (uint32_t voice = 0u; voice < voices; ++voice) {
         const auto point = p->engine.voicePoint(voice);
         p->guiAzimuth[voice].store(point.azimuthDeg, std::memory_order_relaxed);
@@ -777,7 +1652,6 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         p->guiHeldClockCount[voice].store(
             p->engine.voiceHeldClockCount(voice),
             std::memory_order_relaxed);
-        p->guiNodeEngine[voice].store(p->engine.nodeEngine(voice), std::memory_order_relaxed);
     }
     for (uint32_t ear = 0u; ear < s3g::kAmbiFieldListenerMaxLobes; ++ear) {
         p->guiListenerEnvelope[ear].store(p->engine.listenerEnvelope(ear), std::memory_order_relaxed);
@@ -815,9 +1689,8 @@ struct ParamDef { clap_id id; const char* name; double min; double max; double d
 constexpr ParamDef kParams[] {
     { kPresetParamId, "Preset", 0.0, static_cast<double>(s3g::kAmbiWranglerFactoryPresetCount - 1u), 0.0, true },
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
-    { kVoicesParamId, "Nodes", 1.0, 64.0, 16.0, true },
+    { kVoicesParamId, "Voices", 1.0, 64.0, 16.0, true },
     { kCircuitLawParamId, "Circuit Law", 0.0, 1.0, 0.0, true },
-    { kEnginesParamId, "Engines", 1.0, 64.0, 4.0, true },
     { kRateAParamId, "Rate A", 0.0, 1.0, 0.28, false },
     { kRateBParamId, "Rate B", 0.0, 1.0, 0.34, false },
     { kFmAtoBParamId, "FM A to B", 0.0, 1.0, 0.18, false },
@@ -874,6 +1747,7 @@ constexpr ParamDef kParams[] {
     { kSettleAmountParamId, "Listener Viscosity", 0.0, 1.0, 0.65, false },
     { kSettleTargetParamId, "Calm Target", 0.0, 0.95, 0.30, false },
     { kSettleRecoveryParamId, "Capture Recovery", 0.25, 12.0, 3.0, false },
+    { kFilterMorphParamId, "DJ Filter Morph", 0.0, 2.0, 0.0, false },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
@@ -891,8 +1765,12 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
 {
     if (!info || index >= paramsCount(nullptr)) return false;
     const auto& def = kParams[index];
+    *info = {};
     info->id = def.id;
-    info->flags = CLAP_PARAM_IS_AUTOMATABLE | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0);
+    info->flags =
+        CLAP_PARAM_IS_AUTOMATABLE
+        | CLAP_PARAM_REQUIRES_PROCESS
+        | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0);
     std::strncpy(info->name, def.name, sizeof(info->name));
     std::strncpy(info->module,
         isListenerParamId(def.id)
@@ -904,13 +1782,11 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     return true;
 }
 
-bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
+bool paramValueFromParams(
+    const s3g::AmbiWranglerParams& params, clap_id id, double& result)
 {
-    if (!value) return false;
-    auto* p = self(plugin);
-    const auto params = p->params;
+    double* value = &result;
     switch (id) {
-    case kPresetParamId: *value = p->presetIndex; return true;
     case kOrderParamId: *value = params.order; return true;
     case kVoicesParamId: *value = params.voices; return true;
     case kRateAParamId: *value = params.rateA; return true;
@@ -965,14 +1841,29 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kPropagationParamId: *value = params.propagation; return true;
     case kReturnBypassParamId: *value = params.returnBypass; return true;
     case kCircuitLawParamId: *value = static_cast<uint32_t>(params.circuitLaw); return true;
-    case kEnginesParamId: *value = params.engines; return true;
+    case kLegacyEnginesParamId: *value = params.voices; return true;
     case kChangeParamId: *value = params.change; return true;
     case kListenerResponseParamId: *value = static_cast<uint32_t>(params.listenerResponse); return true;
     case kSettleAmountParamId: *value = params.settleAmount; return true;
     case kSettleTargetParamId: *value = params.settleTarget; return true;
     case kSettleRecoveryParamId: *value = params.settleRecoverySeconds; return true;
+    case kFilterMorphParamId:
+        *value = static_cast<double>(params.filterMorph) * 2.0;
+        return true;
     default: return false;
     }
+}
+
+bool paramsGetValue(
+    const clap_plugin_t* plugin, clap_id id, double* value)
+{
+    if (!value) return false;
+    auto snapshot = controlStateSnapshot(*self(plugin));
+    if (id == kPresetParamId) {
+        *value = snapshot.presetIndex;
+        return true;
+    }
+    return paramValueFromParams(snapshot.params, id, *value);
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
@@ -982,7 +1873,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         std::snprintf(display, size, "%s", s3g::ambiWranglerFactoryPresetInfo(static_cast<uint32_t>(std::lround(value))).name);
     } else if (id == kOrderParamId) {
         std::snprintf(display, size, "%.0fOA", value);
-    } else if (id == kVoicesParamId || id == kEnginesParamId) {
+    } else if (id == kVoicesParamId || id == kLegacyEnginesParamId) {
         std::snprintf(display, size, "%.0f", value);
     } else if (id == kCircuitLawParamId) {
         std::snprintf(display, size, "%s", value < 0.5 ? "LEGACY" : "BOUNDED");
@@ -1003,6 +1894,19 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         std::snprintf(display, size, "%s", kListenNames[std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)), 3u)]);
     } else if (id == kListenerResponseParamId) {
         std::snprintf(display, size, "%s", value < 0.5 ? "WRITE" : "SETTLE");
+    } else if (id == kFilterMorphParamId) {
+        const double morph = std::clamp(value, 0.0, 2.0);
+        if (morph <= 0.0005) {
+            std::snprintf(display, size, "LP");
+        } else if (std::fabs(morph - 1.0) <= 0.0005) {
+            std::snprintf(display, size, "OPEN");
+        } else if (morph >= 1.9995) {
+            std::snprintf(display, size, "HP");
+        } else {
+            // Lead with a round-trippable numeric host value, followed by the
+            // continuous response legend used by the GUI.
+            std::snprintf(display, size, "%.6f LP→OPEN→HP", morph);
+        }
     } else if (id == kInputAParamId || id == kInputBParamId) {
         std::snprintf(display, size, "%s", value < 0.5 ? "SQUARE" : "TRI");
     } else if (id == kMaskModeParamId) {
@@ -1164,6 +2068,26 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         if (std::strcmp(display, "SETTLE") == 0) { *value = 1.0; return true; }
         return false;
     }
+    if (id == kFilterMorphParamId) {
+        if (std::strcmp(display, "LP") == 0
+            || std::strcmp(display, "LOWPASS") == 0
+            || std::strcmp(display, "LOW PASS") == 0) {
+            *value = 0.0;
+            return true;
+        }
+        if (std::strcmp(display, "OPEN") == 0) {
+            *value = 1.0;
+            return true;
+        }
+        if (std::strcmp(display, "HP") == 0
+            || std::strcmp(display, "HIGHPASS") == 0
+            || std::strcmp(display, "HIGH PASS") == 0) {
+            *value = 2.0;
+            return true;
+        }
+        *value = std::clamp(std::atof(display), 0.0, 2.0);
+        return true;
+    }
     if (id == kPropagationParamId) {
         const double milliseconds = std::max(0.0, std::atof(display));
         const double seconds = milliseconds * 0.001;
@@ -1190,19 +2114,70 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(
+    const clap_plugin_t* plugin, const clap_input_events_t* in,
+    const clap_output_events_t*)
+{
+    auto* p = self(plugin);
+    if (!p->active.load(std::memory_order_acquire)) {
+        applyControlEvents(*p, in);
+        return;
+    }
+
+    // CLAP calls flush on the audio thread while the plugin is active.
+    // Keep that path process-owned and nonblocking just like process():
+    // opportunistically consume a GUI/state snapshot, apply the untimed
+    // events directly to the render copy, then report host automation through
+    // the separate try-lock mailbox.
+    bool paramsDirty = tryConsumeControlParams(*p);
+    const uint32_t count = in ? in->size(in) : 0u;
+    for (uint32_t index = 0u; index < count; ++index) {
+        const clap_event_header_t* event = in->get(in, index);
+        if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID
+            || event->type != CLAP_EVENT_PARAM_VALUE) {
+            continue;
+        }
+        const auto* param =
+            reinterpret_cast<const clap_event_param_value_t*>(event);
+        if (param->param_id == kPresetParamId) {
+            applyParamToState(p->audioParams,
+                p->audioPresetIndex,
+                p->audioCustomPresetName,
+                param->param_id, param->value);
+            p->pendingAudioReportPresetChanged = true;
+            p->pendingAudioReportDirtyMask |=
+                uint64_t { 1u } << kPresetParamId;
+            paramsDirty = true;
+        } else if (assignParam(
+                p->audioParams, param->param_id, param->value)) {
+            if (param->param_id < 64u) {
+                p->pendingAudioReportDirtyMask |=
+                    uint64_t { 1u } << param->param_id;
+            }
+            paramsDirty = true;
+        }
+    }
+    if (paramsDirty) {
+        p->engine.setParams(p->audioParams);
+        p->audioParams = p->engine.params();
+    }
+    publishAudioReportTry(*p);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     auto* p = self(plugin);
+    const auto snapshot = controlStateSnapshot(*p);
     SavedState state {};
     state.version = kStateVersion;
-    state.params = p->params;
+    state.params = snapshot.params;
     canonicalizeParamsPadding(state.params);
-    state.presetIndex = p->presetIndex;
-    std::snprintf(state.customPresetName, sizeof(state.customPresetName), "%s", p->customPresetName);
+    state.presetIndex = snapshot.presetIndex;
+    std::snprintf(state.customPresetName,
+        sizeof(state.customPresetName), "%s",
+        snapshot.customPresetName);
     return writeExact(stream, &state, sizeof(state));
 }
 
@@ -1211,62 +2186,20 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!stream || !stream->read) return false;
     uint32_t version = 0u;
     if (!readExact(stream, &version, sizeof(version))) return false;
+    // This format intentionally breaks with the pre-morph layouts. Refuse
+    // them rather than guessing at a raw struct whose semantics changed.
+    if (version != kStateVersion) return false;
     SavedState state {};
     state.version = version;
-    if (version == 3u) {
-        constexpr size_t kLegacyParamsV3Size =
-            kWranglerV9ParamsSize - sizeof(float) * 2u - sizeof(uint32_t);
-        if (!readExact(stream, &state.params, kLegacyParamsV3Size)) return false;
-        if (!readExact(stream, &state.presetIndex, sizeof(state.presetIndex))) return false;
-        state.params.snap = 0.0f;
-        state.params.snapDecay = 0.34f;
-        state.params.rungLoop = 0u;
-        state.customPresetName[0] = '\0';
-    } else if (version == 6u) {
-        constexpr size_t kLegacyParamsV6Size =
-            kWranglerV9ParamsSize - sizeof(float) * 2u - sizeof(uint32_t);
-        if (!readExact(stream, &state.params, kLegacyParamsV6Size)) return false;
-        state.params.snap = 0.0f;
-        state.params.snapDecay = 0.34f;
-        state.params.rungLoop = 0u;
-        state.params.rateModeA = std::min<uint32_t>(2u, state.params.rateModeA + 1u);
-        state.params.rateModeB = std::min<uint32_t>(2u, state.params.rateModeB + 1u);
-        if (!readExact(stream, &state.presetIndex, sizeof(state.presetIndex))) return false;
-        if (!readExact(stream, state.customPresetName, sizeof(state.customPresetName))) return false;
-    } else if (version == 7u) {
-        constexpr size_t kStateV7ParamsSize = kWranglerV9ParamsSize - sizeof(uint32_t);
-        if (!readExact(stream, &state.params, kStateV7ParamsSize)) return false;
-        state.params.rungLoop = 0u;
-        if (!readExact(stream, &state.presetIndex, sizeof(state.presetIndex))) return false;
-        if (!readExact(stream, state.customPresetName, sizeof(state.customPresetName))) return false;
-        state.params.rateModeA = std::min<uint32_t>(2u, state.params.rateModeA + 1u);
-        state.params.rateModeB = std::min<uint32_t>(2u, state.params.rateModeB + 1u);
-    } else if (version == 8u) {
-        constexpr size_t kStateV8ParamsSize = kWranglerV9ParamsSize - sizeof(uint32_t);
-        if (!readExact(stream, &state.params, kStateV8ParamsSize)) return false;
-        state.params.rungLoop = 0u;
-        if (!readExact(stream, &state.presetIndex, sizeof(state.presetIndex))) return false;
-        if (!readExact(stream, state.customPresetName, sizeof(state.customPresetName))) return false;
-    } else if (version == 9u) {
-        if (!readExact(stream, &state.params, kWranglerV9ParamsSize)) return false;
-        if (!readExact(stream, &state.presetIndex, sizeof(state.presetIndex))) return false;
-        if (!readExact(stream, state.customPresetName, sizeof(state.customPresetName))) return false;
-    } else if (version == 10u) {
-        if (!readExact(stream, &state.params, kWranglerV10ParamsSize)) return false;
-        if (!readExact(stream, &state.presetIndex, sizeof(state.presetIndex))) return false;
-        if (!readExact(stream, state.customPresetName, sizeof(state.customPresetName))) return false;
-    } else if (version == kStateVersion) {
-        if (!readExact(stream, reinterpret_cast<uint8_t*>(&state) + sizeof(state.version), sizeof(state) - sizeof(state.version))) return false;
-    } else {
+    if (!readExact(stream,
+            reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+            sizeof(state) - sizeof(state.version))) {
         return false;
     }
-    if (version < kStateVersion) migratePreV11Params(state.params);
+    state.customPresetName[sizeof(state.customPresetName) - 1u] = '\0';
     auto* p = self(plugin);
-    p->params = state.params;
-    p->presetIndex = std::min<uint32_t>(state.presetIndex, s3g::kAmbiWranglerFactoryPresetCount - 1u);
-    std::snprintf(p->customPresetName, sizeof(p->customPresetName), "%s", state.customPresetName);
-    p->engine.setParams(p->params);
-    p->params = p->engine.params();
+    replaceControlState(
+        *p, state.params, state.presetIndex, state.customPresetName);
     return true;
 }
 
@@ -1290,11 +2223,10 @@ struct GuiSliderSpec {
 
 constexpr GuiSliderSpec kGuiSliders[] {
     { kVoicesParamId, 630, 144, 1.0, 64.0, false },
-    { kEnginesParamId, 630, 168, 1.0, 64.0, false },
-    { kRateAParamId, 630, 192, 0.0, 1.0, false },
-    { kRateBParamId, 630, 216, 0.0, 1.0, false },
-    { kSpreadParamId, 630, 240, 0.0, 1.0, false },
-    { kDeviationParamId, 630, 264, 0.0, 1.0, false },
+    { kRateAParamId, 630, 168, 0.0, 1.0, false },
+    { kRateBParamId, 630, 192, 0.0, 1.0, false },
+    { kSpreadParamId, 630, 216, 0.0, 1.0, false },
+    { kDeviationParamId, 630, 240, 0.0, 1.0, false },
     { kFmAtoBParamId, 630, 334, 0.0, 1.0, false },
     { kFmBtoAParamId, 630, 358, 0.0, 1.0, false },
     { kRunglerAParamId, 630, 382, 0.0, 1.0, false },
@@ -1302,12 +2234,13 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kRungSizeParamId, 630, 430, 2.0, 8.0, false },
     { kChangeParamId, 630, 454, 0.0, 1.0, false },
     { kThresholdParamId, 630, 478, 0.0, 1.0, false },
-    { kColorParamId, 630, 538, 0.0, 1.0, false },
-    { kFilterParamId, 630, 564, 0.0, 1.0, false },
-    { kResonanceParamId, 630, 590, 0.0, 1.0, false },
-    { kFilterRunParamId, 630, 616, 0.0, 1.0, false },
-    { kFilterSweepParamId, 630, 642, 0.0, 1.0, false },
-    { kSaturationParamId, 630, 668, 0.0, 1.0, false },
+    { kFilterMorphParamId, 630, 538, 0.0, 2.0, false },
+    { kColorParamId, 630, 562, 0.0, 1.0, false },
+    { kFilterParamId, 630, 586, 0.0, 1.0, false },
+    { kResonanceParamId, 630, 610, 0.0, 1.0, false },
+    { kFilterRunParamId, 630, 634, 0.0, 1.0, false },
+    { kFilterSweepParamId, 630, 658, 0.0, 1.0, false },
+    { kSaturationParamId, 630, 682, 0.0, 1.0, false },
     { kPwmAParamId, 630, 748, 0.0, 1.0, false },
     { kPwmBParamId, 630, 774, 0.0, 1.0, false },
     { kTopologyRateParamId, 896, 156, 0.001, 2.0, true },
@@ -1385,6 +2318,9 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 
 @interface S3GAmbiWranglerEncoderView : NSView {
     Plugin* _plugin;
+    s3g::AmbiWranglerParams _paramsSnapshot;
+    uint32_t _presetIndexSnapshot;
+    char _customPresetNameSnapshot[64];
     NSTimer* _timer;
     uint32_t _selectedVoice;
     int _dragParam;
@@ -1395,13 +2331,18 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     CGFloat _viewElDeg;
     CGFloat _viewZoom;
     int _fieldPage;
+    int _curveBank;
+    uint32_t _selectedCurveDimension;
+    uint32_t _curveVoiceBank;
     int _dragBreakpointRow;
+    int _dragBreakpointVoice;
     int _openMenu;
     int _hoverMenuItem;
     uint32_t _menuItemCount;
     NSRect _openMenuRect;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
+- (void)refreshControlSnapshot;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
 @end
@@ -1412,6 +2353,9 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
     if (self) {
         _plugin = plugin;
+        _paramsSnapshot = {};
+        _presetIndexSnapshot = 0u;
+        _customPresetNameSnapshot[0] = '\0';
         _timer = nil;
         _selectedVoice = 0;
         _dragParam = 0;
@@ -1422,11 +2366,16 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         _viewElDeg = plugin ? plugin->guiViewElDeg : 32.0;
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
         _fieldPage = 0;
+        _curveBank = 0;
+        _selectedCurveDimension = 0u;
+        _curveVoiceBank = 0u;
         _dragBreakpointRow = -1;
+        _dragBreakpointVoice = -1;
         _openMenu = 0;
         _hoverMenuItem = -1;
         _menuItemCount = 0;
         _openMenuRect = NSZeroRect;
+        [self refreshControlSnapshot];
         [self setWantsLayer:YES];
     }
     return self;
@@ -1449,6 +2398,17 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     _plugin->guiViewZoom = static_cast<float>(_viewZoom);
 }
 
+- (void)refreshControlSnapshot
+{
+    if (!_plugin) return;
+    const auto snapshot = controlStateSnapshot(*_plugin);
+    _paramsSnapshot = snapshot.params;
+    _presetIndexSnapshot = snapshot.presetIndex;
+    std::snprintf(_customPresetNameSnapshot,
+        sizeof(_customPresetNameSnapshot), "%s",
+        snapshot.customPresetName);
+}
+
 - (void)startRefreshTimer
 {
     if (_timer) return;
@@ -1465,6 +2425,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 - (void)timerTick:(NSTimer*)timer
 {
     (void)timer;
+    [self refreshControlSnapshot];
     [self setNeedsDisplay:YES];
 }
 
@@ -1474,6 +2435,63 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 - (NSRect)savePresetButtonRect { return NSMakeRect(580, 13, 46, 15); }
 - (NSRect)loadPresetButtonRect { return NSMakeRect(632, 13, 46, 15); }
 - (NSRect)randomizeButtonRect { return NSMakeRect(684, 13, 66, 15); }
+
+- (NSRect)curveBankButtonRect:(int)index
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0 + index * 88.0,
+        field.origin.y + 10.0, 82.0, 18.0);
+}
+
+- (NSRect)curvesToggleRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(NSMaxX(field) - 131.0,
+        field.origin.y + 10.0, 121.0, 18.0);
+}
+
+- (NSRect)curveParameterButtonRect:(uint32_t)localIndex
+{
+    const NSRect field = [self fieldRect];
+    const CGFloat left = field.origin.x + 10.0;
+    const CGFloat top = field.origin.y + 39.0;
+    const CGFloat gapX = 7.0;
+    const CGFloat gapY = 6.0;
+    const CGFloat height = 20.0;
+    const uint32_t columns = _curveBank == 0 ? 4u : 5u;
+    const CGFloat width = _curveBank == 0 ? 130.75 : 103.2;
+    return NSMakeRect(
+        left + static_cast<CGFloat>(localIndex % columns)
+            * (width + gapX),
+        top + static_cast<CGFloat>(localIndex / columns)
+            * (height + gapY),
+        width, height);
+}
+
+- (NSRect)curveVoiceBankButtonRect:(uint32_t)index
+{
+    const NSRect field = [self fieldRect];
+    constexpr CGFloat gap = 7.0;
+    constexpr CGFloat width = 130.75;
+    return NSMakeRect(
+        field.origin.x + 10.0
+            + static_cast<CGFloat>(index) * (width + gap),
+        field.origin.y + 171.0, width, 19.0);
+}
+
+- (NSRect)curvePlotRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0,
+        field.origin.y + 201.0, field.size.width - 20.0, 278.0);
+}
+
+- (NSRect)curveGraphRect
+{
+    const NSRect plot = [self curvePlotRect];
+    return NSMakeRect(plot.origin.x + 30.0, plot.origin.y + 14.0,
+        plot.size.width - 44.0, plot.size.height - 40.0);
+}
 
 - (NSRect)pageButtonRect:(int)index
 {
@@ -1575,7 +2593,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     if ([panel runModal] != NSModalResponseOK) return;
     NSString* name = [[[[panel URL] lastPathComponent] stringByDeletingPathExtension] copy];
     if (saveCustomPresetFile([[[panel URL] path] UTF8String], *_plugin, [name UTF8String])) {
-        std::snprintf(_plugin->customPresetName, sizeof(_plugin->customPresetName), "%s", [name UTF8String]);
+        setControlCustomPresetName(*_plugin, [name UTF8String]);
     }
     [name release];
     [self setNeedsDisplay:YES];
@@ -1595,10 +2613,9 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     if ([panel runModal] != NSModalResponseOK) return;
     CustomPresetFile file {};
     if (!loadCustomPresetFile([[[panel URL] path] UTF8String], file)) return;
-    _plugin->params = file.params;
-    _plugin->engine.setParams(_plugin->params);
-    _plugin->params = _plugin->engine.params();
-    std::snprintf(_plugin->customPresetName, sizeof(_plugin->customPresetName), "%s", file.name[0] ? file.name : "Custom");
+    replaceControlState(*_plugin, file.params, 0u,
+        file.name[0] ? file.name : "Custom");
+    [self refreshControlSnapshot];
     [self setNeedsDisplay:YES];
 }
 
@@ -1621,55 +2638,243 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [s3g::clap_gui::color(0x555555) setStroke];
     NSFrameRect(field);
 
-    static NSString* rowLabels[] = { @"RATE A", @"RATE B", @"FM A>B", @"FM B>A", @"RUNG A", @"RUNG B", @"FILTER", @"THRESH", @"PWM A", @"PWM B", @"RAMP A", @"RAMP B", @"AMP" };
-    const uint32_t engines = std::min<uint32_t>(
-        std::clamp<uint32_t>(_plugin->params.engines, 1u, s3g::kAmbiWranglerMaxVoices),
-        std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWranglerMaxVoices));
-    _selectedVoice = std::min<uint32_t>(_selectedVoice, engines - 1u);
-    const CGFloat labelW = 54.0;
-    const CGFloat left = field.origin.x + labelW + 10.0;
-    const CGFloat right = NSMaxX(field) - 12.0;
-    const CGFloat top = field.origin.y + 28.0;
-    const CGFloat bottom = NSMaxY(field) - 30.0;
-    const CGFloat rowH = (bottom - top) / 13.0;
+    static NSString* dimensionLabels[
+        s3g::kAmbiWranglerCurveDimensionCount] = {
+        @"RATE A", @"RUNG A", @"FM B>A", @"COLOR A",
+        @"RATE B", @"RUNG B", @"FM A>B", @"COLOR B",
+        @"FILTER FREQ A", @"FILTER FREQ B", @"FILTER RES",
+        @"FILTER COMP", @"FILTER TYPE", @"CROSS A",
+        @"CROSS B", @"CROSS LPF", @"RUNG MODE",
+        @"RUNG THRESH", @"RUNG SIZE",
+        @"PWM A", @"PWM B", @"RAMP A", @"RAMP B", @"LEVEL",
+    };
+    static NSString* rungModeNames[] = {
+        @"COMMON", @"SPLIT", @"SWAP",
+    };
 
-    for (uint32_t row = 0; row < 13u; ++row) {
-        const CGFloat y = top + rowH * row;
-        [[s3g::clap_gui::color(row % 2u ? 0x111111 : 0x151515) colorWithAlphaComponent:0.92] setFill];
-        NSRectFill(NSMakeRect(field.origin.x + 1.0, y, field.size.width - 2.0, rowH));
-        [rowLabels[row] drawAtPoint:NSMakePoint(field.origin.x + 10.0, y + rowH * 0.5 - 5.0) withAttributes:attrs];
-        [s3g::clap_gui::color(0x2b2b2b) setStroke];
-        [NSBezierPath strokeLineFromPoint:NSMakePoint(left, y + rowH) toPoint:NSMakePoint(right, y + rowH)];
-
-        NSBezierPath* curve = [NSBezierPath bezierPath];
-        for (uint32_t voice = 0u; voice < engines; ++voice) {
-            const double fallback = breakpointFallback(_plugin->params, row);
-            const double value = _plugin->params.voiceBreakpointsEnabled ? breakpointFinalValue(_plugin->params, row, voice) : fallback;
-            const CGFloat x = left + (right - left) * (engines <= 1u ? 0.0 : static_cast<CGFloat>(voice) / static_cast<CGFloat>(engines - 1u));
-            const CGFloat yy = y + 5.0 + (1.0 - std::clamp(value, 0.0, 1.0)) * (rowH - 10.0);
-            if (voice == 0u) [curve moveToPoint:NSMakePoint(x, yy)];
-            else [curve lineToPoint:NSMakePoint(x, yy)];
+    auto drawButton = [&](NSRect rect, NSString* label,
+                          bool selected, bool enabled) {
+        [s3g::clap_gui::color(
+            selected ? 0x302b16 : (enabled ? 0x171717 : 0x101010))
+            setFill];
+        NSRectFill(rect);
+        [s3g::clap_gui::color(
+            selected ? 0xf0d86a : (enabled ? 0x555555 : 0x292929))
+            setStroke];
+        NSFrameRect(rect);
+        if (selected) {
+            [s3g::clap_gui::color(0xf0d86a) setFill];
+            NSRectFill(NSMakeRect(rect.origin.x + 1.0,
+                rect.origin.y + 1.0, 3.0, rect.size.height - 2.0));
         }
-        [[s3g::clap_gui::color(row == static_cast<uint32_t>(_dragBreakpointRow) ? 0xf0d86a : 0xa7c7ba) colorWithAlphaComponent:_plugin->params.voiceBreakpointsEnabled ? 0.90 : 0.42] setStroke];
-        [curve setLineWidth:1.35];
-        [curve stroke];
+        const NSSize size = [label sizeWithAttributes:attrs];
+        [label drawAtPoint:NSMakePoint(
+            NSMidX(rect) - size.width * 0.5,
+            NSMidY(rect) - size.height * 0.5)
+            withAttributes:attrs];
+    };
 
-        for (uint32_t voice = 0u; voice < engines; ++voice) {
-            const double fallback = breakpointFallback(_plugin->params, row);
-            const double value = _plugin->params.voiceBreakpointsEnabled ? breakpointFinalValue(_plugin->params, row, voice) : fallback;
-            const CGFloat x = left + (right - left) * (engines <= 1u ? 0.0 : static_cast<CGFloat>(voice) / static_cast<CGFloat>(engines - 1u));
-            const CGFloat yy = y + 5.0 + (1.0 - std::clamp(value, 0.0, 1.0)) * (rowH - 10.0);
-            const CGFloat size = voice == _selectedVoice ? 4.8 : (engines > 36u ? 2.4 : 3.2);
-            [[self voiceColor:voice selected:voice == _selectedVoice] setFill];
-            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(x - size * 0.5, yy - size * 0.5, size, size)] fill];
-        }
+    _curveBank = std::clamp(_curveBank, 0, 1);
+    if (_curveBank == 0
+        && _selectedCurveDimension
+            >= s3g::kAmbiWranglerHistoricalCurveDimensionCount) {
+        _selectedCurveDimension = 0u;
+    } else if (_curveBank == 1
+        && _selectedCurveDimension
+            < s3g::kAmbiWranglerHistoricalCurveDimensionCount) {
+        _selectedCurveDimension =
+            s3g::kAmbiWranglerHistoricalCurveDimensionCount;
+    }
+    _selectedCurveDimension = std::min<uint32_t>(
+        _selectedCurveDimension,
+        s3g::kAmbiWranglerCurveDimensionCount - 1u);
+    _curveVoiceBank = std::min<uint32_t>(_curveVoiceBank, 3u);
+    const uint32_t bankFirstVoice = _curveVoiceBank * 16u;
+    if (_selectedVoice < bankFirstVoice
+        || _selectedVoice >= bankFirstVoice + 16u) {
+        _selectedVoice = bankFirstVoice;
+    }
+    _selectedVoice = std::min<uint32_t>(
+        _selectedVoice, s3g::kAmbiWranglerMaxVoices - 1u);
+    const auto dimension = static_cast<WranglerCurveDimension>(
+        _selectedCurveDimension);
+
+    drawButton([self curveBankButtonRect:0], @"HIST · 19",
+        _curveBank == 0, true);
+    drawButton([self curveBankButtonRect:1], @"MODERN · 5",
+        _curveBank == 1, true);
+    drawButton([self curvesToggleRect],
+        _paramsSnapshot.voiceBreakpointsEnabled
+            ? @"CURVES ON" : @"CURVES OFF",
+        _paramsSnapshot.voiceBreakpointsEnabled, true);
+
+    NSString* bankContext = _curveBank == 0
+        ? @"EXACT WRNGLR.GENDSP ORDER"
+        : @"WRANGLER EXTENSIONS";
+    [bankContext drawAtPoint:NSMakePoint(
+        field.origin.x + 196.0, field.origin.y + 14.0)
+        withAttributes:valueAttrs];
+
+    const uint32_t firstDimension = _curveBank == 0 ? 0u
+        : s3g::kAmbiWranglerHistoricalCurveDimensionCount;
+    const uint32_t dimensionCount = _curveBank == 0
+        ? s3g::kAmbiWranglerHistoricalCurveDimensionCount
+        : s3g::kAmbiWranglerCurveDimensionCount
+            - s3g::kAmbiWranglerHistoricalCurveDimensionCount;
+    for (uint32_t local = 0u; local < dimensionCount; ++local) {
+        const uint32_t raw = firstDimension + local;
+        drawButton([self curveParameterButtonRect:local],
+            dimensionLabels[raw], raw == _selectedCurveDimension, true);
     }
 
-    const auto& ampValues = _plugin->params.bpAmp;
-    const double amp = _plugin->params.voiceBreakpointsEnabled ? ampValues[_selectedVoice] : 1.0;
-    NSString* readout = [NSString stringWithFormat:@"E%02u  %@  AMP %.2f", _selectedVoice + 1u, _plugin->params.voiceBreakpointsEnabled ? @"BREAKPOINTS ON" : @"MACRO PREVIEW", amp];
-    s3g::clap_gui::drawRightStatus(readout, NSMaxX(field), field.origin.y + 7, valueAttrs, 8.0);
-    [@"GLOBAL SLIDERS TRIM CURVES     CLICK/DRAG TO SET PER-ENGINE VALUES" drawAtPoint:NSMakePoint(field.origin.x + 9, NSMaxY(field) - 19) withAttributes:valueAttrs];
+    for (uint32_t bank = 0u; bank < 4u; ++bank) {
+        NSString* label = [NSString stringWithFormat:
+            @"VOICES %u–%u", bank * 16u + 1u, bank * 16u + 16u];
+        drawButton([self curveVoiceBankButtonRect:bank], label,
+            bank == _curveVoiceBank, true);
+    }
+
+    const NSRect plot = [self curvePlotRect];
+    const NSRect graph = [self curveGraphRect];
+    [s3g::clap_gui::color(0x0c0c0c) setFill];
+    NSRectFill(plot);
+    [s3g::clap_gui::color(0x454545) setStroke];
+    NSFrameRect(plot);
+
+    for (uint32_t tick = 0u; tick <= 4u; ++tick) {
+        const double normalized = static_cast<double>(tick) / 4.0;
+        const CGFloat y = NSMaxY(graph)
+            - static_cast<CGFloat>(normalized) * graph.size.height;
+        [s3g::clap_gui::color(tick == 2u ? 0x464646 : 0x292929)
+            setStroke];
+        [NSBezierPath strokeLineFromPoint:NSMakePoint(
+            graph.origin.x, y) toPoint:NSMakePoint(NSMaxX(graph), y)];
+        NSString* tickLabel =
+            dimension == WranglerCurveDimension::FilterType
+            ? (tick == 0u ? @"LP"
+                : (tick == 2u ? @"OPEN"
+                    : (tick == 4u ? @"HP"
+                        : [NSString stringWithFormat:@"%.2f",
+                            normalized])))
+            : [NSString stringWithFormat:@"%.2f", normalized];
+        [tickLabel drawAtPoint:NSMakePoint(
+            plot.origin.x + 4.0, y - 5.0) withAttributes:valueAttrs];
+    }
+
+    const bool stepped = breakpointIsStepped(dimension);
+    NSBezierPath* storedPath = [NSBezierPath bezierPath];
+    NSBezierPath* effectivePath = [NSBezierPath bezierPath];
+    CGFloat previousStoredY = 0.0;
+    CGFloat previousEffectiveY = 0.0;
+    for (uint32_t slot = 0u; slot < 16u; ++slot) {
+        const uint32_t voice = bankFirstVoice + slot;
+        const double stored = breakpointStoredValue(
+            _paramsSnapshot, dimension, voice);
+        const double effective = breakpointFinalValue(
+            _paramsSnapshot, dimension, voice);
+        const CGFloat x = graph.origin.x
+            + graph.size.width * static_cast<CGFloat>(slot) / 15.0;
+        const CGFloat storedY = NSMaxY(graph)
+            - graph.size.height * static_cast<CGFloat>(stored);
+        const CGFloat effectiveY = NSMaxY(graph)
+            - graph.size.height * static_cast<CGFloat>(effective);
+        if (slot == 0u) {
+            [storedPath moveToPoint:NSMakePoint(x, storedY)];
+            [effectivePath moveToPoint:NSMakePoint(x, effectiveY)];
+        } else if (stepped) {
+            [storedPath lineToPoint:NSMakePoint(x, previousStoredY)];
+            [storedPath lineToPoint:NSMakePoint(x, storedY)];
+            [effectivePath lineToPoint:NSMakePoint(
+                x, previousEffectiveY)];
+            [effectivePath lineToPoint:NSMakePoint(x, effectiveY)];
+        } else {
+            [storedPath lineToPoint:NSMakePoint(x, storedY)];
+            [effectivePath lineToPoint:NSMakePoint(x, effectiveY)];
+        }
+        previousStoredY = storedY;
+        previousEffectiveY = effectiveY;
+    }
+
+    CGFloat dash[] = { 3.0, 3.0 };
+    [storedPath setLineDash:dash count:2 phase:0.0];
+    [storedPath setLineWidth:1.0];
+    [s3g::clap_gui::color(0x727272, 0.72) setStroke];
+    [storedPath stroke];
+    [effectivePath setLineWidth:1.7];
+    [[s3g::clap_gui::color(0xa7c7ba)
+        colorWithAlphaComponent:
+            _paramsSnapshot.voiceBreakpointsEnabled ? 0.94 : 0.38]
+        setStroke];
+    [effectivePath stroke];
+
+    const uint32_t activeVoices = std::clamp<uint32_t>(
+        _paramsSnapshot.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+    for (uint32_t slot = 0u; slot < 16u; ++slot) {
+        const uint32_t voice = bankFirstVoice + slot;
+        const bool selected = voice == _selectedVoice;
+        const bool active = voice < activeVoices;
+        const double effective = breakpointFinalValue(
+            _paramsSnapshot, dimension, voice);
+        const CGFloat x = graph.origin.x
+            + graph.size.width * static_cast<CGFloat>(slot) / 15.0;
+        const CGFloat y = NSMaxY(graph)
+            - graph.size.height * static_cast<CGFloat>(effective);
+        const CGFloat pointSize = selected ? 9.0 : 5.0;
+        [s3g::clap_gui::color(
+            selected ? 0xf0d86a : (active ? 0xa7c7ba : 0x4d4d4d))
+            setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            x - pointSize * 0.5, y - pointSize * 0.5,
+            pointSize, pointSize)] fill];
+        NSString* voiceLabel = [NSString stringWithFormat:@"%u",
+            voice + 1u];
+        const NSSize labelSize = [voiceLabel sizeWithAttributes:valueAttrs];
+        [voiceLabel drawAtPoint:NSMakePoint(
+            x - labelSize.width * 0.5, NSMaxY(graph) + 7.0)
+            withAttributes:valueAttrs];
+    }
+
+    const double stored = breakpointStoredValue(
+        _paramsSnapshot, dimension, _selectedVoice);
+    const double effective = breakpointFinalValue(
+        _paramsSnapshot, dimension, _selectedVoice);
+    NSString* effectiveText = nil;
+    if (dimension == WranglerCurveDimension::FilterType) {
+        if (effective <= 0.0005) {
+            effectiveText = @"LP";
+        } else if (std::fabs(effective - 0.5) <= 0.0005) {
+            effectiveText = @"OPEN";
+        } else if (effective >= 0.9995) {
+            effectiveText = @"HP";
+        } else {
+            effectiveText = [NSString stringWithFormat:
+                @"LP→OPEN→HP %.0f%%", effective * 100.0];
+        }
+    } else if (dimension == WranglerCurveDimension::RungMode) {
+        effectiveText = rungModeNames[std::min<uint32_t>(
+            static_cast<uint32_t>(std::lround(effective * 2.0)), 2u)];
+    } else if (dimension == WranglerCurveDimension::RungSize) {
+        effectiveText = [NSString stringWithFormat:@"%u",
+            2u + std::min<uint32_t>(
+                static_cast<uint32_t>(std::lround(effective * 6.0)), 6u)];
+    } else {
+        effectiveText = [NSString stringWithFormat:@"%.3f", effective];
+    }
+
+    NSString* status = [NSString stringWithFormat:
+        @"V%02u  %@  STORED %.3f  EFFECTIVE %@  %@",
+        _selectedVoice + 1u, dimensionLabels[_selectedCurveDimension],
+        stored, effectiveText,
+        _selectedVoice < activeVoices ? @"ACTIVE" : @"INACTIVE"];
+    [status drawAtPoint:NSMakePoint(
+        field.origin.x + 10.0, field.origin.y + 491.0)
+        withAttributes:valueAttrs];
+    NSString* instruction = _paramsSnapshot.voiceBreakpointsEnabled
+        ? @"SOLID = EFFECTIVE   DASH = STORED   CLICK PLOT TO LOCK ONE VOICE; DRAG CHANGES Y ONLY"
+        : @"CURVES OFF: SELECTORS ONLY ARM A ROW; TURN ON EXPLICITLY BEFORE EDITING";
+    [instruction drawAtPoint:NSMakePoint(
+        field.origin.x + 10.0, NSMaxY(field) - 20.0)
+        withAttributes:valueAttrs];
 }
 
 - (void)drawListenerMenuLabel:(NSString*)label value:(NSString*)value
@@ -1697,7 +2902,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     const NSRect rect = [self listenVoiceRect];
     NSDictionary* labels = s3g::clap_gui::softLabelAttrs();
     NSDictionary* values = s3g::clap_gui::softValueAttrs();
-    [@"NODE" drawAtPoint:NSMakePoint(rect.origin.x - 72.0, rect.origin.y + 1.0)
+    [@"VOICE" drawAtPoint:NSMakePoint(rect.origin.x - 72.0, rect.origin.y + 1.0)
         withAttributes:labels];
     [style.strip setFill];
     NSRectFill(rect);
@@ -1708,9 +2913,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         2.0, rect.size.height - 2.0));
     [@"<" drawAtPoint:NSMakePoint(rect.origin.x + 8.0, rect.origin.y + 1.0)
         withAttributes:values];
-    const uint32_t engine = _plugin->guiNodeEngine[_selectedVoice].load(
-        std::memory_order_relaxed);
-    [[NSString stringWithFormat:@"N%02u E%02u", _selectedVoice + 1u, engine + 1u]
+    [[NSString stringWithFormat:@"VOICE %02u", _selectedVoice + 1u]
         drawAtPoint:NSMakePoint(rect.origin.x + 25.0, rect.origin.y + 2.0)
         withAttributes:values];
     [@">" drawAtPoint:NSMakePoint(NSMaxX(rect) - 15.0, rect.origin.y + 1.0)
@@ -1728,10 +2931,10 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         field.origin.x + 10.0, field.origin.y + 10.0) withAttributes:valueAttrs];
 
     const uint32_t voices = std::clamp<uint32_t>(
-        _plugin->params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+        _paramsSnapshot.voices, 1u, s3g::kAmbiWranglerMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
     const uint32_t pickupCount =
-        _plugin->params.pickupSet == s3g::AmbiWranglerPickupSet::Tetra4 ? 4u : 8u;
+        _paramsSnapshot.pickupSet == s3g::AmbiWranglerPickupSet::Tetra4 ? 4u : 8u;
     const uint32_t readEar = _plugin->guiReadEar[_selectedVoice].load(
         std::memory_order_relaxed) % pickupCount;
     const float activity = _plugin->guiListenerActivity.load(std::memory_order_relaxed);
@@ -1759,10 +2962,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     const uint64_t heldClockCount =
         _plugin->guiHeldClockCount[_selectedVoice].load(
             std::memory_order_relaxed);
-    const uint32_t engineIndex = _plugin->guiNodeEngine[_selectedVoice].load(
-        std::memory_order_relaxed);
     const bool settleResponse =
-        _plugin->params.listenerResponse
+        _paramsSnapshot.listenerResponse
             == s3g::AmbiWranglerListenerResponse::Settle;
     const float returned = _plugin->guiFieldReturn[_selectedVoice].load(
         std::memory_order_relaxed);
@@ -1776,7 +2977,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         std::memory_order_relaxed);
     const uint32_t word = _plugin->guiRegister[_selectedVoice].load(
         std::memory_order_relaxed);
-    const uint32_t rungSize = std::clamp<uint32_t>(_plugin->params.rungSize, 2u, 8u);
+    const uint32_t rungSize = std::clamp<uint32_t>(
+        _paramsSnapshot.rungSize, 2u, 8u);
 
     constexpr float k = 0.57735026919f;
     static constexpr std::array<s3g::Vec3, 4> tetra {{
@@ -1877,13 +3079,13 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 
     NSString* registerStatus = settleResponse
         ? [NSString stringWithFormat:
-            @"N%02u / ENGINE %02u  REGISTER 0x%02X  /  %@  %llu CLOCKS",
-            _selectedVoice + 1u, engineIndex + 1u, word & 0xffu,
+            @"VOICE %02u  REGISTER 0x%02X  /  %@  %llu CLOCKS",
+            _selectedVoice + 1u, word & 0xffu,
             registerHeld ? @"HELD" : @"OPEN",
             static_cast<unsigned long long>(heldClockCount)]
         : [NSString stringWithFormat:
-            @"N%02u / ENGINE %02u  REGISTER 0x%02X  /  READ E%u",
-            _selectedVoice + 1u, engineIndex + 1u, word & 0xffu,
+            @"VOICE %02u  REGISTER 0x%02X  /  READ E%u",
+            _selectedVoice + 1u, word & 0xffu,
             readEar + 1u];
     [registerStatus drawAtPoint:NSMakePoint(
         center.x - 96.0, field.origin.y + 374.0) withAttributes:valueAttrs];
@@ -1907,7 +3109,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         rect:[self pickupSetRect] style:style];
     [self drawListenerMenuLabel:@"READ"
         value:[NSString stringWithUTF8String:modeNames[
-            std::min<uint32_t>(static_cast<uint32_t>(_plugin->params.listenMode), 3u)]]
+            std::min<uint32_t>(static_cast<uint32_t>(
+                _paramsSnapshot.listenMode), 3u)]]
         rect:[self listenModeRect] style:style];
     [self drawListenerMenuLabel:@"RESPONSE"
         value:settleResponse ? @"SETTLE" : @"WRITE"
@@ -1915,13 +3118,13 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 
     if (settleResponse) {
         [self drawSlider:@"VISCOSITY" param:kSettleAmountParamId
-            value:_plugin->params.settleAmount attrs:attrs
+            value:_paramsSnapshot.settleAmount attrs:attrs
             valueAttrs:valueAttrs style:style];
         [self drawSlider:@"CALM TARGET" param:kSettleTargetParamId
-            value:_plugin->params.settleTarget attrs:attrs
+            value:_paramsSnapshot.settleTarget attrs:attrs
             valueAttrs:valueAttrs style:style];
         [self drawSlider:@"RECOVERY" param:kSettleRecoveryParamId
-            value:_plugin->params.settleRecoverySeconds attrs:attrs
+            value:_paramsSnapshot.settleRecoverySeconds attrs:attrs
             valueAttrs:valueAttrs style:style];
         [@"CAPTURE" drawAtPoint:NSMakePoint(330.0, 575.0)
             withAttributes:attrs];
@@ -1940,24 +3143,24 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
             drawAtPoint:NSMakePoint(510.0, 574.0) withAttributes:valueAttrs];
     } else {
         [self drawSlider:@"FIELD RETURN" param:kFieldReturnParamId
-            value:_plugin->params.fieldReturn attrs:attrs valueAttrs:valueAttrs style:style];
+            value:_paramsSnapshot.fieldReturn attrs:attrs valueAttrs:valueAttrs style:style];
         [self drawSlider:@"PROPAGATION" param:kPropagationParamId
-            value:_plugin->params.propagation attrs:attrs valueAttrs:valueAttrs style:style];
+            value:_paramsSnapshot.propagation attrs:attrs valueAttrs:valueAttrs style:style];
         [self drawSlider:@"FIELD WRITE" param:kFieldWriteParamId
-            value:_plugin->params.fieldWrite attrs:attrs valueAttrs:valueAttrs style:style];
+            value:_paramsSnapshot.fieldWrite attrs:attrs valueAttrs:valueAttrs style:style];
         [self drawSlider:@"REG MOTION" param:kRegisterMotionParamId
-            value:_plugin->params.registerMotion attrs:attrs valueAttrs:valueAttrs style:style];
+            value:_paramsSnapshot.registerMotion attrs:attrs valueAttrs:valueAttrs style:style];
     }
 
     const NSRect controlHeader = NSMakeRect(field.origin.x, 604.0, field.size.width, 27.0);
     s3g::clap_gui::drawHeaderButton([self listenEnableRect], controlHeader,
-        _plugin->params.listeningEnabled ? @"LISTEN ON" : @"LISTEN OFF",
-        _plugin->params.listeningEnabled != 0u, attrs, style);
+        _paramsSnapshot.listeningEnabled ? @"LISTEN ON" : @"LISTEN OFF",
+        _paramsSnapshot.listeningEnabled != 0u, attrs, style);
     s3g::clap_gui::drawHeaderButton([self returnBypassRect], controlHeader,
         settleResponse
             ? @"RETURN INERT"
-            : (_plugin->params.returnBypass ? @"BYPASSED" : @"RETURN ACTIVE"),
-        !settleResponse && _plugin->params.returnBypass != 0u, attrs, style);
+            : (_paramsSnapshot.returnBypass ? @"BYPASSED" : @"RETURN ACTIVE"),
+        !settleResponse && _paramsSnapshot.returnBypass != 0u, attrs, style);
     NSString* status = settleResponse
         ? [NSString stringWithFormat:
             @"EARS %3.0f%%  CAPTURE %3.0f%%  EVOLVE x%.2f  TOPO x%.2f",
@@ -2010,7 +3213,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(field), NSMinY(field) + 18) toPoint:NSMakePoint(NSMidX(field), NSMaxY(field) - 18)];
 
     const uint32_t voices = std::clamp<uint32_t>(
-        _plugin->params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+        _paramsSnapshot.voices, 1u, s3g::kAmbiWranglerMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
     std::array<NSPoint, s3g::kAmbiWranglerMaxVoices> projected {};
     for (uint32_t voice = 0; voice < voices; ++voice) projected[voice] = [self projectVoice:voice depth:nullptr];
@@ -2054,13 +3257,11 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     const float dist = _plugin->guiDistance[_selectedVoice].load(std::memory_order_relaxed);
     const float energy = _plugin->guiEnergy[_selectedVoice].load(std::memory_order_relaxed);
     const float mask = _plugin->guiMask[_selectedVoice].load(std::memory_order_relaxed);
-    const uint32_t engine = _plugin->guiNodeEngine[_selectedVoice].load(
-        std::memory_order_relaxed);
     NSString* readout = [NSString stringWithFormat:
-        @"N%02u/E%02u  AZ%+.1f  EL%+.1f  D%.2f  M%.2f  A%.3f",
-        _selectedVoice + 1u, engine + 1u, az, el, dist, mask, energy];
+        @"V%02u  AZ%+.1f  EL%+.1f  D%.2f  M%.2f  A%.3f",
+        _selectedVoice + 1u, az, el, dist, mask, energy];
     s3g::clap_gui::drawRightStatus(readout, NSMaxX(field), field.origin.y + 7, valueAttrs, 8.0);
-    [@"RUNG REGISTER FIELD     SHARED ENGINES ACROSS SPATIAL NODES     ACN/SN3D" drawAtPoint:NSMakePoint(field.origin.x + 9, NSMaxY(field) - 19) withAttributes:valueAttrs];
+    [@"ONE COMPLETE RUNGLER CIRCUIT PER VOICE / AMBISONIC POINT     ACN/SN3D" drawAtPoint:NSMakePoint(field.origin.x + 9, NSMaxY(field) - 19) withAttributes:valueAttrs];
 }
 
 - (void)drawSlider:(NSString*)name param:(clap_id)param value:(double)value attrs:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
@@ -2069,7 +3270,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     if (!spec) return;
     char display[64] {};
     if (param == kRateAParamId || param == kRateBParamId) {
-        const uint32_t mode = param == kRateAParamId ? _plugin->params.rateModeA : _plugin->params.rateModeB;
+        const uint32_t mode = param == kRateAParamId
+            ? _paramsSnapshot.rateModeA : _paramsSnapshot.rateModeB;
         const double hz = rateNormToHzForDisplay(value, mode);
         if (hz < 1.0) std::snprintf(display, sizeof(display), "%.4f Hz", hz);
         else if (hz < 100.0) std::snprintf(display, sizeof(display), "%.2f Hz", hz);
@@ -2088,13 +3290,17 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 
 - (NSString*)presetDisplayName
 {
-    if (_plugin->customPresetName[0]) return [NSString stringWithFormat:@"CUSTOM: %s", _plugin->customPresetName];
-    return [NSString stringWithUTF8String:s3g::ambiWranglerFactoryPresetInfo(_plugin->presetIndex).name];
+    if (_customPresetNameSnapshot[0]) {
+        return [NSString stringWithFormat:
+            @"CUSTOM: %s", _customPresetNameSnapshot];
+    }
+    return [NSString stringWithUTF8String:
+        s3g::ambiWranglerFactoryPresetInfo(_presetIndexSnapshot).name];
 }
 
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
-    const auto p = _plugin->params;
+    const auto p = _paramsSnapshot;
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 228, style);
     s3g::clap_gui::drawPanelHeader(@"OSCILLATORS", true, 630, 42, 250, 21, attrs, style);
     s3g::clap_gui::drawHeaderButton([self circuitLawButtonRect],
@@ -2107,8 +3313,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     static constexpr const char* kRateRangeNames[] = { "LOW", "SINGLE", "DOUBLE" };
     [self drawMenu:@"RNG A" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeA, 2u)]] panelX:630 y:96 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenu:@"RNG B" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeB, 2u)]] panelX:630 y:120 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"NODES" param:kVoicesParamId value:p.voices attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"ENGINES" param:kEnginesParamId value:p.engines attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RATE A" param:kRateAParamId value:p.rateA attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RATE B" param:kRateBParamId value:p.rateB attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SPREAD" param:kSpreadParamId value:p.spread attrs:attrs valueAttrs:valueAttrs style:style];
@@ -2126,9 +3331,14 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [self drawSlider:@"CHANGE" param:kChangeParamId value:p.change attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"THRESH" param:kThresholdParamId value:p.threshold attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 512, 250, 186, style);
+    s3g::clap_gui::drawPanelFrame(630, 512, 250, 196, style);
     s3g::clap_gui::drawPanelHeader(@"FILTER / OUTPUT", true, 630, 512, 250, 21, attrs, style);
-    [self drawSlider:@"COLOR" param:kColorParamId value:p.color attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"LP→OPEN→HP" param:kFilterMorphParamId
+        value:static_cast<double>(p.filterMorph) * 2.0
+        attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:p.circuitLaw == s3g::AmbiWranglerCircuitLaw::Bounded
+        ? @"Z COLOR" : @"COLOR"
+        param:kColorParamId value:p.color attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FIL FRQ" param:kFilterParamId value:p.filter attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FIL RES" param:kResonanceParamId value:p.resonance attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FIL RUN" param:kFilterRunParamId value:p.filterRun attrs:attrs valueAttrs:valueAttrs style:style];
@@ -2251,43 +3461,43 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         for (uint32_t i = 0; i < s3g::kTopologyMotionModeCount; ++i) motionItems[i] = [[NSString stringWithUTF8String:s3g::topologyMotionModeName(i)] retain];
     });
     NSString** items = presetItems;
-    int selected = static_cast<int>(_plugin->presetIndex);
+    int selected = static_cast<int>(_presetIndexSnapshot);
     if (_openMenu == 2) {
         items = rateItems;
-        selected = static_cast<int>(_plugin->params.rateModeA);
+        selected = static_cast<int>(_paramsSnapshot.rateModeA);
     } else if (_openMenu == 3) {
         items = rateItems;
-        selected = static_cast<int>(_plugin->params.rateModeB);
+        selected = static_cast<int>(_paramsSnapshot.rateModeB);
     } else if (_openMenu == 4) {
         items = shapeItems;
-        selected = static_cast<int>(_plugin->params.topologyShape);
+        selected = static_cast<int>(_paramsSnapshot.topologyShape);
     } else if (_openMenu == 5) {
         items = motionItems;
-        selected = static_cast<int>(_plugin->params.topologyMotion);
+        selected = static_cast<int>(_paramsSnapshot.topologyMotion);
     } else if (_openMenu == 6) {
         items = maskItems;
-        selected = static_cast<int>(_plugin->params.maskMode);
+        selected = static_cast<int>(_paramsSnapshot.maskMode);
     } else if (_openMenu == 7) {
         items = inputItems;
-        selected = static_cast<int>(_plugin->params.inputA);
+        selected = static_cast<int>(_paramsSnapshot.inputA);
     } else if (_openMenu == 8) {
         items = inputItems;
-        selected = static_cast<int>(_plugin->params.inputB);
+        selected = static_cast<int>(_paramsSnapshot.inputB);
     } else if (_openMenu == 9) {
         items = loopItems;
-        selected = static_cast<int>(_plugin->params.rungLoop);
+        selected = static_cast<int>(_paramsSnapshot.rungLoop);
     } else if (_openMenu == 10) {
         items = orderItems;
-        selected = static_cast<int>(_plugin->params.order) - 1;
+        selected = static_cast<int>(_paramsSnapshot.order) - 1;
     } else if (_openMenu == 12) {
         items = pickupItems;
-        selected = static_cast<int>(_plugin->params.pickupSet);
+        selected = static_cast<int>(_paramsSnapshot.pickupSet);
     } else if (_openMenu == 13) {
         items = listenItems;
-        selected = static_cast<int>(_plugin->params.listenMode);
+        selected = static_cast<int>(_paramsSnapshot.listenMode);
     } else if (_openMenu == 14) {
         items = responseItems;
-        selected = static_cast<int>(_plugin->params.listenerResponse);
+        selected = static_cast<int>(_paramsSnapshot.listenerResponse);
     }
     s3g::clap_gui::drawDropdownMenu(_openMenuRect, 21.0, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
@@ -2296,6 +3506,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 {
     (void)dirtyRect;
     if (!_plugin) return;
+    [self refreshControlSnapshot];
     const s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
     [style.bg setFill];
     NSRectFill([self bounds]);
@@ -2316,7 +3527,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 - (int)hitVoice:(NSPoint)point
 {
     if (!NSPointInRect(point, [self fieldRect])) return -1;
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(
+        _paramsSnapshot.voices, 1u, s3g::kAmbiWranglerMaxVoices);
     int best = -1;
     CGFloat bestDistance = 15.0;
     for (uint32_t voice = 0; voice < voices; ++voice) {
@@ -2334,41 +3546,56 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 {
     const auto* spec = guiSliderSpec(param);
     if (!spec) return;
-    applyParam(*_plugin, param, sliderValue(*spec, point));
+    applyControlParam(*_plugin, param, sliderValue(*spec, point));
+    [self refreshControlSnapshot];
     [self setNeedsDisplay:YES];
 }
 
-- (BOOL)setBreakpointAtPoint:(NSPoint)point
+- (BOOL)setLockedBreakpointValueFromPoint:(NSPoint)point
 {
-    const NSRect field = [self fieldRect];
-    if (!NSPointInRect(point, field)) return NO;
-    const uint32_t voices = std::min<uint32_t>(
-        std::clamp<uint32_t>(_plugin->params.engines, 1u, s3g::kAmbiWranglerMaxVoices),
-        std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiWranglerMaxVoices));
-    const CGFloat labelW = 54.0;
-    const CGFloat left = field.origin.x + labelW + 10.0;
-    const CGFloat right = NSMaxX(field) - 12.0;
-    const CGFloat top = field.origin.y + 28.0;
-    const CGFloat bottom = NSMaxY(field) - 30.0;
-    if (point.y < top || point.y > bottom) return NO;
-    const CGFloat rowH = (bottom - top) / 13.0;
-    const uint32_t row = std::min<uint32_t>(12u, static_cast<uint32_t>((point.y - top) / rowH));
-    const double voicePos = std::clamp((static_cast<double>(point.x) - left) / std::max(1.0, static_cast<double>(right - left)), 0.0, 1.0);
-    const uint32_t voice = std::min<uint32_t>(voices - 1u, static_cast<uint32_t>(std::lround(voicePos * static_cast<double>(voices - 1u))));
-    const CGFloat rowTop = top + rowH * static_cast<CGFloat>(row);
-    const double value = std::clamp(1.0 - (static_cast<double>(point.y - rowTop) - 5.0) / std::max(1.0, static_cast<double>(rowH - 10.0)), 0.0, 1.0);
-    if (!_plugin->params.voiceBreakpointsEnabled) {
-        seedBreakpointsFromMacros(_plugin->params);
-        _plugin->params.voiceBreakpointsEnabled = true;
+    if (!_paramsSnapshot.voiceBreakpointsEnabled
+        || _dragBreakpointRow < 0 || _dragBreakpointVoice < 0
+        || _dragBreakpointRow
+            >= static_cast<int>(
+                s3g::kAmbiWranglerCurveDimensionCount)
+        || _dragBreakpointVoice
+            >= static_cast<int>(s3g::kAmbiWranglerMaxVoices)) {
+        return NO;
     }
-    const double curve = row == 12u ? value : 0.5 + (value - breakpointFallback(_plugin->params, row)) / breakpointRange(row);
-    breakpointArray(_plugin->params, row)[voice] = static_cast<float>(std::clamp(curve, 0.0, 1.0));
-    _selectedVoice = voice;
-    _dragBreakpointRow = static_cast<int>(row);
-    _plugin->engine.setParams(_plugin->params);
-    _plugin->params = _plugin->engine.params();
+    const NSRect graph = [self curveGraphRect];
+    const double effective = std::clamp(
+        1.0 - (static_cast<double>(point.y) - graph.origin.y)
+            / std::max(1.0, static_cast<double>(graph.size.height)),
+        0.0, 1.0);
+    const auto dimension = static_cast<WranglerCurveDimension>(
+        static_cast<uint32_t>(_dragBreakpointRow));
+    if (!setControlBreakpointEffective(*_plugin, dimension,
+            static_cast<uint32_t>(_dragBreakpointVoice), effective)) {
+        return NO;
+    }
+    [self refreshControlSnapshot];
     [self setNeedsDisplay:YES];
     return YES;
+}
+
+- (BOOL)beginBreakpointDragAtPoint:(NSPoint)point
+{
+    const NSRect graph = [self curveGraphRect];
+    if (!_paramsSnapshot.voiceBreakpointsEnabled
+        || !NSPointInRect(point, graph)) {
+        return NO;
+    }
+    const double voicePosition = std::clamp(
+        (static_cast<double>(point.x) - graph.origin.x)
+            / std::max(1.0, static_cast<double>(graph.size.width)),
+        0.0, 1.0);
+    const uint32_t slot = std::min<uint32_t>(15u,
+        static_cast<uint32_t>(std::lround(voicePosition * 15.0)));
+    _dragBreakpointRow = static_cast<int>(_selectedCurveDimension);
+    _dragBreakpointVoice = static_cast<int>(
+        _curveVoiceBank * 16u + slot);
+    _selectedVoice = static_cast<uint32_t>(_dragBreakpointVoice);
+    return [self setLockedBreakpointValueFromPoint:point];
 }
 
 - (void)mouseDown:(NSEvent*)event
@@ -2377,19 +3604,19 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     if (_openMenu > 0) {
         const int hit = s3g::clap_gui::dropdownHitIndex(point, _openMenuRect, 21.0, _menuItemCount);
         if (hit >= 0) {
-            if (_openMenu == 1) applyParam(*_plugin, kPresetParamId, hit);
-            else if (_openMenu == 2) applyParam(*_plugin, kRateModeAParamId, hit);
-            else if (_openMenu == 3) applyParam(*_plugin, kRateModeBParamId, hit);
-            else if (_openMenu == 4) applyParam(*_plugin, kTopologyShapeParamId, hit);
-            else if (_openMenu == 5) applyParam(*_plugin, kTopologyMotionParamId, hit);
-            else if (_openMenu == 6) applyParam(*_plugin, kMaskModeParamId, hit);
-            else if (_openMenu == 7) applyParam(*_plugin, kInputAParamId, hit);
-            else if (_openMenu == 8) applyParam(*_plugin, kInputBParamId, hit);
-            else if (_openMenu == 9) applyParam(*_plugin, kRungLoopParamId, hit);
-            else if (_openMenu == 10) applyParam(*_plugin, kOrderParamId, hit + 1);
-            else if (_openMenu == 12) applyParam(*_plugin, kPickupSetParamId, hit);
-            else if (_openMenu == 13) applyParam(*_plugin, kListenModeParamId, hit);
-            else if (_openMenu == 14) applyParam(*_plugin, kListenerResponseParamId, hit);
+            if (_openMenu == 1) applyControlParam(*_plugin, kPresetParamId, hit);
+            else if (_openMenu == 2) applyControlParam(*_plugin, kRateModeAParamId, hit);
+            else if (_openMenu == 3) applyControlParam(*_plugin, kRateModeBParamId, hit);
+            else if (_openMenu == 4) applyControlParam(*_plugin, kTopologyShapeParamId, hit);
+            else if (_openMenu == 5) applyControlParam(*_plugin, kTopologyMotionParamId, hit);
+            else if (_openMenu == 6) applyControlParam(*_plugin, kMaskModeParamId, hit);
+            else if (_openMenu == 7) applyControlParam(*_plugin, kInputAParamId, hit);
+            else if (_openMenu == 8) applyControlParam(*_plugin, kInputBParamId, hit);
+            else if (_openMenu == 9) applyControlParam(*_plugin, kRungLoopParamId, hit);
+            else if (_openMenu == 10) applyControlParam(*_plugin, kOrderParamId, hit + 1);
+            else if (_openMenu == 12) applyControlParam(*_plugin, kPickupSetParamId, hit);
+            else if (_openMenu == 13) applyControlParam(*_plugin, kListenModeParamId, hit);
+            else if (_openMenu == 14) applyControlParam(*_plugin, kListenerResponseParamId, hit);
         }
         _openMenu = 0;
         _hoverMenuItem = -1;
@@ -2406,8 +3633,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         return;
     }
     if (NSPointInRect(point, [self circuitLawButtonRect])) {
-        applyParam(*_plugin, kCircuitLawParamId,
-            _plugin->params.circuitLaw == s3g::AmbiWranglerCircuitLaw::Legacy
+        applyControlParam(*_plugin, kCircuitLawParamId,
+            _paramsSnapshot.circuitLaw == s3g::AmbiWranglerCircuitLaw::Legacy
                 ? 1.0 : 0.0);
         [self setNeedsDisplay:YES];
         return;
@@ -2426,19 +3653,76 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         for (int i = 0; i < 3; ++i) {
             if (NSPointInRect(point, [self pageButtonRect:i])) {
                 _fieldPage = i;
-                if (_fieldPage == 1 && !_plugin->params.voiceBreakpointsEnabled) seedBreakpointsFromMacros(_plugin->params);
+                if (_fieldPage == 1) {
+                    _curveVoiceBank =
+                        std::min<uint32_t>(_selectedVoice / 16u, 3u);
+                }
                 [self setNeedsDisplay:YES];
                 return;
             }
         }
         if (_fieldPage == 1) {
-            [self setBreakpointAtPoint:point];
+            for (int bank = 0; bank < 2; ++bank) {
+                if (NSPointInRect(point,
+                    [self curveBankButtonRect:bank])) {
+                    _curveBank = bank;
+                    if (_curveBank == 0
+                        && _selectedCurveDimension
+                            >= s3g::kAmbiWranglerHistoricalCurveDimensionCount) {
+                        _selectedCurveDimension = 0u;
+                    } else if (_curveBank == 1
+                        && _selectedCurveDimension
+                            < s3g::kAmbiWranglerHistoricalCurveDimensionCount) {
+                        _selectedCurveDimension =
+                            s3g::kAmbiWranglerHistoricalCurveDimensionCount;
+                    }
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
+            }
+            if (NSPointInRect(point, [self curvesToggleRect])) {
+                toggleControlBreakpoints(*_plugin);
+                [self refreshControlSnapshot];
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            const uint32_t firstDimension = _curveBank == 0 ? 0u
+                : s3g::kAmbiWranglerHistoricalCurveDimensionCount;
+            const uint32_t dimensionCount = _curveBank == 0
+                ? s3g::kAmbiWranglerHistoricalCurveDimensionCount
+                : s3g::kAmbiWranglerCurveDimensionCount
+                    - s3g::kAmbiWranglerHistoricalCurveDimensionCount;
+            for (uint32_t local = 0u;
+                local < dimensionCount; ++local) {
+                if (NSPointInRect(point,
+                    [self curveParameterButtonRect:local])) {
+                    // Select/arm only. Parameter labels never write values
+                    // and never enable curves.
+                    _selectedCurveDimension =
+                        firstDimension + local;
+                    _dragBreakpointRow = -1;
+                    _dragBreakpointVoice = -1;
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
+            }
+            for (uint32_t bank = 0u; bank < 4u; ++bank) {
+                if (NSPointInRect(point,
+                    [self curveVoiceBankButtonRect:bank])) {
+                    _curveVoiceBank = bank;
+                    _selectedVoice = bank * 16u;
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
+            }
+            [self beginBreakpointDragAtPoint:point];
             return;
         }
         if (_fieldPage == 2) {
             if (NSPointInRect(point, [self listenVoiceRect])) {
                 const uint32_t voiceCount = std::clamp<uint32_t>(
-                    _plugin->params.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+                    _paramsSnapshot.voices, 1u,
+                    s3g::kAmbiWranglerMaxVoices);
                 _selectedVoice = point.x < NSMidX([self listenVoiceRect])
                     ? (_selectedVoice + voiceCount - 1u) % voiceCount
                     : (_selectedVoice + 1u) % voiceCount;
@@ -2458,16 +3742,16 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
                 return;
             }
             if (NSPointInRect(point, [self listenEnableRect])) {
-                applyParam(*_plugin, kListeningEnabledParamId,
-                    _plugin->params.listeningEnabled ? 0.0 : 1.0);
+                applyControlParam(*_plugin, kListeningEnabledParamId,
+                    _paramsSnapshot.listeningEnabled ? 0.0 : 1.0);
                 [self setNeedsDisplay:YES];
                 return;
             }
             if (NSPointInRect(point, [self returnBypassRect])) {
-                if (_plugin->params.listenerResponse
+                if (_paramsSnapshot.listenerResponse
                     == s3g::AmbiWranglerListenerResponse::Write) {
-                    applyParam(*_plugin, kReturnBypassParamId,
-                        _plugin->params.returnBypass ? 0.0 : 1.0);
+                    applyControlParam(*_plugin, kReturnBypassParamId,
+                        _paramsSnapshot.returnBypass ? 0.0 : 1.0);
                 }
                 [self setNeedsDisplay:YES];
                 return;
@@ -2505,7 +3789,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     _dragParam = 0;
     for (const auto& spec : kGuiSliders) {
         if (isListenerGuiParam(spec.id) && _fieldPage != 2) continue;
-        const bool settleResponse = _plugin->params.listenerResponse
+        const bool settleResponse = _paramsSnapshot.listenerResponse
             == s3g::AmbiWranglerListenerResponse::Settle;
         const bool settleControl = spec.id == kSettleAmountParamId
             || spec.id == kSettleTargetParamId
@@ -2527,8 +3811,11 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    if (_fieldPage == 1 && _dragBreakpointRow >= 0) {
-        [self setBreakpointAtPoint:point];
+    if (_fieldPage == 1 && _dragBreakpointRow >= 0
+        && _dragBreakpointVoice >= 0) {
+        // Both the armed dimension and the voice were locked on mouseDown;
+        // horizontal drag position is intentionally ignored.
+        [self setLockedBreakpointValueFromPoint:point];
         return;
     }
     if (_dragView) {
@@ -2550,6 +3837,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     _dragParam = 0;
     _dragView = NO;
     _dragBreakpointRow = -1;
+    _dragBreakpointVoice = -1;
 }
 
 - (void)viewDidMoveToWindow
@@ -2652,7 +3940,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.1.0",
-    "Legacy and bounded rungler engines with homeostatic field listening and direct 7OA ACN/SN3D output.",
+    "Independent rungler voices with a continuous DJ LP-to-open-to-HP filter, homeostatic field listening, and direct 7OA ACN/SN3D output.",
     features
 };
 
@@ -2661,10 +3949,10 @@ const clap_plugin_t* create(const clap_host_t* host)
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
     p->host = host;
-    p->params = s3g::ambiWranglerFactoryPreset(0u);
-    p->engine.prepare(p->sampleRate);
-    p->engine.setParams(p->params);
-    p->params = p->engine.params();
+    p->controlParams = s3g::ambiWranglerFactoryPreset(0u);
+    p->controlParams.engines = p->controlParams.voices;
+    p->audioParams = p->controlParams;
+    publishControlParamsLocked(*p);
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;
     p->plugin.init = init;

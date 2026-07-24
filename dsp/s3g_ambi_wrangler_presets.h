@@ -102,11 +102,11 @@ inline AmbiWranglerPresetInfo ambiWranglerFactoryPresetInfo(uint32_t index)
         { "Register C: Audio Clocked", "Matched state: field-written bits plus delayed directional audio at the comparator." },
     }};
     static constexpr std::array<AmbiWranglerPresetInfo, kAmbiWranglerCalmPresetCount> calmPresets {{
-        { "Deep Current: Open", "One bounded circuit distributed over eight field nodes; a deep PWM line with slow register change." },
-        { "Twin Low Orbit", "Two bounded circuits and sixteen nodes circling a quiet sub-audio clock." },
-        { "Four Engine Dusk", "Four coherent circuits form a restrained low-register ambisonic pad." },
-        { "Eight Engine Constellation", "Eight gently detuned circuits inhabit a sixty-four-node field without becoming a noise wall." },
-        { "Deep Current: Settled", "The matched Deep Current patch with ambisonic homeostasis holding activity near a calm target." },
+        { "Deep Current: Open", "Eight independent bounded voices form a deep, slowly changing low-pass current." },
+        { "Sixteen Voice Undertow", "Sixteen restrained voices expose the open filter center as a quiet low-register orbit." },
+        { "Thirty-Two Voice Dusk", "Thirty-two independent low-pass voices form a gently evolving ambisonic pad." },
+        { "Sixty-Four High Constellation", "Sixty-four light high-pass voices inhabit the upper register without becoming a noise wall." },
+        { "Deep Current: Settled", "The matched Deep Current patch with ambisonic homeostasis holding its eight voices near a calm target." },
     }};
     index = std::min<uint32_t>(index, kAmbiWranglerFactoryPresetCount - 1u);
     if (index < kAmbiWranglerBasePresetCount) return kAmbiWranglerPresets[index].info;
@@ -177,6 +177,17 @@ inline void ambiWranglerFillPresetBreakpoints(AmbiWranglerParams& p, uint32_t pr
         p.bpPwmB[voice] = std::clamp(0.5f - slow * 0.16f - alt * 0.06f + cellB * 0.14f, 0.0f, 1.0f);
         p.bpRampA[voice] = std::clamp(0.5f + braid * 0.16f + (lane - 0.5f) * 0.14f, 0.0f, 1.0f);
         p.bpRampB[voice] = std::clamp(0.5f - fast * 0.14f - (lane - 0.5f) * 0.12f + rnd * 0.04f, 0.0f, 1.0f);
+        p.bpColorA[voice] = 0.0f;
+        p.bpColorB[voice] = 0.0f;
+        p.bpFilterFreqB[voice] = 0.5f;
+        p.bpFilterRes[voice] = 0.5f;
+        p.bpFilterComp[voice] = 0.0f;
+        p.bpFilterType[voice] = 0.5f;
+        p.bpCrossA[voice] = 0.0f;
+        p.bpCrossB[voice] = 0.0f;
+        p.bpCrossLpf[voice] = 0.25f;
+        p.bpRungMode[voice] = 0.0f;
+        p.bpRungSize[voice] = 0.5f;
 
         float amp = 0.64f + slow * 0.16f + cellA * 0.22f - cellB * sparse + rnd * 0.055f;
         if (p.maskMode == 4u) amp = (ambiWranglerPresetUnit(voice * 157u + presetIndex * 1297u) > 0.42f) ? amp : amp * 0.18f;
@@ -233,11 +244,12 @@ inline AmbiWranglerParams ambiWranglerCalmFactoryPreset(uint32_t index)
     p.settleAmount = 0.78f;
     p.settleTarget = 0.22f;
     p.settleRecoverySeconds = 4.5f;
+    p.filterMorph = 0.0f;
 
     switch (voiceVariant) {
     case 0u:
         p.voices = 8u;
-        p.engines = 1u;
+        p.engines = p.voices;
         p.rateA = 0.405f;
         p.rateB = 0.500f;
         p.rateModeA = 1u;
@@ -259,7 +271,7 @@ inline AmbiWranglerParams ambiWranglerCalmFactoryPreset(uint32_t index)
         break;
     case 1u:
         p.voices = 16u;
-        p.engines = 2u;
+        p.engines = p.voices;
         p.rateA = 0.395f;
         p.rateB = 0.515f;
         p.rateModeA = 1u;
@@ -278,10 +290,11 @@ inline AmbiWranglerParams ambiWranglerCalmFactoryPreset(uint32_t index)
         p.filterSweep = 0.06f;
         p.saturation = 0.070f;
         p.field = 0.46f;
+        p.filterMorph = 0.5f;
         break;
     case 2u:
         p.voices = 32u;
-        p.engines = 4u;
+        p.engines = p.voices;
         p.rateA = 0.420f;
         p.rateB = 0.370f;
         p.rateModeA = 1u;
@@ -306,28 +319,30 @@ inline AmbiWranglerParams ambiWranglerCalmFactoryPreset(uint32_t index)
         break;
     default:
         p.voices = 64u;
-        p.engines = 8u;
-        p.rateA = 0.430f;
-        p.rateB = 0.345f;
+        p.engines = p.voices;
+        p.rateA = 0.560f;
+        p.rateB = 0.640f;
         p.rateModeA = 1u;
         p.rateModeB = 1u;
-        p.fmAtoB = 0.080f;
-        p.fmBtoA = 0.100f;
-        p.runglerA = 0.160f;
-        p.runglerB = 0.120f;
-        p.spread = 0.065f;
-        p.deviation = 0.025f;
-        p.change = 0.23f;
-        p.color = 0.90f;
-        p.filter = 0.32f;
-        p.resonance = 0.36f;
-        p.filterRun = 0.16f;
-        p.filterSweep = 0.09f;
-        p.saturation = 0.10f;
+        p.fmAtoB = 0.055f;
+        p.fmBtoA = 0.070f;
+        p.runglerA = 0.100f;
+        p.runglerB = 0.085f;
+        p.spread = 0.050f;
+        p.deviation = 0.018f;
+        p.change = 0.20f;
+        p.color = 0.55f;
+        p.filter = 0.42f;
+        p.resonance = 0.30f;
+        p.filterRun = 0.10f;
+        p.filterSweep = 0.06f;
+        p.saturation = 0.050f;
         p.field = 0.70f;
         p.maskMode = 2u;
-        p.maskDepth = 0.22f;
+        p.maskDepth = 0.18f;
         p.maskRateHz = 0.014f;
+        p.filterMorph = 1.0f;
+        p.outputGainDb = -10.0f;
         break;
     }
 
@@ -345,6 +360,17 @@ inline AmbiWranglerParams ambiWranglerCalmFactoryPreset(uint32_t index)
         p.bpRampA[voice] = 0.5f;
         p.bpRampB[voice] = 0.5f;
         p.bpAmp[voice] = 1.0f;
+        p.bpColorA[voice] = 0.0f;
+        p.bpColorB[voice] = 0.0f;
+        p.bpFilterFreqB[voice] = 0.5f;
+        p.bpFilterRes[voice] = 0.5f;
+        p.bpFilterComp[voice] = 0.0f;
+        p.bpFilterType[voice] = 0.5f;
+        p.bpCrossA[voice] = 0.0f;
+        p.bpCrossB[voice] = 0.0f;
+        p.bpCrossLpf[voice] = 0.25f;
+        p.bpRungMode[voice] = 0.0f;
+        p.bpRungSize[voice] = 0.5f;
     }
 
     p.listeningEnabled = settledDeepCurrent ? 1u : 0u;
@@ -409,6 +435,7 @@ inline AmbiWranglerParams ambiWranglerFactoryPreset(uint32_t index)
     p.circuitLaw = AmbiWranglerCircuitLaw::Legacy;
     p.engines = p.voices;
     p.change = 1.0f;
+    p.filterMorph = 0.0f;
     p.listenerResponse = AmbiWranglerListenerResponse::Write;
     ambiWranglerFillPresetBreakpoints(p, sourceIndex);
     if (listenerPreset) {

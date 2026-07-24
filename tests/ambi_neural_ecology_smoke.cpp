@@ -68,15 +68,15 @@ bool testRandomizedAudibility()
             current.scoreAmount = 0.72f;
             current.scoreDwellSeconds = 11.0f;
             current.scoreTransitionSeconds = 2.5f;
+            current.scoreVariation = 0.31f;
+            current.scoreRecombine = 0.57f;
+            current.scoreMemory = 0.43f;
             current.outputGainDb = -18.0f;
             const uint32_t initialSeed = 0x41554430u + set * 0x100u + trial;
             uint32_t randomSeed = initialSeed;
             const auto params = s3g::randomizeAmbiNeuralEcologyParams(
                 current, randomSeed, false, false);
-            const auto lattice = s3g::randomAmbiNeuralLattice(
-                randomSeed, s3g::ambiNeuralScorePlaneCount(params.scorePlanes));
-            const auto renderParams = s3g::applyAmbiNeuralLatticeCell(params,
-                lattice.cells[lattice.currentCell], params.scoreAmount);
+            const auto renderParams = params;
 
             if (params.order != current.order || params.nodeSet != current.nodeSet
                 || params.pickupSet != current.pickupSet
@@ -85,13 +85,11 @@ bool testRandomizedAudibility()
                 || params.scoreAmount != current.scoreAmount
                 || params.scoreDwellSeconds != current.scoreDwellSeconds
                 || params.scoreTransitionSeconds != current.scoreTransitionSeconds
+                || params.scoreVariation != current.scoreVariation
+                || params.scoreRecombine != current.scoreRecombine
+                || params.scoreMemory != current.scoreMemory
                 || params.outputGainDb != current.outputGainDb) {
                 std::cerr << "Neural Ecology randomization changed a performer-owned structural control\n";
-                return false;
-            }
-            if (lattice.planeCount != 8u
-                || lattice.currentCell >= 8u * s3g::kAmbiNeuralLatticeCellsPerPlane) {
-                std::cerr << "Neural Ecology randomization did not preserve the eight-plane score\n";
                 return false;
             }
             if (params.nodeSet == s3g::AmbiNeuralNodeSet::Field64
@@ -134,8 +132,7 @@ bool testRandomizedAudibility()
             if (!(rms >= kMinimumRms) || !(peak >= kMinimumPeak) || peak > 8.0f) {
                 std::cerr << "Neural Ecology randomized node set " << set << ", trial " << trial
                           << " failed audibility: rms " << rms << ", peak " << peak
-                          << ", register " << params.registerSemitones
-                          << ", lattice cell " << lattice.currentCell << "\n";
+                          << ", register " << params.registerSemitones << "\n";
                 return false;
             }
         }
@@ -557,122 +554,283 @@ bool testSeventhOrderEnergy()
 
 bool testFieldLattice()
 {
-    auto storage = s3g::defaultAmbiNeuralLattice();
-    double variation = 0.0;
-    for (uint32_t cell = 1u; cell < storage.cells.size(); ++cell) {
-        for (uint32_t macro = 0u; macro < s3g::kAmbiNeuralLatticeMacros; ++macro) {
-            variation += std::fabs(storage.cells[cell].macro[macro]
-                - storage.cells[0u].macro[macro]);
-        }
-    }
-    if (!(variation > 2.0)) {
-        std::cerr << "Neural Ecology default Field Lattice has no useful variation\n";
+    std::array<float, s3g::kAmbiNeuralEcologyGenomeValues> founder {};
+    founder[0u] = 0.18f;
+    founder[64u] = -0.12f;
+    founder[80u] = 0.24f;
+    founder[112u] = -0.08f;
+    founder[116u] = 0.92f;
+    founder[117u] = 0.30f;
+    auto founderParams = s3g::ambiNeuralEcologyFactoryPreset(0u);
+    founderParams.activity = 0.61f;
+    founderParams.ringFeedback = 0.84f;
+    founderParams.matrixCoupling = 0.72f;
+    founderParams.diversity = 0.48f;
+    founderParams.fieldReturn = 0.36f;
+    founderParams.pickupAdapt = 0.29f;
+    founderParams.fieldWidth = 0.67f;
+    founderParams.mobility = 0.41f;
+    const auto founderExpression =
+        s3g::ambiNeuralLatticeExpressionFromParams(founderParams);
+    const auto populationA =
+        s3g::growAmbiNeuralLattice(
+            founder, founderExpression, 0x4c415454u, 8u, 0.42f, 0.66f);
+    const auto populationB =
+        s3g::growAmbiNeuralLattice(
+            founder, founderExpression, 0x4c415454u, 8u, 0.42f, 0.66f);
+    double genomeVariation = 0.0;
+    double expressionVariation = 0.0;
+    if (populationA.ingressCells != populationB.ingressCells
+        || populationA.egressCells != populationB.egressCells) {
+        std::cerr << "Neural Ecology portal placement is not deterministic for a fixed seed\n";
         return false;
     }
-
-    uint32_t randomSeedA = 0x4c415454u;
-    uint32_t randomSeedB = randomSeedA;
-    const auto randomA = s3g::randomAmbiNeuralLattice(randomSeedA, 8u);
-    const auto randomB = s3g::randomAmbiNeuralLattice(randomSeedB, 8u);
-    double randomVariation = 0.0;
-    for (uint32_t cell = 0u; cell < randomA.cells.size(); ++cell) {
-        for (uint32_t macro = 0u; macro < s3g::kAmbiNeuralLatticeMacros; ++macro) {
-            if (randomA.cells[cell].macro[macro] != randomB.cells[cell].macro[macro]) {
-                std::cerr << "Neural Ecology randomized Field Lattice is not deterministic\n";
+    for (uint32_t cell = 0u; cell < populationA.cells.size(); ++cell) {
+        if (populationA.cells[cell].genome != populationB.cells[cell].genome
+            || populationA.cells[cell].expression
+                != populationB.cells[cell].expression
+            || populationA.cells[cell].generation != populationB.cells[cell].generation) {
+            std::cerr << "Neural Ecology lattice growth is not deterministic for a fixed seed\n";
+            return false;
+        }
+        for (uint32_t gene = 0u; gene < founder.size(); ++gene) {
+            if (!std::isfinite(populationA.cells[cell].genome[gene])) {
+                std::cerr << "Neural Ecology lattice growth produced a non-finite genome\n";
                 return false;
             }
-            if (cell > 0u) {
-                randomVariation += std::fabs(randomA.cells[cell].macro[macro]
-                    - randomA.cells[0u].macro[macro]);
+            if (cell != populationA.currentCell) {
+                genomeVariation += std::fabs(
+                    populationA.cells[cell].genome[gene] - founder[gene]);
             }
         }
-        for (uint32_t direction = 0u;
-            direction < s3g::kAmbiNeuralLatticeDirections; ++direction) {
-            const uint32_t edge = cell * s3g::kAmbiNeuralLatticeDirections + direction;
-            if (randomA.edges[edge] != randomB.edges[edge]) {
-                std::cerr << "Neural Ecology randomized lattice folds are not deterministic\n";
+        for (uint32_t trait = 0u; trait < founderExpression.size(); ++trait) {
+            if (!std::isfinite(populationA.cells[cell].expression[trait])
+                || populationA.cells[cell].expression[trait] < 0.0f
+                || populationA.cells[cell].expression[trait] > 1.0f) {
+                std::cerr << "Neural Ecology lattice growth produced an invalid expression\n";
                 return false;
+            }
+            if (cell != populationA.currentCell) {
+                expressionVariation += std::fabs(
+                    populationA.cells[cell].expression[trait]
+                        - founderExpression[trait]);
             }
         }
     }
-    if (!(randomVariation > 2.0) || randomSeedA == 0x4c415454u
-        || randomSeedA != randomSeedB || randomA.trailCount != 1u
-        || randomA.trail[0u] != randomA.currentCell
-        || randomA.selectedCell != randomA.currentCell) {
-        std::cerr << "Neural Ecology randomized Field Lattice has invalid landscape or reset state\n";
+    if (!(genomeVariation > 1.0)
+        || !(expressionVariation > 1.0)
+        || populationA.cells[populationA.currentCell].genome != founder
+        || populationA.cells[populationA.currentCell].expression
+            != founderExpression
+        || populationA.cells[populationA.currentCell].generation != 0u
+        || populationA.trailCount != 1u
+        || populationA.selectedCell != populationA.currentCell) {
+        std::cerr << "Neural Ecology grown lattice has an invalid founder or population\n";
         return false;
     }
 
     constexpr uint32_t kEightPlaneCells =
         8u * s3g::kAmbiNeuralLatticeCellsPerPlane;
-    std::array<bool, kEightPlaneCells> visited {};
-    std::array<uint32_t, kEightPlaneCells> queue {};
-    uint32_t read = 0u;
-    uint32_t write = 1u;
-    queue[0] = randomA.currentCell;
-    visited[randomA.currentCell] = true;
-    while (read < write) {
-        const uint32_t cell = queue[read++];
-        for (uint32_t direction = 0u;
-            direction < s3g::kAmbiNeuralLatticeDirections; ++direction) {
-            const uint32_t target =
-                randomA.edges[cell * s3g::kAmbiNeuralLatticeDirections + direction];
-            if (target >= kEightPlaneCells || visited[target]) continue;
-            visited[target] = true;
-            queue[write++] = target;
+    for (uint32_t plane = 0u; plane < 8u; ++plane) {
+        const uint32_t first =
+            plane * s3g::kAmbiNeuralLatticeCellsPerPlane;
+        const uint32_t last =
+            first + s3g::kAmbiNeuralLatticeCellsPerPlane;
+        if (populationA.ingressCells[plane] < first
+            || populationA.ingressCells[plane] >= last
+            || populationA.egressCells[plane] < first
+            || populationA.egressCells[plane] >= last
+            || populationA.ingressCells[plane]
+                == populationA.egressCells[plane]) {
+            std::cerr << "Neural Ecology plane has invalid ingress/egress points\n";
+            return false;
         }
     }
-    if (write != kEightPlaneCells) {
-        std::cerr << "Neural Ecology randomized eight-plane lattice has unreachable cells\n";
-        return false;
-    }
-
-    uint32_t foldSource = 0u;
-    uint32_t foldDirection = 0u;
-    uint32_t foldTarget = 0u;
-    bool foundFold = false;
-    for (uint32_t cell = 0u; cell < kEightPlaneCells && !foundFold; ++cell) {
+    for (uint32_t cell = 0u; cell < kEightPlaneCells; ++cell) {
         for (uint32_t direction = 0u;
             direction < s3g::kAmbiNeuralLatticeDirections; ++direction) {
             const uint32_t target =
-                randomA.edges[cell * s3g::kAmbiNeuralLatticeDirections + direction];
+                populationA.edges[cell * s3g::kAmbiNeuralLatticeDirections + direction];
             if (target / s3g::kAmbiNeuralLatticeCellsPerPlane
                 != cell / s3g::kAmbiNeuralLatticeCellsPerPlane) {
-                foldSource = cell;
-                foldDirection = direction;
-                foldTarget = target;
-                foundFold = true;
-                break;
+                std::cerr << "Neural Ecology planar edge escaped without an egress portal\n";
+                return false;
             }
         }
     }
-    if (!foundFold) {
-        std::cerr << "Neural Ecology eight-plane lattice has no directional folds\n";
+
+    auto portalStorage = populationA;
+    portalStorage.currentCell = populationA.egressCells[0u];
+    portalStorage.selectedCell = portalStorage.currentCell;
+    portalStorage.trail.fill(portalStorage.currentCell);
+    portalStorage.trailCount = 1u;
+    s3g::AmbiNeuralFieldLattice portalLattice;
+    portalLattice.setStorage(portalStorage);
+    portalLattice.requestDirection(
+        2u, 1.0f, s3g::AmbiNeuralScoreMode::Midi, 0.10f);
+    if (portalLattice.eventTargetCell() != populationA.ingressCells[1u]
+        || portalLattice.eventSourceCell() != populationA.egressCells[0u]
+        || !portalLattice.eventIsReproductive()) {
+        std::cerr << "Neural Ecology MIDI did not take OUT to the next plane IN\n";
         return false;
     }
-    auto foldStorage = randomA;
-    foldStorage.currentCell = foldSource;
-    foldStorage.selectedCell = foldSource;
-    foldStorage.trail.fill(foldSource);
-    foldStorage.trailCount = 1u;
-    s3g::AmbiNeuralFieldLattice foldLattice;
-    foldLattice.setStorage(foldStorage);
-    foldLattice.requestDirection(
-        foldDirection, 1.0f, s3g::AmbiNeuralScoreMode::Midi, 0.10f);
-    std::array<float, s3g::kAmbiNeuralEcologyPickups> foldSilence {};
-    foldLattice.advance(
-        0.20f, foldSilence, 8u, s3g::AmbiNeuralScoreMode::Midi, 1.0f, 0.10f);
-    if (foldLattice.currentCell() != foldTarget) {
-        std::cerr << "Neural Ecology directional fold did not traverse between planes\n";
+    portalLattice.advanceTransition(0.20f);
+    if (portalLattice.currentCell() != populationA.ingressCells[1u]) {
+        std::cerr << "Neural Ecology MIDI portal did not complete its vertical move\n";
         return false;
     }
 
+    portalStorage.currentCell = populationA.egressCells[1u];
+    portalStorage.selectedCell = portalStorage.currentCell;
+    portalStorage.trail.fill(portalStorage.currentCell);
+    portalLattice.setStorage(portalStorage);
+    std::array<float, s3g::kAmbiNeuralEcologyPickups> portalSilence {};
+    portalLattice.advance(
+        0.30f, portalSilence, 4u,
+        s3g::AmbiNeuralScoreMode::Field, 0.25f, 0.10f);
+    if (portalLattice.eventTargetCell() != populationA.ingressCells[2u]
+        || portalLattice.eventSourceCell() != populationA.egressCells[1u]) {
+        std::cerr << "Neural Ecology Field mode did not traverse a silent 3D portal\n";
+        return false;
+    }
+    portalLattice.advanceTransition(0.20f);
+    if (portalLattice.currentCell() != populationA.ingressCells[2u]) {
+        std::cerr << "Neural Ecology Field portal did not reach the next plane\n";
+        return false;
+    }
+
+    portalStorage.currentCell = populationA.egressCells[7u];
+    portalStorage.selectedCell = portalStorage.currentCell;
+    portalStorage.trail.fill(portalStorage.currentCell);
+    portalLattice.setStorage(portalStorage);
+    portalLattice.requestDirection(
+        0u, 1.0f, s3g::AmbiNeuralScoreMode::Midi, 0.10f);
+    if (portalLattice.eventTargetCell() != populationA.ingressCells[0u]) {
+        std::cerr << "Neural Ecology final egress did not wrap to plane one ingress\n";
+        return false;
+    }
+
+    s3g::AmbiNeuralFieldLattice exploringLattice;
+    exploringLattice.setStorage(populationA);
+    std::array<float, s3g::kAmbiNeuralEcologyPickups> steadyEast {};
+    steadyEast[1u] = 1.0f;
+    bool reachedSecondPlane = false;
+    for (uint32_t step = 0u; step < 96u; ++step) {
+        exploringLattice.advance(
+            0.30f, steadyEast, 4u,
+            s3g::AmbiNeuralScoreMode::Field, 0.25f, 0.10f);
+        if (exploringLattice.currentCell()
+                / s3g::kAmbiNeuralLatticeCellsPerPlane > 0u) {
+            reachedSecondPlane = true;
+            break;
+        }
+    }
+    if (!reachedSecondPlane) {
+        std::cerr << "Neural Ecology autonomous playback remained trapped on plane one\n";
+        return false;
+    }
+
+    const auto storage =
+        s3g::growAmbiNeuralLattice(
+            founder, founderExpression, 0x12345678u, 1u, 0.35f, 0.60f);
     s3g::AmbiNeuralFieldLattice lattice;
     lattice.setStorage(storage);
+    const uint32_t eastCell = storage.edges[
+        storage.currentCell * s3g::kAmbiNeuralLatticeDirections + 2u];
+    const auto sourceGenome = lattice.cell(storage.currentCell).genome;
+    const auto destinationGenome = lattice.cell(eastCell).genome;
+    const auto sourceExpression =
+        lattice.cell(storage.currentCell).expression;
+    const auto destinationExpression = lattice.cell(eastCell).expression;
     lattice.requestDirection(2u, 1.0f, s3g::AmbiNeuralScoreMode::Midi, 0.10f);
+    if (lattice.eventSerial() != 1u || !lattice.eventIsReproductive()
+        || lattice.eventSourceCell() != storage.currentCell
+        || lattice.eventTargetCell() != eastCell) {
+        std::cerr << "Neural Ecology lattice move did not author exactly one birth event\n";
+        return false;
+    }
+    const auto child = lattice.performBirth(0.70f, 0.35f, 1.0f);
+    double sourceDifference = 0.0;
+    double childDifference = 0.0;
+    double destinationDifference = 0.0;
+    for (uint32_t gene = 0u; gene < child.genome.size(); ++gene) {
+        sourceDifference += std::fabs(
+            lattice.cell(storage.currentCell).genome[gene] - sourceGenome[gene]);
+        childDifference += std::fabs(
+            lattice.cell(eastCell).genome[gene] - child.genome[gene]);
+        destinationDifference += std::fabs(
+            lattice.cell(eastCell).genome[gene] - destinationGenome[gene]);
+    }
+    double sourceExpressionDifference = 0.0;
+    double childExpressionDifference = 0.0;
+    double destinationExpressionDifference = 0.0;
+    for (uint32_t trait = 0u; trait < child.expression.size(); ++trait) {
+        sourceExpressionDifference += std::fabs(
+            lattice.cell(storage.currentCell).expression[trait]
+                - sourceExpression[trait]);
+        childExpressionDifference += std::fabs(
+            lattice.cell(eastCell).expression[trait]
+                - child.expression[trait]);
+        destinationExpressionDifference += std::fabs(
+            lattice.cell(eastCell).expression[trait]
+                - destinationExpression[trait]);
+    }
+    if (sourceDifference > 1.0e-7 || childDifference > 1.0e-5
+        || destinationDifference < 1.0e-4
+        || sourceExpressionDifference > 1.0e-7
+        || childExpressionDifference > 1.0e-5
+        || destinationExpressionDifference < 1.0e-5
+        || lattice.storage().birthCount != 1u) {
+        std::cerr << "Neural Ecology birth did not preserve the source and replace the destination\n";
+        return false;
+    }
+    s3g::AmbiNeuralFieldLattice memoryless;
+    memoryless.setStorage(storage);
+    const auto rememberedGenome = memoryless.cell(eastCell).genome;
+    const auto rememberedExpression =
+        memoryless.cell(eastCell).expression;
+    const uint32_t rememberedGeneration =
+        memoryless.cell(eastCell).generation;
+    memoryless.requestDirection(
+        2u, 1.0f, s3g::AmbiNeuralScoreMode::Midi, 0.10f);
+    (void)memoryless.performBirth(0.70f, 0.35f, 0.0f);
+    if (memoryless.cell(eastCell).genome != rememberedGenome
+        || memoryless.cell(eastCell).expression != rememberedExpression
+        || memoryless.cell(eastCell).generation != rememberedGeneration
+        || memoryless.storage().birthCount != 1u) {
+        std::cerr << "Neural Ecology zero Memory changed its destination resident\n";
+        return false;
+    }
+    const auto unexpressed = s3g::applyAmbiNeuralLatticeExpression(
+        founderParams, child.expression, 0.0f);
+    const auto fullyExpressed = s3g::applyAmbiNeuralLatticeExpression(
+        founderParams, child.expression, 1.0f);
+    if (unexpressed.activity != founderParams.activity
+        || unexpressed.ringFeedback != founderParams.ringFeedback
+        || unexpressed.matrixCoupling != founderParams.matrixCoupling
+        || unexpressed.diversity != founderParams.diversity
+        || unexpressed.fieldReturn != founderParams.fieldReturn
+        || unexpressed.pickupAdapt != founderParams.pickupAdapt
+        || unexpressed.fieldWidth != founderParams.fieldWidth
+        || unexpressed.mobility != founderParams.mobility
+        || std::fabs(fullyExpressed.activity - child.expression[0u]) > 1.0e-6f
+        || std::fabs(fullyExpressed.ringFeedback
+            - child.expression[1u] * 1.25f) > 1.0e-6f
+        || std::fabs(fullyExpressed.matrixCoupling
+            - child.expression[2u] * 1.25f) > 1.0e-6f
+        || std::fabs(fullyExpressed.diversity - child.expression[3u]) > 1.0e-6f
+        || std::fabs(fullyExpressed.fieldReturn - child.expression[4u]) > 1.0e-6f
+        || std::fabs(fullyExpressed.pickupAdapt - child.expression[5u]) > 1.0e-6f
+        || std::fabs(fullyExpressed.fieldWidth - child.expression[6u]) > 1.0e-6f
+        || std::fabs(fullyExpressed.mobility - child.expression[7u]) > 1.0e-6f) {
+        std::cerr << "Neural Ecology lattice expression did not map to the primary controls\n";
+        return false;
+    }
     std::array<float, s3g::kAmbiNeuralEcologyPickups> silence {};
     lattice.advance(0.20f, silence, 4u, s3g::AmbiNeuralScoreMode::Midi, 1.0f, 0.10f);
-    if (lattice.currentCell() != 6u || lattice.storage().trailCount < 2u) {
+    if (lattice.currentCell() != eastCell
+        || lattice.storage().trailCount < 2u
+        || lattice.eventSerial() != 1u) {
         std::cerr << "Neural Ecology MIDI lattice direction did not traverse east\n";
         return false;
     }
@@ -691,25 +849,16 @@ bool testFieldLattice()
         std::cerr << "Neural Ecology score STOP did not halt at the active cell\n";
         return false;
     }
-    const auto stoppedClimate = lattice.climate().macro;
-    lattice.requestCell(15u, 0.5f, 1.0f);
+    lattice.requestCell(15u, 0.5f, 1.0f, false);
     if (!lattice.transitioning() || lattice.currentCell() != storage.currentCell
-        || lattice.targetCell() != 15u) {
-        std::cerr << "Neural Ecology stopped cell recall did not begin a smooth transition\n";
-        return false;
-    }
-    lattice.advanceTransition(0.20f);
-    if (!lattice.transitioning() || lattice.currentCell() != storage.currentCell
-        || lattice.climate().macro == stoppedClimate
-        || lattice.climate().macro == storage.cells[15u].macro) {
-        std::cerr << "Neural Ecology stopped cell recall teleported instead of interpolating\n";
+        || lattice.targetCell() != 15u || lattice.eventIsReproductive()) {
+        std::cerr << "Neural Ecology stopped cell audition incorrectly requested a birth\n";
         return false;
     }
     lattice.advanceTransition(1.0f);
     if (lattice.currentCell() != 15u || lattice.targetCell() != 15u
-        || lattice.transitioning()
-        || lattice.climate().macro != storage.cells[15u].macro) {
-        std::cerr << "Neural Ecology stopped cell recall did not reach its stored climate\n";
+        || lattice.transitioning()) {
+        std::cerr << "Neural Ecology stopped cell audition did not reach its resident\n";
         return false;
     }
 
@@ -719,26 +868,42 @@ bool testFieldLattice()
     lattice.advance(0.20f, pickups, 4u, s3g::AmbiNeuralScoreMode::Field, 0.25f, 0.10f);
     lattice.advance(0.20f, pickups, 4u, s3g::AmbiNeuralScoreMode::Field, 0.25f, 0.10f);
     lattice.advance(0.20f, pickups, 4u, s3g::AmbiNeuralScoreMode::Field, 0.25f, 0.10f);
-    if (lattice.currentCell() != 6u) {
+    if (lattice.currentCell() != eastCell) {
         std::cerr << "Neural Ecology pickup vote did not move the Field Lattice east\n";
         return false;
     }
 
-    auto base = s3g::ambiNeuralEcologyFactoryPreset(0u);
-    const auto inscription = s3g::inscribeAmbiNeuralLatticeCell(base);
-    const auto unchanged = s3g::applyAmbiNeuralLatticeCell(base, inscription, 0.0f);
-    const auto changed = s3g::applyAmbiNeuralLatticeCell(base, storage.cells[15u], 1.0f);
-    if (unchanged.activity != base.activity || unchanged.fieldReturn != base.fieldReturn
-        || unchanged.mobility != base.mobility) {
-        std::cerr << "Neural Ecology zero lattice amount changed the base ecology\n";
+    return true;
+}
+
+bool testLatticeGenomeGlide()
+{
+    s3g::AmbiNeuralEcology engine;
+    auto params = s3g::ambiNeuralEcologyFactoryPreset(0u);
+    params.freeze = 1u;
+    engine.prepare(48000.0);
+    engine.setParams(params);
+    engine.reset();
+    const auto before = engine.genomeValues();
+    auto target = before;
+    target[0u] = 0.30f;
+    target[116u] = 0.90f;
+    engine.setGenomeTarget(target, 0.04f, 0.5f);
+    if (engine.genomeValues() != before) {
+        std::cerr << "Neural Ecology genome glide changed before audio advanced\n";
         return false;
     }
-    const double climateDifference = std::fabs(changed.activity - base.activity)
-        + std::fabs(changed.ringFeedback - base.ringFeedback)
-        + std::fabs(changed.fieldReturn - base.fieldReturn)
-        + std::fabs(changed.mobility - base.mobility);
-    if (!(climateDifference > 0.1)) {
-        std::cerr << "Neural Ecology lattice climate did not alter its conditions\n";
+    std::array<std::array<float, kFrames>, 64> buffer {};
+    for (uint32_t block = 0u; block < 16u; ++block) processBlock(engine, buffer);
+    const auto after = engine.genomeValues();
+    float expectedPhaseDelta = target[116u] - before[116u];
+    expectedPhaseDelta -= std::round(expectedPhaseDelta);
+    float expectedPhase = before[116u] + expectedPhaseDelta * 0.5f;
+    expectedPhase -= std::floor(expectedPhase);
+    const float expectedWeight = before[0u] + (target[0u] - before[0u]) * 0.5f;
+    if (std::fabs(after[0u] - expectedWeight) > 0.01f
+        || std::fabs(after[116u] - expectedPhase) > 0.02f) {
+        std::cerr << "Neural Ecology genome glide did not honor Amount or circular phase\n";
         return false;
     }
     return true;
@@ -767,6 +932,9 @@ bool testSanitization()
     unsafe.scoreAmount = 4.0f;
     unsafe.scoreDwellSeconds = -1.0f;
     unsafe.scoreTransitionSeconds = 99.0f;
+    unsafe.scoreVariation = 4.0f;
+    unsafe.scoreRecombine = -1.0f;
+    unsafe.scoreMemory = 3.0f;
     unsafe.centerDistance = 99.0f;
     unsafe.seed = 0u;
     const auto safe = s3g::sanitizeAmbiNeuralEcologyParams(unsafe);
@@ -781,6 +949,8 @@ bool testSanitization()
         && safe.scoreMode == s3g::AmbiNeuralScoreMode::Coupled && safe.scoreAmount == 1.0f
         && safe.scorePlanes == s3g::AmbiNeuralScorePlanes::Eight
         && safe.scoreDwellSeconds == 0.25f && safe.scoreTransitionSeconds == 30.0f
+        && safe.scoreVariation == 1.0f && safe.scoreRecombine == 0.0f
+        && safe.scoreMemory == 1.0f
         && safe.centerDistance == 8.0f && safe.seed == 1u;
 }
 
@@ -797,6 +967,7 @@ int main()
     if (!testDeterminismAndMutation()) return 1;
     if (!testPickupSetsAndGenomes()) return 1;
     if (!testFieldLattice()) return 1;
+    if (!testLatticeGenomeGlide()) return 1;
     if (!testSeventhOrderEnergy()) return 1;
     std::cout << "s3g Ambi Neural Ecology smoke test passed\n";
     return 0;

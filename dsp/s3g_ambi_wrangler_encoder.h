@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -16,6 +17,45 @@ namespace s3g {
 constexpr uint32_t kAmbiWranglerMaxVoices = 64;
 constexpr uint32_t kAmbiWranglerMaxOrder = 7;
 constexpr uint32_t kAmbiWranglerMaxChannels = 64;
+constexpr uint32_t kAmbiWranglerHistoricalCurveDimensionCount = 19u;
+constexpr uint32_t kAmbiWranglerCurveDimensionCount = 24u;
+
+// The first nineteen dimensions retain the order of the twenty-voice
+// wrnglr.gendsp controller in __sluicer24_3OAencoder-01.maxpat. The five
+// modern dimensions follow it so UI, state, and DSP can share one contract.
+enum class AmbiWranglerCurveDimension : uint32_t {
+    RateA = 0u,
+    RungA,
+    FmBtoA,
+    ColorA,
+    RateB,
+    RungB,
+    FmAtoB,
+    ColorB,
+    FilterFreqA,
+    FilterFreqB,
+    FilterRes,
+    FilterComp,
+    FilterType,
+    CrossA,
+    CrossB,
+    CrossLpf,
+    RungMode,
+    RungThresh,
+    RungSize,
+    PwmA,
+    PwmB,
+    RampA,
+    RampB,
+    Amp,
+};
+
+static_assert(
+    static_cast<uint32_t>(AmbiWranglerCurveDimension::RungSize) + 1u
+        == kAmbiWranglerHistoricalCurveDimensionCount);
+static_assert(
+    static_cast<uint32_t>(AmbiWranglerCurveDimension::Amp) + 1u
+        == kAmbiWranglerCurveDimensionCount);
 
 enum class AmbiWranglerPickupSet : uint32_t {
     Tetra4 = 0u,
@@ -37,6 +77,12 @@ enum class AmbiWranglerCircuitLaw : uint32_t {
 enum class AmbiWranglerListenerResponse : uint32_t {
     Write = 0u,
     Settle = 1u,
+};
+
+enum class AmbiWranglerRungMode : uint32_t {
+    Common = 0u,
+    Split = 1u,
+    Swap = 2u,
 };
 
 struct AmbiWranglerParams {
@@ -114,7 +160,25 @@ struct AmbiWranglerParams {
     float settleAmount = 0.65f;
     float settleTarget = 0.30f;
     float settleRecoverySeconds = 3.0f;
+    // Continuous DJ-style response: 0 = low-pass, 0.5 = open,
+    // 1 = high-pass. This deliberately replaces the former stepped outlet.
+    float filterMorph = 0.0f;
+    std::array<float, kAmbiWranglerMaxVoices> bpColorA {};
+    std::array<float, kAmbiWranglerMaxVoices> bpColorB {};
+    std::array<float, kAmbiWranglerMaxVoices> bpFilterFreqB {};
+    std::array<float, kAmbiWranglerMaxVoices> bpFilterRes {};
+    std::array<float, kAmbiWranglerMaxVoices> bpFilterComp {};
+    std::array<float, kAmbiWranglerMaxVoices> bpFilterType {};
+    std::array<float, kAmbiWranglerMaxVoices> bpCrossA {};
+    std::array<float, kAmbiWranglerMaxVoices> bpCrossB {};
+    std::array<float, kAmbiWranglerMaxVoices> bpCrossLpf {};
+    std::array<float, kAmbiWranglerMaxVoices> bpRungMode {};
+    std::array<float, kAmbiWranglerMaxVoices> bpRungSize {};
 };
+
+static_assert(
+    offsetof(AmbiWranglerParams, bpColorA) == 3576u,
+    "New Wrangler curves must remain appended after the v12 state");
 
 struct AmbiWranglerPoint {
     float azimuthDeg = 0.0f;
@@ -122,20 +186,81 @@ struct AmbiWranglerPoint {
     float distance = 1.0f;
 };
 
+// Seventh-order Padé tanh. Across the active nonlinear range its absolute
+// error stays below 0.00011, while avoiding hundreds of scalar libm calls per
+// sample in a 64-voice/64-channel render. The final clamp also gives every
+// feedback and output path a strict finite bound.
+inline float ambiWranglerTanh(float input)
+{
+    const float x = clamp(input, -5.0f, 5.0f);
+    const float x2 = x * x;
+    const float numerator =
+        x * (135135.0f
+            + x2 * (17325.0f
+                + x2 * (378.0f + x2)));
+    const float denominator =
+        135135.0f
+        + x2 * (62370.0f
+            + x2 * (3150.0f + x2 * 28.0f));
+    return clamp(numerator / denominator, -1.0f, 1.0f);
+}
+
 struct AmbiWranglerFilter {
+    struct Outputs {
+        float low = 0.0f;
+        float high = 0.0f;
+        float open = 0.0f;
+        float legacy = 0.0f;
+    };
+
     float low = 0.0f;
     float band = 0.0f;
 
-    float process(float input, float cutoffNorm, float resonance, float drive)
+    Outputs processSvf(
+        float input, float cutoffNorm, float resonance, float drive)
     {
         const float f = clamp(cutoffNorm, 0.0002f, 0.46f);
-        const float q = 1.72f - clamp(resonance, 0.0f, 1.0f) * 1.42f;
-        const float driven = std::tanh(clamp(input * (1.0f + drive * 5.0f), -8.0f, 8.0f));
-        low = flushDenormal(low + f * band);
+        const float q =
+            1.72f - clamp(resonance, 0.0f, 1.0f) * 1.42f;
+        const float driven = ambiWranglerTanh(clamp(
+            input * (1.0f + drive * 5.0f), -8.0f, 8.0f));
+        low = flushDenormal(clamp(low + f * band, -16.0f, 16.0f));
         const float high = driven - low - q * band;
-        band = flushDenormal(band + f * high);
-        return std::tanh(clamp(low + band * (0.25f + resonance * 0.55f), -6.0f, 6.0f));
+        band = flushDenormal(clamp(band + f * high, -16.0f, 16.0f));
+        return {
+            low,
+            flushDenormal(high),
+            driven,
+            low + band * (0.25f + resonance * 0.55f),
+        };
     }
+};
+
+struct AmbiWranglerVoiceTargets {
+    float rateA = 0.28f;
+    float rateB = 0.34f;
+    float fmAtoB = 0.18f;
+    float fmBtoA = 0.14f;
+    float runglerA = 0.25f;
+    float runglerB = 0.32f;
+    float filterFreqA = 0.36f;
+    float filterFreqB = 0.36f;
+    float filterRes = 0.20f;
+    float filterComp = 0.0f;
+    float filterMorph = 0.0f;
+    float colorA = 0.0f;
+    float colorB = 0.0f;
+    float crossA = 0.0f;
+    float crossB = 0.0f;
+    float crossLpf = 0.25f;
+    float rungMode = 0.0f;
+    float rungSize = 0.5f;
+    float threshold = 0.50f;
+    float pwmA = 0.50f;
+    float pwmB = 0.50f;
+    float rampA = 0.50f;
+    float rampB = 0.50f;
+    float amp = 1.0f;
 };
 
 struct AmbiWranglerVoice {
@@ -145,9 +270,14 @@ struct AmbiWranglerVoice {
     float rateB = 91.0f;
     float rungValue = 0.0f;
     float rungSmooth = 0.0f;
+    float rungSplitA = 0.0f;
+    float rungSplitB = 0.0f;
+    float rungSplitSmoothA = 0.0f;
+    float rungSplitSmoothB = 0.0f;
     float lastClock = 0.0f;
     float energy = 0.0f;
     float maskGain = 1.0f;
+    float targetMaskGain = 1.0f;
     float snapEnv = 0.0f;
     float snapPolarity = 1.0f;
     float fieldWriteAccumulator = 0.0f;
@@ -157,6 +287,72 @@ struct AmbiWranglerVoice {
     float transitionDensity = 0.0f;
     float listenerCapture = 0.0f;
     float listenerEvolutionAccumulator = 0.0f;
+    float smoothedRateA = 0.28f;
+    float smoothedRateB = 0.34f;
+    float smoothedFmAtoB = 0.18f;
+    float smoothedFmBtoA = 0.14f;
+    float smoothedRunglerA = 0.25f;
+    float smoothedRunglerB = 0.32f;
+    float smoothedSpread = 0.26f;
+    float smoothedDeviation = 0.12f;
+    float smoothedField = 0.62f;
+    float smoothedLane = 0.0f;
+    float smoothedRateScaleA = 1.0f;
+    float smoothedRateScaleB = 1.0f;
+    float smoothedPwmA = 0.50f;
+    float smoothedPwmB = 0.50f;
+    float smoothedRampA = 0.50f;
+    float smoothedRampB = 0.50f;
+    float smoothedThreshold = 0.50f;
+    float smoothedColor = 0.42f;
+    float smoothedColorA = 0.0f;
+    float smoothedColorB = 0.0f;
+    float smoothedFilterFreqA = 0.36f;
+    float smoothedFilterFreqB = 0.36f;
+    float smoothedFilterRes = 0.20f;
+    float smoothedFilterComp = 0.0f;
+    float smoothedCrossA = 0.0f;
+    float smoothedCrossB = 0.0f;
+    float smoothedCrossLpf = 0.25f;
+    float smoothedFilterMorph = 0.0f;
+    float smoothedFilterRun = 0.28f;
+    float smoothedFilterSweep = 0.20f;
+    float smoothedSaturation = 0.36f;
+    float smoothedSnap = 0.0f;
+    float smoothedSnapDecay = 0.34f;
+    float smoothedAmp = 1.0f;
+    float smoothedRungOutputA = 0.0f;
+    float smoothedRungOutputB = 0.0f;
+    float oscillatorFeedbackA = 0.0f;
+    float oscillatorFeedbackB = 0.0f;
+    float crossFeedbackA = 0.0f;
+    float crossFeedbackB = 0.0f;
+    float previousFilteredA = 0.0f;
+    float previousFilteredB = 0.0f;
+    float renderGain = 0.0f;
+    float lastOutput = 0.0f;
+    float outputTransitionCorrection = 0.0f;
+    float circuitPreviousOutput = 0.0f;
+    float circuitCurrentOutput = 0.0f;
+    float cachedBaseA = 1.0f;
+    float cachedBaseB = 1.0f;
+    float cachedLaneFmA = 0.0f;
+    float cachedLaneFmB = 0.0f;
+    float cachedLaneRunA = 0.0f;
+    float cachedLaneRunB = 0.0f;
+    float cachedLegacyFmHzA = 0.0f;
+    float cachedLegacyFmHzB = 0.0f;
+    float cachedLegacyRungHzA = 0.0f;
+    float cachedLegacyRungHzB = 0.0f;
+    float cachedFilterCurveA = 0.0f;
+    float cachedFilterCurveB = 0.0f;
+    float cachedCrossCoefficient = 0.0f;
+    float cachedFeedbackCompensation = 1.0f;
+    float cachedFilterInputCompensation = 1.0f;
+    float cachedOutputCompensation = 1.0f;
+    float cachedListenerCoupling = 1.0f;
+    float cachedSnapDecay = 1.0f;
+    AmbiWranglerVoiceTargets targets {};
     uint32_t reg = 1u;
     uint32_t seed = 1u;
     uint32_t listenHead = 0u;
@@ -165,6 +361,13 @@ struct AmbiWranglerVoice {
     uint32_t auditoryBit = 0u;
     uint32_t writtenBit = 0u;
     uint32_t registerHeld = 0u;
+    uint32_t latchedInputA = 0u;
+    uint32_t latchedInputB = 0u;
+    uint32_t latchedRungMode = 0u;
+    uint32_t latchedRungSize = 4u;
+    uint32_t settleEar = 0u;
+    bool outputTransitionPending = false;
+    bool circuitOutputPrimed = false;
     uint64_t clockCount = 0u;
     uint64_t registerAdvanceCount = 0u;
     uint64_t heldClockCount = 0u;
@@ -172,17 +375,76 @@ struct AmbiWranglerVoice {
     AmbiWranglerFilter filterB {};
 };
 
-struct AmbiWranglerNode {
-    float energy = 0.0f;
-    float maskGain = 1.0f;
-    uint32_t seed = 1u;
-};
-
 class AmbiWranglerEncoder {
 public:
     void prepare(double sampleRate)
     {
-        sampleRate_ = std::max(1.0, sampleRate);
+        if (!std::isfinite(sampleRate)) sampleRate = 48000.0;
+        sampleRate_ = std::clamp(sampleRate, 1000.0, 768000.0);
+        // The analogue-model circuit itself does not gain useful bandwidth
+        // above roughly 48 kHz. At high host rates, advance it on a bounded
+        // internal clock and linearly interpolate its already band-limited
+        // output; HOA motion, fades, listener delay, and host automation
+        // remain at the full host rate.
+        circuitStride_ = std::max<uint32_t>(
+            1u, static_cast<uint32_t>(
+                std::ceil(sampleRate_ / 48000.0)));
+        circuitSampleRate_ =
+            sampleRate_ / static_cast<double>(circuitStride_);
+        outputTransitionDecay_ = std::exp(
+            -1.0f / static_cast<float>(
+                circuitSampleRate_ * 0.008));
+        transitionDecay_ = std::exp(
+            -1.0f / static_cast<float>(
+                circuitSampleRate_ * 0.45));
+        edgeCoefficient_ = circuitOnePoleCoefficient(0.010f);
+        shapeCoefficient_ = circuitOnePoleCoefficient(0.018f);
+        colorCoefficient_ = circuitOnePoleCoefficient(0.020f);
+        feedbackCoefficient_ = circuitOnePoleCoefficient(0.024f);
+        ampCoefficient_ = circuitOnePoleCoefficient(0.012f);
+        captureAttackCoefficient_ =
+            circuitOnePoleCoefficient(0.18f);
+        maskAttackCoefficient_ = onePoleCoefficient(0.004f);
+        maskReleaseCoefficient_ = onePoleCoefficient(0.018f);
+        voiceAttackCoefficient_ = onePoleCoefficient(0.012f);
+        voiceReleaseCoefficient_ = onePoleCoefficient(0.024f);
+        outputGainCoefficient_ = onePoleCoefficient(0.018f);
+        // Spatial coefficients contain high-order trigonometry. A 64-sample
+        // target clock remains well above audible motion rates and the
+        // coefficients interpolate linearly on every sample between ticks.
+        spatialControlStep_ = (
+            1.0f - std::exp(
+                -64.0f / static_cast<float>(
+                    sampleRate_ * 0.014)))
+            / 64.0f;
+        orderCoefficient_ = onePoleCoefficient(0.020f);
+        listenerEnableCoefficient_ = onePoleCoefficient(0.018f);
+        returnEnableCoefficient_ = onePoleCoefficient(0.026f);
+        startupCoefficient_ = onePoleCoefficient(0.008f);
+        for (uint32_t index = 0u;
+            index < kCoefficientTableSize; ++index) {
+            const float value = static_cast<float>(index)
+                / static_cast<float>(kCoefficientTableSize - 1u);
+            const float crossCutoffHz =
+                2.0f * std::pow(3000.0f, value);
+            crossCoefficientTable_[index] =
+                1.0f - std::exp(
+                    -2.0f * kPi * crossCutoffHz
+                    / static_cast<float>(
+                        circuitSampleRate_));
+            const float rungSeconds =
+                lerp(0.300f, 0.035f, std::sqrt(value));
+            rungCoefficientTable_[index] =
+                circuitOnePoleCoefficient(rungSeconds);
+            const float snapSamples =
+                (12.0f + value * value * 900.0f)
+                * static_cast<float>(
+                    circuitSampleRate_ / 48000.0);
+            snapDecayTable_[index] =
+                std::exp(-1.0f / snapSamples);
+            listenerCouplingTable_[index] =
+                listenerCouplingRate(value);
+        }
         fieldListener_.prepare(sampleRate_);
         fieldListener_.setMemorySeconds(0.34f);
         const size_t delaySize = static_cast<size_t>(
@@ -194,11 +456,19 @@ public:
 
     void reset()
     {
+        audioStarted_ = false;
+        controlFramesRemaining_ = 0u;
+        spatialFramesRemaining_ = 0u;
+        circuitFramesRemaining_ = 0u;
+        expensiveControlFramesRemaining_ = 0u;
+        startupGain_ = 0.0f;
         topologyPhase_ = 0.0f;
         maskPhase_ = 0.0f;
         listenerEnableGain_ = 0.0f;
         returnEnableGain_ = 0.0f;
         listenerDelayWrite_ = 0u;
+        listenerDelayValidSamples_ = 0u;
+        listenerDormant_ = true;
         listenerDc_.fill(0.0f);
         listenerConditioned_.fill(0.0f);
         listenerDecision_.fill(0.0f);
@@ -209,16 +479,34 @@ public:
         fieldListener_.reset();
         configureListener();
         for (auto& delay : listenerDelay_) std::fill(delay.begin(), delay.end(), 0.0f);
-        smoothedOutputGain_ = dbToGain(params_.outputGainDb);
+        smoothedOutputGain_ = dbToGain(params_.outputGainDb)
+            / std::sqrt(static_cast<float>(
+                std::max<uint32_t>(1u, params_.voices)));
         for (uint32_t i = 0u; i < kAmbiWranglerMaxVoices; ++i) {
             voices_[i] = {};
             voices_[i].seed = 0x9e3779b9u + i * 0x85ebca6bu;
             voices_[i].reg = (hash(voices_[i].seed) & 0xffu) | 1u;
-            nodes_[i] = {};
-            nodes_[i].seed = voices_[i].seed;
             initializeVoice(i);
+            voices_[i].renderGain =
+                i < params_.voices ? 1.0f : 0.0f;
             points_[i] = basePoint(i, std::max<uint32_t>(1u, params_.voices));
             targetPoints_[i] = points_[i];
+            renderBasis_[i] = acnSn3dBasis7(directionFromAed(
+                points_[i].azimuthDeg, points_[i].elevationDeg));
+            targetRenderBasis_[i] = renderBasis_[i];
+            renderDistanceGain_[i] =
+                1.0f / std::max(0.50f, points_[i].distance);
+            targetRenderDistanceGain_[i] =
+                renderDistanceGain_[i];
+        }
+        const uint32_t activeChannels =
+            ambiChannelsForOrder(params_.order);
+        processingVoiceLimit_ = params_.voices;
+        processingChannelLimit_ = activeChannels;
+        for (uint32_t ch = 0u;
+            ch < kAmbiWranglerMaxChannels; ++ch) {
+            channelOrderGain_[ch] =
+                ch < activeChannels ? 1.0f : 0.0f;
         }
     }
 
@@ -271,6 +559,24 @@ public:
             params.bpRampA[i] = clamp(params.bpRampA[i], 0.0f, 1.0f);
             params.bpRampB[i] = clamp(params.bpRampB[i], 0.0f, 1.0f);
             params.bpAmp[i] = clamp(params.bpAmp[i], 0.0f, 1.0f);
+            params.bpColorA[i] = clamp(params.bpColorA[i], 0.0f, 1.0f);
+            params.bpColorB[i] = clamp(params.bpColorB[i], 0.0f, 1.0f);
+            params.bpFilterFreqB[i] =
+                clamp(params.bpFilterFreqB[i], 0.0f, 1.0f);
+            params.bpFilterRes[i] =
+                clamp(params.bpFilterRes[i], 0.0f, 1.0f);
+            params.bpFilterComp[i] =
+                clamp(params.bpFilterComp[i], 0.0f, 1.0f);
+            params.bpFilterType[i] =
+                clamp(params.bpFilterType[i], 0.0f, 1.0f);
+            params.bpCrossA[i] = clamp(params.bpCrossA[i], 0.0f, 1.0f);
+            params.bpCrossB[i] = clamp(params.bpCrossB[i], 0.0f, 1.0f);
+            params.bpCrossLpf[i] =
+                clamp(params.bpCrossLpf[i], 0.0f, 1.0f);
+            params.bpRungMode[i] =
+                clamp(params.bpRungMode[i], 0.0f, 1.0f);
+            params.bpRungSize[i] =
+                clamp(params.bpRungSize[i], 0.0f, 1.0f);
         }
         params.topologyShape = std::clamp<uint32_t>(params.topologyShape, 0u, kTopologyShapeCount - 1u);
         params.topologyMotion = std::clamp<uint32_t>(params.topologyMotion, 0u, kTopologyMotionModeCount - 1u);
@@ -296,33 +602,64 @@ public:
         params.returnBypass = std::min<uint32_t>(params.returnBypass, 1u);
         params.circuitLaw = static_cast<AmbiWranglerCircuitLaw>(
             std::min<uint32_t>(static_cast<uint32_t>(params.circuitLaw), 1u));
-        params.engines = std::clamp<uint32_t>(params.engines, 1u, kAmbiWranglerMaxVoices);
+        // Retained as an internal layout field, but a Wrangler point is one
+        // complete synth voice and no second synthesis count is exposed.
+        params.engines = params.voices;
         params.change = clamp(params.change, 0.0f, 1.0f);
         params.listenerResponse = static_cast<AmbiWranglerListenerResponse>(
             std::min<uint32_t>(static_cast<uint32_t>(params.listenerResponse), 1u));
         params.settleAmount = clamp(params.settleAmount, 0.0f, 1.0f);
         params.settleTarget = clamp(params.settleTarget, 0.0f, 0.95f);
         params.settleRecoverySeconds = clamp(params.settleRecoverySeconds, 0.25f, 12.0f);
-        const bool voiceCountChanged = params.voices != params_.voices;
-        const bool engineCountChanged =
-            effectiveEngineCount(params) != effectiveEngineCount(params_);
+        params.filterMorph = clamp(params.filterMorph, 0.0f, 1.0f);
         const bool pickupSetChanged = params.pickupSet != params_.pickupSet;
+        const bool circuitLawChanged =
+            params.circuitLaw != params_.circuitLaw;
         params_ = params;
-        if (pickupSetChanged) configureListener();
-        if (voiceCountChanged || engineCountChanged) {
-            for (uint32_t i = 0u; i < kAmbiWranglerMaxVoices; ++i) initializeVoice(i);
+        if (audioStarted_) {
+            processingVoiceLimit_ = std::max(
+                processingVoiceLimit_, params_.voices);
+            processingChannelLimit_ = std::max(
+                processingChannelLimit_,
+                ambiChannelsForOrder(params_.order));
+            for (uint32_t voice = 0u;
+                voice < processingVoiceLimit_; ++voice) {
+                updateVoiceTargets(voice);
+                voices_[voice].targetMaskGain =
+                    voiceMask(voice);
+            }
+            // A host event may arrive between ticks of the four-sample
+            // expensive-control clock. Re-arm it so the event takes effect
+            // on its exact sample rather than as much as three samples late.
+            expensiveControlFramesRemaining_ = 0u;
         }
+        captureReleaseCoefficient_ =
+            circuitOnePoleCoefficient(
+                params_.settleRecoverySeconds);
+        if (!audioStarted_) {
+            // A preset or restored state installed before the first rendered
+            // sample is the initial condition, not an automation gesture.
+            // Prime every smoother and structural latch to it so the first
+            // milliseconds cannot leak the constructor defaults into audio.
+            primeUnheardState();
+        } else if (circuitLawChanged) {
+            for (auto& voice : voices_) {
+                voice.outputTransitionPending = true;
+            }
+        }
+        if (pickupSetChanged) configureListener();
     }
 
     AmbiWranglerParams params() const { return params_; }
-    uint32_t engineCount() const { return effectiveEngineCount(params_); }
+    uint32_t engineCount() const { return params_.voices; }
     uint32_t nodeEngine(uint32_t node) const
     {
-        return engineForNode(node, params_.voices, engineCount());
+        return std::min<uint32_t>(
+            node, kAmbiWranglerMaxVoices - 1u);
     }
-    float voiceEnergy(uint32_t voice) const { return nodes_[std::min<uint32_t>(voice, kAmbiWranglerMaxVoices - 1u)].energy; }
+    float voiceEnergy(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiWranglerMaxVoices - 1u)].energy; }
     AmbiWranglerPoint voicePoint(uint32_t voice) const { return points_[std::min<uint32_t>(voice, kAmbiWranglerMaxVoices - 1u)]; }
-    float voiceMaskLevel(uint32_t voice) const { return nodes_[std::min<uint32_t>(voice, kAmbiWranglerMaxVoices - 1u)].maskGain; }
+    float voiceMaskLevel(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiWranglerMaxVoices - 1u)].maskGain; }
     uint32_t voiceRegister(uint32_t voice) const { return voices_[nodeEngine(voice)].reg; }
     uint32_t voiceReadEar(uint32_t voice) const { return voices_[nodeEngine(voice)].lastReadEar; }
     uint32_t voiceComparatorBit(uint32_t voice) const { return voices_[nodeEngine(voice)].comparatorBit; }
@@ -367,6 +704,60 @@ public:
     {
         return voices_[nodeEngine(voice)].phaseB;
     }
+    float voiceCurveValue(
+        uint32_t voice, AmbiWranglerCurveDimension dimension) const
+    {
+        return laneCurveValue(
+            std::min<uint32_t>(
+                voice, kAmbiWranglerMaxVoices - 1u),
+            dimension);
+    }
+    uint32_t voiceRungMode(uint32_t voice) const
+    {
+        return voices_[nodeEngine(voice)].latchedRungMode;
+    }
+    uint32_t voiceRungSize(uint32_t voice) const
+    {
+        return voices_[nodeEngine(voice)].latchedRungSize;
+    }
+    float voiceFilterMorph(uint32_t voice) const
+    {
+        return voices_[nodeEngine(voice)].smoothedFilterMorph;
+    }
+    float voiceFilterStatePeak(uint32_t voice) const
+    {
+        const auto& state = voices_[nodeEngine(voice)];
+        return std::max({
+            std::fabs(state.filterA.low),
+            std::fabs(state.filterA.band),
+            std::fabs(state.filterB.low),
+            std::fabs(state.filterB.band),
+        });
+    }
+    static float curveFilterMorph(float stored, float fallback)
+    {
+        return centeredStructuralCurve(stored, fallback);
+    }
+    static uint32_t curveRungSize(
+        float stored, uint32_t fallback)
+    {
+        fallback = std::clamp<uint32_t>(fallback, 2u, 8u);
+        const float effective = centeredStructuralCurve(
+            stored, static_cast<float>(fallback - 2u) / 6.0f);
+        return std::clamp<uint32_t>(
+            2u + static_cast<uint32_t>(
+                std::lround(effective * 6.0f)),
+            2u, 8u);
+    }
+    static AmbiWranglerRungMode curveRungMode(float stored)
+    {
+        return static_cast<AmbiWranglerRungMode>(
+            std::clamp<uint32_t>(
+                static_cast<uint32_t>(
+                    std::lround(clamp(stored, 0.0f, 1.0f)
+                        * 2.0f)),
+                0u, 2u));
+    }
     uint32_t listenerPickupCount() const { return fieldListener_.count(); }
     float listenerEnvelope(uint32_t pickup) const { return fieldListener_.envelope(pickup); }
     float listenerSignal(uint32_t pickup) const { return fieldListener_.signal(pickup); }
@@ -389,13 +780,13 @@ public:
     }
     float listenerCapture() const
     {
-        const uint32_t engines = engineCount();
-        if (engines == 0u) return 0.0f;
+        const uint32_t voices = params_.voices;
+        if (voices == 0u) return 0.0f;
         float sum = 0.0f;
-        for (uint32_t engine = 0u; engine < engines; ++engine) {
-            sum += voices_[engine].listenerCapture;
+        for (uint32_t voice = 0u; voice < voices; ++voice) {
+            sum += voices_[voice].listenerCapture;
         }
-        return sum / static_cast<float>(engines);
+        return sum / static_cast<float>(voices);
     }
     float listenerTopologyRate() const
     {
@@ -411,121 +802,318 @@ public:
     void process(float* const* outputs, uint32_t outputChannels, uint32_t frames)
     {
         if (!outputs || frames == 0u) return;
-        outputChannels = std::min<uint32_t>(outputChannels, kAmbiWranglerMaxChannels);
+        audioStarted_ = true;
+        outputChannels = std::min<uint32_t>(
+            outputChannels, kAmbiWranglerMaxChannels);
         for (uint32_t ch = 0u; ch < outputChannels; ++ch) {
-            if (outputs[ch]) std::fill(outputs[ch], outputs[ch] + frames, 0.0f);
+            if (outputs[ch]) {
+                std::fill(outputs[ch], outputs[ch] + frames, 0.0f);
+            }
         }
 
         const uint32_t voices = params_.voices;
-        const uint32_t engines = engineCount();
-        const bool bounded = params_.circuitLaw == AmbiWranglerCircuitLaw::Bounded;
-        const uint32_t ambiChannels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), outputChannels);
+        const uint32_t requestedAmbiChannels =
+            ambiChannelsForOrder(params_.order);
+        const uint32_t ambiChannels = std::min<uint32_t>(
+            requestedAmbiChannels, outputChannels);
         const float targetGain = dbToGain(params_.outputGainDb)
-            / std::sqrt(static_cast<float>(std::max<uint32_t>(
-                1u, bounded ? engines : voices)));
-        const float maskAttack = 1.0f - std::exp(-1.0f / (static_cast<float>(sampleRate_) * 0.004f));
-        const float maskRelease = 1.0f - std::exp(-1.0f / (static_cast<float>(sampleRate_) * 0.018f));
-        std::array<uint32_t, kAmbiWranglerMaxVoices> engineNodeCounts {};
-        for (uint32_t node = 0u; node < voices; ++node) {
-            ++engineNodeCounts[engineForNode(node, voices, engines)];
-        }
+            / std::sqrt(static_cast<float>(
+                std::max<uint32_t>(1u, voices)));
         constexpr uint32_t kControlFrames = 16u;
-
-        for (uint32_t chunkStart = 0u; chunkStart < frames; chunkStart += kControlFrames) {
-            const uint32_t chunkFrames = std::min<uint32_t>(kControlFrames, frames - chunkStart);
-            const float chunkDt = static_cast<float>(chunkFrames) / static_cast<float>(sampleRate_);
-            updateTopology(chunkDt);
-            updateMask(chunkDt);
-
-            std::array<std::array<float, kAmbiWranglerMaxChannels>, kAmbiWranglerMaxVoices> basis {};
-            std::array<float, kAmbiWranglerMaxVoices> distGain {};
-            for (uint32_t v = 0u; v < voices; ++v) {
-                basis[v] = acnSn3dBasis7(directionFromAed(points_[v].azimuthDeg, points_[v].elevationDeg));
-                distGain[v] = 1.0f / std::max(0.50f, points_[v].distance);
+        constexpr uint32_t kSpatialControlFrames = 64u;
+        constexpr float kRenderSilence = 0.000001f;
+        uint32_t frameCursor = 0u;
+        while (frameCursor < frames) {
+            if (controlFramesRemaining_ == 0u) {
+                const float controlDt =
+                    static_cast<float>(kControlFrames)
+                    / static_cast<float>(sampleRate_);
+                updateTopology(controlDt);
+                updateMask(controlDt);
+                for (uint32_t v = 0u;
+                    v < processingVoiceLimit_; ++v) {
+                    // maskPhase_ advances only on this clock, so the target
+                    // is exactly constant throughout the following span.
+                    voices_[v].targetMaskGain = voiceMask(v);
+                }
+                if (spatialFramesRemaining_ == 0u) {
+                    const bool cacheSettleEar =
+                        params_.listeningEnabled != 0u
+                        && params_.listenerResponse
+                            == AmbiWranglerListenerResponse::Settle
+                        && params_.settleAmount > 0.0f;
+                    for (uint32_t v = 0u;
+                        v < processingVoiceLimit_; ++v) {
+                        const Vec3 direction = directionFromAed(
+                            points_[v].azimuthDeg,
+                            points_[v].elevationDeg);
+                        targetRenderBasis_[v] =
+                            acnSn3dBasis7(direction);
+                        targetRenderDistanceGain_[v] =
+                            1.0f / std::max(
+                                0.50f, points_[v].distance);
+                        renderDistanceIncrement_[v] = (
+                            targetRenderDistanceGain_[v]
+                                - renderDistanceGain_[v])
+                            * spatialControlStep_;
+                        for (uint32_t ch = 0u;
+                            ch < kAmbiWranglerMaxChannels; ++ch) {
+                            renderBasisIncrement_[v][ch] = (
+                                targetRenderBasis_[v][ch]
+                                    - renderBasis_[v][ch])
+                                * spatialControlStep_;
+                        }
+                        if (cacheSettleEar && v < voices) {
+                            voices_[v].settleEar =
+                                nearestListener(direction);
+                        }
+                    }
+                    spatialFramesRemaining_ =
+                        kSpatialControlFrames;
+                }
+                controlFramesRemaining_ = kControlFrames;
             }
 
-            for (uint32_t frame = chunkStart; frame < chunkStart + chunkFrames; ++frame) {
-                const float listenerSmoothing = 1.0f - std::exp(
-                    -1.0f / static_cast<float>(sampleRate_ * 0.018));
-                const float returnSmoothing = 1.0f - std::exp(
-                    -1.0f / static_cast<float>(sampleRate_ * 0.026));
+            const uint32_t spanFrames = std::min<uint32_t>(
+                controlFramesRemaining_, frames - frameCursor);
+            const uint32_t spanEnd = frameCursor + spanFrames;
+            for (uint32_t frame = frameCursor;
+                frame < spanEnd; ++frame) {
+                startupGain_ +=
+                    (1.0f - startupGain_) * startupCoefficient_;
                 listenerEnableGain_ += (
-                    (params_.listeningEnabled ? 1.0f : 0.0f) - listenerEnableGain_)
-                    * listenerSmoothing;
+                    (params_.listeningEnabled ? 1.0f : 0.0f)
+                        - listenerEnableGain_)
+                    * listenerEnableCoefficient_;
                 const bool writeResponse =
-                    params_.listenerResponse == AmbiWranglerListenerResponse::Write;
+                    params_.listenerResponse
+                    == AmbiWranglerListenerResponse::Write;
                 returnEnableGain_ += (
                     (params_.listeningEnabled && writeResponse
                             && !params_.returnBypass ? 1.0f : 0.0f)
-                    - returnEnableGain_) * returnSmoothing;
-                smoothedOutputGain_ += (targetGain - smoothedOutputGain_) * 0.0015f;
+                    - returnEnableGain_) * returnEnableCoefficient_;
+                smoothedOutputGain_ +=
+                    (targetGain - smoothedOutputGain_)
+                    * outputGainCoefficient_;
+                for (uint32_t ch = 0u;
+                    ch < processingChannelLimit_; ++ch) {
+                    const float channelTarget =
+                        ch < requestedAmbiChannels ? 1.0f : 0.0f;
+                    channelOrderGain_[ch] += (
+                        channelTarget - channelOrderGain_[ch])
+                        * orderCoefficient_;
+                    if (channelTarget == 1.0f
+                        && channelOrderGain_[ch]
+                            > 1.0f - kRenderSilence) {
+                        channelOrderGain_[ch] = 1.0f;
+                    }
+                    if (channelTarget == 0.0f
+                        && channelOrderGain_[ch] < kRenderSilence) {
+                        channelOrderGain_[ch] = 0.0f;
+                    }
+                }
+                while (processingChannelLimit_
+                        > requestedAmbiChannels
+                    && channelOrderGain_[
+                        processingChannelLimit_ - 1u] == 0.0f) {
+                    --processingChannelLimit_;
+                }
+                const uint32_t renderChannels =
+                    std::min<uint32_t>(
+                        processingChannelLimit_, outputChannels);
+                const bool unityOrderGains =
+                    processingChannelLimit_
+                        == requestedAmbiChannels
+                    && (processingChannelLimit_ == 0u
+                        || channelOrderGain_[
+                            processingChannelLimit_ - 1u] == 1.0f);
+                std::array<float, kAmbiWranglerMaxChannels>
+                    encodedFrame {};
+                const bool advanceCircuits =
+                    circuitFramesRemaining_ == 0u;
+                if (advanceCircuits) {
+                    circuitFramesRemaining_ =
+                        circuitStride_;
+                }
+                const bool refreshExpensiveControl =
+                    advanceCircuits
+                    && expensiveControlFramesRemaining_ == 0u;
+                if (refreshExpensiveControl) {
+                    expensiveControlFramesRemaining_ = 4u;
+                }
+                const float circuitInterpolation =
+                    circuitStride_ <= 1u ? 1.0f
+                    : static_cast<float>(
+                        circuitStride_
+                            - circuitFramesRemaining_)
+                        / static_cast<float>(circuitStride_);
 
-                if (!bounded) {
-                    // Keep the original per-voice ordering in Legacy law. In this
-                    // case engineForNode() is the identity mapping.
-                    for (uint32_t v = 0u; v < voices; ++v) {
-                        const float targetMask = voiceMask(v);
-                        auto& node = nodes_[v];
-                        node.maskGain += (targetMask - node.maskGain)
-                            * (targetMask > node.maskGain ? maskAttack : maskRelease);
-                        const float sample = processVoice(v, v, voices)
-                            * node.maskGain * smoothedOutputGain_ * distGain[v];
-                        node.energy += (sample * sample - node.energy) * 0.0008f;
-                        if (std::fabs(sample) < 0.0000001f) continue;
-                        for (uint32_t ch = 0u; ch < ambiChannels; ++ch) {
-                            if (outputs[ch]) outputs[ch][frame] = flushDenormal(
-                                outputs[ch][frame] + sample * basis[v][ch]);
+                for (uint32_t v = 0u;
+                    v < processingVoiceLimit_; ++v) {
+                    auto& voice = voices_[v];
+                    const float voiceTarget = v < voices ? 1.0f : 0.0f;
+                    voice.renderGain += (voiceTarget - voice.renderGain)
+                        * (voiceTarget > voice.renderGain
+                                ? voiceAttackCoefficient_
+                                : voiceReleaseCoefficient_);
+                    if (voiceTarget == 0.0f
+                        && voice.renderGain < kRenderSilence) {
+                        voice.renderGain = 0.0f;
+                    }
+                    if (voiceTarget == 0.0f
+                        && voice.renderGain == 0.0f) {
+                        continue;
+                    }
+                    const float targetMask =
+                        voice.targetMaskGain;
+                    voice.maskGain += (targetMask - voice.maskGain)
+                        * (targetMask > voice.maskGain
+                                ? maskAttackCoefficient_
+                                : maskReleaseCoefficient_);
+
+                    // A faded-out voice freezes its complete circuit. When it
+                    // is requested again it resumes under the same attack
+                    // envelope, avoiding both a hard edge and the cost of
+                    // running dozens of inaudible synths.
+                    const uint32_t laneVoices =
+                        std::max<uint32_t>(voices, v + 1u);
+                    if (advanceCircuits) {
+                        const float nextCircuitSample = processVoice(
+                            v, laneVoices,
+                            refreshExpensiveControl);
+                        if (!voice.circuitOutputPrimed) {
+                            voice.circuitPreviousOutput =
+                                nextCircuitSample;
+                            voice.circuitCurrentOutput =
+                                nextCircuitSample;
+                            voice.circuitOutputPrimed = true;
+                        } else {
+                            voice.circuitPreviousOutput =
+                                voice.circuitCurrentOutput;
+                            voice.circuitCurrentOutput =
+                                nextCircuitSample;
                         }
                     }
-                } else {
-                    std::array<float, kAmbiWranglerMaxVoices> engineSamples {};
-                    for (uint32_t engine = 0u; engine < engines; ++engine) {
-                        const uint32_t anchor =
-                            engineAnchorNode(engine, voices, engines);
-                        engineSamples[engine] =
-                            processVoice(engine, anchor, engines);
-                    }
-                    for (uint32_t nodeIndex = 0u; nodeIndex < voices; ++nodeIndex) {
-                        const float targetMask = voiceMask(nodeIndex);
-                        auto& node = nodes_[nodeIndex];
-                        node.maskGain += (targetMask - node.maskGain)
-                            * (targetMask > node.maskGain ? maskAttack : maskRelease);
-                        const uint32_t engine =
-                            engineForNode(nodeIndex, voices, engines);
-                        const float copies = static_cast<float>(
-                            std::max<uint32_t>(1u, engineNodeCounts[engine]));
-                        const float sample = engineSamples[engine]
-                            * node.maskGain * smoothedOutputGain_
-                            * distGain[nodeIndex] / copies;
-                        node.energy += (sample * sample - node.energy) * 0.0008f;
-                        if (std::fabs(sample) < 0.0000001f) continue;
-                        for (uint32_t ch = 0u; ch < ambiChannels; ++ch) {
-                            if (outputs[ch]) outputs[ch][frame] = flushDenormal(
-                                outputs[ch][frame] + sample * basis[nodeIndex][ch]);
+                    const float circuitSample =
+                        !voice.circuitOutputPrimed ? 0.0f
+                        : circuitStride_ <= 1u
+                        ? voice.circuitCurrentOutput
+                        : lerp(
+                            voice.circuitPreviousOutput,
+                            voice.circuitCurrentOutput,
+                            circuitInterpolation);
+                    renderDistanceGain_[v] +=
+                        renderDistanceIncrement_[v];
+                    const float sample = circuitSample
+                        * voice.maskGain * voice.renderGain
+                        * smoothedOutputGain_
+                        * renderDistanceGain_[v]
+                        * startupGain_;
+                    voice.energy +=
+                        (sample * sample - voice.energy) * 0.0008f;
+                    if (unityOrderGains) {
+                        for (uint32_t ch = 0u;
+                            ch < renderChannels; ++ch) {
+                            renderBasis_[v][ch] +=
+                                renderBasisIncrement_[v][ch];
+                            encodedFrame[ch] +=
+                                sample * renderBasis_[v][ch];
+                        }
+                    } else {
+                        for (uint32_t ch = 0u;
+                            ch < renderChannels; ++ch) {
+                            renderBasis_[v][ch] +=
+                                renderBasisIncrement_[v][ch];
+                            encodedFrame[ch] +=
+                                sample * renderBasis_[v][ch]
+                                * channelOrderGain_[ch];
                         }
                     }
                 }
-                for (uint32_t ch = 0u; ch < ambiChannels; ++ch) {
-                    listenerFrame_[ch] = outputs[ch] ? outputs[ch][frame] : 0.0f;
+                while (processingVoiceLimit_ > voices
+                    && voices_[
+                        processingVoiceLimit_ - 1u].renderGain == 0.0f) {
+                    --processingVoiceLimit_;
                 }
-                for (uint32_t ch = ambiChannels; ch < kAmbiWranglerMaxChannels; ++ch) {
-                    listenerFrame_[ch] = 0.0f;
-                }
-                fieldListener_.processFrame(listenerFrame_.data(), ambiChannels);
-                writeListenerDelay();
-            }
-        }
 
-        for (uint32_t ch = 0u; ch < ambiChannels; ++ch) {
-            if (!outputs[ch]) continue;
-            for (uint32_t frame = 0u; frame < frames; ++frame) {
-                outputs[ch][frame] = std::tanh(clamp(outputs[ch][frame], -6.0f, 6.0f));
+                const bool listenerNeeded =
+                    params_.listeningEnabled != 0u
+                    || listenerEnableGain_ > 0.00001f
+                    || returnEnableGain_ > 0.00001f
+                    || listenerCapture() > 0.00001f;
+                if (listenerNeeded) {
+                    listenerDormant_ = false;
+                    for (uint32_t ch = 0u;
+                        ch < ambiChannels; ++ch) {
+                        listenerFrame_[ch] = outputs[ch]
+                            ? encodedFrame[ch] : 0.0f;
+                    }
+                    fieldListener_.processFrame(
+                        listenerFrame_.data(), ambiChannels);
+                    writeListenerDelay();
+                } else if (!listenerDormant_) {
+                    fieldListener_.reset();
+                    listenerDc_.fill(0.0f);
+                    listenerConditioned_.fill(0.0f);
+                    listenerDecision_.fill(0.0f);
+                    listenerPreviousSignal_.fill(0.0f);
+                    listenerRoughness_.fill(0.0f);
+                    listenerTension_.fill(0.0f);
+                    listenerDelayValidSamples_ = 0u;
+                    listenerDormant_ = true;
+                }
+
+                for (uint32_t ch = 0u;
+                    ch < renderChannels; ++ch) {
+                    if (!outputs[ch]) continue;
+                    outputs[ch][frame] = ambiWranglerTanh(clamp(
+                        flushDenormal(encodedFrame[ch]),
+                        -6.0f, 6.0f));
+                }
+                if (advanceCircuits) {
+                    --expensiveControlFramesRemaining_;
+                }
+                --circuitFramesRemaining_;
+                --spatialFramesRemaining_;
             }
+            frameCursor = spanEnd;
+            controlFramesRemaining_ -= spanFrames;
         }
     }
 
 private:
     static constexpr float kMaximumPropagationSeconds = 0.180f;
+    static constexpr uint32_t kCoefficientTableSize = 1025u;
+
+    float onePoleCoefficient(float seconds) const
+    {
+        return 1.0f - std::exp(
+            -1.0f / static_cast<float>(
+                sampleRate_ * std::max(0.000001f, seconds)));
+    }
+
+    float circuitOnePoleCoefficient(float seconds) const
+    {
+        return 1.0f - std::exp(
+            -1.0f / static_cast<float>(
+                circuitSampleRate_
+                * std::max(0.000001f, seconds)));
+    }
+
+    static float coefficientFromTable(
+        const std::array<float, kCoefficientTableSize>& table,
+        float normalized)
+    {
+        const float position = clamp(normalized, 0.0f, 1.0f)
+            * static_cast<float>(kCoefficientTableSize - 1u);
+        const uint32_t first = std::min<uint32_t>(
+            static_cast<uint32_t>(position),
+            kCoefficientTableSize - 1u);
+        const uint32_t second = std::min<uint32_t>(
+            first + 1u, kCoefficientTableSize - 1u);
+        return lerp(table[first], table[second],
+            position - static_cast<float>(first));
+    }
 
     static float listenerEvolutionRate(float capture)
     {
@@ -543,39 +1131,6 @@ private:
     {
         return clamp(std::exp(-2.25f * clamp(capture, 0.0f, 1.0f)),
             0.12f, 1.0f);
-    }
-
-    static uint32_t effectiveEngineCount(const AmbiWranglerParams& params)
-    {
-        const uint32_t nodes =
-            std::clamp<uint32_t>(params.voices, 1u, kAmbiWranglerMaxVoices);
-        if (params.circuitLaw == AmbiWranglerCircuitLaw::Legacy) return nodes;
-        return std::clamp<uint32_t>(params.engines, 1u, nodes);
-    }
-
-    static uint32_t engineForNode(
-        uint32_t node, uint32_t nodes, uint32_t engines)
-    {
-        nodes = std::clamp<uint32_t>(nodes, 1u, kAmbiWranglerMaxVoices);
-        engines = std::clamp<uint32_t>(engines, 1u, nodes);
-        node = std::min<uint32_t>(node, nodes - 1u);
-        return std::min<uint32_t>(
-            engines - 1u,
-            static_cast<uint32_t>(
-                static_cast<uint64_t>(node) * engines / nodes));
-    }
-
-    static uint32_t engineAnchorNode(
-        uint32_t engine, uint32_t nodes, uint32_t engines)
-    {
-        nodes = std::clamp<uint32_t>(nodes, 1u, kAmbiWranglerMaxVoices);
-        engines = std::clamp<uint32_t>(engines, 1u, nodes);
-        engine = std::min<uint32_t>(engine, engines - 1u);
-        return std::min<uint32_t>(
-            nodes - 1u,
-            static_cast<uint32_t>(
-                (static_cast<uint64_t>(engine) * 2u + 1u) * nodes
-                / (static_cast<uint64_t>(engines) * 2u)));
     }
 
     static uint32_t hash(uint32_t x)
@@ -600,7 +1155,7 @@ private:
 
     static float midiToHz(float note)
     {
-        return 440.0f * std::pow(2.0f, (note - 69.0f) / 12.0f);
+        return 440.0f * std::exp2((note - 69.0f) / 12.0f);
     }
 
     static float targetNormToHz(float value)
@@ -633,8 +1188,9 @@ private:
 
     static float wrapSignedDeg(float value)
     {
-        while (value > 180.0f) value -= 360.0f;
-        while (value <= -180.0f) value += 360.0f;
+        if (!std::isfinite(value)) return 0.0f;
+        value = std::remainder(value, 360.0f);
+        if (value <= -180.0f) value += 360.0f;
         return value;
     }
 
@@ -664,14 +1220,106 @@ private:
         voice.rateB = 1.0f + hashSigned(voice.seed + 31u) * 0.01f;
         voice.phaseA = hash01(voice.seed + 41u);
         voice.phaseB = hash01(voice.seed + 53u);
+        updateVoiceTargets(index);
+        const auto& target = voice.targets;
+        voice.smoothedRateA = target.rateA;
+        voice.smoothedRateB = target.rateB;
+        voice.smoothedFmAtoB = target.fmAtoB;
+        voice.smoothedFmBtoA = target.fmBtoA;
+        voice.smoothedRunglerA = target.runglerA;
+        voice.smoothedRunglerB = target.runglerB;
+        voice.smoothedSpread = params_.spread;
+        voice.smoothedDeviation = params_.deviation;
+        voice.smoothedField = params_.field;
+        voice.smoothedLane = static_cast<float>(index)
+            / static_cast<float>(std::max<uint32_t>(
+                1u, std::max<uint32_t>(params_.voices, index + 1u) - 1u));
+        voice.smoothedRateScaleA = rateModeScale(params_.rateModeA);
+        voice.smoothedRateScaleB = rateModeScale(params_.rateModeB);
+        voice.smoothedPwmA = target.pwmA;
+        voice.smoothedPwmB = target.pwmB;
+        voice.smoothedRampA = target.rampA;
+        voice.smoothedRampB = target.rampB;
+        voice.smoothedThreshold = target.threshold;
+        voice.smoothedColor = params_.color;
+        voice.smoothedColorA = target.colorA;
+        voice.smoothedColorB = target.colorB;
+        voice.smoothedFilterFreqA = target.filterFreqA;
+        voice.smoothedFilterFreqB = target.filterFreqB;
+        voice.smoothedFilterRes = target.filterRes;
+        voice.smoothedFilterComp = target.filterComp;
+        voice.smoothedCrossA = target.crossA;
+        voice.smoothedCrossB = target.crossB;
+        voice.smoothedCrossLpf = target.crossLpf;
+        voice.smoothedFilterMorph = target.filterMorph;
+        voice.smoothedFilterRun = params_.filterRun;
+        voice.smoothedFilterSweep = params_.filterSweep;
+        voice.smoothedSaturation = params_.saturation;
+        voice.smoothedSnap = params_.snap;
+        voice.smoothedSnapDecay = params_.snapDecay;
+        voice.smoothedAmp = target.amp;
+        voice.latchedInputA = params_.inputA;
+        voice.latchedInputB = params_.inputB;
+        voice.latchedRungMode =
+            rungModeForCurve(target.rungMode);
+        voice.latchedRungSize =
+            rungSizeForCurve(target.rungSize);
+        // Keep the historical zero-valued DAC startup until the first clock,
+        // but constrain the visible register immediately to its active size.
+        voice.reg &= (1u << voice.latchedRungSize) - 1u;
+    }
+
+    void primeUnheardState()
+    {
+        controlFramesRemaining_ = 0u;
+        spatialFramesRemaining_ = 0u;
+        circuitFramesRemaining_ = 0u;
+        expensiveControlFramesRemaining_ = 0u;
+        startupGain_ = 0.0f;
+        smoothedOutputGain_ = dbToGain(params_.outputGainDb)
+            / std::sqrt(static_cast<float>(
+                std::max<uint32_t>(1u, params_.voices)));
+        for (uint32_t i = 0u; i < kAmbiWranglerMaxVoices; ++i) {
+            voices_[i] = {};
+            voices_[i].seed = 0x9e3779b9u + i * 0x85ebca6bu;
+            voices_[i].reg =
+                (hash(voices_[i].seed) & 0xffu) | 1u;
+            initializeVoice(i);
+            voices_[i].renderGain =
+                i < params_.voices ? 1.0f : 0.0f;
+            points_[i] = basePoint(
+                i, std::max<uint32_t>(1u, params_.voices));
+            targetPoints_[i] = points_[i];
+            renderBasis_[i] = acnSn3dBasis7(directionFromAed(
+                points_[i].azimuthDeg, points_[i].elevationDeg));
+            targetRenderBasis_[i] = renderBasis_[i];
+            renderDistanceGain_[i] =
+                1.0f / std::max(0.50f, points_[i].distance);
+            targetRenderDistanceGain_[i] =
+                renderDistanceGain_[i];
+        }
+        const uint32_t activeChannels =
+            ambiChannelsForOrder(params_.order);
+        processingVoiceLimit_ = params_.voices;
+        processingChannelLimit_ = activeChannels;
+        for (uint32_t ch = 0u;
+            ch < kAmbiWranglerMaxChannels; ++ch) {
+            channelOrderGain_[ch] =
+                ch < activeChannels ? 1.0f : 0.0f;
+        }
     }
 
     void configureListener()
     {
+        fieldListener_.reset();
+        listenerDc_.fill(0.0f);
+        listenerConditioned_.fill(0.0f);
         listenerDecision_.fill(0.0f);
         listenerPreviousSignal_.fill(0.0f);
         listenerRoughness_.fill(0.0f);
         listenerTension_.fill(0.0f);
+        listenerDelayValidSamples_ = 0u;
+        listenerDormant_ = true;
         constexpr float k = 0.57735026919f;
         static constexpr std::array<Vec3, 4> tetraDirections {{
             { k, k, k }, { -k, -k, k }, { -k, k, -k }, { k, -k, -k },
@@ -729,9 +1377,7 @@ private:
         if (params_.listenerResponse == AmbiWranglerListenerResponse::Settle) {
             // Homeostatic listening remains attached to the circuit's local
             // field region. Ring mode must not teleport its sensor each clock.
-            return nearestListener(directionFromAed(
-                points_[spatialNode].azimuthDeg,
-                points_[spatialNode].elevationDeg));
+            return voice.settleEar % count;
         }
         switch (params_.listenMode) {
         case AmbiWranglerListenMode::Trace:
@@ -789,6 +1435,7 @@ private:
         const size_t delaySamples = std::clamp<size_t>(
             static_cast<size_t>(std::lround(seconds * sampleRate_)),
             1u, listenerDelay_[ear].size() - 1u);
+        if (delaySamples > listenerDelayValidSamples_) return 0.0f;
         const size_t read = (
             listenerDelayWrite_ + listenerDelay_[ear].size() - delaySamples)
             % listenerDelay_[ear].size();
@@ -824,7 +1471,7 @@ private:
             listenerDecision_[ear] += (
                 signal - listenerDecision_[ear]) * decisionCoefficient;
             listenerDecision_[ear] = flushDenormal(listenerDecision_[ear]);
-            listenerConditioned_[ear] = std::tanh(
+            listenerConditioned_[ear] = ambiWranglerTanh(
                 clamp((signal - listenerDc_[ear]) * 7.0f, -5.0f, 5.0f));
             listenerDelay_[ear][listenerDelayWrite_] = listenerConditioned_[ear];
         }
@@ -836,13 +1483,11 @@ private:
 
         std::array<float, kAmbiFieldListenerMaxLobes> transitionSum {};
         std::array<uint32_t, kAmbiFieldListenerMaxLobes> transitionCount {};
-        const uint32_t engines = engineCount();
-        for (uint32_t engine = 0u; engine < engines; ++engine) {
-            const uint32_t anchor =
-                engineAnchorNode(engine, params_.voices, engines);
+        const uint32_t voices = params_.voices;
+        for (uint32_t voice = 0u; voice < voices; ++voice) {
             const uint32_t ear = nearestListener(directionFromAed(
-                points_[anchor].azimuthDeg, points_[anchor].elevationDeg));
-            transitionSum[ear] += voices_[engine].transitionDensity;
+                points_[voice].azimuthDeg, points_[voice].elevationDeg));
+            transitionSum[ear] += voices_[voice].transitionDensity;
             ++transitionCount[ear];
         }
         for (uint32_t ear = 0u; ear < fieldListener_.count(); ++ear) {
@@ -854,7 +1499,11 @@ private:
                 listenerRoughness_[ear] * 0.72f + transitions * 0.28f,
                 0.0f, 1.0f);
         }
-        listenerDelayWrite_ = (listenerDelayWrite_ + 1u) % listenerDelay_[0].size();
+        listenerDelayValidSamples_ = std::min<size_t>(
+            listenerDelayValidSamples_ + 1u,
+            listenerDelay_[0].size() - 1u);
+        listenerDelayWrite_ =
+            (listenerDelayWrite_ + 1u) % listenerDelay_[0].size();
     }
 
     void updateTopology(float dt)
@@ -884,8 +1533,6 @@ private:
             * 0.24f;
         const float follow = 1.0f - std::pow(params_.spatialFollow, 4.0f);
         for (uint32_t i = 0u; i < voices; ++i) {
-            const uint32_t engine = engineForNode(
-                i, voices, effectiveEngineCount(params_));
             const auto tp = topologyPointForLane(i, voices, state);
             Vec3 spatialDirection = normalize({
                 static_cast<float>(tp.x),
@@ -898,7 +1545,7 @@ private:
                 * fieldListener_.activity() * 0.35f;
             if (registerInfluence > 0.000001f && fieldListener_.count() > 0u) {
                 const Vec3 registerDirection = fieldListener_.direction(
-                    voices_[engine].reg & (fieldListener_.count() - 1u));
+                    voices_[i].reg & (fieldListener_.count() - 1u));
                 spatialDirection = normalize({
                     lerp(spatialDirection.x, registerDirection.x, registerInfluence),
                     lerp(spatialDirection.y, registerDirection.y, registerInfluence),
@@ -937,7 +1584,7 @@ private:
         if (params_.maskMode == 0u || params_.maskDepth <= 0.0001f) return 1.0f;
         const uint32_t voices = std::max<uint32_t>(1u, params_.voices);
         const float lane = static_cast<float>(index) / static_cast<float>(std::max<uint32_t>(1u, voices - 1u));
-        const float phase = maskPhase_ + hash01(nodes_[index].seed + 1009u);
+        const float phase = maskPhase_ + hash01(voices_[index].seed + 1009u);
         const float wheel = phase - std::floor(phase);
         float mask = 1.0f;
         switch (params_.maskMode) {
@@ -948,7 +1595,7 @@ private:
         }
         case 2: {
             const float choir = 0.5f + 0.5f * std::sin((maskPhase_ * 0.43f + lane * 1.7f) * kPi * 2.0f);
-            const float laneBias = 0.62f + 0.38f * hash01(nodes_[index].seed + 1223u);
+            const float laneBias = 0.62f + 0.38f * hash01(voices_[index].seed + 1223u);
             mask = std::pow(choir, 1.7f) * laneBias;
             break;
         }
@@ -960,7 +1607,7 @@ private:
         case 4: {
             const float n = hash01(static_cast<uint32_t>(
                 std::floor(maskPhase_ * 16.0f)) * 7919u
-                + nodes_[index].seed);
+                + voices_[index].seed);
             mask = n > 0.72f ? 1.0f : (n > 0.54f ? 0.28f : 0.0f);
             break;
         }
@@ -976,32 +1623,347 @@ private:
         return lerp(1.0f, clamp(mask, 0.0f, 1.0f), params_.maskDepth);
     }
 
-    static float breakpointRange(uint32_t row)
+    static float breakpointRange(AmbiWranglerCurveDimension dimension)
     {
-        switch (row) {
-        case 0:
-        case 1:
+        switch (dimension) {
+        case AmbiWranglerCurveDimension::RateA:
+        case AmbiWranglerCurveDimension::RateB:
             return 0.85f;
-        case 6:
-        case 7:
-        case 8:
-        case 9:
-        case 10:
-        case 11:
+        case AmbiWranglerCurveDimension::FilterFreqA:
+        case AmbiWranglerCurveDimension::FilterFreqB:
+        case AmbiWranglerCurveDimension::FilterRes:
+        case AmbiWranglerCurveDimension::RungThresh:
+        case AmbiWranglerCurveDimension::PwmA:
+        case AmbiWranglerCurveDimension::PwmB:
+        case AmbiWranglerCurveDimension::RampA:
+        case AmbiWranglerCurveDimension::RampB:
             return 0.70f;
-        case 12:
+        case AmbiWranglerCurveDimension::FilterType:
+        case AmbiWranglerCurveDimension::RungSize:
             return 1.0f;
         default:
             return 0.95f;
         }
     }
 
-    float laneValue(uint32_t index, uint32_t row, const std::array<float, kAmbiWranglerMaxVoices>& values, float fallback) const
+    static bool breakpointIsAbsolute(
+        AmbiWranglerCurveDimension dimension)
     {
+        switch (dimension) {
+        case AmbiWranglerCurveDimension::ColorA:
+        case AmbiWranglerCurveDimension::ColorB:
+        case AmbiWranglerCurveDimension::FilterComp:
+        case AmbiWranglerCurveDimension::CrossA:
+        case AmbiWranglerCurveDimension::CrossB:
+        case AmbiWranglerCurveDimension::CrossLpf:
+        case AmbiWranglerCurveDimension::RungMode:
+        case AmbiWranglerCurveDimension::Amp:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    float curveFallback(AmbiWranglerCurveDimension dimension) const
+    {
+        switch (dimension) {
+        case AmbiWranglerCurveDimension::RateA:
+            return params_.rateA;
+        case AmbiWranglerCurveDimension::RungA:
+            return params_.runglerA;
+        case AmbiWranglerCurveDimension::FmBtoA:
+            return params_.fmBtoA;
+        case AmbiWranglerCurveDimension::ColorA:
+            return 0.0f;
+        case AmbiWranglerCurveDimension::RateB:
+            return params_.rateB;
+        case AmbiWranglerCurveDimension::RungB:
+            return params_.runglerB;
+        case AmbiWranglerCurveDimension::FmAtoB:
+            return params_.fmAtoB;
+        case AmbiWranglerCurveDimension::ColorB:
+            return 0.0f;
+        case AmbiWranglerCurveDimension::FilterFreqA:
+        case AmbiWranglerCurveDimension::FilterFreqB:
+            return params_.filter;
+        case AmbiWranglerCurveDimension::FilterRes:
+            return params_.resonance;
+        case AmbiWranglerCurveDimension::FilterComp:
+            return 0.0f;
+        case AmbiWranglerCurveDimension::FilterType:
+            return params_.filterMorph;
+        case AmbiWranglerCurveDimension::CrossA:
+        case AmbiWranglerCurveDimension::CrossB:
+            return 0.0f;
+        case AmbiWranglerCurveDimension::CrossLpf:
+            return 0.25f;
+        case AmbiWranglerCurveDimension::RungMode:
+            return 0.0f;
+        case AmbiWranglerCurveDimension::RungThresh:
+            return params_.threshold;
+        case AmbiWranglerCurveDimension::RungSize:
+            return static_cast<float>(params_.rungSize - 2u) / 6.0f;
+        case AmbiWranglerCurveDimension::PwmA:
+            return params_.pwmA;
+        case AmbiWranglerCurveDimension::PwmB:
+            return params_.pwmB;
+        case AmbiWranglerCurveDimension::RampA:
+            return params_.rampA;
+        case AmbiWranglerCurveDimension::RampB:
+            return params_.rampB;
+        case AmbiWranglerCurveDimension::Amp:
+            return 1.0f;
+        }
+        return 0.0f;
+    }
+
+    const std::array<float, kAmbiWranglerMaxVoices>& curveValues(
+        AmbiWranglerCurveDimension dimension) const
+    {
+        switch (dimension) {
+        case AmbiWranglerCurveDimension::RateA:
+            return params_.bpRateA;
+        case AmbiWranglerCurveDimension::RungA:
+            return params_.bpRunglerA;
+        case AmbiWranglerCurveDimension::FmBtoA:
+            return params_.bpFmBtoA;
+        case AmbiWranglerCurveDimension::ColorA:
+            return params_.bpColorA;
+        case AmbiWranglerCurveDimension::RateB:
+            return params_.bpRateB;
+        case AmbiWranglerCurveDimension::RungB:
+            return params_.bpRunglerB;
+        case AmbiWranglerCurveDimension::FmAtoB:
+            return params_.bpFmAtoB;
+        case AmbiWranglerCurveDimension::ColorB:
+            return params_.bpColorB;
+        case AmbiWranglerCurveDimension::FilterFreqA:
+            return params_.bpFilter;
+        case AmbiWranglerCurveDimension::FilterFreqB:
+            return params_.bpFilterFreqB;
+        case AmbiWranglerCurveDimension::FilterRes:
+            return params_.bpFilterRes;
+        case AmbiWranglerCurveDimension::FilterComp:
+            return params_.bpFilterComp;
+        case AmbiWranglerCurveDimension::FilterType:
+            return params_.bpFilterType;
+        case AmbiWranglerCurveDimension::CrossA:
+            return params_.bpCrossA;
+        case AmbiWranglerCurveDimension::CrossB:
+            return params_.bpCrossB;
+        case AmbiWranglerCurveDimension::CrossLpf:
+            return params_.bpCrossLpf;
+        case AmbiWranglerCurveDimension::RungMode:
+            return params_.bpRungMode;
+        case AmbiWranglerCurveDimension::RungThresh:
+            return params_.bpThreshold;
+        case AmbiWranglerCurveDimension::RungSize:
+            return params_.bpRungSize;
+        case AmbiWranglerCurveDimension::PwmA:
+            return params_.bpPwmA;
+        case AmbiWranglerCurveDimension::PwmB:
+            return params_.bpPwmB;
+        case AmbiWranglerCurveDimension::RampA:
+            return params_.bpRampA;
+        case AmbiWranglerCurveDimension::RampB:
+            return params_.bpRampB;
+        case AmbiWranglerCurveDimension::Amp:
+            return params_.bpAmp;
+        }
+        return params_.bpAmp;
+    }
+
+    static float centeredStructuralCurve(
+        float stored, float fallback)
+    {
+        stored = clamp(stored, 0.0f, 1.0f);
+        fallback = clamp(fallback, 0.0f, 1.0f);
+        return stored < 0.5f
+            ? lerp(0.0f, fallback, stored * 2.0f)
+            : lerp(fallback, 1.0f, (stored - 0.5f) * 2.0f);
+    }
+
+    float laneCurveValue(
+        uint32_t index, AmbiWranglerCurveDimension dimension) const
+    {
+        const float fallback = curveFallback(dimension);
         if (!params_.voiceBreakpointsEnabled) return fallback;
-        const float value = values[std::min<uint32_t>(index, kAmbiWranglerMaxVoices - 1u)];
-        if (row == 12u) return value;
-        return clamp(fallback + (value - 0.5f) * breakpointRange(row), 0.0f, 1.0f);
+        const float value = curveValues(dimension)[std::min<uint32_t>(
+            index, kAmbiWranglerMaxVoices - 1u)];
+        if (breakpointIsAbsolute(dimension)) return value;
+        if (dimension == AmbiWranglerCurveDimension::FilterType) {
+            return curveFilterMorph(value, params_.filterMorph);
+        }
+        if (dimension == AmbiWranglerCurveDimension::RungSize) {
+            return static_cast<float>(
+                curveRungSize(value, params_.rungSize) - 2u) / 6.0f;
+        }
+        return clamp(
+            fallback + (value - 0.5f) * breakpointRange(dimension),
+            0.0f, 1.0f);
+    }
+
+    void updateVoiceTargets(uint32_t index)
+    {
+        auto& target = voices_[index].targets;
+        target.rateA =
+            laneCurveValue(index, AmbiWranglerCurveDimension::RateA);
+        target.rateB =
+            laneCurveValue(index, AmbiWranglerCurveDimension::RateB);
+        target.fmAtoB =
+            laneCurveValue(index, AmbiWranglerCurveDimension::FmAtoB);
+        target.fmBtoA =
+            laneCurveValue(index, AmbiWranglerCurveDimension::FmBtoA);
+        target.runglerA =
+            laneCurveValue(index, AmbiWranglerCurveDimension::RungA);
+        target.runglerB =
+            laneCurveValue(index, AmbiWranglerCurveDimension::RungB);
+        target.filterFreqA = laneCurveValue(
+            index, AmbiWranglerCurveDimension::FilterFreqA);
+        target.filterFreqB = laneCurveValue(
+            index, AmbiWranglerCurveDimension::FilterFreqB);
+        target.filterRes =
+            laneCurveValue(index, AmbiWranglerCurveDimension::FilterRes);
+        target.filterComp = laneCurveValue(
+            index, AmbiWranglerCurveDimension::FilterComp);
+        target.filterMorph = laneCurveValue(
+            index, AmbiWranglerCurveDimension::FilterType);
+        target.colorA =
+            laneCurveValue(index, AmbiWranglerCurveDimension::ColorA);
+        target.colorB =
+            laneCurveValue(index, AmbiWranglerCurveDimension::ColorB);
+        target.crossA =
+            laneCurveValue(index, AmbiWranglerCurveDimension::CrossA);
+        target.crossB =
+            laneCurveValue(index, AmbiWranglerCurveDimension::CrossB);
+        target.crossLpf =
+            laneCurveValue(index, AmbiWranglerCurveDimension::CrossLpf);
+        target.rungMode =
+            laneCurveValue(index, AmbiWranglerCurveDimension::RungMode);
+        target.rungSize =
+            laneCurveValue(index, AmbiWranglerCurveDimension::RungSize);
+        target.threshold = laneCurveValue(
+            index, AmbiWranglerCurveDimension::RungThresh);
+        target.pwmA =
+            laneCurveValue(index, AmbiWranglerCurveDimension::PwmA);
+        target.pwmB =
+            laneCurveValue(index, AmbiWranglerCurveDimension::PwmB);
+        target.rampA =
+            laneCurveValue(index, AmbiWranglerCurveDimension::RampA);
+        target.rampB =
+            laneCurveValue(index, AmbiWranglerCurveDimension::RampB);
+        target.amp =
+            laneCurveValue(index, AmbiWranglerCurveDimension::Amp);
+    }
+
+    static uint32_t rungModeForCurve(float value)
+    {
+        return static_cast<uint32_t>(curveRungMode(value));
+    }
+
+    static uint32_t rungSizeForCurve(float value)
+    {
+        return std::clamp<uint32_t>(
+            2u + static_cast<uint32_t>(
+                std::lround(clamp(value, 0.0f, 1.0f) * 6.0f)),
+            2u, 8u);
+    }
+
+    static float splitRegisterValue(
+        uint32_t reg, uint32_t size, uint32_t parity)
+    {
+        parity &= 1u;
+        uint32_t packed = 0u;
+        uint32_t count = 0u;
+        for (uint32_t bit = parity; bit < size; bit += 2u) {
+            packed |= ((reg >> bit) & 1u) << count;
+            ++count;
+        }
+        const uint32_t mask = count > 0u ? (1u << count) - 1u : 1u;
+        return static_cast<float>(packed)
+            / static_cast<float>(mask) * 2.0f - 1.0f;
+    }
+
+    static void refreshRegisterViews(AmbiWranglerVoice& voice)
+    {
+        const uint32_t mask =
+            (1u << voice.latchedRungSize) - 1u;
+        voice.reg &= mask;
+        const float denom = static_cast<float>(
+            std::max<uint32_t>(1u, mask));
+        voice.rungValue =
+            static_cast<float>(voice.reg) / denom * 2.0f - 1.0f;
+        voice.rungSplitA = splitRegisterValue(
+            voice.reg, voice.latchedRungSize, 0u);
+        voice.rungSplitB = splitRegisterValue(
+            voice.reg, voice.latchedRungSize, 1u);
+    }
+
+    static float nonlinearOscillatorFeedback(
+        float input, float previous, float color, float compensation)
+    {
+        color = clamp(color, 0.0f, 1.0f);
+        if (color <= 0.000001f) return input;
+        const float feedback = ambiWranglerTanh(previous * 1.8f)
+            * color * 0.82f * compensation;
+        const float drive = 1.0f + color * 2.6f;
+        const float shaped = ambiWranglerTanh(clamp(
+            (input + feedback) * drive, -6.0f, 6.0f))
+            / ambiWranglerTanh(drive);
+        return lerp(input, shaped, color);
+    }
+
+    static float selectedFilterOutput(
+        const AmbiWranglerFilter::Outputs& outputs,
+        const AmbiWranglerVoice& voice,
+        bool legacyCompatibleLow)
+    {
+        const float low =
+            legacyCompatibleLow ? outputs.legacy : outputs.low;
+        const float morph =
+            clamp(voice.smoothedFilterMorph, 0.0f, 1.0f);
+        const float side = std::fabs(morph * 2.0f - 1.0f);
+        const float depth =
+            side * side * (3.0f - side * 2.0f);
+        if (depth <= 0.000001f) return outputs.open;
+        const float wing = ambiWranglerTanh(clamp(
+            morph < 0.5f ? low : outputs.high,
+            -6.0f, 6.0f));
+        return lerp(outputs.open, wing, depth);
+    }
+
+    float finishVoiceOutput(
+        AmbiWranglerVoice& voice, float current)
+    {
+        current = flushDenormal(current);
+        if (voice.outputTransitionPending) {
+            voice.outputTransitionCorrection =
+                voice.lastOutput - current;
+            voice.outputTransitionPending = false;
+        }
+        const float result = flushDenormal(
+            current + voice.outputTransitionCorrection);
+        voice.outputTransitionCorrection = flushDenormal(
+            voice.outputTransitionCorrection * outputTransitionDecay_);
+        voice.lastOutput = result;
+        return result;
+    }
+
+    static void rungStreams(
+        const AmbiWranglerVoice& voice, float& forA, float& forB)
+    {
+        if (voice.latchedRungMode
+            == static_cast<uint32_t>(AmbiWranglerRungMode::Split)) {
+            forA = voice.rungSplitSmoothA;
+            forB = voice.rungSplitSmoothB;
+        } else if (voice.latchedRungMode
+            == static_cast<uint32_t>(AmbiWranglerRungMode::Swap)) {
+            forA = voice.rungSplitSmoothB;
+            forB = voice.rungSplitSmoothA;
+        } else {
+            forA = voice.rungSmooth;
+            forB = voice.rungSmooth;
+        }
     }
 
     static float shapedRamp(float phase, float shape)
@@ -1018,80 +1980,240 @@ private:
     {
         const float threshold = width * 2.0f - 1.0f;
         const float edge = clamp(hz / std::max(1.0f, sampleRate) * 18.0f, 0.002f, 0.18f);
-        return std::tanh((ramp - threshold) / edge);
+        return ambiWranglerTanh((ramp - threshold) / edge);
     }
 
     float processVoice(
-        uint32_t index, uint32_t spatialNode, uint32_t activeEngines)
+        uint32_t index, uint32_t activeVoices,
+        bool refreshExpensiveControl)
     {
         auto& voice = voices_[index];
         const bool bounded =
             params_.circuitLaw == AmbiWranglerCircuitLaw::Bounded;
         const bool settleResponse =
             params_.listenerResponse == AmbiWranglerListenerResponse::Settle;
-        const float lane = static_cast<float>(index)
-            / static_cast<float>(std::max<uint32_t>(1u, activeEngines - 1u));
-        const float field = params_.field;
-        const float transitionDecay = std::exp(
-            -1.0f / static_cast<float>(sampleRate_ * 0.45));
-        voice.transitionDensity *= transitionDecay;
-        spatialNode = std::min<uint32_t>(
-            spatialNode, kAmbiWranglerMaxVoices - 1u);
-        const uint32_t settleEar = nearestListener(directionFromAed(
-            points_[spatialNode].azimuthDeg,
-            points_[spatialNode].elevationDeg));
-        const float excess = clamp(
-            (listenerTension_[settleEar] - params_.settleTarget)
-                / std::max(0.05f, 1.0f - params_.settleTarget),
-            0.0f, 1.0f);
-        const float shapedExcess = excess * excess * (3.0f - 2.0f * excess);
-        const float activityGate = clamp(
-            (fieldListener_.activity() - 0.01f) / 0.09f,
-            0.0f, 1.0f);
-        const float desiredCapture = settleResponse
-            && params_.listeningEnabled != 0u
-            ? shapedExcess * params_.settleAmount * listenerEnableGain_
-                * activityGate
-            : 0.0f;
-        if (!settleResponse || params_.listeningEnabled == 0u
-            || params_.settleAmount <= 0.0f) {
+        const float laneTarget = static_cast<float>(index)
+            / static_cast<float>(std::max<uint32_t>(1u, activeVoices - 1u));
+        const float fieldTarget = params_.field;
+        voice.transitionDensity *= transitionDecay_;
+        float desiredCapture = 0.0f;
+        if (settleResponse && params_.listeningEnabled != 0u
+            && params_.settleAmount > 0.0f) {
+            const uint32_t settleEar =
+                voice.settleEar % std::max<uint32_t>(
+                    1u, fieldListener_.count());
+            const float excess = clamp(
+                (listenerTension_[settleEar] - params_.settleTarget)
+                    / std::max(0.05f, 1.0f - params_.settleTarget),
+                0.0f, 1.0f);
+            const float shapedExcess =
+                excess * excess * (3.0f - 2.0f * excess);
+            const float activityGate = clamp(
+                (fieldListener_.activity() - 0.01f) / 0.09f,
+                0.0f, 1.0f);
+            desiredCapture =
+                shapedExcess * params_.settleAmount
+                * listenerEnableGain_ * activityGate;
+        }
+        const float captureCoefficient =
+            desiredCapture > voice.listenerCapture
+            ? captureAttackCoefficient_
+            : captureReleaseCoefficient_;
+        voice.listenerCapture += (
+            desiredCapture - voice.listenerCapture)
+            * captureCoefficient;
+        voice.listenerCapture =
+            flushDenormal(voice.listenerCapture);
+        if (voice.listenerCapture <= 0.000001f
+            && desiredCapture <= 0.000001f) {
             voice.listenerCapture = 0.0f;
             voice.listenerEvolutionAccumulator = 0.0f;
             voice.registerHeld = 0u;
-        } else {
-            const float captureSeconds =
-                desiredCapture > voice.listenerCapture
-                ? 0.18f : params_.settleRecoverySeconds;
-            const float captureCoefficient = 1.0f - std::exp(
-                -1.0f / static_cast<float>(
-                    sampleRate_ * captureSeconds));
-            voice.listenerCapture += (
-                desiredCapture - voice.listenerCapture)
-                * captureCoefficient;
-            voice.listenerCapture =
-                flushDenormal(voice.listenerCapture);
         }
-        // Curves belong to circuits, not their distributed render nodes. In
-        // Legacy law index == spatialNode, preserving the original lookup.
-        const float rateAParam = laneValue(index, 0u, params_.bpRateA, params_.rateA);
-        const float rateBParam = laneValue(index, 1u, params_.bpRateB, params_.rateB);
-        const float fmAtoBParam = laneValue(index, 2u, params_.bpFmAtoB, params_.fmAtoB);
-        const float fmBtoAParam = laneValue(index, 3u, params_.bpFmBtoA, params_.fmBtoA);
-        const float runglerAParam = laneValue(index, 4u, params_.bpRunglerA, params_.runglerA);
-        const float runglerBParam = laneValue(index, 5u, params_.bpRunglerB, params_.runglerB);
-        const float filterParam = laneValue(index, 6u, params_.bpFilter, params_.filter);
-        const float thresholdParam = laneValue(index, 7u, params_.bpThreshold, params_.threshold);
-        const float pwmAParam = laneValue(index, 8u, params_.bpPwmA, params_.pwmA);
-        const float pwmBParam = laneValue(index, 9u, params_.bpPwmB, params_.pwmB);
-        const float rampAParam = laneValue(index, 10u, params_.bpRampA, params_.rampA);
-        const float rampBParam = laneValue(index, 11u, params_.bpRampB, params_.rampB);
-        const float ampParam = laneValue(index, 12u, params_.bpAmp, 1.0f);
-        const float spreadA = (lane - 0.5f) * params_.spread * (1.4f + field * 1.6f);
-        const float spreadB = (0.5f - lane) * params_.spread * (1.2f + field * 1.4f);
-        const float devA = hashSigned(voice.seed + 101u) * params_.deviation * (0.35f + field * 0.85f);
-        const float devB = hashSigned(voice.seed + 211u) * params_.deviation * (0.35f + field * 0.85f);
-        const float rateScaleA = rateModeScale(params_.rateModeA);
-        const float rateScaleB = rateModeScale(params_.rateModeB);
+        const auto& target = voice.targets;
+        const float rateATarget = target.rateA;
+        const float rateBTarget = target.rateB;
+        const float fmAtoBTarget = target.fmAtoB;
+        const float fmBtoATarget = target.fmBtoA;
+        const float runglerATarget = target.runglerA;
+        const float runglerBTarget = target.runglerB;
+        const float filterFreqATarget = target.filterFreqA;
+        const float filterFreqBTarget = target.filterFreqB;
+        const float filterResTarget = target.filterRes;
+        const float filterCompTarget = target.filterComp;
+        const float filterTypeTarget = target.filterMorph;
+        const float colorATarget = target.colorA;
+        const float colorBTarget = target.colorB;
+        const float crossATarget = target.crossA;
+        const float crossBTarget = target.crossB;
+        const float crossLpfTarget = target.crossLpf;
+        const float rungModeTarget = target.rungMode;
+        const float rungSizeTarget = target.rungSize;
+        const float thresholdTarget = target.threshold;
+        const float pwmATarget = target.pwmA;
+        const float pwmBTarget = target.pwmB;
+        const float rampATarget = target.rampA;
+        const float rampBTarget = target.rampB;
+        const float ampTarget = target.amp;
+        const float edgeCoefficient = edgeCoefficient_;
+        const float shapeCoefficient = shapeCoefficient_;
+        const float colorCoefficient = colorCoefficient_;
+        const float feedbackCoefficient = feedbackCoefficient_;
+        const float ampCoefficient = ampCoefficient_;
+        voice.smoothedRateA +=
+            (rateATarget - voice.smoothedRateA) * shapeCoefficient;
+        voice.smoothedRateB +=
+            (rateBTarget - voice.smoothedRateB) * shapeCoefficient;
+        voice.smoothedFmAtoB +=
+            (fmAtoBTarget - voice.smoothedFmAtoB) * shapeCoefficient;
+        voice.smoothedFmBtoA +=
+            (fmBtoATarget - voice.smoothedFmBtoA) * shapeCoefficient;
+        voice.smoothedRunglerA +=
+            (runglerATarget - voice.smoothedRunglerA)
+                * shapeCoefficient;
+        voice.smoothedRunglerB +=
+            (runglerBTarget - voice.smoothedRunglerB)
+                * shapeCoefficient;
+        voice.smoothedSpread +=
+            (params_.spread - voice.smoothedSpread) * shapeCoefficient;
+        voice.smoothedDeviation +=
+            (params_.deviation - voice.smoothedDeviation)
+                * shapeCoefficient;
+        voice.smoothedField +=
+            (fieldTarget - voice.smoothedField) * shapeCoefficient;
+        voice.smoothedLane +=
+            (laneTarget - voice.smoothedLane) * shapeCoefficient;
+        voice.smoothedRateScaleA += (
+            rateModeScale(params_.rateModeA)
+                - voice.smoothedRateScaleA) * shapeCoefficient;
+        voice.smoothedRateScaleB += (
+            rateModeScale(params_.rateModeB)
+                - voice.smoothedRateScaleB) * shapeCoefficient;
+        voice.smoothedPwmA +=
+            (pwmATarget - voice.smoothedPwmA) * edgeCoefficient;
+        voice.smoothedPwmB +=
+            (pwmBTarget - voice.smoothedPwmB) * edgeCoefficient;
+        voice.smoothedThreshold +=
+            (thresholdTarget - voice.smoothedThreshold) * edgeCoefficient;
+        voice.smoothedRampA +=
+            (rampATarget - voice.smoothedRampA) * shapeCoefficient;
+        voice.smoothedRampB +=
+            (rampBTarget - voice.smoothedRampB) * shapeCoefficient;
+        voice.smoothedColor +=
+            (params_.color - voice.smoothedColor) * colorCoefficient;
+        voice.smoothedColorA +=
+            (colorATarget - voice.smoothedColorA) * feedbackCoefficient;
+        voice.smoothedColorB +=
+            (colorBTarget - voice.smoothedColorB) * feedbackCoefficient;
+        voice.smoothedFilterFreqA +=
+            (filterFreqATarget - voice.smoothedFilterFreqA)
+                * shapeCoefficient;
+        voice.smoothedFilterFreqB +=
+            (filterFreqBTarget - voice.smoothedFilterFreqB)
+                * shapeCoefficient;
+        voice.smoothedFilterRes +=
+            (filterResTarget - voice.smoothedFilterRes)
+                * colorCoefficient;
+        voice.smoothedFilterComp +=
+            (filterCompTarget - voice.smoothedFilterComp)
+                * feedbackCoefficient;
+        voice.smoothedCrossA +=
+            (crossATarget - voice.smoothedCrossA) * feedbackCoefficient;
+        voice.smoothedCrossB +=
+            (crossBTarget - voice.smoothedCrossB) * feedbackCoefficient;
+        voice.smoothedCrossLpf +=
+            (crossLpfTarget - voice.smoothedCrossLpf)
+                * feedbackCoefficient;
+        voice.smoothedFilterMorph +=
+            (filterTypeTarget - voice.smoothedFilterMorph)
+                * colorCoefficient;
+        voice.smoothedFilterRun +=
+            (params_.filterRun - voice.smoothedFilterRun)
+                * shapeCoefficient;
+        voice.smoothedFilterSweep +=
+            (params_.filterSweep - voice.smoothedFilterSweep)
+                * shapeCoefficient;
+        voice.smoothedSaturation +=
+            (params_.saturation - voice.smoothedSaturation)
+                * colorCoefficient;
+        voice.smoothedSnap +=
+            (params_.snap - voice.smoothedSnap) * edgeCoefficient;
+        voice.smoothedSnapDecay +=
+            (params_.snapDecay - voice.smoothedSnapDecay)
+                * shapeCoefficient;
+        voice.smoothedAmp +=
+            (ampTarget - voice.smoothedAmp) * ampCoefficient;
+        const float rateAParam = voice.smoothedRateA;
+        const float rateBParam = voice.smoothedRateB;
+        const float fmAtoBParam = voice.smoothedFmAtoB;
+        const float fmBtoAParam = voice.smoothedFmBtoA;
+        const float runglerAParam = voice.smoothedRunglerA;
+        const float runglerBParam = voice.smoothedRunglerB;
+        const float field = voice.smoothedField;
+        const float lane = voice.smoothedLane;
+        const float thresholdParam = voice.smoothedThreshold;
+        const float pwmAParam = voice.smoothedPwmA;
+        const float pwmBParam = voice.smoothedPwmB;
+        const float rampAParam = voice.smoothedRampA;
+        const float rampBParam = voice.smoothedRampB;
+        if (refreshExpensiveControl) {
+            voice.cachedCrossCoefficient = coefficientFromTable(
+                crossCoefficientTable_, voice.smoothedCrossLpf);
+            const float feedbackLoad =
+                (voice.smoothedColorA + voice.smoothedColorB
+                    + voice.smoothedCrossA + voice.smoothedCrossB)
+                * 0.5f;
+            const float compensationDenominator =
+                1.0f
+                + voice.smoothedFilterComp
+                    * feedbackLoad * 1.4f;
+            voice.cachedFeedbackCompensation =
+                1.0f / compensationDenominator;
+            voice.cachedFilterInputCompensation =
+                (1.0f + voice.smoothedFilterComp)
+                * voice.cachedFeedbackCompensation;
+            voice.cachedOutputCompensation =
+                std::min(
+                    2.0f, std::sqrt(compensationDenominator))
+                / (1.0f + voice.smoothedFilterComp);
+            voice.cachedListenerCoupling = coefficientFromTable(
+                listenerCouplingTable_, voice.listenerCapture);
+            voice.cachedSnapDecay = coefficientFromTable(
+                snapDecayTable_, voice.smoothedSnapDecay);
+        }
+        const float crossCoefficient =
+            voice.cachedCrossCoefficient;
+        // The one-sample history makes the feedback loop causal: Cross A is
+        // filter A returning to oscillator B, while Cross B is filter B
+        // returning to oscillator A. Cross LPF controls the shared memory
+        // without altering either filter's audio tap.
+        voice.crossFeedbackA +=
+            (voice.previousFilteredB - voice.crossFeedbackA)
+                * crossCoefficient;
+        voice.crossFeedbackB +=
+            (voice.previousFilteredA - voice.crossFeedbackB)
+                * crossCoefficient;
+        const float feedbackCompensation =
+            voice.cachedFeedbackCompensation;
+        // The historical compensation control also acts with no Color/Cross
+        // feedback: it drives the filter network and normalizes that drive at
+        // the output. The feedback-dependent denominator adds restraint as
+        // recursive paths are introduced, while a value of zero is exact
+        // identity at zero.
+        const float filterInputCompensation =
+            voice.cachedFilterInputCompensation;
+        const float outputCompensation =
+            voice.cachedOutputCompensation;
+        const float spreadA = (lane - 0.5f) * voice.smoothedSpread
+            * (1.4f + field * 1.6f);
+        const float spreadB = (0.5f - lane) * voice.smoothedSpread
+            * (1.2f + field * 1.4f);
+        const float devA = hashSigned(voice.seed + 101u)
+            * voice.smoothedDeviation * (0.35f + field * 0.85f);
+        const float devB = hashSigned(voice.seed + 211u)
+            * voice.smoothedDeviation * (0.35f + field * 0.85f);
+        const float rateScaleA = voice.smoothedRateScaleA;
+        const float rateScaleB = voice.smoothedRateScaleB;
         float baseA = 0.0f;
         float baseB = 0.0f;
         float laneFmA = 0.0f;
@@ -1100,105 +2222,268 @@ private:
         float laneRunB = 0.0f;
         float hzA = 0.0f;
         float hzB = 0.0f;
+        float rungForA = 0.0f;
+        float rungForB = 0.0f;
+        float rungTargetA = 0.0f;
+        float rungTargetB = 0.0f;
+        rungStreams(voice, rungTargetA, rungTargetB);
+        voice.smoothedRungOutputA += (
+            rungTargetA - voice.smoothedRungOutputA)
+            * shapeCoefficient;
+        voice.smoothedRungOutputB += (
+            rungTargetB - voice.smoothedRungOutputB)
+            * shapeCoefficient;
+        rungForA = voice.smoothedRungOutputA;
+        rungForB = voice.smoothedRungOutputB;
+        // Curve interpolation and audible smoothing still run per sample.
+        // Only the static pitch/filter transforms are cached on a persistent
+        // four-sample clock; re-arming that clock in setParams preserves
+        // sample-accurate event boundaries.
+        if (refreshExpensiveControl) {
+            if (!bounded) {
+                voice.cachedBaseA = targetNormToHz(clamp(
+                    rateAParam
+                        + hashSigned(voice.seed + 307u) * field
+                            * voice.smoothedDeviation * 0.42f,
+                    0.0f, 1.0f))
+                    * rateScaleA
+                    * std::exp2(spreadA + devA)
+                    * voice.rateA;
+                voice.cachedBaseB = targetNormToHz(clamp(
+                    rateBParam
+                        + hashSigned(voice.seed + 401u) * field
+                            * voice.smoothedDeviation * 0.42f,
+                    0.0f, 1.0f))
+                    * rateScaleB
+                    * std::exp2(spreadB + devB)
+                    * voice.rateB;
+                voice.cachedLaneFmA = clamp(
+                    fmBtoAParam
+                        + hashSigned(voice.seed + 503u) * field
+                            * voice.smoothedDeviation * 0.55f,
+                    0.0f, 1.0f);
+                voice.cachedLaneFmB = clamp(
+                    fmAtoBParam
+                        + hashSigned(voice.seed + 601u) * field
+                            * voice.smoothedDeviation * 0.55f,
+                    0.0f, 1.0f);
+                voice.cachedLaneRunA = clamp(
+                    runglerAParam
+                        + hashSigned(voice.seed + 701u) * field
+                            * voice.smoothedDeviation * 0.65f,
+                    0.0f, 1.0f);
+                voice.cachedLaneRunB = clamp(
+                    runglerBParam
+                        + hashSigned(voice.seed + 809u) * field
+                            * voice.smoothedDeviation * 0.65f,
+                    0.0f, 1.0f);
+                voice.cachedLegacyFmHzA =
+                    targetNormToHz(voice.cachedLaneFmA);
+                voice.cachedLegacyFmHzB =
+                    targetNormToHz(voice.cachedLaneFmB);
+                voice.cachedLegacyRungHzA =
+                    targetNormToHz(voice.cachedLaneRunA);
+                voice.cachedLegacyRungHzB =
+                    targetNormToHz(voice.cachedLaneRunB);
+            } else {
+                voice.cachedBaseA = targetNormToHz(rateAParam)
+                    * rateScaleA
+                    * std::exp2(
+                        spreadA * 0.65f + devA * 0.45f)
+                    * voice.rateA;
+                voice.cachedBaseB = targetNormToHz(rateBParam)
+                    * rateScaleB
+                    * std::exp2(
+                        spreadB * 0.65f + devB * 0.45f)
+                    * voice.rateB;
+                voice.cachedLaneFmA =
+                    fmBtoAParam <= 0.000001f
+                    ? 0.0f
+                    : clamp(
+                        fmBtoAParam
+                            * (1.0f
+                                + hashSigned(voice.seed + 503u)
+                                    * field
+                                    * voice.smoothedDeviation
+                                    * 0.55f),
+                        0.0f, 1.0f);
+                voice.cachedLaneFmB =
+                    fmAtoBParam <= 0.000001f
+                    ? 0.0f
+                    : clamp(
+                        fmAtoBParam
+                            * (1.0f
+                                + hashSigned(voice.seed + 601u)
+                                    * field
+                                    * voice.smoothedDeviation
+                                    * 0.55f),
+                        0.0f, 1.0f);
+                voice.cachedLaneRunA =
+                    runglerAParam <= 0.000001f
+                    ? 0.0f
+                    : clamp(
+                        runglerAParam
+                            * (1.0f
+                                + hashSigned(voice.seed + 701u)
+                                    * field
+                                    * voice.smoothedDeviation
+                                    * 0.65f),
+                        0.0f, 1.0f);
+                voice.cachedLaneRunB =
+                    runglerBParam <= 0.000001f
+                    ? 0.0f
+                    : clamp(
+                        runglerBParam
+                            * (1.0f
+                                + hashSigned(voice.seed + 809u)
+                                    * field
+                                    * voice.smoothedDeviation
+                                    * 0.65f),
+                        0.0f, 1.0f);
+            }
+            voice.cachedFilterCurveA =
+                std::pow(voice.smoothedFilterFreqA, 2.2f);
+            voice.cachedFilterCurveB =
+                std::pow(voice.smoothedFilterFreqB, 2.2f);
+        }
+        baseA = voice.cachedBaseA;
+        baseB = voice.cachedBaseB;
+        laneFmA = voice.cachedLaneFmA;
+        laneFmB = voice.cachedLaneFmB;
+        laneRunA = voice.cachedLaneRunA;
+        laneRunB = voice.cachedLaneRunB;
         if (!bounded) {
-            baseA = targetNormToHz(clamp(rateAParam
-                + hashSigned(voice.seed + 307u) * field
-                    * params_.deviation * 0.42f, 0.0f, 1.0f))
-                * rateScaleA * std::pow(2.0f, spreadA + devA) * voice.rateA;
-            baseB = targetNormToHz(clamp(rateBParam
-                + hashSigned(voice.seed + 401u) * field
-                    * params_.deviation * 0.42f, 0.0f, 1.0f))
-                * rateScaleB * std::pow(2.0f, spreadB + devB) * voice.rateB;
-            laneFmA = clamp(fmBtoAParam
-                + hashSigned(voice.seed + 503u) * field
-                    * params_.deviation * 0.55f, 0.0f, 1.0f);
-            laneFmB = clamp(fmAtoBParam
-                + hashSigned(voice.seed + 601u) * field
-                    * params_.deviation * 0.55f, 0.0f, 1.0f);
-            laneRunA = clamp(runglerAParam
-                + hashSigned(voice.seed + 701u) * field
-                    * params_.deviation * 0.65f, 0.0f, 1.0f);
-            laneRunB = clamp(runglerBParam
-                + hashSigned(voice.seed + 809u) * field
-                    * params_.deviation * 0.65f, 0.0f, 1.0f);
             const float couplingRate =
-                listenerCouplingRate(voice.listenerCapture);
+                voice.cachedListenerCoupling;
             const float fmToA =
-                phaseTri(voice.phaseB) * targetNormToHz(laneFmA)
+                phaseTri(voice.phaseB) * voice.cachedLegacyFmHzA
                     * couplingRate;
             const float fmToB =
-                phaseTri(voice.phaseA) * targetNormToHz(laneFmB)
+                phaseTri(voice.phaseA) * voice.cachedLegacyFmHzB
                     * couplingRate;
             const float rungToA =
-                voice.rungSmooth * targetNormToHz(laneRunA)
+                rungForA * voice.cachedLegacyRungHzA
                     * couplingRate;
             const float rungToB =
-                voice.rungSmooth * targetNormToHz(laneRunB)
+                rungForB * voice.cachedLegacyRungHzB
                     * couplingRate;
             hzA = clampOscHz(
-                baseA + fmToA + rungToA, static_cast<float>(sampleRate_));
+                baseA + fmToA + rungToA,
+                static_cast<float>(circuitSampleRate_));
             hzB = clampOscHz(
-                baseB + fmToB + rungToB, static_cast<float>(sampleRate_));
+                baseB + fmToB + rungToB,
+                static_cast<float>(circuitSampleRate_));
         } else {
             // In Bounded law modulation is a depth around a positive base,
             // never a second absolute-frequency oscillator.
-            baseA = targetNormToHz(rateAParam) * rateScaleA
-                * std::pow(2.0f, spreadA * 0.65f + devA * 0.45f)
-                * voice.rateA;
-            baseB = targetNormToHz(rateBParam) * rateScaleB
-                * std::pow(2.0f, spreadB * 0.65f + devB * 0.45f)
-                * voice.rateB;
-            laneFmA = params_.fmBtoA <= 0.000001f ? 0.0f
-                : clamp(fmBtoAParam * (1.0f
-                    + hashSigned(voice.seed + 503u) * field
-                        * params_.deviation * 0.55f), 0.0f, 1.0f);
-            laneFmB = params_.fmAtoB <= 0.000001f ? 0.0f
-                : clamp(fmAtoBParam * (1.0f
-                    + hashSigned(voice.seed + 601u) * field
-                        * params_.deviation * 0.55f), 0.0f, 1.0f);
-            laneRunA = params_.runglerA <= 0.000001f ? 0.0f
-                : clamp(runglerAParam * (1.0f
-                    + hashSigned(voice.seed + 701u) * field
-                        * params_.deviation * 0.65f), 0.0f, 1.0f);
-            laneRunB = params_.runglerB <= 0.000001f ? 0.0f
-                : clamp(runglerBParam * (1.0f
-                    + hashSigned(voice.seed + 809u) * field
-                        * params_.deviation * 0.65f), 0.0f, 1.0f);
             const float couplingRate =
-                listenerCouplingRate(voice.listenerCapture);
+                voice.cachedListenerCoupling;
             const float pitchA = clamp(
                 phaseTri(voice.phaseB) * 18.0f * laneFmA * laneFmA
-                    + voice.rungSmooth * 24.0f * laneRunA * laneRunA,
+                    + rungForA * 24.0f * laneRunA * laneRunA,
                 -36.0f, 36.0f) * couplingRate;
             const float pitchB = clamp(
                 phaseTri(voice.phaseA) * 18.0f * laneFmB * laneFmB
-                    + voice.rungSmooth * 24.0f * laneRunB * laneRunB,
+                    + rungForB * 24.0f * laneRunB * laneRunB,
                 -36.0f, 36.0f) * couplingRate;
             hzA = clampPositiveOscHz(
-                baseA * std::pow(2.0f, pitchA / 12.0f),
-                static_cast<float>(sampleRate_));
+                baseA * std::exp2(pitchA / 12.0f),
+                static_cast<float>(circuitSampleRate_));
             hzB = clampPositiveOscHz(
-                baseB * std::pow(2.0f, pitchB / 12.0f),
-                static_cast<float>(sampleRate_));
+                baseB * std::exp2(pitchB / 12.0f),
+                static_cast<float>(circuitSampleRate_));
         }
-        voice.phaseA += hzA / static_cast<float>(sampleRate_);
-        voice.phaseB += hzB / static_cast<float>(sampleRate_);
+        if (voice.smoothedCrossB > 0.000001f) {
+            const float crossPitchA = ambiWranglerTanh(
+                voice.crossFeedbackA * 1.6f)
+                * voice.smoothedCrossB * 18.0f
+                * feedbackCompensation;
+            hzA *= std::exp2(crossPitchA / 12.0f);
+        }
+        if (voice.smoothedCrossA > 0.000001f) {
+            const float crossPitchB = ambiWranglerTanh(
+                voice.crossFeedbackB * 1.6f)
+                * voice.smoothedCrossA * 18.0f
+                * feedbackCompensation;
+            hzB *= std::exp2(crossPitchB / 12.0f);
+        }
+        hzA = bounded
+            ? clampPositiveOscHz(
+                hzA, static_cast<float>(circuitSampleRate_))
+            : clampOscHz(
+                hzA, static_cast<float>(circuitSampleRate_));
+        hzB = bounded
+            ? clampPositiveOscHz(
+                hzB, static_cast<float>(circuitSampleRate_))
+            : clampOscHz(
+                hzB, static_cast<float>(circuitSampleRate_));
+        voice.phaseA +=
+            hzA / static_cast<float>(circuitSampleRate_);
+        voice.phaseB +=
+            hzB / static_cast<float>(circuitSampleRate_);
         voice.phaseA -= std::floor(voice.phaseA);
         voice.phaseB -= std::floor(voice.phaseB);
 
-        const float triA = shapedRamp(voice.phaseA, rampAParam);
-        const float triB = shapedRamp(voice.phaseB, rampBParam);
+        const float rawTriA =
+            shapedRamp(voice.phaseA, rampAParam);
+        const float rawTriB =
+            shapedRamp(voice.phaseB, rampBParam);
+        const float triA = nonlinearOscillatorFeedback(
+            rawTriA, voice.oscillatorFeedbackA,
+            voice.smoothedColorA, feedbackCompensation);
+        const float triB = nonlinearOscillatorFeedback(
+            rawTriB, voice.oscillatorFeedbackB,
+            voice.smoothedColorB, feedbackCompensation);
+        voice.oscillatorFeedbackA = flushDenormal(triA);
+        voice.oscillatorFeedbackB = flushDenormal(triB);
         const float widthA = clamp(pwmAParam + (thresholdParam - 0.5f) * 0.42f, 0.03f, 0.97f);
         const float widthB = clamp(pwmBParam - (thresholdParam - 0.5f) * 0.42f, 0.03f, 0.97f);
-        const float squareA = smoothPulse(triA, widthA, std::fabs(hzA), static_cast<float>(sampleRate_));
-        const float squareB = smoothPulse(triB, widthB, std::fabs(hzB), static_cast<float>(sampleRate_));
-        const float clockInput = params_.inputB == 0u ? squareB : triB;
+        const float squareA = smoothPulse(
+            triA, widthA, std::fabs(hzA),
+            static_cast<float>(circuitSampleRate_));
+        const float squareB = smoothPulse(
+            triB, widthB, std::fabs(hzB),
+            static_cast<float>(circuitSampleRate_));
+        const float oldClockInput =
+            voice.latchedInputB == 0u ? squareB : triB;
+        const float requestedClockInput =
+            params_.inputB == 0u ? squareB : triB;
+        if (voice.latchedInputB != params_.inputB
+            && (oldClockInput > 0.0f)
+                == (requestedClockInput > 0.0f)) {
+            // Changing the clock outlet while its logic level differs would
+            // manufacture a register edge. Wait for a shared logic region.
+            voice.latchedInputB = params_.inputB;
+        }
+        const float clockInput =
+            voice.latchedInputB == 0u ? squareB : triB;
         const bool clock = clockInput > 0.0f && voice.lastClock <= 0.0f;
         voice.lastClock = clockInput;
         voice.fieldWritePulse *= 0.992f;
         if (clock) {
             ++voice.clockCount;
-            const uint32_t ear = listenerEarForClock(index, spatialNode);
+            // Register topology is structural: per-voice mode and size only
+            // commit on the circuit's own clock edge, never midway through a
+            // bit decision.
+            const uint32_t previousRungMode =
+                voice.latchedRungMode;
+            const uint32_t previousRungSize =
+                voice.latchedRungSize;
+            voice.latchedRungMode =
+                rungModeForCurve(rungModeTarget);
+            voice.latchedRungSize =
+                rungSizeForCurve(rungSizeTarget);
+            const bool structureChanged =
+                voice.latchedRungMode != previousRungMode
+                || voice.latchedRungSize != previousRungSize;
+            // A held Settle clock can still commit a structural edit. Refresh
+            // all register views after masking so a new size or mode never
+            // selects stale values from the former structure. The audible
+            // register streams are already slewed below, so adding an output
+            // correction here would cancel an ordinary waveform delta and
+            // create a false transient of its own.
+            refreshRegisterViews(voice);
+            const uint32_t ear = listenerEarForClock(index, index);
             voice.lastReadEar = ear;
             const auto decision = auditoryDecision(ear, voice.auditoryBit);
             voice.auditoryBit = decision.bit;
@@ -1208,7 +2493,10 @@ private:
                 ? delayedListenerSignal(ear) * params_.fieldReturn
                     * params_.fieldReturn * returnEnableGain_
                 : 0.0f;
-            const float nativeComparator = params_.inputA == 0u
+            // Comparator outlet changes are only consumed by the register,
+            // so commit them at the genuine clock boundary.
+            voice.latchedInputA = params_.inputA;
+            const float nativeComparator = voice.latchedInputA == 0u
                 ? triA - (widthA * 2.0f - 1.0f)
                 : triA;
             const float input = nativeComparator + voice.lastReturn * 1.8f;
@@ -1232,9 +2520,11 @@ private:
                 ++voice.heldClockCount;
             } else {
                 ++voice.registerAdvanceCount;
-                const uint32_t mask = (1u << params_.rungSize) - 1u;
+                const uint32_t mask =
+                    (1u << voice.latchedRungSize) - 1u;
                 const uint32_t loopBit =
-                    (voice.reg >> (params_.rungSize - 1u)) & 1u;
+                    (voice.reg
+                        >> (voice.latchedRungSize - 1u)) & 1u;
                 uint32_t bit = inputBit;
                 if (params_.rungLoop == 1u) bit = loopBit;
                 else if (params_.rungLoop == 2u) bit = inputBit ^ loopBit;
@@ -1264,68 +2554,106 @@ private:
                 }
                 voice.writtenBit = bit;
                 voice.reg = ((voice.reg << 1u) | bit) & mask;
-                const float denom = static_cast<float>(
-                    std::max<uint32_t>(1u, mask));
-                voice.rungValue =
-                    static_cast<float>(voice.reg) / denom * 2.0f - 1.0f;
+                refreshRegisterViews(voice);
                 const float edgeDelta =
                     voice.rungValue - voice.rungSmooth;
                 voice.snapPolarity = edgeDelta == 0.0f
                     ? (bit ? 1.0f : -1.0f)
                     : (edgeDelta > 0.0f ? 1.0f : -1.0f);
-                voice.snapEnv = std::min(
-                    1.0f,
-                    voice.snapEnv
-                        + (0.38f + std::fabs(edgeDelta) * 0.62f));
+                if (!structureChanged) {
+                    voice.snapEnv = std::min(
+                        1.0f,
+                        voice.snapEnv
+                            + (0.38f
+                                + std::fabs(edgeDelta) * 0.62f));
+                }
             }
         }
-        const float rungAmount = bounded
-            ? std::max(laneRunA, laneRunB)
-            : std::max(params_.runglerA, params_.runglerB);
+        const float rungAmount =
+            std::max(laneRunA, laneRunB);
         if (!bounded) {
-            voice.rungSmooth += (voice.rungValue - voice.rungSmooth)
-                * (0.002f + rungAmount * 0.030f);
+            const float coefficient =
+                0.002f + rungAmount * 0.030f;
+            voice.rungSmooth +=
+                (voice.rungValue - voice.rungSmooth) * coefficient;
+            voice.rungSplitSmoothA +=
+                (voice.rungSplitA - voice.rungSplitSmoothA)
+                    * coefficient;
+            voice.rungSplitSmoothB +=
+                (voice.rungSplitB - voice.rungSplitSmoothB)
+                    * coefficient;
         } else {
-            const float baseSlewSeconds =
-                lerp(0.300f, 0.035f, std::sqrt(rungAmount));
-            const float slewCoefficient = 1.0f - std::exp(
-                -1.0f / static_cast<float>(
-                    sampleRate_ * baseSlewSeconds));
+            const float slewCoefficient = coefficientFromTable(
+                rungCoefficientTable_, rungAmount);
             voice.rungSmooth += (
                 voice.rungValue - voice.rungSmooth) * slewCoefficient;
+            voice.rungSplitSmoothA += (
+                voice.rungSplitA - voice.rungSplitSmoothA)
+                * slewCoefficient;
+            voice.rungSplitSmoothB += (
+                voice.rungSplitB - voice.rungSplitSmoothB)
+                * slewCoefficient;
         }
-        const float snapDecaySamples = 12.0f + std::pow(params_.snapDecay, 2.0f) * 900.0f;
-        const float snapDecayCoeff = std::exp(-1.0f / snapDecaySamples);
-        const float snapTransient = voice.snapEnv * voice.snapPolarity * params_.snap;
+        const float rungForFilter =
+            (rungForA + rungForB) * 0.5f;
+        const float rungDiscrete = rungForFilter;
+        const float snapDecayCoeff =
+            voice.cachedSnapDecay;
+        const float snapTransient =
+            voice.snapEnv * voice.snapPolarity * voice.smoothedSnap;
         voice.snapEnv *= snapDecayCoeff;
 
         if (!bounded) {
             const float sweep = (triB * 0.5f + 0.5f)
-                * params_.filterSweep * 0.11f;
-            const float run = (voice.rungSmooth * 0.5f + 0.5f)
-                * params_.filterRun * 0.14f;
-            const float filterNorm = 0.0015f
-                + std::pow(filterParam, 2.2f) * 0.20f + sweep + run;
+                * voice.smoothedFilterSweep * 0.11f;
+            const float run = (rungForFilter * 0.5f + 0.5f)
+                * voice.smoothedFilterRun * 0.14f;
+            const float filterNormA = 0.0015f
+                + voice.cachedFilterCurveA * 0.20f + sweep + run;
+            const float filterNormB = (0.0015f
+                + voice.cachedFilterCurveB * 0.20f
+                    + sweep + run) * 1.17f;
             const float rungAudio =
-                voice.rungValue * (0.10f + rungAmount * 0.18f);
+                rungDiscrete * (0.10f + rungAmount * 0.18f);
             const float pwm = squareA * 0.55f + squareB * 0.45f
                 + (triA - triB) * 0.25f + rungAudio;
-            const float filtA = voice.filterA.process(
-                pwm + squareB * laneRunA * 0.30f + snapTransient * 0.46f,
-                filterNorm, params_.resonance, params_.saturation);
-            const float filtB = voice.filterB.process(
-                pwm + squareA * laneRunB * 0.30f - snapTransient * 0.32f,
-                filterNorm * 1.17f, params_.resonance, params_.saturation);
+            const float sourceA = (
+                pwm + squareB * laneRunA * 0.30f
+                    + snapTransient * 0.46f)
+                * filterInputCompensation;
+            const float sourceB = (
+                pwm + squareA * laneRunB * 0.30f
+                    - snapTransient * 0.32f)
+                * filterInputCompensation;
+            const auto filteredA = voice.filterA.processSvf(
+                sourceA, filterNormA,
+                voice.smoothedFilterRes, voice.smoothedSaturation);
+            const auto filteredB = voice.filterB.processSvf(
+                sourceB, filterNormB,
+                voice.smoothedFilterRes, voice.smoothedSaturation);
+            // The Legacy LP position is its historical low-plus-band tap;
+            // BP and HP are the true SVF outlets. The selected tap itself has
+            // no dry bypass, while the final Color blend below deliberately
+            // retains Legacy's original direct oscillator/register mixture.
+            const float filtA = selectedFilterOutput(
+                filteredA, voice, true) * outputCompensation;
+            const float filtB = selectedFilterOutput(
+                filteredB, voice, true) * outputCompensation;
+            voice.previousFilteredA = flushDenormal(filtA);
+            voice.previousFilteredB = flushDenormal(filtB);
             const float edge = (squareA + squareB) * 0.24f;
             const float body = (triA + triB) * 0.32f;
             const float bloom = (filtA + filtB) * 0.48f;
             const float mixed =
-                lerp(edge + body, bloom + body * 0.24f, params_.color);
+                lerp(edge + body, bloom + body * 0.24f,
+                    voice.smoothedColor);
             const float click = snapTransient
-                * (0.10f + (1.0f - params_.color) * 0.22f);
-            return std::tanh(clamp(
-                (mixed + click) * (1.0f + params_.saturation * 3.2f),
-                -7.0f, 7.0f)) * ampParam;
+                * (0.10f + (1.0f - voice.smoothedColor) * 0.22f);
+            const float output = ambiWranglerTanh(clamp(
+                (mixed + click)
+                    * (1.0f + voice.smoothedSaturation * 3.2f),
+                -7.0f, 7.0f)) * voice.smoothedAmp;
+            return finishVoiceOutput(voice, output);
         }
 
         // The bounded source follows the characteristic Benjolin relation:
@@ -1334,46 +2662,113 @@ private:
         // register, but no sub-audio square is mixed directly into the body.
         const float comparatorEdge = clamp(
             (std::fabs(hzA) + std::fabs(hzB))
-                / static_cast<float>(sampleRate_) * 12.0f,
+                / static_cast<float>(
+                    circuitSampleRate_) * 12.0f,
             0.002f, 0.18f);
         const float comparatorBias = (thresholdParam - 0.5f) * 0.90f
             + (pwmAParam - pwmBParam) * 0.45f;
-        const float classicPwm = std::tanh(
+        const float classicPwm = ambiWranglerTanh(
             (triA - triB - comparatorBias) / comparatorEdge);
         const float sweep = (triB * 0.5f + 0.5f)
-            * params_.filterSweep * 0.085f;
-        const float run = (voice.rungSmooth * 0.5f + 0.5f)
-            * params_.filterRun * 0.105f;
-        const float filterNorm = 0.0015f
-            + std::pow(filterParam, 2.2f) * 0.20f + sweep + run;
-        const float source = classicPwm * 0.82f;
-        const float filterDrive = params_.saturation * 0.55f;
-        const float filtA = voice.filterA.process(
-            source + snapTransient * 0.30f,
-            filterNorm, params_.resonance, filterDrive);
-        const float filtB = voice.filterB.process(
-            source - snapTransient * 0.22f,
-            filterNorm * 1.12f, params_.resonance, filterDrive);
-        const float dry = classicPwm * 0.48f;
-        const float bloom = (filtA + filtB) * 0.52f;
-        // Color=1 is intentionally all-wet; no dry ramp bypass remains.
-        const float mixed = lerp(dry, bloom, params_.color);
-        const float click = snapTransient
-            * (0.07f + (1.0f - params_.color) * 0.15f);
-        return std::tanh(clamp(
-            (mixed + click) * (1.0f + params_.saturation * 1.7f),
-            -7.0f, 7.0f)) * ampParam;
+            * voice.smoothedFilterSweep * 0.085f;
+        const float run = (rungForFilter * 0.5f + 0.5f)
+            * voice.smoothedFilterRun * 0.105f;
+        const float filterNormA = 0.0015f
+            + voice.cachedFilterCurveA * 0.20f + sweep + run;
+        const float filterNormB = 0.0015f
+            + voice.cachedFilterCurveB * 0.20f + sweep + run;
+        const float rungSource =
+            rungForFilter * rungAmount * 0.48f;
+        const float source = (
+            classicPwm * 0.82f + rungSource
+                + snapTransient * 0.24f)
+            * filterInputCompensation;
+        // Color now pushes the filter's nonlinear input/Z trajectory; it no
+        // longer opens an unfiltered path around the selected outlet.
+        const float filterDrive =
+            voice.smoothedColor * voice.smoothedColor * 0.90f
+            + voice.smoothedSaturation * 0.35f;
+        const auto filteredA = voice.filterA.processSvf(
+            source, filterNormA,
+            voice.smoothedFilterRes, filterDrive);
+        const auto filteredB = voice.filterB.processSvf(
+            source, filterNormB,
+            voice.smoothedFilterRes, filterDrive);
+        const float selectedA = selectedFilterOutput(
+            filteredA, voice, false);
+        const float selectedB = selectedFilterOutput(
+            filteredB, voice, false);
+        voice.previousFilteredA =
+            flushDenormal(selectedA * outputCompensation);
+        voice.previousFilteredB =
+            flushDenormal(selectedB * outputCompensation);
+        const float selected =
+            (voice.previousFilteredA + voice.previousFilteredB) * 0.5f;
+        const float output = ambiWranglerTanh(clamp(
+            selected
+                * (1.0f + voice.smoothedSaturation * 1.7f),
+            -7.0f, 7.0f)) * voice.smoothedAmp;
+        return finishVoiceOutput(voice, output);
     }
 
     double sampleRate_ = 48000.0;
+    double circuitSampleRate_ = 48000.0;
     AmbiWranglerParams params_ {};
     std::array<AmbiWranglerVoice, kAmbiWranglerMaxVoices> voices_ {};
-    std::array<AmbiWranglerNode, kAmbiWranglerMaxVoices> nodes_ {};
     std::array<AmbiWranglerPoint, kAmbiWranglerMaxVoices> points_ {};
     std::array<AmbiWranglerPoint, kAmbiWranglerMaxVoices> targetPoints_ {};
+    std::array<std::array<float, kAmbiWranglerMaxChannels>,
+        kAmbiWranglerMaxVoices> renderBasis_ {};
+    std::array<std::array<float, kAmbiWranglerMaxChannels>,
+        kAmbiWranglerMaxVoices> targetRenderBasis_ {};
+    std::array<std::array<float, kAmbiWranglerMaxChannels>,
+        kAmbiWranglerMaxVoices> renderBasisIncrement_ {};
+    std::array<float, kAmbiWranglerMaxVoices>
+        renderDistanceGain_ {};
+    std::array<float, kAmbiWranglerMaxVoices>
+        targetRenderDistanceGain_ {};
+    std::array<float, kAmbiWranglerMaxVoices>
+        renderDistanceIncrement_ {};
+    std::array<float, kAmbiWranglerMaxChannels>
+        channelOrderGain_ {};
+    uint32_t controlFramesRemaining_ = 0u;
+    uint32_t spatialFramesRemaining_ = 0u;
+    uint32_t circuitFramesRemaining_ = 0u;
+    uint32_t expensiveControlFramesRemaining_ = 0u;
+    uint32_t circuitStride_ = 1u;
+    uint32_t processingVoiceLimit_ = 1u;
+    uint32_t processingChannelLimit_ = 4u;
     float topologyPhase_ = 0.0f;
     float maskPhase_ = 0.0f;
     float smoothedOutputGain_ = 0.0f;
+    float startupGain_ = 0.0f;
+    float outputTransitionDecay_ = 0.0f;
+    float transitionDecay_ = 0.0f;
+    float edgeCoefficient_ = 0.0f;
+    float shapeCoefficient_ = 0.0f;
+    float colorCoefficient_ = 0.0f;
+    float feedbackCoefficient_ = 0.0f;
+    float ampCoefficient_ = 0.0f;
+    float captureAttackCoefficient_ = 0.0f;
+    float captureReleaseCoefficient_ = 0.0f;
+    float maskAttackCoefficient_ = 0.0f;
+    float maskReleaseCoefficient_ = 0.0f;
+    float voiceAttackCoefficient_ = 0.0f;
+    float voiceReleaseCoefficient_ = 0.0f;
+    float outputGainCoefficient_ = 0.0f;
+    float spatialControlStep_ = 0.0f;
+    float orderCoefficient_ = 0.0f;
+    float listenerEnableCoefficient_ = 0.0f;
+    float returnEnableCoefficient_ = 0.0f;
+    float startupCoefficient_ = 0.0f;
+    std::array<float, kCoefficientTableSize>
+        crossCoefficientTable_ {};
+    std::array<float, kCoefficientTableSize>
+        rungCoefficientTable_ {};
+    std::array<float, kCoefficientTableSize>
+        snapDecayTable_ {};
+    std::array<float, kCoefficientTableSize>
+        listenerCouplingTable_ {};
     float listenerEnableGain_ = 0.0f;
     float returnEnableGain_ = 0.0f;
     AmbiFieldListener fieldListener_ {};
@@ -1386,6 +2781,9 @@ private:
     std::array<float, kAmbiFieldListenerMaxLobes> listenerRoughness_ {};
     std::array<float, kAmbiFieldListenerMaxLobes> listenerTension_ {};
     size_t listenerDelayWrite_ = 0u;
+    size_t listenerDelayValidSamples_ = 0u;
+    bool listenerDormant_ = true;
+    bool audioStarted_ = false;
 };
 
 } // namespace s3g
