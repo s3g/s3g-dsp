@@ -485,8 +485,8 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
     s3g::clap_gui::drawSlider(@"SKW", [NSString stringWithFormat:@"%+.2f", prm.skew], (prm.skew + 1.0f) * 0.5f, 130, small, small, style, 398, 500, 674);
     s3g::clap_gui::drawSlider(@"CTR", [NSString stringWithFormat:@"%.0f%%", prm.center * 100.0f], prm.center, 156, small, small, style, 398, 500, 674);
     s3g::clap_gui::drawSlider(@"GLD", [NSString stringWithFormat:@"%.0f", prm.glideMs], (prm.glideMs - 10.0f) / 1990.0f, 182, small, small, style, 398, 500, 674);
-    s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 258, small, small, style, 398, 500, 674);
-    s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 72.0f, 284, small, small, style, 398, 500, 674);
+    s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 72.0f, 258, small, small, style, 398, 500, 674);
+    s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 284, small, small, style, 398, 500, 674);
 
     [self drawRelationshipPreview:prm rect:NSMakeRect(30,274,330,182) attrs:small];
 }
@@ -540,7 +540,7 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
     }
     for (int i = 0; i < 2; ++i) {
         if (NSPointInRect(pt, NSMakeRect(394, outputRows[i] - 8, 300, 24))) {
-            _dragSlider = i + 11;
+            _dragSlider = i == 0 ? 12 : 11;
             [self updateSlider:pt];
             return;
         }

@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Terrain Navigator - s3g-dsp</title>
-    <meta name="description" content="Ambi Terrain Navigator wave-terrain AED traversal documentation for s3g-dsp.">
+    <title>Ambi Encoder Surface Terrain - s3g-dsp</title>
+    <meta name="description" content="Ambi Encoder Surface Terrain AED traversal documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,16 +24,16 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Terrain Navigator</h1>
+        <h1>Ambi Encoder Surface Terrain</h1>
 
-        <p><code>s3g Ambi Terrain Navigator 64</code> is a 64-in, first-through-seventh-order <code>ACN/SN3D</code> ambisonic navigator. Each input lane becomes a point in AED and follows a predefined trace across one displaced procedural terrain shell.</p>
+        <p><code>s3g Ambi Encoder Surface Terrain 64</code> is a 64-in, first-through-seventh-order <code>ACN/SN3D</code> ambisonic encoder. Each input lane becomes a point in AED and follows a predefined trace across one displaced procedural terrain shell.</p>
 
         <p>Wave-terrain mapping normally scans a surface to produce sound; here the sampled height bends each source's azimuth, elevation, and distance instead. The field view draws the shell, traces, and source positions together. For terrain used as the sound source itself, choose <a href="ambi-wave-terrain-encoder.html">Ambi Wave Terrain Encoder</a>.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Ambi Terrain Navigator 64</code> on a multichannel source or bus.</li>
+          <li>Insert <code>s3g Ambi Encoder Surface Terrain 64</code> on a multichannel source or bus.</li>
           <li>Set <code>INPUTS</code> for the number of active input lanes, up to 64.</li>
           <li>Set <code>ORDER</code> for the desired ambisonic output width.</li>
           <li>Choose a <code>TRACE</code>, then construct the shell with the <code>FORM</code>, <code>SKIN</code>, <code>WARP</code>, and <code>READ</code> pages.</li>
@@ -151,7 +151,7 @@
           <h2>Encoder Pages</h2>
           <a href="3oafx-point-encoder.html">Point Encoder</a>
           <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
-          <a href="ambi-terrain-navigator.html">Terrain Navigator</a>
+          <a href="ambi-terrain-navigator.html">Surface Terrain</a>
           <a href="ambi-path-encoder.html">Path Encoder</a>
           <a href="ambi-ray-encoder.html">Ray Encoder</a>
           <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>

@@ -494,11 +494,11 @@ static NSColor* s3gMcQuadColor(int rgb, CGFloat alpha = 1.0)
     NSRect side = NSMakeRect(592, 34, 316, 514);
     s3g::clap_gui::drawPanelFrame(side.origin.x, side.origin.y, side.size.width, side.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"AUDITION", true, side.origin.x, side.origin.y, side.size.width, 21, lab, style);
-    [self drawRow:@"IN" value:[NSString stringWithFormat:@"%u", count] norm:(count - 2.0) / 126.0 x:600 y:74 attrs:lab small:small];
-    [self drawRow:@"WDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.widthPercent)] norm:prm.widthPercent / 200.0 x:600 y:96 attrs:lab small:small];
-    [self drawRow:@"ROT" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(prm.rotationDegrees)] norm:(prm.rotationDegrees + 180.0) / 360.0 x:600 y:118 attrs:lab small:small];
-    [self drawMenuRow:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(prm.autogain))] x:600 y:140 attrs:lab small:small];
-    [self drawRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(prm.outputGainDb)] norm:(prm.outputGainDb + 24.0) / 48.0 x:600 y:162 attrs:lab small:small];
+    [self drawRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(prm.outputGainDb)] norm:(prm.outputGainDb + 24.0) / 48.0 x:600 y:74 attrs:lab small:small];
+    [self drawRow:@"IN" value:[NSString stringWithFormat:@"%u", count] norm:(count - 2.0) / 126.0 x:600 y:96 attrs:lab small:small];
+    [self drawRow:@"WDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.widthPercent)] norm:prm.widthPercent / 200.0 x:600 y:118 attrs:lab small:small];
+    [self drawRow:@"ROT" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(prm.rotationDegrees)] norm:(prm.rotationDegrees + 180.0) / 360.0 x:600 y:140 attrs:lab small:small];
+    [self drawMenuRow:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(prm.autogain))] x:600 y:162 attrs:lab small:small];
     [self drawMenuRow:@"LAY" value:[NSString stringWithUTF8String:layoutName(layout)] x:600 y:198 attrs:lab small:small];
     [self drawRow:@"WGT" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.layoutWeightPercent)] norm:prm.layoutWeightPercent / 100.0 x:600 y:220 attrs:lab small:small];
     [self drawRow:@"ATT" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.attenuation3dPercent)] norm:prm.attenuation3dPercent / 100.0 x:600 y:242 attrs:lab small:small];
@@ -593,9 +593,10 @@ static NSColor* s3gMcQuadColor(int rgb, CGFloat alpha = 1.0)
         return;
     }
     const CGFloat rows[] = {74,96,118,140,162,198,220,242,264};
+    const int controls[] = {5,1,2,3,4,6,7,8,9};
     for (int i = 0; i < 9; ++i) {
         if (NSPointInRect(pt, NSMakeRect(596, rows[i] - 9, 300, 22))) {
-            if (i == 3) {
+            if (i == 4) {
                 _openMenu = 1;
                 _menuItems = 3;
                 _menuOrigin = NSMakePoint(694, rows[i] + 17);
@@ -611,7 +612,7 @@ static NSColor* s3gMcQuadColor(int rgb, CGFloat alpha = 1.0)
                 [self setNeedsDisplay:YES];
                 return;
             }
-            _dragSlider = i + 1;
+            _dragSlider = controls[i];
             [self updateSlider:pt];
             return;
         }

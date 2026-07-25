@@ -142,8 +142,8 @@ Then rescan CLAP plugins in REAPER.
 Included plugins ($bundle_count bundles):
 
 - s3g 24ch Passthrough Test
-- s3g Delay Processor 8ch
-- s3g Delay Processor 24ch
+- s3g Processor Delay 8ch
+- s3g Processor Delay 24ch
 - s3g MC to Stereo Autogain
 - s3g MC to Quad Autogain
 - s3g 3OAFX Delay
@@ -151,29 +151,29 @@ Included plugins ($bundle_count bundles):
 - s3g 3OAFX Filter
 - s3g 3OAFX Gain
 - s3g 3OAFX Displacement
-- s3g Ambi Point Encoder
-- s3g Ambi Cloud Encoder 64
-- s3g Ambi Terrain Navigator 64
-- s3g Ambi VOT Encoder 64
-- s3g Ambi Vox Encoder 64
-- s3g Ambi Wave Terrain Encoder 64
-- s3g Ambi Pulsar Encoder 64
-- s3g Ambi Stochastic Encoder 64
-- s3g Ambi Wrangler Encoder 64
+- s3g Ambi Encoder Point
+- s3g Ambi Encoder Cloud 64
+- s3g Ambi Encoder Surface Terrain 64
+- s3g Ambi Encoder VOT 64
+- s3g Ambi Encoder Vox 64
+- s3g Ambi Encoder Wave Terrain 64
+- s3g Ambi Encoder Pulsar 64
+- s3g Ambi Encoder Stochastic 64
+- s3g Ambi Encoder Wrangler 64
 - s3g Ambi Imprint 64
-- s3g Ambi Ray Encoder
-- s3g Ambi Ray Bilocation Encoder
-- s3g Ambi Path Encoder 64
+- s3g Ambi Encoder Ray
+- s3g Ambi Encoder Ray Bilocation
+- s3g Ambi Encoder Path 64
 - s3g Ambi Speaker Decoder 64
 - s3g Layout Panner
 - s3g DBAP Panner
 - s3g LBAP Panner
 - s3g VBAP Panner
 - s3g Sub Crossover
-- s3g Loop Processor 8ch
-- s3g Multi Loop Processor 8ch
-- Fault
-- s3g Ambi Grain Processor
+- s3g Processor Loop 8ch
+- s3g Processor Multi Loop 8ch
+- s3g Processor Fault
+- s3g Processor Ambi Grain
 - s3g Macro Delay 8ch
 - s3g Macro Delay 24ch
 - s3g Macro Pitch 8ch
@@ -181,8 +181,8 @@ Included plugins ($bundle_count bundles):
 - s3g Macro Shred Mono
 - s3g Macro Shred 8ch
 - s3g Macro Shred 24ch
-- s3g Buffer Processor 8ch
-- s3g Wave Geometry Processor 8ch
+- s3g Processor Buffer 8ch
+- s3g Processor Wave Geometry 8ch
 - s3g Multichannel Meter 64
 - s3g Ambi Energy Visualizer 64
 - s3g Ambi Stereo Decoder
@@ -217,8 +217,8 @@ Included plugins ($bundle_count bundles):
 - s3g Ambi Node Bus Mixer 128
 - s3g Spectral Spray 2ch
 - s3g Spectral Spray 8ch
-- s3g Spectral Topology Processor 8ch
-- s3g Spectral Topology Processor 24ch
+- s3g Processor Spectral Topology 8ch
+- s3g Processor Spectral Topology 24ch
 - s3g Shard Scatter
 - s3g Orbit Delay
 - s3g Cascade Taps
@@ -236,13 +236,13 @@ THIRD_PARTY_NOTICES.md.
 
 VOT Wavetable Library:
 
-Use the LOAD button in s3g Ambi VOT Encoder 64 to load any WAV file from the
+Use the LOAD button in s3g Ambi Encoder VOT 64 to load any WAV file from the
 included VOT Wavetables folder. The library contains twenty-eight 4 x 4 banks,
 including four vocal-source atlases.
 
 Ambi Vox Demo Voicebank:
 
-Use the LOAD button in the s3g Ambi Vox Encoder 64 PHRASE panel to select the
+Use the LOAD button in the s3g Ambi Encoder Vox 64 PHRASE panel to select the
 included Ambi Vox Demo Voicebank folder. It is a small synthetic UTAU-style
 test bank with WAV aliases, oto.ini timing, and pronunciation examples. The
 same button can load a vocal WAV for WORLD analysis and resynthesis.

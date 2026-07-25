@@ -1399,7 +1399,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     std::strncpy(info->name, def.name, sizeof(info->name));
     info->name[sizeof(info->name) - 1u] = '\0';
     const bool performance = def.id >= kPerformanceModeParamId && def.id <= kReleaseParamId;
-    std::strncpy(info->module, performance ? "Performance" : "Fault", sizeof(info->module));
+    std::strncpy(info->module, performance ? "Performance" : "Processor Fault", sizeof(info->module));
     info->module[sizeof(info->module) - 1u] = '\0';
     info->min_value = def.min;
     info->max_value = def.max;
@@ -2424,7 +2424,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     NSRectFill([self bounds]);
     NSDictionary* labels = s3g::clap_gui::softTitleAttrs();
     NSDictionary* values = s3g::clap_gui::softValueAttrs();
-    [@"FAULT" drawAtPoint:NSMakePoint(18, 14) withAttributes:labels];
+    [@"s3g PROCESSOR FAULT" drawAtPoint:NSMakePoint(18, 14) withAttributes:labels];
     [s3g::clap_gui::peakDbText(p->outputPeak.load(std::memory_order_relaxed)) drawAtPoint:NSMakePoint(708, 14) withAttributes:values];
     [@"0>8" drawAtPoint:NSMakePoint(826, 14) withAttributes:values];
     [self drawWaveforms:p style:style];
@@ -2736,7 +2736,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.fault",
-    "Fault",
+    "s3g Processor Fault",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

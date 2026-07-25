@@ -15,10 +15,15 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <new>
+#include <thread>
+#include <utility>
 
 namespace {
 
@@ -62,25 +67,522 @@ struct SavedStateV4 {
     std::array<s3g::AmbiSpeaker, s3g::kAmbiSpeakerDecoderMaxSpeakers> speakers {};
 };
 
+enum class DecoderCommandKind : uint32_t {
+    SetParam = 0,
+    SetAzimuth,
+    SetElevation,
+    SetDistance,
+    SetGain,
+    SetEnabled,
+    SetSolo,
+    SetWidth,
+    SetOutput,
+};
+
+struct DecoderCommand {
+    DecoderCommandKind kind = DecoderCommandKind::SetParam;
+    clap_id paramId = CLAP_INVALID_ID;
+    uint32_t speakerIndex = 0;
+    double value = 0.0;
+    uint64_t epoch = 0;
+    uint32_t runtimeSerial = 0;
+    bool deferRuntimeCommit = false;
+    bool speakerFollowsSelection = false;
+    uint64_t queueBoundary = 0;
+};
+
+template <typename Value, size_t Capacity>
+class BoundedMpmcQueue {
+    static_assert(Capacity >= 2u && (Capacity & (Capacity - 1u)) == 0u,
+        "MPMC queue capacity must be a power of two");
+
+    struct Cell {
+        std::atomic<size_t> sequence { 0u };
+        Value value {};
+    };
+
+public:
+    BoundedMpmcQueue()
+    {
+        for (size_t i = 0; i < Capacity; ++i) {
+            cells_[i].sequence.store(i, std::memory_order_relaxed);
+        }
+    }
+
+    bool tryPush(const Value& value, uint64_t* ticket = nullptr)
+    {
+        size_t position = enqueuePosition_.load(std::memory_order_relaxed);
+        Cell* cell = nullptr;
+        for (uint32_t attempt = 0; attempt < 32u; ++attempt) {
+            cell = &cells_[position & (Capacity - 1u)];
+            const size_t sequence = cell->sequence.load(std::memory_order_acquire);
+            const intptr_t difference = static_cast<intptr_t>(sequence)
+                - static_cast<intptr_t>(position);
+            if (difference == 0) {
+                if (enqueuePosition_.compare_exchange_weak(position, position + 1u,
+                        std::memory_order_relaxed, std::memory_order_relaxed)) {
+                    cell->value = value;
+                    cell->sequence.store(position + 1u, std::memory_order_release);
+                    if (ticket) *ticket = static_cast<uint64_t>(position + 1u);
+                    return true;
+                }
+            } else if (difference < 0) {
+                return false;
+            } else {
+                position = enqueuePosition_.load(std::memory_order_relaxed);
+            }
+        }
+        return false;
+    }
+
+    bool tryPop(Value& value, uint64_t* ticket = nullptr)
+    {
+        size_t position = dequeuePosition_.load(std::memory_order_relaxed);
+        Cell* cell = nullptr;
+        for (uint32_t attempt = 0; attempt < 32u; ++attempt) {
+            cell = &cells_[position & (Capacity - 1u)];
+            const size_t sequence = cell->sequence.load(std::memory_order_acquire);
+            const intptr_t difference = static_cast<intptr_t>(sequence)
+                - static_cast<intptr_t>(position + 1u);
+            if (difference == 0) {
+                if (dequeuePosition_.compare_exchange_weak(position, position + 1u,
+                        std::memory_order_relaxed, std::memory_order_relaxed)) {
+                    value = cell->value;
+                    cell->sequence.store(position + Capacity, std::memory_order_release);
+                    if (ticket) *ticket = static_cast<uint64_t>(position + 1u);
+                    return true;
+                }
+            } else if (difference < 0) {
+                return false;
+            } else {
+                position = dequeuePosition_.load(std::memory_order_relaxed);
+            }
+        }
+        return false;
+    }
+
+    uint64_t producerPosition() const
+    {
+        return static_cast<uint64_t>(
+            enqueuePosition_.load(std::memory_order_acquire));
+    }
+
+private:
+    std::array<Cell, Capacity> cells_ {};
+    alignas(64) std::atomic<size_t> enqueuePosition_ { 0u };
+    alignas(64) std::atomic<size_t> dequeuePosition_ { 0u };
+};
+
+constexpr uint32_t kSnapshotWriterBit = 0x80000000u;
+constexpr uint32_t kSnapshotReaderMask = ~kSnapshotWriterBit;
+constexpr uint32_t kDecoderSnapshotCount = 3u;
+constexpr uint32_t kDecoderCommandQueueCapacity = 4096u;
+constexpr uint32_t kDecoderOverflowQueueCapacity = 4096u;
+constexpr uint32_t kDecoderWorkerBatchLimit = 1024u;
+
+template <typename Value>
+class OrderedRuntimeValue {
+public:
+    struct Snapshot {
+        Value value {};
+        uint32_t serial = 0u;
+        uint64_t packed = 0u;
+    };
+
+    OrderedRuntimeValue() = default;
+
+    void initialize(Value value, uint32_t serial = 1u)
+    {
+        packed_.store(pack(value, serial), std::memory_order_relaxed);
+    }
+
+    Snapshot snapshot(
+        std::memory_order order = std::memory_order_acquire) const
+    {
+        const uint64_t packed = packed_.load(order);
+        return {
+            decode(static_cast<uint32_t>(packed)),
+            static_cast<uint32_t>(packed >> 32u),
+            packed,
+        };
+    }
+
+    Value load(std::memory_order order = std::memory_order_acquire) const
+    {
+        return snapshot(order).value;
+    }
+
+    bool storeIfNewer(Value value, uint32_t serial)
+    {
+        uint64_t expected = packed_.load(std::memory_order_acquire);
+        const uint64_t desired = pack(value, serial);
+        for (uint32_t attempt = 0u; attempt < 32u; ++attempt) {
+            const uint32_t currentSerial =
+                static_cast<uint32_t>(expected >> 32u);
+            if (!serialAtLeast(serial, currentSerial)) return false;
+            if (packed_.compare_exchange_weak(
+                    expected, desired,
+                    std::memory_order_release,
+                    std::memory_order_acquire)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+private:
+    static bool serialAtLeast(uint32_t candidate, uint32_t current)
+    {
+        return static_cast<int32_t>(candidate - current) >= 0;
+    }
+
+    static uint32_t encode(Value value)
+    {
+        uint32_t bits = 0u;
+        static_assert(sizeof(Value) <= sizeof(bits),
+            "runtime value must fit in 32 bits");
+        std::memcpy(&bits, &value, sizeof(Value));
+        return bits;
+    }
+
+    static Value decode(uint32_t bits)
+    {
+        Value value {};
+        std::memcpy(&value, &bits, sizeof(Value));
+        return value;
+    }
+
+    static uint64_t pack(Value value, uint32_t serial)
+    {
+        return (static_cast<uint64_t>(serial) << 32u)
+            | static_cast<uint64_t>(encode(value));
+    }
+
+    std::atomic<uint64_t> packed_ { 0u };
+};
+
+static_assert(std::atomic<uint64_t>::is_always_lock_free,
+    "speaker-decoder runtime overrides require lock-free 64-bit atomics");
+
+struct RuntimeMixerState {
+    uint32_t serial = 1u;
+    float width = 1.0f;
+    float outputGainDb = 0.0f;
+    std::array<float, s3g::kAmbiSpeakerDecoderMaxSpeakers> gain {};
+    std::array<bool, s3g::kAmbiSpeakerDecoderMaxSpeakers> enabled {};
+    std::array<bool, s3g::kAmbiSpeakerDecoderMaxSpeakers> solo {};
+
+    RuntimeMixerState()
+    {
+        gain.fill(1.0f);
+        enabled.fill(true);
+        solo.fill(false);
+    }
+};
+
+struct DecoderSnapshotSlot {
+    alignas(64) std::atomic<uint32_t> state { 0u };
+    s3g::AmbiSpeakerDecoder decoder;
+    RuntimeMixerState runtimeMixer;
+};
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0;
-    s3g::AmbiSpeakerDecoderParams params {};
-    s3g::AmbiSpeakerDecoder decoder;
+    s3g::AmbiSpeakerDecoder modelDecoder;
+    RuntimeMixerState modelRuntimeMixer;
+    std::array<DecoderSnapshotSlot, kDecoderSnapshotCount> decoderSnapshots {};
+    std::atomic<uint32_t> publishedDecoder { 0u };
+    BoundedMpmcQueue<DecoderCommand, kDecoderCommandQueueCapacity> decoderCommands;
+    BoundedMpmcQueue<DecoderCommand, kDecoderOverflowQueueCapacity>
+        decoderOverflowCommands;
+    // Even values are stable command generations. State load holds the
+    // intervening odd value while atomically replacing model/runtime state.
+    std::atomic<uint64_t> commandEpoch { 2u };
+    std::atomic<uint64_t> completedQueuePosition { 0u };
+    std::atomic<uint64_t> completedOverflowPosition { 0u };
+    uint64_t workerAppliedQueuePosition = 0u;
+    uint64_t workerAppliedOverflowPosition = 0u;
+    bool workerHasPendingOverflow = false;
+    DecoderCommand workerPendingOverflow {};
+    uint64_t workerPendingOverflowPosition = 0u;
+    bool workerHasPendingPrimary = false;
+    DecoderCommand workerPendingPrimary {};
+    uint64_t workerPendingPrimaryPosition = 0u;
+    std::atomic<bool> stopDecoderWorker { false };
+    std::thread decoderWorker;
+    std::mutex modelMutex;
+    std::mutex completionMutex;
+    std::condition_variable completionCondition;
+    bool decoderPublishPending = false;
+    std::atomic<uint32_t> nextRuntimeSerial { 1u };
+    OrderedRuntimeValue<uint32_t> realtimeLayout;
+    OrderedRuntimeValue<uint32_t> realtimeCustomField;
+    OrderedRuntimeValue<uint32_t> realtimeActiveSpeakers;
+    OrderedRuntimeValue<uint32_t> realtimeSelectedSpeaker;
+    OrderedRuntimeValue<uint32_t> realtimeSpeakerResetActive;
+    OrderedRuntimeValue<float> realtimeWidth;
+    OrderedRuntimeValue<float> realtimeOutputGainDb;
+    std::array<OrderedRuntimeValue<float>,
+        s3g::kAmbiSpeakerDecoderMaxSpeakers> realtimeSpeakerGain {};
+    std::array<OrderedRuntimeValue<bool>,
+        s3g::kAmbiSpeakerDecoderMaxSpeakers> realtimeSpeakerEnabled {};
+    std::array<OrderedRuntimeValue<bool>,
+        s3g::kAmbiSpeakerDecoderMaxSpeakers> realtimeSpeakerSolo {};
+    uint32_t audioDecoderSnapshot = 0u;
+    bool audioDecoderSnapshotHeld = false;
     std::atomic<float> outputPeak { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
     int guiViewMode = 2;
     double guiViewAzDeg = 35.0;
     double guiViewElDeg = 34.0;
     double guiViewZoom = 1.0;
 #endif
+
+    Plugin()
+    {
+        realtimeLayout.initialize(
+            static_cast<uint32_t>(s3g::AmbiSpeakerLayoutPreset::Sphere24));
+        realtimeCustomField.initialize(
+            static_cast<uint32_t>(s3g::AmbiSpeakerCustomField::FullSphere));
+        realtimeActiveSpeakers.initialize(24u);
+        realtimeSelectedSpeaker.initialize(0u);
+        realtimeSpeakerResetActive.initialize(24u, 0u);
+        realtimeWidth.initialize(1.0f);
+        realtimeOutputGainDb.initialize(0.0f);
+        for (uint32_t speaker = 0; speaker < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++speaker) {
+            realtimeSpeakerGain[speaker].initialize(1.0f);
+            realtimeSpeakerEnabled[speaker].initialize(true);
+            realtimeSpeakerSolo[speaker].initialize(false);
+        }
+    }
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+uint32_t allocateRuntimeSerial(Plugin& plugin)
+{
+    return plugin.nextRuntimeSerial.fetch_add(
+        1u, std::memory_order_acq_rel) + 1u;
+}
+
+bool runtimeSerialAtLeast(uint32_t candidate, uint32_t current)
+{
+    return static_cast<int32_t>(candidate - current) >= 0;
+}
+
+bool runtimeSerialNewer(uint32_t candidate, uint32_t current)
+{
+    return candidate != current && runtimeSerialAtLeast(candidate, current);
+}
+
+template <typename Value>
+Value resolveRuntimeOverride(
+    Value baseValue,
+    uint32_t baseSerial,
+    const OrderedRuntimeValue<Value>& overrideValue)
+{
+    const auto override =
+        overrideValue.snapshot(std::memory_order_acquire);
+    return runtimeSerialAtLeast(override.serial, baseSerial)
+        ? override.value
+        : baseValue;
+}
+
+RuntimeMixerState resolveRuntimeMixerState(
+    const Plugin& plugin, const RuntimeMixerState& base)
+{
+    RuntimeMixerState resolved = base;
+    resolved.width = resolveRuntimeOverride(
+        base.width, base.serial, plugin.realtimeWidth);
+    resolved.outputGainDb = resolveRuntimeOverride(
+        base.outputGainDb, base.serial, plugin.realtimeOutputGainDb);
+    const auto reset =
+        plugin.realtimeSpeakerResetActive.snapshot(std::memory_order_acquire);
+    const uint32_t resetActive = std::clamp<uint32_t>(
+        reset.value, 2u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    for (uint32_t speaker = 0u;
+         speaker < s3g::kAmbiSpeakerDecoderMaxSpeakers;
+         ++speaker) {
+        uint32_t gainSerial = base.serial;
+        float gain = base.gain[speaker];
+        if (runtimeSerialNewer(reset.serial, gainSerial)) {
+            gainSerial = reset.serial;
+            gain = 1.0f;
+        }
+        const auto gainOverride =
+            plugin.realtimeSpeakerGain[speaker].snapshot(
+                std::memory_order_acquire);
+        if (runtimeSerialAtLeast(gainOverride.serial, gainSerial)) {
+            gain = gainOverride.value;
+        }
+        resolved.gain[speaker] = gain;
+
+        uint32_t enabledSerial = base.serial;
+        bool enabled = base.enabled[speaker];
+        if (runtimeSerialNewer(reset.serial, enabledSerial)) {
+            enabledSerial = reset.serial;
+            enabled = speaker < resetActive;
+        }
+        const auto enabledOverride =
+            plugin.realtimeSpeakerEnabled[speaker].snapshot(
+                std::memory_order_acquire);
+        if (runtimeSerialAtLeast(enabledOverride.serial, enabledSerial)) {
+            enabled = enabledOverride.value;
+        }
+        resolved.enabled[speaker] = enabled;
+
+        uint32_t soloSerial = base.serial;
+        bool solo = base.solo[speaker];
+        if (runtimeSerialNewer(reset.serial, soloSerial)) {
+            soloSerial = reset.serial;
+            solo = false;
+        }
+        const auto soloOverride =
+            plugin.realtimeSpeakerSolo[speaker].snapshot(
+                std::memory_order_acquire);
+        if (runtimeSerialAtLeast(soloOverride.serial, soloSerial)) {
+            solo = soloOverride.value;
+        }
+        resolved.solo[speaker] = solo;
+    }
+    return resolved;
+}
+
+class DecoderSnapshotGuard {
+public:
+    DecoderSnapshotGuard() = default;
+    DecoderSnapshotGuard(DecoderSnapshotSlot* slot, uint32_t index)
+        : slot_(slot)
+        , index_(index)
+    {
+    }
+    DecoderSnapshotGuard(const DecoderSnapshotGuard&) = delete;
+    DecoderSnapshotGuard& operator=(const DecoderSnapshotGuard&) = delete;
+    DecoderSnapshotGuard(DecoderSnapshotGuard&& other) noexcept
+        : slot_(std::exchange(other.slot_, nullptr))
+        , index_(other.index_)
+    {
+    }
+    DecoderSnapshotGuard& operator=(DecoderSnapshotGuard&& other) noexcept
+    {
+        if (this == &other) return *this;
+        release();
+        slot_ = std::exchange(other.slot_, nullptr);
+        index_ = other.index_;
+        return *this;
+    }
+    ~DecoderSnapshotGuard() { release(); }
+
+    const s3g::AmbiSpeakerDecoder& decoder() const { return slot_->decoder; }
+    const RuntimeMixerState& runtimeMixer() const
+    {
+        return slot_->runtimeMixer;
+    }
+    const s3g::AmbiSpeakerDecoder* operator->() const { return &slot_->decoder; }
+    uint32_t index() const { return index_; }
+
+private:
+    void release()
+    {
+        if (!slot_) return;
+        slot_->state.fetch_sub(1u, std::memory_order_release);
+        slot_ = nullptr;
+    }
+
+    DecoderSnapshotSlot* slot_ = nullptr;
+    uint32_t index_ = 0u;
+};
+
+DecoderSnapshotGuard acquireDecoderSnapshot(Plugin& plugin)
+{
+    for (;;) {
+        const uint32_t index = plugin.publishedDecoder.load(std::memory_order_acquire)
+            % kDecoderSnapshotCount;
+        auto& slot = plugin.decoderSnapshots[index];
+        uint32_t state = slot.state.load(std::memory_order_relaxed);
+        while ((state & kSnapshotWriterBit) == 0u) {
+            if ((state & kSnapshotReaderMask) == kSnapshotReaderMask) break;
+            if (slot.state.compare_exchange_weak(state, state + 1u,
+                    std::memory_order_acquire, std::memory_order_relaxed)) {
+                if (plugin.publishedDecoder.load(std::memory_order_acquire) == index) {
+                    return { &slot, index };
+                }
+                slot.state.fetch_sub(1u, std::memory_order_release);
+                break;
+            }
+        }
+    }
+}
+
+bool tryAcquireDecoderSnapshot(
+    Plugin& plugin, uint32_t& acquiredIndex, uint32_t maxAttempts)
+{
+    for (uint32_t attempt = 0u; attempt < maxAttempts; ++attempt) {
+        const uint32_t index =
+            plugin.publishedDecoder.load(std::memory_order_acquire)
+            % kDecoderSnapshotCount;
+        auto& slot = plugin.decoderSnapshots[index];
+        uint32_t state = slot.state.load(std::memory_order_relaxed);
+        if ((state & kSnapshotWriterBit) != 0u
+            || (state & kSnapshotReaderMask) == kSnapshotReaderMask) {
+            continue;
+        }
+        if (!slot.state.compare_exchange_weak(
+                state, state + 1u,
+                std::memory_order_acquire,
+                std::memory_order_relaxed)) {
+            continue;
+        }
+        if (plugin.publishedDecoder.load(std::memory_order_acquire) == index) {
+            acquiredIndex = index;
+            return true;
+        }
+        slot.state.fetch_sub(1u, std::memory_order_release);
+    }
+    return false;
+}
+
+s3g::AmbiSpeakerDecoderParams visibleDecoderParams(
+    const Plugin& plugin,
+    const s3g::AmbiSpeakerDecoder& decoder,
+    const RuntimeMixerState& runtimeBase)
+{
+    auto params = decoder.params();
+    const auto runtime = resolveRuntimeMixerState(plugin, runtimeBase);
+    params.selectedSpeaker = std::min<uint32_t>(
+        plugin.realtimeSelectedSpeaker.load(std::memory_order_relaxed),
+        std::max<uint32_t>(1u, params.activeSpeakers) - 1u);
+    const auto& speakers = decoder.speakers();
+    params.selectedAzimuthDeg = speakers[params.selectedSpeaker].azimuthDeg;
+    params.selectedElevationDeg = speakers[params.selectedSpeaker].elevationDeg;
+    params.selectedDistance = speakers[params.selectedSpeaker].distance;
+    params.width = runtime.width;
+    params.outputGainDb = runtime.outputGainDb;
+    params.selectedGain = runtime.gain[params.selectedSpeaker];
+    params.selectedEnabled = runtime.enabled[params.selectedSpeaker];
+    return params;
+}
+
+std::array<s3g::AmbiSpeaker, s3g::kAmbiSpeakerDecoderMaxSpeakers> visibleDecoderSpeakers(
+    const Plugin& plugin,
+    const s3g::AmbiSpeakerDecoder& decoder,
+    const RuntimeMixerState& runtimeBase)
+{
+    auto speakers = decoder.speakers();
+    const auto runtime = resolveRuntimeMixerState(plugin, runtimeBase);
+    for (uint32_t speaker = 0; speaker < speakers.size(); ++speaker) {
+        speakers[speaker].gain = runtime.gain[speaker];
+        speakers[speaker].enabled = runtime.enabled[speaker];
+        speakers[speaker].solo = runtime.solo[speaker];
+    }
+    return speakers;
+}
 
 const char* layoutName(uint32_t value)
 {
@@ -128,6 +630,7 @@ const char* modeName(uint32_t value)
     switch (value) {
     case 1: return "EPAD";
     case 2: return "MMD";
+    case 3: return "ALLRAD";
     default: return "BASIC";
     }
 }
@@ -146,47 +649,837 @@ const char* customFieldName(uint32_t value)
     return value == 1 ? "HEMI" : "SPHERE";
 }
 
-void applyParam(Plugin& p, clap_id id, double value)
+bool publishModelDecoder(Plugin& plugin)
 {
-    switch (id) {
-    case kLayoutParamId: p.params.layout = static_cast<s3g::AmbiSpeakerLayoutPreset>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, kMaxLayoutParamValue)); break;
-    case kModeParamId: p.params.mode = static_cast<s3g::AmbiSpeakerDecoderMode>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 2u)); break;
-    case kOrderParamId: p.params.order = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiSpeakerDecoderMaxOrder); break;
-    case kActiveSpeakersParamId: p.params.activeSpeakers = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 2u, s3g::kAmbiSpeakerDecoderMaxSpeakers); p.params.layout = s3g::AmbiSpeakerLayoutPreset::Custom; break;
-    case kSelectedSpeakerParamId: p.params.selectedSpeaker = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiSpeakerDecoderMaxSpeakers) - 1u; break;
-    case kAzimuthParamId: p.params.selectedAzimuthDeg = static_cast<float>(std::clamp(value, -180.0, 180.0)); p.params.layout = s3g::AmbiSpeakerLayoutPreset::Custom; break;
-    case kElevationParamId: p.params.selectedElevationDeg = static_cast<float>(std::clamp(value, -90.0, 90.0)); p.params.layout = s3g::AmbiSpeakerLayoutPreset::Custom; break;
-    case kDistanceParamId: p.params.selectedDistance = static_cast<float>(std::clamp(value, 0.15, 2.0)); p.params.layout = s3g::AmbiSpeakerLayoutPreset::Custom; break;
-    case kSpeakerGainParamId:
-        p.params.selectedGain = static_cast<float>(std::clamp(value, 0.0, 2.0));
-        p.decoder.setParams(p.params);
-        p.decoder.setSpeakerGain(p.params.selectedSpeaker, p.params.selectedGain);
-        p.params = p.decoder.params();
-        return;
-    case kSpeakerEnabledParamId: p.params.selectedEnabled = true; break;
-    case kRegularizationParamId: p.params.regularization = static_cast<float>(std::clamp(value, 0.0, 0.20)); break;
-    case kWidthParamId: p.params.width = static_cast<float>(std::clamp(value, 0.0, 1.50)); break;
-    case kEnergyParamId: p.params.energy = static_cast<float>(std::clamp(value, 0.0, 1.50)); break;
-    case kOutputParamId: p.params.outputGainDb = static_cast<float>(std::clamp(value, -60.0, 12.0)); break;
-    case kWeightingParamId: p.params.weighting = static_cast<s3g::AmbiSpeakerDecoderWeighting>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 2u)); break;
-    case kCustomFieldParamId: p.params.customField = static_cast<s3g::AmbiSpeakerCustomField>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 1u)); p.params.layout = s3g::AmbiSpeakerLayoutPreset::Custom; break;
-    default: break;
+    const uint32_t current = plugin.publishedDecoder.load(std::memory_order_acquire)
+        % kDecoderSnapshotCount;
+    for (uint32_t offset = 1u; offset < kDecoderSnapshotCount; ++offset) {
+        const uint32_t index = (current + offset) % kDecoderSnapshotCount;
+        auto& slot = plugin.decoderSnapshots[index];
+        uint32_t expected = 0u;
+        if (!slot.state.compare_exchange_strong(expected, kSnapshotWriterBit,
+                std::memory_order_acquire, std::memory_order_relaxed)) {
+            continue;
+        }
+        slot.decoder = plugin.modelDecoder;
+        slot.runtimeMixer = plugin.modelRuntimeMixer;
+        slot.state.store(0u, std::memory_order_release);
+        plugin.publishedDecoder.store(index, std::memory_order_release);
+        plugin.decoderPublishPending = false;
+        return true;
     }
-    p.decoder.setParams(p.params);
-    p.params = p.decoder.params();
+    return false;
 }
 
-bool init(const clap_plugin_t*) { return true; }
-void destroy(const clap_plugin_t* plugin) { delete self(plugin); }
+void publishModelDecoderBlocking(Plugin& plugin)
+{
+    while (!publishModelDecoder(plugin)) {
+        std::this_thread::yield();
+    }
+}
+
+void storeRuntimeFromDecoder(Plugin& plugin, const s3g::AmbiSpeakerDecoder& decoder)
+{
+    const auto params = decoder.params();
+    const auto speakers = decoder.speakers();
+    plugin.modelRuntimeMixer.serial = 1u;
+    plugin.modelRuntimeMixer.width = params.width;
+    plugin.modelRuntimeMixer.outputGainDb = params.outputGainDb;
+    plugin.realtimeLayout.initialize(
+        static_cast<uint32_t>(params.layout));
+    plugin.realtimeCustomField.initialize(
+        static_cast<uint32_t>(params.customField));
+    plugin.realtimeActiveSpeakers.initialize(params.activeSpeakers);
+    plugin.realtimeSelectedSpeaker.initialize(params.selectedSpeaker);
+    plugin.realtimeSpeakerResetActive.initialize(params.activeSpeakers, 0u);
+    plugin.realtimeWidth.initialize(params.width);
+    plugin.realtimeOutputGainDb.initialize(params.outputGainDb);
+    for (uint32_t speaker = 0; speaker < speakers.size(); ++speaker) {
+        plugin.modelRuntimeMixer.gain[speaker] = speakers[speaker].gain;
+        plugin.modelRuntimeMixer.enabled[speaker] = speakers[speaker].enabled;
+        plugin.modelRuntimeMixer.solo[speaker] = speakers[speaker].solo;
+        plugin.realtimeSpeakerGain[speaker].initialize(speakers[speaker].gain);
+        plugin.realtimeSpeakerEnabled[speaker].initialize(
+            speakers[speaker].enabled);
+        plugin.realtimeSpeakerSolo[speaker].initialize(speakers[speaker].solo);
+    }
+}
+
+void normalizeModelRuntimeControls(Plugin& plugin)
+{
+    auto params = plugin.modelDecoder.params();
+    auto speakers = plugin.modelDecoder.speakers();
+    params.width = 1.0f;
+    params.outputGainDb = 0.0f;
+    params.selectedGain = 1.0f;
+    for (auto& speaker : speakers) {
+        speaker.gain = 1.0f;
+        speaker.solo = false;
+    }
+    plugin.modelDecoder.beginBatchUpdate();
+    plugin.modelDecoder.setParams(params);
+    plugin.modelDecoder.setSpeakers(speakers);
+    plugin.modelDecoder.endBatchUpdate();
+}
+
+uint32_t activeSpeakersForLayout(uint32_t layout, uint32_t customCount)
+{
+    switch (static_cast<s3g::AmbiSpeakerLayoutPreset>(
+        std::min<uint32_t>(layout, kMaxLayoutParamValue))) {
+    case s3g::AmbiSpeakerLayoutPreset::Quad: return 4u;
+    case s3g::AmbiSpeakerLayoutPreset::Cube8: return 8u;
+    case s3g::AmbiSpeakerLayoutPreset::Cube17: return 17u;
+    case s3g::AmbiSpeakerLayoutPreset::Dome24: return 24u;
+    case s3g::AmbiSpeakerLayoutPreset::Dome25: return 25u;
+    case s3g::AmbiSpeakerLayoutPreset::QuadOverhead6: return 6u;
+    case s3g::AmbiSpeakerLayoutPreset::Sphere24: return 24u;
+    case s3g::AmbiSpeakerLayoutPreset::Dodeca12: return 12u;
+    case s3g::AmbiSpeakerLayoutPreset::Icosahedron20: return 20u;
+    case s3g::AmbiSpeakerLayoutPreset::OctophonicRing: return 8u;
+    case s3g::AmbiSpeakerLayoutPreset::Cube41: return 41u;
+    case s3g::AmbiSpeakerLayoutPreset::Lpac41: return 41u;
+    case s3g::AmbiSpeakerLayoutPreset::Srst25: return 25u;
+    case s3g::AmbiSpeakerLayoutPreset::Custom:
+    default:
+        return std::clamp<uint32_t>(
+            customCount, 2u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    }
+}
+
+void resetRuntimeSpeakerControls(
+    Plugin& plugin, uint32_t activeSpeakers, uint32_t serial)
+{
+    activeSpeakers = std::clamp<uint32_t>(
+        activeSpeakers, 2u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    plugin.realtimeActiveSpeakers.storeIfNewer(activeSpeakers, serial);
+    const uint32_t selected = std::min<uint32_t>(
+        plugin.realtimeSelectedSpeaker.load(std::memory_order_relaxed),
+        activeSpeakers - 1u);
+    plugin.realtimeSelectedSpeaker.storeIfNewer(selected, serial);
+    // A layout reset is one atomic generation change. Older per-speaker
+    // overrides become invisible without a channel-by-channel write window.
+    plugin.realtimeSpeakerResetActive.storeIfNewer(activeSpeakers, serial);
+}
+
+void applyDesiredLayoutReset(
+    Plugin& plugin, uint32_t layout, uint32_t serial)
+{
+    layout = std::min<uint32_t>(layout, kMaxLayoutParamValue);
+    const uint32_t previous =
+        plugin.realtimeLayout.load(std::memory_order_acquire);
+    if (!plugin.realtimeLayout.storeIfNewer(layout, serial)) return;
+    if (layout == previous) return;
+    resetRuntimeSpeakerControls(
+        plugin,
+        activeSpeakersForLayout(
+            layout,
+            plugin.realtimeActiveSpeakers.load(std::memory_order_relaxed)),
+        serial);
+}
+
+void applyDesiredActiveReset(
+    Plugin& plugin, uint32_t activeSpeakers, uint32_t serial)
+{
+    activeSpeakers = std::clamp<uint32_t>(
+        activeSpeakers, 2u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    const uint32_t previousLayout =
+        plugin.realtimeLayout.load(std::memory_order_acquire);
+    const uint32_t previousActive =
+        plugin.realtimeActiveSpeakers.load(std::memory_order_relaxed);
+    if (!plugin.realtimeLayout.storeIfNewer(
+            static_cast<uint32_t>(
+                s3g::AmbiSpeakerLayoutPreset::Custom),
+            serial)) {
+        return;
+    }
+    if (previousLayout
+            == static_cast<uint32_t>(s3g::AmbiSpeakerLayoutPreset::Custom)
+        && previousActive == activeSpeakers) {
+        return;
+    }
+    resetRuntimeSpeakerControls(plugin, activeSpeakers, serial);
+}
+
+void applyDesiredCustomFieldReset(
+    Plugin& plugin, uint32_t customField, uint32_t serial)
+{
+    customField = std::min<uint32_t>(customField, 1u);
+    const uint32_t previousField =
+        plugin.realtimeCustomField.load(std::memory_order_acquire);
+    const uint32_t previousLayout =
+        plugin.realtimeLayout.load(std::memory_order_acquire);
+    if (!plugin.realtimeCustomField.storeIfNewer(customField, serial)
+        || !plugin.realtimeLayout.storeIfNewer(
+            static_cast<uint32_t>(
+                s3g::AmbiSpeakerLayoutPreset::Custom),
+            serial)) {
+        return;
+    }
+    if (previousField == customField
+        && previousLayout
+            == static_cast<uint32_t>(s3g::AmbiSpeakerLayoutPreset::Custom)) {
+        return;
+    }
+    resetRuntimeSpeakerControls(
+        plugin,
+        plugin.realtimeActiveSpeakers.load(std::memory_order_relaxed),
+        serial);
+}
+
+bool applyDecoderCommand(Plugin& plugin, const DecoderCommand& command)
+{
+    if (command.epoch != plugin.commandEpoch.load(std::memory_order_acquire)) return false;
+    auto params = plugin.modelDecoder.params();
+    switch (command.kind) {
+    case DecoderCommandKind::SetParam: {
+        switch (command.paramId) {
+        case kLayoutParamId:
+            params.layout = static_cast<s3g::AmbiSpeakerLayoutPreset>(
+                std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(command.value)),
+                    0u, kMaxLayoutParamValue));
+            break;
+        case kModeParamId:
+            params.mode = static_cast<s3g::AmbiSpeakerDecoderMode>(
+                std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(command.value)), 0u, 3u));
+            break;
+        case kOrderParamId:
+            params.order = std::clamp<uint32_t>(
+                static_cast<uint32_t>(std::lround(command.value)),
+                1u, s3g::kAmbiSpeakerDecoderMaxOrder);
+            break;
+        case kActiveSpeakersParamId:
+            params.activeSpeakers = std::clamp<uint32_t>(
+                static_cast<uint32_t>(std::lround(command.value)),
+                2u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+            params.layout = s3g::AmbiSpeakerLayoutPreset::Custom;
+            break;
+        case kSelectedSpeakerParamId:
+            params.selectedSpeaker = std::clamp<uint32_t>(
+                static_cast<uint32_t>(std::lround(command.value)),
+                1u, std::max<uint32_t>(1u, params.activeSpeakers)) - 1u;
+            break;
+        case kRegularizationParamId:
+            params.regularization = static_cast<float>(
+                std::clamp(command.value, 0.0, 0.20));
+            break;
+        case kEnergyParamId:
+            params.energy = static_cast<float>(
+                std::clamp(command.value, 0.0, 1.50));
+            break;
+        case kWeightingParamId:
+            params.weighting = static_cast<s3g::AmbiSpeakerDecoderWeighting>(
+                std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(command.value)), 0u, 2u));
+            break;
+        case kCustomFieldParamId:
+            params.customField = static_cast<s3g::AmbiSpeakerCustomField>(
+                std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(command.value)), 0u, 1u));
+            params.layout = s3g::AmbiSpeakerLayoutPreset::Custom;
+            break;
+        default:
+            return false;
+        }
+        plugin.modelDecoder.setParams(params);
+        return true;
+    }
+    case DecoderCommandKind::SetAzimuth:
+    case DecoderCommandKind::SetElevation:
+    case DecoderCommandKind::SetDistance: {
+        const uint32_t speakerIndex = std::min<uint32_t>(
+            command.speakerIndex,
+            std::max<uint32_t>(1u, params.activeSpeakers) - 1u);
+        auto speaker = plugin.modelDecoder.speaker(speakerIndex);
+        if (command.kind == DecoderCommandKind::SetAzimuth) {
+            speaker.azimuthDeg = static_cast<float>(
+                std::clamp(command.value, -180.0, 180.0));
+        } else if (command.kind == DecoderCommandKind::SetElevation) {
+            speaker.elevationDeg = static_cast<float>(
+                std::clamp(command.value, -90.0, 90.0));
+        } else {
+            speaker.distance = static_cast<float>(
+                std::clamp(command.value, 0.15, 2.0));
+        }
+        plugin.modelDecoder.setSpeaker(speakerIndex, speaker);
+        return true;
+    }
+    case DecoderCommandKind::SetGain: {
+        const uint32_t speakerIndex = std::min<uint32_t>(
+            command.speakerIndex,
+            std::max<uint32_t>(1u, params.activeSpeakers) - 1u);
+        params.selectedSpeaker = std::min<uint32_t>(
+            speakerIndex,
+            std::max<uint32_t>(1u, params.activeSpeakers) - 1u);
+        plugin.modelDecoder.setParams(params);
+        return true;
+    }
+    case DecoderCommandKind::SetEnabled: {
+        const uint32_t speakerIndex = std::min<uint32_t>(
+            command.speakerIndex,
+            std::max<uint32_t>(1u, params.activeSpeakers) - 1u);
+        plugin.modelDecoder.setSpeakerEnabled(speakerIndex, command.value >= 0.5);
+        return true;
+    }
+    case DecoderCommandKind::SetSolo: {
+        const uint32_t speakerIndex = std::min<uint32_t>(
+            command.speakerIndex,
+            std::max<uint32_t>(1u, params.activeSpeakers) - 1u);
+        params.selectedSpeaker = std::min<uint32_t>(
+            speakerIndex,
+            std::max<uint32_t>(1u, params.activeSpeakers) - 1u);
+        plugin.modelDecoder.setParams(params);
+        return true;
+    }
+    case DecoderCommandKind::SetWidth:
+    case DecoderCommandKind::SetOutput:
+        return false;
+    }
+    return false;
+}
+
+void commitRuntimeCommand(Plugin& plugin, const DecoderCommand& command)
+{
+    const uint32_t serial = command.deferRuntimeCommit
+        ? allocateRuntimeSerial(plugin)
+        : command.runtimeSerial;
+    switch (command.kind) {
+    case DecoderCommandKind::SetParam:
+        switch (command.paramId) {
+        case kLayoutParamId:
+            applyDesiredLayoutReset(
+                plugin,
+                std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(command.value)),
+                    0u, kMaxLayoutParamValue),
+                serial);
+            break;
+        case kActiveSpeakersParamId:
+            applyDesiredActiveReset(
+                plugin,
+                std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(command.value)),
+                    2u, s3g::kAmbiSpeakerDecoderMaxSpeakers),
+                serial);
+            break;
+        case kCustomFieldParamId:
+            applyDesiredCustomFieldReset(
+                plugin,
+                std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(command.value)),
+                    0u, 1u),
+                serial);
+            break;
+        case kSelectedSpeakerParamId: {
+            const uint32_t active = std::clamp<uint32_t>(
+                plugin.realtimeActiveSpeakers.load(std::memory_order_acquire),
+                2u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+            plugin.realtimeSelectedSpeaker.storeIfNewer(
+                std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(command.value)),
+                    1u, active) - 1u,
+                serial);
+            break;
+        }
+        default:
+            break;
+        }
+        break;
+    case DecoderCommandKind::SetAzimuth:
+    case DecoderCommandKind::SetElevation:
+    case DecoderCommandKind::SetDistance:
+        plugin.realtimeLayout.storeIfNewer(
+            static_cast<uint32_t>(
+                s3g::AmbiSpeakerLayoutPreset::Custom),
+            serial);
+        break;
+    case DecoderCommandKind::SetGain: {
+        const uint32_t speaker = std::min<uint32_t>(
+            command.speakerIndex,
+            s3g::kAmbiSpeakerDecoderMaxSpeakers - 1u);
+        plugin.realtimeSpeakerGain[speaker].storeIfNewer(
+            static_cast<float>(
+                std::clamp(command.value, 0.0, 2.0)),
+            serial);
+        plugin.realtimeSelectedSpeaker.storeIfNewer(
+            std::min<uint32_t>(
+                speaker,
+                std::max<uint32_t>(
+                    1u,
+                    plugin.realtimeActiveSpeakers.load(
+                        std::memory_order_acquire)) - 1u),
+            serial);
+        break;
+    }
+    case DecoderCommandKind::SetEnabled: {
+        const uint32_t speaker = std::min<uint32_t>(
+            command.speakerIndex,
+            s3g::kAmbiSpeakerDecoderMaxSpeakers - 1u);
+        plugin.realtimeSpeakerEnabled[speaker].storeIfNewer(
+            command.value >= 0.5, serial);
+        plugin.realtimeSelectedSpeaker.storeIfNewer(
+            std::min<uint32_t>(
+                speaker,
+                std::max<uint32_t>(
+                    1u,
+                    plugin.realtimeActiveSpeakers.load(
+                        std::memory_order_acquire)) - 1u),
+            serial);
+        break;
+    }
+    case DecoderCommandKind::SetSolo: {
+        const uint32_t speaker = std::min<uint32_t>(
+            command.speakerIndex,
+            s3g::kAmbiSpeakerDecoderMaxSpeakers - 1u);
+        plugin.realtimeSpeakerSolo[speaker].storeIfNewer(
+            command.value >= 0.5, serial);
+        plugin.realtimeSelectedSpeaker.storeIfNewer(
+            std::min<uint32_t>(
+                speaker,
+                std::max<uint32_t>(
+                    1u,
+                    plugin.realtimeActiveSpeakers.load(
+                        std::memory_order_acquire)) - 1u),
+            serial);
+        break;
+    }
+    case DecoderCommandKind::SetWidth:
+        plugin.realtimeWidth.storeIfNewer(
+            static_cast<float>(
+                std::clamp(command.value, 0.0, 1.50)),
+            serial);
+        break;
+    case DecoderCommandKind::SetOutput:
+        plugin.realtimeOutputGainDb.storeIfNewer(
+            static_cast<float>(
+                std::clamp(command.value, -60.0, 12.0)),
+            serial);
+        break;
+    }
+}
+
+bool shouldCommitRuntimeImmediately(const DecoderCommand& command)
+{
+    if (command.kind == DecoderCommandKind::SetWidth
+        || command.kind == DecoderCommandKind::SetOutput) {
+        return true;
+    }
+    if (command.kind == DecoderCommandKind::SetGain
+        || command.kind == DecoderCommandKind::SetEnabled
+        || command.kind == DecoderCommandKind::SetSolo) {
+        // Selected-speaker parameters are resolved in actual FIFO order by
+        // the worker. An optimistic write to the producer's stale selection
+        // could otherwise survive on the wrong channel.
+        return !command.speakerFollowsSelection;
+    }
+    return command.kind == DecoderCommandKind::SetParam
+        && command.paramId == kSelectedSpeakerParamId;
+}
+
+bool storeWorkerCompletions(Plugin& plugin)
+{
+    bool changed = false;
+    const uint64_t completedQueue =
+        plugin.completedQueuePosition.load(std::memory_order_relaxed);
+    if (completedQueue < plugin.workerAppliedQueuePosition) {
+        plugin.completedQueuePosition.store(
+            plugin.workerAppliedQueuePosition, std::memory_order_release);
+        changed = true;
+    }
+    const uint64_t completedOverflow =
+        plugin.completedOverflowPosition.load(std::memory_order_relaxed);
+    if (completedOverflow < plugin.workerAppliedOverflowPosition) {
+        plugin.completedOverflowPosition.store(
+            plugin.workerAppliedOverflowPosition, std::memory_order_release);
+        changed = true;
+    }
+    return changed;
+}
+
+bool loadPendingOverflow(Plugin& plugin)
+{
+    if (plugin.workerHasPendingOverflow) return true;
+    if (!plugin.decoderOverflowCommands.tryPop(
+            plugin.workerPendingOverflow,
+            &plugin.workerPendingOverflowPosition)) {
+        return false;
+    }
+    plugin.workerHasPendingOverflow = true;
+    return true;
+}
+
+DecoderCommand resolveWorkerCommand(
+    Plugin& plugin, const DecoderCommand& queued)
+{
+    DecoderCommand resolved = queued;
+    if (resolved.speakerFollowsSelection) {
+        const auto params = plugin.modelDecoder.params();
+        resolved.speakerIndex = std::min<uint32_t>(
+            params.selectedSpeaker,
+            std::max<uint32_t>(1u, params.activeSpeakers) - 1u);
+    }
+    return resolved;
+}
+
+void applyPendingOverflow(Plugin& plugin)
+{
+    if (!plugin.workerHasPendingOverflow) return;
+    if (plugin.workerPendingOverflow.epoch
+        == plugin.commandEpoch.load(std::memory_order_acquire)) {
+        auto committed =
+            resolveWorkerCommand(plugin, plugin.workerPendingOverflow);
+        if (applyDecoderCommand(plugin, committed)) {
+            plugin.decoderPublishPending = true;
+        }
+        committed.deferRuntimeCommit = true;
+        commitRuntimeCommand(plugin, committed);
+    }
+    plugin.workerAppliedOverflowPosition =
+        plugin.workerPendingOverflowPosition;
+    plugin.workerHasPendingOverflow = false;
+}
+
+void decoderWorkerMain(Plugin* plugin)
+{
+    while (!plugin->stopDecoderWorker.load(std::memory_order_acquire)) {
+        bool receivedCommand = false;
+        bool completedWork = false;
+        {
+            std::lock_guard<std::mutex> lock(plugin->modelMutex);
+            plugin->modelDecoder.beginBatchUpdate();
+            uint32_t appliedCount = 0u;
+            while (appliedCount < kDecoderWorkerBatchLimit) {
+                if (loadPendingOverflow(*plugin)
+                    && plugin->workerPendingOverflow.queueBoundary
+                        <= plugin->workerAppliedQueuePosition) {
+                    applyPendingOverflow(*plugin);
+                    receivedCommand = true;
+                    ++appliedCount;
+                    continue;
+                }
+
+                if (!plugin->workerHasPendingPrimary) {
+                    if (!plugin->decoderCommands.tryPop(
+                            plugin->workerPendingPrimary,
+                            &plugin->workerPendingPrimaryPosition)) {
+                        break;
+                    }
+                    plugin->workerHasPendingPrimary = true;
+                }
+
+                // An overflow command published before this primary reservation
+                // must run first. Keep the primary pending across batches so
+                // this ordering rule never bypasses the batch latency cap.
+                if (loadPendingOverflow(*plugin)
+                    && plugin->workerPendingOverflow.queueBoundary
+                        < plugin->workerPendingPrimaryPosition) {
+                    applyPendingOverflow(*plugin);
+                    receivedCommand = true;
+                    ++appliedCount;
+                    continue;
+                }
+
+                receivedCommand = true;
+                if (plugin->workerPendingPrimary.epoch
+                    == plugin->commandEpoch.load(std::memory_order_acquire)) {
+                    auto committed = resolveWorkerCommand(
+                        *plugin, plugin->workerPendingPrimary);
+                    if (applyDecoderCommand(*plugin, committed)) {
+                        plugin->decoderPublishPending = true;
+                    }
+                    committed.deferRuntimeCommit = true;
+                    commitRuntimeCommand(*plugin, committed);
+                }
+                plugin->workerAppliedQueuePosition =
+                    plugin->workerPendingPrimaryPosition;
+                plugin->workerHasPendingPrimary = false;
+                ++appliedCount;
+            }
+            plugin->modelDecoder.endBatchUpdate();
+            if (plugin->decoderPublishPending) {
+                publishModelDecoder(*plugin);
+            }
+            if (!plugin->decoderPublishPending) {
+                std::lock_guard<std::mutex> completionLock(
+                    plugin->completionMutex);
+                completedWork = storeWorkerCompletions(*plugin);
+            }
+        }
+        if (completedWork) plugin->completionCondition.notify_all();
+        if (!receivedCommand && !completedWork) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+}
+
+void prepareCommand(Plugin& plugin, DecoderCommand& command)
+{
+    const uint64_t epochBefore =
+        plugin.commandEpoch.load(std::memory_order_acquire);
+    if ((epochBefore & 1u) != 0u) {
+        command.epoch = epochBefore + 1u;
+        command.deferRuntimeCommit = true;
+        return;
+    }
+
+    command.runtimeSerial = allocateRuntimeSerial(plugin);
+    const uint64_t epochAfter =
+        plugin.commandEpoch.load(std::memory_order_acquire);
+    if (epochAfter == epochBefore) {
+        command.epoch = epochBefore;
+        command.deferRuntimeCommit = false;
+        return;
+    }
+
+    // State load crossed this preparation. Queue the event for the stable
+    // generation that follows it and let the worker publish its runtime
+    // shadow after the loaded decoder is visible.
+    command.epoch =
+        (epochAfter & 1u) != 0u ? epochAfter + 1u : epochAfter;
+    command.deferRuntimeCommit = true;
+}
+
+bool submitPreparedCommandNonRealtime(
+    Plugin& plugin, DecoderCommand& command)
+{
+    while (!plugin.decoderCommands.tryPush(command)
+        && !plugin.stopDecoderWorker.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+    return !plugin.stopDecoderWorker.load(std::memory_order_acquire);
+}
+
+bool submitCommandNonRealtime(Plugin& plugin, DecoderCommand& command)
+{
+    prepareCommand(plugin, command);
+    return submitPreparedCommandNonRealtime(plugin, command);
+}
+
+bool submitPreparedCommandRealtime(
+    Plugin& plugin, DecoderCommand& command)
+{
+    if (plugin.decoderCommands.tryPush(command)) return true;
+    command.queueBoundary = plugin.decoderCommands.producerPosition();
+    return plugin.decoderOverflowCommands.tryPush(command);
+}
+
+bool submitCommandRealtime(Plugin& plugin, DecoderCommand& command)
+{
+    prepareCommand(plugin, command);
+    return submitPreparedCommandRealtime(plugin, command);
+}
+
+bool waitForSubmittedCommands(Plugin& plugin, std::chrono::milliseconds timeout)
+{
+    const uint64_t queueTarget = plugin.decoderCommands.producerPosition();
+    const uint64_t overflowTarget =
+        plugin.decoderOverflowCommands.producerPosition();
+    auto completed = [&] {
+        return plugin.completedQueuePosition.load(std::memory_order_acquire)
+                >= queueTarget
+            && plugin.completedOverflowPosition.load(std::memory_order_acquire)
+                >= overflowTarget;
+    };
+    if (completed()) return true;
+    std::unique_lock<std::mutex> lock(plugin.completionMutex);
+    return plugin.completionCondition.wait_for(lock, timeout, completed);
+}
+
+void applyParam(Plugin& p, clap_id id, double value)
+{
+    if (!std::isfinite(value)) return;
+    const uint32_t selected = std::min<uint32_t>(
+        p.realtimeSelectedSpeaker.load(std::memory_order_relaxed),
+        std::max<uint32_t>(
+            1u, p.realtimeActiveSpeakers.load(std::memory_order_relaxed)) - 1u);
+    DecoderCommand command {};
+    switch (id) {
+    case kWidthParamId:
+        command.kind = DecoderCommandKind::SetWidth;
+        command.value = value;
+        break;
+    case kOutputParamId:
+        command.kind = DecoderCommandKind::SetOutput;
+        command.value = value;
+        break;
+    case kSelectedSpeakerParamId:
+        command.kind = DecoderCommandKind::SetParam;
+        command.paramId = id;
+        command.value = value;
+        break;
+    case kLayoutParamId:
+        command.kind = DecoderCommandKind::SetParam;
+        command.paramId = id;
+        command.value = value;
+        break;
+    case kActiveSpeakersParamId:
+        command.kind = DecoderCommandKind::SetParam;
+        command.paramId = id;
+        command.value = value;
+        break;
+    case kCustomFieldParamId:
+        command.kind = DecoderCommandKind::SetParam;
+        command.paramId = id;
+        command.value = value;
+        break;
+    case kAzimuthParamId:
+        command.kind = DecoderCommandKind::SetAzimuth;
+        command.speakerIndex = selected;
+        command.speakerFollowsSelection = true;
+        command.value = value;
+        break;
+    case kElevationParamId:
+        command.kind = DecoderCommandKind::SetElevation;
+        command.speakerIndex = selected;
+        command.speakerFollowsSelection = true;
+        command.value = value;
+        break;
+    case kDistanceParamId:
+        command.kind = DecoderCommandKind::SetDistance;
+        command.speakerIndex = selected;
+        command.speakerFollowsSelection = true;
+        command.value = value;
+        break;
+    case kSpeakerGainParamId:
+        command.kind = DecoderCommandKind::SetGain;
+        command.speakerIndex = selected;
+        command.speakerFollowsSelection = true;
+        command.value = value;
+        break;
+    case kSpeakerEnabledParamId:
+        command.kind = DecoderCommandKind::SetEnabled;
+        command.speakerIndex = selected;
+        command.speakerFollowsSelection = true;
+        command.value = value;
+        break;
+    default:
+        command.kind = DecoderCommandKind::SetParam;
+        command.paramId = id;
+        command.value = value;
+        break;
+    }
+
+    if (command.kind == DecoderCommandKind::SetWidth
+        || command.kind == DecoderCommandKind::SetOutput) {
+        prepareCommand(p, command);
+        if (command.deferRuntimeCommit) {
+            if (!submitPreparedCommandNonRealtime(p, command)) return;
+        } else {
+            commitRuntimeCommand(p, command);
+        }
+        return;
+    }
+
+    if (!submitCommandNonRealtime(p, command)) return;
+    if (!command.deferRuntimeCommit
+        && shouldCommitRuntimeImmediately(command)) {
+        commitRuntimeCommand(p, command);
+    }
+}
+
+void setSpeakerGainNonRealtime(Plugin& plugin, uint32_t speakerIndex, double value)
+{
+    if (speakerIndex >= s3g::kAmbiSpeakerDecoderMaxSpeakers) return;
+    value = std::clamp(value, 0.0, 2.0);
+    DecoderCommand command {};
+    command.kind = DecoderCommandKind::SetGain;
+    command.speakerIndex = speakerIndex;
+    command.value = value;
+    if (!submitCommandNonRealtime(plugin, command)) return;
+    if (!command.deferRuntimeCommit
+        && shouldCommitRuntimeImmediately(command)) {
+        commitRuntimeCommand(plugin, command);
+    }
+}
+
+void setSpeakerEnabledNonRealtime(Plugin& plugin, uint32_t speakerIndex, bool enabled)
+{
+    if (speakerIndex >= s3g::kAmbiSpeakerDecoderMaxSpeakers) return;
+    DecoderCommand command {};
+    command.kind = DecoderCommandKind::SetEnabled;
+    command.speakerIndex = speakerIndex;
+    command.value = enabled ? 1.0 : 0.0;
+    if (!submitCommandNonRealtime(plugin, command)) return;
+    if (!command.deferRuntimeCommit
+        && shouldCommitRuntimeImmediately(command)) {
+        commitRuntimeCommand(plugin, command);
+    }
+}
+
+void setSpeakerSoloNonRealtime(Plugin& plugin, uint32_t speakerIndex, bool solo)
+{
+    if (speakerIndex >= s3g::kAmbiSpeakerDecoderMaxSpeakers) return;
+    DecoderCommand command {};
+    command.kind = DecoderCommandKind::SetSolo;
+    command.speakerIndex = speakerIndex;
+    command.value = solo ? 1.0 : 0.0;
+    if (!submitCommandNonRealtime(plugin, command)) return;
+    if (!command.deferRuntimeCommit
+        && shouldCommitRuntimeImmediately(command)) {
+        commitRuntimeCommand(plugin, command);
+    }
+}
+
+bool init(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    {
+        std::lock_guard<std::mutex> lock(p->modelMutex);
+        p->modelDecoder.prepare(p->sampleRate);
+        storeRuntimeFromDecoder(*p, p->modelDecoder);
+        normalizeModelRuntimeControls(*p);
+        for (auto& slot : p->decoderSnapshots) {
+            slot.decoder = p->modelDecoder;
+            slot.runtimeMixer = p->modelRuntimeMixer;
+        }
+        p->publishedDecoder.store(0u, std::memory_order_release);
+        p->decoderSnapshots[0u].state.fetch_add(
+            1u, std::memory_order_relaxed);
+        p->audioDecoderSnapshot = 0u;
+        p->audioDecoderSnapshotHeld = true;
+    }
+    try {
+        p->decoderWorker = std::thread(decoderWorkerMain, p);
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+void destroy(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+#if defined(__APPLE__)
+    if (p->guiView)
+        s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
+#endif
+    p->stopDecoderWorker.store(true, std::memory_order_release);
+    if (p->decoderWorker.joinable()) p->decoderWorker.join();
+    if (p->audioDecoderSnapshotHeld) {
+        p->decoderSnapshots[p->audioDecoderSnapshot].state.fetch_sub(
+            1u, std::memory_order_release);
+        p->audioDecoderSnapshotHeld = false;
+    }
+    delete p;
+}
 
 bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t maxFrames)
 {
     auto* p = self(plugin);
     p->sampleRate = sampleRate;
     p->maxFrames = maxFrames;
-    p->decoder.prepare(sampleRate);
-    p->decoder.setParams(p->params);
-    p->params = p->decoder.params();
+    if (!waitForSubmittedCommands(*p, std::chrono::milliseconds(2000))) return false;
+    std::lock_guard<std::mutex> lock(p->modelMutex);
+    auto params = p->modelDecoder.params();
+    auto speakers = p->modelDecoder.speakers();
+    p->modelDecoder.prepare(sampleRate);
+    p->modelDecoder.beginBatchUpdate();
+    p->modelDecoder.setParams(params);
+    p->modelDecoder.setSpeakers(speakers);
+    p->modelDecoder.endBatchUpdate();
+    p->decoderPublishPending = true;
+    publishModelDecoderBlocking(*p);
     return true;
 }
 
@@ -198,12 +1491,94 @@ void reset(const clap_plugin_t* plugin) { self(plugin)->outputPeak.store(0.0f, s
 void readParamEvents(Plugin& p, const clap_input_events_t* in)
 {
     if (!in) return;
+    uint32_t activeSpeakers = std::clamp<uint32_t>(
+        p.realtimeActiveSpeakers.load(std::memory_order_acquire),
+        2u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    uint32_t selected = std::min<uint32_t>(
+        p.realtimeSelectedSpeaker.load(std::memory_order_relaxed),
+        activeSpeakers - 1u);
     const uint32_t n = in->size(in);
     for (uint32_t i = 0; i < n; ++i) {
         const clap_event_header_t* ev = in->get(in, i);
         if (ev && ev->space_id == CLAP_CORE_EVENT_SPACE_ID && ev->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* param = reinterpret_cast<const clap_event_param_value_t*>(ev);
-            applyParam(p, param->param_id, param->value);
+            if (!std::isfinite(param->value)) continue;
+            DecoderCommand command {};
+            if (param->param_id == kWidthParamId) {
+                command.kind = DecoderCommandKind::SetWidth;
+                command.value = param->value;
+                prepareCommand(p, command);
+                if (command.deferRuntimeCommit) {
+                    submitPreparedCommandRealtime(p, command);
+                } else {
+                    commitRuntimeCommand(p, command);
+                }
+                continue;
+            }
+            if (param->param_id == kOutputParamId) {
+                command.kind = DecoderCommandKind::SetOutput;
+                command.value = param->value;
+                prepareCommand(p, command);
+                if (command.deferRuntimeCommit) {
+                    submitPreparedCommandRealtime(p, command);
+                } else {
+                    commitRuntimeCommand(p, command);
+                }
+                continue;
+            }
+            if (param->param_id == kSelectedSpeakerParamId) {
+                command.kind = DecoderCommandKind::SetParam;
+                command.paramId = param->param_id;
+            } else if (param->param_id == kAzimuthParamId) {
+                command.kind = DecoderCommandKind::SetAzimuth;
+                command.speakerIndex = selected;
+                command.speakerFollowsSelection = true;
+            } else if (param->param_id == kElevationParamId) {
+                command.kind = DecoderCommandKind::SetElevation;
+                command.speakerIndex = selected;
+                command.speakerFollowsSelection = true;
+            } else if (param->param_id == kDistanceParamId) {
+                command.kind = DecoderCommandKind::SetDistance;
+                command.speakerIndex = selected;
+                command.speakerFollowsSelection = true;
+            } else if (param->param_id == kSpeakerGainParamId) {
+                command.kind = DecoderCommandKind::SetGain;
+                command.speakerIndex = selected;
+                command.speakerFollowsSelection = true;
+            } else if (param->param_id == kSpeakerEnabledParamId) {
+                command.kind = DecoderCommandKind::SetEnabled;
+                command.speakerIndex = selected;
+                command.speakerFollowsSelection = true;
+            } else {
+                command.kind = DecoderCommandKind::SetParam;
+                command.paramId = param->param_id;
+            }
+            command.value = param->value;
+            if (!submitCommandRealtime(p, command)) continue;
+            if (!command.deferRuntimeCommit
+                && shouldCommitRuntimeImmediately(command)) {
+                commitRuntimeCommand(p, command);
+            }
+
+            if (param->param_id == kSelectedSpeakerParamId) {
+                selected = std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(param->value)),
+                    1u, activeSpeakers) - 1u;
+            } else if (param->param_id == kLayoutParamId) {
+                const uint32_t layout = std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(param->value)),
+                    0u, kMaxLayoutParamValue);
+                activeSpeakers = activeSpeakersForLayout(
+                    layout, activeSpeakers);
+                selected = std::min<uint32_t>(
+                    selected, activeSpeakers - 1u);
+            } else if (param->param_id == kActiveSpeakersParamId) {
+                activeSpeakers = std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(param->value)),
+                    2u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+                selected = std::min<uint32_t>(
+                    selected, activeSpeakers - 1u);
+            }
         }
     }
 }
@@ -230,12 +1605,44 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     }
 
     float blockPeak = 0.0f;
-    p->decoder.processBlock(input.data32, output.data32, inChannels, outChannels, frames);
-    const uint32_t peakChannels = std::min<uint32_t>(outChannels, p->decoder.params().activeSpeakers);
+    uint32_t nextSnapshot = 0u;
+    if (tryAcquireDecoderSnapshot(*p, nextSnapshot, 32u)) {
+        const uint32_t previousSnapshot = p->audioDecoderSnapshot;
+        const bool releasePrevious = p->audioDecoderSnapshotHeld;
+        p->audioDecoderSnapshot = nextSnapshot;
+        p->audioDecoderSnapshotHeld = true;
+        if (releasePrevious) {
+            p->decoderSnapshots[previousSnapshot].state.fetch_sub(
+                1u, std::memory_order_release);
+        }
+    }
+    auto& snapshot = p->decoderSnapshots[p->audioDecoderSnapshot];
+    snapshot.decoder.processBlock(
+        input.data32, output.data32,
+        inChannels, outChannels, frames);
+    const auto params = snapshot.decoder.params();
+    const auto& publishedSpeakers = snapshot.decoder.speakers();
+    const auto runtime =
+        resolveRuntimeMixerState(*p, snapshot.runtimeMixer);
+    const uint32_t peakChannels = std::min<uint32_t>(outChannels, params.activeSpeakers);
+    bool anySolo = false;
+    for (uint32_t ch = 0; ch < peakChannels; ++ch) {
+        anySolo = anySolo || runtime.solo[ch];
+    }
+    const float globalGain =
+        runtime.width * s3g::dbToGain(runtime.outputGainDb);
     for (uint32_t ch = 0; ch < peakChannels; ++ch) {
         if (!output.data32[ch]) continue;
+        const bool audible = publishedSpeakers[ch].enabled
+            && runtime.enabled[ch]
+            && (!anySolo || runtime.solo[ch]);
+        const float channelGain = globalGain * runtime.gain[ch];
         for (uint32_t i = 0; i < frames; ++i) {
-            blockPeak = std::max(blockPeak, std::fabs(output.data32[ch][i]));
+            const float sample = audible
+                ? s3g::flushDenormal(output.data32[ch][i] * channelGain)
+                : 0.0f;
+            output.data32[ch][i] = sample;
+            blockPeak = std::max(blockPeak, std::fabs(sample));
         }
     }
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
@@ -264,7 +1671,7 @@ const clap_plugin_audio_ports_t audioPorts { audioPortsCount, audioPortsGet };
 struct ParamDef { clap_id id; const char* name; double min; double max; double def; bool stepped; };
 constexpr ParamDef kParamDefs[] {
     { kLayoutParamId, "Layout", 0.0, static_cast<double>(kMaxLayoutParamValue), 7.0, true },
-    { kModeParamId, "Mode", 0.0, 2.0, 1.0, true },
+    { kModeParamId, "Mode", 0.0, 3.0, 1.0, true },
     { kOrderParamId, "Order", 1.0, 7.0, 3.0, true },
     { kActiveSpeakersParamId, "Active Speakers", 2.0, 64.0, 24.0, true },
     { kSelectedSpeakerParamId, "Selected Speaker", 1.0, 64.0, 1.0, true },
@@ -297,7 +1704,10 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value) return false;
-    const auto& p = self(plugin)->params;
+    auto* pluginState = self(plugin);
+    auto snapshot = acquireDecoderSnapshot(*pluginState);
+    const auto p = visibleDecoderParams(
+        *pluginState, snapshot.decoder(), snapshot.runtimeMixer());
     switch (id) {
     case kLayoutParamId: *value = static_cast<double>(static_cast<uint32_t>(p.layout)); return true;
     case kModeParamId: *value = static_cast<double>(static_cast<uint32_t>(p.mode)); return true;
@@ -335,9 +1745,38 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
+    if (id == kModeParamId) {
+        for (uint32_t mode = 0; mode <= 3u; ++mode) {
+            if (std::strcmp(display, modeName(mode)) == 0) {
+                *value = static_cast<double>(mode);
+                return true;
+            }
+        }
+    } else if (id == kLayoutParamId) {
+        for (uint32_t layout = 0; layout <= kMaxLayoutParamValue; ++layout) {
+            if (std::strcmp(display, layoutName(layout)) == 0) {
+                *value = static_cast<double>(layout);
+                return true;
+            }
+        }
+    } else if (id == kWeightingParamId) {
+        for (uint32_t weighting = 0; weighting <= 2u; ++weighting) {
+            if (std::strcmp(display, weightingName(weighting)) == 0) {
+                *value = static_cast<double>(weighting);
+                return true;
+            }
+        }
+    } else if (id == kCustomFieldParamId) {
+        for (uint32_t field = 0; field <= 1u; ++field) {
+            if (std::strcmp(display, customFieldName(field)) == 0) {
+                *value = static_cast<double>(field);
+                return true;
+            }
+        }
+    }
     *value = std::atof(display);
     return true;
 }
@@ -345,49 +1784,143 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, doubl
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
+bool writeStateBytes(
+    const clap_ostream_t* stream, const void* source, size_t byteCount)
+{
+    const auto* bytes = static_cast<const uint8_t*>(source);
+    size_t written = 0u;
+    while (written < byteCount) {
+        const int64_t amount = stream->write(
+            stream, bytes + written, byteCount - written);
+        if (amount <= 0
+            || static_cast<uint64_t>(amount) > byteCount - written) {
+            return false;
+        }
+        written += static_cast<size_t>(amount);
+    }
+    return true;
+}
+
+bool readStateBytes(
+    const clap_istream_t* stream, void* destination, size_t byteCount)
+{
+    auto* bytes = static_cast<uint8_t*>(destination);
+    size_t read = 0u;
+    while (read < byteCount) {
+        const int64_t amount =
+            stream->read(stream, bytes + read, byteCount - read);
+        if (amount <= 0
+            || static_cast<uint64_t>(amount) > byteCount - read) {
+            return false;
+        }
+        read += static_cast<size_t>(amount);
+    }
+    return true;
+}
+
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     SavedState s {};
     auto* p = self(plugin);
-    s.params = p->params;
-    s.speakers = p->decoder.speakers();
+    if (!waitForSubmittedCommands(*p, std::chrono::milliseconds(2000))) return false;
+    {
+        auto snapshot = acquireDecoderSnapshot(*p);
+        s.params = visibleDecoderParams(
+            *p, snapshot.decoder(), snapshot.runtimeMixer());
+        s.speakers = visibleDecoderSpeakers(
+            *p, snapshot.decoder(), snapshot.runtimeMixer());
+    }
 #if defined(__APPLE__)
     s.guiViewMode = p->guiViewMode;
     s.guiViewAzDeg = p->guiViewAzDeg;
     s.guiViewElDeg = p->guiViewElDeg;
     s.guiViewZoom = p->guiViewZoom;
 #endif
-    return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
+    return writeStateBytes(stream, &s, sizeof(s));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     uint32_t version = 0;
-    if (stream->read(stream, &version, sizeof(version)) != static_cast<int64_t>(sizeof(version))) return false;
+    if (!readStateBytes(stream, &version, sizeof(version))) return false;
     SavedState s {};
     s.version = version;
     if (version == kStateVersion) {
         char* rest = reinterpret_cast<char*>(&s) + sizeof(s.version);
         const size_t restSize = sizeof(s) - sizeof(s.version);
-        if (stream->read(stream, rest, restSize) != static_cast<int64_t>(restSize)) return false;
+        if (!readStateBytes(stream, rest, restSize)) return false;
     } else if (version == 4u) {
         SavedStateV4 legacy {};
         legacy.version = version;
         char* rest = reinterpret_cast<char*>(&legacy) + sizeof(legacy.version);
         const size_t restSize = sizeof(legacy) - sizeof(legacy.version);
-        if (stream->read(stream, rest, restSize) != static_cast<int64_t>(restSize)) return false;
+        if (!readStateBytes(stream, rest, restSize)) return false;
         s.params = legacy.params;
         s.speakers = legacy.speakers;
     } else {
         return false;
     }
     auto* p = self(plugin);
-    p->params = s.params;
-    p->decoder.setParams(p->params);
-    p->decoder.setSpeakers(s.speakers);
-    p->params = p->decoder.params();
+    std::lock_guard<std::mutex> lock(p->modelMutex);
+    const uint64_t stableEpoch =
+        p->commandEpoch.load(std::memory_order_acquire);
+    if ((stableEpoch & 1u) != 0u) return false;
+    p->commandEpoch.store(stableEpoch + 1u, std::memory_order_release);
+    const uint32_t loadSerial = allocateRuntimeSerial(*p);
+
+    const float loadedWidth = std::isfinite(s.params.width) ? s.params.width : 1.0f;
+    const float loadedOutputGain =
+        std::isfinite(s.params.outputGainDb) ? s.params.outputGainDb : 0.0f;
+    const uint32_t loadedActiveSpeakers = std::clamp<uint32_t>(
+        s.params.activeSpeakers, 2u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    p->realtimeLayout.storeIfNewer(
+        std::min<uint32_t>(
+            static_cast<uint32_t>(s.params.layout), kMaxLayoutParamValue),
+        loadSerial);
+    p->realtimeCustomField.storeIfNewer(
+        std::min<uint32_t>(
+            static_cast<uint32_t>(s.params.customField), 1u),
+        loadSerial);
+    p->realtimeActiveSpeakers.storeIfNewer(
+        loadedActiveSpeakers, loadSerial);
+    p->realtimeSelectedSpeaker.storeIfNewer(
+        std::min<uint32_t>(
+            s.params.selectedSpeaker,
+            loadedActiveSpeakers - 1u),
+        loadSerial);
+
+    p->modelRuntimeMixer.serial = loadSerial;
+    p->modelRuntimeMixer.width =
+        std::clamp(loadedWidth, 0.0f, 1.50f);
+    p->modelRuntimeMixer.outputGainDb =
+        std::clamp(loadedOutputGain, -60.0f, 12.0f);
+    auto internalParams = s.params;
+    auto internalSpeakers = s.speakers;
+    internalParams.width = 1.0f;
+    internalParams.outputGainDb = 0.0f;
+    internalParams.selectedGain = 1.0f;
+    for (uint32_t speaker = 0; speaker < internalSpeakers.size(); ++speaker) {
+        const float loadedGain = std::isfinite(s.speakers[speaker].gain)
+            ? s.speakers[speaker].gain
+            : 1.0f;
+        p->modelRuntimeMixer.gain[speaker] =
+            std::clamp(loadedGain, 0.0f, 2.0f);
+        p->modelRuntimeMixer.enabled[speaker] =
+            s.speakers[speaker].enabled;
+        p->modelRuntimeMixer.solo[speaker] =
+            s.speakers[speaker].solo;
+        internalSpeakers[speaker].gain = 1.0f;
+        internalSpeakers[speaker].solo = false;
+    }
+    p->modelDecoder.beginBatchUpdate();
+    p->modelDecoder.setParams(internalParams);
+    p->modelDecoder.setSpeakers(internalSpeakers);
+    p->modelDecoder.endBatchUpdate();
+    p->decoderPublishPending = true;
+    publishModelDecoderBlocking(*p);
+    p->commandEpoch.store(stableEpoch + 2u, std::memory_order_release);
 #if defined(__APPLE__)
     p->guiViewMode = std::clamp<int>(s.guiViewMode, 0, 2);
     p->guiViewAzDeg = std::clamp(s.guiViewAzDeg, -180.0, 180.0);
@@ -429,6 +1962,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     BOOL _gainFieldDirty[16];
     int _dragMixerSpeaker;
     BOOL _dragMixerOutput;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 - (BOOL)acceptsFirstResponder;
@@ -452,6 +1986,11 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)setViewPreset:(int)mode;
 - (CGFloat)viewScaleForRect:(NSRect)rect;
 - (NSPoint)projectWorldPoint:(s3g::Vec3)point rect:(NSRect)rect depth:(CGFloat*)depth;
+- (void)drawAllRadTopology:(NSRect)rect
+                     attrs:(NSDictionary*)attrs
+                   decoder:(const s3g::AmbiSpeakerDecoder&)decoder
+                  speakers:(const std::array<s3g::AmbiSpeaker,
+                                s3g::kAmbiSpeakerDecoderMaxSpeakers>&)speakers;
 - (void)drawSpeakerField:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style;
 - (void)drawDecodeMap:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style;
 - (NSRect)mixerOutputTrackRect:(NSRect)rect;
@@ -545,6 +2084,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         _mixerPage = 0;
         _dragMixerSpeaker = -1;
         _dragMixerOutput = NO;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [self updateValueFields];
     }
     return self;
@@ -577,7 +2117,6 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 {
     (void)timer;
     if ([self isHidden] || !_plugin || !s3g::clap_support::hostAppIsActive()) return;
-    if (_rightPage == 2 && !_dragView) return;
     [self setNeedsDisplay:YES];
 }
 - (NSTextField*)makeValueField:(NSInteger)tag
@@ -607,16 +2146,18 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 {
     if (!_plugin) return;
     auto* p = static_cast<Plugin*>(_plugin);
-    const auto prm = p->decoder.params();
+    auto snapshot = acquireDecoderSnapshot(*p);
+    const auto prm = visibleDecoderParams(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
     [_azField setHidden:NO];
     [_elField setHidden:NO];
     [_distField setHidden:NO];
     if (_rightPage != 1) {
         for (int i = 0; i < 16; ++i) [_gainFields[i] setHidden:YES];
     }
-    [_azField setFrame:NSMakeRect(812, 382, 54, 16)];
-    [_elField setFrame:NSMakeRect(812, 408, 54, 16)];
-    [_distField setFrame:NSMakeRect(812, 434, 54, 16)];
+    [_azField setFrame:NSMakeRect(812, 390, 54, 16)];
+    [_elField setFrame:NSMakeRect(812, 416, 54, 16)];
+    [_distField setFrame:NSMakeRect(812, 442, 54, 16)];
     if (![self fieldIsEditing:_azField]) {
         [_azField setStringValue:[NSString stringWithFormat:@"%+.1f", prm.selectedAzimuthDeg]];
     }
@@ -631,8 +2172,11 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 {
     if (!_plugin) return;
     auto* p = static_cast<Plugin*>(_plugin);
-    const auto params = p->decoder.params();
-    const auto speakers = p->decoder.speakers();
+    auto snapshot = acquireDecoderSnapshot(*p);
+    const auto params = visibleDecoderParams(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
+    const auto speakers = visibleDecoderSpeakers(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
     const uint32_t n = std::min<uint32_t>(params.activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
     const uint32_t pageStart = static_cast<uint32_t>(_mixerPage) * 16u;
     for (uint32_t slot = 0; slot < 16u; ++slot) {
@@ -684,10 +2228,14 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         if (!_gainFieldDirty[slot]) return;
         _gainFieldDirty[slot] = NO;
         const uint32_t index = static_cast<uint32_t>(_mixerPage) * 16u + static_cast<uint32_t>(slot);
-        const uint32_t n = std::min<uint32_t>(p->decoder.params().activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+        auto snapshot = acquireDecoderSnapshot(*p);
+        const uint32_t n = std::min<uint32_t>(
+            visibleDecoderParams(
+                *p, snapshot.decoder(), snapshot.runtimeMixer()).activeSpeakers,
+            s3g::kAmbiSpeakerDecoderMaxSpeakers);
         if (index < n) {
             applyParam(*p, kSelectedSpeakerParamId, static_cast<double>(index + 1u));
-            applyParam(*p, kSpeakerGainParamId, std::clamp(value, 0.0, 2.0));
+            setSpeakerGainNonRealtime(*p, index, value);
             _hasSpeakerSelection = YES;
         }
     }
@@ -708,7 +2256,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     if (_openMenu <= 0 || _menuItemCount == 0) return;
     std::array<NSString*, kLayoutMenuCount> layoutItems {};
     for (uint32_t i = 0; i < kLayoutMenuCount; ++i) layoutItems[i] = [NSString stringWithUTF8String:layoutName(layoutPresetForMenuIndex(i))];
-    static NSString* modeItems[] = { @"BASIC", @"EPAD", @"MMD" };
+    static NSString* modeItems[] = { @"BASIC", @"EPAD", @"MMD", @"ALLRAD" };
     static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
     static NSString* weightItems[] = { @"NONE", @"MAXRE", @"INPHASE" };
     static NSString* fieldItems[] = { @"SPHERE", @"HEMI" };
@@ -723,7 +2271,9 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     int selected = 0;
     if (_plugin) {
         auto* p = static_cast<Plugin*>(_plugin);
-        const auto prm = p->decoder.params();
+        auto snapshot = acquireDecoderSnapshot(*p);
+        const auto prm = visibleDecoderParams(
+            *p, snapshot.decoder(), snapshot.runtimeMixer());
         if (_openMenu == 1) {
             const uint32_t layoutValue = static_cast<uint32_t>(prm.layout);
             for (uint32_t i = 0; i < _menuItemCount; ++i) {
@@ -741,7 +2291,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 {
     if (_openMenu <= 0 || _menuItemCount == 0) return;
     const CGFloat itemH = 18.0;
-    const CGFloat w = 124.0;
+    const CGFloat w = _openMenu == 1 ? 150.0 : 124.0;
     const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, w, itemH * static_cast<CGFloat>(_menuItemCount));
     const int next = s3g::clap_gui::dropdownHitIndex(point, menuRect, itemH, _menuItemCount);
     if (next != _hoverMenuItem) {
@@ -821,7 +2371,8 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     CGFloat layoutScale = 1.0;
     if (_plugin && _viewMode != 0 && _viewMode != 1) {
         auto* p = static_cast<Plugin*>(_plugin);
-        const auto layout = p->decoder.params().layout;
+        auto snapshot = acquireDecoderSnapshot(*p);
+        const auto layout = snapshot->params().layout;
         if (layout == s3g::AmbiSpeakerLayoutPreset::Cube8 || layout == s3g::AmbiSpeakerLayoutPreset::Cube17) {
             layoutScale = 0.82;
         }
@@ -906,14 +2457,108 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         }
     }
 }
+- (void)drawAllRadTopology:(NSRect)rect
+                     attrs:(NSDictionary*)attrs
+                   decoder:(const s3g::AmbiSpeakerDecoder&)decoder
+                  speakers:(const std::array<s3g::AmbiSpeaker,
+                                s3g::kAmbiSpeakerDecoderMaxSpeakers>&)speakers
+{
+    const auto& topology = decoder.allRadTopology();
+    const uint32_t realSpeakerCount = std::min<uint32_t>(
+        decoder.params().activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    const uint32_t nodeCount = std::min<uint32_t>(
+        topology.nodeCount, static_cast<uint32_t>(topology.nodes.size()));
+
+    auto pointForNode = [&](uint32_t index) {
+        const auto& node = topology.nodes[index];
+        s3g::Vec3 world = node.direction;
+        if (node.kind == s3g::AllRadNodeKind::Real && node.speakerIndex < realSpeakerCount) {
+            const float distance = speakers[node.speakerIndex].distance;
+            world = {
+                node.direction.x * distance,
+                node.direction.y * distance,
+                node.direction.z * distance
+            };
+        }
+        return [self projectWorldPoint:world rect:rect depth:nil];
+    };
+
+    NSBezierPath* realEdges = [NSBezierPath bezierPath];
+    NSBezierPath* supportEdges = [NSBezierPath bezierPath];
+    const uint32_t edgeCount = std::min<uint32_t>(
+        topology.edgeCount, static_cast<uint32_t>(topology.edges.size()));
+    for (uint32_t i = 0; i < edgeCount; ++i) {
+        const auto& edge = topology.edges[i];
+        if (edge.a >= nodeCount || edge.b >= nodeCount || edge.a == edge.b) continue;
+        const bool involvesSupport = topology.nodes[edge.a].kind != s3g::AllRadNodeKind::Real
+            || topology.nodes[edge.b].kind != s3g::AllRadNodeKind::Real;
+        NSBezierPath* path = involvesSupport ? supportEdges : realEdges;
+        [path moveToPoint:pointForNode(edge.a)];
+        [path lineToPoint:pointForNode(edge.b)];
+    }
+
+    [sdColor(0xd9c46a, 0.18) setStroke];
+    [realEdges setLineWidth:0.65];
+    [realEdges stroke];
+
+    const CGFloat dash[] { 2.5, 2.5 };
+    [supportEdges setLineDash:dash count:2 phase:0.0];
+    [supportEdges setLineWidth:0.55];
+    [sdColor(0xd9c46a, 0.13) setStroke];
+    [supportEdges stroke];
+
+    uint32_t topologyRealCount = 0u;
+    uint32_t dropCount = 0u;
+    uint32_t foldCount = 0u;
+    NSBezierPath* dropPoints = [NSBezierPath bezierPath];
+    NSBezierPath* foldPoints = [NSBezierPath bezierPath];
+    for (uint32_t i = 0; i < nodeCount; ++i) {
+        if (topology.nodes[i].kind == s3g::AllRadNodeKind::Real) {
+            ++topologyRealCount;
+            continue;
+        }
+        const NSPoint point = pointForNode(i);
+        if (topology.nodes[i].kind == s3g::AllRadNodeKind::SupportDrop) {
+            ++dropCount;
+            [dropPoints appendBezierPathWithOvalInRect:
+                NSMakeRect(point.x - 2.5, point.y - 2.5, 5.0, 5.0)];
+        } else {
+            ++foldCount;
+            [foldPoints moveToPoint:NSMakePoint(point.x, point.y - 3.0)];
+            [foldPoints lineToPoint:NSMakePoint(point.x + 3.0, point.y)];
+            [foldPoints lineToPoint:NSMakePoint(point.x, point.y + 3.0)];
+            [foldPoints lineToPoint:NSMakePoint(point.x - 3.0, point.y)];
+            [foldPoints closePath];
+        }
+    }
+    [dropPoints setLineWidth:0.75];
+    [sdColor(0xe7a35a, 0.48) setStroke];
+    [dropPoints stroke];
+    [foldPoints setLineWidth:0.75];
+    [sdColor(0x8fc3c9, 0.52) setStroke];
+    [foldPoints stroke];
+
+    NSString* dimension = @"INVALID";
+    if (topology.valid) {
+        if (topology.dimension == s3g::AllRadDimension::Ring2D) dimension = @"2D";
+        else if (topology.dimension == s3g::AllRadDimension::Sphere3D) dimension = @"3D";
+    }
+    NSString* status = [NSString stringWithFormat:
+        @"ALLRAD  %u REAL  +%u GAP  +%u FOLD  %@",
+        topologyRealCount, dropCount, foldCount, dimension];
+    [status drawAtPoint:NSMakePoint(rect.origin.x + 12.0, rect.origin.y + 9.0) withAttributes:attrs];
+}
 - (void)drawSpeakerField:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const auto prm = p->decoder.params();
+    auto snapshot = acquireDecoderSnapshot(*p);
+    const auto prm = visibleDecoderParams(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
     [sdColor(0x111111) setFill]; NSRectFill(rect);
     [style.grid setStroke]; NSFrameRect(rect);
 
-    const auto speakers = p->decoder.speakers();
+    const auto speakers = visibleDecoderSpeakers(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
     const uint32_t n = std::min<uint32_t>(prm.activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
     std::array<NSPoint, s3g::kAmbiSpeakerDecoderMaxSpeakers> points {};
     for (uint32_t i = 0; i < n; ++i) {
@@ -924,70 +2569,78 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         points[i].x = std::round(points[i].x);
         points[i].y = std::round(points[i].y);
     }
-    [sdColor(0x777777, 0.72) setStroke];
-    NSBezierPath* links = [NSBezierPath bezierPath];
-    auto edge = [&](uint32_t a, uint32_t b) {
-        if (a >= n || b >= n) return;
-        [links moveToPoint:points[a]];
-        [links lineToPoint:points[b]];
-    };
-    auto ring = [&](uint32_t base, uint32_t count) {
-        if (count < 2u) return;
-        for (uint32_t i = 0; i < count; ++i) edge(base + i, base + ((i + 1u) % count));
-    };
-    const auto layout = prm.layout;
-    if (layout == s3g::AmbiSpeakerLayoutPreset::Quad) {
-        ring(0, 4);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube8) {
-        ring(0, 4);
-        ring(4, 4);
-        for (uint32_t i = 0; i < 4; ++i) edge(i, i + 4u);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube17) {
-        ring(0, 4);
-        edge(4, 5); edge(5, 6);
-        edge(6, 7); edge(7, 8);
-        edge(8, 9); edge(9, 10);
-        edge(10, 11); edge(11, 4);
-        ring(12, 4);
-        edge(0, 4); edge(1, 6); edge(2, 8); edge(3, 10);
-        edge(4, 12); edge(6, 13); edge(8, 14); edge(10, 15);
-        edge(12, 16); edge(13, 16); edge(14, 16); edge(15, 16);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube41 || layout == s3g::AmbiSpeakerLayoutPreset::Lpac41) {
-        ring(0, 16);
-        ring(16, 12);
-        ring(28, 8);
-        ring(36, 4);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dome24 || layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
-        ring(0, 12);
-        ring(12, 8);
-        ring(20, 4);
-        for (uint32_t i = 0; i < 8; ++i) {
-            const uint32_t lowerA = (i * 3u) / 2u;
-            const uint32_t lowerB = (lowerA + 1u) % 12u;
-            edge(12u + i, lowerA);
-            edge(12u + i, lowerB);
+    const bool allRad = prm.mode == s3g::AmbiSpeakerDecoderMode::AllRad;
+    if (allRad) {
+        [self drawAllRadTopology:rect
+                          attrs:small
+                        decoder:snapshot.decoder()
+                       speakers:speakers];
+    } else {
+        [sdColor(0x777777, 0.72) setStroke];
+        NSBezierPath* links = [NSBezierPath bezierPath];
+        auto edge = [&](uint32_t a, uint32_t b) {
+            if (a >= n || b >= n) return;
+            [links moveToPoint:points[a]];
+            [links lineToPoint:points[b]];
+        };
+        auto ring = [&](uint32_t base, uint32_t count) {
+            if (count < 2u) return;
+            for (uint32_t i = 0; i < count; ++i) edge(base + i, base + ((i + 1u) % count));
+        };
+        const auto layout = prm.layout;
+        if (layout == s3g::AmbiSpeakerLayoutPreset::Quad) {
+            ring(0, 4);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube8) {
+            ring(0, 4);
+            ring(4, 4);
+            for (uint32_t i = 0; i < 4; ++i) edge(i, i + 4u);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube17) {
+            ring(0, 4);
+            edge(4, 5); edge(5, 6);
+            edge(6, 7); edge(7, 8);
+            edge(8, 9); edge(9, 10);
+            edge(10, 11); edge(11, 4);
+            ring(12, 4);
+            edge(0, 4); edge(1, 6); edge(2, 8); edge(3, 10);
+            edge(4, 12); edge(6, 13); edge(8, 14); edge(10, 15);
+            edge(12, 16); edge(13, 16); edge(14, 16); edge(15, 16);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube41 || layout == s3g::AmbiSpeakerLayoutPreset::Lpac41) {
+            ring(0, 16);
+            ring(16, 12);
+            ring(28, 8);
+            ring(36, 4);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dome24 || layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
+            ring(0, 12);
+            ring(12, 8);
+            ring(20, 4);
+            for (uint32_t i = 0; i < 8; ++i) {
+                const uint32_t lowerA = (i * 3u) / 2u;
+                const uint32_t lowerB = (lowerA + 1u) % 12u;
+                edge(12u + i, lowerA);
+                edge(12u + i, lowerB);
+            }
+            for (uint32_t i = 0; i < 4; ++i) {
+                edge(20u + i, 12u + i * 2u);
+                edge(20u + i, 12u + ((i * 2u + 1u) % 8u));
+            }
+            if (layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
+                for (uint32_t i = 0; i < 4; ++i) edge(24, 20u + i);
+            }
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::QuadOverhead6) {
+            ring(0, 4);
+            edge(4, 0); edge(4, 3);
+            edge(5, 1); edge(5, 2);
+            edge(4, 5);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::OctophonicRing) {
+            ring(0, 8);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dodeca12) {
+            [self addPolyhedronShellToPath:links dodecaShell:YES rect:rect];
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Icosahedron20) {
+            [self addPolyhedronShellToPath:links dodecaShell:NO rect:rect];
         }
-        for (uint32_t i = 0; i < 4; ++i) {
-            edge(20u + i, 12u + i * 2u);
-            edge(20u + i, 12u + ((i * 2u + 1u) % 8u));
-        }
-        if (layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
-            for (uint32_t i = 0; i < 4; ++i) edge(24, 20u + i);
-        }
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::QuadOverhead6) {
-        ring(0, 4);
-        edge(4, 0); edge(4, 3);
-        edge(5, 1); edge(5, 2);
-        edge(4, 5);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::OctophonicRing) {
-        ring(0, 8);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dodeca12) {
-        [self addPolyhedronShellToPath:links dodecaShell:YES rect:rect];
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Icosahedron20) {
-        [self addPolyhedronShellToPath:links dodecaShell:NO rect:rect];
+        [links setLineWidth:1.0];
+        [links stroke];
     }
-    [links setLineWidth:1.0];
-    [links stroke];
 
     for (uint32_t i = 0; i < n; ++i) {
         const auto& sp = speakers[i];
@@ -1016,9 +2669,12 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 - (void)drawDecodeMap:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const auto prm = p->decoder.params();
-    const auto speakers = p->decoder.speakers();
-    const auto& matrix = p->decoder.matrix();
+    auto snapshot = acquireDecoderSnapshot(*p);
+    const auto prm = visibleDecoderParams(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
+    const auto speakers = visibleDecoderSpeakers(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
+    const auto& matrix = snapshot->matrix();
     const uint32_t n = std::min<uint32_t>(prm.activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
     const uint32_t ambiCh = s3g::ambiChannelsForOrder(prm.order);
     [sdColor(0x111111) setFill]; NSRectFill(rect);
@@ -1032,63 +2688,75 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         points[i] = [self projectWorldPoint:world rect:rect depth:nil];
     }
 
+    const bool allRad = prm.mode == s3g::AmbiSpeakerDecoderMode::AllRad;
     NSBezierPath* links = [NSBezierPath bezierPath];
-    auto edge = [&](uint32_t a, uint32_t b) {
-        if (a >= n || b >= n) return;
-        [links moveToPoint:points[a]];
-        [links lineToPoint:points[b]];
-    };
-    auto ring = [&](uint32_t base, uint32_t count) {
-        if (count < 2u || base >= n) return;
-        count = std::min<uint32_t>(count, n - base);
-        for (uint32_t i = 0; i < count; ++i) edge(base + i, base + ((i + 1u) % count));
-    };
-    const auto layout = prm.layout;
-    if (layout == s3g::AmbiSpeakerLayoutPreset::Quad) {
-        ring(0, 4);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube8) {
-        ring(0, 4); ring(4, 4);
-        for (uint32_t i = 0; i < 4; ++i) edge(i, i + 4u);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube17) {
-        ring(0, 4);
-        edge(4, 5); edge(5, 6); edge(6, 7); edge(7, 8);
-        edge(8, 9); edge(9, 10); edge(10, 11); edge(11, 4);
-        ring(12, 4);
-        edge(0, 4); edge(1, 6); edge(2, 8); edge(3, 10);
-        edge(4, 12); edge(6, 13); edge(8, 14); edge(10, 15);
-        edge(12, 16); edge(13, 16); edge(14, 16); edge(15, 16);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube41 || layout == s3g::AmbiSpeakerLayoutPreset::Lpac41) {
-        ring(0, 16);
-        ring(16, 12);
-        ring(28, 8);
-        ring(36, 4);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dome24 || layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
-        ring(0, 12); ring(12, 8); ring(20, 4);
-        for (uint32_t i = 0; i < 8; ++i) {
-            const uint32_t lowerA = (i * 3u) / 2u;
-            edge(12u + i, lowerA);
-            edge(12u + i, (lowerA + 1u) % 12u);
+    if (allRad) {
+        [self drawAllRadTopology:rect
+                          attrs:small
+                        decoder:snapshot.decoder()
+                       speakers:speakers];
+    } else {
+        auto edge = [&](uint32_t a, uint32_t b) {
+            if (a >= n || b >= n) return;
+            [links moveToPoint:points[a]];
+            [links lineToPoint:points[b]];
+        };
+        auto ring = [&](uint32_t base, uint32_t count) {
+            if (count < 2u || base >= n) return;
+            count = std::min<uint32_t>(count, n - base);
+            for (uint32_t i = 0; i < count; ++i) edge(base + i, base + ((i + 1u) % count));
+        };
+        const auto layout = prm.layout;
+        if (layout == s3g::AmbiSpeakerLayoutPreset::Quad) {
+            ring(0, 4);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube8) {
+            ring(0, 4); ring(4, 4);
+            for (uint32_t i = 0; i < 4; ++i) edge(i, i + 4u);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube17) {
+            ring(0, 4);
+            edge(4, 5); edge(5, 6); edge(6, 7); edge(7, 8);
+            edge(8, 9); edge(9, 10); edge(10, 11); edge(11, 4);
+            ring(12, 4);
+            edge(0, 4); edge(1, 6); edge(2, 8); edge(3, 10);
+            edge(4, 12); edge(6, 13); edge(8, 14); edge(10, 15);
+            edge(12, 16); edge(13, 16); edge(14, 16); edge(15, 16);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube41 || layout == s3g::AmbiSpeakerLayoutPreset::Lpac41) {
+            ring(0, 16);
+            ring(16, 12);
+            ring(28, 8);
+            ring(36, 4);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dome24 || layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
+            ring(0, 12); ring(12, 8); ring(20, 4);
+            for (uint32_t i = 0; i < 8; ++i) {
+                const uint32_t lowerA = (i * 3u) / 2u;
+                edge(12u + i, lowerA);
+                edge(12u + i, (lowerA + 1u) % 12u);
+            }
+            for (uint32_t i = 0; i < 4; ++i) {
+                edge(20u + i, 12u + i * 2u);
+                edge(20u + i, 12u + ((i * 2u + 1u) % 8u));
+            }
+            if (layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
+                for (uint32_t i = 0; i < 4; ++i) edge(24, 20u + i);
+            }
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::QuadOverhead6) {
+            ring(0, 4);
+            edge(4, 0); edge(4, 3); edge(5, 1); edge(5, 2); edge(4, 5);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::OctophonicRing) {
+            ring(0, 8);
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dodeca12) {
+            [self addPolyhedronShellToPath:links dodecaShell:YES rect:rect];
+        } else if (layout == s3g::AmbiSpeakerLayoutPreset::Icosahedron20) {
+            [self addPolyhedronShellToPath:links dodecaShell:NO rect:rect];
         }
-        for (uint32_t i = 0; i < 4; ++i) {
-            edge(20u + i, 12u + i * 2u);
-            edge(20u + i, 12u + ((i * 2u + 1u) % 8u));
-        }
-        if (layout == s3g::AmbiSpeakerLayoutPreset::Dome25 || layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
-            for (uint32_t i = 0; i < 4; ++i) edge(24, 20u + i);
-        }
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::QuadOverhead6) {
-        ring(0, 4);
-        edge(4, 0); edge(4, 3); edge(5, 1); edge(5, 2); edge(4, 5);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::OctophonicRing) {
-        ring(0, 8);
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dodeca12) {
-        [self addPolyhedronShellToPath:links dodecaShell:YES rect:rect];
-    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Icosahedron20) {
-        [self addPolyhedronShellToPath:links dodecaShell:NO rect:rect];
     }
     const uint32_t probeIndex = std::min<uint32_t>(prm.selectedSpeaker, n > 0u ? n - 1u : 0u);
     const auto& probeSpeaker = speakers[probeIndex];
-    const auto basis = s3g::acnSn3dBasis7(s3g::directionFromAed(probeSpeaker.azimuthDeg, probeSpeaker.elevationDeg));
+    const auto probeDirection =
+        s3g::directionFromAed(probeSpeaker.azimuthDeg, probeSpeaker.elevationDeg);
+    const auto basis = allRad
+        ? s3g::acnSn3dBasis7Canonical(probeDirection)
+        : s3g::acnSn3dBasis7(probeDirection);
     std::array<float, s3g::kAmbiSpeakerDecoderMaxSpeakers> energy {};
     float maxEnergy = 0.000001f;
     for (uint32_t sp = 0; sp < n; ++sp) {
@@ -1124,9 +2792,11 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
                                        NSMidY(square) - labelSize.height * 0.5 - 0.5)
             withAttributes:small];
     }
-    [sdColor(0xd0d0d0, 0.76) setStroke];
-    [links setLineWidth:1.15];
-    [links stroke];
+    if (!allRad) {
+        [sdColor(0xd0d0d0, 0.76) setStroke];
+        [links setLineWidth:1.15];
+        [links stroke];
+    }
     [[NSString stringWithFormat:@"PROBE S%u   AZ %+.1f  EL %+.1f   %uOA",
         probeIndex + 1u,
         probeSpeaker.azimuthDeg,
@@ -1179,7 +2849,12 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 {
     static NSString* labels[] = { @"1-16", @"17-32", @"33-48", @"49-64" };
     auto* p = static_cast<Plugin*>(_plugin);
-    const uint32_t n = p ? std::min<uint32_t>(p->decoder.params().activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers) : 0u;
+    uint32_t n = 0u;
+    if (p) {
+        auto snapshot = acquireDecoderSnapshot(*p);
+        n = std::min<uint32_t>(
+            snapshot->params().activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    }
     const int pageCount = static_cast<int>((n + 15u) / 16u);
     if (pageCount <= 1) return;
     for (int i = 0; i < pageCount; ++i) {
@@ -1197,15 +2872,18 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 - (void)drawSpeakerMixer:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const auto speakers = p->decoder.speakers();
-    const auto params = p->decoder.params();
+    auto snapshot = acquireDecoderSnapshot(*p);
+    const auto speakers = visibleDecoderSpeakers(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
+    const auto params = visibleDecoderParams(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
     const uint32_t n = std::min<uint32_t>(params.activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
     const int pageCount = std::max<int>(1, static_cast<int>((n + 15u) / 16u));
     _mixerPage = std::clamp(_mixerPage, 0, pageCount - 1);
     const uint32_t pageStart = static_cast<uint32_t>(_mixerPage) * 16u;
     [self drawMixerPageButtonsInRect:rect attrs:attrs];
     s3g::clap_gui::drawSlider(@"OUT",
-                               [NSString stringWithFormat:@"%+.1f", params.outputGainDb],
+                               [NSString stringWithFormat:@"%+.1f dB", params.outputGainDb],
                                (params.outputGainDb + 60.0f) / 72.0f,
                                rect.origin.y + 36.0,
                                attrs,
@@ -1272,7 +2950,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     const CGFloat norm = std::clamp((NSMaxY(track) - point.y) / track.size.height, 0.0, 1.0);
     auto* p = static_cast<Plugin*>(_plugin);
     applyParam(*p, kSelectedSpeakerParamId, static_cast<double>(index + 1u));
-    applyParam(*p, kSpeakerGainParamId, norm * 2.0);
+    setSpeakerGainNonRealtime(*p, index, norm * 2.0);
     _hasSpeakerSelection = YES;
     [self setNeedsDisplay:YES];
 }
@@ -1287,30 +2965,39 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 - (void)toggleMixerSpeakerMute:(uint32_t)index
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const uint32_t n = std::min<uint32_t>(p->decoder.params().activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    auto snapshot = acquireDecoderSnapshot(*p);
+    const uint32_t n = std::min<uint32_t>(
+        snapshot->params().activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
     if (index >= n) return;
-    const bool enabled = p->decoder.speakers()[index].enabled;
-    p->decoder.setSpeakerEnabled(index, !enabled);
-    p->params = p->decoder.params();
+    const auto speakers = visibleDecoderSpeakers(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
+    const bool enabled = speakers[index].enabled;
+    setSpeakerEnabledNonRealtime(*p, index, !enabled);
     _hasSpeakerSelection = YES;
     [self setNeedsDisplay:YES];
 }
 - (void)toggleMixerSpeakerSolo:(uint32_t)index
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const uint32_t n = std::min<uint32_t>(p->decoder.params().activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    auto snapshot = acquireDecoderSnapshot(*p);
+    const uint32_t n = std::min<uint32_t>(
+        snapshot->params().activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
     if (index >= n) return;
-    const bool solo = p->decoder.speakers()[index].solo;
-    p->decoder.setSpeakerSolo(index, !solo);
-    p->params = p->decoder.params();
+    const auto speakers = visibleDecoderSpeakers(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
+    const bool solo = speakers[index].solo;
+    setSpeakerSoloNonRealtime(*p, index, !solo);
     _hasSpeakerSelection = YES;
     [self setNeedsDisplay:YES];
 }
 - (uint32_t)hitSpeakerAt:(NSPoint)pt inRect:(NSRect)rect found:(BOOL*)found
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const auto prm = p->decoder.params();
-    const auto speakers = p->decoder.speakers();
+    auto snapshot = acquireDecoderSnapshot(*p);
+    const auto prm = visibleDecoderParams(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
+    const auto speakers = visibleDecoderSpeakers(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
     const uint32_t n = std::min<uint32_t>(prm.activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
     uint32_t best = prm.selectedSpeaker;
     CGFloat bestD = 999999.0;
@@ -1334,10 +3021,13 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
     NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
-    [@"s3g AMBI SPEAKER DECODER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(728,14) withAttributes:small];
-    [@"64CH" drawAtPoint:NSMakePoint(838,14) withAttributes:small];
+    s3g::clap_gui::drawDecoderTitleBand(
+        @"s3g AMBI DECODER SPEAKER",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(pk),
+        s3g::clap_gui::encoderTitleBand(900.0, 620.0),
+        titleAttrs, lab, small, style);
 
     s3g::clap_gui::drawPanelFrame(18, 42, 596, 556, style);
     s3g::clap_gui::drawPanelHeader(_rightPage == 0 ? @"SPEAKER FIELD" : (_rightPage == 1 ? @"SPEAKER MIXER" : @"DECODE MAP"), true, 18, 42, 596, 21, lab, style);
@@ -1355,39 +3045,47 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
         [self drawSpeakerMixer:NSMakeRect(34, 76, 564, 506) attrs:small style:style];
     }
 
-    const NSRect lowerPanel = NSMakeRect(630, 322, 250, 276);
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 268, style);
-    s3g::clap_gui::drawPanelHeader(@"DECODER", true, 630, 42, 250, 21, lab, style);
+    const NSRect lowerPanel = NSMakeRect(630, 330, 250, 132);
+    s3g::clap_gui::drawPanelFrame(630, 42, 250, 54, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 42, 250, 21, lab, style);
+    s3g::clap_gui::drawPanelFrame(630, 108, 250, 210, style);
+    s3g::clap_gui::drawPanelHeader(@"DECODER", true, 630, 108, 250, 21, lab, style);
     s3g::clap_gui::drawPanelFrame(lowerPanel.origin.x, lowerPanel.origin.y, lowerPanel.size.width, lowerPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"SPEAKER", true, lowerPanel.origin.x, lowerPanel.origin.y, lowerPanel.size.width, 21, lab, style);
 
-    const auto prm = p->decoder.params();
-    [self drawMenu:@"LAYOUT" value:[NSString stringWithUTF8String:layoutName(static_cast<uint32_t>(prm.layout))] y:78 attrs:small style:style];
-    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:modeName(static_cast<uint32_t>(prm.mode))] y:104 attrs:small style:style];
-    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", prm.order] y:130 attrs:small style:style];
-    [self drawMenu:@"WGT" value:[NSString stringWithUTF8String:weightingName(static_cast<uint32_t>(prm.weighting))] y:156 attrs:small style:style];
-    [self drawMenu:@"FIELD" value:[NSString stringWithUTF8String:customFieldName(static_cast<uint32_t>(prm.customField))] y:182 attrs:small style:style];
-    [self drawSlider:@"COUNT" value:[NSString stringWithFormat:@"%u", prm.activeSpeakers] norm:(prm.activeSpeakers - 2.0) / 62.0 y:208 attrs:small style:style];
-    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", prm.width] norm:prm.width / 1.50f y:234 attrs:small style:style];
+    auto decoderSnapshot = acquireDecoderSnapshot(*p);
+    const auto prm = visibleDecoderParams(
+        *p, decoderSnapshot.decoder(), decoderSnapshot.runtimeMixer());
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.outputGainDb] norm:(prm.outputGainDb + 60.0f) / 72.0f y:78 attrs:small style:style];
+    [self drawMenu:@"LAYOUT" value:[NSString stringWithUTF8String:layoutName(static_cast<uint32_t>(prm.layout))] y:144 attrs:small style:style];
+    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:modeName(static_cast<uint32_t>(prm.mode))] y:170 attrs:small style:style];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", prm.order] y:196 attrs:small style:style];
+    [self drawMenu:@"WGT" value:[NSString stringWithUTF8String:weightingName(static_cast<uint32_t>(prm.weighting))] y:222 attrs:small style:style];
+    [self drawMenu:@"FIELD" value:[NSString stringWithUTF8String:customFieldName(static_cast<uint32_t>(prm.customField))] y:248 attrs:small style:style];
+    [self drawSlider:@"COUNT" value:[NSString stringWithFormat:@"%u", prm.activeSpeakers] norm:(prm.activeSpeakers - 2.0) / 62.0 y:274 attrs:small style:style];
+    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", prm.width] norm:prm.width / 1.50f y:300 attrs:small style:style];
 
     const CGFloat selectedNorm = prm.activeSpeakers > 1u
         ? static_cast<CGFloat>(prm.selectedSpeaker) / static_cast<CGFloat>(prm.activeSpeakers - 1u)
         : 0.0;
-    [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"%u", prm.selectedSpeaker + 1u] norm:selectedNorm y:358 attrs:small style:style];
-    [self drawSlider:@"AZ" value:@"" norm:(prm.selectedAzimuthDeg + 180.0f) / 360.0f y:384 attrs:small style:style];
-    [self drawSlider:@"EL" value:@"" norm:(prm.selectedElevationDeg + 90.0f) / 180.0f y:410 attrs:small style:style];
-    [self drawSlider:@"DST" value:@"" norm:(prm.selectedDistance - 0.15f) / 1.85f y:436 attrs:small style:style];
+    [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"%u", prm.selectedSpeaker + 1u] norm:selectedNorm y:366 attrs:small style:style];
+    [self drawSlider:@"AZ" value:@"" norm:(prm.selectedAzimuthDeg + 180.0f) / 360.0f y:392 attrs:small style:style];
+    [self drawSlider:@"EL" value:@"" norm:(prm.selectedElevationDeg + 90.0f) / 180.0f y:418 attrs:small style:style];
+    [self drawSlider:@"DST" value:@"" norm:(prm.selectedDistance - 0.15f) / 1.85f y:444 attrs:small style:style];
     [self updateValueFields];
     [self drawOpenMenu:small];
 }
 - (void)updateSlider:(NSPoint)point
 {
     auto* p = static_cast<Plugin*>(_plugin);
+    auto snapshot = acquireDecoderSnapshot(*p);
+    const auto params = visibleDecoderParams(
+        *p, snapshot.decoder(), snapshot.runtimeMixer());
     const double n = std::clamp((point.x - 738.0) / 82.0, 0.0, 1.0);
     switch (_dragSlider) {
     case 4: applyParam(*p, kActiveSpeakersParamId, 2.0 + n * 62.0); break;
     case 6: applyParam(*p, kWidthParamId, n * 1.50); break;
-    case 7: applyParam(*p, kSelectedSpeakerParamId, 1.0 + n * static_cast<double>(std::max<uint32_t>(1u, p->decoder.params().activeSpeakers) - 1u)); break;
+    case 7: applyParam(*p, kSelectedSpeakerParamId, 1.0 + n * static_cast<double>(std::max<uint32_t>(1u, params.activeSpeakers) - 1u)); break;
     case 8: applyParam(*p, kAzimuthParamId, -180.0 + n * 360.0); break;
     case 9: applyParam(*p, kElevationParamId, -90.0 + n * 180.0); break;
     case 10: applyParam(*p, kDistanceParamId, 0.15 + n * 1.85); break;
@@ -1401,6 +3099,49 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     auto* p = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(900.0, 620.0);
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        applyParam(*p, kLayoutParamId,
+            static_cast<double>(s3g::AmbiSpeakerLayoutPreset::Sphere24));
+        applyParam(*p, kModeParamId, 1.0);
+        applyParam(*p, kOrderParamId, 3.0);
+        applyParam(*p, kWeightingParamId, 1.0);
+        applyParam(*p, kCustomFieldParamId, 0.0);
+        applyParam(*p, kActiveSpeakersParamId, 24.0);
+        applyParam(*p, kWidthParamId, 1.0);
+        applyParam(*p, kOutputParamId, 0.0);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &p->plugin, @"Ambi Decoder Speaker", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self updateValueFields];
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &p->plugin, @"Ambi Decoder Speaker", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    auto decoderSnapshot = acquireDecoderSnapshot(*p);
+    const auto decoderParams = visibleDecoderParams(
+        *p, decoderSnapshot.decoder(), decoderSnapshot.runtimeMixer());
     const BOOL textFieldHit = NSPointInRect(pt, [_azField frame])
         || NSPointInRect(pt, [_elField frame])
         || NSPointInRect(pt, [_distField frame]);
@@ -1452,7 +3193,8 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     const NSRect fieldRect = NSMakeRect(34, 76, 564, 506);
     const NSRect mixerRect = NSMakeRect(34, 76, 564, 506);
     if (_rightPage == 1 && NSPointInRect(pt, mixerRect)) {
-        const uint32_t n = std::min<uint32_t>(p->decoder.params().activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+        const uint32_t n = std::min<uint32_t>(
+            decoderParams.activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
         const int pageCount = static_cast<int>((n + 15u) / 16u);
         if (pageCount > 1) {
             for (int i = 0; i < pageCount; ++i) {
@@ -1467,6 +3209,14 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
             }
         }
         if (NSPointInRect(pt, NSInsetRect([self mixerOutputTrackRect:mixerRect], -8.0, -8.0))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, kOutputParamId, &defaultValue)) {
+                applyParam(*p, kOutputParamId, defaultValue);
+                _dragMixerOutput = NO;
+                [self setNeedsDisplay:YES];
+                return;
+            }
             _dragMixerOutput = YES;
             [self updateMixerOutput:pt inRect:mixerRect];
             return;
@@ -1484,6 +3234,15 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
                 return;
             }
             if (NSPointInRect(pt, NSInsetRect([self mixerSpeakerRect:i inRect:mixerRect], -6.0, -7.0))) {
+                if ([event clickCount] >= 2) {
+                    applyParam(*p, kSelectedSpeakerParamId,
+                        static_cast<double>(i + 1u));
+                    setSpeakerGainNonRealtime(*p, i, 1.0);
+                    _dragMixerSpeaker = -1;
+                    _hasSpeakerSelection = YES;
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
                 _dragMixerSpeaker = static_cast<int>(i);
                 [self updateMixerSpeakerGain:pt inRect:mixerRect];
                 return;
@@ -1542,15 +3301,29 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
             return;
         }
     }
-    if (NSPointInRect(pt, NSMakeRect(738, 77, 102, 17))) { openMenu(1, kLayoutMenuCount, 96); return; }
-    if (NSPointInRect(pt, NSMakeRect(738, 103, 102, 17))) { openMenu(2, 3, 122); return; }
-    if (NSPointInRect(pt, NSMakeRect(738, 129, 102, 17))) { openMenu(3, 7, 148); return; }
-    if (NSPointInRect(pt, NSMakeRect(738, 155, 102, 17))) { openMenu(4, 3, 174); return; }
-    if (NSPointInRect(pt, NSMakeRect(738, 181, 102, 17))) { openMenu(5, 2, 200); return; }
-    const CGFloat rows[] = { 208, 234, 358, 384, 410, 436 };
-    const int ids[] = { 4, 6, 7, 8, 9, 10 };
-    for (int i = 0; i < 6; ++i) {
+    if (NSPointInRect(pt, NSMakeRect(738, 143, 102, 17))) { openMenu(1, kLayoutMenuCount, 162); return; }
+    if (NSPointInRect(pt, NSMakeRect(738, 169, 102, 17))) { openMenu(2, 4, 188); return; }
+    if (NSPointInRect(pt, NSMakeRect(738, 195, 102, 17))) { openMenu(3, 7, 214); return; }
+    if (NSPointInRect(pt, NSMakeRect(738, 221, 102, 17))) { openMenu(4, 3, 240); return; }
+    if (NSPointInRect(pt, NSMakeRect(738, 247, 102, 17))) { openMenu(5, 2, 266); return; }
+    const CGFloat rows[] = { 78, 274, 300, 366, 392, 418, 444 };
+    const int ids[] = { 13, 4, 6, 7, 8, 9, 10 };
+    const clap_id params[] = {
+        kOutputParamId, kActiveSpeakersParamId, kWidthParamId,
+        kSelectedSpeakerParamId, kAzimuthParamId, kElevationParamId,
+        kDistanceParamId
+    };
+    for (int i = 0; i < 7; ++i) {
         if (NSPointInRect(pt, NSMakeRect(638, rows[i] - 8, 230, 24))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, params[i], &defaultValue)) {
+                applyParam(*p, params[i], defaultValue);
+                _dragSlider = -1;
+                [self updateValueFields];
+                [self setNeedsDisplay:YES];
+                return;
+            }
             _dragSlider = ids[i];
             if (_dragSlider >= 7 && _dragSlider <= 10) _hasSpeakerSelection = YES;
             [self updateSlider:pt];
@@ -1594,19 +3367,19 @@ namespace {
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3G3OAFXSpeakerDecoderView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3G3OAFXSpeakerDecoderView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3G3OAFXSpeakerDecoderView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), 900u, 620u)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; [static_cast<S3G3OAFXSpeakerDecoderView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = 900; *h = 620; return true; }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,900,620)]; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, 900u, 620u, w, h); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, 900u, 620u, w, h); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, w, h); }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3G3OAFXSpeakerDecoderView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3G3OAFXSpeakerDecoderView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3G3OAFXSpeakerDecoderView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3G3OAFXSpeakerDecoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 
@@ -1626,13 +3399,13 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.3oafx-speaker-decoder-64",
-    "s3g Ambi Speaker Decoder 64",
+    "s3g Ambi Decoder Speaker 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
     "0.1.0",
-    "1OA-7OA ACN/SN3D ambisonic speaker decoder with 64-channel output and curated s3g layouts.",
+    "1OA-7OA ACN/SN3D speaker decoder with 64-channel output, custom layouts, and ALLRAD support topology.",
     features
 };
 

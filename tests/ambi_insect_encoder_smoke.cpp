@@ -185,6 +185,8 @@ bool testFieldListenerModes()
         Metrics metrics {};
         std::array<float, s3g::kAmbiFieldListenerMaxLobes> envelope {};
         std::array<float, s3g::kAmbiFieldListenerMaxLobes> weight {};
+        float featureMaximum = 0.0f;
+        float habituationMaximum = 0.0f;
     };
 
     auto params = s3g::ambiInsectFactoryPreset(4u);
@@ -204,15 +206,20 @@ bool testFieldListenerModes()
     params.centerElevationDeg = 18.0f;
     params.space = 0.18f;
 
-    auto capture = [&](s3g::AmbiFieldListenMode mode) {
+    auto capture = [&](s3g::AmbiFieldListenMode mode,
+        s3g::AmbiFieldListenerResponse response =
+            s3g::AmbiFieldListenerResponse::Legacy,
+        float amount = 1.0f) {
         s3g::AmbiInsectEncoder engine;
         Buffer buffer {};
         params.fieldListenMode = mode;
+        params.fieldListenResponse = response;
+        params.fieldListenAmount = amount;
         engine.prepare(48000.0);
         engine.setParams(params);
         engine.reset();
         Capture result;
-        for (uint32_t block = 0u; block < 1200u; ++block) {
+        for (uint32_t block = 0u; block < 750u; ++block) {
             const auto current = processBlock(engine, buffer, 16u);
             result.metrics.energy += current.energy;
             result.metrics.absolute += current.absolute;
@@ -225,6 +232,13 @@ bool testFieldListenerModes()
             lobe < s3g::kAmbiFieldListenerMaxLobes; ++lobe) {
             result.envelope[lobe] = engine.fieldListenEnvelope(lobe);
             result.weight[lobe] = engine.fieldListenWeight(lobe);
+            result.featureMaximum = std::max({ result.featureMaximum,
+                engine.fieldListenNovelty(lobe),
+                engine.fieldListenRoughness(lobe),
+                engine.fieldListenCharge(lobe) });
+            result.habituationMaximum = std::max(
+                result.habituationMaximum,
+                engine.fieldListenHabituation(lobe));
         }
         return result;
     };
@@ -233,6 +247,10 @@ bool testFieldListenerModes()
     const auto follow = capture(s3g::AmbiFieldListenMode::Follow);
     const auto counter = capture(s3g::AmbiFieldListenMode::Counter);
     const auto balance = capture(s3g::AmbiFieldListenMode::Balance);
+    const auto entrain = capture(s3g::AmbiFieldListenMode::Follow,
+        s3g::AmbiFieldListenerResponse::Imprint, 0.88f);
+    const auto zeroAmount = capture(s3g::AmbiFieldListenMode::Follow,
+        s3g::AmbiFieldListenerResponse::Imprint, 0.0f);
     for (float weight : off.weight) {
         if (std::fabs(weight - 1.0f) > 0.00001f) {
             std::cerr << "Insect field listener Off changed a lobe weight\n";
@@ -250,6 +268,17 @@ bool testFieldListenerModes()
         std::cerr << "Insect field listener did not develop directional responses\n";
         return false;
     }
+    if (!(entrain.featureMaximum > 0.01f)
+        || !(entrain.habituationMaximum > 0.01f)
+        || !(std::fabs(entrain.metrics.energy - follow.metrics.energy)
+            / std::max(1.0, follow.metrics.energy) > 0.0005)) {
+        std::cerr << "Insect extended listener response did not alter behavior: "
+                  << entrain.featureMaximum << ", "
+                  << entrain.habituationMaximum << ", "
+                  << entrain.metrics.energy << ", "
+                  << follow.metrics.energy << "\n";
+        return false;
+    }
     const double scale = std::max({
         1.0, off.metrics.energy, follow.metrics.energy,
         counter.metrics.energy, balance.metrics.energy
@@ -262,19 +291,32 @@ bool testFieldListenerModes()
     }
     if (!off.metrics.finite || !follow.metrics.finite
         || !counter.metrics.finite || !balance.metrics.finite
+        || !entrain.metrics.finite || !zeroAmount.metrics.finite
         || std::max({ off.metrics.peak, follow.metrics.peak,
                counter.metrics.peak, balance.metrics.peak }) > 1.001f) {
         std::cerr << "Insect listener modes escaped bounded output\n";
+        return false;
+    }
+    const double zeroScale = std::max(1.0, off.metrics.energy);
+    if (std::fabs(zeroAmount.metrics.energy - off.metrics.energy)
+        / zeroScale > 1.0e-7) {
+        std::cerr << "Insect zero listener amount changed the open-loop render\n";
         return false;
     }
 
     s3g::AmbiInsectEncoder sanitizer;
     sanitizer.prepare(48000.0);
     params.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(99u);
+    params.fieldListenAmount = -2.0f;
+    params.fieldListenResponse =
+        static_cast<s3g::AmbiFieldListenerResponse>(99u);
     sanitizer.setParams(params);
     if (sanitizer.params().fieldListenMode
-        != s3g::AmbiFieldListenMode::Balance) {
-        std::cerr << "Insect field listener mode was not sanitized\n";
+        != s3g::AmbiFieldListenMode::Balance
+        || sanitizer.params().fieldListenAmount != 0.0f
+        || sanitizer.params().fieldListenResponse
+            != s3g::AmbiFieldListenerResponse::Imprint) {
+        std::cerr << "Insect field listener parameters were not sanitized\n";
         return false;
     }
     return true;

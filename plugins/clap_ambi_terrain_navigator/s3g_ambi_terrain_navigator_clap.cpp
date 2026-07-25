@@ -453,7 +453,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->id = def.id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0);
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, "Ambi Terrain Navigator", sizeof(info->module));
+    std::strncpy(info->module, "Ambi Encoder Surface Terrain", sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -707,6 +707,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     int _openMenu;
     int _hoverMenuItem;
     uint32_t _menuItemCount;
+    char _titlePresetName[64];
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -731,6 +732,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         _openMenu = 0;
         _hoverMenuItem = -1;
         _menuItemCount = 0u;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [self setWantsLayer:YES];
     }
     return self;
@@ -796,7 +798,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 }
 
 - (NSRect)fieldPanelRect { return NSMakeRect(18, 42, 596, 732); }
-- (NSRect)fieldRect { return NSMakeRect(34, 76, 564, 638); }
+- (NSRect)fieldRect { return NSMakeRect(34, 76, 564, 682); }
 
 - (NSRect)zoomButtonRect:(int)index inRect:(NSRect)rect
 {
@@ -830,7 +832,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     static constexpr CGFloat starts[] { 638.0, 682.0, 730.0, 774.0, 822.0 };
     static constexpr CGFloat widths[] { 40.0, 44.0, 40.0, 44.0, 42.0 };
     const int safe = std::clamp(index, 0, 4);
-    return NSMakeRect(starts[safe], 68.0, widths[safe], 16.0);
+    return NSMakeRect(starts[safe], 137.0, widths[safe], 16.0);
 }
 
 - (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -850,7 +852,7 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 - (void)drawPathTabsWithAttrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     static NSString* labels[] = { @"PATH", @"FORM", @"SKIN", @"WARP", @"READ" };
-    const NSRect tabHeader = NSMakeRect(630, 63, 250, 21);
+    const NSRect tabHeader = NSMakeRect(630, 134, 250, 21);
     for (int index = 0; index < 5; ++index)
         s3g::clap_gui::drawHeaderButton([self pathTabRect:index], tabHeader, labels[index], index == _surfacePage, attrs, style);
 }
@@ -1014,13 +1016,13 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 - (CGFloat)menuRowY:(int)menu
 {
     switch (menu) {
-    case 1: return 130.0;
-    case 2: return 182.0;
-    case 3: return 104.0;
-    case 4: return 414.0;
-    case 5: return 436.0;
-    case 6: return 104.0;
-    case 7: return 104.0;
+    case 1: return 104.0;
+    case 2: return 222.0;
+    case 3: return 170.0;
+    case 4: return 366.0;
+    case 5: return 392.0;
+    case 6: return 170.0;
+    case 7: return 170.0;
     default: return 0.0;
     }
 }
@@ -1090,68 +1092,80 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
     NSDictionary* labelAttrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
-    [@"s3g AMBI TERRAIN NAVIGATOR 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
-    [s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed)) drawAtPoint:NSMakePoint(735, 14) withAttributes:valueAttrs];
-    [@"64 CH" drawAtPoint:NSMakePoint(832, 14) withAttributes:valueAttrs];
+    s3g::clap_gui::drawEncoderTitleBand(
+        @"s3g AMBI ENCODER SURFACE TERRAIN",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(
+            _plugin->outputPeak.load(std::memory_order_relaxed)),
+        s3g::clap_gui::encoderTitleBand(900.0, 792.0),
+        titleAttrs, labelAttrs, valueAttrs, style);
     const NSRect fieldPanel = [self fieldPanelRect];
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"PATH FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, labelAttrs, style);
+    s3g::clap_gui::drawPanelHeader(@"SURFACE TERRAIN FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, labelAttrs, style);
     [self drawViewButtonsInRect:fieldPanel attrs:valueAttrs style:style];
     [self drawZoomButtonsInRect:fieldPanel attrs:valueAttrs style:style];
     [self drawField:[self fieldRect] attrs:valueAttrs style:style];
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 330, style);
-    s3g::clap_gui::drawPanelHeader(@"PATH / TERRAIN", true, 630, 42, 250, 21, labelAttrs, style);
+    constexpr CGFloat outputPanelHeight = static_cast<CGFloat>(
+        s3g::gui_layout::toolboxHeightForRows(2u));
+    constexpr CGFloat surfacePanelHeight = static_cast<CGFloat>(
+        s3g::gui_layout::toolboxHeightForRows(6u));
+    constexpr CGFloat motionPanelHeight = static_cast<CGFloat>(
+        s3g::gui_layout::toolboxHeightForRows(13u));
+    s3g::clap_gui::drawPanelFrame(630, 42, 250, outputPanelHeight, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 42, 250, 21, labelAttrs, style);
+    [self drawSlider:@"OUT" param:kOutputParamId y:78 attrs:labelAttrs style:style];
+    [self drawMenu:@"ORDER" param:kOrderParamId y:104 attrs:labelAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(630, 134, 250, surfacePanelHeight, style);
+    s3g::clap_gui::drawPanelHeader(@"", true, 630, 134, 250, 21, labelAttrs, style);
     [self drawPathTabsWithAttrs:valueAttrs style:style];
-    s3g::clap_gui::drawPanelFrame(630, 384, 250, 320, style);
-    s3g::clap_gui::drawPanelHeader(@"MOTION", true, 630, 384, 250, 21, labelAttrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 330, 250, motionPanelHeight, style);
+    s3g::clap_gui::drawPanelHeader(@"MOTION", true, 630, 330, 250, 21, labelAttrs, style);
     if (_surfacePage == 0) {
-        [self drawSlider:@"INPUTS" param:kPointsParamId y:104 attrs:labelAttrs style:style];
-        [self drawMenu:@"ORDER" param:kOrderParamId y:130 attrs:labelAttrs style:style];
-        [self drawSlider:@"SOURCE" param:kSelectedSourceParamId y:156 attrs:labelAttrs style:style];
-        [self drawMenu:@"TRACE" param:kOrbitParamId y:182 attrs:labelAttrs style:style];
-        [self drawSlider:@"AZIM" param:kAzimuthParamId y:208 attrs:labelAttrs style:style];
-        [self drawSlider:@"ELEV" param:kElevationParamId y:234 attrs:labelAttrs style:style];
-        [self drawSlider:@"TRAVERSE" param:kTraversalParamId y:260 attrs:labelAttrs style:style];
+        [self drawSlider:@"INPUTS" param:kPointsParamId y:170 attrs:labelAttrs style:style];
+        [self drawSlider:@"SOURCE" param:kSelectedSourceParamId y:196 attrs:labelAttrs style:style];
+        [self drawMenu:@"TRACE" param:kOrbitParamId y:222 attrs:labelAttrs style:style];
+        [self drawSlider:@"AZIM" param:kAzimuthParamId y:248 attrs:labelAttrs style:style];
+        [self drawSlider:@"ELEV" param:kElevationParamId y:274 attrs:labelAttrs style:style];
+        [self drawSlider:@"TRAVERSE" param:kTraversalParamId y:300 attrs:labelAttrs style:style];
     } else if (_surfacePage == 1) {
-        [self drawMenu:@"FORM" param:kTerrainFormParamId y:104 attrs:labelAttrs style:style];
-        [self drawSlider:@"FACET" param:kTerrainFacetParamId y:130 attrs:labelAttrs style:style];
-        [self drawSlider:@"BEVEL" param:kTerrainBevelParamId y:156 attrs:labelAttrs style:style];
-        [self drawSlider:@"ORIENT" param:kTerrainOrientationParamId y:182 attrs:labelAttrs style:style];
+        [self drawMenu:@"FORM" param:kTerrainFormParamId y:170 attrs:labelAttrs style:style];
+        [self drawSlider:@"FACET" param:kTerrainFacetParamId y:196 attrs:labelAttrs style:style];
+        [self drawSlider:@"BEVEL" param:kTerrainBevelParamId y:222 attrs:labelAttrs style:style];
+        [self drawSlider:@"ORIENT" param:kTerrainOrientationParamId y:248 attrs:labelAttrs style:style];
     } else if (_surfacePage == 2) {
-        [self drawMenu:@"SKIN" param:kPaletteParamId y:104 attrs:labelAttrs style:style];
-        [self drawSlider:@"DEPTH" param:kTerrainDepthParamId y:130 attrs:labelAttrs style:style];
-        [self drawSlider:@"ROUGH" param:kTerrainRoughnessParamId y:156 attrs:labelAttrs style:style];
-        [self drawSlider:@"FOLD" param:kFoldParamId y:182 attrs:labelAttrs style:style];
-        [self drawSlider:@"RELIEF" param:kTerrainReliefParamId y:208 attrs:labelAttrs style:style];
+        [self drawMenu:@"SKIN" param:kPaletteParamId y:170 attrs:labelAttrs style:style];
+        [self drawSlider:@"DEPTH" param:kTerrainDepthParamId y:196 attrs:labelAttrs style:style];
+        [self drawSlider:@"ROUGH" param:kTerrainRoughnessParamId y:222 attrs:labelAttrs style:style];
+        [self drawSlider:@"FOLD" param:kFoldParamId y:248 attrs:labelAttrs style:style];
+        [self drawSlider:@"RELIEF" param:kTerrainReliefParamId y:274 attrs:labelAttrs style:style];
     } else if (_surfacePage == 3) {
-        [self drawSlider:@"TERRACE" param:kTerrainTerraceParamId y:104 attrs:labelAttrs style:style];
-        [self drawSlider:@"STEPS" param:kTerrainTerraceStepsParamId y:130 attrs:labelAttrs style:style];
-        [self drawSlider:@"RIDGE" param:kTerrainRidgeParamId y:156 attrs:labelAttrs style:style];
-        [self drawSlider:@"ERODE" param:kTerrainErosionParamId y:182 attrs:labelAttrs style:style];
-        [self drawSlider:@"DOMAIN" param:kTerrainDomainWarpParamId y:208 attrs:labelAttrs style:style];
-        [self drawSlider:@"TWIST" param:kTerrainTwistParamId y:234 attrs:labelAttrs style:style];
+        [self drawSlider:@"TERRACE" param:kTerrainTerraceParamId y:170 attrs:labelAttrs style:style];
+        [self drawSlider:@"STEPS" param:kTerrainTerraceStepsParamId y:196 attrs:labelAttrs style:style];
+        [self drawSlider:@"RIDGE" param:kTerrainRidgeParamId y:222 attrs:labelAttrs style:style];
+        [self drawSlider:@"ERODE" param:kTerrainErosionParamId y:248 attrs:labelAttrs style:style];
+        [self drawSlider:@"DOMAIN" param:kTerrainDomainWarpParamId y:274 attrs:labelAttrs style:style];
+        [self drawSlider:@"TWIST" param:kTerrainTwistParamId y:300 attrs:labelAttrs style:style];
     } else {
-        [self drawMenu:@"READ" param:kTerrainReadParamId y:104 attrs:labelAttrs style:style];
-        [self drawSlider:@"MIX" param:kTerrainReadMixParamId y:130 attrs:labelAttrs style:style];
-        [self drawSlider:@"AZ WARP" param:kAzimuthWarpParamId y:156 attrs:labelAttrs style:style];
-        [self drawSlider:@"EL WARP" param:kElevationWarpParamId y:182 attrs:labelAttrs style:style];
-        [self drawSlider:@"DIST WARP" param:kDistanceWarpParamId y:208 attrs:labelAttrs style:style];
+        [self drawMenu:@"READ" param:kTerrainReadParamId y:170 attrs:labelAttrs style:style];
+        [self drawSlider:@"MIX" param:kTerrainReadMixParamId y:196 attrs:labelAttrs style:style];
+        [self drawSlider:@"AZ WARP" param:kAzimuthWarpParamId y:222 attrs:labelAttrs style:style];
+        [self drawSlider:@"EL WARP" param:kElevationWarpParamId y:248 attrs:labelAttrs style:style];
+        [self drawSlider:@"DIST WARP" param:kDistanceWarpParamId y:274 attrs:labelAttrs style:style];
     }
-    [self drawSlider:@"OUTPUT" param:kOutputParamId y:354 attrs:labelAttrs style:style];
 
-    [self drawMenu:@"PLAY" param:kPlaybackParamId y:414 attrs:labelAttrs style:style];
-    [self drawMenu:@"SYNC" param:kSyncParamId y:436 attrs:labelAttrs style:style];
-    [self drawSlider:@"DIV" param:kDivisionParamId y:458 attrs:labelAttrs style:style];
-    [self drawSlider:@"RATE SP" param:kRateSpreadParamId y:480 attrs:labelAttrs style:style];
-    [self drawSlider:@"RATE DEV" param:kRateDeviationParamId y:502 attrs:labelAttrs style:style];
-    [self drawSlider:@"RATE" param:kRateParamId y:528 attrs:labelAttrs style:style];
-    [self drawSlider:@"PHASE" param:kPhaseParamId y:550 attrs:labelAttrs style:style];
-    [self drawSlider:@"PH SPREAD" param:kPhaseSpreadParamId y:572 attrs:labelAttrs style:style];
-    [self drawSlider:@"SMOOTH" param:kSmoothingParamId y:594 attrs:labelAttrs style:style];
-    [self drawSlider:@"EASE" param:kEaseParamId y:616 attrs:labelAttrs style:style];
-    [self drawSlider:@"DIST" param:kDistanceScaleParamId y:638 attrs:labelAttrs style:style];
-    [self drawSlider:@"DOPPLER" param:kDopplerParamId y:660 attrs:labelAttrs style:style];
-    [self drawSlider:@"AIR" param:kAirParamId y:682 attrs:labelAttrs style:style];
+    [self drawMenu:@"PLAY" param:kPlaybackParamId y:366 attrs:labelAttrs style:style];
+    [self drawMenu:@"SYNC" param:kSyncParamId y:392 attrs:labelAttrs style:style];
+    [self drawSlider:@"DIV" param:kDivisionParamId y:418 attrs:labelAttrs style:style];
+    [self drawSlider:@"RATE SP" param:kRateSpreadParamId y:444 attrs:labelAttrs style:style];
+    [self drawSlider:@"RATE DEV" param:kRateDeviationParamId y:470 attrs:labelAttrs style:style];
+    [self drawSlider:@"RATE" param:kRateParamId y:496 attrs:labelAttrs style:style];
+    [self drawSlider:@"PHASE" param:kPhaseParamId y:522 attrs:labelAttrs style:style];
+    [self drawSlider:@"PH SPREAD" param:kPhaseSpreadParamId y:548 attrs:labelAttrs style:style];
+    [self drawSlider:@"SMOOTH" param:kSmoothingParamId y:574 attrs:labelAttrs style:style];
+    [self drawSlider:@"EASE" param:kEaseParamId y:600 attrs:labelAttrs style:style];
+    [self drawSlider:@"DIST" param:kDistanceScaleParamId y:626 attrs:labelAttrs style:style];
+    [self drawSlider:@"DOPPLER" param:kDopplerParamId y:652 attrs:labelAttrs style:style];
+    [self drawSlider:@"AIR" param:kAirParamId y:678 attrs:labelAttrs style:style];
     [self drawOpenMenu:labelAttrs style:style];
 }
 
@@ -1159,33 +1173,33 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 {
     struct Row { clap_id id; CGFloat y; };
     static constexpr Row pathRows[] {
-        { kPointsParamId, 104 }, { kSelectedSourceParamId, 156 },
-        { kAzimuthParamId, 208 }, { kElevationParamId, 234 }, { kTraversalParamId, 260 },
+        { kPointsParamId, 170 }, { kSelectedSourceParamId, 196 },
+        { kAzimuthParamId, 248 }, { kElevationParamId, 274 }, { kTraversalParamId, 300 },
     };
     static constexpr Row formRows[] {
-        { kTerrainFacetParamId, 130 }, { kTerrainBevelParamId, 156 },
-        { kTerrainOrientationParamId, 182 },
+        { kTerrainFacetParamId, 196 }, { kTerrainBevelParamId, 222 },
+        { kTerrainOrientationParamId, 248 },
     };
     static constexpr Row skinRows[] {
-        { kTerrainDepthParamId, 130 }, { kTerrainRoughnessParamId, 156 },
-        { kFoldParamId, 182 }, { kTerrainReliefParamId, 208 },
+        { kTerrainDepthParamId, 196 }, { kTerrainRoughnessParamId, 222 },
+        { kFoldParamId, 248 }, { kTerrainReliefParamId, 274 },
     };
     static constexpr Row warpRows[] {
-        { kTerrainTerraceParamId, 104 }, { kTerrainTerraceStepsParamId, 130 },
-        { kTerrainRidgeParamId, 156 }, { kTerrainErosionParamId, 182 },
-        { kTerrainDomainWarpParamId, 208 }, { kTerrainTwistParamId, 234 },
+        { kTerrainTerraceParamId, 170 }, { kTerrainTerraceStepsParamId, 196 },
+        { kTerrainRidgeParamId, 222 }, { kTerrainErosionParamId, 248 },
+        { kTerrainDomainWarpParamId, 274 }, { kTerrainTwistParamId, 300 },
     };
     static constexpr Row readRows[] {
-        { kTerrainReadMixParamId, 130 }, { kAzimuthWarpParamId, 156 },
-        { kElevationWarpParamId, 182 }, { kDistanceWarpParamId, 208 },
+        { kTerrainReadMixParamId, 196 }, { kAzimuthWarpParamId, 222 },
+        { kElevationWarpParamId, 248 }, { kDistanceWarpParamId, 274 },
     };
     static constexpr Row motionRows[] {
-        { kDivisionParamId, 458 }, { kRateSpreadParamId, 480 }, { kRateDeviationParamId, 502 },
-        { kRateParamId, 528 }, { kPhaseParamId, 550 },
-        { kPhaseSpreadParamId, 572 }, { kSmoothingParamId, 594 }, { kEaseParamId, 616 },
-        { kDistanceScaleParamId, 638 }, { kDopplerParamId, 660 }, { kAirParamId, 682 },
+        { kDivisionParamId, 418 }, { kRateSpreadParamId, 444 }, { kRateDeviationParamId, 470 },
+        { kRateParamId, 496 }, { kPhaseParamId, 522 },
+        { kPhaseSpreadParamId, 548 }, { kSmoothingParamId, 574 }, { kEaseParamId, 600 },
+        { kDistanceScaleParamId, 626 }, { kDopplerParamId, 652 }, { kAirParamId, 678 },
     };
-    if ([self point:pt isInControlRowAtY:354.0]) return kOutputParamId;
+    if ([self point:pt isInControlRowAtY:78.0]) return kOutputParamId;
     if (_surfacePage == 0) {
         for (const auto& row : pathRows) if ([self point:pt isInControlRowAtY:row.y]) return row.id;
     } else if (_surfacePage == 1) {
@@ -1216,6 +1230,66 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(900.0, 792.0);
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const uint32_t order = _plugin->params.order;
+        const float output = _plugin->params.outputGainDb;
+        auto initial = s3g::AmbiTerrainNavigatorParams {};
+        initial.order = order;
+        initial.outputGainDb = output;
+        _plugin->params = initial;
+        _plugin->encoder.setParams(initial);
+        _plugin->params = _plugin->encoder.params();
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &_plugin->plugin, @"Ambi Encoder Surface Terrain", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &_plugin->plugin, @"Ambi Encoder Surface Terrain", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.randomButton))) {
+        const auto randomUnit = [] {
+            return static_cast<double>(arc4random()) / 4294967295.0;
+        };
+        applyParam(*_plugin, kOrbitParamId, arc4random_uniform(4u));
+        applyParam(*_plugin, kPaletteParamId, arc4random_uniform(8u));
+        applyParam(*_plugin, kTerrainFormParamId, arc4random_uniform(6u));
+        applyParam(*_plugin, kTerrainReadParamId, arc4random_uniform(10u));
+        applyParam(*_plugin, kTraversalParamId, randomUnit());
+        applyParam(*_plugin, kTerrainDepthParamId, randomUnit());
+        applyParam(*_plugin, kTerrainRoughnessParamId, randomUnit());
+        applyParam(*_plugin, kFoldParamId, randomUnit());
+        applyParam(*_plugin, kTerrainReliefParamId, 0.35 + randomUnit() * 0.65);
+        applyParam(*_plugin, kRateParamId, 0.002 * std::pow(250.0, randomUnit()));
+        applyParam(*_plugin, kPhaseSpreadParamId, randomUnit());
+        applyParam(*_plugin, kEaseParamId, randomUnit());
+        applyParam(*_plugin, kDopplerParamId, randomUnit());
+        applyParam(*_plugin, kAirParamId, randomUnit());
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "RANDOM");
+        [self setNeedsDisplay:YES];
+        return;
+    }
     for (int index = 0; index < 5; ++index) {
         if (NSPointInRect(pt, [self pathTabRect:index])) {
             _surfacePage = index;
@@ -1248,8 +1322,8 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         _hoverMenuItem = -1;
         [self setNeedsDisplay:YES];
     };
+    if (NSPointInRect(pt, [self menuControlRect:1])) { openMenu(1, 7); return; }
     if (_surfacePage == 0) {
-        if (NSPointInRect(pt, [self menuControlRect:1])) { openMenu(1, 7); return; }
         if (NSPointInRect(pt, [self menuControlRect:2])) { openMenu(2, 4); return; }
     } else if (_surfacePage == 1) {
         if (NSPointInRect(pt, [self menuControlRect:6])) { openMenu(6, 6); return; }
@@ -1280,7 +1354,18 @@ NSColor* terrainSourceMarkerColor(uint32_t source, bool selected)
         return;
     }
     _dragParam = [self paramAtPoint:pt];
-    if (_dragParam) [self setParam:static_cast<clap_id>(_dragParam) fromPoint:pt];
+    if (_dragParam) {
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &_plugin->plugin,
+                static_cast<clap_id>(_dragParam), &defaultValue)) {
+            applyParam(*_plugin, static_cast<clap_id>(_dragParam), defaultValue);
+            _dragParam = 0;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        [self setParam:static_cast<clap_id>(_dragParam) fromPoint:pt];
+    }
 }
 - (void)mouseDragged:(NSEvent*)event
 {
@@ -1379,13 +1464,13 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-terrain-navigator-64",
-    "s3g Ambi Terrain Navigator 64",
+    "s3g Ambi Encoder Surface Terrain 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
     "0.4.1-pre",
-    "64-point ambisonic navigator whose AED source points traverse a deformable procedural terrain shell.",
+    "64-point ambisonic surface-terrain encoder whose AED sources traverse a deformable procedural shell.",
     features
 };
 

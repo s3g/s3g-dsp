@@ -38,7 +38,7 @@ add_s3g_spectral_topology_target(
   8
   "s3g_spectral_topology_processor"
   "org.s3g.s3g-dsp.spectral-topology-processor"
-  "s3g Spectral Topology Processor 8ch"
+  "s3g Processor Spectral Topology 8ch"
 )
 
 add_s3g_spectral_topology_target(
@@ -46,5 +46,5 @@ add_s3g_spectral_topology_target(
   24
   "s3g_24ch_spectral_topology_processor"
   "org.s3g.s3g-dsp.spectral-topology-processor-24ch"
-  "s3g Spectral Topology Processor 24ch"
+  "s3g Processor Spectral Topology 24ch"
 )

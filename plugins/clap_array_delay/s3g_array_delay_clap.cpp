@@ -305,10 +305,10 @@ constexpr uint32_t kGuiWidth = 720;
 constexpr uint32_t kRowsPerPage = 8;
 constexpr uint32_t kRowHeight = 26;
 constexpr uint32_t kGuiHeight = 440;
-constexpr CGFloat kActiveTrackX = 116.0;
-constexpr CGFloat kActiveTrackW = 120.0;
-constexpr CGFloat kOutputTrackX = 430.0;
-constexpr CGFloat kOutputTrackW = 90.0;
+constexpr CGFloat kOutputTrackX = 116.0;
+constexpr CGFloat kOutputTrackW = 120.0;
+constexpr CGFloat kActiveTrackX = 430.0;
+constexpr CGFloat kActiveTrackW = 90.0;
 
 } // namespace
 
@@ -553,8 +553,8 @@ constexpr CGFloat kOutputTrackW = 90.0;
     const CGFloat controlsY = 84.0 + rowsH;
     s3g::clap_gui::drawPanelFrame(20, controlsY, 680, 68, style);
     s3g::clap_gui::drawPanelHeader(@"GLOBAL", true, 20, controlsY, 680, 21, attrs, style);
-    s3g::clap_gui::drawSlider(@"ACTIVE", [self textForParam:kActiveParamId value:_plugin->params.activeChannels], (_plugin->params.activeChannels - 1.0) / std::max(1.0, static_cast<double>(kChannelCount - 1u)), controlsY + 38, attrs, attrs, style, 40, kActiveTrackX, 206, kActiveTrackW);
-    s3g::clap_gui::drawSlider(@"OUTPUT", [self textForParam:kOutputParamId value:_plugin->params.outputGainDb], (_plugin->params.outputGainDb + 60.0) / 78.0, controlsY + 38, attrs, attrs, style, 350, kOutputTrackX, 516, kOutputTrackW);
+    s3g::clap_gui::drawSlider(@"OUT", [self textForParam:kOutputParamId value:_plugin->params.outputGainDb], (_plugin->params.outputGainDb + 60.0) / 78.0, controlsY + 38, attrs, attrs, style, 40, kOutputTrackX, 206, kOutputTrackW);
+    s3g::clap_gui::drawSlider(@"ACTIVE", [self textForParam:kActiveParamId value:_plugin->params.activeChannels], (_plugin->params.activeChannels - 1.0) / std::max(1.0, static_cast<double>(kChannelCount - 1u)), controlsY + 38, attrs, attrs, style, 350, kActiveTrackX, 516, kActiveTrackW);
     [self drawToggleButton:(_plugin->params.bypass ? @"BYPASS ON" : @"BYPASS") rect:NSMakeRect(626, controlsY + 30, 66, 24) active:_plugin->params.bypass attrs:attrs];
     [self layoutDelayFields];
 }

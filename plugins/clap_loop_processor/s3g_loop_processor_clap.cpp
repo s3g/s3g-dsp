@@ -385,7 +385,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         info->flags |= CLAP_PARAM_IS_STEPPED;
     }
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, "Loop Processor", sizeof(info->module));
+    std::strncpy(info->module, "Processor Loop", sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -801,7 +801,7 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
     NSDictionary* section = s3g::clap_gui::softLabelAttrs();
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
-    [@"s3g LOOP PROCESSOR" drawAtPoint:NSMakePoint(18,13) withAttributes:titleAttrs];
+    [@"s3g PROCESSOR LOOP" drawAtPoint:NSMakePoint(18,13) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
     [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(720,14) withAttributes:small];
     [@"8CH" drawAtPoint:NSMakePoint(866,14) withAttributes:small];
@@ -856,12 +856,12 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
     panelFrame(y, engineH);
     [self drawSectionHeader:@"ENGINE" open:_engineOpen y:y attrs:section];
     if (_engineOpen) {
-        [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", params.baseRate] norm:(params.baseRate - 0.125) / (4.0 - 0.125) y:y + 28 attrs:small small:small];
-        [self drawSlider:@"XFD" value:[NSString stringWithFormat:@"%.0f%%", params.xfadePct * 100.0f] norm:params.xfadePct / 0.3f y:y + 52 attrs:small small:small];
-        [self drawSlider:@"DUCK" value:[NSString stringWithFormat:@"%.2f", params.seamDuck] norm:params.seamDuck / 0.75f y:y + 76 attrs:small small:small];
-        [self drawSlider:@"STRT" value:[NSString stringWithFormat:@"%.0f%%", params.loopStart * 100.0f] norm:params.loopStart / 0.999f y:y + 100 attrs:small small:small];
-        [self drawSlider:@"LEN" value:[NSString stringWithFormat:@"%.0f%%", params.loopLength * 100.0f] norm:(params.loopLength - 0.01f) / 0.99f y:y + 124 attrs:small small:small];
-        [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.gainDb] norm:(params.gainDb + 60.0f) / 66.0f y:y + 148 attrs:small small:small];
+        [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.gainDb] norm:(params.gainDb + 60.0f) / 66.0f y:y + 28 attrs:small small:small];
+        [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", params.baseRate] norm:(params.baseRate - 0.125) / (4.0 - 0.125) y:y + 52 attrs:small small:small];
+        [self drawSlider:@"XFD" value:[NSString stringWithFormat:@"%.0f%%", params.xfadePct * 100.0f] norm:params.xfadePct / 0.3f y:y + 76 attrs:small small:small];
+        [self drawSlider:@"DUCK" value:[NSString stringWithFormat:@"%.2f", params.seamDuck] norm:params.seamDuck / 0.75f y:y + 100 attrs:small small:small];
+        [self drawSlider:@"STRT" value:[NSString stringWithFormat:@"%.0f%%", params.loopStart * 100.0f] norm:params.loopStart / 0.999f y:y + 124 attrs:small small:small];
+        [self drawSlider:@"LEN" value:[NSString stringWithFormat:@"%.0f%%", params.loopLength * 100.0f] norm:(params.loopLength - 0.01f) / 0.99f y:y + 148 attrs:small small:small];
     }
     y += engineH + gap;
     const CGFloat relH = _relationshipsOpen ? 260.0 : headerH;
@@ -994,12 +994,12 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
     }
     struct RowHit { CGFloat y; int slider; BOOL open; };
     const RowHit rows[] = {
-        { engineY + 28, 1, _engineOpen },
-        { engineY + 52, 2, _engineOpen },
-        { engineY + 76, 3, _engineOpen },
-        { engineY + 100, 9, _engineOpen },
-        { engineY + 124, 10, _engineOpen },
-        { engineY + 148, 4, _engineOpen },
+        { engineY + 28, 4, _engineOpen },
+        { engineY + 52, 1, _engineOpen },
+        { engineY + 76, 2, _engineOpen },
+        { engineY + 100, 3, _engineOpen },
+        { engineY + 124, 9, _engineOpen },
+        { engineY + 148, 10, _engineOpen },
         { relY + 28, 5, _relationshipsOpen },
         { relY + 52, 6, _relationshipsOpen },
         { relY + 76, 7, _relationshipsOpen },
@@ -1064,7 +1064,7 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 }
 
 const char* const features[] { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SAMPLER, CLAP_PLUGIN_FEATURE_SURROUND, nullptr };
-const clap_plugin_descriptor_t descriptor { CLAP_VERSION_INIT, "org.s3g.s3g-dsp.loop-processor-8ch", "s3g Loop Processor 8ch", "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.1.0", "8-channel sample-loop processor using Loop Drift-style seamless read heads.", features };
+const clap_plugin_descriptor_t descriptor { CLAP_VERSION_INIT, "org.s3g.s3g-dsp.loop-processor-8ch", "s3g Processor Loop 8ch", "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.1.0", "8-channel sample-loop processor using Loop Drift-style seamless read heads.", features };
 
 const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t* host, const char* pluginId)
 {

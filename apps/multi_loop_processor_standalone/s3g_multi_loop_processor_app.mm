@@ -761,7 +761,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     NSDictionary* small = @{ NSFontAttributeName:[NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular], NSForegroundColorAttributeName:style.text };
     NSDictionary* title = @{ NSFontAttributeName:[NSFont fontWithName:@"Menlo" size:11] ?: [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular], NSForegroundColorAttributeName:style.text };
 
-    [@"s3g Multi Loop Processor" drawAtPoint:NSMakePoint(18, 16) withAttributes:title];
+    [@"s3g Processor Multi Loop" drawAtPoint:NSMakePoint(18, 16) withAttributes:title];
     [@"standalone prototype / AVAudioEngine / CoreMIDI" drawAtPoint:NSMakePoint(596, 16) withAttributes:small];
     NSRect samplePanel = NSMakeRect(18, 48, 560, 566);
     [c(0x1d1d1d) setFill];
@@ -1027,8 +1027,8 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     [menubar addItem:appMenuItem];
     [NSApp setMainMenu:menubar];
 
-    NSMenu* appMenu = [[[NSMenu alloc] initWithTitle:@"s3g Multi Loop Processor"] autorelease];
-    NSString* quitTitle = @"Quit s3g Multi Loop Processor";
+    NSMenu* appMenu = [[[NSMenu alloc] initWithTitle:@"s3g Processor Multi Loop"] autorelease];
+    NSString* quitTitle = @"Quit s3g Processor Multi Loop";
     NSMenuItem* quit = [[[NSMenuItem alloc] initWithTitle:quitTitle
                                                    action:@selector(terminate:)
                                             keyEquivalent:@"q"] autorelease];
@@ -1120,7 +1120,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     [_state->audioEngine attachNode:_state->sourceNode];
     configureAudioGraph(*_state);
 
-    MIDIClientCreate(CFSTR("s3g Multi Loop Processor"), nullptr, nullptr, &_state->midiClient);
+    MIDIClientCreate(CFSTR("s3g Processor Multi Loop"), nullptr, nullptr, &_state->midiClient);
     MIDIInputPortCreate(_state->midiClient, CFSTR("Input"), midiReadProc, _state, &_state->midiPort);
     const ItemCount sources = MIDIGetNumberOfSources();
     for (ItemCount i = 0; i < sources; ++i) {
@@ -1132,7 +1132,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
                                          styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable
                                            backing:NSBackingStoreBuffered
                                              defer:NO];
-    [_window setTitle:@"s3g Multi Loop Processor"];
+    [_window setTitle:@"s3g Processor Multi Loop"];
     [_window setContentView:[[[S3GStandaloneView alloc] initWithState:_state] autorelease]];
     [_window makeKeyAndOrderFront:nil];
 }

@@ -16,6 +16,11 @@ This is the working style reference for custom macOS CLAP plugin GUIs in
   peak text, and header buttons. A new one-off text dictionary or custom
   control renderer should be treated as a deliberate exception and named in
   review.
+- In the shared title action band, align `PRESET` with the selection and action
+  text to its right. It is a title-band caption, so it uses the menu-value
+  baseline rather than the ordinary toolbox-label baseline. Use the shared
+  title-band or title-preset renderer; do not draw this caption through the
+  general toolbox-menu helper.
 - Prefer compact panels, square controls, thin linework, and high-contrast
   gray accents. Avoid pure white text as the default visual voice.
 - Avoid nested panel containers. A panel should sit directly on the main
@@ -27,11 +32,54 @@ This is the working style reference for custom macOS CLAP plugin GUIs in
 - Use color only when it carries signal meaning. The default UI stays
   grayscale; heatmaps, meters, and warnings are exceptions.
 
+## Host Browser Names
+
+Every host-facing CLAP display name begins with `s3g `. Stable CLAP plugin IDs,
+bundle filenames, and state formats do not change when a display name is
+reordered.
+
+Put the searchable family before the specific member:
+
+- Ambisonic encoders: `s3g Ambi Encoder <member>`
+- Ambisonic decoders: `s3g Ambi Decoder <member>`
+- Direct panners: `s3g Panner <method>`
+- Processor effects and instruments: `s3g Processor <member>`
+- 3OAFX tools: `s3g 3OAFX <role> <member>`
+- Array tools: `s3g Array <operation> <width>`
+
+For example: `s3g Ambi Decoder Head`, `s3g Ambi Encoder Point`,
+`s3g Ambi Encoder Surface Terrain`, `s3g Panner LBAP`, and
+`s3g Processor Delay`. The editor title and macOS bundle display name follow
+the same word order as the CLAP descriptor.
+
+`Processor` identifies a developed, self-contained effect or instrument
+workflow. It is not a signal-format or implementation label, and it does not
+promise that a member uses topology. Wave Geometry and Spectral Topology do;
+other members may use buffers, delays, loops, grains, codec damage, or another
+model. `s3g Processor Ambi Grain` remains in this family because its loaded-file
+granulation workflow is more closely related to the other Processors; requiring
+ambisonic media is an input-format constraint rather than its primary family
+identity.
+Do not move a specific member such as `Head`, `Point`, `Surface Terrain`, or
+`LBAP` ahead of its family; that fragments adjacent search results in host
+plugin browsers. Family membership is maintained explicitly in the encoder
+audit, not inferred from these names.
+
 ## Panel Rules
 
 - Draw each toolbox as one rectangle: frame, fill, and header share the same
   `x`, `y`, and `width`.
 - Do not inset the header relative to the panel frame.
+- Place the toolbox title at panel x + 8 px and every ordinary control label at
+  panel x + 16 px. This fixed 8 px step keeps labels aligned with their
+  toolbox title across plugins; do not tune either inset per plugin.
+- Ordinary control labels use the shared 10 px regular label style
+  (`softLabelAttrs`, gray `#a8a8a8`). Control values and menu selections use
+  the shared 10 px regular value style (`softValueAttrs`, gray `#929292`).
+  Do not reuse the dimmer value style for labels.
+- Slider and menu labels share the same baseline: label y is the control
+  baseline minus 2 px. Custom menu renderers must call the shared menu helper
+  or reproduce that baseline exactly.
 - Use a dark header strip with a 2 px light line at the top.
 - Use `+` / `-` at the left of collapsible headers only. If a panel cannot be
   toggled by clicking its header, draw a static header with no disclosure
@@ -41,10 +89,16 @@ This is the working style reference for custom macOS CLAP plugin GUIs in
   an active status indicator.
 - Put controls inside the panel with a small internal text/control inset.
 - Keep panels aligned by their top edges when they form a visual column.
-- Size panels to their visible controls. After the final row, leave only enough
-  bottom padding to match the family reference, usually about 12-18 px. Do not
-  leave large empty panel interiors because another plugin has more controls in
-  the same panel type.
+- In an exceptional wide editor, a balanced two-row toolbox grid may replace
+  a vertical column. Keep consistent gutters, put independent coordinates in a
+  named position panel rather than inside source/space-character panels, and
+  give the final-audition OUTPUT panel enough width to keep OUT and ORDER first
+  without compressing its remaining mix, listen, and bypass controls.
+- Size panels to their visible controls. After the final ordinary row, use the
+  shared 18 px baseline-to-panel-bottom clearance. A taller panel is valid only
+  when a meter, preview, status, dropdown, or action row visibly occupies the
+  added area. Do not leave large empty panel interiors because another plugin
+  has more controls in the same panel type.
 - Use consistent stacked-panel gaps inside a plugin family. Macro and other
   toolbox stacks should stay around 12-14 px unless the whole family layout is
   intentionally revised.
@@ -81,7 +135,9 @@ fail on any warning.
 - `PK` / peak output status is a readout, not an editable control. Draw it in
   the upper-right title/status area with other compact host/plugin status text,
   not inside the right-side parameter toolbox or `OUTPUT` panel.
-- Double-clicking a slider should return that parameter to its default value.
+- Double-clicking any slider returns that parameter to its declared default.
+  This applies equally to contextual-page and mixer-view sliders; the reset
+  follows the same update path as dragging so DSP and host-visible state agree.
   This is a package-wide interaction convention, not a plugin-specific feature.
 - Parameters with discrete named states must be menus, not sliders. Examples:
   motion modes, layout modes, shape choices, neighbor counts, launch modes,
@@ -89,7 +145,12 @@ fail on any warning.
 - Small discrete numeric sets such as ambisonic `ORD` or filter `POLES` should
   also use menus. High-cardinality numeric counts such as `ACTIVE 1-64` may
   stay sliders when a long menu would slow editing.
+- Display integral counts as integers even when a slider edits them; do not
+  render `64` as `64.00`.
 - Menus should use the same dark fill, gray border, and compact type as sliders.
+- Menu labels, selected values, and dropdown items are always uppercase.
+  Proper names do not create an exception. Use the shared width-aware
+  abbreviation path when an uppercase value would overrun its menu box.
 - Do not use system-style popup controls inside the plugin canvas.
 - Dropdown lists should use the shared custom renderer where possible:
   selected rows get a quiet left strip, rollover rows get a slightly lighter
@@ -106,6 +167,15 @@ buttons. Do this before build/test so style drift is caught in the edit pass.
 - The primary visual gets the largest uninterrupted area in the window.
 - Its frame/header follows the same panel language as the toolboxes, but the
   inside can be plugin-specific.
+- Spatial fields use a medium-gray panel shell and an inset near-black plotting
+  surface with its own thin outline. Keep roughly 16 px side/bottom padding and
+  13 px between the header and plotting surface. Do not fill the entire panel
+  body with the plotting color; the shell is what makes spatial fields read as
+  the same control class across encoders.
+- In the 900 px compact encoder layout, the primary panel starts at x 18 and is
+  596 px wide; the 250 px toolbox column starts at x 630. This leaves the
+  shared 16 px inter-column gap. Drawing and hit-testing must consume the same
+  primary-panel rectangle rather than repeat those values.
 - Playheads, topology nodes, meters, and lane indicators should intersect or
   overlay the thing they describe. Avoid detached mini-displays when the
   position belongs directly to a waveform, topology, or meter.
@@ -306,10 +376,39 @@ encoder/decoder pairs:
 
 ## Layout
 
+Structural panel placement is defined by the
+[GUI Layout Templates](gui-layout-templates.md). New GUIs select a plugin
+class from that contract; reference-family GUIs derive panel, row, menu, and
+hit geometry from `plugins/common/s3g_gui_layout.h`.
+
 - Avoid large unused bands between information regions.
 - Align related columns at the same top y-position.
 - Do not put cards inside cards.
 - Use collapsible toolboxes when a right-side control stack becomes tall.
+- Put final output level at the top of the first parameter column. When the
+  layout has a dedicated `OUTPUT` panel, that panel comes first and `OUT` is
+  its first row; keep related final-stage controls such as `MIX`, safety,
+  preserve, or bypass in the same panel immediately after it.
+- In Ambi encoders, `ORDER` is an output-format control. Put it immediately
+  below `OUT` in the same output toolbox, before any other final-audition
+  controls. Keep engine, source, synthesis, and navigation controls in their
+  own following toolboxes.
+- In a single undivided slider group, `OUT` is the first slider even when the
+  parameter's host-facing order is different. Reorder only the GUI mapping;
+  do not renumber stable CLAP parameter IDs to match the visual order.
+- A paged field or mixer must keep `OUT` reachable from the first page. It may
+  also be mirrored on mixer pages when that keeps the output control close to
+  lane faders. Mirrored controls edit the same CLAP parameter and use the same
+  range, display text, reset value, and automation path.
+- Label the plugin's final output control `OUT` in every encoder GUI. Keep
+  `OUTPUT` for the panel header only; `LEVEL` remains available for local
+  voices, oscillators, lanes, or other non-final gain controls.
+- Display encoder OUT values with the `dB` unit. Let the bounded-value helper
+  remove unnecessary decimal places when the value cell is narrow rather than
+  dropping the unit.
+- Encoder title status should report `PK` and essential live state only. Do not
+  repeat fixed channel counts such as `64CH` there when the plugin name or
+  family already communicates the format.
 
 ## Macro Family Layout
 
@@ -319,7 +418,7 @@ read quickly:
 - `ENGINE` is the effect-specific panel.
 - `RELATIONSHIPS` always uses the shared lane relationship set:
   `SPRD`, `DEV`, `SKW`, `CTR`, `GLD`.
-- `OUTPUT` always holds `MIX` and `OUT`, in that order.
+- `OUTPUT` always holds `OUT` and `MIX`, in that order.
 - The upper-right title area uses compact status readouts, not prose:
   `PK` followed by the channel width such as `8CH`.
 - Avoid explanatory copy inside the plugin canvas. Put explanations in docs,
@@ -348,6 +447,8 @@ Before adding or shipping a new custom plugin GUI, check these items:
   activity; text fields are not repainted while the user is editing.
 - Discrete named choices and small discrete numeric sets use menus. Long
   numeric ranges can stay sliders when they are faster to edit that way.
+- Menu labels, selected values, and dropdown rows render in uppercase and fit
+  inside their boxes.
 - Sliders double-click to reset and share their draw/hit row geometry.
 - Numeric text fields use the shared number-field style so selection remains
   readable and entry does not fight the redraw loop.
@@ -358,7 +459,7 @@ Before adding or shipping a new custom plugin GUI, check these items:
 
 ## Current Visual Reference
 
-The current primary reference is `s3g Delay Processor 8ch`:
+The current primary reference is `s3g Processor Delay 8ch`:
 
 - right-side toolboxes drawn directly on the main background
 - dark header strip with light top line
@@ -366,7 +467,7 @@ The current primary reference is `s3g Delay Processor 8ch`:
 - minimal grayscale panel frames
 - no extra parent container behind the toolbox column
 
-`s3g Loop Processor 8ch` is the sample-lane reference:
+`s3g Processor Loop 8ch` is the sample-lane reference:
 
 - waveform is the primary visual object
 - lane cursors intersect the waveform timeline

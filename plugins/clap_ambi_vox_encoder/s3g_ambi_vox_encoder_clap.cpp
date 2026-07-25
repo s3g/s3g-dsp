@@ -8340,6 +8340,25 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 }
 #endif
 
+static CGFloat voxPlaybackPanelHeight(VoxSpeechMode mode)
+{
+    const uint32_t visibleRows = mode == VoxSpeechMode::Texture ? 10u : 7u;
+    return static_cast<CGFloat>(
+        s3g::gui_layout::toolboxHeightForRows(visibleRows));
+}
+
+static CGFloat voxWorldPanelY(VoxSpeechMode mode)
+{
+    return 278.0 + voxPlaybackPanelHeight(mode)
+        + static_cast<CGFloat>(s3g::gui_layout::kStandardMetrics.panelGap);
+}
+
+static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
+{
+    return static_cast<CGFloat>(
+        s3g::gui_layout::toolboxRowY(voxWorldPanelY(mode), row));
+}
+
 @interface S3GAmbiVoxEncoderView : NSView <NSTextFieldDelegate, NSTextViewDelegate> {
     Plugin* _plugin;
     NSTimer* _timer;
@@ -8674,11 +8693,12 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 }
 
 - (NSRect)synthLoadButtonRect { return NSMakeRect(824, 46, 48, 13); }
-- (NSRect)presetMenuRect { return NSMakeRect(382, 13, 190, 15); }
-- (NSRect)presetLoadButtonRect { return NSMakeRect(580, 13, 48, 15); }
-- (NSRect)presetSaveButtonRect { return NSMakeRect(636, 13, 48, 15); }
-- (NSRect)worldResetButtonRect { return NSMakeRect(1016, 484, 56, 13); }
-- (NSRect)encodedLoadButtonRect { return NSMakeRect(1078, 484, 56, 13); }
+- (NSRect)presetMenuRect { return s3g::clap_gui::encoderTitleActionRect(kGuiW, kGuiH, s3g::gui_layout::EncoderTitleAction::Preset); }
+- (NSRect)presetLoadButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiW, kGuiH, s3g::gui_layout::EncoderTitleAction::Load); }
+- (NSRect)presetSaveButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiW, kGuiH, s3g::gui_layout::EncoderTitleAction::Save); }
+- (NSRect)randomizeButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiW, kGuiH, s3g::gui_layout::EncoderTitleAction::Random); }
+- (NSRect)worldResetButtonRect { return NSMakeRect(1016, 424, 56, 13); }
+- (NSRect)encodedLoadButtonRect { return NSMakeRect(1078, 424, 56, 13); }
 - (NSRect)scoreRemoveButtonRect { return NSMakeRect(1032, 484, 18, 13); }
 - (NSRect)scoreAddButtonRect { return NSMakeRect(1054, 484, 18, 13); }
 - (NSRect)scoreResetButtonRect { return NSMakeRect(1080, 484, 54, 13); }
@@ -9397,53 +9417,55 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 {
     const auto p = _plugin->params;
     const auto v = _plugin->vox;
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 150, style);
-    s3g::clap_gui::drawPanelHeader(@"ENCODER", true, 630, 42, 250, 21, attrs, style);
-    [self drawMenu:@"TRIGGER" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:78 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(630, 42, 250, 80, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 42, 250, 21, attrs, style);
+    [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:78 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:s3g::kAmbiVoxMaxVoices y:130 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"VOICE" value:[NSString stringWithUTF8String:voxSpeechModeName(v.speechMode)] y:156 attrs:attrs valueAttrs:valueAttrs style:style];
+
+    s3g::clap_gui::drawPanelFrame(630, 134, 250, 132, style);
+    s3g::clap_gui::drawPanelHeader(@"VOICE / ENCODER", true, 630, 134, 250, 21, attrs, style);
+    [self drawMenu:@"TRIGGER" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:170 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:s3g::kAmbiVoxMaxVoices y:196 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"VOICE" value:[NSString stringWithUTF8String:voxSpeechModeName(v.speechMode)] y:222 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"POP FILTER" param:kPopFilterParamId value:_plugin->popFilter min:0 max:1 y:248 attrs:attrs valueAttrs:valueAttrs style:style];
 
     const bool textureMode = v.speechMode == VoxSpeechMode::Texture;
-    s3g::clap_gui::drawPanelFrame(630, 204, 250, 294, style);
+    const CGFloat playbackHeight = voxPlaybackPanelHeight(v.speechMode);
+    s3g::clap_gui::drawPanelFrame(630, 278, 250, playbackHeight, style);
     s3g::clap_gui::drawPanelHeader(textureMode ? @"TEXTURE PLAYBACK" : @"PHRASE PLAYBACK",
-        true, 630, 204, 250, 21, attrs, style);
+        true, 630, 278, 250, 21, attrs, style);
     if (textureMode) {
-        [self drawSlider:@"SPEED" param:kWorldRateParamId value:v.worldRate min:0 max:1 y:240 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"LOOP START" param:kWorldLoopStartParamId value:v.worldLoopStart min:0 max:1 y:266 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"LOOP END" param:kWorldLoopEndParamId value:v.worldLoopEnd min:0 max:1 y:292 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"FREEZE" param:kWorldFreezeParamId value:v.worldFreeze min:0 max:1 y:318 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"POSITION" param:kWorldScrubParamId value:v.worldScrub min:0 max:1 y:344 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"PHR SPREAD" param:kPhraseSpreadParamId value:v.phraseSpread min:0 max:1 y:370 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"STRETCH" param:kPvocStretchParamId value:v.pvocStretch min:0.25 max:4 y:396 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"TRANSIENT" param:kPvocTransientParamId value:v.pvocTransient min:0 max:1 y:422 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"VOICE STEP" param:kWorldVoiceSpreadParamId value:v.worldVoiceSpread min:0 max:1 y:448 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"VOICE DEV" param:kWorldVoiceDeviationParamId value:v.worldVoiceDeviation min:0 max:1 y:474 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"SPEED" param:kWorldRateParamId value:v.worldRate min:0 max:1 y:314 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"LOOP START" param:kWorldLoopStartParamId value:v.worldLoopStart min:0 max:1 y:340 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"LOOP END" param:kWorldLoopEndParamId value:v.worldLoopEnd min:0 max:1 y:366 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"FREEZE" param:kWorldFreezeParamId value:v.worldFreeze min:0 max:1 y:392 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"POSITION" param:kWorldScrubParamId value:v.worldScrub min:0 max:1 y:418 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"PHR SPREAD" param:kPhraseSpreadParamId value:v.phraseSpread min:0 max:1 y:444 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"STRETCH" param:kPvocStretchParamId value:v.pvocStretch min:0.25 max:4 y:470 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"TRANSIENT" param:kPvocTransientParamId value:v.pvocTransient min:0 max:1 y:496 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"VOICE STEP" param:kWorldVoiceSpreadParamId value:v.worldVoiceSpread min:0 max:1 y:522 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"VOICE DEV" param:kWorldVoiceDeviationParamId value:v.worldVoiceDeviation min:0 max:1 y:548 attrs:attrs valueAttrs:valueAttrs style:style];
     } else {
-        [self drawSlider:@"PACE" param:kPhraseRateParamId value:v.phraseRate min:0 max:1 y:240 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"STRETCH" param:kPvocStretchParamId value:v.pvocStretch min:0.25 max:4 y:266 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"TRANSIENT" param:kPvocTransientParamId value:v.pvocTransient min:0 max:1 y:292 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"BLEND" param:kTransitionParamId value:v.transition min:0 max:1 y:318 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"PHR SPREAD" param:kPhraseSpreadParamId value:v.phraseSpread min:0 max:1 y:344 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"VOICE STEP" param:kWorldVoiceSpreadParamId value:v.worldVoiceSpread min:0 max:1 y:370 attrs:attrs valueAttrs:valueAttrs style:style];
-        [self drawSlider:@"VOICE DEV" param:kWorldVoiceDeviationParamId value:v.worldVoiceDeviation min:0 max:1 y:396 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"PACE" param:kPhraseRateParamId value:v.phraseRate min:0 max:1 y:314 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"STRETCH" param:kPvocStretchParamId value:v.pvocStretch min:0.25 max:4 y:340 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"TRANSIENT" param:kPvocTransientParamId value:v.pvocTransient min:0 max:1 y:366 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"BLEND" param:kTransitionParamId value:v.transition min:0 max:1 y:392 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"PHR SPREAD" param:kPhraseSpreadParamId value:v.phraseSpread min:0 max:1 y:418 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"VOICE STEP" param:kWorldVoiceSpreadParamId value:v.worldVoiceSpread min:0 max:1 y:444 attrs:attrs valueAttrs:valueAttrs style:style];
+        [self drawSlider:@"VOICE DEV" param:kWorldVoiceDeviationParamId value:v.worldVoiceDeviation min:0 max:1 y:470 attrs:attrs valueAttrs:valueAttrs style:style];
     }
 
-    s3g::clap_gui::drawPanelFrame(630, 510, 250, 90, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 510, 250, 21, attrs, style);
-    [self drawSlider:@"LEVEL" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:546 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"POP FILTER" param:kPopFilterParamId value:_plugin->popFilter min:0 max:1 y:572 attrs:attrs valueAttrs:valueAttrs style:style];
-
-    s3g::clap_gui::drawPanelFrame(630, 612, 250, 176, style);
-    s3g::clap_gui::drawPanelHeader(@"WORLD / ENSEMBLE", true, 630, 612, 250, 21, attrs, style);
-    [self drawMenu:@"ENSEMBLE" value:[NSString stringWithUTF8String:s3g::ambiVoxOrchestrationName(v.orchestration)] y:648 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"CONTOUR" value:[NSString stringWithUTF8String:s3g::ambiVoxContourModeName(v.contourMode)] y:674 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"FORMANT" param:kFormantMacroParamId value:v.formantMacro min:-1 max:1 y:700 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"PERIODIC" param:kWorldVoicingParamId value:v.worldVoicing min:0 max:1 y:726 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"AIR COLOR" param:kWorldAirColorParamId value:v.worldAirColor min:-1 max:1 y:752 attrs:attrs valueAttrs:valueAttrs style:style];
+    const CGFloat worldY = voxWorldPanelY(v.speechMode);
+    s3g::clap_gui::drawPanelFrame(630, worldY, 250, 158, style);
+    s3g::clap_gui::drawPanelHeader(@"WORLD / ENSEMBLE", true, 630, worldY, 250, 21, attrs, style);
+    [self drawMenu:@"ENSEMBLE" value:[NSString stringWithUTF8String:s3g::ambiVoxOrchestrationName(v.orchestration)] y:voxWorldRowY(v.speechMode, 0u) attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"CONTOUR" value:[NSString stringWithUTF8String:s3g::ambiVoxContourModeName(v.contourMode)] y:voxWorldRowY(v.speechMode, 1u) attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"FORMANT" param:kFormantMacroParamId value:v.formantMacro min:-1 max:1 y:voxWorldRowY(v.speechMode, 2u) attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"PERIODIC" param:kWorldVoicingParamId value:v.worldVoicing min:0 max:1 y:voxWorldRowY(v.speechMode, 3u) attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"AIR COLOR" param:kWorldAirColorParamId value:v.worldAirColor min:-1 max:1 y:voxWorldRowY(v.speechMode, 4u) attrs:attrs valueAttrs:valueAttrs style:style];
 
     constexpr CGFloat motionX = 896;
-    s3g::clap_gui::drawPanelFrame(motionX, 42, 246, 426, style);
+    s3g::clap_gui::drawPanelFrame(motionX, 42, 246, 366, style);
     s3g::clap_gui::drawPanelHeader(@"MOTION", true, motionX, 42, 246, 21, attrs, style);
     [self drawMenuAtX:motionX name:@"SCENE" value:[NSString stringWithUTF8String:s3g::ambiVotMotionSceneName(p.motionScene)] y:78 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenuAtX:motionX name:@"CLOCK" value:[NSString stringWithUTF8String:s3g::ambiVotMotionClockName(p.motionClock)] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
@@ -9459,16 +9481,16 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     [self drawSliderAtX:motionX name:@"ELEV" param:kCenterElevationParamId value:p.centerElevationDeg min:-90 max:90 y:364 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSliderAtX:motionX name:@"DISTANCE" param:kCenterDistanceParamId value:p.centerDistance min:0.15 max:2 y:390 attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(motionX, 480, 246, 152, style);
-    s3g::clap_gui::drawPanelHeader(@"PHRASE", true, motionX, 480, 246, 21, attrs, style);
-    const NSRect phraseHeader = NSMakeRect(motionX, 480, 246, 21);
+    s3g::clap_gui::drawPanelFrame(motionX, 420, 246, 152, style);
+    s3g::clap_gui::drawPanelHeader(@"PHRASE", true, motionX, 420, 246, 21, attrs, style);
+    const NSRect phraseHeader = NSMakeRect(motionX, 420, 246, 21);
     s3g::clap_gui::drawHeaderActionButton([self worldResetButtonRect], phraseHeader, @"RESET", attrs, style);
     s3g::clap_gui::drawHeaderActionButton([self encodedLoadButtonRect], phraseHeader, @"LOAD", attrs, style);
     const bool hasBank = _plugin && static_cast<bool>(std::atomic_load_explicit(&_plugin->voicebank, std::memory_order_acquire));
     const bool hasWorld = _plugin && static_cast<bool>(std::atomic_load_explicit(&_plugin->worldSample, std::memory_order_acquire));
     if (_phraseField) {
         [_phraseField setHidden:NO];
-        [_phraseField setFrame:NSMakeRect(motionX + 16, 516, 214, 22)];
+        [_phraseField setFrame:NSMakeRect(motionX + 16, 456, 214, 22)];
     }
     const std::string loadedName = _plugin ? loadVoxLoadedName(*_plugin) : std::string();
     std::string resolvedText;
@@ -9487,11 +9509,11 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         sourceText = [NSString stringWithFormat:@"WORLD WAV  %@  %.2fs",
             [NSString stringWithUTF8String:loadedName.empty() ? "loaded" : loadedName.c_str()], duration];
     }
-    [sourceText drawAtPoint:NSMakePoint(motionX + 16, 548) withAttributes:valueAttrs];
+    [sourceText drawAtPoint:NSMakePoint(motionX + 16, 488) withAttributes:valueAttrs];
     if (!resolvedText.empty()) {
         NSString* aliases = [NSString stringWithFormat:@"ALIASES  %@",
             [NSString stringWithUTF8String:resolvedText.c_str()]];
-        [aliases drawAtPoint:NSMakePoint(motionX + 16, 562) withAttributes:valueAttrs];
+        [aliases drawAtPoint:NSMakePoint(motionX + 16, 502) withAttributes:valueAttrs];
     }
     const uint32_t phraseEventCount = _plugin
         ? std::min<uint32_t>(_plugin->voxBankCompiledCount.load(std::memory_order_acquire), kVoxCompiledMaxFrames)
@@ -9503,8 +9525,8 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
             _plugin->guiVoxPhraseProgress.load(std::memory_order_relaxed), 0.0f, 1.0f);
         NSString* timelineText = [NSString stringWithFormat:@"VOICE 1  %u/%u",
             phraseEvent + 1u, phraseEventCount];
-        [timelineText drawAtPoint:NSMakePoint(motionX + 16, 610) withAttributes:valueAttrs];
-        const NSRect timeline = NSMakeRect(motionX + 16, 624, 214, 3);
+        [timelineText drawAtPoint:NSMakePoint(motionX + 16, 550) withAttributes:valueAttrs];
+        const NSRect timeline = NSMakeRect(motionX + 16, 564, 214, 3);
         [style.strip setFill];
         NSRectFill(timeline);
         if (phraseEventCount <= 32u) {
@@ -9528,16 +9550,16 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         NSFrameRect(timeline);
     }
 
-    s3g::clap_gui::drawPanelFrame(motionX, 644, 246, 246, style);
-    s3g::clap_gui::drawPanelHeader(@"PITCH", true, motionX, 644, 246, 21, attrs, style);
-    [self drawSliderAtX:motionX name:@"ROOT" param:kBaseNoteParamId value:p.baseNote min:12 max:96 y:680 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenuAtX:motionX name:@"SCALE" value:[NSString stringWithUTF8String:s3g::ambiVotScaleName(p.scale)] y:706 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"SPREAD" param:kPitchSpreadParamId value:p.pitchSpread min:0 max:2 y:732 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"TRANSPOSE" param:kWorldPitchParamId value:v.worldPitchCents min:-2400 max:2400 y:758 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"DEVIATION" param:kDetuneParamId value:p.detune min:0 max:1 y:784 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"GLIDE" param:kPortamentoParamId value:v.portamento min:0 max:1 y:810 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"VIBRATO" param:kVibratoDepthParamId value:v.vibratoDepth min:0 max:1 y:836 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"VIB SPEED" param:kVibratoRateParamId value:v.vibratoRateHz min:0.1 max:12 y:862 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(motionX, 584, 246, 236, style);
+    s3g::clap_gui::drawPanelHeader(@"PITCH", true, motionX, 584, 246, 21, attrs, style);
+    [self drawSliderAtX:motionX name:@"ROOT" param:kBaseNoteParamId value:p.baseNote min:12 max:96 y:620 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenuAtX:motionX name:@"SCALE" value:[NSString stringWithUTF8String:s3g::ambiVotScaleName(p.scale)] y:646 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"SPREAD" param:kPitchSpreadParamId value:p.pitchSpread min:0 max:2 y:672 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"TRANSPOSE" param:kWorldPitchParamId value:v.worldPitchCents min:-2400 max:2400 y:698 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"DEVIATION" param:kDetuneParamId value:p.detune min:0 max:1 y:724 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"GLIDE" param:kPortamentoParamId value:v.portamento min:0 max:1 y:750 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"VIBRATO" param:kVibratoDepthParamId value:v.vibratoDepth min:0 max:1 y:776 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"VIB SPEED" param:kVibratoRateParamId value:v.vibratoRateHz min:0.1 max:12 y:802 attrs:attrs valueAttrs:valueAttrs style:style];
 }
 
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -9931,16 +9953,20 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     NSDictionary* labelAttrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
-    [@"s3g AMBI VOX ENCODER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
-    s3g::clap_gui::drawMenu(@"PRESET", [self presetDisplayName], 14,
-        labelAttrs, valueAttrs, style, 320, 382, 190);
+    [@"s3g AMBI ENCODER VOX 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
+    s3g::clap_gui::drawEncoderPresetMenu(
+        [self presetDisplayName],
+        s3g::clap_gui::encoderTitleBand(kGuiW, kGuiH),
+        labelAttrs, valueAttrs, style);
     const NSRect titleHeader = NSMakeRect(0, 8, kGuiW, 21);
     s3g::clap_gui::drawHeaderActionButton([self presetLoadButtonRect], titleHeader,
         @"LOAD", labelAttrs, style);
     s3g::clap_gui::drawHeaderActionButton([self presetSaveButtonRect], titleHeader,
         @"SAVE", labelAttrs, style);
-    NSString* status = [NSString stringWithFormat:@"%@   64 CH",
-        s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed))];
+    s3g::clap_gui::drawHeaderActionButton([self randomizeButtonRect], titleHeader,
+        @"RANDOM", labelAttrs, style);
+    NSString* status = s3g::clap_gui::peakDbText(
+        _plugin->outputPeak.load(std::memory_order_relaxed));
     s3g::clap_gui::drawRightStatus(status, kGuiW, 14, valueAttrs);
 
     const NSRect left = [self leftPanelRect];
@@ -10520,6 +10546,32 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         [self saveUserPreset];
         return;
     }
+    if (NSPointInRect(point, [self randomizeButtonRect])) {
+        auto randomUnit = [] {
+            return static_cast<double>(arc4random()) / 4294967295.0;
+        };
+        applyParam(*_plugin, kModeParamId, arc4random_uniform(3u));
+        applyParam(*_plugin, kBaseNoteParamId, 30.0 + randomUnit() * 34.0);
+        applyParam(*_plugin, kTuneParamId, -28.0 + randomUnit() * 56.0);
+        applyParam(*_plugin, kVectorXParamId, randomUnit());
+        applyParam(*_plugin, kVectorYParamId, randomUnit());
+        applyParam(*_plugin, kScanParamId, randomUnit());
+        applyParam(*_plugin, kMorphParamId, 0.20 + randomUnit() * 0.80);
+        applyParam(*_plugin, kDetuneParamId, randomUnit() * 0.36);
+        applyParam(*_plugin, kSpreadParamId, 0.18 + randomUnit() * 0.76);
+        applyParam(*_plugin, kMotionSceneParamId, arc4random_uniform(5u));
+        applyParam(*_plugin, kMotionAmountParamId, 0.16 + randomUnit() * 0.76);
+        applyParam(*_plugin, kCoherenceParamId, 0.22 + randomUnit() * 0.72);
+        applyParam(*_plugin, kChaosParamId, randomUnit() * 0.68);
+        applyParam(*_plugin, kRaspParamId, randomUnit() * 0.72);
+        applyParam(*_plugin, kBreathParamId, randomUnit() * 0.72);
+        applyParam(*_plugin, kThroatParamId, randomUnit() * 0.72);
+        applyParam(*_plugin, kJitterParamId, randomUnit() * 0.46);
+        _plugin->factoryPresetIndex = -1;
+        std::snprintf(_plugin->presetName, sizeof(_plugin->presetName), "%s", "RANDOM");
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (NSPointInRect(point, [self encodedLoadButtonRect])) {
         [self loadEncodedPhrase];
         return;
@@ -10655,11 +10707,10 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
 
     struct MenuHit { int menu; uint32_t count; CGFloat x; CGFloat y; CGFloat width; };
     static constexpr MenuHit menus[] {
-        { 1, 3, 738, 78, 124 }, { 3, 7, 738, 104, 124 },
-        { 9, 3, 738, 156, 124 },
-        { 10, 6, 738, 648, 124 }, { 11, 4, 738, 674, 124 },
+        { 3, 7, 738, 104, 124 }, { 1, 3, 738, 170, 124 },
+        { 9, 3, 738, 222, 124 },
         { 4, 5, 1004, 78, 124 }, { 5, 2, 1004, 104, 124 },
-        { 6, 6, 1004, 706, 124 },
+        { 6, 6, 1004, 646, 124 },
     };
     for (const auto& menu : menus) {
         if (NSPointInRect(point, NSMakeRect(menu.x, menu.y - 1, menu.width, 17))) {
@@ -10667,35 +10718,43 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
             return;
         }
     }
+    const MenuHit worldMenus[] {
+        { 10, 6, 738, voxWorldRowY(_plugin->vox.speechMode, 0u), 124 },
+        { 11, 4, 738, voxWorldRowY(_plugin->vox.speechMode, 1u), 124 },
+    };
+    for (const auto& menu : worldMenus) {
+        if (NSPointInRect(point, NSMakeRect(menu.x, menu.y - 1, menu.width, 17))) {
+            [self openMenu:menu.menu count:menu.count x:menu.x y:menu.y width:menu.width];
+            return;
+        }
+    }
     struct SliderHit { clap_id param; CGFloat x; CGFloat y; int area; };
     static constexpr SliderHit commonSliders[] {
-        { kVoicesParamId, 638, 130, 1 }, { kOutputParamId, 638, 546, 1 },
-        { kPopFilterParamId, 638, 572, 1 },
-        { kFormantMacroParamId, 638, 700, 1 }, { kWorldVoicingParamId, 638, 726, 1 },
-        { kWorldAirColorParamId, 638, 752, 1 },
+        { kOutputParamId, 638, 78, 1 }, { kPopFilterParamId, 638, 248, 1 },
+        { kVoicesParamId, 638, 196, 1 },
         { kMotionRateParamId, 904, 130, 7 }, { kSyncDivisionParamId, 904, 156, 7 },
         { kMotionAmountParamId, 904, 182, 7 }, { kSpreadParamId, 904, 208, 7 },
         { kCoherenceParamId, 904, 234, 7 }, { kChaosParamId, 904, 260, 7 },
         { kLinkParamId, 904, 286, 7 }, { kSmoothParamId, 904, 312, 7 },
         { kCenterAzimuthParamId, 904, 338, 7 }, { kCenterElevationParamId, 904, 364, 7 },
         { kCenterDistanceParamId, 904, 390, 7 },
-        { kBaseNoteParamId, 904, 680, 7 }, { kPitchSpreadParamId, 904, 732, 7 },
-        { kWorldPitchParamId, 904, 758, 7 }, { kDetuneParamId, 904, 784, 7 },
-        { kPortamentoParamId, 904, 810, 7 }, { kVibratoDepthParamId, 904, 836, 7 },
-        { kVibratoRateParamId, 904, 862, 7 },
+        { kBaseNoteParamId, 904, 620, 7 }, { kPitchSpreadParamId, 904, 672, 7 },
+        { kWorldPitchParamId, 904, 698, 7 }, { kDetuneParamId, 904, 724, 7 },
+        { kPortamentoParamId, 904, 750, 7 }, { kVibratoDepthParamId, 904, 776, 7 },
+        { kVibratoRateParamId, 904, 802, 7 },
     };
     static constexpr SliderHit phraseSliders[] {
-        { kPhraseRateParamId, 638, 240, 1 }, { kPvocStretchParamId, 638, 266, 1 },
-        { kPvocTransientParamId, 638, 292, 1 }, { kTransitionParamId, 638, 318, 1 },
-        { kPhraseSpreadParamId, 638, 344, 1 }, { kWorldVoiceSpreadParamId, 638, 370, 1 },
-        { kWorldVoiceDeviationParamId, 638, 396, 1 },
+        { kPhraseRateParamId, 638, 314, 1 }, { kPvocStretchParamId, 638, 340, 1 },
+        { kPvocTransientParamId, 638, 366, 1 }, { kTransitionParamId, 638, 392, 1 },
+        { kPhraseSpreadParamId, 638, 418, 1 }, { kWorldVoiceSpreadParamId, 638, 444, 1 },
+        { kWorldVoiceDeviationParamId, 638, 470, 1 },
     };
     static constexpr SliderHit textureSliders[] {
-        { kWorldRateParamId, 638, 240, 1 }, { kWorldLoopStartParamId, 638, 266, 1 },
-        { kWorldLoopEndParamId, 638, 292, 1 }, { kWorldFreezeParamId, 638, 318, 1 },
-        { kWorldScrubParamId, 638, 344, 1 }, { kPhraseSpreadParamId, 638, 370, 1 },
-        { kPvocStretchParamId, 638, 396, 1 }, { kPvocTransientParamId, 638, 422, 1 },
-        { kWorldVoiceSpreadParamId, 638, 448, 1 }, { kWorldVoiceDeviationParamId, 638, 474, 1 },
+        { kWorldRateParamId, 638, 314, 1 }, { kWorldLoopStartParamId, 638, 340, 1 },
+        { kWorldLoopEndParamId, 638, 366, 1 }, { kWorldFreezeParamId, 638, 392, 1 },
+        { kWorldScrubParamId, 638, 418, 1 }, { kPhraseSpreadParamId, 638, 444, 1 },
+        { kPvocStretchParamId, 638, 470, 1 }, { kPvocTransientParamId, 638, 496, 1 },
+        { kWorldVoiceSpreadParamId, 638, 522, 1 }, { kWorldVoiceDeviationParamId, 638, 548, 1 },
     };
     const auto hitSlider = [&](const SliderHit& slider) {
         if (!NSPointInRect(point, NSMakeRect(slider.x, slider.y - 8, 232, 24))) return false;
@@ -10711,6 +10770,14 @@ static void writeVoxWorldCache(NSURL* wavURL, const VoxVoicebankAudio& audio)
         return true;
     };
     for (const auto& slider : commonSliders) {
+        if (hitSlider(slider)) return;
+    }
+    const SliderHit worldSliders[] {
+        { kFormantMacroParamId, 638, voxWorldRowY(_plugin->vox.speechMode, 2u), 1 },
+        { kWorldVoicingParamId, 638, voxWorldRowY(_plugin->vox.speechMode, 3u), 1 },
+        { kWorldAirColorParamId, 638, voxWorldRowY(_plugin->vox.speechMode, 4u), 1 },
+    };
+    for (const auto& slider : worldSliders) {
         if (hitSlider(slider)) return;
     }
     if (_plugin->vox.speechMode == VoxSpeechMode::Texture) {
@@ -10895,7 +10962,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-vox-encoder-64",
-    "s3g Ambi Vox Encoder 64",
+    "s3g Ambi Encoder Vox 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

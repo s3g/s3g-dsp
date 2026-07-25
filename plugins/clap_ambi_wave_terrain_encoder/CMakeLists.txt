@@ -20,7 +20,7 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Wave Terrain Encoder 64"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Encoder Wave Terrain 64"
     MACOSX_BUNDLE_BUNDLE_VERSION "0.4.1"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.4.1"
   )

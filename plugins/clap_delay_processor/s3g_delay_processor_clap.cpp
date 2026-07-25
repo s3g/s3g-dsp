@@ -38,12 +38,12 @@ static_assert(kChannelCount > 0 && kChannelCount <= s3g::kLanePatchMaxChannels,
 
 #if S3G_DELAY_PROCESSOR_CHANNEL_COUNT == 24
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.delay-processor-24ch";
-constexpr const char* kPluginName = "s3g Delay Processor 24ch";
+constexpr const char* kPluginName = "s3g Processor Delay 24ch";
 constexpr const char* kPluginDescription =
     "24-channel topological delay processor with per-lane delay, feedback, tone, pitch, and cross-lane diffusion.";
 #else
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.delay-processor-8ch";
-constexpr const char* kPluginName = "s3g Delay Processor 8ch";
+constexpr const char* kPluginName = "s3g Processor Delay 8ch";
 constexpr const char* kPluginDescription =
     "8-channel topological delay processor with per-lane delay, feedback, tone, pitch, and cross-lane diffusion.";
 #endif
@@ -1490,7 +1490,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     }
 
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
-    std::strncpy(info->module, "Delay Processor", sizeof(info->module));
+    std::strncpy(info->module, "Processor Delay", sizeof(info->module));
 
     switch (index) {
     case 0:
@@ -2604,7 +2604,7 @@ static CGFloat delayEngineRowY(CGFloat panelY, uint32_t index)
     NSDictionary* sectionAttrs = @{ NSForegroundColorAttributeName: accent, NSFontAttributeName: mono };
     NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: titleFont };
 
-    [@"s3g DELAY PROCESSOR" drawAtPoint:NSMakePoint(18, 13) withAttributes:titleAttrs];
+    [@"s3g PROCESSOR DELAY" drawAtPoint:NSMakePoint(18, 13) withAttributes:titleAttrs];
     NSString* channelText = [NSString stringWithFormat:@"%uCH", kChannelCount];
     [channelText drawAtPoint:NSMakePoint(946, 14) withAttributes:smallAttrs];
     const float peak = p->outputPeak.load(std::memory_order_relaxed);

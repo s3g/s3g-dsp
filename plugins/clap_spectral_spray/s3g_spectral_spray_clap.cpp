@@ -319,30 +319,30 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(606,14) withAttributes:small];
     [@"2CH" drawAtPoint:NSMakePoint(704,14) withAttributes:small];
     s3g::clap_gui::drawPanelFrame(18, 42, 354, 286, style);
-    s3g::clap_gui::drawPanelHeader(@"SPECTRAL MOTION", true, 18, 42, 354, 21, lab, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / RANGE", true, 18, 42, 354, 21, lab, style);
     s3g::clap_gui::drawPanelFrame(388, 42, 354, 286, style);
-    s3g::clap_gui::drawPanelHeader(@"RANGE / OUTPUT", true, 388, 42, 354, 21, lab, style);
+    s3g::clap_gui::drawPanelHeader(@"SPECTRAL MOTION", true, 388, 42, 354, 21, lab, style);
     const auto& prm = p->params;
-    [self drawRow:@"BINS" value:[NSString stringWithFormat:@"%.0f", prm.sprayBins] norm:prm.sprayBins / 256.0f x:36 y:82 attrs:small small:small];
-    [self drawRow:@"DRFT" value:[NSString stringWithFormat:@"%.0f%%", prm.drift * 100.0f] norm:prm.drift x:36 y:116 attrs:small small:small];
-    [self drawRow:@"HOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.hold * 100.0f] norm:prm.hold x:36 y:150 attrs:small small:small];
-    [self drawRow:@"FRZ" value:[NSString stringWithFormat:@"%.0f%%", prm.freeze * 100.0f] norm:prm.freeze x:36 y:184 attrs:small small:small];
-    [self drawRow:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback / 0.85f x:36 y:218 attrs:small small:small];
-    [self drawRow:@"SMR" value:[NSString stringWithFormat:@"%.0f%%", prm.smear * 100.0f] norm:prm.smear x:36 y:252 attrs:small small:small];
-    [self drawRow:@"HOLE" value:[NSString stringWithFormat:@"%.0f%%", prm.holes * 100.0f] norm:prm.holes / 0.95f x:36 y:286 attrs:small small:small];
-    [self drawRow:@"PHAS" value:[NSString stringWithFormat:@"%.0f%%", prm.phaseBlur * 100.0f] norm:prm.phaseBlur x:406 y:82 attrs:small small:small];
-    [self drawRow:@"LO" value:[NSString stringWithFormat:@"%.0f", prm.loFreq] norm:prm.loFreq / 24000.0f x:406 y:116 attrs:small small:small];
-    [self drawRow:@"HI" value:[NSString stringWithFormat:@"%.0f", prm.hiFreq] norm:prm.hiFreq / 24000.0f x:406 y:150 attrs:small small:small];
-    [self drawRow:@"TILT" value:[NSString stringWithFormat:@"%+.2f", prm.tilt] norm:(prm.tilt + 1.0f) * 0.5f x:406 y:184 attrs:small small:small];
-    [self drawRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix x:406 y:218 attrs:small small:small];
-    [self drawRow:@"GAIN" value:[NSString stringWithFormat:@"%+.1f", prm.gainDb] norm:(prm.gainDb + 60.0f) / 78.0f x:406 y:252 attrs:small small:small];
-    [self drawRow:@"SAFE" value:[NSString stringWithFormat:@"%.0f%%", prm.safety * 100.0f] norm:(prm.safety - 0.05f) / 0.95f x:406 y:286 attrs:small small:small];
+    [self drawRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", prm.gainDb] norm:(prm.gainDb + 60.0f) / 78.0f x:36 y:82 attrs:small small:small];
+    [self drawRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix x:36 y:116 attrs:small small:small];
+    [self drawRow:@"SAFE" value:[NSString stringWithFormat:@"%.0f%%", prm.safety * 100.0f] norm:(prm.safety - 0.05f) / 0.95f x:36 y:150 attrs:small small:small];
+    [self drawRow:@"LO" value:[NSString stringWithFormat:@"%.0f", prm.loFreq] norm:prm.loFreq / 24000.0f x:36 y:184 attrs:small small:small];
+    [self drawRow:@"HI" value:[NSString stringWithFormat:@"%.0f", prm.hiFreq] norm:prm.hiFreq / 24000.0f x:36 y:218 attrs:small small:small];
+    [self drawRow:@"TILT" value:[NSString stringWithFormat:@"%+.2f", prm.tilt] norm:(prm.tilt + 1.0f) * 0.5f x:36 y:252 attrs:small small:small];
+    [self drawRow:@"PHAS" value:[NSString stringWithFormat:@"%.0f%%", prm.phaseBlur * 100.0f] norm:prm.phaseBlur x:36 y:286 attrs:small small:small];
+    [self drawRow:@"BINS" value:[NSString stringWithFormat:@"%.0f", prm.sprayBins] norm:prm.sprayBins / 256.0f x:406 y:82 attrs:small small:small];
+    [self drawRow:@"DRFT" value:[NSString stringWithFormat:@"%.0f%%", prm.drift * 100.0f] norm:prm.drift x:406 y:116 attrs:small small:small];
+    [self drawRow:@"HOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.hold * 100.0f] norm:prm.hold x:406 y:150 attrs:small small:small];
+    [self drawRow:@"FRZ" value:[NSString stringWithFormat:@"%.0f%%", prm.freeze * 100.0f] norm:prm.freeze x:406 y:184 attrs:small small:small];
+    [self drawRow:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback / 0.85f x:406 y:218 attrs:small small:small];
+    [self drawRow:@"SMR" value:[NSString stringWithFormat:@"%.0f%%", prm.smear * 100.0f] norm:prm.smear x:406 y:252 attrs:small small:small];
+    [self drawRow:@"HOLE" value:[NSString stringWithFormat:@"%.0f%%", prm.holes * 100.0f] norm:prm.holes / 0.95f x:406 y:286 attrs:small small:small];
     [@"FFT 4096 / 8x OLA" drawAtPoint:NSMakePoint(406, 334) withAttributes:small];
 }
 - (void)updateSlider:(NSPoint)point
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const bool left = _dragSlider >= 1 && _dragSlider <= 7;
+    const bool left = _dragSlider >= 8 && _dragSlider <= 14;
     const double x0 = left ? 130.0 : 500.0;
     const double n = std::clamp((point.x - x0) / 150.0, 0.0, 1.0);
     switch (_dragSlider) {
@@ -368,9 +368,10 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     const CGFloat rows[] = {82,116,150,184,218,252,286};
+    const int leftControls[] = {13,12,14,9,10,11,8};
     for (int i = 0; i < 7; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(32, rows[i] - 9, 330, 24))) { _dragSlider = i + 1; [self updateSlider:pt]; return; }
-        if (NSPointInRect(pt, NSMakeRect(402, rows[i] - 9, 330, 24))) { _dragSlider = i + 8; [self updateSlider:pt]; return; }
+        if (NSPointInRect(pt, NSMakeRect(32, rows[i] - 9, 330, 24))) { _dragSlider = leftControls[i]; [self updateSlider:pt]; return; }
+        if (NSPointInRect(pt, NSMakeRect(402, rows[i] - 9, 330, 24))) { _dragSlider = i + 1; [self updateSlider:pt]; return; }
     }
 }
 - (void)mouseDragged:(NSEvent*)event { if (_dragSlider > 0) [self updateSlider:[self convertPoint:[event locationInWindow] fromView:nil]]; }

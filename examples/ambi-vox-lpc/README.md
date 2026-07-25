@@ -1,7 +1,7 @@
 # Legacy Ambi Vox LPC Research Fixtures
 
 These synthetic phrase-frame files preserve the earlier LPC design experiment.
-The current `s3g Ambi Vox Encoder 64` uses WORLD analysis and UTAU-style
+The current `s3g Ambi Encoder Vox 64` uses WORLD analysis and UTAU-style
 voicebanks; its `LOAD` button does not accept these `.hex` files.
 
 The experimental frame representation treated each 4-byte group as one

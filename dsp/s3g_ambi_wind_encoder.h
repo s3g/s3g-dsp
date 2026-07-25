@@ -59,6 +59,9 @@ struct AmbiWindParams {
     float environmentDecay = 0.5f;
     float environmentDamping = 0.5f;
     AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
+    float fieldListenAmount = 1.0f;
+    AmbiFieldListenerResponse fieldListenResponse =
+        AmbiFieldListenerResponse::Legacy;
 };
 
 inline AmbiEnvironmentProfileId ambiWindEnvironmentProfile(uint32_t place)
@@ -168,6 +171,7 @@ public:
         environmentField_.prepare(sampleRate_);
         fieldListener_.prepare(sampleRate_);
         fieldListener_.setMemorySeconds(0.68f);
+        fieldListener_.setExtendedAnalysisEnabled(true);
         const auto& directions = ambiFieldListenerCubeDirections();
         fieldListener_.setDirections(directions.data(), static_cast<uint32_t>(directions.size()));
         reset();
@@ -242,6 +246,10 @@ public:
         params.environmentDecay = clampFinite(params.environmentDecay, params_.environmentDecay, 0.0f, 1.0f);
         params.environmentDamping = clampFinite(params.environmentDamping, params_.environmentDamping, 0.0f, 1.0f);
         params.fieldListenMode = sanitizeAmbiFieldListenMode(params.fieldListenMode);
+        params.fieldListenAmount = clampFinite(
+            params.fieldListenAmount, params_.fieldListenAmount, 0.0f, 1.0f);
+        params.fieldListenResponse =
+            sanitizeAmbiFieldListenerResponse(params.fieldListenResponse);
 
         const uint32_t oldVoices = params_.voices;
         params_ = params;
@@ -260,7 +268,17 @@ public:
     AmbiWindPoint voicePoint(uint32_t voice) const { return points_[std::min<uint32_t>(voice, kAmbiWindMaxVoices - 1u)]; }
     float voiceGustLevel(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiWindMaxVoices - 1u)].gustViz; }
     float fieldListenEnvelope(uint32_t lobe) const { return fieldListener_.envelope(lobe); }
+    float fieldListenFastEnvelope(uint32_t lobe) const { return fieldListener_.fastEnvelope(lobe); }
+    float fieldListenSlowEnvelope(uint32_t lobe) const { return fieldListener_.slowEnvelope(lobe); }
+    float fieldListenRelativeEnergy(uint32_t lobe) const { return fieldListener_.relativeEnergy(lobe); }
     float fieldListenActivity() const { return fieldListener_.activity(); }
+    float fieldListenNovelty(uint32_t lobe) const { return fieldListener_.novelty(lobe); }
+    float fieldListenRoughness(uint32_t lobe) const { return fieldListener_.roughness(lobe); }
+    float fieldListenSpectralTilt(uint32_t lobe) const { return fieldListener_.spectralTilt(lobe); }
+    float fieldListenHabituation(uint32_t lobe) const { return fieldListener_.habituation(lobe); }
+    float fieldListenCharge(uint32_t lobe) const { return fieldListener_.charge(lobe); }
+    Vec3 fieldListenEnergyGradient() const { return fieldListener_.energyGradient(); }
+    Vec3 fieldListenNoveltyGradient() const { return fieldListener_.noveltyGradient(); }
 
     void process(float* const* outputs, uint32_t outputChannels, uint32_t frames)
     {
@@ -551,6 +569,9 @@ private:
         smoothParams_.environmentDecay = smoothToward(smoothParams_.environmentDecay, params_.environmentDecay, coeff);
         smoothParams_.environmentDamping = smoothToward(smoothParams_.environmentDamping, params_.environmentDamping, coeff);
         smoothParams_.fieldListenMode = params_.fieldListenMode;
+        smoothParams_.fieldListenAmount = smoothToward(
+            smoothParams_.fieldListenAmount, params_.fieldListenAmount, coeff);
+        smoothParams_.fieldListenResponse = params_.fieldListenResponse;
         const float materialCoeff = 1.0f - std::exp(-dt * 12.0f);
         for (uint32_t mode = 0u; mode < materialWeights_.size(); ++mode) {
             const float target = mode == params_.materialMode ? 1.0f : 0.0f;
@@ -574,7 +595,7 @@ private:
         const float flowAz = wrapSignedDeg(p.centerAzimuthDeg + vectorAz + std::sin(flowPhase * 0.17f) * p.motionFlow * 70.0f);
         Vec3 flowDir = directionFromAed(flowAz, p.centerElevationDeg * 0.25f);
         const float listenAmount = p.fieldListenMode == AmbiFieldListenMode::Off
-            ? 0.0f : fieldListener_.activity();
+            ? 0.0f : fieldListener_.activity() * p.fieldListenAmount;
         const Vec3 listenDirection = fieldListener_.preferredDirection(p.fieldListenMode);
         if (listenAmount > 0.0001f) {
             const float steering = listenAmount * (0.14f + p.motionFlow * 0.22f);
@@ -654,21 +675,72 @@ private:
         const float wind = clamp(p.wind + laneSkew * 0.24f, 0.0f, 1.0f);
         const float gustDepth = clamp(p.gustDepth + laneSkew * 0.22f, 0.0f, 1.0f);
         const float listenerResponse = fieldListenerResponse(index);
+        const auto listener = fieldListenerScore(index);
+        float turbulenceAdapt = listenerResponse * 0.48f;
+        float densityAdapt = listenerResponse * 1.35f;
+        float materialAdapt = 0.0f;
+        float airAdapt = 0.0f;
+        float hissAdapt = 0.0f;
+        float centerAdapt = 0.0f;
+        float sweepAdapt = 0.0f;
+        float qAdapt = 0.0f;
+        float bodyAdapt = 0.0f;
+        const float listenAmount = p.fieldListenAmount * fieldListener_.activity();
+        if (p.fieldListenResponse == AmbiFieldListenerResponse::Excite) {
+            const float charge = (listener.novelty * 0.52f
+                + listener.charge * 0.34f + listener.roughness * 0.14f)
+                * listenAmount;
+            turbulenceAdapt = charge * 0.52f;
+            densityAdapt = charge * 1.55f;
+            airAdapt = charge * 0.22f;
+            hissAdapt = charge * 0.18f;
+            sweepAdapt = charge * 0.24f;
+        } else if (p.fieldListenResponse == AmbiFieldListenerResponse::Settle) {
+            const float settling = listener.habituation * listenAmount;
+            turbulenceAdapt = -settling * 0.42f;
+            densityAdapt = -settling * 0.72f;
+            hissAdapt = -settling * 0.16f;
+            bodyAdapt = settling * 0.20f;
+            qAdapt = settling * 0.12f;
+        } else if (p.fieldListenResponse == AmbiFieldListenerResponse::Imprint) {
+            const float imprint = listenAmount
+                * (0.32f + listener.relativeEnergy * 0.68f);
+            turbulenceAdapt = listener.roughness * imprint * 0.30f;
+            densityAdapt = (listener.novelty - listener.habituation * 0.24f)
+                * imprint * 0.74f;
+            materialAdapt = listener.roughness * imprint * 0.25f;
+            airAdapt = std::max(0.0f, listener.spectralTilt) * imprint * 0.24f;
+            hissAdapt = listener.spectralTilt * imprint * 0.20f;
+            centerAdapt = listener.spectralTilt * imprint * 0.28f;
+            sweepAdapt = listener.charge * imprint * 0.20f;
+            qAdapt = (listener.relativeEnergy - 0.35f) * imprint * 0.22f;
+            bodyAdapt = -listener.spectralTilt * imprint * 0.18f;
+        }
         const float turbulence = clamp(p.turbulence + std::fabs(rnd) * p.deviation * 0.48f
-            + listenerResponse * 0.48f, 0.0f, 1.0f);
+            + turbulenceAdapt, 0.0f, 1.0f);
         const float flutter = clamp(p.flutter + hashSigned(voice.seed + 307u) * p.deviation * 0.38f, 0.0f, 1.0f);
-        const float material = clamp(p.material + laneSkew * 0.34f, 0.0f, 1.0f);
-        const float air = clamp(p.air + hashSigned(voice.seed + 911u) * p.deviation * 0.32f, 0.0f, 1.0f);
-        const float hiss = clamp(p.hiss + std::fabs(rnd) * p.deviation * 0.42f, 0.0f, 1.0f);
-        const float center = clamp(p.center + laneSkew * 0.30f, 0.0f, 1.0f);
-        const float sweep = clamp(p.sweep + laneSkew * 0.24f, 0.0f, 1.0f);
-        const float q = clamp(p.q + std::fabs(laneSkew) * 0.24f, 0.0f, 1.0f);
-        const float body = clamp(p.body - laneSkew * 0.22f, 0.0f, 1.0f);
+        const float material = clamp(
+            p.material + laneSkew * 0.34f + materialAdapt, 0.0f, 1.0f);
+        const float air = clamp(p.air
+            + hashSigned(voice.seed + 911u) * p.deviation * 0.32f
+            + airAdapt, 0.0f, 1.0f);
+        const float hiss = clamp(
+            p.hiss + std::fabs(rnd) * p.deviation * 0.42f + hissAdapt,
+            0.0f, 1.0f);
+        const float center = clamp(
+            p.center + laneSkew * 0.30f + centerAdapt, 0.0f, 1.0f);
+        const float sweep = clamp(
+            p.sweep + laneSkew * 0.24f + sweepAdapt, 0.0f, 1.0f);
+        const float q = clamp(
+            p.q + std::fabs(laneSkew) * 0.24f + qAdapt, 0.0f, 1.0f);
+        const float body = clamp(
+            p.body - laneSkew * 0.22f + bodyAdapt, 0.0f, 1.0f);
         const float motion = clamp(voice.motionEnergy + p.field * 0.12f, 0.0f, 1.0f);
         const float dt = 1.0f / static_cast<float>(sampleRate_);
 
         const float gustHz = freqFromNorm(p.gustRate, 0.004f, 5.5f);
-        const float eventDensityScale = clamp(1.0f + listenerResponse * 1.35f, 0.45f, 1.75f);
+        const float eventDensityScale = clamp(
+            1.0f + densityAdapt, 0.35f, 2.25f);
         const float laneRate = gustHz * (0.38f + lane * 0.72f + std::fabs(rnd) * 0.52f)
             * eventDensityScale;
         voice.gustPhase += laneRate * dt;
@@ -799,7 +871,18 @@ private:
         const float preference = fieldListener_.preference(
             directionFromAed(point.azimuthDeg, point.elevationDeg),
             smoothParams_.fieldListenMode);
-        return (preference - 0.5f) * fieldListener_.activity();
+        return (preference - 0.5f) * fieldListener_.activity()
+            * smoothParams_.fieldListenAmount;
+    }
+
+    AmbiFieldListenerScore fieldListenerScore(uint32_t index) const
+    {
+        if (smoothParams_.fieldListenMode == AmbiFieldListenMode::Off) return {};
+        const auto& point = points_[std::min<uint32_t>(
+            index, smoothParams_.voices - 1u)];
+        return fieldListener_.score(
+            directionFromAed(point.azimuthDeg, point.elevationDeg),
+            smoothParams_.fieldListenMode);
     }
 
     AmbiWindParams params_ {};

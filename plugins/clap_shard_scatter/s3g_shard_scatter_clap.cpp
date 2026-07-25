@@ -298,30 +298,30 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(596,14) withAttributes:small];
     [@"2>16" drawAtPoint:NSMakePoint(704,14) withAttributes:small];
     s3g::clap_gui::drawPanelFrame(18, 42, 354, 286, style);
-    s3g::clap_gui::drawPanelHeader(@"SHARDS", true, 18, 42, 354, 21, lab, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / RING", true, 18, 42, 354, 21, lab, style);
     s3g::clap_gui::drawPanelFrame(388, 42, 354, 286, style);
-    s3g::clap_gui::drawPanelHeader(@"RING / OUTPUT", true, 388, 42, 354, 21, lab, style);
+    s3g::clap_gui::drawPanelHeader(@"SHARDS", true, 388, 42, 354, 21, lab, style);
     const auto& prm = p->params;
-    [self drawRow:@"DENS" value:[NSString stringWithFormat:@"%.1f", static_cast<double>(prm.density)] norm:(prm.density - 0.2f) / 23.8f x:36 y:82 attrs:small small:small];
-    [self drawRow:@"GRAIN" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(prm.grainMs)] norm:(prm.grainMs - 20.0f) / 880.0f x:36 y:116 attrs:small small:small];
-    [self drawRow:@"GUARD" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(prm.guardMs)] norm:(prm.guardMs - 20.0f) / 1780.0f x:36 y:150 attrs:small small:small];
-    [self drawRow:@"SCAT" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(prm.scatterMs)] norm:prm.scatterMs / 2500.0f x:36 y:184 attrs:small small:small];
-    [self drawRow:@"PITCH" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(prm.pitch)] norm:(prm.pitch + 2.0f) * 0.25f x:36 y:218 attrs:small small:small];
-    [self drawRow:@"PSPR" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(prm.pitchSpread)] norm:prm.pitchSpread / 1.5f x:36 y:252 attrs:small small:small];
-    [self drawRow:@"ROT" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(prm.rotate)] norm:(prm.rotate + 4.0f) * 0.125f x:36 y:286 attrs:small small:small];
-    [self drawRow:@"WIDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.width * 100.0f)] norm:prm.width x:406 y:82 attrs:small small:small];
-    [self drawRow:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.feedback * 100.0f)] norm:prm.feedback / 0.72f x:406 y:116 attrs:small small:small];
-    [self drawRow:@"FRZ" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.freeze * 100.0f)] norm:prm.freeze x:406 y:150 attrs:small small:small];
-    [self drawRow:@"DRY" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.dry * 100.0f)] norm:prm.dry x:406 y:184 attrs:small small:small];
-    [self drawRow:@"WET" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.wet * 100.0f)] norm:prm.wet x:406 y:218 attrs:small small:small];
-    [self drawRow:@"GAIN" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(prm.gainDb)] norm:(prm.gainDb + 60.0f) / 72.0f x:406 y:252 attrs:small small:small];
-    [self drawRow:@"STEREO" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.stereo * 100.0f)] norm:prm.stereo x:406 y:286 attrs:small small:small];
+    [self drawRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(prm.gainDb)] norm:(prm.gainDb + 60.0f) / 72.0f x:36 y:82 attrs:small small:small];
+    [self drawRow:@"DRY" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.dry * 100.0f)] norm:prm.dry x:36 y:116 attrs:small small:small];
+    [self drawRow:@"WET" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.wet * 100.0f)] norm:prm.wet x:36 y:150 attrs:small small:small];
+    [self drawRow:@"STEREO" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.stereo * 100.0f)] norm:prm.stereo x:36 y:184 attrs:small small:small];
+    [self drawRow:@"WIDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.width * 100.0f)] norm:prm.width x:36 y:218 attrs:small small:small];
+    [self drawRow:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.feedback * 100.0f)] norm:prm.feedback / 0.72f x:36 y:252 attrs:small small:small];
+    [self drawRow:@"FRZ" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.freeze * 100.0f)] norm:prm.freeze x:36 y:286 attrs:small small:small];
+    [self drawRow:@"DENS" value:[NSString stringWithFormat:@"%.1f", static_cast<double>(prm.density)] norm:(prm.density - 0.2f) / 23.8f x:406 y:82 attrs:small small:small];
+    [self drawRow:@"GRAIN" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(prm.grainMs)] norm:(prm.grainMs - 20.0f) / 880.0f x:406 y:116 attrs:small small:small];
+    [self drawRow:@"GUARD" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(prm.guardMs)] norm:(prm.guardMs - 20.0f) / 1780.0f x:406 y:150 attrs:small small:small];
+    [self drawRow:@"SCAT" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(prm.scatterMs)] norm:prm.scatterMs / 2500.0f x:406 y:184 attrs:small small:small];
+    [self drawRow:@"PITCH" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(prm.pitch)] norm:(prm.pitch + 2.0f) * 0.25f x:406 y:218 attrs:small small:small];
+    [self drawRow:@"PSPR" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(prm.pitchSpread)] norm:prm.pitchSpread / 1.5f x:406 y:252 attrs:small small:small];
+    [self drawRow:@"ROT" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(prm.rotate)] norm:(prm.rotate + 4.0f) * 0.125f x:406 y:286 attrs:small small:small];
     [@"live buffer shard ring" drawAtPoint:NSMakePoint(406, 334) withAttributes:small];
 }
 - (void)updateSlider:(NSPoint)point
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const bool left = _dragSlider >= 1 && _dragSlider <= 7;
+    const bool left = _dragSlider >= 8 && _dragSlider <= 14;
     const double x0 = left ? 130.0 : 500.0;
     const double n = std::clamp((point.x - x0) / 150.0, 0.0, 1.0);
     switch (_dragSlider) {
@@ -347,9 +347,10 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     const CGFloat rows[] = {82,116,150,184,218,252,286};
+    const int leftControls[] = {13,11,12,14,8,9,10};
     for (int i = 0; i < 7; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(32, rows[i] - 9, 330, 24))) { _dragSlider = i + 1; [self updateSlider:pt]; return; }
-        if (NSPointInRect(pt, NSMakeRect(402, rows[i] - 9, 330, 24))) { _dragSlider = i + 8; [self updateSlider:pt]; return; }
+        if (NSPointInRect(pt, NSMakeRect(32, rows[i] - 9, 330, 24))) { _dragSlider = leftControls[i]; [self updateSlider:pt]; return; }
+        if (NSPointInRect(pt, NSMakeRect(402, rows[i] - 9, 330, 24))) { _dragSlider = i + 1; [self updateSlider:pt]; return; }
     }
 }
 - (void)mouseDragged:(NSEvent*)event { if (_dragSlider > 0) [self updateSlider:[self convertPoint:[event locationInWindow] fromView:nil]]; }

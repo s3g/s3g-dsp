@@ -470,10 +470,10 @@ static double arrayHpfDbNorm(double db)
     [self drawFilterGraph:NSMakeRect(20, 66, 236, 202) attrs:attrs style:style];
     s3g::clap_gui::drawPanelFrame(278, 66, 252, 202, style);
     s3g::clap_gui::drawPanelHeader(@"FILTER", true, 278, 66, 252, 21, attrs, style);
-    s3g::clap_gui::drawSlider(@"ACTIVE", [self textForParam:kActiveParamId value:_plugin->params.activeChannels], (_plugin->params.activeChannels - 1.0) / std::max(1.0, static_cast<double>(kChannelCount - 1u)), 112, attrs, attrs, style, 298, 372, 472, 86);
-    s3g::clap_gui::drawSlider(@"CUTOFF", [self textForParam:kCutoffParamId value:_plugin->params.cutoffHz], (_plugin->params.cutoffHz - 20.0f) / 220.0f, 146, attrs, attrs, style, 298, 372, 472, 86);
-    s3g::clap_gui::drawMenu(@"POLES", [self textForParam:kPolesParamId value:_plugin->params.poles], 180, attrs, attrs, style, 298, 372, 86);
-    s3g::clap_gui::drawSlider(@"OUTPUT", [self textForParam:kOutputParamId value:_plugin->params.outputGainDb], (_plugin->params.outputGainDb + 60.0f) / 78.0f, 214, attrs, attrs, style, 298, 372, 472, 86);
+    s3g::clap_gui::drawSlider(@"OUT", [self textForParam:kOutputParamId value:_plugin->params.outputGainDb], (_plugin->params.outputGainDb + 60.0f) / 78.0f, 112, attrs, attrs, style, 298, 372, 472, 86);
+    s3g::clap_gui::drawSlider(@"ACTIVE", [self textForParam:kActiveParamId value:_plugin->params.activeChannels], (_plugin->params.activeChannels - 1.0) / std::max(1.0, static_cast<double>(kChannelCount - 1u)), 146, attrs, attrs, style, 298, 372, 472, 86);
+    s3g::clap_gui::drawSlider(@"CUTOFF", [self textForParam:kCutoffParamId value:_plugin->params.cutoffHz], (_plugin->params.cutoffHz - 20.0f) / 220.0f, 180, attrs, attrs, style, 298, 372, 472, 86);
+    s3g::clap_gui::drawMenu(@"POLES", [self textForParam:kPolesParamId value:_plugin->params.poles], 214, attrs, attrs, style, 298, 372, 86);
     s3g::clap_gui::drawToggle(@"BYPASS", _plugin->params.bypass, 248, attrs, attrs, style, 298, 372, 86);
     [self drawOpenMenu:attrs style:style];
 }
@@ -506,8 +506,8 @@ static double arrayHpfDbNorm(double db)
         }
         [self closeMenu];
     }
-    if (NSPointInRect(pt, NSMakeRect(372, 178, 86, 22))) {
-        [self openPolesMenuAt:NSMakePoint(372, 196)];
+    if (NSPointInRect(pt, NSMakeRect(372, 212, 86, 22))) {
+        [self openPolesMenuAt:NSMakePoint(372, 230)];
         return;
     }
     if (NSPointInRect(pt, NSMakeRect(372, 246, 86, 20))) {
@@ -515,8 +515,8 @@ static double arrayHpfDbNorm(double db)
         [self setNeedsDisplay:YES];
         return;
     }
-    const CGFloat ys[] = { 112, 146, 214 };
-    const int controls[] = { 0, 1, 3 };
+    const CGFloat ys[] = { 112, 146, 180 };
+    const int controls[] = { 3, 0, 1 };
     for (int i = 0; i < 3; ++i) {
         if (NSPointInRect(pt, NSMakeRect(372, ys[i] - 5, 86, 22))) {
             _dragControl = controls[i];

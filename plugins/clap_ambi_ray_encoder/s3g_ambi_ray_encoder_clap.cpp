@@ -40,7 +40,7 @@ constexpr uint32_t kStateVersion = 4u;
 constexpr uint32_t kMaximumStateJsonBytes = 8u * 1024u * 1024u;
 constexpr const char* kWorldToAedConvention = "azimuth_deg=atan2(-x_right,y_front)";
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-ray-encoder";
-constexpr const char* kPluginName = "s3g Ambi Ray Encoder";
+constexpr const char* kPluginName = "s3g Ambi Encoder Ray";
 constexpr const char* kPluginDesc = "Moving source and listener encoder with bundled or user ray-field rooms.";
 
 enum ParamId : clap_id {
@@ -1157,13 +1157,13 @@ GuiWorldBounds guiWorldBounds(const GuiSnapshot& snapshot)
 NSRect topFieldRect() { return NSMakeRect(24, 68, 330, 452); }
 NSRect sideFieldRect() { return NSMakeRect(366, 68, 330, 452); }
 NSRect fieldPlotRect(NSRect field) { return NSMakeRect(field.origin.x + 15, field.origin.y + 29, field.size.width - 30, field.size.height - 44); }
-NSRect orderMenuRect() { return NSMakeRect(830, 414, 82, 126); }
-NSRect rayAtlasMenuRect() { return NSMakeRect(724, 56, 304, 18.0 * static_cast<CGFloat>(kRayAtlas.size())); }
-NSRect sourceModeRect() { return NSMakeRect(934, 152, 38, 17); }
-NSRect listenerModeRect() { return NSMakeRect(976, 152, 40, 17); }
+NSRect orderMenuRect() { return NSMakeRect(830, 113, 82, 126); }
+NSRect rayAtlasMenuRect() { return NSMakeRect(724, 148, 304, 18.0 * static_cast<CGFloat>(kRayAtlas.size())); }
+NSRect sourceModeRect() { return NSMakeRect(934, 244, 38, 17); }
+NSRect listenerModeRect() { return NSMakeRect(976, 244, 40, 17); }
 NSRect fieldListenButtonRect(uint32_t mode)
 {
-    return NSMakeRect(872 + static_cast<CGFloat>(mode) * 37.0, 320, 34, 17);
+    return NSMakeRect(872 + static_cast<CGFloat>(mode) * 37.0, 406, 34, 17);
 }
 
 NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NSInteger view)
@@ -1190,6 +1190,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     int _atlasMenuHover;
     bool _orderMenuOpen;
     int _orderMenuHover;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -1216,6 +1217,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
         _atlasMenuHover = -1;
         _orderMenuOpen = false;
         _orderMenuHover = -1;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
     }
     return self;
 }
@@ -1332,7 +1334,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, attrs, style, 742, 830, 990, 145);
+    s3g::clap_gui::drawSlider(name, value, norm, y, s3g::clap_gui::softLabelAttrs(), attrs, style, 742, 830, 990, 145);
 }
 
 - (void)drawField:(const GuiSnapshot&)snapshot rect:(NSRect)field side:(BOOL)side attrs:(NSDictionary*)attrs
@@ -1553,19 +1555,20 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     const GuiSnapshot snapshot = guiSnapshot(*_plugin);
     const auto params = _plugin->params;
     const float peak = _plugin->outputPeak.exchange(_plugin->outputPeak.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
-    NSString* peakText = s3g::clap_gui::peakDbText(peak);
-    NSString* info = [NSString stringWithFormat:@"MONO > %uOA / 64CH", params.order];
-    const CGFloat peakX = kGuiWidth - [peakText sizeWithAttributes:value].width - 18.0;
-    const CGFloat infoX = peakX - [info sizeWithAttributes:value].width - 18.0;
-    [@"s3g AMBI RAY ENCODER" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
-    [info drawAtPoint:NSMakePoint(infoX, 13) withAttributes:value];
-    [peakText drawAtPoint:NSMakePoint(peakX, 13) withAttributes:value];
+    NSString* status = [NSString stringWithFormat:@"MONO > %uOA  ·  %@",
+        params.order, s3g::clap_gui::peakDbText(peak)];
+    s3g::clap_gui::drawEncoderTitleBand(
+        @"s3g AMBI ENCODER RAY",
+        [NSString stringWithUTF8String:_titlePresetName],
+        status,
+        s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
+        s3g::clap_gui::softTitleAttrs(), text, value, style);
 
     const NSRect fieldPanel = NSMakeRect(12, 34, 700, 574);
-    const NSRect mapPanel = NSMakeRect(724, 34, 304, 104);
-    const NSRect positionPanel = NSMakeRect(724, 150, 304, 156);
-    const NSRect roomPanel = NSMakeRect(724, 318, 304, 190);
-    const NSRect outputPanel = NSMakeRect(724, 520, 304, 88);
+    const NSRect outputPanel = NSMakeRect(724, 34, 304, 80);
+    const NSRect mapPanel = NSMakeRect(724, 126, 304, 104);
+    const NSRect positionPanel = NSMakeRect(724, 242, 304, 150);
+    const NSRect roomPanel = NSMakeRect(724, 404, 304, 186);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"RAY FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
     [self drawField:snapshot rect:topFieldRect() side:NO attrs:value];
@@ -1587,16 +1590,22 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     NSString* family = [[NSString stringWithUTF8String:snapshot.family.c_str()] uppercaseString];
     [(family ?: @"ROOM") drawAtPoint:NSMakePoint(76, 589) withAttributes:value];
 
+    s3g::clap_gui::drawPanelFrame(outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, outputPanel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, 21, text, style);
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", params.outputGainDb] norm:(params.outputGainDb + 60.0f) / 72.0f y:70 attrs:value style:style];
+    s3g::clap_gui::drawMenu(@"ORDER", [NSString stringWithFormat:@"%uOA", params.order], 96, text, value, style, 742, 830, 82);
+    s3g::clap_gui::drawToggle(@"BYP", params.bypassRoom, 96, text, value, style, 930, 974, 42);
+
     s3g::clap_gui::drawPanelFrame(mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, mapPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"MAP", true, mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, 21, text, style);
-    s3g::clap_gui::drawHeaderActionButton(NSMakeRect(879, 36, 64, 17), NSMakeRect(724, 34, 304, 21), @"ATLAS", value, style);
-    s3g::clap_gui::drawHeaderActionButton(NSMakeRect(951, 36, 64, 17), NSMakeRect(724, 34, 304, 21), @"LOAD", value, style);
-    [@"FILE" drawAtPoint:NSMakePoint(742, 68) withAttributes:text];
-    [compactFileName(snapshot.name) drawAtPoint:NSMakePoint(790, 68) withAttributes:value];
-    [@"STAT" drawAtPoint:NSMakePoint(742, 91) withAttributes:text];
-    [[NSString stringWithUTF8String:snapshot.status.c_str()] drawAtPoint:NSMakePoint(790, 91) withAttributes:value];
-    [@"CELLS" drawAtPoint:NSMakePoint(742, 114) withAttributes:text];
-    [[NSString stringWithFormat:@"%zu", snapshot.cells.size()] drawAtPoint:NSMakePoint(790, 114) withAttributes:value];
+    s3g::clap_gui::drawHeaderActionButton(NSMakeRect(879, 128, 64, 17), NSMakeRect(724, 126, 304, 21), @"ATLAS", value, style);
+    s3g::clap_gui::drawHeaderActionButton(NSMakeRect(951, 128, 64, 17), NSMakeRect(724, 126, 304, 21), @"LOAD", value, style);
+    [@"FILE" drawAtPoint:NSMakePoint(742, 160) withAttributes:text];
+    [compactFileName(snapshot.name) drawAtPoint:NSMakePoint(790, 160) withAttributes:value];
+    [@"STAT" drawAtPoint:NSMakePoint(742, 183) withAttributes:text];
+    [[NSString stringWithUTF8String:snapshot.status.c_str()] drawAtPoint:NSMakePoint(790, 183) withAttributes:value];
+    [@"CELLS" drawAtPoint:NSMakePoint(742, 206) withAttributes:text];
+    [[NSString stringWithFormat:@"%zu", snapshot.cells.size()] drawAtPoint:NSMakePoint(790, 206) withAttributes:value];
 
     s3g::clap_gui::drawPanelFrame(positionPanel.origin.x, positionPanel.origin.y, positionPanel.size.width, positionPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"POSITION", true, positionPanel.origin.x, positionPanel.origin.y, positionPanel.size.width, 21, text, style);
@@ -1607,15 +1616,15 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     const float editX = _editListener ? params.listenerX : params.sourceX;
     const float editY = _editListener ? params.listenerY : params.sourceY;
     const float editZ = _editListener ? params.listenerZ : params.sourceZ;
-    [self drawSlider:@"X" value:[NSString stringWithFormat:@"%.2f m", editPosition.x] norm:editX y:186 attrs:value style:style];
-    [self drawSlider:@"Y" value:[NSString stringWithFormat:@"%.2f m", editPosition.y] norm:editY y:210 attrs:value style:style];
-    [self drawSlider:@"Z" value:[NSString stringWithFormat:@"%.2f m", editPosition.z] norm:editZ y:234 attrs:value style:style];
-    [self drawSlider:@"MOVE" value:[NSString stringWithFormat:@"%.0f ms", params.movementMs] norm:(params.movementMs - 10.0f) / 490.0f y:258 attrs:value style:style];
-    [self drawSlider:@"DOP" value:[NSString stringWithFormat:@"%.0f%%", params.doppler * 100.0f] norm:params.doppler / 2.0f y:282 attrs:value style:style];
+    [self drawSlider:@"X" value:[NSString stringWithFormat:@"%.2f m", editPosition.x] norm:editX y:278 attrs:value style:style];
+    [self drawSlider:@"Y" value:[NSString stringWithFormat:@"%.2f m", editPosition.y] norm:editY y:302 attrs:value style:style];
+    [self drawSlider:@"Z" value:[NSString stringWithFormat:@"%.2f m", editPosition.z] norm:editZ y:326 attrs:value style:style];
+    [self drawSlider:@"MOVE" value:[NSString stringWithFormat:@"%.0f ms", params.movementMs] norm:(params.movementMs - 10.0f) / 490.0f y:350 attrs:value style:style];
+    [self drawSlider:@"DOP" value:[NSString stringWithFormat:@"%.0f%%", params.doppler * 100.0f] norm:params.doppler / 2.0f y:374 attrs:value style:style];
 
     s3g::clap_gui::drawPanelFrame(roomPanel.origin.x, roomPanel.origin.y, roomPanel.size.width, roomPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"ROOM FIELD", true, roomPanel.origin.x, roomPanel.origin.y, roomPanel.size.width, 21, text, style);
-    [@"LST" drawAtPoint:NSMakePoint(842, 321) withAttributes:text];
+    [@"LST" drawAtPoint:NSMakePoint(842, 407) withAttributes:text];
     static NSString* listenLabels[] = { @"OFF", @"FOL", @"CTR", @"BAL" };
     const uint32_t listenMode = static_cast<uint32_t>(params.fieldListenMode);
     for (uint32_t mode = 0u; mode < 4u; ++mode) {
@@ -1623,19 +1632,13 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
             fieldListenButtonRect(mode), roomPanel, listenLabels[mode],
             mode == listenMode, value, style);
     }
-    [self drawSlider:@"DIR" value:[NSString stringWithFormat:@"%.0f%%", params.direct * 100.0f] norm:params.direct / 1.5f y:352 attrs:value style:style];
-    [self drawSlider:@"EAR" value:[NSString stringWithFormat:@"%.0f%%", params.early * 100.0f] norm:params.early / 1.5f y:374 attrs:value style:style];
-    [self drawSlider:@"LAT" value:[NSString stringWithFormat:@"%.0f%%", params.late * 100.0f] norm:params.late / 1.5f y:396 attrs:value style:style];
-    [self drawSlider:@"SIZE" value:[NSString stringWithFormat:@"%.2f", params.size] norm:(params.size - 0.5f) / 1.5f y:418 attrs:value style:style];
-    [self drawSlider:@"SCAT" value:[NSString stringWithFormat:@"%.0f%%", params.scatter * 100.0f] norm:params.scatter y:440 attrs:value style:style];
-    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", params.width] norm:params.width / 1.5f y:462 attrs:value style:style];
-    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%.0f%%", params.air * 100.0f] norm:params.air y:484 attrs:value style:style];
-
-    s3g::clap_gui::drawPanelFrame(outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, outputPanel.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, 21, text, style);
-    s3g::clap_gui::drawMenu(@"ORD", [NSString stringWithFormat:@"%uOA", params.order], 554, text, value, style, 742, 830, 82);
-    s3g::clap_gui::drawToggle(@"BYP", params.bypassRoom, 554, text, value, style, 930, 974, 42);
-    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.outputGainDb] norm:(params.outputGainDb + 60.0f) / 72.0f y:582 attrs:value style:style];
+    [self drawSlider:@"DIR" value:[NSString stringWithFormat:@"%.0f%%", params.direct * 100.0f] norm:params.direct / 1.5f y:440 attrs:value style:style];
+    [self drawSlider:@"EAR" value:[NSString stringWithFormat:@"%.0f%%", params.early * 100.0f] norm:params.early / 1.5f y:462 attrs:value style:style];
+    [self drawSlider:@"LAT" value:[NSString stringWithFormat:@"%.0f%%", params.late * 100.0f] norm:params.late / 1.5f y:484 attrs:value style:style];
+    [self drawSlider:@"SIZE" value:[NSString stringWithFormat:@"%.2f", params.size] norm:(params.size - 0.5f) / 1.5f y:506 attrs:value style:style];
+    [self drawSlider:@"SCAT" value:[NSString stringWithFormat:@"%.0f%%", params.scatter * 100.0f] norm:params.scatter y:528 attrs:value style:style];
+    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", params.width] norm:params.width / 1.5f y:550 attrs:value style:style];
+    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%.0f%%", params.air * 100.0f] norm:params.air y:572 attrs:value style:style];
 
     if (_orderMenuOpen) {
         NSString* items[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
@@ -1728,6 +1731,66 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const auto performanceFrame = _plugin->params;
+        auto initial = s3g::AmbiRayEncoderParams {};
+        initial.order = performanceFrame.order;
+        initial.outputGainDb = performanceFrame.outputGainDb;
+        initial.listenerX = performanceFrame.listenerX;
+        initial.listenerY = performanceFrame.listenerY;
+        initial.listenerZ = performanceFrame.listenerZ;
+        initial.fieldListenMode = performanceFrame.fieldListenMode;
+        _plugin->params = s3g::sanitizeAmbiRayEncoderParams(initial);
+        if (auto* processor = _plugin->activeProcessor.load(std::memory_order_acquire)) {
+            processor->setParams(_plugin->params);
+        }
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &_plugin->plugin, @"Ambi Ray Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &_plugin->plugin, @"Ambi Ray Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.randomButton))) {
+        auto randomUnit = [] {
+            return static_cast<double>(arc4random()) / 4294967295.0;
+        };
+        [self setParam:kParamSourceX value:0.12 + randomUnit() * 0.76];
+        [self setParam:kParamSourceY value:0.12 + randomUnit() * 0.76];
+        [self setParam:kParamSourceZ value:0.12 + randomUnit() * 0.76];
+        [self setParam:kParamDirect value:0.55 + randomUnit() * 0.75];
+        [self setParam:kParamEarly value:0.25 + randomUnit() * 0.90];
+        [self setParam:kParamLate value:0.18 + randomUnit() * 0.82];
+        [self setParam:kParamSize value:0.60 + randomUnit() * 1.25];
+        [self setParam:kParamScatter value:0.12 + randomUnit() * 0.76];
+        [self setParam:kParamWidth value:0.35 + randomUnit() * 1.10];
+        [self setParam:kParamAir value:randomUnit() * 0.62];
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "RANDOM");
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_atlasMenuOpen) {
         const int hit = s3g::clap_gui::dropdownHitIndex(point, rayAtlasMenuRect(), 18,
             static_cast<uint32_t>(kRayAtlas.size()));
@@ -1745,7 +1808,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(879, 36, 64, 17))) {
+    if (NSPointInRect(point, NSMakeRect(879, 128, 64, 17))) {
         _atlasMenuOpen = true;
         _atlasMenuHover = -1;
         _orderMenuOpen = false;
@@ -1753,17 +1816,17 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(951, 36, 64, 17))) {
+    if (NSPointInRect(point, NSMakeRect(951, 128, 64, 17))) {
         [self loadRayField];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(830, 552, 82, 18))) {
+    if (NSPointInRect(point, NSMakeRect(830, 95, 82, 18))) {
         _orderMenuOpen = true;
         _atlasMenuOpen = false;
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(974, 552, 42, 18))) {
+    if (NSPointInRect(point, NSMakeRect(974, 95, 42, 18))) {
         [self setParam:kParamBypass value:_plugin->params.bypassRoom ? 0.0 : 1.0];
         return;
     }
@@ -1807,10 +1870,10 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     const clap_id yParam = _editListener ? kParamListenerY : kParamSourceY;
     const clap_id zParam = _editListener ? kParamListenerZ : kParamSourceZ;
     const Row rows[] = {
-        { xParam, 186 }, { yParam, 210 }, { zParam, 234 }, { kParamMovement, 258 },
-        { kParamDoppler, 282 }, { kParamDirect, 352 }, { kParamEarly, 374 }, { kParamLate, 396 },
-        { kParamSize, 418 }, { kParamScatter, 440 }, { kParamWidth, 462 }, { kParamAir, 484 },
-        { kParamOutput, 582 }
+        { kParamOutput, 70 },
+        { xParam, 278 }, { yParam, 302 }, { zParam, 326 }, { kParamMovement, 350 },
+        { kParamDoppler, 374 }, { kParamDirect, 440 }, { kParamEarly, 462 }, { kParamLate, 484 },
+        { kParamSize, 506 }, { kParamScatter, 528 }, { kParamWidth, 550 }, { kParamAir, 572 }
     };
     for (const auto& row : rows) {
         if (!NSPointInRect(point, NSMakeRect(734, row.y - 4, 286, 18))) continue;

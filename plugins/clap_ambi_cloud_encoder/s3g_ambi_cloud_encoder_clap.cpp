@@ -10,6 +10,7 @@
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
+#include "../common/s3g_gui_layout.h"
 #endif
 
 #include <algorithm>
@@ -459,6 +460,20 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 } // namespace
 
 #if defined(__APPLE__)
+namespace {
+constexpr CGFloat kToolboxX = 630.0;
+constexpr CGFloat kToolboxLabelX = kToolboxX
+    + s3g::gui_layout::kStandardMetrics.labelInset;
+constexpr CGFloat kToolboxControlX = kToolboxX
+    + s3g::gui_layout::kStandardMetrics.controlInset;
+constexpr CGFloat kToolboxValueX = kToolboxX
+    + s3g::gui_layout::kStandardMetrics.valueInset;
+constexpr CGFloat kToolboxTrackWidth =
+    s3g::gui_layout::kStandardMetrics.trackWidth;
+constexpr CGFloat kToolboxMenuWidth =
+    s3g::gui_layout::kStandardMetrics.menuWidth;
+}
+
 @interface S3GAmbiCloudEncoderView : NSView {
     Plugin* _plugin;
     NSTimer* _timer;
@@ -472,6 +487,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     CGFloat _viewZoom;
     BOOL _dragView;
     NSPoint _lastDragPoint;
+    char _titlePresetName[64];
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -509,6 +525,7 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
         _dragView = NO;
         _lastDragPoint = NSMakePoint(0, 0);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [self setWantsLayer:YES];
         [[self window] setAcceptsMouseMovedEvents:YES];
     }
@@ -639,24 +656,29 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     else if (suffix && [suffix isEqualToString:@"deg"]) text = [NSString stringWithFormat:@"%+.0f", value];
     else if (suffix && [suffix isEqualToString:@"%"]) text = [NSString stringWithFormat:@"%.0f%%", value * 100.0];
     else if (suffix && [suffix isEqualToString:@"Hz"]) text = [NSString stringWithFormat:@"%.3f", value];
-    else if (suffix && [suffix isEqualToString:@"dB"]) text = [NSString stringWithFormat:@"%+.1f", value];
+    else if (suffix && [suffix isEqualToString:@"dB"]) text = [NSString stringWithFormat:@"%+.1f dB", value];
+    else if (suffix && [suffix isEqualToString:@"count"]) text = [NSString stringWithFormat:@"%.0f", value];
     else if (suffix && [suffix isEqualToString:@"shape"]) text = [NSString stringWithUTF8String:shapeName(static_cast<uint32_t>(std::lround(value)))];
     else if (suffix && [suffix isEqualToString:@"force"]) text = [NSString stringWithUTF8String:forceName(static_cast<uint32_t>(std::lround(value)))];
     else text = [NSString stringWithFormat:@"%.2f", value];
-    s3g::clap_gui::drawSlider(name, text, norm, y, attrs, s3g::clap_gui::softValueAttrs(), style, 642, 738, 826, 82);
+    s3g::clap_gui::drawSlider(name, text, norm, y, attrs,
+        s3g::clap_gui::softValueAttrs(), style, kToolboxLabelX,
+        kToolboxControlX, kToolboxValueX, kToolboxTrackWidth);
 }
 
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawMenu(name, value, y, attrs, s3g::clap_gui::softValueAttrs(), style, 642, 738, 102);
+    s3g::clap_gui::drawMenu(name, value, y, attrs,
+        s3g::clap_gui::softValueAttrs(), style, kToolboxLabelX,
+        kToolboxControlX, kToolboxMenuWidth);
 }
 
 - (CGFloat)menuY
 {
     switch (_openMenu) {
-    case 1: return 122.0;
-    case 2: return 148.0;
-    case 3: return 174.0;
+    case 1: return 174.0;
+    case 2: return 200.0;
+    case 3: return 122.0;
     case 4: return 396.0;
     case 5: return 422.0;
     default: return 0.0;
@@ -665,7 +687,7 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
 
 - (CGFloat)menuW
 {
-    return (_openMenu == 4 || _openMenu == 5) ? 124.0 : 102.0;
+    return kToolboxMenuWidth;
 }
 
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -699,7 +721,7 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
         _menuItemCount = 5;
     }
     const CGFloat itemH = 18.0;
-    s3g::clap_gui::drawDropdownMenu(NSMakeRect(738, [self menuY], [self menuW], itemH * _menuItemCount),
+    s3g::clap_gui::drawDropdownMenu(NSMakeRect(kToolboxControlX, [self menuY], [self menuW], itemH * _menuItemCount),
         itemH, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
 
@@ -763,10 +785,13 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     NSDictionary* labelAttrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
-    [@"s3g AMBI CLOUD ENCODER" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
     const float peak = _plugin->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(peak) drawAtPoint:NSMakePoint(728, 14) withAttributes:valueAttrs];
-    [@"64CH" drawAtPoint:NSMakePoint(838, 14) withAttributes:valueAttrs];
+    s3g::clap_gui::drawEncoderTitleBand(
+        @"s3g AMBI ENCODER CLOUD",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(peak),
+        s3g::clap_gui::encoderTitleBand(900.0, 672.0),
+        titleAttrs, labelAttrs, valueAttrs, style);
 
     s3g::clap_gui::drawPanelFrame(18, 42, 596, 608, style);
     s3g::clap_gui::drawPanelHeader(@"CLOUD FIELD", true, 18, 42, 596, 21, labelAttrs, style);
@@ -775,17 +800,18 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     [self drawField:NSMakeRect(34, 76, 564, 558) attrs:valueAttrs style:style];
 
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 236, style);
-    s3g::clap_gui::drawPanelHeader(@"CLOUD", true, 630, 42, 250, 21, labelAttrs, style);
-    s3g::clap_gui::drawPanelFrame(630, 290, 250, 360, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / CLOUD", true, 630, 42, 250, 21, labelAttrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 290, 250, 314, style);
     s3g::clap_gui::drawPanelHeader(@"MATERIAL", true, 630, 290, 250, 21, labelAttrs, style);
     const auto p = _plugin->params;
-    [self drawSlider:@"INPUTS" value:p.activeInputs min:1 max:64 y:78 suffix:nil attrs:labelAttrs style:style];
-    [self drawMenu:@"CLOUDS" value:[NSString stringWithFormat:@"%u", p.activeClouds] y:104 attrs:labelAttrs style:style];
-    [self drawMenu:@"CLOUD" value:[NSString stringWithFormat:@"%u", p.selectedCloud + 1u] y:130 attrs:labelAttrs style:style];
-    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:156 attrs:labelAttrs style:style];
-    [self drawSlider:@"AZIM" value:p.selectedAzimuthDeg min:-180 max:180 y:182 suffix:@"deg" attrs:labelAttrs style:style];
-    [self drawSlider:@"ELEV" value:p.selectedElevationDeg min:-90 max:90 y:208 suffix:@"deg" attrs:labelAttrs style:style];
-    [self drawSlider:@"DIST" value:p.selectedDistance min:0.05 max:8.0 y:234 suffix:nil attrs:labelAttrs style:style];
+    [self drawSlider:@"OUT" value:p.outputGainDb min:-60 max:12 y:78 suffix:@"dB" attrs:labelAttrs style:style];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:104 attrs:labelAttrs style:style];
+    [self drawSlider:@"INPUTS" value:p.activeInputs min:1 max:64 y:130 suffix:@"count" attrs:labelAttrs style:style];
+    [self drawMenu:@"CLOUDS" value:[NSString stringWithFormat:@"%u", p.activeClouds] y:156 attrs:labelAttrs style:style];
+    [self drawMenu:@"CLOUD" value:[NSString stringWithFormat:@"%u", p.selectedCloud + 1u] y:182 attrs:labelAttrs style:style];
+    [self drawSlider:@"AZIM" value:p.selectedAzimuthDeg min:-180 max:180 y:208 suffix:@"deg" attrs:labelAttrs style:style];
+    [self drawSlider:@"ELEV" value:p.selectedElevationDeg min:-90 max:90 y:234 suffix:@"deg" attrs:labelAttrs style:style];
+    [self drawSlider:@"DIST" value:p.selectedDistance min:0.05 max:8.0 y:260 suffix:nil attrs:labelAttrs style:style];
     [self drawSlider:@"SPREAD" value:p.spread min:0 max:1 y:326 suffix:@"%" attrs:labelAttrs style:style];
     [self drawSlider:@"ELEVSP" value:p.elevationSpread min:0 max:1 y:352 suffix:@"%" attrs:labelAttrs style:style];
     [self drawMenu:@"SHAPE" value:[NSString stringWithUTF8String:shapeName(static_cast<uint32_t>(p.shape))] y:378 attrs:labelAttrs style:style];
@@ -797,18 +823,23 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     [self drawSlider:@"GAIN" value:p.selectedGain min:0 max:2 y:534 suffix:nil attrs:labelAttrs style:style];
     [self drawSlider:@"DOPPLER" value:p.doppler min:0 max:1 y:560 suffix:@"%" attrs:labelAttrs style:style];
     [self drawSlider:@"AIR" value:p.air min:0 max:1 y:586 suffix:@"%" attrs:labelAttrs style:style];
-    [self drawSlider:@"OUT" value:p.outputGainDb min:-60 max:12 y:612 suffix:@"dB" attrs:labelAttrs style:style];
     [self drawOpenMenu:labelAttrs style:style];
 }
 
 - (void)setParam:(clap_id)param fromPoint:(NSPoint)pt
 {
     auto slider = [&](double min, double max) {
-        const double norm = std::clamp((static_cast<double>(pt.x) - 738.0) / 82.0, 0.0, 1.0);
+        const double norm = std::clamp(
+            (static_cast<double>(pt.x) - kToolboxControlX)
+                / kToolboxTrackWidth,
+            0.0, 1.0);
         applyParam(*_plugin, param, min + norm * (max - min));
     };
     auto logSlider = [&](double min, double max) {
-        const double norm = std::clamp((static_cast<double>(pt.x) - 738.0) / 82.0, 0.0, 1.0);
+        const double norm = std::clamp(
+            (static_cast<double>(pt.x) - kToolboxControlX)
+                / kToolboxTrackWidth,
+            0.0, 1.0);
         applyParam(*_plugin, param, min * std::pow(max / min, norm));
     };
     switch (param) {
@@ -839,9 +870,65 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(900.0, 672.0);
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const uint32_t inputs = _plugin->params.activeInputs;
+        const uint32_t order = _plugin->params.order;
+        const float output = _plugin->params.outputGainDb;
+        auto initial = s3g::AmbiCloudEncoderParams {};
+        initial.activeInputs = inputs;
+        initial.order = order;
+        initial.outputGainDb = output;
+        _plugin->params = initial;
+        _plugin->encoder.setParams(initial);
+        _plugin->params = _plugin->encoder.params();
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &_plugin->plugin, @"Ambi Cloud Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &_plugin->plugin, @"Ambi Cloud Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.randomButton))) {
+        auto randomUnit = [] {
+            return static_cast<double>(arc4random()) / 4294967295.0;
+        };
+        applyParam(*_plugin, kShapeParamId, std::floor(randomUnit() * 5.0));
+        applyParam(*_plugin, kForceParamId, std::floor(randomUnit() * 5.0));
+        applyParam(*_plugin, kSpreadParamId, 0.20 + randomUnit() * 0.72);
+        applyParam(*_plugin, kElevationSpreadParamId, 0.10 + randomUnit() * 0.64);
+        applyParam(*_plugin, kJitterParamId, randomUnit() * 0.72);
+        applyParam(*_plugin, kDriftParamId, randomUnit() * 0.72);
+        applyParam(*_plugin, kRateParamId, 0.004 * std::pow(250.0, randomUnit()));
+        applyParam(*_plugin, kDecorrelateParamId, 0.20 + randomUnit() * 0.72);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "RANDOM");
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenu > 0) {
         const CGFloat itemH = 18.0;
-        const int hit = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(738, [self menuY], [self menuW], itemH * _menuItemCount), itemH, _menuItemCount);
+        const int hit = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(kToolboxControlX, [self menuY], [self menuW], itemH * _menuItemCount), itemH, _menuItemCount);
         if (hit >= 0) {
             if (_openMenu == 1) applyParam(*_plugin, kCloudsParamId, hit + 1);
             else if (_openMenu == 2) applyParam(*_plugin, kCloudParamId, hit + 1);
@@ -885,17 +972,18 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
         }
     }
     _dragParam = 0;
-    if (NSPointInRect(pt, NSMakeRect(638, 70, 230, 24))) _dragParam = kInputsParamId;
-    else if (NSPointInRect(pt, NSMakeRect(738, 103, 102, 17))) { openMenu(1, 4); return; }
-    else if (NSPointInRect(pt, NSMakeRect(738, 129, 102, 17))) { openMenu(2, 4); return; }
-    else if (NSPointInRect(pt, NSMakeRect(738, 155, 102, 17))) { openMenu(3, 7); return; }
-    else if (NSPointInRect(pt, NSMakeRect(638, 174, 230, 24))) _dragParam = kAzimuthParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 200, 230, 24))) _dragParam = kElevationParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 226, 230, 24))) _dragParam = kDistanceParamId;
+    if (NSPointInRect(pt, NSMakeRect(638, 70, 230, 24))) _dragParam = kOutputParamId;
+    else if (NSPointInRect(pt, NSMakeRect(kToolboxControlX, 103, kToolboxMenuWidth, 17))) { openMenu(3, 7); return; }
+    else if (NSPointInRect(pt, NSMakeRect(638, 122, 230, 24))) _dragParam = kInputsParamId;
+    else if (NSPointInRect(pt, NSMakeRect(kToolboxControlX, 155, kToolboxMenuWidth, 17))) { openMenu(1, 4); return; }
+    else if (NSPointInRect(pt, NSMakeRect(kToolboxControlX, 181, kToolboxMenuWidth, 17))) { openMenu(2, 4); return; }
+    else if (NSPointInRect(pt, NSMakeRect(638, 200, 230, 24))) _dragParam = kAzimuthParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 226, 230, 24))) _dragParam = kElevationParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 252, 230, 24))) _dragParam = kDistanceParamId;
     else if (NSPointInRect(pt, NSMakeRect(638, 318, 230, 24))) _dragParam = kSpreadParamId;
     else if (NSPointInRect(pt, NSMakeRect(638, 344, 230, 24))) _dragParam = kElevationSpreadParamId;
-    else if (NSPointInRect(pt, NSMakeRect(738, 377, 102, 17))) { openMenu(4, 5); return; }
-    else if (NSPointInRect(pt, NSMakeRect(738, 403, 102, 17))) { openMenu(5, 5); return; }
+    else if (NSPointInRect(pt, NSMakeRect(kToolboxControlX, 377, kToolboxMenuWidth, 17))) { openMenu(4, 5); return; }
+    else if (NSPointInRect(pt, NSMakeRect(kToolboxControlX, 403, kToolboxMenuWidth, 17))) { openMenu(5, 5); return; }
     else if (NSPointInRect(pt, NSMakeRect(638, 422, 230, 24))) _dragParam = kJitterParamId;
     else if (NSPointInRect(pt, NSMakeRect(638, 448, 230, 24))) _dragParam = kDriftParamId;
     else if (NSPointInRect(pt, NSMakeRect(638, 474, 230, 24))) _dragParam = kRateParamId;
@@ -903,8 +991,18 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     else if (NSPointInRect(pt, NSMakeRect(638, 526, 230, 24))) _dragParam = kCloudGainParamId;
     else if (NSPointInRect(pt, NSMakeRect(638, 552, 230, 24))) _dragParam = kDopplerParamId;
     else if (NSPointInRect(pt, NSMakeRect(638, 578, 230, 24))) _dragParam = kAirParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 604, 230, 24))) _dragParam = kOutputParamId;
-    if (_dragParam) [self setParam:static_cast<clap_id>(_dragParam) fromPoint:pt];
+    if (_dragParam) {
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &_plugin->plugin,
+                static_cast<clap_id>(_dragParam), &defaultValue)) {
+            applyParam(*_plugin, static_cast<clap_id>(_dragParam), defaultValue);
+            _dragParam = 0;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        [self setParam:static_cast<clap_id>(_dragParam) fromPoint:pt];
+    }
 }
 
 - (void)mouseDragged:(NSEvent*)event
@@ -943,7 +1041,7 @@ static NSColor* cloudColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::
     if (_openMenu <= 0) return;
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     const CGFloat itemH = 18.0;
-    const int next = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(738, [self menuY], [self menuW], itemH * _menuItemCount), itemH, _menuItemCount);
+    const int next = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(kToolboxControlX, [self menuY], [self menuW], itemH * _menuItemCount), itemH, _menuItemCount);
     if (next != _hoverMenuItem) {
         _hoverMenuItem = next;
         [self setNeedsDisplay:YES];
@@ -1024,7 +1122,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-cloud-encoder-64",
-    "s3g Ambi Cloud Encoder 64",
+    "s3g Ambi Encoder Cloud 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

@@ -9,6 +9,7 @@
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
+#include "../common/s3g_gui_layout.h"
 #endif
 
 #include <algorithm>
@@ -956,6 +957,25 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 } // namespace
 
 #if defined(__APPLE__)
+namespace {
+constexpr CGFloat kToolboxX = 630.0;
+constexpr CGFloat kToolboxWidth = 250.0;
+constexpr CGFloat kToolboxLabelX = kToolboxX
+    + s3g::gui_layout::kStandardMetrics.labelInset;
+constexpr CGFloat kToolboxControlX = kToolboxX
+    + s3g::gui_layout::kStandardMetrics.controlInset;
+constexpr CGFloat kToolboxValueX = kToolboxX
+    + s3g::gui_layout::kStandardMetrics.valueInset;
+constexpr CGFloat kToolboxTrackWidth =
+    s3g::gui_layout::kStandardMetrics.trackWidth;
+constexpr CGFloat kToolboxMenuWidth =
+    s3g::gui_layout::kStandardMetrics.menuWidth;
+NSRect pointPrimaryPanelRect()
+{
+    return NSMakeRect(18.0, 42.0, 596.0, 656.0);
+}
+}
+
 @interface S3G3OAFXPointEncoderView : NSView {
     void* _plugin;
     int _dragSlider;
@@ -976,6 +996,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     int _hoverMenuItem;
     uint32_t _menuItemCount;
     NSPoint _menuOrigin;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
@@ -993,6 +1014,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect;
 - (NSRect)zoomButtonRect:(int)index inRect:(NSRect)rect;
 - (NSRect)pageButtonRect:(int)index inRect:(NSRect)rect;
+- (NSRect)pointFieldPlotRect:(NSRect)rect;
 - (NSRect)mixerBankButtonRect:(uint32_t)index inRect:(NSRect)rect;
 - (void)setViewPreset:(int)mode;
 - (CGFloat)viewScaleForRect:(NSRect)rect;
@@ -1067,6 +1089,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         _hoverMenuItem = -1;
         _menuItemCount = 0;
         _menuOrigin = NSMakePoint(0, 0);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
     }
     return self;
 }
@@ -1096,13 +1119,19 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
 - (void)refresh:(NSTimer*)timer { (void)timer; if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
+    (void)attrs;
     s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, small, style, 640, 724, 832, 92);
+    s3g::clap_gui::drawSlider(name, value, norm, y,
+        s3g::clap_gui::softLabelAttrs(), small, style, kToolboxLabelX,
+        kToolboxControlX, kToolboxValueX, kToolboxTrackWidth);
 }
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
+    (void)attrs;
     s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
-    s3g::clap_gui::drawMenu(name, value, y, attrs, small, style, 640, 724, 124);
+    s3g::clap_gui::drawMenu(name, value, y,
+        s3g::clap_gui::softLabelAttrs(), small, style, kToolboxLabelX,
+        kToolboxControlX, kToolboxMenuWidth);
 }
 - (void)drawOpenMenu:(NSDictionary*)attrs
 {
@@ -1117,7 +1146,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     else if (_openMenu == 2) items = hemiItems;
     else if (_openMenu == 5) items = orderItems;
     const CGFloat itemH = 18.0;
-    const CGFloat w = 124.0;
+    const CGFloat w = kToolboxMenuWidth;
     NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, w, itemH * static_cast<CGFloat>(_menuItemCount));
     s3g::clap_gui::Style style;
     auto* p = static_cast<Plugin*>(_plugin);
@@ -1143,7 +1172,9 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
 {
     if (_openMenu <= 0 || _menuItemCount == 0) return;
     const CGFloat itemH = 18.0;
-    const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 124.0, itemH * static_cast<CGFloat>(_menuItemCount));
+    const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y,
+        kToolboxMenuWidth,
+        itemH * static_cast<CGFloat>(_menuItemCount));
     const int next = s3g::clap_gui::dropdownHitIndex(point, menuRect, itemH, _menuItemCount);
     if (next != _hoverMenuItem) {
         _hoverMenuItem = next;
@@ -1173,6 +1204,11 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     const CGFloat h = 13.0;
     const CGFloat gap = 5.0;
     return NSMakeRect(rect.origin.x + 104.0 + static_cast<CGFloat>(index) * (w + gap), rect.origin.y + 4.0, w, h);
+}
+- (NSRect)pointFieldPlotRect:(NSRect)rect
+{
+    return NSMakeRect(rect.origin.x + 16.0, rect.origin.y + 34.0,
+        rect.size.width - 32.0, rect.size.height - 50.0);
 }
 - (NSRect)mixerBankButtonRect:(uint32_t)index inRect:(NSRect)rect
 {
@@ -1303,20 +1339,26 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     const auto bondRelease = p->encoder.bondRelease();
     const auto params = p->params;
     const uint32_t active = std::clamp<uint32_t>(params.activePoints, 1u, kPointCount);
-    [c(0x111111) setFill]; NSRectFill(rect);
-    [c(0x565656) setStroke]; NSFrameRect(rect);
-    [c(0x131313) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 21));
-    [c(0xb8b8b8) setFill]; NSRectFill(NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width, 2));
-    [@"POINT FIELD" drawAtPoint:NSMakePoint(rect.origin.x + 10, rect.origin.y + 5) withAttributes:attrs];
+    const s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
+    s3g::clap_gui::drawPanelFrame(rect.origin.x, rect.origin.y,
+        rect.size.width, rect.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"POINT FIELD", true,
+        rect.origin.x, rect.origin.y, rect.size.width, 21.0, attrs, style);
     [self drawPageButtonsInRect:rect attrs:attrs];
     [self drawZoomButtonsInRect:rect attrs:attrs];
     [self drawViewButtonsInRect:rect attrs:attrs];
 
+    rect = [self pointFieldPlotRect:rect];
+    [c(0x111111) setFill]; NSRectFill(rect);
+    [style.grid setStroke]; NSFrameRect(rect);
+
     const CGFloat cx = rect.origin.x + rect.size.width * 0.50;
     const CGFloat cy = rect.origin.y + rect.size.height * 0.54;
     const CGFloat scale = [self viewScaleForRect:rect];
-    [c(0x2b2b2b) setStroke];
     NSBezierPath* ring = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(cx - scale, cy - scale, scale * 2.0, scale * 2.0)];
+    [c(0x0e0e0e) setFill];
+    [ring fill];
+    [c(0x454545) setStroke];
     [ring stroke];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(cx - scale, cy) toPoint:NSMakePoint(cx + scale, cy)];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(cx, cy - scale) toPoint:NSMakePoint(cx, cy + scale)];
@@ -1553,8 +1595,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     [self drawMixerBankButtonsInRect:rect attrs:attrs];
 
     s3g::clap_gui::Style style = s3g::clap_gui::softTextStyle();
-    s3g::clap_gui::drawSlider(@"OUTPUT",
-                               [NSString stringWithFormat:@"%+.1f", params.outputGainDb],
+    s3g::clap_gui::drawSlider(@"OUT",
+                               [NSString stringWithFormat:@"%+.1f dB", params.outputGainDb],
                                (params.outputGainDb + 60.0f) / 72.0f,
                                rect.origin.y + 72.0,
                                attrs,
@@ -1683,57 +1725,64 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
 
-    [@"s3g AMBI POINT ENCODER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(716,14) withAttributes:small];
-    [[NSString stringWithFormat:@"%uPT > %uOA", p->params.activePoints, p->params.order] drawAtPoint:NSMakePoint(794,14) withAttributes:small];
+    NSString* status = [NSString stringWithFormat:@"%uPT > %uOA  ·  %@",
+        p->params.activePoints, p->params.order, s3g::clap_gui::peakDbText(pk)];
+    s3g::clap_gui::drawEncoderTitleBand(
+        @"s3g AMBI ENCODER POINT",
+        [NSString stringWithUTF8String:_titlePresetName],
+        status,
+        s3g::clap_gui::encoderTitleBand(900.0, 716.0),
+        titleAttrs, lab, small, style);
 
-    NSRect leftPage = NSMakeRect(18, 42, 590, 656);
+    const NSRect leftPage = pointPrimaryPanelRect();
     if (_leftPage == 0) {
         [self drawPointField:leftPage attrs:small];
     } else {
         [self drawPointMixer:leftPage attrs:small labelAttrs:small];
     }
 
-    s3g::clap_gui::drawPanelFrame(626, 42, 256, 224, style);
-    s3g::clap_gui::drawPanelHeader(@"POINT", true, 626, 42, 256, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(626, 280, 256, 406, style);
-    s3g::clap_gui::drawPanelHeader(@"MOTION", true, 626, 280, 256, 21, lab, style);
+    s3g::clap_gui::drawPanelFrame(kToolboxX, 42, kToolboxWidth, 248, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / POINT", true, kToolboxX, 42, kToolboxWidth, 21, lab, style);
+    s3g::clap_gui::drawPanelFrame(kToolboxX, 302, kToolboxWidth, 406, style);
+    s3g::clap_gui::drawPanelHeader(@"MOTION", true, kToolboxX, 302, kToolboxWidth, 21, lab, style);
 
     const auto prm = p->params;
-    [self drawSlider:@"POINT" value:[NSString stringWithFormat:@"%u", prm.selectedPoint + 1u] norm:static_cast<CGFloat>(prm.selectedPoint) / static_cast<CGFloat>(std::max<uint32_t>(1u, prm.activePoints - 1u)) y:76 attrs:small small:small];
-    [self drawSlider:@"POINTS" value:[NSString stringWithFormat:@"%u", prm.activePoints] norm:static_cast<CGFloat>(prm.activePoints - 1u) / static_cast<CGFloat>(kPointCount - 1u) y:101 attrs:small small:small];
-    [self drawSlider:@"AZIMUTH" value:[NSString stringWithFormat:@"%+.0f", prm.selectedAzimuthDeg] norm:(prm.selectedAzimuthDeg + 180.0f) / 360.0f y:126 attrs:small small:small];
-    [self drawSlider:@"ELEV" value:[NSString stringWithFormat:@"%+.0f", prm.selectedElevationDeg] norm:(prm.selectedElevationDeg - (prm.upperHemisphereOnly ? 0.0f : -90.0f)) / (prm.upperHemisphereOnly ? 90.0f : 180.0f) y:151 attrs:small small:small];
-    [self drawSlider:@"DISTANCE" value:[NSString stringWithFormat:@"%.2f", prm.selectedDistance] norm:(prm.selectedDistance - 0.15f) / 1.85f y:176 attrs:small small:small];
-    [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%.2f", prm.selectedGain] norm:prm.selectedGain / 2.0f y:201 attrs:small small:small];
-    [self drawMenu:@"MUTE" value:(prm.selectedEnabled ? @"ON" : @"MUTED") y:223 attrs:small small:small];
-    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", prm.order] y:245 attrs:small small:small];
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.outputGainDb] norm:(prm.outputGainDb + 60.0f) / 72.0f y:78 attrs:small small:small];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", prm.order] y:103 attrs:small small:small];
+    [self drawSlider:@"POINT" value:[NSString stringWithFormat:@"%u", prm.selectedPoint + 1u] norm:static_cast<CGFloat>(prm.selectedPoint) / static_cast<CGFloat>(std::max<uint32_t>(1u, prm.activePoints - 1u)) y:128 attrs:small small:small];
+    [self drawSlider:@"POINTS" value:[NSString stringWithFormat:@"%u", prm.activePoints] norm:static_cast<CGFloat>(prm.activePoints - 1u) / static_cast<CGFloat>(kPointCount - 1u) y:153 attrs:small small:small];
+    [self drawSlider:@"AZIMUTH" value:[NSString stringWithFormat:@"%+.0f", prm.selectedAzimuthDeg] norm:(prm.selectedAzimuthDeg + 180.0f) / 360.0f y:178 attrs:small small:small];
+    [self drawSlider:@"ELEV" value:[NSString stringWithFormat:@"%+.0f", prm.selectedElevationDeg] norm:(prm.selectedElevationDeg - (prm.upperHemisphereOnly ? 0.0f : -90.0f)) / (prm.upperHemisphereOnly ? 90.0f : 180.0f) y:203 attrs:small small:small];
+    [self drawSlider:@"DISTANCE" value:[NSString stringWithFormat:@"%.2f", prm.selectedDistance] norm:(prm.selectedDistance - 0.15f) / 1.85f y:228 attrs:small small:small];
+    [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%.2f", prm.selectedGain] norm:prm.selectedGain / 2.0f y:250 attrs:small small:small];
+    [self drawMenu:@"MUTE" value:(prm.selectedEnabled ? @"ON" : @"MUTED") y:272 attrs:small small:small];
 
-    [self drawMenu:@"MOTION" value:[NSString stringWithUTF8String:motionDisplayName(static_cast<uint32_t>(prm.motionMode))] y:314 attrs:small small:small];
-    [self drawMenu:@"STYLE" value:[NSString stringWithUTF8String:(styleMenuIndex(prm.motionMode, prm.motionScene) >= 0 ? styleName(prm.motionScene) : "CUSTOM")] y:336 attrs:small small:small];
-    [self drawMenu:@"HEMISPHERE" value:(prm.upperHemisphereOnly ? @"UPPER HEMI" : @"FULL SPHERE") y:358 attrs:small small:small];
-    [self drawSlider:@"AMOUNT" value:[NSString stringWithFormat:@"%.0f%%", prm.motionAmount * 100.0f] norm:prm.motionAmount y:380 attrs:small small:small];
-    [self drawSlider:@"SCALE" value:[NSString stringWithFormat:@"%.2f", prm.physicsScale] norm:(prm.physicsScale - 0.25f) / 1.75f y:402 attrs:small small:small];
-    [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", prm.rateHz] norm:(prm.rateHz - 0.005f) / 0.495f y:424 attrs:small small:small];
-    [self drawSlider:@"COLLISION" value:[NSString stringWithFormat:@"%.0f%%", prm.collision * 100.0f] norm:prm.collision y:446 attrs:small small:small];
-    [self drawSlider:@"IMPACT" value:[NSString stringWithFormat:@"%.0f%%", prm.impact * 100.0f] norm:prm.impact y:468 attrs:small small:small];
-    [self drawSlider:@"DRAG" value:[NSString stringWithFormat:@"%.2f", prm.drag] norm:(prm.drag - 0.45f) / 0.545f y:490 attrs:small small:small];
-    [self drawSlider:@"SWIRL" value:[NSString stringWithFormat:@"%+.2f", prm.swirl] norm:(prm.swirl + 0.24f) / 0.48f y:512 attrs:small small:small];
-    [self drawSlider:@"POLTER" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeist * 100.0f] norm:prm.poltergeist y:534 attrs:small small:small];
-    [self drawSlider:@"G-RATE" value:[NSString stringWithFormat:@"%.2fx", prm.poltergeistRate] norm:(prm.poltergeistRate - 0.05f) / 3.95f y:556 attrs:small small:small];
-    [self drawSlider:@"G-REACH" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistReach * 100.0f] norm:prm.poltergeistReach y:578 attrs:small small:small];
-    [self drawSlider:@"G-RAD" value:[NSString stringWithFormat:@"%.2f", prm.poltergeistRadius] norm:(prm.poltergeistRadius - 0.04f) / 0.96f y:600 attrs:small small:small];
-    [self drawSlider:@"G-CHAOS" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistChaos * 100.0f] norm:prm.poltergeistChaos y:622 attrs:small small:small];
-    [self drawSlider:@"DOPPLER" value:[NSString stringWithFormat:@"%.0f%%", prm.doppler * 100.0f] norm:prm.doppler y:644 attrs:small small:small];
-    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%.0f%%", prm.air * 100.0f] norm:prm.air y:666 attrs:small small:small];
+    [self drawMenu:@"MOTION" value:[NSString stringWithUTF8String:motionDisplayName(static_cast<uint32_t>(prm.motionMode))] y:338 attrs:small small:small];
+    [self drawMenu:@"STYLE" value:[NSString stringWithUTF8String:(styleMenuIndex(prm.motionMode, prm.motionScene) >= 0 ? styleName(prm.motionScene) : "CUSTOM")] y:360 attrs:small small:small];
+    [self drawMenu:@"HEMISPHERE" value:(prm.upperHemisphereOnly ? @"UPPER HEMI" : @"FULL SPHERE") y:382 attrs:small small:small];
+    [self drawSlider:@"AMOUNT" value:[NSString stringWithFormat:@"%.0f%%", prm.motionAmount * 100.0f] norm:prm.motionAmount y:404 attrs:small small:small];
+    [self drawSlider:@"SCALE" value:[NSString stringWithFormat:@"%.2f", prm.physicsScale] norm:(prm.physicsScale - 0.25f) / 1.75f y:426 attrs:small small:small];
+    [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", prm.rateHz] norm:(prm.rateHz - 0.005f) / 0.495f y:448 attrs:small small:small];
+    [self drawSlider:@"COLLISION" value:[NSString stringWithFormat:@"%.0f%%", prm.collision * 100.0f] norm:prm.collision y:470 attrs:small small:small];
+    [self drawSlider:@"IMPACT" value:[NSString stringWithFormat:@"%.0f%%", prm.impact * 100.0f] norm:prm.impact y:492 attrs:small small:small];
+    [self drawSlider:@"DRAG" value:[NSString stringWithFormat:@"%.2f", prm.drag] norm:(prm.drag - 0.45f) / 0.545f y:514 attrs:small small:small];
+    [self drawSlider:@"SWIRL" value:[NSString stringWithFormat:@"%+.2f", prm.swirl] norm:(prm.swirl + 0.24f) / 0.48f y:536 attrs:small small:small];
+    [self drawSlider:@"POLTER" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeist * 100.0f] norm:prm.poltergeist y:558 attrs:small small:small];
+    [self drawSlider:@"G-RATE" value:[NSString stringWithFormat:@"%.2fx", prm.poltergeistRate] norm:(prm.poltergeistRate - 0.05f) / 3.95f y:580 attrs:small small:small];
+    [self drawSlider:@"G-REACH" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistReach * 100.0f] norm:prm.poltergeistReach y:602 attrs:small small:small];
+    [self drawSlider:@"G-RAD" value:[NSString stringWithFormat:@"%.2f", prm.poltergeistRadius] norm:(prm.poltergeistRadius - 0.04f) / 0.96f y:624 attrs:small small:small];
+    [self drawSlider:@"G-CHAOS" value:[NSString stringWithFormat:@"%.0f%%", prm.poltergeistChaos * 100.0f] norm:prm.poltergeistChaos y:646 attrs:small small:small];
+    [self drawSlider:@"DOPPLER" value:[NSString stringWithFormat:@"%.0f%%", prm.doppler * 100.0f] norm:prm.doppler y:668 attrs:small small:small];
+    [self drawSlider:@"AIR" value:[NSString stringWithFormat:@"%.0f%%", prm.air * 100.0f] norm:prm.air y:690 attrs:small small:small];
 
     [self drawOpenMenu:small];
 }
 - (void)updateSlider:(NSPoint)point
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const double n = std::clamp((point.x - 726.0) / 104.0, 0.0, 1.0);
+    const double n = std::clamp(
+        (point.x - kToolboxControlX) / kToolboxTrackWidth, 0.0, 1.0);
     switch (_dragSlider) {
     case 1: applyParam(*p, kPointParamId, 1.0 + n * static_cast<double>(std::max<uint32_t>(1u, p->params.activePoints) - 1u)); break;
     case 2: applyParam(*p, kActivePointsParamId, 1.0 + n * static_cast<double>(kPointCount - 1u)); break;
@@ -1760,6 +1809,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     case 23: applyParam(*p, kPoltergeistChaosParamId, n); break;
     case 24: applyParam(*p, kDopplerParamId, n); break;
     case 25: applyParam(*p, kAirParamId, n); break;
+    case 26: applyParam(*p, kOutputParamId, -60.0 + n * 72.0); break;
     default: break;
     }
     if (_dragSlider == 1 || _dragSlider == 2) _mixerBank = p->params.selectedPoint / kMixerBankSize;
@@ -1768,15 +1818,70 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    auto* titlePlugin = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(900.0, 716.0);
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const auto order = titlePlugin->params.order;
+        const auto output = titlePlugin->params.outputGainDb;
+        auto initial = s3g::AmbiPointEncoderParams {};
+        initial.activePoints = kDefaultPointCount;
+        initial.order = order;
+        initial.outputGainDb = output;
+        titlePlugin->params = initial;
+        titlePlugin->encoder.setParams(initial);
+        titlePlugin->params = titlePlugin->encoder.params();
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &titlePlugin->plugin, @"Ambi Point Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &titlePlugin->plugin, @"Ambi Point Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.randomButton))) {
+        const double unit = static_cast<double>(arc4random()) / 4294967295.0;
+        applyParam(*titlePlugin, kMotionModeParamId, 1.0 + std::floor(unit * 5.0));
+        applyParam(*titlePlugin, kMotionAmountParamId,
+            0.18 + static_cast<double>(arc4random()) / 4294967295.0 * 0.64);
+        applyParam(*titlePlugin, kRateParamId,
+            0.01 + static_cast<double>(arc4random()) / 4294967295.0 * 0.34);
+        applyParam(*titlePlugin, kCollisionParamId,
+            static_cast<double>(arc4random()) / 4294967295.0 * 0.72);
+        applyParam(*titlePlugin, kSwirlParamId,
+            -0.20 + static_cast<double>(arc4random()) / 4294967295.0 * 0.40);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "RANDOM");
+        [self setNeedsDisplay:YES];
+        return;
+    }
     auto menuOrigin = [](CGFloat preferredY, uint32_t itemCount) {
         const CGFloat itemH = 18.0;
         const CGFloat bottom = 654.0;
-        return NSMakePoint(724.0, std::max<CGFloat>(28.0, std::min<CGFloat>(preferredY, bottom - itemH * static_cast<CGFloat>(itemCount))));
+        return NSMakePoint(kToolboxControlX, std::max<CGFloat>(28.0, std::min<CGFloat>(preferredY, bottom - itemH * static_cast<CGFloat>(itemCount))));
     };
 
     if (_openMenu > 0) {
         const CGFloat itemH = 18.0;
-        NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 124.0, itemH * static_cast<CGFloat>(_menuItemCount));
+        NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, kToolboxMenuWidth, itemH * static_cast<CGFloat>(_menuItemCount));
         if (NSPointInRect(pt, menuRect)) {
             const uint32_t index = std::min<uint32_t>(_menuItemCount - 1u, static_cast<uint32_t>((pt.y - _menuOrigin.y) / itemH));
             auto* p = static_cast<Plugin*>(_plugin);
@@ -1800,7 +1905,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         return;
     }
 
-    const NSRect leftPage = NSMakeRect(18, 42, 590, 656);
+    const NSRect leftPage = pointPrimaryPanelRect();
     if (NSPointInRect(pt, leftPage)) {
         for (int i = 0; i < 2; ++i) {
             if (NSPointInRect(pt, [self pageButtonRect:i inRect:leftPage])) {
@@ -1831,6 +1936,14 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         const uint32_t firstPoint = _mixerBank * kMixerBankSize;
         const uint32_t pointEnd = std::min<uint32_t>(firstPoint + kMixerBankSize, active);
         if (NSPointInRect(pt, NSInsetRect([self mixerOutputTrackRect:leftPage], -8.0, -8.0))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, kOutputParamId, &defaultValue)) {
+                applyParam(*p, kOutputParamId, defaultValue);
+                _dragMixerOutput = NO;
+                [self setNeedsDisplay:YES];
+                return;
+            }
             _dragMixerOutput = YES;
             [self updateMixerOutput:pt inRect:leftPage];
             return;
@@ -1854,6 +1967,20 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
             }
             NSRect gainHit = NSInsetRect([self mixerGainRect:i inRect:leftPage], -10.0, -10.0);
             if (NSPointInRect(pt, gainHit)) {
+                double defaultValue = 0.0;
+                if (s3g::clap_gui::sliderDoubleClickDefault(
+                        event, &p->plugin,
+                        perPointParamId(i, PerPointParamKind::Gain),
+                        &defaultValue)) {
+                    applyPerPointParam(*p, i, PerPointParamKind::Gain,
+                        defaultValue);
+                    applyParam(*p, kPointParamId,
+                        static_cast<double>(i + 1u));
+                    _dragMixerPoint = -1;
+                    _hasPointSelection = YES;
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
                 _dragMixerPoint = static_cast<int>(i);
                 [self updateMixerGain:pt inRect:leftPage];
                 return;
@@ -1877,7 +2004,8 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
                 return;
             }
         }
-        const int hit = [self hitPointAt:pt inRect:leftPage];
+        const NSRect fieldRect = [self pointFieldPlotRect:leftPage];
+        const int hit = [self hitPointAt:pt inRect:fieldRect];
         if (hit >= 0) {
             auto* p = static_cast<Plugin*>(_plugin);
             applyParam(*p, kPointParamId, static_cast<double>(hit + 1));
@@ -1885,13 +2013,13 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
             _hasPointSelection = YES;
             if (_viewMode == 0 || _viewMode == 1) {
                 _dragPoint = hit;
-                [self updateDraggedPoint:pt inRect:leftPage];
+                [self updateDraggedPoint:pt inRect:fieldRect];
                 return;
             }
             [self setNeedsDisplay:YES];
             return;
         }
-        if (pt.y > leftPage.origin.y + 21.0) {
+        if (NSPointInRect(pt, fieldRect)) {
             _hasPointSelection = NO;
             _dragView = YES;
             _lastDragPoint = pt;
@@ -1899,22 +2027,82 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
             return;
         }
     }
-    const CGFloat rows[] = { 76, 101, 126, 151, 176, 201, 223, 245, 314, 336, 358, 380, 402, 424, 446, 468, 490, 512, 534, 556, 578, 600, 622, 644, 666 };
-    for (int i = 0; i < 25; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(636, rows[i] - 8, 236, 24))) {
-            if (i == 6 || i == 7 || i == 8 || i == 9 || i == 10) {
-                _openMenu = i == 6 ? 1 : (i == 7 ? 5 : (i == 8 ? 3 : (i == 9 ? 4 : 2)));
+    const CGFloat rows[] = { 78, 103, 128, 153, 178, 203, 228, 250, 272, 338, 360, 382, 404, 426, 448, 470, 492, 514, 536, 558, 580, 602, 624, 646, 668, 690 };
+    const int controls[] = { 26, 8, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25 };
+    for (int i = 0; i < 26; ++i) {
+        if (NSPointInRect(pt, NSMakeRect(
+                kToolboxX + s3g::gui_layout::kStandardMetrics.hitInset,
+                rows[i] - 8,
+                kToolboxWidth - 2.0
+                    * s3g::gui_layout::kStandardMetrics.hitInset,
+                s3g::gui_layout::kStandardMetrics.hitHeight))) {
+            if (i == 1 || i == 8 || i == 9 || i == 10 || i == 11) {
+                _openMenu = i == 1 ? 5 : (i == 8 ? 1 : (i == 9 ? 3 : (i == 10 ? 4 : 2)));
                 _hoverMenuItem = -1;
-                if (i == 7) _menuItemCount = 7u;
-                else if (i == 8) _menuItemCount = 6u;
-                else if (i == 9) _menuItemCount = motionStyleList(static_cast<Plugin*>(_plugin)->params.motionMode).count;
+                if (i == 1) _menuItemCount = 7u;
+                else if (i == 9) _menuItemCount = 6u;
+                else if (i == 10) _menuItemCount = motionStyleList(static_cast<Plugin*>(_plugin)->params.motionMode).count;
                 else _menuItemCount = 2u;
                 _menuOrigin = menuOrigin(rows[i] + 18.0, _menuItemCount);
                 [self setNeedsDisplay:YES];
                 return;
             }
-            _dragSlider = i + 1;
-            if (i <= 6) _hasPointSelection = YES;
+            const int control = controls[i];
+            auto baseParamForControl = [](int index) -> clap_id {
+                switch (index) {
+                case 1: return kPointParamId;
+                case 2: return kActivePointsParamId;
+                case 3: return kAzimuthParamId;
+                case 4: return kElevationParamId;
+                case 5: return kDistanceParamId;
+                case 6: return kPointGainParamId;
+                case 12: return kMotionAmountParamId;
+                case 13: return kPhysicsScaleParamId;
+                case 14: return kRateParamId;
+                case 15: return kCollisionParamId;
+                case 16: return kImpactParamId;
+                case 17: return kDragParamId;
+                case 18: return kSwirlParamId;
+                case 19: return kPoltergeistParamId;
+                case 20: return kPoltergeistRateParamId;
+                case 21: return kPoltergeistReachParamId;
+                case 22: return kPoltergeistRadiusParamId;
+                case 23: return kPoltergeistChaosParamId;
+                case 24: return kDopplerParamId;
+                case 25: return kAirParamId;
+                case 26: return kOutputParamId;
+                default: return CLAP_INVALID_ID;
+                }
+            };
+            const clap_id applyId = baseParamForControl(control);
+            clap_id lookupId = applyId;
+            const uint32_t selectedPoint = titlePlugin->params.selectedPoint;
+            if (control == 3) lookupId = perPointParamId(
+                selectedPoint, PerPointParamKind::Azimuth);
+            else if (control == 4) lookupId = perPointParamId(
+                selectedPoint, PerPointParamKind::Elevation);
+            else if (control == 5) lookupId = perPointParamId(
+                selectedPoint, PerPointParamKind::Distance);
+            else if (control == 6) lookupId = perPointParamId(
+                selectedPoint, PerPointParamKind::Gain);
+            double defaultValue = control == 1 ? 1.0 : 0.0;
+            const bool reset = control == 1
+                ? [event clickCount] >= 2
+                : s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &titlePlugin->plugin, lookupId, &defaultValue);
+            if (reset && applyId != CLAP_INVALID_ID) {
+                applyParam(*titlePlugin, applyId, defaultValue);
+                _dragSlider = -1;
+                if (control >= 1 && control <= 6) {
+                    _mixerBank =
+                        titlePlugin->params.selectedPoint / kMixerBankSize;
+                    _hasPointSelection = YES;
+                }
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            _dragSlider = controls[i];
+            if (controls[i] >= 1 && controls[i] <= 7) _hasPointSelection = YES;
             [self updateSlider:pt];
             return;
         }
@@ -1929,15 +2117,16 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     [self updateMenuHover:pt];
     if (_dragPoint >= 0) {
-        [self updateDraggedPoint:pt inRect:NSMakeRect(18, 42, 590, 656)];
+        [self updateDraggedPoint:pt inRect:
+            [self pointFieldPlotRect:pointPrimaryPanelRect()]];
         return;
     }
     if (_dragMixerPoint >= 0) {
-        [self updateMixerGain:pt inRect:NSMakeRect(18, 42, 590, 656)];
+        [self updateMixerGain:pt inRect:pointPrimaryPanelRect()];
         return;
     }
     if (_dragMixerOutput) {
-        [self updateMixerOutput:pt inRect:NSMakeRect(18, 42, 590, 656)];
+        [self updateMixerOutput:pt inRect:pointPrimaryPanelRect()];
         return;
     }
     if (_dragView) {
@@ -1992,7 +2181,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.3oafx-point-encoder-16pt",
-    "s3g Ambi Point Encoder",
+    "s3g Ambi Encoder Point",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

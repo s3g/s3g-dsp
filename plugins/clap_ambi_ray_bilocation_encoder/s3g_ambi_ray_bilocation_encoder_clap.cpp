@@ -39,7 +39,7 @@ constexpr uint32_t kGuiHeight = 900u;
 constexpr uint32_t kStateMagic = 0x5347424cu;
 constexpr uint32_t kStateVersion = 2u;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-ray-bilocation-encoder";
-constexpr const char* kPluginName = "s3g Ambi Ray Bilocation Encoder";
+constexpr const char* kPluginName = "s3g Ambi Encoder Ray Bilocation";
 constexpr const char* kPluginDesc = "One mono source simultaneously inhabiting two contrasting ambisonic ray fields.";
 
 enum ParamId : clap_id {
@@ -798,44 +798,92 @@ NSRect loadBButtonRect() { return NSMakeRect(1146, 36, 68, 18); }
 NSRect sourceModeRect() { return NSMakeRect(594, 78, 52, 20); }
 NSRect listenerModeRect() { return NSMakeRect(594, 104, 52, 20); }
 NSRect placeTrackRect() { return NSMakeRect(36, 616, 1168, 12); }
+NSRect spaceACharacterPanelRect() { return NSMakeRect(12, 656, 386, 94); }
+NSRect positionZPanelRect() { return NSMakeRect(410, 656, 420, 94); }
+NSRect spaceBCharacterPanelRect() { return NSMakeRect(842, 656, 386, 94); }
+NSRect membranePanelRect() { return NSMakeRect(12, 762, 594, 124); }
+NSRect outputPanelRect() { return NSMakeRect(618, 762, 610, 124); }
 NSRect fieldListenButtonRect(uint32_t mode)
 {
-    return NSMakeRect(1080 + static_cast<CGFloat>(mode) * 35.0, 840, 32, 17);
+    return NSMakeRect(678 + static_cast<CGFloat>(mode) * 36.0, 849, 32, 17);
 }
-NSRect bypassButtonRect() { return NSMakeRect(1098, 868, 54, 15); }
+NSRect bypassButtonRect() { return NSMakeRect(894, 849, 54, 15); }
 
 struct SliderLayout {
     clap_id id = CLAP_INVALID_ID;
     const char* label = "";
     NSRect row {};
+    CGFloat labelWidth = 54.0;
 };
 
 const std::array<SliderLayout, 21>& sliderLayouts()
 {
     static const std::array<SliderLayout, 21> layouts {{
-        { kParamSizeA, "SIZE", NSMakeRect(26, 688, 250, 18) },
-        { kParamScatterA, "SCAT", NSMakeRect(26, 720, 250, 18) },
-        { kParamWidthA, "WIDTH", NSMakeRect(26, 752, 250, 18) },
-        { kParamAirA, "AIR", NSMakeRect(26, 784, 250, 18) },
-        { kParamSourceZ, "SRC Z", NSMakeRect(26, 816, 250, 18) },
-        { kParamPermeability, "PERMEABILITY", NSMakeRect(320, 688, 388, 18) },
-        { kParamMemory, "MEMORY", NSMakeRect(320, 720, 388, 18) },
-        { kParamSeparation, "SEPARATION", NSMakeRect(320, 752, 388, 18) },
-        { kParamMovement, "MOVEMENT", NSMakeRect(320, 784, 388, 18) },
-        { kParamDoppler, "DOPPLER", NSMakeRect(320, 816, 388, 18) },
-        { kParamSizeB, "SIZE", NSMakeRect(752, 688, 250, 18) },
-        { kParamScatterB, "SCAT", NSMakeRect(752, 720, 250, 18) },
-        { kParamWidthB, "WIDTH", NSMakeRect(752, 752, 250, 18) },
-        { kParamAirB, "AIR", NSMakeRect(752, 784, 250, 18) },
-        { kParamListenerZ, "LIS Z", NSMakeRect(752, 816, 250, 18) },
-        { kParamDirect, "DIRECT", NSMakeRect(1044, 672, 168, 18) },
-        { kParamEarly, "EARLY", NSMakeRect(1044, 700, 168, 18) },
-        { kParamLate, "LATE", NSMakeRect(1044, 728, 168, 18) },
-        { kParamOutput, "OUTPUT", NSMakeRect(1044, 756, 168, 18) },
-        { kParamOrder, "ORDER", NSMakeRect(1044, 784, 168, 18) },
-        { kParamMapMode, "MAP", NSMakeRect(1044, 812, 168, 18) },
+        { kParamSizeA, "SIZE", NSMakeRect(26, 690, 172, 18) },
+        { kParamScatterA, "SCAT", NSMakeRect(26, 716, 172, 18) },
+        { kParamWidthA, "WIDTH", NSMakeRect(212, 690, 172, 18) },
+        { kParamAirA, "AIR", NSMakeRect(212, 716, 172, 18) },
+        { kParamSourceZ, "SRC Z", NSMakeRect(424, 702, 190, 18), 58.0 },
+        { kParamListenerZ, "LIS Z", NSMakeRect(626, 702, 190, 18), 58.0 },
+        { kParamSizeB, "SIZE", NSMakeRect(856, 690, 172, 18) },
+        { kParamScatterB, "SCAT", NSMakeRect(856, 716, 172, 18) },
+        { kParamWidthB, "WIDTH", NSMakeRect(1042, 690, 172, 18) },
+        { kParamAirB, "AIR", NSMakeRect(1042, 716, 172, 18) },
+        { kParamPermeability, "PERMEABILITY", NSMakeRect(26, 798, 276, 18), 106.0 },
+        { kParamMemory, "MEMORY", NSMakeRect(26, 824, 276, 18), 82.0 },
+        { kParamSeparation, "SEPARATION", NSMakeRect(26, 850, 276, 18), 82.0 },
+        { kParamMovement, "MOVEMENT", NSMakeRect(318, 798, 274, 18), 82.0 },
+        { kParamDoppler, "DOPPLER", NSMakeRect(318, 824, 274, 18), 82.0 },
+        { kParamOutput, "OUT", NSMakeRect(632, 798, 180, 18) },
+        { kParamOrder, "ORDER", NSMakeRect(632, 824, 180, 18) },
+        { kParamDirect, "DIRECT", NSMakeRect(824, 798, 180, 18) },
+        { kParamEarly, "EARLY", NSMakeRect(824, 824, 180, 18) },
+        { kParamLate, "LATE", NSMakeRect(1016, 798, 198, 18) },
+        { kParamMapMode, "MAP", NSMakeRect(1016, 824, 198, 18) },
     }};
     return layouts;
+}
+
+bool isParameterMenu(clap_id id)
+{
+    return id == kParamOrder || id == kParamMapMode;
+}
+
+const SliderLayout* layoutForParam(clap_id id)
+{
+    for (const auto& layout : sliderLayouts()) {
+        if (layout.id == id) return &layout;
+    }
+    return nullptr;
+}
+
+uint32_t parameterMenuItemCount(clap_id id)
+{
+    return id == kParamOrder ? 7u : id == kParamMapMode ? 4u : 0u;
+}
+
+NSRect parameterMenuBoxRect(clap_id id)
+{
+    const auto* layout = layoutForParam(id);
+    if (!layout) return NSZeroRect;
+    return NSMakeRect(layout->row.origin.x + layout->labelWidth,
+        layout->row.origin.y + 2.0,
+        layout->row.size.width - layout->labelWidth, 15.0);
+}
+
+NSRect parameterDropdownRect(clap_id id)
+{
+    const auto* layout = layoutForParam(id);
+    const uint32_t itemCount = parameterMenuItemCount(id);
+    if (!layout || itemCount == 0u) return NSZeroRect;
+    constexpr CGFloat itemHeight = 18.0;
+    const CGFloat height = itemHeight * static_cast<CGFloat>(itemCount);
+    const NSRect box = parameterMenuBoxRect(id);
+    const CGFloat preferredY = NSMaxY(box) + 2.0;
+    const CGFloat y = preferredY + height <= static_cast<CGFloat>(kGuiHeight) - 12.0
+        ? preferredY
+        : layout->row.origin.y - height - 2.0;
+    return NSMakeRect(box.origin.x, y, box.size.width, height);
 }
 
 double normalizedParamValue(clap_id id, const s3g::AmbiRayBilocationParams& p)
@@ -1015,7 +1063,10 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
     bool _editListener;
     bool _pairMenuOpen;
     int _pairMenuHover;
+    clap_id _openParameterMenu;
+    int _parameterMenuHover;
     NSTimer* _refreshTimer;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -1039,7 +1090,10 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
         _editListener = false;
         _pairMenuOpen = false;
         _pairMenuHover = -1;
+        _openParameterMenu = CLAP_INVALID_ID;
+        _parameterMenuHover = -1;
         _refreshTimer = nil;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
     }
     return self;
 }
@@ -1355,13 +1409,17 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
     [details drawAtPoint:NSMakePoint(rect.origin.x + 16, NSMaxY(rect) - 27) withAttributes:attrs];
 }
 
-- (void)drawSlider:(const SliderLayout&)layout params:(const s3g::AmbiRayBilocationParams&)params attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
+- (void)drawSlider:(const SliderLayout&)layout
+            params:(const s3g::AmbiRayBilocationParams&)params
+        labelAttrs:(NSDictionary*)labelAttrs
+        valueAttrs:(NSDictionary*)valueAttrs
+             style:(const s3g::clap_gui::Style&)style
 {
     NSString* label = [NSString stringWithUTF8String:layout.label];
-    [label drawAtPoint:NSMakePoint(layout.row.origin.x, layout.row.origin.y + 1) withAttributes:attrs];
-    const CGFloat labelWidth = layout.row.size.width > 300 ? 106.0 : (layout.row.size.width > 200 ? 58.0 : 54.0);
-    NSRect track = NSMakeRect(layout.row.origin.x + labelWidth, layout.row.origin.y + 4,
-        layout.row.size.width - labelWidth - 54.0, 9);
+    [label drawAtPoint:NSMakePoint(layout.row.origin.x, layout.row.origin.y + 1)
+        withAttributes:labelAttrs];
+    NSRect track = NSMakeRect(layout.row.origin.x + layout.labelWidth, layout.row.origin.y + 4,
+        layout.row.size.width - layout.labelWidth - 54.0, 9);
     [style.strip setFill]; NSRectFill(track);
     [style.grid setStroke]; NSFrameRect(track);
     const CGFloat norm = std::clamp(static_cast<CGFloat>(normalizedParamValue(layout.id, params)), 0.0, 1.0);
@@ -1371,7 +1429,9 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
         : layout.id == kParamSizeB || layout.id == kParamScatterB || layout.id == kParamWidthB || layout.id == kParamAirB
             ? s3g::clap_gui::color(0xd8a24a, 0.72) : style.fill) setFill];
     NSRectFill(fill);
-    [parameterText(layout.id, params) drawAtPoint:NSMakePoint(NSMaxX(layout.row) - 49, layout.row.origin.y + 1) withAttributes:attrs];
+    s3g::clap_gui::drawBoundedRightText(parameterText(layout.id, params),
+        NSMakeRect(NSMaxX(layout.row) - 48.0, layout.row.origin.y + 1.0,
+            42.0, 15.0), valueAttrs);
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -1383,13 +1443,17 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
     const GuiSnapshot snapshot = guiSnapshot(*_plugin);
     const auto gains = s3g::ambiRayBilocationGains(snapshot.params.place, snapshot.params.permeability);
-    [@"s3g AMBI RAY BILOCATION ENCODER" drawAtPoint:NSMakePoint(18, 13) withAttributes:labelAttrs];
     NSString* peakText = s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed));
     NSString* status = [NSString stringWithFormat:@"%@   %@   %@",
         [NSString stringWithUTF8String:snapshot.pairName.c_str()],
         [NSString stringWithUTF8String:snapshot.status.c_str()],
         peakText];
-    [status drawAtPoint:NSMakePoint(kGuiWidth - [status sizeWithAttributes:valueAttrs].width - 18, 13) withAttributes:valueAttrs];
+    s3g::clap_gui::drawEncoderTitleBand(
+        @"s3g AMBI ENCODER RAY BILOCATION",
+        [NSString stringWithUTF8String:_titlePresetName],
+        status,
+        s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
+        s3g::clap_gui::softTitleAttrs(), labelAttrs, valueAttrs, style);
 
     s3g::clap_gui::drawPanelFrame(12, 34, 570, 560, style);
     s3g::clap_gui::drawPanelFrame(658, 34, 570, 560, style);
@@ -1443,27 +1507,61 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
     [@"PLACE / TRANSIT / OVERLAP" drawAtPoint:NSMakePoint(532, 634) withAttributes:labelAttrs];
     [@"B" drawAtPoint:NSMakePoint(1213, 613) withAttributes:labelAttrs];
 
-    s3g::clap_gui::drawPanelFrame(12, 656, 280, 230, style);
-    s3g::clap_gui::drawPanelHeader(@"SPACE A CHARACTER", true, 12, 656, 280, 21, labelAttrs, style);
-    s3g::clap_gui::drawPanelFrame(304, 656, 420, 230, style);
-    s3g::clap_gui::drawPanelHeader(@"BILOCATION MEMBRANE", true, 304, 656, 420, 21, labelAttrs, style);
-    s3g::clap_gui::drawPanelFrame(736, 656, 280, 230, style);
-    s3g::clap_gui::drawPanelHeader(@"SPACE B CHARACTER", true, 736, 656, 280, 21, labelAttrs, style);
-    s3g::clap_gui::drawPanelFrame(1028, 656, 200, 230, style);
-    s3g::clap_gui::drawPanelHeader(@"FIELD / OUTPUT", true, 1028, 656, 200, 21, labelAttrs, style);
-    for (const auto& layout : sliderLayouts()) [self drawSlider:layout params:snapshot.params attrs:valueAttrs style:style];
-    [@"LST" drawAtPoint:NSMakePoint(1044, 841) withAttributes:labelAttrs];
+    const NSRect spaceACharacterPanel = spaceACharacterPanelRect();
+    const NSRect positionZPanel = positionZPanelRect();
+    const NSRect spaceBCharacterPanel = spaceBCharacterPanelRect();
+    const NSRect membranePanel = membranePanelRect();
+    const NSRect outputPanel = outputPanelRect();
+    s3g::clap_gui::drawPanelFrame(spaceACharacterPanel.origin.x, spaceACharacterPanel.origin.y,
+        spaceACharacterPanel.size.width, spaceACharacterPanel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"SPACE A CHARACTER", true,
+        spaceACharacterPanel.origin.x, spaceACharacterPanel.origin.y,
+        spaceACharacterPanel.size.width, 21, labelAttrs, style);
+    s3g::clap_gui::drawPanelFrame(positionZPanel.origin.x, positionZPanel.origin.y,
+        positionZPanel.size.width, positionZPanel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"POSITION Z", true,
+        positionZPanel.origin.x, positionZPanel.origin.y,
+        positionZPanel.size.width, 21, labelAttrs, style);
+    s3g::clap_gui::drawPanelFrame(spaceBCharacterPanel.origin.x, spaceBCharacterPanel.origin.y,
+        spaceBCharacterPanel.size.width, spaceBCharacterPanel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"SPACE B CHARACTER", true,
+        spaceBCharacterPanel.origin.x, spaceBCharacterPanel.origin.y,
+        spaceBCharacterPanel.size.width, 21, labelAttrs, style);
+    s3g::clap_gui::drawPanelFrame(membranePanel.origin.x, membranePanel.origin.y,
+        membranePanel.size.width, membranePanel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"BILOCATION MEMBRANE", true,
+        membranePanel.origin.x, membranePanel.origin.y,
+        membranePanel.size.width, 21, labelAttrs, style);
+    s3g::clap_gui::drawPanelFrame(outputPanel.origin.x, outputPanel.origin.y,
+        outputPanel.size.width, outputPanel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / FIELD", true,
+        outputPanel.origin.x, outputPanel.origin.y,
+        outputPanel.size.width, 21, labelAttrs, style);
+    for (const auto& layout : sliderLayouts()) {
+        if (isParameterMenu(layout.id)) {
+            NSString* label = [NSString stringWithUTF8String:layout.label];
+            NSString* value = parameterText(layout.id, snapshot.params);
+            if (layout.id == kParamMapMode) value = [value uppercaseString];
+            s3g::clap_gui::drawMenu(label, value, layout.row.origin.y + 3.0,
+                labelAttrs, valueAttrs, style, layout.row.origin.x,
+                layout.row.origin.x + layout.labelWidth,
+                layout.row.size.width - layout.labelWidth);
+        } else {
+            [self drawSlider:layout params:snapshot.params
+                labelAttrs:labelAttrs valueAttrs:valueAttrs style:style];
+        }
+    }
+    [@"LST" drawAtPoint:NSMakePoint(632, 851) withAttributes:labelAttrs];
     static NSString* listenLabels[] = { @"OFF", @"FOL", @"CTR", @"BAL" };
     const uint32_t listenMode =
         static_cast<uint32_t>(snapshot.params.fieldListenMode);
-    const NSRect outputPanel = NSMakeRect(1028, 656, 200, 230);
     for (uint32_t mode = 0u; mode < 4u; ++mode) {
         s3g::clap_gui::drawHeaderButton(
             fieldListenButtonRect(mode), outputPanel, listenLabels[mode],
             mode == listenMode, valueAttrs, style);
     }
-    s3g::clap_gui::drawToggle(@"BYP", snapshot.params.bypassRoom, 869,
-        labelAttrs, valueAttrs, style, 1044, 1098, 54);
+    s3g::clap_gui::drawToggle(@"BYP", snapshot.params.bypassRoom, 850,
+        labelAttrs, valueAttrs, style, 850, 894, 54);
 
     if (_pairMenuOpen) {
         NSString* names[kPairPresets.size()];
@@ -1471,6 +1569,19 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
             names[index] = [NSString stringWithUTF8String:kPairPresets[index].title];
         s3g::clap_gui::drawDropdownMenu(pairMenuRect(), 20, names, static_cast<uint32_t>(kPairPresets.size()),
             snapshot.selectedPair, _pairMenuHover, valueAttrs, style);
+    }
+    if (_openParameterMenu != CLAP_INVALID_ID) {
+        if (_openParameterMenu == kParamOrder) {
+            NSString* items[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
+            s3g::clap_gui::drawDropdownMenu(parameterDropdownRect(_openParameterMenu),
+                18.0, items, 7u, static_cast<int>(snapshot.params.order) - 1,
+                _parameterMenuHover, valueAttrs, style);
+        } else if (_openParameterMenu == kParamMapMode) {
+            NSString* items[] = { @"LINKED", @"MIRROR X", @"MIRROR Y", @"COUNTER" };
+            s3g::clap_gui::drawDropdownMenu(parameterDropdownRect(_openParameterMenu),
+                18.0, items, 4u, static_cast<int>(snapshot.params.mapMode),
+                _parameterMenuHover, valueAttrs, style);
+        }
     }
 }
 
@@ -1483,9 +1594,8 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
     }
     for (const auto& layout : sliderLayouts()) {
         if (layout.id != param) continue;
-        const CGFloat labelWidth = layout.row.size.width > 300 ? 106.0 : (layout.row.size.width > 200 ? 58.0 : 54.0);
-        const NSRect track = NSMakeRect(layout.row.origin.x + labelWidth, layout.row.origin.y,
-            layout.row.size.width - labelWidth - 54.0, layout.row.size.height);
+        const NSRect track = NSMakeRect(layout.row.origin.x + layout.labelWidth, layout.row.origin.y,
+            layout.row.size.width - layout.labelWidth - 54.0, layout.row.size.height);
         const double norm = (point.x - track.origin.x) / std::max<CGFloat>(1.0, track.size.width);
         [self setParam:param value:valueFromNormalized(param, norm)];
         return;
@@ -1534,13 +1644,97 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const auto performanceFrame = _plugin->params;
+        auto initial = s3g::AmbiRayBilocationParams {};
+        initial.order = performanceFrame.order;
+        initial.outputGainDb = performanceFrame.outputGainDb;
+        initial.listenerX = performanceFrame.listenerX;
+        initial.listenerY = performanceFrame.listenerY;
+        initial.listenerZ = performanceFrame.listenerZ;
+        initial.fieldListenMode = performanceFrame.fieldListenMode;
+        _plugin->params = s3g::sanitizeAmbiRayBilocationParams(initial);
+        if (auto* processor = _plugin->activeProcessor.load(std::memory_order_acquire)) {
+            processor->setParams(_plugin->params);
+        }
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &_plugin->plugin, @"Ambi Ray Bilocation Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &_plugin->plugin, @"Ambi Ray Bilocation Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.randomButton))) {
+        auto randomUnit = [] {
+            return static_cast<double>(arc4random()) / 4294967295.0;
+        };
+        [self setParam:kParamPlace value:randomUnit()];
+        [self setParam:kParamPermeability value:0.18 + randomUnit() * 0.76];
+        [self setParam:kParamMemory value:0.25 + randomUnit() * 7.75];
+        [self setParam:kParamSeparation value:25.0 + randomUnit() * 140.0];
+        [self setParam:kParamMapMode value:arc4random_uniform(4u)];
+        [self setParam:kParamDirect value:0.55 + randomUnit() * 0.75];
+        [self setParam:kParamEarly value:0.25 + randomUnit() * 0.90];
+        [self setParam:kParamLate value:0.18 + randomUnit() * 0.82];
+        [self setParam:kParamSizeA value:0.60 + randomUnit() * 1.25];
+        [self setParam:kParamSizeB value:0.60 + randomUnit() * 1.25];
+        [self setParam:kParamScatterA value:0.10 + randomUnit() * 0.78];
+        [self setParam:kParamScatterB value:0.10 + randomUnit() * 0.78];
+        [self setParam:kParamWidthA value:0.30 + randomUnit() * 1.10];
+        [self setParam:kParamWidthB value:0.30 + randomUnit() * 1.10];
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "RANDOM");
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_pairMenuOpen) {
         const int hit = s3g::clap_gui::dropdownHitIndex(point, pairMenuRect(), 20, static_cast<uint32_t>(kPairPresets.size()));
         _pairMenuOpen = false; _pairMenuHover = -1;
         if (hit >= 0) [self loadPairAtIndex:static_cast<NSUInteger>(hit)];
         [self setNeedsDisplay:YES]; return;
     }
-    if (NSPointInRect(point, pairButtonRect())) { _pairMenuOpen = true; [self setNeedsDisplay:YES]; return; }
+    if (_openParameterMenu != CLAP_INVALID_ID) {
+        const clap_id openMenu = _openParameterMenu;
+        const uint32_t itemCount = parameterMenuItemCount(openMenu);
+        const int hit = s3g::clap_gui::dropdownHitIndex(
+            point, parameterDropdownRect(openMenu), 18.0, itemCount);
+        _openParameterMenu = CLAP_INVALID_ID;
+        _parameterMenuHover = -1;
+        if (hit >= 0) {
+            [self setParam:openMenu value:
+                openMenu == kParamOrder ? static_cast<double>(hit + 1) : static_cast<double>(hit)];
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, pairButtonRect())) {
+        _openParameterMenu = CLAP_INVALID_ID;
+        _parameterMenuHover = -1;
+        _pairMenuOpen = true;
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (NSPointInRect(point, loadAButtonRect())) { [self loadField:1]; return; }
     if (NSPointInRect(point, loadBButtonRect())) { [self loadField:2]; return; }
     if (NSPointInRect(point, sourceModeRect())) { _editListener = false; [self setNeedsDisplay:YES]; return; }
@@ -1555,7 +1749,16 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
         }
     }
     if (NSPointInRect(point, NSInsetRect(placeTrackRect(), -8, -8))) {
-        _dragParam = kParamPlace; [self updateSlider:_dragParam point:point]; return;
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &_plugin->plugin, kParamPlace, &defaultValue)) {
+            [self setParam:kParamPlace value:defaultValue];
+            _dragParam = CLAP_INVALID_ID;
+            return;
+        }
+        _dragParam = kParamPlace;
+        [self updateSlider:_dragParam point:point];
+        return;
     }
     const NSRect planA = fieldPlanPlotRect(fieldARect());
     const NSRect planB = fieldPlanPlotRect(fieldBRect());
@@ -1570,6 +1773,21 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
     }
     for (const auto& layout : sliderLayouts()) {
         if (!NSPointInRect(point, NSInsetRect(layout.row, -2, -4))) continue;
+        if (isParameterMenu(layout.id)) {
+            _pairMenuOpen = false;
+            _pairMenuHover = -1;
+            _openParameterMenu = layout.id;
+            _parameterMenuHover = -1;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &_plugin->plugin, layout.id, &defaultValue)) {
+            [self setParam:layout.id value:defaultValue];
+            _dragParam = CLAP_INVALID_ID;
+            return;
+        }
         _dragParam = layout.id;
         [self updateSlider:_dragParam point:point]; return;
     }
@@ -1586,13 +1804,26 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
 
 - (void)mouseMoved:(NSEvent*)event
 {
-    if (!_pairMenuOpen) return;
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    _pairMenuHover = s3g::clap_gui::dropdownHitIndex(point, pairMenuRect(), 20, static_cast<uint32_t>(kPairPresets.size()));
-    [self setNeedsDisplay:YES];
+    if (_pairMenuOpen) {
+        _pairMenuHover = s3g::clap_gui::dropdownHitIndex(
+            point, pairMenuRect(), 20, static_cast<uint32_t>(kPairPresets.size()));
+        [self setNeedsDisplay:YES];
+    } else if (_openParameterMenu != CLAP_INVALID_ID) {
+        _parameterMenuHover = s3g::clap_gui::dropdownHitIndex(
+            point, parameterDropdownRect(_openParameterMenu), 18.0,
+            parameterMenuItemCount(_openParameterMenu));
+        [self setNeedsDisplay:YES];
+    }
 }
 
-- (void)mouseExited:(NSEvent*)event { (void)event; _pairMenuHover = -1; [self setNeedsDisplay:YES]; }
+- (void)mouseExited:(NSEvent*)event
+{
+    (void)event;
+    _pairMenuHover = -1;
+    _parameterMenuHover = -1;
+    [self setNeedsDisplay:YES];
+}
 
 @end
 

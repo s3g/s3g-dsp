@@ -63,6 +63,8 @@ target_link_libraries(s3g_psd_raw_field_smoke PRIVATE s3g_dsp)
 add_executable(s3g_psd_raw_field_parameter_audit tests/psd_raw_field_parameter_audit.cpp)
 target_link_libraries(s3g_psd_raw_field_parameter_audit PRIVATE s3g_dsp)
 
+add_executable(s3g_gui_layout_contract_smoke tests/gui_layout_contract_smoke.cpp)
+
 add_custom_target(audit_gui_style
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/audit-gui-style.sh
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -90,7 +92,7 @@ if(S3G_ENABLE_WORLD AND (S3G_BUILD_CLAP_PLUGIN OR S3G_BUILD_STANDALONE_APPS))
   FetchContent_MakeAvailable(world)
 endif()
 
-if(S3G_BUILD_CLAP_PLUGIN)
+if(S3G_BUILD_CLAP_PLUGIN OR S3G_BUILD_STANDALONE_APPS)
   if(NOT S3G_CLAP_INCLUDE_DIR)
     if(NOT S3G_FETCH_CLAP)
       message(FATAL_ERROR "Set S3G_CLAP_INCLUDE_DIR to a CLAP include directory containing clap/clap.h, or enable S3G_FETCH_CLAP")
@@ -109,15 +111,25 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(NOT EXISTS "${S3G_CLAP_INCLUDE_DIR}/clap/clap.h")
     message(FATAL_ERROR "S3G_CLAP_INCLUDE_DIR must contain clap/clap.h: ${S3G_CLAP_INCLUDE_DIR}")
   endif()
+endif()
 
+if(S3G_BUILD_CLAP_PLUGIN)
   if(APPLE)
     add_executable(s3g_ambi_pulsar_encoder_gui_smoke tests/pulsar_encoder_gui_smoke.mm)
     target_include_directories(s3g_ambi_pulsar_encoder_gui_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
     target_link_libraries(s3g_ambi_pulsar_encoder_gui_smoke PRIVATE "-framework AppKit")
 
     add_executable(s3g_encoder_family_gui_smoke tests/encoder_family_gui_smoke.mm)
-    target_include_directories(s3g_encoder_family_gui_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_include_directories(s3g_encoder_family_gui_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR}
+      ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
     target_link_libraries(s3g_encoder_family_gui_smoke PRIVATE "-framework AppKit")
+
+    add_executable(s3g_decoder_family_gui_smoke tests/encoder_family_gui_smoke.mm)
+    target_include_directories(s3g_decoder_family_gui_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR}
+      ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
+    target_link_libraries(s3g_decoder_family_gui_smoke PRIVATE "-framework AppKit")
   endif()
 
   add_subdirectory(plugins/clap_24ch_passthrough)
@@ -183,6 +195,73 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_psd_raw_field)
   add_subdirectory(plugins/clap_orbit_delay)
   add_subdirectory(plugins/clap_cascade_taps)
+
+  add_custom_target(audit_gui_layout_contract
+    COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+    DEPENDS
+      s3g_gui_layout_contract_smoke
+      s3g_ambi_stochastic_encoder_clap
+      s3g_ambi_wrangler_encoder_clap
+      s3g_ambi_pulsar_encoder_clap
+    COMMENT "Building and validating shared GUI layout-contract pilots")
+
+  if(APPLE)
+    add_custom_target(audit_gui_encoder_family
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_point_encoder_clap> org.s3g.s3g-dsp.3oafx-point-encoder-16pt 900 716
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_cloud_encoder_clap> org.s3g.s3g-dsp.ambi-cloud-encoder-64 900 672
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_path_encoder_clap> org.s3g.s3g-dsp.ambi-path-encoder-64 900 792
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_terrain_navigator_clap> org.s3g.s3g-dsp.ambi-terrain-navigator-64 900 792
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_ray_encoder_clap> org.s3g.s3g-dsp.ambi-ray-encoder 1040 620
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_ray_bilocation_encoder_clap> org.s3g.s3g-dsp.ambi-ray-bilocation-encoder 1240 900
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_insect_encoder_clap> org.s3g.s3g-dsp.ambi-insect-encoder-64 1160 858
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_neural_ecology_clap> org.s3g.s3g-dsp.ambi-neural-ecology-64 1160 858
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_pulsar_encoder_clap> org.s3g.s3g-dsp.ambi-pulsar-encoder-64 1160 858
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_stochastic_encoder_clap> org.s3g.s3g-dsp.ambi-stochastic-encoder-64 1160 860
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_vot_encoder_clap> org.s3g.s3g-dsp.ambi-vot-encoder-64 1160 894
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_vox_encoder_clap> org.s3g.s3g-dsp.ambi-vox-encoder-64 1160 920
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_water_encoder_clap> org.s3g.s3g-dsp.ambi-water-encoder-64 1160 858
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_wave_terrain_encoder_clap> org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64 1158 828
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_wind_encoder_clap> org.s3g.s3g-dsp.ambi-wind-encoder-64 1160 858
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_wrangler_encoder_clap> org.s3g.s3g-dsp.ambi-wrangler-encoder-64 1160 858
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_3oafx_point_encoder_clap
+        s3g_ambi_cloud_encoder_clap
+        s3g_ambi_path_encoder_clap
+        s3g_ambi_terrain_navigator_clap
+        s3g_ambi_ray_encoder_clap
+        s3g_ambi_ray_bilocation_encoder_clap
+        s3g_ambi_insect_encoder_clap
+        s3g_ambi_neural_ecology_clap
+        s3g_ambi_pulsar_encoder_clap
+        s3g_ambi_stochastic_encoder_clap
+        s3g_ambi_vot_encoder_clap
+        s3g_ambi_vox_encoder_clap
+        s3g_ambi_water_encoder_clap
+        s3g_ambi_wave_terrain_encoder_clap
+        s3g_ambi_wind_encoder_clap
+        s3g_ambi_wrangler_encoder_clap
+      COMMENT "Rendering and validating every encoder-family GUI")
+
+    add_custom_target(audit_gui_decoder_family
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_head_decoder_clap> org.s3g.s3g-dsp.ambisonic-head-decoder 930 720 "s3g Ambi Decoder " responsive
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_stereo_decoder_clap> org.s3g.s3g-dsp.ambisonic-stereo-decoder 940 650 "s3g Ambi Decoder " responsive
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_sub_decoder_clap> org.s3g.s3g-dsp.ambisonic-sub-decoder 600 360 "s3g Ambi Decoder " responsive
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_adaptive_decoder_clap> org.s3g.s3g-dsp.ambi-adaptive-decoder-64 900 620 "s3g Ambi Decoder " responsive
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_object_decoder_clap> org.s3g.s3g-dsp.ambi-object-decoder-64 900 620 "s3g Ambi Decoder " responsive
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_speaker_decoder_clap> org.s3g.s3g-dsp.3oafx-speaker-decoder-64 900 620 "s3g Ambi Decoder " responsive
+      DEPENDS
+        s3g_decoder_family_gui_smoke
+        s3g_ambisonic_head_decoder_clap
+        s3g_ambisonic_stereo_decoder_clap
+        s3g_ambisonic_sub_decoder_clap
+        s3g_ambi_adaptive_decoder_clap
+        s3g_ambi_object_decoder_clap
+        s3g_3oafx_speaker_decoder_clap
+      COMMENT "Rendering and validating every decoder-family GUI")
+  endif()
 endif()
 
 if(S3G_BUILD_STANDALONE_APPS)

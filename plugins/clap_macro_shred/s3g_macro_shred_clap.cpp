@@ -571,8 +571,8 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
         ? [NSString stringWithFormat:@"LOOP %.1fK", loopHz * 0.001f]
         : [NSString stringWithFormat:@"LOOP %.0f", loopHz];
     if constexpr (kChannelCount == 1u) {
-        s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 356, small, small, style, 28, kEngineTrackX, 368, kSliderTrackWidth);
-        s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 66.0f, 382, small, small, style, 28, kEngineTrackX, 368, kSliderTrackWidth);
+        s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 66.0f, 356, small, small, style, 28, kEngineTrackX, 368, kSliderTrackWidth);
+        s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 382, small, small, style, 28, kEngineTrackX, 368, kSliderTrackWidth);
         [loopText drawAtPoint:NSMakePoint(30, 456) withAttributes:label];
         loopTrack = NSMakeRect(120, 458, 90, 10);
         panicRect = NSMakeRect(238, 449, 142, 26);
@@ -582,8 +582,8 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
         s3g::clap_gui::drawSlider(@"SKW", [NSString stringWithFormat:@"%+.2f", prm.skew], (prm.skew + 1.0f) * 0.5f, 130, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
         s3g::clap_gui::drawSlider(@"CTR", [NSString stringWithFormat:@"%.0f%%", prm.center * 100.0f], prm.center, 156, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
         s3g::clap_gui::drawSlider(@"GLD", [NSString stringWithFormat:@"%.0f", prm.glideMs], (prm.glideMs - 10.0f) / 1990.0f, 182, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
-        s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 256, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
-        s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 66.0f, 282, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
+        s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 66.0f, 256, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
+        s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 282, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
         [self drawRelationshipPreview:prm rect:NSMakeRect(30, 352, 356, 176) attrs:small];
         [loopText drawAtPoint:NSMakePoint(438, 374) withAttributes:label];
         loopTrack = NSMakeRect(528, 376, 226, 10);
@@ -675,7 +675,7 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
         const CGFloat monoOutputRows[] = { 356, 382 };
         for (int i = 0; i < 2; ++i) {
             if (NSPointInRect(point, NSMakeRect(24, monoOutputRows[i] - 8, 362, 24))) {
-                _dragSlider = i + 13;
+                _dragSlider = i == 0 ? 14 : 13;
                 [self updateSlider:point];
                 return;
             }
@@ -683,7 +683,7 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
     } else {
         for (int i = 0; i < 2; ++i) {
             if (NSPointInRect(point, NSMakeRect(422, outputRows[i] - 8, 344, 24))) {
-                _dragSlider = i + 13;
+                _dragSlider = i == 0 ? 14 : 13;
                 [self updateSlider:point];
                 return;
             }

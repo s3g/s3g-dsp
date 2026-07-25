@@ -62,6 +62,9 @@ struct AmbiWaterParams {
     float environmentDecay = 0.5f;
     float environmentDamping = 0.5f;
     AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
+    float fieldListenAmount = 1.0f;
+    AmbiFieldListenerResponse fieldListenResponse =
+        AmbiFieldListenerResponse::Legacy;
 };
 
 inline AmbiEnvironmentProfileId ambiWaterEnvironmentProfile(uint32_t place)
@@ -266,6 +269,7 @@ public:
         environmentField_.prepare(sampleRate_);
         fieldListener_.prepare(sampleRate_);
         fieldListener_.setMemorySeconds(0.68f);
+        fieldListener_.setExtendedAnalysisEnabled(true);
         const auto& directions = ambiFieldListenerCubeDirections();
         fieldListener_.setDirections(directions.data(), static_cast<uint32_t>(directions.size()));
         reset();
@@ -339,6 +343,10 @@ public:
         params.environmentDecay = clampFinite(params.environmentDecay, params_.environmentDecay, 0.0f, 1.0f);
         params.environmentDamping = clampFinite(params.environmentDamping, params_.environmentDamping, 0.0f, 1.0f);
         params.fieldListenMode = sanitizeAmbiFieldListenMode(params.fieldListenMode);
+        params.fieldListenAmount = clampFinite(
+            params.fieldListenAmount, params_.fieldListenAmount, 0.0f, 1.0f);
+        params.fieldListenResponse =
+            sanitizeAmbiFieldListenerResponse(params.fieldListenResponse);
 
         const uint32_t oldVoices = params_.voices;
         params_ = params;
@@ -361,7 +369,17 @@ public:
         return 20.0f * std::log10(std::max(0.000001f, smoothedSceneGain_));
     }
     float fieldListenEnvelope(uint32_t lobe) const { return fieldListener_.envelope(lobe); }
+    float fieldListenFastEnvelope(uint32_t lobe) const { return fieldListener_.fastEnvelope(lobe); }
+    float fieldListenSlowEnvelope(uint32_t lobe) const { return fieldListener_.slowEnvelope(lobe); }
+    float fieldListenRelativeEnergy(uint32_t lobe) const { return fieldListener_.relativeEnergy(lobe); }
     float fieldListenActivity() const { return fieldListener_.activity(); }
+    float fieldListenNovelty(uint32_t lobe) const { return fieldListener_.novelty(lobe); }
+    float fieldListenRoughness(uint32_t lobe) const { return fieldListener_.roughness(lobe); }
+    float fieldListenSpectralTilt(uint32_t lobe) const { return fieldListener_.spectralTilt(lobe); }
+    float fieldListenHabituation(uint32_t lobe) const { return fieldListener_.habituation(lobe); }
+    float fieldListenCharge(uint32_t lobe) const { return fieldListener_.charge(lobe); }
+    Vec3 fieldListenEnergyGradient() const { return fieldListener_.energyGradient(); }
+    Vec3 fieldListenNoveltyGradient() const { return fieldListener_.noveltyGradient(); }
 
     void process(float* const* outputs, uint32_t outputChannels, uint32_t frames)
     {
@@ -715,6 +733,9 @@ private:
         smoothParams_.environmentDecay = smoothToward(smoothParams_.environmentDecay, params_.environmentDecay, coeff);
         smoothParams_.environmentDamping = smoothToward(smoothParams_.environmentDamping, params_.environmentDamping, coeff);
         smoothParams_.fieldListenMode = params_.fieldListenMode;
+        smoothParams_.fieldListenAmount = smoothToward(
+            smoothParams_.fieldListenAmount, params_.fieldListenAmount, coeff);
+        smoothParams_.fieldListenResponse = params_.fieldListenResponse;
 
         const float regimeCoeff = 1.0f - std::exp(-dt * 7.5f);
         for (uint32_t mode = 0u; mode < regimeWeights_.size(); ++mode) {
@@ -739,7 +760,7 @@ private:
         const float dripMode = regimeWeights_[6];
         const float plumeMode = regimeWeights_[7];
         const float listenAmount = p.fieldListenMode == AmbiFieldListenMode::Off
-            ? 0.0f : fieldListener_.activity();
+            ? 0.0f : fieldListener_.activity() * p.fieldListenAmount;
         const Vec3 listenDirection = fieldListener_.preferredDirection(p.fieldListenMode);
 
         for (uint32_t i = 0u; i < voices; ++i) {
@@ -1497,11 +1518,74 @@ private:
         const float water = clamp(p.water + deviation * 0.20f, 0.0f, 1.0f);
         const float flow = clamp(p.flow + (lane - 0.5f) * p.spread * 0.22f, 0.0f, 1.0f);
         const float listenerResponse = fieldListenerResponse(index);
+        const auto listener = fieldListenerScore(index);
+        float densityAdapt = listenerResponse * 0.62f;
+        float turbulenceAdapt = listenerResponse * 0.48f;
+        float brightnessAdapt = 0.0f;
+        float eventSizeAdapt = 0.0f;
+        const float listenAmount = p.fieldListenAmount * fieldListener_.activity();
+        if (p.fieldListenResponse == AmbiFieldListenerResponse::Excite) {
+            const float accretion = (listener.novelty * 0.58f
+                + listener.charge * 0.30f + listener.roughness * 0.12f)
+                * listenAmount;
+            densityAdapt = accretion * 0.72f;
+            turbulenceAdapt = accretion * 0.46f;
+            brightnessAdapt = accretion * 0.16f;
+            eventSizeAdapt = -accretion * 0.10f;
+        } else if (p.fieldListenResponse == AmbiFieldListenerResponse::Settle) {
+            const float settling = listener.habituation * listenAmount;
+            densityAdapt = -settling * 0.48f;
+            turbulenceAdapt = -settling * 0.36f;
+            brightnessAdapt = -settling * 0.12f;
+            eventSizeAdapt = settling * 0.18f;
+        } else if (p.fieldListenResponse == AmbiFieldListenerResponse::Imprint) {
+            const float imprint = listenAmount
+                * (0.35f + listener.relativeEnergy * 0.65f);
+            densityAdapt = (listener.novelty - listener.habituation * 0.35f)
+                * imprint * 0.38f;
+            turbulenceAdapt = listener.roughness * imprint * 0.30f;
+            brightnessAdapt = listener.spectralTilt * imprint * 0.28f;
+            eventSizeAdapt = (listener.relativeEnergy - 0.5f)
+                * imprint * 0.30f;
+        }
         const float turbulence = clamp(p.turbulence + std::fabs(deviation) * 0.42f
-            + listenerResponse * 0.48f, 0.0f, 1.0f);
-        const float eventDensity = clamp(p.density + listenerResponse * 0.62f, 0.0f, 1.0f);
-        const float brightness = clamp(p.brightness + deviation * 0.24f, 0.0f, 1.0f);
-        const float eventSize = clamp(p.eventSize + deviation * 0.28f, 0.0f, 1.0f);
+            + turbulenceAdapt, 0.0f, 1.0f);
+        const float eventDensity = clamp(p.density + densityAdapt, 0.0f, 1.0f);
+        const float brightness = clamp(
+            p.brightness + deviation * 0.24f + brightnessAdapt, 0.0f, 1.0f);
+        const float eventSize = clamp(
+            p.eventSize + deviation * 0.28f + eventSizeAdapt, 0.0f, 1.0f);
+        float dropDensity = eventDensity;
+        float bubbleDensity = eventDensity;
+        float splashResponse = 1.0f;
+        if (p.fieldListenResponse == AmbiFieldListenerResponse::Excite) {
+            dropDensity = clamp(
+                eventDensity + listener.novelty * listenAmount * 0.22f,
+                0.0f, 1.0f);
+            bubbleDensity = clamp(
+                eventDensity + listener.charge * listenAmount * 0.16f,
+                0.0f, 1.0f);
+            splashResponse += listener.roughness * listenAmount * 0.18f;
+        } else if (p.fieldListenResponse == AmbiFieldListenerResponse::Settle) {
+            dropDensity = clamp(
+                eventDensity - listener.habituation * listenAmount * 0.16f,
+                0.0f, 1.0f);
+            bubbleDensity = clamp(
+                eventDensity + listener.habituation * listenAmount * 0.10f,
+                0.0f, 1.0f);
+            splashResponse -= listener.habituation * listenAmount * 0.14f;
+        } else if (p.fieldListenResponse == AmbiFieldListenerResponse::Imprint) {
+            dropDensity = clamp(eventDensity
+                + std::max(0.0f, listener.spectralTilt)
+                    * listenAmount * 0.20f,
+                0.0f, 1.0f);
+            bubbleDensity = clamp(eventDensity
+                + std::max(0.0f, -listener.spectralTilt)
+                    * listenAmount * 0.20f,
+                0.0f, 1.0f);
+            splashResponse += listener.roughness * listenAmount * 0.24f;
+        }
+        splashResponse = clamp(splashResponse, 0.68f, 1.32f);
 
         const float currentMode = regimeWeights_[0];
         const float rainMode = regimeWeights_[1];
@@ -1557,7 +1641,8 @@ private:
             bodyHz * (2.1f + p.aeration * 5.8f + rainMode * 1.8f),
             0.03f + p.resonance * 0.12f, static_cast<float>(sampleRate_));
 
-        const float dropRate = p.drops * (0.025f + eventDensity * eventDensity * 2.8f)
+        const float dropRate = p.drops
+            * (0.025f + dropDensity * dropDensity * 2.8f)
             * (currentMode * 0.42f + rainMode * 3.22f + cascadeMode * 1.14f
                 + surgeMode * 0.78f + vortexMode * 0.35f + sloshMode * 0.52f
                 + dripMode * 1.12f + plumeMode * 0.08f);
@@ -1570,7 +1655,8 @@ private:
                 points_[index].elevationDeg, points_[index].distance, entrainment, dripMode);
         }
 
-        const float bubbleRate = p.bubbles * (0.018f + eventDensity * eventDensity * 1.35f)
+        const float bubbleRate = p.bubbles
+            * (0.018f + bubbleDensity * bubbleDensity * 1.35f)
             * (currentMode * 0.45f + rainMode * 0.30f
                 + cascadeMode * (0.45f + p.aeration * 1.20f) + surgeMode * 0.72f
                 + vortexMode * 2.85f + sloshMode * 1.25f + dripMode * 0.18f
@@ -1620,7 +1706,8 @@ private:
             microTone += processMicroBubble(event, rough, dt, microLevel);
         }
         const float splashTone = (surfaceBand * 1.42f + rough * 0.42f)
-            * splashEnv * p.splash * (0.34f + voice.splashStrength * 0.76f);
+            * splashEnv * p.splash * splashResponse
+            * (0.34f + voice.splashStrength * 0.76f);
         voice.splashStrength *= std::exp(-dt / std::max(0.004f, splashDecay * 0.72f));
 
         const float impactEnvelope = clamp(dropLevel * (0.42f + p.drops * 0.58f)
@@ -1706,7 +1793,18 @@ private:
         const float preference = fieldListener_.preference(
             directionFromAed(point.azimuthDeg, point.elevationDeg),
             smoothParams_.fieldListenMode);
-        return (preference - 0.5f) * fieldListener_.activity();
+        return (preference - 0.5f) * fieldListener_.activity()
+            * smoothParams_.fieldListenAmount;
+    }
+
+    AmbiFieldListenerScore fieldListenerScore(uint32_t index) const
+    {
+        if (smoothParams_.fieldListenMode == AmbiFieldListenMode::Off) return {};
+        const auto& point = points_[std::min<uint32_t>(
+            index, smoothParams_.voices - 1u)];
+        return fieldListener_.score(
+            directionFromAed(point.azimuthDeg, point.elevationDeg),
+            smoothParams_.fieldListenMode);
     }
 
     AmbiWaterParams params_ {};

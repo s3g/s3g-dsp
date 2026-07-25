@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Ambi Wind Encoder</h1>
 
-        <p><code>s3g Ambi Wind Encoder 64</code> is a zero-input filtered-noise instrument that creates a moving field of as many as 64 voices. Gusts, turbulent modulation, resonant materials, microweather motion, and an environment field are encoded directly to first-through-seventh-order <code>ACN/SN3D</code>.</p>
+        <p><code>s3g Ambi Encoder Wind 64</code> is a zero-input filtered-noise instrument that creates a moving field of as many as 64 voices. Gusts, turbulent modulation, resonant materials, microweather motion, and an environment field are encoded directly to first-through-seventh-order <code>ACN/SN3D</code>.</p>
 
         <p>Filtered-noise synthesis starts with broadband noise, then uses moving filters and amplitude envelopes to create changes in pressure and air speed. Resonators add the tonal response of leaves, wire, metal, reeds, and other materials without using recorded wind samples.</p>
 
@@ -57,11 +57,11 @@
 
         <p><code>PLACE</code> selects <code>OPEN</code>, <code>CANOPY</code>, <code>PORCH</code>, <code>ROOM</code>, <code>HANGAR</code>, <code>CANYON</code>, or <code>TUNNEL</code>. <code>ENV RETURN</code>, <code>ENV SIZE</code>, <code>ENV DECAY</code>, and <code>ENV DAMPING</code> mix and shape the corresponding encoded environment response.</p>
 
-        <p><code>LISTEN</code> closes a directional loop around the generated environment. Eight virtual pickups decode the combined direct wind field and Environment Field return ambisonically, and their energy envelopes retain where recent pressure collected. <code>FOLLOW</code> attracts the macro flow and active gust parcels to that energy, <code>COUNTER</code> seeks its antipode, and <code>BALANCE</code> favors underexposed directions. The score also biases turbulence and gust renewal density, so the response is audible as both motion and changed activity. Steering is continuously interpolated; it does not teleport among pickup lobes. <code>OFF</code>—the factory-preset default—preserves the original open-loop behavior while listener memory continues to update.</p>
+        <p><code>LISTEN</code> closes a directional loop around the generated environment. Eight virtual pickups decode the combined direct wind field and Environment Field return ambisonically, tracking fast and slow energy, novelty, roughness, spectral tilt, habituation, charge, and directional gradients. <code>FOLLOW</code> attracts the macro flow and active gust parcels to heard energy, <code>COUNTER</code> seeks its antipode, and <code>BALANCE</code> favors underexposed directions. <code>LISTEN AMOUNT</code> continuously scales this influence. <code>LEGACY</code> preserves the original turbulence and gust-renewal response; <code>CHARGE</code> converts novel pressure changes into faster, brighter gust activity; <code>SETTLE</code> lets sustained pressure slow and broaden into body; and <code>RESONATE</code> transfers heard roughness and spectral balance into material, filter center, sweep, Q, air, hiss, and body. Steering is continuously interpolated; it does not teleport among pickup lobes. <code>OFF</code>—the factory-preset default—preserves the original open-loop behavior while listener memory continues to update.</p>
 
         <h2 id="presets">Presets</h2>
 
-        <p>The 22 factory presets range from the restrained <code>PAIA Bench Wind</code> reference patch to tree-line, architectural, storm, material, and aeolian scenes. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3gwind</code> presets, including the listener mode, with the default folder at <code>~/Music/s3g/Presets/Ambi Wind Encoder/</code>. <code>RANDOM</code> also chooses a listener mode, so a randomized scene may immediately become self-steering.</p>
+        <p>The 22 factory presets range from the restrained <code>PAIA Bench Wind</code> reference patch to tree-line, architectural, storm, material, and aeolian scenes. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3gwind</code> presets, including listener mode, amount, and response, with the default folder at <code>~/Music/s3g/Presets/Ambi Wind Encoder/</code>. <code>RANDOM</code> also chooses a complete listener configuration, so a randomized scene may immediately become self-steering and adaptive.</p>
 
         <h2 id="routing">Order and Routing</h2>
 
@@ -109,7 +109,7 @@
           <h2>Encoder Pages</h2>
           <a href="3oafx-point-encoder.html">Point Encoder</a>
           <a href="ambi-cloud-encoder.html">Cloud Encoder</a>
-          <a href="ambi-terrain-navigator.html">Terrain Navigator</a>
+          <a href="ambi-terrain-navigator.html">Surface Terrain</a>
           <a href="ambi-path-encoder.html">Path Encoder</a>
           <a href="ambi-ray-encoder.html">Ray Encoder</a>
           <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a>

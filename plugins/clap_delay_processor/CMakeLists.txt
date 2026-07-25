@@ -34,7 +34,7 @@ add_s3g_delay_processor_target(
   8
   "s3g_8ch_delay_processor"
   "org.s3g.s3g-dsp.delay-processor-8ch"
-  "s3g Delay Processor 8ch"
+  "s3g Processor Delay 8ch"
 )
 
 add_s3g_delay_processor_target(
@@ -42,5 +42,5 @@ add_s3g_delay_processor_target(
   24
   "s3g_24ch_delay_processor"
   "org.s3g.s3g-dsp.delay-processor-24ch"
-  "s3g Delay Processor 24ch"
+  "s3g Processor Delay 24ch"
 )

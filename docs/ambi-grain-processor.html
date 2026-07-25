@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Ambi Grain Processor - s3g-dsp</title>
-    <meta name="description" content="Ambi Grain Processor documentation for s3g-dsp.">
+    <title>Processor Ambi Grain - s3g-dsp</title>
+    <meta name="description" content="s3g Processor Ambi Grain documentation for loaded ambisonic media.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -24,16 +24,16 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Ambi Grain Processor</h1>
+        <h1>Processor Ambi Grain</h1>
 
-        <p><code>s3g Ambi Grain Processor</code> is a CLAP instrument for granulating loaded <code>ACN/SN3D</code> ambisonic files. It treats the file as one encoded sound field: grain position, duration, rate, direction, and envelope are shared across all active ambisonic channels.</p>
+        <p><code>s3g Processor Ambi Grain</code> is a CLAP instrument for granulating loaded <code>ACN/SN3D</code> ambisonic files. It treats the file as one encoded sound field: grain position, duration, rate, direction, and envelope are shared across all active ambisonic channels.</p>
 
         <p>Use it when you want clouds, freezes, scans, or stepped cuts from an already encoded 1OA, 2OA, or 3OA file while keeping the spatial image locked together.</p>
 
         <h2 id="workflow">Basic Workflow</h2>
 
         <ul>
-          <li>Insert <code>s3g Ambi Grain Processor</code> on a 16-channel REAPER track.</li>
+          <li>Insert <code>s3g Processor Ambi Grain</code> on a 16-channel REAPER track.</li>
           <li>Click <code>LOAD</code> and choose an <code>ACN/SN3D</code> ambisonic audio file.</li>
           <li>Use the transport icons to play, pause/resume, or stop and return the scan/grain state to the start.</li>
           <li>Use <code>ORD</code> to choose whether the loaded file is treated as 1OA, 2OA, or 3OA.</li>
@@ -87,7 +87,7 @@
 
         <p>Use a 16-channel REAPER track for 3OA work. Place the grain processor before an ambisonic decoder or visualizer:</p>
 
-        <pre><code>s3g Ambi Grain Processor
+        <pre><code>s3g Processor Ambi Grain
 -&gt; s3g Ambi Energy Visualizer 64
 -&gt; s3g Ambi Speaker Decoder 64</code></pre>
 

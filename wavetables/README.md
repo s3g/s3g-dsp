@@ -1,6 +1,6 @@
 # Wavetables
 
-`vot/` is the shared wavetable library for `s3g Ambi VOT Encoder 64`. Its WAV
+`vot/` is the shared wavetable library for `s3g Ambi Encoder VOT 64`. Its WAV
 files are 4 x 4 atlases containing sixteen consecutive single-cycle tables.
 The library includes tonal, dynamic, glitch, codec, and vocal banks.
 

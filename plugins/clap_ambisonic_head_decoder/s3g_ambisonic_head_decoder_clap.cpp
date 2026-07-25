@@ -432,6 +432,7 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     double _viewZoom;
     bool _dragView;
     NSPoint _lastDragPoint;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
@@ -463,6 +464,7 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         _viewZoom = 1.0;
         _dragView = false;
         _lastDragPoint = NSMakePoint(0, 0);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [[self window] setAcceptsMouseMovedEvents:YES];
     }
     return self;
@@ -493,11 +495,17 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
 }
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, attrs, style, 606, 724, 852, 128);
+    (void)attrs;
+    s3g::clap_gui::drawSlider(name, value, norm, y,
+        s3g::clap_gui::softLabelAttrs(), s3g::clap_gui::softValueAttrs(),
+        style, 606, 724, 852, 128);
 }
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawMenu(name, value, y, attrs, attrs, style, 606, 724, 176);
+    (void)attrs;
+    s3g::clap_gui::drawMenu(name, value, y,
+        s3g::clap_gui::softLabelAttrs(), s3g::clap_gui::softValueAttrs(),
+        style, 606, 724, 176);
 }
 - (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect
 {
@@ -553,11 +561,20 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
-    NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    NSDictionary* text = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
-    [@"s3g AMBI HEAD DECODER" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
-    [[NSString stringWithFormat:@"%uOA ACN/SN3D / TRUE 2OUT", p->params.order] drawAtPoint:NSMakePoint(748, 13) withAttributes:small];
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* text = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
+    const float titlePeak = std::max(
+        p->peakL.load(std::memory_order_relaxed),
+        p->peakR.load(std::memory_order_relaxed));
+    NSString* titleStatus = [NSString stringWithFormat:@"%@ · 2OUT",
+        s3g::clap_gui::peakDbText(titlePeak)];
+    s3g::clap_gui::drawDecoderTitleBand(
+        @"s3g AMBI DECODER HEAD",
+        [NSString stringWithUTF8String:_titlePresetName],
+        titleStatus,
+        s3g::clap_gui::encoderTitleBand(930.0, 720.0),
+        titleAttrs, text, small, style);
 
     NSRect fieldPanel = NSMakeRect(12, 34, 568, 664);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
@@ -594,98 +611,95 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     };
 
     const auto spec = s3g::ambiHeadProfileSpec(p->params.head);
-    const CGFloat shapeScale = std::clamp<CGFloat>(spec.widthCm / 18.0f, 0.86, 1.18);
-    const CGFloat earScale = 0.85 + (p->params.headWidthCm - 15.0) / 12.0;
-    const CGFloat pin = std::clamp<CGFloat>(p->params.pinnaPercent / 100.0f, 0.0, 1.0);
-    const CGFloat headW = r * 0.44 * shapeScale;
-    const CGFloat headD = r * 0.40 * (0.96 + shapeScale * 0.04);
-    const CGFloat headH = r * 0.88 * (0.96 + shapeScale * 0.04);
-    auto headPoint = [&](double lateral, double forward, double height) -> NSPoint {
-        return project3(lateral * headW / r, forward * headD / r, height * headH / r, r);
-    };
-    auto pathMove = [](NSBezierPath* path, NSPoint p0) { [path moveToPoint:p0]; };
-    auto drawFacet = [&](int rgb, CGFloat alpha, std::initializer_list<NSPoint> pts) {
-        NSBezierPath* facet = [NSBezierPath bezierPath];
-        bool first = true;
-        for (NSPoint pt : pts) {
-            if (first) { [facet moveToPoint:pt]; first = false; }
-            else [facet lineToPoint:pt];
+    const CGFloat shapeScale =
+        std::clamp<CGFloat>(spec.widthCm / 18.0f, 0.86, 1.18);
+    const CGFloat earScale =
+        0.85 + (p->params.headWidthCm - 15.0) / 12.0;
+    const CGFloat pin =
+        std::clamp<CGFloat>(p->params.pinnaPercent / 100.0f, 0.0, 1.0);
+    const CGFloat headW = r * 0.42 * shapeScale;
+    const CGFloat headD = r * 0.62;
+    const CGFloat headH = r * 0.88;
+    auto headPoint = [&](double lateral, double longitudinal) -> NSPoint {
+        if (_viewMode == 0) {
+            return project3(lateral * headW / r,
+                longitudinal * headD / r, 0.0, r);
         }
-        [facet closePath];
-        [c(rgb, alpha) setStroke];
-        [facet setLineWidth:0.95];
-        [facet stroke];
-    };
-    constexpr int ovalRings = 6;
-    constexpr int ovalSegments = 8;
-    const double ringH[ovalRings] = { -0.82, -0.54, -0.20, 0.16, 0.50, 0.80 };
-    const double ringW[ovalRings] = { 0.22, 0.52, 0.76, 0.72, 0.48, 0.18 };
-    const double ringD[ovalRings] = { 0.16, 0.34, 0.48, 0.46, 0.30, 0.12 };
-    auto ovalPoint = [&](int ring, int segment) -> NSPoint {
-        const double a = (2.0 * s3g::kPi * static_cast<double>(segment)) / static_cast<double>(ovalSegments);
-        return headPoint(std::sin(a) * ringW[ring], -std::cos(a) * ringD[ring], ringH[ring]);
-    };
-    for (int ri = 0; ri < ovalRings - 1; ++ri) {
-        for (int si = 0; si < ovalSegments; ++si) {
-            const int sj = (si + 1) % ovalSegments;
-            const bool front = (si == 0 || si == 7);
-            const bool sideLight = (si == 5 || si == 6);
-            const int rgb = front ? 0xd8d8d8 : sideLight ? 0xaaaaaa : 0x767676;
-            const CGFloat alpha = front ? 0.92 : 0.58;
-            drawFacet(rgb, alpha, { ovalPoint(ri, si), ovalPoint(ri, sj), ovalPoint(ri + 1, sj), ovalPoint(ri + 1, si) });
+        if (_viewMode == 1) {
+            return project3(lateral * headW / r, 0.0,
+                longitudinal * headH / r, r);
         }
-    }
-    drawFacet(0xe8e8e8, 0.88, { headPoint(-0.42, -0.50, 0.18), headPoint(0.42, -0.50, 0.18), headPoint(0.26, -0.58, -0.02), headPoint(-0.26, -0.58, -0.02) });
-    drawFacet(0xd6d6d6, 0.90, { headPoint(-0.10, -0.62, 0.00), headPoint(0.10, -0.62, 0.00), headPoint(0.06, -0.72, -0.22), headPoint(-0.06, -0.72, -0.22) });
-    drawFacet(0xcfcfcf, 0.82, { headPoint(-0.30, -0.52, -0.36), headPoint(0.30, -0.52, -0.36), headPoint(0.18, -0.42, -0.62), headPoint(-0.18, -0.42, -0.62) });
-    const CGFloat earX = r * 0.66 * earScale;
+        return project3(lateral * headW / r,
+            longitudinal * headD * 0.32 / r,
+            longitudinal * headH * 0.82 / r, r);
+    };
+    const NSPoint headOutline[] {
+        headPoint(-0.32, -0.92),
+        headPoint(-0.78, -0.52),
+        headPoint(-0.96, 0.12),
+        headPoint(-0.62, 0.76),
+        headPoint(0.0, 0.98),
+        headPoint(0.62, 0.76),
+        headPoint(0.96, 0.12),
+        headPoint(0.78, -0.52),
+        headPoint(0.32, -0.92),
+    };
+    NSBezierPath* silhouette = [NSBezierPath bezierPath];
+    [silhouette moveToPoint:headOutline[0]];
+    for (size_t i = 1u; i < sizeof(headOutline) / sizeof(headOutline[0]); ++i)
+        [silhouette lineToPoint:headOutline[i]];
+    [silhouette closePath];
+    [c(0x1d1d1d, 0.88) setFill];
+    [silhouette fill];
+    [c(0xc6c6c6, 0.82) setStroke];
+    [silhouette setLineWidth:1.6];
+    [silhouette stroke];
+    NSBezierPath* guide = [NSBezierPath bezierPath];
+    [guide moveToPoint:headPoint(0.0, 0.84)];
+    [guide lineToPoint:headPoint(0.0, -0.76)];
+    [guide moveToPoint:headPoint(-0.58, -0.40)];
+    [guide lineToPoint:headPoint(0.58, -0.40)];
+    [c(0x777777, 0.58) setStroke];
+    [guide setLineWidth:0.9];
+    [guide stroke];
+
+    const CGFloat earX = headW * earScale;
     const CGFloat earRadius = earX / r;
-    auto drawEar = [&](bool leftSide) {
-        const double sign = leftSide ? -1.0 : 1.0;
-        const CGFloat line = 1.0 + pin * 1.0;
-        NSBezierPath* socket = [NSBezierPath bezierPath];
-        pathMove(socket, project3(sign * (earRadius - 0.03), -0.01, -0.34, r));
-        [socket lineToPoint:project3(sign * (earRadius - 0.08), 0.01, -0.02, r)];
-        [socket lineToPoint:project3(sign * (earRadius - 0.01), 0.02, 0.42, r)];
-        [socket setLineWidth:7.0 + pin * 2.0];
-        [c(0x000000, 0.20) setStroke]; [socket stroke];
-        NSBezierPath* outer = [NSBezierPath bezierPath];
-        pathMove(outer, project3(sign * earRadius, -0.02, -0.32, r));
-        [outer lineToPoint:project3(sign * (earRadius + 0.16 + pin * 0.04), -0.02, -0.22, r)];
-        [outer lineToPoint:project3(sign * (earRadius + 0.24 + pin * 0.06), 0.00, 0.08, r)];
-        [outer lineToPoint:project3(sign * (earRadius + 0.15 + pin * 0.04), 0.02, 0.36, r)];
-        [outer lineToPoint:project3(sign * earRadius, 0.01, 0.44, r)];
-        [outer closePath];
-        [c(0x151515, 0.98) setFill]; [outer fill];
-        [c(0xd8d8d8, 0.42 + pin * 0.30) setStroke]; [outer setLineWidth:line]; [outer stroke];
-        NSBezierPath* cup = [NSBezierPath bezierPath];
-        pathMove(cup, project3(sign * (earRadius + 0.05), -0.01, -0.18, r));
-        [cup lineToPoint:project3(sign * (earRadius + 0.16 + pin * 0.05), 0.00, -0.02, r)];
-        [cup lineToPoint:project3(sign * (earRadius + 0.08), 0.02, 0.28, r)];
-        [cup lineToPoint:project3(sign * (earRadius + 0.01 - pin * 0.03), 0.01, 0.10, r)];
-        [cup closePath];
-        [c(0xe8b486, 0.07 + pin * 0.14) setFill]; [cup fill];
-        [c(0xe8b486, 0.26 + pin * 0.42) setStroke]; [cup setLineWidth:0.8 + pin * 1.8]; [cup stroke];
-        NSBezierPath* fold = [NSBezierPath bezierPath];
-        pathMove(fold, project3(sign * (earRadius + 0.04), 0.00, -0.02, r));
-        [fold lineToPoint:project3(sign * (earRadius + 0.17 + pin * 0.05), 0.01, 0.16, r)];
-        [fold lineToPoint:project3(sign * (earRadius + 0.02 - pin * 0.03), 0.01, 0.18, r)];
-        [fold setLineWidth:0.8 + pin * 1.2];
-        [c(0xffd4a8, 0.20 + pin * 0.38) setStroke]; [fold stroke];
+    auto drawPickupDiamond = [&](double sign) {
+        const NSPoint center = project3(sign * earRadius, 0.0, 0.04, r);
+        const CGFloat half = 7.0 + pin * 2.0;
+        NSBezierPath* diamond = [NSBezierPath bezierPath];
+        [diamond moveToPoint:NSMakePoint(center.x, center.y - half)];
+        [diamond lineToPoint:NSMakePoint(center.x + half, center.y)];
+        [diamond lineToPoint:NSMakePoint(center.x, center.y + half)];
+        [diamond lineToPoint:NSMakePoint(center.x - half, center.y)];
+        [diamond closePath];
+        [c(0x262626, 0.96) setFill];
+        [diamond fill];
+        [c(0xd2d2d2, 0.92) setStroke];
+        [diamond setLineWidth:1.4];
+        [diamond stroke];
+        const CGFloat inner = half * 0.42;
+        NSBezierPath* inset = [NSBezierPath bezierPath];
+        [inset moveToPoint:NSMakePoint(center.x, center.y - inner)];
+        [inset lineToPoint:NSMakePoint(center.x + inner, center.y)];
+        [inset lineToPoint:NSMakePoint(center.x, center.y + inner)];
+        [inset lineToPoint:NSMakePoint(center.x - inner, center.y)];
+        [inset closePath];
+        [c(0x8e8e8e, 0.72) setStroke];
+        [inset stroke];
     };
-    drawEar(true);
-    drawEar(false);
-    const NSPoint leftLabel = project3(-earRadius - 0.16, 0.0, 0.02, r);
-    const NSPoint rightLabel = project3(earRadius + 0.08, 0.0, 0.02, r);
-    [@"L" drawAtPoint:NSMakePoint(leftLabel.x, leftLabel.y - 7) withAttributes:small];
-    [@"R" drawAtPoint:NSMakePoint(rightLabel.x, rightLabel.y - 7) withAttributes:small];
+    drawPickupDiamond(-1.0);
+    drawPickupDiamond(1.0);
     const bool directDecode = p->params.decodeMode == s3g::AmbiHeadDecodeMode::Direct;
     const uint32_t vcount = directDecode ? s3g::kAmbiHeadMaxVirtualSpeakers : s3g::ambiStereoVirtualCount(p->params.layout);
     for (uint32_t i = 0; i < vcount; ++i) {
         const auto pt = directDecode ? s3g::ambiHeadDirectPoint(i) : s3g::ambiStereoVirtualPoint(p->params.layout, i);
         const NSPoint a = project(pt.azimuthDeg, pt.elevationDeg, r * 1.55);
-        [c(0x9a9a9a, directDecode ? 0.13 : 0.28) setStroke];
-        [NSBezierPath strokeLineFromPoint:a toPoint:NSMakePoint(cx, cy)];
+        if (!directDecode || (i % 8u) == 0u) {
+            [c(0x9a9a9a, directDecode ? 0.18 : 0.28) setStroke];
+            [NSBezierPath strokeLineFromPoint:a toPoint:NSMakePoint(cx, cy)];
+        }
         const CGFloat sz = directDecode ? 3.2 : 4.0 + 2.0 * std::max(0.0f, std::cos((pt.azimuthDeg - p->params.yawDeg) * s3g::kPi / 180.0f));
         [c(0xd6d6d6, directDecode ? 0.38 : 0.62) setFill]; NSRectFill(NSMakeRect(a.x - sz * 0.5, a.y - sz * 0.5, sz, sz));
     }
@@ -736,17 +750,18 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         drawAtPoint:NSMakePoint(40, 550) withAttributes:small];
 
     NSRect side = NSMakeRect(592, 34, 336, 664);
-    NSRect decoder = NSMakeRect(side.origin.x, 34, side.size.width, 156);
-    NSRect binaural = NSMakeRect(side.origin.x, 202, side.size.width, _binauralOpen ? 198 : 24);
-    NSRect transaural = NSMakeRect(side.origin.x, _binauralOpen ? 412 : 238, side.size.width, _transauralOpen ? 154 : 24);
-    NSRect output = NSMakeRect(side.origin.x, (_binauralOpen ? 412 : 238) + (_transauralOpen ? 166 : 36), side.size.width, 128);
+    NSRect output = NSMakeRect(side.origin.x, 34, side.size.width, 128);
+    NSRect decoder = NSMakeRect(side.origin.x, 174, side.size.width, 128);
+    NSRect binaural = NSMakeRect(side.origin.x, 314, side.size.width, _binauralOpen ? 198 : 24);
+    NSRect transaural = NSMakeRect(side.origin.x,
+        binaural.origin.y + (_binauralOpen ? 210 : 36),
+        side.size.width, _transauralOpen ? 154 : 24);
     s3g::clap_gui::drawPanelFrame(decoder.origin.x, decoder.origin.y, decoder.size.width, decoder.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"DECODER", true, decoder.origin.x, decoder.origin.y, decoder.size.width, 21, text, style);
-    [self drawSlider:@"ORD" value:[NSString stringWithFormat:@"%uOA", p->params.order] norm:(p->params.order - 1.0) / 6.0 y:74 attrs:small style:style];
-    [self drawMenu:@"DEC" value:[NSString stringWithUTF8String:decodeModeName(static_cast<uint32_t>(p->params.decodeMode))] y:96 attrs:small style:style];
-    [self drawMenu:@"FIELD" value:[NSString stringWithUTF8String:directDecode ? "Internal grid" : layoutName(static_cast<uint32_t>(p->params.layout))] y:118 attrs:small style:style];
-    [self drawMenu:@"WGT" value:[NSString stringWithUTF8String:weightingName(static_cast<uint32_t>(p->params.weighting))] y:140 attrs:small style:style];
-    [self drawMenu:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))] y:162 attrs:small style:style];
+    [self drawMenu:@"FIELD" value:[NSString stringWithUTF8String:directDecode ? "Internal grid" : layoutName(static_cast<uint32_t>(p->params.layout))] y:210 attrs:small style:style];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p->params.order] y:232 attrs:small style:style];
+    [self drawMenu:@"WGT" value:[NSString stringWithUTF8String:weightingName(static_cast<uint32_t>(p->params.weighting))] y:254 attrs:small style:style];
+    [self drawMenu:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))] y:276 attrs:small style:style];
 
     s3g::clap_gui::drawPanelFrame(binaural.origin.x, binaural.origin.y, binaural.size.width, binaural.size.height, style);
     s3g::clap_gui::drawDisclosurePanelHeader(@"BINAURAL", _binauralOpen, binaural.origin.x, binaural.origin.y, binaural.size.width, 21, text, style);
@@ -772,8 +787,8 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
 
     s3g::clap_gui::drawPanelFrame(output.origin.x, output.origin.y, output.size.width, output.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, output.origin.x, output.origin.y, output.size.width, 21, text, style);
-    [self drawSlider:@"KEEP" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.stereoPreservePercent)] norm:p->params.stereoPreservePercent / 100.0 y:output.origin.y + 38 attrs:small style:style];
-    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 24.0) / 36.0 y:output.origin.y + 60 attrs:small style:style];
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 24.0) / 36.0 y:output.origin.y + 36 attrs:small style:style];
+    [self drawSlider:@"KEEP" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.stereoPreservePercent)] norm:p->params.stereoPreservePercent / 100.0 y:output.origin.y + 58 attrs:small style:style];
 
     auto meter = [&](CGFloat y, NSString* label, float peak) {
         const double db = 20.0 * std::log10(std::max(0.000001f, peak));
@@ -786,25 +801,26 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     };
     const float pkL = p->peakL.exchange(p->peakL.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
     const float pkR = p->peakR.exchange(p->peakR.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
-    meter(output.origin.y + 84, @"L", pkL);
-    meter(output.origin.y + 106, @"R", pkR);
+    meter(output.origin.y + 82, @"L", pkL);
+    meter(output.origin.y + 104, @"R", pkR);
 
     if (_openMenu > 0 && _menuItems > 0) {
-        NSString* decodes[] = { @"Direct", @"Virtual field" };
-        NSString* layouts[] = { @"Quad virtual", @"8ch cube", @"12ch dodeca", @"24ch dome", @"32ch sphere" };
+        NSString* fields[] = { @"Internal grid", @"Quad virtual", @"8ch cube", @"12ch dodeca", @"24ch dome", @"32ch sphere" };
         NSString* weights[] = { @"Projection", @"Energy-normalized", @"Max-rE" };
         NSString* gains[] = { @"Off", @"Power/sqrt(N)", @"Energy sum" };
         NSString* heads[] = { @"Medium head", @"Small head", @"Large head" };
         NSString* modes[] = { @"Binaural", @"Transaural" };
         NSString* xtcs[] = { @"Feedforward", @"Matrix inverse" };
-        NSString** items = decodes;
-        int selected = static_cast<int>(p->params.decodeMode);
-        if (_openMenu == 2) { items = layouts; selected = static_cast<int>(p->params.layout); }
+        NSString* orders[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
+        NSString** items = fields;
+        int selected = directDecode
+            ? 0 : static_cast<int>(p->params.layout) + 1;
         if (_openMenu == 3) { items = weights; selected = static_cast<int>(p->params.weighting); }
         if (_openMenu == 4) { items = gains; selected = static_cast<int>(p->params.autogain); }
         if (_openMenu == 5) { items = heads; selected = static_cast<int>(p->params.head); }
         if (_openMenu == 6) { items = modes; selected = static_cast<int>(p->params.mode); }
         if (_openMenu == 7) { items = xtcs; selected = static_cast<int>(p->params.xtcMode); }
+        if (_openMenu == 8) { items = orders; selected = static_cast<int>(p->params.order - 1u); }
         s3g::clap_gui::drawDropdownMenu(NSMakeRect(_menuOrigin.x, _menuOrigin.y, 176, 18.0 * _menuItems), 18.0, items, _menuItems, selected, _hoverMenuItem, small, style);
     }
 }
@@ -836,16 +852,56 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    auto* titlePlugin = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(930.0, 720.0);
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        titlePlugin->params = sanitizeParams(s3g::AmbiHeadParams {});
+        titlePlugin->paramsDirty = true;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &titlePlugin->plugin, @"Ambi Decoder Head", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &titlePlugin->plugin, @"Ambi Decoder Head", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
     if (_openMenu > 0) {
         const int hit = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(_menuOrigin.x, _menuOrigin.y, 176, 18.0 * _menuItems), 18.0, _menuItems);
         if (hit >= 0) {
-            if (_openMenu == 1) [self setParam:kParamDecodeMode value:hit];
-            if (_openMenu == 2) [self setParam:kParamLayout value:hit];
+            if (_openMenu == 2) {
+                if (hit == 0) {
+                    [self setParam:kParamDecodeMode value:0.0];
+                } else {
+                    [self setParam:kParamLayout value:hit - 1];
+                    [self setParam:kParamDecodeMode value:1.0];
+                }
+            }
             if (_openMenu == 3) [self setParam:kParamWeighting value:hit];
             if (_openMenu == 4) [self setParam:kParamAutogain value:hit];
             if (_openMenu == 5) [self setParam:kParamHead value:hit];
             if (_openMenu == 6) [self setParam:kParamMode value:hit];
             if (_openMenu == 7) [self setParam:kParamXtcMode value:hit];
+            if (_openMenu == 8) [self setParam:kParamOrder value:hit + 1u];
         }
         _openMenu = 0; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; return;
     }
@@ -868,10 +924,12 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         _lastDragPoint = pt;
         return;
     }
-    const NSRect decoder = NSMakeRect(side.origin.x, 34, side.size.width, 156);
-    const NSRect binaural = NSMakeRect(side.origin.x, 202, side.size.width, _binauralOpen ? 198 : 24);
-    const NSRect transaural = NSMakeRect(side.origin.x, _binauralOpen ? 412 : 238, side.size.width, _transauralOpen ? 154 : 24);
-    const NSRect output = NSMakeRect(side.origin.x, (_binauralOpen ? 412 : 238) + (_transauralOpen ? 166 : 36), side.size.width, 128);
+    const NSRect output = NSMakeRect(side.origin.x, 34, side.size.width, 128);
+    const NSRect decoder = NSMakeRect(side.origin.x, 174, side.size.width, 128);
+    const NSRect binaural = NSMakeRect(side.origin.x, 314, side.size.width, _binauralOpen ? 198 : 24);
+    const NSRect transaural = NSMakeRect(side.origin.x,
+        binaural.origin.y + (_binauralOpen ? 210 : 36),
+        side.size.width, _transauralOpen ? 154 : 24);
     (void)decoder;
     if (NSPointInRect(pt, NSMakeRect(binaural.origin.x, binaural.origin.y, binaural.size.width, 24))) {
         _binauralOpen = !_binauralOpen;
@@ -887,11 +945,12 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     struct HitRow { int index; CGFloat y; bool menu; int openMenu; uint32_t menuItems; };
     HitRow rows[19];
     int count = 0;
-    rows[count++] = { 0, 74, false, 0, 0 };
-    rows[count++] = { 1, 96, true, 1, 2 };
-    rows[count++] = { 2, 118, true, 2, 5 };
-    rows[count++] = { 3, 140, true, 3, 3 };
-    rows[count++] = { 4, 162, true, 4, 3 };
+    rows[count++] = { 18, output.origin.y + 36, false, 0, 0 };
+    rows[count++] = { 17, output.origin.y + 58, false, 0, 0 };
+    rows[count++] = { 2, 210, true, 2, 6 };
+    rows[count++] = { 0, 232, true, 8, 7 };
+    rows[count++] = { 3, 254, true, 3, 3 };
+    rows[count++] = { 4, 276, true, 4, 3 };
     if (_binauralOpen) {
         rows[count++] = { 6, binaural.origin.y + 40, true, 6, 2 };
         rows[count++] = { 5, binaural.origin.y + 62, true, 5, 3 };
@@ -908,8 +967,6 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         rows[count++] = { 14, transaural.origin.y + 106, false, 0, 0 };
         rows[count++] = { 16, transaural.origin.y + 128, false, 0, 0 };
     }
-    rows[count++] = { 17, output.origin.y + 38, false, 0, 0 };
-    rows[count++] = { 18, output.origin.y + 60, false, 0, 0 };
     for (int i = 0; i < count; ++i) {
         if (!NSPointInRect(pt, NSMakeRect(596, rows[i].y - 6, 316, 22))) continue;
         if (rows[i].menu) {
@@ -918,6 +975,30 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
             _menuOrigin = NSMakePoint(724, rows[i].y + 17);
             _hoverMenuItem = -1;
             [self setNeedsDisplay:YES];
+            return;
+        }
+        auto sliderParam = [](int index) -> clap_id {
+            switch (index) {
+            case 7: return kParamYaw;
+            case 8: return kParamPitch;
+            case 9: return kParamWidth;
+            case 10: return kParamPinna;
+            case 11: return kParamRoom;
+            case 12: return kParamXtcAmount;
+            case 14: return kParamSpeakerAngle;
+            case 15: return kParamHeadWidth;
+            case 16: return kParamLowProtect;
+            case 17: return kParamPreserve;
+            case 18: return kParamOutput;
+            default: return CLAP_INVALID_ID;
+            }
+        };
+        const clap_id param = sliderParam(rows[i].index);
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &titlePlugin->plugin, param, &defaultValue)) {
+            [self setParam:param value:defaultValue];
+            _dragSlider = -1;
             return;
         }
         _dragSlider = rows[i].index;
@@ -1002,7 +1083,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambisonic-head-decoder",
-    "s3g Ambi Head Decoder",
+    "s3g Ambi Decoder Head",
     "s3g",
     "https://s3g.github.io/s3g-dsp/",
     "",

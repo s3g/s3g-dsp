@@ -3,13 +3,42 @@
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
 
+#include <clap/ext/gui.h>
+#include <clap/ext/params.h>
+#include <clap/ext/state.h>
+
+#include "s3g_gui_layout.h"
 #include "s3g_math.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 
 namespace s3g::clap_gui {
+
+inline bool sliderDoubleClickDefault(NSEvent* event,
+                                     const clap_plugin_t* plugin,
+                                     clap_id paramId,
+                                     double* defaultValue)
+{
+    if (!event || [event clickCount] < 2 || !plugin || !defaultValue
+        || paramId == CLAP_INVALID_ID || !plugin->get_extension) {
+        return false;
+    }
+    const auto* params = static_cast<const clap_plugin_params_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_PARAMS));
+    if (!params || !params->count || !params->get_info) return false;
+    const uint32_t count = params->count(plugin);
+    for (uint32_t index = 0u; index < count; ++index) {
+        clap_param_info_t info {};
+        if (params->get_info(plugin, index, &info) && info.id == paramId) {
+            *defaultValue = info.default_value;
+            return true;
+        }
+    }
+    return false;
+}
 
 // Encoder editors use a fixed-size drawing surface so their visual geometry,
 // hit testing, and native controls remain stable.  This state adds a resizable
@@ -299,6 +328,57 @@ inline void drawRightStatus(NSString* text, CGFloat viewWidth, CGFloat y, NSDict
        withAttributes:attrs];
 }
 
+inline NSString* sliderValueTextToFit(NSString* value,
+                                      CGFloat maximumWidth,
+                                      NSDictionary* attrs)
+{
+    if (!value || maximumWidth <= 0.0
+        || [value sizeWithAttributes:attrs].width <= maximumWidth) {
+        return value ?: @"";
+    }
+
+    NSScanner* scanner = [NSScanner scannerWithString:value];
+    double number = 0.0;
+    if ([scanner scanDouble:&number]) {
+        NSString* suffix = [[value substringFromIndex:[scanner scanLocation]]
+            stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        for (int precision = 2; precision >= 0; --precision) {
+            NSString* numeric = [NSString stringWithFormat:@"%.*f", precision, number];
+            while ([numeric containsString:@"."] && [numeric hasSuffix:@"0"]) {
+                numeric = [numeric substringToIndex:[numeric length] - 1u];
+            }
+            if ([numeric hasSuffix:@"."]) {
+                numeric = [numeric substringToIndex:[numeric length] - 1u];
+            }
+            NSString* candidate = [suffix length] > 0u
+                ? [NSString stringWithFormat:@"%@ %@", numeric, suffix]
+                : numeric;
+            if ([candidate sizeWithAttributes:attrs].width <= maximumWidth) {
+                return candidate;
+            }
+        }
+
+        NSString* compact = [suffix length] > 0u
+            ? [NSString stringWithFormat:@"%.2g%@", number, suffix]
+            : [NSString stringWithFormat:@"%.2g", number];
+        if ([compact sizeWithAttributes:attrs].width <= maximumWidth) return compact;
+    }
+    return value;
+}
+
+inline void drawBoundedRightText(NSString* value,
+                                 NSRect rect,
+                                 NSDictionary* attrs)
+{
+    NSMutableParagraphStyle* paragraph = [[[NSMutableParagraphStyle alloc] init] autorelease];
+    [paragraph setAlignment:NSTextAlignmentRight];
+    [paragraph setLineBreakMode:NSLineBreakByClipping];
+    NSMutableDictionary* boundedAttrs = [NSMutableDictionary dictionaryWithDictionary:attrs];
+    [boundedAttrs setObject:paragraph forKey:NSParagraphStyleAttributeName];
+    NSString* fitted = sliderValueTextToFit(value, rect.size.width, attrs);
+    [fitted drawInRect:rect withAttributes:boundedAttrs];
+}
+
 inline void styleNumberTextField(NSTextField* field, CGFloat fontSize = 11.0, NSTextAlignment alignment = NSTextAlignmentRight)
 {
     [field setFont:uiFont(fontSize)];
@@ -354,7 +434,56 @@ inline void drawPanelHeader(NSString* title,
     [style.accent setFill];
     NSRectFill(NSMakeRect(x, y, w, 2));
     NSDictionary* headerAttrs = softLabelAttrs();
-    [title drawAtPoint:NSMakePoint(x + 8, y + 5) withAttributes:headerAttrs];
+    [title drawAtPoint:NSMakePoint(
+        x + static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.headerLabelInset),
+        y + 5) withAttributes:headerAttrs];
+}
+
+inline NSRect cocoaRect(const s3g::gui_layout::Rect& rect)
+{
+    return NSMakeRect(static_cast<CGFloat>(rect.x),
+        static_cast<CGFloat>(rect.y),
+        static_cast<CGFloat>(rect.width),
+        static_cast<CGFloat>(rect.height));
+}
+
+inline s3g::gui_layout::EncoderTitleBand encoderTitleBand(CGFloat width,
+                                                          CGFloat height)
+{
+    return s3g::gui_layout::encoderTitleBand({
+        static_cast<double>(width),
+        static_cast<double>(height),
+    });
+}
+
+inline NSRect encoderTitleActionRect(CGFloat width,
+                                     CGFloat height,
+                                     s3g::gui_layout::EncoderTitleAction action)
+{
+    return cocoaRect(s3g::gui_layout::encoderTitleActionRect(
+        encoderTitleBand(width, height), action));
+}
+
+inline void drawPanelFrame(const s3g::gui_layout::Panel& panel,
+                           const Style& style)
+{
+    const auto rect = cocoaRect(panel.frame);
+    drawPanelFrame(rect.origin.x, rect.origin.y,
+        rect.size.width, rect.size.height, style);
+}
+
+inline void drawPanelHeader(NSString* title,
+                            bool open,
+                            const s3g::gui_layout::Panel& panel,
+                            NSDictionary* attrs,
+                            const Style& style)
+{
+    const auto rect = cocoaRect(panel.frame);
+    drawPanelHeader(title, open, rect.origin.x, rect.origin.y,
+        rect.size.width,
+        static_cast<CGFloat>(s3g::gui_layout::kStandardMetrics.headerHeight),
+        attrs, style);
 }
 
 inline void drawDisclosurePanelHeader(NSString* title,
@@ -386,7 +515,8 @@ inline void drawSlider(NSString* name,
                        CGFloat labelX = 654.0,
                        CGFloat trackX = 750.0,
                        CGFloat valueX = 920.0,
-                       CGFloat trackW = 150.0)
+                       CGFloat trackW = 150.0,
+                       CGFloat valueW = 36.0)
 {
     [name drawAtPoint:NSMakePoint(labelX, y - 2) withAttributes:labelAttrs];
     NSRect track = NSMakeRect(trackX, y + 1, trackW, 9);
@@ -404,7 +534,49 @@ inline void drawSlider(NSString* name,
                                        track.origin.x + track.size.width - 4.0);
     [style.text setFill];
     NSRectFill(NSMakeRect(handleX, track.origin.y - 2.0, 3.0, track.size.height + 4.0));
-    [value drawAtPoint:NSMakePoint(valueX, y - 2) withAttributes:valueAttrs];
+    drawBoundedRightText(value, NSMakeRect(valueX, y - 2, valueW, 15.0), valueAttrs);
+}
+
+inline NSString* menuDisplayText(NSString* value,
+                                 CGFloat maximumWidth,
+                                 NSDictionary* attrs)
+{
+    NSString* text = [(value ?: @"") uppercaseString];
+    if (maximumWidth <= 0.0
+        || [text sizeWithAttributes:attrs].width <= maximumWidth) {
+        return text;
+    }
+
+    static NSArray<NSArray<NSString*>*>* substitutions = nil;
+    if (!substitutions) {
+        substitutions = [[NSArray alloc] initWithObjects:
+            @[ @"ENERGY-NORMALIZED", @"ENERGY NORM" ],
+            @[ @"ENERGY NORMALIZED", @"ENERGY NORM" ],
+            @[ @"HYPERCARDIOID", @"HYPER" ],
+            @[ @"SUPERCARDIOID", @"SUPER" ],
+            @[ @"CARDIOID", @"CARD" ],
+            @[ @"VIRTUAL", @"VIRT" ],
+            @[ @"FEEDFORWARD", @"FEED FWD" ],
+            @[ @"PROJECTION", @"PROJ" ],
+            @[ @"ELEVATION", @"ELEV" ],
+            @[ @"DIRECTIONAL", @"DIR" ],
+            @[ @"INTERPOLATION", @"INTERP" ],
+            @[ @"ALTERNATING", @"ALT" ],
+            nil];
+    }
+    for (NSArray<NSString*>* substitution in substitutions) {
+        text = [text stringByReplacingOccurrencesOfString:substitution[0]
+            withString:substitution[1]];
+        if ([text sizeWithAttributes:attrs].width <= maximumWidth) return text;
+    }
+
+    NSString* suffix = @"…";
+    while ([text length] > 1u
+        && [[text stringByAppendingString:suffix]
+            sizeWithAttributes:attrs].width > maximumWidth) {
+        text = [text substringToIndex:[text length] - 1u];
+    }
+    return [text stringByAppendingString:suffix];
 }
 
 inline void drawMenu(NSString* name,
@@ -417,7 +589,8 @@ inline void drawMenu(NSString* name,
                      CGFloat boxX = 750.0,
                      CGFloat boxW = 178.0)
 {
-    [name drawAtPoint:NSMakePoint(labelX, y - 2) withAttributes:labelAttrs];
+    [[name uppercaseString] drawAtPoint:NSMakePoint(labelX, y - 2)
+        withAttributes:labelAttrs];
     NSRect box = NSMakeRect(boxX, y - 1, boxW, 15);
     [style.strip setFill];
     NSRectFill(box);
@@ -425,7 +598,10 @@ inline void drawMenu(NSString* name,
     NSFrameRect(box);
     [style.fill setFill];
     NSRectFill(NSMakeRect(box.origin.x + 1, box.origin.y + 1, 2, box.size.height - 2));
-    [value drawAtPoint:NSMakePoint(box.origin.x + 8, y + 1) withAttributes:valueAttrs];
+    NSString* displayValue = menuDisplayText(value,
+        std::max<CGFloat>(0.0, box.size.width - 28.0), valueAttrs);
+    [displayValue drawAtPoint:NSMakePoint(box.origin.x + 8, y + 1)
+        withAttributes:valueAttrs];
     [@"v" drawAtPoint:NSMakePoint(box.origin.x + box.size.width - 12, y) withAttributes:valueAttrs];
 }
 
@@ -506,7 +682,11 @@ inline void drawDropdownMenu(NSRect menuRect,
             [NSBezierPath strokeLineFromPoint:NSMakePoint(row.origin.x, row.origin.y)
                                       toPoint:NSMakePoint(NSMaxX(row), row.origin.y)];
         }
-        [items[i] drawAtPoint:NSMakePoint(row.origin.x + 9.0, row.origin.y + 4.0) withAttributes:attrs];
+        NSString* displayItem = menuDisplayText(items[i],
+            std::max<CGFloat>(0.0, row.size.width - 18.0), attrs);
+        [displayItem drawAtPoint:NSMakePoint(
+            row.origin.x + 9.0, row.origin.y + 4.0)
+            withAttributes:attrs];
     }
 }
 
@@ -546,6 +726,162 @@ inline void drawHeaderActionButton(NSRect button,
         withAttributes:attrs];
     (void)headerRect;
     (void)style;
+}
+
+inline void drawEncoderPresetMenu(NSString* preset,
+                                  const s3g::gui_layout::EncoderTitleBand& band,
+                                  NSDictionary* labelAttrs,
+                                  NSDictionary* valueAttrs,
+                                  const Style& style)
+{
+    drawMenu(@"", preset, band.titleY, labelAttrs, valueAttrs, style,
+        band.presetLabelX, band.presetMenu.x, band.presetMenu.width);
+    [@"PRESET" drawAtPoint:NSMakePoint(band.presetLabelX, band.titleY + 1.0)
+        withAttributes:labelAttrs];
+}
+
+inline void drawEncoderTitleBand(NSString* title,
+                                 NSString* preset,
+                                 NSString* status,
+                                 const s3g::gui_layout::EncoderTitleBand& band,
+                                 NSDictionary* titleAttrs,
+                                 NSDictionary* labelAttrs,
+                                 NSDictionary* valueAttrs,
+                                 const Style& style)
+{
+    [title drawAtPoint:NSMakePoint(band.titleX, band.titleY)
+        withAttributes:titleAttrs];
+    drawEncoderPresetMenu(preset, band, labelAttrs, valueAttrs, style);
+    drawHeaderActionButton(cocoaRect(band.loadButton), cocoaRect(band.loadButton),
+        @"LOAD", labelAttrs, style);
+    drawHeaderActionButton(cocoaRect(band.saveButton), cocoaRect(band.saveButton),
+        @"SAVE", labelAttrs, style);
+    drawHeaderActionButton(cocoaRect(band.randomButton), cocoaRect(band.randomButton),
+        @"RANDOM", labelAttrs, style);
+    if (status && [status length] > 0u) {
+        drawRightStatus(status, band.canvas.width, band.titleY, valueAttrs,
+            band.statusRightInset);
+    }
+}
+
+inline void drawDecoderTitleBand(NSString* title,
+                                 NSString* preset,
+                                 NSString* status,
+                                 const s3g::gui_layout::EncoderTitleBand& band,
+                                 NSDictionary* titleAttrs,
+                                 NSDictionary* labelAttrs,
+                                 NSDictionary* valueAttrs,
+                                 const Style& style)
+{
+    [title drawAtPoint:NSMakePoint(band.titleX, band.titleY)
+        withAttributes:titleAttrs];
+    drawEncoderPresetMenu(preset, band, labelAttrs, valueAttrs, style);
+    drawHeaderActionButton(cocoaRect(band.loadButton), cocoaRect(band.loadButton),
+        @"LOAD", labelAttrs, style);
+    drawHeaderActionButton(cocoaRect(band.saveButton), cocoaRect(band.saveButton),
+        @"SAVE", labelAttrs, style);
+    if (status && [status length] > 0u) {
+        drawRightStatus(status, band.canvas.width, band.titleY, valueAttrs,
+            band.statusRightInset);
+    }
+}
+
+struct PluginStateFileWriter {
+    FILE* file = nullptr;
+    clap_ostream_t stream {
+        this,
+        [](const clap_ostream_t* stream, const void* buffer, uint64_t size) -> int64_t {
+            auto* writer = static_cast<PluginStateFileWriter*>(stream->ctx);
+            if (!writer || !writer->file) return -1;
+            const size_t written = std::fwrite(buffer, 1u, static_cast<size_t>(size), writer->file);
+            return written > 0u || size == 0u ? static_cast<int64_t>(written) : -1;
+        },
+    };
+};
+
+struct PluginStateFileReader {
+    FILE* file = nullptr;
+    clap_istream_t stream {
+        this,
+        [](const clap_istream_t* stream, void* buffer, uint64_t size) -> int64_t {
+            auto* reader = static_cast<PluginStateFileReader*>(stream->ctx);
+            if (!reader || !reader->file) return -1;
+            const size_t read = std::fread(buffer, 1u, static_cast<size_t>(size), reader->file);
+            if (read > 0u || std::feof(reader->file)) return static_cast<int64_t>(read);
+            return -1;
+        },
+    };
+};
+
+inline NSString* encoderPresetDirectory(NSString* pluginName)
+{
+    NSString* root = [NSHomeDirectory()
+        stringByAppendingPathComponent:@"Music/s3g/Presets"];
+    return pluginName && [pluginName length] > 0u
+        ? [root stringByAppendingPathComponent:pluginName]
+        : root;
+}
+
+inline bool savePluginStatePreset(const clap_plugin_t* plugin,
+                                  NSString* pluginName,
+                                  NSString** savedName = nullptr)
+{
+    if (!plugin || !plugin->get_extension) return false;
+    const auto* state = static_cast<const clap_plugin_state_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_STATE));
+    if (!state || !state->save) return false;
+
+    NSString* directory = encoderPresetDirectory(pluginName);
+    [[NSFileManager defaultManager] createDirectoryAtPath:directory
+        withIntermediateDirectories:YES attributes:nil error:nil];
+    NSSavePanel* panel = [NSSavePanel savePanel];
+    [panel setDirectoryURL:[NSURL fileURLWithPath:directory isDirectory:YES]];
+    [panel setNameFieldStringValue:@"Preset.s3gpreset"];
+    if ([panel runModal] != NSModalResponseOK) return false;
+
+    const char* path = [[panel URL].path fileSystemRepresentation];
+    PluginStateFileWriter writer;
+    writer.file = std::fopen(path, "wb");
+    if (!writer.file) return false;
+    const bool saved = state->save(plugin, &writer.stream);
+    const bool closed = std::fclose(writer.file) == 0;
+    writer.file = nullptr;
+    if (saved && closed && savedName) {
+        *savedName = [[[panel URL] lastPathComponent] stringByDeletingPathExtension];
+    }
+    return saved && closed;
+}
+
+inline bool loadPluginStatePreset(const clap_plugin_t* plugin,
+                                  NSString* pluginName,
+                                  NSString** loadedName = nullptr)
+{
+    if (!plugin || !plugin->get_extension) return false;
+    const auto* state = static_cast<const clap_plugin_state_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_STATE));
+    if (!state || !state->load) return false;
+
+    NSOpenPanel* panel = [NSOpenPanel openPanel];
+    [panel setCanChooseFiles:YES];
+    [panel setCanChooseDirectories:NO];
+    [panel setAllowsMultipleSelection:NO];
+    NSString* directory = encoderPresetDirectory(pluginName);
+    if ([[NSFileManager defaultManager] fileExistsAtPath:directory]) {
+        [panel setDirectoryURL:[NSURL fileURLWithPath:directory isDirectory:YES]];
+    }
+    if ([panel runModal] != NSModalResponseOK) return false;
+
+    const char* path = [[panel URL].path fileSystemRepresentation];
+    PluginStateFileReader reader;
+    reader.file = std::fopen(path, "rb");
+    if (!reader.file) return false;
+    const bool loaded = state->load(plugin, &reader.stream);
+    std::fclose(reader.file);
+    reader.file = nullptr;
+    if (loaded && loadedName) {
+        *loadedName = [[[panel URL] lastPathComponent] stringByDeletingPathExtension];
+    }
+    return loaded;
 }
 
 struct TopologyUiValues {

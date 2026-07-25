@@ -272,8 +272,10 @@ void randomizeSafe(Plugin& plugin)
 {
     syncGuiParams(plugin);
     auto p = plugin.params;
+    const uint32_t order = p.order;
+    const float outputGainDb = p.outputGainDb;
+    const auto listening = p.listening;
     uint32_t seed = plugin.randomSeed;
-    p.order = 3u;
     p.emissionHz = std::pow(2.0f, randomRange(seed, std::log2(1.2f), std::log2(120.0f)));
     p.emissionModRateHz = std::pow(2.0f, randomRange(seed, std::log2(0.008f), std::log2(4.0f)));
     p.emissionModDepth = randomRange(seed, 0.02f, 0.68f);
@@ -322,7 +324,6 @@ void randomizeSafe(Plugin& plugin)
     p.spatialFollow = randomRange(seed, 0.35f, 0.92f);
     p.air = randomRange(seed, 0.0f, 0.42f);
     p.doppler = randomUnit(seed) < 0.75f ? 0.0f : randomRange(seed, 0.05f, 0.35f);
-    p.outputGainDb = -12.0f;
     p.seed = seed;
     p.points = 4u + static_cast<uint32_t>(randomUnit(seed) * 29.0f) % 29u;
     p.motionMode = static_cast<s3g::AmbiPulsarMotionMode>(
@@ -356,6 +357,9 @@ void randomizeSafe(Plugin& plugin)
         ? randomRange(seed, 0.38f, 0.92f) : randomRange(seed, 0.0f, 0.72f);
     p.listening.response = static_cast<s3g::AmbiPulsarListenerResponse>(
         1u + static_cast<uint32_t>(randomUnit(seed) * 3.0f) % 3u);
+    p.order = order;
+    p.outputGainDb = outputGainDb;
+    p.listening = listening;
     plugin.randomSeed = seed;
     plugin.customPresetActive.store(false, std::memory_order_relaxed);
     publishParams(plugin, s3g::sanitizeAmbiPulsarParams(p), 0u, true);
@@ -1264,6 +1268,53 @@ namespace {
 constexpr uint32_t kGuiWidth = 1160u;
 constexpr uint32_t kGuiHeight = 858u;
 
+namespace layout = s3g::gui_layout;
+
+constexpr layout::Canvas kGuiCanvas {
+    static_cast<double>(kGuiWidth), static_cast<double>(kGuiHeight)
+};
+constexpr auto kOutputPanel = layout::makePanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::Output,
+    layout::kLargeEncoderFirstColumn, 42.0,
+    layout::toolboxHeightForRows(2u), 2u);
+constexpr auto kClockPanel = layout::stackPanel(
+    layout::PanelRole::Engine, kOutputPanel,
+    layout::toolboxHeightForRows(7u), 7u);
+constexpr auto kEventPanel = layout::stackPanel(
+    layout::PanelRole::EventTiming, kClockPanel,
+    layout::toolboxHeightForRows(9u), 9u);
+constexpr auto kFieldOriginPanel = layout::stackPanel(
+    layout::PanelRole::Projection, kEventPanel,
+    layout::toolboxHeightForRows(6u), 6u);
+constexpr std::array kFirstColumnPanels {
+    kOutputPanel, kClockPanel, kEventPanel, kFieldOriginPanel
+};
+
+constexpr auto kDepthMotionPanel = layout::makePanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::Motion,
+    layout::kLargeEncoderSecondColumn, 42.0,
+    layout::toolboxHeightForRows(6u), 6u);
+constexpr auto kNeuralPanel = layout::stackPanel(
+    layout::PanelRole::Engine, kDepthMotionPanel,
+    layout::toolboxHeightForRows(10u), 10u);
+constexpr auto kCapturePanel = layout::stackPanel(
+    layout::PanelRole::Capture, kNeuralPanel, 272.0, 3u);
+constexpr std::array kSecondColumnPanels {
+    kDepthMotionPanel, kNeuralPanel, kCapturePanel
+};
+
+static_assert(layout::validateColumn(kFirstColumnPanels, kGuiCanvas));
+static_assert(layout::validateColumn(kSecondColumnPanels, kGuiCanvas, false));
+static_assert(layout::rolesFollowTemplate(
+    kFirstColumnPanels, layout::kProceduralEncoderTemplate, true));
+static_assert(layout::rolesFollowTemplate(
+    kSecondColumnPanels, layout::kProceduralEncoderTemplate, false));
+static_assert(layout::controlMatchesSlot(
+    kOutputPanel, layout::kLargeEncoderOrderSlot));
+static_assert(layout::roleMatchesAnchorIfPresent(
+    kSecondColumnPanels, layout::PanelRole::Topology,
+    layout::kLargeEncoderTopologyAnchor));
+
 struct GuiSliderSpec {
     clap_id id;
     const char* label;
@@ -1273,49 +1324,49 @@ struct GuiSliderSpec {
 };
 
 constexpr GuiSliderSpec kGuiSliders[] {
-    { kEmissionParamId, "EMISSION", 630.0, 104.0, 82.0 },
-    { kEmissionModRateParamId, "EMIT RATE", 630.0, 130.0, 82.0 },
-    { kEmissionModDepthParamId, "EMIT DEPTH", 630.0, 156.0, 82.0 },
-    { kFormantModRateParamId, "FORM RATE", 630.0, 182.0, 82.0 },
-    { kFormantModDepthParamId, "FORM DEPTH", 630.0, 208.0, 82.0 },
-    { kFormantScatterParamId, "FORM SCAT", 630.0, 234.0, 82.0 },
-    { kPhaseScatterParamId, "PHASE SCAT", 630.0, 260.0, 82.0 },
-    { kOutputParamId, "OUTPUT", 630.0, 286.0, 82.0 },
+    { kOutputParamId, "OUT", kOutputPanel.frame.x, layout::rowY(kOutputPanel, 0u), layout::kStandardMetrics.trackWidth },
+    { kEmissionParamId, "EMISSION", kClockPanel.frame.x, layout::rowY(kClockPanel, 0u), layout::kStandardMetrics.trackWidth },
+    { kEmissionModRateParamId, "EMIT RATE", kClockPanel.frame.x, layout::rowY(kClockPanel, 1u), layout::kStandardMetrics.trackWidth },
+    { kEmissionModDepthParamId, "EMIT DEPTH", kClockPanel.frame.x, layout::rowY(kClockPanel, 2u), layout::kStandardMetrics.trackWidth },
+    { kFormantModRateParamId, "FORM RATE", kClockPanel.frame.x, layout::rowY(kClockPanel, 3u), layout::kStandardMetrics.trackWidth },
+    { kFormantModDepthParamId, "FORM DEPTH", kClockPanel.frame.x, layout::rowY(kClockPanel, 4u), layout::kStandardMetrics.trackWidth },
+    { kFormantScatterParamId, "FORM SCAT", kClockPanel.frame.x, layout::rowY(kClockPanel, 5u), layout::kStandardMetrics.trackWidth },
+    { kPhaseScatterParamId, "PHASE SCAT", kClockPanel.frame.x, layout::rowY(kClockPanel, 6u), layout::kStandardMetrics.trackWidth },
 
-    { kProbabilityParamId, "PROB", 630.0, 370.0, 82.0 },
-    { kBurstOnParamId, "BURST ON", 630.0, 396.0, 82.0 },
-    { kBurstOffParamId, "REST", 630.0, 422.0, 82.0 },
-    { kSieveModuloParamId, "SIEVE MOD", 630.0, 448.0, 82.0 },
-    { kSieveResidueParamId, "RESIDUE", 630.0, 474.0, 82.0 },
-    { kDistributionParamId, "POINT RAND", 630.0, 500.0, 82.0 },
-    { kEnvelopeEdgeParamId, "ENV EDGE", 630.0, 552.0, 82.0 },
+    { kProbabilityParamId, "PROB", kEventPanel.frame.x, layout::rowY(kEventPanel, 0u), layout::kStandardMetrics.trackWidth },
+    { kBurstOnParamId, "BURST ON", kEventPanel.frame.x, layout::rowY(kEventPanel, 1u), layout::kStandardMetrics.trackWidth },
+    { kBurstOffParamId, "REST", kEventPanel.frame.x, layout::rowY(kEventPanel, 2u), layout::kStandardMetrics.trackWidth },
+    { kSieveModuloParamId, "SIEVE MOD", kEventPanel.frame.x, layout::rowY(kEventPanel, 3u), layout::kStandardMetrics.trackWidth },
+    { kSieveResidueParamId, "RESIDUE", kEventPanel.frame.x, layout::rowY(kEventPanel, 4u), layout::kStandardMetrics.trackWidth },
+    { kDistributionParamId, "POINT RAND", kEventPanel.frame.x, layout::rowY(kEventPanel, 5u), layout::kStandardMetrics.trackWidth },
+    { kEnvelopeEdgeParamId, "ENV EDGE", kEventPanel.frame.x, layout::rowY(kEventPanel, 7u), layout::kStandardMetrics.trackWidth },
 
-    { kAzimuthParamId, "AZIMUTH", 630.0, 652.0, 82.0 },
-    { kElevationParamId, "ELEVATION", 630.0, 678.0, 82.0 },
-    { kDistanceParamId, "DISTANCE", 630.0, 704.0, 82.0 },
-    { kWidthParamId, "WIDTH", 630.0, 730.0, 82.0 },
-    { kSpatialScatterParamId, "SPAT SCAT", 630.0, 756.0, 82.0 },
+    { kAzimuthParamId, "AZIMUTH", kFieldOriginPanel.frame.x, layout::rowY(kFieldOriginPanel, 0u), layout::kStandardMetrics.trackWidth },
+    { kElevationParamId, "ELEVATION", kFieldOriginPanel.frame.x, layout::rowY(kFieldOriginPanel, 1u), layout::kStandardMetrics.trackWidth },
+    { kDistanceParamId, "DISTANCE", kFieldOriginPanel.frame.x, layout::rowY(kFieldOriginPanel, 2u), layout::kStandardMetrics.trackWidth },
+    { kWidthParamId, "WIDTH", kFieldOriginPanel.frame.x, layout::rowY(kFieldOriginPanel, 3u), layout::kStandardMetrics.trackWidth },
+    { kSpatialScatterParamId, "SPAT SCAT", kFieldOriginPanel.frame.x, layout::rowY(kFieldOriginPanel, 4u), layout::kStandardMetrics.trackWidth },
 
-    { kOrbitRateParamId, "ORBIT RATE", 896.0, 78.0, 82.0 },
-    { kOrbitDepthParamId, "ORBIT DEPTH", 896.0, 104.0, 82.0 },
-    { kSpatialFollowParamId, "INERTIA", 896.0, 130.0, 82.0 },
-    { kAirParamId, "AIR", 896.0, 156.0, 82.0 },
-    { kDopplerParamId, "DOPPLER", 896.0, 182.0, 82.0 },
+    { kOrbitRateParamId, "ORBIT RATE", kDepthMotionPanel.frame.x, layout::rowY(kDepthMotionPanel, 0u), layout::kStandardMetrics.trackWidth },
+    { kOrbitDepthParamId, "ORBIT DEPTH", kDepthMotionPanel.frame.x, layout::rowY(kDepthMotionPanel, 1u), layout::kStandardMetrics.trackWidth },
+    { kSpatialFollowParamId, "INERTIA", kDepthMotionPanel.frame.x, layout::rowY(kDepthMotionPanel, 2u), layout::kStandardMetrics.trackWidth },
+    { kAirParamId, "AIR", kDepthMotionPanel.frame.x, layout::rowY(kDepthMotionPanel, 3u), layout::kStandardMetrics.trackWidth },
+    { kDopplerParamId, "DOPPLER", kDepthMotionPanel.frame.x, layout::rowY(kDepthMotionPanel, 4u), layout::kStandardMetrics.trackWidth },
 
-    { kNeuralLevelParamId, "DIRECT", 896.0, 292.0, 82.0 },
-    { kNeuralDriveParamId, "SIGMOID", 896.0, 318.0, 82.0 },
-    { kNeuralFeedbackParamId, "RING FB", 896.0, 344.0, 82.0 },
-    { kNeuralCouplingParamId, "MATRIX", 896.0, 370.0, 82.0 },
-    { kNeuralHierarchyParamId, "HIERARCHY", 896.0, 396.0, 82.0 },
-    { kNeuralPhaseParamId, "PHASE", 896.0, 422.0, 82.0 },
-    { kNeuralBrownianParamId, "BROWNIAN", 896.0, 448.0, 82.0 },
-    { kNeuralDriftParamId, "DRIFT", 896.0, 474.0, 82.0 },
-    { kNeuralSelfModParamId, "SLOW > FAST", 896.0, 500.0, 82.0 },
-    { kNeuralAudioFeedbackParamId, "AUDIO FB", 896.0, 526.0, 82.0 },
+    { kNeuralLevelParamId, "DIRECT", kNeuralPanel.frame.x, layout::rowY(kNeuralPanel, 0u), layout::kStandardMetrics.trackWidth },
+    { kNeuralDriveParamId, "SIGMOID", kNeuralPanel.frame.x, layout::rowY(kNeuralPanel, 1u), layout::kStandardMetrics.trackWidth },
+    { kNeuralFeedbackParamId, "RING FB", kNeuralPanel.frame.x, layout::rowY(kNeuralPanel, 2u), layout::kStandardMetrics.trackWidth },
+    { kNeuralCouplingParamId, "MATRIX", kNeuralPanel.frame.x, layout::rowY(kNeuralPanel, 3u), layout::kStandardMetrics.trackWidth },
+    { kNeuralHierarchyParamId, "HIERARCHY", kNeuralPanel.frame.x, layout::rowY(kNeuralPanel, 4u), layout::kStandardMetrics.trackWidth },
+    { kNeuralPhaseParamId, "PHASE", kNeuralPanel.frame.x, layout::rowY(kNeuralPanel, 5u), layout::kStandardMetrics.trackWidth },
+    { kNeuralBrownianParamId, "BROWNIAN", kNeuralPanel.frame.x, layout::rowY(kNeuralPanel, 6u), layout::kStandardMetrics.trackWidth },
+    { kNeuralDriftParamId, "DRIFT", kNeuralPanel.frame.x, layout::rowY(kNeuralPanel, 7u), layout::kStandardMetrics.trackWidth },
+    { kNeuralSelfModParamId, "SLOW > FAST", kNeuralPanel.frame.x, layout::rowY(kNeuralPanel, 8u), layout::kStandardMetrics.trackWidth },
+    { kNeuralAudioFeedbackParamId, "AUDIO FB", kNeuralPanel.frame.x, layout::rowY(kNeuralPanel, 9u), layout::kStandardMetrics.trackWidth },
 
-    { kNeuralPulsaretParamId, "PULSARET", 896.0, 610.0, 82.0 },
-    { kNeuralEnvelopeParamId, "ENVELOPE", 896.0, 636.0, 82.0 },
-    { kNeuralFmParamId, "FM DEPTH", 896.0, 662.0, 82.0 },
+    { kNeuralPulsaretParamId, "PULSARET", kCapturePanel.frame.x, layout::rowY(kCapturePanel, 0u), layout::kStandardMetrics.trackWidth },
+    { kNeuralEnvelopeParamId, "ENVELOPE", kCapturePanel.frame.x, layout::rowY(kCapturePanel, 1u), layout::kStandardMetrics.trackWidth },
+    { kNeuralFmParamId, "FM DEPTH", kCapturePanel.frame.x, layout::rowY(kCapturePanel, 2u), layout::kStandardMetrics.trackWidth },
 
     { kFieldReturnParamId, "FIELD RETURN", 38.0, 540.0, 82.0 },
     { kPropagationParamId, "PROPAGATION", 38.0, 574.0, 82.0 },
@@ -1347,6 +1398,8 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kLaneFmIndexIds[2], "FM INDEX", 314.0, 726.0, 82.0 },
     { kLaneWindowSkewIds[2], "WIN SKEW", 314.0, 750.0, 82.0 },
 };
+
+static_assert(kGuiSliders[0].id == kOutputParamId);
 
 bool listeningGuiParam(clap_id id)
 {
@@ -1520,17 +1573,27 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     _timer = nil;
 }
 
-- (NSRect)presetRect { return NSMakeRect(382, 13, 190, 15); }
-- (NSRect)savePresetRect { return NSMakeRect(580, 13, 50, 15); }
-- (NSRect)loadPresetRect { return NSMakeRect(636, 13, 50, 15); }
-- (NSRect)randomRect { return NSMakeRect(692, 13, 66, 15); }
-- (NSRect)orderRect { return NSMakeRect(738, 77, 124, 15); }
-- (NSRect)envelopeRect { return NSMakeRect(738, 525, 124, 15); }
-- (NSRect)qualityRect { return NSMakeRect(738, 577, 124, 15); }
-- (NSRect)pointsRect { return NSMakeRect(738, 781, 124, 15); }
-- (NSRect)motionRect { return NSMakeRect(1004, 207, 124, 15); }
-- (NSRect)captureHeaderRect { return NSMakeRect(896, 574, 246, 21); }
-- (NSRect)captureRect { return NSMakeRect(1022, 578, 110, 13); }
+- (NSRect)presetRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Preset); }
+- (NSRect)loadPresetRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Load); }
+- (NSRect)savePresetRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Save); }
+- (NSRect)randomRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Random); }
+- (NSRect)orderRect {
+    return s3g::clap_gui::cocoaRect(layout::menuBoxRect(
+        kOutputPanel, layout::kLargeEncoderOrderSlot.row));
+}
+- (NSRect)envelopeRect { return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kEventPanel, 6u)); }
+- (NSRect)qualityRect { return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kEventPanel, 8u)); }
+- (NSRect)pointsRect { return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kFieldOriginPanel, 5u)); }
+- (NSRect)motionRect { return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kDepthMotionPanel, 5u)); }
+- (NSRect)captureHeaderRect {
+    const auto rect = s3g::clap_gui::cocoaRect(kCapturePanel.frame);
+    return NSMakeRect(rect.origin.x, rect.origin.y, rect.size.width,
+        layout::kStandardMetrics.headerHeight);
+}
+- (NSRect)captureRect {
+    return NSMakeRect(kCapturePanel.frame.x + 126.0,
+        kCapturePanel.frame.y + 4.0, 110.0, 13.0);
+}
 - (NSRect)fieldPanelRect { return NSMakeRect(18, 42, 596, 608); }
 - (NSRect)fieldRect { return NSMakeRect(34, 76, 564, 558); }
 - (NSRect)lanePanelRect { return NSMakeRect(18, 666, 596, 180); }
@@ -1832,17 +1895,10 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
 
 - (void)drawMenuLabel:(NSString*)label value:(NSString*)value rect:(NSRect)rect style:(const s3g::clap_gui::Style&)style
 {
-    NSDictionary* attrs = s3g::clap_gui::softLabelAttrs();
-    NSDictionary* values = s3g::clap_gui::softValueAttrs();
-    [label drawAtPoint:NSMakePoint(rect.origin.x - 92.0, rect.origin.y + 1.0) withAttributes:attrs];
-    [style.strip setFill];
-    NSRectFill(rect);
-    [style.grid setStroke];
-    NSFrameRect(rect);
-    [style.fill setFill];
-    NSRectFill(NSMakeRect(rect.origin.x + 1.0, rect.origin.y + 1.0, 2.0, rect.size.height - 2.0));
-    [value drawAtPoint:NSMakePoint(rect.origin.x + 8.0, rect.origin.y + 2.0) withAttributes:values];
-    [@"v" drawAtPoint:NSMakePoint(NSMaxX(rect) - 13.0, rect.origin.y + 1.0) withAttributes:values];
+    s3g::clap_gui::drawMenu(label, value, rect.origin.y + 1.0,
+        s3g::clap_gui::softLabelAttrs(),
+        s3g::clap_gui::softValueAttrs(), style,
+        rect.origin.x - 92.0, rect.origin.x, rect.size.width);
 }
 
 - (void)drawSlider:(const GuiSliderSpec&)slider style:(const s3g::clap_gui::Style&)style
@@ -2304,18 +2360,20 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
 - (void)drawControlPanels:(const s3g::clap_gui::Style&)style
 {
     NSDictionary* attrs = s3g::clap_gui::softLabelAttrs();
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 280, style);
-    s3g::clap_gui::drawPanelHeader(@"CLOCK / GLOBAL", true, 630, 42, 250, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(630, 334, 250, 270, style);
-    s3g::clap_gui::drawPanelHeader(@"EVENT MASK / WINDOW", true, 630, 334, 250, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(630, 616, 250, 230, style);
-    s3g::clap_gui::drawPanelHeader(@"FIELD ORIGIN", true, 630, 616, 250, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(896, 42, 246, 202, style);
-    s3g::clap_gui::drawPanelHeader(@"DEPTH / MOTION", true, 896, 42, 246, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(896, 256, 246, 306, style);
-    s3g::clap_gui::drawPanelHeader(@"NEURAL CIRCUIT", true, 896, 256, 246, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(896, 574, 246, 272, style);
-    s3g::clap_gui::drawPanelHeader(@"CAPTURE UTILITY", true, 896, 574, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kOutputPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, kOutputPanel, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kClockPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"CLOCK / GLOBAL", true, kClockPanel, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kEventPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"EVENT MASK / WINDOW", true, kEventPanel, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kFieldOriginPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"FIELD ORIGIN", true, kFieldOriginPanel, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kDepthMotionPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"DEPTH / MOTION", true, kDepthMotionPanel, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kNeuralPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"NEURAL CIRCUIT", true, kNeuralPanel, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kCapturePanel, style);
+    s3g::clap_gui::drawPanelHeader(@"CAPTURE UTILITY", true, kCapturePanel, attrs, style);
 
     for (const auto& slider : kGuiSliders) {
         if (guiLaneForParam(slider.id) < 0 && !listeningGuiParam(slider.id)) {
@@ -2379,13 +2437,16 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     const auto style = s3g::clap_gui::softTextStyle();
     [style.bg setFill];
     NSRectFill([self bounds]);
-    [@"s3g AMBI PULSAR ENCODER 64" drawAtPoint:NSMakePoint(18, 14)
+    [@"s3g AMBI ENCODER PULSAR 64" drawAtPoint:NSMakePoint(18, 14)
         withAttributes:s3g::clap_gui::softTitleAttrs()];
-    [self drawMenuLabel:@"PRESET" value:[self presetDisplayName]
-                   rect:[self presetRect] style:style];
-    s3g::clap_gui::drawHeaderActionButton([self savePresetRect], [self savePresetRect], @"SAVE",
-        s3g::clap_gui::softLabelAttrs(), style);
+    s3g::clap_gui::drawEncoderPresetMenu(
+        [self presetDisplayName],
+        s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
+        s3g::clap_gui::softLabelAttrs(),
+        s3g::clap_gui::softValueAttrs(), style);
     s3g::clap_gui::drawHeaderActionButton([self loadPresetRect], [self loadPresetRect], @"LOAD",
+        s3g::clap_gui::softLabelAttrs(), style);
+    s3g::clap_gui::drawHeaderActionButton([self savePresetRect], [self savePresetRect], @"SAVE",
         s3g::clap_gui::softLabelAttrs(), style);
     s3g::clap_gui::drawHeaderActionButton([self randomRect], [self randomRect], @"RANDOM",
         s3g::clap_gui::softLabelAttrs(), style);
@@ -2551,6 +2612,14 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
         const int sliderLane = guiLaneForParam(slider.id);
         if (sliderLane >= 0 && sliderLane != static_cast<int>(_selectedLane)) continue;
         if (NSPointInRect(point, guiSliderHitRect(slider))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &_plugin->plugin, slider.id, &defaultValue)) {
+                applyParam(*_plugin, slider.id, defaultValue);
+                _dragParam = CLAP_INVALID_ID;
+                [self setNeedsDisplay:YES];
+                return;
+            }
             _dragParam = slider.id;
             [self setSlider:slider point:point];
             return;
@@ -2709,7 +2778,7 @@ constexpr const char* features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-pulsar-encoder-64",
-    "s3g Ambi Pulsar Encoder 64",
+    "s3g Ambi Encoder Pulsar 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

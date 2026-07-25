@@ -118,6 +118,600 @@ bool near(float a, float b, float tolerance = 0.0001f)
     return std::abs(a - b) <= tolerance;
 }
 
+bool runAllRadSpeakerDecoderTests()
+{
+    {
+        const auto direction = s3g::normalize(s3g::Vec3 { 0.3f, -0.4f, 0.8660254f });
+        const auto basis = s3g::acnSn3dBasis7Canonical(direction);
+        const float x = direction.x;
+        const float y = direction.y;
+        const float z = direction.z;
+        const std::array<float, 16> canonical {
+            1.0f,
+            y,
+            z,
+            x,
+            std::sqrt(3.0f) * x * y,
+            std::sqrt(3.0f) * y * z,
+            0.5f * (3.0f * z * z - 1.0f),
+            std::sqrt(3.0f) * x * z,
+            0.5f * std::sqrt(3.0f) * (x * x - y * y),
+            std::sqrt(5.0f / 8.0f) * y * (3.0f * x * x - y * y),
+            std::sqrt(15.0f) * x * y * z,
+            std::sqrt(3.0f / 8.0f) * y * (5.0f * z * z - 1.0f),
+            0.5f * z * (5.0f * z * z - 3.0f),
+            std::sqrt(3.0f / 8.0f) * x * (5.0f * z * z - 1.0f),
+            0.5f * std::sqrt(15.0f) * z * (x * x - y * y),
+            std::sqrt(5.0f / 8.0f) * x * (x * x - 3.0f * y * y),
+        };
+        for (uint32_t channel = 0; channel < canonical.size(); ++channel) {
+            if (!near(basis[channel], canonical[channel], 0.00001f)) {
+                std::cerr << "Ambi Speaker Decoder ACN/SN3D basis mismatch at channel "
+                          << channel << ": " << basis[channel]
+                          << " != " << canonical[channel] << "\n";
+                return false;
+            }
+        }
+    }
+
+    constexpr auto allRadMode = static_cast<s3g::AmbiSpeakerDecoderMode>(3u);
+    if (static_cast<uint32_t>(s3g::AmbiSpeakerDecoderMode::Basic) != 0u
+        || static_cast<uint32_t>(s3g::AmbiSpeakerDecoderMode::Epad) != 1u
+        || static_cast<uint32_t>(s3g::AmbiSpeakerDecoderMode::Mmd) != 2u
+        || static_cast<uint32_t>(s3g::AmbiSpeakerDecoderMode::AllRad) != 3u) {
+        std::cerr << "Ambi Speaker Decoder mode values changed\n";
+        return false;
+    }
+    auto modeClampDecoder = std::make_unique<s3g::AmbiSpeakerDecoder>();
+    modeClampDecoder->prepare(48000.0);
+    auto modeClampParams = modeClampDecoder->params();
+    modeClampParams.mode = static_cast<s3g::AmbiSpeakerDecoderMode>(999u);
+    modeClampDecoder->setParams(modeClampParams);
+    if (modeClampDecoder->params().mode != s3g::AmbiSpeakerDecoderMode::AllRad) {
+        std::cerr << "Ambi Speaker Decoder did not clamp an invalid high mode value to ALLRAD\n";
+        return false;
+    }
+    {
+        auto fallbackDecoder = std::make_unique<s3g::AmbiSpeakerDecoder>();
+        fallbackDecoder->prepare(48000.0);
+        auto fallbackParams = fallbackDecoder->params();
+        fallbackParams.layout = s3g::AmbiSpeakerLayoutPreset::Quad;
+        fallbackParams.order = 7u;
+        fallbackParams.regularization = 0.0f;
+        fallbackParams.mode = s3g::AmbiSpeakerDecoderMode::Basic;
+        fallbackDecoder->setParams(fallbackParams);
+
+        double basicMagnitude = 0.0;
+        for (const auto& row : fallbackDecoder->matrix()) {
+            for (const float coefficient : row) {
+                basicMagnitude += std::abs(static_cast<double>(coefficient));
+            }
+        }
+        fallbackParams = fallbackDecoder->params();
+        fallbackParams.mode = s3g::AmbiSpeakerDecoderMode::Epad;
+        fallbackDecoder->setParams(fallbackParams);
+        double fallbackMagnitude = 0.0;
+        for (const auto& row : fallbackDecoder->matrix()) {
+            for (const float coefficient : row) {
+                fallbackMagnitude += std::abs(static_cast<double>(coefficient));
+            }
+        }
+        if (basicMagnitude <= 0.000001
+            || fallbackDecoder->params().mode
+                != s3g::AmbiSpeakerDecoderMode::Basic
+            || fallbackMagnitude <= 0.000001) {
+            std::cerr << "Ambi Speaker Decoder singular EPAD fallback left a silent matrix\n";
+            return false;
+        }
+    }
+
+    enum class SweepDomain : uint32_t {
+        Sphere,
+        Hemisphere,
+        Ring,
+    };
+    struct PresetProbe {
+        s3g::AmbiSpeakerLayoutPreset preset;
+        SweepDomain domain;
+        const char* name;
+    };
+    static constexpr PresetProbe presets[] {
+        { s3g::AmbiSpeakerLayoutPreset::Quad, SweepDomain::Ring, "Quad" },
+        { s3g::AmbiSpeakerLayoutPreset::Cube8, SweepDomain::Sphere, "Cube8" },
+        { s3g::AmbiSpeakerLayoutPreset::Cube17, SweepDomain::Sphere, "Cube17" },
+        { s3g::AmbiSpeakerLayoutPreset::Dome24, SweepDomain::Hemisphere, "Dome24" },
+        { s3g::AmbiSpeakerLayoutPreset::Dome25, SweepDomain::Hemisphere, "Dome25" },
+        { s3g::AmbiSpeakerLayoutPreset::QuadOverhead6, SweepDomain::Hemisphere, "QuadOverhead6" },
+        { s3g::AmbiSpeakerLayoutPreset::Sphere24, SweepDomain::Sphere, "Sphere24" },
+        { s3g::AmbiSpeakerLayoutPreset::Dodeca12, SweepDomain::Sphere, "Dodeca12" },
+        { s3g::AmbiSpeakerLayoutPreset::Icosahedron20, SweepDomain::Sphere, "Icosahedron20" },
+        { s3g::AmbiSpeakerLayoutPreset::OctophonicRing, SweepDomain::Ring, "OctophonicRing" },
+        { s3g::AmbiSpeakerLayoutPreset::Cube41, SweepDomain::Hemisphere, "Cube41" },
+        { s3g::AmbiSpeakerLayoutPreset::Lpac41, SweepDomain::Hemisphere, "Lpac41" },
+        { s3g::AmbiSpeakerLayoutPreset::Srst25, SweepDomain::Hemisphere, "Srst25" },
+    };
+    static constexpr uint32_t orders[] { 1u, 3u, 7u };
+
+    auto matrixDifference = [](const s3g::AmbiSpeakerDecoder& a, const s3g::AmbiSpeakerDecoder& b) {
+        double difference = 0.0;
+        const auto& ma = a.matrix();
+        const auto& mb = b.matrix();
+        for (uint32_t spk = 0; spk < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++spk) {
+            for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxChannels; ++ch) {
+                difference += std::abs(static_cast<double>(ma[spk][ch])
+                    - static_cast<double>(mb[spk][ch]));
+            }
+        }
+        return difference;
+    };
+    auto validateAllRadTopology = [](const s3g::AmbiSpeakerDecoder& decoder,
+                                     s3g::AllRadDimension expectedDimension,
+                                     const char* name) {
+        const auto& topology = decoder.allRadTopology();
+        const uint32_t active = decoder.params().activeSpeakers;
+        if (!topology.valid || topology.dimension != expectedDimension
+            || topology.nodeCount > topology.nodes.size()
+            || topology.edgeCount > topology.edges.size()
+            || topology.facetCount > topology.facets.size()
+            || topology.realNodeCount + topology.supportCount != topology.nodeCount
+            || topology.dropSupportCount + topology.foldSupportCount != topology.supportCount
+            || topology.missedVirtualDirections != 0u) {
+            std::cerr << "Ambi Speaker Decoder ALLRAD topology summary failed for " << name
+                      << ": valid=" << topology.valid
+                      << " nodes=" << topology.nodeCount
+                      << " real/support=" << topology.realNodeCount << "/" << topology.supportCount
+                      << " missed=" << topology.missedVirtualDirections << "\n";
+            return false;
+        }
+
+        std::array<bool, s3g::kAmbiSpeakerDecoderMaxSpeakers> realOutputs {};
+        uint32_t countedReal = 0u;
+        uint32_t countedDrop = 0u;
+        uint32_t countedFold = 0u;
+        for (uint32_t i = 0; i < topology.nodeCount; ++i) {
+            const auto& node = topology.nodes[i];
+            const float lengthSquared = node.direction.x * node.direction.x
+                + node.direction.y * node.direction.y
+                + node.direction.z * node.direction.z;
+            if (!std::isfinite(node.direction.x) || !std::isfinite(node.direction.y)
+                || !std::isfinite(node.direction.z)
+                || std::abs(lengthSquared - 1.0f) > 0.001f) {
+                std::cerr << "Ambi Speaker Decoder ALLRAD topology node is invalid for " << name << "\n";
+                return false;
+            }
+            if (node.kind == s3g::AllRadNodeKind::Real) {
+                if (node.speakerIndex >= active || realOutputs[node.speakerIndex]
+                    || !decoder.speaker(node.speakerIndex).enabled
+                    || node.foldTargetCount != 0u) {
+                    std::cerr << "Ambi Speaker Decoder ALLRAD real-node mapping failed for " << name << "\n";
+                    return false;
+                }
+                realOutputs[node.speakerIndex] = true;
+                ++countedReal;
+                continue;
+            }
+
+            if (node.kind == s3g::AllRadNodeKind::SupportDrop) {
+                if (node.foldTargetCount != 0u) {
+                    std::cerr << "Ambi Speaker Decoder ALLRAD Drop support acquired fold targets for "
+                              << name << "\n";
+                    return false;
+                }
+                ++countedDrop;
+                continue;
+            }
+            if (node.kind != s3g::AllRadNodeKind::SupportFold
+                || node.foldTargetCount == 0u
+                || node.foldTargetCount > node.foldTargets.size()) {
+                std::cerr << "Ambi Speaker Decoder ALLRAD Fold support is invalid for " << name << "\n";
+                return false;
+            }
+            std::array<bool, s3g::kAmbiSpeakerDecoderMaxSpeakers> foldOutputs {};
+            for (uint32_t target = 0; target < node.foldTargetCount; ++target) {
+                const uint32_t output = node.foldTargets[target];
+                if (output >= active || foldOutputs[output] || !decoder.speaker(output).enabled) {
+                    std::cerr << "Ambi Speaker Decoder ALLRAD Fold target is invalid for " << name << "\n";
+                    return false;
+                }
+                foldOutputs[output] = true;
+            }
+            ++countedFold;
+        }
+        if (countedReal != topology.realNodeCount
+            || countedDrop != topology.dropSupportCount
+            || countedFold != topology.foldSupportCount) {
+            std::cerr << "Ambi Speaker Decoder ALLRAD node-kind counts failed for " << name << "\n";
+            return false;
+        }
+
+        for (uint32_t i = 0; i < topology.edgeCount; ++i) {
+            const auto& edge = topology.edges[i];
+            if (edge.a >= topology.nodeCount || edge.b >= topology.nodeCount || edge.a == edge.b) {
+                std::cerr << "Ambi Speaker Decoder ALLRAD edge index failed for " << name << "\n";
+                return false;
+            }
+        }
+        for (uint32_t i = 0; i < topology.facetCount; ++i) {
+            const auto& facet = topology.facets[i];
+            if (facet.a >= topology.nodeCount || facet.b >= topology.nodeCount
+                || facet.c >= topology.nodeCount
+                || facet.a == facet.b || facet.a == facet.c || facet.b == facet.c) {
+                std::cerr << "Ambi Speaker Decoder ALLRAD facet index failed for " << name << "\n";
+                return false;
+            }
+            const auto a = topology.nodes[facet.a].direction;
+            const auto b = topology.nodes[facet.b].direction;
+            const auto c = topology.nodes[facet.c].direction;
+            const float determinant = a.x * (b.y * c.z - b.z * c.y)
+                - b.x * (a.y * c.z - a.z * c.y)
+                + c.x * (a.y * b.z - a.z * b.y);
+            if (!std::isfinite(determinant) || std::abs(determinant) < 0.000001f) {
+                std::cerr << "Ambi Speaker Decoder ALLRAD facet is degenerate for " << name << "\n";
+                return false;
+            }
+        }
+        if (expectedDimension == s3g::AllRadDimension::Sphere3D) {
+            std::array<bool, s3g::kAllRadMaxNodes> nodeUsed {};
+            for (uint32_t i = 0; i < topology.facetCount; ++i) {
+                const auto& facet = topology.facets[i];
+                nodeUsed[facet.a] = true;
+                nodeUsed[facet.b] = true;
+                nodeUsed[facet.c] = true;
+            }
+            for (uint32_t i = 0; i < topology.edgeCount; ++i) {
+                const auto& edge = topology.edges[i];
+                uint32_t incidence = 0u;
+                for (uint32_t facetIndex = 0; facetIndex < topology.facetCount; ++facetIndex) {
+                    const auto& facet = topology.facets[facetIndex];
+                    const bool hasA =
+                        facet.a == edge.a || facet.b == edge.a || facet.c == edge.a;
+                    const bool hasB =
+                        facet.a == edge.b || facet.b == edge.b || facet.c == edge.b;
+                    if (hasA && hasB) ++incidence;
+                }
+                if (incidence != 2u) {
+                    std::cerr << "Ambi Speaker Decoder ALLRAD sphere edge incidence failed for "
+                              << name << ": edge " << edge.a << "-" << edge.b
+                              << " has " << incidence << " facets\n";
+                    return false;
+                }
+            }
+            for (uint32_t i = 0; i < topology.nodeCount; ++i) {
+                if (!nodeUsed[i]) {
+                    std::cerr << "Ambi Speaker Decoder ALLRAD sphere has an unused node for "
+                              << name << "\n";
+                    return false;
+                }
+            }
+            const int64_t eulerCharacteristic =
+                static_cast<int64_t>(topology.nodeCount)
+                - static_cast<int64_t>(topology.edgeCount)
+                + static_cast<int64_t>(topology.facetCount);
+            if (topology.facetCount * 3u != topology.edgeCount * 2u
+                || eulerCharacteristic != 2) {
+                std::cerr << "Ambi Speaker Decoder ALLRAD sphere is not a closed manifold for "
+                          << name << ": V/E/F=" << topology.nodeCount << "/"
+                          << topology.edgeCount << "/" << topology.facetCount
+                          << " Euler=" << eulerCharacteristic << "\n";
+                return false;
+            }
+        }
+        if ((expectedDimension == s3g::AllRadDimension::Ring2D
+                && (topology.edgeCount == 0u || topology.facetCount != 0u))
+            || (expectedDimension == s3g::AllRadDimension::Sphere3D
+                && topology.facetCount == 0u)) {
+            std::cerr << "Ambi Speaker Decoder ALLRAD topology dimension data failed for " << name << "\n";
+            return false;
+        }
+        return true;
+    };
+
+    for (const auto& probe : presets) {
+        for (const uint32_t order : orders) {
+            auto decoderA = std::make_unique<s3g::AmbiSpeakerDecoder>();
+            auto decoderB = std::make_unique<s3g::AmbiSpeakerDecoder>();
+            decoderA->prepare(48000.0);
+            decoderB->prepare(48000.0);
+            auto p = decoderA->params();
+            p.layout = probe.preset;
+            p.mode = allRadMode;
+            p.order = order;
+            p.weighting = s3g::AmbiSpeakerDecoderWeighting::MaxRe;
+            p.outputGainDb = 0.0f;
+            decoderA->setParams(p);
+            decoderB->setParams(p);
+            if (static_cast<uint32_t>(decoderA->params().mode) != 3u) {
+                std::cerr << "Ambi Speaker Decoder rejected ALLRAD mode for " << probe.name << "\n";
+                return false;
+            }
+            if (order == 1u) {
+                const auto expectedDimension = probe.domain == SweepDomain::Ring
+                    ? s3g::AllRadDimension::Ring2D
+                    : s3g::AllRadDimension::Sphere3D;
+                if (!validateAllRadTopology(*decoderA, expectedDimension, probe.name)) return false;
+                const auto& topology = decoderA->allRadTopology();
+                const bool symmetricFullSphere =
+                    probe.preset == s3g::AmbiSpeakerLayoutPreset::Cube8
+                    || probe.preset == s3g::AmbiSpeakerLayoutPreset::Dodeca12
+                    || probe.preset == s3g::AmbiSpeakerLayoutPreset::Icosahedron20;
+                if (symmetricFullSphere && topology.dropSupportCount != 0u) {
+                    std::cerr << "Ambi Speaker Decoder ALLRAD added a closure Drop support to "
+                              << probe.name << "\n";
+                    return false;
+                }
+                if (probe.domain == SweepDomain::Hemisphere
+                    && topology.dropSupportCount == 0u) {
+                    std::cerr << "Ambi Speaker Decoder ALLRAD did not close hemisphere layout "
+                              << probe.name << "\n";
+                    return false;
+                }
+            }
+
+            const uint32_t active = decoderA->params().activeSpeakers;
+            const uint32_t channels = s3g::ambiChannelsForOrder(order);
+            const auto& matrix = decoderA->matrix();
+            for (uint32_t spk = 0; spk < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++spk) {
+                for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxChannels; ++ch) {
+                    if (!std::isfinite(matrix[spk][ch])) {
+                        std::cerr << "Ambi Speaker Decoder ALLRAD matrix is not finite for "
+                                  << probe.name << " at " << order << "OA\n";
+                        return false;
+                    }
+                    if ((spk >= active || ch >= channels) && std::abs(matrix[spk][ch]) > 0.000001f) {
+                        std::cerr << "Ambi Speaker Decoder ALLRAD matrix leaked into an inactive lane for "
+                                  << probe.name << " at " << order << "OA\n";
+                        return false;
+                    }
+                }
+            }
+            if (matrixDifference(*decoderA, *decoderB) > 0.000001) {
+                std::cerr << "Ambi Speaker Decoder ALLRAD rebuild is not deterministic for "
+                          << probe.name << " at " << order << "OA\n";
+                return false;
+            }
+            decoderA->setParams(decoderA->params());
+            if (matrixDifference(*decoderA, *decoderB) > 0.000001) {
+                std::cerr << "Ambi Speaker Decoder ALLRAD repeated setParams changed the matrix for "
+                          << probe.name << " at " << order << "OA\n";
+                return false;
+            }
+
+            std::array<float, s3g::kAmbiSpeakerDecoderMaxChannels> input {};
+            std::array<float, s3g::kAmbiSpeakerDecoderMaxSpeakers> output {};
+            for (uint32_t ch = 0; ch < channels; ++ch) {
+                input[ch] = std::sin(static_cast<float>(ch + 1u) * 0.731f) * 0.05f;
+            }
+            decoderA->processFrame(input.data(), output.data());
+            for (uint32_t spk = 0; spk < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++spk) {
+                if (!std::isfinite(output[spk])
+                    || (spk >= active && std::abs(output[spk]) > 0.000001f)) {
+                    std::cerr << "Ambi Speaker Decoder ALLRAD output lane failed for "
+                              << probe.name << " at " << order << "OA\n";
+                    return false;
+                }
+            }
+        }
+
+        auto sweepDecoder = std::make_unique<s3g::AmbiSpeakerDecoder>();
+        sweepDecoder->prepare(48000.0);
+        auto sweepParams = sweepDecoder->params();
+        sweepParams.layout = probe.preset;
+        sweepParams.mode = allRadMode;
+        sweepParams.order = 1u;
+        sweepParams.weighting = s3g::AmbiSpeakerDecoderWeighting::MaxRe;
+        sweepParams.outputGainDb = 0.0f;
+        sweepDecoder->setParams(sweepParams);
+        const uint32_t active = sweepDecoder->params().activeSpeakers;
+        const auto& speakers = sweepDecoder->speakers();
+        double minimumPower = std::numeric_limits<double>::infinity();
+        double maximumPower = 0.0;
+        double directionCosineSum = 0.0;
+        uint32_t forwardDirections = 0u;
+        uint32_t directionCount = 0u;
+        const int elevationStart = probe.domain == SweepDomain::Sphere ? -60 : 0;
+        const int elevationEnd = probe.domain == SweepDomain::Ring ? 0 : 60;
+        const int elevationStep = probe.domain == SweepDomain::Ring ? 30 : 30;
+        for (int elevation = elevationStart; elevation <= elevationEnd; elevation += elevationStep) {
+            for (int azimuth = -180; azimuth < 180; azimuth += 30) {
+                const auto direction = s3g::directionFromAed(
+                    static_cast<float>(azimuth), static_cast<float>(elevation));
+                const auto basis = s3g::acnSn3dBasis7Canonical(direction);
+                std::array<float, s3g::kAmbiSpeakerDecoderMaxSpeakers> output {};
+                sweepDecoder->processFrame(basis.data(), output.data());
+                double power = 0.0;
+                s3g::Vec3 energyVector {};
+                for (uint32_t spk = 0; spk < active; ++spk) {
+                    if (!std::isfinite(output[spk])) {
+                        std::cerr << "Ambi Speaker Decoder ALLRAD direction sweep is not finite for "
+                                  << probe.name << "\n";
+                        return false;
+                    }
+                    const double energy = static_cast<double>(output[spk]) * output[spk];
+                    const auto speakerDirection = s3g::directionFromAed(
+                        speakers[spk].azimuthDeg, speakers[spk].elevationDeg);
+                    power += energy;
+                    energyVector.x += static_cast<float>(energy * speakerDirection.x);
+                    energyVector.y += static_cast<float>(energy * speakerDirection.y);
+                    energyVector.z += static_cast<float>(energy * speakerDirection.z);
+                }
+                if (!(power > 0.00000001) || !std::isfinite(power)) {
+                    std::cerr << "Ambi Speaker Decoder ALLRAD direction sweep lost power for "
+                              << probe.name << "\n";
+                    return false;
+                }
+                minimumPower = std::min(minimumPower, power);
+                maximumPower = std::max(maximumPower, power);
+                const float vectorLength = std::sqrt(energyVector.x * energyVector.x
+                    + energyVector.y * energyVector.y + energyVector.z * energyVector.z);
+                if (vectorLength > 0.000001f) {
+                    const double cosine = (energyVector.x * direction.x
+                        + energyVector.y * direction.y + energyVector.z * direction.z)
+                        / vectorLength;
+                    directionCosineSum += cosine;
+                    if (cosine > 0.0) ++forwardDirections;
+                    ++directionCount;
+                }
+            }
+        }
+        const double meanDirectionCosine = directionCount > 0u
+            ? directionCosineSum / static_cast<double>(directionCount)
+            : -1.0;
+        if (maximumPower / minimumPower > 4.0
+            || meanDirectionCosine < 0.80
+            || forwardDirections * 10u < directionCount * 9u) {
+            std::cerr << "Ambi Speaker Decoder ALLRAD directional behavior failed for " << probe.name
+                      << ": power ratio=" << maximumPower / minimumPower
+                      << " mean rE cosine=" << meanDirectionCosine
+                      << " forward=" << forwardDirections << "/" << directionCount << "\n";
+            return false;
+        }
+    }
+
+    auto customPreservation = std::make_unique<s3g::AmbiSpeakerDecoder>();
+    customPreservation->prepare(48000.0);
+    auto customPreservationParams = customPreservation->params();
+    customPreservationParams.layout = s3g::AmbiSpeakerLayoutPreset::Cube8;
+    customPreservationParams.mode = allRadMode;
+    customPreservation->setParams(customPreservationParams);
+    const auto presetSpeakers = customPreservation->speakers();
+    auto editedSpeaker = presetSpeakers[2];
+    editedSpeaker.azimuthDeg += 7.0f;
+    editedSpeaker.elevationDeg -= 4.0f;
+    customPreservation->setSpeaker(2u, editedSpeaker);
+    if (customPreservation->params().layout != s3g::AmbiSpeakerLayoutPreset::Custom
+        || customPreservation->params().activeSpeakers != 8u) {
+        std::cerr << "Ambi Speaker Decoder ALLRAD preset edit did not become an eight-speaker custom layout\n";
+        return false;
+    }
+    for (uint32_t spk = 0; spk < 8u; ++spk) {
+        const auto actual = customPreservation->speaker(spk);
+        const auto expected = spk == 2u ? editedSpeaker : presetSpeakers[spk];
+        if (std::abs(actual.azimuthDeg - expected.azimuthDeg) > 0.001f
+            || std::abs(actual.elevationDeg - expected.elevationDeg) > 0.001f
+            || std::abs(actual.distance - expected.distance) > 0.001f) {
+            std::cerr << "Ambi Speaker Decoder ALLRAD preset-to-custom edit changed another coordinate\n";
+            return false;
+        }
+    }
+    const auto preservedBeforePrepare = customPreservation->speakers();
+    customPreservation->prepare(96000.0);
+    if (customPreservation->params().layout
+            != s3g::AmbiSpeakerLayoutPreset::Custom
+        || customPreservation->params().activeSpeakers != 8u) {
+        std::cerr << "Ambi Speaker Decoder prepare reset a configured custom layout\n";
+        return false;
+    }
+    for (uint32_t spk = 0; spk < 8u; ++spk) {
+        const auto actual = customPreservation->speaker(spk);
+        const auto expected = preservedBeforePrepare[spk];
+        if (std::abs(actual.azimuthDeg - expected.azimuthDeg) > 0.001f
+            || std::abs(actual.elevationDeg - expected.elevationDeg) > 0.001f
+            || std::abs(actual.distance - expected.distance) > 0.001f) {
+            std::cerr << "Ambi Speaker Decoder prepare changed custom speaker geometry\n";
+            return false;
+        }
+    }
+
+    auto customGapDecoder = std::make_unique<s3g::AmbiSpeakerDecoder>();
+    customGapDecoder->prepare(48000.0);
+    auto customGapParams = customGapDecoder->params();
+    customGapParams.layout = s3g::AmbiSpeakerLayoutPreset::Custom;
+    customGapParams.activeSpeakers = 5u;
+    customGapParams.mode = allRadMode;
+    customGapParams.order = 3u;
+    customGapDecoder->setParams(customGapParams);
+    static constexpr std::array<std::array<float, 2>, 5> customGapAed {{
+        {{ 180.0f, 0.0f }},
+        {{ 90.0f, 0.0f }},
+        {{ -90.0f, 0.0f }},
+        {{ 0.0f, 90.0f }},
+        {{ 0.0f, -90.0f }},
+    }};
+    for (uint32_t spk = 0; spk < customGapAed.size(); ++spk) {
+        auto speaker = customGapDecoder->speaker(spk);
+        speaker.azimuthDeg = customGapAed[spk][0];
+        speaker.elevationDeg = customGapAed[spk][1];
+        speaker.enabled = true;
+        customGapDecoder->setSpeaker(spk, speaker);
+    }
+    if (!validateAllRadTopology(*customGapDecoder, s3g::AllRadDimension::Sphere3D,
+            "custom large gap")
+        || customGapDecoder->allRadTopology().supportCount == 0u
+        || customGapDecoder->allRadTopology().dropSupportCount == 0u
+        || customGapDecoder->params().activeSpeakers != customGapAed.size()) {
+        std::cerr << "Ambi Speaker Decoder ALLRAD did not close a custom large gap\n";
+        return false;
+    }
+    {
+        const auto basis =
+            s3g::acnSn3dBasis7Canonical(s3g::directionFromAed(0.0f, 0.0f));
+        std::array<float, s3g::kAmbiSpeakerDecoderMaxSpeakers> output {};
+        customGapDecoder->processFrame(basis.data(), output.data());
+        for (uint32_t spk = customGapDecoder->params().activeSpeakers;
+             spk < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++spk) {
+            if (std::abs(output[spk]) > 0.000001f) {
+                std::cerr << "Ambi Speaker Decoder ALLRAD exposed a support as an output channel\n";
+                return false;
+            }
+        }
+    }
+
+    auto disabledDecoder = std::make_unique<s3g::AmbiSpeakerDecoder>();
+    auto enabledReference = std::make_unique<s3g::AmbiSpeakerDecoder>();
+    disabledDecoder->prepare(48000.0);
+    enabledReference->prepare(48000.0);
+    auto disabledParams = disabledDecoder->params();
+    disabledParams.layout = s3g::AmbiSpeakerLayoutPreset::Cube8;
+    disabledParams.mode = allRadMode;
+    disabledParams.order = 3u;
+    disabledDecoder->setParams(disabledParams);
+    enabledReference->setParams(disabledParams);
+    const auto disabledDirection = s3g::directionFromAed(
+        disabledDecoder->speaker(0).azimuthDeg, disabledDecoder->speaker(0).elevationDeg);
+    disabledDecoder->setSpeakerEnabled(0u, false);
+    if (disabledDecoder->params().activeSpeakers != 8u
+        || disabledDecoder->speaker(0).enabled
+        || !validateAllRadTopology(*disabledDecoder, s3g::AllRadDimension::Sphere3D,
+            "Cube8 disabled speaker")
+        || disabledDecoder->allRadTopology().realNodeCount != 7u) {
+        std::cerr << "Ambi Speaker Decoder ALLRAD did not remove a disabled speaker from its solve\n";
+        return false;
+    }
+    for (uint32_t nodeIndex = 0; nodeIndex < disabledDecoder->allRadTopology().nodeCount; ++nodeIndex) {
+        const auto& node = disabledDecoder->allRadTopology().nodes[nodeIndex];
+        if (node.kind == s3g::AllRadNodeKind::Real && node.speakerIndex == 0u) {
+            std::cerr << "Ambi Speaker Decoder ALLRAD retained a disabled real topology node\n";
+            return false;
+        }
+    }
+    double redistributedMatrixDifference = 0.0;
+    for (uint32_t spk = 1u; spk < 8u; ++spk) {
+        for (uint32_t ch = 0; ch < s3g::ambiChannelsForOrder(3u); ++ch) {
+            redistributedMatrixDifference += std::abs(
+                static_cast<double>(enabledReference->matrix()[spk][ch])
+                - static_cast<double>(disabledDecoder->matrix()[spk][ch]));
+        }
+    }
+    if (redistributedMatrixDifference <= 0.000001) {
+        std::cerr << "Ambi Speaker Decoder ALLRAD did not rebalance after disabling a speaker\n";
+        return false;
+    }
+    {
+        const auto basis = s3g::acnSn3dBasis7Canonical(disabledDirection);
+        std::array<float, s3g::kAmbiSpeakerDecoderMaxSpeakers> output {};
+        disabledDecoder->processFrame(basis.data(), output.data());
+        double redistributedPower = 0.0;
+        for (uint32_t spk = 1u; spk < 8u; ++spk) {
+            redistributedPower += static_cast<double>(output[spk]) * output[spk];
+        }
+        if (std::abs(output[0]) > 0.000001f || redistributedPower <= 0.00000001) {
+            std::cerr << "Ambi Speaker Decoder ALLRAD disabled-speaker output was not rebalanced\n";
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -1949,8 +2543,8 @@ int main()
         return 1;
     }
 
-    s3g::AmbiSpeakerDecoder speakerDecoder;
-    speakerDecoder.prepare(48000.0);
+    auto speakerDecoder = std::make_unique<s3g::AmbiSpeakerDecoder>();
+    speakerDecoder->prepare(48000.0);
     s3g::AmbiSpeakerDecoderParams speakerParams;
     if (speakerParams.outputGainDb != 0.0f) {
         std::cerr << "Ambi Speaker Decoder default output gain is not 0 dB\n";
@@ -1961,7 +2555,7 @@ int main()
     speakerParams.weighting = s3g::AmbiSpeakerDecoderWeighting::MaxRe;
     speakerParams.order = 7;
     speakerParams.outputGainDb = -12.0f;
-    speakerDecoder.setParams(speakerParams);
+    speakerDecoder->setParams(speakerParams);
     float decoderIn[s3g::kAmbiSpeakerDecoderMaxChannels] {};
     float decoderOut[s3g::kAmbiSpeakerDecoderMaxSpeakers] {};
     decoderIn[0] = 0.25f;
@@ -1969,7 +2563,7 @@ int main()
     decoderIn[7] = -0.04f;
     decoderIn[31] = 0.02f;
     decoderIn[63] = -0.01f;
-    speakerDecoder.processFrame(decoderIn, decoderOut);
+    speakerDecoder->processFrame(decoderIn, decoderOut);
     float speakerDecoderPeak = 0.0f;
     for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
         if (!std::isfinite(decoderOut[ch])) {
@@ -1983,8 +2577,8 @@ int main()
         return 1;
     }
 
-    s3g::AmbiObjectDecoder objectDecoder;
-    objectDecoder.prepare(48000.0);
+    auto objectDecoder = std::make_unique<s3g::AmbiObjectDecoder>();
+    objectDecoder->prepare(48000.0);
     s3g::AmbiObjectDecoderParams objectParams;
     if (objectParams.decoder.outputGainDb != 0.0f) {
         std::cerr << "Ambi Object Decoder default output gain is not 0 dB\n";
@@ -1997,7 +2591,7 @@ int main()
     objectParams.decoder.outputGainDb = -12.0f;
     objectParams.objectMethod = s3g::AmbiObjectMethod::Vbap;
     objectParams.objectBlend = 0.0f;
-    objectDecoder.setParams(objectParams);
+    objectDecoder->setParams(objectParams);
     float objectIn[s3g::kAmbiSpeakerDecoderMaxChannels] {};
     float objectFieldOut[s3g::kAmbiSpeakerDecoderMaxSpeakers] {};
     float objectHybridOut[s3g::kAmbiSpeakerDecoderMaxSpeakers] {};
@@ -2005,10 +2599,10 @@ int main()
     objectIn[1] = -0.10f;
     objectIn[2] = 0.07f;
     objectIn[3] = 0.16f;
-    objectDecoder.processFrame(objectIn, objectFieldOut, 16u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    objectDecoder->processFrame(objectIn, objectFieldOut, 16u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
     objectParams.objectBlend = 0.65f;
-    objectDecoder.setParams(objectParams);
-    objectDecoder.processFrame(objectIn, objectHybridOut, 16u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    objectDecoder->setParams(objectParams);
+    objectDecoder->processFrame(objectIn, objectHybridOut, 16u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
     float objectDecoderPeak = 0.0f;
     float objectDiff = 0.0f;
     for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
@@ -2024,8 +2618,8 @@ int main()
         return 1;
     }
 
-    s3g::AmbiAdaptiveDecoder adaptiveDecoder;
-    adaptiveDecoder.prepare(48000.0);
+    auto adaptiveDecoder = std::make_unique<s3g::AmbiAdaptiveDecoder>();
+    adaptiveDecoder->prepare(48000.0);
     s3g::AmbiAdaptiveDecoderParams adaptiveParams;
     if (adaptiveParams.decoder.outputGainDb != 0.0f) {
         std::cerr << "Ambi Adaptive Decoder default output gain is not 0 dB\n";
@@ -2041,9 +2635,9 @@ int main()
     adaptiveParams.confidence = 0.75f;
     adaptiveParams.transient = 0.50f;
     adaptiveParams.crossoverHz = 650.0f;
-    adaptiveDecoder.setParams(adaptiveParams);
+    adaptiveDecoder->setParams(adaptiveParams);
     float adaptiveOut[s3g::kAmbiSpeakerDecoderMaxSpeakers] {};
-    adaptiveDecoder.processFrame(objectIn, adaptiveOut, 16u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    adaptiveDecoder->processFrame(objectIn, adaptiveOut, 16u, s3g::kAmbiSpeakerDecoderMaxSpeakers);
     float adaptivePeak = 0.0f;
     float adaptiveDiff = 0.0f;
     for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
@@ -2060,8 +2654,8 @@ int main()
     }
 
     speakerParams.weighting = s3g::AmbiSpeakerDecoderWeighting::InPhase;
-    speakerDecoder.setParams(speakerParams);
-    speakerDecoder.processFrame(decoderIn, decoderOut);
+    speakerDecoder->setParams(speakerParams);
+    speakerDecoder->processFrame(decoderIn, decoderOut);
     for (uint32_t ch = 0; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
         if (!std::isfinite(decoderOut[ch])) {
             std::cerr << "Ambi Speaker Decoder weighted output is not finite\n";
@@ -2070,8 +2664,8 @@ int main()
     }
     speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Quad;
     speakerParams.order = 1;
-    speakerDecoder.setParams(speakerParams);
-    speakerDecoder.processFrame(decoderIn, decoderOut);
+    speakerDecoder->setParams(speakerParams);
+    speakerDecoder->processFrame(decoderIn, decoderOut);
     for (uint32_t ch = 4; ch < s3g::kAmbiSpeakerDecoderMaxSpeakers; ++ch) {
         if (std::abs(decoderOut[ch]) > 0.000001f) {
             std::cerr << "Ambi Speaker Decoder did not zero inactive speakers\n";
@@ -2079,19 +2673,19 @@ int main()
         }
     }
     speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::QuadOverhead6;
-    speakerDecoder.setParams(speakerParams);
-    if (std::abs(speakerDecoder.speaker(0).azimuthDeg - 45.0f) > 0.001f
-        || std::abs(speakerDecoder.speaker(4).azimuthDeg - 90.0f) > 0.001f
-        || std::abs(speakerDecoder.speaker(5).azimuthDeg - -90.0f) > 0.001f) {
+    speakerDecoder->setParams(speakerParams);
+    if (std::abs(speakerDecoder->speaker(0).azimuthDeg - 45.0f) > 0.001f
+        || std::abs(speakerDecoder->speaker(4).azimuthDeg - 90.0f) > 0.001f
+        || std::abs(speakerDecoder->speaker(5).azimuthDeg - -90.0f) > 0.001f) {
         std::cerr << "Ambi Speaker Decoder quad+overhead order changed unexpectedly\n";
         return 1;
     }
     speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Dome24;
-    speakerDecoder.setParams(speakerParams);
-    if (std::abs(speakerDecoder.speaker(0).azimuthDeg - -30.0f) > 0.001f
-        || std::abs(speakerDecoder.speaker(2).azimuthDeg - -90.0f) > 0.001f
-        || std::abs(speakerDecoder.speaker(12).elevationDeg - 32.0f) > 0.001f
-        || std::abs(speakerDecoder.speaker(20).elevationDeg - 66.6f) > 0.001f) {
+    speakerDecoder->setParams(speakerParams);
+    if (std::abs(speakerDecoder->speaker(0).azimuthDeg - -30.0f) > 0.001f
+        || std::abs(speakerDecoder->speaker(2).azimuthDeg - -90.0f) > 0.001f
+        || std::abs(speakerDecoder->speaker(12).elevationDeg - 32.0f) > 0.001f
+        || std::abs(speakerDecoder->speaker(20).elevationDeg - 66.6f) > 0.001f) {
         std::cerr << "Ambi Speaker Decoder dome spiral order changed unexpectedly\n";
         return 1;
     }
@@ -2104,10 +2698,10 @@ int main()
         };
     };
     speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Cube17;
-    speakerDecoder.setParams(speakerParams);
-    const auto cubeLower = speakerToWorld(speakerDecoder.speaker(0));
-    const auto cubeMiddle = speakerToWorld(speakerDecoder.speaker(4));
-    const auto cubeUpper = speakerToWorld(speakerDecoder.speaker(12));
+    speakerDecoder->setParams(speakerParams);
+    const auto cubeLower = speakerToWorld(speakerDecoder->speaker(0));
+    const auto cubeMiddle = speakerToWorld(speakerDecoder->speaker(4));
+    const auto cubeUpper = speakerToWorld(speakerDecoder->speaker(12));
     if (std::abs(cubeLower.x - cubeMiddle.x) > 0.001f
         || std::abs(cubeLower.y - cubeMiddle.y) > 0.001f
         || std::abs(cubeUpper.x - cubeMiddle.x) > 0.001f
@@ -2117,44 +2711,46 @@ int main()
         std::cerr << "Ambi Speaker Decoder CUBE17 tier projection changed unexpectedly\n";
         return 1;
     }
-    const auto cubePresetSpeaker0 = speakerDecoder.speaker(0);
+    const auto cubePresetSpeaker0 = speakerDecoder->speaker(0);
     speakerParams.selectedSpeaker = 0;
     speakerParams.selectedAzimuthDeg = 0.0f;
     speakerParams.selectedElevationDeg = 0.0f;
     speakerParams.selectedDistance = 1.0f;
     speakerParams.width = 0.72f;
-    speakerDecoder.setParams(speakerParams);
-    if (std::abs(speakerDecoder.speaker(0).azimuthDeg - cubePresetSpeaker0.azimuthDeg) > 0.001f
-        || std::abs(speakerDecoder.speaker(0).elevationDeg - cubePresetSpeaker0.elevationDeg) > 0.001f
-        || std::abs(speakerDecoder.speaker(0).distance - cubePresetSpeaker0.distance) > 0.001f) {
+    speakerDecoder->setParams(speakerParams);
+    if (std::abs(speakerDecoder->speaker(0).azimuthDeg - cubePresetSpeaker0.azimuthDeg) > 0.001f
+        || std::abs(speakerDecoder->speaker(0).elevationDeg - cubePresetSpeaker0.elevationDeg) > 0.001f
+        || std::abs(speakerDecoder->speaker(0).distance - cubePresetSpeaker0.distance) > 0.001f) {
         std::cerr << "Ambi Speaker Decoder preset geometry was changed by editable speaker fields\n";
         return 1;
     }
     speakerParams.layout = s3g::AmbiSpeakerLayoutPreset::Custom;
     speakerParams.activeSpeakers = 13;
     speakerParams.customField = s3g::AmbiSpeakerCustomField::Hemisphere;
-    speakerDecoder.setParams(speakerParams);
-    if (speakerDecoder.params().activeSpeakers != 13u) {
+    speakerDecoder->setParams(speakerParams);
+    if (speakerDecoder->params().activeSpeakers != 13u) {
         std::cerr << "Ambi Speaker Decoder custom speaker count failed\n";
         return 1;
     }
     for (uint32_t i = 0; i < 13u; ++i) {
-        if (speakerDecoder.speaker(i).elevationDeg < -0.001f) {
+        if (speakerDecoder->speaker(i).elevationDeg < -0.001f) {
             std::cerr << "Ambi Speaker Decoder hemisphere custom layout dipped below horizon\n";
             return 1;
         }
     }
     speakerParams.activeSpeakers = 14;
     speakerParams.customField = s3g::AmbiSpeakerCustomField::FullSphere;
-    speakerDecoder.setParams(speakerParams);
+    speakerDecoder->setParams(speakerParams);
     bool fullSphereHasLower = false;
     for (uint32_t i = 0; i < 14u; ++i) {
-        fullSphereHasLower = fullSphereHasLower || speakerDecoder.speaker(i).elevationDeg < -0.001f;
+        fullSphereHasLower = fullSphereHasLower || speakerDecoder->speaker(i).elevationDeg < -0.001f;
     }
     if (!fullSphereHasLower) {
         std::cerr << "Ambi Speaker Decoder full-sphere custom layout did not use lower hemisphere\n";
         return 1;
     }
+
+    if (!runAllRadSpeakerDecoderTests()) return 1;
 
     s3g::AmbiStereoDecoder ambiStereo;
     ambiStereo.prepare(48000.0);

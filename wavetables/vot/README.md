@@ -1,6 +1,6 @@
 # s3g VOT Wavetable Atlases
 
-These WAV files are 4 x 4 timbre atlases for `s3g Ambi VOT Encoder 64`.
+These WAV files are 4 x 4 timbre atlases for `s3g Ambi Encoder VOT 64`.
 Choose `LOAD` in the plugin, select an atlas, and the wave set changes to
 `USER`. The loaded atlas is stored with the REAPER project.
 

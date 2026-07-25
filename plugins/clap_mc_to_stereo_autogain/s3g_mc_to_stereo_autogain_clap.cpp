@@ -923,15 +923,15 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     s3g::clap_gui::drawPanelFrame(side.origin.x, side.origin.y, side.size.width, side.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"AUDITION", true, side.origin.x, side.origin.y, side.size.width, 21, label, style);
 
-    [self drawSlider:@"IN" value:[NSString stringWithFormat:@"%u", count] norm:(count - 2.0) / 126.0 y:74 attrs:label small:small];
-    [self drawSlider:@"WDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.widthPercent)] norm:p->params.widthPercent / 200.0 y:96 attrs:label small:small];
-    [self drawSlider:@"ROT" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.rotationDegrees)] norm:(p->params.rotationDegrees + 180.0) / 360.0 y:118 attrs:label small:small];
-    [self drawMenu:@"LAY" value:[NSString stringWithUTF8String:layoutName(layout)] y:140 attrs:label small:small];
-    [self drawSlider:@"WGT" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.layoutWeightPercent)] norm:p->params.layoutWeightPercent / 100.0 y:162 attrs:label small:small];
-    [self drawSlider:@"ATT" value:(projection ? [NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.attenuation3dPercent)] : @"OFF") norm:(projection ? p->params.attenuation3dPercent / 100.0 : 0.0) y:184 attrs:label small:small];
-    [self drawSlider:@"DST" value:(projection ? [NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.distance3dPercent)] : @"OFF") norm:(projection ? p->params.distance3dPercent / 200.0 : 0.5) y:206 attrs:label small:small];
-    [self drawMenu:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))] y:228 attrs:label small:small];
-    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 24.0) / 48.0 y:250 attrs:label small:small];
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 24.0) / 48.0 y:74 attrs:label small:small];
+    [self drawSlider:@"IN" value:[NSString stringWithFormat:@"%u", count] norm:(count - 2.0) / 126.0 y:96 attrs:label small:small];
+    [self drawSlider:@"WDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.widthPercent)] norm:p->params.widthPercent / 200.0 y:118 attrs:label small:small];
+    [self drawSlider:@"ROT" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.rotationDegrees)] norm:(p->params.rotationDegrees + 180.0) / 360.0 y:140 attrs:label small:small];
+    [self drawMenu:@"LAY" value:[NSString stringWithUTF8String:layoutName(layout)] y:162 attrs:label small:small];
+    [self drawSlider:@"WGT" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.layoutWeightPercent)] norm:p->params.layoutWeightPercent / 100.0 y:184 attrs:label small:small];
+    [self drawSlider:@"ATT" value:(projection ? [NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.attenuation3dPercent)] : @"OFF") norm:(projection ? p->params.attenuation3dPercent / 100.0 : 0.0) y:206 attrs:label small:small];
+    [self drawSlider:@"DST" value:(projection ? [NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.distance3dPercent)] : @"OFF") norm:(projection ? p->params.distance3dPercent / 200.0 : 0.5) y:228 attrs:label small:small];
+    [self drawMenu:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))] y:250 attrs:label small:small];
 
     NSRect meterPanel = NSMakeRect(604, 288, 292, 106);
     [s3gMcColor(0x111111) setFill]; NSRectFill(meterPanel);
@@ -1045,10 +1045,11 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
         return;
     }
     const CGFloat rows[] = { 74, 96, 118, 140, 162, 184, 206, 228, 250 };
+    const int controls[] = { 8, 0, 1, 2, 3, 4, 5, 6, 7 };
     for (int i = 0; i < 9; ++i) {
         NSRect r = NSMakeRect(596, rows[i] - 6, 296, 22);
         if (NSPointInRect(pt, r)) {
-            if (i == 3) {
+            if (i == 4) {
                 _openMenu = 1;
                 _menuItems = 8;
                 _menuOrigin = NSMakePoint(710, rows[i] + 17);
@@ -1056,7 +1057,7 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
                 [self setNeedsDisplay:YES];
                 return;
             }
-            if (i == 7) {
+            if (i == 8) {
                 _openMenu = 2;
                 _menuItems = 3;
                 _menuOrigin = NSMakePoint(710, rows[i] + 17);
@@ -1064,10 +1065,10 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
                 [self setNeedsDisplay:YES];
                 return;
             }
-            if ((i == 5 || i == 6) && !isProjectionLayout(p->params.layout)) {
+            if ((i == 6 || i == 7) && !isProjectionLayout(p->params.layout)) {
                 return;
             }
-            _dragSlider = i;
+            _dragSlider = controls[i];
             [self updateSliderAtPoint:pt];
             return;
         }

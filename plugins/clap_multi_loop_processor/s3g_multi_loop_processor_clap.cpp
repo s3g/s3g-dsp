@@ -544,7 +544,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         info->flags &= ~CLAP_PARAM_IS_AUTOMATABLE;
     }
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, "Multi Loop Processor", sizeof(info->module));
+    std::strncpy(info->module, "Processor Multi Loop", sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -1080,7 +1080,7 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     NSDictionary* section = s3g::clap_gui::softLabelAttrs();
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
-    [@"s3g MULTI LOOP PROCESSOR" drawAtPoint:NSMakePoint(18,13) withAttributes:titleAttrs];
+    [@"s3g PROCESSOR MULTI LOOP" drawAtPoint:NSMakePoint(18,13) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
     [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(720,14) withAttributes:small];
     [@"8CH" drawAtPoint:NSMakePoint(866,14) withAttributes:small];
@@ -1167,15 +1167,15 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     panelFrame(y, engineH);
     [self drawSectionHeader:@"ENGINE" open:_engineOpen y:y attrs:section];
     if (_engineOpen) {
-        [self drawMenuControl:@"RULE" value:[NSString stringWithUTF8String:ruleName(p->targets.rule.load(std::memory_order_acquire))] y:y + 28 attrs:small small:small];
-        [self drawSlider:@"SRAT" value:[NSString stringWithFormat:@"%.0f%%", p->targets.sourceRateSpread.load(std::memory_order_acquire) * 100.0f] norm:p->targets.sourceRateSpread.load(std::memory_order_acquire) y:y + 52 attrs:small small:small];
-        [self drawSlider:@"XBLD" value:[NSString stringWithFormat:@"%.0f%%", p->targets.sourceBlend.load(std::memory_order_acquire) * 100.0f] norm:p->targets.sourceBlend.load(std::memory_order_acquire) y:y + 76 attrs:small small:small];
-        [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", params.baseRate] norm:(params.baseRate - 0.125) / (4.0 - 0.125) y:y + 100 attrs:small small:small];
-        [self drawSlider:@"XFD" value:[NSString stringWithFormat:@"%.0f%%", params.xfadePct * 100.0f] norm:params.xfadePct / 0.3f y:y + 124 attrs:small small:small];
-        [self drawSlider:@"DUCK" value:[NSString stringWithFormat:@"%.2f", params.seamDuck] norm:params.seamDuck / 0.75f y:y + 148 attrs:small small:small];
-        [self drawSlider:@"STRT" value:[NSString stringWithFormat:@"%.0f%%", params.loopStart * 100.0f] norm:params.loopStart / 0.999f y:y + 172 attrs:small small:small];
-        [self drawSlider:@"LEN" value:[NSString stringWithFormat:@"%.0f%%", params.loopLength * 100.0f] norm:(params.loopLength - 0.01f) / 0.99f y:y + 196 attrs:small small:small];
-        [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.gainDb] norm:(params.gainDb + 60.0f) / 66.0f y:y + 220 attrs:small small:small];
+        [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.gainDb] norm:(params.gainDb + 60.0f) / 66.0f y:y + 28 attrs:small small:small];
+        [self drawMenuControl:@"RULE" value:[NSString stringWithUTF8String:ruleName(p->targets.rule.load(std::memory_order_acquire))] y:y + 52 attrs:small small:small];
+        [self drawSlider:@"SRAT" value:[NSString stringWithFormat:@"%.0f%%", p->targets.sourceRateSpread.load(std::memory_order_acquire) * 100.0f] norm:p->targets.sourceRateSpread.load(std::memory_order_acquire) y:y + 76 attrs:small small:small];
+        [self drawSlider:@"XBLD" value:[NSString stringWithFormat:@"%.0f%%", p->targets.sourceBlend.load(std::memory_order_acquire) * 100.0f] norm:p->targets.sourceBlend.load(std::memory_order_acquire) y:y + 100 attrs:small small:small];
+        [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", params.baseRate] norm:(params.baseRate - 0.125) / (4.0 - 0.125) y:y + 124 attrs:small small:small];
+        [self drawSlider:@"XFD" value:[NSString stringWithFormat:@"%.0f%%", params.xfadePct * 100.0f] norm:params.xfadePct / 0.3f y:y + 148 attrs:small small:small];
+        [self drawSlider:@"DUCK" value:[NSString stringWithFormat:@"%.2f", params.seamDuck] norm:params.seamDuck / 0.75f y:y + 172 attrs:small small:small];
+        [self drawSlider:@"STRT" value:[NSString stringWithFormat:@"%.0f%%", params.loopStart * 100.0f] norm:params.loopStart / 0.999f y:y + 196 attrs:small small:small];
+        [self drawSlider:@"LEN" value:[NSString stringWithFormat:@"%.0f%%", params.loopLength * 100.0f] norm:(params.loopLength - 0.01f) / 0.99f y:y + 220 attrs:small small:small];
         [self drawMenuControl:@"MIDI" value:[NSString stringWithUTF8String:midiModeName(p->targets.midiMode.load(std::memory_order_acquire))] y:y + 244 attrs:small small:small];
         [self drawSlider:@"ROOT" value:[NSString stringWithFormat:@"%.0f", p->targets.midiRoot.load(std::memory_order_acquire)] norm:p->targets.midiRoot.load(std::memory_order_acquire) / 127.0f y:y + 268 attrs:small small:small];
     }
@@ -1357,11 +1357,11 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
         [self setNeedsDisplay:YES];
         return;
     }
-    if (_engineOpen && NSPointInRect(pt, NSMakeRect(kSliderLabelX - 4.0, engineY + 28 - 8, 296, 24))) {
+    if (_engineOpen && NSPointInRect(pt, NSMakeRect(kSliderLabelX - 4.0, engineY + 52 - 8, 296, 24))) {
         _openMenu = 1;
         _hoverMenuItem = -1;
         _menuItemCount = 4;
-        _menuOrigin = NSMakePoint(kSliderTrackX, engineY + 45);
+        _menuOrigin = NSMakePoint(kSliderTrackX, engineY + 69);
         [self setNeedsDisplay:YES];
         return;
     }
@@ -1375,14 +1375,14 @@ static void drawMiniWaveform(const s3g::LoopProcessorSample* sample, NSRect rect
     }
     struct RowHit { CGFloat y; int slider; BOOL open; };
     const RowHit rows[] = {
-        { engineY + 52, 11, _engineOpen },
-        { engineY + 76, 12, _engineOpen },
-        { engineY + 100, 1, _engineOpen },
-        { engineY + 124, 2, _engineOpen },
-        { engineY + 148, 3, _engineOpen },
-        { engineY + 172, 9, _engineOpen },
-        { engineY + 196, 10, _engineOpen },
-        { engineY + 220, 4, _engineOpen },
+        { engineY + 28, 4, _engineOpen },
+        { engineY + 76, 11, _engineOpen },
+        { engineY + 100, 12, _engineOpen },
+        { engineY + 124, 1, _engineOpen },
+        { engineY + 148, 2, _engineOpen },
+        { engineY + 172, 3, _engineOpen },
+        { engineY + 196, 9, _engineOpen },
+        { engineY + 220, 10, _engineOpen },
         { engineY + 268, 13, _engineOpen },
         { relY + 28, 5, _relationshipsOpen },
         { relY + 52, 6, _relationshipsOpen },
@@ -1462,7 +1462,7 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 }
 
 const char* const features[] { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SAMPLER, CLAP_PLUGIN_FEATURE_SURROUND, nullptr };
-const clap_plugin_descriptor_t descriptor { CLAP_VERSION_INIT, "org.s3g.s3g-dsp.multi-loop-processor-8ch", "s3g Multi Loop Processor 8ch", "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.1.0", "8-channel multi-file sample-loop processor with lane assignment rules.", features };
+const clap_plugin_descriptor_t descriptor { CLAP_VERSION_INIT, "org.s3g.s3g-dsp.multi-loop-processor-8ch", "s3g Processor Multi Loop 8ch", "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.1.0", "8-channel multi-file sample-loop processor with lane assignment rules.", features };
 
 const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t* host, const char* pluginId)
 {

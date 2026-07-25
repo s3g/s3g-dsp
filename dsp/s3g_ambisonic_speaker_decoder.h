@@ -2,6 +2,7 @@
 
 #include "s3g_24ch_layout.h"
 #include "s3g_3oafx.h"
+#include "s3g_allrad.h"
 #include "s3g_cube41_layout.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
@@ -22,6 +23,7 @@ enum class AmbiSpeakerDecoderMode : uint32_t {
     Basic = 0,
     Epad = 1,
     Mmd = 2,
+    AllRad = 3,
 };
 
 enum class AmbiSpeakerLayoutPreset : uint32_t {
@@ -95,14 +97,10 @@ inline float factorialRatio(uint32_t lo, uint32_t hi)
     return value;
 }
 
-inline std::array<float, kAmbiSpeakerDecoderMaxChannels> acnSn3dBasis7(Vec3 p)
+inline std::array<float, kAmbiSpeakerDecoderMaxChannels> acnSn3dBasis7Canonical(Vec3 p)
 {
     p = normalize(p);
     std::array<float, kAmbiSpeakerDecoderMaxChannels> out {};
-    const auto basis3 = acnSn3dBasis(p);
-    for (uint32_t i = 0; i < k3OaChannels; ++i) {
-        out[i] = basis3[i];
-    }
 
     const float az = std::atan2(p.y, p.x);
     const float z = clamp(p.z, -1.0f, 1.0f);
@@ -122,7 +120,7 @@ inline std::array<float, kAmbiSpeakerDecoderMaxChannels> acnSn3dBasis7(Vec3 p)
         }
     }
 
-    for (uint32_t n = 4; n <= kAmbiSpeakerDecoderMaxOrder; ++n) {
+    for (uint32_t n = 0; n <= kAmbiSpeakerDecoderMaxOrder; ++n) {
         const uint32_t base = n * n;
         for (int m = -static_cast<int>(n); m <= static_cast<int>(n); ++m) {
             const uint32_t absM = static_cast<uint32_t>(std::abs(m));
@@ -135,13 +133,47 @@ inline std::array<float, kAmbiSpeakerDecoderMaxChannels> acnSn3dBasis7(Vec3 p)
     return out;
 }
 
+// Preserve the established lower-order basis used by the rest of this project.
+// ALLRAD uses the canonical generator above because its public input contract is
+// ACN/SN3D; changing this compatibility function would alter existing encoders
+// and decoders outside the scope of Ambi Speaker Decoder's new mode.
+inline std::array<float, kAmbiSpeakerDecoderMaxChannels> acnSn3dBasis7(Vec3 p)
+{
+    auto out = acnSn3dBasis7Canonical(p);
+    const auto basis3 = acnSn3dBasis(p);
+    for (uint32_t i = 0; i < k3OaChannels; ++i) {
+        out[i] = basis3[i];
+    }
+    return out;
+}
+
 class AmbiSpeakerDecoder {
 public:
+    void beginBatchUpdate()
+    {
+        ++batchUpdateDepth_;
+    }
+
+    void endBatchUpdate()
+    {
+        if (batchUpdateDepth_ == 0u) return;
+        --batchUpdateDepth_;
+        if (batchUpdateDepth_ == 0u && matrixRebuildPending_) {
+            matrixRebuildPending_ = false;
+            rebuildMatrix();
+        }
+    }
+
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1.0, sampleRate);
-        applyLayout(AmbiSpeakerLayoutPreset::Sphere24);
-        setParams(params_);
+        if (!prepared_) {
+            prepared_ = true;
+            applyLayout(params_.layout);
+            setParams(params_);
+        } else {
+            requestMatrixRebuild();
+        }
     }
 
     void setParams(AmbiSpeakerDecoderParams params)
@@ -149,18 +181,26 @@ public:
         params.activeSpeakers = std::clamp<uint32_t>(params.activeSpeakers, 2u, kAmbiSpeakerDecoderMaxSpeakers);
         params.selectedSpeaker = std::min<uint32_t>(params.selectedSpeaker, params.activeSpeakers - 1u);
         params.order = std::clamp<uint32_t>(params.order, 1u, kAmbiSpeakerDecoderMaxOrder);
+        params.mode = static_cast<AmbiSpeakerDecoderMode>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(params.mode), 0u, 3u));
         params.weighting = static_cast<AmbiSpeakerDecoderWeighting>(
             std::clamp<uint32_t>(static_cast<uint32_t>(params.weighting), 0u, 2u));
         params.customField = static_cast<AmbiSpeakerCustomField>(
             std::clamp<uint32_t>(static_cast<uint32_t>(params.customField), 0u, 1u));
-        params.regularization = clamp(params.regularization, 0.0f, 0.20f);
-        params.width = clamp(params.width, 0.0f, 1.50f);
-        params.energy = clamp(params.energy, 0.0f, 1.50f);
-        params.outputGainDb = clamp(params.outputGainDb, -60.0f, 12.0f);
-        params.selectedAzimuthDeg = wrapSignedDeg(params.selectedAzimuthDeg);
-        params.selectedElevationDeg = clamp(params.selectedElevationDeg, -90.0f, 90.0f);
-        params.selectedDistance = clamp(params.selectedDistance, 0.15f, 2.0f);
-        params.selectedGain = clamp(params.selectedGain, 0.0f, 2.0f);
+        params.regularization = clamp(
+            finiteOr(params.regularization, 0.018f), 0.0f, 0.20f);
+        params.width = clamp(finiteOr(params.width, 1.0f), 0.0f, 1.50f);
+        params.energy = clamp(finiteOr(params.energy, 1.0f), 0.0f, 1.50f);
+        params.outputGainDb = clamp(
+            finiteOr(params.outputGainDb, 0.0f), -60.0f, 12.0f);
+        params.selectedAzimuthDeg = wrapSignedDeg(
+            finiteOr(params.selectedAzimuthDeg, 0.0f));
+        params.selectedElevationDeg = clamp(
+            finiteOr(params.selectedElevationDeg, 0.0f), -90.0f, 90.0f);
+        params.selectedDistance = clamp(
+            finiteOr(params.selectedDistance, 1.0f), 0.15f, 2.0f);
+        params.selectedGain = clamp(
+            finiteOr(params.selectedGain, 1.0f), 0.0f, 2.0f);
         const bool layoutChanged = params.layout != params_.layout;
         const bool selectedChanged = params.selectedSpeaker != params_.selectedSpeaker;
         const bool activeChanged = params.activeSpeakers != params_.activeSpeakers;
@@ -182,12 +222,13 @@ public:
         }
         params_.activeSpeakers = std::min<uint32_t>(params_.activeSpeakers, kAmbiSpeakerDecoderMaxSpeakers);
         syncSelectedFromSpeaker();
-        rebuildMatrix();
+        requestMatrixRebuild();
     }
 
     AmbiSpeakerDecoderParams params() const { return params_; }
     const std::array<AmbiSpeaker, kAmbiSpeakerDecoderMaxSpeakers>& speakers() const { return speakers_; }
     const std::array<std::array<float, kAmbiSpeakerDecoderMaxChannels>, kAmbiSpeakerDecoderMaxSpeakers>& matrix() const { return matrix_; }
+    const AllRadTopology& allRadTopology() const { return allRadTopology_; }
 
     AmbiSpeaker speaker(uint32_t index) const
     {
@@ -197,25 +238,26 @@ public:
     void setSpeaker(uint32_t index, AmbiSpeaker speaker)
     {
         if (index >= kAmbiSpeakerDecoderMaxSpeakers) return;
-        speaker.azimuthDeg = wrapSignedDeg(speaker.azimuthDeg);
-        speaker.elevationDeg = clamp(speaker.elevationDeg, -90.0f, 90.0f);
-        speaker.distance = clamp(speaker.distance, 0.15f, 2.0f);
-        speaker.gain = clamp(speaker.gain, 0.0f, 2.0f);
+        speaker.azimuthDeg = wrapSignedDeg(finiteOr(speaker.azimuthDeg, 0.0f));
+        speaker.elevationDeg = clamp(
+            finiteOr(speaker.elevationDeg, 0.0f), -90.0f, 90.0f);
+        speaker.distance = clamp(
+            finiteOr(speaker.distance, 1.0f), 0.15f, 2.0f);
+        speaker.gain = clamp(finiteOr(speaker.gain, 1.0f), 0.0f, 2.0f);
         speakers_[index] = speaker;
         params_.layout = AmbiSpeakerLayoutPreset::Custom;
         if (index == params_.selectedSpeaker) {
             syncSelectedFromSpeaker();
         }
-        rebuildMatrix();
+        requestMatrixRebuild();
     }
 
     void setSpeakerGain(uint32_t index, float gain)
     {
         if (index >= kAmbiSpeakerDecoderMaxSpeakers) return;
-        speakers_[index].gain = clamp(gain, 0.0f, 2.0f);
+        speakers_[index].gain = clamp(finiteOr(gain, 1.0f), 0.0f, 2.0f);
         params_.selectedSpeaker = std::min<uint32_t>(index, std::max<uint32_t>(1u, params_.activeSpeakers) - 1u);
         syncSelectedFromSpeaker();
-        rebuildMatrix();
     }
 
     void setSpeakerEnabled(uint32_t index, bool enabled)
@@ -224,6 +266,7 @@ public:
         speakers_[index].enabled = enabled;
         params_.selectedSpeaker = std::min<uint32_t>(index, std::max<uint32_t>(1u, params_.activeSpeakers) - 1u);
         syncSelectedFromSpeaker();
+        if (params_.mode == AmbiSpeakerDecoderMode::AllRad) requestMatrixRebuild();
     }
 
     void setSpeakerSolo(uint32_t index, bool solo)
@@ -237,14 +280,16 @@ public:
     void setSpeakers(std::array<AmbiSpeaker, kAmbiSpeakerDecoderMaxSpeakers> speakers)
     {
         for (auto& speaker : speakers) {
-            speaker.azimuthDeg = wrapSignedDeg(speaker.azimuthDeg);
-            speaker.elevationDeg = clamp(speaker.elevationDeg, -90.0f, 90.0f);
-            speaker.distance = clamp(speaker.distance, 0.15f, 2.0f);
-            speaker.gain = clamp(speaker.gain, 0.0f, 2.0f);
+            speaker.azimuthDeg = wrapSignedDeg(finiteOr(speaker.azimuthDeg, 0.0f));
+            speaker.elevationDeg = clamp(
+                finiteOr(speaker.elevationDeg, 0.0f), -90.0f, 90.0f);
+            speaker.distance = clamp(
+                finiteOr(speaker.distance, 1.0f), 0.15f, 2.0f);
+            speaker.gain = clamp(finiteOr(speaker.gain, 1.0f), 0.0f, 2.0f);
         }
         speakers_ = speakers;
         syncSelectedFromSpeaker();
-        rebuildMatrix();
+        requestMatrixRebuild();
     }
 
     void processFrame(const float* input3Oa, float* output64) const
@@ -300,11 +345,26 @@ public:
     }
 
 private:
+    void requestMatrixRebuild()
+    {
+        if (batchUpdateDepth_ > 0u) {
+            matrixRebuildPending_ = true;
+            return;
+        }
+        rebuildMatrix();
+    }
+
+    static float finiteOr(float value, float fallback)
+    {
+        return std::isfinite(value) ? value : fallback;
+    }
+
     static float wrapSignedDeg(float value)
     {
-        while (value > 180.0f) value -= 360.0f;
-        while (value <= -180.0f) value += 360.0f;
-        return value;
+        if (!std::isfinite(value)) return 0.0f;
+        value = std::fmod(value + 180.0f, 360.0f);
+        if (value <= 0.0f) value += 360.0f;
+        return value - 180.0f;
     }
 
     static AmbiSpeaker fromXyz(float x, float y, float z)
@@ -658,11 +718,317 @@ private:
         return 1.0f;
     }
 
+    struct AllRadQuadraturePoint {
+        Vec3 direction {};
+        float weight = 0.0f;
+    };
+
+    static constexpr uint32_t kAllRadSphereLatitudes = 10;
+    static constexpr uint32_t kAllRadSphereAzimuths = 24;
+    static constexpr uint32_t kAllRadRingSamples = 128;
+    static constexpr uint32_t kAllRadMaxQuadraturePoints =
+        kAllRadSphereLatitudes * kAllRadSphereAzimuths;
+
+    static uint32_t buildAllRadSphereQuadrature(
+        std::array<AllRadQuadraturePoint, kAllRadMaxQuadraturePoints>& points)
+    {
+        uint32_t count = 0;
+        constexpr double latitudeOrder = static_cast<double>(kAllRadSphereLatitudes);
+        for (uint32_t latitude = 0; latitude < kAllRadSphereLatitudes; ++latitude) {
+            double z = std::cos(static_cast<double>(kPi)
+                * (static_cast<double>(latitude) + 0.75) / (latitudeOrder + 0.5));
+            double derivative = 0.0;
+            for (uint32_t iteration = 0; iteration < 16u; ++iteration) {
+                double p0 = 1.0;
+                double p1 = z;
+                for (uint32_t order = 2; order <= kAllRadSphereLatitudes; ++order) {
+                    const double p = ((2.0 * static_cast<double>(order) - 1.0) * z * p1
+                        - (static_cast<double>(order) - 1.0) * p0)
+                        / static_cast<double>(order);
+                    p0 = p1;
+                    p1 = p;
+                }
+                derivative = latitudeOrder * (z * p1 - p0) / (z * z - 1.0);
+                const double step = p1 / derivative;
+                z -= step;
+                if (std::fabs(step) < 1.0e-14) break;
+            }
+
+            double p0 = 1.0;
+            double p1 = z;
+            for (uint32_t order = 2; order <= kAllRadSphereLatitudes; ++order) {
+                const double p = ((2.0 * static_cast<double>(order) - 1.0) * z * p1
+                    - (static_cast<double>(order) - 1.0) * p0)
+                    / static_cast<double>(order);
+                p0 = p1;
+                p1 = p;
+            }
+            derivative = latitudeOrder * (z * p1 - p0) / (z * z - 1.0);
+            const double latitudeWeight = 2.0 / ((1.0 - z * z) * derivative * derivative);
+            const float radius = static_cast<float>(
+                std::sqrt(std::max(0.0, 1.0 - z * z)));
+            for (uint32_t azimuth = 0; azimuth < kAllRadSphereAzimuths; ++azimuth) {
+                const double stagger = (latitude & 1u) != 0u ? 0.5 : 0.0;
+                const double angle = 2.0 * static_cast<double>(kPi)
+                    * (static_cast<double>(azimuth) + stagger)
+                    / static_cast<double>(kAllRadSphereAzimuths);
+                points[count++] = {
+                    { radius * static_cast<float>(std::cos(angle)),
+                      radius * static_cast<float>(std::sin(angle)),
+                      static_cast<float>(z) },
+                    static_cast<float>(latitudeWeight * 2.0
+                        * static_cast<double>(kPi)
+                        / static_cast<double>(kAllRadSphereAzimuths))
+                };
+            }
+        }
+        return count;
+    }
+
+    static uint32_t buildAllRadRingQuadrature(
+        std::array<AllRadQuadraturePoint, kAllRadMaxQuadraturePoints>& points)
+    {
+        const float weight = 2.0f * kPi / static_cast<float>(kAllRadRingSamples);
+        for (uint32_t i = 0; i < kAllRadRingSamples; ++i) {
+            const float angle = 2.0f * kPi
+                * (static_cast<float>(i) + 0.5f) / static_cast<float>(kAllRadRingSamples);
+            points[i] = { { std::cos(angle), std::sin(angle), 0.0f }, weight };
+        }
+        return kAllRadRingSamples;
+    }
+
+    static bool allRadChannelEnabled(AllRadDimension dimension, uint32_t channel)
+    {
+        if (dimension == AllRadDimension::Sphere3D) return true;
+        if (dimension != AllRadDimension::Ring2D) return false;
+        const uint32_t order = static_cast<uint32_t>(std::sqrt(static_cast<float>(channel)));
+        const int m = static_cast<int>(channel)
+            - static_cast<int>(order * (order + 1u));
+        return std::abs(m) == static_cast<int>(order);
+    }
+
+    bool allRadGeometryMatches(uint32_t nSpeakers) const
+    {
+        if (!allRadGeometryCacheValid_ || allRadGeometrySpeakerCount_ != nSpeakers) return false;
+        for (uint32_t spk = 0; spk < nSpeakers; ++spk) {
+            const Vec3 direction = directionFromAed(
+                speakers_[spk].azimuthDeg, speakers_[spk].elevationDeg);
+            const Vec3 cached = allRadGeometryDirections_[spk];
+            if (std::fabs(direction.x - cached.x) > 0.0000001f
+                || std::fabs(direction.y - cached.y) > 0.0000001f
+                || std::fabs(direction.z - cached.z) > 0.0000001f
+                || speakers_[spk].enabled != allRadGeometryEnabled_[spk]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void cacheAllRadGeometry(uint32_t nSpeakers)
+    {
+        allRadGeometrySpeakerCount_ = nSpeakers;
+        for (uint32_t spk = 0; spk < nSpeakers; ++spk) {
+            allRadGeometryDirections_[spk] = directionFromAed(
+                speakers_[spk].azimuthDeg, speakers_[spk].elevationDeg);
+            allRadGeometryEnabled_[spk] = speakers_[spk].enabled;
+        }
+        allRadGeometryCacheValid_ = true;
+    }
+
+    bool matrixInputsMatch(uint32_t nSpeakers) const
+    {
+        if (!matrixCacheValid_
+            || matrixCacheSpeakerCount_ != nSpeakers
+            || matrixCacheMode_ != params_.mode
+            || matrixCacheOrder_ != params_.order
+            || matrixCacheWeighting_ != params_.weighting
+            || matrixCacheRegularization_ != params_.regularization
+            || matrixCacheWidth_ != params_.width
+            || matrixCacheEnergy_ != params_.energy) {
+            return false;
+        }
+        for (uint32_t spk = 0; spk < nSpeakers; ++spk) {
+            if (matrixCacheAzimuths_[spk] != speakers_[spk].azimuthDeg
+                || matrixCacheElevations_[spk] != speakers_[spk].elevationDeg
+                || (params_.mode == AmbiSpeakerDecoderMode::AllRad
+                    && matrixCacheEnabled_[spk] != speakers_[spk].enabled)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void cacheMatrixInputs(uint32_t nSpeakers)
+    {
+        matrixCacheSpeakerCount_ = nSpeakers;
+        matrixCacheMode_ = params_.mode;
+        matrixCacheOrder_ = params_.order;
+        matrixCacheWeighting_ = params_.weighting;
+        matrixCacheRegularization_ = params_.regularization;
+        matrixCacheWidth_ = params_.width;
+        matrixCacheEnergy_ = params_.energy;
+        for (uint32_t spk = 0; spk < nSpeakers; ++spk) {
+            matrixCacheAzimuths_[spk] = speakers_[spk].azimuthDeg;
+            matrixCacheElevations_[spk] = speakers_[spk].elevationDeg;
+            matrixCacheEnabled_[spk] = speakers_[spk].enabled;
+        }
+        matrixCacheValid_ = true;
+    }
+
+    void writeAllRadFallbackMatrix(uint32_t nSpeakers, uint32_t nChannels)
+    {
+        uint32_t enabledCount = 0;
+        for (uint32_t spk = 0; spk < nSpeakers; ++spk) {
+            if (speakers_[spk].enabled) ++enabledCount;
+        }
+        const float scale = params_.width
+            / std::sqrt(std::max(1.0f, static_cast<float>(enabledCount)));
+        for (uint32_t spk = 0; spk < nSpeakers; ++spk) {
+            if (!speakers_[spk].enabled) continue;
+            const auto basis = acnSn3dBasis7Canonical(
+                directionFromAed(speakers_[spk].azimuthDeg, speakers_[spk].elevationDeg));
+            float norm = 0.0f;
+            for (uint32_t ch = 0; ch < nChannels; ++ch) {
+                norm += basis[ch] * basis[ch];
+            }
+            norm = 1.0f / std::sqrt(std::max(0.000001f, norm));
+            for (uint32_t ch = 0; ch < nChannels; ++ch) {
+                const uint32_t order = static_cast<uint32_t>(
+                    std::sqrt(static_cast<float>(ch)));
+                matrix_[spk][ch] = basis[ch] * norm * scale
+                    * orderWeight(params_.weighting, order, params_.order);
+            }
+        }
+    }
+
+    bool rebuildAllRadMatrix(uint32_t nSpeakers, uint32_t nChannels)
+    {
+        if (!allRadGeometryMatches(nSpeakers)) {
+            std::array<AllRadInputSpeaker, kAllRadMaxRealSpeakers> inputs {};
+            for (uint32_t spk = 0; spk < nSpeakers; ++spk) {
+                inputs[spk] = {
+                    directionFromAed(speakers_[spk].azimuthDeg, speakers_[spk].elevationDeg),
+                    spk,
+                    speakers_[spk].enabled
+                };
+            }
+            allRadTopology_ = buildAllRadTopology(inputs, nSpeakers);
+            cacheAllRadGeometry(nSpeakers);
+        }
+        if (!allRadTopology_.valid) {
+            writeAllRadFallbackMatrix(nSpeakers, nChannels);
+            return false;
+        }
+
+        std::array<AllRadQuadraturePoint, kAllRadMaxQuadraturePoints> quadrature {};
+        const uint32_t quadratureCount =
+            allRadTopology_.dimension == AllRadDimension::Ring2D
+            ? buildAllRadRingQuadrature(quadrature)
+            : buildAllRadSphereQuadrature(quadrature);
+
+        // Using the measured quadrature Gram diagonal makes the normalization
+        // explicit for this project's ACN/SN3D basis. On an exact equal-weight
+        // spherical design it reduces to the published (2n+1)/J coefficient.
+        std::array<float, kAmbiSpeakerDecoderMaxChannels> gram {};
+        for (uint32_t point = 0; point < quadratureCount; ++point) {
+            const auto basis = acnSn3dBasis7Canonical(quadrature[point].direction);
+            for (uint32_t ch = 0; ch < nChannels; ++ch) {
+                if (!allRadChannelEnabled(allRadTopology_.dimension, ch)) continue;
+                gram[ch] += quadrature[point].weight * basis[ch] * basis[ch];
+            }
+        }
+
+        uint32_t missedDirections = 0;
+        std::array<float, kAllRadMaxRealSpeakers> realGains {};
+        for (uint32_t point = 0; point < quadratureCount; ++point) {
+            float droppedEnergy = 0.0f;
+            if (!solveAllRadVbap(allRadTopology_, quadrature[point].direction,
+                    realGains, &droppedEnergy)) {
+                ++missedDirections;
+                continue;
+            }
+            const auto basis = acnSn3dBasis7Canonical(quadrature[point].direction);
+            for (uint32_t ch = 0; ch < nChannels; ++ch) {
+                if (!allRadChannelEnabled(allRadTopology_.dimension, ch)
+                    || gram[ch] <= 0.0000001f) {
+                    continue;
+                }
+                const uint32_t order = static_cast<uint32_t>(
+                    std::sqrt(static_cast<float>(ch)));
+                const float virtualDecode = quadrature[point].weight * basis[ch]
+                    / gram[ch]
+                    * orderWeight(params_.weighting, order, params_.order);
+                for (uint32_t spk = 0; spk < nSpeakers; ++spk) {
+                    matrix_[spk][ch] += realGains[spk] * virtualDecode;
+                }
+            }
+        }
+        allRadTopology_.missedVirtualDirections = missedDirections;
+        if (missedDirections > std::max<uint32_t>(1u, quadratureCount / 100u)) {
+            for (auto& row : matrix_) row.fill(0.0f);
+            allRadTopology_.valid = false;
+            writeAllRadFallbackMatrix(nSpeakers, nChannels);
+            return false;
+        }
+
+        // Calibrate one global scalar from plane-wave sweeps over directions
+        // that do not substantially use a discarded closure support. This
+        // preserves the intended fade outside partial physical coverage.
+        double energySum = 0.0;
+        double calibrationWeight = 0.0;
+        for (uint32_t point = 0; point < quadratureCount; ++point) {
+            float droppedEnergy = 0.0f;
+            if (!solveAllRadVbap(allRadTopology_, quadrature[point].direction,
+                    realGains, &droppedEnergy)
+                || droppedEnergy > 0.05f) {
+                continue;
+            }
+            const auto sourceBasis =
+                acnSn3dBasis7Canonical(quadrature[point].direction);
+            double energy = 0.0;
+            for (uint32_t spk = 0; spk < nSpeakers; ++spk) {
+                if (!speakers_[spk].enabled) continue;
+                float gain = 0.0f;
+                for (uint32_t ch = 0; ch < nChannels; ++ch) {
+                    gain += matrix_[spk][ch] * sourceBasis[ch];
+                }
+                energy += static_cast<double>(gain) * static_cast<double>(gain);
+            }
+            if (std::isfinite(energy) && energy > 0.000000001) {
+                energySum += energy * static_cast<double>(quadrature[point].weight);
+                calibrationWeight += static_cast<double>(quadrature[point].weight);
+            }
+        }
+        if (calibrationWeight <= 0.0 || energySum <= 0.000000001) {
+            for (auto& row : matrix_) row.fill(0.0f);
+            allRadTopology_.valid = false;
+            writeAllRadFallbackMatrix(nSpeakers, nChannels);
+            return false;
+        }
+
+        const float meanEnergy = static_cast<float>(energySum / calibrationWeight);
+        const float globalScale = clamp(
+            1.0f / std::sqrt(std::max(0.000001f, meanEnergy)), 0.05f, 8.0f)
+            * params_.width;
+        for (uint32_t spk = 0; spk < nSpeakers; ++spk) {
+            for (uint32_t ch = 0; ch < nChannels; ++ch) {
+                matrix_[spk][ch] *= globalScale;
+            }
+        }
+        return true;
+    }
+
     void rebuildMatrix()
     {
-        for (auto& row : matrix_) row.fill(0.0f);
         const uint32_t nSpeakers = std::min<uint32_t>(params_.activeSpeakers, kAmbiSpeakerDecoderMaxSpeakers);
         const uint32_t nChannels = ambiChannelsForOrder(params_.order);
+        if (matrixInputsMatch(nSpeakers)) return;
+        for (auto& row : matrix_) row.fill(0.0f);
+        if (params_.mode == AmbiSpeakerDecoderMode::AllRad) {
+            rebuildAllRadMatrix(nSpeakers, nChannels);
+            cacheMatrixInputs(nSpeakers);
+            return;
+        }
         std::array<std::array<float, kAmbiSpeakerDecoderMaxChannels>, kAmbiSpeakerDecoderMaxSpeakers> basis {};
         for (uint32_t spk = 0; spk < nSpeakers; ++spk) {
             basis[spk] = acnSn3dBasis7(directionFromAed(speakers_[spk].azimuthDeg, speakers_[spk].elevationDeg));
@@ -679,6 +1045,7 @@ private:
                     matrix_[spk][ch] = basis[spk][ch] * norm * scale * orderWeight(params_.weighting, order, params_.order);
                 }
             }
+            cacheMatrixInputs(nSpeakers);
             return;
         }
 
@@ -695,6 +1062,9 @@ private:
         }
         if (!invertMatrix(aug, nChannels)) {
             params_.mode = AmbiSpeakerDecoderMode::Basic;
+            // matrix_ was cleared above. Force the Basic fallback to rebuild
+            // even when an older Basic matrix has identical cached inputs.
+            matrixCacheValid_ = false;
             rebuildMatrix();
             return;
         }
@@ -721,12 +1091,32 @@ private:
                 matrix_[spk][ch] = lerp(epad, basic, mmdBlend) * params_.width * weight;
             }
         }
+        cacheMatrixInputs(nSpeakers);
     }
 
     double sampleRate_ = 48000.0;
     AmbiSpeakerDecoderParams params_ {};
     std::array<AmbiSpeaker, kAmbiSpeakerDecoderMaxSpeakers> speakers_ {};
+    AllRadTopology allRadTopology_ {};
     std::array<std::array<float, kAmbiSpeakerDecoderMaxChannels>, kAmbiSpeakerDecoderMaxSpeakers> matrix_ {};
+    bool allRadGeometryCacheValid_ = false;
+    uint32_t allRadGeometrySpeakerCount_ = 0;
+    std::array<Vec3, kAmbiSpeakerDecoderMaxSpeakers> allRadGeometryDirections_ {};
+    std::array<bool, kAmbiSpeakerDecoderMaxSpeakers> allRadGeometryEnabled_ {};
+    bool matrixCacheValid_ = false;
+    uint32_t matrixCacheSpeakerCount_ = 0;
+    AmbiSpeakerDecoderMode matrixCacheMode_ = AmbiSpeakerDecoderMode::Basic;
+    uint32_t matrixCacheOrder_ = 0;
+    AmbiSpeakerDecoderWeighting matrixCacheWeighting_ = AmbiSpeakerDecoderWeighting::None;
+    float matrixCacheRegularization_ = -1.0f;
+    float matrixCacheWidth_ = -1.0f;
+    float matrixCacheEnergy_ = -1.0f;
+    std::array<float, kAmbiSpeakerDecoderMaxSpeakers> matrixCacheAzimuths_ {};
+    std::array<float, kAmbiSpeakerDecoderMaxSpeakers> matrixCacheElevations_ {};
+    std::array<bool, kAmbiSpeakerDecoderMaxSpeakers> matrixCacheEnabled_ {};
+    uint32_t batchUpdateDepth_ = 0u;
+    bool matrixRebuildPending_ = false;
+    bool prepared_ = false;
 };
 
 } // namespace s3g

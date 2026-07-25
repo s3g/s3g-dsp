@@ -265,6 +265,11 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 } // namespace
 
 #if defined(__APPLE__)
+constexpr uint32_t kGuiParamOrder[] {
+    9u, 7u, 8u, 10u, 11u, 6u,
+    0u, 1u, 2u, 3u, 4u, 5u
+};
+
 @interface S3GCascadeTapsView : NSView { void* _plugin; int _dragSlider; NSTimer* _timer; }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
@@ -298,21 +303,23 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(596,14) withAttributes:small];
     [@"2>16" drawAtPoint:NSMakePoint(704,14) withAttributes:small];
     s3g::clap_gui::drawPanelFrame(18, 42, 354, 286, style);
-    s3g::clap_gui::drawPanelHeader(@"CASCADE", true, 18, 42, 354, 21, lab, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / TAPS", true, 18, 42, 354, 21, lab, style);
     s3g::clap_gui::drawPanelFrame(388, 42, 354, 286, style);
-    s3g::clap_gui::drawPanelHeader(@"TAPS / OUTPUT", true, 388, 42, 354, 21, lab, style);
-    for (uint32_t i = 0; i < kParamCount; ++i) {
+    s3g::clap_gui::drawPanelHeader(@"CASCADE", true, 388, 42, 354, 21, lab, style);
+    for (uint32_t slot = 0; slot < kParamCount; ++slot) {
+        const uint32_t i = kGuiParamOrder[slot];
         double value = 0.0;
         paramsGetValue(&p->plugin, kParamDefs[i].id, &value);
         const double span = std::max(0.000001, kParamDefs[i].max - kParamDefs[i].min);
         const CGFloat norm = static_cast<CGFloat>((value - kParamDefs[i].min) / span);
         char text[32] {};
         paramsValueToText(&p->plugin, kParamDefs[i].id, value, text, sizeof(text));
-        const bool right = i >= 6u;
-        const uint32_t row = right ? i - 6u : i;
+        const bool right = slot >= 6u;
+        const uint32_t row = right ? slot - 6u : slot;
         const CGFloat x = right ? 406.0 : 36.0;
         const CGFloat y = 82.0 + static_cast<CGFloat>(row) * 34.0;
-        [self drawRow:[NSString stringWithUTF8String:kParamDefs[i].label] value:[NSString stringWithUTF8String:text] norm:norm x:x y:y attrs:small small:small];
+        NSString* label = i == 9u ? @"OUT" : [NSString stringWithUTF8String:kParamDefs[i].label];
+        [self drawRow:label value:[NSString stringWithUTF8String:text] norm:norm x:x y:y attrs:small small:small];
     }
     [@"SOFT widens handoff windows and reins in short/hot cascades" drawAtPoint:NSMakePoint(36, 334) withAttributes:small];
     [@"stepped 16ch tap ring" drawAtPoint:NSMakePoint(406, 334) withAttributes:small];
@@ -321,8 +328,9 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 {
     auto* p = static_cast<Plugin*>(_plugin);
     if (_dragSlider < 1 || _dragSlider > static_cast<int>(kParamCount)) return;
-    const uint32_t index = static_cast<uint32_t>(_dragSlider - 1);
-    const bool right = index >= 6u;
+    const uint32_t slot = static_cast<uint32_t>(_dragSlider - 1);
+    const uint32_t index = kGuiParamOrder[slot];
+    const bool right = slot >= 6u;
     const double x0 = right ? 500.0 : 130.0;
     const double n = std::clamp((point.x - x0) / 150.0, 0.0, 1.0);
     const auto& def = kParamDefs[index];
@@ -332,12 +340,12 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
-    for (uint32_t i = 0; i < kParamCount; ++i) {
-        const bool right = i >= 6u;
-        const uint32_t row = right ? i - 6u : i;
+    for (uint32_t slot = 0; slot < kParamCount; ++slot) {
+        const bool right = slot >= 6u;
+        const uint32_t row = right ? slot - 6u : slot;
         const CGFloat x = right ? 402.0 : 32.0;
         const CGFloat y = 82.0 + static_cast<CGFloat>(row) * 34.0;
-        if (NSPointInRect(pt, NSMakeRect(x, y - 9.0, 330.0, 24.0))) { _dragSlider = static_cast<int>(i + 1u); [self updateSlider:pt]; return; }
+        if (NSPointInRect(pt, NSMakeRect(x, y - 9.0, 330.0, 24.0))) { _dragSlider = static_cast<int>(slot + 1u); [self updateSlider:pt]; return; }
     }
 }
 - (void)mouseDragged:(NSEvent*)event { if (_dragSlider > 0) [self updateSlider:[self convertPoint:[event locationInWindow] fromView:nil]]; }

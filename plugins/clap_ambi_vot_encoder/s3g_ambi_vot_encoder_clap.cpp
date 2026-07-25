@@ -1118,6 +1118,7 @@ static std::vector<float> readWavMono(NSURL* url)
     std::array<std::array<s3g::AmbiVotMotionPoint, 48>, s3g::kAmbiVotMaxVoices> _trails;
     uint32_t _trailHead;
     uint32_t _trailCount;
+    char _titlePresetName[64];
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -1151,6 +1152,7 @@ static std::vector<float> readWavMono(NSURL* url)
         _lastDragPoint = NSMakePoint(0, 0);
         _trailHead = 0;
         _trailCount = 0;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [self setWantsLayer:YES];
     }
     return self;
@@ -1245,10 +1247,10 @@ static std::vector<float> readWavMono(NSURL* url)
     return NSMakeRect(378.0 + static_cast<CGFloat>(index) * 23.0, 46.0, 18.0, 13.0);
 }
 
-- (NSRect)synthLoadButtonRect { return NSMakeRect(824, 46, 48, 13); }
-- (NSRect)scoreRemoveButtonRect { return NSMakeRect(1032, 484, 18, 13); }
-- (NSRect)scoreAddButtonRect { return NSMakeRect(1054, 484, 18, 13); }
-- (NSRect)scoreResetButtonRect { return NSMakeRect(1080, 484, 54, 13); }
+- (NSRect)synthLoadButtonRect { return NSMakeRect(824, 138, 48, 13); }
+- (NSRect)scoreRemoveButtonRect { return NSMakeRect(1032, 476, 18, 13); }
+- (NSRect)scoreAddButtonRect { return NSMakeRect(1054, 476, 18, 13); }
+- (NSRect)scoreResetButtonRect { return NSMakeRect(1080, 476, 54, 13); }
 
 - (void)setViewPreset:(int)mode
 {
@@ -1770,39 +1772,39 @@ static std::vector<float> readWavMono(NSURL* url)
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const auto p = _plugin->params;
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 202, style);
-    s3g::clap_gui::drawPanelHeader(@"SYNTH", true, 630, 42, 250, 21, attrs, style);
-    const NSRect synthHeader = NSMakeRect(630, 42, 250, 21);
+    s3g::clap_gui::drawPanelFrame(630, 42, 250, 80, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 42, 250, 21, attrs, style);
+    [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:78 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
+
+    s3g::clap_gui::drawPanelFrame(630, 134, 250, 158, style);
+    s3g::clap_gui::drawPanelHeader(@"SYNTH", true, 630, 134, 250, 21, attrs, style);
+    const NSRect synthHeader = NSMakeRect(630, 134, 250, 21);
     s3g::clap_gui::drawHeaderActionButton(
         [self synthLoadButtonRect], synthHeader, @"LOAD", attrs, style);
-    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:78 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"WAVE" value:[NSString stringWithUTF8String:s3g::ambiVotPresetName(p.preset)] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:130 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:64 y:156 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"BASE" param:kBaseNoteParamId value:p.baseNote min:12 max:96 y:182 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"TUNE" param:kTuneParamId value:p.tuneCents min:-1200 max:1200 y:208 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:170 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"WAVE" value:[NSString stringWithUTF8String:s3g::ambiVotPresetName(p.preset)] y:196 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:64 y:222 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"BASE" param:kBaseNoteParamId value:p.baseNote min:12 max:96 y:248 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"TUNE" param:kTuneParamId value:p.tuneCents min:-1200 max:1200 y:274 attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 256, 250, 176, style);
-    s3g::clap_gui::drawPanelHeader(@"TUNING", true, 630, 256, 250, 21, attrs, style);
-    [self drawMenu:@"SCALE" value:[NSString stringWithUTF8String:s3g::ambiVotScaleName(p.scale)] y:292 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"SPREAD" param:kPitchSpreadParamId value:p.pitchSpread min:0 max:2 y:318 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"DEV" param:kDetuneParamId value:p.detune min:0 max:1 y:344 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"HARM" param:kHarmonicsParamId value:p.harmonicAmount min:0 max:1 y:370 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"SUB" param:kSubharmonicsParamId value:p.subharmonicAmount min:0 max:1 y:396 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(630, 304, 250, 158, style);
+    s3g::clap_gui::drawPanelHeader(@"TUNING", true, 630, 304, 250, 21, attrs, style);
+    [self drawMenu:@"SCALE" value:[NSString stringWithUTF8String:s3g::ambiVotScaleName(p.scale)] y:340 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SPREAD" param:kPitchSpreadParamId value:p.pitchSpread min:0 max:2 y:366 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"DEV" param:kDetuneParamId value:p.detune min:0 max:1 y:392 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"HARM" param:kHarmonicsParamId value:p.harmonicAmount min:0 max:1 y:418 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SUB" param:kSubharmonicsParamId value:p.subharmonicAmount min:0 max:1 y:444 attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 444, 250, 150, style);
-    s3g::clap_gui::drawPanelHeader(@"ENVELOPE", true, 630, 444, 250, 21, attrs, style);
-    [self drawSlider:@"ATTACK" param:kAttackParamId value:p.attackMs min:1 max:2000 y:480 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"DECAY" param:kDecayParamId value:p.decayMs min:5 max:4000 y:506 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"SUSTAIN" param:kSustainParamId value:p.sustain min:0 max:1 y:532 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"RELEASE" param:kReleaseParamId value:p.releaseMs min:5 max:8000 y:558 attrs:attrs valueAttrs:valueAttrs style:style];
-
-    s3g::clap_gui::drawPanelFrame(630, 606, 250, 48, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 606, 250, 21, attrs, style);
-    [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:630 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(630, 474, 250, 132, style);
+    s3g::clap_gui::drawPanelHeader(@"ENVELOPE", true, 630, 474, 250, 21, attrs, style);
+    [self drawSlider:@"ATTACK" param:kAttackParamId value:p.attackMs min:1 max:2000 y:510 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"DECAY" param:kDecayParamId value:p.decayMs min:5 max:4000 y:536 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"SUSTAIN" param:kSustainParamId value:p.sustain min:0 max:1 y:562 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"RELEASE" param:kReleaseParamId value:p.releaseMs min:5 max:8000 y:588 attrs:attrs valueAttrs:valueAttrs style:style];
 
     constexpr CGFloat motionX = 896;
-    s3g::clap_gui::drawPanelFrame(motionX, 42, 246, 426, style);
+    s3g::clap_gui::drawPanelFrame(motionX, 42, 246, 418, style);
     s3g::clap_gui::drawPanelHeader(@"MOTION", true, motionX, 42, 246, 21, attrs, style);
     [self drawMenuAtX:motionX name:@"SCENE" value:[NSString stringWithUTF8String:s3g::ambiVotMotionSceneName(p.motionScene)] y:78 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenuAtX:motionX name:@"CLOCK" value:[NSString stringWithUTF8String:s3g::ambiVotMotionClockName(p.motionClock)] y:104 attrs:attrs valueAttrs:valueAttrs style:style];
@@ -1821,24 +1823,24 @@ static std::vector<float> readWavMono(NSURL* url)
     [self drawSliderAtX:motionX name:@"DISTANCE" param:kCenterDistanceParamId value:p.centerDistance min:0.15 max:2 y:442 attrs:attrs valueAttrs:valueAttrs style:style];
 
     const auto score = loadScore(*_plugin);
-    s3g::clap_gui::drawPanelFrame(motionX, 480, 246, 202, style);
-    s3g::clap_gui::drawPanelHeader(@"VECTOR SCORE", true, motionX, 480, 246, 21, attrs, style);
-    const NSRect scoreHeader = NSMakeRect(motionX, 480, 246, 21);
+    s3g::clap_gui::drawPanelFrame(motionX, 472, 246, 202, style);
+    s3g::clap_gui::drawPanelHeader(@"VECTOR SCORE", true, motionX, 472, 246, 21, attrs, style);
+    const NSRect scoreHeader = NSMakeRect(motionX, 472, 246, 21);
     s3g::clap_gui::drawHeaderActionButton([self scoreRemoveButtonRect], scoreHeader, @"-", attrs, style);
     s3g::clap_gui::drawHeaderActionButton([self scoreAddButtonRect], scoreHeader, @"+", attrs, style);
     s3g::clap_gui::drawHeaderActionButton([self scoreResetButtonRect], scoreHeader, @"RESET", attrs, style);
-    [self drawMenuAtX:motionX name:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiVotScoreModeName(p.scoreMode)] y:516 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"DURATION" param:kScoreDurationParamId value:p.scoreDurationSec min:0.25 max:60 y:542 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSliderAtX:motionX name:@"DEPTH" param:kScoreDepthParamId value:p.scoreDepth min:0 max:1 y:568 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenuAtX:motionX name:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiVotScoreModeName(p.scoreMode)] y:508 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"DURATION" param:kScoreDurationParamId value:p.scoreDurationSec min:0.25 max:60 y:534 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSliderAtX:motionX name:@"DEPTH" param:kScoreDepthParamId value:p.scoreDepth min:0 max:1 y:560 attrs:attrs valueAttrs:valueAttrs style:style];
     s3g::clap_gui::drawSlider(@"LOOP A", [NSString stringWithFormat:@"N%u", score.sustainStart + 1u],
-        static_cast<double>(score.sustainStart) / static_cast<double>(score.nodeCount - 1u), 594,
+        static_cast<double>(score.sustainStart) / static_cast<double>(score.nodeCount - 1u), 586,
         attrs, valueAttrs, style, motionX + 16, motionX + 108, motionX + 196, 82);
     s3g::clap_gui::drawSlider(@"LOOP B", [NSString stringWithFormat:@"N%u", score.sustainEnd + 1u],
-        static_cast<double>(score.sustainEnd) / static_cast<double>(score.nodeCount - 1u), 620,
+        static_cast<double>(score.sustainEnd) / static_cast<double>(score.nodeCount - 1u), 612,
         attrs, valueAttrs, style, motionX + 16, motionX + 108, motionX + 196, 82);
     NSString* scoreInfo = [NSString stringWithFormat:@"%u NODES   LOOP %u-%u", score.nodeCount,
         score.sustainStart + 1u, score.sustainEnd + 1u];
-    [scoreInfo drawAtPoint:NSMakePoint(motionX + 16, 654) withAttributes:valueAttrs];
+    [scoreInfo drawAtPoint:NSMakePoint(motionX + 16, 646) withAttributes:valueAttrs];
 }
 
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -1893,10 +1895,14 @@ static std::vector<float> readWavMono(NSURL* url)
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     NSDictionary* labelAttrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
-    [@"s3g AMBI VOT ENCODER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
-    NSString* status = [NSString stringWithFormat:@"%@   64 CH",
-        s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed))];
-    s3g::clap_gui::drawRightStatus(status, kGuiW, 14, valueAttrs);
+    NSString* status = s3g::clap_gui::peakDbText(
+        _plugin->outputPeak.load(std::memory_order_relaxed));
+    s3g::clap_gui::drawEncoderTitleBand(
+        @"s3g AMBI ENCODER VOT 64",
+        [NSString stringWithUTF8String:_titlePresetName],
+        status,
+        s3g::clap_gui::encoderTitleBand(kGuiW, kGuiH),
+        titleAttrs, labelAttrs, valueAttrs, style);
 
     const NSRect left = [self leftPanelRect];
     s3g::clap_gui::drawPanelFrame(left.origin.x, left.origin.y, left.size.width, left.size.height, style);
@@ -2115,6 +2121,63 @@ static std::vector<float> readWavMono(NSURL* url)
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiW, kGuiH);
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const uint32_t order = _plugin->params.order;
+        const float output = _plugin->params.outputGainDb;
+        auto initial = s3g::AmbiVotParams {};
+        initial.order = order;
+        initial.outputGainDb = output;
+        _plugin->engine.setParams(initial);
+        _plugin->params = _plugin->engine.params();
+        storeScore(*_plugin, s3g::ambiVotDefaultScore());
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &_plugin->plugin, @"Ambi VOT Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &_plugin->plugin, @"Ambi VOT Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.randomButton))) {
+        auto randomUnit = [] {
+            return static_cast<double>(arc4random()) / 4294967295.0;
+        };
+        applyParam(*_plugin, kModeParamId, arc4random_uniform(3u));
+        applyParam(*_plugin, kBaseNoteParamId, 28.0 + randomUnit() * 40.0);
+        applyParam(*_plugin, kTuneParamId, -24.0 + randomUnit() * 48.0);
+        applyParam(*_plugin, kVectorXParamId, randomUnit());
+        applyParam(*_plugin, kVectorYParamId, randomUnit());
+        applyParam(*_plugin, kScanParamId, randomUnit());
+        applyParam(*_plugin, kDetuneParamId, randomUnit() * 0.42);
+        applyParam(*_plugin, kPitchSpreadParamId, 0.15 + randomUnit() * 1.45);
+        applyParam(*_plugin, kMotionSceneParamId, arc4random_uniform(6u));
+        applyParam(*_plugin, kMotionAmountParamId, 0.18 + randomUnit() * 0.72);
+        applyParam(*_plugin, kChaosParamId, randomUnit() * 0.72);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "RANDOM");
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenu > 0) {
         [self closeMenuAtPoint:point];
         return;
@@ -2273,10 +2336,10 @@ static std::vector<float> readWavMono(NSURL* url)
 
     struct MenuHit { int menu; uint32_t count; CGFloat x; CGFloat y; CGFloat width; };
     static constexpr MenuHit menus[] {
-        { 1, 3, 738, 78, 124 }, { 2, 5, 738, 104, 124 }, { 3, 7, 738, 130, 124 },
-        { 6, 6, 738, 292, 124 },
+        { 3, 7, 738, 104, 124 }, { 1, 3, 738, 170, 124 }, { 2, 5, 738, 196, 124 },
+        { 6, 6, 738, 340, 124 },
         { 4, 5, 1004, 78, 124 }, { 5, 2, 1004, 104, 124 },
-        { 7, 4, 1004, 516, 124 },
+        { 7, 4, 1004, 508, 124 },
     };
     for (const auto& menu : menus) {
         if (NSPointInRect(point, NSMakeRect(menu.x, menu.y - 1, menu.width, 17))) {
@@ -2291,12 +2354,12 @@ static std::vector<float> readWavMono(NSURL* url)
 
     struct SliderHit { clap_id param; CGFloat x; CGFloat y; int area; };
     static constexpr SliderHit sliders[] {
-        { kVoicesParamId, 638, 156, 1 }, { kBaseNoteParamId, 638, 182, 1 }, { kTuneParamId, 638, 208, 1 },
-        { kPitchSpreadParamId, 638, 318, 1 }, { kDetuneParamId, 638, 344, 1 },
-        { kHarmonicsParamId, 638, 370, 1 }, { kSubharmonicsParamId, 638, 396, 1 },
-        { kAttackParamId, 638, 480, 1 }, { kDecayParamId, 638, 506, 1 },
-        { kSustainParamId, 638, 532, 1 }, { kReleaseParamId, 638, 558, 1 },
-        { kOutputParamId, 638, 630, 1 },
+        { kOutputParamId, 638, 78, 1 },
+        { kVoicesParamId, 638, 222, 1 }, { kBaseNoteParamId, 638, 248, 1 }, { kTuneParamId, 638, 274, 1 },
+        { kPitchSpreadParamId, 638, 366, 1 }, { kDetuneParamId, 638, 392, 1 },
+        { kHarmonicsParamId, 638, 418, 1 }, { kSubharmonicsParamId, 638, 444, 1 },
+        { kAttackParamId, 638, 510, 1 }, { kDecayParamId, 638, 536, 1 },
+        { kSustainParamId, 638, 562, 1 }, { kReleaseParamId, 638, 588, 1 },
         { kMotionRateParamId, 904, 130, 7 }, { kSyncDivisionParamId, 904, 156, 7 },
         { kMotionAmountParamId, 904, 182, 7 }, { kSpreadParamId, 904, 208, 7 },
         { kCoherenceParamId, 904, 234, 7 }, { kChaosParamId, 904, 260, 7 },
@@ -2304,7 +2367,7 @@ static std::vector<float> readWavMono(NSURL* url)
         { kRequiredNeighborsParamId, 904, 338, 7 }, { kSmoothParamId, 904, 364, 7 },
         { kCenterAzimuthParamId, 904, 390, 7 }, { kCenterElevationParamId, 904, 416, 7 },
         { kCenterDistanceParamId, 904, 442, 7 },
-        { kScoreDurationParamId, 904, 542, 7 }, { kScoreDepthParamId, 904, 568, 7 },
+        { kScoreDurationParamId, 904, 534, 7 }, { kScoreDepthParamId, 904, 560, 7 },
     };
     for (const auto& slider : sliders) {
         if (NSPointInRect(point, NSMakeRect(slider.x, slider.y - 8, 232, 24))) {
@@ -2317,7 +2380,7 @@ static std::vector<float> readWavMono(NSURL* url)
             return;
         }
     }
-    const CGFloat scoreLoopRows[] = { 594, 620 };
+    const CGFloat scoreLoopRows[] = { 586, 612 };
     for (int i = 0; i < 2; ++i) {
         if (!NSPointInRect(point, NSMakeRect(904, scoreLoopRows[i] - 8, 232, 24))) continue;
         if ([event clickCount] >= 2) {
@@ -2550,7 +2613,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-vot-encoder-64",
-    "s3g Ambi VOT Encoder 64",
+    "s3g Ambi Encoder VOT 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

@@ -1548,11 +1548,21 @@ void randomizeSafe(Plugin& plugin)
 {
     syncGuiParams(plugin);
     uint32_t seed = plugin.randomSeed;
-    const auto params = s3g::randomizeAmbiNeuralEcologyParams(
+    auto params = s3g::randomizeAmbiNeuralEcologyParams(
         plugin.params,
         seed,
         false,
         false);
+    params.order = plugin.params.order;
+    params.outputGainDb = plugin.params.outputGainDb;
+    params.fieldReturn = plugin.params.fieldReturn;
+    params.propagationMs = plugin.params.propagationMs;
+    params.pickupFocus = plugin.params.pickupFocus;
+    params.pickupAdapt = plugin.params.pickupAdapt;
+    params.pickupAnchor = plugin.params.pickupAnchor;
+    params.pickupSet = plugin.params.pickupSet;
+    params.listeningMode = plugin.params.listeningMode;
+    params.auditoryPlasticity = plugin.params.auditoryPlasticity;
     plugin.randomSeed = seed;
     std::snprintf(plugin.customPresetName, sizeof(plugin.customPresetName), "%s", "Random");
     plugin.customPresetActive.store(true, std::memory_order_relaxed);
@@ -2460,18 +2470,19 @@ struct GuiSliderSpec {
 };
 
 constexpr GuiSliderSpec kGuiSliders[] {
-    { kActivityParamId, "ACTIVITY", 630, 104, 0.0, 1.0, false },
-    { kDriveParamId, "SIGMOID", 630, 130, 0.25, 5.0, false },
-    { kRingParamId, "RING FB", 630, 156, 0.0, 1.25, false },
-    { kMatrixParamId, "MATRIX", 630, 182, 0.0, 1.25, false },
-    { kHierarchyParamId, "HIERARCHY", 630, 208, 0.0, 1.0, false },
-    { kPhaseParamId, "PHASE", 630, 234, 0.0, 1.0, false },
-    { kRegisterParamId, "REGISTER", 630, 260, -48.0, 48.0, false },
-    { kTimeSpreadParamId, "TIME SPREAD", 630, 286, 0.0, 1.6, false },
-    { kDiversityParamId, "DIVERSITY", 630, 312, 0.0, 1.0, false },
-    { kBrownianParamId, "BROWNIAN", 630, 338, 0.0, 1.0, false },
-    { kDriftParamId, "DRIFT", 630, 364, 0.0, 1.0, false },
-    { kSelfModParamId, "SLOW > FAST", 630, 390, 0.0, 1.0, false },
+    { kOutputParamId, "OUT", 630, 78, -60.0, 6.0, false },
+    { kActivityParamId, "ACTIVITY", 630, 196, 0.0, 1.0, false },
+    { kDriveParamId, "SIGMOID", 630, 222, 0.25, 5.0, false },
+    { kRingParamId, "RING FB", 630, 248, 0.0, 1.25, false },
+    { kMatrixParamId, "MATRIX", 630, 274, 0.0, 1.25, false },
+    { kHierarchyParamId, "HIERARCHY", 630, 300, 0.0, 1.0, false },
+    { kPhaseParamId, "PHASE", 630, 326, 0.0, 1.0, false },
+    { kRegisterParamId, "REGISTER", 630, 352, -48.0, 48.0, false },
+    { kTimeSpreadParamId, "TIME SPREAD", 630, 378, 0.0, 1.6, false },
+    { kDiversityParamId, "DIVERSITY", 630, 404, 0.0, 1.0, false },
+    { kBrownianParamId, "BROWNIAN", 630, 430, 0.0, 1.0, false },
+    { kDriftParamId, "DRIFT", 630, 456, 0.0, 1.0, false },
+    { kSelfModParamId, "SLOW > FAST", 630, 482, 0.0, 1.0, false },
 
     { kFieldReturnParamId, "FIELD RETURN", 896, 130, 0.0, 1.0, false },
     { kPropagationParamId, "PROPAGATION", 896, 154, 0.0, 180.0, true },
@@ -2490,17 +2501,16 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kScoreDwellParamId, "DWELL", 896, 802, 0.25, 60.0, true },
     { kScoreTransitionParamId, "TRANSITION", 896, 826, 0.05, 30.0, true },
 
-    { kAzimuthParamId, "AZIMUTH", 630, 506, -180.0, 180.0, false },
-    { kElevationParamId, "ELEVATION", 630, 532, -89.0, 89.0, false },
-    { kDistanceParamId, "DISTANCE", 630, 558, 0.10, 8.0, true },
-    { kFieldWidthParamId, "FIELD WIDTH", 630, 584, 0.0, 1.0, false },
-    { kCellWidthParamId, "CELL WIDTH", 630, 610, 0.0, 1.0, false },
-    { kMobilityParamId, "MOBILITY", 630, 636, 0.0, 1.0, false },
-    { kInertiaParamId, "INERTIA", 630, 662, 0.0, 1.0, false },
-    { kRotationParamId, "ROTATION", 630, 688, -2.0, 2.0, false },
-    { kAirParamId, "AIR", 630, 714, 0.0, 1.0, false },
-    { kDopplerParamId, "DOPPLER", 630, 740, 0.0, 1.0, false },
-    { kOutputParamId, "OUTPUT", 630, 766, -60.0, 6.0, false },
+    { kAzimuthParamId, "AZIMUTH", 630, 548, -180.0, 180.0, false },
+    { kElevationParamId, "ELEVATION", 630, 574, -89.0, 89.0, false },
+    { kDistanceParamId, "DISTANCE", 630, 600, 0.10, 8.0, true },
+    { kFieldWidthParamId, "FIELD WIDTH", 630, 626, 0.0, 1.0, false },
+    { kCellWidthParamId, "CELL WIDTH", 630, 652, 0.0, 1.0, false },
+    { kMobilityParamId, "MOBILITY", 630, 678, 0.0, 1.0, false },
+    { kInertiaParamId, "INERTIA", 630, 704, 0.0, 1.0, false },
+    { kRotationParamId, "ROTATION", 630, 730, -2.0, 2.0, false },
+    { kAirParamId, "AIR", 630, 756, 0.0, 1.0, false },
+    { kDopplerParamId, "DOPPLER", 630, 782, 0.0, 1.0, false },
 };
 
 const GuiSliderSpec* guiSlider(clap_id id)
@@ -2763,17 +2773,17 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
 
 - (NSRect)fieldPanelRect { return NSMakeRect(18, 42, 596, 804); }
 - (NSRect)fieldRect { return NSMakeRect(34, 76, 564, 752); }
-- (NSRect)presetRect { return NSMakeRect(382, 13, 210, 15); }
-- (NSRect)savePresetRect { return NSMakeRect(600, 13, 42, 15); }
-- (NSRect)loadPresetRect { return NSMakeRect(648, 13, 42, 15); }
-- (NSRect)randomRect { return NSMakeRect(696, 13, 60, 15); }
+- (NSRect)presetRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Preset); }
+- (NSRect)loadPresetRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Load); }
+- (NSRect)savePresetRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Save); }
+- (NSRect)randomRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Random); }
 - (NSRect)mutateRect { return NSMakeRect(762, 13, 60, 15); }
 - (NSRect)reseedRect { return NSMakeRect(828, 13, 60, 15); }
 - (NSRect)genomeCaptureRect:(uint32_t)slot { return NSMakeRect(976, slot == 0u ? 537 : 563, 38, 15); }
 - (NSRect)genomeRecallRect:(uint32_t)slot { return NSMakeRect(1019, slot == 0u ? 537 : 563, 52, 15); }
 - (NSRect)breedRect { return NSMakeRect(1004, 683, 62, 15); }
-- (NSRect)nodeSetRect { return NSMakeRect(738, 77, 124, 15); }
-- (NSRect)orderRect { return NSMakeRect(738, 479, 124, 15); }
+- (NSRect)orderRect { return NSMakeRect(738, 103, 124, 15); }
+- (NSRect)nodeSetRect { return NSMakeRect(738, 169, 124, 15); }
 - (NSRect)listeningModeRect { return NSMakeRect(1004, 77, 124, 15); }
 - (NSRect)pickupSetRect { return NSMakeRect(1004, 103, 124, 15); }
 - (NSRect)plasticityModeRect { return NSMakeRect(1004, 345, 124, 15); }
@@ -3413,11 +3423,22 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     const auto p = _plugin->params;
     NSDictionary* attrs = s3g::clap_gui::softLabelAttrs();
 
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 392, style);
-    s3g::clap_gui::drawPanelHeader(@"RECURRENT CIRCUIT", true, 630, 42, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 42, 250, 80, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 42, 250, 21, attrs, style);
+    if (const auto* output = guiSlider(kOutputParamId)) {
+        [self drawSlider:*output style:style];
+    }
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] x:630 y:104 style:style];
+
+    s3g::clap_gui::drawPanelFrame(630, 134, 250, 366, style);
+    s3g::clap_gui::drawPanelHeader(@"RECURRENT CIRCUIT", true, 630, 134, 250, 21, attrs, style);
     [self drawMenu:@"NODE SET" value:[NSString stringWithUTF8String:kNodeSetNames[
-        std::min<uint32_t>(static_cast<uint32_t>(p.nodeSet), 4u)]] x:630 y:78 style:style];
-    for (const auto& slider : kGuiSliders) if (slider.x == 630 && slider.y < 430) [self drawSlider:slider style:style];
+        std::min<uint32_t>(static_cast<uint32_t>(p.nodeSet), 4u)]] x:630 y:170 style:style];
+    for (const auto& slider : kGuiSliders) {
+        if (slider.x == 630 && slider.y >= 196 && slider.y < 510) {
+            [self drawSlider:slider style:style];
+        }
+    }
 
     s3g::clap_gui::drawPanelFrame(896, 42, 246, 392, style);
     s3g::clap_gui::drawPanelHeader(@"FIELD LISTENING / METABOLISM", true, 896, 42, 246, 21, attrs, style);
@@ -3451,10 +3472,9 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
         NSRectFill(NSMakeRect(meter.origin.x, meter.origin.y, meter.size.width * energy, meter.size.height));
     }
 
-    s3g::clap_gui::drawPanelFrame(630, 450, 250, 396, style);
-    s3g::clap_gui::drawPanelHeader(@"AMBISONIC FIELD", true, 630, 450, 250, 21, attrs, style);
-    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] x:630 y:480 style:style];
-    for (const auto& slider : kGuiSliders) if (slider.x == 630 && slider.y >= 500) [self drawSlider:slider style:style];
+    s3g::clap_gui::drawPanelFrame(630, 512, 250, 288, style);
+    s3g::clap_gui::drawPanelHeader(@"AMBISONIC FIELD", true, 630, 512, 250, 21, attrs, style);
+    for (const auto& slider : kGuiSliders) if (slider.x == 630 && slider.y >= 512) [self drawSlider:slider style:style];
 
     s3g::clap_gui::drawPanelFrame(896, 450, 246, 284, style);
     s3g::clap_gui::drawPanelHeader(@"LATTICE STATUS", true, 896, 450, 246, 21, attrs, style);
@@ -3488,7 +3508,7 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     [@"MOVES CREATE LIVE OFFSPRING"
         drawAtPoint:NSMakePoint(912, 668) withAttributes:s3g::clap_gui::softValueAttrs()];
 
-    s3g::clap_gui::drawPanelFrame(896, 750, 246, 96, style);
+    s3g::clap_gui::drawPanelFrame(896, 750, 246, 94, style);
     s3g::clap_gui::drawPanelHeader(@"FIELD SCORE", true, 896, 750, 246, 21, attrs, style);
     const NSRect scoreHeader = NSMakeRect(896, 750, 246, 21);
     static NSString* shortModeNames[] = { @"OFF", @"FLD", @"MIDI", @"CPL" };
@@ -3576,13 +3596,16 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     NSRectFill([self bounds]);
     NSDictionary* attrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* values = s3g::clap_gui::softValueAttrs();
-    [@"s3g AMBI NEURAL ECOLOGY 64" drawAtPoint:NSMakePoint(18, 14)
+    [@"s3g AMBI ENCODER NEURAL ECOLOGY 64" drawAtPoint:NSMakePoint(18, 14)
         withAttributes:s3g::clap_gui::softTitleAttrs()];
-    s3g::clap_gui::drawMenu(@"PRESET", [self presetDisplayName], 14, attrs, values, style, 320, 382, 210);
-    [self drawFeedbackActionButton:@"SAVE" rect:[self savePresetRect]
-        action:kFeedbackSave attrs:attrs style:style];
+    s3g::clap_gui::drawEncoderPresetMenu(
+        [self presetDisplayName],
+        s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
+        attrs, values, style);
     [self drawFeedbackActionButton:@"LOAD" rect:[self loadPresetRect]
         action:kFeedbackLoad attrs:attrs style:style];
+    [self drawFeedbackActionButton:@"SAVE" rect:[self savePresetRect]
+        action:kFeedbackSave attrs:attrs style:style];
     [self drawFeedbackActionButton:@"RANDOM" rect:[self randomRect]
         action:kFeedbackRandom attrs:attrs style:style];
     s3g::clap_gui::drawRightStatus(s3g::clap_gui::peakDbText(
@@ -3747,6 +3770,14 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
                     || slider.id == kScoreMemoryParamId)
                 && NSPointInRect(point,
                     NSMakeRect(slider.x + 8.0, slider.y - 8.0, 230.0, 24.0))) {
+                double defaultValue = 0.0;
+                if (s3g::clap_gui::sliderDoubleClickDefault(
+                        event, &_plugin->plugin, slider.id, &defaultValue)) {
+                    applyGuiParam(*_plugin, slider.id, defaultValue);
+                    _dragParam = 0;
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
                 _dragParam = static_cast<int>(slider.id);
                 [self setParam:slider.id fromPoint:point];
                 return;
@@ -3811,6 +3842,14 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     _dragParam = 0;
     for (const auto& slider : kGuiSliders) {
         if (NSPointInRect(point, NSMakeRect(slider.x + 8.0, slider.y - 8.0, 230.0, 24.0))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &_plugin->plugin, slider.id, &defaultValue)) {
+                applyGuiParam(*_plugin, slider.id, defaultValue);
+                _dragParam = 0;
+                [self setNeedsDisplay:YES];
+                return;
+            }
             _dragParam = static_cast<int>(slider.id);
             [self setParam:slider.id fromPoint:point];
             return;
@@ -3969,7 +4008,7 @@ constexpr const char* features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-neural-ecology-64",
-    "s3g Ambi Neural Ecology 64",
+    "s3g Ambi Encoder Neural Ecology 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

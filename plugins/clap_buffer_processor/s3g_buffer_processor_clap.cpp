@@ -313,7 +313,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         info->flags |= CLAP_PARAM_IS_STEPPED;
     }
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, "Buffer Processor", sizeof(info->module));
+    std::strncpy(info->module, "Processor Buffer", sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -520,7 +520,7 @@ static NSColor* bpColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::col
     NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
-    [@"s3g BUFFER PROCESSOR" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
+    [@"s3g PROCESSOR BUFFER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
     [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(604,14) withAttributes:small];
     [@"8CH" drawAtPoint:NSMakePoint(704,14) withAttributes:small];
@@ -561,8 +561,8 @@ static NSColor* bpColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::col
     [self drawActionButton:@"CAP" rect:NSMakeRect(500, 407, 54, 18) attrs:small];
     [self drawActionButton:@"CLR" rect:NSMakeRect(562, 407, 54, 18) attrs:small];
 
-    s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 480, small, small, style, 398, 500, 674);
-    s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 72.0f, 506, small, small, style, 398, 500, 674);
+    s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 72.0f, 480, small, small, style, 398, 500, 674);
+    s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 506, small, small, style, 398, 500, 674);
 
     [self drawBufferPreview:prm rect:NSMakeRect(30,340,330,204) attrs:small];
     [self drawOpenMenu:small style:style];
@@ -704,7 +704,7 @@ static NSColor* bpColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::col
     }
     for (int i = 0; i < 2; ++i) {
         if (NSPointInRect(pt, NSMakeRect(394, outputRows[i] - 8, 300, 24))) {
-            _dragSlider = i + 17;
+            _dragSlider = i == 0 ? 18 : 17;
             [self updateSlider:pt];
             return;
         }
@@ -754,7 +754,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.buffer-processor",
-    "s3g Buffer Processor 8ch",
+    "s3g Processor Buffer 8ch",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

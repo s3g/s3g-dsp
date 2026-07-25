@@ -28,7 +28,7 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.ambi-ray-bilocation-encoder"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Ray Bilocation Encoder"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Encoder Ray Bilocation"
     MACOSX_BUNDLE_BUNDLE_VERSION "0.1.0"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.0"
   )

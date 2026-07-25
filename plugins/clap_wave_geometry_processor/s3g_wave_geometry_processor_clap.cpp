@@ -31,7 +31,7 @@ namespace {
 #endif
 
 #ifndef S3G_WAVE_GEOMETRY_PLUGIN_NAME
-#define S3G_WAVE_GEOMETRY_PLUGIN_NAME "s3g Wave Geometry Processor 8ch"
+#define S3G_WAVE_GEOMETRY_PLUGIN_NAME "s3g Processor Wave Geometry 8ch"
 #endif
 
 constexpr uint32_t kChannelCount = s3g::kWaveGeometryChannels;
@@ -859,7 +859,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
     NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    [@"s3g WAVE GEOMETRY PROCESSOR" drawAtPoint:NSMakePoint(18, 14) withAttributes:lab];
+    [@"s3g PROCESSOR WAVE GEOMETRY" drawAtPoint:NSMakePoint(18, 14) withAttributes:lab];
     [[NSString stringWithFormat:@"%uCH", kChannelCount] drawAtPoint:NSMakePoint(936, 14) withAttributes:small];
 
     [self drawField:NSMakeRect(12, 34, 620, 694) attrs:lab small:small];

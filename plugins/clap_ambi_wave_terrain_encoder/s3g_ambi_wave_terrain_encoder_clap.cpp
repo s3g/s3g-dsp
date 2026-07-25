@@ -651,29 +651,43 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 namespace {
 
 struct GuiRow { const char* label; clap_id param; CGFloat panelX; CGFloat y; bool menu; };
+enum class GuiToolbox : uint8_t {
+    Output,
+    Engine,
+    Terrain,
+    Envelope,
+    PitchListen,
+    Scan,
+    Selection,
+    Motion,
+    Projection,
+};
+
 constexpr GuiRow kGuiRows[] {
-    { "MODE", kModeParamId, 630, 78, true }, { "ORDER", kOrderParamId, 630, 104, true },
-    { "VOICES", kVoicesParamId, 630, 130, false }, { "BASE", kBaseNoteParamId, 630, 156, false },
-    { "SPREAD", kPitchSpreadParamId, 630, 182, false }, { "TUNE", kTuneParamId, 630, 208, false },
-    { "DETUNE", kDetuneParamId, 630, 234, false },
-    { "FORM", kTerrainFormParamId, 630, 318, true }, { "FACET", kTerrainFacetParamId, 630, 344, false },
-    { "BEVEL", kTerrainBevelParamId, 630, 370, false }, { "ORIENT", kTerrainOrientationParamId, 630, 396, false },
-    { "SKIN", kSkinParamId, 630, 318, true }, { "DEPTH", kTerrainDepthParamId, 630, 344, false },
-    { "ROUGH", kTerrainRoughnessParamId, 630, 370, false }, { "FOLD", kTerrainFoldParamId, 630, 396, false },
-    { "RELIEF", kTerrainReliefParamId, 630, 422, false },
-    { "TERRACE", kTerrainTerraceParamId, 630, 318, false }, { "STEPS", kTerrainTerraceStepsParamId, 630, 344, false },
-    { "RIDGE", kTerrainRidgeParamId, 630, 370, false }, { "ERODE", kTerrainErosionParamId, 630, 396, false },
-    { "DOMAIN", kTerrainDomainWarpParamId, 630, 422, false }, { "TWIST", kTerrainTwistParamId, 630, 448, false },
-    { "READ", kInterpretationParamId, 630, 318, true }, { "MIX", kInterpretationMixParamId, 630, 344, false },
-    { "ATTACK", kAttackParamId, 630, 544, false }, { "DECAY", kDecayParamId, 630, 570, false },
-    { "SUSTAIN", kSustainParamId, 630, 596, false }, { "RELEASE", kReleaseParamId, 630, 622, false },
-    { "PITCH", kPitchModeParamId, 630, 706, true }, { "SCALE", kPitchScaleParamId, 630, 732, true },
-    { "OUT", kOutputParamId, 630, 758, false }, { "LISTEN", kFieldListenModeParamId, 630, 784, true },
+    { "OUT", kOutputParamId, 630, 78, false },
+    { "ORDER", kOrderParamId, 630, 104, true }, { "MODE", kModeParamId, 630, 170, true },
+    { "VOICES", kVoicesParamId, 630, 196, false }, { "BASE", kBaseNoteParamId, 630, 222, false },
+    { "SPREAD", kPitchSpreadParamId, 630, 248, false }, { "TUNE", kTuneParamId, 630, 274, false },
+    { "DETUNE", kDetuneParamId, 630, 300, false },
+    { "FORM", kTerrainFormParamId, 630, 374, true }, { "FACET", kTerrainFacetParamId, 630, 400, false },
+    { "BEVEL", kTerrainBevelParamId, 630, 426, false }, { "ORIENT", kTerrainOrientationParamId, 630, 452, false },
+    { "SKIN", kSkinParamId, 630, 374, true }, { "DEPTH", kTerrainDepthParamId, 630, 400, false },
+    { "ROUGH", kTerrainRoughnessParamId, 630, 426, false }, { "FOLD", kTerrainFoldParamId, 630, 452, false },
+    { "RELIEF", kTerrainReliefParamId, 630, 478, false },
+    { "TERRACE", kTerrainTerraceParamId, 630, 374, false }, { "STEPS", kTerrainTerraceStepsParamId, 630, 400, false },
+    { "RIDGE", kTerrainRidgeParamId, 630, 426, false }, { "ERODE", kTerrainErosionParamId, 630, 452, false },
+    { "DOMAIN", kTerrainDomainWarpParamId, 630, 478, false }, { "TWIST", kTerrainTwistParamId, 630, 504, false },
+    { "READ", kInterpretationParamId, 630, 374, true }, { "MIX", kInterpretationMixParamId, 630, 400, false },
+    { "ATTACK", kAttackParamId, 630, 578, false }, { "DECAY", kDecayParamId, 630, 604, false },
+    { "SUSTAIN", kSustainParamId, 630, 630, false }, { "RELEASE", kReleaseParamId, 630, 656, false },
+    { "PITCH", kPitchModeParamId, 630, 730, true }, { "SCALE", kPitchScaleParamId, 630, 756, true },
+    { "LISTEN", kFieldListenModeParamId, 630, 782, true },
     { "TRACE", kTraceParamId, 896, 78, true }, { "RADIUS", kScanRadiusParamId, 896, 104, false },
     { "ASPECT", kScanAspectParamId, 896, 130, false }, { "ROTATE", kScanRotationParamId, 896, 156, false },
-    { "WARP", kScanWarpParamId, 896, 182, false }, { "XFADE", kTableXfadeParamId, 896, 234, false },
+    { "WARP", kScanWarpParamId, 896, 182, false },
     { "SIDES", kPolygonSidesParamId, 896, 130, false }, { "ROUND", kPolygonRoundParamId, 896, 156, false },
     { "STAR", kPolygonStarParamId, 896, 182, false }, { "SKEW", kPolygonSkewParamId, 896, 208, false },
+    { "XFADE", kTableXfadeParamId, 896, 234, false },
     { "LAW", kSelectionParamId, 896, 318, true }, { "JOIN", kTransitionParamId, 896, 344, true },
     { "XFER", kNeighborTransferParamId, 896, 370, false }, { "MEM", kSelectionMemoryParamId, 896, 396, false },
     { "MOTION", kMotionModeParamId, 896, 454, true },
@@ -728,6 +742,119 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int
     return true;
 }
 
+GuiToolbox guiToolboxForParam(clap_id param)
+{
+    if (param == kOutputParamId || param == kOrderParamId) return GuiToolbox::Output;
+    if (param == kModeParamId || param == kVoicesParamId
+        || param == kBaseNoteParamId || param == kPitchSpreadParamId
+        || param == kTuneParamId || param == kDetuneParamId) return GuiToolbox::Engine;
+    if (terrainPageForParam(param) >= 0) return GuiToolbox::Terrain;
+    if (param == kAttackParamId || param == kDecayParamId
+        || param == kSustainParamId || param == kReleaseParamId) return GuiToolbox::Envelope;
+    if (param == kPitchModeParamId || param == kPitchScaleParamId
+        || param == kFieldListenModeParamId) return GuiToolbox::PitchListen;
+    if (param == kTraceParamId || param == kScanRadiusParamId
+        || param == kScanAspectParamId || param == kScanRotationParamId
+        || param == kScanWarpParamId || param == kPolygonSidesParamId
+        || param == kPolygonRoundParamId || param == kPolygonStarParamId
+        || param == kPolygonSkewParamId || param == kTableXfadeParamId) return GuiToolbox::Scan;
+    if (param == kSelectionParamId || param == kTransitionParamId
+        || param == kNeighborTransferParamId || param == kSelectionMemoryParamId) return GuiToolbox::Selection;
+    if (param == kMotionModeParamId || param == kFieldDensityParamId
+        || param == kFieldDurationParamId || param == kFieldRestParamId
+        || param == kFieldContrastParamId || param == kRegionDeviationParamId
+        || param == kMacroDurationParamId || param == kAzimuthRateParamId
+        || param == kElevationRateParamId || param == kRotationDeviationParamId) return GuiToolbox::Motion;
+    return GuiToolbox::Projection;
+}
+
+struct WaveGuiLayout {
+    s3g::gui_layout::Rect output {};
+    s3g::gui_layout::Rect engine {};
+    s3g::gui_layout::Rect terrain {};
+    s3g::gui_layout::Rect envelope {};
+    s3g::gui_layout::Rect pitchListen {};
+    s3g::gui_layout::Rect scan {};
+    s3g::gui_layout::Rect selection {};
+    s3g::gui_layout::Rect motion {};
+    s3g::gui_layout::Rect projection {};
+};
+
+WaveGuiLayout waveGuiLayout(s3g::AmbiWaveTerrainMotionMode motion,
+                            int terrainPage,
+                            s3g::AmbiWaveTerrainTrace trace)
+{
+    namespace layout = s3g::gui_layout;
+    const uint32_t terrainRows[] { 4u, 5u, 6u, 2u };
+    const uint32_t page = static_cast<uint32_t>(std::clamp(terrainPage, 0, 3));
+    WaveGuiLayout result {};
+    result.output = { 630.0, 42.0, 250.0, layout::toolboxHeightForRows(2u) };
+    result.engine = { 630.0, 134.0, 250.0, layout::toolboxHeightForRows(6u) };
+    result.terrain = { 630.0,
+        result.engine.y + result.engine.height + layout::kStandardMetrics.panelGap,
+        250.0,
+        layout::toolboxHeightForRows(terrainRows[page]) };
+    result.envelope = { 630.0,
+        result.terrain.y + result.terrain.height + layout::kStandardMetrics.panelGap,
+        250.0, layout::toolboxHeightForRows(4u) };
+    result.pitchListen = { 630.0,
+        result.envelope.y + result.envelope.height + layout::kStandardMetrics.panelGap,
+        250.0, layout::toolboxHeightForRows(3u) };
+
+    const bool polygon = trace == s3g::AmbiWaveTerrainTrace::Polygon;
+    const bool field = motion == s3g::AmbiWaveTerrainMotionMode::Field;
+    result.scan = { 896.0, 42.0, 246.0,
+        layout::toolboxHeightForRows(polygon ? 7u : 6u) };
+    double nextY = result.scan.y + result.scan.height + layout::kStandardMetrics.panelGap;
+    if (field) {
+        result.selection = { 896.0, nextY, 246.0,
+            layout::toolboxHeightForRows(4u) };
+        nextY += result.selection.height + layout::kStandardMetrics.panelGap;
+    }
+    result.motion = { 896.0, nextY, 246.0,
+        layout::toolboxHeightForRows(field ? 7u : 4u) };
+    nextY += result.motion.height + layout::kStandardMetrics.panelGap;
+    result.projection = { 896.0, nextY, 246.0,
+        layout::toolboxHeightForRows(5u) };
+    return result;
+}
+
+const s3g::gui_layout::Rect& waveToolboxRect(const WaveGuiLayout& layout,
+                                             GuiToolbox toolbox)
+{
+    switch (toolbox) {
+    case GuiToolbox::Output: return layout.output;
+    case GuiToolbox::Engine: return layout.engine;
+    case GuiToolbox::Terrain: return layout.terrain;
+    case GuiToolbox::Envelope: return layout.envelope;
+    case GuiToolbox::PitchListen: return layout.pitchListen;
+    case GuiToolbox::Scan: return layout.scan;
+    case GuiToolbox::Selection: return layout.selection;
+    case GuiToolbox::Motion: return layout.motion;
+    case GuiToolbox::Projection: return layout.projection;
+    }
+    return layout.output;
+}
+
+CGFloat effectiveGuiRowY(const GuiRow& row,
+                         const WaveGuiLayout& layout,
+                         s3g::AmbiWaveTerrainMotionMode motion,
+                         int terrainPage,
+                         s3g::AmbiWaveTerrainTrace trace)
+{
+    const GuiToolbox toolbox = guiToolboxForParam(row.param);
+    uint32_t visibleRow = 0u;
+    for (const auto& candidate : kGuiRows) {
+        if (candidate.param == row.param) break;
+        if (guiToolboxForParam(candidate.param) == toolbox
+            && guiRowVisible(candidate, motion, terrainPage, trace)) {
+            ++visibleRow;
+        }
+    }
+    return static_cast<CGFloat>(s3g::gui_layout::toolboxRowY(
+        waveToolboxRect(layout, toolbox).y, visibleRow));
+}
+
 } // namespace
 
 @interface S3GAmbiWaveTerrainEncoderView : NSView {
@@ -745,6 +872,7 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int
     double _viewAzDeg;
     double _viewElDeg;
     double _viewZoom;
+    char _titlePresetName[64];
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -758,7 +886,9 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int
     if (self) {
         _plugin = plugin; _timer = nil; _dragParam = 0; _openMenuParam = 0; _menuItemCount = 0u;
         _hoverMenuItem = -1; _selectedVoice = 0u; _viewMode = 2; _terrainPage = 0; _dragView = NO;
-        _viewAzDeg = 38.0; _viewElDeg = 32.0; _viewZoom = 1.0; [self setWantsLayer:YES];
+        _viewAzDeg = 38.0; _viewElDeg = 32.0; _viewZoom = 1.0;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
+        [self setWantsLayer:YES];
     }
     return self;
 }
@@ -785,7 +915,7 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int
 }
 - (NSRect)terrainTabRect:(int)index
 {
-    return NSMakeRect(704.0 + index * 42.0, 285.0, 38.0, 16.0);
+    return NSMakeRect(704.0 + index * 42.0, 341.0, 38.0, 16.0);
 }
 - (void)setViewPreset:(int)mode
 {
@@ -994,30 +1124,44 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int
 }
 - (void)drawControls:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 228, style); s3g::clap_gui::drawPanelHeader(@"ENGINE", true, 630, 42, 250, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(630, 282, 250, 202, style); s3g::clap_gui::drawPanelHeader(@"TERRAIN", true, 630, 282, 250, 21, attrs, style);
+    const auto layout = waveGuiLayout(
+        _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
+    const auto drawToolbox = [&](NSString* title, const s3g::gui_layout::Rect& rect) {
+        s3g::clap_gui::drawPanelFrame(
+            rect.x, rect.y, rect.width, rect.height, style);
+        s3g::clap_gui::drawPanelHeader(
+            title, true, rect.x, rect.y, rect.width, 21, attrs, style);
+    };
+    drawToolbox(@"OUTPUT", layout.output);
+    drawToolbox(@"ENGINE", layout.engine);
+    drawToolbox(@"TERRAIN", layout.terrain);
     static NSString* terrainTabs[] = { @"FORM", @"SKIN", @"WARP", @"READ" };
     for (int index = 0; index < 4; ++index) {
-        s3g::clap_gui::drawHeaderButton([self terrainTabRect:index], NSMakeRect(630, 282, 250, 202),
+        s3g::clap_gui::drawHeaderButton([self terrainTabRect:index],
+            s3g::clap_gui::cocoaRect(layout.terrain),
             terrainTabs[index], index == _terrainPage, attrs, style);
     }
-    s3g::clap_gui::drawPanelFrame(630, 508, 250, 150, style); s3g::clap_gui::drawPanelHeader(@"ENVELOPE", true, 630, 508, 250, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(630, 670, 250, 138, style); s3g::clap_gui::drawPanelHeader(@"PITCH / OUTPUT", true, 630, 670, 250, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(896, 42, 246, 228, style); s3g::clap_gui::drawPanelHeader(@"SCAN", true, 896, 42, 246, 21, attrs, style);
+    drawToolbox(@"ENVELOPE", layout.envelope);
+    drawToolbox(@"PITCH / FIELD LISTEN", layout.pitchListen);
+    drawToolbox(@"SCAN", layout.scan);
     if (_plugin->params.motionMode == s3g::AmbiWaveTerrainMotionMode::Field) {
-        s3g::clap_gui::drawPanelFrame(896, 282, 246, 124, style); s3g::clap_gui::drawPanelHeader(@"SELECTION", true, 896, 282, 246, 21, attrs, style);
+        drawToolbox(@"SELECTION", layout.selection);
     }
-    s3g::clap_gui::drawPanelFrame(896, 418, 246, 228, style);
-    s3g::clap_gui::drawPanelHeader(_plugin->params.motionMode == s3g::AmbiWaveTerrainMotionMode::Rotate ? @"ROTATION" : @"TIME FIELDS", true, 896, 418, 246, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(896, 658, 246, 150, style); s3g::clap_gui::drawPanelHeader(@"PROJECTION", true, 896, 658, 246, 21, attrs, style);
+    drawToolbox(
+        _plugin->params.motionMode == s3g::AmbiWaveTerrainMotionMode::Rotate
+            ? @"ROTATION" : @"TIME FIELDS",
+        layout.motion);
+    drawToolbox(@"PROJECTION", layout.projection);
     for (const auto& row : kGuiRows) {
         if (!guiRowVisible(row, _plugin->params.motionMode, _terrainPage, _plugin->params.trace)) continue;
+        const CGFloat y = effectiveGuiRowY(
+            row, layout, _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
         NSString* label = [NSString stringWithUTF8String:row.label];
-        if (row.menu) s3g::clap_gui::drawMenu(label, [self valueText:row.param], row.y, attrs, valueAttrs, style, row.panelX + 16, row.panelX + 108, 124);
+        if (row.menu) s3g::clap_gui::drawMenu(label, [self valueText:row.param], y, attrs, valueAttrs, style, row.panelX + 16, row.panelX + 108, 124);
         else {
             double value = 0.0; paramsGetValue(&_plugin->plugin, row.param, &value); const ParamDef* def = paramDef(row.param);
             const CGFloat norm = def ? std::clamp<CGFloat>((value - def->min) / std::max(0.000001, def->max - def->min), 0.0, 1.0) : 0.0;
-            s3g::clap_gui::drawSlider(label, [self valueText:row.param], norm, row.y, attrs, valueAttrs, style, row.panelX + 16, row.panelX + 108, row.panelX + 200, 82);
+            s3g::clap_gui::drawSlider(label, [self valueText:row.param], norm, y, attrs, valueAttrs, style, row.panelX + 16, row.panelX + 108, row.panelX + 200, 82);
         }
     }
 }
@@ -1053,9 +1197,13 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int
 - (NSRect)openMenuRect
 {
     const GuiRow* row = guiRow(_openMenuParam); if (!row) return NSZeroRect;
+    const auto layout = waveGuiLayout(
+        _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
+    const CGFloat rowY = effectiveGuiRowY(
+        *row, layout, _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
     const CGFloat height = 18.0 * _menuItemCount;
-    CGFloat y = row->y + 17;
-    if (y + height > [self bounds].size.height - 4.0) y = row->y - height;
+    CGFloat y = rowY + 17;
+    if (y + height > [self bounds].size.height - 4.0) y = rowY - height;
     return NSMakeRect(row->panelX + 108, y, 124, height);
 }
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -1068,9 +1216,13 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int
 {
     (void)dirty; const auto style = s3g::clap_gui::softTextStyle(); [style.bg setFill]; NSRectFill([self bounds]);
     NSDictionary* attrs = s3g::clap_gui::softLabelAttrs(), *values = s3g::clap_gui::softValueAttrs(), *title = s3g::clap_gui::softTitleAttrs();
-    [@"s3g AMBI WAVE TERRAIN ENCODER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:title];
-    [s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed)) drawAtPoint:NSMakePoint(1010, 14) withAttributes:values];
-    [@"64 CH" drawAtPoint:NSMakePoint(1092, 14) withAttributes:values];
+    s3g::clap_gui::drawEncoderTitleBand(
+        @"s3g AMBI ENCODER WAVE TERRAIN 64",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(
+            _plugin->outputPeak.load(std::memory_order_relaxed)),
+        s3g::clap_gui::encoderTitleBand(1158.0, 828.0),
+        title, attrs, values, style);
     [self drawVoiceField:attrs style:style]; [self drawWaveform:attrs style:style]; [self drawControls:attrs valueAttrs:values style:style]; [self drawOpenMenu:attrs style:style];
 }
 
@@ -1110,6 +1262,67 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(1158.0, 828.0);
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const uint32_t order = _plugin->params.order;
+        const float output = _plugin->params.outputGainDb;
+        const auto listenMode = _plugin->params.fieldListenMode;
+        auto initial = s3g::AmbiWaveTerrainParams {};
+        initial.order = order;
+        initial.outputGainDb = output;
+        initial.fieldListenMode = listenMode;
+        _plugin->engine.setParams(initial);
+        _plugin->params = _plugin->engine.params();
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &_plugin->plugin, @"Ambi Wave Terrain Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &_plugin->plugin, @"Ambi Wave Terrain Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.randomButton))) {
+        auto randomUnit = [] {
+            return static_cast<double>(arc4random()) / 4294967295.0;
+        };
+        applyParam(*_plugin, kModeParamId, arc4random_uniform(3u));
+        applyParam(*_plugin, kBaseNoteParamId, 28.0 + randomUnit() * 36.0);
+        applyParam(*_plugin, kPitchSpreadParamId, 5.0 + randomUnit() * 34.0);
+        applyParam(*_plugin, kDetuneParamId, 2.0 + randomUnit() * 32.0);
+        applyParam(*_plugin, kSkinParamId, arc4random_uniform(8u));
+        applyParam(*_plugin, kTerrainDepthParamId, 0.24 + randomUnit() * 0.72);
+        applyParam(*_plugin, kTerrainRoughnessParamId, 0.08 + randomUnit() * 0.80);
+        applyParam(*_plugin, kTerrainFoldParamId, randomUnit() * 0.72);
+        applyParam(*_plugin, kTerrainReliefParamId, 0.18 + randomUnit() * 0.78);
+        applyParam(*_plugin, kTraceParamId, arc4random_uniform(5u));
+        applyParam(*_plugin, kInterpretationParamId, arc4random_uniform(10u));
+        applyParam(*_plugin, kSelectionParamId, arc4random_uniform(6u));
+        applyParam(*_plugin, kTransitionParamId, arc4random_uniform(3u));
+        applyParam(*_plugin, kMotionModeParamId, arc4random_uniform(2u));
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "RANDOM");
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenuParam) {
         const int hit = s3g::clap_gui::dropdownHitIndex(point, [self openMenuRect], 18.0, _menuItemCount);
         if (hit >= 0) applyParam(*_plugin, _openMenuParam, _openMenuParam == kOrderParamId ? hit + 1 : hit);
@@ -1120,11 +1333,26 @@ bool guiRowVisible(const GuiRow& row, s3g::AmbiWaveTerrainMotionMode motion, int
     for (int index = 0; index < 2; ++index) if (NSPointInRect(point, [self zoomButtonRect:index])) { _viewZoom = std::clamp(_viewZoom + (index ? 0.15 : -0.15), 0.55, 2.4); [self setNeedsDisplay:YES]; return; }
     const int voice = [self hitVoice:point]; if (voice >= 0) { _selectedVoice = static_cast<uint32_t>(voice); _plugin->guiSelectedVoice.store(_selectedVoice); [self setNeedsDisplay:YES]; return; }
     if (NSPointInRect(point, [self fieldRect])) { _dragView = YES; _lastDragPoint = point; return; }
+    const auto layout = waveGuiLayout(
+        _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
     for (const auto& row : kGuiRows) {
         if (!guiRowVisible(row, _plugin->params.motionMode, _terrainPage, _plugin->params.trace)) continue;
-        if (!NSPointInRect(point, NSMakeRect(row.panelX + 8, row.y - 8, 232, 24))) continue;
+        const CGFloat rowY = effectiveGuiRowY(
+            row, layout, _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
+        if (!NSPointInRect(point, NSMakeRect(row.panelX + 8, rowY - 8, 232, 24))) continue;
         if (row.menu) { _openMenuParam = row.param; int selected = 0; [self menuItems:row.param count:&_menuItemCount selected:&selected]; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; }
-        else { _dragParam = row.param; [self setParam:row.param point:point]; }
+        else {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &_plugin->plugin, row.param, &defaultValue)) {
+                applyParam(*_plugin, row.param, defaultValue);
+                _dragParam = 0;
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            _dragParam = row.param;
+            [self setParam:row.param point:point];
+        }
         return;
     }
 }
@@ -1202,7 +1430,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_F
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64",
-    "s3g Ambi Wave Terrain Encoder 64",
+    "s3g Ambi Encoder Wave Terrain 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "", "", "0.5.0-pre",

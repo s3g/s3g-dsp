@@ -591,6 +591,7 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
     uint32_t _randomState;
     NSPoint _lastDragPoint;
     int _selectedPoint;
+    char _titlePresetName[64];
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -627,6 +628,7 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
         _randomPoints = 8;
         _randomState = 0x5137a11du;
         _selectedPoint = -1;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [self setWantsLayer:YES];
     }
     return self;
@@ -766,11 +768,11 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
     (void)style;
 }
 
-- (NSRect)randomButtonRect { return NSMakeRect(642, 238, 104, 22); }
-- (NSRect)deleteButtonRect { return NSMakeRect(758, 238, 104, 22); }
-- (NSRect)clearButtonRect { return NSMakeRect(642, 268, 104, 22); }
-- (NSRect)randomDevSliderRect { return NSMakeRect(738, 299, 82, 12); }
-- (NSRect)randomPointsSliderRect { return NSMakeRect(738, 323, 82, 12); }
+- (NSRect)randomButtonRect { return NSMakeRect(642, 264, 104, 22); }
+- (NSRect)deleteButtonRect { return NSMakeRect(758, 264, 104, 22); }
+- (NSRect)clearButtonRect { return NSMakeRect(642, 294, 104, 22); }
+- (NSRect)randomDevSliderRect { return NSMakeRect(738, 325, 82, 12); }
+- (NSRect)randomPointsSliderRect { return NSMakeRect(738, 349, 82, 12); }
 
 - (float)randomUnit
 {
@@ -829,11 +831,11 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
 {
     switch (menu) {
     case 1: return 104.0;
-    case 2: return 208.0;
-    case 3: return 414.0;
-    case 4: return 436.0;
-    case 5: return 480.0;
-    case 6: return 502.0;
+    case 2: return 234.0;
+    case 3: return 416.0;
+    case 4: return 438.0;
+    case 5: return 482.0;
+    case 6: return 504.0;
     default: return 0.0;
     }
 }
@@ -1056,10 +1058,13 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
     NSDictionary* dim = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
 
-    [@"s3g AMBI PATH ENCODER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
     const float pk = _plugin->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(735, 14) withAttributes:dim];
-    [@"64 CH" drawAtPoint:NSMakePoint(832, 14) withAttributes:dim];
+    s3g::clap_gui::drawEncoderTitleBand(
+        @"s3g AMBI ENCODER PATH 64",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(pk),
+        s3g::clap_gui::encoderTitleBand(900.0, 792.0),
+        titleAttrs, attrs, dim, style);
 
     const NSRect fieldPanel = [self fieldPanelRect];
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
@@ -1068,38 +1073,38 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
     [self drawZoomButtonsInRect:fieldPanel attrs:dim style:style];
     [self drawField:[self fieldRect] attrs:dim style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 330, style);
-    s3g::clap_gui::drawPanelHeader(@"PATH", true, 630, 42, 250, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(630, 384, 250, 320, style);
-    s3g::clap_gui::drawPanelHeader(@"MOTION", true, 630, 384, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 42, 250, 326, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / PATH", true, 630, 42, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 380, 250, 322, style);
+    s3g::clap_gui::drawPanelHeader(@"MOTION", true, 630, 380, 250, 21, attrs, style);
 
     const auto p = _plugin->params;
-    [self drawSlider:@"INPUTS" param:kInputsParamId value:p.activeInputs min:1 max:64 y:78 attrs:attrs style:style];
+    [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:78 attrs:attrs style:style];
     [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] y:104 attrs:attrs style:style];
-    [self drawSlider:@"PATHS" param:kPathsParamId value:p.activePaths min:1 max:16 y:130 attrs:attrs style:style];
-    [self drawSlider:@"PATH" param:kSelectedPathParamId value:p.selectedPath + 1u min:1 max:16 y:156 attrs:attrs style:style];
-    [self drawSlider:@"SOURCE" param:kSelectedSourceParamId value:p.selectedSource + 1u min:1 max:64 y:182 attrs:attrs style:style];
-    [self drawMenu:@"ASSIGN" value:[NSString stringWithUTF8String:assignName(static_cast<uint32_t>(p.assignMode))] y:208 attrs:attrs style:style];
-    [self drawActionButton:@"RAND" rect:[self randomButtonRect] attrs:dim style:style];
+    [self drawSlider:@"INPUTS" param:kInputsParamId value:p.activeInputs min:1 max:64 y:130 attrs:attrs style:style];
+    [self drawSlider:@"PATHS" param:kPathsParamId value:p.activePaths min:1 max:16 y:156 attrs:attrs style:style];
+    [self drawSlider:@"PATH" param:kSelectedPathParamId value:p.selectedPath + 1u min:1 max:16 y:182 attrs:attrs style:style];
+    [self drawSlider:@"SOURCE" param:kSelectedSourceParamId value:p.selectedSource + 1u min:1 max:64 y:208 attrs:attrs style:style];
+    [self drawMenu:@"ASSIGN" value:[NSString stringWithUTF8String:assignName(static_cast<uint32_t>(p.assignMode))] y:234 attrs:attrs style:style];
+    [self drawActionButton:@"REGEN" rect:[self randomButtonRect] attrs:dim style:style];
     [self drawActionButton:@"DEL PT" rect:[self deleteButtonRect] attrs:dim style:style];
     [self drawActionButton:@"CLEAR" rect:[self clearButtonRect] attrs:dim style:style];
-    s3g::clap_gui::drawSlider(@"DEV", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(_randomDev * 100.0)], _randomDev, 300, attrs, dim, style, 646.0, 738.0, 826.0, 82.0);
-    s3g::clap_gui::drawSlider(@"PTS", [NSString stringWithFormat:@"%u", _randomPoints], (static_cast<CGFloat>(_randomPoints) - 2.0) / 62.0, 324, attrs, dim, style, 646.0, 738.0, 826.0, 82.0);
-    [self drawSlider:@"OUTPUT" param:kOutputParamId value:p.outputGainDb min:-60 max:12 y:354 attrs:attrs style:style];
+    s3g::clap_gui::drawSlider(@"DEV", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(_randomDev * 100.0)], _randomDev, 326, attrs, dim, style, 646.0, 738.0, 826.0, 82.0);
+    s3g::clap_gui::drawSlider(@"PTS", [NSString stringWithFormat:@"%u", _randomPoints], (static_cast<CGFloat>(_randomPoints) - 2.0) / 62.0, 350, attrs, dim, style, 646.0, 738.0, 826.0, 82.0);
 
-    [self drawMenu:@"PLAY" value:[NSString stringWithUTF8String:playbackName(static_cast<uint32_t>(p.playback))] y:414 attrs:attrs style:style];
-    [self drawMenu:@"SYNC" value:[NSString stringWithUTF8String:syncName(static_cast<uint32_t>(p.syncMode))] y:436 attrs:attrs style:style];
-    [self drawSlider:@"DIV" param:kDivisionParamId value:p.syncDivisionBeats min:0.25 max:64 y:458 attrs:attrs style:style];
-    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:loopName(static_cast<uint32_t>(p.loopMode))] y:480 attrs:attrs style:style];
-    [self drawMenu:@"INTERP" value:[NSString stringWithUTF8String:interpName(static_cast<uint32_t>(p.interpolation))] y:502 attrs:attrs style:style];
-    [self drawSlider:@"RATE" param:kRateParamId value:p.rateHz min:0.001 max:4 y:528 attrs:attrs style:style];
-    [self drawSlider:@"PHASE" param:kPhaseParamId value:p.phase min:0 max:1 y:550 attrs:attrs style:style];
-    [self drawSlider:@"SPREAD" param:kPhaseSpreadParamId value:p.phaseSpread min:0 max:1 y:572 attrs:attrs style:style];
-    [self drawSlider:@"SMOOTH" param:kSmoothParamId value:p.smooth min:0 max:0.995 y:594 attrs:attrs style:style];
-    [self drawSlider:@"EASE" param:kEaseParamId value:p.ease min:0 max:1 y:616 attrs:attrs style:style];
-    [self drawSlider:@"DIST" param:kDistanceScaleParamId value:p.distanceScale min:0.05 max:8 y:638 attrs:attrs style:style];
-    [self drawSlider:@"DOPPLER" param:kDopplerParamId value:p.doppler min:0 max:1 y:660 attrs:attrs style:style];
-    [self drawSlider:@"AIR" param:kAirParamId value:p.air min:0 max:1 y:682 attrs:attrs style:style];
+    [self drawMenu:@"PLAY" value:[NSString stringWithUTF8String:playbackName(static_cast<uint32_t>(p.playback))] y:416 attrs:attrs style:style];
+    [self drawMenu:@"SYNC" value:[NSString stringWithUTF8String:syncName(static_cast<uint32_t>(p.syncMode))] y:438 attrs:attrs style:style];
+    [self drawSlider:@"DIV" param:kDivisionParamId value:p.syncDivisionBeats min:0.25 max:64 y:460 attrs:attrs style:style];
+    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:loopName(static_cast<uint32_t>(p.loopMode))] y:482 attrs:attrs style:style];
+    [self drawMenu:@"INTERP" value:[NSString stringWithUTF8String:interpName(static_cast<uint32_t>(p.interpolation))] y:504 attrs:attrs style:style];
+    [self drawSlider:@"RATE" param:kRateParamId value:p.rateHz min:0.001 max:4 y:530 attrs:attrs style:style];
+    [self drawSlider:@"PHASE" param:kPhaseParamId value:p.phase min:0 max:1 y:552 attrs:attrs style:style];
+    [self drawSlider:@"SPREAD" param:kPhaseSpreadParamId value:p.phaseSpread min:0 max:1 y:574 attrs:attrs style:style];
+    [self drawSlider:@"SMOOTH" param:kSmoothParamId value:p.smooth min:0 max:0.995 y:596 attrs:attrs style:style];
+    [self drawSlider:@"EASE" param:kEaseParamId value:p.ease min:0 max:1 y:618 attrs:attrs style:style];
+    [self drawSlider:@"DIST" param:kDistanceScaleParamId value:p.distanceScale min:0.05 max:8 y:640 attrs:attrs style:style];
+    [self drawSlider:@"DOPPLER" param:kDopplerParamId value:p.doppler min:0 max:1 y:662 attrs:attrs style:style];
+    [self drawSlider:@"AIR" param:kAirParamId value:p.air min:0 max:1 y:684 attrs:attrs style:style];
 
     [self drawActionButton:@"LOAD JSON" rect:[self fileButtonRect:0] attrs:dim style:style];
     [self drawActionButton:@"SAVE JSON" rect:[self fileButtonRect:1] attrs:dim style:style];
@@ -1269,6 +1274,61 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(900.0, 792.0);
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        const uint32_t inputs = _plugin->params.activeInputs;
+        const uint32_t order = _plugin->params.order;
+        const float output = _plugin->params.outputGainDb;
+        auto initial = s3g::AmbiPathEncoderParams {};
+        initial.activeInputs = inputs;
+        initial.order = order;
+        initial.outputGainDb = output;
+        _plugin->params = initial;
+        _plugin->encoder.setParams(initial);
+        _plugin->params = _plugin->encoder.params();
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &_plugin->plugin, @"Ambi Path Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &_plugin->plugin, @"Ambi Path Encoder", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.randomButton))) {
+        [self randomizePaths];
+        applyParam(*_plugin, kPlaybackParamId,
+            static_cast<double>(arc4random_uniform(3u)));
+        applyParam(*_plugin, kLoopParamId,
+            static_cast<double>(arc4random_uniform(3u)));
+        applyParam(*_plugin, kRateParamId,
+            0.01 * std::pow(160.0,
+                static_cast<double>(arc4random()) / 4294967295.0));
+        applyParam(*_plugin, kPhaseSpreadParamId,
+            static_cast<double>(arc4random()) / 4294967295.0);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "RANDOM");
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenu > 0) {
         const CGFloat itemH = 18.0;
         const int hit = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(738, [self menuY], [self menuW], itemH * _menuItemCount), itemH, _menuItemCount);
@@ -1298,8 +1358,28 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
     if (NSPointInRect(pt, [self randomButtonRect])) { [self randomizePaths]; return; }
     if (NSPointInRect(pt, [self deleteButtonRect])) { [self deleteSelectedPoint]; return; }
     if (NSPointInRect(pt, [self clearButtonRect])) { [self clearSelectedPath]; return; }
-    if (NSPointInRect(pt, NSInsetRect([self randomDevSliderRect], -40.0, -8.0))) { _dragRandomDev = YES; [self updateRandomDev:pt]; return; }
-    if (NSPointInRect(pt, NSInsetRect([self randomPointsSliderRect], -40.0, -8.0))) { _dragRandomPoints = YES; [self updateRandomPoints:pt]; return; }
+    if (NSPointInRect(pt, NSInsetRect([self randomDevSliderRect], -40.0, -8.0))) {
+        if ([event clickCount] >= 2) {
+            _randomDev = 0.45;
+            _dragRandomDev = NO;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        _dragRandomDev = YES;
+        [self updateRandomDev:pt];
+        return;
+    }
+    if (NSPointInRect(pt, NSInsetRect([self randomPointsSliderRect], -40.0, -8.0))) {
+        if ([event clickCount] >= 2) {
+            _randomPoints = 8u;
+            _dragRandomPoints = NO;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        _dragRandomPoints = YES;
+        [self updateRandomPoints:pt];
+        return;
+    }
 
     const NSRect fieldPanel = [self fieldPanelRect];
     if (NSPointInRect(pt, fieldPanel)) {
@@ -1351,27 +1431,37 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
     }
 
     _dragParam = 0;
-    if (NSPointInRect(pt, NSMakeRect(638, 70, 230, 24))) _dragParam = kInputsParamId;
+    if (NSPointInRect(pt, NSMakeRect(638, 70, 230, 24))) _dragParam = kOutputParamId;
     else if (NSPointInRect(pt, NSMakeRect(738, 103, 126, 17))) { openMenu(1, 7); return; }
-    else if (NSPointInRect(pt, NSMakeRect(638, 122, 230, 24))) _dragParam = kPathsParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 148, 230, 24))) { _selectedPoint = -1; _dragParam = kSelectedPathParamId; }
-    else if (NSPointInRect(pt, NSMakeRect(638, 174, 230, 24))) _dragParam = kSelectedSourceParamId;
-    else if (NSPointInRect(pt, NSMakeRect(738, 207, 126, 17))) { openMenu(2, 3); return; }
-    else if (NSPointInRect(pt, NSMakeRect(638, 346, 230, 24))) _dragParam = kOutputParamId;
-    else if (NSPointInRect(pt, NSMakeRect(738, 413, 126, 17))) { openMenu(3, 3); return; }
-    else if (NSPointInRect(pt, NSMakeRect(738, 435, 126, 17))) { openMenu(4, 2); return; }
-    else if (NSPointInRect(pt, NSMakeRect(638, 450, 230, 24))) _dragParam = kDivisionParamId;
-    else if (NSPointInRect(pt, NSMakeRect(738, 479, 126, 17))) { openMenu(5, 3); return; }
-    else if (NSPointInRect(pt, NSMakeRect(738, 501, 126, 17))) { openMenu(6, 3); return; }
-    else if (NSPointInRect(pt, NSMakeRect(638, 520, 230, 24))) _dragParam = kRateParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 542, 230, 24))) _dragParam = kPhaseParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 564, 230, 24))) _dragParam = kPhaseSpreadParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 586, 230, 24))) _dragParam = kSmoothParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 608, 230, 24))) _dragParam = kEaseParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 630, 230, 24))) _dragParam = kDistanceScaleParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 652, 230, 24))) _dragParam = kDopplerParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 674, 230, 24))) _dragParam = kAirParamId;
-    if (_dragParam) [self setParam:_dragParam fromPoint:pt];
+    else if (NSPointInRect(pt, NSMakeRect(638, 122, 230, 24))) _dragParam = kInputsParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 148, 230, 24))) _dragParam = kPathsParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 174, 230, 24))) { _selectedPoint = -1; _dragParam = kSelectedPathParamId; }
+    else if (NSPointInRect(pt, NSMakeRect(638, 200, 230, 24))) _dragParam = kSelectedSourceParamId;
+    else if (NSPointInRect(pt, NSMakeRect(738, 233, 126, 17))) { openMenu(2, 3); return; }
+    else if (NSPointInRect(pt, NSMakeRect(738, 415, 126, 17))) { openMenu(3, 3); return; }
+    else if (NSPointInRect(pt, NSMakeRect(738, 437, 126, 17))) { openMenu(4, 2); return; }
+    else if (NSPointInRect(pt, NSMakeRect(638, 452, 230, 24))) _dragParam = kDivisionParamId;
+    else if (NSPointInRect(pt, NSMakeRect(738, 481, 126, 17))) { openMenu(5, 3); return; }
+    else if (NSPointInRect(pt, NSMakeRect(738, 503, 126, 17))) { openMenu(6, 3); return; }
+    else if (NSPointInRect(pt, NSMakeRect(638, 522, 230, 24))) _dragParam = kRateParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 544, 230, 24))) _dragParam = kPhaseParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 566, 230, 24))) _dragParam = kPhaseSpreadParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 588, 230, 24))) _dragParam = kSmoothParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 610, 230, 24))) _dragParam = kEaseParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 632, 230, 24))) _dragParam = kDistanceScaleParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 654, 230, 24))) _dragParam = kDopplerParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 676, 230, 24))) _dragParam = kAirParamId;
+    if (_dragParam) {
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &_plugin->plugin, _dragParam, &defaultValue)) {
+            applyParam(*_plugin, _dragParam, defaultValue);
+            _dragParam = 0;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        [self setParam:_dragParam fromPoint:pt];
+    }
 }
 
 - (void)mouseDragged:(NSEvent*)event
@@ -1514,7 +1604,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-path-encoder-64",
-    "s3g Ambi Path Encoder 64",
+    "s3g Ambi Encoder Path 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

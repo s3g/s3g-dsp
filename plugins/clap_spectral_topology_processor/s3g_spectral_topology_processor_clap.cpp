@@ -31,7 +31,7 @@ namespace {
 #endif
 
 #ifndef S3G_SPECTRAL_TOPOLOGY_PLUGIN_NAME
-#define S3G_SPECTRAL_TOPOLOGY_PLUGIN_NAME "s3g Spectral Topology Processor 8ch"
+#define S3G_SPECTRAL_TOPOLOGY_PLUGIN_NAME "s3g Processor Spectral Topology 8ch"
 #endif
 
 constexpr uint32_t kChannelCount = s3g::kSpectralTopologyChannels;
@@ -825,7 +825,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
     NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    [@"s3g SPECTRAL TOPOLOGY PROCESSOR" drawAtPoint:NSMakePoint(18, 14) withAttributes:lab];
+    [@"s3g PROCESSOR SPECTRAL TOPOLOGY" drawAtPoint:NSMakePoint(18, 14) withAttributes:lab];
     [[NSString stringWithFormat:@"%uCH", kChannelCount] drawAtPoint:NSMakePoint(936, 14) withAttributes:small];
 
     [self drawField:NSMakeRect(12, 34, 620, 654) attrs:lab small:small];

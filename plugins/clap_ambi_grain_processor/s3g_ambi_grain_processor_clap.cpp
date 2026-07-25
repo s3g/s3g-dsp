@@ -398,7 +398,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
     if (def.id == kOrderParamId || def.id == kModeParamId || def.id == kJumpStepsParamId || def.id == kSyncParamId || def.id == kEnvelopeParamId) info->flags |= CLAP_PARAM_IS_STEPPED;
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, "Ambi Grain Processor", sizeof(info->module));
+    std::strncpy(info->module, "Processor Ambi Grain", sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -800,7 +800,7 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
     const BOOL isFreeze = prm.mode == s3g::AmbiGrainMode::Freeze;
     const BOOL isJump = prm.mode == s3g::AmbiGrainMode::Jump;
     const BOOL isPlaying = p->playing.load(std::memory_order_acquire);
-    [@"s3g Ambi Grain Processor" drawAtPoint:NSMakePoint(18, 16) withAttributes:title];
+    [@"s3g PROCESSOR AMBI GRAIN" drawAtPoint:NSMakePoint(18, 16) withAttributes:title];
     [self drawButton:@"LOAD" rect:NSMakeRect(18, 48, 70, 24) active:NO attrs:text];
     [self drawTransportButton:NSMakeRect(96, 49, 26, 22) kind:0 active:isPlaying];
     [self drawTransportButton:NSMakeRect(130, 49, 26, 22) kind:1 active:!isPlaying];
@@ -990,7 +990,7 @@ const clap_plugin_t pluginClass {
 };
 
 constexpr const char* features[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_AMBISONIC, nullptr };
-const clap_plugin_descriptor_t descriptor { CLAP_VERSION_INIT, "org.s3g.s3g-dsp.ambi-grain-processor", "s3g Ambi Grain Processor", "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.1.0", "Coherent grain processor for loaded ACN/SN3D ambisonic media.", features };
+const clap_plugin_descriptor_t descriptor { CLAP_VERSION_INIT, "org.s3g.s3g-dsp.ambi-grain-processor", "s3g Processor Ambi Grain", "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.1.0", "Coherent grain processor for loaded ACN/SN3D ambisonic media.", features };
 
 const clap_plugin_t* createPlugin(const clap_host_t* host, const char* pluginId)
 {

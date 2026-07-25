@@ -41,7 +41,7 @@ Plugin areas:
 - [Instruments](https://s3g.github.io/s3g-dsp/instruments.html): loaded-loop,
   granular, vector-wavetable, weather, liquid, WORLD/voicebank vocal, and
   stochastic instruments, including the eight-channel
-  [Fault](https://s3g.github.io/s3g-dsp/fault.html) generated, raw-file,
+  [Processor Fault](https://s3g.github.io/s3g-dsp/fault.html) generated, raw-file,
   and waveform-derived byte-field and codec synthesizer with free-running and
   MIDI/ADSR performance modes.
 

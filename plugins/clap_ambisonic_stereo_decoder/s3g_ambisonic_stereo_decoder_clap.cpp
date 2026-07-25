@@ -81,6 +81,7 @@ struct Plugin {
     std::atomic<float> outputPeakRight { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
     void* macRealtimeActivity = nullptr;
     std::atomic<bool> guiVisible { false };
 #endif
@@ -234,9 +235,14 @@ Plugin* self(const clap_plugin_t* plugin)
 
 bool init(const clap_plugin_t*) { return true; }
 
+#if defined(__APPLE__)
+void guiDestroy(const clap_plugin_t* plugin);
+#endif
+
 void destroy(const clap_plugin_t* plugin)
 {
 #if defined(__APPLE__)
+    guiDestroy(plugin);
     s3g::clap_support::endRealtimeActivity(self(plugin)->macRealtimeActivity);
 #endif
     delete self(plugin);
@@ -567,6 +573,7 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
     NSPoint _menuOrigin;
     uint32_t _menuItems;
     NSTimer* _refreshTimer;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
@@ -593,6 +600,7 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
         _menuItems = 0;
         _menuOrigin = NSMakePoint(0, 0);
         _refreshTimer = nil;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [[self window] setAcceptsMouseMovedEvents:YES];
     }
     return self;
@@ -626,13 +634,19 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
 }
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y small:(NSDictionary*)small
 {
+    (void)small;
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawSlider(name, value, norm, y, small, small, style, 606, 712, 852, 122);
+    s3g::clap_gui::drawSlider(name, value, norm, y,
+        s3g::clap_gui::softLabelAttrs(), s3g::clap_gui::softValueAttrs(),
+        style, 606, 712, 852, 122);
 }
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y small:(NSDictionary*)small
 {
+    (void)small;
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawMenu(name, value, y, small, small, style, 606, 712, 176);
+    s3g::clap_gui::drawMenu(name, value, y,
+        s3g::clap_gui::softLabelAttrs(), s3g::clap_gui::softValueAttrs(),
+        style, 606, 712, 176);
 }
 - (NSRect)viewButtonRect:(int)index inRect:(NSRect)rect
 {
@@ -677,20 +691,29 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
     s3g::clap_gui::Style style;
     [style.bg setFill];
     NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
-    NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    NSDictionary* text = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
-    [@"s3g AMBI STEREO DECODER" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
-    [[NSString stringWithFormat:@"%uOA ACN/SN3D / TRUE 2OUT", p->params.order] drawAtPoint:NSMakePoint(760, 13) withAttributes:small];
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* text = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
+    const float titlePeak = std::max(
+        p->outputPeakLeft.load(std::memory_order_relaxed),
+        p->outputPeakRight.load(std::memory_order_relaxed));
+    NSString* titleStatus = [NSString stringWithFormat:@"%@ · 2OUT",
+        s3g::clap_gui::peakDbText(titlePeak)];
+    s3g::clap_gui::drawDecoderTitleBand(
+        @"s3g AMBI DECODER STEREO",
+        [NSString stringWithUTF8String:_titlePresetName],
+        titleStatus,
+        s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
+        titleAttrs, text, small, style);
 
-    NSRect fieldPanel = NSMakeRect(12, 34, 568, 514);
+    NSRect fieldPanel = NSMakeRect(12, 34, 568, 594);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"STEREO IMAGE", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
     static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
     for (int i = 0; i < 3; ++i) {
         s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:fieldPanel], fieldPanel, viewLabels[i], i == _viewMode, small, style);
     }
-    NSRect field = NSMakeRect(28, 70, 536, 402);
+    NSRect field = NSMakeRect(28, 70, 536, 542);
     [s3gAmbiStereoColor(0x101010) setFill];
     NSRectFill(field);
     [style.grid setStroke];
@@ -912,40 +935,17 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
       [NSString stringWithUTF8String:layoutName(static_cast<uint32_t>(p->params.layout))],
       [NSString stringWithUTF8String:methodName(static_cast<uint32_t>(p->params.method))],
       [NSString stringWithUTF8String:weightingName(static_cast<uint32_t>(p->params.weighting))]]
-        drawAtPoint:NSMakePoint(28, 488) withAttributes:small];
+        drawAtPoint:NSMakePoint(field.origin.x, NSMaxY(field) - 24.0) withAttributes:small];
 
     NSRect side = NSMakeRect(592, 34, 336, 594);
-    NSRect decoder = NSMakeRect(side.origin.x, 34, side.size.width, 128);
-    NSRect pickup = NSMakeRect(side.origin.x, 174, side.size.width, 184);
-    NSRect fieldMix = NSMakeRect(side.origin.x, 370, side.size.width, 118);
-    NSRect output = NSMakeRect(side.origin.x, 500, side.size.width, 118);
-    s3g::clap_gui::drawPanelFrame(decoder.origin.x, decoder.origin.y, decoder.size.width, decoder.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"DECODER", true, decoder.origin.x, decoder.origin.y, decoder.size.width, 21, text, style);
-    [self drawSlider:@"ORD" value:[NSString stringWithFormat:@"%uOA", p->params.order] norm:(p->params.order - 1.0) / 6.0 y:74 small:small];
-    [self drawMenu:@"FIELD" value:[NSString stringWithUTF8String:layoutName(static_cast<uint32_t>(p->params.layout))] y:96 small:small];
-    [self drawMenu:@"WGT" value:[NSString stringWithUTF8String:weightingName(static_cast<uint32_t>(p->params.weighting))] y:118 small:small];
-    [self drawMenu:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))] y:140 small:small];
-
-    s3g::clap_gui::drawPanelFrame(pickup.origin.x, pickup.origin.y, pickup.size.width, pickup.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"STEREO PICKUP", true, pickup.origin.x, pickup.origin.y, pickup.size.width, 21, text, style);
-    [self drawMenu:@"MTHD" value:[NSString stringWithUTF8String:methodName(static_cast<uint32_t>(p->params.method))] y:214 small:small];
-    [self drawSlider:@"WDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.stereoWidthPercent)] norm:p->params.stereoWidthPercent / 200.0 y:236 small:small];
-    [self drawSlider:@"ANG" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(p->params.micAngleDeg)] norm:(p->params.micAngleDeg - 20.0) / 120.0 y:258 small:small];
-    [self drawSlider:@"ROT" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.rotationDeg)] norm:(p->params.rotationDeg + 180.0) / 360.0 y:280 small:small];
-    [self drawSlider:@"DIR" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.directivityPercent)] norm:p->params.directivityPercent / 100.0 y:302 small:small];
-    [self drawSlider:@"AB" value:[NSString stringWithFormat:@"%.0fcm", static_cast<double>(p->params.abSpacingCm)] norm:p->params.abSpacingCm / 120.0 y:324 small:small];
-    [self drawSlider:@"M-EL" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.micElevationDeg)] norm:(p->params.micElevationDeg + 90.0) / 180.0 y:346 small:small];
-
-    s3g::clap_gui::drawPanelFrame(fieldMix.origin.x, fieldMix.origin.y, fieldMix.size.width, fieldMix.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"FIELD MIX", true, fieldMix.origin.x, fieldMix.origin.y, fieldMix.size.width, 21, text, style);
-    [self drawSlider:@"REAR" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.rearRejectPercent)] norm:p->params.rearRejectPercent / 100.0 y:410 small:small];
-    [self drawSlider:@"HGT" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.heightFoldPercent)] norm:p->params.heightFoldPercent / 100.0 y:432 small:small];
-    [self drawSlider:@"DIF" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.diffuseBlendPercent)] norm:p->params.diffuseBlendPercent / 100.0 y:454 small:small];
-    [self drawSlider:@"BASS" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(p->params.bassMonoHz)] norm:p->params.bassMonoHz / 300.0 y:476 small:small];
+    NSRect output = NSMakeRect(side.origin.x, 34, side.size.width, 118);
+    NSRect decoder = NSMakeRect(side.origin.x, 164, side.size.width, 128);
+    NSRect pickup = NSMakeRect(side.origin.x, 304, side.size.width, 184);
+    NSRect fieldMix = NSMakeRect(side.origin.x, 500, side.size.width, 118);
 
     s3g::clap_gui::drawPanelFrame(output.origin.x, output.origin.y, output.size.width, output.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, output.origin.x, output.origin.y, output.size.width, 21, text, style);
-    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 24.0) / 48.0 y:538 small:small];
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 24.0) / 48.0 y:70 small:small];
 
     const float pkL = p->outputPeakLeft.exchange(p->outputPeakLeft.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
     const float pkR = p->outputPeakRight.exchange(p->outputPeakRight.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
@@ -961,11 +961,36 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
         [name drawAtPoint:NSMakePoint(612, y - 1) withAttributes:small];
         [[NSString stringWithFormat:@"%+4.1f", db] drawAtPoint:NSMakePoint(850, y - 1) withAttributes:small];
     };
-    drawMeter(566, @"L", pkL);
-    drawMeter(588, @"R", pkR);
+    drawMeter(98, @"L", pkL);
+    drawMeter(120, @"R", pkR);
+
+    s3g::clap_gui::drawPanelFrame(decoder.origin.x, decoder.origin.y, decoder.size.width, decoder.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"DECODER", true, decoder.origin.x, decoder.origin.y, decoder.size.width, 21, text, style);
+    [self drawMenu:@"FIELD" value:[NSString stringWithUTF8String:layoutName(static_cast<uint32_t>(p->params.layout))] y:204 small:small];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p->params.order] y:226 small:small];
+    [self drawMenu:@"WGT" value:[NSString stringWithUTF8String:weightingName(static_cast<uint32_t>(p->params.weighting))] y:248 small:small];
+    [self drawMenu:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))] y:270 small:small];
+
+    s3g::clap_gui::drawPanelFrame(pickup.origin.x, pickup.origin.y, pickup.size.width, pickup.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"STEREO PICKUP", true, pickup.origin.x, pickup.origin.y, pickup.size.width, 21, text, style);
+    [self drawMenu:@"MTHD" value:[NSString stringWithUTF8String:methodName(static_cast<uint32_t>(p->params.method))] y:344 small:small];
+    [self drawSlider:@"WDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.stereoWidthPercent)] norm:p->params.stereoWidthPercent / 200.0 y:366 small:small];
+    [self drawSlider:@"ANG" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(p->params.micAngleDeg)] norm:(p->params.micAngleDeg - 20.0) / 120.0 y:388 small:small];
+    [self drawSlider:@"ROT" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.rotationDeg)] norm:(p->params.rotationDeg + 180.0) / 360.0 y:410 small:small];
+    [self drawSlider:@"DIR" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.directivityPercent)] norm:p->params.directivityPercent / 100.0 y:432 small:small];
+    [self drawSlider:@"AB" value:[NSString stringWithFormat:@"%.0fcm", static_cast<double>(p->params.abSpacingCm)] norm:p->params.abSpacingCm / 120.0 y:454 small:small];
+    [self drawSlider:@"M-EL" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.micElevationDeg)] norm:(p->params.micElevationDeg + 90.0) / 180.0 y:476 small:small];
+
+    s3g::clap_gui::drawPanelFrame(fieldMix.origin.x, fieldMix.origin.y, fieldMix.size.width, fieldMix.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"FIELD MIX", true, fieldMix.origin.x, fieldMix.origin.y, fieldMix.size.width, 21, text, style);
+    [self drawSlider:@"REAR" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.rearRejectPercent)] norm:p->params.rearRejectPercent / 100.0 y:540 small:small];
+    [self drawSlider:@"HGT" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.heightFoldPercent)] norm:p->params.heightFoldPercent / 100.0 y:562 small:small];
+    [self drawSlider:@"DIF" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.diffuseBlendPercent)] norm:p->params.diffuseBlendPercent / 100.0 y:584 small:small];
+    [self drawSlider:@"BASS" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(p->params.bassMonoHz)] norm:p->params.bassMonoHz / 300.0 y:606 small:small];
 
     if (_openMenu > 0 && _menuItems > 0) {
         NSString* layoutItems[] = { @"Quad virtual", @"8ch cube", @"12ch dodeca", @"24ch dome", @"32ch sphere" };
+        NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
         NSString* methodItems[] = { @"XY cardioid", @"ORTF-style", @"MS cardioid", @"Blumlein", @"Spaced omni", @"Dual shotgun", @"Wide cardioid", @"Supercardioid XY", @"Hypercardioid XY", @"Height focus" };
         NSString* weightItems[] = { @"Projection", @"Energy-normalized", @"Max-rE", @"Custom" };
         NSString* gainItems[] = { @"Off", @"Power/sqrt(N)", @"Energy sum" };
@@ -974,6 +999,7 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
         if (_openMenu == 2) { items = methodItems; selected = static_cast<int>(p->params.method); }
         if (_openMenu == 3) { items = weightItems; selected = static_cast<int>(p->params.weighting); }
         if (_openMenu == 4) { items = gainItems; selected = static_cast<int>(p->params.autogain); }
+        if (_openMenu == 5) { items = orderItems; selected = static_cast<int>(p->params.order) - 1; }
         const CGFloat itemH = 18.0;
         NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 176, itemH * _menuItems);
         s3g::clap_gui::drawDropdownMenu(menu, itemH, items, _menuItems, selected, _hoverMenuItem, small, style);
@@ -1011,6 +1037,39 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    auto* titlePlugin = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        titlePlugin->params = sanitizeParams(s3g::AmbiStereoParams {});
+        markCoeffsDirty(*titlePlugin);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &titlePlugin->plugin, @"Ambi Decoder Stereo", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &titlePlugin->plugin, @"Ambi Decoder Stereo", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
     if (_openMenu > 0) {
         NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 176, 18.0 * _menuItems);
         const int hit = s3g::clap_gui::dropdownHitIndex(pt, menu, 18.0, _menuItems);
@@ -1019,13 +1078,14 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
             if (_openMenu == 2) [self setParam:kParamMethod value:hit];
             if (_openMenu == 3) [self setParam:kParamWeighting value:hit];
             if (_openMenu == 4) [self setParam:kParamAutogain value:hit];
+            if (_openMenu == 5) [self setParam:kParamOrder value:hit + 1u];
         }
         _openMenu = 0;
         _hoverMenuItem = -1;
         [self setNeedsDisplay:YES];
         return;
     }
-    const NSRect fieldPanel = NSMakeRect(12, 34, 568, 514);
+    const NSRect fieldPanel = NSMakeRect(12, 34, 568, 594);
     for (int i = 0; i < 3; ++i) {
         if (NSPointInRect(pt, [self viewButtonRect:i inRect:fieldPanel])) {
             _viewMode = i;
@@ -1043,7 +1103,7 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
             return;
         }
     }
-    const NSRect field = NSMakeRect(28, 70, 536, 402);
+    const NSRect field = NSMakeRect(28, 70, 536, 542);
     if (NSPointInRect(pt, field)) {
         if (_viewMode == 0) {
             _viewYawDeg = 0.0f;
@@ -1060,22 +1120,22 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
     }
     struct HitRow { int index; CGFloat y; bool menu; int openMenu; uint32_t menuItems; };
     const HitRow rows[] = {
-        { 0, 74, false, 0, 0 },
-        { 1, 96, true, 1, 5 },
-        { 10, 118, true, 3, 4 },
-        { 11, 140, true, 4, 3 },
-        { 2, 214, true, 2, 10 },
-        { 3, 236, false, 0, 0 },
-        { 4, 258, false, 0, 0 },
-        { 5, 280, false, 0, 0 },
-        { 6, 302, false, 0, 0 },
-        { 12, 324, false, 0, 0 },
-        { 14, 346, false, 0, 0 },
-        { 7, 410, false, 0, 0 },
-        { 8, 432, false, 0, 0 },
-        { 9, 454, false, 0, 0 },
-        { 13, 476, false, 0, 0 },
-        { 15, 538, false, 0, 0 },
+        { 15, 70, false, 0, 0 },
+        { 1, 204, true, 1, 5 },
+        { 0, 226, true, 5, 7 },
+        { 10, 248, true, 3, 4 },
+        { 11, 270, true, 4, 3 },
+        { 2, 344, true, 2, 10 },
+        { 3, 366, false, 0, 0 },
+        { 4, 388, false, 0, 0 },
+        { 5, 410, false, 0, 0 },
+        { 6, 432, false, 0, 0 },
+        { 12, 454, false, 0, 0 },
+        { 14, 476, false, 0, 0 },
+        { 7, 540, false, 0, 0 },
+        { 8, 562, false, 0, 0 },
+        { 9, 584, false, 0, 0 },
+        { 13, 606, false, 0, 0 },
     };
     for (const auto& row : rows) {
         NSRect r = NSMakeRect(596, row.y - 6, 316, 22);
@@ -1086,6 +1146,30 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
             _menuOrigin = NSMakePoint(712, row.y + 17);
             _hoverMenuItem = -1;
             [self setNeedsDisplay:YES];
+            return;
+        }
+        auto sliderParam = [](int index) -> clap_id {
+            switch (index) {
+            case 3: return kParamWidth;
+            case 4: return kParamAngle;
+            case 5: return kParamRotation;
+            case 6: return kParamDirectivity;
+            case 7: return kParamRearReject;
+            case 8: return kParamHeightFold;
+            case 9: return kParamDiffuse;
+            case 12: return kParamAbSpacing;
+            case 13: return kParamBassMono;
+            case 14: return kParamMicElevation;
+            case 15: return kParamOutputGain;
+            default: return CLAP_INVALID_ID;
+            }
+        };
+        const clap_id param = sliderParam(row.index);
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &titlePlugin->plugin, param, &defaultValue)) {
+            [self setParam:param value:defaultValue];
+            _dragSlider = -1;
             return;
         }
         _dragSlider = row.index;
@@ -1116,19 +1200,19 @@ namespace {
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GAmbisonicStereoDecoderView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); auto* v = static_cast<S3GAmbisonicStereoDecoderView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GAmbisonicStereoDecoderView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GAmbisonicStereoDecoderView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { if (!hints) return false; hints->can_resize_horizontally = false; hints->can_resize_vertically = false; hints->preserve_aspect_ratio = false; hints->aspect_ratio_width = 0; hints->aspect_ratio_height = 0; return true; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,kGuiWidth,kGuiHeight)]; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, w, h); }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GAmbisonicStereoDecoderView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GAmbisonicStereoDecoderView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<S3GAmbisonicStereoDecoderView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GAmbisonicStereoDecoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 
@@ -1153,7 +1237,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambisonic-stereo-decoder",
-    "s3g Ambi Stereo Decoder",
+    "s3g Ambi Decoder Stereo",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

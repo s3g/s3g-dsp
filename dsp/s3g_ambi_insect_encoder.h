@@ -178,6 +178,9 @@ struct AmbiInsectParams {
     uint32_t callType = 0u;
     uint32_t sceneSeed = kAmbiInsectDefaultSceneSeed;
     AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
+    float fieldListenAmount = 1.0f;
+    AmbiFieldListenerResponse fieldListenResponse =
+        AmbiFieldListenerResponse::Legacy;
 };
 
 inline AmbiEnvironmentProfileId ambiInsectEnvironmentProfile(uint32_t place)
@@ -327,6 +330,10 @@ struct AmbiInsectVoice {
     float clockScale = 1.0f;
     float basePitchHz = 440.0f;
     float activeWeight = 1.0f;
+    float listenerCoupling = 0.0f;
+    float listenerTimbre = 0.0f;
+    float listenerResonance = 0.0f;
+    float listenerNovelty = 0.0f;
     float callEnvelope = 0.0f;
     float noiseLow = 0.0f;
     float noiseHigh = 0.0f;
@@ -350,6 +357,7 @@ public:
         environmentField_.prepare(sampleRate_);
         fieldListener_.prepare(sampleRate_);
         fieldListener_.setMemorySeconds(0.42f);
+        fieldListener_.setExtendedAnalysisEnabled(true);
         initializeFieldListener();
         reset();
         setParams(params_);
@@ -368,10 +376,12 @@ public:
         environmentField_.setShape(params_.environmentSize, params_.environmentDecay, params_.environmentDamping);
         environmentField_.reset();
         fieldListener_.reset();
+        listenerAnalysisPhase_ = 0u;
         currentListenWeights_.fill(1.0f);
         targetListenWeights_.fill(1.0f);
         currentListenMix_ =
-            params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 1.0f;
+            params_.fieldListenMode == AmbiFieldListenMode::Off
+            ? 0.0f : params_.fieldListenAmount;
         smoothParams_ = params_;
         callProfile_ = ambiInsectCallProfile(params_.callType);
         smoothReady_ = true;
@@ -427,6 +437,10 @@ public:
         params.callType = std::clamp<uint32_t>(params.callType, 0u, kAmbiInsectCallTypeCount - 1u);
         params.fieldListenMode =
             sanitizeAmbiFieldListenMode(params.fieldListenMode);
+        params.fieldListenAmount = clampFinite(
+            params.fieldListenAmount, params_.fieldListenAmount, 0.0f, 1.0f);
+        params.fieldListenResponse =
+            sanitizeAmbiFieldListenerResponse(params.fieldListenResponse);
         if (params.sceneSeed == 0u) params.sceneSeed = kAmbiInsectDefaultSceneSeed;
 
         const uint32_t oldVoices = params_.voices;
@@ -458,6 +472,17 @@ public:
     {
         return fieldListener_.envelope(lobe);
     }
+    float fieldListenFastEnvelope(uint32_t lobe) const { return fieldListener_.fastEnvelope(lobe); }
+    float fieldListenSlowEnvelope(uint32_t lobe) const { return fieldListener_.slowEnvelope(lobe); }
+    float fieldListenRelativeEnergy(uint32_t lobe) const { return fieldListener_.relativeEnergy(lobe); }
+    float fieldListenActivity() const { return fieldListener_.activity(); }
+    float fieldListenNovelty(uint32_t lobe) const { return fieldListener_.novelty(lobe); }
+    float fieldListenRoughness(uint32_t lobe) const { return fieldListener_.roughness(lobe); }
+    float fieldListenSpectralTilt(uint32_t lobe) const { return fieldListener_.spectralTilt(lobe); }
+    float fieldListenHabituation(uint32_t lobe) const { return fieldListener_.habituation(lobe); }
+    float fieldListenCharge(uint32_t lobe) const { return fieldListener_.charge(lobe); }
+    Vec3 fieldListenEnergyGradient() const { return fieldListener_.energyGradient(); }
+    Vec3 fieldListenNoveltyGradient() const { return fieldListener_.noveltyGradient(); }
     float fieldListenWeight(uint32_t lobe) const
     {
         return lobe < kAmbiFieldListenerMaxLobes
@@ -551,12 +576,15 @@ public:
                 for (uint32_t channel = 0u; channel < std::min<uint32_t>(ambiChannels, kAmbiEnvironmentChannels); ++channel) {
                     if (outputs[channel]) outputs[channel][frame] = flushDenormal(outputs[channel][frame] + environment[channel]);
                 }
-                if (listenerActive) {
+                const bool analyzeListener = listenerActive
+                    || ((listenerAnalysisPhase_++ & 3u) == 0u);
+                if (analyzeListener) {
                     for (uint32_t channel = 0u; channel < ambiChannels; ++channel) {
                         listenerFrame_[channel] = outputs[channel]
                             ? outputs[channel][frame] : 0.0f;
                     }
-                    fieldListener_.processFrame(listenerFrame_.data(), ambiChannels);
+                    fieldListener_.processFrame(
+                        listenerFrame_.data(), ambiChannels);
                 }
             }
             updateFieldListenerTargets();
@@ -600,7 +628,8 @@ private:
     void advanceFieldListener(float dt)
     {
         const float mixTarget =
-            params_.fieldListenMode == AmbiFieldListenMode::Off ? 0.0f : 1.0f;
+            params_.fieldListenMode == AmbiFieldListenMode::Off
+            ? 0.0f : params_.fieldListenAmount;
         const float mixCoefficient =
             1.0f - std::exp(-std::max(0.0f, dt) / 0.045f);
         const float weightCoefficient =
@@ -642,6 +671,21 @@ private:
         float mean = 0.0f;
         for (uint32_t lobe = 0u; lobe < energy.size(); ++lobe) {
             energy[lobe] = std::max(0.0f, fieldListener_.envelope(lobe));
+            if (params_.fieldListenResponse == AmbiFieldListenerResponse::Excite) {
+                energy[lobe] *= 0.38f
+                    + fieldListener_.novelty(lobe) * 0.38f
+                    + fieldListener_.charge(lobe) * 0.24f;
+            } else if (params_.fieldListenResponse
+                == AmbiFieldListenerResponse::Settle) {
+                energy[lobe] *= 1.0f
+                    - fieldListener_.habituation(lobe) * 0.52f;
+            } else if (params_.fieldListenResponse
+                == AmbiFieldListenerResponse::Imprint) {
+                energy[lobe] *= clamp(
+                    0.68f + fieldListener_.spectralTilt(lobe) * 0.20f
+                        + fieldListener_.roughness(lobe) * 0.24f,
+                    0.28f, 1.32f);
+            }
             mean += energy[lobe];
         }
         mean /= static_cast<float>(energy.size());
@@ -1152,6 +1196,10 @@ private:
             && std::isfinite(voice.activityThreshold) && std::isfinite(voice.flutterRateHz)
             && std::isfinite(voice.lane) && std::isfinite(voice.clockScale)
             && std::isfinite(voice.basePitchHz) && std::isfinite(voice.activeWeight)
+            && std::isfinite(voice.listenerCoupling)
+            && std::isfinite(voice.listenerTimbre)
+            && std::isfinite(voice.listenerResonance)
+            && std::isfinite(voice.listenerNovelty)
             && std::isfinite(voice.callEnvelope) && std::isfinite(voice.noiseLow)
             && std::isfinite(voice.noiseHigh) && std::isfinite(voice.energy)
             && std::isfinite(voice.callViz);
@@ -1201,6 +1249,10 @@ private:
         smoothParams_.place = params_.place;
         smoothParams_.sceneSeed = params_.sceneSeed;
         smoothParams_.fieldListenMode = params_.fieldListenMode;
+        smoothParams_.fieldListenAmount = smoothToward(
+            smoothParams_.fieldListenAmount, params_.fieldListenAmount,
+            coefficient);
+        smoothParams_.fieldListenResponse = params_.fieldListenResponse;
         callProfile_ = ambiInsectCallProfile(params_.callType);
 #define S3G_SMOOTH_INSECT_PARAM(name) smoothParams_.name = smoothToward(smoothParams_.name, params_.name, coefficient)
         S3G_SMOOTH_INSECT_PARAM(activity);
@@ -1244,6 +1296,13 @@ private:
         fieldPhase_ = wrapUnit(fieldPhase_ + params.fieldRateHz * dt);
         const float fieldAngle = fieldPhase_ * kPi * 2.0f;
         const uint32_t voices = params.voices;
+        const float listenSteering =
+            params.fieldListenMode != AmbiFieldListenMode::Off
+                && params.fieldListenResponse
+                    != AmbiFieldListenerResponse::Legacy
+            ? fieldListener_.activity() * params.fieldListenAmount : 0.0f;
+        const Vec3 listenDirection =
+            fieldListener_.preferredDirection(params.fieldListenMode);
         for (uint32_t index = 0u; index < voices; ++index) {
             auto& voice = voices_[index];
             const uint32_t colonyIndex = voiceColony_[index];
@@ -1291,6 +1350,20 @@ private:
                 azimuth += std::sin(wanderPhase * 2.11f) * params.nearPass * 80.0f;
                 elevation += std::cos(wanderPhase * 1.67f) * params.nearPass * 32.0f;
             }
+            if (listenSteering > 0.0001f) {
+                Vec3 position = directionFromAed(azimuth, elevation);
+                const float steering = listenSteering
+                    * (0.035f + flight * 0.14f);
+                position = normalize(Vec3 {
+                    lerp(position.x, listenDirection.x, steering),
+                    lerp(position.y, listenDirection.y, steering),
+                    lerp(position.z, listenDirection.z, steering),
+                });
+                azimuth = std::atan2(position.y, position.x)
+                    * 180.0f / kPi;
+                elevation = std::asin(clamp(position.z, -1.0f, 1.0f))
+                    * 180.0f / kPi;
+            }
             targetPoints_[index] = { wrapSignedDeg(azimuth), clamp(elevation, -88.0f, 88.0f), clamp(distance, 0.20f, 2.60f) };
             const float follow = 1.0f - std::exp(-dt * (0.55f + (1.0f - params.spatialFollow) * 9.0f));
             points_[index].azimuthDeg = wrapSignedDeg(points_[index].azimuthDeg
@@ -1325,11 +1398,68 @@ private:
             const float rateVariation = std::exp2(
                 voice.signatureA * params.variation * 1.45f
                 + (localLane - 0.5f) * params.variation * 0.55f);
-            voice.clockScale = rateVariation;
+            float listenerClockScale = 1.0f;
+            float listenerActivity = 0.0f;
+            float listenerPitchOctaves = 0.0f;
+            voice.listenerCoupling = 0.0f;
+            voice.listenerTimbre = 0.0f;
+            voice.listenerResonance = 0.0f;
+            voice.listenerNovelty = 0.0f;
+            if (params.fieldListenMode != AmbiFieldListenMode::Off
+                && params.fieldListenResponse
+                    != AmbiFieldListenerResponse::Legacy) {
+                const auto listener = fieldListenerScore(index);
+                const float amount =
+                    params.fieldListenAmount * fieldListener_.activity();
+                if (params.fieldListenResponse
+                    == AmbiFieldListenerResponse::Excite) {
+                    const float chorus = (listener.novelty * 0.56f
+                        + listener.charge * 0.30f
+                        + listener.roughness * 0.14f) * amount;
+                    listenerClockScale += chorus * 0.48f;
+                    listenerActivity += chorus * 0.28f;
+                    listenerPitchOctaves += chorus * 0.075f;
+                    voice.listenerCoupling = chorus * 0.26f;
+                    voice.listenerTimbre = chorus * 0.24f;
+                    voice.listenerResonance = chorus * 0.10f;
+                    voice.listenerNovelty = chorus;
+                } else if (params.fieldListenResponse
+                    == AmbiFieldListenerResponse::Settle) {
+                    const float settling =
+                        listener.habituation * amount;
+                    listenerClockScale -= settling * 0.36f;
+                    listenerActivity -= settling * 0.24f;
+                    listenerPitchOctaves -= settling * 0.055f;
+                    voice.listenerCoupling = settling * 0.34f;
+                    voice.listenerTimbre = -settling * 0.22f;
+                    voice.listenerResonance = settling * 0.18f;
+                } else {
+                    const float imprint = amount
+                        * (0.32f + listener.relativeEnergy * 0.68f);
+                    listenerClockScale += (listener.novelty
+                        - listener.habituation * 0.28f) * imprint * 0.26f;
+                    listenerActivity += (listener.relativeEnergy - 0.5f)
+                        * imprint * 0.18f;
+                    listenerPitchOctaves += listener.spectralTilt
+                        * imprint * 0.11f;
+                    voice.listenerCoupling =
+                        listener.charge * imprint * 0.38f;
+                    voice.listenerTimbre =
+                        listener.spectralTilt * imprint * 0.34f;
+                    voice.listenerResonance =
+                        listener.roughness * imprint * 0.22f;
+                    voice.listenerNovelty =
+                        listener.novelty * imprint;
+                }
+            }
+            voice.clockScale = rateVariation
+                * clamp(listenerClockScale, 0.48f, 1.72f);
             voice.activeWeight = clamp(
                 (params.activity + colony.activityBias
                     - voice.activityThreshold * 0.72f) * 4.0f + 0.15f,
                 0.0f, 1.0f);
+            voice.activeWeight = clamp(
+                voice.activeWeight + listenerActivity, 0.0f, 1.0f);
 
             const bool dedicatedFlyerRegime =
                 regime == 3u && params.regime != kAmbiInsectMixedRegime;
@@ -1362,6 +1492,9 @@ private:
             const float regimeMaximumPitch = regime == 3u
                 ? 1800.0f : maximumPitch;
             pitch = clamp(pitch * sizeScale * driftScale,
+                70.0f, regimeMaximumPitch);
+            pitch = clamp(
+                pitch * std::exp2(listenerPitchOctaves),
                 70.0f, regimeMaximumPitch);
             voice.basePitchHz = pitch;
         }
@@ -1397,7 +1530,8 @@ private:
             + ((voiceIndexInColony_[index] & 1u) != 0u
                     ? call.alternatePhase : 0.0f));
         const float effectiveCoupling = clamp(
-            params.coupling + call.synchronyBias, 0.0f, 1.0f);
+            params.coupling + call.synchronyBias + voice.listenerCoupling,
+            0.0f, 1.0f);
         voice.phrasePhase = wrapUnit(voice.phrasePhase
             + phaseDelta(chorusTarget, voice.phrasePhase)
                 * effectiveCoupling
@@ -1409,7 +1543,8 @@ private:
             const float callChoice = hash01(eventSeed + 17u);
             const float callProbability = clamp(
                 0.34f + params.activity * 0.78f - params.rest * 0.18f
-                    + call.callProbabilityBias,
+                    + call.callProbabilityBias
+                    + voice.listenerNovelty * 0.18f,
                 0.08f, 0.98f);
             voice.phraseAccentTarget = callChoice < callProbability
                 ? 0.68f + hash01(eventSeed + 41u) * 0.42f
@@ -1805,12 +1940,16 @@ private:
                 + substrateBody * (0.24f + params.bodySize * 0.18f);
         }
 
+        const float listenerBrightness = clamp(
+            params.brightness + voice.listenerTimbre, 0.0f, 1.0f);
+        const float listenerResonance = clamp(
+            params.resonance + voice.listenerResonance, 0.0f, 1.0f);
         const float raspBand = voice.raspFilter.process(roughNoise * params.rasp * voice.callEnvelope,
-            clamp(pitch * (1.15f + params.brightness * 2.8f), 120.0f, static_cast<float>(sampleRate_) * 0.42f),
-            0.10f + params.resonance * 0.34f, static_cast<float>(sampleRate_));
+            clamp(pitch * (1.15f + listenerBrightness * 2.8f), 120.0f, static_cast<float>(sampleRate_) * 0.42f),
+            0.10f + listenerResonance * 0.34f, static_cast<float>(sampleRate_));
         const float airBand = voice.airFilter.process(airNoise * params.air * voice.callEnvelope,
-            clamp(pitch * (2.4f + params.brightness * 5.0f), 800.0f, static_cast<float>(sampleRate_) * 0.43f),
-            0.06f + params.brightness * 0.20f, static_cast<float>(sampleRate_));
+            clamp(pitch * (2.4f + listenerBrightness * 5.0f), 800.0f, static_cast<float>(sampleRate_) * 0.43f),
+            0.06f + listenerBrightness * 0.20f, static_cast<float>(sampleRate_));
         const float substratePitch = clamp(
             pitch * (0.055f + params.bodySize * 0.14f),
             55.0f, std::min(1800.0f, static_cast<float>(sampleRate_) * 0.20f));
@@ -1834,7 +1973,8 @@ private:
             + airBand * (0.04f + params.air * 0.20f)
             + substrate * substrateMix)
             * voice.callEnvelope * (0.62f + bodyLevel);
-        const float direct = std::tanh(clamp(mixed * regimeGain * (1.0f + params.brightness * 0.38f), -3.6f, 3.6f));
+        const float direct = std::tanh(clamp(mixed * regimeGain
+            * (1.0f + listenerBrightness * 0.38f), -3.6f, 3.6f));
         const float fieldSend = std::tanh(clamp(
             (source * 0.32f + raspBand * 0.22f + airBand * 0.34f
                 + substrate * (regime == 5u ? 0.92f : 0.58f))
@@ -1845,6 +1985,16 @@ private:
             return {};
         }
         return { direct, fieldSend };
+    }
+
+    AmbiFieldListenerScore fieldListenerScore(uint32_t index) const
+    {
+        if (smoothParams_.fieldListenMode == AmbiFieldListenMode::Off) return {};
+        const auto& point = points_[std::min<uint32_t>(
+            index, smoothParams_.voices - 1u)];
+        return fieldListener_.score(
+            directionFromAed(point.azimuthDeg, point.elevationDeg),
+            smoothParams_.fieldListenMode);
     }
 
     AmbiInsectParams params_ {};
@@ -1880,6 +2030,7 @@ private:
     std::array<float, kAmbiFieldListenerMaxLobes> targetListenWeights_ {};
     AmbiFieldListener fieldListener_ {};
     float currentListenMix_ = 0.0f;
+    uint32_t listenerAnalysisPhase_ = 0u;
     AmbiEnvironmentField environmentField_ {};
     std::atomic<bool> transitionRequested_ { false };
 };

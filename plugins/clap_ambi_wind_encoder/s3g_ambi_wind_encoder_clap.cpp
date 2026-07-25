@@ -26,9 +26,9 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiWindMaxChannels;
-constexpr uint32_t kStateVersion = 16;
+constexpr uint32_t kStateVersion = 17;
 constexpr uint32_t kCustomPresetMagic = 0x31445741u; // AWD1
-constexpr uint32_t kCustomPresetVersion = 13;
+constexpr uint32_t kCustomPresetVersion = 14;
 
 constexpr clap_id kPresetParamId = 1;
 constexpr clap_id kOrderParamId = 2;
@@ -71,6 +71,8 @@ constexpr clap_id kEnvironmentSizeParamId = 49;
 constexpr clap_id kEnvironmentDecayParamId = 50;
 constexpr clap_id kEnvironmentDampingParamId = 51;
 constexpr clap_id kFieldListenModeParamId = 52;
+constexpr clap_id kFieldListenAmountParamId = 53;
+constexpr clap_id kFieldListenResponseParamId = 54;
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -161,6 +163,7 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
         && std::fread(&file.version, 1, sizeof(file.version), handle) == sizeof(file.version)
         && file.magic == kCustomPresetMagic
         && (file.version == 10u || file.version == 11u || file.version == 12u
+            || file.version == 13u
             || file.version == kCustomPresetVersion)
         && std::fread(file.name, 1, sizeof(file.name), handle) == sizeof(file.name);
     if (ok) {
@@ -170,7 +173,9 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
                     ? offsetof(s3g::AmbiWindParams, environmentSize)
                     : (file.version == 12u
                             ? offsetof(s3g::AmbiWindParams, fieldListenMode)
-                            : sizeof(file.params)));
+                            : (file.version == 13u
+                                    ? offsetof(s3g::AmbiWindParams, fieldListenAmount)
+                                    : sizeof(file.params))));
         ok = std::fread(&file.params, 1, paramsSize, handle) == paramsSize;
     }
     std::fclose(handle);
@@ -211,11 +216,19 @@ constexpr const char* kFieldListenNames[] = {
     "OFF", "FOLLOW", "COUNTER", "BALANCE"
 };
 
+constexpr const char* kFieldListenResponseNames[] = {
+    "LEGACY", "CHARGE", "SETTLE", "RESONATE"
+};
+
 void randomizeSafe(Plugin& plugin)
 {
     auto p = plugin.params;
+    const uint32_t order = p.order;
+    const float outputGainDb = p.outputGainDb;
+    const auto fieldListenMode = p.fieldListenMode;
+    const float fieldListenAmount = p.fieldListenAmount;
+    const auto fieldListenResponse = p.fieldListenResponse;
     uint32_t seed = plugin.randomSeed ^ static_cast<uint32_t>(std::lround(plugin.outputPeak.load(std::memory_order_relaxed) * 1000000.0f));
-    p.order = 3u;
     p.voices = 10u + randomChoice(seed, 23u);
     p.wind = randomRange(seed, 0.08f, 0.46f);
     p.gustRate = randomRange(seed, 0.025f, 0.52f);
@@ -263,8 +276,11 @@ void randomizeSafe(Plugin& plugin)
     p.environmentSize = randomRange(seed, 0.30f, 0.76f);
     p.environmentDecay = randomRange(seed, 0.32f, 0.76f);
     p.environmentDamping = randomRange(seed, 0.24f, 0.74f);
-    p.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(randomChoice(seed, 4u));
-    p.outputGainDb = resonantObject ? -8.0f : -6.0f;
+    p.order = order;
+    p.outputGainDb = outputGainDb;
+    p.fieldListenMode = fieldListenMode;
+    p.fieldListenAmount = fieldListenAmount;
+    p.fieldListenResponse = fieldListenResponse;
 
     plugin.randomSeed = seed;
     plugin.params = p;
@@ -320,6 +336,14 @@ bool assignParam(s3g::AmbiWindParams& params, clap_id id, double value)
     case kFieldListenModeParamId:
         params.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(
             static_cast<uint32_t>(std::lround(value)));
+        return true;
+    case kFieldListenAmountParamId:
+        params.fieldListenAmount = static_cast<float>(value);
+        return true;
+    case kFieldListenResponseParamId:
+        params.fieldListenResponse =
+            static_cast<s3g::AmbiFieldListenerResponse>(
+                static_cast<uint32_t>(std::lround(value)));
         return true;
     default: return false;
     }
@@ -485,6 +509,8 @@ constexpr ParamDef kParams[] {
     { kEnvironmentDecayParamId, "Env Decay", 0.0, 1.0, 0.5, false },
     { kEnvironmentDampingParamId, "Env Damping", 0.0, 1.0, 0.5, false },
     { kFieldListenModeParamId, "Field Listen", 0.0, 3.0, 0.0, true },
+    { kFieldListenAmountParamId, "Listen Amount", 0.0, 1.0, 1.0, false },
+    { kFieldListenResponseParamId, "Listen Response", 0.0, 3.0, 0.0, true },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
@@ -532,7 +558,9 @@ const char* paramModule(clap_id id)
     case kEnvironmentSizeParamId:
     case kEnvironmentDecayParamId:
     case kEnvironmentDampingParamId:
-    case kFieldListenModeParamId: return "Environment Field";
+    case kFieldListenModeParamId:
+    case kFieldListenAmountParamId:
+    case kFieldListenResponseParamId: return "Environment Field";
     default: return "Ambi Wind Encoder";
     }
 }
@@ -598,6 +626,10 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kEnvironmentDecayParamId: *value = params.environmentDecay; return true;
     case kEnvironmentDampingParamId: *value = params.environmentDamping; return true;
     case kFieldListenModeParamId: *value = static_cast<uint32_t>(params.fieldListenMode); return true;
+    case kFieldListenAmountParamId: *value = params.fieldListenAmount; return true;
+    case kFieldListenResponseParamId:
+        *value = static_cast<uint32_t>(params.fieldListenResponse);
+        return true;
     default: return false;
     }
 }
@@ -619,6 +651,10 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     } else if (id == kFieldListenModeParamId) {
         std::snprintf(display, size, "%s", kFieldListenNames[std::min<uint32_t>(
             static_cast<uint32_t>(std::lround(value)), 3u)]);
+    } else if (id == kFieldListenResponseParamId) {
+        std::snprintf(display, size, "%s", kFieldListenResponseNames[
+            std::min<uint32_t>(
+                static_cast<uint32_t>(std::lround(value)), 3u)]);
     } else if (id == kGustShapeParamId) {
         static constexpr const char* kGustShapeNames[] = { "SINE", "SWELL", "SURGE", "TRI", "BLAST", "GATE" };
         std::snprintf(display, size, "%s", kGustShapeNames[std::min<uint32_t>(static_cast<uint32_t>(std::lround(value)), 5u)]);
@@ -642,7 +678,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         || id == kMotionFlowParamId || id == kMotionShearParamId || id == kMotionUpdraftParamId
         || id == kSpatialFollowParamId || id == kSpaceParamId
         || id == kEnvironmentSizeParamId || id == kEnvironmentDecayParamId
-        || id == kEnvironmentDampingParamId) {
+        || id == kEnvironmentDampingParamId
+        || id == kFieldListenAmountParamId) {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
     } else {
         std::snprintf(display, size, "%.2f", value);
@@ -705,6 +742,15 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
             }
         }
     }
+    if (id == kFieldListenResponseParamId) {
+        for (uint32_t index = 0u;
+            index < std::size(kFieldListenResponseNames); ++index) {
+            if (std::strcmp(display, kFieldListenResponseNames[index]) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+    }
 
     *value = std::atof(display);
     if (id == kRateAParamId || id == kRateBParamId || id == kFmAtoBParamId || id == kFmBtoAParamId
@@ -716,7 +762,8 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         || id == kMotionFlowParamId || id == kMotionShearParamId || id == kMotionUpdraftParamId
         || id == kSpatialFollowParamId || id == kSpaceParamId
         || id == kEnvironmentSizeParamId || id == kEnvironmentDecayParamId
-        || id == kEnvironmentDampingParamId) {
+        || id == kEnvironmentDampingParamId
+        || id == kFieldListenAmountParamId) {
         *value *= 0.01;
     }
     return true;
@@ -750,6 +797,20 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->params = state.params;
         p->presetIndex = std::min<uint32_t>(state.presetIndex, s3g::kAmbiWindFactoryPresetCount - 1u);
         std::snprintf(p->customPresetName, sizeof(p->customPresetName), "%s", state.customPresetName);
+    } else if (version == 16u) {
+        s3g::AmbiWindParams params {};
+        uint32_t presetIndex = 0u;
+        char customPresetName[64] {};
+        constexpr size_t legacyParamsSize =
+            offsetof(s3g::AmbiWindParams, fieldListenAmount);
+        if (!readExact(stream, &params, legacyParamsSize)
+            || !readExact(stream, &presetIndex, sizeof(presetIndex))
+            || !readExact(stream, customPresetName, sizeof(customPresetName))) return false;
+        p->params = params;
+        p->presetIndex = std::min<uint32_t>(
+            presetIndex, s3g::kAmbiWindFactoryPresetCount - 1u);
+        std::snprintf(p->customPresetName,
+            sizeof(p->customPresetName), "%s", customPresetName);
     } else if (version == 15u) {
         s3g::AmbiWindParams params {};
         uint32_t presetIndex = 0u;
@@ -811,41 +872,42 @@ struct GuiSliderSpec {
 };
 
 constexpr GuiSliderSpec kGuiSliders[] {
-    { kVoicesParamId, 630, 156, 1.0, 64.0, false },
-    { kRateAParamId, 630, 182, 0.0, 1.0, false },
-    { kRateBParamId, 630, 208, 0.0, 1.0, false },
-    { kSpreadParamId, 630, 234, 0.0, 1.0, false },
-    { kDeviationParamId, 630, 260, 0.0, 1.0, false },
-    { kRateModeAParamId, 630, 104, 0.0, 0.5, true },
-    { kFmAtoBParamId, 630, 334, 0.0, 1.0, false },
-    { kFmBtoAParamId, 630, 360, 0.0, 1.0, false },
-    { kFlutterParamId, 630, 386, 0.0, 1.0, false },
-    { kMaterialParamId, 630, 412, 0.0, 1.0, false },
-    { kGustShapeParamId, 630, 438, 0.0, 5.0, false },
-    { kThresholdParamId, 630, 464, 0.0, 1.0, false },
-    { kColorParamId, 630, 538, 0.0, 1.0, false },
-    { kFilterParamId, 630, 564, 0.0, 1.0, false },
-    { kResonanceParamId, 630, 590, 0.0, 1.0, false },
-    { kFilterRunParamId, 630, 616, 0.0, 1.0, false },
-    { kFilterSweepParamId, 630, 642, 0.0, 1.0, false },
-    { kSaturationParamId, 630, 668, 0.0, 1.0, false },
-    { kPwmAParamId, 630, 748, 0.0, 1.0, false },
-    { kPwmBParamId, 630, 774, 0.0, 1.0, false },
-    { kOutputParamId, 630, 800, -60.0, 12.0, false },
-    { kMotionRateParamId, 896, 104, 0.001, 2.0, true },
-    { kMotionFlowParamId, 896, 130, 0.0, 1.0, false },
-    { kMotionShearParamId, 896, 156, 0.0, 1.0, false },
-    { kMotionCurlParamId, 896, 182, 0.0, 1.0, false },
-    { kMotionUpdraftParamId, 896, 208, 0.0, 1.0, false },
-    { kFieldParamId, 896, 234, 0.0, 1.0, false },
-    { kSpatialFollowParamId, 896, 260, 0.0, 1.0, false },
-    { kAzimuthParamId, 896, 334, -180.0, 180.0, false },
-    { kElevationParamId, 896, 360, -90.0, 90.0, false },
-    { kDistanceParamId, 896, 386, 0.15, 2.0, false },
-    { kSpaceParamId, 896, 536, 0.0, 1.0, false },
-    { kEnvironmentSizeParamId, 896, 562, 0.0, 1.0, false },
-    { kEnvironmentDecayParamId, 896, 588, 0.0, 1.0, false },
-    { kEnvironmentDampingParamId, 896, 614, 0.0, 1.0, false },
+    { kOutputParamId, 630, 78, -60.0, 12.0, false },
+    { kPwmAParamId, 630, 130, 0.0, 1.0, false },
+    { kPwmBParamId, 630, 156, 0.0, 1.0, false },
+    { kRateModeAParamId, 630, 222, 0.0, 0.5, true },
+    { kVoicesParamId, 630, 274, 1.0, 64.0, false },
+    { kRateAParamId, 630, 300, 0.0, 1.0, false },
+    { kRateBParamId, 630, 326, 0.0, 1.0, false },
+    { kSpreadParamId, 630, 352, 0.0, 1.0, false },
+    { kDeviationParamId, 630, 378, 0.0, 1.0, false },
+    { kFmAtoBParamId, 630, 470, 0.0, 1.0, false },
+    { kFmBtoAParamId, 630, 496, 0.0, 1.0, false },
+    { kFlutterParamId, 630, 522, 0.0, 1.0, false },
+    { kMaterialParamId, 630, 548, 0.0, 1.0, false },
+    { kGustShapeParamId, 630, 574, 0.0, 5.0, false },
+    { kThresholdParamId, 630, 600, 0.0, 1.0, false },
+    { kColorParamId, 630, 666, 0.0, 1.0, false },
+    { kFilterParamId, 630, 692, 0.0, 1.0, false },
+    { kResonanceParamId, 630, 718, 0.0, 1.0, false },
+    { kFilterRunParamId, 630, 744, 0.0, 1.0, false },
+    { kFilterSweepParamId, 630, 770, 0.0, 1.0, false },
+    { kSaturationParamId, 630, 796, 0.0, 1.0, false },
+    { kMotionRateParamId, 896, 78, 0.001, 2.0, true },
+    { kMotionFlowParamId, 896, 104, 0.0, 1.0, false },
+    { kMotionShearParamId, 896, 130, 0.0, 1.0, false },
+    { kMotionCurlParamId, 896, 156, 0.0, 1.0, false },
+    { kMotionUpdraftParamId, 896, 182, 0.0, 1.0, false },
+    { kFieldParamId, 896, 208, 0.0, 1.0, false },
+    { kSpatialFollowParamId, 896, 234, 0.0, 1.0, false },
+    { kAzimuthParamId, 896, 300, -180.0, 180.0, false },
+    { kElevationParamId, 896, 326, -90.0, 90.0, false },
+    { kDistanceParamId, 896, 352, 0.15, 2.0, false },
+    { kSpaceParamId, 896, 444, 0.0, 1.0, false },
+    { kEnvironmentSizeParamId, 896, 470, 0.0, 1.0, false },
+    { kEnvironmentDecayParamId, 896, 496, 0.0, 1.0, false },
+    { kEnvironmentDampingParamId, 896, 522, 0.0, 1.0, false },
+    { kFieldListenAmountParamId, 896, 574, 0.0, 1.0, false },
 };
 
 const GuiSliderSpec* guiSliderSpec(clap_id id)
@@ -981,10 +1043,10 @@ double rateNormToHzForDisplay(double value)
 
 - (NSRect)fieldPanelRect { return NSMakeRect(18, 42, 596, 608); }
 - (NSRect)fieldRect { return NSMakeRect(34, 76, 564, 558); }
-- (NSRect)presetMenuRect { return NSMakeRect(382, 13, 190, 15); }
-- (NSRect)savePresetButtonRect { return NSMakeRect(580, 13, 46, 15); }
-- (NSRect)loadPresetButtonRect { return NSMakeRect(632, 13, 46, 15); }
-- (NSRect)randomizeButtonRect { return NSMakeRect(684, 13, 66, 15); }
+- (NSRect)presetMenuRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Preset); }
+- (NSRect)loadPresetButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Load); }
+- (NSRect)savePresetButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Save); }
+- (NSRect)randomizeButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Random); }
 
 - (NSRect)pageButtonRect:(int)index
 {
@@ -1223,21 +1285,27 @@ double rateNormToHzForDisplay(double value)
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const auto p = _plugin->params;
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 228, style);
-    s3g::clap_gui::drawPanelHeader(@"SOURCE AND GUST", true, 630, 42, 250, 21, attrs, style);
-    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] panelX:630 y:78 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(630, 42, 250, 132, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT / AIR", true, 630, 42, 250, 21, attrs, style);
+    [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] panelX:630 y:104 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"AIR" param:kPwmAParamId value:p.air attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"HISS" param:kPwmBParamId value:p.hiss attrs:attrs valueAttrs:valueAttrs style:style];
+
+    s3g::clap_gui::drawPanelFrame(630, 186, 250, 210, style);
+    s3g::clap_gui::drawPanelHeader(@"SOURCE AND GUST", true, 630, 186, 250, 21, attrs, style);
     [self drawSlider:@"VECTOR LFO" param:kRateModeAParamId value:p.vectorRateHz attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"MATERIAL TYPE" value:[NSString stringWithUTF8String:kMaterialNames[std::min<uint32_t>(p.materialMode, 9u)]] panelX:630 y:130 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"MATERIAL TYPE" value:[NSString stringWithUTF8String:kMaterialNames[std::min<uint32_t>(p.materialMode, 9u)]] panelX:630 y:248 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"WIND" param:kRateAParamId value:p.wind attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"GUST RATE" param:kRateBParamId value:p.gustRate attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SPREAD" param:kSpreadParamId value:p.spread attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DEVIATION" param:kDeviationParamId value:p.deviation attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 282, 250, 218, style);
-    s3g::clap_gui::drawPanelHeader(@"GUST AND MATERIAL", true, 630, 282, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 408, 250, 210, style);
+    s3g::clap_gui::drawPanelHeader(@"GUST AND MATERIAL", true, 630, 408, 250, 21, attrs, style);
     static constexpr const char* kEdgeNames[] = { "SOFT", "BEND", "HARD" };
-    [self drawMenu:@"GUST EDGE" value:[NSString stringWithUTF8String:kEdgeNames[std::min<uint32_t>(p.gustEdge, 2u)]] panelX:630 y:308 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"GUST EDGE" value:[NSString stringWithUTF8String:kEdgeNames[std::min<uint32_t>(p.gustEdge, 2u)]] panelX:630 y:444 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"GUST DEPTH" param:kFmAtoBParamId value:p.gustDepth attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"TURBULENCE" param:kFmBtoAParamId value:p.turbulence attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FLUTTER" param:kFlutterParamId value:p.flutter attrs:attrs valueAttrs:valueAttrs style:style];
@@ -1245,8 +1313,8 @@ double rateNormToHzForDisplay(double value)
     [self drawSlider:@"GUST SHAPE" param:kGustShapeParamId value:p.gustShape attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"CENTER" param:kThresholdParamId value:p.center attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 512, 250, 186, style);
-    s3g::clap_gui::drawPanelHeader(@"FILTER AND TONE", true, 630, 512, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 630, 250, 184, style);
+    s3g::clap_gui::drawPanelHeader(@"FILTER AND TONE", true, 630, 630, 250, 21, attrs, style);
     [self drawSlider:@"SWEEP" param:kColorParamId value:p.sweep attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"Q" param:kFilterParamId value:p.q attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SHRILL" param:kResonanceParamId value:p.shrill attrs:attrs valueAttrs:valueAttrs style:style];
@@ -1254,13 +1322,7 @@ double rateNormToHzForDisplay(double value)
     [self drawSlider:@"BREATH" param:kFilterSweepParamId value:p.breath attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"GRIT" param:kSaturationParamId value:p.grit attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 722, 250, 124, style);
-    s3g::clap_gui::drawPanelHeader(@"AIR AND OUTPUT", true, 630, 722, 250, 21, attrs, style);
-    [self drawSlider:@"AIR" param:kPwmAParamId value:p.air attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"HISS" param:kPwmBParamId value:p.hiss attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"OUTPUT" param:kOutputParamId value:p.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
-
-    s3g::clap_gui::drawPanelFrame(896, 42, 246, 254, style);
+    s3g::clap_gui::drawPanelFrame(896, 42, 246, 210, style);
     s3g::clap_gui::drawPanelHeader(@"MICROWEATHER MOTION", true, 896, 42, 246, 21, attrs, style);
     [self drawSlider:@"FIELD RATE" param:kMotionRateParamId value:p.motionRateHz attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FLOW PUSH" param:kMotionFlowParamId value:p.motionFlow attrs:attrs valueAttrs:valueAttrs style:style];
@@ -1270,23 +1332,29 @@ double rateNormToHzForDisplay(double value)
     [self drawSlider:@"DEPTH PUSH" param:kFieldParamId value:p.field attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"INERTIA" param:kSpatialFollowParamId value:p.spatialFollow attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(896, 308, 246, 150, style);
-    s3g::clap_gui::drawPanelHeader(@"MACRO WIND VECTOR", true, 896, 308, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(896, 264, 246, 106, style);
+    s3g::clap_gui::drawPanelHeader(@"MACRO WIND VECTOR", true, 896, 264, 246, 21, attrs, style);
     [self drawSlider:@"DIRECTION" param:kAzimuthParamId value:p.centerAzimuthDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ELEVATION" param:kElevationParamId value:p.centerElevationDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RANGE" param:kDistanceParamId value:p.centerDistance attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(896, 474, 246, 192, style);
-    s3g::clap_gui::drawPanelHeader(@"ENVIRONMENT FIELD", true, 896, 474, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(896, 382, 246, 236, style);
+    s3g::clap_gui::drawPanelHeader(@"ENVIRONMENT FIELD", true, 896, 382, 246, 21, attrs, style);
     [self drawMenu:@"PLACE" value:[NSString stringWithUTF8String:kPlaceNames[
-        std::min<uint32_t>(p.place, s3g::kAmbiWindPlaceCount - 1u)]] panelX:896 y:510 attrs:attrs valueAttrs:valueAttrs style:style];
+        std::min<uint32_t>(p.place, s3g::kAmbiWindPlaceCount - 1u)]] panelX:896 y:418 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ENV RETURN" param:kSpaceParamId value:p.space attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ENV SIZE" param:kEnvironmentSizeParamId value:p.environmentSize attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ENV DECAY" param:kEnvironmentDecayParamId value:p.environmentDecay attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ENV DAMPING" param:kEnvironmentDampingParamId value:p.environmentDamping attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenu:@"LISTEN" value:[NSString stringWithUTF8String:kFieldListenNames[
         std::min<uint32_t>(static_cast<uint32_t>(p.fieldListenMode), 3u)]]
-        panelX:896 y:640 attrs:attrs valueAttrs:valueAttrs style:style];
+        panelX:896 y:548 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"LISTEN AMOUNT" param:kFieldListenAmountParamId
+        value:p.fieldListenAmount attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"RESPONSE" value:[NSString stringWithUTF8String:
+        kFieldListenResponseNames[std::min<uint32_t>(
+            static_cast<uint32_t>(p.fieldListenResponse), 3u)]]
+        panelX:896 y:600 attrs:attrs valueAttrs:valueAttrs style:style];
 }
 
 - (NSRect)menuBoxRect:(int)menu
@@ -1294,14 +1362,14 @@ double rateNormToHzForDisplay(double value)
     switch (menu) {
     case 1: return [self presetMenuRect];
     case 2: return NSZeroRect;
-    case 3: return NSMakeRect(738, 129, 124, 15);
-    case 4: return NSMakeRect(1004, 509, 124, 15);
-    case 5: return NSMakeRect(1004, 639, 124, 15);
-    case 6: return NSZeroRect;
+    case 3: return NSMakeRect(738, 247, 124, 15);
+    case 4: return NSMakeRect(1004, 417, 124, 15);
+    case 5: return NSMakeRect(1004, 547, 124, 15);
+    case 6: return NSMakeRect(1004, 599, 124, 15);
     case 7: return NSZeroRect;
     case 8: return NSZeroRect;
-    case 9: return NSMakeRect(738, 307, 124, 15);
-    case 10: return NSMakeRect(738, 77, 124, 15);
+    case 9: return NSMakeRect(738, 443, 124, 15);
+    case 10: return NSMakeRect(738, 103, 124, 15);
     default: return NSZeroRect;
     }
 }
@@ -1314,7 +1382,7 @@ double rateNormToHzForDisplay(double value)
     case 3: return 10u;
     case 4: return s3g::kAmbiWindPlaceCount;
     case 5: return 4u;
-    case 6: return 0u;
+    case 6: return 4u;
     case 7: return 0u;
     case 8: return 0u;
     case 9: return 3u;
@@ -1344,6 +1412,9 @@ double rateNormToHzForDisplay(double value)
     static NSString* materialItems[] = { @"OPEN", @"LEAF", @"HOLLOW", @"WIRE", @"METAL", @"CHIMES", @"BLOCKS", @"HARP", @"REEDS", @"FABRIC" };
     static NSString* placeItems[] = { @"OPEN", @"CANOPY", @"PORCH", @"ROOM", @"HANGAR", @"CANYON", @"TUNNEL" };
     static NSString* listenItems[] = { @"OFF", @"FOLLOW", @"COUNTER", @"BALANCE" };
+    static NSString* responseItems[] = {
+        @"LEGACY", @"CHARGE", @"SETTLE", @"RESONATE"
+    };
     static NSString* edgeItems[] = { @"SOFT", @"BEND", @"HARD" };
     static NSString* presetItems[s3g::kAmbiWindFactoryPresetCount];
     static dispatch_once_t once;
@@ -1361,6 +1432,9 @@ double rateNormToHzForDisplay(double value)
     } else if (_openMenu == 5) {
         items = listenItems;
         selected = static_cast<int>(_plugin->params.fieldListenMode);
+    } else if (_openMenu == 6) {
+        items = responseItems;
+        selected = static_cast<int>(_plugin->params.fieldListenResponse);
     } else if (_openMenu == 9) {
         items = edgeItems;
         selected = static_cast<int>(_plugin->params.gustEdge);
@@ -1381,10 +1455,13 @@ double rateNormToHzForDisplay(double value)
     NSDictionary* attrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
-    [@"s3g AMBI WIND ENCODER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
-    s3g::clap_gui::drawMenu(@"PRESET", [self presetDisplayName], 14, attrs, valueAttrs, style, 320, 382, 190);
-    s3g::clap_gui::drawHeaderActionButton([self savePresetButtonRect], [self savePresetButtonRect], @"SAVE", attrs, style);
+    [@"s3g AMBI ENCODER WIND 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
+    s3g::clap_gui::drawEncoderPresetMenu(
+        [self presetDisplayName],
+        s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
+        attrs, valueAttrs, style);
     s3g::clap_gui::drawHeaderActionButton([self loadPresetButtonRect], [self loadPresetButtonRect], @"LOAD", attrs, style);
+    s3g::clap_gui::drawHeaderActionButton([self savePresetButtonRect], [self savePresetButtonRect], @"SAVE", attrs, style);
     s3g::clap_gui::drawHeaderActionButton([self randomizeButtonRect], [self randomizeButtonRect], @"RANDOM", attrs, style);
     s3g::clap_gui::drawRightStatus(s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed)), kGuiWidth, 14, valueAttrs, 18);
     [self drawField:attrs valueAttrs:valueAttrs style:style];
@@ -1427,6 +1504,7 @@ double rateNormToHzForDisplay(double value)
             else if (_openMenu == 3) applyParam(*_plugin, kRateModeBParamId, hit);
             else if (_openMenu == 4) applyParam(*_plugin, kPlaceParamId, hit);
             else if (_openMenu == 5) applyParam(*_plugin, kFieldListenModeParamId, hit);
+            else if (_openMenu == 6) applyParam(*_plugin, kFieldListenResponseParamId, hit);
             else if (_openMenu == 9) applyParam(*_plugin, kGustEdgeParamId, hit);
             else if (_openMenu == 10) applyParam(*_plugin, kOrderParamId, hit + 1);
         }
@@ -1444,11 +1522,12 @@ double rateNormToHzForDisplay(double value)
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(738, 77, 124, 15))) { [self openMenu:10]; return; }
-    if (NSPointInRect(point, NSMakeRect(738, 129, 124, 15))) { [self openMenu:3]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 509, 124, 15))) { [self openMenu:4]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 639, 124, 15))) { [self openMenu:5]; return; }
-    if (NSPointInRect(point, NSMakeRect(738, 307, 124, 15))) { [self openMenu:9]; return; }
+    if (NSPointInRect(point, NSMakeRect(738, 103, 124, 15))) { [self openMenu:10]; return; }
+    if (NSPointInRect(point, NSMakeRect(738, 247, 124, 15))) { [self openMenu:3]; return; }
+    if (NSPointInRect(point, NSMakeRect(1004, 417, 124, 15))) { [self openMenu:4]; return; }
+    if (NSPointInRect(point, NSMakeRect(1004, 547, 124, 15))) { [self openMenu:5]; return; }
+    if (NSPointInRect(point, NSMakeRect(1004, 599, 124, 15))) { [self openMenu:6]; return; }
+    if (NSPointInRect(point, NSMakeRect(738, 443, 124, 15))) { [self openMenu:9]; return; }
     const NSRect panel = [self fieldPanelRect];
     if (NSPointInRect(point, panel)) {
         for (int i = 0; i < 1; ++i) {
@@ -1489,6 +1568,14 @@ double rateNormToHzForDisplay(double value)
     _dragParam = 0;
     for (const auto& spec : kGuiSliders) {
         if (NSPointInRect(point, NSMakeRect(spec.panelX + 8, spec.y - 8, 230, 24))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &_plugin->plugin, spec.id, &defaultValue)) {
+                applyParam(*_plugin, spec.id, defaultValue);
+                _dragParam = 0;
+                [self setNeedsDisplay:YES];
+                return;
+            }
             _dragParam = static_cast<int>(spec.id);
             [self setParam:spec.id fromPoint:point];
             return;
@@ -1615,7 +1702,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_F
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-wind-encoder-64",
-    "s3g Ambi Wind Encoder 64",
+    "s3g Ambi Encoder Wind 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

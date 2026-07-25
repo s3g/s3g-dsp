@@ -35,6 +35,71 @@ bool finite(const Buffer& buffer)
     return true;
 }
 
+bool testSharedListenerFeatures()
+{
+    s3g::AmbiFieldListener listener;
+    listener.prepare(48000.0);
+    listener.setExtendedAnalysisEnabled(true);
+    const auto& directions = s3g::ambiFieldListenerCubeDirections();
+    listener.setDirections(
+        directions.data(), static_cast<uint32_t>(directions.size()));
+
+    std::array<float, 4> frame {};
+    float maximumNovelty = 0.0f;
+    float maximumRoughness = 0.0f;
+    float maximumCharge = 0.0f;
+    float maximumTilt = -1.0f;
+    for (uint32_t sample = 0u; sample < 144000u; ++sample) {
+        const float amplitude = sample < 12000u
+            ? static_cast<float>(sample) / 12000.0f
+            : (sample < 108000u ? 1.0f : 0.18f);
+        const float signal = std::sin(
+            static_cast<float>(sample) * 2.0f * s3g::kPi * 4200.0f / 48000.0f)
+            * amplitude * 0.12f;
+        frame[0] = signal * 0.52f;
+        frame[3] = signal;
+        listener.processFrame(frame.data(), static_cast<uint32_t>(frame.size()));
+        for (uint32_t lobe = 0u; lobe < listener.count(); ++lobe) {
+            maximumNovelty = std::max(maximumNovelty, listener.novelty(lobe));
+            maximumRoughness = std::max(maximumRoughness, listener.roughness(lobe));
+            maximumCharge = std::max(maximumCharge, listener.charge(lobe));
+            maximumTilt = std::max(maximumTilt, listener.spectralTilt(lobe));
+        }
+    }
+
+    float maximumHabituation = 0.0f;
+    for (uint32_t lobe = 0u; lobe < listener.count(); ++lobe) {
+        maximumHabituation = std::max(
+            maximumHabituation, listener.habituation(lobe));
+    }
+    const auto gradient = listener.energyGradient();
+    const auto score = listener.score(
+        { 1.0f, 0.0f, 0.0f }, s3g::AmbiFieldListenMode::Follow);
+    if (!(listener.activity() > 0.02f)
+        || !(maximumNovelty > 0.02f)
+        || !(maximumRoughness > 0.02f)
+        || !(maximumCharge > 0.01f)
+        || !(maximumTilt > 0.02f)
+        || !(maximumHabituation > 0.02f)
+        || !(gradient.x > 0.005f)
+        || !(score.relativeEnergy > 0.05f)
+        || !std::isfinite(score.spectralTilt)) {
+        std::cerr << "Shared listener telemetry did not develop: "
+                  << listener.activity() << ", " << maximumNovelty << ", "
+                  << maximumRoughness << ", " << maximumCharge << ", "
+                  << maximumTilt << ", " << maximumHabituation << ", "
+                  << gradient.x << ", " << score.relativeEnergy << "\n";
+        return false;
+    }
+    if (s3g::sanitizeAmbiFieldListenerResponse(
+            static_cast<s3g::AmbiFieldListenerResponse>(99u))
+        != s3g::AmbiFieldListenerResponse::Imprint) {
+        std::cerr << "Shared listener response was not sanitized\n";
+        return false;
+    }
+    return true;
+}
+
 bool testWaveTerrainListener()
 {
     auto off = std::make_unique<s3g::AmbiWaveTerrainEncoder>();
@@ -382,9 +447,11 @@ bool testWaterListener()
     auto off = std::make_unique<s3g::AmbiWaterEncoder>();
     auto follow = std::make_unique<s3g::AmbiWaterEncoder>();
     auto counter = std::make_unique<s3g::AmbiWaterEncoder>();
+    auto imprint = std::make_unique<s3g::AmbiWaterEncoder>();
     off->prepare(48000.0);
     follow->prepare(48000.0);
     counter->prepare(48000.0);
+    imprint->prepare(48000.0);
 
     s3g::AmbiWaterParams params {};
     params.order = 3u;
@@ -416,27 +483,39 @@ bool testWaterListener()
     followParams.fieldListenMode = s3g::AmbiFieldListenMode::Follow;
     auto counterParams = params;
     counterParams.fieldListenMode = s3g::AmbiFieldListenMode::Counter;
+    auto imprintParams = followParams;
+    imprintParams.fieldListenResponse =
+        s3g::AmbiFieldListenerResponse::Imprint;
+    imprintParams.fieldListenAmount = 0.86f;
     off->setParams(offParams);
     follow->setParams(followParams);
     counter->setParams(counterParams);
+    imprint->setParams(imprintParams);
     off->reset();
     follow->reset();
     counter->reset();
+    imprint->reset();
 
     Buffer offBuffer {};
     Buffer followBuffer {};
     Buffer counterBuffer {};
+    Buffer imprintBuffer {};
     auto offOutputs = pointers(offBuffer);
     auto followOutputs = pointers(followBuffer);
     auto counterOutputs = pointers(counterBuffer);
+    auto imprintOutputs = pointers(imprintBuffer);
     double offDifference = 0.0;
     double modeDifference = 0.0;
+    double responseDifference = 0.0;
+    float featureMaximum = 0.0f;
     float peak = 0.0f;
     for (uint32_t block = 0u; block < 180u; ++block) {
         off->process(offOutputs.data(), kChannels, kFrames);
         follow->process(followOutputs.data(), kChannels, kFrames);
         counter->process(counterOutputs.data(), kChannels, kFrames);
-        if (!finite(offBuffer) || !finite(followBuffer) || !finite(counterBuffer)) {
+        imprint->process(imprintOutputs.data(), kChannels, kFrames);
+        if (!finite(offBuffer) || !finite(followBuffer) || !finite(counterBuffer)
+            || !finite(imprintBuffer)) {
             std::cerr << "Water listener generated a non-finite sample\n";
             return false;
         }
@@ -448,8 +527,17 @@ bool testWaterListener()
                         followBuffer[channel][frame] - offBuffer[channel][frame]);
                     modeDifference += std::fabs(
                         counterBuffer[channel][frame] - followBuffer[channel][frame]);
+                    responseDifference += std::fabs(
+                        imprintBuffer[channel][frame] - followBuffer[channel][frame]);
                 }
             }
+        }
+        for (uint32_t lobe = 0u;
+            lobe < s3g::kAmbiFieldListenerMaxLobes; ++lobe) {
+            featureMaximum = std::max({ featureMaximum,
+                imprint->fieldListenNovelty(lobe),
+                imprint->fieldListenRoughness(lobe),
+                imprint->fieldListenCharge(lobe) });
         }
     }
 
@@ -468,12 +556,53 @@ bool testWaterListener()
         || !(follow->fieldListenActivity() > 0.02f)
         || !(offDifference > 1.0)
         || !(modeDifference > 1.0)
+        || !(responseDifference > 1.0)
+        || !(featureMaximum > 0.01f)
         || !(pointDifference > 0.02)
         || !(eventDifference > 0.001)) {
         std::cerr << "Water listener did not alter current, eddies, and events: "
                   << peak << ", " << follow->fieldListenActivity() << ", "
                   << offDifference << ", " << modeDifference << ", "
+                  << responseDifference << ", " << featureMaximum << ", "
                   << pointDifference << ", " << eventDifference << "\n";
+        return false;
+    }
+
+    auto unsafe = params;
+    unsafe.fieldListenAmount = -1.0f;
+    unsafe.fieldListenResponse =
+        static_cast<s3g::AmbiFieldListenerResponse>(99u);
+    off->setParams(unsafe);
+    if (off->params().fieldListenAmount != 0.0f
+        || off->params().fieldListenResponse
+            != s3g::AmbiFieldListenerResponse::Imprint) {
+        std::cerr << "Water listener parameters were not sanitized\n";
+        return false;
+    }
+
+    auto zero = std::make_unique<s3g::AmbiWaterEncoder>();
+    off->prepare(48000.0);
+    zero->prepare(48000.0);
+    auto zeroParams = imprintParams;
+    zeroParams.fieldListenAmount = 0.0f;
+    off->setParams(offParams);
+    zero->setParams(zeroParams);
+    off->reset();
+    zero->reset();
+    double zeroDifference = 0.0;
+    for (uint32_t block = 0u; block < 48u; ++block) {
+        off->process(offOutputs.data(), kChannels, kFrames);
+        zero->process(imprintOutputs.data(), kChannels, kFrames);
+        for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+            for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                zeroDifference += std::fabs(
+                    offBuffer[channel][frame] - imprintBuffer[channel][frame]);
+            }
+        }
+    }
+    if (zeroDifference > 1.0e-7) {
+        std::cerr << "Water zero listener amount changed the open-loop render: "
+                  << zeroDifference << "\n";
         return false;
     }
     return true;
@@ -484,9 +613,11 @@ bool testWindListener()
     auto off = std::make_unique<s3g::AmbiWindEncoder>();
     auto follow = std::make_unique<s3g::AmbiWindEncoder>();
     auto balance = std::make_unique<s3g::AmbiWindEncoder>();
+    auto resonate = std::make_unique<s3g::AmbiWindEncoder>();
     off->prepare(48000.0);
     follow->prepare(48000.0);
     balance->prepare(48000.0);
+    resonate->prepare(48000.0);
 
     s3g::AmbiWindParams params {};
     params.order = 3u;
@@ -515,27 +646,39 @@ bool testWindListener()
     followParams.fieldListenMode = s3g::AmbiFieldListenMode::Follow;
     auto balanceParams = params;
     balanceParams.fieldListenMode = s3g::AmbiFieldListenMode::Balance;
+    auto resonateParams = followParams;
+    resonateParams.fieldListenResponse =
+        s3g::AmbiFieldListenerResponse::Imprint;
+    resonateParams.fieldListenAmount = 0.88f;
     off->setParams(offParams);
     follow->setParams(followParams);
     balance->setParams(balanceParams);
+    resonate->setParams(resonateParams);
     off->reset();
     follow->reset();
     balance->reset();
+    resonate->reset();
 
     Buffer offBuffer {};
     Buffer followBuffer {};
     Buffer balanceBuffer {};
+    Buffer resonateBuffer {};
     auto offOutputs = pointers(offBuffer);
     auto followOutputs = pointers(followBuffer);
     auto balanceOutputs = pointers(balanceBuffer);
+    auto resonateOutputs = pointers(resonateBuffer);
     double offDifference = 0.0;
     double modeDifference = 0.0;
+    double responseDifference = 0.0;
+    float featureMaximum = 0.0f;
     float peak = 0.0f;
     for (uint32_t block = 0u; block < 180u; ++block) {
         off->process(offOutputs.data(), kChannels, kFrames);
         follow->process(followOutputs.data(), kChannels, kFrames);
         balance->process(balanceOutputs.data(), kChannels, kFrames);
-        if (!finite(offBuffer) || !finite(followBuffer) || !finite(balanceBuffer)) {
+        resonate->process(resonateOutputs.data(), kChannels, kFrames);
+        if (!finite(offBuffer) || !finite(followBuffer) || !finite(balanceBuffer)
+            || !finite(resonateBuffer)) {
             std::cerr << "Wind listener generated a non-finite sample\n";
             return false;
         }
@@ -547,8 +690,17 @@ bool testWindListener()
                         followBuffer[channel][frame] - offBuffer[channel][frame]);
                     modeDifference += std::fabs(
                         balanceBuffer[channel][frame] - followBuffer[channel][frame]);
+                    responseDifference += std::fabs(
+                        resonateBuffer[channel][frame] - followBuffer[channel][frame]);
                 }
             }
+        }
+        for (uint32_t lobe = 0u;
+            lobe < s3g::kAmbiFieldListenerMaxLobes; ++lobe) {
+            featureMaximum = std::max({ featureMaximum,
+                resonate->fieldListenNovelty(lobe),
+                resonate->fieldListenRoughness(lobe),
+                resonate->fieldListenCharge(lobe) });
         }
     }
 
@@ -567,12 +719,53 @@ bool testWindListener()
         || !(follow->fieldListenActivity() > 0.02f)
         || !(offDifference > 1.0)
         || !(modeDifference > 1.0)
+        || !(responseDifference > 1.0)
+        || !(featureMaximum > 0.01f)
         || !(pointDifference > 0.02)
         || !(gustDifference > 0.001)) {
         std::cerr << "Wind listener did not alter flow, gusts, and turbulence: "
                   << peak << ", " << follow->fieldListenActivity() << ", "
                   << offDifference << ", " << modeDifference << ", "
+                  << responseDifference << ", " << featureMaximum << ", "
                   << pointDifference << ", " << gustDifference << "\n";
+        return false;
+    }
+
+    auto unsafe = params;
+    unsafe.fieldListenAmount = 3.0f;
+    unsafe.fieldListenResponse =
+        static_cast<s3g::AmbiFieldListenerResponse>(99u);
+    off->setParams(unsafe);
+    if (off->params().fieldListenAmount != 1.0f
+        || off->params().fieldListenResponse
+            != s3g::AmbiFieldListenerResponse::Imprint) {
+        std::cerr << "Wind listener parameters were not sanitized\n";
+        return false;
+    }
+
+    auto zero = std::make_unique<s3g::AmbiWindEncoder>();
+    off->prepare(48000.0);
+    zero->prepare(48000.0);
+    auto zeroParams = resonateParams;
+    zeroParams.fieldListenAmount = 0.0f;
+    off->setParams(offParams);
+    zero->setParams(zeroParams);
+    off->reset();
+    zero->reset();
+    double zeroDifference = 0.0;
+    for (uint32_t block = 0u; block < 48u; ++block) {
+        off->process(offOutputs.data(), kChannels, kFrames);
+        zero->process(resonateOutputs.data(), kChannels, kFrames);
+        for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+            for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                zeroDifference += std::fabs(
+                    offBuffer[channel][frame] - resonateBuffer[channel][frame]);
+            }
+        }
+    }
+    if (zeroDifference > 1.0e-7) {
+        std::cerr << "Wind zero listener amount changed the open-loop render: "
+                  << zeroDifference << "\n";
         return false;
     }
     return true;
@@ -582,6 +775,7 @@ bool testWindListener()
 
 int main()
 {
+    if (!testSharedListenerFeatures()) return 1;
     if (!testWaveTerrainListener()) return 1;
     if (!testStochasticListener()) return 1;
     if (!testWaterListener()) return 1;

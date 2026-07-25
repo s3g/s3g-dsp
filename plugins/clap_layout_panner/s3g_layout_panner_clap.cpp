@@ -1663,7 +1663,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
     NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
     NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
-    [@"s3g LAYOUT PANNER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
+    [@"s3g PANNER LAYOUT" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
     [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(728,14) withAttributes:small];
     [@"16x64" drawAtPoint:NSMakePoint(832,14) withAttributes:small];
@@ -1728,12 +1728,12 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         const CGFloat selectedNorm = params.activeSources > 1u
             ? static_cast<CGFloat>(params.selectedSource) / static_cast<CGFloat>(params.activeSources - 1u)
             : 0.0;
-        [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"S%u", params.selectedSource + 1u] norm:selectedNorm y:420 attrs:small style:style];
-        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", source.azimuthDeg] norm:(source.azimuthDeg + 180.0f) / 360.0f y:446 attrs:small style:style];
-        [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", source.elevationDeg] norm:(source.elevationDeg + 90.0f) / 180.0f y:472 attrs:small style:style];
-        [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", source.distance] norm:(source.distance - 0.1f) / 2.9f y:498 attrs:small style:style];
-        [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%+.1f", source.gainDb] norm:(source.gainDb + 60.0f) / 84.0f y:524 attrs:small style:style];
-        [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.outputGainDb] norm:(params.outputGainDb + 60.0f) / 72.0f y:550 attrs:small style:style];
+        [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.outputGainDb] norm:(params.outputGainDb + 60.0f) / 72.0f y:420 attrs:small style:style];
+        [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"S%u", params.selectedSource + 1u] norm:selectedNorm y:446 attrs:small style:style];
+        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", source.azimuthDeg] norm:(source.azimuthDeg + 180.0f) / 360.0f y:472 attrs:small style:style];
+        [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", source.elevationDeg] norm:(source.elevationDeg + 90.0f) / 180.0f y:498 attrs:small style:style];
+        [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", source.distance] norm:(source.distance - 0.1f) / 2.9f y:524 attrs:small style:style];
+        [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%+.1f", source.gainDb] norm:(source.gainDb + 60.0f) / 84.0f y:550 attrs:small style:style];
     }
     [self drawOpenMenu:small];
 }
@@ -2000,7 +2000,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         }
     }
     const CGFloat rows[] = { 130, 156, 182, 208, 234, 260, 286, 338, 420, 446, 472, 498, 524, 550 };
-    const int ids[] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+    const int ids[] = { 3, 4, 5, 6, 7, 8, 9, 10, 16, 11, 12, 13, 14, 15 };
     for (int i = 0; i < 14; ++i) {
         if (NSPointInRect(pt, NSMakeRect(638, rows[i] - 8, 230, 24))) {
             _dragSlider = ids[i];
@@ -2113,7 +2113,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.layout-panner",
-    "s3g Layout Panner",
+    "s3g Panner Layout",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

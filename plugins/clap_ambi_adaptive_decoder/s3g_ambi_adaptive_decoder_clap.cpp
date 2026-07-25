@@ -62,6 +62,7 @@ struct Plugin {
     std::atomic<float> adaptiveCue { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
     int guiViewMode = 2;
     double guiViewAzDeg = 35.0;
@@ -200,11 +201,8 @@ void destroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
 #if defined(__APPLE__)
-    if (p && p->guiView) {
-        [static_cast<NSView*>(p->guiView) removeFromSuperview];
-        [static_cast<NSView*>(p->guiView) release];
-        p->guiView = nullptr;
-    }
+    if (p && p->guiView)
+        s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
 #endif
     delete p;
 }
@@ -482,6 +480,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     CGFloat _viewZoom;
     BOOL _dragView;
     NSPoint _lastDragPoint;
+    char _titlePresetName[64];
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -545,6 +544,7 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
         _dragView = NO;
         _lastDragPoint = NSMakePoint(0, 0);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [self setWantsLayer:YES];
     }
     return self;
@@ -899,7 +899,7 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
     NSString* weightItems[] = { @"NONE", @"MAXRE", @"INPHASE" };
     NSString** items = layoutItems.data();
     int selected = 0;
-    CGFloat y = 96.0;
+    CGFloat y = 162.0;
     CGFloat w = _openMenu == 1 ? 150.0 : 124.0;
     if (_openMenu == 1) {
         items = layoutItems.data();
@@ -909,17 +909,17 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
         items = modeItems;
         selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.decoder.mode));
         _menuItemCount = 3;
-        y = 122.0;
+        y = 188.0;
     } else if (_openMenu == 3) {
         items = orderItems;
         selected = static_cast<int>(std::clamp<uint32_t>(_plugin->params.decoder.order, 1u, s3g::kAmbiSpeakerDecoderMaxOrder) - 1u);
         _menuItemCount = s3g::kAmbiSpeakerDecoderMaxOrder;
-        y = 148.0;
+        y = 214.0;
     } else if (_openMenu == 4) {
         items = weightItems;
         selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.decoder.weighting));
         _menuItemCount = 3;
-        y = 174.0;
+        y = 240.0;
     }
     const CGFloat itemH = 18.0;
     NSRect menuRect = NSMakeRect(738, y, w, itemH * _menuItemCount);
@@ -934,7 +934,7 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
     else if (suffix && [suffix isEqualToString:@"ms"]) text = [NSString stringWithFormat:@"%.0fms", value];
     else if (suffix && [suffix isEqualToString:@"Hz"]) text = [NSString stringWithFormat:@"%.0fHz", value];
     else if (suffix && [suffix isEqualToString:@"%"]) text = [NSString stringWithFormat:@"%.0f%%", value * 100.0];
-    else if (suffix && [suffix isEqualToString:@"dB"]) text = [NSString stringWithFormat:@"%+.1f", value];
+    else if (suffix && [suffix isEqualToString:@"dB"]) text = [NSString stringWithFormat:@"%+.1f dB", value];
     else text = [NSString stringWithFormat:@"%.2f", value];
     s3g::clap_gui::drawSlider(name, text, norm, y, attrs, s3g::clap_gui::softValueAttrs(), style, 642, 738, 826, 82);
 }
@@ -949,12 +949,13 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
     NSDictionary* dimAttrs = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
 
-    [@"s3g AMBI ADAPTIVE DECODER" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
     const float peak = _plugin->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(peak)
-        drawAtPoint:NSMakePoint(728, 14)
-        withAttributes:dimAttrs];
-    [@"64CH" drawAtPoint:NSMakePoint(838, 14) withAttributes:dimAttrs];
+    s3g::clap_gui::drawDecoderTitleBand(
+        @"s3g AMBI DECODER ADAPTIVE",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(peak),
+        s3g::clap_gui::encoderTitleBand(900.0, 620.0),
+        titleAttrs, attrs, dimAttrs, style);
 
     const NSRect fieldPanel = NSMakeRect(18, 42, 596, 556);
     const NSRect fieldRect = NSMakeRect(34, 76, 564, 506);
@@ -964,23 +965,25 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
     [self drawViewButtonsInRect:fieldPanel attrs:dimAttrs];
     [self drawLayout:fieldRect attrs:dimAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 268, style);
-    s3g::clap_gui::drawPanelHeader(@"DECODER", true, 630, 42, 250, 21, attrs, style);
-    s3g::clap_gui::drawPanelFrame(630, 322, 250, 276, style);
-    s3g::clap_gui::drawPanelHeader(@"ADAPTIVE", true, 630, 322, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 42, 250, 54, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 42, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 108, 250, 132, style);
+    s3g::clap_gui::drawPanelHeader(@"DECODER", true, 630, 108, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(630, 252, 250, 184, style);
+    s3g::clap_gui::drawPanelHeader(@"ADAPTIVE", true, 630, 252, 250, 21, attrs, style);
 
     const auto params = _plugin->params;
-    [self drawMenu:@"LAYOUT" value:[NSString stringWithUTF8String:layoutName(static_cast<uint32_t>(params.decoder.layout))] y:78 attrs:attrs style:style];
-    [self drawMenu:@"SHARP" value:[NSString stringWithUTF8String:modeName(params.decoder.mode)] y:104 attrs:attrs style:style];
-    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", params.decoder.order] y:130 attrs:attrs style:style];
-    [self drawMenu:@"WGT" value:[NSString stringWithUTF8String:weightingName(params.decoder.weighting)] y:156 attrs:attrs style:style];
-    [self drawSlider:@"FOCUS" value:params.focus min:0.0 max:1.0 y:358 suffix:@"%" attrs:attrs style:style];
-    [self drawSlider:@"DIFF" value:params.diffuse min:0.0 max:1.0 y:384 suffix:@"%" attrs:attrs style:style];
-    [self drawSlider:@"CONF" value:params.confidence min:0.0 max:1.0 y:410 suffix:@"%" attrs:attrs style:style];
-    [self drawSlider:@"TRAN" value:params.transient min:0.0 max:1.0 y:436 suffix:@"%" attrs:attrs style:style];
-    [self drawSlider:@"XOVR" value:params.crossoverHz min:20.0 max:5000.0 y:462 suffix:@"Hz" attrs:attrs style:style];
-    [self drawSlider:@"SMTH" value:params.smoothingMs min:0.0 max:500.0 y:488 suffix:@"ms" attrs:attrs style:style];
-    [self drawSlider:@"OUT" value:params.decoder.outputGainDb min:-60.0 max:12.0 y:540 suffix:@"dB" attrs:attrs style:style];
+    [self drawSlider:@"OUT" value:params.decoder.outputGainDb min:-60.0 max:12.0 y:78 suffix:@"dB" attrs:attrs style:style];
+    [self drawMenu:@"LAYOUT" value:[NSString stringWithUTF8String:layoutName(static_cast<uint32_t>(params.decoder.layout))] y:144 attrs:attrs style:style];
+    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:modeName(params.decoder.mode)] y:170 attrs:attrs style:style];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", params.decoder.order] y:196 attrs:attrs style:style];
+    [self drawMenu:@"WGT" value:[NSString stringWithUTF8String:weightingName(params.decoder.weighting)] y:222 attrs:attrs style:style];
+    [self drawSlider:@"FOCUS" value:params.focus min:0.0 max:1.0 y:288 suffix:@"%" attrs:attrs style:style];
+    [self drawSlider:@"DIFF" value:params.diffuse min:0.0 max:1.0 y:314 suffix:@"%" attrs:attrs style:style];
+    [self drawSlider:@"CONF" value:params.confidence min:0.0 max:1.0 y:340 suffix:@"%" attrs:attrs style:style];
+    [self drawSlider:@"TRAN" value:params.transient min:0.0 max:1.0 y:366 suffix:@"%" attrs:attrs style:style];
+    [self drawSlider:@"XOVR" value:params.crossoverHz min:20.0 max:5000.0 y:392 suffix:@"Hz" attrs:attrs style:style];
+    [self drawSlider:@"SMTH" value:params.smoothingMs min:0.0 max:500.0 y:418 suffix:@"ms" attrs:attrs style:style];
 
     [self drawOpenMenu:attrs style:style];
 }
@@ -1007,8 +1010,41 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(900.0, 620.0);
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        _plugin->params = s3g::AmbiAdaptiveDecoderParams {};
+        _plugin->decoder.setParams(_plugin->params);
+        _plugin->params = _plugin->decoder.params();
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.loadButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::loadPluginStatePreset(
+                &_plugin->plugin, @"Ambi Decoder Adaptive", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSString* name = nil;
+        if (s3g::clap_gui::savePluginStatePreset(
+                &_plugin->plugin, @"Ambi Decoder Adaptive", &name)) {
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                name ? [name UTF8String] : "CUSTOM");
+            [self setNeedsDisplay:YES];
+        } else {
+            NSBeep();
+        }
+        return;
+    }
     if (_openMenu > 0) {
-        CGFloat y = _openMenu == 1 ? 96.0 : (_openMenu == 2 ? 122.0 : (_openMenu == 3 ? 148.0 : (_openMenu == 4 ? 174.0 : 376.0)));
+        CGFloat y = _openMenu == 1 ? 162.0 : (_openMenu == 2 ? 188.0 : (_openMenu == 3 ? 214.0 : (_openMenu == 4 ? 240.0 : 306.0)));
         const CGFloat itemH = 18.0;
         const CGFloat menuW = _openMenu == 1 ? 150.0 : 124.0;
         NSRect menuRect = NSMakeRect(738, y, menuW, itemH * _menuItemCount);
@@ -1055,19 +1091,30 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
             return;
         }
     }
-    if (NSPointInRect(pt, NSMakeRect(738, 77, 102, 17))) { openMenu(1, kLayoutMenuCount); return; }
-    if (NSPointInRect(pt, NSMakeRect(738, 103, 102, 17))) { openMenu(2, 3); return; }
-    if (NSPointInRect(pt, NSMakeRect(738, 129, 102, 17))) { openMenu(3, s3g::kAmbiSpeakerDecoderMaxOrder); return; }
-    if (NSPointInRect(pt, NSMakeRect(738, 155, 102, 17))) { openMenu(4, 3); return; }
+    if (NSPointInRect(pt, NSMakeRect(738, 143, 102, 17))) { openMenu(1, kLayoutMenuCount); return; }
+    if (NSPointInRect(pt, NSMakeRect(738, 169, 102, 17))) { openMenu(2, 3); return; }
+    if (NSPointInRect(pt, NSMakeRect(738, 195, 102, 17))) { openMenu(3, s3g::kAmbiSpeakerDecoderMaxOrder); return; }
+    if (NSPointInRect(pt, NSMakeRect(738, 221, 102, 17))) { openMenu(4, 3); return; }
     _dragParam = 0;
-    if (NSPointInRect(pt, NSMakeRect(638, 350, 230, 24))) _dragParam = kFocusParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 376, 230, 24))) _dragParam = kDiffuseParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 402, 230, 24))) _dragParam = kConfidenceParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 428, 230, 24))) _dragParam = kTransientParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 454, 230, 24))) _dragParam = kCrossoverParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 480, 230, 24))) _dragParam = kSmoothingParamId;
-    else if (NSPointInRect(pt, NSMakeRect(638, 532, 230, 24))) _dragParam = kOutputParamId;
-    if (_dragParam) [self setParam:static_cast<clap_id>(_dragParam) fromPoint:pt];
+    if (NSPointInRect(pt, NSMakeRect(638, 70, 230, 24))) _dragParam = kOutputParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 280, 230, 24))) _dragParam = kFocusParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 306, 230, 24))) _dragParam = kDiffuseParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 332, 230, 24))) _dragParam = kConfidenceParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 358, 230, 24))) _dragParam = kTransientParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 384, 230, 24))) _dragParam = kCrossoverParamId;
+    else if (NSPointInRect(pt, NSMakeRect(638, 410, 230, 24))) _dragParam = kSmoothingParamId;
+    if (_dragParam) {
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &_plugin->plugin,
+                static_cast<clap_id>(_dragParam), &defaultValue)) {
+            applyParam(*_plugin, static_cast<clap_id>(_dragParam), defaultValue);
+            _dragParam = 0;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        [self setParam:static_cast<clap_id>(_dragParam) fromPoint:pt];
+    }
 }
 
 - (void)mouseDragged:(NSEvent*)event
@@ -1099,7 +1146,7 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
 {
     if (_openMenu <= 0) return;
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
-    CGFloat y = _openMenu == 1 ? 96.0 : (_openMenu == 2 ? 122.0 : (_openMenu == 3 ? 148.0 : (_openMenu == 4 ? 174.0 : 376.0)));
+    CGFloat y = _openMenu == 1 ? 162.0 : (_openMenu == 2 ? 188.0 : (_openMenu == 3 ? 214.0 : (_openMenu == 4 ? 240.0 : 306.0)));
     const CGFloat menuW = _openMenu == 1 ? 150.0 : 124.0;
     const int next = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(738, y, menuW, 18.0 * _menuItemCount), 18.0, _menuItemCount);
     if (next != _hoverMenuItem) {
@@ -1130,7 +1177,14 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     auto* p = self(plugin);
     if (p->guiView) return true;
     p->guiView = [[S3GAmbiAdaptiveDecoderView alloc] initWithPlugin:p];
-    return p->guiView != nullptr;
+    if (!p->guiView) return false;
+    if (!s3g::clap_gui::createResponsiveViewport(
+            p->guiViewport, static_cast<NSView*>(p->guiView), 900u, 620u)) {
+        [static_cast<NSView*>(p->guiView) release];
+        p->guiView = nullptr;
+        return false;
+    }
+    return true;
 }
 
 void guiDestroy(const clap_plugin_t* plugin)
@@ -1138,33 +1192,27 @@ void guiDestroy(const clap_plugin_t* plugin)
     auto* p = self(plugin);
     if (!p->guiView) return;
     [static_cast<S3GAmbiAdaptiveDecoderView*>(p->guiView) stopRefreshTimer];
-    [static_cast<NSView*>(p->guiView) removeFromSuperview];
-    [static_cast<NSView*>(p->guiView) release];
-    p->guiView = nullptr;
+    s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
     p->guiVisible = false;
 }
 
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = 900; *h = 620; return true; }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, 900u, 620u, w, h); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, 900u, 620u, w, h); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, w, h); }
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win)
 {
     if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false;
     auto* p = self(plugin);
-    if (!p->guiView) return false;
-    NSView* parent = static_cast<NSView*>(win->cocoa);
-    NSView* v = static_cast<NSView*>(p->guiView);
-    [parent addSubview:v];
-    [v setFrame:NSMakeRect(0, 0, 900, 620)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportParent(
+        p->guiViewport, static_cast<NSView*>(win->cocoa), p->host);
 }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GAmbiAdaptiveDecoderView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiAdaptiveDecoderView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3GAmbiAdaptiveDecoderView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiAdaptiveDecoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 
@@ -1183,7 +1231,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-adaptive-decoder-64",
-    "s3g Ambi Adaptive Decoder 64",
+    "s3g Ambi Decoder Adaptive 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

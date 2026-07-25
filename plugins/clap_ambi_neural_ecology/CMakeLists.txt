@@ -20,7 +20,7 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.ambi-neural-ecology-64"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Neural Ecology 64"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Encoder Neural Ecology 64"
     MACOSX_BUNDLE_BUNDLE_VERSION "0.6.3"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.6.3"
   )

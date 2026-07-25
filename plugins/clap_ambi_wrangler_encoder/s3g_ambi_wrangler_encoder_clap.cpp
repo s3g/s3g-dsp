@@ -883,6 +883,7 @@ void randomizeSafe(Plugin& plugin)
     AtomicFlagGuard controlGuard(plugin.controlLock);
     mergeAudioReportLocked(plugin);
     auto p = plugin.controlParams;
+    const auto performanceFrame = p;
     uint32_t seed = plugin.randomSeed ^ static_cast<uint32_t>(std::lround(plugin.outputPeak.load(std::memory_order_relaxed) * 1000000.0f));
     const bool calm = randomUnit(seed) < 0.35f;
     if (calm) {
@@ -1032,6 +1033,20 @@ void randomizeSafe(Plugin& plugin)
     randomizeBreakpointCurves(p, seed, false);
     }
 
+    p.order = performanceFrame.order;
+    p.outputGainDb = performanceFrame.outputGainDb;
+    p.listeningEnabled = performanceFrame.listeningEnabled;
+    p.pickupSet = performanceFrame.pickupSet;
+    p.listenMode = performanceFrame.listenMode;
+    p.listenerResponse = performanceFrame.listenerResponse;
+    p.fieldWrite = performanceFrame.fieldWrite;
+    p.registerMotion = performanceFrame.registerMotion;
+    p.fieldReturn = performanceFrame.fieldReturn;
+    p.propagation = performanceFrame.propagation;
+    p.returnBypass = performanceFrame.returnBypass;
+    p.settleAmount = performanceFrame.settleAmount;
+    p.settleTarget = performanceFrame.settleTarget;
+    p.settleRecoverySeconds = performanceFrame.settleRecoverySeconds;
     plugin.randomSeed = seed;
     plugin.controlParams = p;
     plugin.presetIndex = 0u;
@@ -2212,6 +2227,63 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 constexpr uint32_t kGuiWidth = 1160;
 constexpr uint32_t kGuiHeight = 858;
 
+namespace layout = s3g::gui_layout;
+
+constexpr layout::Canvas kGuiCanvas {
+    static_cast<double>(kGuiWidth), static_cast<double>(kGuiHeight)
+};
+constexpr auto kOutputPanel = layout::makePanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::Output,
+    layout::kLargeEncoderFirstColumn, 42.0,
+    layout::toolboxHeightForRows(2u), 2u);
+constexpr auto kOscillatorPanel = layout::stackPanel(
+    layout::PanelRole::Engine, kOutputPanel,
+    layout::toolboxHeightForRows(7u), 7u);
+constexpr auto kCrossPanel = layout::stackPanel(
+    layout::PanelRole::Relationships, kOscillatorPanel,
+    layout::toolboxHeightForRows(8u), 8u);
+constexpr auto kFilterPanel = layout::stackPanel(
+    layout::PanelRole::ToneShape, kCrossPanel,
+    layout::toolboxHeightForRows(7u), 7u);
+constexpr std::array kFirstColumnPanels {
+    kOutputPanel, kOscillatorPanel, kCrossPanel, kFilterPanel
+};
+
+constexpr auto kTopologyPanel = layout::makePanel(
+    layout::PluginClass::ProceduralEncoder, layout::PanelRole::Topology,
+    layout::kLargeEncoderSecondColumn, 42.0,
+    layout::toolboxHeightForRows(7u), 7u);
+constexpr auto kProjectionPanel = layout::stackPanel(
+    layout::PanelRole::Projection, kTopologyPanel,
+    layout::toolboxHeightForRows(4u), 4u);
+constexpr auto kVoiceMaskPanel = layout::stackPanel(
+    layout::PanelRole::Modulation, kProjectionPanel,
+    layout::toolboxHeightForRows(4u), 4u);
+constexpr auto kOscShapePanel = layout::stackPanel(
+    layout::PanelRole::ToneShape, kVoiceMaskPanel,
+    layout::toolboxHeightForRows(
+        8u, layout::kStandardMetrics.toolboxBottomClearance,
+        layout::kStandardMetrics.compactRowPitch),
+    8u,
+    layout::kStandardMetrics.compactRowPitch);
+constexpr std::array kSecondColumnPanels {
+    kTopologyPanel, kProjectionPanel, kVoiceMaskPanel, kOscShapePanel
+};
+
+static_assert(layout::validateColumn(kFirstColumnPanels, kGuiCanvas));
+static_assert(layout::validateColumn(kSecondColumnPanels, kGuiCanvas, false));
+static_assert(layout::rolesFollowTemplate(
+    kFirstColumnPanels, layout::kProceduralEncoderTemplate, true));
+static_assert(layout::rolesFollowTemplate(
+    kSecondColumnPanels, layout::kProceduralEncoderTemplate, false));
+static_assert(layout::controlMatchesSlot(
+    kOutputPanel, layout::kLargeEncoderOrderSlot));
+static_assert(layout::roleMatchesAnchorIfPresent(
+    kSecondColumnPanels, layout::PanelRole::Topology,
+    layout::kLargeEncoderTopologyAnchor));
+static_assert(layout::topologyControlMatches(
+    kTopologyPanel, layout::SharedControlRole::TopologyCollapse));
+
 struct GuiSliderSpec {
     clap_id id;
     CGFloat panelX;
@@ -2222,44 +2294,44 @@ struct GuiSliderSpec {
 };
 
 constexpr GuiSliderSpec kGuiSliders[] {
-    { kVoicesParamId, 630, 144, 1.0, 64.0, false },
-    { kRateAParamId, 630, 168, 0.0, 1.0, false },
-    { kRateBParamId, 630, 192, 0.0, 1.0, false },
-    { kSpreadParamId, 630, 216, 0.0, 1.0, false },
-    { kDeviationParamId, 630, 240, 0.0, 1.0, false },
-    { kFmAtoBParamId, 630, 334, 0.0, 1.0, false },
-    { kFmBtoAParamId, 630, 358, 0.0, 1.0, false },
-    { kRunglerAParamId, 630, 382, 0.0, 1.0, false },
-    { kRunglerBParamId, 630, 406, 0.0, 1.0, false },
-    { kRungSizeParamId, 630, 430, 2.0, 8.0, false },
-    { kChangeParamId, 630, 454, 0.0, 1.0, false },
-    { kThresholdParamId, 630, 478, 0.0, 1.0, false },
-    { kFilterMorphParamId, 630, 538, 0.0, 2.0, false },
-    { kColorParamId, 630, 562, 0.0, 1.0, false },
-    { kFilterParamId, 630, 586, 0.0, 1.0, false },
-    { kResonanceParamId, 630, 610, 0.0, 1.0, false },
-    { kFilterRunParamId, 630, 634, 0.0, 1.0, false },
-    { kFilterSweepParamId, 630, 658, 0.0, 1.0, false },
-    { kSaturationParamId, 630, 682, 0.0, 1.0, false },
-    { kPwmAParamId, 630, 748, 0.0, 1.0, false },
-    { kPwmBParamId, 630, 774, 0.0, 1.0, false },
-    { kTopologyRateParamId, 896, 156, 0.001, 2.0, true },
-    { kTopologyAmountParamId, 896, 182, 0.0, 1.0, false },
-    { kTopologyDepthParamId, 896, 208, 0.0, 1.0, false },
-    { kTopologyScaleParamId, 896, 234, 0.20, 2.50, false },
-    { kTopologyCollapseParamId, 896, 260, 0.0, 1.0, false },
-    { kAzimuthParamId, 896, 334, -180.0, 180.0, false },
-    { kElevationParamId, 896, 360, -90.0, 90.0, false },
-    { kDistanceParamId, 896, 386, 0.15, 2.0, false },
-    { kSpatialFollowParamId, 896, 412, 0.0, 1.0, false },
-    { kFieldParamId, 896, 534, 0.0, 1.0, false },
-    { kMaskDepthParamId, 896, 560, 0.0, 1.0, false },
-    { kMaskRateParamId, 896, 586, 0.001, 4.0, true },
-    { kRampAParamId, 896, 720, 0.0, 1.0, false },
-    { kRampBParamId, 896, 746, 0.0, 1.0, false },
-    { kSnapParamId, 896, 772, 0.0, 1.0, false },
-    { kSnapDecayParamId, 896, 798, 0.0, 1.0, false },
-    { kOutputParamId, 896, 824, -60.0, 12.0, false },
+    { kOutputParamId, kOutputPanel.frame.x, layout::rowY(kOutputPanel, 0u), -60.0, 12.0, false },
+    { kVoicesParamId, kOscillatorPanel.frame.x, layout::rowY(kOscillatorPanel, 2u), 1.0, 64.0, false },
+    { kRateAParamId, kOscillatorPanel.frame.x, layout::rowY(kOscillatorPanel, 3u), 0.0, 1.0, false },
+    { kRateBParamId, kOscillatorPanel.frame.x, layout::rowY(kOscillatorPanel, 4u), 0.0, 1.0, false },
+    { kSpreadParamId, kOscillatorPanel.frame.x, layout::rowY(kOscillatorPanel, 5u), 0.0, 1.0, false },
+    { kDeviationParamId, kOscillatorPanel.frame.x, layout::rowY(kOscillatorPanel, 6u), 0.0, 1.0, false },
+    { kFmAtoBParamId, kCrossPanel.frame.x, layout::rowY(kCrossPanel, 1u), 0.0, 1.0, false },
+    { kFmBtoAParamId, kCrossPanel.frame.x, layout::rowY(kCrossPanel, 2u), 0.0, 1.0, false },
+    { kRunglerAParamId, kCrossPanel.frame.x, layout::rowY(kCrossPanel, 3u), 0.0, 1.0, false },
+    { kRunglerBParamId, kCrossPanel.frame.x, layout::rowY(kCrossPanel, 4u), 0.0, 1.0, false },
+    { kRungSizeParamId, kCrossPanel.frame.x, layout::rowY(kCrossPanel, 5u), 2.0, 8.0, false },
+    { kChangeParamId, kCrossPanel.frame.x, layout::rowY(kCrossPanel, 6u), 0.0, 1.0, false },
+    { kThresholdParamId, kCrossPanel.frame.x, layout::rowY(kCrossPanel, 7u), 0.0, 1.0, false },
+    { kFilterMorphParamId, kFilterPanel.frame.x, layout::rowY(kFilterPanel, 0u), 0.0, 2.0, false },
+    { kColorParamId, kFilterPanel.frame.x, layout::rowY(kFilterPanel, 1u), 0.0, 1.0, false },
+    { kFilterParamId, kFilterPanel.frame.x, layout::rowY(kFilterPanel, 2u), 0.0, 1.0, false },
+    { kResonanceParamId, kFilterPanel.frame.x, layout::rowY(kFilterPanel, 3u), 0.0, 1.0, false },
+    { kFilterRunParamId, kFilterPanel.frame.x, layout::rowY(kFilterPanel, 4u), 0.0, 1.0, false },
+    { kFilterSweepParamId, kFilterPanel.frame.x, layout::rowY(kFilterPanel, 5u), 0.0, 1.0, false },
+    { kSaturationParamId, kFilterPanel.frame.x, layout::rowY(kFilterPanel, 6u), 0.0, 1.0, false },
+    { kTopologyRateParamId, kTopologyPanel.frame.x, layout::rowY(kTopologyPanel, layout::topologyRow(layout::SharedControlRole::TopologyRate)), 0.001, 2.0, true },
+    { kTopologyAmountParamId, kTopologyPanel.frame.x, layout::rowY(kTopologyPanel, layout::topologyRow(layout::SharedControlRole::TopologyAmount)), 0.0, 1.0, false },
+    { kTopologyDepthParamId, kTopologyPanel.frame.x, layout::rowY(kTopologyPanel, layout::topologyRow(layout::SharedControlRole::TopologyDepth)), 0.0, 1.0, false },
+    { kTopologyScaleParamId, kTopologyPanel.frame.x, layout::rowY(kTopologyPanel, layout::topologyRow(layout::SharedControlRole::TopologyScale)), 0.20, 2.50, false },
+    { kTopologyCollapseParamId, kTopologyPanel.frame.x, layout::rowY(kTopologyPanel, layout::topologyRow(layout::SharedControlRole::TopologyCollapse)), 0.0, 1.0, false },
+    { kAzimuthParamId, kProjectionPanel.frame.x, layout::rowY(kProjectionPanel, 0u), -180.0, 180.0, false },
+    { kElevationParamId, kProjectionPanel.frame.x, layout::rowY(kProjectionPanel, 1u), -90.0, 90.0, false },
+    { kDistanceParamId, kProjectionPanel.frame.x, layout::rowY(kProjectionPanel, 2u), 0.15, 2.0, false },
+    { kSpatialFollowParamId, kProjectionPanel.frame.x, layout::rowY(kProjectionPanel, 3u), 0.0, 1.0, false },
+    { kFieldParamId, kVoiceMaskPanel.frame.x, layout::rowY(kVoiceMaskPanel, 1u), 0.0, 1.0, false },
+    { kMaskDepthParamId, kVoiceMaskPanel.frame.x, layout::rowY(kVoiceMaskPanel, 2u), 0.0, 1.0, false },
+    { kMaskRateParamId, kVoiceMaskPanel.frame.x, layout::rowY(kVoiceMaskPanel, 3u), 0.001, 4.0, true },
+    { kRampAParamId, kOscShapePanel.frame.x, layout::rowY(kOscShapePanel, 2u), 0.0, 1.0, false },
+    { kRampBParamId, kOscShapePanel.frame.x, layout::rowY(kOscShapePanel, 3u), 0.0, 1.0, false },
+    { kSnapParamId, kOscShapePanel.frame.x, layout::rowY(kOscShapePanel, 4u), 0.0, 1.0, false },
+    { kSnapDecayParamId, kOscShapePanel.frame.x, layout::rowY(kOscShapePanel, 5u), 0.0, 1.0, false },
+    { kPwmAParamId, kOscShapePanel.frame.x, layout::rowY(kOscShapePanel, 6u), 0.0, 1.0, false },
+    { kPwmBParamId, kOscShapePanel.frame.x, layout::rowY(kOscShapePanel, 7u), 0.0, 1.0, false },
     { kFieldReturnParamId, 38, 540, 0.0, 1.0, false },
     { kPropagationParamId, 38, 574, 0.0, 1.0, false },
     { kFieldWriteParamId, 314, 540, 0.0, 1.0, false },
@@ -2268,6 +2340,8 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kSettleTargetParamId, 38, 574, 0.0, 0.95, false },
     { kSettleRecoveryParamId, 314, 540, 0.25, 12.0, true },
 };
+
+static_assert(kGuiSliders[0].id == kOutputParamId);
 
 const GuiSliderSpec* guiSliderSpec(clap_id id)
 {
@@ -2431,10 +2505,10 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 
 - (NSRect)fieldPanelRect { return NSMakeRect(18, 42, 596, 608); }
 - (NSRect)fieldRect { return NSMakeRect(34, 76, 564, 558); }
-- (NSRect)presetMenuRect { return NSMakeRect(382, 13, 190, 15); }
-- (NSRect)savePresetButtonRect { return NSMakeRect(580, 13, 46, 15); }
-- (NSRect)loadPresetButtonRect { return NSMakeRect(632, 13, 46, 15); }
-- (NSRect)randomizeButtonRect { return NSMakeRect(684, 13, 66, 15); }
+- (NSRect)presetMenuRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Preset); }
+- (NSRect)loadPresetButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Load); }
+- (NSRect)savePresetButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Save); }
+- (NSRect)randomizeButtonRect { return s3g::clap_gui::encoderTitleActionRect(kGuiWidth, kGuiHeight, s3g::gui_layout::EncoderTitleAction::Random); }
 
 - (NSRect)curveBankButtonRect:(int)index
 {
@@ -2506,7 +2580,10 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 - (NSRect)listenerResponseRect { return NSMakeRect(306.0, 508.0, 104.0, 15.0); }
 - (NSRect)listenEnableRect { return NSMakeRect(46.0, 610.0, 118.0, 15.0); }
 - (NSRect)returnBypassRect { return NSMakeRect(172.0, 610.0, 118.0, 15.0); }
-- (NSRect)circuitLawButtonRect { return NSMakeRect(776.0, 46.0, 92.0, 13.0); }
+- (NSRect)circuitLawButtonRect {
+    return NSMakeRect(kOscillatorPanel.frame.x + 146.0,
+        kOscillatorPanel.frame.y + 4.0, 92.0, 13.0);
+}
 
 - (NSRect)viewButtonRect:(int)index
 {
@@ -3301,28 +3378,32 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const auto p = _paramsSnapshot;
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 228, style);
-    s3g::clap_gui::drawPanelHeader(@"OSCILLATORS", true, 630, 42, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kOutputPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, kOutputPanel, attrs, style);
+    [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] panelX:kOutputPanel.frame.x y:layout::rowY(kOutputPanel, layout::kLargeEncoderOrderSlot.row) attrs:attrs valueAttrs:valueAttrs style:style];
+
+    s3g::clap_gui::drawPanelFrame(kOscillatorPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"OSCILLATORS", true, kOscillatorPanel, attrs, style);
     s3g::clap_gui::drawHeaderButton([self circuitLawButtonRect],
-        NSMakeRect(630, 42, 250, 21),
+        s3g::clap_gui::cocoaRect(kOscillatorPanel.frame),
         p.circuitLaw == s3g::AmbiWranglerCircuitLaw::Bounded
             ? @"CIR BOUNDED" : @"CIR LEGACY",
         p.circuitLaw == s3g::AmbiWranglerCircuitLaw::Bounded,
         attrs, style);
-    [self drawMenu:@"ORDER" value:[NSString stringWithFormat:@"%uOA", p.order] panelX:630 y:72 attrs:attrs valueAttrs:valueAttrs style:style];
     static constexpr const char* kRateRangeNames[] = { "LOW", "SINGLE", "DOUBLE" };
-    [self drawMenu:@"RNG A" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeA, 2u)]] panelX:630 y:96 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"RNG B" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeB, 2u)]] panelX:630 y:120 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"RNG A" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeA, 2u)]] panelX:kOscillatorPanel.frame.x y:layout::rowY(kOscillatorPanel, 0u) attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"RNG B" value:[NSString stringWithUTF8String:kRateRangeNames[std::min<uint32_t>(p.rateModeB, 2u)]] panelX:kOscillatorPanel.frame.x y:layout::rowY(kOscillatorPanel, 1u) attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RATE A" param:kRateAParamId value:p.rateA attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RATE B" param:kRateBParamId value:p.rateB attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SPREAD" param:kSpreadParamId value:p.spread attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DEV" param:kDeviationParamId value:p.deviation attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 282, 250, 218, style);
-    s3g::clap_gui::drawPanelHeader(@"CROSS / RUNGLER", true, 630, 282, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kCrossPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"CROSS / RUNGLER", true, kCrossPanel, attrs, style);
     static constexpr const char* kLoopNames[] = { "OFF", "LOOP", "XOR" };
-    [self drawMenu:@"LOOP" value:[NSString stringWithUTF8String:kLoopNames[std::min<uint32_t>(p.rungLoop, 2u)]] panelX:630 y:308 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"LOOP" value:[NSString stringWithUTF8String:kLoopNames[std::min<uint32_t>(p.rungLoop, 2u)]] panelX:kCrossPanel.frame.x y:layout::rowY(kCrossPanel, 0u) attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FM A>B" param:kFmAtoBParamId value:p.fmAtoB attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FM B>A" param:kFmBtoAParamId value:p.fmBtoA attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RUNG A" param:kRunglerAParamId value:p.runglerA attrs:attrs valueAttrs:valueAttrs style:style];
@@ -3331,8 +3412,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [self drawSlider:@"CHANGE" param:kChangeParamId value:p.change attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"THRESH" param:kThresholdParamId value:p.threshold attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 512, 250, 196, style);
-    s3g::clap_gui::drawPanelHeader(@"FILTER / OUTPUT", true, 630, 512, 250, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kFilterPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"FILTER", true, kFilterPanel, attrs, style);
     [self drawSlider:@"LP→OPEN→HP" param:kFilterMorphParamId
         value:static_cast<double>(p.filterMorph) * 2.0
         attrs:attrs valueAttrs:valueAttrs style:style];
@@ -3345,60 +3426,59 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [self drawSlider:@"FIL SWP" param:kFilterSweepParamId value:p.filterSweep attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SAT" param:kSaturationParamId value:p.saturation attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(630, 722, 250, 98, style);
-    s3g::clap_gui::drawPanelHeader(@"PULSE WIDTH", true, 630, 722, 250, 21, attrs, style);
-    [self drawSlider:@"PWM A" param:kPwmAParamId value:p.pwmA attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"PWM B" param:kPwmBParamId value:p.pwmB attrs:attrs valueAttrs:valueAttrs style:style];
-
-    s3g::clap_gui::drawPanelFrame(896, 42, 246, 254, style);
-    s3g::clap_gui::drawPanelHeader(@"TOPOLOGY", true, 896, 42, 246, 21, attrs, style);
-    [self drawMenu:@"SHAPE" value:[NSString stringWithUTF8String:s3g::topologyShapeName(p.topologyShape)] panelX:896 y:78 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"MOTION" value:[NSString stringWithUTF8String:s3g::topologyMotionModeName(p.topologyMotion)] panelX:896 y:104 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(kTopologyPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"TOPOLOGY", true, kTopologyPanel, attrs, style);
+    [self drawMenu:@"SHAPE" value:[NSString stringWithUTF8String:s3g::topologyShapeName(p.topologyShape)] panelX:kTopologyPanel.frame.x y:layout::rowY(kTopologyPanel, layout::topologyRow(layout::SharedControlRole::TopologyShape)) attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"MOTION" value:[NSString stringWithUTF8String:s3g::topologyMotionModeName(p.topologyMotion)] panelX:kTopologyPanel.frame.x y:layout::rowY(kTopologyPanel, layout::topologyRow(layout::SharedControlRole::TopologyMotion)) attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RATE" param:kTopologyRateParamId value:p.topologyRateHz attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"AMT" param:kTopologyAmountParamId value:p.topologyAmount attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DEPTH" param:kTopologyDepthParamId value:p.topologyDepth attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SCALE" param:kTopologyScaleParamId value:p.topologyScale attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"COLL" param:kTopologyCollapseParamId value:p.topologyCollapse attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(896, 308, 246, 150, style);
-    s3g::clap_gui::drawPanelHeader(@"PROJECTION", true, 896, 308, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kProjectionPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"PROJECTION", true, kProjectionPanel, attrs, style);
     [self drawSlider:@"AZIM" param:kAzimuthParamId value:p.centerAzimuthDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"ELEV" param:kElevationParamId value:p.centerElevationDeg attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DIST" param:kDistanceParamId value:p.centerDistance attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FOLLOW" param:kSpatialFollowParamId value:p.spatialFollow attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(896, 472, 246, 146, style);
-    s3g::clap_gui::drawPanelHeader(@"VOICE MASK", true, 896, 472, 246, 21, attrs, style);
+    s3g::clap_gui::drawPanelFrame(kVoiceMaskPanel, style);
+    s3g::clap_gui::drawPanelHeader(@"VOICE MASK", true, kVoiceMaskPanel, attrs, style);
     static constexpr const char* kMaskNames[] = { "ALL", "BREATH", "CHOIR", "CELLS", "SPARK", "WEAVE" };
-    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:kMaskNames[std::min<uint32_t>(p.maskMode, 5u)]] panelX:896 y:508 attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:kMaskNames[std::min<uint32_t>(p.maskMode, 5u)]] panelX:kVoiceMaskPanel.frame.x y:layout::rowY(kVoiceMaskPanel, 0u) attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"FIELD" param:kFieldParamId value:p.field attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DEPTH" param:kMaskDepthParamId value:p.maskDepth attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RATE" param:kMaskRateParamId value:p.maskRateHz attrs:attrs valueAttrs:valueAttrs style:style];
 
-    s3g::clap_gui::drawPanelFrame(896, 632, 246, 214, style);
-    s3g::clap_gui::drawPanelHeader(@"OSC SHAPE", true, 896, 632, 246, 21, attrs, style);
-    [self drawMenu:@"IN A" value:(p.inputA == 0u ? @"SQUARE" : @"TRI") panelX:896 y:668 attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawMenu:@"IN B" value:(p.inputB == 0u ? @"SQUARE" : @"TRI") panelX:896 y:694 attrs:attrs valueAttrs:valueAttrs style:style];
+    s3g::clap_gui::drawPanelFrame(kOscShapePanel, style);
+    s3g::clap_gui::drawPanelHeader(@"OSC SHAPE / PULSE", true, kOscShapePanel, attrs, style);
+    [self drawMenu:@"IN A" value:(p.inputA == 0u ? @"SQUARE" : @"TRI") panelX:kOscShapePanel.frame.x y:layout::rowY(kOscShapePanel, 0u) attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawMenu:@"IN B" value:(p.inputB == 0u ? @"SQUARE" : @"TRI") panelX:kOscShapePanel.frame.x y:layout::rowY(kOscShapePanel, 1u) attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RAMP A" param:kRampAParamId value:p.rampA attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"RAMP B" param:kRampBParamId value:p.rampB attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"SNAP" param:kSnapParamId value:p.snap attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSlider:@"DECAY" param:kSnapDecayParamId value:p.snapDecay attrs:attrs valueAttrs:valueAttrs style:style];
-    [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"PWM A" param:kPwmAParamId value:p.pwmA attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"PWM B" param:kPwmBParamId value:p.pwmB attrs:attrs valueAttrs:valueAttrs style:style];
 }
 
 - (NSRect)menuBoxRect:(int)menu
 {
     switch (menu) {
     case 1: return [self presetMenuRect];
-    case 2: return NSMakeRect(738, 95, 124, 15);
-    case 3: return NSMakeRect(738, 119, 124, 15);
-    case 4: return NSMakeRect(1004, 77, 124, 15);
-    case 5: return NSMakeRect(1004, 103, 124, 15);
-    case 6: return NSMakeRect(1004, 507, 124, 15);
-    case 7: return NSMakeRect(1004, 667, 124, 15);
-    case 8: return NSMakeRect(1004, 693, 124, 15);
-    case 9: return NSMakeRect(738, 307, 124, 15);
-    case 10: return NSMakeRect(738, 71, 124, 15);
+    case 2: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kOscillatorPanel, 0u));
+    case 3: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kOscillatorPanel, 1u));
+    case 4: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(
+        kTopologyPanel, layout::topologyRow(layout::SharedControlRole::TopologyShape)));
+    case 5: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(
+        kTopologyPanel, layout::topologyRow(layout::SharedControlRole::TopologyMotion)));
+    case 6: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kVoiceMaskPanel, 0u));
+    case 7: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kOscShapePanel, 0u));
+    case 8: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kOscShapePanel, 1u));
+    case 9: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kCrossPanel, 0u));
+    case 10: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(
+        kOutputPanel, layout::kLargeEncoderOrderSlot.row));
     case 12: return [self pickupSetRect];
     case 13: return [self listenModeRect];
     case 14: return [self listenerResponseRect];
@@ -3513,10 +3593,13 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     NSDictionary* attrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
-    [@"s3g AMBI WRANGLER ENCODER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
-    s3g::clap_gui::drawMenu(@"PRESET", [self presetDisplayName], 14, attrs, valueAttrs, style, 320, 382, 190);
-    s3g::clap_gui::drawHeaderActionButton([self savePresetButtonRect], [self savePresetButtonRect], @"SAVE", attrs, style);
+    [@"s3g AMBI ENCODER WRANGLER 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
+    s3g::clap_gui::drawEncoderPresetMenu(
+        [self presetDisplayName],
+        s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
+        attrs, valueAttrs, style);
     s3g::clap_gui::drawHeaderActionButton([self loadPresetButtonRect], [self loadPresetButtonRect], @"LOAD", attrs, style);
+    s3g::clap_gui::drawHeaderActionButton([self savePresetButtonRect], [self savePresetButtonRect], @"SAVE", attrs, style);
     s3g::clap_gui::drawHeaderActionButton([self randomizeButtonRect], [self randomizeButtonRect], @"RANDOM", attrs, style);
     s3g::clap_gui::drawRightStatus(s3g::clap_gui::peakDbText(_plugin->outputPeak.load(std::memory_order_relaxed)), kGuiWidth, 14, valueAttrs, 18);
     [self drawField:attrs valueAttrs:valueAttrs style:style];
@@ -3639,15 +3722,13 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(738, 71, 124, 15))) { [self openMenu:10]; return; }
-    if (NSPointInRect(point, NSMakeRect(738, 95, 124, 15))) { [self openMenu:2]; return; }
-    if (NSPointInRect(point, NSMakeRect(738, 119, 124, 15))) { [self openMenu:3]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 77, 124, 15))) { [self openMenu:4]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 103, 124, 15))) { [self openMenu:5]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 507, 124, 15))) { [self openMenu:6]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 667, 124, 15))) { [self openMenu:7]; return; }
-    if (NSPointInRect(point, NSMakeRect(1004, 693, 124, 15))) { [self openMenu:8]; return; }
-    if (NSPointInRect(point, NSMakeRect(738, 307, 124, 15))) { [self openMenu:9]; return; }
+    constexpr int controlMenus[] { 10, 2, 3, 4, 5, 6, 7, 8, 9 };
+    for (const int menu : controlMenus) {
+        if (NSPointInRect(point, [self menuBoxRect:menu])) {
+            [self openMenu:menu];
+            return;
+        }
+    }
     const NSRect panel = [self fieldPanelRect];
     if (NSPointInRect(point, panel)) {
         for (int i = 0; i < 3; ++i) {
@@ -3801,6 +3882,14 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         if ((settleControl && !settleResponse)
             || (writeControl && settleResponse)) continue;
         if (NSPointInRect(point, NSMakeRect(spec.panelX + 8, spec.y - 8, 230, 24))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &_plugin->plugin, spec.id, &defaultValue)) {
+                applyControlParam(*_plugin, spec.id, defaultValue);
+                _dragParam = 0;
+                [self setNeedsDisplay:YES];
+                return;
+            }
             _dragParam = static_cast<int>(spec.id);
             [self setParam:spec.id fromPoint:point];
             return;
@@ -3934,7 +4023,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_F
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-wrangler-encoder-64",
-    "s3g Ambi Wrangler Encoder 64",
+    "s3g Ambi Encoder Wrangler 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

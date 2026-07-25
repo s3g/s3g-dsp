@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="820" viewBox="0 0 1000 820" role="img" aria-labelledby="title desc">
-  <title id="title">s3g Delay Processor GUI vector rendering</title>
+  <title id="title">s3g Processor Delay GUI vector rendering</title>
   <desc id="desc">Vector rendering of the Delay Processor CLAP interface.</desc>
   <defs>
     <style>
@@ -37,7 +37,7 @@
   </defs>
 
   <rect class="bg" width="1000" height="820"/>
-  <text class="title" x="18" y="23">s3g DELAY PROCESSOR</text>
+  <text class="title" x="18" y="23">s3g PROCESSOR DELAY</text>
   <text class="dim" x="808" y="24">PK -12.4</text>
   <text class="dim" x="946" y="24">8CH</text>
 
