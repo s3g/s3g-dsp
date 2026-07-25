@@ -107,7 +107,7 @@ constexpr ParamDef kParams[] {
     { kTerrainFoldParamId, "Terrain Fold", 0.0, 1.0, 0.24, false },
     { kTerrainReliefParamId, "Terrain Relief", 0.0, 1.0, 0.62, false },
     { kTraceParamId, "Scan Trace", 0.0, 4.0, 1.0, true },
-    { kInterpretationParamId, "Interpretation", 0.0, 9.0, 0.0, true },
+    { kInterpretationParamId, "Interpretation", 0.0, 8.0, 0.0, true },
     { kInterpretationMixParamId, "Interpretation Mix", 0.0, 1.0, 0.32, false },
     { kScanRadiusParamId, "Scan Radius", 0.005, 0.48, 0.16, false },
     { kScanAspectParamId, "Scan Aspect", 0.05, 1.0, 0.68, false },
@@ -139,7 +139,9 @@ constexpr ParamDef kParams[] {
     { kAzimuthRateParamId, "Azimuth Rotation Rate", -12.0, 12.0, 0.70, false },
     { kElevationRateParamId, "Elevation Rotation Rate", -12.0, 12.0, 0.43, false },
     { kRotationDeviationParamId, "Rotation Rate Deviation", 0.0, 1.0, 0.28, false },
-    { kPitchScaleParamId, "Pitch Scale", 0.0, 6.0, 0.0, true },
+    { kPitchScaleParamId, "Pitch Scale", 0.0,
+        static_cast<double>(s3g::kAmbiWaveTerrainPitchScaleCount - 1u),
+        0.0, true },
     { kTerrainFormParamId, "Terrain Form", 0.0, 5.0, 0.0, true },
     { kTerrainFacetParamId, "Terrain Facet", 0.0, 1.0, 0.0, false },
     { kTerrainBevelParamId, "Terrain Bevel", 0.0, 1.0, 0.18, false },
@@ -559,11 +561,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* text, doubl
     static constexpr const char* form[] { "SPHERE", "TETRA", "CUBE", "OCTA", "DODECA", "ICOSA" };
     static constexpr const char* skin[] { "HARMONIC", "FBM", "CELL", "VOT", "RIDGES", "DUNES", "CRATERS", "TECTONIC" };
     static constexpr const char* trace[] { "ORBIT", "LISSAJOUS", "ROSETTE", "FOLD", "POLYGON" };
-    static constexpr const char* interpretation[] { "HEIGHT", "EDGE", "CURVE", "BLEND", "GRADIENT", "RIDGE", "VALLEY", "NORMAL", "CROSS", "VECTOR" };
+    static constexpr const char* interpretation[] { "HEIGHT", "EDGE", "CURVE", "BLEND", "GRADIENT", "RIDGE", "VALLEY", "NORMAL", "CROSS" };
     static constexpr const char* selection[] { "RANDOM", "SERIES", "WEIGHT", "TENDENCY", "MARKOV", "WALK" };
     static constexpr const char* transition[] { "LINK", "MERGE", "VARY" };
     static constexpr const char* pitch[] { "NOTE", "TRAVEL" };
-    static constexpr const char* scale[] { "FREE", "CHROM", "MAJOR", "MINOR", "PENTA", "WHOLE", "HARM MIN" };
     static constexpr const char* motion[] { "FIELD", "ROTATE" };
     static constexpr const char* listener[] { "OFF", "FOLLOW", "COUNTER", "BALANCE" };
 
@@ -577,7 +578,17 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* text, doubl
     else if (id == kSelectionParamId) { names = selection; count = static_cast<uint32_t>(std::size(selection)); }
     else if (id == kTransitionParamId) { names = transition; count = static_cast<uint32_t>(std::size(transition)); }
     else if (id == kPitchModeParamId) { names = pitch; count = static_cast<uint32_t>(std::size(pitch)); }
-    else if (id == kPitchScaleParamId) { names = scale; count = static_cast<uint32_t>(std::size(scale)); }
+    else if (id == kPitchScaleParamId) {
+        for (uint32_t index = 0u;
+             index < s3g::kAmbiWaveTerrainPitchScaleCount; ++index) {
+            if (std::strcmp(
+                    text, s3g::kAmbiWaveTerrainPitchScales[index].name) == 0) {
+                *value = static_cast<double>(index);
+                return true;
+            }
+        }
+        return false;
+    }
     else if (id == kMotionModeParamId) { names = motion; count = static_cast<uint32_t>(std::size(motion)); }
     else if (id == kFieldListenModeParamId) { names = listener; count = static_cast<uint32_t>(std::size(listener)); }
     if (names) {
@@ -868,6 +879,8 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     int _viewMode;
     int _terrainPage;
     BOOL _dragView;
+    BOOL _viewDidDrag;
+    int _pendingVoice;
     NSPoint _lastDragPoint;
     double _viewAzDeg;
     double _viewElDeg;
@@ -885,7 +898,8 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     self = [super initWithFrame:NSMakeRect(0, 0, 1158, 828)];
     if (self) {
         _plugin = plugin; _timer = nil; _dragParam = 0; _openMenuParam = 0; _menuItemCount = 0u;
-        _hoverMenuItem = -1; _selectedVoice = 0u; _viewMode = 2; _terrainPage = 0; _dragView = NO;
+        _hoverMenuItem = -1; _selectedVoice = 0u; _viewMode = 2; _terrainPage = 0;
+        _dragView = NO; _viewDidDrag = NO; _pendingVoice = -1;
         _viewAzDeg = 38.0; _viewElDeg = 32.0; _viewZoom = 1.0;
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
         [self setWantsLayer:YES];
@@ -942,6 +956,13 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
 {
     const auto direction = s3g::directionFromAed(point.azimuthDeg, point.elevationDeg);
     return { direction.x * point.distance, direction.y * point.distance, direction.z * point.distance };
+}
+- (s3g::AmbiWaveTerrainPoint)displaySurfacePointU:(float)u v:(float)v
+{
+    // The rendered terrain is the complete spherical parameter domain.
+    // SPACE and CENTER project that domain into the outgoing Ambisonic field;
+    // applying them to the mesh itself leaves an open, apparently flat seam.
+    return _plugin->engine.terrainDomainPoint(u, v);
 }
 - (s3g::AmbiWaveTerrainRegion)snapshotRegion:(uint32_t)voice next:(BOOL)next
 {
@@ -1008,7 +1029,12 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
             const float uc = (u0 + u1) * 0.5f, vc = (v0 + v1) * 0.5f;
             const float h = _plugin->engine.terrainHeight(uc, vc);
             const float visibleHeight = h * _plugin->params.terrainDepth * _plugin->params.terrainRelief;
-            const std::array<s3g::AmbiWaveTerrainPoint, 4> shell { _plugin->engine.surfacePoint(u0, v0), _plugin->engine.surfacePoint(u1, v0), _plugin->engine.surfacePoint(u1, v1), _plugin->engine.surfacePoint(u0, v1) };
+            const std::array<s3g::AmbiWaveTerrainPoint, 4> shell {
+                [self displaySurfacePointU:u0 v:v0],
+                [self displaySurfacePointU:u1 v:v0],
+                [self displaySurfacePointU:u1 v:v1],
+                [self displaySurfacePointU:u0 v:v1]
+            };
             Facet facet {};
             for (uint32_t corner = 0; corner < 4u; ++corner) { CGFloat d = 0; facet.p[corner] = [self project:[self worldPoint:shell[corner]] rect:field depth:&d]; facet.depth += d * 0.25; }
             const CGFloat light = std::clamp<CGFloat>(0.155 + visibleHeight * 0.065 + (1.0 - vc) * 0.025, 0.08, 0.26);
@@ -1044,7 +1070,9 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
                 NSBezierPath* scanPath = [NSBezierPath bezierPath];
                 for (uint32_t index = 0; index <= segments; ++index) {
                     const auto uv = [self contourUv:pathRegion phase:static_cast<float>(index) / static_cast<float>(segments)];
-                    const NSPoint point = [self project:[self worldPoint:_plugin->engine.surfacePoint(uv[0], uv[1])] rect:field depth:nullptr];
+                    const NSPoint point = [self project:[self worldPoint:
+                        [self displaySurfacePointU:uv[0] v:uv[1]]]
+                        rect:field depth:nullptr];
                     if (index == 0u) [scanPath moveToPoint:point]; else [scanPath lineToPoint:point];
                 }
                 [[color colorWithAlphaComponent:alpha * activityAlpha] setStroke];
@@ -1172,12 +1200,20 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     static NSString* order[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
     static NSString* form[] = { @"SPHERE", @"TETRA", @"CUBE", @"OCTA", @"DODECA", @"ICOSA" };
     static NSString* skin[] = { @"HARMONIC", @"FBM", @"CELL", @"VOT", @"RIDGES", @"DUNES", @"CRATERS", @"TECTONIC" };
-    static NSString* read[] = { @"HEIGHT", @"EDGE", @"CURVE", @"BLEND", @"GRADIENT", @"RIDGE", @"VALLEY", @"NORMAL", @"CROSS", @"VECTOR" };
+    static NSString* read[] = { @"HEIGHT", @"EDGE", @"CURVE", @"BLEND", @"GRADIENT", @"RIDGE", @"VALLEY", @"NORMAL", @"CROSS" };
     static NSString* trace[] = { @"ORBIT", @"LISSAJOUS", @"ROSETTE", @"FOLD", @"POLYGON" };
     static NSString* law[] = { @"RANDOM", @"SERIES", @"WEIGHT", @"TENDENCY", @"MARKOV", @"WALK" };
     static NSString* join[] = { @"LINK", @"MERGE", @"VARY" };
     static NSString* pitch[] = { @"NOTE", @"TRAVEL" };
-    static NSString* scale[] = { @"FREE", @"CHROM", @"MAJOR", @"MINOR", @"PENTA", @"WHOLE", @"HARM MIN" };
+    static std::array<NSString*, s3g::kAmbiWaveTerrainPitchScaleCount> scale = [] {
+        std::array<NSString*, s3g::kAmbiWaveTerrainPitchScaleCount> items {};
+        for (uint32_t index = 0u;
+             index < s3g::kAmbiWaveTerrainPitchScaleCount; ++index) {
+            items[index] = [[NSString alloc] initWithUTF8String:
+                s3g::kAmbiWaveTerrainPitchScales[index].name];
+        }
+        return items;
+    }();
     static NSString* motion[] = { @"FIELD", @"ROTATE" };
     static NSString* listener[] = { @"OFF", @"FOLLOW", @"COUNTER", @"BALANCE" };
     double value = 0.0; paramsGetValue(&_plugin->plugin, param, &value); *selected = static_cast<int>(std::lround(value));
@@ -1185,11 +1221,14 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     if (param == kOrderParamId) { *count = 7; *selected -= 1; return order; }
     if (param == kTerrainFormParamId) { *count = 6; return form; }
     if (param == kSkinParamId) { *count = 8; return skin; }
-    if (param == kInterpretationParamId) { *count = 10; return read; }
+    if (param == kInterpretationParamId) { *count = 9; return read; }
     if (param == kTraceParamId) { *count = 5; return trace; }
     if (param == kSelectionParamId) { *count = 6; return law; }
     if (param == kPitchModeParamId) { *count = 2; return pitch; }
-    if (param == kPitchScaleParamId) { *count = 7; return scale; }
+    if (param == kPitchScaleParamId) {
+        *count = s3g::kAmbiWaveTerrainPitchScaleCount;
+        return scale.data();
+    }
     if (param == kMotionModeParamId) { *count = 2; return motion; }
     if (param == kFieldListenModeParamId) { *count = 4; return listener; }
     *count = 3; return join;
@@ -1201,15 +1240,71 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
     const CGFloat rowY = effectiveGuiRowY(
         *row, layout, _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
-    const CGFloat height = 18.0 * _menuItemCount;
+    const uint32_t columns =
+        _openMenuParam == kPitchScaleParamId ? 4u : 1u;
+    const uint32_t rows = (_menuItemCount + columns - 1u) / columns;
+    const CGFloat columnWidth =
+        _openMenuParam == kPitchScaleParamId ? 136.0 : 124.0;
+    const CGFloat width = columnWidth * columns;
+    const CGFloat height = 18.0 * rows;
     CGFloat y = rowY + 17;
     if (y + height > [self bounds].size.height - 4.0) y = rowY - height;
-    return NSMakeRect(row->panelX + 108, y, 124, height);
+    const CGFloat preferredX = row->panelX + 108.0;
+    const CGFloat x = std::clamp(
+        preferredX, 4.0, [self bounds].size.width - width - 4.0);
+    return NSMakeRect(x, y, width, height);
+}
+- (int)openMenuHit:(NSPoint)point
+{
+    const NSRect rect = [self openMenuRect];
+    if (_openMenuParam != kPitchScaleParamId) {
+        return s3g::clap_gui::dropdownHitIndex(
+            point, rect, 18.0, _menuItemCount);
+    }
+    if (!NSPointInRect(point, rect)) return -1;
+    constexpr uint32_t columns = 4u;
+    const uint32_t rows =
+        (_menuItemCount + columns - 1u) / columns;
+    const uint32_t column = std::min<uint32_t>(
+        static_cast<uint32_t>((point.x - rect.origin.x) / 136.0),
+        columns - 1u);
+    const uint32_t row = static_cast<uint32_t>(
+        (point.y - rect.origin.y) / 18.0);
+    const uint32_t index = column * rows + row;
+    return index < _menuItemCount ? static_cast<int>(index) : -1;
 }
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     if (!_openMenuParam) return; int selected = 0; uint32_t count = 0; NSString* const* items = [self menuItems:_openMenuParam count:&count selected:&selected];
-    _menuItemCount = count; s3g::clap_gui::drawDropdownMenu([self openMenuRect], 18.0, items, count, selected, _hoverMenuItem, attrs, style);
+    _menuItemCount = count;
+    const NSRect rect = [self openMenuRect];
+    if (_openMenuParam != kPitchScaleParamId) {
+        s3g::clap_gui::drawDropdownMenu(
+            rect, 18.0, items, count, selected, _hoverMenuItem, attrs, style);
+        return;
+    }
+    constexpr uint32_t columns = 4u;
+    constexpr CGFloat columnWidth = 136.0;
+    const uint32_t rows = (count + columns - 1u) / columns;
+    for (uint32_t column = 0u; column < columns; ++column) {
+        const uint32_t first = column * rows;
+        if (first >= count) break;
+        const uint32_t columnCount = std::min<uint32_t>(rows, count - first);
+        const int columnSelected =
+            selected >= static_cast<int>(first)
+                && selected < static_cast<int>(first + columnCount)
+            ? selected - static_cast<int>(first) : -1;
+        const int columnHover =
+            _hoverMenuItem >= static_cast<int>(first)
+                && _hoverMenuItem < static_cast<int>(first + columnCount)
+            ? _hoverMenuItem - static_cast<int>(first) : -1;
+        const NSRect columnRect = NSMakeRect(
+            rect.origin.x + columnWidth * column, rect.origin.y,
+            columnWidth, 18.0 * columnCount);
+        s3g::clap_gui::drawDropdownMenu(
+            columnRect, 18.0, items + first, columnCount,
+            columnSelected, columnHover, attrs, style);
+    }
 }
 
 - (void)drawRect:(NSRect)dirty
@@ -1236,10 +1331,14 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     for (uint32_t voice = 0; voice < voices; ++voice) {
         const auto region = [self activeRegion:voice];
         auto uv = [self contourUv:region phase:0.0f];
-        NSPoint previous = [self project:[self worldPoint:_plugin->engine.surfacePoint(uv[0], uv[1])] rect:field depth:nullptr];
+        NSPoint previous = [self project:[self worldPoint:
+            [self displaySurfacePointU:uv[0] v:uv[1]]]
+            rect:field depth:nullptr];
         for (uint32_t index = 1; index <= 36u; ++index) {
             uv = [self contourUv:region phase:static_cast<float>(index) / 36.0f];
-            const NSPoint current = [self project:[self worldPoint:_plugin->engine.surfacePoint(uv[0], uv[1])] rect:field depth:nullptr];
+            const NSPoint current = [self project:[self worldPoint:
+                [self displaySurfacePointU:uv[0] v:uv[1]]]
+                rect:field depth:nullptr];
             const CGFloat vx = current.x - previous.x, vy = current.y - previous.y;
             const CGFloat lengthSquared = vx * vx + vy * vy;
             const CGFloat amount = lengthSquared > 0.000001
@@ -1315,7 +1414,9 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         applyParam(*_plugin, kTerrainFoldParamId, randomUnit() * 0.72);
         applyParam(*_plugin, kTerrainReliefParamId, 0.18 + randomUnit() * 0.78);
         applyParam(*_plugin, kTraceParamId, arc4random_uniform(5u));
-        applyParam(*_plugin, kInterpretationParamId, arc4random_uniform(10u));
+        applyParam(*_plugin, kInterpretationParamId, arc4random_uniform(9u));
+        applyParam(*_plugin, kPitchScaleParamId,
+            arc4random_uniform(s3g::kAmbiWaveTerrainPitchScaleCount));
         applyParam(*_plugin, kSelectionParamId, arc4random_uniform(6u));
         applyParam(*_plugin, kTransitionParamId, arc4random_uniform(3u));
         applyParam(*_plugin, kMotionModeParamId, arc4random_uniform(2u));
@@ -1324,15 +1425,20 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         return;
     }
     if (_openMenuParam) {
-        const int hit = s3g::clap_gui::dropdownHitIndex(point, [self openMenuRect], 18.0, _menuItemCount);
+        const int hit = [self openMenuHit:point];
         if (hit >= 0) applyParam(*_plugin, _openMenuParam, _openMenuParam == kOrderParamId ? hit + 1 : hit);
         _openMenuParam = 0; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; return;
     }
     for (int index = 0; index < 4; ++index) if (NSPointInRect(point, [self terrainTabRect:index])) { _terrainPage = index; [self setNeedsDisplay:YES]; return; }
     for (int index = 0; index < 3; ++index) if (NSPointInRect(point, [self viewButtonRect:index])) { [self setViewPreset:index]; return; }
     for (int index = 0; index < 2; ++index) if (NSPointInRect(point, [self zoomButtonRect:index])) { _viewZoom = std::clamp(_viewZoom + (index ? 0.15 : -0.15), 0.55, 2.4); [self setNeedsDisplay:YES]; return; }
-    const int voice = [self hitVoice:point]; if (voice >= 0) { _selectedVoice = static_cast<uint32_t>(voice); _plugin->guiSelectedVoice.store(_selectedVoice); [self setNeedsDisplay:YES]; return; }
-    if (NSPointInRect(point, [self fieldRect])) { _dragView = YES; _lastDragPoint = point; return; }
+    if (NSPointInRect(point, [self fieldRect])) {
+        _pendingVoice = [self hitVoice:point];
+        _dragView = YES;
+        _viewDidDrag = NO;
+        _lastDragPoint = point;
+        return;
+    }
     const auto layout = waveGuiLayout(
         _plugin->params.motionMode, _terrainPage, _plugin->params.trace);
     for (const auto& row : kGuiRows) {
@@ -1359,15 +1465,40 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
 - (void)mouseDragged:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    if (_dragView) { _viewAzDeg += (point.x - _lastDragPoint.x) * 0.42; _viewElDeg = std::clamp(_viewElDeg + (point.y - _lastDragPoint.y) * 0.34, -85.0, 85.0); _viewMode = -1; _lastDragPoint = point; [self setNeedsDisplay:YES]; return; }
+    if (_dragView) {
+        const CGFloat dx = point.x - _lastDragPoint.x;
+        const CGFloat dy = point.y - _lastDragPoint.y;
+        if (std::hypot(dx, dy) >= 0.5) {
+            _viewDidDrag = YES;
+            _pendingVoice = -1;
+            _viewAzDeg += dx * 0.42;
+            _viewElDeg = std::clamp(_viewElDeg + dy * 0.34, -85.0, 85.0);
+            _viewMode = -1;
+            _lastDragPoint = point;
+            [self setNeedsDisplay:YES];
+        }
+        return;
+    }
     if (_dragParam) [self setParam:_dragParam point:point];
 }
-- (void)mouseUp:(NSEvent*)event { (void)event; _dragParam = 0; _dragView = NO; }
+- (void)mouseUp:(NSEvent*)event
+{
+    (void)event;
+    if (_dragView && !_viewDidDrag && _pendingVoice >= 0) {
+        _selectedVoice = static_cast<uint32_t>(_pendingVoice);
+        _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
+        [self setNeedsDisplay:YES];
+    }
+    _dragParam = 0;
+    _dragView = NO;
+    _viewDidDrag = NO;
+    _pendingVoice = -1;
+}
 - (void)viewDidMoveToWindow { [super viewDidMoveToWindow]; [[self window] setAcceptsMouseMovedEvents:YES]; }
 - (void)mouseMoved:(NSEvent*)event
 {
     if (!_openMenuParam) return; const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    const int hover = s3g::clap_gui::dropdownHitIndex(point, [self openMenuRect], 18.0, _menuItemCount);
+    const int hover = [self openMenuHit:point];
     if (hover != _hoverMenuItem) { _hoverMenuItem = hover; [self setNeedsDisplay:YES]; }
 }
 @end

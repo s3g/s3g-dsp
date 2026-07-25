@@ -223,6 +223,52 @@ begins at toolbox y + 36 and packs only its visible controls. Its motion
 toolbox follows the surface toolbox at the standard 12 px gap and uses the
 standard 26 px row pitch.
 
+Wave Terrain's `SCALE` menu exposes 102 named 12-TET scales in a four-column
+popup so every item remains inside the editor. Full common names such as
+`MINOR PENTATONIC` are preferred over ambiguous abbreviations. The original 70
+scale indices remain stable for host automation and saved presets; additions
+append after them. `VECTOR` is not a terrain interpretation option. Legacy
+state value 9 is sanitized to `CROSS`.
+
+The Wave Terrain field always draws the complete closed terrain domain.
+`SPACE` and `CENTER` project that domain into the outgoing ambisonic field;
+they do not crop the preview into an open spherical patch. A click on a voice
+contour selects it, while actual pointer movement takes precedence and rotates
+the camera. Camera drag therefore remains available over the full field rather
+than only over gaps between contours.
+
+## Panner Family Reference
+
+The Panner-family audit covers Layout, DBAP, LBAP, and VBAP. All four use a
+900 x 720 responsive canvas, expose the sortable `s3g Panner <method>` host
+name, and share the same title order: `PRESET`, `LOAD`, `SAVE`, then far-right
+`PK`. The title does not repeat a channel count. Panners do not inherit the
+Encoder family's unconditional `RANDOM` action.
+
+The primary field uses x 18, y 42, width 596, height 616. Its inner field uses
+x 34, y 76, width 564, height 566. All four members expose `FIELD`, `MIXER`,
+and `DESIGN` pages. The right-side stack is:
+
+| Context | Panel | Frame | Shared row order |
+| --- | --- | --- | --- |
+| All pages | `OUTPUT` | x 630, y 42, w 250, h 54 | `OUT` at y 78 |
+| Field/Mixer | `PANNER` | x 630, y 108, w 250, h 314 | `LAYOUT`, `METHOD`, `FOC`, `ROLL`, `SMTH`, `GAZ`, `GEL`, `GDST`, `DIF`, `IN`, `SRC` |
+| Field/Mixer | `SOURCE` | x 630, y 434, w 250, h 158 | `SEL`, `AZ`, `EL`, `DST`, `GAIN` |
+| Design | `PANNER` | x 630, y 108, w 250, h 150 | `LAYOUT`, `SHAPE`, `COUNT`, then layout actions |
+| Design | `SPEAKER` | x 630, y 270, w 250, h 132 | `SEL`, `AZ`, `EL`, `DST` |
+
+Layout Panner keeps `METHOD` as an editable menu; a fixed-method member renders
+its method in the same row as an aligned read-only value. This preserves row
+alignment without presenting a false choice or leaving blank space. Ordinary
+rows use the global 26 px pitch, panels use the global 12 px gap, and the last
+row retains the global 18 px bottom clearance.
+
+Title `LOAD` and `SAVE` operate on complete plug-in state. Design-page `LOAD`
+and `SAVE` remain contextual layout-JSON actions. Every continuous Panner
+slider, including the mirrored mixer output, per-source mixer gains, and
+design-page speaker controls, resets to its declared or documented default on
+double-click.
+
 ## Processor Family Reference
 
 The Processor-family audit uses eight concepts and ten editors: Delay 8ch/24ch,
@@ -242,6 +288,12 @@ Likewise, `LOAD AUDIO` or an equivalent media-source action remains beside the
 waveform, source list, or playback transport and is never confused with state
 preset loading.
 
+Processor title typography is enforced inside the shared renderer, not supplied
+by an editor's local content palette. The plugin name always uses
+`softTitleAttrs()`, `PRESET`/`LOAD`/`SAVE` use `softLabelAttrs()`, and the preset
+selection and `PK` status use `softValueAttrs()`. A locally brighter, bolder, or
+dimmer toolbox palette cannot leak into the title strip.
+
 `OUTPUT` is the first panel in the Processor control stack, even when the
 primary visual occupies the left side or the controls sit in the right column.
 `OUT` is always its first row and always displays dB. Final wet/dry `MIX` may
@@ -256,7 +308,9 @@ from the frame, ordinary labels begin 16 px from the frame, and sliders or
 menus begin 108 px from the frame. Numeric values occupy a bounded 42 px cell
 that ends 16 px before the right border. The slider track stops before that
 cell; narrower toolboxes shorten the track instead of allowing the value to
-cross the frame.
+cross the frame. Contextual rows outside an ordinary slider stack still use
+the same 16 px label anchor; custom field headings retain the 8 px header
+anchor.
 
 The remaining stack follows the Processor subtype:
 
@@ -336,8 +390,8 @@ Direct/Virtual menu is omitted because Direct has no further choices.
 
 ## Shared Slider Interaction
 
-Every continuous slider in the Encoder and Decoder families resets to its
-declared parameter default on a double-click. This includes sliders on
+Every continuous slider in the Encoder, Decoder, and Panner families resets to
+its declared parameter default on a double-click. This includes sliders on
 contextual pages and mirrored mixer views, not only the primary parameter
 columns. The reset must use the same parameter-update path as an ordinary drag
 so the GUI, DSP state, selection-dependent values, and host-visible state stay

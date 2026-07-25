@@ -152,6 +152,42 @@ int main(int argc, char** argv)
             && !s3g::clap_gui::sliderDoubleClickDefault(
                 singleClick, plugin, firstParam.id, &resolvedDefault);
 
+        if (ok && std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64") == 0) {
+            bool foundScale = false;
+            bool foundInterpretation = false;
+            const uint32_t parameterCount = params->count(plugin);
+            for (uint32_t index = 0u; index < parameterCount; ++index) {
+                clap_param_info_t info {};
+                if (!params->get_info(plugin, index, &info)) {
+                    ok = false;
+                    break;
+                }
+                if (std::strcmp(info.name, "Pitch Scale") == 0) {
+                    char text[64] {};
+                    double parsed = -1.0;
+                    double removed = -1.0;
+                    foundScale = info.max_value == 101.0
+                        && params->value_to_text(
+                            plugin, info.id, info.max_value,
+                            text, sizeof(text))
+                        && std::strcmp(text, "COMPOSITE BLUES") == 0
+                        && params->text_to_value(
+                            plugin, info.id, "MINOR PENTATONIC", &parsed)
+                        && parsed == 32.0
+                        && !params->text_to_value(
+                            plugin, info.id, "VECTOR", &removed);
+                } else if (std::strcmp(info.name, "Interpretation") == 0) {
+                    double removed = -1.0;
+                    foundInterpretation = info.max_value == 8.0
+                        && !params->text_to_value(
+                            plugin, info.id, "VECTOR", &removed);
+                }
+            }
+            ok = ok && foundScale && foundInterpretation;
+        }
+
         const auto* gui = static_cast<const clap_plugin_gui_t*>(
             plugin->get_extension(plugin, CLAP_EXT_GUI));
         ok = ok && gui

@@ -77,6 +77,7 @@ struct Plugin {
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
 
@@ -281,7 +282,7 @@ constexpr ParamDef kParamDefs[] {
     { kCenterParamId, "Center", 0.0, 1.0, 0.5 },
     { kGlideParamId, "Glide", 10.0, 2000.0, 250.0 },
     { kMixParamId, "Mix", 0.0, 1.0, 0.35 },
-    { kOutputParamId, "Output", -60.0, 12.0, 0.0 },
+    { kOutputParamId, "Out", -60.0, 12.0, 0.0 },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(sizeof(kParamDefs) / sizeof(kParamDefs[0])); }
@@ -386,11 +387,11 @@ const clap_plugin_tail_t tailExt { tailGet };
 } // namespace
 
 #if defined(__APPLE__)
-@interface S3GMacroDelayView : NSView { void* _plugin; int _dragSlider; NSTimer* _timer; }
+@interface S3GMacroDelayView : NSView { void* _plugin; int _dragSlider; NSTimer* _timer; char _titlePresetName[64]; }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
-- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
+- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs;
 - (void)drawRelationshipPreview:(const s3g::MacroDelayParams&)params rect:(NSRect)rect attrs:(NSDictionary*)attrs;
 - (void)updateSlider:(NSPoint)point;
 @end
@@ -405,6 +406,7 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
         _plugin = plugin;
         _dragSlider = -1;
         _timer = nil;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
     }
     return self;
 }
@@ -413,10 +415,12 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
 - (void)startRefreshTimer { if (_timer) return; _timer = [NSTimer timerWithTimeInterval:1.0/20.0 target:self selector:@selector(refresh:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
 - (void)refresh:(NSTimer*)timer { (void)timer; if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
-- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
+- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs
 {
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, small, style, 64, 166, 340);
+    s3g::clap_gui::drawProcessorSlider(
+        name, value, norm, y, panel.frame.x, panel.frame.width,
+        attrs, attrs, style);
 }
 - (void)drawRelationshipPreview:(const s3g::MacroDelayParams&)params rect:(NSRect)rect attrs:(NSDictionary*)attrs
 {
@@ -458,43 +462,58 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
     [style.bg setFill]; NSRectFill([self bounds]);
     NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
-    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
-    [@"s3g MACRO DELAY" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
+    const auto& family = s3g::gui_layout::kMacroFamilyLayout;
+    const auto titleBand = s3g::gui_layout::macroTitleBand(family.canvas);
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(604,14) withAttributes:small];
-    [[NSString stringWithFormat:@"%uCH", kChannelCount] drawAtPoint:NSMakePoint(704,14) withAttributes:small];
+    s3g::clap_gui::drawProcessorTitleBand(
+        [NSString stringWithFormat:@"s3g MACRO DELAY %uCH", kChannelCount],
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(pk), titleBand,
+        s3g::clap_gui::softTitleAttrs(), lab, small, style);
 
-    s3g::clap_gui::drawPanelFrame(18, 42, 352, 188, style);
-    s3g::clap_gui::drawPanelHeader(@"ENGINE", true, 18, 42, 352, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(18, 242, 352, 226, style);
-    s3g::clap_gui::drawPanelHeader(@"LANE DELAY REL", true, 18, 242, 352, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(388, 42, 354, 166, style);
-    s3g::clap_gui::drawPanelHeader(@"RELATIONSHIPS", true, 388, 42, 354, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(388, 222, 354, 92, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 388, 222, 354, 21, lab, style);
+    const auto drawPanel = [&](NSString* name, const s3g::gui_layout::Panel& panel) {
+        s3g::clap_gui::drawPanelFrame(
+            panel.frame.x, panel.frame.y, panel.frame.width, panel.frame.height, style);
+        s3g::clap_gui::drawPanelHeader(
+            name, true, panel.frame.x, panel.frame.y, panel.frame.width,
+            s3g::gui_layout::kStandardMetrics.headerHeight, lab, style);
+    };
+    drawPanel(@"OUTPUT", family.output);
+    drawPanel(@"ENGINE", family.delayEngine);
+    drawPanel(@"RELATIONSHIPS", family.relationships);
+    drawPanel(@"LANE DELAY REL", family.preview);
 
     const auto& prm = p->params;
-    [self drawSlider:@"TIME" value:[NSString stringWithFormat:@"%.0f", prm.timeMs] norm:(prm.timeMs - 5.0f) / 1995.0f y:78 attrs:small small:small];
-    [self drawSlider:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback / 0.78f y:104 attrs:small small:small];
-    [self drawSlider:@"TONE" value:[NSString stringWithFormat:@"%.0f%%", prm.tone * 100.0f] norm:prm.tone y:130 attrs:small small:small];
-    [self drawSlider:@"CHR" value:[NSString stringWithFormat:@"%.0f%%", prm.character * 100.0f] norm:prm.character y:156 attrs:small small:small];
-    [self drawSlider:@"SMR" value:[NSString stringWithFormat:@"%.0f%%", prm.smear * 100.0f] norm:prm.smear y:182 attrs:small small:small];
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.outputGainDb] norm:(prm.outputGainDb + 60.0f) / 72.0f y:s3g::gui_layout::rowY(family.output, 0u) panel:family.output attrs:small];
+    [self drawSlider:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:s3g::gui_layout::rowY(family.output, 1u) panel:family.output attrs:small];
+    [self drawSlider:@"TIME" value:[NSString stringWithFormat:@"%.0f ms", prm.timeMs] norm:(prm.timeMs - 5.0f) / 1995.0f y:s3g::gui_layout::rowY(family.delayEngine, 0u) panel:family.delayEngine attrs:small];
+    [self drawSlider:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback / 0.78f y:s3g::gui_layout::rowY(family.delayEngine, 1u) panel:family.delayEngine attrs:small];
+    [self drawSlider:@"TONE" value:[NSString stringWithFormat:@"%.0f%%", prm.tone * 100.0f] norm:prm.tone y:s3g::gui_layout::rowY(family.delayEngine, 2u) panel:family.delayEngine attrs:small];
+    [self drawSlider:@"CHR" value:[NSString stringWithFormat:@"%.0f%%", prm.character * 100.0f] norm:prm.character y:s3g::gui_layout::rowY(family.delayEngine, 3u) panel:family.delayEngine attrs:small];
+    [self drawSlider:@"SMR" value:[NSString stringWithFormat:@"%.0f%%", prm.smear * 100.0f] norm:prm.smear y:s3g::gui_layout::rowY(family.delayEngine, 4u) panel:family.delayEngine attrs:small];
+    [self drawSlider:@"SPRD" value:[NSString stringWithFormat:@"%.0f%%", prm.spread * 100.0f] norm:prm.spread y:s3g::gui_layout::rowY(family.relationships, 0u) panel:family.relationships attrs:small];
+    [self drawSlider:@"DEV" value:[NSString stringWithFormat:@"%.0f%%", prm.deviation * 100.0f] norm:prm.deviation y:s3g::gui_layout::rowY(family.relationships, 1u) panel:family.relationships attrs:small];
+    [self drawSlider:@"SKW" value:[NSString stringWithFormat:@"%+.2f", prm.skew] norm:(prm.skew + 1.0f) * 0.5f y:s3g::gui_layout::rowY(family.relationships, 2u) panel:family.relationships attrs:small];
+    [self drawSlider:@"CTR" value:[NSString stringWithFormat:@"%.0f%%", prm.center * 100.0f] norm:prm.center y:s3g::gui_layout::rowY(family.relationships, 3u) panel:family.relationships attrs:small];
+    [self drawSlider:@"GLD" value:[NSString stringWithFormat:@"%.0f ms", prm.glideMs] norm:(prm.glideMs - 10.0f) / 1990.0f y:s3g::gui_layout::rowY(family.relationships, 4u) panel:family.relationships attrs:small];
 
-    s3g::clap_gui::drawSlider(@"SPRD", [NSString stringWithFormat:@"%.0f%%", prm.spread * 100.0f], prm.spread, 78, small, small, style, 398, 500, 674);
-    s3g::clap_gui::drawSlider(@"DEV", [NSString stringWithFormat:@"%.0f%%", prm.deviation * 100.0f], prm.deviation, 104, small, small, style, 398, 500, 674);
-    s3g::clap_gui::drawSlider(@"SKW", [NSString stringWithFormat:@"%+.2f", prm.skew], (prm.skew + 1.0f) * 0.5f, 130, small, small, style, 398, 500, 674);
-    s3g::clap_gui::drawSlider(@"CTR", [NSString stringWithFormat:@"%.0f%%", prm.center * 100.0f], prm.center, 156, small, small, style, 398, 500, 674);
-    s3g::clap_gui::drawSlider(@"GLD", [NSString stringWithFormat:@"%.0f", prm.glideMs], (prm.glideMs - 10.0f) / 1990.0f, 182, small, small, style, 398, 500, 674);
-    s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 72.0f, 258, small, small, style, 398, 500, 674);
-    s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 284, small, small, style, 398, 500, 674);
-
-    [self drawRelationshipPreview:prm rect:NSMakeRect(30,274,330,182) attrs:small];
+    [self drawRelationshipPreview:prm rect:NSMakeRect(
+        family.preview.frame.x + 12.0, family.preview.frame.y + 32.0,
+        family.preview.frame.width - 24.0, family.preview.frame.height - 44.0)
+        attrs:small];
 }
 - (void)updateSlider:(NSPoint)point
 {
     auto* p = static_cast<Plugin*>(_plugin);
+    const auto& family = s3g::gui_layout::kMacroFamilyLayout;
+    const bool outputSlider = _dragSlider == kOutputParamId || _dragSlider == kMixParamId;
+    const bool engineSlider = _dragSlider >= kTimeParamId && _dragSlider <= kSmearParamId;
+    const auto& panel = outputSlider ? family.output
+        : (engineSlider ? family.delayEngine : family.relationships);
+    const double controlX = s3g::gui_layout::processorControlX(panel.frame.x);
+    const double trackWidth = s3g::gui_layout::processorTrackWidth(panel.frame.width);
+    const double n = std::clamp((point.x - controlX) / trackWidth, 0.0, 1.0);
     if (_dragSlider >= 1 && _dragSlider <= 5) {
-        const double n = std::clamp((point.x - 166.0) / 150.0, 0.0, 1.0);
         switch (_dragSlider) {
         case 1: applyParam(*p, kTimeParamId, 5.0 + n * 1995.0); break;
         case 2: applyParam(*p, kFeedbackParamId, n * 0.78); break;
@@ -503,16 +522,15 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
         case 5: applyParam(*p, kSmearParamId, n); break;
         default: break;
         }
-    } else if (_dragSlider >= 6 && _dragSlider <= 12) {
-        const double n = std::clamp((point.x - 500.0) / 150.0, 0.0, 1.0);
+    } else {
         switch (_dragSlider) {
         case 6: applyParam(*p, kSpreadParamId, n); break;
         case 7: applyParam(*p, kDeviationParamId, n); break;
         case 8: applyParam(*p, kSkewParamId, -1.0 + n * 2.0); break;
-        case 9: applyParam(*p, kCenterParamId, n); break;
-        case 10: applyParam(*p, kGlideParamId, 10.0 + n * 1990.0); break;
-        case 11: applyParam(*p, kMixParamId, n); break;
-        case 12: applyParam(*p, kOutputParamId, -60.0 + n * 72.0); break;
+        case kCenterParamId: applyParam(*p, kCenterParamId, n); break;
+        case kGlideParamId: applyParam(*p, kGlideParamId, 10.0 + n * 1990.0); break;
+        case kMixParamId: applyParam(*p, kMixParamId, n); break;
+        case kOutputParamId: applyParam(*p, kOutputParamId, -60.0 + n * 72.0); break;
         default: break;
         }
     }
@@ -521,27 +539,54 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
-    const CGFloat engineRows[] = { 78, 104, 130, 156, 182 };
-    const CGFloat relationshipRows[] = { 78, 104, 130, 156, 182 };
-    const CGFloat outputRows[] = { 258, 284 };
-    for (int i = 0; i < 5; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(60, engineRows[i] - 8, 300, 24))) {
-            _dragSlider = i + 1;
+    auto* p = static_cast<Plugin*>(_plugin);
+    const auto& family = s3g::gui_layout::kMacroFamilyLayout;
+    const auto titleBand = s3g::gui_layout::macroTitleBand(family.canvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &p->plugin, @"Macro Delay", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    const auto beginSlider = [&](clap_id paramId) {
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, paramId, &defaultValue)) {
+            applyParam(*p, paramId, defaultValue);
+            _dragSlider = -1;
+        } else {
+            _dragSlider = static_cast<int>(paramId);
             [self updateSlider:pt];
+        }
+        [self setNeedsDisplay:YES];
+    };
+    const clap_id engineIds[] = {
+        kTimeParamId, kFeedbackParamId, kToneParamId,
+        kCharacterParamId, kSmearParamId
+    };
+    const clap_id relationshipIds[] = {
+        kSpreadParamId, kDeviationParamId, kSkewParamId,
+        kCenterParamId, kGlideParamId
+    };
+    const clap_id outputIds[] = { kOutputParamId, kMixParamId };
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::sliderHitRect(family.output, i)))) {
+            beginSlider(outputIds[i]);
             return;
         }
     }
     for (int i = 0; i < 5; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(394, relationshipRows[i] - 8, 300, 24))) {
-            _dragSlider = i + 6;
-            [self updateSlider:pt];
+        if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::sliderHitRect(family.delayEngine, i)))) {
+            beginSlider(engineIds[i]);
             return;
         }
     }
-    for (int i = 0; i < 2; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(394, outputRows[i] - 8, 300, 24))) {
-            _dragSlider = i == 0 ? 12 : 11;
-            [self updateSlider:pt];
+    for (int i = 0; i < 5; ++i) {
+        if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::sliderHitRect(family.relationships, i)))) {
+            beginSlider(relationshipIds[i]);
             return;
         }
     }
@@ -554,19 +599,19 @@ namespace {
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GMacroDelayView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3GMacroDelayView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GMacroDelayView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; [static_cast<S3GMacroDelayView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,kGuiWidth,kGuiHeight)]; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, w, h); }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GMacroDelayView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GMacroDelayView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3GMacroDelayView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GMacroDelayView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 

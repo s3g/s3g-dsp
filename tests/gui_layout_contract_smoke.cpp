@@ -100,6 +100,36 @@ static_assert(kCompactTitle.presetLabelX == 238.0);
 static_assert(kCompactTitle.presetMenu.x == 300.0);
 static_assert(layout::encoderTitleBandFits(kCompactTitle));
 
+constexpr const auto& kPanner = layout::kPannerFamilyLayout;
+constexpr std::array kPannerRegularPanels {
+    kPanner.output, kPanner.panner, kPanner.source
+};
+constexpr std::array kPannerDesignPanels {
+    kPanner.output, kPanner.designPanner, kPanner.speaker
+};
+static_assert(kPanner.canvas.width == 900.0);
+static_assert(kPanner.canvas.height == 720.0);
+static_assert(kPanner.mainPanel.y == layout::kStandardMetrics.contentTop);
+static_assert(kPanner.output.frame.x == 630.0);
+static_assert(kPanner.outputRowY == layout::rowY(kPanner.output, 0u));
+static_assert(kPanner.outputRowY == 78.0);
+static_assert(kPanner.pannerFirstRowY == layout::rowY(kPanner.panner, 0u));
+static_assert(kPanner.sourceFirstRowY == layout::rowY(kPanner.source, 0u));
+static_assert(kPanner.speakerFirstRowY == layout::rowY(kPanner.speaker, 0u));
+static_assert(kPanner.menuWidth == 102.0);
+static_assert(kPanner.sliderTrackWidth == 82.0);
+static_assert(layout::pannerMenuBoxRect(kPanner.panner, 0u).width == 102.0);
+static_assert(layout::rowY(kPanner.panner, 10u) == 404.0);
+static_assert(layout::rowY(kPanner.source, 4u) == 574.0);
+static_assert(layout::rowY(kPanner.designPanner, 2u) == 196.0);
+static_assert(layout::rowY(kPanner.speaker, 3u) == 384.0);
+static_assert(layout::validateColumn(kPannerRegularPanels, kPanner.canvas));
+static_assert(layout::validateColumn(kPannerDesignPanels, kPanner.canvas));
+static_assert(layout::rolesFollowTemplate(
+    kPannerRegularPanels, layout::kSpatialPannerDecoderTemplate, true));
+static_assert(layout::rolesFollowTemplate(
+    kPannerDesignPanels, layout::kSpatialPannerDecoderTemplate, true));
+
 constexpr std::array kEngineSubset {
     layout::EncoderFamilyControl::Order,
     layout::EncoderFamilyControl::VoicesObjects,

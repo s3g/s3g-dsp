@@ -609,6 +609,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     int _hoverMenuItem;
     uint32_t _menuItemCount;
     NSPoint _menuOrigin;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
@@ -697,6 +698,27 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     return [NSColor colorWithCalibratedRed:r green:g blue:bl alpha:selected ? 1.0 : 0.88];
 }
 
+static clap_id lpSliderParamId(int slider)
+{
+    switch (slider) {
+    case 3: return kFocusParamId;
+    case 4: return kRolloffParamId;
+    case 5: return kSmoothingParamId;
+    case 6: return kGlobalAzimuthParamId;
+    case 7: return kGlobalElevationParamId;
+    case 8: return kGlobalDistanceParamId;
+    case 9: return kDiffusionParamId;
+    case 10: return kActiveSourcesParamId;
+    case 11: return kSelectedSourceParamId;
+    case 12: return kSelectedAzimuthParamId;
+    case 13: return kSelectedElevationParamId;
+    case 14: return kSelectedDistanceParamId;
+    case 15: return kSelectedGainParamId;
+    case 16: return kOutputParamId;
+    default: return CLAP_INVALID_ID;
+    }
+}
+
 @implementation S3GLayoutPannerView
 - (id)initWithPlugin:(void*)plugin
 {
@@ -728,6 +750,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         _hoverMenuItem = -1;
         _menuItemCount = 0;
         _menuOrigin = NSMakePoint(0, 0);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
     }
     return self;
 }
@@ -758,11 +781,14 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
 - (void)refresh:(NSTimer*)timer { (void)timer; if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, attrs, style, 642, 738, 826, 82);
+    const auto& family = s3g::gui_layout::kPannerFamilyLayout;
+    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, attrs, style,
+        646, 738, 826, family.sliderTrackWidth);
 }
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawMenu(name, value, y, attrs, attrs, style, 642, 738, 102);
+    s3g::clap_gui::drawMenu(name, value, y, attrs, attrs, style,
+        646, 738, s3g::gui_layout::kPannerFamilyLayout.menuWidth);
 }
 - (void)drawOpenMenu:(NSDictionary*)attrs
 {
@@ -1610,7 +1636,7 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
 }
 - (NSRect)designButtonRect:(int)index
 {
-    return NSMakeRect(642.0 + static_cast<CGFloat>(index) * 62.0, 518.0, 56.0, 18.0);
+    return NSMakeRect(646.0 + static_cast<CGFloat>(index) * 72.0, 222.0, 64.0, 18.0);
 }
 - (void)drawDesignButton:(NSString*)label index:(int)index attrs:(NSDictionary*)attrs
 {
@@ -1718,24 +1744,25 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     s3g::clap_gui::Style style;
     [style.bg setFill];
     NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
-    NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
-    NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
-    if (_page > 1) _page = 0;
-    [@"s3g PANNER LBAP" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(728,14) withAttributes:small];
-    [@"16x64" drawAtPoint:NSMakePoint(832,14) withAttributes:small];
+    s3g::clap_gui::drawDecoderTitleBand(
+        @"s3g PANNER LBAP",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(pk),
+        s3g::clap_gui::encoderTitleBand(900.0, 720.0),
+        titleAttrs, lab, small, style);
 
-    const NSRect mainPanel = NSMakeRect(18, 42, 596, 616);
-    const NSRect fieldRect = NSMakeRect(34, 76, 564, 566);
+    const auto& family = s3g::gui_layout::kPannerFamilyLayout;
+    const NSRect mainPanel = s3g::clap_gui::cocoaRect(family.mainPanel);
+    const NSRect fieldRect = s3g::clap_gui::cocoaRect(family.field);
     s3g::clap_gui::drawPanelFrame(mainPanel.origin.x, mainPanel.origin.y, mainPanel.size.width, mainPanel.size.height, style);
-    NSString* panelTitle = _page == 0 ? @"LAYOUT FIELD" : @"SOURCE MIXER";
+    NSString* panelTitle = _page == 0 ? @"LAYOUT FIELD" : (_page == 1 ? @"SOURCE MIXER" : @"LAYOUT DESIGN");
     s3g::clap_gui::drawPanelHeader(panelTitle, true, mainPanel.origin.x, mainPanel.origin.y, mainPanel.size.width, 21, lab, style);
-    static NSString* pageLabels[] = { @"FIELD", @"MIXER" };
-    for (int i = 0; i < 2; ++i) {
+    static NSString* pageLabels[] = { @"FIELD", @"MIXER", @"DESIGN" };
+    for (int i = 0; i < 3; ++i) {
         s3g::clap_gui::drawHeaderButton([self pageButtonRect:i inRect:mainPanel], mainPanel, pageLabels[i], i == _page, small, style);
     }
     if (_page == 0 || _page == 2) {
@@ -1752,17 +1779,31 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         [self drawMixer:fieldRect attrs:small style:style];
     }
 
-    s3g::clap_gui::drawPanelFrame(630, 42, 250, 330, style);
-    s3g::clap_gui::drawPanelHeader(@"PANNER", true, 630, 42, 250, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(630, 384, 250, 314, style);
-    s3g::clap_gui::drawPanelHeader(_page == 2 ? @"SPEAKER" : @"SOURCE", true, 630, 384, 250, 21, lab, style);
-
     const auto params = p->panner.params();
     const auto source = p->panner.source(params.selectedSource);
-    [self drawMenu:@"LAYOUT" value:[NSString stringWithUTF8String:s3g::layoutPannerPresetName(params.layout)] y:78 attrs:small style:style];
+    const auto& outputPanel = family.output.frame;
+    s3g::clap_gui::drawPanelFrame(outputPanel.x, outputPanel.y,
+        outputPanel.width, outputPanel.height, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, outputPanel.x,
+        outputPanel.y, outputPanel.width, 21, lab, style);
+    [self drawSlider:@"OUT"
+        value:[NSString stringWithFormat:@"%+.1f dB", params.outputGainDb]
+        norm:(params.outputGainDb + 60.0f) / 72.0f
+        y:family.outputRowY attrs:small style:style];
     if (_page == 2) {
-        [self drawMenu:@"SHAPE" value:[NSString stringWithUTF8String:s3g::layoutPannerCustomShapeName(params.customShape)] y:104 attrs:small style:style];
-        [self drawSlider:@"COUNT" value:[NSString stringWithFormat:@"%u", params.activeSpeakers] norm:(params.activeSpeakers - 2.0) / 62.0 y:130 attrs:small style:style];
+        const auto& pannerPanel = family.designPanner.frame;
+        const auto& speakerPanel = family.speaker.frame;
+        s3g::clap_gui::drawPanelFrame(pannerPanel.x, pannerPanel.y,
+            pannerPanel.width, pannerPanel.height, style);
+        s3g::clap_gui::drawPanelHeader(@"PANNER", true, pannerPanel.x,
+            pannerPanel.y, pannerPanel.width, 21, lab, style);
+        s3g::clap_gui::drawPanelFrame(speakerPanel.x, speakerPanel.y,
+            speakerPanel.width, speakerPanel.height, style);
+        s3g::clap_gui::drawPanelHeader(@"SPEAKER", true, speakerPanel.x,
+            speakerPanel.y, speakerPanel.width, 21, lab, style);
+        [self drawMenu:@"LAYOUT" value:[NSString stringWithUTF8String:s3g::layoutPannerPresetName(params.layout)] y:144 attrs:small style:style];
+        [self drawMenu:@"SHAPE" value:[NSString stringWithUTF8String:s3g::layoutPannerCustomShapeName(params.customShape)] y:170 attrs:small style:style];
+        [self drawSlider:@"COUNT" value:[NSString stringWithFormat:@"%u", params.activeSpeakers] norm:(params.activeSpeakers - 2.0) / 62.0 y:196 attrs:small style:style];
         [self drawDesignButton:@"COPY" index:0 attrs:small];
         [self drawDesignButton:@"LOAD" index:1 attrs:small];
         [self drawDesignButton:@"SAVE" index:2 attrs:small];
@@ -1770,30 +1811,43 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         const CGFloat speakerNorm = params.activeSpeakers > 1u
             ? static_cast<CGFloat>(params.selectedSpeaker) / static_cast<CGFloat>(params.activeSpeakers - 1u)
             : 0.0;
-        [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"%u", params.selectedSpeaker + 1u] norm:speakerNorm y:420 attrs:small style:style];
-        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", speaker.azimuthDeg] norm:(speaker.azimuthDeg + 180.0f) / 360.0f y:446 attrs:small style:style];
-        [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", speaker.elevationDeg] norm:(speaker.elevationDeg + 90.0f) / 180.0f y:472 attrs:small style:style];
-        [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", speaker.distance] norm:(speaker.distance - 0.1f) / 2.9f y:498 attrs:small style:style];
+        [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"%u", params.selectedSpeaker + 1u] norm:speakerNorm y:306 attrs:small style:style];
+        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", speaker.azimuthDeg] norm:(speaker.azimuthDeg + 180.0f) / 360.0f y:332 attrs:small style:style];
+        [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", speaker.elevationDeg] norm:(speaker.elevationDeg + 90.0f) / 180.0f y:358 attrs:small style:style];
+        [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", speaker.distance] norm:(speaker.distance - 0.1f) / 2.9f y:384 attrs:small style:style];
     } else {
-        [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%.2f", params.focus] norm:(params.focus - 0.25f) / 3.75f y:130 attrs:small style:style];
-        [self drawSlider:@"ROLL" value:[NSString stringWithFormat:@"%.1f", params.distanceRolloffDb] norm:params.distanceRolloffDb / 48.0f y:156 attrs:small style:style];
-        [self drawSlider:@"SMTH" value:[NSString stringWithFormat:@"%.0f", params.smoothingMs] norm:(params.smoothingMs - 1.0f) / 249.0f y:182 attrs:small style:style];
-        [self drawSlider:@"GAZ" value:[NSString stringWithFormat:@"%+.0f", params.globalAzimuthDeg] norm:(params.globalAzimuthDeg + 180.0f) / 360.0f y:208 attrs:small style:style];
-        [self drawSlider:@"GEL" value:[NSString stringWithFormat:@"%+.0f", params.globalElevationDeg] norm:(params.globalElevationDeg + 90.0f) / 180.0f y:234 attrs:small style:style];
-        [self drawSlider:@"GDST" value:[NSString stringWithFormat:@"%+.2f", params.globalDistanceOffset] norm:(params.globalDistanceOffset + 3.0f) / 6.0f y:260 attrs:small style:style];
-        [self drawSlider:@"DIF" value:[NSString stringWithFormat:@"%.2f", params.distanceDiffusion] norm:params.distanceDiffusion y:286 attrs:small style:style];
-        [self drawMenu:@"IN" value:[NSString stringWithUTF8String:s3g::layoutPannerInsideModeName(params.insideMode)] y:312 attrs:small style:style];
-        [self drawSlider:@"SRC" value:[NSString stringWithFormat:@"%u", params.activeSources] norm:static_cast<CGFloat>(params.activeSources - 1u) / static_cast<CGFloat>(s3g::kLayoutPannerSources - 1u) y:338 attrs:small style:style];
+        const auto& pannerPanel = family.panner.frame;
+        const auto& sourcePanel = family.source.frame;
+        s3g::clap_gui::drawPanelFrame(pannerPanel.x, pannerPanel.y,
+            pannerPanel.width, pannerPanel.height, style);
+        s3g::clap_gui::drawPanelHeader(@"PANNER", true, pannerPanel.x,
+            pannerPanel.y, pannerPanel.width, 21, lab, style);
+        s3g::clap_gui::drawPanelFrame(sourcePanel.x, sourcePanel.y,
+            sourcePanel.width, sourcePanel.height, style);
+        s3g::clap_gui::drawPanelHeader(@"SOURCE", true, sourcePanel.x,
+            sourcePanel.y, sourcePanel.width, 21, lab, style);
+        [self drawMenu:@"LAYOUT" value:[NSString stringWithUTF8String:s3g::layoutPannerPresetName(params.layout)] y:144 attrs:small style:style];
+        s3g::clap_gui::drawReadOnlyValue(@"METHOD",
+            [NSString stringWithUTF8String:s3g::layoutPannerMethodName(params.method)],
+            170, lab, small, style, 646, 738, 102);
+        [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%.2f", params.focus] norm:(params.focus - 0.25f) / 3.75f y:196 attrs:small style:style];
+        [self drawSlider:@"ROLL" value:[NSString stringWithFormat:@"%.1f", params.distanceRolloffDb] norm:params.distanceRolloffDb / 48.0f y:222 attrs:small style:style];
+        [self drawSlider:@"SMTH" value:[NSString stringWithFormat:@"%.0f", params.smoothingMs] norm:(params.smoothingMs - 1.0f) / 249.0f y:248 attrs:small style:style];
+        [self drawSlider:@"GAZ" value:[NSString stringWithFormat:@"%+.0f", params.globalAzimuthDeg] norm:(params.globalAzimuthDeg + 180.0f) / 360.0f y:274 attrs:small style:style];
+        [self drawSlider:@"GEL" value:[NSString stringWithFormat:@"%+.0f", params.globalElevationDeg] norm:(params.globalElevationDeg + 90.0f) / 180.0f y:300 attrs:small style:style];
+        [self drawSlider:@"GDST" value:[NSString stringWithFormat:@"%+.2f", params.globalDistanceOffset] norm:(params.globalDistanceOffset + 3.0f) / 6.0f y:326 attrs:small style:style];
+        [self drawSlider:@"DIF" value:[NSString stringWithFormat:@"%.2f", params.distanceDiffusion] norm:params.distanceDiffusion y:352 attrs:small style:style];
+        [self drawMenu:@"IN" value:[NSString stringWithUTF8String:s3g::layoutPannerInsideModeName(params.insideMode)] y:378 attrs:small style:style];
+        [self drawSlider:@"SRC" value:[NSString stringWithFormat:@"%u", params.activeSources] norm:static_cast<CGFloat>(params.activeSources - 1u) / static_cast<CGFloat>(s3g::kLayoutPannerSources - 1u) y:404 attrs:small style:style];
 
         const CGFloat selectedNorm = params.activeSources > 1u
             ? static_cast<CGFloat>(params.selectedSource) / static_cast<CGFloat>(params.activeSources - 1u)
             : 0.0;
-        [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", params.outputGainDb] norm:(params.outputGainDb + 60.0f) / 72.0f y:420 attrs:small style:style];
-        [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"S%u", params.selectedSource + 1u] norm:selectedNorm y:446 attrs:small style:style];
-        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", source.azimuthDeg] norm:(source.azimuthDeg + 180.0f) / 360.0f y:472 attrs:small style:style];
-        [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", source.elevationDeg] norm:(source.elevationDeg + 90.0f) / 180.0f y:498 attrs:small style:style];
-        [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", source.distance] norm:(source.distance - 0.1f) / 2.9f y:524 attrs:small style:style];
-        [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%+.1f", source.gainDb] norm:(source.gainDb + 60.0f) / 84.0f y:550 attrs:small style:style];
+        [self drawSlider:@"SEL" value:[NSString stringWithFormat:@"S%u", params.selectedSource + 1u] norm:selectedNorm y:470 attrs:small style:style];
+        [self drawSlider:@"AZ" value:[NSString stringWithFormat:@"%+.0f", source.azimuthDeg] norm:(source.azimuthDeg + 180.0f) / 360.0f y:496 attrs:small style:style];
+        [self drawSlider:@"EL" value:[NSString stringWithFormat:@"%+.0f", source.elevationDeg] norm:(source.elevationDeg + 90.0f) / 180.0f y:522 attrs:small style:style];
+        [self drawSlider:@"DST" value:[NSString stringWithFormat:@"%.2f", source.distance] norm:(source.distance - 0.1f) / 2.9f y:548 attrs:small style:style];
+        [self drawSlider:@"GAIN" value:[NSString stringWithFormat:@"%+.1f dB", source.gainDb] norm:(source.gainDb + 60.0f) / 84.0f y:574 attrs:small style:style];
     }
     [self drawOpenMenu:small];
 }
@@ -1801,6 +1855,11 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
 {
     auto* p = static_cast<Plugin*>(_plugin);
     const double n = std::clamp((point.x - 738.0) / 82.0, 0.0, 1.0);
+    if (_dragSlider == 16) {
+        applyParam(*p, kOutputParamId, -60.0 + n * 72.0);
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_page == 2) {
         auto params = p->panner.params();
         switch (_dragSlider) {
@@ -1856,7 +1915,6 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     case 13: applyParam(*p, kSelectedElevationParamId, -90.0 + n * 180.0); break;
     case 14: applyParam(*p, kSelectedDistanceParamId, 0.1 + n * 2.9); break;
     case 15: applyParam(*p, kSelectedGainParamId, -60.0 + n * 84.0); break;
-    case 16: applyParam(*p, kOutputParamId, -60.0 + n * 72.0); break;
     default: break;
     }
     [self storeViewState];
@@ -1867,6 +1925,14 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     if ([[self window] firstResponder] != self) [[self window] makeFirstResponder:self];
     auto* p = static_cast<Plugin*>(_plugin);
+    const auto& family = s3g::gui_layout::kPannerFamilyLayout;
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(900.0, 720.0);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &p->plugin, @"s3g Panner LBAP", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenu > 0) {
         const CGFloat itemH = 18.0;
         const CGFloat menuW = _openMenu == 1 ? 148.0 : (_openMenu == 3 ? 92.0 : (_openMenu == 4 ? 102.0 : 78.0));
@@ -1904,10 +1970,10 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         _menuOrigin = NSMakePoint(738.0, std::clamp(preferredY, 28.0, 676.0 - itemH * static_cast<CGFloat>(count)));
         [self setNeedsDisplay:YES];
     };
-    const NSRect mainPanel = NSMakeRect(18, 42, 596, 616);
-    const NSRect fieldRect = NSMakeRect(34, 76, 564, 566);
+    const NSRect mainPanel = s3g::clap_gui::cocoaRect(family.mainPanel);
+    const NSRect fieldRect = s3g::clap_gui::cocoaRect(family.field);
     if (NSPointInRect(pt, mainPanel)) {
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 3; ++i) {
             if (NSPointInRect(pt, [self pageButtonRect:i inRect:mainPanel])) {
                 _page = i;
                 _dragSource = NO;
@@ -2004,6 +2070,14 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
         const uint32_t pageStart = _mixerPage * kMixerSourcesPerPage;
         const uint32_t visibleCount = std::min<uint32_t>(kMixerSourcesPerPage, params.activeSources - pageStart);
         if (NSPointInRect(pt, NSInsetRect([self mixerOutputTrackRect:fieldRect], -8.0, -8.0))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, kOutputParamId, &defaultValue)) {
+                applyParam(*p, kOutputParamId, defaultValue);
+                _dragMixerOutput = NO;
+                [self setNeedsDisplay:YES];
+                return;
+            }
             _dragMixerOutput = YES;
             const double n = std::clamp((pt.x - [self mixerOutputTrackRect:fieldRect].origin.x) / [self mixerOutputTrackRect:fieldRect].size.width, 0.0, 1.0);
             applyParam(*p, kOutputParamId, -60.0 + n * 72.0);
@@ -2025,6 +2099,15 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
                 return;
             }
             if (NSPointInRect(pt, NSInsetRect([self mixerSourceRect:lane inRect:fieldRect], -8.0, -7.0))) {
+                double defaultValue = 0.0;
+                const clap_id paramId = sourceParamId(i, kSourceGainOffset);
+                if (s3g::clap_gui::sliderDoubleClickDefault(
+                        event, &p->plugin, paramId, &defaultValue)) {
+                    applyParam(*p, paramId, defaultValue);
+                    _dragMixerSource = -1;
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
                 _dragMixerSource = static_cast<int>(i);
                 const NSRect track = [self mixerSourceRect:lane inRect:fieldRect];
                 const double n = std::clamp((NSMaxY(track) - pt.y) / track.size.height, 0.0, 1.0);
@@ -2034,9 +2117,16 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
             }
         }
     }
-    if (NSPointInRect(pt, NSMakeRect(738, 77, 102, 17))) { openMenu(1, kLayoutCount, 96); return; }
-    if (_page == 2 && NSPointInRect(pt, NSMakeRect(738, 103, 102, 17))) { openMenu(3, kDesignShapeMenuCount, 122); return; }
-    if (_page != 2 && NSPointInRect(pt, NSMakeRect(738, 311, 102, 17))) { openMenu(4, 4, 330); return; }
+    const NSRect layoutMenuRect = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::pannerMenuBoxRect(
+            _page == 2 ? family.designPanner : family.panner, 0u));
+    const NSRect shapeMenuRect = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::pannerMenuBoxRect(family.designPanner, 1u));
+    const NSRect insideMenuRect = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::pannerMenuBoxRect(family.panner, 9u));
+    if (NSPointInRect(pt, layoutMenuRect)) { openMenu(1, kLayoutCount, NSMaxY(layoutMenuRect) + 2.0); return; }
+    if (_page == 2 && NSPointInRect(pt, shapeMenuRect)) { openMenu(3, kDesignShapeMenuCount, NSMaxY(shapeMenuRect) + 2.0); return; }
+    if (_page != 2 && NSPointInRect(pt, insideMenuRect)) { openMenu(4, 4, NSMaxY(insideMenuRect) + 2.0); return; }
     if (_page == 2) {
         for (int i = 0; i < 3; ++i) {
             if (NSPointInRect(pt, [self designButtonRect:i])) {
@@ -2046,20 +2136,69 @@ static NSColor* lpAedColor(float azDeg, float elDeg, float distance, bool select
                 return;
             }
         }
-        const CGFloat rows[] = { 130, 420, 446, 472, 498 };
+        const NSRect hitRects[] = {
+            s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.designPanner, 2u)),
+            s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.speaker, 0u)),
+            s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.speaker, 1u)),
+            s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.speaker, 2u)),
+            s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.speaker, 3u)),
+        };
         const int ids[] = { 21, 24, 25, 26, 27 };
         for (int i = 0; i < 5; ++i) {
-            if (NSPointInRect(pt, NSMakeRect(638, rows[i] - 8, 230, 24))) {
+            if (NSPointInRect(pt, hitRects[i])) {
+                if ([event clickCount] >= 2) {
+                    auto next = p->panner.params();
+                    next.layout = s3g::LayoutPannerPreset::Custom;
+                    if (ids[i] == 21) next.activeSpeakers = s3g::LayoutPannerParams {}.activeSpeakers;
+                    else if (ids[i] == 24) next.selectedSpeaker = 0u;
+                    p->panner.setParams(next);
+                    if (ids[i] >= 25 && ids[i] <= 27) {
+                        auto speaker = p->panner.speaker(next.selectedSpeaker);
+                        if (ids[i] == 25) speaker.azimuthDeg = 0.0f;
+                        else if (ids[i] == 26) speaker.elevationDeg = 0.0f;
+                        else speaker.distance = 1.0f;
+                        p->panner.setSpeaker(next.selectedSpeaker, speaker);
+                    }
+                    p->params = p->panner.params();
+                    _dragSlider = -1;
+                    [self storeViewState];
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
                 _dragSlider = ids[i];
                 [self updateSlider:pt];
                 return;
             }
         }
     }
-    const CGFloat rows[] = { 130, 156, 182, 208, 234, 260, 286, 338, 420, 446, 472, 498, 524, 550 };
-    const int ids[] = { 3, 4, 5, 6, 7, 8, 9, 10, 16, 11, 12, 13, 14, 15 };
+    const NSRect hitRects[] = {
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.output, 0u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.panner, 2u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.panner, 3u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.panner, 4u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.panner, 5u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.panner, 6u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.panner, 7u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.panner, 8u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.panner, 10u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.source, 0u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.source, 1u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.source, 2u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.source, 3u)),
+        s3g::clap_gui::cocoaRect(s3g::gui_layout::sliderHitRect(family.source, 4u)),
+    };
+    const int ids[] = { 16, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
     for (int i = 0; i < 14; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(638, rows[i] - 8, 230, 24))) {
+        if (NSPointInRect(pt, hitRects[i])) {
+            double defaultValue = 0.0;
+            const clap_id paramId = lpSliderParamId(ids[i]);
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, paramId, &defaultValue)) {
+                applyParam(*p, paramId, defaultValue);
+                _dragSlider = -1;
+                [self setNeedsDisplay:YES];
+                return;
+            }
             _dragSlider = ids[i];
             [self updateSlider:pt];
             return;

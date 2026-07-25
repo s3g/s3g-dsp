@@ -1180,6 +1180,25 @@ int main()
     traversalParams.scanRadius = 0.06f;
     traversalTerrain->setParams(traversalParams);
     traversalTerrain->prepare(48000.0);
+    const auto domainStart = traversalTerrain->terrainDomainPoint(0.0f, 0.4f);
+    const auto domainNext = traversalTerrain->terrainDomainPoint(1.0f / 32.0f, 0.4f);
+    const auto domainEnd = traversalTerrain->terrainDomainPoint(1.0f, 0.4f);
+    const auto startDirection = s3g::directionFromAed(
+        domainStart.azimuthDeg, domainStart.elevationDeg);
+    const auto endDirection = s3g::directionFromAed(
+        domainEnd.azimuthDeg, domainEnd.elevationDeg);
+    if (std::abs((domainNext.azimuthDeg - domainStart.azimuthDeg) - 11.25f)
+            > 0.0001f
+        || std::abs(domainStart.distance - traversalParams.centerDistance)
+            > 0.0001f
+        || std::abs(domainEnd.distance - traversalParams.centerDistance)
+            > 0.0001f
+        || std::abs(startDirection.x - endDirection.x) > 0.0001f
+        || std::abs(startDirection.y - endDirection.y) > 0.0001f
+        || std::abs(startDirection.z - endDirection.z) > 0.0001f) {
+        std::cerr << "Ambi Wave Terrain Encoder display domain did not form a closed uniform sphere\n";
+        return 1;
+    }
     const float shortTraversalLength = traversalTerrain->voiceTraversalLength(0u);
     const float shortTraversalFrequency = traversalTerrain->voiceFrequencyHz(0u);
     traversalParams.scanRadius = 0.28f;
@@ -1197,6 +1216,69 @@ int main()
         std::cerr << "Ambi Wave Terrain Encoder scale quantizer did not follow major scale rules\n";
         return 1;
     }
+    if (s3g::kAmbiWaveTerrainPitchScales.size()
+            != s3g::kAmbiWaveTerrainPitchScaleCount
+        || s3g::kAmbiWaveTerrainPitchScaleCount < 100u) {
+        std::cerr << "Ambi Wave Terrain Encoder scale catalog is incomplete\n";
+        return 1;
+    }
+    for (uint32_t scaleIndex = 0u;
+         scaleIndex < s3g::kAmbiWaveTerrainPitchScaleCount; ++scaleIndex) {
+        const auto scale = static_cast<s3g::AmbiWaveTerrainPitchScale>(
+            scaleIndex);
+        const auto& definition =
+            s3g::ambiWaveTerrainPitchScaleDefinition(scale);
+        if (!definition.name || !definition.name[0]
+            || definition.size < 1u || definition.size > 12u
+            || definition.semitones[0] != 0
+            || s3g::ambiWaveTerrainScaleDegreeSemitones(
+                scale, definition.size) != 12) {
+            std::cerr << "Ambi Wave Terrain Encoder scale definition is invalid at "
+                      << scaleIndex << "\n";
+            return 1;
+        }
+        for (uint32_t degree = 1u; degree < definition.size; ++degree) {
+            if (definition.semitones[degree]
+                <= definition.semitones[degree - 1u]
+                || definition.semitones[degree] >= 12) {
+                std::cerr << "Ambi Wave Terrain Encoder scale pitches are not ordered at "
+                          << scaleIndex << "\n";
+                return 1;
+            }
+        }
+        const float quantized = s3g::ambiWaveTerrainQuantizeToScale(
+            66.4f, 60.0f, scale);
+        if (!std::isfinite(quantized)) {
+            std::cerr << "Ambi Wave Terrain Encoder scale quantizer produced a non-finite value at "
+                      << scaleIndex << "\n";
+            return 1;
+        }
+    }
+    if (s3g::ambiWaveTerrainScaleDegreeSemitones(
+            s3g::AmbiWaveTerrainPitchScale::Dorian, 5) != 9
+        || s3g::ambiWaveTerrainScaleDegreeSemitones(
+            s3g::AmbiWaveTerrainPitchScale::MelodicMinor, 6) != 11
+        || s3g::ambiWaveTerrainScaleDegreeSemitones(
+            s3g::AmbiWaveTerrainPitchScale::DiminishedHalfWhole, 7) != 10
+        || s3g::ambiWaveTerrainScaleDegreeSemitones(
+            s3g::AmbiWaveTerrainPitchScale::Messiaen7, 9) != 11
+        || s3g::ambiWaveTerrainScaleDegreeSemitones(
+            s3g::AmbiWaveTerrainPitchScale::MinorPentatonic, 4) != 10
+        || s3g::ambiWaveTerrainScaleDegreeSemitones(
+            s3g::AmbiWaveTerrainPitchScale::CompositeBlues, 8) != 10) {
+        std::cerr << "Ambi Wave Terrain Encoder expanded scale catalog has incorrect intervals\n";
+        return 1;
+    }
+    auto removedVectorParams = traversalParams;
+    removedVectorParams.interpretation =
+        static_cast<s3g::AmbiWaveTerrainInterpretation>(9u);
+    traversalTerrain->setParams(removedVectorParams);
+    if (traversalTerrain->params().interpretation
+        != s3g::AmbiWaveTerrainInterpretation::Cross) {
+        std::cerr << "Ambi Wave Terrain Encoder did not migrate removed Terrain Vector states\n";
+        return 1;
+    }
+    traversalTerrain->setParams(traversalParams);
     auto scaleTerrain = std::make_unique<s3g::AmbiWaveTerrainEncoder>();
     auto scaleParams = traversalParams;
     scaleParams.pitchMode = s3g::AmbiWaveTerrainPitchMode::Note;

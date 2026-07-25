@@ -608,6 +608,33 @@ inline void drawMenu(NSString* name,
     [@"v" drawAtPoint:NSMakePoint(box.origin.x + box.size.width - 12, y) withAttributes:valueAttrs];
 }
 
+inline NSString* menuDisplayText(NSString* value,
+                                 CGFloat maximumWidth,
+                                 NSDictionary* attrs);
+
+inline void drawReadOnlyValue(NSString* name,
+                              NSString* value,
+                              CGFloat y,
+                              NSDictionary* labelAttrs,
+                              NSDictionary* valueAttrs,
+                              const Style& style,
+                              CGFloat labelX = 654.0,
+                              CGFloat boxX = 750.0,
+                              CGFloat boxW = 178.0)
+{
+    [[name uppercaseString] drawAtPoint:NSMakePoint(labelX, y - 2)
+        withAttributes:labelAttrs];
+    NSRect box = NSMakeRect(boxX, y - 1, boxW, 15);
+    [style.strip setFill];
+    NSRectFill(box);
+    [style.grid setStroke];
+    NSFrameRect(box);
+    NSString* displayValue = menuDisplayText(
+        value, std::max<CGFloat>(0.0, box.size.width - 16.0), valueAttrs);
+    [displayValue drawAtPoint:NSMakePoint(box.origin.x + 8, y + 1)
+        withAttributes:valueAttrs];
+}
+
 inline void drawProcessorSlider(NSString* name,
                                 NSString* value,
                                 CGFloat norm,
@@ -772,9 +799,9 @@ inline void drawEncoderPresetMenu(NSString* preset,
                                   NSDictionary* valueAttrs,
                                   const Style& style)
 {
-    drawMenu(@"", preset, band.titleY, labelAttrs, valueAttrs, style,
+    drawMenu(@"", preset, band.controlY, labelAttrs, valueAttrs, style,
         band.presetLabelX, band.presetMenu.x, band.presetMenu.width);
-    [@"PRESET" drawAtPoint:NSMakePoint(band.presetLabelX, band.titleY + 1.0)
+    [@"PRESET" drawAtPoint:NSMakePoint(band.presetLabelX, band.controlY + 1.0)
         withAttributes:labelAttrs];
 }
 
@@ -833,8 +860,14 @@ inline void drawProcessorTitleBand(NSString* title,
                                    NSDictionary* valueAttrs,
                                    const Style& style)
 {
+    // Processor title typography is a family invariant. Callers may retain
+    // their own content palettes, but those palettes must not alter the title
+    // name, PRESET, LOAD/SAVE, or PK weight and intensity.
+    (void)titleAttrs;
+    (void)labelAttrs;
+    (void)valueAttrs;
     drawDecoderTitleBand(title, preset, status, band,
-        titleAttrs, labelAttrs, valueAttrs, style);
+        softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
 }
 
 struct DefaultParamEventList {

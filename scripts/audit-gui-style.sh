@@ -472,6 +472,74 @@ for file in "${contextual_encoder_layouts[@]}"; do
   fi
 done
 
+wave_terrain_source="plugins/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder_clap.cpp"
+wave_terrain_engine="dsp/s3g_ambi_wave_terrain_encoder.h"
+if ! rg -q 'kAmbiWaveTerrainPitchScaleCount = 102u' "$wave_terrain_engine" \
+    || ! rg -q 'constexpr uint32_t columns = 4u' "$wave_terrain_source" \
+    || ! rg -q 'openMenuHit' "$wave_terrain_source"; then
+  warn "layout" "$wave_terrain_source" \
+    "Wave Terrain must retain its complete built-in scale catalog and bounded four-column scale menu."
+fi
+if rg -q 'TerrainInterpretation::Vector|@"VECTOR"|"VECTOR"' \
+    "$wave_terrain_engine" "$wave_terrain_source"; then
+  warn "control" "$wave_terrain_source" \
+    "Wave Terrain VECTOR interpretation has been removed and must not return to the host or GUI menu."
+fi
+if ! rg -q 'displaySurfacePointU' "$wave_terrain_source" \
+    || ! rg -q '_viewDidDrag' "$wave_terrain_source" \
+    || ! rg -q '_pendingVoice' "$wave_terrain_source"; then
+  warn "view" "$wave_terrain_source" \
+    "Wave Terrain must draw the complete closed terrain domain and reserve pointer movement for camera drag."
+fi
+
+section "Panner Family"
+panner_family=(
+  "plugins/clap_layout_panner/s3g_layout_panner_clap.cpp|s3g Panner Layout"
+  "plugins/clap_dbap_panner/s3g_dbap_panner_clap.cpp|s3g Panner DBAP"
+  "plugins/clap_lbap_panner/s3g_lbap_panner_clap.cpp|s3g Panner LBAP"
+  "plugins/clap_vbap_panner/s3g_vbap_panner_clap.cpp|s3g Panner VBAP"
+)
+for contract in "${panner_family[@]}"; do
+  file="${contract%%|*}"
+  expected_name="${contract#*|}"
+  if ! rg -Fq "\"${expected_name}\"" "$file"; then
+    warn "name" "$file" "Panner-family host and title names must expose '${expected_name}'."
+  fi
+  if ! rg -q 'ResponsiveViewport' "$file" \
+      || ! rg -q 'kPannerFamilyLayout' "$file"; then
+    warn "layout" "$file" "Every Panner uses the shared responsive 900 x 720 family layout."
+  fi
+  if ! rg -q 'drawDecoderTitleBand' "$file" \
+      || ! rg -q 'handleProcessorTitleClick' "$file"; then
+    warn "title" "$file" "Panners share aligned PRESET, LOAD, SAVE, and far-right PK title controls."
+  fi
+  if ! rg -q 'drawPanelHeader\(@"OUTPUT"' "$file" \
+      || ! rg -q 'drawSlider:@"OUT"' "$file"; then
+    warn "layout" "$file" "A dedicated OUTPUT toolbox with OUT first must remain visible on every Panner page."
+  fi
+  if ! rg -q '646, 738' "$file"; then
+    warn "geometry" "$file" "Panner labels and controls must retain the shared 16 px and 108 px panel insets."
+  fi
+  if ! rg -q 'sliderDoubleClickDefault' "$file"; then
+    warn "control" "$file" "Every Panner slider, including mixer mirrors, must support double-click default reset."
+  fi
+  if ! rg -q '@"FIELD", @"MIXER", @"DESIGN"' "$file"; then
+    warn "layout" "$file" "Every Panner exposes the common FIELD, MIXER, and DESIGN page order."
+  fi
+  if rg -q '16x64|16CH|64CH' "$file"; then
+    warn "title" "$file" "Panner titles and PK status must not repeat non-distinguishing channel counts."
+  fi
+done
+
+for decoder_title in \
+    plugins/clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder_clap.cpp \
+    plugins/clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder_clap.cpp; do
+  if rg -q '2OUT|2CH' "$decoder_title"; then
+    warn "title" "$decoder_title" \
+      "Head and Stereo Decoder status must reserve the far-right position for PK."
+  fi
+done
+
 if ! rg -q 'drawBoundedRightText\(value' plugins/common/s3g_cocoa_gui.h; then
   warn "geometry" "plugins/common/s3g_cocoa_gui.h" "Shared slider values must be rounded and drawn inside a bounded right-aligned cell."
 fi
@@ -527,6 +595,13 @@ processor_family_sources=(
   plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp
   plugins/clap_spectral_topology_processor/s3g_spectral_topology_processor_clap.cpp
 )
+if ! rg -q 'drawDecoderTitleBand\(title, preset, status, band,[[:space:]]*$' \
+    plugins/common/s3g_cocoa_gui.h \
+    || ! rg -q 'softTitleAttrs\(\), softLabelAttrs\(\), softValueAttrs\(\), style' \
+    plugins/common/s3g_cocoa_gui.h; then
+  warn "typography" "plugins/common/s3g_cocoa_gui.h" \
+    "Processor title typography must be fixed by the shared renderer rather than inherited from local palettes."
+fi
 for file in "${processor_family_sources[@]}"; do
   if ! rg -Fq 'drawProcessorTitleBand(' "$file"; then
     warn "family" "$file" "Processor editors use the shared PRESET / LOAD / SAVE title renderer."
@@ -553,6 +628,13 @@ for file in "${processor_family_sources[@]}"; do
     warn "layout" "$file" "Processor title status reserves the far-right edge for PK; channel count belongs in the full title."
   fi
 done
+
+fault_source="plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp"
+if ! rg -q 'processorLabelX\(kLeftToolboxX\), 647\.0' "$fault_source" \
+    || ! rg -q 'kStandardMetrics\.headerLabelInset, y \+ 7\.0' "$fault_source"; then
+  warn "layout" "$fault_source" \
+    "Processor Fault contextual labels and field headings must use the shared 16 px label and 8 px header anchors."
+fi
 
 if ! rg -q 'NSRectFill\(NSMakeRect\(x, y, w, 2\.0\)\)' \
     plugins/common/s3g_cocoa_gui.h; then

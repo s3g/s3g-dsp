@@ -200,6 +200,41 @@ struct EncoderTitleBand {
     double statusRightInset = 18.0;
 };
 
+struct PannerFamilyLayout {
+    Canvas canvas {};
+    Rect mainPanel {};
+    Rect field {};
+    Panel output {};
+    Panel panner {};
+    Panel source {};
+    Panel designPanner {};
+    Panel speaker {};
+    double outputRowY = 0.0;
+    double pannerFirstRowY = 0.0;
+    double sourceFirstRowY = 0.0;
+    double speakerFirstRowY = 0.0;
+    double menuWidth = 0.0;
+    double sliderTrackWidth = 0.0;
+};
+
+struct MacroFamilyLayout {
+    Canvas canvas {};
+    Panel output {};
+    Panel delayEngine {};
+    Panel pitchEngine {};
+    Panel relationships {};
+    Panel preview {};
+};
+
+struct MacroShredFamilyLayout {
+    Canvas canvas {};
+    Panel output {};
+    Panel engine {};
+    Panel relationships {};
+    Panel preview {};
+    Panel containment {};
+};
+
 inline constexpr Metrics kStandardMetrics {};
 
 constexpr double processorLabelX(double panelX)
@@ -251,6 +286,68 @@ inline constexpr PanelAnchor kLargeEncoderTopologyAnchor {
 };
 inline constexpr ControlSlot kLargeEncoderOrderSlot {
     SharedControlRole::AmbisonicOrder, kLargeEncoderOutputAnchor, 1u, 104.0
+};
+
+inline constexpr PannerFamilyLayout kPannerFamilyLayout {
+    { 900.0, 720.0 },
+    { 18.0, 42.0, 596.0, 616.0 },
+    { 34.0, 76.0, 564.0, 566.0 },
+    { PluginClass::SpatialPannerDecoder, PanelRole::Output,
+        { 630.0, 42.0, 250.0, 54.0 }, 36.0, 26.0, 1u },
+    { PluginClass::SpatialPannerDecoder, PanelRole::LayoutDecoder,
+        { 630.0, 108.0, 250.0, 314.0 }, 36.0, 26.0, 11u },
+    { PluginClass::SpatialPannerDecoder, PanelRole::SelectedObject,
+        { 630.0, 434.0, 250.0, 158.0 }, 36.0, 26.0, 5u },
+    { PluginClass::SpatialPannerDecoder, PanelRole::LayoutDecoder,
+        { 630.0, 108.0, 250.0, 150.0 }, 36.0, 26.0, 4u },
+    { PluginClass::SpatialPannerDecoder, PanelRole::SelectedObject,
+        { 630.0, 270.0, 250.0, 132.0 }, 36.0, 26.0, 4u },
+    78.0,
+    144.0,
+    470.0,
+    306.0,
+    102.0,
+    82.0,
+};
+
+inline constexpr MacroFamilyLayout kMacroFamilyLayout {
+    { 760.0, 496.0 },
+    { PluginClass::MacroEffect, PanelRole::Output,
+        { 18.0, 42.0, 352.0, 80.0 }, 36.0, 26.0, 2u },
+    { PluginClass::MacroEffect, PanelRole::Engine,
+        { 18.0, 134.0, 352.0, 158.0 }, 36.0, 26.0, 5u },
+    { PluginClass::MacroEffect, PanelRole::Engine,
+        { 18.0, 134.0, 352.0, 106.0 }, 36.0, 26.0, 3u },
+    { PluginClass::MacroEffect, PanelRole::Relationships,
+        { 388.0, 42.0, 354.0, 158.0 }, 36.0, 26.0, 5u },
+    { PluginClass::MacroEffect, PanelRole::Diagnostics,
+        { 388.0, 212.0, 354.0, 266.0 }, 36.0, 26.0, 0u },
+};
+
+inline constexpr MacroShredFamilyLayout kMacroShredFamilyLayout {
+    { 820.0, 558.0 },
+    { PluginClass::MacroEffect, PanelRole::Output,
+        { 18.0, 42.0, 380.0, 80.0 }, 36.0, 26.0, 2u },
+    { PluginClass::MacroEffect, PanelRole::Engine,
+        { 18.0, 134.0, 380.0, 236.0 }, 36.0, 26.0, 8u },
+    { PluginClass::MacroEffect, PanelRole::Relationships,
+        { 416.0, 42.0, 386.0, 158.0 }, 36.0, 26.0, 5u },
+    { PluginClass::MacroEffect, PanelRole::Diagnostics,
+        { 18.0, 382.0, 380.0, 158.0 }, 36.0, 26.0, 0u },
+    { PluginClass::MacroEffect, PanelRole::Utility,
+        { 416.0, 212.0, 386.0, 328.0 }, 36.0, 26.0, 0u },
+};
+
+inline constexpr MacroShredFamilyLayout kMacroShredMonoFamilyLayout {
+    { 416.0, 528.0 },
+    { PluginClass::MacroEffect, PanelRole::Output,
+        { 18.0, 68.0, 380.0, 80.0 }, 36.0, 26.0, 2u },
+    { PluginClass::MacroEffect, PanelRole::Engine,
+        { 18.0, 160.0, 380.0, 236.0 }, 36.0, 26.0, 8u },
+    {},
+    {},
+    { PluginClass::MacroEffect, PanelRole::Utility,
+        { 18.0, 408.0, 380.0, 102.0 }, 36.0, 26.0, 0u },
 };
 
 inline constexpr EncoderControlOrder kEngineControlOrder {
@@ -366,6 +463,28 @@ constexpr EncoderTitleBand encoderTitleBand(Canvas canvas)
         { 456.0, 13.0, 44.0, 15.0 },
         { 508.0, 13.0, 44.0, 15.0 },
         { 560.0, 13.0, 62.0, 15.0 },
+        18.0,
+    };
+}
+
+constexpr EncoderTitleBand macroTitleBand(Canvas canvas)
+{
+    if (canvas.width < 700.0) {
+        return {
+            canvas, 18.0, 14.0, 18.0, 40.0,
+            { 80.0, 39.0, 148.0, 15.0 },
+            { 236.0, 39.0, 48.0, 15.0 },
+            { 292.0, 39.0, 48.0, 15.0 },
+            {},
+            18.0,
+        };
+    }
+    return {
+        canvas, 18.0, 14.0, 206.0, 13.0,
+        { 268.0, 13.0, 124.0, 15.0 },
+        { 400.0, 13.0, 48.0, 15.0 },
+        { 456.0, 13.0, 48.0, 15.0 },
+        {},
         18.0,
     };
 }
@@ -647,6 +766,13 @@ constexpr Rect menuBoxRect(const Panel& panel,
         metrics.menuWidth,
         15.0,
     };
+}
+
+constexpr Rect pannerMenuBoxRect(const Panel& panel, uint32_t row)
+{
+    auto rect = menuBoxRect(panel, row);
+    rect.width = kPannerFamilyLayout.menuWidth;
+    return rect;
 }
 
 constexpr Rect sliderHitRect(const Panel& panel,

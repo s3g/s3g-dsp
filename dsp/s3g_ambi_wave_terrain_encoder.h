@@ -29,7 +29,41 @@ enum class AmbiWaveTerrainMotionMode : uint32_t { Field = 0, Rotate = 1 };
 enum class AmbiWaveTerrainPitchScale : uint32_t {
     Free = 0, Chromatic = 1, Major = 2, Minor = 3,
     Pentatonic = 4, WholeTone = 5, HarmonicMinor = 6,
+    Dorian = 7, Phrygian = 8, Lydian = 9, Mixolydian = 10, Locrian = 11,
+    MelodicMinor = 12, HarmonicMajor = 13,
+    DorianFlat2 = 14, LydianAugmented = 15, LydianDominant = 16,
+    MixolydianFlat6 = 17, LocrianSharp2 = 18, Altered = 19,
+    LocrianNatural6 = 20, IonianAugmented = 21, DorianSharp4 = 22,
+    PhrygianDominant = 23, LydianSharp2 = 24, UltraLocrian = 25,
+    DorianFlat5 = 26, PhrygianFlat4 = 27, LydianFlat3 = 28,
+    MixolydianFlat2 = 29, LydianAugmentedSharp2 = 30, LocrianDoubleFlat7 = 31,
+    MinorPentatonic = 32, Egyptian = 33, MinorBlues = 34, MajorBlues = 35,
+    Hirajoshi = 36, InSen = 37, Iwato = 38, Kumoi = 39, Pelog = 40,
+    Prometheus = 41, Augmented = 42, Tritone = 43, SixToneSymmetric = 44,
+    DiminishedWholeHalf = 45, DiminishedHalfWhole = 46,
+    BebopMajor = 47, BebopDominant = 48, BebopDorian = 49,
+    DoubleHarmonic = 50, HungarianMinor = 51, NeapolitanMinor = 52,
+    NeapolitanMajor = 53, Enigmatic = 54, Persian = 55,
+    MajorLocrian = 56, LeadingWholeTone = 57, Japanese = 58, Yo = 59,
+    HungarianMajor = 60, Oriental = 61, DominantPentatonic = 62,
+    MinorSixthPentatonic = 63, ManGong = 64,
+    Messiaen3 = 65, Messiaen4 = 66, Messiaen5 = 67,
+    Messiaen6 = 68, Messiaen7 = 69,
+    IonianPentatonic = 70, MixolydianPentatonic = 71, Ritusen = 72,
+    NeapolitanMajorPentatonic = 73, VietnameseOne = 74,
+    LydianPentatonic = 75, LocrianPentatonic = 76,
+    FlatSixPentatonic = 77, Scriabin = 78, WholeTonePentatonic = 79,
+    LydianSharpFivePentatonic = 80, LydianDominantPentatonic = 81,
+    MinorMajorSevenPentatonic = 82, SuperLocrianPentatonic = 83,
+    MinorHexatonic = 84, Piongio = 85, PrometheusNeapolitan = 86,
+    MysteryOne = 87, DoubleHarmonicLydian = 88,
+    AugmentedHeptatonic = 89, LydianDiminished = 90,
+    LydianMinor = 91, Flamenco = 92, Todi = 93, Purvi = 94,
+    SpanishHeptatonic = 95, BebopLocrian = 96, MinorBebop = 97,
+    Ichikosucho = 98, MinorSixDiminished = 99, Kafi = 100,
+    CompositeBlues = 101,
 };
+constexpr uint32_t kAmbiWaveTerrainPitchScaleCount = 102u;
 enum class AmbiWaveTerrainForm : uint32_t {
     Sphere = 0, Tetra = 1, Cube = 2, Octa = 3, Dodeca = 4, Icosa = 5,
 };
@@ -42,7 +76,7 @@ enum class AmbiWaveTerrainSelection : uint32_t { Random = 0, Series = 1, Weight 
 enum class AmbiWaveTerrainTransition : uint32_t { Link = 0, Merge = 1, Vary = 2 };
 enum class AmbiWaveTerrainInterpretation : uint32_t {
     Height = 0, Edge = 1, Curvature = 2, Blend = 3, Gradient = 4,
-    Ridge = 5, Valley = 6, Normal = 7, Cross = 8, Vector = 9,
+    Ridge = 5, Valley = 6, Normal = 7, Cross = 8,
 };
 
 struct AmbiWaveTerrainParams {
@@ -117,27 +151,130 @@ struct AmbiWaveTerrainParams {
     AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
 };
 
+struct AmbiWaveTerrainPitchScaleDefinition {
+    const char* name;
+    std::array<int8_t, 12> semitones;
+    uint8_t size;
+};
+
+inline constexpr std::array<AmbiWaveTerrainPitchScaleDefinition,
+    kAmbiWaveTerrainPitchScaleCount> kAmbiWaveTerrainPitchScales {{
+    { "FREE",       {{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }}, 12 },
+    { "CHROM",      {{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }}, 12 },
+    { "MAJOR",      {{ 0, 2, 4, 5, 7, 9, 11 }}, 7 },
+    { "MINOR",      {{ 0, 2, 3, 5, 7, 8, 10 }}, 7 },
+    { "MAJOR PENTATONIC", {{ 0, 2, 4, 7, 9 }}, 5 },
+    { "WHOLE TONE", {{ 0, 2, 4, 6, 8, 10 }}, 6 },
+    { "HARM MIN",   {{ 0, 2, 3, 5, 7, 8, 11 }}, 7 },
+    { "DORIAN",     {{ 0, 2, 3, 5, 7, 9, 10 }}, 7 },
+    { "PHRYGIAN",   {{ 0, 1, 3, 5, 7, 8, 10 }}, 7 },
+    { "LYDIAN",     {{ 0, 2, 4, 6, 7, 9, 11 }}, 7 },
+    { "MIXOLYDIAN", {{ 0, 2, 4, 5, 7, 9, 10 }}, 7 },
+    { "LOCRIAN",    {{ 0, 1, 3, 5, 6, 8, 10 }}, 7 },
+    { "MEL MIN",    {{ 0, 2, 3, 5, 7, 9, 11 }}, 7 },
+    { "HARM MAJ",   {{ 0, 2, 4, 5, 7, 8, 11 }}, 7 },
+    { "DORIAN B2",  {{ 0, 1, 3, 5, 7, 9, 10 }}, 7 },
+    { "LYD AUG",    {{ 0, 2, 4, 6, 8, 9, 11 }}, 7 },
+    { "LYD DOM",    {{ 0, 2, 4, 6, 7, 9, 10 }}, 7 },
+    { "MIXO B6",    {{ 0, 2, 4, 5, 7, 8, 10 }}, 7 },
+    { "LOC #2",     {{ 0, 2, 3, 5, 6, 8, 10 }}, 7 },
+    { "ALTERED",    {{ 0, 1, 3, 4, 6, 8, 10 }}, 7 },
+    { "LOC NAT6",   {{ 0, 1, 3, 5, 6, 9, 10 }}, 7 },
+    { "ION AUG",    {{ 0, 2, 4, 5, 8, 9, 11 }}, 7 },
+    { "DOR #4",     {{ 0, 2, 3, 6, 7, 9, 10 }}, 7 },
+    { "PHRYG DOM",  {{ 0, 1, 4, 5, 7, 8, 10 }}, 7 },
+    { "LYD #2",     {{ 0, 3, 4, 6, 7, 9, 11 }}, 7 },
+    { "ULTRA LOC",  {{ 0, 1, 3, 4, 6, 8, 9 }}, 7 },
+    { "DOR B5",     {{ 0, 2, 3, 5, 6, 9, 10 }}, 7 },
+    { "PHRYG B4",   {{ 0, 1, 3, 4, 7, 8, 10 }}, 7 },
+    { "LYD B3",     {{ 0, 2, 3, 6, 7, 9, 11 }}, 7 },
+    { "MIXO B2",    {{ 0, 1, 4, 5, 7, 9, 10 }}, 7 },
+    { "LYD AUG #2", {{ 0, 3, 4, 6, 8, 9, 11 }}, 7 },
+    { "LOC BB7",    {{ 0, 1, 3, 5, 6, 8, 9 }}, 7 },
+    { "MINOR PENTATONIC", {{ 0, 3, 5, 7, 10 }}, 5 },
+    { "EGYPTIAN",   {{ 0, 2, 5, 7, 10 }}, 5 },
+    { "MINOR BLUES", {{ 0, 3, 5, 6, 7, 10 }}, 6 },
+    { "MAJOR BLUES", {{ 0, 2, 3, 4, 7, 9 }}, 6 },
+    { "HIRAJOSHI",  {{ 0, 2, 3, 7, 8 }}, 5 },
+    { "IN SEN",     {{ 0, 1, 5, 7, 10 }}, 5 },
+    { "IWATO",      {{ 0, 1, 5, 6, 10 }}, 5 },
+    { "KUMOI",      {{ 0, 2, 3, 7, 9 }}, 5 },
+    { "PELOG",      {{ 0, 1, 3, 7, 8 }}, 5 },
+    { "PROMETHEUS", {{ 0, 2, 4, 6, 9, 10 }}, 6 },
+    { "AUGMENTED",  {{ 0, 3, 4, 7, 8, 11 }}, 6 },
+    { "TRITONE",    {{ 0, 1, 4, 6, 7, 10 }}, 6 },
+    { "SIX TONE SYM", {{ 0, 1, 4, 5, 8, 9 }}, 6 },
+    { "DIM W-H",    {{ 0, 2, 3, 5, 6, 8, 9, 11 }}, 8 },
+    { "DIM H-W",    {{ 0, 1, 3, 4, 6, 7, 9, 10 }}, 8 },
+    { "BEBOP MAJ",  {{ 0, 2, 4, 5, 7, 8, 9, 11 }}, 8 },
+    { "BEBOP DOM",  {{ 0, 2, 4, 5, 7, 9, 10, 11 }}, 8 },
+    { "BEBOP DOR",  {{ 0, 2, 3, 4, 5, 7, 9, 10 }}, 8 },
+    { "DOUBLE HARM", {{ 0, 1, 4, 5, 7, 8, 11 }}, 7 },
+    { "HUNG MIN",   {{ 0, 2, 3, 6, 7, 8, 11 }}, 7 },
+    { "NEAP MIN",   {{ 0, 1, 3, 5, 7, 8, 11 }}, 7 },
+    { "NEAP MAJ",   {{ 0, 1, 3, 5, 7, 9, 11 }}, 7 },
+    { "ENIGMATIC",  {{ 0, 1, 4, 6, 8, 10, 11 }}, 7 },
+    { "PERSIAN",    {{ 0, 1, 4, 5, 6, 8, 11 }}, 7 },
+    { "MAJ LOCRIAN", {{ 0, 2, 4, 5, 6, 8, 10 }}, 7 },
+    { "LEAD WHOLE", {{ 0, 2, 4, 6, 8, 10, 11 }}, 7 },
+    { "JAPANESE",   {{ 0, 1, 5, 7, 8 }}, 5 },
+    { "YO",         {{ 0, 2, 5, 7, 9 }}, 5 },
+    { "HUNG MAJ",   {{ 0, 3, 4, 6, 7, 9, 10 }}, 7 },
+    { "ORIENTAL",   {{ 0, 1, 4, 5, 6, 9, 10 }}, 7 },
+    { "DOM PENTA",  {{ 0, 2, 4, 7, 10 }}, 5 },
+    { "MIN 6 PENTA", {{ 0, 3, 5, 7, 9 }}, 5 },
+    { "MAN GONG",   {{ 0, 3, 5, 8, 10 }}, 5 },
+    { "MESSIAEN 3", {{ 0, 2, 3, 4, 6, 7, 8, 10, 11 }}, 9 },
+    { "MESSIAEN 4", {{ 0, 1, 2, 5, 6, 7, 8, 11 }}, 8 },
+    { "MESSIAEN 5", {{ 0, 1, 5, 6, 7, 11 }}, 6 },
+    { "MESSIAEN 6", {{ 0, 2, 4, 5, 6, 8, 10, 11 }}, 8 },
+    { "MESSIAEN 7", {{ 0, 1, 2, 3, 5, 6, 7, 8, 9, 11 }}, 10 },
+    { "IONIAN PENTATONIC", {{ 0, 4, 5, 7, 11 }}, 5 },
+    { "MIXO PENTATONIC", {{ 0, 4, 5, 7, 10 }}, 5 },
+    { "RITUSEN", {{ 0, 2, 5, 7, 9 }}, 5 },
+    { "NEAP MAJOR PENT", {{ 0, 4, 5, 6, 10 }}, 5 },
+    { "VIETNAMESE 1", {{ 0, 3, 5, 7, 8 }}, 5 },
+    { "LYDIAN PENTATONIC", {{ 0, 4, 6, 7, 11 }}, 5 },
+    { "LOCRIAN PENTATONIC", {{ 0, 3, 5, 6, 10 }}, 5 },
+    { "FLAT 6 PENTATONIC", {{ 0, 2, 4, 7, 8 }}, 5 },
+    { "SCRIABIN", {{ 0, 1, 4, 7, 9 }}, 5 },
+    { "WHOLE TONE PENT", {{ 0, 4, 6, 8, 10 }}, 5 },
+    { "LYD #5 PENTATONIC", {{ 0, 4, 6, 8, 11 }}, 5 },
+    { "LYD DOM PENT", {{ 0, 4, 6, 7, 10 }}, 5 },
+    { "MIN MAJ7 PENT", {{ 0, 3, 5, 7, 11 }}, 5 },
+    { "SUPER LOC PENT", {{ 0, 3, 4, 6, 10 }}, 5 },
+    { "MINOR HEXATONIC", {{ 0, 2, 3, 5, 7, 11 }}, 6 },
+    { "PIONGIO", {{ 0, 2, 5, 7, 9, 10 }}, 6 },
+    { "PROMETHEUS NEAP", {{ 0, 1, 4, 6, 9, 10 }}, 6 },
+    { "MYSTERY 1", {{ 0, 1, 4, 6, 8, 10 }}, 6 },
+    { "DOUBLE HARM LYD", {{ 0, 1, 4, 6, 7, 8, 11 }}, 7 },
+    { "AUG HEPTATONIC", {{ 0, 3, 4, 5, 7, 8, 11 }}, 7 },
+    { "LYDIAN DIM", {{ 0, 2, 3, 6, 7, 9, 11 }}, 7 },
+    { "LYDIAN MINOR", {{ 0, 2, 4, 6, 7, 8, 10 }}, 7 },
+    { "FLAMENCO", {{ 0, 1, 3, 4, 6, 7, 10 }}, 7 },
+    { "TODI", {{ 0, 1, 3, 6, 7, 8, 11 }}, 7 },
+    { "PURVI", {{ 0, 1, 4, 5, 6, 7, 8, 11 }}, 8 },
+    { "SPANISH HEPTATONIC", {{ 0, 1, 3, 4, 5, 7, 8, 10 }}, 8 },
+    { "BEBOP LOCRIAN", {{ 0, 1, 3, 5, 6, 7, 8, 10 }}, 8 },
+    { "MINOR BEBOP", {{ 0, 2, 3, 5, 7, 8, 10, 11 }}, 8 },
+    { "ICHIKOSUCHO", {{ 0, 2, 4, 5, 6, 7, 9, 11 }}, 8 },
+    { "MIN 6 DIM", {{ 0, 2, 3, 5, 7, 8, 9, 11 }}, 8 },
+    { "KAFI", {{ 0, 3, 4, 5, 7, 9, 10, 11 }}, 8 },
+    { "COMPOSITE BLUES", {{ 0, 2, 3, 4, 5, 6, 7, 9, 10 }}, 9 },
+}};
+
+inline constexpr const AmbiWaveTerrainPitchScaleDefinition&
+ambiWaveTerrainPitchScaleDefinition(AmbiWaveTerrainPitchScale scale)
+{
+    const uint32_t index = std::min<uint32_t>(
+        static_cast<uint32_t>(scale), kAmbiWaveTerrainPitchScaleCount - 1u);
+    return kAmbiWaveTerrainPitchScales[index];
+}
+
 inline int ambiWaveTerrainScaleDegreeSemitones(AmbiWaveTerrainPitchScale scale, int degree)
 {
-    static constexpr std::array<int, 12> chromatic {{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }};
-    static constexpr std::array<int, 7> major {{ 0, 2, 4, 5, 7, 9, 11 }};
-    static constexpr std::array<int, 7> minor {{ 0, 2, 3, 5, 7, 8, 10 }};
-    static constexpr std::array<int, 5> pentatonic {{ 0, 2, 4, 7, 9 }};
-    static constexpr std::array<int, 6> wholeTone {{ 0, 2, 4, 6, 8, 10 }};
-    static constexpr std::array<int, 7> harmonicMinor {{ 0, 2, 3, 5, 7, 8, 11 }};
-
-    const int* values = chromatic.data();
-    int count = static_cast<int>(chromatic.size());
-    switch (scale) {
-    case AmbiWaveTerrainPitchScale::Major: values = major.data(); count = static_cast<int>(major.size()); break;
-    case AmbiWaveTerrainPitchScale::Minor: values = minor.data(); count = static_cast<int>(minor.size()); break;
-    case AmbiWaveTerrainPitchScale::Pentatonic: values = pentatonic.data(); count = static_cast<int>(pentatonic.size()); break;
-    case AmbiWaveTerrainPitchScale::WholeTone: values = wholeTone.data(); count = static_cast<int>(wholeTone.size()); break;
-    case AmbiWaveTerrainPitchScale::HarmonicMinor: values = harmonicMinor.data(); count = static_cast<int>(harmonicMinor.size()); break;
-    case AmbiWaveTerrainPitchScale::Free:
-    case AmbiWaveTerrainPitchScale::Chromatic:
-    default: break;
-    }
+    const auto& definition = ambiWaveTerrainPitchScaleDefinition(scale);
+    const int count = definition.size;
 
     int octave = degree / count;
     int index = degree % count;
@@ -145,21 +282,12 @@ inline int ambiWaveTerrainScaleDegreeSemitones(AmbiWaveTerrainPitchScale scale, 
         index += count;
         --octave;
     }
-    return octave * 12 + values[index];
+    return octave * 12 + definition.semitones[static_cast<size_t>(index)];
 }
 
 inline int ambiWaveTerrainScaleSize(AmbiWaveTerrainPitchScale scale)
 {
-    switch (scale) {
-    case AmbiWaveTerrainPitchScale::Pentatonic: return 5;
-    case AmbiWaveTerrainPitchScale::WholeTone: return 6;
-    case AmbiWaveTerrainPitchScale::Major:
-    case AmbiWaveTerrainPitchScale::Minor:
-    case AmbiWaveTerrainPitchScale::HarmonicMinor: return 7;
-    case AmbiWaveTerrainPitchScale::Free:
-    case AmbiWaveTerrainPitchScale::Chromatic:
-    default: return 12;
-    }
+    return ambiWaveTerrainPitchScaleDefinition(scale).size;
 }
 
 inline float ambiWaveTerrainQuantizeToScale(float note, float root, AmbiWaveTerrainPitchScale scale)
@@ -365,7 +493,9 @@ public:
         params.terrainFold = clamp(params.terrainFold, 0.0f, 1.0f);
         params.terrainRelief = clamp(params.terrainRelief, 0.0f, 1.0f);
         params.trace = static_cast<AmbiWaveTerrainTrace>(std::clamp<uint32_t>(static_cast<uint32_t>(params.trace), 0u, 4u));
-        params.interpretation = static_cast<AmbiWaveTerrainInterpretation>(std::clamp<uint32_t>(static_cast<uint32_t>(params.interpretation), 0u, 9u));
+        params.interpretation = static_cast<AmbiWaveTerrainInterpretation>(
+            std::clamp<uint32_t>(
+                static_cast<uint32_t>(params.interpretation), 0u, 8u));
         params.interpretationMix = clamp(params.interpretationMix, 0.0f, 1.0f);
         params.scanRadius = clamp(params.scanRadius, 0.005f, 0.48f);
         params.scanAspect = clamp(params.scanAspect, 0.05f, 1.0f);
@@ -400,7 +530,9 @@ public:
         params.elevationRateRpm = clamp(params.elevationRateRpm, -12.0f, 12.0f);
         params.rotationRateDeviation = clamp(params.rotationRateDeviation, 0.0f, 1.0f);
         params.pitchScale = static_cast<AmbiWaveTerrainPitchScale>(
-            std::clamp<uint32_t>(static_cast<uint32_t>(params.pitchScale), 0u, 6u));
+            std::clamp<uint32_t>(
+                static_cast<uint32_t>(params.pitchScale), 0u,
+                kAmbiWaveTerrainPitchScaleCount - 1u));
         params.terrainForm = static_cast<AmbiWaveTerrainForm>(
             std::clamp<uint32_t>(static_cast<uint32_t>(params.terrainForm), 0u, 5u));
         params.terrainFacet = clamp(params.terrainFacet, 0.0f, 1.0f);
@@ -511,6 +643,22 @@ public:
         p.azimuthDeg = wrapSignedDeg(params_.centerAzimuthDeg + (fract(u) - 0.5f) * 360.0f * params_.spatialSpread);
         p.elevationDeg = clamp(params_.centerElevationDeg + (clamp(v, 0.0f, 1.0f) - 0.5f) * 180.0f * params_.spatialSpread, -90.0f, 90.0f);
         p.distance = clamp(params_.centerDistance + h * params_.terrainDepth * params_.terrainRelief * 0.42f, 0.15f, 3.0f);
+        p.terrain = h;
+        return p;
+    }
+
+    AmbiWaveTerrainPoint terrainDomainPoint(float u, float v) const
+    {
+        const float domainU = clamp(u, 0.0f, 1.0f);
+        const float domainV = clamp(v, 0.0f, 1.0f);
+        const float h = terrainHeight(domainU, domainV);
+        AmbiWaveTerrainPoint p {};
+        p.azimuthDeg = (domainU - 0.5f) * 360.0f;
+        p.elevationDeg = (domainV - 0.5f) * 180.0f;
+        p.distance = clamp(
+            params_.centerDistance
+                + h * params_.terrainDepth * params_.terrainRelief * 0.42f,
+            0.15f, 3.0f);
         p.terrain = h;
         return p;
     }
@@ -973,11 +1121,11 @@ private:
     {
         table.region = region;
         const float terrainAmount = params_.terrainDepth * params_.terrainRelief;
-        const bool needsGradient = params_.interpretation == AmbiWaveTerrainInterpretation::Gradient
-            || params_.interpretation == AmbiWaveTerrainInterpretation::Normal
-            || params_.interpretation == AmbiWaveTerrainInterpretation::Vector;
-        const bool needsCross = params_.interpretation == AmbiWaveTerrainInterpretation::Cross
-            || params_.interpretation == AmbiWaveTerrainInterpretation::Vector;
+        const bool needsGradient =
+            params_.interpretation == AmbiWaveTerrainInterpretation::Gradient
+            || params_.interpretation == AmbiWaveTerrainInterpretation::Normal;
+        const bool needsCross =
+            params_.interpretation == AmbiWaveTerrainInterpretation::Cross;
         std::array<float, kAmbiWaveTerrainTableSize> gradientProfile {};
         std::array<float, kAmbiWaveTerrainTableSize> normalProfile {};
         std::array<float, kAmbiWaveTerrainTableSize> crossProfile {};
@@ -1032,11 +1180,6 @@ private:
             else if (params_.interpretation == AmbiWaveTerrainInterpretation::Valley) value = std::max(0.0f, -curvature);
             else if (params_.interpretation == AmbiWaveTerrainInterpretation::Normal) value = normalProfile[index];
             else if (params_.interpretation == AmbiWaveTerrainInterpretation::Cross) value = crossProfile[index];
-            else if (params_.interpretation == AmbiWaveTerrainInterpretation::Vector) {
-                const float derived = edge * 0.38f + curvature * 0.24f
-                    + gradientProfile[index] * 0.20f + crossProfile[index] * 0.18f;
-                value = lerp(height, softSat(derived * 1.35f), params_.interpretationMix);
-            }
             table.levels[0][index] = value;
             mean += value;
         }
@@ -1466,8 +1609,7 @@ inline const char* ambiWaveTerrainPitchModeName(AmbiWaveTerrainPitchMode mode)
 }
 inline const char* ambiWaveTerrainPitchScaleName(AmbiWaveTerrainPitchScale scale)
 {
-    static constexpr const char* names[] { "FREE", "CHROM", "MAJOR", "MINOR", "PENTA", "WHOLE", "HARM MIN" };
-    return names[std::min<uint32_t>(static_cast<uint32_t>(scale), 6u)];
+    return ambiWaveTerrainPitchScaleDefinition(scale).name;
 }
 inline const char* ambiWaveTerrainFormName(AmbiWaveTerrainForm form)
 {
@@ -1502,9 +1644,9 @@ inline const char* ambiWaveTerrainInterpretationName(AmbiWaveTerrainInterpretati
 {
     static constexpr const char* names[] {
         "HEIGHT", "EDGE", "CURVE", "BLEND", "GRADIENT",
-        "RIDGE", "VALLEY", "NORMAL", "CROSS", "VECTOR",
+        "RIDGE", "VALLEY", "NORMAL", "CROSS",
     };
-    return names[std::min<uint32_t>(static_cast<uint32_t>(interpretation), 9u)];
+    return names[std::min<uint32_t>(static_cast<uint32_t>(interpretation), 8u)];
 }
 
 } // namespace s3g

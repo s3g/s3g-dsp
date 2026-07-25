@@ -571,8 +571,7 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     const float titlePeak = std::max(
         p->peakL.load(std::memory_order_relaxed),
         p->peakR.load(std::memory_order_relaxed));
-    NSString* titleStatus = [NSString stringWithFormat:@"%@ · 2OUT",
-        s3g::clap_gui::peakDbText(titlePeak)];
+    NSString* titleStatus = s3g::clap_gui::peakDbText(titlePeak);
     s3g::clap_gui::drawDecoderTitleBand(
         @"s3g AMBI DECODER HEAD",
         [NSString stringWithUTF8String:_titlePresetName],

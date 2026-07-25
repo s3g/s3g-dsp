@@ -2621,12 +2621,10 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
 
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
     NSFont* monoTiny = [NSFont fontWithName:@"Menlo" size:7.0] ?: [NSFont monospacedSystemFontOfSize:7.0 weight:NSFontWeightRegular];
-    NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
     NSDictionary* labelAttrs = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: mono };
     NSDictionary* smallAttrs = @{ NSForegroundColorAttributeName: dim, NSFontAttributeName: mono };
     NSDictionary* tinyAttrs = @{ NSForegroundColorAttributeName: dim, NSFontAttributeName: monoTiny };
     NSDictionary* sectionAttrs = @{ NSForegroundColorAttributeName: accent, NSFontAttributeName: mono };
-    NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: titleFont };
 
     const float peak = p->outputPeak.load(std::memory_order_relaxed);
     const bool clipped = p->outputClip.exchange(false, std::memory_order_relaxed);
@@ -2639,7 +2637,10 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         meterText,
         s3g::clap_gui::encoderTitleBand(
             kDelayGuiWidth, kDelayGuiHeight),
-        titleAttrs, labelAttrs, smallAttrs, style);
+        s3g::clap_gui::softTitleAttrs(),
+        s3g::clap_gui::softLabelAttrs(),
+        s3g::clap_gui::softValueAttrs(),
+        style);
 
     [NSGraphicsContext saveGraphicsState];
     NSAffineTransform* contentTransform = [NSAffineTransform transform];

@@ -2149,7 +2149,9 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
 }
 - (void)drawPerformanceMode:(Plugin*)plugin attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style
 {
-    [@"MODE" drawAtPoint:NSMakePoint(36.0, 647.0) withAttributes:attrs];
+    [@"MODE" drawAtPoint:NSMakePoint(
+        s3g::gui_layout::processorLabelX(kLeftToolboxX), 647.0)
+        withAttributes:attrs];
     const NSRect freeRect = NSMakeRect(140.0, 642.0, 74.0, 22.0);
     const NSRect midiRect = NSMakeRect(214.0, 642.0, 74.0, 22.0);
     const bool midi = plugin->performanceMode == PerformanceMode::Midi;
@@ -2290,9 +2292,11 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     const CGFloat w = 844.0;
     const CGFloat h = 178.0;
     s3g::clap_gui::drawPanelFrame(x, y, w, h, style);
-    NSDictionary* labelAttrs = s3g::clap_gui::softTitleAttrs();
+    NSDictionary* labelAttrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
-    [@"8 CHANNEL OUTPUT" drawAtPoint:NSMakePoint(x + 12.0, y + 7.0) withAttributes:labelAttrs];
+    [@"8 CHANNEL OUTPUT" drawAtPoint:NSMakePoint(
+        x + s3g::gui_layout::kStandardMetrics.headerLabelInset, y + 7.0)
+        withAttributes:labelAttrs];
     NSMutableParagraphStyle* paragraph = [[[NSMutableParagraphStyle alloc] init] autorelease];
     [paragraph setLineBreakMode:NSLineBreakByTruncatingMiddle];
     NSMutableDictionary* sourceAttrs = [NSMutableDictionary dictionaryWithDictionary:small];

@@ -262,6 +262,20 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_3oafx_speaker_decoder_clap
       COMMENT "Rendering and validating every decoder-family GUI")
 
+    add_custom_target(audit_gui_panner_family
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_layout_panner_clap> org.s3g.s3g-dsp.layout-panner 900 720 "s3g Panner " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_dbap_panner_clap> org.s3g.s3g-dsp.dbap-panner 900 720 "s3g Panner " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_lbap_panner_clap> org.s3g.s3g-dsp.lbap-panner 900 720 "s3g Panner " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_vbap_panner_clap> org.s3g.s3g-dsp.vbap-panner 900 720 "s3g Panner " responsive
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_layout_panner_clap
+        s3g_dbap_panner_clap
+        s3g_lbap_panner_clap
+        s3g_vbap_panner_clap
+      COMMENT "Rendering and validating every Panner-family GUI")
+
     add_custom_target(audit_gui_processor_family
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-8ch 1000 820 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-24ch 1000 820 "s3g Processor " responsive
