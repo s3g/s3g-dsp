@@ -41,12 +41,13 @@ int main(int argc, char** argv)
     const bool responsive = argc != 7 || std::strcmp(argv[6], "responsive") == 0;
     const bool fixed = argc == 7 && std::strcmp(argv[6], "fixed") == 0;
     if ((!responsive && !fixed)
-        || nativeWidth < 480u
+        || nativeWidth < 320u
         || nativeHeight < (responsive ? 360u : 240u)) {
         return 2;
     }
 
     @autoreleasepool {
+        const char* failureStage = "shared text helpers";
         NSString* fittedValue = s3g::clap_gui::sliderValueTextToFit(
             @"12.34567 dB", 36.0, s3g::clap_gui::softValueAttrs());
         if ([fittedValue sizeWithAttributes:s3g::clap_gui::softValueAttrs()].width > 36.0) {
@@ -65,6 +66,7 @@ int main(int argc, char** argv)
             return 1;
         }
 
+        failureStage = "bundle load";
         void* library = dlopen(argv[1], RTLD_LOCAL | RTLD_NOW);
         if (!library) {
             std::cerr << "Could not load family member: " << dlerror() << "\n";
@@ -119,6 +121,7 @@ int main(int argc, char** argv)
             return 1;
         }
 
+        failureStage = "parameter defaults";
         const auto* params = static_cast<const clap_plugin_params_t*>(
             plugin->get_extension(plugin, CLAP_EXT_PARAMS));
         clap_param_info_t firstParam {};
@@ -157,6 +160,7 @@ int main(int argc, char** argv)
                 "org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64") == 0) {
             bool foundScale = false;
             bool foundInterpretation = false;
+            bool foundVoices = false;
             const uint32_t parameterCount = params->count(plugin);
             for (uint32_t index = 0u; index < parameterCount; ++index) {
                 clap_param_info_t info {};
@@ -183,11 +187,27 @@ int main(int argc, char** argv)
                     foundInterpretation = info.max_value == 8.0
                         && !params->text_to_value(
                             plugin, info.id, "VECTOR", &removed);
+                } else if (std::strcmp(info.name, "Voices") == 0) {
+                    char text[16] {};
+                    double parsed = -1.0;
+                    foundVoices =
+                        (info.flags & CLAP_PARAM_IS_STEPPED) != 0u
+                        && info.min_value == 1.0
+                        && info.max_value == 64.0
+                        && info.default_value == 12.0
+                        && params->value_to_text(
+                            plugin, info.id, 12.0, text, sizeof(text))
+                        && std::strcmp(text, "12") == 0
+                        && params->text_to_value(
+                            plugin, info.id, "17", &parsed)
+                        && parsed == 17.0;
                 }
             }
-            ok = ok && foundScale && foundInterpretation;
+            ok = ok && foundScale && foundInterpretation
+                && foundVoices;
         }
 
+        if (ok) failureStage = "GUI API";
         const auto* gui = static_cast<const clap_plugin_gui_t*>(
             plugin->get_extension(plugin, CLAP_EXT_GUI));
         ok = ok && gui
@@ -195,30 +215,44 @@ int main(int argc, char** argv)
 
         uint32_t width = 0u;
         uint32_t height = 0u;
+        if (ok) failureStage = "resize contract";
         if (responsive) {
+            const uint32_t expectedMinimumWidth =
+                std::min(480u, nativeWidth);
+            const uint32_t expectedMinimumHeight =
+                std::min(360u, nativeHeight);
             clap_gui_resize_hints_t hints {};
             ok = ok && gui->can_resize(plugin)
                 && gui->get_resize_hints(plugin, &hints)
                 && hints.can_resize_horizontally && hints.can_resize_vertically
                 && !hints.preserve_aspect_ratio
                 && gui->get_size(plugin, &width, &height)
-                && width >= 480u && width <= nativeWidth
-                && height >= 360u && height <= nativeHeight;
+                && width >= expectedMinimumWidth && width <= nativeWidth
+                && height >= expectedMinimumHeight && height <= nativeHeight;
             uint32_t minimumWidth = 1u;
             uint32_t minimumHeight = 1u;
             ok = ok && gui->adjust_size(plugin, &minimumWidth, &minimumHeight)
-                && minimumWidth == 480u && minimumHeight == 360u;
+                && minimumWidth == expectedMinimumWidth
+                && minimumHeight == expectedMinimumHeight;
+            if (!ok) {
+                std::cerr << "Resize details: size=" << width << "x" << height
+                    << " minimum=" << minimumWidth << "x" << minimumHeight
+                    << " expected minimum=" << expectedMinimumWidth << "x"
+                    << expectedMinimumHeight << "\n";
+            }
         } else {
             ok = ok && !gui->can_resize(plugin)
                 && gui->get_size(plugin, &width, &height)
                 && width == nativeWidth && height == nativeHeight;
         }
+        if (ok) failureStage = "GUI create";
         ok = ok && gui->create(plugin, CLAP_WINDOW_API_COCOA, false);
 
         const uint32_t testWidth =
             responsive ? std::min(720u, nativeWidth) : nativeWidth;
         const uint32_t testHeight =
             responsive ? std::min(540u, nativeHeight) : nativeHeight;
+        if (ok) failureStage = "GUI resize";
         if (responsive) {
             ok = ok && gui->set_size(plugin, testWidth, testHeight)
                 && gui->get_size(plugin, &width, &height)
@@ -229,10 +263,12 @@ int main(int argc, char** argv)
         clap_window_t window {};
         window.api = CLAP_WINDOW_API_COCOA;
         window.cocoa = parent;
+        if (ok) failureStage = "GUI parent";
         ok = ok && gui->set_parent(plugin, &window) && [[parent subviews] count] == 1u;
         NSView* root = ok ? [[parent subviews] objectAtIndex:0u] : nil;
         NSScrollView* scroll = nil;
         NSView* document = root;
+        if (ok) failureStage = "responsive document";
         if (responsive) {
             ok = ok && [root isKindOfClass:[NSScrollView class]];
             scroll = ok ? static_cast<NSScrollView*>(root) : nil;
@@ -246,6 +282,7 @@ int main(int argc, char** argv)
                 && closeEnough([document frame].size.width, nativeWidth)
                 && closeEnough([document frame].size.height, nativeHeight);
         }
+        if (ok) failureStage = "render";
         if (ok) {
             NSData* rendered = [document dataWithPDFInsideRect:[document bounds]];
             ok = rendered && [rendered length] > 0u;
@@ -269,12 +306,14 @@ int main(int argc, char** argv)
                 }
             }
         }
-        if (ok && responsive) {
+        if (ok && responsive
+            && (testWidth < nativeWidth || testHeight < nativeHeight)) {
             [[scroll contentView] scrollToPoint:NSMakePoint(120.0, 70.0)];
             [scroll reflectScrolledClipView:[scroll contentView]];
             const NSPoint origin = [[scroll contentView] bounds].origin;
             ok = origin.x > 100.0 && origin.y > 50.0;
         }
+        if (ok) failureStage = "show and hide";
         ok = ok && gui->show(plugin) && gui->hide(plugin);
 
         gui->destroy(plugin);
@@ -284,6 +323,7 @@ int main(int argc, char** argv)
         // Also exercise a host tearing down the plug-in while its GUI still
         // exists. Every family member owns the viewport through plug-in
         // destruction as a defensive fallback.
+        if (ok) failureStage = "destruction fallback";
         const clap_plugin_t* teardownPlugin = factory
             ? factory->create_plugin(factory, &host, pluginId)
             : nullptr;
@@ -322,7 +362,8 @@ int main(int argc, char** argv)
 
         if (!ok) {
             std::cerr << (responsive ? "Responsive" : "Fixed")
-                << " GUI smoke failed for " << pluginId << "\n";
+                << " GUI smoke failed for " << pluginId
+                << " at " << failureStage << "\n";
             return 1;
         }
         std::cout << (responsive ? "Responsive" : "Fixed")

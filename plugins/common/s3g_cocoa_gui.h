@@ -179,8 +179,12 @@ inline bool adjustResponsiveViewportSize(const ResponsiveViewport& state,
                                          uint32_t* height)
 {
     if (!width || !height) return false;
-    const uint32_t minWidth = state.minimumWidth > 0u ? state.minimumWidth : std::min(480u, nativeWidth);
-    const uint32_t minHeight = state.minimumHeight > 0u ? state.minimumHeight : std::min(360u, nativeHeight);
+    const uint32_t minWidth = state.minimumWidth > 0u
+        ? std::min(state.minimumWidth, nativeWidth)
+        : std::min(480u, nativeWidth);
+    const uint32_t minHeight = state.minimumHeight > 0u
+        ? std::min(state.minimumHeight, nativeHeight)
+        : std::min(360u, nativeHeight);
     *width = std::clamp(*width, minWidth, nativeWidth);
     *height = std::clamp(*height, minHeight, nativeHeight);
     return true;
@@ -799,9 +803,9 @@ inline void drawEncoderPresetMenu(NSString* preset,
                                   NSDictionary* valueAttrs,
                                   const Style& style)
 {
-    drawMenu(@"", preset, band.controlY, labelAttrs, valueAttrs, style,
+    drawMenu(@"", preset, band.titleY, labelAttrs, valueAttrs, style,
         band.presetLabelX, band.presetMenu.x, band.presetMenu.width);
-    [@"PRESET" drawAtPoint:NSMakePoint(band.presetLabelX, band.controlY + 1.0)
+    [@"PRESET" drawAtPoint:NSMakePoint(band.presetLabelX, band.titleY + 1.0)
         withAttributes:labelAttrs];
 }
 
@@ -868,6 +872,32 @@ inline void drawProcessorTitleBand(NSString* title,
     (void)valueAttrs;
     drawDecoderTitleBand(title, preset, status, band,
         softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
+}
+
+inline void drawMacroTitleBand(NSString* title,
+                               NSString* preset,
+                               NSString* status,
+                               const s3g::gui_layout::EncoderTitleBand& band,
+                               const Style& style)
+{
+    NSDictionary* titleAttrs = softTitleAttrs();
+    NSDictionary* labelAttrs = softLabelAttrs();
+    NSDictionary* valueAttrs = softValueAttrs();
+    [title drawAtPoint:NSMakePoint(band.titleX, band.titleY)
+        withAttributes:titleAttrs];
+    drawMenu(@"", preset, band.controlY, labelAttrs, valueAttrs, style,
+        band.presetLabelX, band.presetMenu.x, band.presetMenu.width);
+    [@"PRESET" drawAtPoint:NSMakePoint(
+        band.presetLabelX, band.controlY + 1.0)
+        withAttributes:labelAttrs];
+    drawHeaderActionButton(cocoaRect(band.loadButton), cocoaRect(band.loadButton),
+        @"LOAD", labelAttrs, style);
+    drawHeaderActionButton(cocoaRect(band.saveButton), cocoaRect(band.saveButton),
+        @"SAVE", labelAttrs, style);
+    if (status && [status length] > 0u) {
+        drawRightStatus(status, band.canvas.width, band.titleY, valueAttrs,
+            band.statusRightInset);
+    }
 }
 
 struct DefaultParamEventList {

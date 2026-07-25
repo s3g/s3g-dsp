@@ -146,6 +146,53 @@ Conditional family anchors are different from placeholders: when an anchored
 shared panel exists, it occupies its family location; when it does not exist,
 the next applicable panel may use that space.
 
+## Macro Family Reference
+
+The Macro family is an explicit seven-editor release group: Delay 8ch/24ch,
+Pitch 8ch/24ch, and Shred Mono/8ch/24ch. Channel suffixes remain in these
+titles because they distinguish installable processing variants.
+
+Every multichannel Macro uses the same 760 px-wide two-column grid: the first
+column is x 18 / width 352 and the second is x 388 / width 354. Delay and
+Pitch use a 760 × 496 canvas:
+
+- `OUTPUT` is first at x 18, y 42. `OUT` is row 0 at y 78 and `MIX` is row 1
+  at y 104.
+- `ENGINE` follows at x 18, y 134. Its height is fitted to the actual engine
+  row count.
+- `RELATIONSHIPS` remains in the first semantic stack after `ENGINE`, at the
+  standard 12 px gap; its shared five-row order is `SPRD`, `DEV`, `SKW`,
+  `CTR`, `GLD`.
+- The complete second column is the named lane-relationship preview. This
+  panel has the explicit `LaneRelationships` layout role and never moves into
+  the first-column parameter stack.
+
+Multichannel Shred extends that exact grid to a 760 × 620 canvas. Its
+eight-row `ENGINE` requires `RELATIONSHIPS` to begin at y 382. The lane preview
+remains at the top of the shared second column and the feedback-containment
+field follows it. The containment toolbox must visibly contain its activity
+meter, feedback field, and `PANIC` action; it is not a spacer.
+
+Shred Mono is the declared compact exception. It remains a 416 px single
+column and omits channel-only relationship and lane-preview panels. To fit the
+full title, far-right `PK`, and `PRESET`/`LOAD`/`SAVE` without clipping, title
+actions use a second header row and `OUTPUT` begins at y 68. Its content stack
+is `OUTPUT`, `ENGINE`, then `CONTAINMENT`, with the normal 12 px panel gaps.
+No Macro editor exposes `RANDOM`.
+
+All Macro slider rows use the shared 16 px label inset, 108 px control inset,
+bounded 42 px right-value cell, 26 px pitch, and 18 px bottom clearance.
+The value cell ends 16 px before its toolbox's right edge; units such as `%`,
+`dB`, `ms`, `ct`, and `st` are clipped or precision-reduced inside that cell
+and may never paint beyond the toolbox frame.
+Double-click restores the declared CLAP default. Draw and hit geometry come
+from the same family panel declarations, and every Macro editor uses the
+shared responsive viewport.
+
+For every multichannel Macro, the complete distinguishing suffix (`8CH` or
+`24CH`) is part of the left title string. The far-right status contains only
+`PK` and its value; channel-count text is forbidden there.
+
 ## Large Procedural Encoder Reference
 
 Stochastic, Pulsar, and Wrangler are the first reference implementations.
@@ -229,6 +276,12 @@ popup so every item remains inside the editor. Full common names such as
 scale indices remain stable for host automation and saved presets; additions
 append after them. `VECTOR` is not a terrain interpretation option. Legacy
 state value 9 is sanitized to `CROSS`.
+
+Wave Terrain's `ENGINE` rows follow the shared generator order: `MODE`,
+integer `VOICES`, `BASE`, `SPREAD`, `TUNE`, then `DETUNE`. Hosts and the
+native GUI must render `VOICES` without a fractional suffix. Wave Terrain
+does not expose a separate monophonic/polyphonic trigger parameter; it keeps
+the established voice and envelope behavior selected by `MODE`.
 
 The Wave Terrain field always draws the complete closed terrain domain.
 `SPACE` and `CENTER` project that domain into the outgoing ambisonic field;

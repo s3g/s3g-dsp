@@ -485,11 +485,113 @@ if rg -q 'TerrainInterpretation::Vector|@"VECTOR"|"VECTOR"' \
   warn "control" "$wave_terrain_source" \
     "Wave Terrain VECTOR interpretation has been removed and must not return to the host or GUI menu."
 fi
+if ! rg -q 'id == kVoicesParamId.*"%\.0f"' "$wave_terrain_source" \
+    || rg -q 'kTriggerModeParamId|AmbiWaveTerrainTriggerMode|@"TRIGGER"|"TRIGGER",' \
+        "$wave_terrain_source" "$wave_terrain_engine"; then
+  warn "control" "$wave_terrain_source" \
+    "Wave Terrain must keep integer VOICES text and expose no separate trigger-mode parameter."
+fi
 if ! rg -q 'displaySurfacePointU' "$wave_terrain_source" \
     || ! rg -q '_viewDidDrag' "$wave_terrain_source" \
     || ! rg -q '_pendingVoice' "$wave_terrain_source"; then
   warn "view" "$wave_terrain_source" \
     "Wave Terrain must draw the complete closed terrain domain and reserve pointer movement for camera drag."
+fi
+
+section "Macro Family"
+macro_family_names=(
+  "plugins/clap_macro_delay/CMakeLists.txt|s3g Macro Delay 8ch"
+  "plugins/clap_macro_delay/CMakeLists.txt|s3g Macro Delay 24ch"
+  "plugins/clap_macro_pitch/CMakeLists.txt|s3g Macro Pitch 8ch"
+  "plugins/clap_macro_pitch/CMakeLists.txt|s3g Macro Pitch 24ch"
+  "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred Mono"
+  "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred 8ch"
+  "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred 24ch"
+)
+for contract in "${macro_family_names[@]}"; do
+  file="${contract%%|*}"
+  expected_name="${contract#*|}"
+  if ! rg -Fq "\"${expected_name}\"" "$file"; then
+    warn "name" "$file" \
+      "Macro-family host names must expose the meaningful variant '${expected_name}'."
+  fi
+done
+
+macro_family_sources=(
+  plugins/clap_macro_delay/s3g_macro_delay_clap.cpp
+  plugins/clap_macro_pitch/s3g_macro_pitch_clap.cpp
+  plugins/clap_macro_shred/s3g_macro_shred_clap.cpp
+)
+for file in "${macro_family_sources[@]}"; do
+  if ! rg -q 'drawMacroTitleBand' "$file" \
+      || ! rg -q 'macroTitleBand' "$file" \
+      || ! rg -q 'handleProcessorTitleClick' "$file"; then
+    warn "title" "$file" \
+      "Every Macro uses aligned PRESET, LOAD, SAVE, and far-right PK title controls."
+  fi
+  if ! rg -q 'ResponsiveViewport' "$file"; then
+    warn "layout" "$file" \
+      "Every Macro editor uses the shared responsive viewport."
+  fi
+  if ! rg -q 'sliderDoubleClickDefault' "$file"; then
+    warn "control" "$file" \
+      "Every Macro slider must support double-click default reset."
+  fi
+  if ! rg -q 'drawProcessorSlider' "$file"; then
+    warn "geometry" "$file" \
+      "Macro sliders use shared left-label, track, and bounded-value anchors."
+  fi
+  if ! rg -q '@\"OUTPUT\"' "$file" \
+      || ! rg -q '@\"OUT\"' "$file"; then
+    warn "layout" "$file" \
+      "Every Macro control stack begins with OUTPUT and OUT."
+  fi
+  if ! rg -q 'kMacro(FamilyLayout|ShredFamilyLayout)' "$file"; then
+    warn "layout" "$file" \
+      "Every Macro editor consumes an explicit shared family layout."
+  fi
+  if rg -q 'drawEncoderTitleBand|@\"RANDOM\"' "$file"; then
+    warn "title" "$file" \
+      "Macro title actions are PRESET / LOAD / SAVE only; RANDOM belongs to Encoders."
+  fi
+done
+if ! rg -Fq 'kMacroFirstColumn { 18.0, 352.0, 42.0 }' \
+    plugins/common/s3g_gui_layout.h \
+    || ! rg -Fq 'kMacroSecondColumn { 388.0, 354.0, 42.0 }' \
+    plugins/common/s3g_gui_layout.h \
+    || ! rg -q 'PanelRole::LaneRelationships' \
+    plugins/common/s3g_gui_layout.h \
+    || ! rg -q 'processorSliderFitsPanel' \
+    plugins/common/s3g_gui_layout.h \
+    tests/gui_layout_contract_smoke.cpp; then
+  warn "layout" "plugins/common/s3g_gui_layout.h" \
+    "All multichannel Macros must share the 760 px two-column grid, keep lane relationships in the second column, and prove bounded slider-value geometry."
+fi
+macro_multichannel_title_contracts=(
+  'plugins/clap_macro_delay/s3g_macro_delay_clap.cpp|s3g MACRO DELAY %uCH'
+  'plugins/clap_macro_pitch/s3g_macro_pitch_clap.cpp|s3g MACRO PITCH %uCH'
+  'plugins/clap_macro_shred/s3g_macro_shred_clap.cpp|s3g MACRO SHRED %uCH'
+)
+for contract in "${macro_multichannel_title_contracts[@]}"; do
+  file="${contract%%|*}"
+  title="${contract#*|}"
+  if ! rg -Fq "$title" "$file" \
+      || ! rg -q 'peakDbText' "$file"; then
+    warn "title" "$file" \
+      "Multichannel Macro titles must contain their 8CH/24CH suffix on the left and reserve the far-right status for PK."
+  fi
+done
+if rg -q 'channelX|peakX|drawAtPoint.*%uCH' \
+    plugins/clap_macro_shred/s3g_macro_shred_clap.cpp; then
+  warn "title" "plugins/clap_macro_shred/s3g_macro_shred_clap.cpp" \
+    "Macro Shred must not draw a separate channel-count label beside PK."
+fi
+if ! rg -q 'kMacroShredMonoFamilyLayout' \
+    plugins/common/s3g_gui_layout.h \
+    || ! rg -Fq '{ 18.0, 68.0, 380.0, 80.0 }' \
+    plugins/common/s3g_gui_layout.h; then
+  warn "layout" "plugins/common/s3g_gui_layout.h" \
+    "Compact Shred Mono must retain its declared two-tier header and y 68 OUTPUT exception."
 fi
 
 section "Panner Family"

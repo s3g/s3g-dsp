@@ -25,6 +25,7 @@ enum class PanelRole : uint8_t {
     ToneShape,
     EventTiming,
     Relationships,
+    LaneRelationships,
     Modulation,
     Motion,
     Topology,
@@ -222,7 +223,8 @@ struct MacroFamilyLayout {
     Panel output {};
     Panel delayEngine {};
     Panel pitchEngine {};
-    Panel relationships {};
+    Panel delayRelationships {};
+    Panel pitchRelationships {};
     Panel preview {};
 };
 
@@ -233,6 +235,9 @@ struct MacroShredFamilyLayout {
     Panel relationships {};
     Panel preview {};
     Panel containment {};
+    Rect containmentMeter {};
+    Rect containmentField {};
+    Rect panicButton {};
 };
 
 inline constexpr Metrics kStandardMetrics {};
@@ -270,6 +275,34 @@ constexpr double processorMenuWidth(double panelWidth)
         - kStandardMetrics.panelRightInset;
 }
 
+constexpr bool processorSliderFitsPanel(const Panel& panel)
+{
+    const double controlX = processorControlX(panel.frame.x);
+    const double trackWidth = processorTrackWidth(panel.frame.width);
+    const double valueX =
+        processorValueX(panel.frame.x, panel.frame.width);
+    const double valueRight =
+        valueX + kStandardMetrics.processorValueWidth;
+    const double panelRight = panel.frame.x + panel.frame.width;
+    return processorLabelX(panel.frame.x) >= panel.frame.x
+        && controlX >= panel.frame.x
+        && trackWidth > 0.0
+        && controlX + trackWidth
+            + kStandardMetrics.processorValueGap <= valueX
+        && valueRight
+            <= panelRight - kStandardMetrics.panelRightInset;
+}
+
+constexpr bool panelContainsRect(const Panel& panel, Rect rect)
+{
+    return rect.x >= panel.frame.x
+        && rect.y >= panel.frame.y
+        && rect.x + rect.width
+            <= panel.frame.x + panel.frame.width
+        && rect.y + rect.height
+            <= panel.frame.y + panel.frame.height;
+}
+
 inline constexpr Column kLargeEncoderFirstColumn { 630.0, 250.0, 42.0 };
 inline constexpr Column kLargeEncoderSecondColumn { 896.0, 246.0, 42.0 };
 inline constexpr PanelAnchor kLargeEncoderOutputAnchor {
@@ -287,6 +320,9 @@ inline constexpr PanelAnchor kLargeEncoderTopologyAnchor {
 inline constexpr ControlSlot kLargeEncoderOrderSlot {
     SharedControlRole::AmbisonicOrder, kLargeEncoderOutputAnchor, 1u, 104.0
 };
+
+inline constexpr Column kMacroFirstColumn { 18.0, 352.0, 42.0 };
+inline constexpr Column kMacroSecondColumn { 388.0, 354.0, 42.0 };
 
 inline constexpr PannerFamilyLayout kPannerFamilyLayout {
     { 900.0, 720.0 },
@@ -313,33 +349,49 @@ inline constexpr PannerFamilyLayout kPannerFamilyLayout {
 inline constexpr MacroFamilyLayout kMacroFamilyLayout {
     { 760.0, 496.0 },
     { PluginClass::MacroEffect, PanelRole::Output,
-        { 18.0, 42.0, 352.0, 80.0 }, 36.0, 26.0, 2u },
+        { kMacroFirstColumn.x, 42.0, kMacroFirstColumn.width, 80.0 },
+        36.0, 26.0, 2u },
     { PluginClass::MacroEffect, PanelRole::Engine,
-        { 18.0, 134.0, 352.0, 158.0 }, 36.0, 26.0, 5u },
+        { kMacroFirstColumn.x, 134.0, kMacroFirstColumn.width, 158.0 },
+        36.0, 26.0, 5u },
     { PluginClass::MacroEffect, PanelRole::Engine,
-        { 18.0, 134.0, 352.0, 106.0 }, 36.0, 26.0, 3u },
+        { kMacroFirstColumn.x, 134.0, kMacroFirstColumn.width, 106.0 },
+        36.0, 26.0, 3u },
     { PluginClass::MacroEffect, PanelRole::Relationships,
-        { 388.0, 42.0, 354.0, 158.0 }, 36.0, 26.0, 5u },
-    { PluginClass::MacroEffect, PanelRole::Diagnostics,
-        { 388.0, 212.0, 354.0, 266.0 }, 36.0, 26.0, 0u },
+        { kMacroFirstColumn.x, 304.0, kMacroFirstColumn.width, 158.0 },
+        36.0, 26.0, 5u },
+    { PluginClass::MacroEffect, PanelRole::Relationships,
+        { kMacroFirstColumn.x, 252.0, kMacroFirstColumn.width, 158.0 },
+        36.0, 26.0, 5u },
+    { PluginClass::MacroEffect, PanelRole::LaneRelationships,
+        { kMacroSecondColumn.x, 42.0, kMacroSecondColumn.width, 436.0 },
+        36.0, 26.0, 0u },
 };
 
 inline constexpr MacroShredFamilyLayout kMacroShredFamilyLayout {
-    { 820.0, 558.0 },
+    { 760.0, 620.0 },
     { PluginClass::MacroEffect, PanelRole::Output,
-        { 18.0, 42.0, 380.0, 80.0 }, 36.0, 26.0, 2u },
+        { kMacroFirstColumn.x, 42.0, kMacroFirstColumn.width, 80.0 },
+        36.0, 26.0, 2u },
     { PluginClass::MacroEffect, PanelRole::Engine,
-        { 18.0, 134.0, 380.0, 236.0 }, 36.0, 26.0, 8u },
+        { kMacroFirstColumn.x, 134.0, kMacroFirstColumn.width, 236.0 },
+        36.0, 26.0, 8u },
     { PluginClass::MacroEffect, PanelRole::Relationships,
-        { 416.0, 42.0, 386.0, 158.0 }, 36.0, 26.0, 5u },
-    { PluginClass::MacroEffect, PanelRole::Diagnostics,
-        { 18.0, 382.0, 380.0, 158.0 }, 36.0, 26.0, 0u },
+        { kMacroFirstColumn.x, 382.0, kMacroFirstColumn.width, 158.0 },
+        36.0, 26.0, 5u },
+    { PluginClass::MacroEffect, PanelRole::LaneRelationships,
+        { kMacroSecondColumn.x, 42.0, kMacroSecondColumn.width, 220.0 },
+        36.0, 26.0, 0u },
     { PluginClass::MacroEffect, PanelRole::Utility,
-        { 416.0, 212.0, 386.0, 328.0 }, 36.0, 26.0, 0u },
+        { kMacroSecondColumn.x, 274.0, kMacroSecondColumn.width, 328.0 },
+        36.0, 26.0, 0u },
+    { 496.0, 314.0, 228.0, 10.0 },
+    { 400.0, 340.0, 330.0, 192.0 },
+    { 580.0, 548.0, 144.0, 34.0 },
 };
 
 inline constexpr MacroShredFamilyLayout kMacroShredMonoFamilyLayout {
-    { 416.0, 528.0 },
+    { 416.0, 498.0 },
     { PluginClass::MacroEffect, PanelRole::Output,
         { 18.0, 68.0, 380.0, 80.0 }, 36.0, 26.0, 2u },
     { PluginClass::MacroEffect, PanelRole::Engine,
@@ -347,7 +399,10 @@ inline constexpr MacroShredFamilyLayout kMacroShredMonoFamilyLayout {
     {},
     {},
     { PluginClass::MacroEffect, PanelRole::Utility,
-        { 18.0, 408.0, 380.0, 102.0 }, 36.0, 26.0, 0u },
+        { 18.0, 408.0, 380.0, 72.0 }, 36.0, 26.0, 0u },
+    { 126.0, 446.0, 150.0, 10.0 },
+    {},
+    { 286.0, 436.0, 96.0, 30.0 },
 };
 
 inline constexpr EncoderControlOrder kEngineControlOrder {
@@ -480,7 +535,7 @@ constexpr EncoderTitleBand macroTitleBand(Canvas canvas)
         };
     }
     return {
-        canvas, 18.0, 14.0, 206.0, 13.0,
+        canvas, 18.0, 14.0, 206.0, 14.0,
         { 268.0, 13.0, 124.0, 15.0 },
         { 400.0, 13.0, 48.0, 15.0 },
         { 456.0, 13.0, 48.0, 15.0 },
@@ -532,6 +587,26 @@ constexpr bool encoderTitleBandFits(const EncoderTitleBand& band)
         && band.saveButton.height == band.randomButton.height;
 }
 
+constexpr bool processorTitleBandFits(const EncoderTitleBand& band)
+{
+    const Rect controls[] {
+        band.presetMenu,
+        band.loadButton,
+        band.saveButton,
+    };
+    for (size_t index = 0u; index < 3u; ++index) {
+        if (!rectFitsCanvas(controls[index], band.canvas)) return false;
+        for (size_t other = index + 1u; other < 3u; ++other) {
+            if (rectsOverlap(controls[index], controls[other])) return false;
+        }
+    }
+    return band.presetLabelX < band.presetMenu.x
+        && band.presetMenu.y == band.loadButton.y
+        && band.loadButton.y == band.saveButton.y
+        && band.presetMenu.height == band.loadButton.height
+        && band.loadButton.height == band.saveButton.height;
+}
+
 inline constexpr TemplateOrder kProceduralEncoderTemplate {
     PluginClass::ProceduralEncoder,
     { PanelRole::Output, PanelRole::Engine, PanelRole::Source,
@@ -566,7 +641,7 @@ inline constexpr TemplateOrder kMacroEffectTemplate {
         PanelRole::Utility, PanelRole::None, PanelRole::None,
         PanelRole::None, PanelRole::None },
     4u,
-    { PanelRole::Diagnostics, PanelRole::Utility, PanelRole::None,
+    { PanelRole::LaneRelationships, PanelRole::Utility, PanelRole::None,
         PanelRole::None, PanelRole::None, PanelRole::None,
         PanelRole::None, PanelRole::None },
     2u,

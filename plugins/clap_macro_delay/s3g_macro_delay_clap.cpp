@@ -465,11 +465,10 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
     const auto& family = s3g::gui_layout::kMacroFamilyLayout;
     const auto titleBand = s3g::gui_layout::macroTitleBand(family.canvas);
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    s3g::clap_gui::drawProcessorTitleBand(
+    s3g::clap_gui::drawMacroTitleBand(
         [NSString stringWithFormat:@"s3g MACRO DELAY %uCH", kChannelCount],
         [NSString stringWithUTF8String:_titlePresetName],
-        s3g::clap_gui::peakDbText(pk), titleBand,
-        s3g::clap_gui::softTitleAttrs(), lab, small, style);
+        s3g::clap_gui::peakDbText(pk), titleBand, style);
 
     const auto drawPanel = [&](NSString* name, const s3g::gui_layout::Panel& panel) {
         s3g::clap_gui::drawPanelFrame(
@@ -480,7 +479,7 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
     };
     drawPanel(@"OUTPUT", family.output);
     drawPanel(@"ENGINE", family.delayEngine);
-    drawPanel(@"RELATIONSHIPS", family.relationships);
+    drawPanel(@"RELATIONSHIPS", family.delayRelationships);
     drawPanel(@"LANE DELAY REL", family.preview);
 
     const auto& prm = p->params;
@@ -491,11 +490,11 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
     [self drawSlider:@"TONE" value:[NSString stringWithFormat:@"%.0f%%", prm.tone * 100.0f] norm:prm.tone y:s3g::gui_layout::rowY(family.delayEngine, 2u) panel:family.delayEngine attrs:small];
     [self drawSlider:@"CHR" value:[NSString stringWithFormat:@"%.0f%%", prm.character * 100.0f] norm:prm.character y:s3g::gui_layout::rowY(family.delayEngine, 3u) panel:family.delayEngine attrs:small];
     [self drawSlider:@"SMR" value:[NSString stringWithFormat:@"%.0f%%", prm.smear * 100.0f] norm:prm.smear y:s3g::gui_layout::rowY(family.delayEngine, 4u) panel:family.delayEngine attrs:small];
-    [self drawSlider:@"SPRD" value:[NSString stringWithFormat:@"%.0f%%", prm.spread * 100.0f] norm:prm.spread y:s3g::gui_layout::rowY(family.relationships, 0u) panel:family.relationships attrs:small];
-    [self drawSlider:@"DEV" value:[NSString stringWithFormat:@"%.0f%%", prm.deviation * 100.0f] norm:prm.deviation y:s3g::gui_layout::rowY(family.relationships, 1u) panel:family.relationships attrs:small];
-    [self drawSlider:@"SKW" value:[NSString stringWithFormat:@"%+.2f", prm.skew] norm:(prm.skew + 1.0f) * 0.5f y:s3g::gui_layout::rowY(family.relationships, 2u) panel:family.relationships attrs:small];
-    [self drawSlider:@"CTR" value:[NSString stringWithFormat:@"%.0f%%", prm.center * 100.0f] norm:prm.center y:s3g::gui_layout::rowY(family.relationships, 3u) panel:family.relationships attrs:small];
-    [self drawSlider:@"GLD" value:[NSString stringWithFormat:@"%.0f ms", prm.glideMs] norm:(prm.glideMs - 10.0f) / 1990.0f y:s3g::gui_layout::rowY(family.relationships, 4u) panel:family.relationships attrs:small];
+    [self drawSlider:@"SPRD" value:[NSString stringWithFormat:@"%.0f%%", prm.spread * 100.0f] norm:prm.spread y:s3g::gui_layout::rowY(family.delayRelationships, 0u) panel:family.delayRelationships attrs:small];
+    [self drawSlider:@"DEV" value:[NSString stringWithFormat:@"%.0f%%", prm.deviation * 100.0f] norm:prm.deviation y:s3g::gui_layout::rowY(family.delayRelationships, 1u) panel:family.delayRelationships attrs:small];
+    [self drawSlider:@"SKW" value:[NSString stringWithFormat:@"%+.2f", prm.skew] norm:(prm.skew + 1.0f) * 0.5f y:s3g::gui_layout::rowY(family.delayRelationships, 2u) panel:family.delayRelationships attrs:small];
+    [self drawSlider:@"CTR" value:[NSString stringWithFormat:@"%.0f%%", prm.center * 100.0f] norm:prm.center y:s3g::gui_layout::rowY(family.delayRelationships, 3u) panel:family.delayRelationships attrs:small];
+    [self drawSlider:@"GLD" value:[NSString stringWithFormat:@"%.0f ms", prm.glideMs] norm:(prm.glideMs - 10.0f) / 1990.0f y:s3g::gui_layout::rowY(family.delayRelationships, 4u) panel:family.delayRelationships attrs:small];
 
     [self drawRelationshipPreview:prm rect:NSMakeRect(
         family.preview.frame.x + 12.0, family.preview.frame.y + 32.0,
@@ -509,7 +508,7 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
     const bool outputSlider = _dragSlider == kOutputParamId || _dragSlider == kMixParamId;
     const bool engineSlider = _dragSlider >= kTimeParamId && _dragSlider <= kSmearParamId;
     const auto& panel = outputSlider ? family.output
-        : (engineSlider ? family.delayEngine : family.relationships);
+        : (engineSlider ? family.delayEngine : family.delayRelationships);
     const double controlX = s3g::gui_layout::processorControlX(panel.frame.x);
     const double trackWidth = s3g::gui_layout::processorTrackWidth(panel.frame.width);
     const double n = std::clamp((point.x - controlX) / trackWidth, 0.0, 1.0);
@@ -585,7 +584,7 @@ static NSColor* udColor(int rgb) { return s3g::clap_gui::color(rgb); }
     }
     for (int i = 0; i < 5; ++i) {
         if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
-                s3g::gui_layout::sliderHitRect(family.relationships, i)))) {
+                s3g::gui_layout::sliderHitRect(family.delayRelationships, i)))) {
             beginSlider(relationshipIds[i]);
             return;
         }

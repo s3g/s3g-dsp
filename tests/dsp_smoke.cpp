@@ -1323,7 +1323,6 @@ int main()
         std::cerr << "Ambi Wave Terrain Encoder produced no MIDI output\n";
         return 1;
     }
-
     s3g::AmbiImprintPartitionedConvolver imprintConvolver;
     if (!imprintConvolver.prepare({ 1.0f }, 64u)) {
         std::cerr << "Ambi Imprint convolver did not prepare\n";

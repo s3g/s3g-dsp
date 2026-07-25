@@ -300,6 +300,27 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_spectral_topology_processor_clap
         s3g_24ch_spectral_topology_processor_clap
       COMMENT "Rendering and validating every Processor-family GUI")
+
+    add_custom_target(audit_gui_macro_family
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_delay_clap> org.s3g.s3g-dsp.macro-delay-8ch 760 496 "s3g Macro " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_delay_clap> org.s3g.s3g-dsp.macro-delay-24ch 760 496 "s3g Macro " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_pitch_clap> org.s3g.s3g-dsp.macro-pitch-8ch 760 496 "s3g Macro " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_pitch_clap> org.s3g.s3g-dsp.macro-pitch-24ch 760 496 "s3g Macro " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_shred_mono_clap> org.s3g.s3g-dsp.macro-shred-mono 416 498 "s3g Macro " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_shred_clap> org.s3g.s3g-dsp.macro-shred-8ch 760 620 "s3g Macro " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_shred_clap> org.s3g.s3g-dsp.macro-shred-24ch 760 620 "s3g Macro " responsive
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_macro_delay_clap
+        s3g_24ch_macro_delay_clap
+        s3g_macro_pitch_clap
+        s3g_24ch_macro_pitch_clap
+        s3g_macro_shred_mono_clap
+        s3g_macro_shred_clap
+        s3g_24ch_macro_shred_clap
+      COMMENT "Rendering and validating every Macro-family GUI")
   endif()
 endif()
 

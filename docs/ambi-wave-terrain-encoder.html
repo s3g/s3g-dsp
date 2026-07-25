@@ -26,19 +26,19 @@
       <main class="content" id="content">
         <h1>Ambi Wave Terrain Encoder</h1>
 
-        <p><code>s3g Ambi Encoder Wave Terrain 64</code> is a 64-voice wave-terrain instrument with direct first-through-seventh-order <code>ACN/SN3D</code> ambisonic output. Each voice selects a region of one shared AED terrain, scans a closed contour there, and uses that contour as its oscillator waveform.</p>
+        <p><code>s3g Ambi Encoder Wave Terrain</code> is a 64-voice wave-terrain instrument with direct first-through-seventh-order <code>ACN/SN3D</code> ambisonic output. Each voice selects a region of one shared AED terrain, scans a closed contour there, and uses that contour as its oscillator waveform.</p>
 
         <p>The scan coordinates have two linked readings. Terrain height along the contour becomes sound, while each scan sample's longitude, latitude, and terrain height become azimuth, elevation, and distance. A voice therefore sounds and occupies the same place in the terrain model.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Ambi Encoder Wave Terrain 64</code> on a 64-channel REAPER track.</li>
+          <li>Insert <code>s3g Ambi Encoder Wave Terrain</code> on a 64-channel REAPER track.</li>
           <li>Use <code>FREE</code> mode for a sustained terrain oscillator bank, <code>MIDI</code> mode for note-triggered voices, or <code>BOTH</code>.</li>
           <li>Use the <code>FORM</code>, <code>SKIN</code>, <code>WARP</code>, and <code>READ</code> terrain tabs to construct and interpret the surface.</li>
           <li>Shape each contour with <code>TRACE</code> and its curved or polygon-specific controls.</li>
           <li>Compose movement with the selection <code>LAW</code>, transition <code>JOIN</code>, time-field controls, and optional <code>LISTEN</code> mode.</li>
-          <li>Set <code>ORDER</code>, <code>VOICES</code>, and the AED projection controls.</li>
+          <li>Set <code>ORDER</code>, integer <code>VOICES</code>, and the AED projection controls.</li>
           <li>Follow with an ambisonic decoder or energy meter.</li>
         </ol>
 
@@ -60,8 +60,8 @@
             <tr><td>TERRACE / STEPS</td><td>Quantizes terrain height into a controllable number of plateaus.</td></tr>
             <tr><td>RIDGE / ERODE</td><td>Sharpens ridge structure or compresses exposed peaks.</td></tr>
             <tr><td>DOMAIN / TWIST</td><td>Warps the terrain coordinates or progressively rotates longitude by latitude.</td></tr>
-            <tr><td>READ</td><td>Derives the waveform as Height, Edge, Curvature, Blend, Gradient, Ridge, Valley, Normal, Cross, or Vector data.</td></tr>
-            <tr><td>MIX</td><td>Balances height with the derived data in Blend and Vector modes.</td></tr>
+            <tr><td>READ</td><td>Derives the waveform as Height, Edge, Curvature, Blend, Gradient, Ridge, Valley, Normal, or Cross data.</td></tr>
+            <tr><td>MIX</td><td>Balances height with the derived data in Blend mode.</td></tr>
           </tbody>
         </table>
 
@@ -77,7 +77,9 @@
 
         <h2 id="voice-model">Voice Model</h2>
 
-        <p><code>FREE</code> mode sustains the voice field. With <code>PITCH: NOTE</code>, <code>BASE</code> sets its center note. With <code>PITCH: TRAVEL</code>, <code>BASE</code> calibrates scan velocity and the measured 3D length of each contour determines frequency: larger or rougher paths take longer and sound lower. <code>SCALE</code> can leave that result Free or constrain it to Chromatic, Major, Minor, Pentatonic, Whole Tone, or Harmonic Minor intervals rooted at <code>BASE</code>. Quantization happens after contour measurement but before <code>TUNE</code> and per-voice <code>DETUNE</code>, preserving fine movement around each permitted pitch. <code>SPREAD</code> varies scan velocity across voices. <code>MIDI</code> mode retains incoming note pitch and uses the ADSR controls; <code>BOTH</code> layers both behaviors.</p>
+        <p><code>VOICES</code> is an integer from 1 to 64. There is no separate monophonic/polyphonic trigger selector; Wave Terrain keeps its established voice and envelope behavior.</p>
+
+        <p><code>FREE</code> mode sustains the voice field. With <code>PITCH: NOTE</code>, <code>BASE</code> sets its center note. With <code>PITCH: TRAVEL</code>, <code>BASE</code> calibrates scan velocity and the measured 3D length of each contour determines frequency: larger or rougher paths take longer and sound lower. <code>SCALE</code> can leave that result Free or constrain it to any scale in the expanded menu rooted at <code>BASE</code>. Quantization happens after contour measurement but before <code>TUNE</code> and per-voice <code>DETUNE</code>, preserving fine movement around each permitted pitch. <code>SPREAD</code> varies scan velocity across voices. <code>MIDI</code> mode retains incoming note pitch and uses the ADSR controls; <code>BOTH</code> layers both behaviors.</p>
 
         <h2 id="spatial-model">Spatial Model</h2>
 
@@ -87,7 +89,7 @@
 
         <p><code>TERRAIN VOICE FIELD</code> uses neutral relief lighting for the shared surface. Every white line is an active waveform-reading contour moving across the terrain, and its bright point is the voice's actual AED center. Click anywhere along a contour to select its voice. The selected voice also shows faint cyan and magenta references for its current and next regions.</p>
 
-        <p><code>TERRAIN TO WAVEFORM</code> places the sampled scan profile above the interpreted oscillator waveform. The profile begins with the contour's geometric carrier and morphs toward terrain height by <code>DEPTH × RELIEF</code>. A circular Orbit over a smooth sphere therefore produces a low-harmonic sinusoidal profile rather than retaining hidden terrain detail. Edge, Curvature, Ridge, and Valley are derived along the displayed profile. Gradient and Normal inspect the local two-dimensional surface, Cross compares terrain on both sides of the trace, and Vector combines these readings.</p>
+        <p><code>TERRAIN TO WAVEFORM</code> places the sampled scan profile above the interpreted oscillator waveform. The profile begins with the contour's geometric carrier and morphs toward terrain height by <code>DEPTH × RELIEF</code>. A circular Orbit over a smooth sphere therefore produces a low-harmonic sinusoidal profile rather than retaining hidden terrain detail. Edge, Curvature, Ridge, and Valley are derived along the displayed profile. Gradient and Normal inspect the local two-dimensional surface, and Cross compares terrain on both sides of the trace.</p>
 
         <h2 id="routing">Order and Routing</h2>
 

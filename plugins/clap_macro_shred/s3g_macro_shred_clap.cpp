@@ -43,11 +43,8 @@ constexpr bool kPassExtraHostChannels = kChannelCount >= 24;
 #endif
 
 constexpr uint32_t kStateVersion = 2;
-constexpr uint32_t kGuiWidth = kChannelCount == 1u ? 416u : 820u;
-constexpr uint32_t kGuiHeight = kChannelCount == 1u ? 502u : 558u;
-constexpr double kEngineTrackX = 166.0;
-constexpr double kRelationshipTrackX = 528.0;
-constexpr double kSliderTrackWidth = 150.0;
+constexpr uint32_t kGuiWidth = kChannelCount == 1u ? 416u : 760u;
+constexpr uint32_t kGuiHeight = kChannelCount == 1u ? 498u : 620u;
 
 constexpr clap_id kInputParamId = 1;
 constexpr clap_id kPressureParamId = 2;
@@ -87,6 +84,7 @@ struct Plugin {
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
 
@@ -316,7 +314,7 @@ constexpr ParamDef kParamDefs[] {
     { kGlideParamId, "Glide", 10.0, 2000.0, 250.0 },
 #endif
     { kMixParamId, "Mix", 0.0, 1.0, 0.65 },
-    { kOutputParamId, "Output", -60.0, 6.0, -3.0 },
+    { kOutputParamId, "Out", -60.0, 6.0, -3.0 },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(sizeof(kParamDefs) / sizeof(kParamDefs[0])); }
@@ -445,11 +443,11 @@ const clap_plugin_tail_t tailExt { tailGet };
 #else
 #define S3GMacroShredView S3GMacroShred24View
 #endif
-@interface S3GMacroShredView : NSView { void* _plugin; int _dragSlider; NSTimer* _timer; }
+@interface S3GMacroShredView : NSView { void* _plugin; int _dragSlider; NSTimer* _timer; char _titlePresetName[64]; }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
-- (void)drawEngineSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs;
+- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs;
 - (void)drawRelationshipPreview:(const s3g::MacroShredParams&)params rect:(NSRect)rect attrs:(NSDictionary*)attrs;
 - (void)updateSlider:(NSPoint)point;
 @end
@@ -464,6 +462,7 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
         _plugin = plugin;
         _dragSlider = -1;
         _timer = nil;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
     }
     return self;
 }
@@ -487,11 +486,12 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
     (void)timer;
     if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES];
 }
-- (void)drawEngineSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs
+- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs
 {
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, attrs, style,
-        64, kEngineTrackX, 368, kSliderTrackWidth);
+    s3g::clap_gui::drawProcessorSlider(
+        name, value, norm, y, panel.frame.x, panel.frame.width,
+        attrs, attrs, style);
 }
 - (void)drawRelationshipPreview:(const s3g::MacroShredParams&)params rect:(NSRect)rect attrs:(NSDictionary*)attrs
 {
@@ -512,7 +512,13 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
         const float shift = centered * params.spread * 1.5f + random * params.deviation * 0.75f + params.skew * (u - 0.5f) * 0.75f;
         const float norm = std::clamp(0.5f + shift * 0.22f, 0.0f, 1.0f);
         const CGFloat y = baseY + static_cast<CGFloat>(ch) * rowH;
-        [[NSString stringWithFormat:@"L%u", ch + 1u] drawAtPoint:NSMakePoint(labelX, y - 4.0) withAttributes:attrs];
+        const uint32_t labelStride = std::max<uint32_t>(
+            1u, (kChannelCount + 7u) / 8u);
+        if (ch % labelStride == 0u || ch + 1u == kChannelCount) {
+            [[NSString stringWithFormat:@"L%u", ch + 1u]
+                drawAtPoint:NSMakePoint(labelX, y - 4.0)
+                withAttributes:attrs];
+        }
         NSRect track = NSMakeRect(barX, y, barW, 6.0);
         [shredColor(0x171717) setFill]; NSRectFill(track);
         [shredColor(0x333333) setStroke]; NSFrameRect(track);
@@ -529,40 +535,46 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
     [style.bg setFill]; NSRectFill([self bounds]);
     NSDictionary* label = s3g::clap_gui::softLabelAttrs();
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
-    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
-    [@"s3g MACRO SHRED" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
-    const CGFloat peakX = kChannelCount == 1u ? 264.0 : 666.0;
-    const CGFloat channelX = kChannelCount == 1u ? 368.0 : 768.0;
-    [s3g::clap_gui::peakDbText(p->outputPeak.load(std::memory_order_relaxed)) drawAtPoint:NSMakePoint(peakX, 14) withAttributes:small];
-    [[NSString stringWithFormat:@"%uCH", kChannelCount] drawAtPoint:NSMakePoint(channelX, 14) withAttributes:small];
+    const auto& family = kChannelCount == 1u
+        ? s3g::gui_layout::kMacroShredMonoFamilyLayout
+        : s3g::gui_layout::kMacroShredFamilyLayout;
+    const auto titleBand = s3g::gui_layout::macroTitleBand(family.canvas);
+    NSString* title = kChannelCount == 1u
+        ? @"s3g MACRO SHRED MONO"
+        : [NSString stringWithFormat:@"s3g MACRO SHRED %uCH", kChannelCount];
+    s3g::clap_gui::drawMacroTitleBand(
+        title,
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(
+            p->outputPeak.load(std::memory_order_relaxed)),
+        titleBand, style);
 
-    s3g::clap_gui::drawPanelFrame(18, 42, 380, 266, style);
-    s3g::clap_gui::drawPanelHeader(@"VOICE INPUT", true, 18, 42, 380, 21, label, style);
-    if constexpr (kChannelCount == 1u) {
-        s3g::clap_gui::drawPanelFrame(18, 320, 380, 92, style);
-        s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 18, 320, 380, 21, label, style);
-        s3g::clap_gui::drawPanelFrame(18, 424, 380, 60, style);
-        s3g::clap_gui::drawPanelHeader(@"CONTAINMENT", true, 18, 424, 380, 21, label, style);
-    } else {
-        s3g::clap_gui::drawPanelFrame(18, 320, 380, 220, style);
-        s3g::clap_gui::drawPanelHeader(@"LANE COLOR REL", true, 18, 320, 380, 21, label, style);
-        s3g::clap_gui::drawPanelFrame(416, 42, 386, 166, style);
-        s3g::clap_gui::drawPanelHeader(@"RELATIONSHIPS", true, 416, 42, 386, 21, label, style);
-        s3g::clap_gui::drawPanelFrame(416, 220, 386, 92, style);
-        s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 416, 220, 386, 21, label, style);
-        s3g::clap_gui::drawPanelFrame(416, 324, 386, 216, style);
-        s3g::clap_gui::drawPanelHeader(@"CONTAINMENT", true, 416, 324, 386, 21, label, style);
+    const auto drawPanel = [&](NSString* name, const s3g::gui_layout::Panel& panel) {
+        s3g::clap_gui::drawPanelFrame(
+            panel.frame.x, panel.frame.y, panel.frame.width, panel.frame.height, style);
+        s3g::clap_gui::drawPanelHeader(
+            name, true, panel.frame.x, panel.frame.y, panel.frame.width,
+            s3g::gui_layout::kStandardMetrics.headerHeight, label, style);
+    };
+    drawPanel(@"OUTPUT", family.output);
+    drawPanel(@"ENGINE", family.engine);
+    drawPanel(@"CONTAINMENT", family.containment);
+    if constexpr (kChannelCount > 1u) {
+        drawPanel(@"RELATIONSHIPS", family.relationships);
+        drawPanel(@"LANE COLOR REL", family.preview);
     }
 
     const auto& prm = p->params;
-    [self drawEngineSlider:@"INPUT" value:[NSString stringWithFormat:@"%+.1f", prm.inputGainDb] norm:(prm.inputGainDb + 24.0f) / 60.0f y:78 attrs:small];
-    [self drawEngineSlider:@"PRS" value:[NSString stringWithFormat:@"%.0f%%", prm.pressure * 100.0f] norm:prm.pressure y:104 attrs:small];
-    [self drawEngineSlider:@"SHRED" value:[NSString stringWithFormat:@"%.0f%%", prm.shred * 100.0f] norm:prm.shred y:130 attrs:small];
-    [self drawEngineSlider:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback y:156 attrs:small];
-    [self drawEngineSlider:@"COLOR" value:[NSString stringWithFormat:@"%.0f%%", prm.color * 100.0f] norm:prm.color y:182 attrs:small];
-    [self drawEngineSlider:@"REACT" value:[NSString stringWithFormat:@"%.0f%%", prm.react * 100.0f] norm:prm.react y:208 attrs:small];
-    [self drawEngineSlider:@"TUNE" value:[NSString stringWithFormat:@"%.0f%%", prm.tune * 100.0f] norm:prm.tune y:234 attrs:small];
-    [self drawEngineSlider:@"BODY" value:[NSString stringWithFormat:@"%.0f%%", prm.body * 100.0f] norm:prm.body y:260 attrs:small];
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.outputGainDb] norm:(prm.outputGainDb + 60.0f) / 66.0f y:s3g::gui_layout::rowY(family.output, 0u) panel:family.output attrs:small];
+    [self drawSlider:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:s3g::gui_layout::rowY(family.output, 1u) panel:family.output attrs:small];
+    [self drawSlider:@"INPUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.inputGainDb] norm:(prm.inputGainDb + 24.0f) / 60.0f y:s3g::gui_layout::rowY(family.engine, 0u) panel:family.engine attrs:small];
+    [self drawSlider:@"PRS" value:[NSString stringWithFormat:@"%.0f%%", prm.pressure * 100.0f] norm:prm.pressure y:s3g::gui_layout::rowY(family.engine, 1u) panel:family.engine attrs:small];
+    [self drawSlider:@"SHRED" value:[NSString stringWithFormat:@"%.0f%%", prm.shred * 100.0f] norm:prm.shred y:s3g::gui_layout::rowY(family.engine, 2u) panel:family.engine attrs:small];
+    [self drawSlider:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback y:s3g::gui_layout::rowY(family.engine, 3u) panel:family.engine attrs:small];
+    [self drawSlider:@"COLOR" value:[NSString stringWithFormat:@"%.0f%%", prm.color * 100.0f] norm:prm.color y:s3g::gui_layout::rowY(family.engine, 4u) panel:family.engine attrs:small];
+    [self drawSlider:@"REACT" value:[NSString stringWithFormat:@"%.0f%%", prm.react * 100.0f] norm:prm.react y:s3g::gui_layout::rowY(family.engine, 5u) panel:family.engine attrs:small];
+    [self drawSlider:@"TUNE" value:[NSString stringWithFormat:@"%.0f%%", prm.tune * 100.0f] norm:prm.tune y:s3g::gui_layout::rowY(family.engine, 6u) panel:family.engine attrs:small];
+    [self drawSlider:@"BODY" value:[NSString stringWithFormat:@"%.0f%%", prm.body * 100.0f] norm:prm.body y:s3g::gui_layout::rowY(family.engine, 7u) panel:family.engine attrs:small];
 
     NSRect loopTrack;
     NSRect panicRect;
@@ -570,24 +582,39 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
     NSString* loopText = loopHz >= 1000.0f
         ? [NSString stringWithFormat:@"LOOP %.1fK", loopHz * 0.001f]
         : [NSString stringWithFormat:@"LOOP %.0f", loopHz];
-    if constexpr (kChannelCount == 1u) {
-        s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 66.0f, 356, small, small, style, 28, kEngineTrackX, 368, kSliderTrackWidth);
-        s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 382, small, small, style, 28, kEngineTrackX, 368, kSliderTrackWidth);
-        [loopText drawAtPoint:NSMakePoint(30, 456) withAttributes:label];
-        loopTrack = NSMakeRect(120, 458, 90, 10);
-        panicRect = NSMakeRect(238, 449, 142, 26);
-    } else {
-        s3g::clap_gui::drawSlider(@"SPRD", [NSString stringWithFormat:@"%.0f%%", prm.spread * 100.0f], prm.spread, 78, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
-        s3g::clap_gui::drawSlider(@"DEV", [NSString stringWithFormat:@"%.0f%%", prm.deviation * 100.0f], prm.deviation, 104, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
-        s3g::clap_gui::drawSlider(@"SKW", [NSString stringWithFormat:@"%+.2f", prm.skew], (prm.skew + 1.0f) * 0.5f, 130, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
-        s3g::clap_gui::drawSlider(@"CTR", [NSString stringWithFormat:@"%.0f%%", prm.center * 100.0f], prm.center, 156, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
-        s3g::clap_gui::drawSlider(@"GLD", [NSString stringWithFormat:@"%.0f", prm.glideMs], (prm.glideMs - 10.0f) / 1990.0f, 182, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
-        s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", prm.outputGainDb], (prm.outputGainDb + 60.0f) / 66.0f, 256, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
-        s3g::clap_gui::drawSlider(@"MIX", [NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f], prm.mix, 282, small, small, style, 426, kRelationshipTrackX, 754, kSliderTrackWidth);
-        [self drawRelationshipPreview:prm rect:NSMakeRect(30, 352, 356, 176) attrs:small];
-        [loopText drawAtPoint:NSMakePoint(438, 374) withAttributes:label];
-        loopTrack = NSMakeRect(528, 376, 226, 10);
-        panicRect = NSMakeRect(610, 424, 144, 34);
+    loopTrack = s3g::clap_gui::cocoaRect(family.containmentMeter);
+    panicRect = s3g::clap_gui::cocoaRect(family.panicButton);
+    [loopText drawAtPoint:NSMakePoint(
+        family.containment.frame.x + 16.0,
+        family.containmentMeter.y - 2.0)
+        withAttributes:label];
+    if constexpr (kChannelCount > 1u) {
+        [self drawSlider:@"SPRD" value:[NSString stringWithFormat:@"%.0f%%", prm.spread * 100.0f] norm:prm.spread y:s3g::gui_layout::rowY(family.relationships, 0u) panel:family.relationships attrs:small];
+        [self drawSlider:@"DEV" value:[NSString stringWithFormat:@"%.0f%%", prm.deviation * 100.0f] norm:prm.deviation y:s3g::gui_layout::rowY(family.relationships, 1u) panel:family.relationships attrs:small];
+        [self drawSlider:@"SKW" value:[NSString stringWithFormat:@"%+.2f", prm.skew] norm:(prm.skew + 1.0f) * 0.5f y:s3g::gui_layout::rowY(family.relationships, 2u) panel:family.relationships attrs:small];
+        [self drawSlider:@"CTR" value:[NSString stringWithFormat:@"%.0f%%", prm.center * 100.0f] norm:prm.center y:s3g::gui_layout::rowY(family.relationships, 3u) panel:family.relationships attrs:small];
+        [self drawSlider:@"GLD" value:[NSString stringWithFormat:@"%.0f ms", prm.glideMs] norm:(prm.glideMs - 10.0f) / 1990.0f y:s3g::gui_layout::rowY(family.relationships, 4u) panel:family.relationships attrs:small];
+        [self drawRelationshipPreview:prm rect:NSMakeRect(
+            family.preview.frame.x + 12.0, family.preview.frame.y + 32.0,
+            family.preview.frame.width - 24.0, family.preview.frame.height - 44.0)
+            attrs:small];
+
+        NSRect containmentField =
+            s3g::clap_gui::cocoaRect(family.containmentField);
+        [shredColor(0x111111) setFill]; NSRectFill(containmentField);
+        [shredColor(0x444444) setStroke]; NSFrameRect(containmentField);
+        const CGFloat activity = std::clamp<CGFloat>(
+            p->loopActivity.load(std::memory_order_relaxed), 0.0, 1.0);
+        for (int ring = 0; ring < 5; ++ring) {
+            const CGFloat inset = 18.0 + static_cast<CGFloat>(ring) * 18.0;
+            [s3g::clap_gui::color(0x333333 + ring * 0x080808,
+                0.35 + activity * 0.45) setStroke];
+            NSFrameRect(NSInsetRect(containmentField, inset, inset * 0.55));
+        }
+        [@"FEEDBACK CONTAINMENT" drawAtPoint:NSMakePoint(
+            containmentField.origin.x + 12.0,
+            NSMaxY(containmentField) - 26.0)
+            withAttributes:small];
     }
     [shredColor(0x111111) setFill]; NSRectFill(loopTrack);
     [shredColor(0x444444) setStroke]; NSFrameRect(loopTrack);
@@ -597,14 +624,29 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
 
     [shredColor(0x161616) setFill]; NSRectFill(panicRect);
     [shredColor(0x565656) setStroke]; NSFrameRect(panicRect);
-    [@"PANIC" drawInRect:NSInsetRect(panicRect, 46, kChannelCount == 1u ? 5 : 9) withAttributes:label];
+    const NSSize panicTextSize = [@"PANIC" sizeWithAttributes:label];
+    [@"PANIC" drawAtPoint:NSMakePoint(
+        panicRect.origin.x + (panicRect.size.width - panicTextSize.width) * 0.5,
+        panicRect.origin.y + (panicRect.size.height - panicTextSize.height) * 0.5)
+        withAttributes:label];
 }
 - (void)updateSlider:(NSPoint)point
 {
     auto* p = static_cast<Plugin*>(_plugin);
+    const auto& family = kChannelCount == 1u
+        ? s3g::gui_layout::kMacroShredMonoFamilyLayout
+        : s3g::gui_layout::kMacroShredFamilyLayout;
+    const bool outputSlider =
+        _dragSlider == kMixParamId || _dragSlider == kOutputParamId;
     const bool engineSlider = (_dragSlider >= 1 && _dragSlider <= 7) || _dragSlider == kTuneParamId;
+    const auto& panel = outputSlider ? family.output
+        : (engineSlider ? family.engine : family.relationships);
+    const double controlX = s3g::gui_layout::processorControlX(panel.frame.x);
+    const double trackWidth =
+        s3g::gui_layout::processorTrackWidth(panel.frame.width);
+    const double n = std::clamp(
+        (point.x - controlX) / trackWidth, 0.0, 1.0);
     if (engineSlider) {
-        const double n = std::clamp((point.x - kEngineTrackX) / kSliderTrackWidth, 0.0, 1.0);
         switch (_dragSlider) {
         case 1: applyParam(*p, kInputParamId, -24.0 + n * 60.0); break;
         case 2: applyParam(*p, kPressureParamId, n); break;
@@ -616,23 +658,16 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
         case kTuneParamId: applyParam(*p, kTuneParamId, n); break;
         default: break;
         }
-    } else if (_dragSlider >= 8 && _dragSlider <= 14) {
-        if constexpr (kChannelCount == 1u) {
-            const double n = std::clamp((point.x - kEngineTrackX) / kSliderTrackWidth, 0.0, 1.0);
-            if (_dragSlider == 13) applyParam(*p, kMixParamId, n);
-            else if (_dragSlider == 14) applyParam(*p, kOutputParamId, -60.0 + n * 66.0);
-        } else {
-            const double n = std::clamp((point.x - kRelationshipTrackX) / kSliderTrackWidth, 0.0, 1.0);
-            switch (_dragSlider) {
-            case 8: applyParam(*p, kSpreadParamId, n); break;
-            case 9: applyParam(*p, kDeviationParamId, n); break;
-            case 10: applyParam(*p, kSkewParamId, -1.0 + n * 2.0); break;
-            case 11: applyParam(*p, kCenterParamId, n); break;
-            case 12: applyParam(*p, kGlideParamId, 10.0 + n * 1990.0); break;
-            case 13: applyParam(*p, kMixParamId, n); break;
-            case 14: applyParam(*p, kOutputParamId, -60.0 + n * 66.0); break;
-            default: break;
-            }
+    } else {
+        switch (_dragSlider) {
+        case kSpreadParamId: applyParam(*p, kSpreadParamId, n); break;
+        case kDeviationParamId: applyParam(*p, kDeviationParamId, n); break;
+        case kSkewParamId: applyParam(*p, kSkewParamId, -1.0 + n * 2.0); break;
+        case kCenterParamId: applyParam(*p, kCenterParamId, n); break;
+        case kGlideParamId: applyParam(*p, kGlideParamId, 10.0 + n * 1990.0); break;
+        case kMixParamId: applyParam(*p, kMixParamId, n); break;
+        case kOutputParamId: applyParam(*p, kOutputParamId, -60.0 + n * 66.0); break;
+        default: break;
         }
     }
     [self setNeedsDisplay:YES];
@@ -640,51 +675,64 @@ static NSColor* shredColor(int rgb) { return s3g::clap_gui::color(rgb); }
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    const NSRect panicRect = kChannelCount == 1u
-        ? NSMakeRect(238, 449, 142, 26)
-        : NSMakeRect(610, 424, 144, 34);
-    if (NSPointInRect(point, panicRect)) {
-        static_cast<Plugin*>(_plugin)->panicRequested.store(true, std::memory_order_release);
+    auto* p = static_cast<Plugin*>(_plugin);
+    const auto& family = kChannelCount == 1u
+        ? s3g::gui_layout::kMacroShredMonoFamilyLayout
+        : s3g::gui_layout::kMacroShredFamilyLayout;
+    const auto titleBand = s3g::gui_layout::macroTitleBand(family.canvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            point, &p->plugin, @"Macro Shred", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
         [self setNeedsDisplay:YES];
         return;
     }
-    const CGFloat engineRows[] = { 78, 104, 130, 156, 182, 208, 234, 260 };
-    const int engineParamIds[] = {
+    const NSRect panicRect =
+        s3g::clap_gui::cocoaRect(family.panicButton);
+    if (NSPointInRect(point, panicRect)) {
+        p->panicRequested.store(true, std::memory_order_release);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    const clap_id engineParamIds[] = {
         kInputParamId, kPressureParamId, kShredParamId, kFeedbackParamId,
         kColorParamId, kReactParamId, kTuneParamId, kBodyParamId
     };
-    const CGFloat relationshipRows[] = { 78, 104, 130, 156, 182 };
-    const CGFloat outputRows[] = { 256, 282 };
-    for (int i = 0; i < 8; ++i) {
-        if (NSPointInRect(point, NSMakeRect(60, engineRows[i] - 8, 326, 24))) {
-            _dragSlider = engineParamIds[i];
+    const clap_id relationshipParamIds[] = {
+        kSpreadParamId, kDeviationParamId, kSkewParamId,
+        kCenterParamId, kGlideParamId
+    };
+    const clap_id outputParamIds[] = { kOutputParamId, kMixParamId };
+    const auto beginSlider = [&](clap_id paramId) {
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, paramId, &defaultValue)) {
+            applyParam(*p, paramId, defaultValue);
+            _dragSlider = -1;
+        } else {
+            _dragSlider = static_cast<int>(paramId);
             [self updateSlider:point];
+        }
+        [self setNeedsDisplay:YES];
+    };
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::sliderHitRect(family.output, i)))) {
+            beginSlider(outputParamIds[i]);
+            return;
+        }
+    }
+    for (int i = 0; i < 8; ++i) {
+        if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::sliderHitRect(family.engine, i)))) {
+            beginSlider(engineParamIds[i]);
             return;
         }
     }
     if constexpr (kChannelCount > 1u) {
         for (int i = 0; i < 5; ++i) {
-            if (NSPointInRect(point, NSMakeRect(422, relationshipRows[i] - 8, 344, 24))) {
-                _dragSlider = i + 8;
-                [self updateSlider:point];
-                return;
-            }
-        }
-    }
-    if constexpr (kChannelCount == 1u) {
-        const CGFloat monoOutputRows[] = { 356, 382 };
-        for (int i = 0; i < 2; ++i) {
-            if (NSPointInRect(point, NSMakeRect(24, monoOutputRows[i] - 8, 362, 24))) {
-                _dragSlider = i == 0 ? 14 : 13;
-                [self updateSlider:point];
-                return;
-            }
-        }
-    } else {
-        for (int i = 0; i < 2; ++i) {
-            if (NSPointInRect(point, NSMakeRect(422, outputRows[i] - 8, 344, 24))) {
-                _dragSlider = i == 0 ? 14 : 13;
-                [self updateSlider:point];
+            if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
+                    s3g::gui_layout::sliderHitRect(family.relationships, i)))) {
+                beginSlider(relationshipParamIds[i]);
                 return;
             }
         }
@@ -716,57 +764,63 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     auto* p = self(plugin);
     if (p->guiView) return true;
     p->guiView = [[S3GMacroShredView alloc] initWithPlugin:p];
-    return p->guiView != nullptr;
+    if (!p->guiView) return false;
+    if (!s3g::clap_gui::createResponsiveViewport(
+            p->guiViewport, static_cast<NSView*>(p->guiView),
+            kGuiWidth, kGuiHeight)) {
+        [static_cast<NSView*>(p->guiView) release];
+        p->guiView = nullptr;
+        return false;
+    }
+    return true;
 }
 void guiDestroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
     if (p->guiView) {
         p->guiVisible = false;
-        auto* view = static_cast<S3GMacroShredView*>(p->guiView);
-        [view stopRefreshTimer];
-        [view removeFromSuperview];
-        [view release];
-        p->guiView = nullptr;
+        [static_cast<S3GMacroShredView*>(p->guiView) stopRefreshTimer];
+        s3g::clap_gui::destroyResponsiveViewport(
+            p->guiViewport, p->guiView);
     }
 }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* width, uint32_t* height)
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
 {
-    if (!width || !height) return false;
-    *width = kGuiWidth;
-    *height = kGuiHeight;
-    return true;
+    return s3g::clap_gui::getResponsiveViewportSize(
+        self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height);
 }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints)
+{
+    return s3g::clap_gui::getResponsiveResizeHints(hints);
+}
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
+{
+    return s3g::clap_gui::adjustResponsiveViewportSize(
+        self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height);
+}
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
 {
-    auto* p = self(plugin);
-    if (!p->guiView) return false;
-    [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(width, height)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportSize(
+        self(plugin)->guiViewport, width, height);
 }
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
 {
     if (!window || std::strcmp(window->api, CLAP_WINDOW_API_COCOA) != 0 || !window->cocoa) return false;
     auto* p = self(plugin);
-    if (!p->guiView) return false;
-    NSView* parent = static_cast<NSView*>(window->cocoa);
-    NSView* view = static_cast<NSView*>(p->guiView);
-    [parent addSubview:view];
-    [view setFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportParent(
+        p->guiViewport, static_cast<NSView*>(window->cocoa), p->host);
 }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
-    if (!p->guiView) return false;
+    if (!p->guiView
+        || !s3g::clap_gui::setResponsiveViewportHidden(
+            p->guiViewport, false)) return false;
     p->guiVisible = true;
-    [static_cast<NSView*>(p->guiView) setHidden:NO];
     [static_cast<S3GMacroShredView*>(p->guiView) startRefreshTimer];
     return true;
 }
@@ -776,8 +830,8 @@ bool guiHide(const clap_plugin_t* plugin)
     if (!p->guiView) return false;
     p->guiVisible = false;
     [static_cast<S3GMacroShredView*>(p->guiView) stopRefreshTimer];
-    [static_cast<NSView*>(p->guiView) setHidden:YES];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportHidden(
+        p->guiViewport, true);
 }
 const clap_plugin_gui_t guiExt {
     guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale,

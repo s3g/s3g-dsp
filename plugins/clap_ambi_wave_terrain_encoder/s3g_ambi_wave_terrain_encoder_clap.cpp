@@ -518,6 +518,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
 {
     if (!display || size == 0u) return false;
     if (id == kOrderParamId) std::snprintf(display, size, "%.0fOA", value);
+    else if (id == kVoicesParamId) std::snprintf(display, size, "%.0f", value);
     else if (id == kModeParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainModeName(static_cast<s3g::AmbiWaveTerrainMode>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kTerrainFormParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainFormName(static_cast<s3g::AmbiWaveTerrainForm>(static_cast<uint32_t>(std::lround(value)))));
     else if (id == kSkinParamId) std::snprintf(display, size, "%s", s3g::ambiWaveTerrainSkinName(static_cast<s3g::AmbiWaveTerrainSkin>(static_cast<uint32_t>(std::lround(value)))));
