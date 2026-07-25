@@ -26,7 +26,7 @@ namespace {
 
 constexpr uint32_t kChannelCount = 64;
 constexpr uint32_t kGuiWidth = 980;
-constexpr uint32_t kGuiHeight = 520;
+constexpr uint32_t kGuiHeight = 560;
 constexpr uint32_t kStateVersion = 3;
 constexpr clap_id kVisibleChannelsParamId = 1;
 constexpr clap_id kViewModeParamId = 2;
@@ -422,6 +422,7 @@ const clap_plugin_state_t stateExt {
     NSPoint _lastDragPoint;
     std::array<std::array<float, 144>, kChannelCount> _history;
     uint32_t _historyWrite;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
@@ -595,6 +596,7 @@ static MeterFieldLayout makeFieldLayout(uint32_t requestedLayout, uint32_t visib
         _viewZoom = 1.0;
         _lastDragPoint = NSMakePoint(0, 0);
         _historyWrite = 0;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
         for (auto& lane : _history) lane.fill(0.0f);
     }
     return self;
@@ -688,24 +690,27 @@ static MeterFieldLayout makeFieldLayout(uint32_t requestedLayout, uint32_t visib
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
 
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
-    NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
-    NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
 
     const NSRect bounds = [self bounds];
     const CGFloat viewW = std::max<CGFloat>(720.0, bounds.size.width);
     const CGFloat viewH = std::max<CGFloat>(420.0, bounds.size.height);
 
-    [@"s3g MULTICHANNEL METER" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
     const uint32_t active = p->activeChannels.load(std::memory_order_relaxed);
     const uint32_t visible = std::clamp<uint32_t>(p->visibleChannels.load(std::memory_order_relaxed), 1u, kChannelCount);
     const uint32_t mode = std::clamp<uint32_t>(p->viewMode.load(std::memory_order_relaxed), 0u, 2u);
     const uint32_t selectedLayout = std::clamp<uint32_t>(p->layout.load(std::memory_order_relaxed), 0u, kMeterLayoutCount - 1u);
-    [[NSString stringWithFormat:@"%u/%uCH", active, visible] drawAtPoint:NSMakePoint(viewW - 104.0,14) withAttributes:small];
+    const auto titleBand = s3g::gui_layout::analyzerTitleBand(
+        { viewW, viewH });
+    s3g::clap_gui::drawAnalyzerTitleBand(
+        @"s3g ANALYZER METER 64CH",
+        [NSString stringWithUTF8String:_titlePresetName],
+        [NSString stringWithFormat:@"%u/%uCH", active, visible],
+        titleBand, style);
 
-    const NSRect bar = NSMakeRect(18, 38, viewW - 36, 34);
+    const NSRect bar = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::analyzerToolbarRect({ viewW, viewH }));
     s3g::clap_gui::drawPanelFrame(bar.origin.x, bar.origin.y, bar.size.width, bar.size.height, style);
     [style.strip setFill]; NSRectFill(NSMakeRect(bar.origin.x, bar.origin.y, bar.size.width, bar.size.height));
     [style.accent setFill]; NSRectFill(NSMakeRect(bar.origin.x, bar.origin.y, bar.size.width, 2));
@@ -746,7 +751,8 @@ static MeterFieldLayout makeFieldLayout(uint32_t requestedLayout, uint32_t visib
         }
     }
 
-    const NSRect panel = NSMakeRect(18, 82, viewW - 36, viewH - 108);
+    const NSRect panel = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::analyzerContentRect({ viewW, viewH }));
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"METER", true, panel.origin.x, panel.origin.y, panel.size.width, 21, lab, style);
 
@@ -982,7 +988,9 @@ static MeterFieldLayout makeFieldLayout(uint32_t requestedLayout, uint32_t visib
     if (_openMenu <= 0) return;
     const NSRect bounds = [self bounds];
     const CGFloat viewW = std::max<CGFloat>(720.0, bounds.size.width);
-    const NSRect bar = NSMakeRect(18, 38, viewW - 36, 34);
+    const NSRect bar = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::analyzerToolbarRect(
+            { viewW, s3g::gui_layout::kAnalyzerFamilyLayout.preferredCanvas.height }));
     const int next = s3g::clap_gui::dropdownHitIndex(point, openMenuRect(_openMenu, bar), kOpenMenuItemH, openMenuCount(_openMenu));
     if (next != _hoverMenuItem) {
         _hoverMenuItem = next;
@@ -994,7 +1002,9 @@ static MeterFieldLayout makeFieldLayout(uint32_t requestedLayout, uint32_t visib
     auto* p = static_cast<Plugin*>(_plugin);
     const NSRect bounds = [self bounds];
     const CGFloat viewW = std::max<CGFloat>(720.0, bounds.size.width);
-    const NSRect bar = NSMakeRect(18, 38, viewW - 36, 34);
+    const NSRect bar = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::analyzerToolbarRect(
+            { viewW, s3g::gui_layout::kAnalyzerFamilyLayout.preferredCanvas.height }));
     const CGFloat trackX = bar.origin.x + 430.0;
     const double n = std::clamp((point.x - trackX) / 92.0, 0.0, 1.0);
     applyVisibleChannels(*p, 1.0 + n * static_cast<double>(kChannelCount - 1u));
@@ -1007,9 +1017,20 @@ static MeterFieldLayout makeFieldLayout(uint32_t requestedLayout, uint32_t visib
     const NSRect bounds = [self bounds];
     const CGFloat viewW = std::max<CGFloat>(720.0, bounds.size.width);
     const CGFloat viewH = std::max<CGFloat>(420.0, bounds.size.height);
-    const NSRect bar = NSMakeRect(18, 38, viewW - 36, 34);
-    const NSRect panel = NSMakeRect(18, 82, viewW - 36, viewH - 108);
+    const NSRect bar = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::analyzerToolbarRect({ viewW, viewH }));
+    const NSRect panel = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::analyzerContentRect({ viewW, viewH }));
     const uint32_t mode = std::clamp<uint32_t>(static_cast<Plugin*>(_plugin)->viewMode.load(std::memory_order_relaxed), 0u, 2u);
+    auto* p = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::gui_layout::analyzerTitleBand(
+        { viewW, viewH });
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &p->plugin, @"Analyzer Meter", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenu > 0) {
         const uint32_t count = openMenuCount(_openMenu);
         const NSRect menuList = openMenuRect(_openMenu, bar);
@@ -1060,8 +1081,16 @@ static MeterFieldLayout makeFieldLayout(uint32_t requestedLayout, uint32_t visib
     }
     const NSRect hit = NSMakeRect(bar.origin.x + 424.0, bar.origin.y + 6.0, 126.0, 24.0);
     if (NSPointInRect(pt, hit)) {
-        _dragWidth = YES;
-        [self updateWidthFromPoint:pt];
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, kVisibleChannelsParamId, &defaultValue)) {
+            applyVisibleChannels(*p, defaultValue);
+            _dragWidth = NO;
+            [self setNeedsDisplay:YES];
+        } else {
+            _dragWidth = YES;
+            [self updateWidthFromPoint:pt];
+        }
         return;
     }
     if (mode == static_cast<uint32_t>(MeterViewMode::Field) && NSPointInRect(pt, panel)) {
@@ -1101,12 +1130,12 @@ bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating
 bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GMultichannelMeterView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
 void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3GMultichannelMeterView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { if (!w || !h) return false; auto* p = self(plugin); if (p->guiView) { const NSSize size = [static_cast<NSView*>(p->guiView) frame].size; *w = static_cast<uint32_t>(std::lround(size.width)); *h = static_cast<uint32_t>(std::lround(size.height)); } else { *w = kGuiWidth; *h = kGuiHeight; } return true; }
 bool guiCanResize(const clap_plugin_t*) { return true; }
 bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { if (!hints) return false; hints->can_resize_horizontally = true; hints->can_resize_vertically = true; hints->preserve_aspect_ratio = false; hints->aspect_ratio_width = 0; hints->aspect_ratio_height = 0; return true; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = std::clamp<uint32_t>(*w, 720u, 1600u); *h = std::clamp<uint32_t>(*h, 420u, 1000u); return true; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,kGuiWidth,kGuiHeight)]; return true; }
+bool guiAdjustSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = std::clamp<uint32_t>(*w, 720u, 1600u); *h = std::clamp<uint32_t>(*h, 430u, 1000u); return true; }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; w = std::clamp<uint32_t>(w, 720u, 1600u); h = std::clamp<uint32_t>(h, 430u, 1000u); [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); const NSSize size = [v frame].size; [parent addSubview:v]; [v setFrame:NSMakeRect(0, 0, size.width, size.height)]; return true; }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GMultichannelMeterView*>(p->guiView) startRefreshTimer]; return true; }
@@ -1135,7 +1164,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.multichannel-meter-64",
-    "s3g Multichannel Meter 64",
+    "s3g Analyzer Meter 64ch",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

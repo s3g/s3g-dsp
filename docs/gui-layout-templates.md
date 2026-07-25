@@ -138,6 +138,9 @@ host-name, output-placement, render, or responsive-GUI checks.
 | Spatial panner/decoder | `OUTPUT`/monitor, layout/decoder, selected source or speaker, routing | projection, listening, diagnostics, utilities |
 | Mixer/matrix/lane tool | `OUTPUT`, global routing, lane controls | selected-object controls, diagnostics, utilities |
 | Compact utility | One stack: `OUTPUT`, processing controls, utilities | Optional only when required |
+| Compact effect | `OUTPUT`, effect engine, tone/timing | modulation or relationships |
+| Analyzer/monitor | Toolbar, then the primary meter/view | Optional compact display controls |
+| Output utility | Primary routing/field view | `OUTPUT`, routing, processing |
 
 Panels that do not apply are omitted; they do not leave empty placeholders.
 Effect-specific panels may be inserted after the closest semantic role while
@@ -145,6 +148,85 @@ preserving `OUTPUT` first and keeping final-audition controls separate.
 Conditional family anchors are different from placeholders: when an anchored
 shared panel exists, it occupies its family location; when it does not exist,
 the next applicable panel may use that space.
+
+## Compact Effect Family Reference
+
+The compact Effect family covers Spectral Spray 2ch/8ch, Shard Scatter,
+Orbit Delay, and Cascade Taps. Host names begin with `s3g Effect`; a channel
+suffix remains only where it distinguishes installable variants.
+
+All five use the shared 760 × 376 responsive canvas and two-column grid:
+x 18 / width 352 and x 388 / width 354, both beginning at y 42. `OUTPUT` is
+the first panel and `OUT` is row 0. The remaining effect controls are grouped
+by engine, timing, tone, modulation, or relationships and packed with the
+standard 12 px panel gap. A one-off historical y coordinate may not replace
+the shared panel and row declaration.
+
+The title order is `PRESET`, `LOAD`, `SAVE`; compact effects do not receive a
+universal `RANDOM` action. Every continuous slider resets to its CLAP default
+on double-click, values remain inside the bounded right cell, and each editor
+uses the responsive viewport.
+
+## 3OAFX Family Reference
+
+3OAFX host names keep `s3g 3OAFX` first and use the second word to identify
+the workflow: `Effect` for Delay, Pitch, Filter, and Gain; `Transform` for
+Displacement. Stable IDs and bundle filenames remain unchanged.
+
+The four single effects use a shared 880 × 500 layout: a primary field at
+x 18 / y 42 and a right parameter column at x 518 / y 42. `OUTPUT` is first,
+followed by the effect engine and return-mask/projection controls.
+Displacement uses the 920 × 610 spatial variant, with its field at x 18 /
+y 42 and its x 648 parameter column beginning with `OUTPUT`; score playback,
+warp, and distance panels follow in that order.
+
+All 3OAFX titles use `PRESET`, `LOAD`, and `SAVE`, with contextual score/file
+loading retained in the panel that owns it. Sliders use shared 26 px rows and
+double-click defaults. Menus and contextual dropdowns consume the same panel
+geometry used for drawing and hit testing.
+
+## Analyzer Family Reference
+
+The Analyzer family covers Meter 64ch and Ambi Energy 64ch. Both are
+signal-transparent and expose the sortable `s3g Analyzer` host prefix.
+Their title order is `PRESET`, `LOAD`, `SAVE`; the main meter or energy field
+begins at y 86 after a common y 42 toolbar.
+
+Analyzer editors may resize their visualization dynamically rather than use a
+fixed aspect viewport. Their minimum content insets, toolbar height, bottom
+clearance, title typography, and control baselines remain shared. Continuous
+display controls still reset to their declared default on double-click.
+
+## Output Utility Family Reference
+
+The Output family covers Autogain Stereo, Autogain Quad, and Crossover. These
+tools exist for final audition, fold-down, crossover, or delivery preparation,
+so their host names begin with `s3g Output`.
+
+All three use the shared 920 × 560 responsive canvas. The primary routing or
+speaker field occupies x 18 / y 42 / width 560. The parameter column begins at
+x 596 / y 42 with `OUTPUT`; routing and processing panels follow at the
+standard 12 px gap. Autogain puts `OUT` first. Crossover has no single master
+gain, so its declared output exception begins with the two actual final stages,
+`SUB` and `HIGH`, followed by final `BYP` and bypass-fold `FOLD` audition
+controls; it does not invent a redundant master parameter.
+
+The title order is `PRESET`, `LOAD`, `SAVE`, with `PK` or a compact operating
+summary at far right. All sliders use bounded values, shared row geometry, and
+double-click defaults.
+
+## Ambi Imprint Reference
+
+Ambi Imprint is a developed loaded-resource processor and therefore sorts as
+`s3g Processor Ambi Imprint 64ch`, alongside Ambi Grain rather than under a
+one-member Imprint family.
+
+Its shared 900 × 480 responsive layout places the field at x 18 / y 42 and the
+parameter column at x 616. `OUTPUT` is first with `OUT` then `BYP`; the
+contextual `IMPRINT` file/atlas panel follows, then `PROCESS` with `ORDER`,
+`MIX`, `FOC`, `WID`, and listener mode. Title `LOAD` and `SAVE` operate on
+complete plugin state. The separate `LOAD` inside `IMPRINT` remains the
+contextual `.s3gimprint` action.
 
 ## Macro Family Reference
 
@@ -192,6 +274,120 @@ shared responsive viewport.
 For every multichannel Macro, the complete distinguishing suffix (`8CH` or
 `24CH`) is part of the left title string. The far-right status contains only
 `PK` and its value; channel-count text is forbidden there.
+
+## Array Utility Family Reference
+
+The Array family covers HPF, Delay, and Trim in their 16-, 26-, 32-, and
+64-channel variants. All twelve bundles consume the same 720 × 388 responsive
+layout and shared title contract.
+
+The title contains the full channel-specific Array name, followed by
+`PRESET`, `LOAD`, and `SAVE`; Array utilities do not expose `RANDOM`. `PK` is
+the only far-right status. The channel count remains in the title because it
+distinguishes separately installable routing variants.
+
+The common top grid begins at y 42:
+
+- `OUTPUT` is at x 18, width 332. `OUT` is row 0 and final `BYPASS` is row 1.
+- `ARRAY` is at x 362, width 340. Integer `ACTIVE` is row 0.
+- The plugin-specific editor spans x 18 through x 702 at y 134. HPF uses this
+  region for its response field and filter controls. Delay and Trim use the
+  same eight-row channel-page geometry, navigation positions, value column,
+  and 26 px row pitch.
+
+Every continuous Array slider, including each channel Delay or Trim row,
+double-clicks to its declared CLAP default through the normal parameter-update
+path. Draw, text-entry, drag, and reset geometry share the family layout
+declaration. Value text is bounded and loses unnecessary precision before it
+can cross a panel edge.
+
+## Ambi Transform Family Reference
+
+The Transform family covers Rotate 64, Group Rotate 64/128, Depth 16, Group
+Depth 64/128, and Order Band 64. Host names begin with `s3g Ambi Transform`
+so the complete family sorts together, and meaningful channel counts remain
+at the end of each name. The host browser uses `Rot` and `Grp` where needed
+to keep long variants scannable; editor titles retain `ROTATE` and `GROUP`.
+
+All seven bundles use the shared responsive 820 × 496 canvas. The title
+contains the complete channel-specific name, `PRESET`, `LOAD`, and `SAVE`;
+Transform utilities do not expose title-bar `RANDOM`. `PK` is the only
+far-right status. Group-count and ambisonic-order explanations belong in the
+field or toolboxes rather than beside `PK`.
+The title band reserves enough name width for the longest 128-channel member
+before the consistently aligned `PRESET` label.
+
+The common layout begins at y 42:
+
+- The spatial or weighting field occupies x 18, width 506, and reaches the
+  common bottom at y 478.
+- `OUTPUT` occupies x 536, width 266, with `OUT` in row 0. A variable ORDER
+  parameter is row 1; fixed-order group variants use their final WIDTH control
+  there instead.
+- Transform-specific toolboxes begin at x 536 / y 134. They use the normal
+  26 px row pitch, 16 px label inset, 108 px control inset, bounded value cell,
+  and content-fitted height.
+- Order Band places `WEIGHTING` above `ORDER BANDS` in the same right column.
+  Depth 16 places `DEPTH` above `ENVIRONMENT`, without hidden or blank rows.
+
+Labels use complete family vocabulary (`ORDER`, `PITCH`, `ROLL`, `SPREAD`,
+`TWIST`, `WIDTH`). Every slider resets to its declared CLAP default on double
+click. Field-camera controls preserve the established TOP, BACK, and 3/4
+orientation conventions.
+
+## Matrix Family Reference
+
+The Matrix family covers the general Group Matrix 32/64 and Ambi Group Matrix
+64/128 bundles. General host names begin with `s3g Matrix`; ambisonic variants
+begin with `s3g Ambi Matrix`. In both branches, `Group` precedes the channel
+count so each branch remains adjacent and predictable in a host browser.
+
+All variants consume a shared responsive 1040 × 648 GUI contract:
+
+- `GROUP MATRIX` is at x 18 / y 42, with a shared 344 px matrix grid.
+- `PATTERN PREVIEW` is at x 466 / y 42.
+- `OUTPUT` is the first toolbox at x 738 / y 42, with `OUT` in row 0.
+- `PATTERN` begins at x 738 / y 108. General matrices add `GROUP` before the
+  shared SHAPE, MODE, DEPTH, SPREAD, VORTEX, MOTION, RATE, DIVISION, PHASE,
+  and SMOOTHING order.
+- The disclosure glossary remains at x 18 / y 500.
+
+The four implementations share one geometry and control-order declaration;
+variant code may differ only for matrix dimensions, group modes, DSP types,
+and browser identity. Title actions are `PRESET`, `LOAD`, `SAVE`, and
+`RANDOM`. `RANDOM` invokes the matrix randomizer at the current `DEVIATION`
+amount; the action must not be duplicated or abbreviated inside the matrix
+panel. Every slider and crosspoint supports default reset, and value units
+remain bounded inside their toolboxes.
+
+## Mixer Family Reference
+
+The Mixer family currently consists of Mixer Node Bus 128 and Ambi Mixer Node
+Bus 128. Host names are `s3g Mixer Node Bus 128` and
+`s3g Ambi Mixer Node Bus 128`; their full editor titles retain `128CH`.
+
+Both variants use the responsive 920 × 920 Mixer contract. The title exposes
+aligned `PRESET`, `LOAD`, and `SAVE` controls, with `PK` as the only far-right
+status. The common content begins at y 42:
+
+- `NODE FIELD` occupies x 18, width 560. Its field view is x 34 / y 78 /
+  528 × 528, followed by bus identity, node-weight diagnostics, and peak
+  meters inside the same bounded panel.
+- `OUTPUT` is the first right-column toolbox at x 596 / y 42. `OUT` is its
+  only row and includes the dB unit.
+- `BUS / CURSOR` begins at x 596 / y 108. The general variant orders BED,
+  CHANNELS, NODES, INFLUENCE, CURSOR X/Y/Z, RADIUS, FOCUS, GATE, and LOCK Z.
+  The fixed-3OA variant omits BED, CHANNELS, and GATE without leaving blank
+  rows.
+- The selected `NODE` toolbox follows with a 12 px gap. ACTIVE is a toggle,
+  source and bus identity precede LEVEL, spatial coordinates remain together,
+  and shape/focus/rotation controls follow. The ambisonic variant uses its
+  fixed bus range as a readout and compacts the unavailable rows.
+
+All panels use the shared 26 px row pitch, 16 px label inset, bounded value
+cell, and 18 px bottom clearance. Continuous sliders reset through their
+declared CLAP defaults on double click. Menu text and labels are uppercase;
+values are rounded before they can cross a toolbox border.
 
 ## Large Procedural Encoder Reference
 
@@ -270,12 +466,26 @@ begins at toolbox y + 36 and packs only its visible controls. Its motion
 toolbox follows the surface toolbox at the standard 12 px gap and uses the
 standard 26 px row pitch.
 
-Wave Terrain's `SCALE` menu exposes 102 named 12-TET scales in a four-column
-popup so every item remains inside the editor. Full common names such as
-`MINOR PENTATONIC` are preferred over ambiguous abbreviations. The original 70
-scale indices remain stable for host automation and saved presets; additions
-append after them. `VECTOR` is not a terrain interpretation option. Legacy
-state value 9 is sanitized to `CROSS`.
+Musical `SCALE` menus use the shared 101-scale 12-TET catalog declared in
+`dsp/s3g_musical_scales.h`. VOT and VOX expose the complete catalog; Wave
+Terrain adds `FREE` before the same list. All three use the same bounded
+four-column menu and canonical display order: core tonal scales, modes,
+pentatonic families, bebop collections, regional/global selections, then
+modern and limited-transposition collections.
+
+Stable numeric IDs are independent of display order, so existing host
+automation and saved presets retain their meaning. New scales append to the
+catalog; they do not insert into the stable ID sequence. Related variants are
+adjacent in the menu and use the base-family-first vocabulary, including
+`PENTATONIC MAJOR` / `PENTATONIC MINOR`, `BLUES MAJOR` / `BLUES MINOR`,
+`NEAPOLITAN MAJOR` / `NEAPOLITAN MINOR`, and `HUNGARIAN MAJOR` /
+`HUNGARIAN MINOR`. Full names are preferred, with bounded abbreviations only
+when a name would exceed its menu column.
+
+These are pitch-class mappings in 12-tone equal temperament, not claims to
+reproduce culture-specific tuning, intonation, ornament, or melodic grammar.
+`VECTOR` is not a Wave Terrain interpretation option. Legacy state value 9 is
+sanitized to `CROSS`.
 
 Wave Terrain's `ENGINE` rows follow the shared generator order: `MODE`,
 integer `VOICES`, `BASE`, `SPREAD`, `TUNE`, then `DETUNE`. Hosts and the
@@ -365,14 +575,36 @@ cross the frame. Contextual rows outside an ordinary slider stack still use
 the same 16 px label anchor; custom field headings retain the 8 px header
 anchor.
 
-The remaining stack follows the Processor subtype:
+Parameter toolboxes do not collapse. A Processor whose complete control set
+fits in one column keeps a single persistent stack. A taller Processor uses a
+second parameter column on a wider responsive design canvas; resizing scales
+that canvas instead of hiding controls.
 
-| Subtype | Stack after `OUTPUT` |
+Delay 8ch/24ch, Wave Geometry 8ch, and Spectral 8ch/24ch share the topology
+Processor column contract:
+
+- responsive canvas width 1356 px; each member retains the height required by
+  its primary visualization
+- primary field x 12 / width 620
+- first parameter column x 644 / width 344: `OUTPUT`, processing `ENGINE`, then
+  `PATCH MATRIX`
+- second parameter column x 1000 / width 344: `TOPOLOGY` at y 42
+- 12 px field/column, inter-column, and right-edge gutters
+- all four toolboxes are permanently visible; headers are static and have no
+  disclosure marker
+
+The remaining layout follows the Processor subtype:
+
+| Subtype | Persistent layout after `OUTPUT` |
 | --- | --- |
-| Topology effect | processing engine, `TOPOLOGY`, patch/routing |
+| Topology effect | first column: processing engine then patch/routing; second column: `TOPOLOGY` |
 | Loaded-media instrument | playback/source engine, source/window, `RELATIONSHIPS` |
 | Buffer/time processor | engine, `RELATIONSHIPS`, corruption/memory |
 | Developed generator | field/source, codec/shape, performance/envelope |
+
+Loop and Multi Loop fit `OUTPUT`, `ENGINE`, and `RELATIONSHIPS` in their
+existing single right column, so those panels remain open without widening the
+canvas.
 
 All Processor editors use the responsive viewport contract. Every continuous
 slider, including topology, relationship, contextual-source, and output rows,
@@ -403,6 +635,9 @@ parameter stack.
 | 4 | Selection/editing | selected speaker or other selected output |
 
 An unsupported shared row is omitted without reordering the remaining rows.
+Head Decoder's `BINAURAL` and `TRANSAURAL` panels both fit its setup column;
+both remain permanently visible with static headers rather than disclosure
+controls.
 Use `ORDER` consistently rather than mixing `ORD` and `ORDER`, and render it as
 a menu. `OUT` always includes its `dB` unit and remains the first slider in the
 right-side stack. Fixed channel width is not repeated beside `PK` in the title
@@ -443,13 +678,13 @@ Direct/Virtual menu is omitted because Direct has no further choices.
 
 ## Shared Slider Interaction
 
-Every continuous slider in the Encoder, Decoder, and Panner families resets to
-its declared parameter default on a double-click. This includes sliders on
-contextual pages and mirrored mixer views, not only the primary parameter
-columns. The reset must use the same parameter-update path as an ordinary drag
-so the GUI, DSP state, selection-dependent values, and host-visible state stay
-synchronized. Menus, toggles, view controls, and spatial-field dragging do not
-inherit this gesture.
+Every continuous slider in the Encoder, Decoder, Panner, and Array families
+resets to its declared parameter default on a double-click. This includes
+sliders on contextual pages, mirrored mixer views, and per-channel Array
+editors, not only the primary parameter columns. The reset must use the same
+parameter-update path as an ordinary drag so the GUI, DSP state,
+selection-dependent values, and host-visible state stay synchronized. Menus,
+toggles, view controls, and spatial-field dragging do not inherit this gesture.
 
 ## Shared Implementation
 

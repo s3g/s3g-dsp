@@ -715,6 +715,33 @@ inline int dropdownHitIndex(NSPoint point, NSRect menuRect, CGFloat itemH, uint3
         static_cast<uint32_t>((point.y - menuRect.origin.y) / itemH)));
 }
 
+inline uint32_t multiColumnMenuRows(uint32_t count, uint32_t columns)
+{
+    return columns == 0u ? 0u : (count + columns - 1u) / columns;
+}
+
+inline int multiColumnDropdownHitIndex(NSPoint point,
+                                       NSRect menuRect,
+                                       CGFloat itemH,
+                                       uint32_t count,
+                                       uint32_t columns)
+{
+    if (!NSPointInRect(point, menuRect) || count == 0u || columns == 0u) {
+        return -1;
+    }
+    const uint32_t rows = multiColumnMenuRows(count, columns);
+    const CGFloat columnWidth = menuRect.size.width
+        / static_cast<CGFloat>(columns);
+    const uint32_t column = std::min<uint32_t>(
+        static_cast<uint32_t>(
+            (point.x - menuRect.origin.x) / columnWidth),
+        columns - 1u);
+    const uint32_t row = static_cast<uint32_t>(
+        (point.y - menuRect.origin.y) / itemH);
+    const uint32_t index = column * rows + row;
+    return index < count ? static_cast<int>(index) : -1;
+}
+
 inline void drawDropdownMenu(NSRect menuRect,
                              CGFloat itemH,
                              NSString* const* items,
@@ -756,6 +783,43 @@ inline void drawDropdownMenu(NSRect menuRect,
         [displayItem drawAtPoint:NSMakePoint(
             row.origin.x + 9.0, row.origin.y + 4.0)
             withAttributes:attrs];
+    }
+}
+
+inline void drawMultiColumnDropdownMenu(
+    NSRect menuRect,
+    CGFloat itemH,
+    NSString* const* items,
+    uint32_t count,
+    uint32_t columns,
+    int selectedIndex,
+    int hoverIndex,
+    NSDictionary* attrs,
+    const Style& style)
+{
+    if (columns == 0u) return;
+    const uint32_t rows = multiColumnMenuRows(count, columns);
+    const CGFloat columnWidth = menuRect.size.width
+        / static_cast<CGFloat>(columns);
+    for (uint32_t column = 0u; column < columns; ++column) {
+        const uint32_t first = column * rows;
+        if (first >= count) break;
+        const uint32_t columnCount =
+            std::min<uint32_t>(rows, count - first);
+        const int columnSelected =
+            selectedIndex >= static_cast<int>(first)
+                && selectedIndex < static_cast<int>(first + columnCount)
+            ? selectedIndex - static_cast<int>(first) : -1;
+        const int columnHover =
+            hoverIndex >= static_cast<int>(first)
+                && hoverIndex < static_cast<int>(first + columnCount)
+            ? hoverIndex - static_cast<int>(first) : -1;
+        const NSRect columnRect = NSMakeRect(
+            menuRect.origin.x + columnWidth * column,
+            menuRect.origin.y, columnWidth,
+            itemH * static_cast<CGFloat>(columnCount));
+        drawDropdownMenu(columnRect, itemH, items + first, columnCount,
+            columnSelected, columnHover, attrs, style);
     }
 }
 
@@ -898,6 +962,103 @@ inline void drawMacroTitleBand(NSString* title,
         drawRightStatus(status, band.canvas.width, band.titleY, valueAttrs,
             band.statusRightInset);
     }
+}
+
+inline void drawArrayTitleBand(NSString* title,
+                               NSString* preset,
+                               NSString* status,
+                               const s3g::gui_layout::EncoderTitleBand& band,
+                               const Style& style)
+{
+    drawProcessorTitleBand(title, preset, status, band,
+        softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
+}
+
+inline void drawTransformTitleBand(NSString* title,
+                                   NSString* preset,
+                                   NSString* status,
+                                   const s3g::gui_layout::EncoderTitleBand& band,
+                                   const Style& style)
+{
+    drawProcessorTitleBand(title, preset, status, band,
+        softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
+}
+
+inline void drawMatrixTitleBand(NSString* title,
+                                NSString* preset,
+                                NSString* status,
+                                const s3g::gui_layout::EncoderTitleBand& band,
+                                const Style& style)
+{
+    drawProcessorTitleBand(title, preset, status, band,
+        softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
+    drawHeaderActionButton(cocoaRect(band.randomButton),
+        cocoaRect(band.randomButton), @"RANDOM", softLabelAttrs(), style);
+}
+
+inline void drawMixerTitleBand(NSString* title,
+                               NSString* preset,
+                               NSString* status,
+                               const s3g::gui_layout::EncoderTitleBand& band,
+                               const Style& style)
+{
+    drawProcessorTitleBand(title, preset, status, band,
+        softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
+}
+
+inline void drawCompactEffectTitleBand(
+    NSString* title,
+    NSString* preset,
+    NSString* status,
+    const s3g::gui_layout::EncoderTitleBand& band,
+    const Style& style)
+{
+    drawProcessorTitleBand(title, preset, status, band,
+        softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
+}
+
+inline void drawThreeOafxTitleBand(
+    NSString* title,
+    NSString* preset,
+    NSString* status,
+    const s3g::gui_layout::EncoderTitleBand& band,
+    const Style& style)
+{
+    drawProcessorTitleBand(title, preset, status, band,
+        softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
+}
+
+inline void drawAnalyzerTitleBand(
+    NSString* title,
+    NSString* preset,
+    NSString* status,
+    const s3g::gui_layout::EncoderTitleBand& band,
+    const Style& style)
+{
+    drawProcessorTitleBand(title, preset, status, band,
+        softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
+}
+
+inline void drawOutputUtilityTitleBand(
+    NSString* title,
+    NSString* preset,
+    NSString* status,
+    const s3g::gui_layout::EncoderTitleBand& band,
+    const Style& style)
+{
+    drawProcessorTitleBand(title, preset, status, band,
+        softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
+}
+
+inline void drawImprintTitleBand(
+    NSString* title,
+    NSString* preset,
+    NSString* status,
+    const s3g::gui_layout::EncoderTitleBand& band,
+    const Style& style)
+{
+    drawProcessorTitleBand(title, preset, status, band,
+        softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
 }
 
 struct DefaultParamEventList {

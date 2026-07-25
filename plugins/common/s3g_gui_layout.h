@@ -13,6 +13,9 @@ enum class PluginClass : uint8_t {
     SpatialPannerDecoder,
     MixerMatrixLane,
     CompactUtility,
+    CompactEffect,
+    AnalyzerMonitor,
+    OutputUtility,
 };
 
 enum class PanelRole : uint8_t {
@@ -228,6 +231,13 @@ struct MacroFamilyLayout {
     Panel preview {};
 };
 
+struct TopologyProcessorColumns {
+    double canvasWidth = 0.0;
+    double rightInset = 0.0;
+    Column first {};
+    Column second {};
+};
+
 struct MacroShredFamilyLayout {
     Canvas canvas {};
     Panel output {};
@@ -238,6 +248,94 @@ struct MacroShredFamilyLayout {
     Rect containmentMeter {};
     Rect containmentField {};
     Rect panicButton {};
+};
+
+struct ArrayFamilyLayout {
+    Canvas canvas {};
+    Panel output {};
+    Panel array {};
+    Panel editor {};
+    Rect channelPlot {};
+    Rect channelValueColumn {};
+    Rect channelMuteColumn {};
+    Rect channelInvertColumn {};
+    uint32_t rowsPerPage = 0u;
+};
+
+struct TransformFamilyLayout {
+    Canvas canvas {};
+    Rect fieldPanel {};
+    Rect fieldPlot {};
+    Panel output {};
+    Panel primarySeven {};
+    Panel primarySix {};
+    Panel primaryFour {};
+    Panel secondaryFour {};
+    Panel weighting {};
+    Panel orderBands {};
+};
+
+struct MatrixFamilyLayout {
+    Canvas canvas {};
+    Rect matrixPanel {};
+    Rect matrixGrid {};
+    Rect previewPanel {};
+    Panel output {};
+    Panel ambiPattern {};
+    Panel groupPattern {};
+    Rect glossary {};
+};
+
+struct MixerFamilyLayout {
+    Canvas canvas {};
+    Rect fieldPanel {};
+    Rect fieldPlot {};
+    Panel output {};
+    Panel busCursor {};
+    Panel ambiBusCursor {};
+    Panel selectedNode {};
+    Panel ambiSelectedNode {};
+};
+
+struct CompactEffectFamilyLayout {
+    Canvas canvas {};
+    Column firstColumn {};
+    Column secondColumn {};
+};
+
+struct ThreeOafxFamilyLayout {
+    Canvas singleCanvas {};
+    Rect singleFieldPanel {};
+    Rect singleField {};
+    Column singleColumn {};
+    Canvas displacementCanvas {};
+    Rect displacementFieldPanel {};
+    Rect displacementField {};
+    Column displacementColumn {};
+};
+
+struct AnalyzerFamilyLayout {
+    Canvas preferredCanvas {};
+    double horizontalInset = 18.0;
+    double contentTop = 42.0;
+    double toolbarHeight = 34.0;
+    double contentGap = 10.0;
+    double bottomInset = 26.0;
+};
+
+struct OutputUtilityFamilyLayout {
+    Canvas canvas {};
+    Rect fieldPanel {};
+    Rect field {};
+    Column parameterColumn {};
+    Rect meter {};
+};
+
+struct ImprintFamilyLayout {
+    Canvas canvas {};
+    Rect fieldPanel {};
+    Rect field {};
+    Column parameterColumn {};
 };
 
 inline constexpr Metrics kStandardMetrics {};
@@ -305,6 +403,24 @@ constexpr bool panelContainsRect(const Panel& panel, Rect rect)
 
 inline constexpr Column kLargeEncoderFirstColumn { 630.0, 250.0, 42.0 };
 inline constexpr Column kLargeEncoderSecondColumn { 896.0, 246.0, 42.0 };
+inline constexpr TopologyProcessorColumns kTopologyProcessorColumns {
+    1356.0,
+    12.0,
+    { 644.0, 344.0, 42.0 },
+    { 1000.0, 344.0, 42.0 },
+};
+static_assert(
+    kTopologyProcessorColumns.second.x
+        - (kTopologyProcessorColumns.first.x
+            + kTopologyProcessorColumns.first.width)
+        == kStandardMetrics.panelGap,
+    "Topology Processor columns must use the standard panel gap.");
+static_assert(
+    kTopologyProcessorColumns.second.x
+        + kTopologyProcessorColumns.second.width
+        + kTopologyProcessorColumns.rightInset
+        == kTopologyProcessorColumns.canvasWidth,
+    "Topology Processor second column must respect the canvas right inset.");
 inline constexpr PanelAnchor kLargeEncoderOutputAnchor {
     PluginClass::ProceduralEncoder, PanelRole::Output,
     kLargeEncoderFirstColumn, 42.0
@@ -403,6 +519,112 @@ inline constexpr MacroShredFamilyLayout kMacroShredMonoFamilyLayout {
     { 126.0, 446.0, 150.0, 10.0 },
     {},
     { 286.0, 436.0, 96.0, 30.0 },
+};
+
+inline constexpr ArrayFamilyLayout kArrayFamilyLayout {
+    { 720.0, 388.0 },
+    { PluginClass::CompactUtility, PanelRole::Output,
+        { 18.0, 42.0, 332.0, 80.0 }, 36.0, 26.0, 2u },
+    { PluginClass::CompactUtility, PanelRole::Engine,
+        { 362.0, 42.0, 340.0, 54.0 }, 36.0, 26.0, 1u },
+    { PluginClass::CompactUtility, PanelRole::Utility,
+        { 18.0, 134.0, 684.0, 236.0 }, 36.0, 26.0, 8u },
+    { 66.0, 170.0, 462.0, 196.0 },
+    { 536.0, 166.0, 74.0, 204.0 },
+    { 620.0, 166.0, 28.0, 204.0 },
+    { 654.0, 166.0, 38.0, 204.0 },
+    8u,
+};
+
+inline constexpr TransformFamilyLayout kTransformFamilyLayout {
+    { 820.0, 496.0 },
+    { 18.0, 42.0, 506.0, 436.0 },
+    { 34.0, 78.0, 474.0, 360.0 },
+    { PluginClass::CompactUtility, PanelRole::Output,
+        { 536.0, 42.0, 266.0, 80.0 }, 36.0, 26.0, 2u },
+    { PluginClass::CompactUtility, PanelRole::Engine,
+        { 536.0, 134.0, 266.0, 210.0 }, 36.0, 26.0, 7u },
+    { PluginClass::CompactUtility, PanelRole::Engine,
+        { 536.0, 134.0, 266.0, 184.0 }, 36.0, 26.0, 6u },
+    { PluginClass::CompactUtility, PanelRole::Engine,
+        { 536.0, 134.0, 266.0, 132.0 }, 36.0, 26.0, 4u },
+    { PluginClass::CompactUtility, PanelRole::Utility,
+        { 536.0, 278.0, 266.0, 132.0 }, 36.0, 26.0, 4u },
+    { PluginClass::CompactUtility, PanelRole::Engine,
+        { 536.0, 134.0, 266.0, 80.0 }, 36.0, 26.0, 2u },
+    { PluginClass::CompactUtility, PanelRole::Relationships,
+        { 536.0, 226.0, 266.0, 236.0 }, 36.0, 26.0, 8u },
+};
+
+inline constexpr MatrixFamilyLayout kMatrixFamilyLayout {
+    { 1040.0, 648.0 },
+    { 18.0, 42.0, 430.0, 440.0 },
+    { 72.0, 90.0, 344.0, 344.0 },
+    { 466.0, 42.0, 254.0, 440.0 },
+    { PluginClass::MixerMatrixLane, PanelRole::Output,
+        { 738.0, 42.0, 284.0, 54.0 }, 36.0, 26.0, 1u },
+    { PluginClass::MixerMatrixLane, PanelRole::Motion,
+        { 738.0, 108.0, 284.0, 288.0 }, 36.0, 26.0, 10u },
+    { PluginClass::MixerMatrixLane, PanelRole::Motion,
+        { 738.0, 108.0, 284.0, 314.0 }, 36.0, 26.0, 11u },
+    { 18.0, 500.0, 1004.0, 132.0 },
+};
+
+inline constexpr MixerFamilyLayout kMixerFamilyLayout {
+    { 920.0, 920.0 },
+    { 18.0, 42.0, 560.0, 860.0 },
+    { 34.0, 78.0, 528.0, 528.0 },
+    { PluginClass::MixerMatrixLane, PanelRole::Output,
+        { 596.0, 42.0, 306.0, 54.0 }, 36.0, 26.0, 1u },
+    { PluginClass::MixerMatrixLane, PanelRole::Routing,
+        { 596.0, 108.0, 306.0, 314.0 }, 36.0, 26.0, 11u },
+    { PluginClass::MixerMatrixLane, PanelRole::Routing,
+        { 596.0, 108.0, 306.0, 236.0 }, 36.0, 26.0, 8u },
+    { PluginClass::MixerMatrixLane, PanelRole::SelectedObject,
+        { 596.0, 434.0, 306.0, 314.0 }, 36.0, 26.0, 11u },
+    { PluginClass::MixerMatrixLane, PanelRole::SelectedObject,
+        { 596.0, 356.0, 306.0, 236.0 }, 36.0, 26.0, 8u },
+};
+
+inline constexpr CompactEffectFamilyLayout kCompactEffectFamilyLayout {
+    { 760.0, 376.0 },
+    { 18.0, 352.0, 42.0 },
+    { 388.0, 354.0, 42.0 },
+};
+
+inline constexpr ThreeOafxFamilyLayout kThreeOafxFamilyLayout {
+    { 880.0, 500.0 },
+    { 18.0, 42.0, 480.0, 440.0 },
+    { 34.0, 78.0, 448.0, 350.0 },
+    { 518.0, 344.0, 42.0 },
+    { 920.0, 610.0 },
+    { 18.0, 42.0, 612.0, 550.0 },
+    { 34.0, 76.0, 580.0, 438.0 },
+    { 648.0, 258.0, 42.0 },
+};
+
+inline constexpr AnalyzerFamilyLayout kAnalyzerFamilyLayout {
+    { 980.0, 560.0 },
+    18.0,
+    42.0,
+    34.0,
+    10.0,
+    26.0,
+};
+
+inline constexpr OutputUtilityFamilyLayout kOutputUtilityFamilyLayout {
+    { 920.0, 560.0 },
+    { 18.0, 42.0, 560.0, 500.0 },
+    { 34.0, 78.0, 528.0, 404.0 },
+    { 596.0, 306.0, 42.0 },
+    { 608.0, 380.0, 282.0, 144.0 },
+};
+
+inline constexpr ImprintFamilyLayout kImprintFamilyLayout {
+    { 900.0, 480.0 },
+    { 18.0, 42.0, 584.0, 420.0 },
+    { 34.0, 78.0, 552.0, 366.0 },
+    { 616.0, 272.0, 42.0 },
 };
 
 inline constexpr EncoderControlOrder kEngineControlOrder {
@@ -544,6 +766,71 @@ constexpr EncoderTitleBand macroTitleBand(Canvas canvas)
     };
 }
 
+constexpr EncoderTitleBand arrayTitleBand(Canvas canvas)
+{
+    return encoderTitleBand(canvas);
+}
+
+constexpr EncoderTitleBand transformTitleBand(Canvas canvas)
+{
+    if (canvas.width >= 800.0) {
+        return {
+            canvas, 18.0, 14.0, 286.0, 13.0,
+            { 348.0, 13.0, 148.0, 15.0 },
+            { 504.0, 13.0, 44.0, 15.0 },
+            { 556.0, 13.0, 44.0, 15.0 },
+            {},
+            18.0,
+        };
+    }
+    return encoderTitleBand(canvas);
+}
+
+constexpr EncoderTitleBand matrixTitleBand(Canvas canvas)
+{
+    return encoderTitleBand(canvas);
+}
+
+constexpr EncoderTitleBand mixerTitleBand(Canvas canvas)
+{
+    return encoderTitleBand(canvas);
+}
+
+constexpr EncoderTitleBand compactEffectTitleBand(Canvas canvas)
+{
+    return encoderTitleBand(canvas);
+}
+
+constexpr EncoderTitleBand threeOafxTitleBand(Canvas canvas)
+{
+    if (canvas.width >= 860.0) {
+        return {
+            canvas, 18.0, 14.0, 310.0, 13.0,
+            { 372.0, 13.0, 148.0, 15.0 },
+            { 528.0, 13.0, 48.0, 15.0 },
+            { 584.0, 13.0, 48.0, 15.0 },
+            {},
+            18.0,
+        };
+    }
+    return encoderTitleBand(canvas);
+}
+
+constexpr EncoderTitleBand analyzerTitleBand(Canvas canvas)
+{
+    return encoderTitleBand(canvas);
+}
+
+constexpr EncoderTitleBand outputUtilityTitleBand(Canvas canvas)
+{
+    return encoderTitleBand(canvas);
+}
+
+constexpr EncoderTitleBand imprintTitleBand(Canvas canvas)
+{
+    return encoderTitleBand(canvas);
+}
+
 constexpr Rect encoderTitleActionRect(const EncoderTitleBand& band,
                                       EncoderTitleAction action)
 {
@@ -624,10 +911,10 @@ inline constexpr TemplateOrder kProceduralEncoderTemplate {
 
 inline constexpr TemplateOrder kEffectProcessorTemplate {
     PluginClass::EffectProcessor,
-    { PanelRole::Output, PanelRole::Engine, PanelRole::Modulation,
-        PanelRole::ToneShape, PanelRole::EventTiming, PanelRole::Utility,
-        PanelRole::None, PanelRole::None },
-    6u,
+    { PanelRole::Output, PanelRole::Source, PanelRole::Engine,
+        PanelRole::Modulation, PanelRole::ToneShape,
+        PanelRole::EventTiming, PanelRole::Utility, PanelRole::None },
+    7u,
     { PanelRole::Relationships, PanelRole::Routing, PanelRole::Diagnostics,
         PanelRole::Utility, PanelRole::None, PanelRole::None,
         PanelRole::None, PanelRole::None },
@@ -685,6 +972,41 @@ inline constexpr TemplateOrder kCompactUtilityTemplate {
     true,
 };
 
+inline constexpr TemplateOrder kCompactEffectTemplate {
+    PluginClass::CompactEffect,
+    { PanelRole::Output, PanelRole::Engine, PanelRole::ToneShape,
+        PanelRole::EventTiming, PanelRole::Utility, PanelRole::None,
+        PanelRole::None, PanelRole::None },
+    5u,
+    { PanelRole::Motion, PanelRole::Projection, PanelRole::Relationships,
+        PanelRole::Diagnostics, PanelRole::Utility, PanelRole::None,
+        PanelRole::None, PanelRole::None },
+    5u,
+    true,
+};
+
+inline constexpr TemplateOrder kAnalyzerMonitorTemplate {
+    PluginClass::AnalyzerMonitor,
+    { PanelRole::Diagnostics, PanelRole::Utility, PanelRole::None,
+        PanelRole::None, PanelRole::None, PanelRole::None,
+        PanelRole::None, PanelRole::None },
+    2u,
+    {},
+    0u,
+    false,
+};
+
+inline constexpr TemplateOrder kOutputUtilityTemplate {
+    PluginClass::OutputUtility,
+    { PanelRole::Output, PanelRole::Routing, PanelRole::Engine,
+        PanelRole::LayoutDecoder, PanelRole::Diagnostics,
+        PanelRole::Utility, PanelRole::None, PanelRole::None },
+    6u,
+    {},
+    0u,
+    true,
+};
+
 constexpr const TemplateOrder& templateOrder(PluginClass pluginClass)
 {
     switch (pluginClass) {
@@ -694,6 +1016,9 @@ constexpr const TemplateOrder& templateOrder(PluginClass pluginClass)
     case PluginClass::SpatialPannerDecoder: return kSpatialPannerDecoderTemplate;
     case PluginClass::MixerMatrixLane: return kMixerMatrixLaneTemplate;
     case PluginClass::CompactUtility: return kCompactUtilityTemplate;
+    case PluginClass::CompactEffect: return kCompactEffectTemplate;
+    case PluginClass::AnalyzerMonitor: return kAnalyzerMonitorTemplate;
+    case PluginClass::OutputUtility: return kOutputUtilityTemplate;
     }
     return kCompactUtilityTemplate;
 }
@@ -772,6 +1097,114 @@ constexpr Panel stackPanel(PanelRole role,
             previous.frame.y + previous.frame.height + panelGap },
         previous.frame.y + previous.frame.height + panelGap,
         height, rowCount, rowPitch, firstRowOffset);
+}
+
+constexpr Panel fittedPanel(PluginClass pluginClass,
+                            PanelRole role,
+                            Column column,
+                            double y,
+                            uint32_t rowCount,
+                            double rowPitch = kStandardMetrics.rowPitch,
+                            double firstRowOffset = kStandardMetrics.firstRowOffset)
+{
+    return makePanel(pluginClass, role, column, y,
+        toolboxHeightForRows(rowCount, kStandardMetrics.toolboxBottomClearance,
+            rowPitch, firstRowOffset),
+        rowCount, rowPitch, firstRowOffset);
+}
+
+constexpr Panel fittedStackPanel(PanelRole role,
+                                 const Panel& previous,
+                                 uint32_t rowCount,
+                                 double rowPitch = kStandardMetrics.rowPitch,
+                                 double firstRowOffset = kStandardMetrics.firstRowOffset,
+                                 double panelGap = kStandardMetrics.panelGap)
+{
+    return stackPanel(role, previous,
+        toolboxHeightForRows(rowCount, kStandardMetrics.toolboxBottomClearance,
+            rowPitch, firstRowOffset),
+        rowCount, rowPitch, firstRowOffset, panelGap);
+}
+
+constexpr Panel compactEffectOutputPanel(uint32_t rowCount)
+{
+    return fittedPanel(PluginClass::CompactEffect, PanelRole::Output,
+        kCompactEffectFamilyLayout.firstColumn,
+        kCompactEffectFamilyLayout.firstColumn.top, rowCount);
+}
+
+constexpr Panel compactEffectLeftPanel(const Panel& previous,
+                                       PanelRole role,
+                                       uint32_t rowCount)
+{
+    return fittedStackPanel(role, previous, rowCount);
+}
+
+constexpr Panel compactEffectRightPanel(PanelRole role, uint32_t rowCount)
+{
+    return fittedPanel(PluginClass::CompactEffect, role,
+        kCompactEffectFamilyLayout.secondColumn,
+        kCompactEffectFamilyLayout.secondColumn.top, rowCount);
+}
+
+constexpr Panel threeOafxSingleOutputPanel(uint32_t rowCount)
+{
+    return fittedPanel(PluginClass::EffectProcessor, PanelRole::Output,
+        kThreeOafxFamilyLayout.singleColumn,
+        kThreeOafxFamilyLayout.singleColumn.top, rowCount);
+}
+
+constexpr Panel threeOafxSingleStackPanel(const Panel& previous,
+                                          PanelRole role,
+                                          uint32_t rowCount)
+{
+    return fittedStackPanel(role, previous, rowCount);
+}
+
+constexpr Panel threeOafxDisplacementOutputPanel()
+{
+    return fittedPanel(PluginClass::EffectProcessor, PanelRole::Output,
+        kThreeOafxFamilyLayout.displacementColumn,
+        kThreeOafxFamilyLayout.displacementColumn.top, 2u);
+}
+
+constexpr Panel outputUtilityPanel(PanelRole role,
+                                   double y,
+                                   uint32_t rowCount)
+{
+    return fittedPanel(PluginClass::OutputUtility, role,
+        kOutputUtilityFamilyLayout.parameterColumn, y, rowCount);
+}
+
+constexpr Rect analyzerToolbarRect(Canvas canvas)
+{
+    return {
+        kAnalyzerFamilyLayout.horizontalInset,
+        kAnalyzerFamilyLayout.contentTop,
+        canvas.width - kAnalyzerFamilyLayout.horizontalInset * 2.0,
+        kAnalyzerFamilyLayout.toolbarHeight,
+    };
+}
+
+constexpr Rect analyzerContentRect(Canvas canvas)
+{
+    const double y = kAnalyzerFamilyLayout.contentTop
+        + kAnalyzerFamilyLayout.toolbarHeight
+        + kAnalyzerFamilyLayout.contentGap;
+    return {
+        kAnalyzerFamilyLayout.horizontalInset,
+        y,
+        canvas.width - kAnalyzerFamilyLayout.horizontalInset * 2.0,
+        canvas.height - y - kAnalyzerFamilyLayout.bottomInset,
+    };
+}
+
+constexpr Panel imprintPanel(PanelRole role,
+                             double y,
+                             uint32_t rowCount)
+{
+    return fittedPanel(PluginClass::EffectProcessor, role,
+        kImprintFamilyLayout.parameterColumn, y, rowCount);
 }
 
 constexpr double rowY(const Panel& panel, uint32_t row)

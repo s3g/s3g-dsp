@@ -498,8 +498,6 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     void* _plugin;
     int _dragSlider;
     NSTimer* _timer;
-    BOOL _engineOpen;
-    BOOL _relationshipsOpen;
     int _openMenu;
     NSPoint _menuOrigin;
     uint32_t _menuItemCount;
@@ -512,7 +510,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)stopRefreshTimer;
 - (void)drawSlider:(NSString*)name value:(NSString*)val norm:(CGFloat)n y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
 - (void)drawMenuControl:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
-- (void)drawSectionHeader:(NSString*)title open:(BOOL)open y:(CGFloat)y attrs:(NSDictionary*)attrs;
+- (void)drawSectionHeader:(NSString*)title y:(CGFloat)y attrs:(NSDictionary*)attrs;
 - (void)drawText:(NSString*)text centeredInRect:(NSRect)rect attrs:(NSDictionary*)attrs;
 - (void)drawTransportButton:(NSRect)rect kind:(int)kind active:(BOOL)active;
 - (void)drawWaveform:(const std::shared_ptr<const s3g::LoopProcessorSample>&)sample rect:(NSRect)rect attrs:(NSDictionary*)attrs;
@@ -537,8 +535,6 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
         _plugin = plugin;
         _dragSlider = -1;
         _timer = nil;
-        _engineOpen = YES;
-        _relationshipsOpen = YES;
         _openMenu = 0;
         _menuOrigin = NSMakePoint(0, 0);
         _menuItemCount = 0;
@@ -565,10 +561,11 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
     s3g::clap_gui::drawProcessorMenu(
         name, value, y, kToolboxX, kToolboxW, attrs, small, style);
 }
-- (void)drawSectionHeader:(NSString*)title open:(BOOL)open y:(CGFloat)y attrs:(NSDictionary*)attrs
+- (void)drawSectionHeader:(NSString*)title y:(CGFloat)y attrs:(NSDictionary*)attrs
 {
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawDisclosurePanelHeader(title, open, kToolboxX, y, kToolboxW, 20.0, attrs, style);
+    s3g::clap_gui::drawPanelHeader(
+        title, true, kToolboxX, y, kToolboxW, 20.0, attrs, style);
 }
 - (void)drawText:(NSString*)text centeredInRect:(NSRect)rect attrs:(NSDictionary*)attrs
 {
@@ -868,31 +865,26 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
         norm:(params.gainDb + 60.0f) / 66.0f y:y + 36 attrs:small small:small];
     y += outputH + gap;
 
-    const CGFloat engineH = _engineOpen
-        ? s3g::gui_layout::toolboxHeightForRows(5)
-        : headerH;
+    const CGFloat engineH =
+        s3g::gui_layout::toolboxHeightForRows(5);
     panelFrame(y, engineH);
-    [self drawSectionHeader:@"ENGINE" open:_engineOpen y:y attrs:section];
-    if (_engineOpen) {
-        [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", params.baseRate] norm:(params.baseRate - 0.125) / (4.0 - 0.125) y:y + 36 attrs:small small:small];
-        [self drawSlider:@"XFD" value:[NSString stringWithFormat:@"%.0f%%", params.xfadePct * 100.0f] norm:params.xfadePct / 0.3f y:y + 62 attrs:small small:small];
-        [self drawSlider:@"DUCK" value:[NSString stringWithFormat:@"%.2f", params.seamDuck] norm:params.seamDuck / 0.75f y:y + 88 attrs:small small:small];
-        [self drawSlider:@"STRT" value:[NSString stringWithFormat:@"%.0f%%", params.loopStart * 100.0f] norm:params.loopStart / 0.999f y:y + 114 attrs:small small:small];
-        [self drawSlider:@"LEN" value:[NSString stringWithFormat:@"%.0f%%", params.loopLength * 100.0f] norm:(params.loopLength - 0.01f) / 0.99f y:y + 140 attrs:small small:small];
-    }
+    [self drawSectionHeader:@"ENGINE" y:y attrs:section];
+    [self drawSlider:@"RATE" value:[NSString stringWithFormat:@"%.3f", params.baseRate] norm:(params.baseRate - 0.125) / (4.0 - 0.125) y:y + 36 attrs:small small:small];
+    [self drawSlider:@"XFD" value:[NSString stringWithFormat:@"%.0f%%", params.xfadePct * 100.0f] norm:params.xfadePct / 0.3f y:y + 62 attrs:small small:small];
+    [self drawSlider:@"DUCK" value:[NSString stringWithFormat:@"%.2f", params.seamDuck] norm:params.seamDuck / 0.75f y:y + 88 attrs:small small:small];
+    [self drawSlider:@"STRT" value:[NSString stringWithFormat:@"%.0f%%", params.loopStart * 100.0f] norm:params.loopStart / 0.999f y:y + 114 attrs:small small:small];
+    [self drawSlider:@"LEN" value:[NSString stringWithFormat:@"%.0f%%", params.loopLength * 100.0f] norm:(params.loopLength - 0.01f) / 0.99f y:y + 140 attrs:small small:small];
     y += engineH + gap;
-    const CGFloat relH = _relationshipsOpen ? 260.0 : headerH;
+    const CGFloat relH = 260.0;
     panelFrame(y, relH);
-    [self drawSectionHeader:@"RELATIONSHIPS" open:_relationshipsOpen y:y attrs:section];
-    if (_relationshipsOpen) {
-        [self drawSlider:@"SPRD" value:[NSString stringWithFormat:@"%+.0f%%", params.rateSpread * 100.0f] norm:(params.rateSpread + 1.0f) * 0.5f y:y + 36 attrs:small small:small];
-        [self drawSlider:@"DRFT" value:[NSString stringWithFormat:@"%+.3f", params.driftAmount] norm:(params.driftAmount + 0.12f) / 0.24f y:y + 62 attrs:small small:small];
-        [self drawSlider:@"CTR" value:[NSString stringWithFormat:@"%.2f", params.relationCenter] norm:params.relationCenter y:y + 88 attrs:small small:small];
-        [self drawSlider:@"GLD" value:[NSString stringWithFormat:@"%.0f", params.relationGlideMs] norm:(params.relationGlideMs - 10.0f) / 1990.0f y:y + 114 attrs:small small:small];
-        [self drawRelationshipPreview:NSMakeRect(
-            s3g::gui_layout::processorLabelX(panelX), y + 146,
-            panelW - 2.0 * s3g::gui_layout::kStandardMetrics.labelInset, 102) attrs:small];
-    }
+    [self drawSectionHeader:@"RELATIONSHIPS" y:y attrs:section];
+    [self drawSlider:@"SPRD" value:[NSString stringWithFormat:@"%+.0f%%", params.rateSpread * 100.0f] norm:(params.rateSpread + 1.0f) * 0.5f y:y + 36 attrs:small small:small];
+    [self drawSlider:@"DRFT" value:[NSString stringWithFormat:@"%+.3f", params.driftAmount] norm:(params.driftAmount + 0.12f) / 0.24f y:y + 62 attrs:small small:small];
+    [self drawSlider:@"CTR" value:[NSString stringWithFormat:@"%.2f", params.relationCenter] norm:params.relationCenter y:y + 88 attrs:small small:small];
+    [self drawSlider:@"GLD" value:[NSString stringWithFormat:@"%.0f", params.relationGlideMs] norm:(params.relationGlideMs - 10.0f) / 1990.0f y:y + 114 attrs:small small:small];
+    [self drawRelationshipPreview:NSMakeRect(
+        s3g::gui_layout::processorLabelX(panelX), y + 146,
+        panelW - 2.0 * s3g::gui_layout::kStandardMetrics.labelInset, 102) attrs:small];
 }
 - (void)updateSlider:(NSPoint)pt
 {
@@ -1002,7 +994,6 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
         [self setNeedsDisplay:YES];
         return;
     }
-    const CGFloat headerH = 20.0;
     const CGFloat gap = s3g::gui_layout::kStandardMetrics.panelGap;
     const CGFloat outputY = 42.0;
     const CGFloat outputH = 54.0;
@@ -1020,32 +1011,20 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
         return;
     }
     CGFloat engineY = outputY + outputH + gap;
-    CGFloat engineH = _engineOpen
-        ? s3g::gui_layout::toolboxHeightForRows(5)
-        : headerH;
+    CGFloat engineH =
+        s3g::gui_layout::toolboxHeightForRows(5);
     CGFloat relY = engineY + engineH + gap;
-    CGFloat relH = _relationshipsOpen ? 260.0 : headerH;
-    if (NSPointInRect(pt, NSMakeRect(kToolboxX, engineY, kToolboxW, 20))) {
-        _engineOpen = !_engineOpen;
-        [self setNeedsDisplay:YES];
-        return;
-    }
-    if (NSPointInRect(pt, NSMakeRect(kToolboxX, relY, kToolboxW, 20))) {
-        _relationshipsOpen = !_relationshipsOpen;
-        [self setNeedsDisplay:YES];
-        return;
-    }
-    struct RowHit { CGFloat y; int slider; BOOL open; };
+    struct RowHit { CGFloat y; int slider; };
     const RowHit rows[] = {
-        { engineY + 36, 1, _engineOpen },
-        { engineY + 62, 2, _engineOpen },
-        { engineY + 88, 3, _engineOpen },
-        { engineY + 114, 9, _engineOpen },
-        { engineY + 140, 10, _engineOpen },
-        { relY + 36, 5, _relationshipsOpen },
-        { relY + 62, 6, _relationshipsOpen },
-        { relY + 88, 7, _relationshipsOpen },
-        { relY + 114, 8, _relationshipsOpen },
+        { engineY + 36, 1 },
+        { engineY + 62, 2 },
+        { engineY + 88, 3 },
+        { engineY + 114, 9 },
+        { engineY + 140, 10 },
+        { relY + 36, 5 },
+        { relY + 62, 6 },
+        { relY + 88, 7 },
+        { relY + 114, 8 },
     };
     auto paramForSlider = [](int slider) -> clap_id {
         switch (slider) {
@@ -1062,7 +1041,7 @@ static CGFloat wrapUnitCGFloat(CGFloat value)
         }
     };
     for (const auto& row : rows) {
-        if (row.open && NSPointInRect(pt, NSMakeRect(
+        if (NSPointInRect(pt, NSMakeRect(
                 kToolboxX, row.y - 8, kToolboxW, 24))) {
             const clap_id param = paramForSlider(row.slider);
             double defaultValue = 0.0;

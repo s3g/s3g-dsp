@@ -82,6 +82,12 @@ while IFS= read -r hit; do
   warn "header" "$hit" "Manual +/- header drawing should be converted to drawDisclosurePanelHeader() or a static drawPanelHeader()."
 done < <(rg -n 'open \? @"-"|open \? @"−"|marker = open' plugins --glob '*.cpp')
 
+while IFS= read -r hit; do
+  warn "header" "$hit" \
+    "Parameter toolboxes stay visible. Use a static header and a second responsive column when the control stack is tall; reserve disclosure for optional help/reference bodies."
+done < <(rg -n 'drawDisclosurePanelHeader\([^;\n]*(@"(OUTPUT|ENGINE|SPECTRAL ENGINE|WAVE ENGINE|TOPOLOGY|PATCH MATRIX|RELATIONSHIPS|BINAURAL|TRANSAURAL)"|title,)' \
+  plugins --glob '*.cpp')
+
 section "Control Types"
 while IFS= read -r hit; do
   warn "control" "$hit" "Binary BYPASS controls should be buttons/toggles unless a slider is deliberately justified."
@@ -474,12 +480,34 @@ done
 
 wave_terrain_source="plugins/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder_clap.cpp"
 wave_terrain_engine="dsp/s3g_ambi_wave_terrain_encoder.h"
-if ! rg -q 'kAmbiWaveTerrainPitchScaleCount = 102u' "$wave_terrain_engine" \
-    || ! rg -q 'constexpr uint32_t columns = 4u' "$wave_terrain_source" \
+scale_catalog="dsp/s3g_musical_scales.h"
+scale_menu_sources=(
+  "$wave_terrain_source"
+  plugins/clap_ambi_vot_encoder/s3g_ambi_vot_encoder_clap.cpp
+  plugins/clap_ambi_vox_encoder/s3g_ambi_vox_encoder_clap.cpp
+)
+if ! rg -q 'kMusicalScaleCount = 101u' "$scale_catalog" \
+    || ! rg -q 'kMusicalScaleMenuOrder' "$scale_catalog" \
+    || ! rg -q '"PENTATONIC MAJOR"' \
+        tests/dsp_smoke.cpp \
+    || ! rg -q '"PENTATONIC MINOR"' \
+        tests/dsp_smoke.cpp \
+    || ! rg -q 'kAmbiWaveTerrainPitchScaleCount' \
+        "$wave_terrain_engine" \
+    || ! rg -q 'kMusicalScaleCount \+ 1u' \
+        "$wave_terrain_engine" \
     || ! rg -q 'openMenuHit' "$wave_terrain_source"; then
   warn "layout" "$wave_terrain_source" \
-    "Wave Terrain must retain its complete built-in scale catalog and bounded four-column scale menu."
+    "Musical scale menus must retain the complete shared catalog, stable IDs, and canonical family ordering."
 fi
+for file in "${scale_menu_sources[@]}"; do
+  if ! rg -q 'kMusicalScaleCount' "$file" \
+      || ! rg -q 'musicalScaleValueForMenuIndex' "$file" \
+      || ! rg -q 'drawMultiColumnDropdownMenu' "$file"; then
+    warn "control" "$file" \
+      "Wave Terrain, VOT, and VOX must expose the same bounded, canonically ordered musical scale catalog."
+  fi
+done
 if rg -q 'TerrainInterpretation::Vector|@"VECTOR"|"VECTOR"' \
     "$wave_terrain_engine" "$wave_terrain_source"; then
   warn "control" "$wave_terrain_source" \
@@ -496,6 +524,232 @@ if ! rg -q 'displaySurfacePointU' "$wave_terrain_source" \
     || ! rg -q '_pendingVoice' "$wave_terrain_source"; then
   warn "view" "$wave_terrain_source" \
     "Wave Terrain must draw the complete closed terrain domain and reserve pointer movement for camera drag."
+fi
+
+section "Array Family"
+array_family_sources=(
+  plugins/clap_array_hpf/s3g_array_hpf_clap.cpp
+  plugins/clap_array_delay/s3g_array_delay_clap.cpp
+  plugins/clap_array_trim/s3g_array_trim_clap.cpp
+)
+for file in "${array_family_sources[@]}"; do
+  if ! rg -q 'kArrayFamilyLayout' "$file" \
+      || ! rg -q 'ResponsiveViewport' "$file"; then
+    warn "layout" "$file" \
+      "Every Array utility must consume the shared responsive 720 x 388 family layout."
+  fi
+  if ! rg -q 'drawArrayTitleBand' "$file" \
+      || ! rg -q 'handleProcessorTitleClick' "$file" \
+      || ! rg -q 'peakDbText' "$file"; then
+    warn "title" "$file" \
+      "Array titles must expose aligned PRESET, LOAD, SAVE, and far-right PK controls."
+  fi
+  if ! rg -q 'drawPanel\(@"OUTPUT"' "$file" \
+      || ! rg -q '@\"OUT\"' "$file" \
+      || ! rg -q 'drawPanel\(@"ARRAY"' "$file" \
+      || ! rg -q '@\"ACTIVE\"' "$file"; then
+    warn "layout" "$file" \
+      "Array utilities keep OUTPUT/OUT at top left and integer ACTIVE in the top-right ARRAY toolbox."
+  fi
+  if ! rg -q 'sliderDoubleClickDefault' "$file"; then
+    warn "control" "$file" \
+      "Every Array slider, including channel rows, must support double-click default reset."
+  fi
+  if rg -q 'drawEncoderTitleBand|@\"RANDOM\"' "$file"; then
+    warn "title" "$file" \
+      "Array title actions are PRESET / LOAD / SAVE only; RANDOM belongs to Encoders."
+  fi
+done
+array_title_contracts=(
+  'plugins/clap_array_hpf/s3g_array_hpf_clap.cpp|s3g ARRAY HPF %uCH'
+  'plugins/clap_array_delay/s3g_array_delay_clap.cpp|s3g ARRAY DELAY %uCH'
+  'plugins/clap_array_trim/s3g_array_trim_clap.cpp|s3g ARRAY TRIM %uCH'
+)
+for contract in "${array_title_contracts[@]}"; do
+  file="${contract%%|*}"
+  title="${contract#*|}"
+  if ! rg -Fq "$title" "$file"; then
+    warn "title" "$file" \
+      "Array titles must keep the meaningful channel-count suffix on the left."
+  fi
+done
+if ! rg -q 'kArrayFamilyLayout' plugins/common/s3g_gui_layout.h \
+    || ! rg -Fq '{ 720.0, 388.0 }' plugins/common/s3g_gui_layout.h \
+    || ! rg -q 'constexpr const auto& kArray = layout::kArrayFamilyLayout' \
+        tests/gui_layout_contract_smoke.cpp \
+    || ! rg -q 'processorSliderFitsPanel\(kArray\.' \
+        tests/gui_layout_contract_smoke.cpp; then
+  warn "layout" "plugins/common/s3g_gui_layout.h" \
+    "The Array contract must retain its common canvas, top toolboxes, bounded values, and eight-row editor geometry."
+fi
+
+section "Ambi Transform Family"
+transform_family_sources=(
+  plugins/clap_ambisonic_rotate/s3g_ambisonic_rotate_clap.cpp
+  plugins/clap_ambi_group_rotate/s3g_ambi_group_rotate_clap.cpp
+  plugins/clap_ambi_group_depth/s3g_ambi_group_depth_clap.cpp
+  plugins/clap_ambisonic_order_band_tool/s3g_ambisonic_order_band_tool_clap.cpp
+)
+for file in "${transform_family_sources[@]}"; do
+  if ! rg -q 'kTransformFamilyLayout' "$file" \
+      || ! rg -q 'ResponsiveViewport' "$file"; then
+    warn "layout" "$file" \
+      "Every Ambi Transform consumes the shared responsive 820 x 496 family layout."
+  fi
+  if ! rg -q 'drawTransformTitleBand' "$file" \
+      || ! rg -q 'handleProcessorTitleClick' "$file" \
+      || ! rg -q 'peakDbText' "$file"; then
+    warn "title" "$file" \
+      "Transform titles expose aligned PRESET, LOAD, SAVE, and far-right PK controls."
+  fi
+  if ! rg -q '@\"OUTPUT\"' "$file" \
+      || ! rg -q '@\"OUT\"' "$file"; then
+    warn "layout" "$file" \
+      "Every Transform keeps a dedicated top-right OUTPUT toolbox with OUT first."
+  fi
+  if ! rg -q 'sliderDoubleClickDefault' "$file"; then
+    warn "control" "$file" \
+      "Every Transform continuous slider must support double-click default reset."
+  fi
+  if rg -q 'drawEncoderTitleBand|@\"RANDOM\"' "$file"; then
+    warn "title" "$file" \
+      "Transform title actions are PRESET / LOAD / SAVE only."
+  fi
+done
+transform_family_names=(
+  'plugins/clap_ambisonic_rotate/CMakeLists.txt|s3g Ambi Transform Rot 64'
+  'plugins/clap_ambi_group_rotate/CMakeLists.txt|s3g Ambi Transform Grp Rot 64'
+  'plugins/clap_ambi_group_rotate/CMakeLists.txt|s3g Ambi Transform Grp Rot 128'
+  'plugins/clap_ambi_group_depth/CMakeLists.txt|s3g Ambi Transform Depth 16'
+  'plugins/clap_ambi_group_depth/CMakeLists.txt|s3g Ambi Transform Grp Depth 64'
+  'plugins/clap_ambi_group_depth/CMakeLists.txt|s3g Ambi Transform Grp Depth 128'
+  'plugins/clap_ambisonic_order_band_tool/CMakeLists.txt|s3g Ambi Transform Order Band 64'
+)
+for contract in "${transform_family_names[@]}"; do
+  file="${contract%%|*}"
+  expected_name="${contract#*|}"
+  if ! rg -Fq "\"${expected_name}\"" "$file"; then
+    warn "name" "$file" \
+      "Transform-family host names must expose '${expected_name}'."
+  fi
+done
+if ! rg -q 'kTransformFamilyLayout' plugins/common/s3g_gui_layout.h \
+    || ! rg -Fq '{ 820.0, 496.0 }' plugins/common/s3g_gui_layout.h \
+    || ! rg -q 'constexpr const auto& kTransform = layout::kTransformFamilyLayout' \
+        tests/gui_layout_contract_smoke.cpp; then
+  warn "layout" "plugins/common/s3g_gui_layout.h" \
+    "The Transform contract must retain its common canvas, field, output, and right-toolbox anchors."
+fi
+
+section "Matrix Family"
+matrix_family_sources=(
+  plugins/clap_group_matrix/s3g_group_matrix_clap.cpp
+  plugins/clap_group_matrix_32/s3g_group_matrix_32_clap.cpp
+  plugins/clap_ambi_group_matrix/s3g_ambi_group_matrix_clap.cpp
+  plugins/clap_ambi_group_matrix_128/s3g_ambi_group_matrix_128_clap.cpp
+)
+for file in "${matrix_family_sources[@]}"; do
+  if ! rg -q 'kMatrixFamilyLayout' "$file" \
+      || ! rg -q 'ResponsiveViewport' "$file"; then
+    warn "layout" "$file" \
+      "Every Matrix consumes the shared responsive 1040 x 648 family layout."
+  fi
+  if ! rg -q 'drawMatrixTitleBand' "$file" \
+      || ! rg -q 'handleProcessorTitleClick' "$file" \
+      || ! rg -q 'titleBand.randomButton' "$file" \
+      || ! rg -q 'peakDbText' "$file"; then
+    warn "title" "$file" \
+      "Matrix titles expose aligned PRESET, LOAD, SAVE, RANDOM, and far-right PK controls."
+  fi
+  if rg -q 'randomButtonRect|@"RAND"' "$file"; then
+    warn "title" "$file" \
+      "Matrix randomization belongs only in the shared title-band RANDOM action."
+  fi
+  if ! rg -q 'drawPanel\(@\"OUTPUT\"' "$file" \
+      || ! rg -q '@\"OUT\"' "$file" \
+      || ! rg -q 'drawPanel\(@\"PATTERN\"' "$file"; then
+    warn "layout" "$file" \
+      "Every Matrix keeps OUTPUT above the common PATTERN control stack."
+  fi
+  if ! rg -q 'sliderDoubleClickDefault' "$file"; then
+    warn "control" "$file" \
+      "Every Matrix slider and crosspoint must support double-click default reset."
+  fi
+done
+matrix_family_names=(
+  'plugins/clap_group_matrix_32/CMakeLists.txt|s3g Matrix Group 32'
+  'plugins/clap_group_matrix/CMakeLists.txt|s3g Matrix Group 64'
+  'plugins/clap_ambi_group_matrix/CMakeLists.txt|s3g Ambi Matrix Group 64'
+  'plugins/clap_ambi_group_matrix_128/CMakeLists.txt|s3g Ambi Matrix Group 128'
+)
+for contract in "${matrix_family_names[@]}"; do
+  file="${contract%%|*}"
+  expected_name="${contract#*|}"
+  if ! rg -Fq "\"${expected_name}\"" "$file"; then
+    warn "name" "$file" \
+      "Matrix-family host names must expose '${expected_name}'."
+  fi
+done
+if ! rg -q 'kMatrixFamilyLayout' plugins/common/s3g_gui_layout.h \
+    || ! rg -Fq '{ 1040.0, 648.0 }' plugins/common/s3g_gui_layout.h \
+    || ! rg -q 'constexpr const auto& kMatrix = layout::kMatrixFamilyLayout' \
+        tests/gui_layout_contract_smoke.cpp \
+    || ! rg -q 'encoderTitleBandFits\(kMatrixTitle\)' \
+        tests/gui_layout_contract_smoke.cpp \
+    || ! rg -q 'processorSliderFitsPanel\(kMatrix\.' \
+        tests/gui_layout_contract_smoke.cpp; then
+  warn "layout" "plugins/common/s3g_gui_layout.h" \
+    "The Matrix contract must retain its common canvas, top OUTPUT, PATTERN rows, and bounded slider values."
+fi
+
+section "Mixer Family"
+mixer_family_source=plugins/clap_node_track_mixer/s3g_node_track_mixer_clap.cpp
+if ! rg -q 'kMixerFamilyLayout' "$mixer_family_source" \
+    || ! rg -q 'ResponsiveViewport' "$mixer_family_source"; then
+  warn "layout" "$mixer_family_source" \
+    "Both Node Bus variants must consume the shared responsive 920 x 920 Mixer layout."
+fi
+if ! rg -q 'drawMixerTitleBand' "$mixer_family_source" \
+    || ! rg -q 'handleProcessorTitleClick' "$mixer_family_source" \
+    || ! rg -q 'peakDbText' "$mixer_family_source"; then
+  warn "title" "$mixer_family_source" \
+    "Mixer titles expose aligned PRESET, LOAD, SAVE, and far-right PK controls."
+fi
+if ! rg -Fq '@"OUTPUT"' "$mixer_family_source" \
+    || ! rg -Fq '@"BUS / CURSOR"' "$mixer_family_source" \
+    || ! rg -Fq '@"OUT"' "$mixer_family_source" \
+    || ! rg -Fq '@"ACTIVE"' "$mixer_family_source"; then
+  warn "layout" "$mixer_family_source" \
+    "Mixers keep OUT in a dedicated first toolbox and separate cursor controls from selected-node controls."
+fi
+if ! rg -q 'sliderDoubleClickDefault' "$mixer_family_source"; then
+  warn "control" "$mixer_family_source" \
+    "Every continuous Mixer slider must reset through its declared CLAP default."
+fi
+if rg -q 'drawEncoderTitleBand|@"RANDOM"' "$mixer_family_source"; then
+  warn "title" "$mixer_family_source" \
+    "Mixer title actions are PRESET / LOAD / SAVE only."
+fi
+mixer_family_names=(
+  'plugins/clap_node_track_mixer/CMakeLists.txt|s3g Mixer Node Bus 128'
+  'plugins/clap_node_track_mixer/CMakeLists.txt|s3g Ambi Mixer Node Bus 128'
+)
+for contract in "${mixer_family_names[@]}"; do
+  file="${contract%%|*}"
+  expected_name="${contract#*|}"
+  if ! rg -Fq "\"${expected_name}\"" "$file"; then
+    warn "name" "$file" \
+      "Mixer-family host names must expose '${expected_name}'."
+  fi
+done
+if ! rg -q 'kMixerFamilyLayout' plugins/common/s3g_gui_layout.h \
+    || ! rg -Fq '{ 920.0, 920.0 }' plugins/common/s3g_gui_layout.h \
+    || ! rg -q 'constexpr const auto& kMixer = layout::kMixerFamilyLayout' \
+        tests/gui_layout_contract_smoke.cpp \
+    || ! rg -q 'processorSliderFitsPanel\(kMixer\.' \
+        tests/gui_layout_contract_smoke.cpp; then
+  warn "layout" "plugins/common/s3g_gui_layout.h" \
+    "The Mixer contract must retain its field, top OUTPUT, compacted variant rows, and bounded value cells."
 fi
 
 section "Macro Family"
@@ -729,6 +983,23 @@ for file in "${processor_family_sources[@]}"; do
   if rg -q '· [0-9]+(CH|OUT)|titleStatus[^\n]*(CH|OUT)' "$file"; then
     warn "layout" "$file" "Processor title status reserves the far-right edge for PK; channel count belongs in the full title."
   fi
+  if rg -q 'drawDisclosurePanelHeader' "$file"; then
+    warn "layout" "$file" \
+      "Processor parameter toolboxes remain visible; use the responsive second-column contract instead of disclosure headers."
+  fi
+done
+
+topology_processor_sources=(
+  plugins/clap_delay_processor/s3g_delay_processor_clap.cpp
+  plugins/clap_wave_geometry_processor/s3g_wave_geometry_processor_clap.cpp
+  plugins/clap_spectral_topology_processor/s3g_spectral_topology_processor_clap.cpp
+)
+for file in "${topology_processor_sources[@]}"; do
+  if ! rg -q 'kTopologyProcessorColumns' "$file" \
+      || ! rg -q '(kDelayGuiTopologyPanelX|kSecondaryPanelX)' "$file"; then
+    warn "layout" "$file" \
+      "Topology Processors use the shared 1356 px two-column canvas with TOPOLOGY anchored in the second column."
+  fi
 done
 
 fault_source="plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp"
@@ -736,6 +1007,159 @@ if ! rg -q 'processorLabelX\(kLeftToolboxX\), 647\.0' "$fault_source" \
     || ! rg -q 'kStandardMetrics\.headerLabelInset, y \+ 7\.0' "$fault_source"; then
   warn "layout" "$fault_source" \
     "Processor Fault contextual labels and field headings must use the shared 16 px label and 8 px header anchors."
+fi
+
+section "Compact Effect Family"
+compact_effect_sources=(
+  plugins/clap_spectral_spray/s3g_spectral_spray_clap.cpp
+  plugins/clap_8ch_spectral_spray/s3g_8ch_spectral_spray_clap.cpp
+  plugins/clap_shard_scatter/s3g_shard_scatter_clap.cpp
+  plugins/clap_orbit_delay/s3g_orbit_delay_clap.cpp
+  plugins/clap_cascade_taps/s3g_cascade_taps_clap.cpp
+)
+for file in "${compact_effect_sources[@]}"; do
+  if ! rg -q 'kCompactEffectFamilyLayout' "$file" \
+      || ! rg -q 'drawCompactEffectTitleBand' "$file" \
+      || ! rg -q 'ResponsiveViewport' "$file"; then
+    warn "family" "$file" \
+      "Compact Effects must consume the shared 760 x 376 layout, title band, and responsive viewport."
+  fi
+  if ! rg -q 'compactEffectOutputPanel' "$file" \
+      || ! rg -q '@\"OUTPUT\"' "$file" \
+      || ! rg -q '@\"OUT\"' "$file"; then
+    warn "layout" "$file" \
+      "Compact Effect control stacks begin with the shared OUTPUT panel and OUT."
+  fi
+  if ! rg -q 'sliderDoubleClickDefault' "$file" \
+      || ! rg -q 'drawProcessorSlider' "$file"; then
+    warn "control" "$file" \
+      "Compact Effect sliders use bounded shared geometry and double-click defaults."
+  fi
+done
+compact_effect_names=(
+  'plugins/clap_spectral_spray/CMakeLists.txt|s3g Effect Spectral Spray 2ch'
+  'plugins/clap_8ch_spectral_spray/CMakeLists.txt|s3g Effect Spectral Spray 8ch'
+  'plugins/clap_shard_scatter/CMakeLists.txt|s3g Effect Shard Scatter'
+  'plugins/clap_orbit_delay/CMakeLists.txt|s3g Effect Orbit Delay'
+  'plugins/clap_cascade_taps/CMakeLists.txt|s3g Effect Cascade Taps'
+)
+for contract in "${compact_effect_names[@]}"; do
+  file="${contract%%|*}"
+  expected_name="${contract#*|}"
+  if ! rg -Fq "\"${expected_name}\"" "$file"; then
+    warn "name" "$file" \
+      "Compact Effect host names must expose '${expected_name}'."
+  fi
+done
+
+section "3OAFX Family"
+three_oafx_sources=(
+  plugins/clap_3oafx_single_effects/s3g_3oafx_single_effect_clap.cpp
+  plugins/clap_3oafx_displacement/s3g_3oafx_displacement_clap.cpp
+)
+for file in "${three_oafx_sources[@]}"; do
+  if ! rg -q 'kThreeOafxFamilyLayout' "$file" \
+      || ! rg -q 'drawThreeOafxTitleBand' "$file" \
+      || ! rg -q 'ResponsiveViewport' "$file"; then
+    warn "family" "$file" \
+      "3OAFX effects and transforms use the shared family field, title, and responsive geometry."
+  fi
+  if ! rg -q '@\"OUTPUT\"' "$file" \
+      || ! rg -q '\"OUT\"' "$file" \
+      || ! rg -q 'sliderDoubleClickDefault' "$file"; then
+    warn "layout" "$file" \
+      "Every 3OAFX control stack begins with OUTPUT/OUT and resets sliders on double-click."
+  fi
+done
+three_oafx_names=(
+  'plugins/clap_3oafx_single_effects/CMakeLists.txt|s3g 3OAFX Effect Delay'
+  'plugins/clap_3oafx_single_effects/CMakeLists.txt|s3g 3OAFX Effect Pitch'
+  'plugins/clap_3oafx_single_effects/CMakeLists.txt|s3g 3OAFX Effect Filter'
+  'plugins/clap_3oafx_single_effects/CMakeLists.txt|s3g 3OAFX Effect Gain'
+  'plugins/clap_3oafx_displacement/CMakeLists.txt|s3g 3OAFX Transform Displacement 16ch'
+)
+for contract in "${three_oafx_names[@]}"; do
+  file="${contract%%|*}"
+  expected_name="${contract#*|}"
+  if ! rg -Fq "\"${expected_name}\"" "$file"; then
+    warn "name" "$file" \
+      "3OAFX host names must expose '${expected_name}'."
+  fi
+done
+if [[ -d plugins/clap_3oafx_rack ]]; then
+  warn "retired" "plugins/clap_3oafx_rack" \
+    "The retired 3OAFX Rack source directory must not return."
+fi
+
+section "Analyzer Family"
+analyzer_family=(
+  'plugins/clap_multichannel_meter/s3g_multichannel_meter_clap.cpp|s3g Analyzer Meter 64ch'
+  'plugins/clap_ambisonic_energy_visualizer/s3g_ambisonic_energy_visualizer_clap.cpp|s3g Analyzer Ambi Energy 64ch'
+)
+for member in "${analyzer_family[@]}"; do
+  file="${member%%|*}"
+  expected_name="${member#*|}"
+  if ! rg -Fq "\"${expected_name}\"" "$file"; then
+    warn "name" "$file" "Analyzer host name must expose '${expected_name}'."
+  fi
+  if ! rg -q 'analyzerToolbarRect' "$file" \
+      || ! rg -q 'analyzerContentRect' "$file" \
+      || ! rg -q 'drawAnalyzerTitleBand' "$file" \
+      || ! rg -q 'handleProcessorTitleClick' "$file"; then
+    warn "family" "$file" \
+      "Analyzers share the y 42 toolbar, y 86 primary display, and PRESET/LOAD/SAVE title band."
+  fi
+  if rg -q 'drawSlider' "$file" \
+      && ! rg -q 'sliderDoubleClickDefault' "$file"; then
+    warn "control" "$file" \
+      "Continuous Analyzer display controls reset to their CLAP default on double-click."
+  fi
+done
+
+section "Output Utility Family"
+output_utility_family=(
+  'plugins/clap_mc_to_stereo_autogain/s3g_mc_to_stereo_autogain_clap.cpp|s3g Output Autogain Stereo'
+  'plugins/clap_mc_to_quad_autogain/s3g_mc_to_quad_autogain_clap.cpp|s3g Output Autogain Quad'
+  'plugins/clap_sub_crossover/s3g_sub_crossover_clap.cpp|s3g Output Crossover'
+)
+for member in "${output_utility_family[@]}"; do
+  file="${member%%|*}"
+  expected_name="${member#*|}"
+  if ! rg -Fq "\"${expected_name}\"" "$file"; then
+    warn "name" "$file" "Output Utility host name must expose '${expected_name}'."
+  fi
+  if ! rg -q 'kOutputUtilityFamilyLayout' "$file" \
+      || ! rg -q 'drawOutputUtilityTitleBand' "$file" \
+      || ! rg -q 'ResponsiveViewport' "$file"; then
+    warn "family" "$file" \
+      "Output Utilities share the 920 x 560 field, parameter column, title band, and responsive viewport."
+  fi
+  if ! rg -q '@\"OUTPUT\"' "$file" \
+      || ! rg -q 'sliderDoubleClickDefault' "$file" \
+      || ! rg -q 'drawProcessorSlider' "$file"; then
+    warn "layout" "$file" \
+      "Output Utilities keep final-audition controls first and use shared bounded sliders with double-click defaults."
+  fi
+done
+
+section "Ambi Imprint"
+imprint_source=plugins/clap_ambi_imprint/s3g_ambi_imprint_clap.cpp
+if ! rg -Fq '"s3g Processor Ambi Imprint 64ch"' "$imprint_source"; then
+  warn "name" "$imprint_source" \
+    "Ambi Imprint belongs to the developed Processor family."
+fi
+if ! rg -q 'kImprintFamilyLayout' "$imprint_source" \
+    || ! rg -q 'drawImprintTitleBand' "$imprint_source" \
+    || ! rg -q 'ResponsiveViewport' "$imprint_source" \
+    || ! rg -q 'sliderDoubleClickDefault' "$imprint_source"; then
+  warn "family" "$imprint_source" \
+    "Ambi Imprint must use its shared responsive field/column layout, title band, and double-click defaults."
+fi
+if ! rg -q 'kImprintOutputPanel' "$imprint_source" \
+    || ! rg -q '@\"OUTPUT\"' "$imprint_source" \
+    || ! rg -q '@\"OUT\"' "$imprint_source"; then
+  warn "layout" "$imprint_source" \
+    "Ambi Imprint begins with a dedicated OUTPUT panel containing OUT and BYP."
 fi
 
 if ! rg -q 'NSRectFill\(NSMakeRect\(x, y, w, 2\.0\)\)' \

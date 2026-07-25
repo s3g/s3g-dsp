@@ -3,6 +3,7 @@
 #include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_math.h"
+#include "s3g_musical_scales.h"
 #include "s3g_realtime.h"
 
 #if defined(__APPLE__)
@@ -63,7 +64,8 @@ enum class AmbiWaveTerrainPitchScale : uint32_t {
     Ichikosucho = 98, MinorSixDiminished = 99, Kafi = 100,
     CompositeBlues = 101,
 };
-constexpr uint32_t kAmbiWaveTerrainPitchScaleCount = 102u;
+constexpr uint32_t kAmbiWaveTerrainPitchScaleCount =
+    kMusicalScaleCount + 1u;
 enum class AmbiWaveTerrainForm : uint32_t {
     Sphere = 0, Tetra = 1, Cube = 2, Octa = 3, Dodeca = 4, Icosa = 5,
 };
@@ -151,124 +153,20 @@ struct AmbiWaveTerrainParams {
     AmbiFieldListenMode fieldListenMode = AmbiFieldListenMode::Off;
 };
 
-struct AmbiWaveTerrainPitchScaleDefinition {
-    const char* name;
-    std::array<int8_t, 12> semitones;
-    uint8_t size;
-};
-
-inline constexpr std::array<AmbiWaveTerrainPitchScaleDefinition,
-    kAmbiWaveTerrainPitchScaleCount> kAmbiWaveTerrainPitchScales {{
-    { "FREE",       {{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }}, 12 },
-    { "CHROM",      {{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }}, 12 },
-    { "MAJOR",      {{ 0, 2, 4, 5, 7, 9, 11 }}, 7 },
-    { "MINOR",      {{ 0, 2, 3, 5, 7, 8, 10 }}, 7 },
-    { "MAJOR PENTATONIC", {{ 0, 2, 4, 7, 9 }}, 5 },
-    { "WHOLE TONE", {{ 0, 2, 4, 6, 8, 10 }}, 6 },
-    { "HARM MIN",   {{ 0, 2, 3, 5, 7, 8, 11 }}, 7 },
-    { "DORIAN",     {{ 0, 2, 3, 5, 7, 9, 10 }}, 7 },
-    { "PHRYGIAN",   {{ 0, 1, 3, 5, 7, 8, 10 }}, 7 },
-    { "LYDIAN",     {{ 0, 2, 4, 6, 7, 9, 11 }}, 7 },
-    { "MIXOLYDIAN", {{ 0, 2, 4, 5, 7, 9, 10 }}, 7 },
-    { "LOCRIAN",    {{ 0, 1, 3, 5, 6, 8, 10 }}, 7 },
-    { "MEL MIN",    {{ 0, 2, 3, 5, 7, 9, 11 }}, 7 },
-    { "HARM MAJ",   {{ 0, 2, 4, 5, 7, 8, 11 }}, 7 },
-    { "DORIAN B2",  {{ 0, 1, 3, 5, 7, 9, 10 }}, 7 },
-    { "LYD AUG",    {{ 0, 2, 4, 6, 8, 9, 11 }}, 7 },
-    { "LYD DOM",    {{ 0, 2, 4, 6, 7, 9, 10 }}, 7 },
-    { "MIXO B6",    {{ 0, 2, 4, 5, 7, 8, 10 }}, 7 },
-    { "LOC #2",     {{ 0, 2, 3, 5, 6, 8, 10 }}, 7 },
-    { "ALTERED",    {{ 0, 1, 3, 4, 6, 8, 10 }}, 7 },
-    { "LOC NAT6",   {{ 0, 1, 3, 5, 6, 9, 10 }}, 7 },
-    { "ION AUG",    {{ 0, 2, 4, 5, 8, 9, 11 }}, 7 },
-    { "DOR #4",     {{ 0, 2, 3, 6, 7, 9, 10 }}, 7 },
-    { "PHRYG DOM",  {{ 0, 1, 4, 5, 7, 8, 10 }}, 7 },
-    { "LYD #2",     {{ 0, 3, 4, 6, 7, 9, 11 }}, 7 },
-    { "ULTRA LOC",  {{ 0, 1, 3, 4, 6, 8, 9 }}, 7 },
-    { "DOR B5",     {{ 0, 2, 3, 5, 6, 9, 10 }}, 7 },
-    { "PHRYG B4",   {{ 0, 1, 3, 4, 7, 8, 10 }}, 7 },
-    { "LYD B3",     {{ 0, 2, 3, 6, 7, 9, 11 }}, 7 },
-    { "MIXO B2",    {{ 0, 1, 4, 5, 7, 9, 10 }}, 7 },
-    { "LYD AUG #2", {{ 0, 3, 4, 6, 8, 9, 11 }}, 7 },
-    { "LOC BB7",    {{ 0, 1, 3, 5, 6, 8, 9 }}, 7 },
-    { "MINOR PENTATONIC", {{ 0, 3, 5, 7, 10 }}, 5 },
-    { "EGYPTIAN",   {{ 0, 2, 5, 7, 10 }}, 5 },
-    { "MINOR BLUES", {{ 0, 3, 5, 6, 7, 10 }}, 6 },
-    { "MAJOR BLUES", {{ 0, 2, 3, 4, 7, 9 }}, 6 },
-    { "HIRAJOSHI",  {{ 0, 2, 3, 7, 8 }}, 5 },
-    { "IN SEN",     {{ 0, 1, 5, 7, 10 }}, 5 },
-    { "IWATO",      {{ 0, 1, 5, 6, 10 }}, 5 },
-    { "KUMOI",      {{ 0, 2, 3, 7, 9 }}, 5 },
-    { "PELOG",      {{ 0, 1, 3, 7, 8 }}, 5 },
-    { "PROMETHEUS", {{ 0, 2, 4, 6, 9, 10 }}, 6 },
-    { "AUGMENTED",  {{ 0, 3, 4, 7, 8, 11 }}, 6 },
-    { "TRITONE",    {{ 0, 1, 4, 6, 7, 10 }}, 6 },
-    { "SIX TONE SYM", {{ 0, 1, 4, 5, 8, 9 }}, 6 },
-    { "DIM W-H",    {{ 0, 2, 3, 5, 6, 8, 9, 11 }}, 8 },
-    { "DIM H-W",    {{ 0, 1, 3, 4, 6, 7, 9, 10 }}, 8 },
-    { "BEBOP MAJ",  {{ 0, 2, 4, 5, 7, 8, 9, 11 }}, 8 },
-    { "BEBOP DOM",  {{ 0, 2, 4, 5, 7, 9, 10, 11 }}, 8 },
-    { "BEBOP DOR",  {{ 0, 2, 3, 4, 5, 7, 9, 10 }}, 8 },
-    { "DOUBLE HARM", {{ 0, 1, 4, 5, 7, 8, 11 }}, 7 },
-    { "HUNG MIN",   {{ 0, 2, 3, 6, 7, 8, 11 }}, 7 },
-    { "NEAP MIN",   {{ 0, 1, 3, 5, 7, 8, 11 }}, 7 },
-    { "NEAP MAJ",   {{ 0, 1, 3, 5, 7, 9, 11 }}, 7 },
-    { "ENIGMATIC",  {{ 0, 1, 4, 6, 8, 10, 11 }}, 7 },
-    { "PERSIAN",    {{ 0, 1, 4, 5, 6, 8, 11 }}, 7 },
-    { "MAJ LOCRIAN", {{ 0, 2, 4, 5, 6, 8, 10 }}, 7 },
-    { "LEAD WHOLE", {{ 0, 2, 4, 6, 8, 10, 11 }}, 7 },
-    { "JAPANESE",   {{ 0, 1, 5, 7, 8 }}, 5 },
-    { "YO",         {{ 0, 2, 5, 7, 9 }}, 5 },
-    { "HUNG MAJ",   {{ 0, 3, 4, 6, 7, 9, 10 }}, 7 },
-    { "ORIENTAL",   {{ 0, 1, 4, 5, 6, 9, 10 }}, 7 },
-    { "DOM PENTA",  {{ 0, 2, 4, 7, 10 }}, 5 },
-    { "MIN 6 PENTA", {{ 0, 3, 5, 7, 9 }}, 5 },
-    { "MAN GONG",   {{ 0, 3, 5, 8, 10 }}, 5 },
-    { "MESSIAEN 3", {{ 0, 2, 3, 4, 6, 7, 8, 10, 11 }}, 9 },
-    { "MESSIAEN 4", {{ 0, 1, 2, 5, 6, 7, 8, 11 }}, 8 },
-    { "MESSIAEN 5", {{ 0, 1, 5, 6, 7, 11 }}, 6 },
-    { "MESSIAEN 6", {{ 0, 2, 4, 5, 6, 8, 10, 11 }}, 8 },
-    { "MESSIAEN 7", {{ 0, 1, 2, 3, 5, 6, 7, 8, 9, 11 }}, 10 },
-    { "IONIAN PENTATONIC", {{ 0, 4, 5, 7, 11 }}, 5 },
-    { "MIXO PENTATONIC", {{ 0, 4, 5, 7, 10 }}, 5 },
-    { "RITUSEN", {{ 0, 2, 5, 7, 9 }}, 5 },
-    { "NEAP MAJOR PENT", {{ 0, 4, 5, 6, 10 }}, 5 },
-    { "VIETNAMESE 1", {{ 0, 3, 5, 7, 8 }}, 5 },
-    { "LYDIAN PENTATONIC", {{ 0, 4, 6, 7, 11 }}, 5 },
-    { "LOCRIAN PENTATONIC", {{ 0, 3, 5, 6, 10 }}, 5 },
-    { "FLAT 6 PENTATONIC", {{ 0, 2, 4, 7, 8 }}, 5 },
-    { "SCRIABIN", {{ 0, 1, 4, 7, 9 }}, 5 },
-    { "WHOLE TONE PENT", {{ 0, 4, 6, 8, 10 }}, 5 },
-    { "LYD #5 PENTATONIC", {{ 0, 4, 6, 8, 11 }}, 5 },
-    { "LYD DOM PENT", {{ 0, 4, 6, 7, 10 }}, 5 },
-    { "MIN MAJ7 PENT", {{ 0, 3, 5, 7, 11 }}, 5 },
-    { "SUPER LOC PENT", {{ 0, 3, 4, 6, 10 }}, 5 },
-    { "MINOR HEXATONIC", {{ 0, 2, 3, 5, 7, 11 }}, 6 },
-    { "PIONGIO", {{ 0, 2, 5, 7, 9, 10 }}, 6 },
-    { "PROMETHEUS NEAP", {{ 0, 1, 4, 6, 9, 10 }}, 6 },
-    { "MYSTERY 1", {{ 0, 1, 4, 6, 8, 10 }}, 6 },
-    { "DOUBLE HARM LYD", {{ 0, 1, 4, 6, 7, 8, 11 }}, 7 },
-    { "AUG HEPTATONIC", {{ 0, 3, 4, 5, 7, 8, 11 }}, 7 },
-    { "LYDIAN DIM", {{ 0, 2, 3, 6, 7, 9, 11 }}, 7 },
-    { "LYDIAN MINOR", {{ 0, 2, 4, 6, 7, 8, 10 }}, 7 },
-    { "FLAMENCO", {{ 0, 1, 3, 4, 6, 7, 10 }}, 7 },
-    { "TODI", {{ 0, 1, 3, 6, 7, 8, 11 }}, 7 },
-    { "PURVI", {{ 0, 1, 4, 5, 6, 7, 8, 11 }}, 8 },
-    { "SPANISH HEPTATONIC", {{ 0, 1, 3, 4, 5, 7, 8, 10 }}, 8 },
-    { "BEBOP LOCRIAN", {{ 0, 1, 3, 5, 6, 7, 8, 10 }}, 8 },
-    { "MINOR BEBOP", {{ 0, 2, 3, 5, 7, 8, 10, 11 }}, 8 },
-    { "ICHIKOSUCHO", {{ 0, 2, 4, 5, 6, 7, 9, 11 }}, 8 },
-    { "MIN 6 DIM", {{ 0, 2, 3, 5, 7, 8, 9, 11 }}, 8 },
-    { "KAFI", {{ 0, 3, 4, 5, 7, 9, 10, 11 }}, 8 },
-    { "COMPOSITE BLUES", {{ 0, 2, 3, 4, 5, 6, 7, 9, 10 }}, 9 },
-}};
+using AmbiWaveTerrainPitchScaleDefinition = MusicalScaleDefinition;
+inline constexpr AmbiWaveTerrainPitchScaleDefinition
+    kAmbiWaveTerrainFreePitchScale {
+        "FREE", {{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }}, 12
+    };
 
 inline constexpr const AmbiWaveTerrainPitchScaleDefinition&
 ambiWaveTerrainPitchScaleDefinition(AmbiWaveTerrainPitchScale scale)
 {
-    const uint32_t index = std::min<uint32_t>(
+    const uint32_t value = std::min<uint32_t>(
         static_cast<uint32_t>(scale), kAmbiWaveTerrainPitchScaleCount - 1u);
-    return kAmbiWaveTerrainPitchScales[index];
+    return value == 0u
+        ? kAmbiWaveTerrainFreePitchScale
+        : musicalScaleDefinition(value - 1u);
 }
 
 inline int ambiWaveTerrainScaleDegreeSemitones(AmbiWaveTerrainPitchScale scale, int degree)

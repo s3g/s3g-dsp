@@ -39,7 +39,7 @@ add_s3g_3oafx_single_target(
   0
   "s3g_3oafx_delay"
   "org.s3g.s3g-dsp.3oafx-delay"
-  "s3g 3OAFX Delay"
+  "s3g 3OAFX Effect Delay"
   "Single-slot 3OAFX delay with virtual-speaker return mask and 3OA output."
 )
 
@@ -48,7 +48,7 @@ add_s3g_3oafx_single_target(
   1
   "s3g_3oafx_pitch"
   "org.s3g.s3g-dsp.3oafx-pitch"
-  "s3g 3OAFX Pitch"
+  "s3g 3OAFX Effect Pitch"
   "Single-slot 3OAFX pitch shift with virtual-speaker return mask and 3OA output."
 )
 
@@ -57,7 +57,7 @@ add_s3g_3oafx_single_target(
   2
   "s3g_3oafx_filter"
   "org.s3g.s3g-dsp.3oafx-filter"
-  "s3g 3OAFX Filter"
+  "s3g 3OAFX Effect Filter"
   "Single-slot 3OAFX filter with virtual-speaker return mask and 3OA output."
 )
 
@@ -66,6 +66,6 @@ add_s3g_3oafx_single_target(
   3
   "s3g_3oafx_gain"
   "org.s3g.s3g-dsp.3oafx-gain"
-  "s3g 3OAFX Gain"
+  "s3g 3OAFX Effect Gain"
   "Single-slot 3OAFX gain and cut processor with virtual-speaker mask and 3OA output."
 )

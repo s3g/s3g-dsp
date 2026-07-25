@@ -580,13 +580,14 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* text, doubl
     else if (id == kTransitionParamId) { names = transition; count = static_cast<uint32_t>(std::size(transition)); }
     else if (id == kPitchModeParamId) { names = pitch; count = static_cast<uint32_t>(std::size(pitch)); }
     else if (id == kPitchScaleParamId) {
-        for (uint32_t index = 0u;
-             index < s3g::kAmbiWaveTerrainPitchScaleCount; ++index) {
-            if (std::strcmp(
-                    text, s3g::kAmbiWaveTerrainPitchScales[index].name) == 0) {
-                *value = static_cast<double>(index);
-                return true;
-            }
+        if (std::strcmp(text, "FREE") == 0) {
+            *value = 0.0;
+            return true;
+        }
+        uint32_t scale = 0u;
+        if (s3g::musicalScaleValueFromText(text, scale)) {
+            *value = static_cast<double>(scale + 1u);
+            return true;
         }
         return false;
     }
@@ -1208,10 +1209,13 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     static NSString* pitch[] = { @"NOTE", @"TRAVEL" };
     static std::array<NSString*, s3g::kAmbiWaveTerrainPitchScaleCount> scale = [] {
         std::array<NSString*, s3g::kAmbiWaveTerrainPitchScaleCount> items {};
-        for (uint32_t index = 0u;
-             index < s3g::kAmbiWaveTerrainPitchScaleCount; ++index) {
-            items[index] = [[NSString alloc] initWithUTF8String:
-                s3g::kAmbiWaveTerrainPitchScales[index].name];
+        items[0] = @"FREE";
+        for (uint32_t menuIndex = 0u;
+             menuIndex < s3g::kMusicalScaleCount; ++menuIndex) {
+            const uint32_t scaleValue =
+                s3g::musicalScaleValueForMenuIndex(menuIndex);
+            items[menuIndex + 1u] = [[NSString alloc] initWithUTF8String:
+                s3g::musicalScaleDefinition(scaleValue).name];
         }
         return items;
     }();
@@ -1227,6 +1231,11 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     if (param == kSelectionParamId) { *count = 6; return law; }
     if (param == kPitchModeParamId) { *count = 2; return pitch; }
     if (param == kPitchScaleParamId) {
+        const uint32_t scaleValue =
+            static_cast<uint32_t>(std::lround(value));
+        *selected = scaleValue == 0u ? 0
+            : static_cast<int>(
+                s3g::musicalScaleMenuIndexForValue(scaleValue - 1u) + 1u);
         *count = s3g::kAmbiWaveTerrainPitchScaleCount;
         return scale.data();
     }
@@ -1245,7 +1254,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         _openMenuParam == kPitchScaleParamId ? 4u : 1u;
     const uint32_t rows = (_menuItemCount + columns - 1u) / columns;
     const CGFloat columnWidth =
-        _openMenuParam == kPitchScaleParamId ? 136.0 : 124.0;
+        _openMenuParam == kPitchScaleParamId ? 180.0 : 124.0;
     const CGFloat width = columnWidth * columns;
     const CGFloat height = 18.0 * rows;
     CGFloat y = rowY + 17;
@@ -1262,17 +1271,8 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
         return s3g::clap_gui::dropdownHitIndex(
             point, rect, 18.0, _menuItemCount);
     }
-    if (!NSPointInRect(point, rect)) return -1;
-    constexpr uint32_t columns = 4u;
-    const uint32_t rows =
-        (_menuItemCount + columns - 1u) / columns;
-    const uint32_t column = std::min<uint32_t>(
-        static_cast<uint32_t>((point.x - rect.origin.x) / 136.0),
-        columns - 1u);
-    const uint32_t row = static_cast<uint32_t>(
-        (point.y - rect.origin.y) / 18.0);
-    const uint32_t index = column * rows + row;
-    return index < _menuItemCount ? static_cast<int>(index) : -1;
+    return s3g::clap_gui::multiColumnDropdownHitIndex(
+        point, rect, 18.0, _menuItemCount, 4u);
 }
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
@@ -1284,28 +1284,9 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
             rect, 18.0, items, count, selected, _hoverMenuItem, attrs, style);
         return;
     }
-    constexpr uint32_t columns = 4u;
-    constexpr CGFloat columnWidth = 136.0;
-    const uint32_t rows = (count + columns - 1u) / columns;
-    for (uint32_t column = 0u; column < columns; ++column) {
-        const uint32_t first = column * rows;
-        if (first >= count) break;
-        const uint32_t columnCount = std::min<uint32_t>(rows, count - first);
-        const int columnSelected =
-            selected >= static_cast<int>(first)
-                && selected < static_cast<int>(first + columnCount)
-            ? selected - static_cast<int>(first) : -1;
-        const int columnHover =
-            _hoverMenuItem >= static_cast<int>(first)
-                && _hoverMenuItem < static_cast<int>(first + columnCount)
-            ? _hoverMenuItem - static_cast<int>(first) : -1;
-        const NSRect columnRect = NSMakeRect(
-            rect.origin.x + columnWidth * column, rect.origin.y,
-            columnWidth, 18.0 * columnCount);
-        s3g::clap_gui::drawDropdownMenu(
-            columnRect, 18.0, items + first, columnCount,
-            columnSelected, columnHover, attrs, style);
-    }
+    s3g::clap_gui::drawMultiColumnDropdownMenu(
+        rect, 18.0, items, count, 4u, selected, _hoverMenuItem,
+        attrs, style);
 }
 
 - (void)drawRect:(NSRect)dirty
@@ -1427,7 +1408,18 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     }
     if (_openMenuParam) {
         const int hit = [self openMenuHit:point];
-        if (hit >= 0) applyParam(*_plugin, _openMenuParam, _openMenuParam == kOrderParamId ? hit + 1 : hit);
+        if (hit >= 0) {
+            double value = hit;
+            if (_openMenuParam == kOrderParamId) {
+                value = hit + 1;
+            } else if (_openMenuParam == kPitchScaleParamId) {
+                value = hit == 0 ? 0.0
+                    : static_cast<double>(
+                        s3g::musicalScaleValueForMenuIndex(
+                            static_cast<uint32_t>(hit - 1)) + 1u);
+            }
+            applyParam(*_plugin, _openMenuParam, value);
+        }
         _openMenuParam = 0; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; return;
     }
     for (int index = 0; index < 4; ++index) if (NSPointInRect(point, [self terrainTabRect:index])) { _terrainPage = index; [self setNeedsDisplay:YES]; return; }

@@ -56,6 +56,7 @@ struct Plugin {
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
+    char presetName[64] { "INIT" };
 #endif
 };
 
@@ -439,6 +440,11 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 } // namespace
 
 #if defined(__APPLE__)
+namespace {
+constexpr const auto& kMatrixLayout =
+    s3g::gui_layout::kMatrixFamilyLayout;
+}
+
 @interface S3GAmbiGroupMatrixView : NSView {
 @private
     void* _plugin;
@@ -464,7 +470,6 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 - (void)updateMenuHover:(NSPoint)pt;
 - (void)drawFlowPreview:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)drawGlossary:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
-- (NSRect)randomButtonRect;
 - (NSRect)randomDevSliderRect;
 - (float)randomUnit;
 - (void)randomizeMatrix;
@@ -529,27 +534,42 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 }
 - (NSRect)modeMenuBoxRect
 {
-    return NSMakeRect(838.0, 107.0, 118.0, 17.0);
+    return NSMakeRect(
+        s3g::gui_layout::processorControlX(
+            kMatrixLayout.ambiPattern.frame.x),
+        s3g::gui_layout::rowY(kMatrixLayout.ambiPattern, 1u) - 1.0,
+        s3g::gui_layout::processorMenuWidth(
+            kMatrixLayout.ambiPattern.frame.width),
+        17.0);
 }
 - (NSRect)modeDropdownRect
 {
-    return NSMakeRect(838.0, 125.0, 118.0, 40.0);
+    NSRect box = [self modeMenuBoxRect];
+    return NSMakeRect(box.origin.x, NSMaxY(box) + 1.0,
+        box.size.width, 40.0);
 }
 - (NSRect)shapeMenuBoxRect
 {
-    return NSMakeRect(838.0, 81.0, 118.0, 17.0);
+    return NSMakeRect(
+        s3g::gui_layout::processorControlX(
+            kMatrixLayout.ambiPattern.frame.x),
+        s3g::gui_layout::rowY(kMatrixLayout.ambiPattern, 0u) - 1.0,
+        s3g::gui_layout::processorMenuWidth(
+            kMatrixLayout.ambiPattern.frame.width),
+        17.0);
 }
 - (NSRect)shapeDropdownRect
 {
-    return NSMakeRect(838.0, 99.0, 118.0, 120.0);
-}
-- (NSRect)randomButtonRect
-{
-    return NSMakeRect(390.0, 45.0, 48.0, 15.0);
+    NSRect box = [self shapeMenuBoxRect];
+    return NSMakeRect(box.origin.x, NSMaxY(box) + 1.0,
+        box.size.width, 120.0);
 }
 - (NSRect)randomDevSliderRect
 {
-    return NSMakeRect(286.0, 454.0, 92.0, 14.0);
+    return NSMakeRect(
+        kMatrixLayout.matrixGrid.x + 214.0,
+        kMatrixLayout.matrixPanel.y + kMatrixLayout.matrixPanel.height - 28.0,
+        92.0, 14.0);
 }
 - (float)randomUnit
 {
@@ -723,27 +743,38 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     s3g::clap_gui::Style style;
     [style.bg setFill];
     NSRectFill([self bounds]);
-    NSDictionary* text = [self attrs:style.text size:10.0];
-    NSDictionary* small = [self attrs:style.dim size:10.0];
-    NSDictionary* title = [self attrs:style.text size:10.5];
+    NSDictionary* text = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    const float pk = p->outputPeak.exchange(
+        p->outputPeak.load(std::memory_order_relaxed) * 0.92f,
+        std::memory_order_relaxed);
+    const auto titleBand =
+        s3g::gui_layout::matrixTitleBand(kMatrixLayout.canvas);
+    s3g::clap_gui::drawMatrixTitleBand(
+        @"s3g AMBI MATRIX GROUP 64CH",
+        [NSString stringWithUTF8String:p->presetName],
+        s3g::clap_gui::peakDbText(pk), titleBand, style);
 
-    [@"s3g AMBI GROUP MATRIX 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:title];
-    const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(pk)
-        drawAtPoint:NSMakePoint(846, 14) withAttributes:small];
-    [@"4 x 3OA / 64CH" drawAtPoint:NSMakePoint(926, 14) withAttributes:small];
+    const auto drawRectPanel =
+        [&](NSString* title, const s3g::gui_layout::Rect& rect) {
+            s3g::clap_gui::drawPanelFrame(
+                rect.x, rect.y, rect.width, rect.height, style);
+            s3g::clap_gui::drawPanelHeader(
+                title, true, rect.x, rect.y, rect.width, 21, text, style);
+        };
+    const auto drawPanel =
+        [&](NSString* title, const s3g::gui_layout::Panel& panel) {
+            s3g::clap_gui::drawPanelFrame(panel, style);
+            s3g::clap_gui::drawPanelHeader(
+                title, true, panel, text, style);
+        };
+    drawRectPanel(@"GROUP MATRIX", kMatrixLayout.matrixPanel);
+    drawRectPanel(@"PATTERN PREVIEW", kMatrixLayout.previewPanel);
+    drawPanel(@"OUTPUT", kMatrixLayout.output);
+    drawPanel(@"PATTERN", kMatrixLayout.ambiPattern);
 
-    s3g::clap_gui::drawPanelFrame(18, 42, 430, 440, style);
-    s3g::clap_gui::drawPanelHeader(@"GROUP MATRIX", true, 18, 42, 430, 21, text, style);
-    s3g::clap_gui::drawHeaderActionButton([self randomButtonRect], NSMakeRect(18, 42, 430, 21), @"RAND", small, style);
-    s3g::clap_gui::drawPanelFrame(466, 42, 254, 440, style);
-    s3g::clap_gui::drawPanelHeader(@"PATTERN PREVIEW", true, 466, 42, 254, 21, text, style);
-    s3g::clap_gui::drawPanelFrame(738, 42, 284, 288, style);
-    s3g::clap_gui::drawPanelHeader(@"PATTERN", true, 738, 42, 284, 21, text, style);
-    s3g::clap_gui::drawPanelFrame(738, 346, 284, 96, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 738, 346, 284, 21, text, style);
-
-    const NSRect matrixRect = NSMakeRect(72.0, 90.0, 344.0, 344.0);
+    const NSRect matrixRect =
+        s3g::clap_gui::cocoaRect(kMatrixLayout.matrixGrid);
     const CGFloat cell = matrixRect.size.width / static_cast<CGFloat>(s3g::kAmbiGroupMatrixGroups);
     const CGFloat gap = 8.0;
     const float livePhase = p->matrix.previewPhase();
@@ -785,24 +816,78 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
             [label drawAtPoint:NSMakePoint(r.origin.x + r.size.width * 0.26, r.origin.y + r.size.height * 0.42) withAttributes:text];
         }
     }
-    s3g::clap_gui::drawSlider(@"DEV", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(_randomDev * 100.0)],
-                              _randomDev, 454, small, small, style, 244, 286, 390, 92);
-    [self drawFlowPreview:NSMakeRect(486, 78, 214, 378) attrs:small style:style];
+    s3g::clap_gui::drawSlider(
+        @"DEVIATION",
+        [NSString stringWithFormat:@"%.0f%%",
+            static_cast<double>(_randomDev * 100.0)],
+        _randomDev, [self randomDevSliderRect].origin.y,
+        small, small, style,
+        kMatrixLayout.matrixGrid.x + 172.0,
+        [self randomDevSliderRect].origin.x,
+        kMatrixLayout.matrixGrid.x + 318.0, 92.0);
+    const NSRect previewPanel =
+        s3g::clap_gui::cocoaRect(kMatrixLayout.previewPanel);
+    [self drawFlowPreview:NSInsetRect(
+        NSMakeRect(previewPanel.origin.x, previewPanel.origin.y + 20.0,
+            previewPanel.size.width, previewPanel.size.height - 20.0),
+        20.0, 16.0) attrs:small style:style];
 
     const auto& prm = p->params;
-    s3g::clap_gui::drawMenu(@"SHAPE", [NSString stringWithUTF8String:s3g::matrixFlowShapeName(prm.shape)], 82, small, small, style, 752, 838, 118);
-    s3g::clap_gui::drawMenu(@"MODE", prm.mode == s3g::AmbiGroupMatrixFlowMode::Sync ? @"SYNC" : @"FREE", 108, small, small, style, 752, 838, 118);
-    s3g::clap_gui::drawSlider(@"DPTH", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.flow * 100.0f)], prm.flow, 134, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"SPRD", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.spread * 100.0f)], prm.spread, 160, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"VORT", [NSString stringWithFormat:@"%+.2f", static_cast<double>(prm.vortex)], (prm.vortex + 1.0f) * 0.5f, 186, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"MOTN", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.motion * 100.0f)], prm.motion, 212, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"RATE", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.rate * 100.0f)], prm.rate, 238, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"DIV", [NSString stringWithFormat:@"%.2g", static_cast<double>(prm.divisionBeats)], (prm.divisionBeats - 0.25f) / 63.75f, 264, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"PHAS", [NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.phaseOffset * 100.0f)], prm.phaseOffset, 290, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"SMTH", [NSString stringWithFormat:@"%.0f", static_cast<double>(prm.smoothingMs)], (prm.smoothingMs - 1.0f) / 499.0f, 316, small, small, style, 752, 838, 978, 118);
-    s3g::clap_gui::drawSlider(@"OUT", [NSString stringWithFormat:@"%+.1f", static_cast<double>(prm.outputGainDb)], (prm.outputGainDb + 60.0f) / 72.0f, 386, small, small, style, 752, 838, 978, 118);
+    const auto menu = [&](NSString* label, NSString* value,
+                          uint32_t row) {
+        s3g::clap_gui::drawProcessorMenu(
+            label, [value uppercaseString],
+            s3g::gui_layout::rowY(kMatrixLayout.ambiPattern, row),
+            kMatrixLayout.ambiPattern.frame.x,
+            kMatrixLayout.ambiPattern.frame.width,
+            small, small, style);
+    };
+    const auto slider = [&](NSString* label, NSString* value,
+                            CGFloat norm, uint32_t row) {
+        s3g::clap_gui::drawProcessorSlider(
+            label, value, norm,
+            s3g::gui_layout::rowY(kMatrixLayout.ambiPattern, row),
+            kMatrixLayout.ambiPattern.frame.x,
+            kMatrixLayout.ambiPattern.frame.width,
+            small, small, style);
+    };
+    s3g::clap_gui::drawProcessorSlider(
+        @"OUT",
+        [NSString stringWithFormat:@"%+.1f dB",
+            static_cast<double>(prm.outputGainDb)],
+        (prm.outputGainDb + 60.0f) / 72.0f,
+        s3g::gui_layout::rowY(kMatrixLayout.output, 0u),
+        kMatrixLayout.output.frame.x, kMatrixLayout.output.frame.width,
+        small, small, style);
+    menu(@"SHAPE", [NSString stringWithUTF8String:
+        s3g::matrixFlowShapeName(prm.shape)], 0u);
+    menu(@"MODE", prm.mode == s3g::AmbiGroupMatrixFlowMode::Sync
+        ? @"SYNC" : @"FREE", 1u);
+    slider(@"DEPTH", [NSString stringWithFormat:@"%.0f%%",
+        static_cast<double>(prm.flow * 100.0f)], prm.flow, 2u);
+    slider(@"SPREAD", [NSString stringWithFormat:@"%.0f%%",
+        static_cast<double>(prm.spread * 100.0f)], prm.spread, 3u);
+    slider(@"VORTEX", [NSString stringWithFormat:@"%+.2f",
+        static_cast<double>(prm.vortex)],
+        (prm.vortex + 1.0f) * 0.5f, 4u);
+    slider(@"MOTION", [NSString stringWithFormat:@"%.0f%%",
+        static_cast<double>(prm.motion * 100.0f)], prm.motion, 5u);
+    slider(@"RATE", [NSString stringWithFormat:@"%.0f%%",
+        static_cast<double>(prm.rate * 100.0f)], prm.rate, 6u);
+    slider(@"DIVISION", [NSString stringWithFormat:@"%.2g",
+        static_cast<double>(prm.divisionBeats)],
+        (prm.divisionBeats - 0.25f) / 63.75f, 7u);
+    slider(@"PHASE", [NSString stringWithFormat:@"%.0f%%",
+        static_cast<double>(prm.phaseOffset * 100.0f)],
+        prm.phaseOffset, 8u);
+    slider(@"SMOOTHING", [NSString stringWithFormat:@"%.0f ms",
+        static_cast<double>(prm.smoothingMs)],
+        (prm.smoothingMs - 1.0f) / 499.0f, 9u);
     const CGFloat glossaryH = _showGlossary ? 132.0 : 21.0;
-    [self drawGlossary:NSMakeRect(18, 500, 1004, glossaryH) attrs:small style:style];
+    [self drawGlossary:NSMakeRect(
+        kMatrixLayout.glossary.x, kMatrixLayout.glossary.y,
+        kMatrixLayout.glossary.width, glossaryH)
+        attrs:small style:style];
     [self drawOpenMenu:small style:style];
 }
 - (void)updateCell:(NSPoint)pt
@@ -812,7 +897,8 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
     }
     auto* p = static_cast<Plugin*>(_plugin);
     const uint32_t idx = static_cast<uint32_t>(_dragCell);
-    const NSRect matrixRect = NSMakeRect(72.0, 90.0, 344.0, 344.0);
+    const NSRect matrixRect =
+        s3g::clap_gui::cocoaRect(kMatrixLayout.matrixGrid);
     const CGFloat cell = matrixRect.size.width / static_cast<CGFloat>(s3g::kAmbiGroupMatrixGroups);
     const uint32_t src = idx / s3g::kAmbiGroupMatrixGroups;
     const double n = std::clamp(1.0 - (pt.y - (matrixRect.origin.y + static_cast<CGFloat>(src) * cell)) / cell, 0.0, 1.0);
@@ -825,7 +911,12 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         return;
     }
     auto* p = static_cast<Plugin*>(_plugin);
-    const double n = std::clamp((pt.x - 838.0) / 118.0, 0.0, 1.0);
+    const double n = std::clamp(
+        (pt.x - s3g::gui_layout::processorControlX(
+            kMatrixLayout.ambiPattern.frame.x))
+            / s3g::gui_layout::processorTrackWidth(
+                kMatrixLayout.ambiPattern.frame.width),
+        0.0, 1.0);
     switch (_dragSlider) {
     case 0: applyParam(*p, kParamFlow, n); break;
     case 1: applyParam(*p, kParamSpread, n); break;
@@ -847,6 +938,19 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         [[self window] makeFirstResponder:self];
     }
     auto* p = static_cast<Plugin*>(_plugin);
+    const auto titleBand =
+        s3g::gui_layout::matrixTitleBand(kMatrixLayout.canvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &p->plugin, @"Ambi Matrix Group 64",
+            titleBand, p->presetName, sizeof(p->presetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(
+            pt, s3g::clap_gui::cocoaRect(titleBand.randomButton))) {
+        [self randomizeMatrix];
+        return;
+    }
     if (_openMenu > 0) {
         const NSRect menuRect = _openMenu == 1 ? [self modeDropdownRect] : [self shapeDropdownRect];
         const uint32_t count = _openMenu == 1 ? 2u : 6u;
@@ -868,21 +972,26 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         _hoverMenuItem = -1;
         [self setNeedsDisplay:YES];
     }
-    if (NSPointInRect(pt, NSMakeRect(18, 500, 1004, 21))) {
+    if (NSPointInRect(pt, NSMakeRect(
+            kMatrixLayout.glossary.x, kMatrixLayout.glossary.y,
+            kMatrixLayout.glossary.width, 21.0))) {
         _showGlossary = !_showGlossary;
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(pt, [self randomButtonRect])) {
-        [self randomizeMatrix];
-        return;
-    }
     if (NSPointInRect(pt, NSInsetRect([self randomDevSliderRect], -40.0, -8.0))) {
-        _dragRandomDev = true;
-        [self updateRandomDev:pt];
+        if ([event clickCount] >= 2) {
+            _randomDev = 0.50;
+            _dragRandomDev = false;
+            [self setNeedsDisplay:YES];
+        } else {
+            _dragRandomDev = true;
+            [self updateRandomDev:pt];
+        }
         return;
     }
-    const NSRect matrixRect = NSMakeRect(72.0, 90.0, 344.0, 344.0);
+    const NSRect matrixRect =
+        s3g::clap_gui::cocoaRect(kMatrixLayout.matrixGrid);
     const CGFloat cell = matrixRect.size.width / static_cast<CGFloat>(s3g::kAmbiGroupMatrixGroups);
     const CGFloat gap = 8.0;
     for (uint32_t src = 0; src < s3g::kAmbiGroupMatrixGroups; ++src) {
@@ -890,7 +999,17 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
             NSRect r = NSMakeRect(matrixRect.origin.x + dst * cell, matrixRect.origin.y + src * cell, cell - gap, cell - gap);
             if (NSPointInRect(pt, r)) {
                 _dragCell = s3g::ambiGroupMatrixIndex(src, dst);
-                [self updateCell:pt];
+                double defaultValue = 0.0;
+                const clap_id param =
+                    kCrosspointBase + static_cast<clap_id>(_dragCell);
+                if (s3g::clap_gui::sliderDoubleClickDefault(
+                        event, &p->plugin, param, &defaultValue)) {
+                    applyParam(*p, param, defaultValue);
+                    _dragCell = -1;
+                    [self setNeedsDisplay:YES];
+                } else {
+                    [self updateCell:pt];
+                }
                 return;
             }
         }
@@ -907,13 +1026,45 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
         [self setNeedsDisplay:YES];
         return;
     }
-    const CGFloat ys[] = { 134, 160, 186, 212, 238, 264, 290, 316, 386 };
-    for (int i = 0; i < 9; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(744, ys[i] - 9, 276, 24))) {
-            _dragSlider = i;
+    struct SliderHit {
+        s3g::gui_layout::Rect rect;
+        int slider;
+        clap_id param;
+    };
+    const SliderHit hits[] {
+        { s3g::gui_layout::sliderHitRect(
+              kMatrixLayout.output, 0u), 8, kParamOutput },
+        { s3g::gui_layout::sliderHitRect(
+              kMatrixLayout.ambiPattern, 2u), 0, kParamFlow },
+        { s3g::gui_layout::sliderHitRect(
+              kMatrixLayout.ambiPattern, 3u), 1, kParamSpread },
+        { s3g::gui_layout::sliderHitRect(
+              kMatrixLayout.ambiPattern, 4u), 2, kParamVortex },
+        { s3g::gui_layout::sliderHitRect(
+              kMatrixLayout.ambiPattern, 5u), 3, kParamMotion },
+        { s3g::gui_layout::sliderHitRect(
+              kMatrixLayout.ambiPattern, 6u), 4, kParamRate },
+        { s3g::gui_layout::sliderHitRect(
+              kMatrixLayout.ambiPattern, 7u), 5, kParamDivision },
+        { s3g::gui_layout::sliderHitRect(
+              kMatrixLayout.ambiPattern, 8u), 6, kParamPhase },
+        { s3g::gui_layout::sliderHitRect(
+              kMatrixLayout.ambiPattern, 9u), 7, kParamSmoothing },
+    };
+    for (const auto& hit : hits) {
+        if (!NSPointInRect(pt, s3g::clap_gui::cocoaRect(hit.rect)))
+            continue;
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, hit.param, &defaultValue)) {
+            applyParam(*p, hit.param, defaultValue);
+            _dragSlider = -1;
+            [self setNeedsDisplay:YES];
+        } else {
+            _dragSlider = hit.slider;
             [self updateSlider:pt];
-            return;
         }
+        return;
     }
 }
 - (void)mouseMoved:(NSEvent*)event
@@ -999,7 +1150,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-group-matrix",
-    "s3g Ambi Group Matrix 64",
+    "s3g Ambi Matrix Group 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

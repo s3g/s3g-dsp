@@ -33,7 +33,8 @@ constexpr uint32_t kChannels = s3g::k3OaChannels;
 constexpr uint32_t kStateMagic = 0x53334450u;
 constexpr uint32_t kStateVersion = 1u;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.3oafx-displacement";
-constexpr const char* kPluginName = "s3g 3OAFX Displacement";
+constexpr const char* kPluginName =
+    "s3g 3OAFX Transform Displacement 16ch";
 
 enum class TransportMode : uint32_t {
     Sync = 0,
@@ -109,6 +110,7 @@ struct Plugin {
     double guiViewAzimuthDeg = 38.0;
     double guiViewElevationDeg = 28.0;
     double guiViewZoom = 1.0;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
 
@@ -284,9 +286,8 @@ void destroy(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
 #if defined(__APPLE__)
     if (instance && instance->guiView) {
-        [static_cast<NSView*>(instance->guiView) removeFromSuperview];
-        [static_cast<NSView*>(instance->guiView) release];
-        instance->guiView = nullptr;
+        s3g::clap_gui::destroyResponsiveViewport(
+            instance->guiViewport, instance->guiView);
     }
 #endif
     delete instance;
@@ -861,6 +862,65 @@ const std::vector<std::array<uint32_t, 2>>& displacementMeshEdges()
 
 } // namespace
 
+constexpr auto kDisplacementOutputPanel =
+    s3g::gui_layout::threeOafxDisplacementOutputPanel();
+constexpr auto kDisplacementPlaybackPanel =
+    s3g::gui_layout::fittedStackPanel(
+        s3g::gui_layout::PanelRole::EventTiming,
+        kDisplacementOutputPanel, 5u);
+constexpr auto kDisplacementWarpPanel =
+    s3g::gui_layout::fittedStackPanel(
+        s3g::gui_layout::PanelRole::Motion,
+        kDisplacementPlaybackPanel, 4u);
+constexpr auto kDisplacementDistancePanel =
+    s3g::gui_layout::fittedStackPanel(
+        s3g::gui_layout::PanelRole::Projection,
+        kDisplacementWarpPanel, 3u);
+constexpr std::array kDisplacementColumnPanels {
+    kDisplacementOutputPanel,
+    kDisplacementPlaybackPanel,
+    kDisplacementWarpPanel,
+    kDisplacementDistancePanel,
+};
+static_assert(s3g::gui_layout::validateColumn(
+    kDisplacementColumnPanels,
+    s3g::gui_layout::kThreeOafxFamilyLayout.displacementCanvas));
+
+const s3g::gui_layout::Panel& displacementPanelForParam(clap_id param)
+{
+    if (param == kParamOutput || param == kParamBypass) {
+        return kDisplacementOutputPanel;
+    }
+    if (param >= kParamTransport && param <= kParamLength) {
+        return kDisplacementPlaybackPanel;
+    }
+    if (param >= kParamAmount && param <= kParamRadiusScale) {
+        return kDisplacementWarpPanel;
+    }
+    return kDisplacementDistancePanel;
+}
+
+uint32_t displacementRowForParam(clap_id param)
+{
+    switch (param) {
+    case kParamOutput: return 0u;
+    case kParamBypass: return 1u;
+    case kParamTransport: return 0u;
+    case kParamPlayback: return 1u;
+    case kParamPosition: return 2u;
+    case kParamRate: return 3u;
+    case kParamLength: return 4u;
+    case kParamAmount: return 0u;
+    case kParamAzimuthScale: return 1u;
+    case kParamElevationScale: return 2u;
+    case kParamRadiusScale: return 3u;
+    case kParamDistanceMode: return 0u;
+    case kParamReferenceMeters: return 1u;
+    case kParamEnergy: return 2u;
+    default: return 0u;
+    }
+}
+
 @interface S3G3OAFXDisplacementView : NSView {
     Plugin* _plugin;
     NSTimer* _timer;
@@ -874,6 +934,7 @@ const std::vector<std::array<uint32_t, 2>>& displacementMeshEdges()
     BOOL _dragView;
     BOOL _dragTimeline;
     NSPoint _lastDragPoint;
+    char _titlePresetName[64];
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -899,6 +960,7 @@ const std::vector<std::array<uint32_t, 2>>& displacementMeshEdges()
         _dragView = NO;
         _dragTimeline = NO;
         _lastDragPoint = NSMakePoint(0, 0);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
         [self setWantsLayer:YES];
     }
     return self;
@@ -954,31 +1016,44 @@ const std::vector<std::array<uint32_t, 2>>& displacementMeshEdges()
     if (_plugin && ![self isHidden] && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES];
 }
 
-- (NSRect)fieldPanelRect { return NSMakeRect(14, 42, 620, 550); }
-- (NSRect)fieldRect { return NSMakeRect(30, 76, 588, 438); }
-- (NSRect)timelineRect { return NSMakeRect(38, 536, 572, 12); }
-- (NSRect)loadButtonRect { return NSMakeRect(172, 45, 92, 16); }
+- (NSRect)fieldPanelRect
+{
+    return s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::kThreeOafxFamilyLayout.displacementFieldPanel);
+}
+- (NSRect)fieldRect
+{
+    return s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::kThreeOafxFamilyLayout.displacementField);
+}
+- (NSRect)timelineRect { return NSMakeRect(42, 536, 564, 12); }
+- (NSRect)loadButtonRect { return NSMakeRect(176, 45, 92, 16); }
 
 - (NSRect)viewButtonRect:(int)index
 {
     const CGFloat width = index == 3 ? 42.0 : 38.0;
-    const CGFloat starts[] = { 430.0, 474.0, 518.0, 562.0 };
+    const CGFloat starts[] = { 426.0, 470.0, 514.0, 558.0 };
     return NSMakeRect(starts[index], 45, width, 16);
 }
 
 - (NSRect)zoomButtonRect:(int)index
 {
-    return NSMakeRect(372.0 + static_cast<CGFloat>(index) * 26.0, 45, 20, 16);
+    return NSMakeRect(368.0 + static_cast<CGFloat>(index) * 26.0, 45, 20, 16);
 }
 
 - (NSRect)menuRectForId:(int)menu
 {
-    CGFloat y = 0.0;
+    clap_id param = CLAP_INVALID_ID;
     uint32_t count = 0u;
-    if (menu == 1) { y = 78.0; count = 3u; }
-    else if (menu == 2) { y = 104.0; count = 3u; }
-    else if (menu == 3) { y = 435.0; count = 2u; }
-    return NSMakeRect(758, y + 16.0, 132, 19.0 * count);
+    if (menu == 1) { param = kParamTransport; count = 3u; }
+    else if (menu == 2) { param = kParamPlayback; count = 2u; }
+    else if (menu == 3) { param = kParamDistanceMode; count = 2u; }
+    if (param == CLAP_INVALID_ID) return NSZeroRect;
+    const auto& panel = displacementPanelForParam(param);
+    const uint32_t row = displacementRowForParam(param);
+    const auto box = s3g::gui_layout::menuBoxRect(panel, row);
+    return NSMakeRect(box.x, box.y + box.height + 3.0,
+        box.width, 19.0 * count);
 }
 
 - (void)setViewPreset:(int)mode
@@ -1036,14 +1111,20 @@ const std::vector<std::array<uint32_t, 2>>& displacementMeshEdges()
         normalized = static_cast<CGFloat>(std::clamp(
             std::log(std::max(minimum, value) / minimum) / std::log(maximum / minimum), 0.0, 1.0));
     }
-    s3g::clap_gui::drawSlider(label, [self displayValueForParam:param], normalized, y,
-                              attrs, s3g::clap_gui::softValueAttrs(), style, 664, 758, 842, 75);
+    const auto& panel = displacementPanelForParam(param);
+    s3g::clap_gui::drawProcessorSlider(
+        label, [self displayValueForParam:param], normalized, y,
+        panel.frame.x, panel.frame.width, attrs,
+        s3g::clap_gui::softValueAttrs(), style);
 }
 
 - (void)drawMenu:(NSString*)label param:(clap_id)param y:(CGFloat)y attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawMenu(label, [self displayValueForParam:param], y,
-                            attrs, s3g::clap_gui::softValueAttrs(), style, 664, 758, 132);
+    const auto& panel = displacementPanelForParam(param);
+    s3g::clap_gui::drawProcessorMenu(
+        label, [self displayValueForParam:param], y,
+        panel.frame.x, panel.frame.width, attrs,
+        s3g::clap_gui::softValueAttrs(), style);
 }
 
 - (void)drawFieldWithScore:(const s3g::ThreeOafxDisplacementScore&)score
@@ -1205,12 +1286,15 @@ const std::vector<std::array<uint32_t, 2>>& displacementMeshEdges()
         ? params.position
         : _plugin->guiPhase.load(std::memory_order_relaxed);
 
-    [@"s3g 3OAFX DISPLACEMENT" drawAtPoint:NSMakePoint(14, 13) withAttributes:titles];
-    [@"16 CH" drawAtPoint:NSMakePoint(806, 14) withAttributes:values];
     const float peak = _plugin->outputPeak.exchange(
         _plugin->outputPeak.load(std::memory_order_relaxed) * 0.92f,
         std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(peak) drawAtPoint:NSMakePoint(856, 14) withAttributes:values];
+    const auto titleBand = s3g::gui_layout::threeOafxTitleBand(
+        s3g::gui_layout::kThreeOafxFamilyLayout.displacementCanvas);
+    s3g::clap_gui::drawThreeOafxTitleBand(
+        @"s3g 3OAFX TRANSFORM DISPLACEMENT 16CH",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(peak), titleBand, style);
 
     const NSRect fieldPanel = [self fieldPanelRect];
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
@@ -1230,28 +1314,65 @@ const std::vector<std::array<uint32_t, 2>>& displacementMeshEdges()
     [nameText drawAtPoint:NSMakePoint(38, 560) withAttributes:labels];
     [statusText drawAtPoint:NSMakePoint(350, 560) withAttributes:values];
 
-    s3g::clap_gui::drawPanelFrame(648, 42, 258, 185, style);
-    s3g::clap_gui::drawPanelHeader(@"PLAYBACK", true, 648, 42, 258, 21, labels, style);
-    [self drawMenu:@"CLOCK" param:kParamTransport y:78 attrs:labels style:style];
-    [self drawMenu:@"PLAY" param:kParamPlayback y:104 attrs:labels style:style];
-    [self drawSlider:@"POS" param:kParamPosition minimum:0.0 maximum:1.0 y:130 attrs:labels style:style];
-    [self drawSlider:@"RATE" param:kParamRate minimum:0.001 maximum:2.0 y:156 attrs:labels style:style];
-    [self drawSlider:@"BEATS" param:kParamLength minimum:0.25 maximum:128.0 y:182 attrs:labels style:style];
-
-    s3g::clap_gui::drawPanelFrame(648, 240, 258, 146, style);
-    s3g::clap_gui::drawPanelHeader(@"WARP", true, 648, 240, 258, 21, labels, style);
-    [self drawSlider:@"AMT" param:kParamAmount minimum:0.0 maximum:1.0 y:276 attrs:labels style:style];
-    [self drawSlider:@"AZ" param:kParamAzimuthScale minimum:0.0 maximum:2.0 y:302 attrs:labels style:style];
-    [self drawSlider:@"EL" param:kParamElevationScale minimum:0.0 maximum:2.0 y:328 attrs:labels style:style];
-    [self drawSlider:@"RAD" param:kParamRadiusScale minimum:0.0 maximum:2.0 y:354 attrs:labels style:style];
-
-    s3g::clap_gui::drawPanelFrame(648, 399, 258, 193, style);
-    s3g::clap_gui::drawPanelHeader(@"DISTANCE", true, 648, 399, 258, 21, labels, style);
-    [self drawMenu:@"DIST" param:kParamDistanceMode y:435 attrs:labels style:style];
-    [self drawSlider:@"MTR" param:kParamReferenceMeters minimum:0.5 maximum:10.0 y:461 attrs:labels style:style];
-    [self drawSlider:@"ENRG" param:kParamEnergy minimum:0.0 maximum:1.0 y:487 attrs:labels style:style];
-    [self drawSlider:@"OUT" param:kParamOutput minimum:-60.0 maximum:12.0 y:513 attrs:labels style:style];
-    s3g::clap_gui::drawToggle(@"BYP", params.dsp.bypass, 539, labels, values, style, 664, 758, 64);
+    const auto drawPanel = [&](NSString* name,
+                               const s3g::gui_layout::Panel& panel) {
+        s3g::clap_gui::drawPanelFrame(
+            panel.frame.x, panel.frame.y, panel.frame.width, panel.frame.height,
+            style);
+        s3g::clap_gui::drawPanelHeader(
+            name, true, panel.frame.x, panel.frame.y, panel.frame.width,
+            s3g::gui_layout::kStandardMetrics.headerHeight, labels, style);
+    };
+    drawPanel(@"OUTPUT", kDisplacementOutputPanel);
+    drawPanel(@"PLAYBACK", kDisplacementPlaybackPanel);
+    drawPanel(@"WARP", kDisplacementWarpPanel);
+    drawPanel(@"DISTANCE", kDisplacementDistancePanel);
+    [self drawSlider:@"OUT" param:kParamOutput minimum:-60.0 maximum:12.0
+        y:s3g::gui_layout::rowY(kDisplacementOutputPanel, 0u)
+        attrs:labels style:style];
+    s3g::clap_gui::drawToggle(
+        @"BYP", params.dsp.bypass,
+        s3g::gui_layout::rowY(kDisplacementOutputPanel, 1u),
+        labels, values, style,
+        s3g::gui_layout::processorLabelX(kDisplacementOutputPanel.frame.x),
+        s3g::gui_layout::processorControlX(kDisplacementOutputPanel.frame.x),
+        64.0);
+    [self drawMenu:@"CLOCK" param:kParamTransport
+        y:s3g::gui_layout::rowY(kDisplacementPlaybackPanel, 0u)
+        attrs:labels style:style];
+    [self drawMenu:@"PLAY" param:kParamPlayback
+        y:s3g::gui_layout::rowY(kDisplacementPlaybackPanel, 1u)
+        attrs:labels style:style];
+    [self drawSlider:@"POS" param:kParamPosition minimum:0.0 maximum:1.0
+        y:s3g::gui_layout::rowY(kDisplacementPlaybackPanel, 2u)
+        attrs:labels style:style];
+    [self drawSlider:@"RATE" param:kParamRate minimum:0.001 maximum:2.0
+        y:s3g::gui_layout::rowY(kDisplacementPlaybackPanel, 3u)
+        attrs:labels style:style];
+    [self drawSlider:@"BEATS" param:kParamLength minimum:0.25 maximum:128.0
+        y:s3g::gui_layout::rowY(kDisplacementPlaybackPanel, 4u)
+        attrs:labels style:style];
+    [self drawSlider:@"AMT" param:kParamAmount minimum:0.0 maximum:1.0
+        y:s3g::gui_layout::rowY(kDisplacementWarpPanel, 0u)
+        attrs:labels style:style];
+    [self drawSlider:@"AZ" param:kParamAzimuthScale minimum:0.0 maximum:2.0
+        y:s3g::gui_layout::rowY(kDisplacementWarpPanel, 1u)
+        attrs:labels style:style];
+    [self drawSlider:@"EL" param:kParamElevationScale minimum:0.0 maximum:2.0
+        y:s3g::gui_layout::rowY(kDisplacementWarpPanel, 2u)
+        attrs:labels style:style];
+    [self drawSlider:@"RAD" param:kParamRadiusScale minimum:0.0 maximum:2.0
+        y:s3g::gui_layout::rowY(kDisplacementWarpPanel, 3u)
+        attrs:labels style:style];
+    [self drawMenu:@"DIST" param:kParamDistanceMode
+        y:s3g::gui_layout::rowY(kDisplacementDistancePanel, 0u)
+        attrs:labels style:style];
+    [self drawSlider:@"MTR" param:kParamReferenceMeters minimum:0.5 maximum:10.0
+        y:s3g::gui_layout::rowY(kDisplacementDistancePanel, 1u)
+        attrs:labels style:style];
+    [self drawSlider:@"ENRG" param:kParamEnergy minimum:0.0 maximum:1.0
+        y:s3g::gui_layout::rowY(kDisplacementDistancePanel, 2u)
+        attrs:labels style:style];
     [self drawOpenMenu:values style:style];
 }
 
@@ -1292,7 +1413,13 @@ const std::vector<std::array<uint32_t, 2>>& displacementMeshEdges()
     const auto* definition = std::find_if(std::begin(kParamDefs), std::end(kParamDefs),
         [&](const ParamDef& item) { return item.id == param; });
     if (definition == std::end(kParamDefs)) return;
-    const double normalized = std::clamp((point.x - 758.0) / 75.0, 0.0, 1.0);
+    const auto& panel = displacementPanelForParam(param);
+    const double controlX =
+        s3g::gui_layout::processorControlX(panel.frame.x);
+    const double trackWidth =
+        s3g::gui_layout::processorTrackWidth(panel.frame.width);
+    const double normalized =
+        std::clamp((point.x - controlX) / trackWidth, 0.0, 1.0);
     double value = definition->minimum + normalized * (definition->maximum - definition->minimum);
     if (param == kParamRate || param == kParamLength) {
         value = definition->minimum * std::pow(definition->maximum / definition->minimum, normalized);
@@ -1311,6 +1438,14 @@ const std::vector<std::array<uint32_t, 2>>& displacementMeshEdges()
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    const auto titleBand = s3g::gui_layout::threeOafxTitleBand(
+        s3g::gui_layout::kThreeOafxFamilyLayout.displacementCanvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            point, &_plugin->plugin, @"3OAFX Transform Displacement",
+            titleBand, _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenu != 0) {
         const NSRect menu = [self menuRectForId:_openMenu];
         const uint32_t count = _openMenu == 1 ? 3u : 2u;
@@ -1337,33 +1472,47 @@ const std::vector<std::array<uint32_t, 2>>& displacementMeshEdges()
             return;
         }
     }
-    const struct { int menu; CGFloat y; } menus[] { { 1, 78 }, { 2, 104 }, { 3, 435 } };
+    const struct { int menu; clap_id param; } menus[] {
+        { 1, kParamTransport },
+        { 2, kParamPlayback },
+        { 3, kParamDistanceMode },
+    };
     for (const auto& menu : menus) {
-        if (NSPointInRect(point, NSMakeRect(758, menu.y - 2, 132, 19))) {
+        const auto& panel = displacementPanelForParam(menu.param);
+        const NSRect box = s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::menuBoxRect(
+                panel, displacementRowForParam(menu.param)));
+        if (NSPointInRect(point, box)) {
             _openMenu = menu.menu;
             _hoverMenuItem = -1;
             [self setNeedsDisplay:YES];
             return;
         }
     }
-    if (NSPointInRect(point, NSMakeRect(758, 536, 64, 20))) {
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::sliderHitRect(
+                kDisplacementOutputPanel, 1u)))) {
         [self setParam:kParamBypass value:_plugin->params.dsp.bypass ? 0.0 : 1.0];
         return;
     }
-    const struct { clap_id param; CGFloat y; } sliders[] {
-        { kParamPosition, 130 }, { kParamRate, 156 }, { kParamLength, 182 },
-        { kParamAmount, 276 }, { kParamAzimuthScale, 302 }, { kParamElevationScale, 328 }, { kParamRadiusScale, 354 },
-        { kParamReferenceMeters, 461 }, { kParamEnergy, 487 }, { kParamOutput, 513 },
+    const clap_id sliders[] {
+        kParamOutput,
+        kParamPosition, kParamRate, kParamLength,
+        kParamAmount, kParamAzimuthScale, kParamElevationScale,
+        kParamRadiusScale, kParamReferenceMeters, kParamEnergy,
     };
-    for (const auto& slider : sliders) {
-        if (NSPointInRect(point, NSMakeRect(752, slider.y - 5, 88, 20))) {
-            _dragParam = slider.param;
-            if ([event clickCount] >= 2) {
-                const auto* definition = std::find_if(std::begin(kParamDefs), std::end(kParamDefs),
-                    [&](const ParamDef& item) { return item.id == slider.param; });
-                if (definition != std::end(kParamDefs)) [self setParam:slider.param value:definition->defaultValue];
+    for (const clap_id slider : sliders) {
+        const auto& panel = displacementPanelForParam(slider);
+        if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::sliderHitRect(
+                    panel, displacementRowForParam(slider))))) {
+            _dragParam = slider;
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &_plugin->plugin, slider, &defaultValue)) {
+                [self setParam:slider value:defaultValue];
             } else {
-                [self updateParam:slider.param fromPoint:point];
+                [self updateParam:slider fromPoint:point];
             }
             return;
         }
@@ -1445,6 +1594,13 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool)
     auto* instance = self(plugin);
     if (instance->guiView) return true;
     instance->guiView = [[S3G3OAFXDisplacementView alloc] initWithPlugin:instance];
+    if (instance->guiView
+        && !s3g::clap_gui::createResponsiveViewport(
+            instance->guiViewport, static_cast<NSView*>(instance->guiView),
+            kGuiWidth, kGuiHeight)) {
+        [static_cast<NSView*>(instance->guiView) release];
+        instance->guiView = nullptr;
+    }
     return instance->guiView != nullptr;
 }
 
@@ -1453,40 +1609,41 @@ void guiDestroy(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
     if (!instance->guiView) return;
     [static_cast<S3G3OAFXDisplacementView*>(instance->guiView) stopRefreshTimer];
-    [static_cast<NSView*>(instance->guiView) removeFromSuperview];
-    [static_cast<NSView*>(instance->guiView) release];
-    instance->guiView = nullptr;
+    s3g::clap_gui::destroyResponsiveViewport(
+        instance->guiViewport, instance->guiView);
     instance->guiVisible = false;
 }
 
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* width, uint32_t* height)
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
 {
-    if (!width || !height) return false;
-    *width = kGuiWidth;
-    *height = kGuiHeight;
-    return true;
+    return s3g::clap_gui::getResponsiveViewportSize(
+        self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height);
 }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints)
+{
+    return s3g::clap_gui::getResponsiveResizeHints(hints);
+}
+bool guiAdjustSize(
+    const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
+{
+    return s3g::clap_gui::adjustResponsiveViewportSize(
+        self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height);
+}
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
 {
-    auto* instance = self(plugin);
-    if (!instance->guiView) return false;
-    [static_cast<NSView*>(instance->guiView) setFrameSize:NSMakeSize(width, height)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportSize(
+        self(plugin)->guiViewport, width, height);
 }
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
 {
     if (!window || !window->api || std::strcmp(window->api, CLAP_WINDOW_API_COCOA) != 0 || !window->cocoa) return false;
     auto* instance = self(plugin);
     if (!instance->guiView) return false;
-    NSView* parent = static_cast<NSView*>(window->cocoa);
-    NSView* view = static_cast<NSView*>(instance->guiView);
-    [parent addSubview:view];
-    [view setFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportParent(
+        instance->guiViewport, static_cast<NSView*>(window->cocoa),
+        instance->host);
 }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
@@ -1495,7 +1652,8 @@ bool guiShow(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
     if (!instance->guiView) return false;
     instance->guiVisible = true;
-    [static_cast<NSView*>(instance->guiView) setHidden:NO];
+    if (!s3g::clap_gui::setResponsiveViewportHidden(
+            instance->guiViewport, false)) return false;
     [static_cast<S3G3OAFXDisplacementView*>(instance->guiView) startRefreshTimer];
     return true;
 }
@@ -1505,8 +1663,8 @@ bool guiHide(const clap_plugin_t* plugin)
     if (!instance->guiView) return false;
     instance->guiVisible = false;
     [static_cast<S3G3OAFXDisplacementView*>(instance->guiView) stopRefreshTimer];
-    [static_cast<NSView*>(instance->guiView) setHidden:YES];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportHidden(
+        instance->guiViewport, true);
 }
 
 const clap_plugin_gui_t guiExt {

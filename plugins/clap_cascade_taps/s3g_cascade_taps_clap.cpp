@@ -57,6 +57,7 @@ struct Plugin {
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
@@ -265,30 +266,50 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 } // namespace
 
 #if defined(__APPLE__)
-constexpr uint32_t kGuiParamOrder[] {
-    9u, 7u, 8u, 10u, 11u, 6u,
-    0u, 1u, 2u, 3u, 4u, 5u
-};
+constexpr auto kOutputPanel = s3g::gui_layout::compactEffectOutputPanel(4u);
+constexpr auto kCascadePanel =
+    s3g::gui_layout::compactEffectLeftPanel(
+        kOutputPanel, s3g::gui_layout::PanelRole::EventTiming, 5u);
+constexpr auto kTapPanel =
+    s3g::gui_layout::compactEffectRightPanel(
+        s3g::gui_layout::PanelRole::Projection, 3u);
+constexpr std::array kFirstColumnPanels { kOutputPanel, kCascadePanel };
+constexpr std::array kSecondColumnPanels { kTapPanel };
+static_assert(s3g::gui_layout::validateColumn(
+    kFirstColumnPanels, s3g::gui_layout::kCompactEffectFamilyLayout.canvas));
+static_assert(s3g::gui_layout::validateColumn(
+    kSecondColumnPanels, s3g::gui_layout::kCompactEffectFamilyLayout.canvas,
+    false));
+constexpr uint32_t kOutputParamIndices[] { 9u, 7u, 8u, 10u };
+constexpr uint32_t kCascadeParamIndices[] { 3u, 4u, 5u, 6u, 11u };
+constexpr uint32_t kTapParamIndices[] { 0u, 1u, 2u };
 
-@interface S3GCascadeTapsView : NSView { void* _plugin; int _dragSlider; NSTimer* _timer; }
+@interface S3GCascadeTapsView : NSView {
+    void* _plugin;
+    int _dragSlider;
+    NSTimer* _timer;
+    char _titlePresetName[64];
+}
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
-- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm x:(CGFloat)x y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
+- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs;
 - (void)updateSlider:(NSPoint)point;
 @end
 
 @implementation S3GCascadeTapsView
-- (id)initWithPlugin:(void*)plugin { self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)]; if (self) { _plugin = plugin; _dragSlider = -1; _timer = nil; } return self; }
+- (id)initWithPlugin:(void*)plugin { self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)]; if (self) { _plugin = plugin; _dragSlider = -1; _timer = nil; std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT"); } return self; }
 - (BOOL)isFlipped { return YES; }
 - (void)dealloc { [self stopRefreshTimer]; [super dealloc]; }
 - (void)startRefreshTimer { if (_timer) return; _timer = [NSTimer timerWithTimeInterval:1.0/20.0 target:self selector:@selector(refresh:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
 - (void)refresh:(NSTimer*)timer { (void)timer; if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
-- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm x:(CGFloat)x y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
+- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs
 {
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, small, style, x, x + 94, x + 266, 150);
+    s3g::clap_gui::drawProcessorSlider(name, value, norm, y,
+        panel.frame.x, panel.frame.width, attrs,
+        s3g::clap_gui::softValueAttrs(), style);
 }
 - (void)drawRect:(NSRect)dirty
 {
@@ -296,56 +317,116 @@ constexpr uint32_t kGuiParamOrder[] {
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
-    NSDictionary* lab = s3g::clap_gui::softTitleAttrs();
+    NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
-    [@"s3g CASCADE TAPS" drawAtPoint:NSMakePoint(18,14) withAttributes:lab];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(596,14) withAttributes:small];
-    [@"2>16" drawAtPoint:NSMakePoint(704,14) withAttributes:small];
-    s3g::clap_gui::drawPanelFrame(18, 42, 354, 286, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT / TAPS", true, 18, 42, 354, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(388, 42, 354, 286, style);
-    s3g::clap_gui::drawPanelHeader(@"CASCADE", true, 388, 42, 354, 21, lab, style);
-    for (uint32_t slot = 0; slot < kParamCount; ++slot) {
-        const uint32_t i = kGuiParamOrder[slot];
+    const auto titleBand = s3g::gui_layout::compactEffectTitleBand(
+        s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
+    s3g::clap_gui::drawCompactEffectTitleBand(
+        @"s3g EFFECT CASCADE TAPS",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(pk), titleBand, style);
+    const auto drawPanel = [&](NSString* name,
+                               const s3g::gui_layout::Panel& panel) {
+        s3g::clap_gui::drawPanelFrame(
+            panel.frame.x, panel.frame.y, panel.frame.width, panel.frame.height,
+            style);
+        s3g::clap_gui::drawPanelHeader(
+            name, true, panel.frame.x, panel.frame.y, panel.frame.width,
+            s3g::gui_layout::kStandardMetrics.headerHeight, lab, style);
+    };
+    drawPanel(@"OUTPUT", kOutputPanel);
+    drawPanel(@"CASCADE", kCascadePanel);
+    drawPanel(@"TAP RING", kTapPanel);
+    const auto drawParam = [&](uint32_t i, uint32_t row,
+                               const s3g::gui_layout::Panel& panel) {
         double value = 0.0;
         paramsGetValue(&p->plugin, kParamDefs[i].id, &value);
         const double span = std::max(0.000001, kParamDefs[i].max - kParamDefs[i].min);
         const CGFloat norm = static_cast<CGFloat>((value - kParamDefs[i].min) / span);
         char text[32] {};
         paramsValueToText(&p->plugin, kParamDefs[i].id, value, text, sizeof(text));
-        const bool right = slot >= 6u;
-        const uint32_t row = right ? slot - 6u : slot;
-        const CGFloat x = right ? 406.0 : 36.0;
-        const CGFloat y = 82.0 + static_cast<CGFloat>(row) * 34.0;
         NSString* label = i == 9u ? @"OUT" : [NSString stringWithUTF8String:kParamDefs[i].label];
-        [self drawRow:label value:[NSString stringWithUTF8String:text] norm:norm x:x y:y attrs:small small:small];
+        [self drawRow:label value:[NSString stringWithUTF8String:text] norm:norm
+            y:s3g::gui_layout::rowY(panel, row) panel:panel attrs:lab];
+    };
+    for (uint32_t row = 0u; row < std::size(kOutputParamIndices); ++row) {
+        drawParam(kOutputParamIndices[row], row, kOutputPanel);
     }
-    [@"SOFT widens handoff windows and reins in short/hot cascades" drawAtPoint:NSMakePoint(36, 334) withAttributes:small];
-    [@"stepped 16ch tap ring" drawAtPoint:NSMakePoint(406, 334) withAttributes:small];
+    for (uint32_t row = 0u; row < std::size(kCascadeParamIndices); ++row) {
+        drawParam(kCascadeParamIndices[row], row, kCascadePanel);
+    }
+    for (uint32_t row = 0u; row < std::size(kTapParamIndices); ++row) {
+        drawParam(kTapParamIndices[row], row, kTapPanel);
+    }
+    [@"SOFT widens handoff windows" drawAtPoint:NSMakePoint(
+        kCascadePanel.frame.x + 16.0,
+        kCascadePanel.frame.y + kCascadePanel.frame.height + 12.0)
+        withAttributes:small];
+    [@"stepped 16ch tap ring" drawAtPoint:NSMakePoint(
+        kTapPanel.frame.x + 16.0,
+        kTapPanel.frame.y + kTapPanel.frame.height + 12.0)
+        withAttributes:small];
 }
 - (void)updateSlider:(NSPoint)point
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    if (_dragSlider < 1 || _dragSlider > static_cast<int>(kParamCount)) return;
-    const uint32_t slot = static_cast<uint32_t>(_dragSlider - 1);
-    const uint32_t index = kGuiParamOrder[slot];
-    const bool right = slot >= 6u;
-    const double x0 = right ? 500.0 : 130.0;
-    const double n = std::clamp((point.x - x0) / 150.0, 0.0, 1.0);
-    const auto& def = kParamDefs[index];
-    applyParam(*p, def.id, def.min + n * (def.max - def.min));
+    const auto* def = findParam(static_cast<clap_id>(_dragSlider));
+    if (!def) return;
+    const bool output = def->id == kGainParamId || def->id == kDryParamId
+        || def->id == kWetParamId || def->id == kStereoParamId;
+    const bool cascade = def->id == kBaseParamId || def->id == kStepParamId
+        || def->id == kDecayParamId || def->id == kDampParamId
+        || def->id == kSoftParamId;
+    const auto& panel = output ? kOutputPanel : (cascade ? kCascadePanel : kTapPanel);
+    const double x0 = s3g::gui_layout::processorControlX(panel.frame.x);
+    const double trackWidth = s3g::gui_layout::processorTrackWidth(panel.frame.width);
+    const double n = std::clamp((point.x - x0) / trackWidth, 0.0, 1.0);
+    applyParam(*p, def->id, def->min + n * (def->max - def->min));
     [self setNeedsDisplay:YES];
 }
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
-    for (uint32_t slot = 0; slot < kParamCount; ++slot) {
-        const bool right = slot >= 6u;
-        const uint32_t row = right ? slot - 6u : slot;
-        const CGFloat x = right ? 402.0 : 32.0;
-        const CGFloat y = 82.0 + static_cast<CGFloat>(row) * 34.0;
-        if (NSPointInRect(pt, NSMakeRect(x, y - 9.0, 330.0, 24.0))) { _dragSlider = static_cast<int>(slot + 1u); [self updateSlider:pt]; return; }
+    auto* p = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::gui_layout::compactEffectTitleBand(
+        s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &p->plugin, @"Effect Cascade Taps", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    const auto beginSlider = [&](clap_id paramId) {
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, paramId, &defaultValue)) {
+            applyParam(*p, paramId, defaultValue);
+            _dragSlider = -1;
+        } else {
+            _dragSlider = static_cast<int>(paramId);
+            [self updateSlider:pt];
+        }
+        [self setNeedsDisplay:YES];
+    };
+    const auto hitPanel = [&](const s3g::gui_layout::Panel& panel,
+                              const uint32_t* indices, uint32_t count) {
+        for (uint32_t row = 0u; row < count; ++row) {
+            if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+                    s3g::gui_layout::sliderHitRect(panel, row)))) {
+                beginSlider(kParamDefs[indices[row]].id);
+                return true;
+            }
+        }
+        return false;
+    };
+    if (hitPanel(kOutputPanel, kOutputParamIndices,
+            static_cast<uint32_t>(std::size(kOutputParamIndices)))
+        || hitPanel(kCascadePanel, kCascadeParamIndices,
+            static_cast<uint32_t>(std::size(kCascadeParamIndices)))
+        || hitPanel(kTapPanel, kTapParamIndices,
+            static_cast<uint32_t>(std::size(kTapParamIndices)))) {
+        return;
     }
 }
 - (void)mouseDragged:(NSEvent*)event { if (_dragSlider > 0) [self updateSlider:[self convertPoint:[event locationInWindow] fromView:nil]]; }
@@ -355,19 +436,19 @@ constexpr uint32_t kGuiParamOrder[] {
 namespace {
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GCascadeTapsView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3GCascadeTapsView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GCascadeTapsView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; [static_cast<S3GCascadeTapsView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,kGuiWidth,kGuiHeight)]; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, w, h); }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GCascadeTapsView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GCascadeTapsView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3GCascadeTapsView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GCascadeTapsView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 
@@ -386,7 +467,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.cascade-taps",
-    "s3g Cascade Taps",
+    "s3g Effect Cascade Taps",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

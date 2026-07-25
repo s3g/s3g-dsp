@@ -51,7 +51,9 @@ struct Plugin {
     std::atomic<float> outputPeak { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
+    char presetName[64] { "INIT" };
 #endif
 };
 
@@ -283,8 +285,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 #if defined(__APPLE__)
-constexpr uint32_t kGuiWidth = 560;
-constexpr uint32_t kGuiHeight = 300;
+constexpr const auto& kArrayLayout = s3g::gui_layout::kArrayFamilyLayout;
+constexpr uint32_t kGuiWidth =
+    static_cast<uint32_t>(kArrayLayout.canvas.width);
+constexpr uint32_t kGuiHeight =
+    static_cast<uint32_t>(kArrayLayout.canvas.height);
+constexpr CGFloat kFilterPanelX = 430.0;
+constexpr CGFloat kFilterPanelWidth = 256.0;
 
 } // namespace
 
@@ -399,7 +406,10 @@ static double arrayHpfDbNorm(double db)
     if (_openMenu != 1 || _menuItemCount == 0) return;
     static NSString* poleItems[] = { @"1P", @"2P", @"3P", @"4P" };
     const CGFloat itemH = 18.0;
-    const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 86.0, itemH * static_cast<CGFloat>(_menuItemCount));
+    const NSRect menuRect = NSMakeRect(
+        _menuOrigin.x, _menuOrigin.y,
+        s3g::gui_layout::processorMenuWidth(kFilterPanelWidth),
+        itemH * static_cast<CGFloat>(_menuItemCount));
     const int selected = static_cast<int>(std::clamp<uint32_t>(_plugin ? _plugin->params.poles : 1u, 1u, 4u) - 1u);
     s3g::clap_gui::drawDropdownMenu(menuRect, itemH, poleItems, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
@@ -407,10 +417,10 @@ static double arrayHpfDbNorm(double db)
 - (void)drawFilterGraph:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     s3g::clap_gui::drawPanelFrame(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"FILTER GRAPH", true, rect.origin.x, rect.origin.y, rect.size.width, 21, attrs, style);
-    NSRect graph = NSInsetRect(rect, 18.0, 34.0);
-    graph.origin.y += 12.0;
-    graph.size.height -= 6.0;
+    s3g::clap_gui::drawPanelHeader(@"RESPONSE", true, rect.origin.x, rect.origin.y, rect.size.width, 21, attrs, style);
+    NSRect graph = NSMakeRect(
+        rect.origin.x + 12.0, rect.origin.y + 30.0,
+        rect.size.width - 24.0, rect.size.height - 42.0);
     [s3g::clap_gui::color(0x181818) setFill];
     NSRectFill(graph);
     [s3g::clap_gui::color(0x474747) setStroke];
@@ -457,36 +467,103 @@ static double arrayHpfDbNorm(double db)
     NSFont* font = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
     NSDictionary* attrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:font };
     NSDictionary* dim = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:font };
+    const auto titleBand =
+        s3g::gui_layout::arrayTitleBand(kArrayLayout.canvas);
 
     [style.bg setFill];
     NSRectFill(self.bounds);
-    [style.strip setFill];
-    NSRectFill(NSMakeRect(0, 0, self.bounds.size.width, 46));
-    [[NSString stringWithFormat:@"s3g ARRAY HPF %u", kChannelCount] drawAtPoint:NSMakePoint(20, 17) withAttributes:attrs];
-    [[NSString stringWithFormat:@"%u active / %.1f Hz / %u pole", _plugin->params.activeChannels, _plugin->params.cutoffHz, _plugin->params.poles]
-        drawAtPoint:NSMakePoint(314, 17)
-        withAttributes:dim];
+    s3g::clap_gui::drawArrayTitleBand(
+        [NSString stringWithFormat:@"s3g ARRAY HPF %uCH", kChannelCount],
+        [NSString stringWithUTF8String:_plugin->presetName],
+        s3g::clap_gui::peakDbText(
+            _plugin->outputPeak.load(std::memory_order_relaxed)),
+        titleBand, style);
 
-    [self drawFilterGraph:NSMakeRect(20, 66, 236, 202) attrs:attrs style:style];
-    s3g::clap_gui::drawPanelFrame(278, 66, 252, 202, style);
-    s3g::clap_gui::drawPanelHeader(@"FILTER", true, 278, 66, 252, 21, attrs, style);
-    s3g::clap_gui::drawSlider(@"OUT", [self textForParam:kOutputParamId value:_plugin->params.outputGainDb], (_plugin->params.outputGainDb + 60.0f) / 78.0f, 112, attrs, attrs, style, 298, 372, 472, 86);
-    s3g::clap_gui::drawSlider(@"ACTIVE", [self textForParam:kActiveParamId value:_plugin->params.activeChannels], (_plugin->params.activeChannels - 1.0) / std::max(1.0, static_cast<double>(kChannelCount - 1u)), 146, attrs, attrs, style, 298, 372, 472, 86);
-    s3g::clap_gui::drawSlider(@"CUTOFF", [self textForParam:kCutoffParamId value:_plugin->params.cutoffHz], (_plugin->params.cutoffHz - 20.0f) / 220.0f, 180, attrs, attrs, style, 298, 372, 472, 86);
-    s3g::clap_gui::drawMenu(@"POLES", [self textForParam:kPolesParamId value:_plugin->params.poles], 214, attrs, attrs, style, 298, 372, 86);
-    s3g::clap_gui::drawToggle(@"BYPASS", _plugin->params.bypass, 248, attrs, attrs, style, 298, 372, 86);
+    const auto drawPanel =
+        [&](NSString* title, const s3g::gui_layout::Panel& panel) {
+            s3g::clap_gui::drawPanelFrame(panel, style);
+            s3g::clap_gui::drawPanelHeader(
+                title, true, panel, attrs, style);
+        };
+    drawPanel(@"OUTPUT", kArrayLayout.output);
+    drawPanel(@"ARRAY", kArrayLayout.array);
+    drawPanel(@"FILTER", kArrayLayout.editor);
+
+    s3g::clap_gui::drawProcessorSlider(
+        @"OUT", [self textForParam:kOutputParamId
+            value:_plugin->params.outputGainDb],
+        (_plugin->params.outputGainDb + 60.0f) / 78.0f,
+        s3g::gui_layout::rowY(kArrayLayout.output, 0u),
+        kArrayLayout.output.frame.x, kArrayLayout.output.frame.width,
+        attrs, dim, style);
+    s3g::clap_gui::drawToggle(
+        @"BYPASS", _plugin->params.bypass,
+        s3g::gui_layout::rowY(kArrayLayout.output, 1u),
+        attrs, dim, style,
+        s3g::gui_layout::processorLabelX(
+            kArrayLayout.output.frame.x),
+        s3g::gui_layout::processorControlX(
+            kArrayLayout.output.frame.x),
+        74.0);
+    s3g::clap_gui::drawProcessorSlider(
+        @"ACTIVE", [self textForParam:kActiveParamId
+            value:_plugin->params.activeChannels],
+        (_plugin->params.activeChannels - 1.0)
+            / std::max(1.0, static_cast<double>(kChannelCount - 1u)),
+        s3g::gui_layout::rowY(kArrayLayout.array, 0u),
+        kArrayLayout.array.frame.x, kArrayLayout.array.frame.width,
+        attrs, dim, style);
+
+    [self drawFilterGraph:NSMakeRect(34.0, 170.0, 380.0, 182.0)
+        attrs:attrs style:style];
+    s3g::clap_gui::drawProcessorSlider(
+        @"CUTOFF", [self textForParam:kCutoffParamId
+            value:_plugin->params.cutoffHz],
+        (_plugin->params.cutoffHz - 20.0f) / 220.0f,
+        s3g::gui_layout::rowY(kArrayLayout.editor, 0u),
+        kFilterPanelX, kFilterPanelWidth, attrs, dim, style);
+    s3g::clap_gui::drawProcessorMenu(
+        @"POLES", [self textForParam:kPolesParamId
+            value:_plugin->params.poles],
+        s3g::gui_layout::rowY(kArrayLayout.editor, 1u),
+        kFilterPanelX, kFilterPanelWidth, attrs, dim, style);
     [self drawOpenMenu:attrs style:style];
 }
 
 - (void)updateDrag:(NSPoint)pt
 {
     if (!_plugin || _dragControl < 0) return;
-    const double n = std::clamp((static_cast<double>(pt.x) - 372.0) / 86.0, 0.0, 1.0);
     switch (_dragControl) {
-    case 0: applyParam(*_plugin, kActiveParamId, 1.0 + n * static_cast<double>(kChannelCount - 1u)); break;
-    case 1: applyParam(*_plugin, kCutoffParamId, 20.0 + n * 220.0); break;
-    case 2: applyParam(*_plugin, kPolesParamId, 1.0 + n * 3.0); break;
-    case 3: applyParam(*_plugin, kOutputParamId, -60.0 + n * 78.0); break;
+    case 0: {
+        const double n = std::clamp(
+            (static_cast<double>(pt.x)
+                - s3g::gui_layout::processorControlX(
+                    kArrayLayout.array.frame.x))
+            / s3g::gui_layout::processorTrackWidth(
+                kArrayLayout.array.frame.width), 0.0, 1.0);
+        applyParam(*_plugin, kActiveParamId,
+            1.0 + n * static_cast<double>(kChannelCount - 1u));
+        break;
+    }
+    case 1: {
+        const double n = std::clamp(
+            (static_cast<double>(pt.x)
+                - s3g::gui_layout::processorControlX(kFilterPanelX))
+            / s3g::gui_layout::processorTrackWidth(kFilterPanelWidth),
+            0.0, 1.0);
+        applyParam(*_plugin, kCutoffParamId, 20.0 + n * 220.0);
+        break;
+    }
+    case 3: {
+        const double n = std::clamp(
+            (static_cast<double>(pt.x)
+                - s3g::gui_layout::processorControlX(
+                    kArrayLayout.output.frame.x))
+            / s3g::gui_layout::processorTrackWidth(
+                kArrayLayout.output.frame.width), 0.0, 1.0);
+        applyParam(*_plugin, kOutputParamId, -60.0 + n * 78.0);
+        break;
+    }
     default: break;
     }
     [self setNeedsDisplay:YES];
@@ -495,9 +572,20 @@ static double arrayHpfDbNorm(double db)
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    const auto titleBand =
+        s3g::gui_layout::arrayTitleBand(kArrayLayout.canvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &_plugin->plugin, @"Array HPF", titleBand,
+            _plugin->presetName, sizeof(_plugin->presetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenu == 1) {
         const CGFloat itemH = 18.0;
-        const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 86.0, itemH * static_cast<CGFloat>(_menuItemCount));
+        const NSRect menuRect = NSMakeRect(
+            _menuOrigin.x, _menuOrigin.y,
+            s3g::gui_layout::processorMenuWidth(kFilterPanelWidth),
+            itemH * static_cast<CGFloat>(_menuItemCount));
         const int hit = s3g::clap_gui::dropdownHitIndex(pt, menuRect, itemH, _menuItemCount);
         if (hit >= 0) {
             applyParam(*_plugin, kPolesParamId, static_cast<double>(hit + 1));
@@ -506,21 +594,53 @@ static double arrayHpfDbNorm(double db)
         }
         [self closeMenu];
     }
-    if (NSPointInRect(pt, NSMakeRect(372, 212, 86, 22))) {
-        [self openPolesMenuAt:NSMakePoint(372, 230)];
+    const NSRect polesBox = NSMakeRect(
+        s3g::gui_layout::processorControlX(kFilterPanelX),
+        s3g::gui_layout::rowY(kArrayLayout.editor, 1u) - 1.0,
+        s3g::gui_layout::processorMenuWidth(kFilterPanelWidth), 15.0);
+    if (NSPointInRect(pt, NSInsetRect(polesBox, 0.0, -4.0))) {
+        [self openPolesMenuAt:NSMakePoint(
+            polesBox.origin.x, NSMaxY(polesBox) + 2.0)];
         return;
     }
-    if (NSPointInRect(pt, NSMakeRect(372, 246, 86, 20))) {
+    const NSRect bypassBox = NSMakeRect(
+        s3g::gui_layout::processorControlX(kArrayLayout.output.frame.x),
+        s3g::gui_layout::rowY(kArrayLayout.output, 1u) - 1.0,
+        74.0, 15.0);
+    if (NSPointInRect(pt, NSInsetRect(bypassBox, 0.0, -4.0))) {
         applyParam(*_plugin, kBypassParamId, _plugin->params.bypass ? 0.0 : 1.0);
         [self setNeedsDisplay:YES];
         return;
     }
-    const CGFloat ys[] = { 112, 146, 180 };
-    const int controls[] = { 3, 0, 1 };
-    for (int i = 0; i < 3; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(372, ys[i] - 5, 86, 22))) {
-            _dragControl = controls[i];
-            [self updateDrag:pt];
+    struct SliderHit {
+        NSRect rect;
+        int control;
+        clap_id param;
+    };
+    const SliderHit hits[] {
+        { s3g::clap_gui::cocoaRect(
+              s3g::gui_layout::sliderHitRect(kArrayLayout.output, 0u)),
+            3, kOutputParamId },
+        { s3g::clap_gui::cocoaRect(
+              s3g::gui_layout::sliderHitRect(kArrayLayout.array, 0u)),
+            0, kActiveParamId },
+        { NSMakeRect(kFilterPanelX + 8.0,
+              s3g::gui_layout::rowY(kArrayLayout.editor, 0u) - 8.0,
+              kFilterPanelWidth - 16.0, 24.0),
+            1, kCutoffParamId },
+    };
+    for (const auto& hit : hits) {
+        if (NSPointInRect(pt, hit.rect)) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &_plugin->plugin, hit.param, &defaultValue)) {
+                applyParam(*_plugin, hit.param, defaultValue);
+                _dragControl = -1;
+            } else {
+                _dragControl = hit.control;
+                [self updateDrag:pt];
+            }
+            [self setNeedsDisplay:YES];
             return;
         }
     }
@@ -534,19 +654,19 @@ namespace {
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GArrayHpfView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p && p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); auto* v = static_cast<S3GArrayHpfView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GArrayHpfView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p && p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GArrayHpfView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)]; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, w, h); }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GArrayHpfView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GArrayHpfView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<S3GArrayHpfView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GArrayHpfView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 

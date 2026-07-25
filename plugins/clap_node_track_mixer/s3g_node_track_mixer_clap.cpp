@@ -1,5 +1,6 @@
 #include "s3g_node_track_mixer.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_gui_layout.h"
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -28,7 +29,8 @@ namespace {
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
 constexpr bool kAmbi = true;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-node-bus-mixer";
-constexpr const char* kPluginName = "s3g Ambi Node Bus Mixer 128";
+constexpr const char* kHostName = "s3g Ambi Mixer Node Bus 128";
+constexpr const char* kWindowTitle = "s3g AMBI MIXER NODE BUS 128CH";
 constexpr const char* kPluginDesc = "128-channel ambisonic node/cursor bus mixer.";
 constexpr const char* kPortName = "Ambi Node Bus Mix";
 using Processor = s3g::AmbiNodeTrackMixer;
@@ -36,7 +38,8 @@ using Params = s3g::AmbiNodeTrackMixerParams;
 #else
 constexpr bool kAmbi = false;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.node-bus-mixer";
-constexpr const char* kPluginName = "s3g Node Bus Mixer 128";
+constexpr const char* kHostName = "s3g Mixer Node Bus 128";
+constexpr const char* kWindowTitle = "s3g MIXER NODE BUS 128CH";
 constexpr const char* kPluginDesc = "128-channel multichannel node/cursor bus mixer.";
 constexpr const char* kPortName = "Node Bus Mix";
 using Processor = s3g::NodeTrackMixer;
@@ -45,6 +48,7 @@ using Params = s3g::NodeTrackMixerParams;
 
 constexpr uint32_t kGuiWidth = 920;
 constexpr uint32_t kGuiHeight = 920;
+constexpr const auto& kMixerLayout = s3g::gui_layout::kMixerFamilyLayout;
 constexpr uint32_t kStateVersion = 2;
 constexpr clap_id kParamNodeBase = 1000;
 constexpr uint32_t kParamNodeLimit = kAmbi ? s3g::kAmbiNodeBusMixerMaxNodes : s3g::kNodeTrackMixerMaxNodes;
@@ -85,6 +89,7 @@ struct Plugin {
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
+    char presetName[64] { "INIT" };
 #endif
 };
 
@@ -432,7 +437,10 @@ void fillInfo(clap_param_info_t* info, clap_id id, const char* name, double min,
     info->id = id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
     std::strncpy(info->name, name, sizeof(info->name));
-    std::strncpy(info->module, kAmbi ? "Ambi Node Bus Mixer" : "Node Bus Mixer", sizeof(info->module));
+    std::strncpy(
+        info->module,
+        kAmbi ? "Ambi Mixer Node Bus" : "Mixer Node Bus",
+        sizeof(info->module));
     info->min_value = min;
     info->max_value = max;
     info->default_value = def;
@@ -489,7 +497,21 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         const double defs[] { 1, 0, 5, 8, 1, 0, 0, 0, 1, 1 };
 #endif
         std::snprintf(name, sizeof(name), "Node %02u %s", node + 1u, names[field]);
-        fillInfo(info, kParamNodeBase + node * kParamNodeStride + field, name, mins[field], maxs[field], defs[field]);
+        double defaultValue = defs[field];
+#if defined(S3G_AMBI_NODE_TRACK_MIXER)
+        if (field == 2u || field == 3u) {
+            constexpr double kDefaultNodeDistance = 0.78;
+            const double angle = static_cast<double>(node) * 2.0
+                * static_cast<double>(s3g::kPi)
+                / static_cast<double>(s3g::kAmbiNodeBusMixerMaxNodes);
+            defaultValue = field == 2u
+                ? -std::sin(angle) * kDefaultNodeDistance
+                : std::cos(angle) * kDefaultNodeDistance;
+        }
+#endif
+        fillInfo(
+            info, kParamNodeBase + node * kParamNodeStride + field,
+            name, mins[field], maxs[field], defaultValue);
 #if !defined(S3G_AMBI_NODE_TRACK_MIXER)
         if (field == 2u) info->flags |= CLAP_PARAM_IS_STEPPED;
         if (field == 3u || field == 4u) info->flags &= ~CLAP_PARAM_IS_AUTOMATABLE;
@@ -741,7 +763,6 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
 - (void)drawWeightSlider:(NSString*)label weight:(float)weight rect:(NSRect)rect attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style;
 - (void)drawPeakMeter:(NSString*)label peak:(float)peak rect:(NSRect)rect attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style;
 - (int)viewButtonHit:(NSPoint)pt;
-- (void)resetSlider:(int)index;
 - (void)updateSliderAtPoint:(NSPoint)pt;
 - (void)updateSpatialAtPoint:(NSPoint)pt cursor:(BOOL)cursor;
 @end
@@ -788,38 +809,52 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
 }
 - (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, attrs, style, 610, 714, 856, 128);
+    s3g::clap_gui::drawProcessorSlider(
+        name, value, norm, y,
+        kMixerLayout.output.frame.x, kMixerLayout.output.frame.width,
+        attrs, attrs, style);
 }
 - (void)drawMenuRow:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawMenu(name, value, y, attrs, attrs, style, 610, 714, 170);
+    s3g::clap_gui::drawProcessorMenu(
+        name, value, y,
+        kMixerLayout.output.frame.x, kMixerLayout.output.frame.width,
+        attrs, attrs, style);
 }
 - (void)drawReadoutRow:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style
 {
     (void)style;
-    [name drawAtPoint:NSMakePoint(610, y - 4.0) withAttributes:attrs];
-    [value drawAtPoint:NSMakePoint(714, y - 4.0) withAttributes:attrs];
+    [[name uppercaseString] drawAtPoint:NSMakePoint(
+        s3g::gui_layout::processorLabelX(kMixerLayout.output.frame.x),
+        y - 4.0) withAttributes:attrs];
+    [[value uppercaseString] drawAtPoint:NSMakePoint(
+        s3g::gui_layout::processorControlX(kMixerLayout.output.frame.x),
+        y - 4.0) withAttributes:attrs];
 }
 - (void)drawCheckRow:(NSString*)name checked:(BOOL)checked y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style
 {
-    [name drawAtPoint:NSMakePoint(610, y - 4.0) withAttributes:attrs];
-    NSRect box = NSMakeRect(714, y - 7.0, 13.0, 13.0);
-    [style.strip setFill];
-    NSRectFill(box);
-    [style.grid setStroke];
-    NSFrameRect(box);
-    if (checked) {
-        [style.text setFill];
-        NSRectFill(NSInsetRect(box, 3.0, 3.0));
-    }
-    [(checked ? @"ON" : @"OFF") drawAtPoint:NSMakePoint(736, y - 4.0) withAttributes:attrs];
+    s3g::clap_gui::drawToggle(
+        [name uppercaseString], checked, y, attrs, attrs, style,
+        s3g::gui_layout::processorLabelX(kMixerLayout.output.frame.x),
+        s3g::gui_layout::processorControlX(kMixerLayout.output.frame.x),
+        64.0);
 }
-- (NSRect)fieldRect { return NSMakeRect(28, 70, 536, 536); }
+- (NSRect)fieldRect
+{
+    return s3g::clap_gui::cocoaRect(kMixerLayout.fieldPlot);
+}
 - (NSRect)menuRect:(int)menu
 {
-    const CGFloat rows = kAmbi ? 3.0 : static_cast<CGFloat>(s3g::kNodeTrackRegularLayoutCount);
-    if (menu == 1) return NSMakeRect(714, 81, 170, 21.0 * rows);
-    return NSMakeRect(714, 395, 170, 21.0 * rows);
+    const CGFloat rows =
+        static_cast<CGFloat>(s3g::kNodeTrackRegularLayoutCount);
+    const auto& panel = menu == 1
+        ? kMixerLayout.busCursor : kMixerLayout.selectedNode;
+    const uint32_t row = menu == 1 ? 0u : 1u;
+    return NSMakeRect(
+        s3g::gui_layout::processorControlX(panel.frame.x),
+        s3g::gui_layout::rowY(panel, row) - 7.0,
+        s3g::gui_layout::processorMenuWidth(panel.frame.width),
+        21.0 * rows);
 }
 - (NSPoint)projectX:(float)x y:(float)y z:(float)z rect:(NSRect)rect
 {
@@ -881,11 +916,11 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
 - (int)viewButtonHit:(NSPoint)pt
 {
     NSRect buttons[] = {
-        NSMakeRect(372, 39, 44, 18),
-        NSMakeRect(418, 39, 44, 18),
-        NSMakeRect(464, 39, 52, 18),
-        NSMakeRect(522, 39, 20, 18),
-        NSMakeRect(546, 39, 20, 18),
+        NSMakeRect(372, 47, 44, 18),
+        NSMakeRect(418, 47, 44, 18),
+        NSMakeRect(464, 47, 52, 18),
+        NSMakeRect(522, 47, 20, 18),
+        NSMakeRect(546, 47, 20, 18),
     };
     for (int i = 0; i < 5; ++i) {
         if (NSPointInRect(pt, buttons[i])) return i;
@@ -898,25 +933,41 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
-    NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    NSDictionary* text = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* text = s3g::clap_gui::softLabelAttrs();
+    const float pk = p->outputPeak.exchange(
+        p->outputPeak.load(std::memory_order_relaxed) * 0.92f,
+        std::memory_order_relaxed);
+    const auto titleBand =
+        s3g::gui_layout::mixerTitleBand(kMixerLayout.canvas);
+    s3g::clap_gui::drawMixerTitleBand(
+        ns(kWindowTitle), ns(p->presetName),
+        s3g::clap_gui::peakDbText(pk), titleBand, style);
 
-    [ns(kPluginName) drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
+    NSRect fieldPanel =
+        s3g::clap_gui::cocoaRect(kMixerLayout.fieldPanel);
+    s3g::clap_gui::drawPanelFrame(
+        fieldPanel.origin.x, fieldPanel.origin.y,
+        fieldPanel.size.width, fieldPanel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(
+        @"NODE FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y,
+        fieldPanel.size.width, 21, text, style);
+    [self drawViewButton:@"TOP" rect:NSMakeRect(372, 47, 44, 18) active:(_viewMode == 0) attrs:small style:style];
+    [self drawViewButton:@"SIDE" rect:NSMakeRect(418, 47, 44, 18) active:(_viewMode == 1) attrs:small style:style];
+    [self drawViewButton:@"3/4" rect:NSMakeRect(464, 47, 52, 18) active:(_viewMode == 2) attrs:small style:style];
+    [self drawViewButton:@"-" rect:NSMakeRect(522, 47, 20, 18) active:NO attrs:small style:style];
+    [self drawViewButton:@"+" rect:NSMakeRect(546, 47, 20, 18) active:NO attrs:small style:style];
+
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
-    [[NSString stringWithFormat:@"%u NODES / 3OA / 128CH", p->params.nodeCount] drawAtPoint:NSMakePoint(684, 13) withAttributes:small];
+    [[NSString stringWithFormat:@"%u NODES / 3OA / 8 x 16CH / 128CH",
+        p->params.nodeCount]
+        drawAtPoint:NSMakePoint(34, 610) withAttributes:small];
 #else
-    [[NSString stringWithFormat:@"%u NODES / %u OUT / 128CH", p->params.nodeCount, p->params.outputChannels] drawAtPoint:NSMakePoint(660, 13) withAttributes:small];
+    [[NSString stringWithFormat:@"%u NODES / %u OUT / 128CH",
+        p->params.nodeCount, p->params.outputChannels]
+        drawAtPoint:NSMakePoint(34, 610) withAttributes:small];
 #endif
 
-    NSRect fieldPanel = NSMakeRect(12, 34, 570, 872);
-    s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"NODE FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
-    [self drawViewButton:@"TOP" rect:NSMakeRect(372, 39, 44, 18) active:(_viewMode == 0) attrs:small style:style];
-    [self drawViewButton:@"SIDE" rect:NSMakeRect(418, 39, 44, 18) active:(_viewMode == 1) attrs:small style:style];
-    [self drawViewButton:@"3/4" rect:NSMakeRect(464, 39, 52, 18) active:(_viewMode == 2) attrs:small style:style];
-    [self drawViewButton:@"-" rect:NSMakeRect(522, 39, 20, 18) active:NO attrs:small style:style];
-    [self drawViewButton:@"+" rect:NSMakeRect(546, 39, 20, 18) active:NO attrs:small style:style];
     NSRect field = [self fieldRect];
     [s3g::clap_gui::color(0x101010) setFill]; NSRectFill(field);
     [style.grid setStroke]; NSFrameRect(field);
@@ -1101,107 +1152,140 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
         [[NSString stringWithFormat:@"%u", node + 1u] drawAtPoint:NSMakePoint(pt.x + size * 0.62, pt.y - 7.0) withAttributes:small];
     }
 
-    NSRect cursorPanel = NSMakeRect(596, 34, 312, 278);
-    s3g::clap_gui::drawPanelFrame(cursorPanel.origin.x, cursorPanel.origin.y, cursorPanel.size.width, cursorPanel.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"BUS RELATIONSHIP", true, cursorPanel.origin.x, cursorPanel.origin.y, cursorPanel.size.width, 21, text, style);
+    s3g::clap_gui::drawPanelFrame(kMixerLayout.output, style);
+    const auto outputFrame =
+        s3g::clap_gui::cocoaRect(kMixerLayout.output.frame);
+    s3g::clap_gui::drawPanelHeader(
+        @"OUTPUT", true, outputFrame.origin.x, outputFrame.origin.y,
+        outputFrame.size.width, 21, text, style);
+    [self drawSlider:@"OUT"
+        value:[NSString stringWithFormat:@"%+.1f dB",
+            static_cast<double>(p->params.outputGainDb)]
+        norm:(p->params.outputGainDb + 60.0) / 72.0
+        y:s3g::gui_layout::rowY(kMixerLayout.output, 0u)
+        attrs:small style:style];
+
+    const auto& cursorPanel = kAmbi
+        ? kMixerLayout.ambiBusCursor : kMixerLayout.busCursor;
+    s3g::clap_gui::drawPanelFrame(cursorPanel, style);
+    const auto cursorFrame =
+        s3g::clap_gui::cocoaRect(cursorPanel.frame);
+    s3g::clap_gui::drawPanelHeader(
+        @"BUS / CURSOR", true, cursorFrame.origin.x, cursorFrame.origin.y,
+        cursorFrame.size.width, 21, text, style);
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
-    [self drawSlider:@"NODES" value:[NSString stringWithFormat:@"%u", p->params.nodeCount] norm:(p->params.nodeCount - 1.0) / static_cast<double>(s3g::kAmbiNodeBusMixerMaxNodes - 1u) y:88 attrs:small style:style];
-    [self drawSlider:@"INFL" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.cursorInfluence * 100.0f)] norm:p->params.cursorInfluence y:114 attrs:small style:style];
-    [self drawSlider:@"X" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorX)] norm:(p->params.cursorX + 2.0) * 0.25 y:140 attrs:small style:style];
-    [self drawSlider:@"Y" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorY)] norm:(p->params.cursorY + 2.0) * 0.25 y:166 attrs:small style:style];
+    [self drawSlider:@"NODES" value:[NSString stringWithFormat:@"%u", p->params.nodeCount] norm:(p->params.nodeCount - 1.0) / static_cast<double>(s3g::kAmbiNodeBusMixerMaxNodes - 1u) y:s3g::gui_layout::rowY(cursorPanel, 0u) attrs:small style:style];
+    [self drawSlider:@"INFLUENCE" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.cursorInfluence * 100.0f)] norm:p->params.cursorInfluence y:s3g::gui_layout::rowY(cursorPanel, 1u) attrs:small style:style];
+    [self drawSlider:@"CURSOR X" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorX)] norm:(p->params.cursorX + 2.0) * 0.25 y:s3g::gui_layout::rowY(cursorPanel, 2u) attrs:small style:style];
+    [self drawSlider:@"CURSOR Y" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorY)] norm:(p->params.cursorY + 2.0) * 0.25 y:s3g::gui_layout::rowY(cursorPanel, 3u) attrs:small style:style];
     if (zLocked(*p)) {
-        [self drawReadoutRow:@"Z" value:@"LOCKED" y:192 attrs:small style:style];
+        [self drawReadoutRow:@"CURSOR Z" value:@"LOCKED" y:s3g::gui_layout::rowY(cursorPanel, 4u) attrs:small style:style];
     } else {
-        [self drawSlider:@"Z" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorZ)] norm:(p->params.cursorZ + 2.0) * 0.25 y:192 attrs:small style:style];
+        [self drawSlider:@"CURSOR Z" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorZ)] norm:(p->params.cursorZ + 2.0) * 0.25 y:s3g::gui_layout::rowY(cursorPanel, 4u) attrs:small style:style];
     }
-    [self drawCheckRow:@"LOCK Z" checked:zLocked(*p) y:218 attrs:small style:style];
-    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 60.0) / 72.0 y:244 attrs:small style:style];
+    [self drawSlider:@"RADIUS" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.cursorRadius)] norm:(p->params.cursorRadius - 0.05) / 7.95 y:s3g::gui_layout::rowY(cursorPanel, 5u) attrs:small style:style];
+    [self drawSlider:@"FOCUS" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.cursorFocus)] norm:(p->params.cursorFocus - 0.5) / 1.5 y:s3g::gui_layout::rowY(cursorPanel, 6u) attrs:small style:style];
+    [self drawCheckRow:@"LOCK Z" checked:zLocked(*p) y:s3g::gui_layout::rowY(cursorPanel, 7u) attrs:small style:style];
 #else
-    [self drawMenuRow:@"BED" value:orderOrLayoutText(*p) y:88 attrs:small style:style];
-    [self drawReadoutRow:@"CH" value:[NSString stringWithFormat:@"%u", p->params.outputChannels] y:114 attrs:small style:style];
-    [self drawSlider:@"NODES" value:[NSString stringWithFormat:@"%u", p->params.nodeCount] norm:(p->params.nodeCount - 1.0) / 15.0 y:140 attrs:small style:style];
-    [self drawSlider:@"INFL" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.cursorInfluence * 100.0f)] norm:p->params.cursorInfluence y:166 attrs:small style:style];
-    [self drawSlider:@"X" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorX)] norm:(p->params.cursorX + 2.0) * 0.25 y:192 attrs:small style:style];
-    [self drawSlider:@"Y" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorY)] norm:(p->params.cursorY + 2.0) * 0.25 y:218 attrs:small style:style];
+    [self drawMenuRow:@"BED" value:orderOrLayoutText(*p) y:s3g::gui_layout::rowY(cursorPanel, 0u) attrs:small style:style];
+    [self drawReadoutRow:@"CHANNELS" value:[NSString stringWithFormat:@"%u", p->params.outputChannels] y:s3g::gui_layout::rowY(cursorPanel, 1u) attrs:small style:style];
+    [self drawSlider:@"NODES" value:[NSString stringWithFormat:@"%u", p->params.nodeCount] norm:(p->params.nodeCount - 1.0) / 15.0 y:s3g::gui_layout::rowY(cursorPanel, 2u) attrs:small style:style];
+    [self drawSlider:@"INFLUENCE" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.cursorInfluence * 100.0f)] norm:p->params.cursorInfluence y:s3g::gui_layout::rowY(cursorPanel, 3u) attrs:small style:style];
+    [self drawSlider:@"CURSOR X" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorX)] norm:(p->params.cursorX + 2.0) * 0.25 y:s3g::gui_layout::rowY(cursorPanel, 4u) attrs:small style:style];
+    [self drawSlider:@"CURSOR Y" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorY)] norm:(p->params.cursorY + 2.0) * 0.25 y:s3g::gui_layout::rowY(cursorPanel, 5u) attrs:small style:style];
     if (zLocked(*p)) {
-        [self drawReadoutRow:@"Z" value:@"LOCKED" y:244 attrs:small style:style];
+        [self drawReadoutRow:@"CURSOR Z" value:@"LOCKED" y:s3g::gui_layout::rowY(cursorPanel, 6u) attrs:small style:style];
     } else {
-        [self drawSlider:@"Z" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorZ)] norm:(p->params.cursorZ + 2.0) * 0.25 y:244 attrs:small style:style];
+        [self drawSlider:@"CURSOR Z" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(p->params.cursorZ)] norm:(p->params.cursorZ + 2.0) * 0.25 y:s3g::gui_layout::rowY(cursorPanel, 6u) attrs:small style:style];
     }
-    [self drawCheckRow:@"LOCK Z" checked:zLocked(*p) y:270 attrs:small style:style];
-    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 60.0) / 72.0 y:296 attrs:small style:style];
+    [self drawSlider:@"RADIUS" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.cursorRadius)] norm:(p->params.cursorRadius - 0.05) / 7.95 y:s3g::gui_layout::rowY(cursorPanel, 7u) attrs:small style:style];
+    [self drawSlider:@"FOCUS" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.cursorFocus)] norm:(p->params.cursorFocus - 0.5) / 1.5 y:s3g::gui_layout::rowY(cursorPanel, 8u) attrs:small style:style];
+    [self drawSlider:@"GATE" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(p->params.cursorGate)] norm:p->params.cursorGate / 0.95 y:s3g::gui_layout::rowY(cursorPanel, 9u) attrs:small style:style];
+    [self drawCheckRow:@"LOCK Z" checked:zLocked(*p) y:s3g::gui_layout::rowY(cursorPanel, 10u) attrs:small style:style];
 #endif
 
-    NSRect nodePanel = NSMakeRect(596, 328, 312, kAmbi ? 242 : 326);
-    s3g::clap_gui::drawPanelFrame(nodePanel.origin.x, nodePanel.origin.y, nodePanel.size.width, nodePanel.size.height, style);
-    s3g::clap_gui::drawPanelHeader([NSString stringWithFormat:@"NODE %02d", _selectedNode + 1], true, nodePanel.origin.x, nodePanel.origin.y, nodePanel.size.width, 21, text, style);
+    const auto& nodePanel = kAmbi
+        ? kMixerLayout.ambiSelectedNode : kMixerLayout.selectedNode;
+    s3g::clap_gui::drawPanelFrame(nodePanel, style);
+    const auto nodeFrame =
+        s3g::clap_gui::cocoaRect(nodePanel.frame);
+    s3g::clap_gui::drawPanelHeader(
+        [NSString stringWithFormat:@"NODE %02d", _selectedNode + 1], true,
+        nodeFrame.origin.x, nodeFrame.origin.y, nodeFrame.size.width, 21,
+        text, style);
     const uint32_t node = static_cast<uint32_t>(std::clamp(_selectedNode, 0, static_cast<int>(p->params.nodeCount) - 1));
-    [self drawSlider:@"ACT" value:(nodeActive(*p, node) ? @"ON" : @"OFF") norm:nodeActive(*p, node) ? 1.0 : 0.0 y:366 attrs:small style:style];
+    [self drawCheckRow:@"ACTIVE" checked:nodeActive(*p, node) y:s3g::gui_layout::rowY(nodePanel, 0u) attrs:small style:style];
 #if !defined(S3G_AMBI_NODE_TRACK_MIXER)
-    [self drawMenuRow:@"SRC" value:ns(s3g::nodeTrackLayoutName(p->params.nodes[node].sourceLayout)) y:392 attrs:small style:style];
+    [self drawMenuRow:@"SOURCE" value:ns(s3g::nodeTrackLayoutName(p->params.nodes[node].sourceLayout)) y:s3g::gui_layout::rowY(nodePanel, 1u) attrs:small style:style];
     const uint32_t busStart = p->params.nodes[node].inputStart;
     const uint32_t busEnd = std::min<uint32_t>(s3g::kNodeTrackMixerMaxChannels, busStart + p->params.nodes[node].sourceChannels - 1u);
     NSString* busText = busStart > s3g::kNodeTrackMixerMaxChannels
         ? @"OVER"
         : [NSString stringWithFormat:@"%03u-%03u", busStart, busEnd];
-    [self drawReadoutRow:@"BUS" value:busText y:418 attrs:small style:style];
+    [self drawReadoutRow:@"BUS" value:busText y:s3g::gui_layout::rowY(nodePanel, 2u) attrs:small style:style];
+#else
+    [self drawReadoutRow:@"BUS"
+        value:[NSString stringWithFormat:@"%03u-%03u",
+            node * s3g::kAmbiNodeBusMixerChannelsPerNode + 1u,
+            (node + 1u) * s3g::kAmbiNodeBusMixerChannelsPerNode]
+        y:s3g::gui_layout::rowY(nodePanel, 1u)
+        attrs:small style:style];
 #endif
-    [self drawSlider:@"LVL" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(nodeLevelDb(*p, node))] norm:(nodeLevelDb(*p, node) + 60.0) / 72.0 y:(kAmbi ? 392 : 444) attrs:small style:style];
-#if defined(S3G_AMBI_NODE_TRACK_MIXER)
-    [[NSString stringWithFormat:@"BUS %03u-%03u", node * s3g::kAmbiNodeBusMixerChannelsPerNode + 1u, (node + 1u) * s3g::kAmbiNodeBusMixerChannelsPerNode] drawAtPoint:NSMakePoint(610, 420) withAttributes:small];
-#endif
-    [self drawSlider:@"X" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(nodeX(*p, node))] norm:(nodeX(*p, node) + 2.0) * 0.25 y:(kAmbi ? 444 : 470) attrs:small style:style];
-    [self drawSlider:@"Y" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(nodeY(*p, node))] norm:(nodeY(*p, node) + 2.0) * 0.25 y:(kAmbi ? 470 : 496) attrs:small style:style];
+    const uint32_t levelRow = kAmbi ? 2u : 3u;
+    [self drawSlider:@"LEVEL" value:[NSString stringWithFormat:@"%+.1f dB", static_cast<double>(nodeLevelDb(*p, node))] norm:(nodeLevelDb(*p, node) + 60.0) / 72.0 y:s3g::gui_layout::rowY(nodePanel, levelRow) attrs:small style:style];
+    [self drawSlider:@"X" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(nodeX(*p, node))] norm:(nodeX(*p, node) + 2.0) * 0.25 y:s3g::gui_layout::rowY(nodePanel, levelRow + 1u) attrs:small style:style];
+    [self drawSlider:@"Y" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(nodeY(*p, node))] norm:(nodeY(*p, node) + 2.0) * 0.25 y:s3g::gui_layout::rowY(nodePanel, levelRow + 2u) attrs:small style:style];
     if (zLocked(*p)) {
-        [self drawReadoutRow:@"Z" value:@"LOCKED" y:(kAmbi ? 496 : 522) attrs:small style:style];
+        [self drawReadoutRow:@"Z" value:@"LOCKED" y:s3g::gui_layout::rowY(nodePanel, levelRow + 3u) attrs:small style:style];
     } else {
-        [self drawSlider:@"Z" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(nodeZ(*p, node))] norm:(nodeZ(*p, node) + 2.0) * 0.25 y:(kAmbi ? 496 : 522) attrs:small style:style];
+        [self drawSlider:@"Z" value:[NSString stringWithFormat:@"%+.2f", static_cast<double>(nodeZ(*p, node))] norm:(nodeZ(*p, node) + 2.0) * 0.25 y:s3g::gui_layout::rowY(nodePanel, levelRow + 3u) attrs:small style:style];
     }
 #if defined(S3G_AMBI_NODE_TRACK_MIXER)
-    [self drawSlider:@"RAD" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(nodeSizeOrRadius(*p, node))] norm:nodeSizeOrRadius(*p, node) / 8.0 y:522 attrs:small style:style];
-    [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(nodeFocus(*p, node))] norm:(nodeFocus(*p, node) - 0.5) / 3.5 y:548 attrs:small style:style];
+    [self drawSlider:@"RADIUS" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(nodeSizeOrRadius(*p, node))] norm:(nodeSizeOrRadius(*p, node) - 0.05) / 7.95 y:s3g::gui_layout::rowY(nodePanel, 6u) attrs:small style:style];
+    [self drawSlider:@"FOCUS" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(nodeFocus(*p, node))] norm:(nodeFocus(*p, node) - 0.5) / 3.5 y:s3g::gui_layout::rowY(nodePanel, 7u) attrs:small style:style];
 #else
-    [self drawSlider:@"RAD" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(nodeSizeOrRadius(*p, node))] norm:nodeSizeOrRadius(*p, node) / 4.0 y:548 attrs:small style:style];
-    [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(nodeFocus(*p, node))] norm:(nodeFocus(*p, node) - 0.5) / 3.5 y:574 attrs:small style:style];
-    [self drawSlider:@"AZR" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(nodeRotateAz(*p, node))] norm:(nodeRotateAz(*p, node) + 180.0) / 360.0 y:600 attrs:small style:style];
-    [self drawSlider:@"ELR" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(nodeRotateEl(*p, node))] norm:(nodeRotateEl(*p, node) + 90.0) / 180.0 y:626 attrs:small style:style];
+    [self drawSlider:@"SCALE" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(nodeSizeOrRadius(*p, node))] norm:(nodeSizeOrRadius(*p, node) - 0.05) / 3.95 y:s3g::gui_layout::rowY(nodePanel, 7u) attrs:small style:style];
+    [self drawSlider:@"FOCUS" value:[NSString stringWithFormat:@"%.2f", static_cast<double>(nodeFocus(*p, node))] norm:(nodeFocus(*p, node) - 0.5) / 3.5 y:s3g::gui_layout::rowY(nodePanel, 8u) attrs:small style:style];
+    [self drawSlider:@"ROT AZ" value:[NSString stringWithFormat:@"%+.0f°", static_cast<double>(nodeRotateAz(*p, node))] norm:(nodeRotateAz(*p, node) + 180.0) / 360.0 y:s3g::gui_layout::rowY(nodePanel, 9u) attrs:small style:style];
+    [self drawSlider:@"ROT EL" value:[NSString stringWithFormat:@"%+.0f°", static_cast<double>(nodeRotateEl(*p, node))] norm:(nodeRotateEl(*p, node) + 90.0) / 180.0 y:s3g::gui_layout::rowY(nodePanel, 10u) attrs:small style:style];
 #endif
 
-    const uint32_t meterNodes = std::min<uint32_t>(p->params.nodeCount, kParamNodeLimit);
+    const uint32_t meterNodes = kParamNodeLimit;
     const uint32_t columns = meterNodes > 8u ? 4u : 2u;
     const uint32_t rows = (meterNodes + columns - 1u) / columns;
-    const CGFloat meterW = columns > 2u ? 124.0 : 252.0;
+    const CGFloat meterW = columns > 2u ? 120.0 : 252.0;
+    const CGFloat meterGap = columns > 2u ? 8.0 : 16.0;
     const CGFloat nodeGainTitleY = 624.0;
     const CGFloat nodeGainRowsY = 647.0;
     const CGFloat peakBaseY = 674.0;
-    [@"NODE GAIN / POST CURSOR" drawAtPoint:NSMakePoint(28, nodeGainTitleY) withAttributes:text];
+    [@"NODE GAIN / POST CURSOR" drawAtPoint:NSMakePoint(34, nodeGainTitleY) withAttributes:text];
     for (uint32_t nodeIndex = 0; nodeIndex < meterNodes; ++nodeIndex) {
         const uint32_t col = nodeIndex / rows;
         const uint32_t row = nodeIndex % rows;
-        const CGFloat x = 28.0 + static_cast<CGFloat>(col) * (meterW + 16.0);
+        const CGFloat x = 34.0 + static_cast<CGFloat>(col) * (meterW + meterGap);
         const CGFloat y = nodeGainRowsY + static_cast<CGFloat>(row) * 20.0;
-        const float w = std::clamp<float>(weights[nodeIndex], 0.0f, 1.0f);
+        const float w = nodeIndex < p->params.nodeCount
+            ? std::clamp<float>(weights[nodeIndex], 0.0f, 1.0f)
+            : 0.0f;
         [self drawWeightSlider:[NSString stringWithFormat:@"N%02u", nodeIndex + 1u] weight:w rect:NSMakeRect(x, y, meterW, 13) attrs:small style:style];
     }
     const CGFloat peakY = peakBaseY + static_cast<CGFloat>(rows) * 20.0;
-    const float pk = p->outputPeak.exchange(p->outputPeak.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
-    [@"PEAK METER / POST CURSOR" drawAtPoint:NSMakePoint(28, peakY) withAttributes:text];
-    [self drawPeakMeter:@"OUT" peak:pk rect:NSMakeRect(28, peakY + 23.0, 520, 13) attrs:small style:style];
+    [@"PEAK METER / POST CURSOR" drawAtPoint:NSMakePoint(34, peakY) withAttributes:text];
+    [self drawPeakMeter:@"OUT" peak:pk rect:NSMakeRect(34, peakY + 23.0, 520, 13) attrs:small style:style];
     for (uint32_t nodeIndex = 0; nodeIndex < meterNodes; ++nodeIndex) {
         const uint32_t col = nodeIndex / rows;
         const uint32_t row = nodeIndex % rows;
-        const CGFloat x = 28.0 + static_cast<CGFloat>(col) * (meterW + 16.0);
+        const CGFloat x = 34.0 + static_cast<CGFloat>(col) * (meterW + meterGap);
         const CGFloat y = peakY + 46.0 + static_cast<CGFloat>(row) * 20.0;
-        const float nodePk = p->nodePeaks[nodeIndex].load(std::memory_order_relaxed);
+        const float nodePk = nodeIndex < p->params.nodeCount
+            ? p->nodePeaks[nodeIndex].load(std::memory_order_relaxed)
+            : 0.0f;
         [self drawPeakMeter:[NSString stringWithFormat:@"N%02u", nodeIndex + 1u] peak:nodePk rect:NSMakeRect(x, y, meterW, 13) attrs:small style:style];
     }
 
     if (_openMenu >= 0) {
         if (_openMenu == 1) {
-#if defined(S3G_AMBI_NODE_TRACK_MIXER)
-            NSString* items[] = { @"1OA", @"2OA", @"3OA" };
-            s3g::clap_gui::drawDropdownMenu([self menuRect:1], 21.0, items, 3, static_cast<int>(p->params.order), _hoverMenuIndex, text, style);
-#else
+#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
             s3g::clap_gui::drawDropdownMenu([self menuRect:1], 21.0, regularLayoutMenuItems(), s3g::kNodeTrackRegularLayoutCount, static_cast<int>(s3g::nodeTrackRegularLayoutIndex(p->params.outputLayout)), _hoverMenuIndex, text, style);
 #endif
         } else if (_openMenu == 2) {
@@ -1211,125 +1295,37 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
         }
     }
 }
-- (void)resetSlider:(int)index
-{
-    const uint32_t node = static_cast<uint32_t>(std::max(0, _selectedNode));
-    switch (index) {
-    case 0: [self setParam:kParamNodeCount value:kAmbi ? static_cast<double>(s3g::kAmbiNodeBusMixerMaxNodes) : 4.0]; break;
-    case 1: [self setParam:kParamCursorInfluence value:kAmbi ? 1.0 : 0.0]; break;
-    case 2: [self setParam:kParamCursorX value:0.0]; break;
-    case 3: [self setParam:kParamCursorY value:0.0]; break;
-    case 4: [self setParam:kParamCursorZ value:0.0]; break;
-    case 5:
-#if defined(S3G_AMBI_NODE_TRACK_MIXER)
-#else
-        [self setParam:kParamOutputGain value:0.0];
-#endif
-        break;
-    case 6:
-        [self setParam:kParamLockZ value:1.0];
-        break;
-    case 7:
-#if defined(S3G_AMBI_NODE_TRACK_MIXER)
-        [self setParam:kParamOutputGain value:0.0];
-#endif
-        break;
-    case 8:
-#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
-        [self setParam:kParamLayoutOrOrder value:s3g::nodeTrackRegularLayoutIndex(static_cast<Plugin*>(_plugin)->params.outputLayout)];
-#endif
-        break;
-    case 10: [self setParam:kParamNodeBase + node * kParamNodeStride + 0 value:1.0]; break;
-    case 11: [self setParam:kParamNodeBase + node * kParamNodeStride + 1 value:0.0]; break;
-    case 12:
-#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
-        [self setParam:kParamNodeBase + node * kParamNodeStride + 2 value:s3g::nodeTrackRegularLayoutIndex(static_cast<Plugin*>(_plugin)->params.nodes[node].sourceLayout)];
-#endif
-        break;
-    case 13: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 2 : 5) value:0.0]; break;
-    case 14: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 3 : 6) value:0.0]; break;
-    case 15: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 4 : 7) value:0.0]; break;
-    case 16: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 5 : 8) value:kAmbi ? 0.65 : 1.0]; break;
-    case 17:
-#if defined(S3G_AMBI_NODE_TRACK_MIXER)
-#else
-        [self setParam:kParamNodeBase + node * kParamNodeStride + 9 value:1.0];
-#endif
-        if (kAmbi) [self setParam:kParamNodeBase + node * kParamNodeStride + 6 value:1.0];
-        break;
-    case 18:
-#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
-        [self setParam:kParamNodeBase + node * kParamNodeStride + 2 value:s3g::nodeTrackRegularLayoutIndex(static_cast<Plugin*>(_plugin)->params.nodes[node].sourceLayout)];
-#endif
-        break;
-    case 19:
-#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
-        [self setParam:kParamNodeRotateAzBase + node value:0.0];
-#endif
-        break;
-    case 20:
-#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
-        [self setParam:kParamNodeRotateElBase + node value:0.0];
-#endif
-        break;
-    default: break;
-    }
-}
 - (void)updateSliderAtPoint:(NSPoint)pt
 {
-    const double norm = std::clamp((pt.x - 714.0) / 128.0, 0.0, 1.0);
+    const double norm = std::clamp(
+        (pt.x - s3g::gui_layout::processorControlX(
+            kMixerLayout.output.frame.x))
+            / s3g::gui_layout::processorTrackWidth(
+                kMixerLayout.output.frame.width),
+        0.0, 1.0);
     const uint32_t node = static_cast<uint32_t>(std::clamp(_selectedNode, 0, static_cast<int>(static_cast<Plugin*>(_plugin)->params.nodeCount) - 1));
     switch (_dragSlider) {
-    case 0: [self setParam:kParamNodeCount value:1.0 + norm * static_cast<double>((kAmbi ? s3g::kAmbiNodeBusMixerMaxNodes : s3g::kNodeTrackMixerMaxNodes) - 1u)]; break;
-    case 1: [self setParam:kParamCursorInfluence value:norm]; break;
-    case 2: [self setParam:kParamCursorX value:-2.0 + norm * 4.0]; break;
-    case 3: [self setParam:kParamCursorY value:-2.0 + norm * 4.0]; break;
-    case 4: [self setParam:kParamCursorZ value:-2.0 + norm * 4.0]; break;
-    case 5:
-#if defined(S3G_AMBI_NODE_TRACK_MIXER)
-#else
-        [self setParam:kParamOutputGain value:-60.0 + norm * 72.0];
-#endif
-        break;
-    case 6:
-        [self setParam:kParamLockZ value:norm >= 0.5 ? 1.0 : 0.0];
-        break;
-    case 7:
-#if defined(S3G_AMBI_NODE_TRACK_MIXER)
-        [self setParam:kParamOutputGain value:-60.0 + norm * 72.0];
-#endif
-        break;
-    case 8:
-#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
-#endif
-        break;
-    case 10: [self setParam:kParamNodeBase + node * kParamNodeStride + 0 value:norm >= 0.5 ? 1.0 : 0.0]; break;
-    case 11: [self setParam:kParamNodeBase + node * kParamNodeStride + 1 value:-60.0 + norm * 72.0]; break;
-    case 12:
-#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
-#endif
-        break;
-    case 13: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 2 : 5) value:-2.0 + norm * 4.0]; break;
-    case 14: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 3 : 6) value:-2.0 + norm * 4.0]; break;
-    case 15: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 4 : 7) value:-2.0 + norm * 4.0]; break;
-    case 16: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 5 : 8) value:kAmbi ? (0.05 + norm * 7.95) : (0.05 + norm * 3.95)]; break;
-    case 17:
-#if defined(S3G_AMBI_NODE_TRACK_MIXER)
-#else
-        [self setParam:kParamNodeBase + node * kParamNodeStride + 9 value:0.5 + norm * 3.5];
-#endif
-        if (kAmbi) [self setParam:kParamNodeBase + node * kParamNodeStride + 6 value:0.5 + norm * 3.5];
-        break;
-    case 18:
-#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
-#endif
-        break;
-    case 19:
+    case 0: [self setParam:kParamOutputGain value:-60.0 + norm * 72.0]; break;
+    case 1: [self setParam:kParamNodeCount value:1.0 + norm * static_cast<double>((kAmbi ? s3g::kAmbiNodeBusMixerMaxNodes : s3g::kNodeTrackMixerMaxNodes) - 1u)]; break;
+    case 2: [self setParam:kParamCursorInfluence value:norm]; break;
+    case 3: [self setParam:kParamCursorX value:-2.0 + norm * 4.0]; break;
+    case 4: [self setParam:kParamCursorY value:-2.0 + norm * 4.0]; break;
+    case 5: [self setParam:kParamCursorZ value:-2.0 + norm * 4.0]; break;
+    case 6: [self setParam:kParamCursorRadius value:0.05 + norm * 7.95]; break;
+    case 7: [self setParam:kParamCursorFocus value:0.5 + norm * 1.5]; break;
+    case 8: [self setParam:kParamCursorGate value:norm * 0.95]; break;
+    case 10: [self setParam:kParamNodeBase + node * kParamNodeStride + 1 value:-60.0 + norm * 72.0]; break;
+    case 11: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 2 : 5) value:-2.0 + norm * 4.0]; break;
+    case 12: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 3 : 6) value:-2.0 + norm * 4.0]; break;
+    case 13: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 4 : 7) value:-2.0 + norm * 4.0]; break;
+    case 14: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 5 : 8) value:kAmbi ? (0.05 + norm * 7.95) : (0.05 + norm * 3.95)]; break;
+    case 15: [self setParam:kParamNodeBase + node * kParamNodeStride + (kAmbi ? 6 : 9) value:0.5 + norm * 3.5]; break;
+    case 16:
 #if !defined(S3G_AMBI_NODE_TRACK_MIXER)
         [self setParam:kParamNodeRotateAzBase + node value:-180.0 + norm * 360.0];
 #endif
         break;
-    case 20:
+    case 17:
 #if !defined(S3G_AMBI_NODE_TRACK_MIXER)
         [self setParam:kParamNodeRotateElBase + node value:-90.0 + norm * 180.0];
 #endif
@@ -1378,17 +1374,25 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     auto* p = static_cast<Plugin*>(_plugin);
+    const auto titleBand =
+        s3g::gui_layout::mixerTitleBand(kMixerLayout.canvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &p->plugin, ns(kHostName), titleBand,
+            p->presetName, sizeof(p->presetName))) {
+        _selectedNode = std::min<int>(
+            _selectedNode, static_cast<int>(p->params.nodeCount) - 1);
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenu >= 0) {
-        const uint32_t count = kAmbi ? 3u : s3g::kNodeTrackRegularLayoutCount;
+        const uint32_t count = s3g::kNodeTrackRegularLayoutCount;
         const int hit = s3g::clap_gui::dropdownHitIndex(pt, [self menuRect:_openMenu], 21.0, count);
         if (hit >= 0) {
+#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
             if (_openMenu == 1) {
                 [self setParam:kParamLayoutOrOrder value:hit];
-#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
                 [self setParam:kParamOutputChannels value:s3g::nodeTrackDefaultChannelsForLayout(s3g::nodeTrackRegularLayoutFromIndex(static_cast<uint32_t>(hit)))];
-#endif
             }
-#if !defined(S3G_AMBI_NODE_TRACK_MIXER)
             else if (_openMenu == 2) {
                 const uint32_t selected = static_cast<uint32_t>(_selectedNode);
                 [self setParam:kParamNodeBase + selected * kParamNodeStride + 2 value:hit];
@@ -1402,8 +1406,20 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
         return;
     }
 #if !defined(S3G_AMBI_NODE_TRACK_MIXER)
-    if (NSPointInRect(pt, NSMakeRect(604, 79, 292, 24))) { _openMenu = 1; [self setNeedsDisplay:YES]; return; }
-    if (NSPointInRect(pt, NSMakeRect(604, 383, 292, 24))) { _openMenu = 2; [self setNeedsDisplay:YES]; return; }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::sliderHitRect(
+                kMixerLayout.busCursor, 0u)))) {
+        _openMenu = 1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::sliderHitRect(
+                kMixerLayout.selectedNode, 1u)))) {
+        _openMenu = 2;
+        [self setNeedsDisplay:YES];
+        return;
+    }
 #endif
     const int viewHit = [self viewButtonHit:pt];
     if (viewHit >= 0) {
@@ -1442,50 +1458,121 @@ bool zLocked(const Plugin& p) { return p.params.lockZ; }
         }
         return;
     }
-    const CGFloat cursorYsAmbi[] = { 88, 114, 140, 166, 192, 218, 244 };
-    const int cursorIdxAmbi[] = { 0, 1, 2, 3, 4, 6, 7 };
-    const CGFloat cursorYsGeneral[] = { 140, 166, 192, 218, 244, 270, 296 };
-    const int cursorIdxGeneral[] = { 0, 1, 2, 3, 4, 6, 5 };
-    const CGFloat* cursorYs = kAmbi ? cursorYsAmbi : cursorYsGeneral;
-    const int* cursorIdx = kAmbi ? cursorIdxAmbi : cursorIdxGeneral;
-    const int cursorCount = kAmbi ? 7 : 7;
-    for (int i = 0; i < cursorCount; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(596, cursorYs[i] - 8, 304, 24))) {
-            const int sliderIndex = cursorIdx[i];
-            if (sliderIndex == 4 && zLocked(*p)) return;
-            if (sliderIndex == 6) {
-                [self setParam:kParamLockZ value:zLocked(*p) ? 0.0 : 1.0];
-                return;
-            }
-            if ([event clickCount] >= 2) { [self resetSlider:sliderIndex]; return; }
-            _dragSlider = sliderIndex;
-            [self updateSliderAtPoint:pt];
-            return;
+    const auto& cursorPanel = kAmbi
+        ? kMixerLayout.ambiBusCursor : kMixerLayout.busCursor;
+    const auto& nodePanel = kAmbi
+        ? kMixerLayout.ambiSelectedNode : kMixerLayout.selectedNode;
+    const uint32_t node =
+        static_cast<uint32_t>(std::max(0, _selectedNode));
+    const clap_id nodeBase =
+        kParamNodeBase + node * kParamNodeStride;
+    auto beginSlider = [&](const s3g::gui_layout::Panel& panel,
+                           uint32_t row, int slider,
+                           clap_id param) -> bool {
+        if (!NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::sliderHitRect(panel, row)))) {
+            return false;
         }
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, param, &defaultValue)) {
+            [self setParam:param value:defaultValue];
+            _dragSlider = -1;
+        } else {
+            _dragSlider = slider;
+            [self updateSliderAtPoint:pt];
+        }
+        return true;
+    };
+
+    if (beginSlider(kMixerLayout.output, 0u, 0, kParamOutputGain))
+        return;
+
+    const uint32_t lockRow = kAmbi ? 7u : 10u;
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::sliderHitRect(cursorPanel, lockRow)))) {
+        [self setParam:kParamLockZ value:zLocked(*p) ? 0.0 : 1.0];
+        return;
     }
-    const CGFloat nodeYsAmbi[] = { 366, 392, 444, 470, 496, 522, 548 };
-    const int nodeIdxAmbi[] = { 10, 11, 13, 14, 15, 16, 17 };
-    const CGFloat nodeYsGeneral[] = { 366, 444, 470, 496, 522, 548, 574, 600, 626 };
-    const int nodeIdxGeneral[] = { 10, 11, 13, 14, 15, 16, 17, 19, 20 };
-    const CGFloat* ys = kAmbi ? nodeYsAmbi : nodeYsGeneral;
-    const int* sliderIdx = kAmbi ? nodeIdxAmbi : nodeIdxGeneral;
-    const int count = kAmbi ? 7 : 9;
-    for (int i = 0; i < count; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(596, ys[i] - 8, 304, 24))) {
-            const int sliderIndex = sliderIdx[i];
-            if (sliderIndex == 15 && zLocked(*p)) return;
-            if ([event clickCount] >= 2) { [self resetSlider:sliderIndex]; return; }
-            _dragSlider = sliderIndex;
-            [self updateSliderAtPoint:pt];
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::sliderHitRect(nodePanel, 0u)))) {
+        [self setParam:nodeBase value:nodeActive(*p, node) ? 0.0 : 1.0];
+        return;
+    }
+
+#if defined(S3G_AMBI_NODE_TRACK_MIXER)
+    struct SliderHit {
+        uint32_t row;
+        int slider;
+        clap_id param;
+    };
+    const SliderHit cursorHits[] {
+        { 0u, 1, kParamNodeCount },
+        { 1u, 2, kParamCursorInfluence },
+        { 2u, 3, kParamCursorX },
+        { 3u, 4, kParamCursorY },
+        { 4u, 5, kParamCursorZ },
+        { 5u, 6, kParamCursorRadius },
+        { 6u, 7, kParamCursorFocus },
+    };
+    for (const auto& hit : cursorHits) {
+        if (hit.param == kParamCursorZ && zLocked(*p)) continue;
+        if (beginSlider(cursorPanel, hit.row, hit.slider, hit.param))
             return;
-        }
+    }
+    const SliderHit nodeHits[] {
+        { 2u, 10, nodeBase + 1u },
+        { 3u, 11, nodeBase + 2u },
+        { 4u, 12, nodeBase + 3u },
+        { 5u, 13, nodeBase + 4u },
+        { 6u, 14, nodeBase + 5u },
+        { 7u, 15, nodeBase + 6u },
+    };
+#else
+    struct SliderHit {
+        uint32_t row;
+        int slider;
+        clap_id param;
+    };
+    const SliderHit cursorHits[] {
+        { 2u, 1, kParamNodeCount },
+        { 3u, 2, kParamCursorInfluence },
+        { 4u, 3, kParamCursorX },
+        { 5u, 4, kParamCursorY },
+        { 6u, 5, kParamCursorZ },
+        { 7u, 6, kParamCursorRadius },
+        { 8u, 7, kParamCursorFocus },
+        { 9u, 8, kParamCursorGate },
+    };
+    for (const auto& hit : cursorHits) {
+        if (hit.param == kParamCursorZ && zLocked(*p)) continue;
+        if (beginSlider(cursorPanel, hit.row, hit.slider, hit.param))
+            return;
+    }
+    const SliderHit nodeHits[] {
+        { 3u, 10, nodeBase + 1u },
+        { 4u, 11, nodeBase + 5u },
+        { 5u, 12, nodeBase + 6u },
+        { 6u, 13, nodeBase + 7u },
+        { 7u, 14, nodeBase + 8u },
+        { 8u, 15, nodeBase + 9u },
+        { 9u, 16, kParamNodeRotateAzBase + node },
+        { 10u, 17, kParamNodeRotateElBase + node },
+    };
+#endif
+    for (const auto& hit : nodeHits) {
+        const clap_id zParam =
+            nodeBase + (kAmbi ? 4u : 7u);
+        if (hit.param == zParam && zLocked(*p)) continue;
+        if (beginSlider(nodePanel, hit.row, hit.slider, hit.param))
+            return;
     }
 }
 - (void)mouseMoved:(NSEvent*)event
 {
     if (_openMenu < 0) return;
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
-    const uint32_t count = kAmbi ? 3u : s3g::kNodeTrackRegularLayoutCount;
+    const uint32_t count = s3g::kNodeTrackRegularLayoutCount;
     _hoverMenuIndex = s3g::clap_gui::dropdownHitIndex(pt, [self menuRect:_openMenu], 21.0, count);
     [self setNeedsDisplay:YES];
 }
@@ -1543,7 +1630,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     kPluginId,
-    kPluginName,
+    kHostName,
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

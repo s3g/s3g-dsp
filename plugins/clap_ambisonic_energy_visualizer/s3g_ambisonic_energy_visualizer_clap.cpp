@@ -368,7 +368,8 @@ uint32_t paramsCount(const clap_plugin_t*) { return 1; }
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
     if (!info || index >= 1) return false;
-    std::strncpy(info->module, "Ambi Energy", sizeof(info->module));
+    std::strncpy(
+        info->module, "Ambi Visualizer Energy", sizeof(info->module));
     if (index == 0) {
         info->id = kMapParamId;
         info->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_STEPPED;
@@ -548,6 +549,7 @@ struct EnergyGpuParams {
     float _previousDirectionX;
     float _previousDirectionY;
     BOOL _hasPreviousDirection;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
@@ -561,7 +563,8 @@ static NSRect energyHeatRect(NSRect bounds)
 {
     const CGFloat viewW = std::max<CGFloat>(720.0, bounds.size.width);
     const CGFloat viewH = std::max<CGFloat>(430.0, bounds.size.height);
-    const NSRect panel = NSMakeRect(18, 82, viewW - 36, viewH - 108);
+    const NSRect panel = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::analyzerContentRect({ viewW, viewH }));
     return NSMakeRect(panel.origin.x + 14.0, panel.origin.y + 38.0, panel.size.width - 28.0, panel.size.height - 54.0);
 }
 
@@ -1193,6 +1196,7 @@ static void drawEnergyMenu(NSString* name,
         _previousDirectionX = 0.5f;
         _previousDirectionY = 0.5f;
         _hasPreviousDirection = NO;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
     }
     return self;
 }
@@ -1247,11 +1251,8 @@ static void drawEnergyMenu(NSString* name,
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
 
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10.5] ?: [NSFont monospacedSystemFontOfSize:10.5 weight:NSFontWeightRegular];
-    NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:mono };
-    NSDictionary* titleAttrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
+    NSDictionary* small = s3g::clap_gui::softValueAttrs();
+    NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
 
     const NSRect bounds = [self bounds];
     const CGFloat viewW = std::max<CGFloat>(720.0, bounds.size.width);
@@ -1273,10 +1274,16 @@ static void drawEnergyMenu(NSString* name,
         [_overlayView setHidden:YES];
     }
 
-    [@"s3g AMBI ENERGY" drawAtPoint:NSMakePoint(18,14) withAttributes:titleAttrs];
-    [[NSString stringWithFormat:@"%u/%uCH", active, ambiCh] drawAtPoint:NSMakePoint(viewW - 106.0,14) withAttributes:small];
+    const auto titleBand = s3g::gui_layout::analyzerTitleBand(
+        { viewW, viewH });
+    s3g::clap_gui::drawAnalyzerTitleBand(
+        @"s3g ANALYZER AMBI ENERGY 64CH",
+        [NSString stringWithUTF8String:_titlePresetName],
+        [NSString stringWithFormat:@"%u/%uCH", active, ambiCh],
+        titleBand, style);
 
-    const NSRect bar = NSMakeRect(18, 38, viewW - 36, 34);
+    const NSRect bar = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::analyzerToolbarRect({ viewW, viewH }));
     s3g::clap_gui::drawPanelFrame(bar.origin.x, bar.origin.y, bar.size.width, bar.size.height, style);
     [style.strip setFill]; NSRectFill(bar);
     [style.accent setFill]; NSRectFill(NSMakeRect(bar.origin.x, bar.origin.y, bar.size.width, 2));
@@ -1296,7 +1303,8 @@ static void drawEnergyMenu(NSString* name,
                    bar.origin.x + 188.0,
                    bar.origin.x + 240.0,
                    86.0);
-    const NSRect panel = NSMakeRect(18, 82, viewW - 36, viewH - 108);
+    const NSRect panel = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::analyzerContentRect({ viewW, viewH }));
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"ENERGY MAP", true, panel.origin.x, panel.origin.y, panel.size.width, 21, lab, style);
     [evColor(0x101010) setFill]; NSRectFill(heat);
@@ -1586,7 +1594,9 @@ static void drawEnergyMenu(NSString* name,
     if (_openMenu == 0) return;
     const NSRect bounds = [self bounds];
     const CGFloat viewW = std::max<CGFloat>(720.0, bounds.size.width);
-    const NSRect bar = NSMakeRect(18, 38, viewW - 36, 34);
+    const NSRect bar = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::analyzerToolbarRect(
+            { viewW, s3g::gui_layout::kAnalyzerFamilyLayout.preferredCanvas.height }));
     const CGFloat itemH = 20.0;
     const uint32_t count = _openMenu == 1 ? kMapModeCount : 2u;
     const CGFloat menuX = _openMenu == 1 ? bar.origin.x + 72.0 : bar.origin.x + 240.0;
@@ -1603,7 +1613,18 @@ static void drawEnergyMenu(NSString* name,
     [[self window] makeFirstResponder:self];
     const NSRect bounds = [self bounds];
     const CGFloat viewW = std::max<CGFloat>(720.0, bounds.size.width);
-    const NSRect bar = NSMakeRect(18, 38, viewW - 36, 34);
+    const CGFloat viewH = std::max<CGFloat>(430.0, bounds.size.height);
+    const NSRect bar = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::analyzerToolbarRect({ viewW, viewH }));
+    auto* p = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::gui_layout::analyzerTitleBand(
+        { viewW, viewH });
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &p->plugin, @"Analyzer Ambi Energy", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenu > 0) {
         const CGFloat itemH = 20.0;
         const uint32_t count = _openMenu == 1 ? kMapModeCount : 2u;
@@ -1700,7 +1721,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambisonic-energy-visualizer-64",
-    "s3g Ambi Energy Visualizer 64",
+    "s3g Analyzer Ambi Energy 64ch",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

@@ -1216,10 +1216,34 @@ int main()
         std::cerr << "Ambi Wave Terrain Encoder scale quantizer did not follow major scale rules\n";
         return 1;
     }
-    if (s3g::kAmbiWaveTerrainPitchScales.size()
-            != s3g::kAmbiWaveTerrainPitchScaleCount
+    if (s3g::kMusicalScales.size() != s3g::kMusicalScaleCount
+        || s3g::kAmbiWaveTerrainPitchScaleCount
+            != s3g::kMusicalScaleCount + 1u
         || s3g::kAmbiWaveTerrainPitchScaleCount < 100u) {
         std::cerr << "Ambi Wave Terrain Encoder scale catalog is incomplete\n";
+        return 1;
+    }
+    if (!s3g::musicalScaleMenuOrderIsPermutation()
+        || s3g::musicalScaleValueForMenuIndex(6u) != 3u
+        || s3g::musicalScaleValueForMenuIndex(7u) != 31u
+        || std::strcmp(s3g::musicalScaleDefinition(3u).name,
+            "PENTATONIC MAJOR") != 0
+        || std::strcmp(s3g::musicalScaleDefinition(31u).name,
+            "PENTATONIC MINOR") != 0) {
+        std::cerr << "Shared musical scale menu order is invalid\n";
+        return 1;
+    }
+    const auto adjacentInScaleMenu = [](uint32_t major, uint32_t minor) {
+        return s3g::musicalScaleMenuIndexForValue(major) + 1u
+            == s3g::musicalScaleMenuIndexForValue(minor);
+    };
+    if (!adjacentInScaleMenu(12u, 5u)
+        || !adjacentInScaleMenu(3u, 31u)
+        || !adjacentInScaleMenu(34u, 33u)
+        || !adjacentInScaleMenu(46u, 96u)
+        || !adjacentInScaleMenu(52u, 51u)
+        || !adjacentInScaleMenu(59u, 50u)) {
+        std::cerr << "Related MAJOR/MINOR scale variants are not adjacent\n";
         return 1;
     }
     for (uint32_t scaleIndex = 0u;

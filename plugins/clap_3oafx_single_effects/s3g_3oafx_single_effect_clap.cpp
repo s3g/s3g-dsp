@@ -27,7 +27,7 @@
 #endif
 
 #ifndef S3G_3OAFX_SINGLE_PLUGIN_NAME
-#define S3G_3OAFX_SINGLE_PLUGIN_NAME "s3g 3OAFX Single"
+#define S3G_3OAFX_SINGLE_PLUGIN_NAME "s3g 3OAFX Effect Single"
 #endif
 
 #ifndef S3G_3OAFX_SINGLE_DESCRIPTION
@@ -117,6 +117,7 @@ struct Plugin {
 #if defined(__APPLE__)
     void* guiView = nullptr;
     std::atomic<bool> guiDirty { false };
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
 
@@ -217,10 +218,8 @@ void destroy(const clap_plugin_t* plugin)
 #if defined(__APPLE__)
     auto* p = self(plugin);
     if (p->guiView) {
-        NSView* view = static_cast<NSView*>(p->guiView);
-        [view removeFromSuperview];
-        [view release];
-        p->guiView = nullptr;
+        s3g::clap_gui::destroyResponsiveViewport(
+            p->guiViewport, p->guiView);
     }
 #endif
     delete self(plugin);
@@ -402,10 +401,34 @@ const clap_plugin_state_t state { stateSave, stateLoad };
 #if defined(__APPLE__)
 } // namespace
 
+#if S3G_3OAFX_SINGLE_KIND == 0
+static constexpr uint32_t kSingleOutputRows = 3u;
+static constexpr uint32_t kSingleEffectRows = 2u;
+#else
+static constexpr uint32_t kSingleOutputRows =
+    S3G_3OAFX_SINGLE_KIND == 3 ? 2u : 3u;
+static constexpr uint32_t kSingleEffectRows = 1u;
+#endif
+static constexpr auto kSingleOutputPanel =
+    s3g::gui_layout::threeOafxSingleOutputPanel(kSingleOutputRows);
+static constexpr auto kSingleEffectPanel =
+    s3g::gui_layout::threeOafxSingleStackPanel(
+        kSingleOutputPanel, s3g::gui_layout::PanelRole::Engine,
+        kSingleEffectRows);
+static constexpr auto kSingleProjectionPanel =
+    s3g::gui_layout::threeOafxSingleStackPanel(
+        kSingleEffectPanel, s3g::gui_layout::PanelRole::Projection, 3u);
+static constexpr std::array kSingleColumnPanels {
+    kSingleOutputPanel, kSingleEffectPanel, kSingleProjectionPanel
+};
+static_assert(s3g::gui_layout::validateColumn(
+    kSingleColumnPanels, s3g::gui_layout::kThreeOafxFamilyLayout.singleCanvas));
+
 @interface S3G3OAFXSingleView : NSView {
 @private
     void* _plugin;
     int _drag;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 @end
@@ -414,11 +437,6 @@ static NSColor* uiColor(int rgb, double alpha = 1.0) { return s3g::clap_gui::col
 
 static constexpr CGFloat kViewW = 880.0;
 static constexpr CGFloat kViewH = 500.0;
-static constexpr CGFloat kSliderTrackX = 610.0;
-static constexpr CGFloat kSliderTrackW = 132.0;
-static constexpr CGFloat kSliderStartY = 90.0;
-static constexpr CGFloat kSliderStepY = 36.0;
-
 static const char* guiLabelForParam(clap_id id)
 {
     switch (id) {
@@ -443,11 +461,16 @@ static const char* guiLabelForParam(clap_id id)
     if ((self = [super initWithFrame:NSMakeRect(0, 0, kViewW, kViewH)])) {
         _plugin = plugin;
         _drag = -1;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
     }
     return self;
 }
 - (BOOL)isFlipped { return YES; }
-- (NSRect)mapRect { return NSMakeRect(34, 82, 448, 292); }
+- (NSRect)mapRect
+{
+    return s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::kThreeOafxFamilyLayout.singleField);
+}
 - (NSPoint)mapAzimuth:(double)azimuth elevation:(double)elevation rect:(NSRect)rect
 {
     const double az = std::clamp(azimuth, -180.0, 180.0);
@@ -474,16 +497,46 @@ static const char* guiLabelForParam(clap_id id)
 }
 - (NSRect)sliderTrackForIndex:(uint32_t)index
 {
-    return NSMakeRect(kSliderTrackX, kSliderStartY + 1.0 + static_cast<CGFloat>(index) * kSliderStepY, kSliderTrackW, 11);
+    const s3g::gui_layout::Panel* panel = &kSingleProjectionPanel;
+    uint32_t row = index - kSingleOutputRows - kSingleEffectRows;
+    if (index < kSingleOutputRows) {
+        panel = &kSingleOutputPanel;
+        row = index;
+    } else if (index < kSingleOutputRows + kSingleEffectRows) {
+        panel = &kSingleEffectPanel;
+        row = index - kSingleOutputRows;
+    }
+    return NSMakeRect(
+        s3g::gui_layout::processorControlX(panel->frame.x),
+        s3g::gui_layout::rowY(*panel, row) + 1.0,
+        s3g::gui_layout::processorTrackWidth(panel->frame.width), 9.0);
 }
 - (uint32_t)sliderIds:(clap_id*)ids labels:(const char**)labels
 {
     uint32_t count = 0;
-    for (const auto& def : kParams) {
-        ids[count] = def.id;
-        labels[count] = guiLabelForParam(def.id);
+    const auto push = [&](clap_id id) {
+        ids[count] = id;
+        labels[count] = guiLabelForParam(id);
         ++count;
-    }
+    };
+    push(kOut);
+    push(kDry);
+#if S3G_3OAFX_SINGLE_KIND != 3
+    push(kMix);
+#endif
+#if S3G_3OAFX_SINGLE_KIND == 0
+    push(kDelayTime);
+    push(kDelayFeedback);
+#elif S3G_3OAFX_SINGLE_KIND == 1
+    push(kPitchSemis);
+#elif S3G_3OAFX_SINGLE_KIND == 2
+    push(kFilterTone);
+#else
+    push(kGain);
+#endif
+    push(kAzimuth);
+    push(kElevation);
+    push(kWidth);
     return count;
 }
 - (double)normForParam:(clap_id)id value:(double)value
@@ -522,11 +575,21 @@ static const char* guiLabelForParam(clap_id id)
     NSRectFill(self.bounds);
     NSDictionary* text = s3g::clap_gui::softLabelAttrs();
     NSDictionary* dim = s3g::clap_gui::softValueAttrs();
-    [@S3G_3OAFX_SINGLE_PLUGIN_NAME drawAtPoint:NSMakePoint(18, 16) withAttributes:text];
-    [s3g::clap_gui::peakDbText(p->peak.load(std::memory_order_relaxed)) drawAtPoint:NSMakePoint(kViewW - 110.0, 16) withAttributes:dim];
+    const auto titleBand = s3g::gui_layout::threeOafxTitleBand(
+        s3g::gui_layout::kThreeOafxFamilyLayout.singleCanvas);
+    s3g::clap_gui::drawThreeOafxTitleBand(
+        [@S3G_3OAFX_SINGLE_PLUGIN_NAME uppercaseString],
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(p->peak.load(std::memory_order_relaxed)),
+        titleBand, style);
 
-    s3g::clap_gui::drawPanelFrame(18, 48, 480, 406, style);
-    s3g::clap_gui::drawPanelHeader(@"POINT FIELD", true, 18, 48, 480, 21, text, style);
+    const auto fieldPanel =
+        s3g::gui_layout::kThreeOafxFamilyLayout.singleFieldPanel;
+    s3g::clap_gui::drawPanelFrame(
+        fieldPanel.x, fieldPanel.y, fieldPanel.width, fieldPanel.height, style);
+    s3g::clap_gui::drawPanelHeader(
+        @"POINT FIELD", true, fieldPanel.x, fieldPanel.y, fieldPanel.width,
+        s3g::gui_layout::kStandardMetrics.headerHeight, text, style);
     NSRect map = [self mapRect];
     [uiColor(0x0f0f0f) setFill];
     NSRectFill(map);
@@ -546,11 +609,23 @@ static const char* guiLabelForParam(clap_id id)
     [area stroke];
     [uiColor(0xf0f0f0) setFill];
     NSRectFill(NSMakeRect(c.x - 5, c.y - 5, 10, 10));
-    [[NSString stringWithFormat:@"AZ %+.1f   EL %+.1f", p->params.mask.azimuthDeg, p->params.mask.elevationDeg]
-        drawAtPoint:NSMakePoint(34, 392) withAttributes:dim];
+    [[NSString stringWithFormat:@"AZ %+.1f   EL %+.1f",
+        p->params.mask.azimuthDeg, p->params.mask.elevationDeg]
+        drawAtPoint:NSMakePoint(map.origin.x, NSMaxY(map) + 14.0)
+        withAttributes:dim];
 
-    s3g::clap_gui::drawPanelFrame(518, 48, 342, 406, style);
-    s3g::clap_gui::drawPanelHeader(@"EFFECT", true, 518, 48, 342, 21, text, style);
+    const auto drawPanel = [&](NSString* name,
+                               const s3g::gui_layout::Panel& panel) {
+        s3g::clap_gui::drawPanelFrame(
+            panel.frame.x, panel.frame.y, panel.frame.width, panel.frame.height,
+            style);
+        s3g::clap_gui::drawPanelHeader(
+            name, true, panel.frame.x, panel.frame.y, panel.frame.width,
+            s3g::gui_layout::kStandardMetrics.headerHeight, text, style);
+    };
+    drawPanel(@"OUTPUT", kSingleOutputPanel);
+    drawPanel(@"EFFECT", kSingleEffectPanel);
+    drawPanel(@"RETURN MASK", kSingleProjectionPanel);
     clap_id ids[16] {};
     const char* labels[16] {};
     const uint32_t count = [self sliderIds:ids labels:labels];
@@ -558,22 +633,35 @@ static const char* guiLabelForParam(clap_id id)
         const double value = getParam(*p, ids[i]);
         char valueText[32] {};
         paramsValueToText(nullptr, ids[i], value, valueText, sizeof(valueText));
-        s3g::clap_gui::drawSlider([NSString stringWithUTF8String:labels[i]],
-                                  [NSString stringWithUTF8String:valueText],
-                                  static_cast<CGFloat>([self normForParam:ids[i] value:value]),
-                                  kSliderStartY + static_cast<CGFloat>(i) * kSliderStepY,
-                                  text,
-                                  dim,
-                                  style,
-                                  536,
-                                  kSliderTrackX,
-                                  760,
-                                  kSliderTrackW);
+        const s3g::gui_layout::Panel* panel = &kSingleProjectionPanel;
+        uint32_t row = i - kSingleOutputRows - kSingleEffectRows;
+        if (i < kSingleOutputRows) {
+            panel = &kSingleOutputPanel;
+            row = i;
+        } else if (i < kSingleOutputRows + kSingleEffectRows) {
+            panel = &kSingleEffectPanel;
+            row = i - kSingleOutputRows;
+        }
+        s3g::clap_gui::drawProcessorSlider(
+            [NSString stringWithUTF8String:labels[i]],
+            [NSString stringWithUTF8String:valueText],
+            static_cast<CGFloat>([self normForParam:ids[i] value:value]),
+            s3g::gui_layout::rowY(*panel, row),
+            panel->frame.x, panel->frame.width, text, dim, style);
     }
 }
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    auto* p = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::gui_layout::threeOafxTitleBand(
+        s3g::gui_layout::kThreeOafxFamilyLayout.singleCanvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &p->plugin, @"3OAFX Effect", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (NSPointInRect(pt, [self mapRect])) {
         _drag = -2;
         [self setMaskFromPoint:pt];
@@ -582,12 +670,29 @@ static const char* guiLabelForParam(clap_id id)
     clap_id ids[16] {};
     const char* labels[16] {};
     const uint32_t count = [self sliderIds:ids labels:labels];
-    (void)ids;
     (void)labels;
     for (uint32_t i = 0; i < count; ++i) {
-        if (NSPointInRect(pt, NSInsetRect([self sliderTrackForIndex:i], -8, -10))) {
-            _drag = static_cast<int>(i);
-            [self setParamFromPoint:pt];
+        const s3g::gui_layout::Panel* panel = &kSingleProjectionPanel;
+        uint32_t row = i - kSingleOutputRows - kSingleEffectRows;
+        if (i < kSingleOutputRows) {
+            panel = &kSingleOutputPanel;
+            row = i;
+        } else if (i < kSingleOutputRows + kSingleEffectRows) {
+            panel = &kSingleEffectPanel;
+            row = i - kSingleOutputRows;
+        }
+        if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::sliderHitRect(*panel, row)))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, ids[i], &defaultValue)) {
+                setParam(*p, ids[i], defaultValue);
+                _drag = -1;
+                [self setNeedsDisplay:YES];
+            } else {
+                _drag = static_cast<int>(i);
+                [self setParamFromPoint:pt];
+            }
             return;
         }
     }
@@ -624,7 +729,14 @@ bool guiCreate(const clap_plugin_t* plugin, const char*, bool)
 {
     auto* p = self(plugin);
     if (!p->guiView) {
-        p->guiView = [[S3G3OAFXSingleView alloc] initWithPlugin:p];
+    p->guiView = [[S3G3OAFXSingleView alloc] initWithPlugin:p];
+    if (p->guiView
+        && !s3g::clap_gui::createResponsiveViewport(
+            p->guiViewport, static_cast<NSView*>(p->guiView),
+            static_cast<uint32_t>(kViewW), static_cast<uint32_t>(kViewH))) {
+        [static_cast<NSView*>(p->guiView) release];
+        p->guiView = nullptr;
+    }
     }
     return p->guiView != nullptr;
 }
@@ -632,46 +744,43 @@ void guiDestroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
     if (p->guiView) {
-        NSView* view = static_cast<NSView*>(p->guiView);
-        [view removeFromSuperview];
-        [view release];
-        p->guiView = nullptr;
+        s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
     }
 }
 bool guiSetScale(const clap_plugin_t*, double) { return false; }
 bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h)
 {
-    auto* p = self(plugin);
-    if (!p->guiView) return false;
-    NSRect frame = [static_cast<NSView*>(p->guiView) frame];
-    *w = static_cast<uint32_t>(frame.size.width);
-    *h = static_cast<uint32_t>(frame.size.height);
-    return true;
+    return s3g::clap_gui::getResponsiveViewportSize(
+        self(plugin)->guiViewport, static_cast<uint32_t>(kViewW),
+        static_cast<uint32_t>(kViewH), w, h);
 }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints)
+{
+    return s3g::clap_gui::getResponsiveResizeHints(hints);
+}
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h)
+{
+    return s3g::clap_gui::adjustResponsiveViewportSize(
+        self(plugin)->guiViewport, static_cast<uint32_t>(kViewW),
+        static_cast<uint32_t>(kViewH), w, h);
+}
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h)
 {
-    auto* p = self(plugin);
-    if (!p->guiView) return false;
-    [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportSize(
+        self(plugin)->guiViewport, w, h);
 }
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
 {
     auto* p = self(plugin);
     if (!p->guiView || !window || !window->cocoa) return false;
-    NSView* parent = static_cast<NSView*>(window->cocoa);
-    NSView* view = static_cast<NSView*>(p->guiView);
-    [view setFrame:NSMakeRect(0, 0, kViewW, kViewH)];
-    [parent addSubview:view];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportParent(
+        p->guiViewport, static_cast<NSView*>(window->cocoa), p->host);
 }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setHidden:NO]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); return p->guiView && s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false); }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); return p->guiView && s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 
 const clap_plugin_gui_t gui { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif

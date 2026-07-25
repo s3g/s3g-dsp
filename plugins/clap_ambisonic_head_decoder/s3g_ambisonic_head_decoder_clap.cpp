@@ -428,8 +428,6 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     NSPoint _menuOrigin;
     uint32_t _menuItems;
     NSTimer* _timer;
-    bool _binauralOpen;
-    bool _transauralOpen;
     int _viewMode;
     double _viewYawDeg;
     double _viewPitchDeg;
@@ -460,8 +458,6 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         _menuOrigin = NSMakePoint(0, 0);
         _menuItems = 0;
         _timer = nil;
-        _binauralOpen = true;
-        _transauralOpen = true;
         _viewMode = 0;
         _viewYawDeg = 0.0;
         _viewPitchDeg = 0.0;
@@ -784,10 +780,9 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     NSRect side = NSMakeRect(592, 34, 336, 664);
     NSRect output = NSMakeRect(side.origin.x, 34, side.size.width, 128);
     NSRect decoder = NSMakeRect(side.origin.x, 174, side.size.width, 128);
-    NSRect binaural = NSMakeRect(side.origin.x, 314, side.size.width, _binauralOpen ? 198 : 24);
-    NSRect transaural = NSMakeRect(side.origin.x,
-        binaural.origin.y + (_binauralOpen ? 210 : 36),
-        side.size.width, _transauralOpen ? 154 : 24);
+    NSRect binaural = NSMakeRect(side.origin.x, 314, side.size.width, 198);
+    NSRect transaural = NSMakeRect(
+        side.origin.x, binaural.origin.y + 210, side.size.width, 154);
     s3g::clap_gui::drawPanelFrame(decoder.origin.x, decoder.origin.y, decoder.size.width, decoder.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"DECODER", true, decoder.origin.x, decoder.origin.y, decoder.size.width, 21, text, style);
     [self drawMenu:@"FIELD" value:[NSString stringWithUTF8String:directDecode ? "Internal grid" : layoutName(static_cast<uint32_t>(p->params.layout))] y:210 attrs:small style:style];
@@ -796,26 +791,22 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     [self drawMenu:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))] y:276 attrs:small style:style];
 
     s3g::clap_gui::drawPanelFrame(binaural.origin.x, binaural.origin.y, binaural.size.width, binaural.size.height, style);
-    s3g::clap_gui::drawDisclosurePanelHeader(@"BINAURAL", _binauralOpen, binaural.origin.x, binaural.origin.y, binaural.size.width, 21, text, style);
-    if (_binauralOpen) {
-        [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:modeName(static_cast<uint32_t>(p->params.mode))] y:binaural.origin.y + 40 attrs:small style:style];
-        [self drawMenu:@"HEAD" value:[NSString stringWithUTF8String:headName(static_cast<uint32_t>(p->params.head))] y:binaural.origin.y + 62 attrs:small style:style];
-        [self drawSlider:@"YAW" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.yawDeg)] norm:(p->params.yawDeg + 180.0) / 360.0 y:binaural.origin.y + 84 attrs:small style:style];
-        [self drawSlider:@"PIT" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.pitchDeg)] norm:(p->params.pitchDeg + 90.0) / 180.0 y:binaural.origin.y + 106 attrs:small style:style];
-        [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.widthPercent)] norm:p->params.widthPercent / 200.0 y:binaural.origin.y + 128 attrs:small style:style];
-        [self drawSlider:@"PIN" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.pinnaPercent)] norm:p->params.pinnaPercent / 100.0 y:binaural.origin.y + 150 attrs:small style:style];
-        [self drawSlider:@"EAR" value:[NSString stringWithFormat:@"%.1f", static_cast<double>(p->params.headWidthCm)] norm:(p->params.headWidthCm - 12.0) / 12.0 y:binaural.origin.y + 172 attrs:small style:style];
-    }
+    s3g::clap_gui::drawPanelHeader(@"BINAURAL", true, binaural.origin.x, binaural.origin.y, binaural.size.width, 21, text, style);
+    [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:modeName(static_cast<uint32_t>(p->params.mode))] y:binaural.origin.y + 40 attrs:small style:style];
+    [self drawMenu:@"HEAD" value:[NSString stringWithUTF8String:headName(static_cast<uint32_t>(p->params.head))] y:binaural.origin.y + 62 attrs:small style:style];
+    [self drawSlider:@"YAW" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.yawDeg)] norm:(p->params.yawDeg + 180.0) / 360.0 y:binaural.origin.y + 84 attrs:small style:style];
+    [self drawSlider:@"PIT" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.pitchDeg)] norm:(p->params.pitchDeg + 90.0) / 180.0 y:binaural.origin.y + 106 attrs:small style:style];
+    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.widthPercent)] norm:p->params.widthPercent / 200.0 y:binaural.origin.y + 128 attrs:small style:style];
+    [self drawSlider:@"PIN" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.pinnaPercent)] norm:p->params.pinnaPercent / 100.0 y:binaural.origin.y + 150 attrs:small style:style];
+    [self drawSlider:@"EAR" value:[NSString stringWithFormat:@"%.1f", static_cast<double>(p->params.headWidthCm)] norm:(p->params.headWidthCm - 12.0) / 12.0 y:binaural.origin.y + 172 attrs:small style:style];
 
     s3g::clap_gui::drawPanelFrame(transaural.origin.x, transaural.origin.y, transaural.size.width, transaural.size.height, style);
-    s3g::clap_gui::drawDisclosurePanelHeader(@"TRANSAURAL", _transauralOpen, transaural.origin.x, transaural.origin.y, transaural.size.width, 21, text, style);
-    if (_transauralOpen) {
-        [self drawSlider:@"ROOM" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.roomPercent)] norm:p->params.roomPercent / 100.0 y:transaural.origin.y + 40 attrs:small style:style];
-        [self drawSlider:@"XTC" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.xtcAmountPercent)] norm:p->params.xtcAmountPercent / 140.0 y:transaural.origin.y + 62 attrs:small style:style];
-        [self drawMenu:@"XMOD" value:[NSString stringWithUTF8String:xtcModeName(static_cast<uint32_t>(p->params.xtcMode))] y:transaural.origin.y + 84 attrs:small style:style];
-        [self drawSlider:@"SPK" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(p->params.speakerHalfAngleDeg)] norm:(p->params.speakerHalfAngleDeg - 10.0) / 50.0 y:transaural.origin.y + 106 attrs:small style:style];
-        [self drawSlider:@"LOW" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(p->params.xtcLowProtectHz)] norm:(p->params.xtcLowProtectHz - 20.0) / 480.0 y:transaural.origin.y + 128 attrs:small style:style];
-    }
+    s3g::clap_gui::drawPanelHeader(@"TRANSAURAL", true, transaural.origin.x, transaural.origin.y, transaural.size.width, 21, text, style);
+    [self drawSlider:@"ROOM" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.roomPercent)] norm:p->params.roomPercent / 100.0 y:transaural.origin.y + 40 attrs:small style:style];
+    [self drawSlider:@"XTC" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.xtcAmountPercent)] norm:p->params.xtcAmountPercent / 140.0 y:transaural.origin.y + 62 attrs:small style:style];
+    [self drawMenu:@"XMOD" value:[NSString stringWithUTF8String:xtcModeName(static_cast<uint32_t>(p->params.xtcMode))] y:transaural.origin.y + 84 attrs:small style:style];
+    [self drawSlider:@"SPK" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(p->params.speakerHalfAngleDeg)] norm:(p->params.speakerHalfAngleDeg - 10.0) / 50.0 y:transaural.origin.y + 106 attrs:small style:style];
+    [self drawSlider:@"LOW" value:[NSString stringWithFormat:@"%.0f", static_cast<double>(p->params.xtcLowProtectHz)] norm:(p->params.xtcLowProtectHz - 20.0) / 480.0 y:transaural.origin.y + 128 attrs:small style:style];
 
     s3g::clap_gui::drawPanelFrame(output.origin.x, output.origin.y, output.size.width, output.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, output.origin.x, output.origin.y, output.size.width, 21, text, style);
@@ -967,21 +958,10 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     }
     const NSRect output = NSMakeRect(side.origin.x, 34, side.size.width, 128);
     const NSRect decoder = NSMakeRect(side.origin.x, 174, side.size.width, 128);
-    const NSRect binaural = NSMakeRect(side.origin.x, 314, side.size.width, _binauralOpen ? 198 : 24);
-    const NSRect transaural = NSMakeRect(side.origin.x,
-        binaural.origin.y + (_binauralOpen ? 210 : 36),
-        side.size.width, _transauralOpen ? 154 : 24);
+    const NSRect binaural = NSMakeRect(side.origin.x, 314, side.size.width, 198);
+    const NSRect transaural = NSMakeRect(
+        side.origin.x, binaural.origin.y + 210, side.size.width, 154);
     (void)decoder;
-    if (NSPointInRect(pt, NSMakeRect(binaural.origin.x, binaural.origin.y, binaural.size.width, 24))) {
-        _binauralOpen = !_binauralOpen;
-        [self setNeedsDisplay:YES];
-        return;
-    }
-    if (NSPointInRect(pt, NSMakeRect(transaural.origin.x, transaural.origin.y, transaural.size.width, 24))) {
-        _transauralOpen = !_transauralOpen;
-        [self setNeedsDisplay:YES];
-        return;
-    }
 
     struct HitRow { int index; CGFloat y; bool menu; int openMenu; uint32_t menuItems; };
     HitRow rows[19];
@@ -992,22 +972,18 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     rows[count++] = { 0, 232, true, 8, 7 };
     rows[count++] = { 3, 254, true, 3, 3 };
     rows[count++] = { 4, 276, true, 4, 3 };
-    if (_binauralOpen) {
-        rows[count++] = { 6, binaural.origin.y + 40, true, 6, 2 };
-        rows[count++] = { 5, binaural.origin.y + 62, true, 5, 3 };
-        rows[count++] = { 7, binaural.origin.y + 84, false, 0, 0 };
-        rows[count++] = { 8, binaural.origin.y + 106, false, 0, 0 };
-        rows[count++] = { 9, binaural.origin.y + 128, false, 0, 0 };
-        rows[count++] = { 10, binaural.origin.y + 150, false, 0, 0 };
-        rows[count++] = { 15, binaural.origin.y + 172, false, 0, 0 };
-    }
-    if (_transauralOpen) {
-        rows[count++] = { 11, transaural.origin.y + 40, false, 0, 0 };
-        rows[count++] = { 12, transaural.origin.y + 62, false, 0, 0 };
-        rows[count++] = { 13, transaural.origin.y + 84, true, 7, 2 };
-        rows[count++] = { 14, transaural.origin.y + 106, false, 0, 0 };
-        rows[count++] = { 16, transaural.origin.y + 128, false, 0, 0 };
-    }
+    rows[count++] = { 6, binaural.origin.y + 40, true, 6, 2 };
+    rows[count++] = { 5, binaural.origin.y + 62, true, 5, 3 };
+    rows[count++] = { 7, binaural.origin.y + 84, false, 0, 0 };
+    rows[count++] = { 8, binaural.origin.y + 106, false, 0, 0 };
+    rows[count++] = { 9, binaural.origin.y + 128, false, 0, 0 };
+    rows[count++] = { 10, binaural.origin.y + 150, false, 0, 0 };
+    rows[count++] = { 15, binaural.origin.y + 172, false, 0, 0 };
+    rows[count++] = { 11, transaural.origin.y + 40, false, 0, 0 };
+    rows[count++] = { 12, transaural.origin.y + 62, false, 0, 0 };
+    rows[count++] = { 13, transaural.origin.y + 84, true, 7, 2 };
+    rows[count++] = { 14, transaural.origin.y + 106, false, 0, 0 };
+    rows[count++] = { 16, transaural.origin.y + 128, false, 0, 0 };
     for (int i = 0; i < count; ++i) {
         if (!NSPointInRect(pt, NSMakeRect(596, rows[i].y - 6, 316, 22))) continue;
         if (rows[i].menu) {

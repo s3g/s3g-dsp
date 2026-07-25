@@ -63,6 +63,7 @@ struct Plugin {
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
 
@@ -286,25 +287,47 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 } // namespace
 
 #if defined(__APPLE__)
-@interface S3GSpectralSprayView : NSView { void* _plugin; int _dragSlider; NSTimer* _timer; }
+constexpr auto kOutputPanel = s3g::gui_layout::compactEffectOutputPanel(3u);
+constexpr auto kRangePanel =
+    s3g::gui_layout::compactEffectLeftPanel(
+        kOutputPanel, s3g::gui_layout::PanelRole::ToneShape, 4u);
+constexpr auto kMotionPanel =
+    s3g::gui_layout::compactEffectRightPanel(
+        s3g::gui_layout::PanelRole::Motion, 7u);
+constexpr std::array kFirstColumnPanels { kOutputPanel, kRangePanel };
+constexpr std::array kSecondColumnPanels { kMotionPanel };
+static_assert(s3g::gui_layout::validateColumn(
+    kFirstColumnPanels, s3g::gui_layout::kCompactEffectFamilyLayout.canvas));
+static_assert(s3g::gui_layout::validateColumn(
+    kSecondColumnPanels, s3g::gui_layout::kCompactEffectFamilyLayout.canvas,
+    false));
+
+@interface S3GSpectralSprayView : NSView {
+    void* _plugin;
+    int _dragSlider;
+    NSTimer* _timer;
+    char _titlePresetName[64];
+}
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
-- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm x:(CGFloat)x y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
+- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs;
 - (void)updateSlider:(NSPoint)point;
 @end
 
 @implementation S3GSpectralSprayView
-- (id)initWithPlugin:(void*)plugin { self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)]; if (self) { _plugin = plugin; _dragSlider = -1; _timer = nil; } return self; }
+- (id)initWithPlugin:(void*)plugin { self = [super initWithFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)]; if (self) { _plugin = plugin; _dragSlider = -1; _timer = nil; std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT"); } return self; }
 - (BOOL)isFlipped { return YES; }
 - (void)dealloc { [self stopRefreshTimer]; [super dealloc]; }
 - (void)startRefreshTimer { if (_timer) return; _timer = [NSTimer timerWithTimeInterval:1.0/20.0 target:self selector:@selector(refresh:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; }
 - (void)stopRefreshTimer { if (_timer) { [_timer invalidate]; _timer = nil; } }
 - (void)refresh:(NSTimer*)timer { (void)timer; if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
-- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm x:(CGFloat)x y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
+- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs
 {
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, small, style, x, x + 94, x + 266, 150);
+    s3g::clap_gui::drawProcessorSlider(name, value, norm, y,
+        panel.frame.x, panel.frame.width, attrs,
+        s3g::clap_gui::softValueAttrs(), style);
 }
 - (void)drawRect:(NSRect)dirty
 {
@@ -312,39 +335,56 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
-    NSDictionary* lab = s3g::clap_gui::softTitleAttrs();
+    NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
-    [@"s3g SPECTRAL SPRAY 2CH" drawAtPoint:NSMakePoint(18,14) withAttributes:lab];
     const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(pk) drawAtPoint:NSMakePoint(606,14) withAttributes:small];
-    [@"2CH" drawAtPoint:NSMakePoint(704,14) withAttributes:small];
-    s3g::clap_gui::drawPanelFrame(18, 42, 354, 286, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT / RANGE", true, 18, 42, 354, 21, lab, style);
-    s3g::clap_gui::drawPanelFrame(388, 42, 354, 286, style);
-    s3g::clap_gui::drawPanelHeader(@"SPECTRAL MOTION", true, 388, 42, 354, 21, lab, style);
+    const auto titleBand = s3g::gui_layout::compactEffectTitleBand(
+        s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
+    s3g::clap_gui::drawCompactEffectTitleBand(
+        @"s3g EFFECT SPECTRAL SPRAY 2CH",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(pk), titleBand, style);
+    const auto drawPanel = [&](NSString* name,
+                               const s3g::gui_layout::Panel& panel) {
+        s3g::clap_gui::drawPanelFrame(
+            panel.frame.x, panel.frame.y, panel.frame.width, panel.frame.height,
+            style);
+        s3g::clap_gui::drawPanelHeader(
+            name, true, panel.frame.x, panel.frame.y, panel.frame.width,
+            s3g::gui_layout::kStandardMetrics.headerHeight, lab, style);
+    };
+    drawPanel(@"OUTPUT", kOutputPanel);
+    drawPanel(@"RANGE / PHASE", kRangePanel);
+    drawPanel(@"SPECTRAL MOTION", kMotionPanel);
     const auto& prm = p->params;
-    [self drawRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", prm.gainDb] norm:(prm.gainDb + 60.0f) / 78.0f x:36 y:82 attrs:small small:small];
-    [self drawRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix x:36 y:116 attrs:small small:small];
-    [self drawRow:@"SAFE" value:[NSString stringWithFormat:@"%.0f%%", prm.safety * 100.0f] norm:(prm.safety - 0.05f) / 0.95f x:36 y:150 attrs:small small:small];
-    [self drawRow:@"LO" value:[NSString stringWithFormat:@"%.0f", prm.loFreq] norm:prm.loFreq / 24000.0f x:36 y:184 attrs:small small:small];
-    [self drawRow:@"HI" value:[NSString stringWithFormat:@"%.0f", prm.hiFreq] norm:prm.hiFreq / 24000.0f x:36 y:218 attrs:small small:small];
-    [self drawRow:@"TILT" value:[NSString stringWithFormat:@"%+.2f", prm.tilt] norm:(prm.tilt + 1.0f) * 0.5f x:36 y:252 attrs:small small:small];
-    [self drawRow:@"PHAS" value:[NSString stringWithFormat:@"%.0f%%", prm.phaseBlur * 100.0f] norm:prm.phaseBlur x:36 y:286 attrs:small small:small];
-    [self drawRow:@"BINS" value:[NSString stringWithFormat:@"%.0f", prm.sprayBins] norm:prm.sprayBins / 256.0f x:406 y:82 attrs:small small:small];
-    [self drawRow:@"DRFT" value:[NSString stringWithFormat:@"%.0f%%", prm.drift * 100.0f] norm:prm.drift x:406 y:116 attrs:small small:small];
-    [self drawRow:@"HOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.hold * 100.0f] norm:prm.hold x:406 y:150 attrs:small small:small];
-    [self drawRow:@"FRZ" value:[NSString stringWithFormat:@"%.0f%%", prm.freeze * 100.0f] norm:prm.freeze x:406 y:184 attrs:small small:small];
-    [self drawRow:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback / 0.85f x:406 y:218 attrs:small small:small];
-    [self drawRow:@"SMR" value:[NSString stringWithFormat:@"%.0f%%", prm.smear * 100.0f] norm:prm.smear x:406 y:252 attrs:small small:small];
-    [self drawRow:@"HOLE" value:[NSString stringWithFormat:@"%.0f%%", prm.holes * 100.0f] norm:prm.holes / 0.95f x:406 y:286 attrs:small small:small];
-    [@"FFT 4096 / 8x OLA" drawAtPoint:NSMakePoint(406, 334) withAttributes:small];
+    [self drawRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.gainDb] norm:(prm.gainDb + 60.0f) / 78.0f y:s3g::gui_layout::rowY(kOutputPanel, 0u) panel:kOutputPanel attrs:lab];
+    [self drawRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:s3g::gui_layout::rowY(kOutputPanel, 1u) panel:kOutputPanel attrs:lab];
+    [self drawRow:@"SAFE" value:[NSString stringWithFormat:@"%.0f%%", prm.safety * 100.0f] norm:(prm.safety - 0.05f) / 0.95f y:s3g::gui_layout::rowY(kOutputPanel, 2u) panel:kOutputPanel attrs:lab];
+    [self drawRow:@"LO" value:[NSString stringWithFormat:@"%.0f Hz", prm.loFreq] norm:prm.loFreq / 24000.0f y:s3g::gui_layout::rowY(kRangePanel, 0u) panel:kRangePanel attrs:lab];
+    [self drawRow:@"HI" value:[NSString stringWithFormat:@"%.0f Hz", prm.hiFreq] norm:prm.hiFreq / 24000.0f y:s3g::gui_layout::rowY(kRangePanel, 1u) panel:kRangePanel attrs:lab];
+    [self drawRow:@"TILT" value:[NSString stringWithFormat:@"%+.2f", prm.tilt] norm:(prm.tilt + 1.0f) * 0.5f y:s3g::gui_layout::rowY(kRangePanel, 2u) panel:kRangePanel attrs:lab];
+    [self drawRow:@"PHAS" value:[NSString stringWithFormat:@"%.0f%%", prm.phaseBlur * 100.0f] norm:prm.phaseBlur y:s3g::gui_layout::rowY(kRangePanel, 3u) panel:kRangePanel attrs:lab];
+    [self drawRow:@"BINS" value:[NSString stringWithFormat:@"%.0f", prm.sprayBins] norm:prm.sprayBins / 256.0f y:s3g::gui_layout::rowY(kMotionPanel, 0u) panel:kMotionPanel attrs:lab];
+    [self drawRow:@"DRFT" value:[NSString stringWithFormat:@"%.0f%%", prm.drift * 100.0f] norm:prm.drift y:s3g::gui_layout::rowY(kMotionPanel, 1u) panel:kMotionPanel attrs:lab];
+    [self drawRow:@"HOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.hold * 100.0f] norm:prm.hold y:s3g::gui_layout::rowY(kMotionPanel, 2u) panel:kMotionPanel attrs:lab];
+    [self drawRow:@"FRZ" value:[NSString stringWithFormat:@"%.0f%%", prm.freeze * 100.0f] norm:prm.freeze y:s3g::gui_layout::rowY(kMotionPanel, 3u) panel:kMotionPanel attrs:lab];
+    [self drawRow:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback / 0.85f y:s3g::gui_layout::rowY(kMotionPanel, 4u) panel:kMotionPanel attrs:lab];
+    [self drawRow:@"SMR" value:[NSString stringWithFormat:@"%.0f%%", prm.smear * 100.0f] norm:prm.smear y:s3g::gui_layout::rowY(kMotionPanel, 5u) panel:kMotionPanel attrs:lab];
+    [self drawRow:@"HOLE" value:[NSString stringWithFormat:@"%.0f%%", prm.holes * 100.0f] norm:prm.holes / 0.95f y:s3g::gui_layout::rowY(kMotionPanel, 6u) panel:kMotionPanel attrs:lab];
+    [@"FFT 4096 / 8x OLA" drawAtPoint:NSMakePoint(
+        kMotionPanel.frame.x + 16.0,
+        kMotionPanel.frame.y + kMotionPanel.frame.height + 12.0)
+        withAttributes:small];
 }
 - (void)updateSlider:(NSPoint)point
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const bool left = _dragSlider >= 8 && _dragSlider <= 14;
-    const double x0 = left ? 130.0 : 500.0;
-    const double n = std::clamp((point.x - x0) / 150.0, 0.0, 1.0);
+    const bool output = _dragSlider == 12 || _dragSlider == 13 || _dragSlider == 14;
+    const bool range = _dragSlider >= 8 && _dragSlider <= 11;
+    const auto& panel = output ? kOutputPanel : (range ? kRangePanel : kMotionPanel);
+    const double x0 = s3g::gui_layout::processorControlX(panel.frame.x);
+    const double trackWidth = s3g::gui_layout::processorTrackWidth(panel.frame.width);
+    const double n = std::clamp((point.x - x0) / trackWidth, 0.0, 1.0);
     switch (_dragSlider) {
     case 1: applyParam(*p, kSprayBinsParamId, n * 256.0); break;
     case 2: applyParam(*p, kDriftParamId, n); break;
@@ -367,11 +407,52 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
-    const CGFloat rows[] = {82,116,150,184,218,252,286};
-    const int leftControls[] = {13,12,14,9,10,11,8};
-    for (int i = 0; i < 7; ++i) {
-        if (NSPointInRect(pt, NSMakeRect(32, rows[i] - 9, 330, 24))) { _dragSlider = leftControls[i]; [self updateSlider:pt]; return; }
-        if (NSPointInRect(pt, NSMakeRect(402, rows[i] - 9, 330, 24))) { _dragSlider = i + 1; [self updateSlider:pt]; return; }
+    auto* p = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::gui_layout::compactEffectTitleBand(
+        s3g::gui_layout::kCompactEffectFamilyLayout.canvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &p->plugin, @"Effect Spectral Spray", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    const auto beginSlider = [&](clap_id paramId) {
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, paramId, &defaultValue)) {
+            applyParam(*p, paramId, defaultValue);
+            _dragSlider = -1;
+        } else {
+            _dragSlider = static_cast<int>(paramId);
+            [self updateSlider:pt];
+        }
+        [self setNeedsDisplay:YES];
+    };
+    const clap_id outputIds[] {
+        kGainParamId, kMixParamId, kSafetyParamId
+    };
+    const clap_id rangeIds[] {
+        kLoFreqParamId, kHiFreqParamId, kTiltParamId, kPhaseBlurParamId
+    };
+    const clap_id motionIds[] {
+        kSprayBinsParamId, kDriftParamId, kHoldParamId, kFreezeParamId,
+        kFeedbackParamId, kSmearParamId, kHolesParamId
+    };
+    const auto hitPanel = [&](const s3g::gui_layout::Panel& panel,
+                              const clap_id* ids, uint32_t count) {
+        for (uint32_t row = 0u; row < count; ++row) {
+            if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+                    s3g::gui_layout::sliderHitRect(panel, row)))) {
+                beginSlider(ids[row]);
+                return true;
+            }
+        }
+        return false;
+    };
+    if (hitPanel(kOutputPanel, outputIds, 3u)
+        || hitPanel(kRangePanel, rangeIds, 4u)
+        || hitPanel(kMotionPanel, motionIds, 7u)) {
+        return;
     }
 }
 - (void)mouseDragged:(NSEvent*)event { if (_dragSlider > 0) [self updateSlider:[self convertPoint:[event locationInWindow] fromView:nil]]; }
@@ -382,19 +463,19 @@ namespace {
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GSpectralSprayView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; auto* v = static_cast<S3GSpectralSprayView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GSpectralSprayView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; [static_cast<S3GSpectralSprayView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0,0,kGuiWidth,kGuiHeight)]; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, w, h); }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = true; [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GSpectralSprayView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GSpectralSprayView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3GSpectralSprayView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GSpectralSprayView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 
@@ -414,7 +495,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.spectral-spray",
-    "s3g Spectral Spray 2ch",
+    "s3g Effect Spectral Spray 2ch",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

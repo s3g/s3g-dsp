@@ -144,13 +144,13 @@ Included plugins ($bundle_count bundles):
 - s3g 24ch Passthrough Test
 - s3g Processor Delay 8ch
 - s3g Processor Delay 24ch
-- s3g MC to Stereo Autogain
-- s3g MC to Quad Autogain
-- s3g 3OAFX Delay
-- s3g 3OAFX Pitch
-- s3g 3OAFX Filter
-- s3g 3OAFX Gain
-- s3g 3OAFX Displacement
+- s3g Output Autogain Stereo
+- s3g Output Autogain Quad
+- s3g 3OAFX Effect Delay
+- s3g 3OAFX Effect Pitch
+- s3g 3OAFX Effect Filter
+- s3g 3OAFX Effect Gain
+- s3g 3OAFX Transform Displacement 16ch
 - s3g Ambi Encoder Point
 - s3g Ambi Encoder Cloud 64
 - s3g Ambi Encoder Surface Terrain 64
@@ -160,7 +160,7 @@ Included plugins ($bundle_count bundles):
 - s3g Ambi Encoder Pulsar 64
 - s3g Ambi Encoder Stochastic 64
 - s3g Ambi Encoder Wrangler 64
-- s3g Ambi Imprint 64
+- s3g Processor Ambi Imprint 64ch
 - s3g Ambi Encoder Ray
 - s3g Ambi Encoder Ray Bilocation
 - s3g Ambi Encoder Path 64
@@ -169,7 +169,7 @@ Included plugins ($bundle_count bundles):
 - s3g DBAP Panner
 - s3g LBAP Panner
 - s3g VBAP Panner
-- s3g Sub Crossover
+- s3g Output Crossover
 - s3g Processor Loop 8ch
 - s3g Processor Multi Loop 8ch
 - s3g Processor Fault
@@ -183,8 +183,8 @@ Included plugins ($bundle_count bundles):
 - s3g Macro Shred 24ch
 - s3g Processor Buffer 8ch
 - s3g Processor Wave Geometry 8ch
-- s3g Multichannel Meter 64
-- s3g Ambi Energy Visualizer 64
+- s3g Analyzer Meter 64ch
+- s3g Analyzer Ambi Energy 64ch
 - s3g Ambi Stereo Decoder
 - s3g Ambi Head Decoder
 - s3g Ambisonic Sub Decoder
@@ -202,26 +202,26 @@ Included plugins ($bundle_count bundles):
 - s3g Array Trim 26
 - s3g Array Trim 32
 - s3g Array Trim 64
-- s3g Ambi Rotate 64
-- s3g Ambi Depth 16
-- s3g Ambi Group Rotate 64
-- s3g Ambi Group Rotate 128
-- s3g Ambi Group Depth 64
-- s3g Ambi Group Depth 128
-- s3g Ambi Order / Band 64
-- s3g Ambi Group Matrix 64
-- s3g Ambi Group Matrix 128
-- s3g Group Matrix 64
-- s3g Group Matrix 32
-- s3g Node Bus Mixer 128
-- s3g Ambi Node Bus Mixer 128
-- s3g Spectral Spray 2ch
-- s3g Spectral Spray 8ch
+- s3g Ambi Transform Rot 64
+- s3g Ambi Transform Depth 16
+- s3g Ambi Transform Grp Rot 64
+- s3g Ambi Transform Grp Rot 128
+- s3g Ambi Transform Grp Depth 64
+- s3g Ambi Transform Grp Depth 128
+- s3g Ambi Transform Order Band 64
+- s3g Ambi Matrix Group 64
+- s3g Ambi Matrix Group 128
+- s3g Matrix Group 64
+- s3g Matrix Group 32
+- s3g Mixer Node Bus 128
+- s3g Ambi Mixer Node Bus 128
+- s3g Effect Spectral Spray 2ch
+- s3g Effect Spectral Spray 8ch
 - s3g Processor Spectral 8ch
 - s3g Processor Spectral 24ch
-- s3g Shard Scatter
-- s3g Orbit Delay
-- s3g Cascade Taps
+- s3g Effect Shard Scatter
+- s3g Effect Orbit Delay
+- s3g Effect Cascade Taps
 
 Docs:
 

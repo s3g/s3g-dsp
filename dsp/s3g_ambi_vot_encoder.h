@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_ambisonic_speaker_decoder.h"
+#include "s3g_musical_scales.h"
 #include "s3g_realtime.h"
 
 #include <algorithm>
@@ -323,24 +324,9 @@ inline float ambiVotMidiToHz(float note)
 
 inline int ambiVotScaleDegreeSemitones(AmbiVotScale scale, int degree)
 {
-    static constexpr std::array<int, 12> chromatic {{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }};
-    static constexpr std::array<int, 7> major {{ 0, 2, 4, 5, 7, 9, 11 }};
-    static constexpr std::array<int, 7> minor {{ 0, 2, 3, 5, 7, 8, 10 }};
-    static constexpr std::array<int, 5> pentatonic {{ 0, 2, 4, 7, 9 }};
-    static constexpr std::array<int, 6> wholeTone {{ 0, 2, 4, 6, 8, 10 }};
-    static constexpr std::array<int, 7> harmonicMinor {{ 0, 2, 3, 5, 7, 8, 11 }};
-
-    const int* values = chromatic.data();
-    int count = static_cast<int>(chromatic.size());
-    switch (scale) {
-    case AmbiVotScale::Major: values = major.data(); count = static_cast<int>(major.size()); break;
-    case AmbiVotScale::Minor: values = minor.data(); count = static_cast<int>(minor.size()); break;
-    case AmbiVotScale::Pentatonic: values = pentatonic.data(); count = static_cast<int>(pentatonic.size()); break;
-    case AmbiVotScale::WholeTone: values = wholeTone.data(); count = static_cast<int>(wholeTone.size()); break;
-    case AmbiVotScale::HarmonicMinor: values = harmonicMinor.data(); count = static_cast<int>(harmonicMinor.size()); break;
-    case AmbiVotScale::Chromatic:
-    default: break;
-    }
+    const auto& definition = musicalScaleDefinition(
+        static_cast<uint32_t>(scale));
+    const int count = definition.size;
 
     int octave = degree / count;
     int index = degree % count;
@@ -348,20 +334,13 @@ inline int ambiVotScaleDegreeSemitones(AmbiVotScale scale, int degree)
         index += count;
         --octave;
     }
-    return octave * 12 + values[index];
+    return octave * 12
+        + definition.semitones[static_cast<size_t>(index)];
 }
 
 inline int ambiVotScaleSize(AmbiVotScale scale)
 {
-    switch (scale) {
-    case AmbiVotScale::Pentatonic: return 5;
-    case AmbiVotScale::WholeTone: return 6;
-    case AmbiVotScale::Major:
-    case AmbiVotScale::Minor:
-    case AmbiVotScale::HarmonicMinor: return 7;
-    case AmbiVotScale::Chromatic:
-    default: return 12;
-    }
+    return musicalScaleDefinition(static_cast<uint32_t>(scale)).size;
 }
 
 inline float ambiVotQuantizeToScale(float note, float root, AmbiVotScale scale, int* degreeOut = nullptr)
@@ -868,7 +847,9 @@ public:
         params.scanRate = clamp(params.scanRate, -4.0f, 4.0f);
         params.morph = clamp(params.morph, 0.0f, 1.0f);
         params.detune = clamp(params.detune, 0.0f, 1.0f);
-        params.scale = static_cast<AmbiVotScale>(std::clamp<uint32_t>(static_cast<uint32_t>(params.scale), 0u, 5u));
+        params.scale = static_cast<AmbiVotScale>(std::clamp<uint32_t>(
+            static_cast<uint32_t>(params.scale),
+            0u, kMusicalScaleCount - 1u));
         params.pitchSpread = clamp(params.pitchSpread, 0.0f, 2.0f);
         params.harmonicAmount = clamp(params.harmonicAmount, 0.0f, 1.0f);
         params.subharmonicAmount = clamp(params.subharmonicAmount, 0.0f, 1.0f);
@@ -1347,15 +1328,7 @@ inline const char* ambiVotMotionClockName(AmbiVotMotionClock clock)
 
 inline const char* ambiVotScaleName(AmbiVotScale scale)
 {
-    switch (scale) {
-    case AmbiVotScale::Major: return "MAJOR";
-    case AmbiVotScale::Minor: return "MINOR";
-    case AmbiVotScale::Pentatonic: return "PENTA";
-    case AmbiVotScale::WholeTone: return "WHOLE";
-    case AmbiVotScale::HarmonicMinor: return "HARM MIN";
-    case AmbiVotScale::Chromatic:
-    default: return "CHROM";
-    }
+    return musicalScaleDefinition(static_cast<uint32_t>(scale)).name;
 }
 
 inline const char* ambiVotScoreModeName(AmbiVotScoreMode mode)

@@ -50,6 +50,9 @@ Put the searchable family before the specific member:
 - Processor effects and instruments: `s3g Processor <member>`
 - 3OAFX tools: `s3g 3OAFX <role> <member>`
 - Array tools: `s3g Array <operation> <width>`
+- Compact effects: `s3g Effect <member> [width]`
+- Signal inspection: `s3g Analyzer <member> [width]`
+- Final audition and fold-down: `s3g Output <member>`
 
 For example: `s3g Ambi Decoder Head`, `s3g Ambi Encoder Point`,
 `s3g Ambi Encoder Surface Terrain`, `s3g Panner LBAP`, and
@@ -70,6 +73,18 @@ model. `s3g Processor Ambi Grain 16ch` remains in this family because its loaded
 granulation workflow is more closely related to the other Processors; requiring
 ambisonic media is an input-format constraint rather than its primary family
 identity.
+
+`Effect` is the smaller, direct-processing family: a focused insert whose
+editor is primarily a compact control surface rather than a developed
+instrument or multi-stage workflow. `Analyzer` identifies signal-transparent
+measurement and visualization tools. `Output` identifies final audition,
+fold-down, crossover, and delivery utilities; it does not replace `Decoder`
+when loudspeaker or binaural decoding is the plugin's main job.
+
+Within `3OAFX`, keep the signal-format family first and put the functional role
+second: `s3g 3OAFX Effect Delay` and
+`s3g 3OAFX Transform Displacement 16ch`. This keeps all 3OAFX tools adjacent
+while separating insert effects from geometric field transforms.
 Do not move a specific member such as `Head`, `Point`, `Surface Terrain`, or
 `LBAP` ahead of its family; that fragments adjacent search results in host
 plugin browsers. Family membership is maintained explicitly in the encoder
@@ -91,9 +106,10 @@ audit, not inferred from these names.
   baseline minus 2 px. Custom menu renderers must call the shared menu helper
   or reproduce that baseline exactly.
 - Use a dark header strip with a 2 px light line at the top.
-- Use `+` / `-` at the left of collapsible headers only. If a panel cannot be
-  toggled by clicking its header, draw a static header with no disclosure
-  marker. A `-` promises an open/close interaction.
+- Parameter toolboxes are persistent and use static headers with no disclosure
+  marker. Reserve `+` / `-` disclosure headers for optional help, glossary, or
+  reference material whose visibility does not determine whether a control can
+  be reached. A `-` promises an open/close interaction.
 - Keep toolbox header titles normal weight. The header strip and top line are
   enough hierarchy; avoid bold or highlighted panel titles unless the title is
   an active status indicator.
@@ -118,11 +134,12 @@ Reference pattern:
 ```cpp
 drawPanelFrame(panelX, panelY, panelW, panelH, style);
 drawPanelHeader(@"ENGINE", true, panelX, panelY, panelW, headerH, attrs, style);
-drawDisclosurePanelHeader(@"ENGINE", open, panelX, panelY, panelW, headerH, attrs, style);
+drawDisclosurePanelHeader(@"PATTERN TERMS", open, panelX, panelY, panelW, headerH, attrs, style);
 ```
 
-Use `drawPanelHeader()` for static panels and `drawDisclosurePanelHeader()`
-only when the header click handler actually toggles the panel body.
+Use `drawPanelHeader()` for parameter toolboxes.
+`drawDisclosurePanelHeader()` is reserved for optional non-control help or
+reference bodies whose header click handler actually toggles that body.
 
 The advisory script `scripts/audit-gui-style.sh` checks for common GUI drift:
 false disclosure markers, local bold/bright text, hand-formatted peak readouts,
@@ -394,7 +411,9 @@ hit geometry from `plugins/common/s3g_gui_layout.h`.
 - Avoid large unused bands between information regions.
 - Align related columns at the same top y-position.
 - Do not put cards inside cards.
-- Use collapsible toolboxes when a right-side control stack becomes tall.
+- Keep parameter toolboxes visible. When a stack becomes tall, add a second
+  parameter column and let the responsive viewport scale the wider design
+  canvas. Do not hide ordinary controls behind collapsible headers.
 - Put final output level at the top of the first parameter column. When the
   layout has a dedicated `OUTPUT` panel, that panel comes first and `OUT` is
   its first row; keep related final-stage controls such as `MIX`, safety,
@@ -462,8 +481,9 @@ Before adding or shipping a new custom plugin GUI, check these items:
 - Sliders double-click to reset and share their draw/hit row geometry.
 - Numeric text fields use the shared number-field style so selection remains
   readable and entry does not fight the redraw loop.
-- Static toolbox headers have no `+` / `-`; disclosure headers use
-  `drawDisclosurePanelHeader()` and have a working header click target.
+- Parameter toolbox headers are static and have no `+` / `-`. Disclosure
+  headers are limited to optional help/reference panels, use
+  `drawDisclosurePanelHeader()`, and have a working header click target.
 - Spatial camera buttons and zoom follow the package ordering and save view
   state when the view is part of normal creative editing.
 
@@ -471,11 +491,13 @@ Before adding or shipping a new custom plugin GUI, check these items:
 
 The current primary reference is `s3g Processor Delay 8ch`:
 
-- right-side toolboxes drawn directly on the main background
+- two persistent parameter columns drawn directly on the main background
+- `OUTPUT`, `ENGINE`, and `PATCH MATRIX` in the first column
+- `TOPOLOGY` at the top of the second column
 - dark header strip with light top line
 - compact sliders and menus
 - minimal grayscale panel frames
-- no extra parent container behind the toolbox column
+- no extra parent container behind either toolbox column
 
 `s3g Processor Loop 8ch` is the sample-lane reference:
 
@@ -483,6 +505,8 @@ The current primary reference is `s3g Processor Delay 8ch`:
 - lane cursors intersect the waveform timeline
 - loop region markers show the active window
 - output lanes use compact square cells rather than a full patch matrix
+- its shorter `OUTPUT`, `ENGINE`, and `RELATIONSHIPS` stack remains permanently
+  visible in one column
 
 Across the Processor family, the title band is rendered by the shared
 Processor helper and reads `PRESET`, `LOAD`, `SAVE`. Contextual media loading

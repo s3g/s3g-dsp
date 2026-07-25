@@ -42,7 +42,7 @@ constexpr uint32_t kGuiStateMagic = 0x53474956u;
 constexpr uint32_t kGuiStateVersion = 1u;
 constexpr uint32_t kMaximumStateJsonBytes = 2u * 1024u * 1024u;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-imprint-64";
-constexpr const char* kPluginName = "s3g Ambi Imprint 64";
+constexpr const char* kPluginName = "s3g Processor Ambi Imprint 64ch";
 constexpr const char* kPluginDesc = "64-channel ambisonic directional imprint convolution.";
 
 enum ParamId : clap_id {
@@ -177,6 +177,7 @@ struct Plugin {
     double sampleRate = 48000.0;
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
     int guiViewMode = 2;
     double guiViewAzimuthDeg = 35.0;
@@ -618,10 +619,8 @@ void destroy(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
 #if defined(__APPLE__)
     if (instance->guiView) {
-        NSView* view = static_cast<NSView*>(instance->guiView);
-        [view removeFromSuperview];
-        [view release];
-        instance->guiView = nullptr;
+        s3g::clap_gui::destroyResponsiveViewport(
+            instance->guiViewport, instance->guiView);
     }
 #endif
     delete instance;
@@ -946,6 +945,22 @@ const clap_plugin_tail_t tailExt { tailGet };
 } // namespace
 
 #if defined(__APPLE__)
+constexpr auto kImprintOutputPanel = s3g::gui_layout::imprintPanel(
+    s3g::gui_layout::PanelRole::Output, 42.0, 2u);
+constexpr s3g::gui_layout::Panel kImprintSourcePanel {
+    s3g::gui_layout::PluginClass::EffectProcessor,
+    s3g::gui_layout::PanelRole::Source,
+    { 616.0, 134.0, 272.0, 126.0 },
+    36.0, 26.0, 0u,
+};
+constexpr auto kImprintProcessPanel = s3g::gui_layout::imprintPanel(
+    s3g::gui_layout::PanelRole::Engine, 272.0, 5u);
+constexpr std::array kImprintPanels {
+    kImprintOutputPanel, kImprintSourcePanel, kImprintProcessPanel
+};
+static_assert(s3g::gui_layout::validateColumn(
+    kImprintPanels, s3g::gui_layout::kImprintFamilyLayout.canvas));
+
 namespace {
 
 float linearToSrgb(float value)
@@ -1010,7 +1025,10 @@ constexpr std::array<ImprintAtlasEntry, 19> kImprintAtlas {{
 
 NSRect imprintAtlasMenuRect()
 {
-    return NSMakeRect(616, 56, 272, 18.0 * static_cast<CGFloat>(kImprintAtlas.size()));
+    return NSMakeRect(
+        kImprintSourcePanel.frame.x, 78.0,
+        kImprintSourcePanel.frame.width,
+        18.0 * static_cast<CGFloat>(kImprintAtlas.size()));
 }
 
 } // namespace
@@ -1029,6 +1047,7 @@ NSRect imprintAtlasMenuRect()
     CGFloat _viewZoom;
     BOOL _dragView;
     NSPoint _lastDragPoint;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
@@ -1062,6 +1081,7 @@ NSRect imprintAtlasMenuRect()
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
         _dragView = NO;
         _lastDragPoint = NSMakePoint(0, 0);
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
     }
     return self;
 }
@@ -1186,14 +1206,17 @@ NSRect imprintAtlasMenuRect()
     [self setNeedsDisplay:YES];
 }
 
-- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style
+- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm row:(uint32_t)row panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs style:(s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, attrs, style, 634, 718, 846, 110);
+    s3g::clap_gui::drawProcessorSlider(
+        name, value, norm, s3g::gui_layout::rowY(panel, row),
+        panel.frame.x, panel.frame.width, attrs, attrs, style);
 }
 
 - (NSRect)viewButtonRect:(int)index
 {
-    const NSRect panel = NSMakeRect(12, 34, 590, 426);
+    const NSRect panel = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::kImprintFamilyLayout.fieldPanel);
     const CGFloat width = 38.0;
     const CGFloat gap = 5.0;
     const CGFloat x = NSMaxX(panel) - 10.0 - (3.0 - static_cast<CGFloat>(index)) * width - (2.0 - static_cast<CGFloat>(index)) * gap;
@@ -1206,7 +1229,9 @@ NSRect imprintAtlasMenuRect()
     const CGFloat gap = 4.0;
     const CGFloat viewStart = [self viewButtonRect:0].origin.x;
     const CGFloat x = viewStart - 12.0 - (2.0 - static_cast<CGFloat>(index)) * width - (1.0 - static_cast<CGFloat>(index)) * gap;
-    return NSMakeRect(x, 38.0, width, 13.0);
+    return NSMakeRect(
+        x, s3g::gui_layout::kImprintFamilyLayout.fieldPanel.y + 4.0,
+        width, 13.0);
 }
 
 - (void)setViewPreset:(int)mode
@@ -1458,17 +1483,21 @@ NSRect imprintAtlasMenuRect()
     const GuiSnapshot snapshot = guiSnapshot(*_plugin);
     const float peak = _plugin->outputPeak.exchange(_plugin->outputPeak.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
     NSString* peakText = s3g::clap_gui::peakDbText(peak);
-    NSString* info = [NSString stringWithFormat:@"%uOA / 64CH", _plugin->params.order];
-    const CGFloat peakX = kGuiWidth - [peakText sizeWithAttributes:value].width - 18.0;
-    const CGFloat infoX = peakX - [info sizeWithAttributes:value].width - 18.0;
-    [@"s3g AMBI IMPRINT 64" drawAtPoint:NSMakePoint(18, 13) withAttributes:text];
-    [info drawAtPoint:NSMakePoint(infoX, 13) withAttributes:value];
-    [peakText drawAtPoint:NSMakePoint(peakX, 13) withAttributes:value];
+    const auto titleBand = s3g::gui_layout::imprintTitleBand(
+        s3g::gui_layout::kImprintFamilyLayout.canvas);
+    s3g::clap_gui::drawImprintTitleBand(
+        @"s3g PROCESSOR AMBI IMPRINT 64CH",
+        [NSString stringWithUTF8String:_titlePresetName],
+        peakText, titleBand, style);
 
-    const NSRect fieldPanel = NSMakeRect(12, 34, 590, 426);
-    const NSRect imprintPanel = NSMakeRect(616, 34, 272, 126);
-    const NSRect processPanel = NSMakeRect(616, 174, 272, 170);
-    const NSRect outputPanel = NSMakeRect(616, 358, 272, 102);
+    const NSRect fieldPanel = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::kImprintFamilyLayout.fieldPanel);
+    const NSRect imprintPanel =
+        s3g::clap_gui::cocoaRect(kImprintSourcePanel.frame);
+    const NSRect processPanel =
+        s3g::clap_gui::cocoaRect(kImprintProcessPanel.frame);
+    const NSRect outputPanel =
+        s3g::clap_gui::cocoaRect(kImprintOutputPanel.frame);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"IMPRINT FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
     static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
@@ -1479,49 +1508,80 @@ NSRect imprintAtlasMenuRect()
     for (int i = 0; i < 2; ++i) {
         s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i], fieldPanel, zoomLabels[i], false, value, style);
     }
-    [self drawRoom:snapshot rect:NSMakeRect(28, 68, 558, 374) attrs:value];
+    [self drawRoom:snapshot rect:s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::kImprintFamilyLayout.field) attrs:value];
+
+    s3g::clap_gui::drawPanelFrame(outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, outputPanel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, 21, text, style);
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f DB", _plugin->params.outputGainDb] norm:(_plugin->params.outputGainDb + 60.0f) / 72.0f row:0 panel:kImprintOutputPanel attrs:value style:style];
+    s3g::clap_gui::drawToggle(
+        @"BYP", _plugin->params.bypass,
+        s3g::gui_layout::rowY(kImprintOutputPanel, 1u),
+        text, value, style,
+        s3g::gui_layout::processorLabelX(kImprintOutputPanel.frame.x),
+        s3g::gui_layout::processorControlX(kImprintOutputPanel.frame.x),
+        s3g::gui_layout::processorMenuWidth(kImprintOutputPanel.frame.width));
 
     s3g::clap_gui::drawPanelFrame(imprintPanel.origin.x, imprintPanel.origin.y, imprintPanel.size.width, imprintPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"IMPRINT", true, imprintPanel.origin.x, imprintPanel.origin.y, imprintPanel.size.width, 21, text, style);
-    s3g::clap_gui::drawHeaderActionButton(NSMakeRect(731, 36, 71, 17), NSMakeRect(616, 34, 272, 21), @"ATLAS", value, style);
-    s3g::clap_gui::drawHeaderActionButton(NSMakeRect(807, 36, 68, 17), NSMakeRect(616, 34, 272, 21), @"LOAD", value, style);
-    [@"FILE" drawAtPoint:NSMakePoint(628, 69) withAttributes:text];
-    [compactFileName(snapshot.name) drawAtPoint:NSMakePoint(676, 69) withAttributes:value];
-    [@"STAT" drawAtPoint:NSMakePoint(628, 91) withAttributes:text];
-    [[NSString stringWithUTF8String:snapshot.status.c_str()] drawAtPoint:NSMakePoint(676, 91) withAttributes:value];
-    [@"DIR" drawAtPoint:NSMakePoint(628, 113) withAttributes:text];
-    [[NSString stringWithFormat:@"%u", snapshot.profileCount] drawAtPoint:NSMakePoint(676, 113) withAttributes:value];
-    [@"LEN" drawAtPoint:NSMakePoint(738, 113) withAttributes:text];
-    [[NSString stringWithFormat:@"%.2f s", snapshot.duration] drawAtPoint:NSMakePoint(778, 113) withAttributes:value];
-    [@"SPACE" drawAtPoint:NSMakePoint(628, 135) withAttributes:text];
+    const NSRect imprintHeader = NSMakeRect(
+        imprintPanel.origin.x, imprintPanel.origin.y,
+        imprintPanel.size.width, 21.0);
+    const NSRect atlasButton = NSMakeRect(
+        imprintPanel.origin.x + 115.0, imprintPanel.origin.y + 2.0, 71.0, 17.0);
+    const NSRect imprintLoadButton = NSMakeRect(
+        imprintPanel.origin.x + 191.0, imprintPanel.origin.y + 2.0, 68.0, 17.0);
+    s3g::clap_gui::drawHeaderActionButton(atlasButton, imprintHeader, @"ATLAS", value, style);
+    s3g::clap_gui::drawHeaderActionButton(imprintLoadButton, imprintHeader, @"LOAD", value, style);
+    const CGFloat imprintLabelX = imprintPanel.origin.x + 12.0;
+    const CGFloat imprintValueX = imprintPanel.origin.x + 60.0;
+    [@"FILE" drawAtPoint:NSMakePoint(imprintLabelX, imprintPanel.origin.y + 35.0) withAttributes:text];
+    [compactFileName(snapshot.name) drawAtPoint:NSMakePoint(imprintValueX, imprintPanel.origin.y + 35.0) withAttributes:value];
+    [@"STAT" drawAtPoint:NSMakePoint(imprintLabelX, imprintPanel.origin.y + 57.0) withAttributes:text];
+    [[NSString stringWithUTF8String:snapshot.status.c_str()] drawAtPoint:NSMakePoint(imprintValueX, imprintPanel.origin.y + 57.0) withAttributes:value];
+    [@"DIR" drawAtPoint:NSMakePoint(imprintLabelX, imprintPanel.origin.y + 79.0) withAttributes:text];
+    [[NSString stringWithFormat:@"%u", snapshot.profileCount] drawAtPoint:NSMakePoint(imprintValueX, imprintPanel.origin.y + 79.0) withAttributes:value];
+    [@"LEN" drawAtPoint:NSMakePoint(imprintPanel.origin.x + 122.0, imprintPanel.origin.y + 79.0) withAttributes:text];
+    [[NSString stringWithFormat:@"%.2f S", snapshot.duration] drawAtPoint:NSMakePoint(imprintPanel.origin.x + 162.0, imprintPanel.origin.y + 79.0) withAttributes:value];
+    [@"SPACE" drawAtPoint:NSMakePoint(imprintLabelX, imprintPanel.origin.y + 101.0) withAttributes:text];
     NSString* family = [[NSString stringWithUTF8String:snapshot.family.c_str()] uppercaseString];
     [[NSString stringWithFormat:@"%@ %.1f x %.1f x %.1f", family ? family : @"ROOM", snapshot.roomWidth, snapshot.roomDepth, snapshot.roomHeight]
-        drawAtPoint:NSMakePoint(676, 135) withAttributes:value];
+        drawAtPoint:NSMakePoint(imprintValueX, imprintPanel.origin.y + 101.0) withAttributes:value];
 
     s3g::clap_gui::drawPanelFrame(processPanel.origin.x, processPanel.origin.y, processPanel.size.width, processPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"PROCESS", true, processPanel.origin.x, processPanel.origin.y, processPanel.size.width, 21, text, style);
-    s3g::clap_gui::drawMenu(@"ORD", [NSString stringWithFormat:@"%uOA", _plugin->params.order], 214, text, value, style, 634, 718, 150);
-    [self drawSlider:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", _plugin->params.mix * 100.0f] norm:_plugin->params.mix y:240 attrs:value style:style];
-    [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%.0f%%", _plugin->params.focus * 100.0f] norm:_plugin->params.focus y:266 attrs:value style:style];
-    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", _plugin->params.width] norm:_plugin->params.width / 1.5f y:292 attrs:value style:style];
-    [@"LST" drawAtPoint:NSMakePoint(634, 320) withAttributes:text];
+    s3g::clap_gui::drawProcessorMenu(
+        @"ORD", [NSString stringWithFormat:@"%uOA", _plugin->params.order],
+        s3g::gui_layout::rowY(kImprintProcessPanel, 0u),
+        kImprintProcessPanel.frame.x, kImprintProcessPanel.frame.width,
+        text, value, style);
+    [self drawSlider:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", _plugin->params.mix * 100.0f] norm:_plugin->params.mix row:1 panel:kImprintProcessPanel attrs:value style:style];
+    [self drawSlider:@"FOC" value:[NSString stringWithFormat:@"%.0f%%", _plugin->params.focus * 100.0f] norm:_plugin->params.focus row:2 panel:kImprintProcessPanel attrs:value style:style];
+    [self drawSlider:@"WID" value:[NSString stringWithFormat:@"%.2f", _plugin->params.width] norm:_plugin->params.width / 1.5f row:3 panel:kImprintProcessPanel attrs:value style:style];
+    [@"LST" drawAtPoint:NSMakePoint(
+        s3g::gui_layout::processorLabelX(kImprintProcessPanel.frame.x),
+        s3g::gui_layout::rowY(kImprintProcessPanel, 4u) - 2.0)
+        withAttributes:text];
     static NSString* listenLabels[] = { @"OFF", @"FOL", @"CTR", @"BAL" };
     const uint32_t listenMode =
         static_cast<uint32_t>(_plugin->params.fieldListenMode);
     for (uint32_t mode = 0u; mode < 4u; ++mode) {
-        const NSRect button = NSMakeRect(718 + mode * 38, 316, 35, 18);
+        const NSRect button = NSMakeRect(
+            s3g::gui_layout::processorControlX(kImprintProcessPanel.frame.x)
+                + mode * 38.0,
+            s3g::gui_layout::rowY(kImprintProcessPanel, 4u) - 4.0,
+            35.0, 18.0);
         s3g::clap_gui::drawHeaderButton(
             button, processPanel, listenLabels[mode], mode == listenMode, value, style);
     }
 
-    s3g::clap_gui::drawPanelFrame(outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, outputPanel.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, outputPanel.origin.x, outputPanel.origin.y, outputPanel.size.width, 21, text, style);
-    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", _plugin->params.outputGainDb] norm:(_plugin->params.outputGainDb + 60.0f) / 72.0f y:398 attrs:value style:style];
-    s3g::clap_gui::drawToggle(@"BYP", _plugin->params.bypass, 424, text, value, style, 634, 718, 64);
-
     if (_orderMenuOpen) {
         NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
-        s3g::clap_gui::drawDropdownMenu(NSMakeRect(718, 230, 150, 126), 18, orderItems, 7u,
+        const auto orderBox = s3g::gui_layout::menuBoxRect(
+            kImprintProcessPanel, 0u);
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(
+            orderBox.x, orderBox.y + orderBox.height + 3.0,
+            orderBox.width, 126.0), 18, orderItems, 7u,
             static_cast<int>(_plugin->params.order) - 1, _orderMenuHover, value, style);
     }
     if (_atlasMenuOpen) {
@@ -1532,20 +1592,14 @@ NSRect imprintAtlasMenuRect()
     }
 }
 
-- (void)resetParam:(clap_id)param
-{
-    switch (param) {
-    case kParamMix: [self setParam:param value:0.5]; break;
-    case kParamFocus: [self setParam:param value:1.0]; break;
-    case kParamWidth: [self setParam:param value:1.0]; break;
-    case kParamOutput: [self setParam:param value:0.0]; break;
-    default: break;
-    }
-}
-
 - (void)updateSliderAtPoint:(NSPoint)point
 {
-    const double norm = std::clamp((point.x - 718.0) / 110.0, 0.0, 1.0);
+    const auto& panel = _dragParam == kParamOutput
+        ? kImprintOutputPanel : kImprintProcessPanel;
+    const double norm = std::clamp(
+        (point.x - s3g::gui_layout::processorControlX(panel.frame.x))
+            / s3g::gui_layout::processorTrackWidth(panel.frame.width),
+        0.0, 1.0);
     switch (_dragParam) {
     case kParamMix: [self setParam:kParamMix value:norm]; break;
     case kParamFocus: [self setParam:kParamFocus value:norm]; break;
@@ -1558,6 +1612,14 @@ NSRect imprintAtlasMenuRect()
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    const auto titleBand = s3g::gui_layout::imprintTitleBand(
+        s3g::gui_layout::kImprintFamilyLayout.canvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            point, &_plugin->plugin, @"Processor Ambi Imprint 64ch",
+            titleBand, _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_atlasMenuOpen) {
         const int hit = s3g::clap_gui::dropdownHitIndex(point, imprintAtlasMenuRect(), 18,
             static_cast<uint32_t>(kImprintAtlas.size()));
@@ -1568,18 +1630,30 @@ NSRect imprintAtlasMenuRect()
         return;
     }
     if (_orderMenuOpen) {
-        const int hit = s3g::clap_gui::dropdownHitIndex(point, NSMakeRect(718, 230, 150, 126), 18, 7u);
+        const auto orderBox = s3g::gui_layout::menuBoxRect(
+            kImprintProcessPanel, 0u);
+        const int hit = s3g::clap_gui::dropdownHitIndex(
+            point, NSMakeRect(
+                orderBox.x, orderBox.y + orderBox.height + 3.0,
+                orderBox.width, 126.0),
+            18, 7u);
         _orderMenuOpen = false;
         _orderMenuHover = -1;
         if (hit >= 0) [self setParam:kParamOrder value:hit + 1];
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(807, 36, 68, 17))) {
+    const NSRect imprintLoadButton = NSMakeRect(
+        kImprintSourcePanel.frame.x + 191.0,
+        kImprintSourcePanel.frame.y + 2.0, 68.0, 17.0);
+    const NSRect atlasButton = NSMakeRect(
+        kImprintSourcePanel.frame.x + 115.0,
+        kImprintSourcePanel.frame.y + 2.0, 71.0, 17.0);
+    if (NSPointInRect(point, imprintLoadButton)) {
         [self loadImprint];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(731, 36, 71, 17))) {
+    if (NSPointInRect(point, atlasButton)) {
         _atlasMenuOpen = true;
         _atlasMenuHover = -1;
         _orderMenuOpen = false;
@@ -1600,34 +1674,57 @@ NSRect imprintAtlasMenuRect()
             return;
         }
     }
-    if (NSPointInRect(point, NSMakeRect(718, 213, 150, 18))) {
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::menuBoxRect(
+                kImprintProcessPanel, 0u)))) {
         _orderMenuOpen = true;
         [self setNeedsDisplay:YES];
         return;
     }
     for (uint32_t mode = 0u; mode < 4u; ++mode) {
-        if (NSPointInRect(point, NSMakeRect(718 + mode * 38, 316, 35, 18))) {
+        if (NSPointInRect(point, NSMakeRect(
+                s3g::gui_layout::processorControlX(
+                    kImprintProcessPanel.frame.x) + mode * 38.0,
+                s3g::gui_layout::rowY(kImprintProcessPanel, 4u) - 4.0,
+                35.0, 18.0))) {
             [self setParam:kParamFieldListen value:mode];
             return;
         }
     }
-    if (NSPointInRect(point, NSMakeRect(718, 423, 64, 18))) {
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::sliderHitRect(
+                kImprintOutputPanel, 1u)))) {
         [self setParam:kParamBypass value:_plugin->params.bypass ? 0.0 : 1.0];
         return;
     }
-    struct Row { clap_id param; CGFloat y; };
-    const Row rows[] = { { kParamMix, 240 }, { kParamFocus, 266 }, { kParamWidth, 292 }, { kParamOutput, 398 } };
+    struct Row {
+        clap_id param;
+        const s3g::gui_layout::Panel* panel;
+        uint32_t row;
+    };
+    const Row rows[] = {
+        { kParamOutput, &kImprintOutputPanel, 0u },
+        { kParamMix, &kImprintProcessPanel, 1u },
+        { kParamFocus, &kImprintProcessPanel, 2u },
+        { kParamWidth, &kImprintProcessPanel, 3u },
+    };
     for (const auto& row : rows) {
-        if (!NSPointInRect(point, NSMakeRect(624, row.y - 8, 254, 24))) continue;
-        if ([event clickCount] >= 2) {
-            [self resetParam:row.param];
-            return;
+        if (!NSPointInRect(point, s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::sliderHitRect(
+                    *row.panel, row.row)))) continue;
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &_plugin->plugin, row.param, &defaultValue)) {
+            [self setParam:row.param value:defaultValue];
+            _dragParam = CLAP_INVALID_ID;
+        } else {
+            _dragParam = row.param;
+            [self updateSliderAtPoint:point];
         }
-        _dragParam = row.param;
-        [self updateSliderAtPoint:point];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(28, 68, 558, 374))) {
+    if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::kImprintFamilyLayout.field))) {
         _dragView = YES;
         _lastDragPoint = point;
     }
@@ -1665,7 +1762,13 @@ NSRect imprintAtlasMenuRect()
         _atlasMenuHover = s3g::clap_gui::dropdownHitIndex(point, imprintAtlasMenuRect(), 18,
             static_cast<uint32_t>(kImprintAtlas.size()));
     } else if (_orderMenuOpen) {
-        _orderMenuHover = s3g::clap_gui::dropdownHitIndex(point, NSMakeRect(718, 230, 150, 126), 18, 7u);
+        const auto orderBox = s3g::gui_layout::menuBoxRect(
+            kImprintProcessPanel, 0u);
+        _orderMenuHover = s3g::clap_gui::dropdownHitIndex(
+            point, NSMakeRect(
+                orderBox.x, orderBox.y + orderBox.height + 3.0,
+                orderBox.width, 126.0),
+            18, 7u);
     } else {
         return;
     }
@@ -1688,7 +1791,8 @@ NSRect imprintAtlasMenuRect()
 - (void)scrollWheel:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    if (!NSPointInRect(point, NSMakeRect(28, 68, 558, 374))) {
+    if (!NSPointInRect(point, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::kImprintFamilyLayout.field))) {
         [super scrollWheel:event];
         return;
     }
@@ -1718,6 +1822,14 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     auto* instance = self(plugin);
     if (instance->guiView) return true;
     instance->guiView = [[S3GAmbiImprintView alloc] initWithPlugin:instance];
+    if (instance->guiView
+        && !s3g::clap_gui::createResponsiveViewport(
+            instance->guiViewport,
+            static_cast<NSView*>(instance->guiView),
+            kGuiWidth, kGuiHeight)) {
+        [static_cast<NSView*>(instance->guiView) release];
+        instance->guiView = nullptr;
+    }
     return instance->guiView != nullptr;
 }
 
@@ -1728,22 +1840,21 @@ void guiDestroy(const clap_plugin_t* plugin)
     instance->guiVisible.store(false, std::memory_order_relaxed);
     auto* view = static_cast<S3GAmbiImprintView*>(instance->guiView);
     [view stopRefreshTimer];
-    [view removeFromSuperview];
-    [view release];
-    instance->guiView = nullptr;
+    s3g::clap_gui::destroyResponsiveViewport(
+        instance->guiViewport, instance->guiView);
 }
 
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* width, uint32_t* height) { if (!width || !height) return false; *width = kGuiWidth; *height = kGuiHeight; return true; }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { if (!hints) return false; hints->can_resize_horizontally = false; hints->can_resize_vertically = false; hints->preserve_aspect_ratio = false; hints->aspect_ratio_width = 0; hints->aspect_ratio_height = 0; return true; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t* width, uint32_t* height) { if (!width || !height) return false; *width = kGuiWidth; *height = kGuiHeight; return true; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height) { auto* instance = self(plugin); if (!instance->guiView) return false; [static_cast<NSView*>(instance->guiView) setFrameSize:NSMakeSize(width, height)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window) { if (!window || std::strcmp(window->api, CLAP_WINDOW_API_COCOA) != 0 || !window->cocoa) return false; auto* instance = self(plugin); if (!instance->guiView) return false; NSView* parent = static_cast<NSView*>(window->cocoa); NSView* view = static_cast<NSView*>(instance->guiView); [parent addSubview:view]; [view setFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)]; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, width, height); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, width, height); }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window) { if (!window || std::strcmp(window->api, CLAP_WINDOW_API_COCOA) != 0 || !window->cocoa) return false; auto* instance = self(plugin); if (!instance->guiView) return false; return s3g::clap_gui::setResponsiveViewportParent(instance->guiViewport, static_cast<NSView*>(window->cocoa), instance->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* instance = self(plugin); if (!instance->guiView) return false; instance->guiVisible.store(true, std::memory_order_relaxed); [static_cast<NSView*>(instance->guiView) setHidden:NO]; [static_cast<S3GAmbiImprintView*>(instance->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* instance = self(plugin); if (!instance->guiView) return false; instance->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GAmbiImprintView*>(instance->guiView) stopRefreshTimer]; [static_cast<NSView*>(instance->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* instance = self(plugin); if (!instance->guiView) return false; instance->guiVisible.store(true, std::memory_order_relaxed); if (!s3g::clap_gui::setResponsiveViewportHidden(instance->guiViewport, false)) return false; [static_cast<S3GAmbiImprintView*>(instance->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* instance = self(plugin); if (!instance->guiView) return false; instance->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GAmbiImprintView*>(instance->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(instance->guiViewport, true); }
 
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif

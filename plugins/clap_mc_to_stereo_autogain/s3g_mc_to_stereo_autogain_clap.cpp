@@ -79,6 +79,7 @@ struct Plugin {
     void* guiView = nullptr;
     void* macRealtimeActivity = nullptr;
     std::atomic<bool> guiVisible { false };
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
 
@@ -223,12 +224,16 @@ Plugin* self(const clap_plugin_t* plugin)
     return static_cast<Plugin*>(plugin->plugin_data);
 }
 
+#if defined(__APPLE__)
+void guiDestroy(const clap_plugin_t* plugin);
+#endif
 
 bool init(const clap_plugin_t*) { return true; }
 
 void destroy(const clap_plugin_t* plugin)
 {
 #if defined(__APPLE__)
+    guiDestroy(plugin);
     s3g::clap_support::endRealtimeActivity(self(plugin)->macRealtimeActivity);
 #endif
     delete self(plugin);
@@ -666,6 +671,15 @@ const clap_plugin_state_t state {
 
 #if defined(__APPLE__)
 
+constexpr auto kOutputPanel = s3g::gui_layout::outputUtilityPanel(
+    s3g::gui_layout::PanelRole::Output, 42.0, 2u);
+constexpr auto kRoutingPanel = s3g::gui_layout::fittedStackPanel(
+    s3g::gui_layout::PanelRole::Routing, kOutputPanel, 7u);
+constexpr std::array kOutputColumnPanels { kOutputPanel, kRoutingPanel };
+static_assert(s3g::gui_layout::validateColumn(
+    kOutputColumnPanels,
+    s3g::gui_layout::kOutputUtilityFamilyLayout.canvas));
+
 static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
 {
     return [NSColor colorWithCalibratedRed:((rgb >> 16) & 0xff) / 255.0
@@ -682,12 +696,13 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     NSPoint _menuOrigin;
     uint32_t _menuItems;
     NSTimer* _refreshTimer;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
-- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
-- (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
+- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
+- (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
 - (void)updateMenuHover:(NSPoint)point;
 @end
 
@@ -704,6 +719,7 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
         _menuOrigin = NSMakePoint(0, 0);
         _menuItems = 0;
         _refreshTimer = nil;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
     }
     return self;
 }
@@ -763,18 +779,20 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     [self setNeedsDisplay:YES];
 }
 
-- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
+- (void)drawSlider:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
-    (void)attrs;
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawSlider(name, value, norm, y, small, small, style, 600, 710, 846, 122);
+    s3g::clap_gui::drawProcessorSlider(
+        name, value, norm, y, panel.frame.x, panel.frame.width,
+        attrs, small, style);
 }
 
-- (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
+- (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y panel:(const s3g::gui_layout::Panel&)panel attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
-    (void)attrs;
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawMenu(name, value, y, small, small, style, 600, 710, 160);
+    s3g::clap_gui::drawProcessorMenu(
+        name, value, y, panel.frame.x, panel.frame.width,
+        attrs, small, style);
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -792,12 +810,18 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
 
     NSDictionary* small = s3g::clap_gui::softValueAttrs();
     NSDictionary* label = s3g::clap_gui::softLabelAttrs();
-    NSDictionary* title = s3g::clap_gui::softTitleAttrs();
+    const float titlePeak = std::max(
+        p->outputPeakLeft.load(std::memory_order_relaxed),
+        p->outputPeakRight.load(std::memory_order_relaxed));
+    const auto titleBand = s3g::gui_layout::outputUtilityTitleBand(
+        s3g::gui_layout::kOutputUtilityFamilyLayout.canvas);
+    s3g::clap_gui::drawOutputUtilityTitleBand(
+        @"s3g OUTPUT AUTOGAIN STEREO",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(titlePeak), titleBand, style);
 
-    [@"s3g MC TO STEREO AUTOGAIN" drawAtPoint:NSMakePoint(18, 13) withAttributes:title];
-    [@"128IN / 2OUT" drawAtPoint:NSMakePoint(824, 13) withAttributes:small];
-
-    NSRect mapPanel = NSMakeRect(12, 34, 564, 514);
+    NSRect mapPanel = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::kOutputUtilityFamilyLayout.fieldPanel);
     s3g::clap_gui::drawPanelFrame(mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, mapPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"DOWNMIX MAP", true, mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, 21, label, style);
 
@@ -812,7 +836,8 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
                       [NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))]];
     [info drawAtPoint:NSMakePoint(150, 39) withAttributes:small];
 
-    NSRect field = NSMakeRect(28, 68, 532, 404);
+    NSRect field = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::kOutputUtilityFamilyLayout.field);
     [s3gMcColor(0x101010) setFill];
     NSRectFill(field);
     [grid setStroke];
@@ -919,29 +944,40 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
     NSString* routeNote = [NSString stringWithFormat:@"ACTIVE %u / BASE GAIN %.3f / ZERO UNMAPPED OUTPUTS IN REAPER", count, baseGain];
     [routeNote drawAtPoint:NSMakePoint(28, 488) withAttributes:small];
 
-    NSRect side = NSMakeRect(592, 34, 316, 514);
-    s3g::clap_gui::drawPanelFrame(side.origin.x, side.origin.y, side.size.width, side.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"AUDITION", true, side.origin.x, side.origin.y, side.size.width, 21, label, style);
+    const auto drawPanel = [&](NSString* name,
+                               const s3g::gui_layout::Panel& panel) {
+        s3g::clap_gui::drawPanelFrame(
+            panel.frame.x, panel.frame.y, panel.frame.width, panel.frame.height,
+            style);
+        s3g::clap_gui::drawPanelHeader(
+            name, true, panel.frame.x, panel.frame.y, panel.frame.width,
+            s3g::gui_layout::kStandardMetrics.headerHeight, label, style);
+    };
+    drawPanel(@"OUTPUT", kOutputPanel);
+    drawPanel(@"ROUTING", kRoutingPanel);
+    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 24.0) / 48.0 y:s3g::gui_layout::rowY(kOutputPanel, 0u) panel:kOutputPanel attrs:label small:small];
+    [self drawMenu:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))] y:s3g::gui_layout::rowY(kOutputPanel, 1u) panel:kOutputPanel attrs:label small:small];
+    [self drawSlider:@"IN" value:[NSString stringWithFormat:@"%u", count] norm:(count - 2.0) / 126.0 y:s3g::gui_layout::rowY(kRoutingPanel, 0u) panel:kRoutingPanel attrs:label small:small];
+    [self drawSlider:@"WIDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.widthPercent)] norm:p->params.widthPercent / 200.0 y:s3g::gui_layout::rowY(kRoutingPanel, 1u) panel:kRoutingPanel attrs:label small:small];
+    [self drawSlider:@"ROT" value:[NSString stringWithFormat:@"%+.0f°", static_cast<double>(p->params.rotationDegrees)] norm:(p->params.rotationDegrees + 180.0) / 360.0 y:s3g::gui_layout::rowY(kRoutingPanel, 2u) panel:kRoutingPanel attrs:label small:small];
+    [self drawMenu:@"LAY" value:[NSString stringWithUTF8String:layoutName(layout)] y:s3g::gui_layout::rowY(kRoutingPanel, 3u) panel:kRoutingPanel attrs:label small:small];
+    [self drawSlider:@"WGT" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.layoutWeightPercent)] norm:p->params.layoutWeightPercent / 100.0 y:s3g::gui_layout::rowY(kRoutingPanel, 4u) panel:kRoutingPanel attrs:label small:small];
+    [self drawSlider:@"ATT" value:(projection ? [NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.attenuation3dPercent)] : @"OFF") norm:(projection ? p->params.attenuation3dPercent / 100.0 : 0.0) y:s3g::gui_layout::rowY(kRoutingPanel, 5u) panel:kRoutingPanel attrs:label small:small];
+    [self drawSlider:@"DST" value:(projection ? [NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.distance3dPercent)] : @"OFF") norm:(projection ? p->params.distance3dPercent / 200.0 : 0.5) y:s3g::gui_layout::rowY(kRoutingPanel, 6u) panel:kRoutingPanel attrs:label small:small];
 
-    [self drawSlider:@"OUT" value:[NSString stringWithFormat:@"%+.1f", static_cast<double>(p->params.outputGainDb)] norm:(p->params.outputGainDb + 24.0) / 48.0 y:74 attrs:label small:small];
-    [self drawSlider:@"IN" value:[NSString stringWithFormat:@"%u", count] norm:(count - 2.0) / 126.0 y:96 attrs:label small:small];
-    [self drawSlider:@"WDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.widthPercent)] norm:p->params.widthPercent / 200.0 y:118 attrs:label small:small];
-    [self drawSlider:@"ROT" value:[NSString stringWithFormat:@"%+.0f", static_cast<double>(p->params.rotationDegrees)] norm:(p->params.rotationDegrees + 180.0) / 360.0 y:140 attrs:label small:small];
-    [self drawMenu:@"LAY" value:[NSString stringWithUTF8String:layoutName(layout)] y:162 attrs:label small:small];
-    [self drawSlider:@"WGT" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.layoutWeightPercent)] norm:p->params.layoutWeightPercent / 100.0 y:184 attrs:label small:small];
-    [self drawSlider:@"ATT" value:(projection ? [NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.attenuation3dPercent)] : @"OFF") norm:(projection ? p->params.attenuation3dPercent / 100.0 : 0.0) y:206 attrs:label small:small];
-    [self drawSlider:@"DST" value:(projection ? [NSString stringWithFormat:@"%.0f%%", static_cast<double>(p->params.distance3dPercent)] : @"OFF") norm:(projection ? p->params.distance3dPercent / 200.0 : 0.5) y:228 attrs:label small:small];
-    [self drawMenu:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(p->params.autogain))] y:250 attrs:label small:small];
-
-    NSRect meterPanel = NSMakeRect(604, 288, 292, 106);
-    [s3gMcColor(0x111111) setFill]; NSRectFill(meterPanel);
-    [grid setStroke]; NSFrameRect(meterPanel);
-    [@"STEREO OUT" drawAtPoint:NSMakePoint(616, 294) withAttributes:label];
+    NSRect meterPanel = s3g::clap_gui::cocoaRect(
+        s3g::gui_layout::kOutputUtilityFamilyLayout.meter);
+    s3g::clap_gui::drawPanelFrame(
+        meterPanel.origin.x, meterPanel.origin.y,
+        meterPanel.size.width, meterPanel.size.height, style);
+    s3g::clap_gui::drawPanelHeader(
+        @"STEREO OUT", true, meterPanel.origin.x, meterPanel.origin.y,
+        meterPanel.size.width, 21.0, label, style);
     const float pkL = p->outputPeakLeft.exchange(p->outputPeakLeft.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
     const float pkR = p->outputPeakRight.exchange(p->outputPeakRight.load(std::memory_order_relaxed) * 0.92f, std::memory_order_relaxed);
     auto drawMeter = [&](CGFloat y, NSString* name, float peak) {
-        const CGFloat x = 638.0;
-        const CGFloat w = 190.0;
+        const CGFloat x = meterPanel.origin.x + 34.0;
+        const CGFloat w = meterPanel.size.width - 94.0;
         const CGFloat h = 18.0;
         const double db = 20.0 * std::log10(std::max(0.000001f, peak));
         const CGFloat norm = std::clamp<CGFloat>((db + 60.0) / 60.0, 0.0, 1.0);
@@ -952,18 +988,22 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
         [s3gMcColor(0xd0d0d0, 0.55) setStroke];
         const CGFloat minus12 = r.origin.x + w * ((-12.0 + 60.0) / 60.0);
         [NSBezierPath strokeLineFromPoint:NSMakePoint(minus12, r.origin.y - 3) toPoint:NSMakePoint(minus12, r.origin.y + r.size.height + 3)];
-        [name drawAtPoint:NSMakePoint(616, y + 2) withAttributes:small];
-        [[NSString stringWithFormat:@"%+4.1f", db] drawAtPoint:NSMakePoint(838, y + 2) withAttributes:small];
+        [name drawAtPoint:NSMakePoint(meterPanel.origin.x + 10.0, y + 2) withAttributes:small];
+        s3g::clap_gui::drawBoundedRightText(
+            [NSString stringWithFormat:@"%+4.1f", db],
+            NSMakeRect(NSMaxX(meterPanel) - 52.0, y + 2, 40.0, 15.0),
+            small);
     };
-    drawMeter(342, @"L", pkL);
-    drawMeter(316, @"R", pkR);
-
-    [@"PIN NOTE" drawAtPoint:NSMakePoint(616, 508) withAttributes:label];
-    [@"REAPER: enable zero unmapped outputs" drawAtPoint:NSMakePoint(684, 508) withAttributes:small];
+    drawMeter(meterPanel.origin.y + 84.0, @"L", pkL);
+    drawMeter(meterPanel.origin.y + 52.0, @"R", pkR);
 
     if (_openMenu > 0 && _menuItems > 0) {
         const CGFloat itemH = 18;
-        NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 160, itemH * _menuItems);
+        const CGFloat menuWidth = static_cast<CGFloat>(
+            s3g::gui_layout::processorMenuWidth(
+                _openMenu == 2 ? kOutputPanel.frame.width
+                               : kRoutingPanel.frame.width));
+        NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, menuWidth, itemH * _menuItems);
         NSString* layoutItems[] = {
             [NSString stringWithUTF8String:layoutName(0)],
             [NSString stringWithUTF8String:layoutName(1)],
@@ -991,7 +1031,12 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
 {
     if (_openMenu <= 0 || _menuItems == 0) return;
     const CGFloat itemH = 18;
-    const NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 160, itemH * _menuItems);
+    const CGFloat menuWidth = static_cast<CGFloat>(
+        s3g::gui_layout::processorMenuWidth(
+            _openMenu == 2 ? kOutputPanel.frame.width
+                           : kRoutingPanel.frame.width));
+    const NSRect menu = NSMakeRect(
+        _menuOrigin.x, _menuOrigin.y, menuWidth, itemH * _menuItems);
     const int next = s3g::clap_gui::dropdownHitIndex(point, menu, itemH, _menuItems);
     if (next != _hoverMenuItem) {
         _hoverMenuItem = next;
@@ -1001,23 +1046,30 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
 
 - (void)updateSliderAtPoint:(NSPoint)pt
 {
-    const double norm = std::clamp((pt.x - 710.0) / 122.0, 0.0, 1.0);
+    const auto& panel = _dragSlider == kParamOutputGain
+        ? kOutputPanel : kRoutingPanel;
+    const double controlX =
+        s3g::gui_layout::processorControlX(panel.frame.x);
+    const double trackWidth =
+        s3g::gui_layout::processorTrackWidth(panel.frame.width);
+    const double norm =
+        std::clamp((pt.x - controlX) / trackWidth, 0.0, 1.0);
     switch (_dragSlider) {
-    case 0: [self setParam:kParamInputChannels value:2.0 + norm * 126.0]; break;
-    case 1: [self setParam:kParamWidth value:norm * 200.0]; break;
-    case 2: [self setParam:kParamRotation value:-180.0 + norm * 360.0]; break;
-    case 4: [self setParam:kParamLayoutWeight value:norm * 100.0]; break;
-    case 5:
+    case kParamInputChannels: [self setParam:kParamInputChannels value:2.0 + norm * 126.0]; break;
+    case kParamWidth: [self setParam:kParamWidth value:norm * 200.0]; break;
+    case kParamRotation: [self setParam:kParamRotation value:-180.0 + norm * 360.0]; break;
+    case kParamLayoutWeight: [self setParam:kParamLayoutWeight value:norm * 100.0]; break;
+    case kParamAttenuation3d:
         if (isProjectionLayout(static_cast<Plugin*>(_plugin)->params.layout)) {
             [self setParam:kParamAttenuation3d value:norm * 100.0];
         }
         break;
-    case 6:
+    case kParamDistance3d:
         if (isProjectionLayout(static_cast<Plugin*>(_plugin)->params.layout)) {
             [self setParam:kParamDistance3d value:norm * 200.0];
         }
         break;
-    case 8: [self setParam:kParamOutputGain value:-24.0 + norm * 48.0]; break;
+    case kParamOutputGain: [self setParam:kParamOutputGain value:-24.0 + norm * 48.0]; break;
     default: break;
     }
 }
@@ -1026,9 +1078,22 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     auto* p = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::gui_layout::outputUtilityTitleBand(
+        s3g::gui_layout::kOutputUtilityFamilyLayout.canvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &p->plugin, @"Output Autogain Stereo", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenu > 0) {
         const CGFloat itemH = 18;
-        NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 160, itemH * _menuItems);
+        const CGFloat menuWidth = static_cast<CGFloat>(
+            s3g::gui_layout::processorMenuWidth(
+                _openMenu == 2 ? kOutputPanel.frame.width
+                               : kRoutingPanel.frame.width));
+        NSRect menu = NSMakeRect(
+            _menuOrigin.x, _menuOrigin.y, menuWidth, itemH * _menuItems);
         const int hit = s3g::clap_gui::dropdownHitIndex(pt, menu, itemH, _menuItems);
         if (hit >= 0) {
             const uint32_t i = static_cast<uint32_t>(hit);
@@ -1044,34 +1109,58 @@ static NSColor* s3gMcColor(int rgb, CGFloat alpha = 1.0)
         [self setNeedsDisplay:YES];
         return;
     }
-    const CGFloat rows[] = { 74, 96, 118, 140, 162, 184, 206, 228, 250 };
-    const int controls[] = { 8, 0, 1, 2, 3, 4, 5, 6, 7 };
-    for (int i = 0; i < 9; ++i) {
-        NSRect r = NSMakeRect(596, rows[i] - 6, 296, 22);
-        if (NSPointInRect(pt, r)) {
-            if (i == 4) {
-                _openMenu = 1;
-                _menuItems = 8;
-                _menuOrigin = NSMakePoint(710, rows[i] + 17);
-                _hoverMenuItem = -1;
-                [self setNeedsDisplay:YES];
-                return;
-            }
-            if (i == 8) {
-                _openMenu = 2;
-                _menuItems = 3;
-                _menuOrigin = NSMakePoint(710, rows[i] + 17);
-                _hoverMenuItem = -1;
-                [self setNeedsDisplay:YES];
-                return;
-            }
-            if ((i == 6 || i == 7) && !isProjectionLayout(p->params.layout)) {
-                return;
-            }
-            _dragSlider = controls[i];
-            [self updateSliderAtPoint:pt];
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::menuBoxRect(kOutputPanel, 1u)))) {
+        _openMenu = 2;
+        _menuItems = 3;
+        const auto box = s3g::gui_layout::menuBoxRect(kOutputPanel, 1u);
+        _menuOrigin = NSMakePoint(box.x, box.y + box.height + 3.0);
+        _hoverMenuItem = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::menuBoxRect(kRoutingPanel, 3u)))) {
+        _openMenu = 1;
+        _menuItems = 8;
+        const auto box = s3g::gui_layout::menuBoxRect(kRoutingPanel, 3u);
+        _menuOrigin = NSMakePoint(box.x, box.y + box.height + 3.0);
+        _hoverMenuItem = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    const struct {
+        clap_id param;
+        const s3g::gui_layout::Panel* panel;
+        uint32_t row;
+    } sliders[] {
+        { kParamOutputGain, &kOutputPanel, 0u },
+        { kParamInputChannels, &kRoutingPanel, 0u },
+        { kParamWidth, &kRoutingPanel, 1u },
+        { kParamRotation, &kRoutingPanel, 2u },
+        { kParamLayoutWeight, &kRoutingPanel, 4u },
+        { kParamAttenuation3d, &kRoutingPanel, 5u },
+        { kParamDistance3d, &kRoutingPanel, 6u },
+    };
+    for (const auto& slider : sliders) {
+        if (!NSPointInRect(pt, s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::sliderHitRect(
+                    *slider.panel, slider.row)))) continue;
+        if ((slider.param == kParamAttenuation3d
+                || slider.param == kParamDistance3d)
+            && !isProjectionLayout(p->params.layout)) {
             return;
         }
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, slider.param, &defaultValue)) {
+            [self setParam:slider.param value:defaultValue];
+            _dragSlider = -1;
+        } else {
+            _dragSlider = static_cast<int>(slider.param);
+            [self updateSliderAtPoint:pt];
+        }
+        return;
     }
 }
 
@@ -1122,6 +1211,12 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
         return true;
     }
     p->guiView = [[S3GMcStereoView alloc] initWithPlugin:p];
+    if (p->guiView
+        && !s3g::clap_gui::createResponsiveViewport(
+            p->guiViewport, static_cast<NSView*>(p->guiView), 920u, 560u)) {
+        [static_cast<NSView*>(p->guiView) release];
+        p->guiView = nullptr;
+    }
     return p->guiView != nullptr;
 }
 
@@ -1134,37 +1229,35 @@ void guiDestroy(const clap_plugin_t* plugin)
         if ([view respondsToSelector:@selector(stopRefreshTimer)]) {
             [static_cast<S3GMcStereoView*>(view) stopRefreshTimer];
         }
-        [view removeFromSuperview];
-        [view release];
-        p->guiView = nullptr;
+        s3g::clap_gui::destroyResponsiveViewport(
+            p->guiViewport, p->guiView);
     }
 }
 
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
 
-bool guiGetSize(const clap_plugin_t*, uint32_t* width, uint32_t* height)
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
 {
-    if (!width || !height) {
-        return false;
-    }
-    *width = 920;
-    *height = 560;
-    return true;
+    return s3g::clap_gui::getResponsiveViewportSize(
+        self(plugin)->guiViewport, 920u, 560u, width, height);
 }
 
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t*, uint32_t*) { return false; }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints)
+{
+    return s3g::clap_gui::getResponsiveResizeHints(hints);
+}
+bool guiAdjustSize(
+    const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
+{
+    return s3g::clap_gui::adjustResponsiveViewportSize(
+        self(plugin)->guiViewport, 920u, 560u, width, height);
+}
 
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
 {
-    auto* p = self(plugin);
-    if (!p->guiView) {
-        return false;
-    }
-    NSView* view = static_cast<NSView*>(p->guiView);
-    [view setFrameSize:NSMakeSize(width, height)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportSize(
+        self(plugin)->guiViewport, width, height);
 }
 
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
@@ -1176,11 +1269,8 @@ bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
     if (!p->guiView) {
         return false;
     }
-    NSView* parent = static_cast<NSView*>(window->cocoa);
-    NSView* view = static_cast<NSView*>(p->guiView);
-    [parent addSubview:view];
-    [view setFrame:NSMakeRect(0, 0, 920, 560)];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportParent(
+        p->guiViewport, static_cast<NSView*>(window->cocoa), p->host);
 }
 
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
@@ -1193,7 +1283,8 @@ bool guiShow(const clap_plugin_t* plugin)
         return false;
     }
     p->guiVisible.store(true, std::memory_order_relaxed);
-    [static_cast<NSView*>(p->guiView) setHidden:NO];
+    if (!s3g::clap_gui::setResponsiveViewportHidden(
+            p->guiViewport, false)) return false;
     if ([static_cast<NSView*>(p->guiView) respondsToSelector:@selector(startRefreshTimer)]) {
         [static_cast<S3GMcStereoView*>(p->guiView) startRefreshTimer];
     }
@@ -1210,8 +1301,8 @@ bool guiHide(const clap_plugin_t* plugin)
     if ([static_cast<NSView*>(p->guiView) respondsToSelector:@selector(stopRefreshTimer)]) {
         [static_cast<S3GMcStereoView*>(p->guiView) stopRefreshTimer];
     }
-    [static_cast<NSView*>(p->guiView) setHidden:YES];
-    return true;
+    return s3g::clap_gui::setResponsiveViewportHidden(
+        p->guiViewport, true);
 }
 
 const clap_plugin_gui_t gui {
@@ -1267,7 +1358,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.mc-to-stereo-autogain",
-    "s3g MC to Stereo Autogain",
+    "s3g Output Autogain Stereo",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

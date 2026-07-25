@@ -4,6 +4,7 @@
 #include <clap/ext/gui.h>
 
 #include "../plugins/common/s3g_cocoa_gui.h"
+#include "../dsp/s3g_musical_scales.h"
 
 #include <algorithm>
 #include <cmath>
@@ -29,7 +30,8 @@ int main(int argc, char** argv)
     if (argc != 5 && argc != 7) {
         std::cerr
             << "usage: s3g_encoder_family_gui_smoke <plugin binary> <plugin id>"
-            << " <native width> <native height> [host-name prefix responsive|fixed]\n";
+            << " <native width> <native height>"
+            << " [host-name prefix responsive|dynamic|fixed]\n";
         return 2;
     }
 
@@ -39,10 +41,11 @@ int main(int argc, char** argv)
     const char* expectedNamePrefix =
         argc == 7 ? argv[5] : "s3g Ambi Encoder ";
     const bool responsive = argc != 7 || std::strcmp(argv[6], "responsive") == 0;
+    const bool dynamic = argc == 7 && std::strcmp(argv[6], "dynamic") == 0;
     const bool fixed = argc == 7 && std::strcmp(argv[6], "fixed") == 0;
-    if ((!responsive && !fixed)
+    if ((!responsive && !dynamic && !fixed)
         || nativeWidth < 320u
-        || nativeHeight < (responsive ? 360u : 240u)) {
+        || nativeHeight < ((responsive || dynamic) ? 360u : 240u)) {
         return 2;
     }
 
@@ -64,6 +67,14 @@ int main(int argc, char** argv)
             || [compactMenu sizeWithAttributes:menuAttrs].width > 76.0) {
             std::cerr << "Shared menu capitalization or fitting contract failed\n";
             return 1;
+        }
+        for (const auto& scale : s3g::kMusicalScales) {
+            NSString* name = [NSString stringWithUTF8String:scale.name];
+            if ([name sizeWithAttributes:menuAttrs].width > 162.0) {
+                std::cerr << "Musical scale name exceeds its menu column: "
+                    << scale.name << "\n";
+                return 1;
+            }
         }
 
         failureStage = "bundle load";
@@ -172,13 +183,15 @@ int main(int argc, char** argv)
                     char text[64] {};
                     double parsed = -1.0;
                     double removed = -1.0;
-                    foundScale = info.max_value == 101.0
+                    foundScale = info.max_value
+                            == static_cast<double>(
+                                s3g::kMusicalScaleCount)
                         && params->value_to_text(
                             plugin, info.id, info.max_value,
                             text, sizeof(text))
-                        && std::strcmp(text, "COMPOSITE BLUES") == 0
+                        && std::strcmp(text, "BLUES COMPOSITE") == 0
                         && params->text_to_value(
-                            plugin, info.id, "MINOR PENTATONIC", &parsed)
+                            plugin, info.id, "PENTATONIC MINOR", &parsed)
                         && parsed == 32.0
                         && !params->text_to_value(
                             plugin, info.id, "VECTOR", &removed);
@@ -207,6 +220,37 @@ int main(int argc, char** argv)
                 && foundVoices;
         }
 
+        if (ok && (std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.ambi-vot-encoder-64") == 0
+            || std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.ambi-vox-encoder-64") == 0)) {
+            bool foundScale = false;
+            const uint32_t parameterCount = params->count(plugin);
+            for (uint32_t index = 0u; index < parameterCount; ++index) {
+                clap_param_info_t info {};
+                if (!params->get_info(plugin, index, &info)) {
+                    ok = false;
+                    break;
+                }
+                if (std::strcmp(info.name, "Pitch Scale") != 0) continue;
+                char text[64] {};
+                double parsed = -1.0;
+                foundScale =
+                    info.max_value
+                        == static_cast<double>(
+                            s3g::kMusicalScaleCount - 1u)
+                    && params->value_to_text(
+                        plugin, info.id, 3.0, text, sizeof(text))
+                    && std::strcmp(text, "PENTATONIC MAJOR") == 0
+                    && params->text_to_value(
+                        plugin, info.id, "PENTATONIC MINOR", &parsed)
+                    && parsed == 31.0;
+            }
+            ok = ok && foundScale;
+        }
+
         if (ok) failureStage = "GUI API";
         const auto* gui = static_cast<const clap_plugin_gui_t*>(
             plugin->get_extension(plugin, CLAP_EXT_GUI));
@@ -216,11 +260,11 @@ int main(int argc, char** argv)
         uint32_t width = 0u;
         uint32_t height = 0u;
         if (ok) failureStage = "resize contract";
-        if (responsive) {
-            const uint32_t expectedMinimumWidth =
-                std::min(480u, nativeWidth);
-            const uint32_t expectedMinimumHeight =
-                std::min(360u, nativeHeight);
+        if (responsive || dynamic) {
+            const uint32_t expectedMinimumWidth = std::min(
+                dynamic ? 720u : 480u, nativeWidth);
+            const uint32_t expectedMinimumHeight = std::min(
+                dynamic ? 430u : 360u, nativeHeight);
             clap_gui_resize_hints_t hints {};
             ok = ok && gui->can_resize(plugin)
                 && gui->get_resize_hints(plugin, &hints)
@@ -249,11 +293,11 @@ int main(int argc, char** argv)
         ok = ok && gui->create(plugin, CLAP_WINDOW_API_COCOA, false);
 
         const uint32_t testWidth =
-            responsive ? std::min(720u, nativeWidth) : nativeWidth;
+            (responsive || dynamic) ? std::min(720u, nativeWidth) : nativeWidth;
         const uint32_t testHeight =
-            responsive ? std::min(540u, nativeHeight) : nativeHeight;
+            (responsive || dynamic) ? std::min(540u, nativeHeight) : nativeHeight;
         if (ok) failureStage = "GUI resize";
-        if (responsive) {
+        if (responsive || dynamic) {
             ok = ok && gui->set_size(plugin, testWidth, testHeight)
                 && gui->get_size(plugin, &width, &height)
                 && width == testWidth && height == testHeight;
@@ -277,6 +321,11 @@ int main(int argc, char** argv)
                 && document
                 && closeEnough([document frame].size.width, nativeWidth)
                 && closeEnough([document frame].size.height, nativeHeight);
+        } else if (dynamic) {
+            ok = ok && document
+                && ![root isKindOfClass:[NSScrollView class]]
+                && closeEnough([document frame].size.width, testWidth)
+                && closeEnough([document frame].size.height, testHeight);
         } else {
             ok = ok && document
                 && closeEnough([document frame].size.width, nativeWidth)
@@ -337,13 +386,13 @@ int main(int argc, char** argv)
             teardownWindow.cocoa = teardownParent;
             ok = ok && teardownGui
                 && teardownGui->create(teardownPlugin, CLAP_WINDOW_API_COCOA, false)
-                && (!responsive
+                && (!(responsive || dynamic)
                     || teardownGui->set_size(teardownPlugin, testWidth, testHeight))
                 && teardownGui->set_parent(teardownPlugin, &teardownWindow);
-            if (ok && responsive) {
+            if (ok && (responsive || dynamic)) {
                 ok = teardownGui->show(teardownPlugin);
             }
-            if (responsive) {
+            if (responsive || dynamic) {
                 teardownPlugin->destroy(teardownPlugin);
             } else {
                 // Fixed legacy family members currently rely on the host's
@@ -361,12 +410,14 @@ int main(int argc, char** argv)
         // process lifetime, which mirrors production plug-in hosts.
 
         if (!ok) {
-            std::cerr << (responsive ? "Responsive" : "Fixed")
+            std::cerr << (responsive
+                    ? "Responsive" : (dynamic ? "Dynamic" : "Fixed"))
                 << " GUI smoke failed for " << pluginId
                 << " at " << failureStage << "\n";
             return 1;
         }
-        std::cout << (responsive ? "Responsive" : "Fixed")
+        std::cout << (responsive
+                ? "Responsive" : (dynamic ? "Dynamic" : "Fixed"))
             << " GUI smoke passed for " << pluginId << "\n";
     }
     return 0;

@@ -32,13 +32,13 @@
 
         <ul>
           <li><strong>Ambi Depth 16</strong>: single-field 3OA depth, focus, air, tail, low-body, width, and output controls.</li>
-          <li><strong>Ambi Group Matrix 64/128</strong>: matrix mixing between four or eight 3OA feeds.</li>
-          <li><strong>Ambi Node Bus Mixer 128</strong>: node/cursor mixing for up to eight fixed 3OA feeds.</li>
-          <li><strong>Ambi Group Rotate 64/128</strong>: coherent rotation per 3OA group, with relationship offsets across groups.</li>
-          <li><strong>Ambi Group Depth 64/128</strong>: depth and order shaping across four or eight 3OA feeds.</li>
+          <li><strong>Ambi Matrix Group 64/128</strong>: matrix mixing between four or eight 3OA feeds.</li>
+          <li><strong>Ambi Mixer Node Bus 128</strong>: node/cursor mixing for up to eight fixed 3OA feeds.</li>
+          <li><strong>Ambi Transform Group Rotate 64/128</strong>: coherent rotation per 3OA group, with relationship offsets across groups.</li>
+          <li><strong>Ambi Transform Group Depth 64/128</strong>: depth and order shaping across four or eight 3OA feeds.</li>
         </ul>
 
-        <h2 id="matrix">Ambi Group Matrix Model</h2>
+        <h2 id="matrix">Ambi Matrix Group Model</h2>
 
         <p>The matrix processors route one complete 3OA group into another complete 3OA group. A crosspoint routes all 16 channels together, preserving the spatial encoding while allowing bus-level mixing between feeds.</p>
 
@@ -50,9 +50,9 @@
           <li>Gray matrix cells show the manual ceiling. Green activity shows the current pattern inside that ceiling.</li>
         </ul>
 
-        <h2 id="node">Ambi Node Bus Mixer Model</h2>
+        <h2 id="node">Ambi Mixer Node Bus Model</h2>
 
-        <p>The Ambi Node Bus Mixer combines as many as eight complete 3OA feeds on one 128-channel REAPER track. Node 1 uses channels 1-16, node 2 uses 17-32, through node 8 on channels 113-128.</p>
+        <p>The Ambi Mixer Node Bus combines as many as eight complete 3OA feeds on one 128-channel REAPER track. Node 1 uses channels 1-16, node 2 uses 17-32, through node 8 on channels 113-128.</p>
 
         <p>The mixer defaults to a flat relationship plane. With <code>LOCK Z</code> checked, all nodes and the cursor stay at <code>Z = 0</code>, so the top view becomes the normal mixing view. Uncheck <code>LOCK Z</code> when a mix needs full 3D node placement and side or 3/4 camera work.</p>
 
@@ -65,7 +65,7 @@
           <li><code>CURSOR</code>: movable emphasis point for fading between nodes by position.</li>
         </ul>
 
-        <h2 id="rotate">Ambi Group Rotate Model</h2>
+        <h2 id="rotate">Ambi Transform Group Rotate Model</h2>
 
         <p>Rotate applies a coherent ambisonic rotation to each group. It is useful when several 3OA beds or stems need related movement without building separate automation for every feed. Spread, tilt, and twist describe relationships between complete ambisonic fields rather than tearing one field apart.</p>
 
@@ -93,9 +93,9 @@
           <li><code>OUT</code>: final output gain.</li>
         </ul>
 
-        <h2 id="depth">Ambi Group Depth Model</h2>
+        <h2 id="depth">Ambi Transform Group Depth Model</h2>
 
-        <p><code>s3g Ambi Group Depth 64/128</code> applies the same depth model to four or eight lane-locked 3OA feeds. <code>SPRD</code> distributes bipolar depth offsets across groups, while the field display shows each group's depth position, air haze, and distance-tail wake.</p>
+        <p><code>s3g Ambi Transform Grp Depth 64/128</code> applies the same depth model to four or eight lane-locked 3OA feeds. <code>SPRD</code> distributes bipolar depth offsets across groups, while the field display shows each group's depth position, air haze, and distance-tail wake.</p>
 
         <ul>
           <li><code>DEP</code>: shared near/far depth transform.</li>
@@ -142,11 +142,11 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#plugins">Plugins</a>
-          <a href="#matrix">Ambi Group Matrix Model</a>
-          <a href="#node">Ambi Node Bus Mixer Model</a>
-          <a href="#rotate">Ambi Group Rotate Model</a>
+          <a href="#matrix">Ambi Matrix Group Model</a>
+          <a href="#node">Ambi Mixer Node Bus Model</a>
+          <a href="#rotate">Ambi Transform Group Rotate Model</a>
           <a href="#field-depth">Ambi Depth Model</a>
-          <a href="#depth">Ambi Group Depth Model</a>
+          <a href="#depth">Ambi Transform Group Depth Model</a>
           <a href="#routing">Routing</a>
         </div>
       </aside>

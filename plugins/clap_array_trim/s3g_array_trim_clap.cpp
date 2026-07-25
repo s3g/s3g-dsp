@@ -57,7 +57,9 @@ struct Plugin {
     std::atomic<float> outputPeak { 0.0f };
 #if defined(__APPLE__)
     void* guiView = nullptr;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
+    char presetName[64] { "INIT" };
 #endif
 };
 
@@ -328,14 +330,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 #if defined(__APPLE__)
-constexpr uint32_t kGuiWidth = 720;
-constexpr uint32_t kRowsPerPage = 8;
-constexpr uint32_t kRowHeight = 26;
-constexpr uint32_t kGuiHeight = 440;
-constexpr CGFloat kOutputTrackX = 116.0;
-constexpr CGFloat kOutputTrackW = 120.0;
-constexpr CGFloat kActiveTrackX = 430.0;
-constexpr CGFloat kActiveTrackW = 90.0;
+constexpr const auto& kArrayLayout = s3g::gui_layout::kArrayFamilyLayout;
+constexpr uint32_t kGuiWidth =
+    static_cast<uint32_t>(kArrayLayout.canvas.width);
+constexpr uint32_t kGuiHeight =
+    static_cast<uint32_t>(kArrayLayout.canvas.height);
+constexpr uint32_t kRowsPerPage = kArrayLayout.rowsPerPage;
+constexpr uint32_t kRowHeight =
+    static_cast<uint32_t>(s3g::gui_layout::kStandardMetrics.rowPitch);
 
 } // namespace
 
@@ -436,9 +438,9 @@ constexpr CGFloat kActiveTrackW = 90.0;
 {
     [self clampPage];
     const uint32_t pageStart = _page * kRowsPerPage;
-    const CGFloat rowTop = 100.0;
-    const CGFloat fieldX = 536.0;
-    const CGFloat fieldW = 74.0;
+    const CGFloat rowTop = kArrayLayout.channelPlot.y;
+    const CGFloat fieldX = kArrayLayout.channelValueColumn.x;
+    const CGFloat fieldW = kArrayLayout.channelValueColumn.width;
     for (uint32_t row = 0; row < kRowsPerPage; ++row) {
         NSTextField* field = [_fields objectAtIndex:row];
         const uint32_t ch = pageStart + row;
@@ -537,7 +539,7 @@ constexpr CGFloat kActiveTrackW = 90.0;
     [self drawPageButton:@">" rect:NSMakeRect(rect.origin.x + rect.size.width - 32.0, rect.origin.y + 3.0, 26.0, 17.0) enabled:_page + 1u < [self pageCount] attrs:attrs];
     [self clampPage];
     const uint32_t pageStart = _page * kRowsPerPage;
-    NSRect plot = NSMakeRect(rect.origin.x + 48.0, rect.origin.y + 34.0, 462.0, rect.size.height - 54.0);
+    NSRect plot = s3g::clap_gui::cocoaRect(kArrayLayout.channelPlot);
     const CGFloat zeroX = plot.origin.x + plot.size.width * (60.0 / 78.0);
     [s3g::clap_gui::color(0x5b5b5b) setStroke];
     NSBezierPath* zero = [NSBezierPath bezierPath];
@@ -553,7 +555,8 @@ constexpr CGFloat kActiveTrackW = 90.0;
         const uint32_t ch = pageStart + row;
         const CGFloat norm = std::clamp<CGFloat>((_plugin->params.gainDb[ch] + 60.0f) / 78.0f, 0.0, 1.0);
         const CGFloat x = plot.origin.x + plot.size.width * norm;
-        const CGFloat y = rect.origin.y + 34.0 + static_cast<CGFloat>(row) * static_cast<CGFloat>(kRowHeight);
+        const CGFloat y = plot.origin.y
+            + static_cast<CGFloat>(row) * static_cast<CGFloat>(kRowHeight);
         const bool off = _plugin->params.mute[ch] != 0u;
         const bool inv = _plugin->params.invert[ch] != 0u;
         [[NSString stringWithFormat:@"%02u", ch + 1u] drawAtPoint:NSMakePoint(rect.origin.x + 16.0, y - 1.0) withAttributes:dim];
@@ -564,8 +567,14 @@ constexpr CGFloat kActiveTrackW = 90.0;
         NSRect bar = NSMakeRect(std::min(x, zeroX), y, std::max<CGFloat>(1.0, std::fabs(x - zeroX)), 14.0);
         [s3g::clap_gui::color(off ? 0x4a4a4a : (inv ? 0x9c9c9c : 0xa0a0a0)) setFill];
         NSRectFill(bar);
-        [self drawButton:@"M" rect:NSMakeRect(620, y - 4.0, 28.0, 20.0) active:off attrs:attrs];
-        [self drawButton:@"INV" rect:NSMakeRect(654, y - 4.0, 38.0, 20.0) active:inv attrs:attrs];
+        [self drawButton:@"M" rect:NSMakeRect(
+            kArrayLayout.channelMuteColumn.x, y - 4.0,
+            kArrayLayout.channelMuteColumn.width, 20.0)
+            active:off attrs:attrs];
+        [self drawButton:@"INV" rect:NSMakeRect(
+            kArrayLayout.channelInvertColumn.x, y - 4.0,
+            kArrayLayout.channelInvertColumn.width, 20.0)
+            active:inv attrs:attrs];
     }
 }
 
@@ -577,25 +586,54 @@ constexpr CGFloat kActiveTrackW = 90.0;
     NSFont* font = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
     NSDictionary* attrs = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:font };
     NSDictionary* dim = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:font };
+    const auto titleBand =
+        s3g::gui_layout::arrayTitleBand(kArrayLayout.canvas);
 
     [style.bg setFill];
     NSRectFill(self.bounds);
-    [style.strip setFill];
-    NSRectFill(NSMakeRect(0, 0, self.bounds.size.width, 46));
-    [[NSString stringWithFormat:@"s3g ARRAY TRIM %u", kChannelCount] drawAtPoint:NSMakePoint(20, 17) withAttributes:attrs];
-    [[NSString stringWithFormat:@"%u active / per-channel trim, mute, invert", _plugin->params.activeChannels]
-        drawAtPoint:NSMakePoint(330, 17)
-        withAttributes:dim];
+    s3g::clap_gui::drawArrayTitleBand(
+        [NSString stringWithFormat:@"s3g ARRAY TRIM %uCH", kChannelCount],
+        [NSString stringWithUTF8String:_plugin->presetName],
+        s3g::clap_gui::peakDbText(
+            _plugin->outputPeak.load(std::memory_order_relaxed)),
+        titleBand, style);
+
+    const auto drawPanel =
+        [&](NSString* title, const s3g::gui_layout::Panel& panel) {
+            s3g::clap_gui::drawPanelFrame(panel, style);
+            s3g::clap_gui::drawPanelHeader(
+                title, true, panel, attrs, style);
+        };
+    drawPanel(@"OUTPUT", kArrayLayout.output);
+    drawPanel(@"ARRAY", kArrayLayout.array);
 
     [self clampPage];
-    const CGFloat rowsH = static_cast<CGFloat>(kRowsPerPage) * static_cast<CGFloat>(kRowHeight) + 54.0;
-    [self drawTrimRows:NSMakeRect(20, 66, 680, rowsH) attrs:attrs dim:dim style:style];
-    const CGFloat controlsY = 84.0 + rowsH;
-    s3g::clap_gui::drawPanelFrame(20, controlsY, 680, 68, style);
-    s3g::clap_gui::drawPanelHeader(@"GLOBAL", true, 20, controlsY, 680, 21, attrs, style);
-    s3g::clap_gui::drawSlider(@"OUT", [self textForParam:kOutputParamId value:_plugin->params.outputGainDb], (_plugin->params.outputGainDb + 60.0) / 78.0, controlsY + 38, attrs, attrs, style, 40, kOutputTrackX, 206, kOutputTrackW);
-    s3g::clap_gui::drawSlider(@"ACTIVE", [self textForParam:kActiveParamId value:_plugin->params.activeChannels], (_plugin->params.activeChannels - 1.0) / std::max(1.0, static_cast<double>(kChannelCount - 1u)), controlsY + 38, attrs, attrs, style, 350, kActiveTrackX, 516, kActiveTrackW);
-    [self drawButton:(_plugin->params.bypass ? @"BYPASS ON" : @"BYPASS") rect:NSMakeRect(626, controlsY + 30, 66, 24) active:_plugin->params.bypass attrs:attrs];
+    [self drawTrimRows:s3g::clap_gui::cocoaRect(kArrayLayout.editor.frame)
+        attrs:attrs dim:dim style:style];
+    s3g::clap_gui::drawProcessorSlider(
+        @"OUT", [self textForParam:kOutputParamId
+            value:_plugin->params.outputGainDb],
+        (_plugin->params.outputGainDb + 60.0) / 78.0,
+        s3g::gui_layout::rowY(kArrayLayout.output, 0u),
+        kArrayLayout.output.frame.x, kArrayLayout.output.frame.width,
+        attrs, dim, style);
+    s3g::clap_gui::drawToggle(
+        @"BYPASS", _plugin->params.bypass,
+        s3g::gui_layout::rowY(kArrayLayout.output, 1u),
+        attrs, dim, style,
+        s3g::gui_layout::processorLabelX(
+            kArrayLayout.output.frame.x),
+        s3g::gui_layout::processorControlX(
+            kArrayLayout.output.frame.x),
+        74.0);
+    s3g::clap_gui::drawProcessorSlider(
+        @"ACTIVE", [self textForParam:kActiveParamId
+            value:_plugin->params.activeChannels],
+        (_plugin->params.activeChannels - 1.0)
+            / std::max(1.0, static_cast<double>(kChannelCount - 1u)),
+        s3g::gui_layout::rowY(kArrayLayout.array, 0u),
+        kArrayLayout.array.frame.x, kArrayLayout.array.frame.width,
+        attrs, dim, style);
     [self layoutTrimFields];
 }
 
@@ -603,8 +641,27 @@ constexpr CGFloat kActiveTrackW = 90.0;
 {
     if (!_plugin || _dragControl < 0) return;
     switch (_dragControl) {
-    case 0: applyParam(*_plugin, kActiveParamId, 1.0 + std::clamp((static_cast<double>(pt.x) - kActiveTrackX) / kActiveTrackW, 0.0, 1.0) * static_cast<double>(kChannelCount - 1u)); break;
-    case 1: applyParam(*_plugin, kOutputParamId, -60.0 + std::clamp((static_cast<double>(pt.x) - kOutputTrackX) / kOutputTrackW, 0.0, 1.0) * 78.0); break;
+    case 0: {
+        const double n = std::clamp(
+            (static_cast<double>(pt.x)
+                - s3g::gui_layout::processorControlX(
+                    kArrayLayout.array.frame.x))
+            / s3g::gui_layout::processorTrackWidth(
+                kArrayLayout.array.frame.width), 0.0, 1.0);
+        applyParam(*_plugin, kActiveParamId,
+            1.0 + n * static_cast<double>(kChannelCount - 1u));
+        break;
+    }
+    case 1: {
+        const double n = std::clamp(
+            (static_cast<double>(pt.x)
+                - s3g::gui_layout::processorControlX(
+                    kArrayLayout.output.frame.x))
+            / s3g::gui_layout::processorTrackWidth(
+                kArrayLayout.output.frame.width), 0.0, 1.0);
+        applyParam(*_plugin, kOutputParamId, -60.0 + n * 78.0);
+        break;
+    }
     case 2:
         [self updateTrimRowAtPoint:pt];
         break;
@@ -617,11 +674,16 @@ constexpr CGFloat kActiveTrackW = 90.0;
 {
     const uint32_t pageStart = _page * kRowsPerPage;
     const uint32_t n = std::min<uint32_t>(kRowsPerPage, _plugin->params.activeChannels - pageStart);
-    const int row = static_cast<int>(std::floor((pt.y - 93.0) / static_cast<CGFloat>(kRowHeight)));
+    const int row = static_cast<int>(std::floor(
+        (pt.y - kArrayLayout.channelPlot.y)
+            / static_cast<CGFloat>(kRowHeight)));
     if (row < 0 || row >= static_cast<int>(n)) return;
     const uint32_t ch = pageStart + static_cast<uint32_t>(row);
     _dragChannel = static_cast<int>(ch);
-    const double rowN = std::clamp((static_cast<double>(pt.x) - 68.0) / 462.0, 0.0, 1.0);
+    const double rowN = std::clamp(
+        (static_cast<double>(pt.x) - kArrayLayout.channelPlot.x)
+            / kArrayLayout.channelPlot.width,
+        0.0, 1.0);
     applyParam(*_plugin, kGainParamBaseId + ch, -60.0 + rowN * 78.0);
 }
 
@@ -629,9 +691,16 @@ constexpr CGFloat kActiveTrackW = 90.0;
 {
     const NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     [self clampPage];
-    const CGFloat rowsH = static_cast<CGFloat>(kRowsPerPage) * static_cast<CGFloat>(kRowHeight) + 54.0;
-    const CGFloat controlsY = 84.0 + rowsH;
-    const NSRect rowPanel = NSMakeRect(20, 66, 680, rowsH);
+    const auto titleBand =
+        s3g::gui_layout::arrayTitleBand(kArrayLayout.canvas);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &_plugin->plugin, @"Array Trim", titleBand,
+            _plugin->presetName, sizeof(_plugin->presetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    const NSRect rowPanel =
+        s3g::clap_gui::cocoaRect(kArrayLayout.editor.frame);
     if (NSPointInRect(pt, NSMakeRect(rowPanel.origin.x + rowPanel.size.width - 94.0, rowPanel.origin.y + 3.0, 26.0, 17.0))) {
         if (_page > 0u) --_page;
         [self setNeedsDisplay:YES];
@@ -642,40 +711,77 @@ constexpr CGFloat kActiveTrackW = 90.0;
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(pt, NSMakeRect(626, controlsY + 30, 66, 24))) {
+    const NSRect bypassBox = NSMakeRect(
+        s3g::gui_layout::processorControlX(kArrayLayout.output.frame.x),
+        s3g::gui_layout::rowY(kArrayLayout.output, 1u) - 1.0,
+        74.0, 15.0);
+    if (NSPointInRect(pt, NSInsetRect(bypassBox, 0.0, -4.0))) {
         applyParam(*_plugin, kBypassParamId, _plugin->params.bypass ? 0.0 : 1.0);
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(pt, NSMakeRect(kActiveTrackX, controlsY + 33, kActiveTrackW, 22))) {
-        _dragControl = 0;
-        [self updateDrag:pt];
-        return;
-    }
-    if (NSPointInRect(pt, NSMakeRect(kOutputTrackX, controlsY + 33, kOutputTrackW, 22))) {
-        _dragControl = 1;
-        [self updateDrag:pt];
-        return;
+    struct SliderHit {
+        s3g::gui_layout::Rect rect;
+        int control;
+        clap_id param;
+    };
+    const SliderHit topHits[] {
+        { s3g::gui_layout::sliderHitRect(kArrayLayout.output, 0u),
+            1, kOutputParamId },
+        { s3g::gui_layout::sliderHitRect(kArrayLayout.array, 0u),
+            0, kActiveParamId },
+    };
+    for (const auto& hit : topHits) {
+        if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(hit.rect))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &_plugin->plugin, hit.param, &defaultValue)) {
+                applyParam(*_plugin, hit.param, defaultValue);
+                _dragControl = -1;
+            } else {
+                _dragControl = hit.control;
+                [self updateDrag:pt];
+            }
+            [self setNeedsDisplay:YES];
+            return;
+        }
     }
     const uint32_t pageStart = _page * kRowsPerPage;
     const uint32_t n = std::min<uint32_t>(kRowsPerPage, _plugin->params.activeChannels - pageStart);
     for (uint32_t row = 0; row < n; ++row) {
         const uint32_t ch = pageStart + row;
-        const CGFloat y = 100.0 + static_cast<CGFloat>(row) * static_cast<CGFloat>(kRowHeight);
-        if (NSPointInRect(pt, NSMakeRect(620, y - 7.0, 28.0, 24.0))) {
+        const CGFloat y = kArrayLayout.channelPlot.y
+            + static_cast<CGFloat>(row) * static_cast<CGFloat>(kRowHeight);
+        if (NSPointInRect(pt, NSMakeRect(
+                kArrayLayout.channelMuteColumn.x, y - 7.0,
+                kArrayLayout.channelMuteColumn.width, 24.0))) {
             applyParam(*_plugin, kMuteParamBaseId + ch, _plugin->params.mute[ch] ? 0.0 : 1.0);
             [self setNeedsDisplay:YES];
             return;
         }
-        if (NSPointInRect(pt, NSMakeRect(654, y - 7.0, 38.0, 24.0))) {
+        if (NSPointInRect(pt, NSMakeRect(
+                kArrayLayout.channelInvertColumn.x, y - 7.0,
+                kArrayLayout.channelInvertColumn.width, 24.0))) {
             applyParam(*_plugin, kInvertParamBaseId + ch, _plugin->params.invert[ch] ? 0.0 : 1.0);
             [self setNeedsDisplay:YES];
             return;
         }
-        if (NSPointInRect(pt, NSMakeRect(68, y - 7.0, 462.0, 24.0))) {
-            _dragControl = 2;
-            _dragChannel = static_cast<int>(ch);
-            [self updateDrag:pt];
+        if (NSPointInRect(pt, NSMakeRect(
+                kArrayLayout.channelPlot.x, y - 7.0,
+                kArrayLayout.channelPlot.width, 24.0))) {
+            const clap_id param = kGainParamBaseId + ch;
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &_plugin->plugin, param, &defaultValue)) {
+                applyParam(*_plugin, param, defaultValue);
+                _dragControl = -1;
+                _dragChannel = -1;
+            } else {
+                _dragControl = 2;
+                _dragChannel = static_cast<int>(ch);
+                [self updateDrag:pt];
+            }
+            [self setNeedsDisplay:YES];
             return;
         }
     }
@@ -689,19 +795,19 @@ namespace {
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GArrayTrimView alloc] initWithPlugin:p]; return p->guiView != nullptr; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p && p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); auto* v = static_cast<S3GArrayTrimView*>(p->guiView); [v stopRefreshTimer]; [v removeFromSuperview]; [v release]; p->guiView = nullptr; } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GArrayTrimView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p && p->guiView) { p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GArrayTrimView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
-bool guiCanResize(const clap_plugin_t*) { return false; }
-bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t*) { return false; }
-bool guiAdjustSize(const clap_plugin_t*, uint32_t* w, uint32_t* h) { if (!w || !h) return false; *w = kGuiWidth; *h = kGuiHeight; return true; }
-bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { auto* p = self(plugin); if (!p->guiView) return false; [static_cast<NSView*>(p->guiView) setFrameSize:NSMakeSize(w, h)]; return true; }
-bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); if (!p->guiView) return false; NSView* parent = static_cast<NSView*>(win->cocoa); NSView* v = static_cast<NSView*>(p->guiView); [parent addSubview:v]; [v setFrame:NSMakeRect(0, 0, kGuiWidth, kGuiHeight)]; return true; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, w, h); }
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<NSView*>(p->guiView) setHidden:NO]; [static_cast<S3GArrayTrimView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GArrayTrimView*>(p->guiView) stopRefreshTimer]; [static_cast<NSView*>(p->guiView) setHidden:YES]; return true; }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible.store(true, std::memory_order_relaxed); [static_cast<S3GArrayTrimView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false, std::memory_order_relaxed); [static_cast<S3GArrayTrimView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 

@@ -241,6 +241,261 @@ static_assert(kMacroMonoTitle.controlY == 40.0);
 static_assert(layout::processorTitleBandFits(kMacroTitle));
 static_assert(layout::processorTitleBandFits(kMacroMonoTitle));
 
+constexpr const auto& kArray = layout::kArrayFamilyLayout;
+constexpr auto kArrayTitle = layout::arrayTitleBand(kArray.canvas);
+static_assert(kArray.canvas.width == 720.0);
+static_assert(kArray.canvas.height == 388.0);
+static_assert(kArray.output.frame.y == layout::kStandardMetrics.contentTop);
+static_assert(kArray.array.frame.y == layout::kStandardMetrics.contentTop);
+static_assert(kArray.output.role == layout::PanelRole::Output);
+static_assert(layout::rowY(kArray.output, 0u) == 78.0);
+static_assert(layout::rowY(kArray.output, 1u) == 104.0);
+static_assert(layout::rowY(kArray.array, 0u) == 78.0);
+static_assert(layout::rowY(kArray.editor, 0u) == 170.0);
+static_assert(layout::rowY(kArray.editor, 7u) == 352.0);
+static_assert(kArray.rowsPerPage == 8u);
+static_assert(layout::processorSliderFitsPanel(kArray.output));
+static_assert(layout::processorSliderFitsPanel(kArray.array));
+static_assert(layout::panelContainsRect(kArray.editor, kArray.channelPlot));
+static_assert(layout::panelContainsRect(
+    kArray.editor, kArray.channelValueColumn));
+static_assert(layout::panelContainsRect(
+    kArray.editor, kArray.channelMuteColumn));
+static_assert(layout::panelContainsRect(
+    kArray.editor, kArray.channelInvertColumn));
+static_assert(layout::rectFitsCanvas(kArray.output.frame, kArray.canvas));
+static_assert(layout::rectFitsCanvas(kArray.array.frame, kArray.canvas));
+static_assert(layout::rectFitsCanvas(kArray.editor.frame, kArray.canvas));
+static_assert(layout::processorTitleBandFits(kArrayTitle));
+
+constexpr const auto& kTransform = layout::kTransformFamilyLayout;
+constexpr auto kTransformTitle =
+    layout::transformTitleBand(kTransform.canvas);
+static_assert(kTransform.canvas.width == 820.0);
+static_assert(kTransform.canvas.height == 496.0);
+static_assert(kTransform.fieldPanel.y
+    == layout::kStandardMetrics.contentTop);
+static_assert(kTransform.output.frame.y
+    == layout::kStandardMetrics.contentTop);
+static_assert(layout::rowY(kTransform.output, 0u) == 78.0);
+static_assert(layout::rowY(kTransform.output, 1u) == 104.0);
+static_assert(layout::rowY(kTransform.primarySeven, 0u) == 170.0);
+static_assert(layout::rowY(kTransform.primarySeven, 6u) == 326.0);
+static_assert(layout::rowY(kTransform.orderBands, 7u) == 444.0);
+static_assert(layout::processorSliderFitsPanel(kTransform.output));
+static_assert(layout::processorSliderFitsPanel(kTransform.primarySeven));
+static_assert(kTransformTitle.presetLabelX == 286.0);
+static_assert(kTransformTitle.presetMenu.x == 348.0);
+static_assert(kTransformTitle.saveButton.x == 556.0);
+static_assert(layout::panelContainsRect(
+    { layout::PluginClass::CompactUtility, layout::PanelRole::Utility,
+        kTransform.fieldPanel, 36.0, 26.0, 0u },
+    kTransform.fieldPlot));
+static_assert(layout::rectFitsCanvas(
+    kTransform.fieldPanel, kTransform.canvas));
+static_assert(layout::rectFitsCanvas(
+    kTransform.orderBands.frame, kTransform.canvas));
+static_assert(layout::processorTitleBandFits(kTransformTitle));
+
+constexpr const auto& kMatrix = layout::kMatrixFamilyLayout;
+constexpr auto kMatrixTitle = layout::matrixTitleBand(kMatrix.canvas);
+static_assert(kMatrix.canvas.width == 1040.0);
+static_assert(kMatrix.canvas.height == 648.0);
+static_assert(kMatrix.output.frame.y
+    == layout::kStandardMetrics.contentTop);
+static_assert(layout::rowY(kMatrix.output, 0u) == 78.0);
+static_assert(layout::rowY(kMatrix.ambiPattern, 0u) == 144.0);
+static_assert(layout::rowY(kMatrix.ambiPattern, 9u) == 378.0);
+static_assert(layout::rowY(kMatrix.groupPattern, 10u) == 404.0);
+static_assert(layout::processorSliderFitsPanel(kMatrix.output));
+static_assert(layout::processorSliderFitsPanel(kMatrix.ambiPattern));
+static_assert(layout::processorSliderFitsPanel(kMatrix.groupPattern));
+static_assert(layout::rectFitsCanvas(
+    kMatrix.matrixPanel, kMatrix.canvas));
+static_assert(layout::rectFitsCanvas(
+    kMatrix.previewPanel, kMatrix.canvas));
+static_assert(layout::rectFitsCanvas(
+    kMatrix.glossary, kMatrix.canvas));
+static_assert(layout::encoderTitleBandFits(kMatrixTitle));
+static_assert(layout::encoderTitleActionRect(
+    kMatrixTitle, layout::EncoderTitleAction::Random).x == 632.0);
+
+constexpr const auto& kMixer = layout::kMixerFamilyLayout;
+constexpr auto kMixerTitle = layout::mixerTitleBand(kMixer.canvas);
+constexpr std::array kMixerPanels {
+    kMixer.output, kMixer.busCursor, kMixer.selectedNode
+};
+constexpr std::array kAmbiMixerPanels {
+    kMixer.output, kMixer.ambiBusCursor, kMixer.ambiSelectedNode
+};
+static_assert(kMixer.canvas.width == 920.0);
+static_assert(kMixer.canvas.height == 920.0);
+static_assert(kMixer.fieldPanel.y
+    == layout::kStandardMetrics.contentTop);
+static_assert(kMixer.output.frame.y
+    == layout::kStandardMetrics.contentTop);
+static_assert(layout::rowY(kMixer.output, 0u) == 78.0);
+static_assert(layout::rowY(kMixer.busCursor, 0u) == 144.0);
+static_assert(layout::rowY(kMixer.busCursor, 10u) == 404.0);
+static_assert(layout::rowY(kMixer.ambiBusCursor, 7u) == 326.0);
+static_assert(layout::rowY(kMixer.selectedNode, 10u) == 730.0);
+static_assert(layout::rowY(kMixer.ambiSelectedNode, 7u) == 574.0);
+static_assert(layout::processorSliderFitsPanel(kMixer.output));
+static_assert(layout::processorSliderFitsPanel(kMixer.busCursor));
+static_assert(layout::processorSliderFitsPanel(kMixer.ambiBusCursor));
+static_assert(layout::processorSliderFitsPanel(kMixer.selectedNode));
+static_assert(layout::processorSliderFitsPanel(kMixer.ambiSelectedNode));
+static_assert(layout::panelContainsRect(
+    { layout::PluginClass::MixerMatrixLane,
+        layout::PanelRole::Diagnostics, kMixer.fieldPanel,
+        36.0, 26.0, 0u },
+    kMixer.fieldPlot));
+static_assert(layout::validateColumn(kMixerPanels, kMixer.canvas));
+static_assert(layout::validateColumn(kAmbiMixerPanels, kMixer.canvas));
+static_assert(layout::processorTitleBandFits(kMixerTitle));
+
+constexpr const auto& kCompactEffect =
+    layout::kCompactEffectFamilyLayout;
+constexpr auto kCompactEffectOutput =
+    layout::compactEffectOutputPanel(2u);
+constexpr auto kCompactEffectEngine =
+    layout::compactEffectLeftPanel(
+        kCompactEffectOutput, layout::PanelRole::Engine, 4u);
+constexpr auto kCompactEffectRelationships =
+    layout::compactEffectRightPanel(
+        layout::PanelRole::Relationships, 5u);
+constexpr std::array kCompactEffectLeftPanels {
+    kCompactEffectOutput, kCompactEffectEngine
+};
+constexpr std::array kCompactEffectRightPanels {
+    kCompactEffectRelationships
+};
+constexpr auto kCompactEffectTitle =
+    layout::compactEffectTitleBand(kCompactEffect.canvas);
+static_assert(kCompactEffect.canvas.width == 760.0);
+static_assert(kCompactEffect.canvas.height == 376.0);
+static_assert(kCompactEffect.firstColumn.x == 18.0);
+static_assert(kCompactEffect.secondColumn.x == 388.0);
+static_assert(layout::rowY(kCompactEffectOutput, 0u) == 78.0);
+static_assert(layout::rowY(kCompactEffectOutput, 1u) == 104.0);
+static_assert(layout::rowY(kCompactEffectEngine, 0u) == 170.0);
+static_assert(layout::processorSliderFitsPanel(kCompactEffectOutput));
+static_assert(layout::processorSliderFitsPanel(kCompactEffectEngine));
+static_assert(layout::processorSliderFitsPanel(
+    kCompactEffectRelationships));
+static_assert(layout::validateColumn(
+    kCompactEffectLeftPanels, kCompactEffect.canvas));
+static_assert(layout::validateColumn(
+    kCompactEffectRightPanels, kCompactEffect.canvas, false));
+static_assert(layout::rolesFollowTemplate(
+    kCompactEffectLeftPanels, layout::kCompactEffectTemplate, true));
+static_assert(layout::rolesFollowTemplate(
+    kCompactEffectRightPanels, layout::kCompactEffectTemplate, false));
+static_assert(layout::processorTitleBandFits(kCompactEffectTitle));
+
+constexpr const auto& kThreeOafx = layout::kThreeOafxFamilyLayout;
+constexpr auto kThreeOafxOutput =
+    layout::threeOafxSingleOutputPanel(2u);
+constexpr auto kThreeOafxEngine =
+    layout::threeOafxSingleStackPanel(
+        kThreeOafxOutput, layout::PanelRole::Engine, 4u);
+constexpr auto kThreeOafxProjection =
+    layout::threeOafxSingleStackPanel(
+        kThreeOafxEngine, layout::PanelRole::Projection, 3u);
+constexpr std::array kThreeOafxPanels {
+    kThreeOafxOutput, kThreeOafxEngine, kThreeOafxProjection
+};
+constexpr auto kThreeOafxDisplacementOutput =
+    layout::threeOafxDisplacementOutputPanel();
+constexpr auto kThreeOafxTitle =
+    layout::threeOafxTitleBand(kThreeOafx.singleCanvas);
+static_assert(kThreeOafx.singleCanvas.width == 880.0);
+static_assert(kThreeOafx.displacementCanvas.width == 920.0);
+static_assert(kThreeOafx.singleFieldPanel.y
+    == layout::kStandardMetrics.contentTop);
+static_assert(kThreeOafx.displacementFieldPanel.y
+    == layout::kStandardMetrics.contentTop);
+static_assert(layout::rowY(kThreeOafxOutput, 0u) == 78.0);
+static_assert(layout::rowY(kThreeOafxDisplacementOutput, 0u) == 78.0);
+static_assert(layout::processorSliderFitsPanel(kThreeOafxOutput));
+static_assert(layout::processorSliderFitsPanel(
+    kThreeOafxDisplacementOutput));
+static_assert(layout::validateColumn(
+    kThreeOafxPanels, kThreeOafx.singleCanvas));
+static_assert(layout::rectFitsCanvas(
+    kThreeOafx.displacementField, kThreeOafx.displacementCanvas));
+static_assert(layout::processorTitleBandFits(kThreeOafxTitle));
+
+constexpr const auto& kAnalyzer = layout::kAnalyzerFamilyLayout;
+constexpr auto kAnalyzerTitle =
+    layout::analyzerTitleBand(kAnalyzer.preferredCanvas);
+static_assert(kAnalyzer.contentTop
+    == layout::kStandardMetrics.contentTop);
+static_assert(kAnalyzer.contentTop + kAnalyzer.toolbarHeight
+    + kAnalyzer.contentGap == 86.0);
+static_assert(layout::processorTitleBandFits(kAnalyzerTitle));
+
+constexpr const auto& kOutputUtility =
+    layout::kOutputUtilityFamilyLayout;
+constexpr auto kOutputUtilityOutput =
+    layout::outputUtilityPanel(
+        layout::PanelRole::Output, 42.0, 4u);
+constexpr auto kOutputUtilityRouting =
+    layout::fittedStackPanel(
+        layout::PanelRole::Routing, kOutputUtilityOutput, 5u);
+constexpr auto kOutputUtilityEngine =
+    layout::fittedStackPanel(
+        layout::PanelRole::Engine, kOutputUtilityRouting, 2u);
+constexpr std::array kOutputUtilityPanels {
+    kOutputUtilityOutput, kOutputUtilityRouting, kOutputUtilityEngine
+};
+constexpr auto kOutputUtilityTitle =
+    layout::outputUtilityTitleBand(kOutputUtility.canvas);
+static_assert(kOutputUtility.canvas.width == 920.0);
+static_assert(kOutputUtility.canvas.height == 560.0);
+static_assert(kOutputUtility.fieldPanel.y
+    == layout::kStandardMetrics.contentTop);
+static_assert(layout::rowY(kOutputUtilityOutput, 0u) == 78.0);
+static_assert(layout::processorSliderFitsPanel(kOutputUtilityOutput));
+static_assert(layout::processorSliderFitsPanel(kOutputUtilityRouting));
+static_assert(layout::processorSliderFitsPanel(kOutputUtilityEngine));
+static_assert(layout::validateColumn(
+    kOutputUtilityPanels, kOutputUtility.canvas));
+static_assert(layout::rolesFollowTemplate(
+    kOutputUtilityPanels, layout::kOutputUtilityTemplate, true));
+static_assert(layout::rectFitsCanvas(
+    kOutputUtility.field, kOutputUtility.canvas));
+static_assert(layout::rectFitsCanvas(
+    kOutputUtility.meter, kOutputUtility.canvas));
+static_assert(layout::processorTitleBandFits(kOutputUtilityTitle));
+
+constexpr const auto& kImprint = layout::kImprintFamilyLayout;
+constexpr auto kImprintOutput =
+    layout::imprintPanel(layout::PanelRole::Output, 42.0, 2u);
+constexpr layout::Panel kImprintSource {
+    layout::PluginClass::EffectProcessor, layout::PanelRole::Source,
+    { 616.0, 134.0, 272.0, 126.0 }, 36.0, 26.0, 0u
+};
+constexpr auto kImprintProcess =
+    layout::imprintPanel(layout::PanelRole::Engine, 272.0, 5u);
+constexpr std::array kImprintPanels {
+    kImprintOutput, kImprintSource, kImprintProcess
+};
+constexpr auto kImprintTitle =
+    layout::imprintTitleBand(kImprint.canvas);
+static_assert(kImprint.canvas.width == 900.0);
+static_assert(kImprint.fieldPanel.y
+    == layout::kStandardMetrics.contentTop);
+static_assert(layout::rowY(kImprintOutput, 0u) == 78.0);
+static_assert(layout::rowY(kImprintProcess, 0u) == 308.0);
+static_assert(layout::processorSliderFitsPanel(kImprintOutput));
+static_assert(layout::processorSliderFitsPanel(kImprintProcess));
+static_assert(layout::validateColumn(kImprintPanels, kImprint.canvas));
+static_assert(layout::rolesFollowTemplate(
+    kImprintPanels, layout::kEffectProcessorTemplate, true));
+static_assert(layout::rectFitsCanvas(kImprint.field, kImprint.canvas));
+static_assert(layout::processorTitleBandFits(kImprintTitle));
+
 constexpr std::array kEngineSubset {
     layout::EncoderFamilyControl::Order,
     layout::EncoderFamilyControl::VoicesObjects,
@@ -299,6 +554,9 @@ constexpr bool templatesBeginWithOutput()
         layout::PluginClass::SpatialPannerDecoder,
         layout::PluginClass::MixerMatrixLane,
         layout::PluginClass::CompactUtility,
+        layout::PluginClass::CompactEffect,
+        layout::PluginClass::AnalyzerMonitor,
+        layout::PluginClass::OutputUtility,
     };
     for (const auto pluginClass : classes) {
         const auto& order = layout::templateOrder(pluginClass);

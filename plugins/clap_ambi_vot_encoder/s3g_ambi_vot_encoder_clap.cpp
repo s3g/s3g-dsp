@@ -519,7 +519,12 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kScanRateParamId: plugin.params.scanRate = static_cast<float>(value); break;
     case kMorphParamId: plugin.params.morph = static_cast<float>(value); break;
     case kDetuneParamId: plugin.params.detune = static_cast<float>(value); break;
-    case kScaleParamId: plugin.params.scale = static_cast<s3g::AmbiVotScale>(static_cast<uint32_t>(std::lround(value))); break;
+    case kScaleParamId:
+        plugin.params.scale = static_cast<s3g::AmbiVotScale>(
+            std::clamp<uint32_t>(
+                static_cast<uint32_t>(std::lround(value)),
+                0u, s3g::kMusicalScaleCount - 1u));
+        break;
     case kPitchSpreadParamId: plugin.params.pitchSpread = static_cast<float>(value); break;
     case kHarmonicsParamId: plugin.params.harmonicAmount = static_cast<float>(value); break;
     case kSubharmonicsParamId: plugin.params.subharmonicAmount = static_cast<float>(value); break;
@@ -742,7 +747,8 @@ constexpr ParamDef kParams[] {
     { kScanRateParamId, "Scan Ratio", -4.0, 4.0, 1.0, false },
     { kMorphParamId, "Morph", 0.0, 1.0, 1.0, false },
     { kDetuneParamId, "Pitch Deviation", 0.0, 1.0, 0.10, false },
-    { kScaleParamId, "Pitch Scale", 0.0, 5.0, 0.0, true },
+    { kScaleParamId, "Pitch Scale", 0.0,
+        static_cast<double>(s3g::kMusicalScaleCount - 1u), 0.0, true },
     { kPitchSpreadParamId, "Pitch Spread", 0.0, 2.0, 1.0, false },
     { kHarmonicsParamId, "Harmonic Pull", 0.0, 1.0, 0.0, false },
     { kSubharmonicsParamId, "Subharmonic Pull", 0.0, 1.0, 0.0, false },
@@ -862,9 +868,15 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     return true;
 }
 
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
+    if (id == kScaleParamId) {
+        uint32_t scale = 0u;
+        if (!s3g::musicalScaleValueFromText(display, scale)) return false;
+        *value = static_cast<double>(scale);
+        return true;
+    }
     *value = std::atof(display);
     return true;
 }
@@ -1123,6 +1135,8 @@ static std::vector<float> readWavMono(NSURL* url)
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
+- (NSRect)openMenuRect;
+- (int)openMenuHit:(NSPoint)point;
 @end
 
 @implementation S3GAmbiVotEncoderView
@@ -1851,7 +1865,17 @@ static std::vector<float> readWavMono(NSURL* url)
     static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
     static NSString* sceneItems[] = { @"MANUAL", @"ORBIT", @"FLOW", @"PATH", @"PULSE" };
     static NSString* clockItems[] = { @"FREE", @"SYNC" };
-    static NSString* scaleItems[] = { @"CHROM", @"MAJOR", @"MINOR", @"PENTA", @"WHOLE", @"HARM MIN" };
+    static std::array<NSString*, s3g::kMusicalScaleCount> scaleItems = [] {
+        std::array<NSString*, s3g::kMusicalScaleCount> items {};
+        for (uint32_t menuIndex = 0u;
+             menuIndex < s3g::kMusicalScaleCount; ++menuIndex) {
+            const uint32_t scale =
+                s3g::musicalScaleValueForMenuIndex(menuIndex);
+            items[menuIndex] = [[NSString alloc] initWithUTF8String:
+                s3g::musicalScaleDefinition(scale).name];
+        }
+        return items;
+    }();
     static NSString* scoreModeItems[] = { @"OFF", @"ONE", @"LOOP", @"PING" };
     static NSString* curveItems[] = { @"LINEAR", @"SMOOTH", @"EXP", @"HOLD" };
     NSString** items = modeItems;
@@ -1870,8 +1894,10 @@ static std::vector<float> readWavMono(NSURL* url)
         items = clockItems;
         selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.motionClock));
     } else if (_openMenu == 6) {
-        items = scaleItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.scale));
+        items = scaleItems.data();
+        selected = static_cast<int>(
+            s3g::musicalScaleMenuIndexForValue(
+                static_cast<uint32_t>(_plugin->params.scale)));
     } else if (_openMenu == 7) {
         items = scoreModeItems;
         selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.scoreMode));
@@ -1881,8 +1907,16 @@ static std::vector<float> readWavMono(NSURL* url)
         selected = static_cast<int>(static_cast<uint32_t>(score.nodes[std::min<uint32_t>(_selectedScoreNode, score.nodeCount - 1u)].curve));
     }
     const CGFloat itemHeight = 18.0;
-    const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, _menuWidth, itemHeight * _menuItemCount);
-    s3g::clap_gui::drawDropdownMenu(menuRect, itemHeight, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
+    const NSRect menuRect = [self openMenuRect];
+    if (_openMenu == 6) {
+        s3g::clap_gui::drawMultiColumnDropdownMenu(
+            menuRect, itemHeight, items, _menuItemCount, 4u,
+            selected, _hoverMenuItem, attrs, style);
+    } else {
+        s3g::clap_gui::drawDropdownMenu(
+            menuRect, itemHeight, items, _menuItemCount,
+            selected, _hoverMenuItem, attrs, style);
+    }
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -2005,18 +2039,48 @@ static std::vector<float> readWavMono(NSURL* url)
     [self setNeedsDisplay:YES];
 }
 
-- (void)closeMenuAtPoint:(NSPoint)point
+- (NSRect)openMenuRect
 {
     const CGFloat itemHeight = 18.0;
-    const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, _menuWidth, itemHeight * _menuItemCount);
-    const int hit = s3g::clap_gui::dropdownHitIndex(point, menuRect, itemHeight, _menuItemCount);
+    const uint32_t columns = _openMenu == 6 ? 4u : 1u;
+    const CGFloat columnWidth = _openMenu == 6 ? 180.0 : _menuWidth;
+    const uint32_t rows =
+        s3g::clap_gui::multiColumnMenuRows(_menuItemCount, columns);
+    const CGFloat width = columnWidth * static_cast<CGFloat>(columns);
+    const CGFloat height = itemHeight * static_cast<CGFloat>(rows);
+    const CGFloat x = std::clamp(
+        _menuOrigin.x, 4.0, [self bounds].size.width - width - 4.0);
+    CGFloat y = _menuOrigin.y;
+    if (y + height > [self bounds].size.height - 4.0) {
+        y = _menuOrigin.y - itemHeight - height;
+    }
+    return NSMakeRect(x, std::max<CGFloat>(4.0, y), width, height);
+}
+
+- (int)openMenuHit:(NSPoint)point
+{
+    const NSRect menuRect = [self openMenuRect];
+    return _openMenu == 6
+        ? s3g::clap_gui::multiColumnDropdownHitIndex(
+            point, menuRect, 18.0, _menuItemCount, 4u)
+        : s3g::clap_gui::dropdownHitIndex(
+            point, menuRect, 18.0, _menuItemCount);
+}
+
+- (void)closeMenuAtPoint:(NSPoint)point
+{
+    const int hit = [self openMenuHit:point];
     if (hit >= 0) {
         if (_openMenu == 1) applyParam(*_plugin, kModeParamId, hit);
         else if (_openMenu == 2) applyParam(*_plugin, kPresetParamId, hit);
         else if (_openMenu == 3) applyParam(*_plugin, kOrderParamId, hit + 1);
         else if (_openMenu == 4) applyParam(*_plugin, kMotionSceneParamId, hit);
         else if (_openMenu == 5) applyParam(*_plugin, kMotionClockParamId, hit);
-        else if (_openMenu == 6) applyParam(*_plugin, kScaleParamId, hit);
+        else if (_openMenu == 6) {
+            applyParam(*_plugin, kScaleParamId,
+                s3g::musicalScaleValueForMenuIndex(
+                    static_cast<uint32_t>(hit)));
+        }
         else if (_openMenu == 7) applyParam(*_plugin, kScoreModeParamId, hit);
         else if (_openMenu == 8) {
             auto score = loadScore(*_plugin);
@@ -2337,7 +2401,7 @@ static std::vector<float> readWavMono(NSURL* url)
     struct MenuHit { int menu; uint32_t count; CGFloat x; CGFloat y; CGFloat width; };
     static constexpr MenuHit menus[] {
         { 3, 7, 738, 104, 124 }, { 1, 3, 738, 170, 124 }, { 2, 5, 738, 196, 124 },
-        { 6, 6, 738, 340, 124 },
+        { 6, s3g::kMusicalScaleCount, 738, 340, 124 },
         { 4, 5, 1004, 78, 124 }, { 5, 2, 1004, 104, 124 },
         { 7, 4, 1004, 508, 124 },
     };
@@ -2479,9 +2543,7 @@ static std::vector<float> readWavMono(NSURL* url)
 {
     if (_openMenu <= 0 || _menuItemCount == 0u) return;
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    const CGFloat itemHeight = 18.0;
-    const NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, _menuWidth, itemHeight * _menuItemCount);
-    const int next = s3g::clap_gui::dropdownHitIndex(point, menuRect, itemHeight, _menuItemCount);
+    const int next = [self openMenuHit:point];
     if (next != _hoverMenuItem) {
         _hoverMenuItem = next;
         [self setNeedsDisplay:YES];

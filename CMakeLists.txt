@@ -277,16 +277,16 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMENT "Rendering and validating every Panner-family GUI")
 
     add_custom_target(audit_gui_processor_family
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-8ch 1000 820 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-24ch 1000 820 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-8ch 1356 820 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-24ch 1356 820 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_buffer_processor_clap> org.s3g.s3g-dsp.buffer-processor 760 584 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_wave_geometry_processor_clap> org.s3g.s3g-dsp.wave-geometry-processor 1000 1002 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_wave_geometry_processor_clap> org.s3g.s3g-dsp.wave-geometry-processor 1356 1002 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_loop_processor_clap> org.s3g.s3g-dsp.loop-processor-8ch 920 640 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_multi_loop_processor_clap> org.s3g.s3g-dsp.multi-loop-processor-8ch 920 674 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_psd_raw_field_clap> org.s3g.s3g-dsp.fault 880 846 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_grain_processor_clap> org.s3g.s3g-dsp.ambi-grain-processor 920 640 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1000 950 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1000 950 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1356 950 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1356 950 "s3g Processor " responsive
       DEPENDS
         s3g_encoder_family_gui_smoke
         s3g_8ch_delay_processor_clap
@@ -321,6 +321,151 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_macro_shred_clap
         s3g_24ch_macro_shred_clap
       COMMENT "Rendering and validating every Macro-family GUI")
+
+    add_custom_target(audit_gui_array_family
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_hpf_16_clap> org.s3g.s3g-dsp.array-hpf-16 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_hpf_26_clap> org.s3g.s3g-dsp.array-hpf-26 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_hpf_32_clap> org.s3g.s3g-dsp.array-hpf-32 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_hpf_64_clap> org.s3g.s3g-dsp.array-hpf-64 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_delay_16_clap> org.s3g.s3g-dsp.array-delay-16 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_delay_26_clap> org.s3g.s3g-dsp.array-delay-26 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_delay_32_clap> org.s3g.s3g-dsp.array-delay-32 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_delay_64_clap> org.s3g.s3g-dsp.array-delay-64 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_trim_16_clap> org.s3g.s3g-dsp.array-trim-16 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_trim_26_clap> org.s3g.s3g-dsp.array-trim-26 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_trim_32_clap> org.s3g.s3g-dsp.array-trim-32 720 388 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_trim_64_clap> org.s3g.s3g-dsp.array-trim-64 720 388 "s3g Array " responsive
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_array_hpf_16_clap
+        s3g_array_hpf_26_clap
+        s3g_array_hpf_32_clap
+        s3g_array_hpf_64_clap
+        s3g_array_delay_16_clap
+        s3g_array_delay_26_clap
+        s3g_array_delay_32_clap
+        s3g_array_delay_64_clap
+        s3g_array_trim_16_clap
+        s3g_array_trim_26_clap
+        s3g_array_trim_32_clap
+        s3g_array_trim_64_clap
+      COMMENT "Rendering and validating every Array-family GUI")
+
+    add_custom_target(audit_gui_transform_family
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_rotate_clap> org.s3g.s3g-dsp.ambisonic-rotate-64 820 496 "s3g Ambi Transform " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_group_rotate_64_clap> org.s3g.s3g-dsp.ambi-group-rotate-64 820 496 "s3g Ambi Transform " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_group_rotate_128_clap> org.s3g.s3g-dsp.ambi-group-rotate-128 820 496 "s3g Ambi Transform " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_depth_16_clap> org.s3g.s3g-dsp.ambi-depth-16 820 496 "s3g Ambi Transform " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_group_depth_64_clap> org.s3g.s3g-dsp.ambi-group-depth-64 820 496 "s3g Ambi Transform " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_group_depth_128_clap> org.s3g.s3g-dsp.ambi-group-depth-128 820 496 "s3g Ambi Transform " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_order_band_tool_clap> org.s3g.s3g-dsp.ambisonic-order-band-tool-64 820 496 "s3g Ambi Transform " responsive
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_ambisonic_rotate_clap
+        s3g_ambi_group_rotate_64_clap
+        s3g_ambi_group_rotate_128_clap
+        s3g_ambi_depth_16_clap
+        s3g_ambi_group_depth_64_clap
+        s3g_ambi_group_depth_128_clap
+        s3g_ambisonic_order_band_tool_clap
+      COMMENT "Rendering and validating every Ambi Transform-family GUI")
+
+    add_custom_target(audit_gui_matrix_family
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_group_matrix_32_clap> org.s3g.s3g-dsp.group-matrix-32 1040 648 "s3g Matrix " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_group_matrix_clap> org.s3g.s3g-dsp.group-matrix 1040 648 "s3g Matrix " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_group_matrix_clap> org.s3g.s3g-dsp.ambi-group-matrix 1040 648 "s3g Ambi Matrix " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_group_matrix_128_clap> org.s3g.s3g-dsp.ambi-group-matrix-128 1040 648 "s3g Ambi Matrix " responsive
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_group_matrix_32_clap
+        s3g_group_matrix_clap
+        s3g_ambi_group_matrix_clap
+        s3g_ambi_group_matrix_128_clap
+      COMMENT "Rendering and validating every Matrix-family GUI")
+
+    add_custom_target(audit_gui_mixer_family
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_node_track_mixer_clap> org.s3g.s3g-dsp.node-bus-mixer 920 920 "s3g Mixer " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_node_track_mixer_clap> org.s3g.s3g-dsp.ambi-node-bus-mixer 920 920 "s3g Ambi Mixer " responsive
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_node_track_mixer_clap
+        s3g_ambi_node_track_mixer_clap
+      COMMENT "Rendering and validating every Mixer-family GUI")
+
+    add_custom_target(audit_gui_compact_effect_family
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_spray_clap> org.s3g.s3g-dsp.spectral-spray 760 376 "s3g Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_spectral_spray_clap> org.s3g.s3g-dsp.8ch-spectral-spray 760 376 "s3g Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_shard_scatter_clap> org.s3g.s3g-dsp.shard-scatter 760 376 "s3g Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_orbit_delay_clap> org.s3g.s3g-dsp.orbit-delay 760 376 "s3g Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_cascade_taps_clap> org.s3g.s3g-dsp.cascade-taps 760 376 "s3g Effect " responsive
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_spectral_spray_clap
+        s3g_8ch_spectral_spray_clap
+        s3g_shard_scatter_clap
+        s3g_orbit_delay_clap
+        s3g_cascade_taps_clap
+      COMMENT "Rendering and validating every compact Effect-family GUI")
+
+    add_custom_target(audit_gui_3oafx_family
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_delay_clap> org.s3g.s3g-dsp.3oafx-delay 880 500 "s3g 3OAFX " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_pitch_clap> org.s3g.s3g-dsp.3oafx-pitch 880 500 "s3g 3OAFX " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_filter_clap> org.s3g.s3g-dsp.3oafx-filter 880 500 "s3g 3OAFX " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_gain_clap> org.s3g.s3g-dsp.3oafx-gain 880 500 "s3g 3OAFX " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_displacement_clap> org.s3g.s3g-dsp.3oafx-displacement 920 610 "s3g 3OAFX " responsive
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_3oafx_delay_clap
+        s3g_3oafx_pitch_clap
+        s3g_3oafx_filter_clap
+        s3g_3oafx_gain_clap
+        s3g_3oafx_displacement_clap
+      COMMENT "Rendering and validating every 3OAFX Effect/Transform GUI")
+
+    add_custom_target(audit_gui_output_family
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_stereo_autogain_clap> org.s3g.s3g-dsp.mc-to-stereo-autogain 920 560 "s3g Output " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_quad_autogain_clap> org.s3g.s3g-dsp.mc-to-quad-autogain 920 560 "s3g Output " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_sub_crossover_clap> org.s3g.s3g-dsp.sub-crossover 920 560 "s3g Output " responsive
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_mc_to_stereo_autogain_clap
+        s3g_mc_to_quad_autogain_clap
+        s3g_sub_crossover_clap
+      COMMENT "Rendering and validating every Output-family GUI")
+
+    add_custom_target(audit_gui_analyzer_family
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_multichannel_meter_clap> org.s3g.s3g-dsp.multichannel-meter-64 980 560 "s3g Analyzer " dynamic
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_energy_visualizer_clap> org.s3g.s3g-dsp.ambisonic-energy-visualizer-64 980 560 "s3g Analyzer " dynamic
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_multichannel_meter_clap
+        s3g_ambisonic_energy_visualizer_clap
+      COMMENT "Rendering and validating every dynamically resizable Analyzer-family GUI")
+
+    add_custom_target(audit_gui_imprint
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_imprint_clap> org.s3g.s3g-dsp.ambi-imprint-64 900 480 "s3g Processor Ambi Imprint " responsive
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_ambi_imprint_clap
+      COMMENT "Rendering and validating the Ambi Imprint GUI")
   endif()
 endif()
 
