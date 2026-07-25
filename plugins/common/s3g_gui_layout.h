@@ -134,6 +134,7 @@ struct Column {
 };
 
 struct Metrics {
+    double contentTop = 42.0;
     double headerHeight = 21.0;
     double headerLabelInset = 8.0;
     double panelGap = 12.0;
@@ -146,6 +147,10 @@ struct Metrics {
     double valueInset = 196.0;
     double trackWidth = 82.0;
     double menuWidth = 124.0;
+    double panelRightInset = 16.0;
+    double processorValueWidth = 42.0;
+    double processorValueGap = 8.0;
+    double processorTrackWidth = 150.0;
     double hitInset = 8.0;
     double hitHeight = 24.0;
 };
@@ -196,6 +201,40 @@ struct EncoderTitleBand {
 };
 
 inline constexpr Metrics kStandardMetrics {};
+
+constexpr double processorLabelX(double panelX)
+{
+    return panelX + kStandardMetrics.labelInset;
+}
+
+constexpr double processorControlX(double panelX)
+{
+    return panelX + kStandardMetrics.controlInset;
+}
+
+constexpr double processorValueX(double panelX, double panelWidth)
+{
+    return panelX + panelWidth - kStandardMetrics.panelRightInset
+        - kStandardMetrics.processorValueWidth;
+}
+
+constexpr double processorTrackWidth(double panelWidth)
+{
+    const double available = panelWidth
+        - kStandardMetrics.controlInset
+        - kStandardMetrics.panelRightInset
+        - kStandardMetrics.processorValueWidth
+        - kStandardMetrics.processorValueGap;
+    return available < kStandardMetrics.processorTrackWidth
+        ? available : kStandardMetrics.processorTrackWidth;
+}
+
+constexpr double processorMenuWidth(double panelWidth)
+{
+    return panelWidth - kStandardMetrics.controlInset
+        - kStandardMetrics.panelRightInset;
+}
+
 inline constexpr Column kLargeEncoderFirstColumn { 630.0, 250.0, 42.0 };
 inline constexpr Column kLargeEncoderSecondColumn { 896.0, 246.0, 42.0 };
 inline constexpr PanelAnchor kLargeEncoderOutputAnchor {

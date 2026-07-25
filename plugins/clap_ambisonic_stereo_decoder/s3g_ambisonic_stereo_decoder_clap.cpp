@@ -28,6 +28,9 @@ constexpr uint32_t kStereoChannels = 2;
 constexpr double kCoeffRampMs = 36.0;
 constexpr uint32_t kGuiWidth = 940;
 constexpr uint32_t kGuiHeight = 650;
+constexpr double kLegacyContentTop = 34.0;
+constexpr double kContentTranslation =
+    s3g::gui_layout::kStandardMetrics.contentTop - kLegacyContentTop;
 
 enum ParamId : clap_id {
     kParamOrder = 1,
@@ -706,6 +709,11 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
         s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
         titleAttrs, text, small, style);
 
+    [NSGraphicsContext saveGraphicsState];
+    NSAffineTransform* contentTransform = [NSAffineTransform transform];
+    [contentTransform translateXBy:0.0 yBy:kContentTranslation];
+    [contentTransform concat];
+
     NSRect fieldPanel = NSMakeRect(12, 34, 568, 594);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"STEREO IMAGE", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
@@ -935,13 +943,23 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
       [NSString stringWithUTF8String:layoutName(static_cast<uint32_t>(p->params.layout))],
       [NSString stringWithUTF8String:methodName(static_cast<uint32_t>(p->params.method))],
       [NSString stringWithUTF8String:weightingName(static_cast<uint32_t>(p->params.weighting))]]
-        drawAtPoint:NSMakePoint(field.origin.x, NSMaxY(field) - 24.0) withAttributes:small];
+        drawAtPoint:NSMakePoint(field.origin.x, NSMaxY(field) - 42.0) withAttributes:small];
+    NSString* cameraName = _viewMode == 0 ? @"TOP"
+        : (_viewMode == 1 ? @"SIDE" : @"FREE");
+    const double cameraAz = _viewMode == 0 ? 0.0
+        : (_viewMode == 1 ? -90.0 : static_cast<double>(_viewYawDeg));
+    const double cameraEl = _viewMode == 0 ? 90.0
+        : (_viewMode == 1 ? 0.0 : static_cast<double>(-_viewPitchDeg));
+    [[NSString stringWithFormat:@"CAM %@  AZ %+.0f°  EL %+.0f°",
+      cameraName, cameraAz, cameraEl]
+        drawAtPoint:NSMakePoint(field.origin.x, NSMaxY(field) - 23.0)
+        withAttributes:small];
 
     NSRect side = NSMakeRect(592, 34, 336, 594);
     NSRect output = NSMakeRect(side.origin.x, 34, side.size.width, 118);
     NSRect decoder = NSMakeRect(side.origin.x, 164, side.size.width, 128);
     NSRect pickup = NSMakeRect(side.origin.x, 304, side.size.width, 184);
-    NSRect fieldMix = NSMakeRect(side.origin.x, 500, side.size.width, 118);
+    NSRect fieldMix = NSMakeRect(side.origin.x, 500, side.size.width, 128);
 
     s3g::clap_gui::drawPanelFrame(output.origin.x, output.origin.y, output.size.width, output.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, output.origin.x, output.origin.y, output.size.width, 21, text, style);
@@ -1004,6 +1022,7 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
         NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 176, itemH * _menuItems);
         s3g::clap_gui::drawDropdownMenu(menu, itemH, items, _menuItems, selected, _hoverMenuItem, small, style);
     }
+    [NSGraphicsContext restoreGraphicsState];
 }
 - (void)updateSliderAtPoint:(NSPoint)pt
 {
@@ -1070,6 +1089,7 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
         }
         return;
     }
+    pt.y -= kContentTranslation;
     if (_openMenu > 0) {
         NSRect menu = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 176, 18.0 * _menuItems);
         const int hit = s3g::clap_gui::dropdownHitIndex(pt, menu, 18.0, _menuItems);
@@ -1107,15 +1127,13 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
     if (NSPointInRect(pt, field)) {
         if (_viewMode == 0) {
             _viewYawDeg = 0.0f;
-            _viewPitchDeg = 0.0f;
+            _viewPitchDeg = -89.0f;
         } else if (_viewMode == 1) {
-            _viewYawDeg = 0.0f;
-            _viewPitchDeg = -90.0f;
+            _viewYawDeg = -90.0f;
+            _viewPitchDeg = 0.0f;
         }
-        _viewMode = 2;
         _dragView = YES;
         _lastDragPoint = pt;
-        [self setNeedsDisplay:YES];
         return;
     }
     struct HitRow { int index; CGFloat y; bool menu; int openMenu; uint32_t menuItems; };
@@ -1180,10 +1198,12 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    pt.y -= kContentTranslation;
     [self updateMenuHover:pt];
     if (_dragView) {
         const CGFloat dx = pt.x - _lastDragPoint.x;
         const CGFloat dy = pt.y - _lastDragPoint.y;
+        if (_viewMode != 2) _viewMode = 2;
         _viewYawDeg += static_cast<float>(dx) * 0.45f;
         _viewPitchDeg = std::clamp(_viewPitchDeg + static_cast<float>(dy) * 0.35f, -89.0f, 89.0f);
         _lastDragPoint = pt;
@@ -1192,7 +1212,12 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
     }
     if (_dragSlider >= 0) [self updateSliderAtPoint:pt];
 }
-- (void)mouseMoved:(NSEvent*)event { [self updateMenuHover:[self convertPoint:[event locationInWindow] fromView:nil]]; }
+- (void)mouseMoved:(NSEvent*)event
+{
+    NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    pt.y -= kContentTranslation;
+    [self updateMenuHover:pt];
+}
 - (void)mouseUp:(NSEvent*)event { (void)event; _dragSlider = -1; _dragView = NO; }
 @end
 

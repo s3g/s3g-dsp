@@ -12,8 +12,17 @@ order, column geometry, and ordinary row alignment follow its class template.
 
 Every custom plugin GUI follows these rules:
 
-- The title band holds the plugin name, preset controls, actions, and compact
-  status such as `PK` and channel width.
+- The title band holds the full plugin name, preset controls, actions, and a
+  compact far-right status such as `PK`.
+- The title band has no standalone underline. Every toolbox and primary
+  field/view draws the same two-pixel accent line on its own top edge, so the
+  content regions provide the visual separation without a competing rule.
+- The first toolbox or primary field/view begins at y 42 px. This leaves the
+  same 11 px clear band below the 18 px title controls, whose lower edge is
+  y 31 px. Editors do not move this top edge upward to recover canvas space.
+- A channel count appears at the end of the plugin name only when it
+  distinguishes a meaningful variant. Encoder names omit `64` because
+  64-channel support is universal across that family.
 - Encoder title actions always read `PRESET`, `LOAD`, `SAVE`, `RANDOM`, from
   left to right. `LOAD` and `SAVE` in this strip operate on the complete plugin
   state; media, atlas, map, capture, and selected-object actions stay in their
@@ -214,6 +223,60 @@ begins at toolbox y + 36 and packs only its visible controls. Its motion
 toolbox follows the surface toolbox at the standard 12 px gap and uses the
 standard 26 px row pitch.
 
+## Processor Family Reference
+
+The Processor-family audit uses eight concepts and ten editors: Delay 8ch/24ch,
+Buffer, Wave Geometry, Loop, Multi Loop, Fault, Ambi Grain, and Spectral
+8ch/24ch. Membership is explicit so a renamed or multichannel variant
+cannot silently escape the family contract.
+
+All Processors use the shared Processor title renderer. Their complete title
+ends in the meaningful processing width (`8CH`, `16CH`, or `24CH`), while the
+far-right status contains only `PK` and an exceptional transient state such as
+`CLIP`; it never repeats the channel count. The title-band order is `PRESET`,
+`LOAD`, `SAVE`; `PRESET` restores the declared initial parameter state and
+`LOAD`/`SAVE` operate on the complete plug-in state. `RANDOM` is not
+a universal Processor title action. Safe random, mutate, reseed, generated
+field, and captured-memory actions remain in the panel that owns their result.
+Likewise, `LOAD AUDIO` or an equivalent media-source action remains beside the
+waveform, source list, or playback transport and is never confused with state
+preset loading.
+
+`OUTPUT` is the first panel in the Processor control stack, even when the
+primary visual occupies the left side or the controls sit in the right column.
+`OUT` is always its first row and always displays dB. Final wet/dry `MIX` may
+follow it; generation feedback, scan level, source rate, topology amount,
+spectral damage, and other sound-building controls belong to their semantic
+panels. A one-row OUTPUT panel is 54 px high. A two-row OUTPUT panel is 80 px
+high. Both use the family first-row offset of 36 px, 26 px row pitch, and 18 px
+clearance after the final baseline.
+
+Every Processor toolbox uses the same interior anchors: its title begins 8 px
+from the frame, ordinary labels begin 16 px from the frame, and sliders or
+menus begin 108 px from the frame. Numeric values occupy a bounded 42 px cell
+that ends 16 px before the right border. The slider track stops before that
+cell; narrower toolboxes shorten the track instead of allowing the value to
+cross the frame.
+
+The remaining stack follows the Processor subtype:
+
+| Subtype | Stack after `OUTPUT` |
+| --- | --- |
+| Topology effect | processing engine, `TOPOLOGY`, patch/routing |
+| Loaded-media instrument | playback/source engine, source/window, `RELATIONSHIPS` |
+| Buffer/time processor | engine, `RELATIONSHIPS`, corruption/memory |
+| Developed generator | field/source, codec/shape, performance/envelope |
+
+All Processor editors use the responsive viewport contract. Every continuous
+slider, including topology, relationship, contextual-source, and output rows,
+resets through its declared CLAP default on double-click. Menu choices render
+uppercase through the shared bounded menu renderer. Numeric output values use
+the shared bounded value cell, which may remove a space or unnecessary
+precision before it allows text to cross a toolbox border.
+
+The `audit_gui_processor_family` build target renders and validates all ten
+editors, their host-name prefix, responsive sizing, and shared default lookup.
+
 ## Decoder Family Reference
 
 The decoder-family audit uses an explicit six-member list: Head, Stereo, Sub,
@@ -255,6 +318,16 @@ does not fit, use the shared compact abbreviation before falling back to a
 clipped/ellipsized value. Spatial pickup markers use the family diamond motif.
 Head diagrams favor a simple, elongated geometric silhouette with only the
 guides needed to read orientation and ear/pickup position.
+
+Head and Stereo fields print the active camera at the bottom of the primary
+view as `CAM <VIEW> AZ <angle> EL <angle>`. Preset cameras remain stable until
+actual pointer movement begins; mouse-down alone never switches to a different
+projection. Dragging from TOP, BACK, or SIDE seeds the free camera from that
+exact preset, then continues without a jump. Head treats its brow/nose cross as
+an orientation mark rather than a fixed overlay: TOP shows only its edge-on
+sliver, BACK shows the full mark, and free 3/4 views keep the brow above the
+nose stem instead of inverting it. Field axes must not bleed through the opaque
+head silhouette and create a second accidental face marker.
 
 Head combines decode mode and virtual-layout selection in its `FIELD` menu.
 `INTERNAL GRID` selects direct decoding; choosing any named virtual layout

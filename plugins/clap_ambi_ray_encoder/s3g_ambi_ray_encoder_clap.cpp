@@ -34,7 +34,10 @@ namespace {
 constexpr uint32_t kInputChannels = 1u;
 constexpr uint32_t kOutputChannels = 64u;
 constexpr uint32_t kGuiWidth = 1040u;
-constexpr uint32_t kGuiHeight = 620u;
+constexpr uint32_t kGuiHeight = 628u;
+constexpr double kLegacyContentTop = 34.0;
+constexpr double kContentTranslation =
+    s3g::gui_layout::kStandardMetrics.contentTop - kLegacyContentTop;
 constexpr uint32_t kStateMagic = 0x53475259u;
 constexpr uint32_t kStateVersion = 4u;
 constexpr uint32_t kMaximumStateJsonBytes = 8u * 1024u * 1024u;
@@ -1564,6 +1567,11 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
         s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
         s3g::clap_gui::softTitleAttrs(), text, value, style);
 
+    [NSGraphicsContext saveGraphicsState];
+    NSAffineTransform* contentTransform = [NSAffineTransform transform];
+    [contentTransform translateXBy:0.0 yBy:kContentTranslation];
+    [contentTransform concat];
+
     const NSRect fieldPanel = NSMakeRect(12, 34, 700, 574);
     const NSRect outputPanel = NSMakeRect(724, 34, 304, 80);
     const NSRect mapPanel = NSMakeRect(724, 126, 304, 104);
@@ -1652,6 +1660,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
         s3g::clap_gui::drawDropdownMenu(rayAtlasMenuRect(), 18, atlasItems,
             static_cast<uint32_t>(kRayAtlas.size()), -1, _atlasMenuHover, value, style);
     }
+    [NSGraphicsContext restoreGraphicsState];
 }
 
 - (void)resetParam:(clap_id)param
@@ -1730,7 +1739,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 
 - (void)mouseDown:(NSEvent*)event
 {
-    const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
         const auto performanceFrame = _plugin->params;
@@ -1791,6 +1800,7 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
         [self setNeedsDisplay:YES];
         return;
     }
+    point.y -= kContentTranslation;
     if (_atlasMenuOpen) {
         const int hit = s3g::clap_gui::dropdownHitIndex(point, rayAtlasMenuRect(), 18,
             static_cast<uint32_t>(kRayAtlas.size()));
@@ -1889,7 +1899,8 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 
 - (void)mouseDragged:(NSEvent*)event
 {
-    const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    point.y -= kContentTranslation;
     if (_positionDragView != 0) {
         [self updatePositionAtPoint:point view:_positionDragView];
         return;
@@ -1906,7 +1917,8 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 
 - (void)mouseMoved:(NSEvent*)event
 {
-    const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    point.y -= kContentTranslation;
     if (_atlasMenuOpen) {
         _atlasMenuHover = s3g::clap_gui::dropdownHitIndex(point, rayAtlasMenuRect(), 18,
             static_cast<uint32_t>(kRayAtlas.size()));

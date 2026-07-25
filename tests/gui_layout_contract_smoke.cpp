@@ -36,10 +36,17 @@ static_assert(layout::rowY(kEngine, 5u) == 300.0);
 static_assert(layout::toolboxFirstRowY(42.0) == 78.0);
 static_assert(layout::toolboxRowY(42.0, 3u) == 156.0);
 static_assert(layout::kStandardMetrics.toolboxBottomClearance == 18.0);
+static_assert(layout::kStandardMetrics.contentTop == 42.0);
 static_assert(layout::kStandardMetrics.headerLabelInset == 8.0);
 static_assert(layout::kStandardMetrics.labelInset == 16.0);
 static_assert(layout::kStandardMetrics.labelInset
     - layout::kStandardMetrics.headerLabelInset == 8.0);
+static_assert(layout::processorLabelX(596.0) == 612.0);
+static_assert(layout::processorControlX(596.0) == 704.0);
+static_assert(layout::processorValueX(596.0, 306.0) == 844.0);
+static_assert(layout::processorTrackWidth(306.0) == 132.0);
+static_assert(layout::processorTrackWidth(344.0) == 150.0);
+static_assert(layout::processorMenuWidth(306.0) == 182.0);
 static_assert(layout::toolboxHeightForRows(1u) == 54.0);
 static_assert(layout::toolboxHeightForRows(4u) == 132.0);
 static_assert(layout::toolboxHeightForRows(7u) == 210.0);

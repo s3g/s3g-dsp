@@ -1217,7 +1217,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     (void)dirty; const auto style = s3g::clap_gui::softTextStyle(); [style.bg setFill]; NSRectFill([self bounds]);
     NSDictionary* attrs = s3g::clap_gui::softLabelAttrs(), *values = s3g::clap_gui::softValueAttrs(), *title = s3g::clap_gui::softTitleAttrs();
     s3g::clap_gui::drawEncoderTitleBand(
-        @"s3g AMBI ENCODER WAVE TERRAIN 64",
+        @"s3g AMBI ENCODER WAVE TERRAIN",
         [NSString stringWithUTF8String:_titlePresetName],
         s3g::clap_gui::peakDbText(
             _plugin->outputPeak.load(std::memory_order_relaxed)),
@@ -1430,7 +1430,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_F
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64",
-    "s3g Ambi Encoder Wave Terrain 64",
+    "s3g Ambi Encoder Wave Terrain",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "", "", "0.5.0-pre",

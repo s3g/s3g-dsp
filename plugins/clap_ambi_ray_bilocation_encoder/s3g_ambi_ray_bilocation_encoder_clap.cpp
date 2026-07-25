@@ -35,7 +35,12 @@ namespace {
 constexpr uint32_t kInputChannels = 1u;
 constexpr uint32_t kOutputChannels = 64u;
 constexpr uint32_t kGuiWidth = 1240u;
-constexpr uint32_t kGuiHeight = 900u;
+constexpr uint32_t kGuiHeight = 908u;
+constexpr double kLegacyContentTop = 34.0;
+constexpr double kContentTranslation =
+    s3g::gui_layout::kStandardMetrics.contentTop - kLegacyContentTop;
+constexpr double kContentCoordinateHeight =
+    static_cast<double>(kGuiHeight) - kContentTranslation;
 constexpr uint32_t kStateMagic = 0x5347424cu;
 constexpr uint32_t kStateVersion = 2u;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-ray-bilocation-encoder";
@@ -880,7 +885,7 @@ NSRect parameterDropdownRect(clap_id id)
     const CGFloat height = itemHeight * static_cast<CGFloat>(itemCount);
     const NSRect box = parameterMenuBoxRect(id);
     const CGFloat preferredY = NSMaxY(box) + 2.0;
-    const CGFloat y = preferredY + height <= static_cast<CGFloat>(kGuiHeight) - 12.0
+    const CGFloat y = preferredY + height <= kContentCoordinateHeight - 12.0
         ? preferredY
         : layout->row.origin.y - height - 2.0;
     return NSMakeRect(box.origin.x, y, box.size.width, height);
@@ -1455,6 +1460,11 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
         s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
         s3g::clap_gui::softTitleAttrs(), labelAttrs, valueAttrs, style);
 
+    [NSGraphicsContext saveGraphicsState];
+    NSAffineTransform* contentTransform = [NSAffineTransform transform];
+    [contentTransform translateXBy:0.0 yBy:kContentTranslation];
+    [contentTransform concat];
+
     s3g::clap_gui::drawPanelFrame(12, 34, 570, 560, style);
     s3g::clap_gui::drawPanelFrame(658, 34, 570, 560, style);
     [self drawField:snapshot.fieldA rect:fieldARect()
@@ -1583,6 +1593,7 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
                 _parameterMenuHover, valueAttrs, style);
         }
     }
+    [NSGraphicsContext restoreGraphicsState];
 }
 
 - (void)updateSlider:(clap_id)param point:(NSPoint)point
@@ -1643,7 +1654,7 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
 
 - (void)mouseDown:(NSEvent*)event
 {
-    const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
         const auto performanceFrame = _plugin->params;
@@ -1708,6 +1719,7 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
         [self setNeedsDisplay:YES];
         return;
     }
+    point.y -= kContentTranslation;
     if (_pairMenuOpen) {
         const int hit = s3g::clap_gui::dropdownHitIndex(point, pairMenuRect(), 20, static_cast<uint32_t>(kPairPresets.size()));
         _pairMenuOpen = false; _pairMenuHover = -1;
@@ -1795,7 +1807,8 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
 
 - (void)mouseDragged:(NSEvent*)event
 {
-    const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    point.y -= kContentTranslation;
     if (_dragField != 0) [self updateMapPosition:point field:_dragField];
     else if (_dragParam != CLAP_INVALID_ID) [self updateSlider:_dragParam point:point];
 }
@@ -1804,7 +1817,8 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
 
 - (void)mouseMoved:(NSEvent*)event
 {
-    const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    point.y -= kContentTranslation;
     if (_pairMenuOpen) {
         _pairMenuHover = s3g::clap_gui::dropdownHitIndex(
             point, pairMenuRect(), 20, static_cast<uint32_t>(kPairPresets.size()));

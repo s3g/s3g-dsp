@@ -9953,7 +9953,7 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
     NSDictionary* labelAttrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
-    [@"s3g AMBI ENCODER VOX 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
+    [@"s3g AMBI ENCODER VOX" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
     s3g::clap_gui::drawEncoderPresetMenu(
         [self presetDisplayName],
         s3g::clap_gui::encoderTitleBand(kGuiW, kGuiH),
@@ -10962,7 +10962,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-vox-encoder-64",
-    "s3g Ambi Encoder Vox 64",
+    "s3g Ambi Encoder Vox",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

@@ -20,6 +20,10 @@
 
 namespace {
 
+constexpr double kLegacyContentTop = 34.0;
+constexpr double kContentTranslation =
+    s3g::gui_layout::kStandardMetrics.contentTop - kLegacyContentTop;
+
 constexpr uint32_t kStateVersion = 2;
 constexpr uint32_t kInputChannels = s3g::kAmbiHeadMaxChannels;
 constexpr uint32_t kOutputChannels = 2;
@@ -576,6 +580,11 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         s3g::clap_gui::encoderTitleBand(930.0, 720.0),
         titleAttrs, text, small, style);
 
+    [NSGraphicsContext saveGraphicsState];
+    NSAffineTransform* contentTransform = [NSAffineTransform transform];
+    [contentTransform translateXBy:0.0 yBy:kContentTranslation];
+    [contentTransform concat];
+
     NSRect fieldPanel = NSMakeRect(12, 34, 568, 664);
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"HEAD FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
@@ -649,16 +658,31 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
     for (size_t i = 1u; i < sizeof(headOutline) / sizeof(headOutline[0]); ++i)
         [silhouette lineToPoint:headOutline[i]];
     [silhouette closePath];
-    [c(0x1d1d1d, 0.88) setFill];
+    [c(0x1d1d1d, 1.0) setFill];
     [silhouette fill];
     [c(0xc6c6c6, 0.82) setStroke];
     [silhouette setLineWidth:1.6];
     [silhouette stroke];
     NSBezierPath* guide = [NSBezierPath bezierPath];
-    [guide moveToPoint:headPoint(0.0, 0.84)];
-    [guide lineToPoint:headPoint(0.0, -0.76)];
-    [guide moveToPoint:headPoint(-0.58, -0.40)];
-    [guide lineToPoint:headPoint(0.58, -0.40)];
+    if (_viewMode == 0) {
+        // The brow/nose guide is edge-on from above. Keep only a short
+        // anterior sliver so it cannot be read as a face seen from the front.
+        [guide moveToPoint:headPoint(-0.14, -0.78)];
+        [guide lineToPoint:headPoint(0.14, -0.78)];
+    } else {
+        // In back and free 3/4 views the orientation mark remains visually
+        // upright: the brow sits above the longer nose/centre stem.
+        NSPoint marker = _viewMode == 1
+            ? NSMakePoint(cx, cy)
+            : project3(0.0, -headD * 0.10 / r, headH * 0.04 / r, r);
+        const CGFloat markerH = _viewMode == 1 ? headH * 0.62 : headH * 0.48;
+        const CGFloat markerW = _viewMode == 1 ? headW * 0.82 : headW * 0.62;
+        const CGFloat browY = marker.y - markerH * 0.18;
+        [guide moveToPoint:NSMakePoint(marker.x, marker.y - markerH * 0.46)];
+        [guide lineToPoint:NSMakePoint(marker.x, marker.y + markerH * 0.54)];
+        [guide moveToPoint:NSMakePoint(marker.x - markerW * 0.5, browY)];
+        [guide lineToPoint:NSMakePoint(marker.x + markerW * 0.5, browY)];
+    }
     [c(0x777777, 0.58) setStroke];
     [guide setLineWidth:0.9];
     [guide stroke];
@@ -747,7 +771,16 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
       [NSString stringWithUTF8String:modeName(static_cast<uint32_t>(p->params.mode))],
       [NSString stringWithUTF8String:headName(static_cast<uint32_t>(p->params.head))],
       [NSString stringWithUTF8String:directDecode ? "Direct grid" : layoutName(static_cast<uint32_t>(p->params.layout))]]
-        drawAtPoint:NSMakePoint(40, 550) withAttributes:small];
+        drawAtPoint:NSMakePoint(40, 546) withAttributes:small];
+    NSString* cameraName = _viewMode == 0 ? @"TOP"
+        : (_viewMode == 1 ? @"BACK" : @"FREE");
+    const double cameraAz = _viewMode == 0 ? 0.0
+        : (_viewMode == 1 ? 180.0 : _viewYawDeg);
+    const double cameraEl = _viewMode == 0 ? 90.0
+        : (_viewMode == 1 ? 0.0 : _viewPitchDeg);
+    [[NSString stringWithFormat:@"CAM %@  AZ %+.0f°  EL %+.0f°",
+      cameraName, cameraAz, cameraEl]
+        drawAtPoint:NSMakePoint(40, 565) withAttributes:small];
 
     NSRect side = NSMakeRect(592, 34, 336, 664);
     NSRect output = NSMakeRect(side.origin.x, 34, side.size.width, 128);
@@ -823,6 +856,7 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         if (_openMenu == 8) { items = orders; selected = static_cast<int>(p->params.order - 1u); }
         s3g::clap_gui::drawDropdownMenu(NSMakeRect(_menuOrigin.x, _menuOrigin.y, 176, 18.0 * _menuItems), 18.0, items, _menuItems, selected, _hoverMenuItem, small, style);
     }
+    [NSGraphicsContext restoreGraphicsState];
 }
 - (void)updateSliderAtPoint:(NSPoint)pt
 {
@@ -885,6 +919,7 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         }
         return;
     }
+    pt.y -= kContentTranslation;
     if (_openMenu > 0) {
         const int hit = s3g::clap_gui::dropdownHitIndex(pt, NSMakeRect(_menuOrigin.x, _menuOrigin.y, 176, 18.0 * _menuItems), 18.0, _menuItems);
         if (hit >= 0) {
@@ -920,6 +955,13 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
         return;
     }
     if (NSPointInRect(pt, field)) {
+        if (_viewMode == 0) {
+            _viewYawDeg = 0.0;
+            _viewPitchDeg = 0.0;
+        } else if (_viewMode == 1) {
+            _viewYawDeg = 180.0;
+            _viewPitchDeg = 82.0;
+        }
         _dragView = true;
         _lastDragPoint = pt;
         return;
@@ -1009,31 +1051,31 @@ static NSColor* c(int rgb, CGFloat alpha = 1.0)
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    pt.y -= kContentTranslation;
     [self updateMenuHover:pt];
     if (_dragView) {
         const CGFloat dx = pt.x - _lastDragPoint.x;
         const CGFloat dy = pt.y - _lastDragPoint.y;
-        if (_viewMode == 0) {
-            _viewYawDeg = 0.0;
-            _viewPitchDeg = 0.0;
-        } else if (_viewMode == 1) {
-            _viewYawDeg = 180.0;
-            _viewPitchDeg = 82.0;
-        }
+        if (_viewMode != 2) _viewMode = 2;
         _viewYawDeg += dx * 0.36;
         _viewPitchDeg = std::clamp(_viewPitchDeg - dy * 0.26, -82.0, 82.0);
-        _viewMode = 2;
         _lastDragPoint = pt;
         [self setNeedsDisplay:YES];
         return;
     }
     if (_dragSlider >= 0) [self updateSliderAtPoint:pt];
 }
-- (void)mouseMoved:(NSEvent*)event { [self updateMenuHover:[self convertPoint:[event locationInWindow] fromView:nil]]; }
+- (void)mouseMoved:(NSEvent*)event
+{
+    NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    pt.y -= kContentTranslation;
+    [self updateMenuHover:pt];
+}
 - (void)mouseUp:(NSEvent*)event { (void)event; _dragSlider = -1; _dragView = false; }
 - (void)scrollWheel:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    pt.y -= kContentTranslation;
     const NSRect field = NSMakeRect(28, 82, 536, 502);
     if (!NSPointInRect(pt, field)) { [super scrollWheel:event]; return; }
     const double delta = [event scrollingDeltaY];

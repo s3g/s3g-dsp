@@ -1122,7 +1122,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-cloud-encoder-64",
-    "s3g Ambi Encoder Cloud 64",
+    "s3g Ambi Encoder Cloud",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

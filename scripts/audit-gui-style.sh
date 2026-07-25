@@ -121,6 +121,29 @@ while IFS= read -r file; do
 done < <(rg -l 'viewButtonRect|setViewPreset|@"TOP"|@"SIDE"|@"3/4"' plugins --glob '*.cpp')
 
 section "Layout Contract"
+if ! rg -q 'double contentTop = 42\.0' plugins/common/s3g_gui_layout.h; then
+  warn "layout" "plugins/common/s3g_gui_layout.h" \
+    "The first toolbox or primary field must begin at the shared y 42 px content top."
+fi
+
+translated_content_top_sources=(
+  "plugins/clap_ambi_ray_encoder/s3g_ambi_ray_encoder_clap.cpp"
+  "plugins/clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder_clap.cpp"
+  "plugins/clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder_clap.cpp"
+  "plugins/clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder_clap.cpp"
+  "plugins/clap_delay_processor/s3g_delay_processor_clap.cpp"
+  "plugins/clap_wave_geometry_processor/s3g_wave_geometry_processor_clap.cpp"
+  "plugins/clap_spectral_topology_processor/s3g_spectral_topology_processor_clap.cpp"
+  "plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp"
+)
+for file in "${translated_content_top_sources[@]}"; do
+  if ! rg -q 'kStandardMetrics\.contentTop' "$file" \
+      || ! rg -q 'translateXBy:0\.0 yBy:k[A-Za-z]*ContentTranslation' "$file"; then
+    warn "layout" "$file" \
+      "This migrated editor must derive its content translation from the shared y 42 px top edge."
+  fi
+done
+
 layout_contract_pilots=(
   "plugins/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder_clap.cpp"
   "plugins/clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder_clap.cpp"
@@ -172,21 +195,21 @@ done
 
 encoder_family_members=(
   "plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp|s3g Ambi Encoder Point"
-  "plugins/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder_clap.cpp|s3g Ambi Encoder Cloud 64"
-  "plugins/clap_ambi_path_encoder/s3g_ambi_path_encoder_clap.cpp|s3g Ambi Encoder Path 64"
-  "plugins/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator_clap.cpp|s3g Ambi Encoder Surface Terrain 64"
+  "plugins/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder_clap.cpp|s3g Ambi Encoder Cloud"
+  "plugins/clap_ambi_path_encoder/s3g_ambi_path_encoder_clap.cpp|s3g Ambi Encoder Path"
+  "plugins/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator_clap.cpp|s3g Ambi Encoder Surface Terrain"
   "plugins/clap_ambi_ray_encoder/s3g_ambi_ray_encoder_clap.cpp|s3g Ambi Encoder Ray"
   "plugins/clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder_clap.cpp|s3g Ambi Encoder Ray Bilocation"
-  "plugins/clap_ambi_insect_encoder/s3g_ambi_insect_encoder_clap.cpp|s3g Ambi Encoder Insect 64"
-  "plugins/clap_ambi_neural_ecology/s3g_ambi_neural_ecology_clap.cpp|s3g Ambi Encoder Neural Ecology 64"
-  "plugins/clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder_clap.cpp|s3g Ambi Encoder Pulsar 64"
-  "plugins/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder_clap.cpp|s3g Ambi Encoder Stochastic 64"
-  "plugins/clap_ambi_vot_encoder/s3g_ambi_vot_encoder_clap.cpp|s3g Ambi Encoder VOT 64"
-  "plugins/clap_ambi_vox_encoder/s3g_ambi_vox_encoder_clap.cpp|s3g Ambi Encoder Vox 64"
-  "plugins/clap_ambi_water_encoder/s3g_ambi_water_encoder_clap.cpp|s3g Ambi Encoder Water 64"
-  "plugins/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder_clap.cpp|s3g Ambi Encoder Wave Terrain 64"
-  "plugins/clap_ambi_wind_encoder/s3g_ambi_wind_encoder_clap.cpp|s3g Ambi Encoder Wind 64"
-  "plugins/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder_clap.cpp|s3g Ambi Encoder Wrangler 64"
+  "plugins/clap_ambi_insect_encoder/s3g_ambi_insect_encoder_clap.cpp|s3g Ambi Encoder Insect"
+  "plugins/clap_ambi_neural_ecology/s3g_ambi_neural_ecology_clap.cpp|s3g Ambi Encoder Neural Ecology"
+  "plugins/clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder_clap.cpp|s3g Ambi Encoder Pulsar"
+  "plugins/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder_clap.cpp|s3g Ambi Encoder Stochastic"
+  "plugins/clap_ambi_vot_encoder/s3g_ambi_vot_encoder_clap.cpp|s3g Ambi Encoder VOT"
+  "plugins/clap_ambi_vox_encoder/s3g_ambi_vox_encoder_clap.cpp|s3g Ambi Encoder Vox"
+  "plugins/clap_ambi_water_encoder/s3g_ambi_water_encoder_clap.cpp|s3g Ambi Encoder Water"
+  "plugins/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder_clap.cpp|s3g Ambi Encoder Wave Terrain"
+  "plugins/clap_ambi_wind_encoder/s3g_ambi_wind_encoder_clap.cpp|s3g Ambi Encoder Wind"
+  "plugins/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder_clap.cpp|s3g Ambi Encoder Wrangler"
 )
 for member in "${encoder_family_members[@]}"; do
   file="${member%%|*}"
@@ -218,6 +241,9 @@ for member in "${encoder_family_members[@]}"; do
   fi
   if rg -q '64CH|64 CH' "$file"; then
     warn "layout" "$file" "Encoder title status must not repeat a fixed 64-channel count."
+  fi
+  if rg --pcre2 -q '"s3g Ambi Encoder [^"]+ 64"' "$file"; then
+    warn "name" "$file" "Encoder host names omit the universal 64-channel capability."
   fi
   if ! rg -q 'sliderDoubleClickDefault|\[event clickCount\] >= 2' "$file"; then
     warn "interaction" "$file" "Every Encoder slider surface must implement double-click reset to its declared default."
@@ -478,10 +504,10 @@ processor_family_names=(
   'plugins/clap_wave_geometry_processor/CMakeLists.txt|s3g Processor Wave Geometry 8ch'
   'plugins/clap_loop_processor/s3g_loop_processor_clap.cpp|s3g Processor Loop 8ch'
   'plugins/clap_multi_loop_processor/s3g_multi_loop_processor_clap.cpp|s3g Processor Multi Loop 8ch'
-  'plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp|s3g Processor Fault'
-  'plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp|s3g Processor Ambi Grain'
-  'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral Topology 8ch'
-  'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral Topology 24ch'
+  'plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp|s3g Processor Fault 8ch'
+  'plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp|s3g Processor Ambi Grain 16ch'
+  'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral 8ch'
+  'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral 24ch'
 )
 for contract in "${processor_family_names[@]}"; do
   file="${contract%%|*}"
@@ -490,6 +516,49 @@ for contract in "${processor_family_names[@]}"; do
     warn "name" "$file" "Processor-family host names must expose '${expected_name}'."
   fi
 done
+
+processor_family_sources=(
+  plugins/clap_delay_processor/s3g_delay_processor_clap.cpp
+  plugins/clap_buffer_processor/s3g_buffer_processor_clap.cpp
+  plugins/clap_wave_geometry_processor/s3g_wave_geometry_processor_clap.cpp
+  plugins/clap_loop_processor/s3g_loop_processor_clap.cpp
+  plugins/clap_multi_loop_processor/s3g_multi_loop_processor_clap.cpp
+  plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp
+  plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp
+  plugins/clap_spectral_topology_processor/s3g_spectral_topology_processor_clap.cpp
+)
+for file in "${processor_family_sources[@]}"; do
+  if ! rg -Fq 'drawProcessorTitleBand(' "$file"; then
+    warn "family" "$file" "Processor editors use the shared PRESET / LOAD / SAVE title renderer."
+  fi
+  if ! rg -Fq 'handleProcessorTitleClick(' "$file"; then
+    warn "family" "$file" "Processor title actions must share complete-state INIT / LOAD / SAVE handling."
+  fi
+  if ! rg -Fq 'sliderDoubleClickDefault(' "$file"; then
+    warn "family" "$file" "Every Processor continuous slider must double-click to its declared default."
+  fi
+  if ! rg -Fq 'drawProcessorSlider(' "$file"; then
+    warn "layout" "$file" "Processor slider rows must use the shared label, track, and bounded-value anchors."
+  fi
+  if ! rg -Fq 'ResponsiveViewport' "$file"; then
+    warn "family" "$file" "Processor editors use the shared responsive viewport."
+  fi
+  if ! rg -Fq '@"OUTPUT"' "$file" || ! rg -Fq '@"OUT"' "$file"; then
+    warn "family" "$file" "Processor control stacks begin with OUTPUT and OUT."
+  fi
+  if ! rg -q 'PROCESSOR [^"]+([0-9]+|%u)CH' "$file"; then
+    warn "name" "$file" "Processor GUI titles include the meaningful channel count."
+  fi
+  if rg -q '· [0-9]+(CH|OUT)|titleStatus[^\n]*(CH|OUT)' "$file"; then
+    warn "layout" "$file" "Processor title status reserves the far-right edge for PK; channel count belongs in the full title."
+  fi
+done
+
+if ! rg -q 'NSRectFill\(NSMakeRect\(x, y, w, 2\.0\)\)' \
+    plugins/common/s3g_cocoa_gui.h; then
+  warn "layout" "plugins/common/s3g_cocoa_gui.h" \
+    "Every shared toolbox and primary field frame must draw the same top-edge accent separator."
+fi
 
 while IFS= read -r hit; do
   warn "name" "$hit" "Processor host names use 's3g Processor <member>' so the family sorts together."

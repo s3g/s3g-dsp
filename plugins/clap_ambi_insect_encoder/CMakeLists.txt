@@ -20,7 +20,7 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.ambi-insect-encoder-64"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Encoder Insect 64"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Encoder Insect"
     MACOSX_BUNDLE_BUNDLE_VERSION "0.2.0"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2.0"
   )

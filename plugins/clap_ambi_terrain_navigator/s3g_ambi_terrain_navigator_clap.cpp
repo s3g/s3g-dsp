@@ -1464,7 +1464,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-terrain-navigator-64",
-    "s3g Ambi Encoder Surface Terrain 64",
+    "s3g Ambi Encoder Surface Terrain",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

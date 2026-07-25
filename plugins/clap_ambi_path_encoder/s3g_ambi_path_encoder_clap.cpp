@@ -1060,7 +1060,7 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
 
     const float pk = _plugin->outputPeak.load(std::memory_order_relaxed);
     s3g::clap_gui::drawEncoderTitleBand(
-        @"s3g AMBI ENCODER PATH 64",
+        @"s3g AMBI ENCODER PATH",
         [NSString stringWithUTF8String:_titlePresetName],
         s3g::clap_gui::peakDbText(pk),
         s3g::clap_gui::encoderTitleBand(900.0, 792.0),
@@ -1604,7 +1604,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-path-encoder-64",
-    "s3g Ambi Encoder Path 64",
+    "s3g Ambi Encoder Path",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

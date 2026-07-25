@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
+#include <vector>
 
 namespace s3g::clap_gui {
 
@@ -416,6 +417,8 @@ inline void drawPanelFrame(CGFloat x, CGFloat y, CGFloat w, CGFloat h, const Sty
     NSRectFill(NSMakeRect(x, y, w, h));
     [style.grid setStroke];
     NSFrameRect(NSMakeRect(x, y, w, h));
+    [style.accent setFill];
+    NSRectFill(NSMakeRect(x, y, w, 2.0));
 }
 
 inline void drawPanelHeader(NSString* title,
@@ -605,6 +608,41 @@ inline void drawMenu(NSString* name,
     [@"v" drawAtPoint:NSMakePoint(box.origin.x + box.size.width - 12, y) withAttributes:valueAttrs];
 }
 
+inline void drawProcessorSlider(NSString* name,
+                                NSString* value,
+                                CGFloat norm,
+                                CGFloat y,
+                                CGFloat panelX,
+                                CGFloat panelWidth,
+                                NSDictionary* labelAttrs,
+                                NSDictionary* valueAttrs,
+                                const Style& style)
+{
+    drawSlider(name, value, norm, y, labelAttrs, valueAttrs, style,
+        static_cast<CGFloat>(s3g::gui_layout::processorLabelX(panelX)),
+        static_cast<CGFloat>(s3g::gui_layout::processorControlX(panelX)),
+        static_cast<CGFloat>(s3g::gui_layout::processorValueX(
+            panelX, panelWidth)),
+        static_cast<CGFloat>(s3g::gui_layout::processorTrackWidth(panelWidth)),
+        static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.processorValueWidth));
+}
+
+inline void drawProcessorMenu(NSString* name,
+                              NSString* value,
+                              CGFloat y,
+                              CGFloat panelX,
+                              CGFloat panelWidth,
+                              NSDictionary* labelAttrs,
+                              NSDictionary* valueAttrs,
+                              const Style& style)
+{
+    drawMenu(name, value, y, labelAttrs, valueAttrs, style,
+        static_cast<CGFloat>(s3g::gui_layout::processorLabelX(panelX)),
+        static_cast<CGFloat>(s3g::gui_layout::processorControlX(panelX)),
+        static_cast<CGFloat>(s3g::gui_layout::processorMenuWidth(panelWidth)));
+}
+
 inline void drawToggle(NSString* name,
                        bool on,
                        CGFloat y,
@@ -786,6 +824,119 @@ inline void drawDecoderTitleBand(NSString* title,
     }
 }
 
+inline void drawProcessorTitleBand(NSString* title,
+                                   NSString* preset,
+                                   NSString* status,
+                                   const s3g::gui_layout::EncoderTitleBand& band,
+                                   NSDictionary* titleAttrs,
+                                   NSDictionary* labelAttrs,
+                                   NSDictionary* valueAttrs,
+                                   const Style& style)
+{
+    drawDecoderTitleBand(title, preset, status, band,
+        titleAttrs, labelAttrs, valueAttrs, style);
+}
+
+struct DefaultParamEventList {
+    std::vector<clap_event_param_value_t> events;
+    clap_input_events_t input {
+        this,
+        [](const clap_input_events_t* list) -> uint32_t {
+            const auto* self = static_cast<const DefaultParamEventList*>(list->ctx);
+            return self ? static_cast<uint32_t>(self->events.size()) : 0u;
+        },
+        [](const clap_input_events_t* list, uint32_t index) -> const clap_event_header_t* {
+            const auto* self = static_cast<const DefaultParamEventList*>(list->ctx);
+            if (!self || index >= self->events.size()) return nullptr;
+            return &self->events[index].header;
+        },
+    };
+};
+
+inline bool resetPluginParamsToDefaults(const clap_plugin_t* plugin)
+{
+    if (!plugin || !plugin->get_extension) return false;
+    const auto* params = static_cast<const clap_plugin_params_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_PARAMS));
+    if (!params || !params->count || !params->get_info || !params->flush)
+        return false;
+
+    DefaultParamEventList defaults;
+    const uint32_t count = params->count(plugin);
+    defaults.events.reserve(count);
+    for (uint32_t index = 0u; index < count; ++index) {
+        clap_param_info_t info {};
+        if (!params->get_info(plugin, index, &info)
+            || (info.flags & CLAP_PARAM_IS_READONLY) != 0u) {
+            continue;
+        }
+        clap_event_param_value_t event {};
+        event.header.size = sizeof(event);
+        event.header.time = 0u;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_PARAM_VALUE;
+        event.header.flags = CLAP_EVENT_IS_LIVE;
+        event.param_id = info.id;
+        event.cookie = info.cookie;
+        event.note_id = -1;
+        event.port_index = -1;
+        event.channel = -1;
+        event.key = -1;
+        event.value = info.default_value;
+        defaults.events.push_back(event);
+    }
+    if (defaults.events.empty()) return false;
+    params->flush(plugin, &defaults.input, nullptr);
+    return true;
+}
+
+inline bool savePluginStatePreset(const clap_plugin_t* plugin,
+                                  NSString* pluginName,
+                                  NSString** savedName);
+inline bool loadPluginStatePreset(const clap_plugin_t* plugin,
+                                  NSString* pluginName,
+                                  NSString** loadedName);
+
+inline bool handleProcessorTitleClick(
+    NSPoint point,
+    const clap_plugin_t* plugin,
+    NSString* pluginName,
+    const s3g::gui_layout::EncoderTitleBand& band,
+    char* presetName,
+    size_t presetNameCapacity)
+{
+    if (!presetName || presetNameCapacity == 0u) return false;
+    if (NSPointInRect(point, cocoaRect(band.presetMenu))) {
+        if (!resetPluginParamsToDefaults(plugin)) {
+            NSBeep();
+        } else {
+            std::snprintf(presetName, presetNameCapacity, "%s", "INIT");
+        }
+        return true;
+    }
+    if (NSPointInRect(point, cocoaRect(band.loadButton))) {
+        NSString* name = nil;
+        if (!loadPluginStatePreset(plugin, pluginName, &name)) {
+            NSBeep();
+        } else {
+            std::snprintf(presetName, presetNameCapacity, "%s",
+                name ? [name UTF8String] : "CUSTOM");
+        }
+        return true;
+    }
+    if (NSPointInRect(point, cocoaRect(band.saveButton))) {
+        NSString* name = nil;
+        if (!savePluginStatePreset(plugin, pluginName, &name)) {
+            NSBeep();
+        } else {
+            std::snprintf(presetName, presetNameCapacity, "%s",
+                name ? [name UTF8String] : "CUSTOM");
+        }
+        return true;
+    }
+    return false;
+}
+
 struct PluginStateFileWriter {
     FILE* file = nullptr;
     clap_ostream_t stream {
@@ -949,13 +1100,27 @@ inline int topologyRowIndex(TopologyRow row)
     }
 }
 
-inline CGFloat topologyRowY(CGFloat panelY, TopologyRow row, CGFloat rowPitch = 18.0)
+inline CGFloat topologyRowY(
+    CGFloat panelY,
+    TopologyRow row,
+    CGFloat rowPitch = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.rowPitch))
 {
     const int index = topologyRowIndex(row);
-    return index < 0 ? panelY : panelY + 30.0 + static_cast<CGFloat>(index) * rowPitch;
+    return index < 0 ? panelY
+        : panelY
+            + static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.firstRowOffset)
+            + static_cast<CGFloat>(index) * rowPitch;
 }
 
-inline TopologyRow hitTopologyRow(NSPoint point, CGFloat panelY, CGFloat panelX = 650.0, CGFloat rowW = 330.0, CGFloat rowPitch = 18.0)
+inline TopologyRow hitTopologyRow(
+    NSPoint point,
+    CGFloat panelY,
+    CGFloat panelX = 644.0,
+    CGFloat rowW = 344.0,
+    CGFloat rowPitch = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.rowPitch))
 {
     constexpr TopologyRow rows[] = {
         TopologyRow::Shape,
@@ -989,26 +1154,29 @@ inline void drawTopologyRows(const TopologyUiValues& values,
                              NSDictionary* labelAttrs,
                              NSDictionary* valueAttrs,
                              const Style& style,
-                             CGFloat rowPitch = 18.0)
+                             CGFloat rowPitch = static_cast<CGFloat>(
+                                 s3g::gui_layout::kStandardMetrics.rowPitch),
+                             CGFloat panelX = 644.0,
+                             CGFloat panelWidth = 344.0)
 {
-    drawMenu(@"SHAP", [NSString stringWithUTF8String:values.shape], topologyRowY(panelY, TopologyRow::Shape, rowPitch), labelAttrs, valueAttrs, style);
-    drawSlider(@"AMT", [NSString stringWithFormat:@"%3.0f%%", values.amount * 100.0], values.amount, topologyRowY(panelY, TopologyRow::Amount, rowPitch), labelAttrs, valueAttrs, style);
-    drawSlider(@"PULL", [NSString stringWithFormat:@"%3.0f%%", values.pull * 100.0], values.pull, topologyRowY(panelY, TopologyRow::Pull, rowPitch), labelAttrs, valueAttrs, style);
-    drawSlider(@"X", [NSString stringWithFormat:@"%+3.0f%%", values.x * 100.0], (values.x + 1.0) * 0.5, topologyRowY(panelY, TopologyRow::X, rowPitch), labelAttrs, valueAttrs, style);
-    drawSlider(@"Y", [NSString stringWithFormat:@"%+3.0f%%", values.y * 100.0], (values.y + 1.0) * 0.5, topologyRowY(panelY, TopologyRow::Y, rowPitch), labelAttrs, valueAttrs, style);
-    drawSlider(@"Z", [NSString stringWithFormat:@"%+3.0f%%", values.z * 100.0], (values.z + 1.0) * 0.5, topologyRowY(panelY, TopologyRow::Z, rowPitch), labelAttrs, valueAttrs, style);
-    drawSlider(@"TWST", [NSString stringWithFormat:@"%+3.0f%%", values.twist * 100.0], (values.twist + 1.0) * 0.5, topologyRowY(panelY, TopologyRow::Twist, rowPitch), labelAttrs, valueAttrs, style);
-    drawSlider(@"FLAR", [NSString stringWithFormat:@"%+3.0f%%", values.flare * 100.0], (values.flare + 1.0) * 0.5, topologyRowY(panelY, TopologyRow::Flare, rowPitch), labelAttrs, valueAttrs, style);
-    drawSlider(@"SEED", [NSString stringWithFormat:@"%3.0f%%", values.seed * 100.0], values.seed, topologyRowY(panelY, TopologyRow::Seed, rowPitch), labelAttrs, valueAttrs, style);
-    drawMenu(@"ANIM", [NSString stringWithUTF8String:values.motion], topologyRowY(panelY, TopologyRow::Motion, rowPitch), labelAttrs, valueAttrs, style);
-    drawMenu(@"VAR", [NSString stringWithUTF8String:values.variant], topologyRowY(panelY, TopologyRow::Variant, rowPitch), labelAttrs, valueAttrs, style);
+    drawProcessorMenu(@"SHAP", [NSString stringWithUTF8String:values.shape], topologyRowY(panelY, TopologyRow::Shape, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"AMT", [NSString stringWithFormat:@"%3.0f%%", values.amount * 100.0], values.amount, topologyRowY(panelY, TopologyRow::Amount, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"PULL", [NSString stringWithFormat:@"%3.0f%%", values.pull * 100.0], values.pull, topologyRowY(panelY, TopologyRow::Pull, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"X", [NSString stringWithFormat:@"%+3.0f%%", values.x * 100.0], (values.x + 1.0) * 0.5, topologyRowY(panelY, TopologyRow::X, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"Y", [NSString stringWithFormat:@"%+3.0f%%", values.y * 100.0], (values.y + 1.0) * 0.5, topologyRowY(panelY, TopologyRow::Y, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"Z", [NSString stringWithFormat:@"%+3.0f%%", values.z * 100.0], (values.z + 1.0) * 0.5, topologyRowY(panelY, TopologyRow::Z, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"TWST", [NSString stringWithFormat:@"%+3.0f%%", values.twist * 100.0], (values.twist + 1.0) * 0.5, topologyRowY(panelY, TopologyRow::Twist, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"FLAR", [NSString stringWithFormat:@"%+3.0f%%", values.flare * 100.0], (values.flare + 1.0) * 0.5, topologyRowY(panelY, TopologyRow::Flare, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"SEED", [NSString stringWithFormat:@"%3.0f%%", values.seed * 100.0], values.seed, topologyRowY(panelY, TopologyRow::Seed, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorMenu(@"ANIM", [NSString stringWithUTF8String:values.motion], topologyRowY(panelY, TopologyRow::Motion, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorMenu(@"VAR", [NSString stringWithUTF8String:values.variant], topologyRowY(panelY, TopologyRow::Variant, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
     const double rateNorm = (values.rateHz - values.rateMinHz) / std::max(0.0001, values.rateMaxHz - values.rateMinHz);
-    drawSlider(@"RATE", [NSString stringWithFormat:@"%4.2f", values.rateHz], rateNorm, topologyRowY(panelY, TopologyRow::Rate, rowPitch), labelAttrs, valueAttrs, style);
-    drawSlider(@"DPTH", [NSString stringWithFormat:@"%3.0f%%", values.depth * 100.0], values.depth, topologyRowY(panelY, TopologyRow::Depth, rowPitch), labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"RATE", [NSString stringWithFormat:@"%4.2f", values.rateHz], rateNorm, topologyRowY(panelY, TopologyRow::Rate, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"DPTH", [NSString stringWithFormat:@"%3.0f%%", values.depth * 100.0], values.depth, topologyRowY(panelY, TopologyRow::Depth, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
     NSString* neighborText = values.neighborSuffix ? [NSString stringWithFormat:@"%uNN", values.neighbors] : [NSString stringWithFormat:@"%u", values.neighbors];
-    drawMenu(@"NBR", neighborText, topologyRowY(panelY, TopologyRow::Neighbors, rowPitch), labelAttrs, valueAttrs, style);
-    drawSlider(@"RAD", [NSString stringWithFormat:@"%3.0f%%", values.radius * 100.0], values.radius, topologyRowY(panelY, TopologyRow::Radius, rowPitch), labelAttrs, valueAttrs, style);
-    drawSlider(@"CENT", [NSString stringWithFormat:@"%3.0f%%", values.centroid * 100.0], values.centroid, topologyRowY(panelY, TopologyRow::Centroid, rowPitch), labelAttrs, valueAttrs, style);
+    drawProcessorMenu(@"NBR", neighborText, topologyRowY(panelY, TopologyRow::Neighbors, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"RAD", [NSString stringWithFormat:@"%3.0f%%", values.radius * 100.0], values.radius, topologyRowY(panelY, TopologyRow::Radius, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
+    drawProcessorSlider(@"CENT", [NSString stringWithFormat:@"%3.0f%%", values.centroid * 100.0], values.centroid, topologyRowY(panelY, TopologyRow::Centroid, rowPitch), panelX, panelWidth, labelAttrs, valueAttrs, style);
 }
 
 } // namespace s3g::clap_gui

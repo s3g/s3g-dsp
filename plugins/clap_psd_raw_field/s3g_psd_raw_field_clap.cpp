@@ -37,6 +37,17 @@ constexpr uint32_t kWaveTracePreset = 12;
 constexpr uint32_t kCustomPreset = 13;
 constexpr uint32_t kGuiWidth = 880;
 constexpr uint32_t kGuiHeight = 846;
+constexpr double kLeftToolboxX = 18.0;
+constexpr double kRightToolboxX = 448.0;
+constexpr double kToolboxWidth = 414.0;
+constexpr double kLeftControlX =
+    s3g::gui_layout::processorControlX(kLeftToolboxX);
+constexpr double kRightControlX =
+    s3g::gui_layout::processorControlX(kRightToolboxX);
+constexpr double kToolboxTrackWidth =
+    s3g::gui_layout::processorTrackWidth(kToolboxWidth);
+constexpr double kToolboxMenuWidth =
+    s3g::gui_layout::processorMenuWidth(kToolboxWidth);
 constexpr std::size_t kSourcePathCapacity = 4096u;
 
 // IDs retain their nearest earlier meaning so existing automation has the best possible migration path.
@@ -2058,12 +2069,13 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     int _hoverMenuItem;
     NSTimer* _timer;
     NSTrackingArea* _trackingArea;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
-- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm x:(CGFloat)x y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
-- (void)drawMenuControl:(NSString*)name value:(NSString*)value x:(CGFloat)x y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style;
+- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm panelX:(CGFloat)panelX panelWidth:(CGFloat)panelWidth y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
+- (void)drawMenuControl:(NSString*)name value:(NSString*)value panelX:(CGFloat)panelX panelWidth:(CGFloat)panelWidth y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style;
 - (void)drawPerformanceMode:(Plugin*)plugin attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style;
 - (void)drawEnvelopeEditor:(Plugin*)plugin attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)drawTransportButton:(NSString*)label rect:(NSRect)rect attrs:(NSDictionary*)attrs active:(BOOL)active;
@@ -2085,6 +2097,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         _hoverMenuItem = -1;
         _timer = nil;
         _trackingArea = nil;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
     }
     return self;
 }
@@ -2123,14 +2136,16 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     (void)timer;
     if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES];
 }
-- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm x:(CGFloat)x y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
+- (void)drawRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm panelX:(CGFloat)panelX panelWidth:(CGFloat)panelWidth y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, small, style, x, x + 104.0, x + 286.0, 148.0);
+    s3g::clap_gui::drawProcessorSlider(
+        name, value, norm, y, panelX, panelWidth, attrs, small, style);
 }
-- (void)drawMenuControl:(NSString*)name value:(NSString*)value x:(CGFloat)x y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style
+- (void)drawMenuControl:(NSString*)name value:(NSString*)value panelX:(CGFloat)panelX panelWidth:(CGFloat)panelWidth y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style
 {
-    s3g::clap_gui::drawMenu(name, value, y, attrs, small, style, x, x + 104.0, 148.0);
+    s3g::clap_gui::drawProcessorMenu(
+        name, value, y, panelX, panelWidth, attrs, small, style);
 }
 - (void)drawPerformanceMode:(Plugin*)plugin attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style
 {
@@ -2382,18 +2397,18 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             @"MU DUST", @"DELTA STAIRS", @"ADPCM TEAR", @"CELP CHOIR", @"LOW EMBERS",
             @"WIDE STATIC", @"WAVE TRACE", @"CUSTOM"
         };
-        s3g::clap_gui::drawDropdownMenu(NSMakeRect(140, 375, 148, 18.0 * 14.0), 18.0, items, 14,
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(kLeftControlX, 375, kToolboxMenuWidth, 18.0 * 14.0), 18.0, items, 14,
             static_cast<int>(std::min(p->selectedPreset, kCustomPreset)), _hoverMenuItem, attrs, style);
     } else if (_openMenu == 2) {
         NSString* const items[] = { @"PARALLEL", @"DEINTERLEAVE", @"PLANES", @"SHUFFLED", @"DIVERGENT" };
-        s3g::clap_gui::drawDropdownMenu(NSMakeRect(140, 469, 148, 18.0 * 5.0), 18.0, items, 5,
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(kLeftControlX, 517, kToolboxMenuWidth, 18.0 * 5.0), 18.0, items, 5,
             static_cast<int>(p->params.channelScheme), _hoverMenuItem, attrs, style);
     } else if (_openMenu == 3) {
         NSString* const items[] = {
             @"PCM", @"DELTA", @"ADPCM", @"MU-LAW", @"A-LAW", @"CELP", @"DISC", @"CVSD",
             @"SUBBAND", @"LPC", @"TRANSFORM", @"PREDICT", @"MODEM", @"FAX", @"SIGMA 1-BIT", @"HYBRID"
         };
-        s3g::clap_gui::drawDropdownMenu(NSMakeRect(570, 289, 148, 18.0 * kCodecModeCount), 18.0,
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(kRightControlX, 289, kToolboxMenuWidth, 18.0 * kCodecModeCount), 18.0,
             items, kCodecModeCount,
             static_cast<int>(p->params.codecMode), _hoverMenuItem, attrs, style);
     }
@@ -2402,10 +2417,10 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
 {
     NSRect rect = NSZeroRect;
     uint32_t count = 0u;
-    if (_openMenu == 1) { rect = NSMakeRect(140, 375, 148, 18.0 * 14.0); count = 14u; }
-    else if (_openMenu == 2) { rect = NSMakeRect(140, 469, 148, 18.0 * 5.0); count = 5u; }
+    if (_openMenu == 1) { rect = NSMakeRect(kLeftControlX, 375, kToolboxMenuWidth, 18.0 * 14.0); count = 14u; }
+    else if (_openMenu == 2) { rect = NSMakeRect(kLeftControlX, 517, kToolboxMenuWidth, 18.0 * 5.0); count = 5u; }
     else if (_openMenu == 3) {
-        rect = NSMakeRect(570, 289, 148, 18.0 * kCodecModeCount);
+        rect = NSMakeRect(kRightControlX, 289, kToolboxMenuWidth, 18.0 * kCodecModeCount);
         count = kCodecModeCount;
     }
     if (count == 0u) return;
@@ -2422,16 +2437,29 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     s3g::clap_gui::Style style;
     [style.bg setFill];
     NSRectFill([self bounds]);
-    NSDictionary* labels = s3g::clap_gui::softTitleAttrs();
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
+    NSDictionary* labels = s3g::clap_gui::softLabelAttrs();
     NSDictionary* values = s3g::clap_gui::softValueAttrs();
-    [@"s3g PROCESSOR FAULT" drawAtPoint:NSMakePoint(18, 14) withAttributes:labels];
-    [s3g::clap_gui::peakDbText(p->outputPeak.load(std::memory_order_relaxed)) drawAtPoint:NSMakePoint(708, 14) withAttributes:values];
-    [@"0>8" drawAtPoint:NSMakePoint(826, 14) withAttributes:values];
+    s3g::clap_gui::drawProcessorTitleBand(
+        @"s3g PROCESSOR FAULT 8CH",
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(
+            p->outputPeak.load(std::memory_order_relaxed)),
+        s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
+        titleAttrs, labels, values, style);
     [self drawWaveforms:p style:style];
 
-    s3g::clap_gui::drawPanelFrame(18, 238, 414, 322, style);
-    s3g::clap_gui::drawPanelHeader(@"FIELD / SPACE", true, 18, 238, 414, 21, labels, style);
-    s3g::clap_gui::drawPanelFrame(448, 238, 414, 322, style);
+    s3g::clap_gui::drawPanelFrame(
+        kLeftToolboxX, 238, kToolboxWidth,
+        s3g::gui_layout::toolboxHeightForRows(1), style);
+    s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 18, 238, 414, 21, labels, style);
+    s3g::clap_gui::drawPanelFrame(
+        kLeftToolboxX, 310, kToolboxWidth,
+        s3g::gui_layout::toolboxHeightForRows(8), style);
+    s3g::clap_gui::drawPanelHeader(@"FIELD / SPACE", true, 18, 310, 414, 21, labels, style);
+    s3g::clap_gui::drawPanelFrame(
+        kRightToolboxX, 238, kToolboxWidth,
+        s3g::gui_layout::toolboxHeightForRows(7), style);
     s3g::clap_gui::drawPanelHeader(@"CODEC / SHAPE", true, 448, 238, 414, 21, labels, style);
     s3g::clap_gui::drawPanelFrame(18, 578, 844, 244, style);
     s3g::clap_gui::drawPanelHeader(@"PATCH / PERFORMANCE", true, 18, 578, 844, 21, labels, style);
@@ -2442,25 +2470,25 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         : rateText(scanBytesPerSecond(params.scanRate, p->sampleRate), "B/s");
     const std::string codecRateText = rateText(codecUpdatesPerSecond(params.codecRate, p->sampleRate), "Hz");
     const std::string fieldEvolveText = evolveText(params.evolve);
-    [self drawRow:@"SCAN" value:[NSString stringWithUTF8String:scanText.c_str()] norm:params.scanRate x:36 y:274 attrs:labels small:values];
-    [self drawRow:@"TEXTURE" value:[NSString stringWithFormat:@"%.0f%%", params.texture * 100.0f] norm:params.texture x:36 y:304 attrs:labels small:values];
-    [self drawRow:@"GEOMETRY" value:[NSString stringWithFormat:@"%.0f%%", params.geometry * 100.0f] norm:params.geometry x:36 y:334 attrs:labels small:values];
-    [self drawRow:@"CHAOS" value:[NSString stringWithFormat:@"%.0f%%", params.chaos * 100.0f] norm:params.chaos x:36 y:364 attrs:labels small:values];
-    [self drawRow:@"FOLD" value:[NSString stringWithFormat:@"%.0f%%", params.fold * 100.0f] norm:params.fold x:36 y:394 attrs:labels small:values];
-    [self drawRow:@"EVOLVE" value:[NSString stringWithUTF8String:fieldEvolveText.c_str()] norm:params.evolve x:36 y:424 attrs:labels small:values];
-    [self drawMenuControl:@"ROUTE" value:[NSString stringWithUTF8String:channelSchemeName(static_cast<uint32_t>(params.channelScheme))] x:36 y:454 attrs:labels small:values style:style];
-    [self drawRow:@"SPREAD" value:[NSString stringWithFormat:@"%.0f%%", params.channelSpread * 100.0f] norm:params.channelSpread x:36 y:484 attrs:labels small:values];
-    [self drawRow:@"OUTPUT" value:[NSString stringWithFormat:@"%+.1f dB", params.gainDb] norm:normalizedParam(params, kGainParamId) x:36 y:514 attrs:labels small:values];
+    [self drawRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", params.gainDb] norm:normalizedParam(params, kGainParamId) panelX:kLeftToolboxX panelWidth:kToolboxWidth y:274 attrs:labels small:values];
+    [self drawRow:@"SCAN" value:[NSString stringWithUTF8String:scanText.c_str()] norm:params.scanRate panelX:kLeftToolboxX panelWidth:kToolboxWidth y:346 attrs:labels small:values];
+    [self drawRow:@"TEXTURE" value:[NSString stringWithFormat:@"%.0f%%", params.texture * 100.0f] norm:params.texture panelX:kLeftToolboxX panelWidth:kToolboxWidth y:372 attrs:labels small:values];
+    [self drawRow:@"GEOMETRY" value:[NSString stringWithFormat:@"%.0f%%", params.geometry * 100.0f] norm:params.geometry panelX:kLeftToolboxX panelWidth:kToolboxWidth y:398 attrs:labels small:values];
+    [self drawRow:@"CHAOS" value:[NSString stringWithFormat:@"%.0f%%", params.chaos * 100.0f] norm:params.chaos panelX:kLeftToolboxX panelWidth:kToolboxWidth y:424 attrs:labels small:values];
+    [self drawRow:@"FOLD" value:[NSString stringWithFormat:@"%.0f%%", params.fold * 100.0f] norm:params.fold panelX:kLeftToolboxX panelWidth:kToolboxWidth y:450 attrs:labels small:values];
+    [self drawRow:@"EVOLVE" value:[NSString stringWithUTF8String:fieldEvolveText.c_str()] norm:params.evolve panelX:kLeftToolboxX panelWidth:kToolboxWidth y:476 attrs:labels small:values];
+    [self drawMenuControl:@"ROUTE" value:[NSString stringWithUTF8String:channelSchemeName(static_cast<uint32_t>(params.channelScheme))] panelX:kLeftToolboxX panelWidth:kToolboxWidth y:502 attrs:labels small:values style:style];
+    [self drawRow:@"SPREAD" value:[NSString stringWithFormat:@"%.0f%%", params.channelSpread * 100.0f] norm:params.channelSpread panelX:kLeftToolboxX panelWidth:kToolboxWidth y:528 attrs:labels small:values];
 
-    [self drawMenuControl:@"CODEC" value:[NSString stringWithUTF8String:codecModeName(static_cast<uint32_t>(params.codecMode))] x:466 y:274 attrs:labels small:values style:style];
-    [self drawRow:@"RATE" value:[NSString stringWithUTF8String:codecRateText.c_str()] norm:params.codecRate x:466 y:304 attrs:labels small:values];
-    [self drawRow:@"BITS" value:[NSString stringWithFormat:@"%.0f", params.bitDepth] norm:normalizedParam(params, kBitDepthParamId) x:466 y:334 attrs:labels small:values];
-    [self drawRow:@"DAMAGE" value:[NSString stringWithFormat:@"%.0f%%", params.codecDamage * 100.0f] norm:params.codecDamage x:466 y:364 attrs:labels small:values];
-    [self drawRow:@"DRIVE" value:[NSString stringWithFormat:@"%.0f%%", params.drive * 100.0f] norm:params.drive x:466 y:408 attrs:labels small:values];
-    [self drawRow:@"SHRED" value:[NSString stringWithFormat:@"%.0f%%", params.shred * 100.0f] norm:params.shred x:466 y:438 attrs:labels small:values];
-    [self drawRow:@"RESONANCE" value:[NSString stringWithFormat:@"%.0f%%", params.resonance * 100.0f] norm:params.resonance x:466 y:468 attrs:labels small:values];
+    [self drawMenuControl:@"CODEC" value:[NSString stringWithUTF8String:codecModeName(static_cast<uint32_t>(params.codecMode))] panelX:kRightToolboxX panelWidth:kToolboxWidth y:274 attrs:labels small:values style:style];
+    [self drawRow:@"RATE" value:[NSString stringWithUTF8String:codecRateText.c_str()] norm:params.codecRate panelX:kRightToolboxX panelWidth:kToolboxWidth y:300 attrs:labels small:values];
+    [self drawRow:@"BITS" value:[NSString stringWithFormat:@"%.0f", params.bitDepth] norm:normalizedParam(params, kBitDepthParamId) panelX:kRightToolboxX panelWidth:kToolboxWidth y:326 attrs:labels small:values];
+    [self drawRow:@"DAMAGE" value:[NSString stringWithFormat:@"%.0f%%", params.codecDamage * 100.0f] norm:params.codecDamage panelX:kRightToolboxX panelWidth:kToolboxWidth y:352 attrs:labels small:values];
+    [self drawRow:@"DRIVE" value:[NSString stringWithFormat:@"%.0f%%", params.drive * 100.0f] norm:params.drive panelX:kRightToolboxX panelWidth:kToolboxWidth y:378 attrs:labels small:values];
+    [self drawRow:@"SHRED" value:[NSString stringWithFormat:@"%.0f%%", params.shred * 100.0f] norm:params.shred panelX:kRightToolboxX panelWidth:kToolboxWidth y:404 attrs:labels small:values];
+    [self drawRow:@"RESONANCE" value:[NSString stringWithFormat:@"%.0f%%", params.resonance * 100.0f] norm:params.resonance panelX:kRightToolboxX panelWidth:kToolboxWidth y:430 attrs:labels small:values];
 
-    [self drawMenuControl:@"PRESET" value:[NSString stringWithUTF8String:presetName(p->selectedPreset)] x:36 y:610 attrs:labels small:values style:style];
+    [self drawMenuControl:@"PRESET" value:[NSString stringWithUTF8String:presetName(p->selectedPreset)] panelX:kLeftToolboxX panelWidth:kToolboxWidth y:610 attrs:labels small:values style:style];
     [self drawButton:@"RANDOM PATCH" rect:NSMakeRect(466, 603, 126, 24) attrs:values];
     [self drawButton:@"MUTATE" rect:NSMakeRect(604, 603, 90, 24) attrs:values];
     [self drawButton:@"UNDO" rect:NSMakeRect(706, 603, 90, 24) attrs:values];
@@ -2476,14 +2504,16 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             kScanRateParamId, kTextureParamId, kGeometryParamId, kChaosParamId,
             kFoldParamId, kEvolveParamId, kChannelSpreadParamId, kGainParamId
         };
-        const double normalized = std::clamp((point.x - 140.0) / 148.0, 0.0, 1.0);
+        const double normalized = std::clamp(
+            (point.x - kLeftControlX) / kToolboxTrackWidth, 0.0, 1.0);
         applyNormalizedParam(*p, ids[_dragSlider - 1], normalized);
     } else if (_dragSlider >= 101 && _dragSlider <= 106) {
         static const clap_id ids[] = {
             kCodecRateParamId, kBitDepthParamId, kCodecDamageParamId,
             kDriveParamId, kShredParamId, kResonanceParamId
         };
-        const double normalized = std::clamp((point.x - 570.0) / 148.0, 0.0, 1.0);
+        const double normalized = std::clamp(
+            (point.x - kRightControlX) / kToolboxTrackWidth, 0.0, 1.0);
         applyNormalizedParam(*p, ids[_dragSlider - 101], normalized);
     } else if (_dragSlider >= 201 && _dragSlider <= 204) {
         const EnvelopeGraphGeometry graph = envelopeGraphGeometry(*p);
@@ -2510,14 +2540,21 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     auto* p = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            point, &p->plugin, @"Processor Fault", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_openMenu != 0) {
         NSRect rect = NSZeroRect;
         uint32_t count = 0u;
         clap_id id = CLAP_INVALID_ID;
-        if (_openMenu == 1) { rect = NSMakeRect(140, 375, 148, 18.0 * 14.0); count = 14u; id = kPresetParamId; }
-        else if (_openMenu == 2) { rect = NSMakeRect(140, 469, 148, 18.0 * 5.0); count = 5u; id = kChannelSchemeParamId; }
+        if (_openMenu == 1) { rect = NSMakeRect(kLeftControlX, 375, kToolboxMenuWidth, 18.0 * 14.0); count = 14u; id = kPresetParamId; }
+        else if (_openMenu == 2) { rect = NSMakeRect(kLeftControlX, 517, kToolboxMenuWidth, 18.0 * 5.0); count = 5u; id = kChannelSchemeParamId; }
         else if (_openMenu == 3) {
-            rect = NSMakeRect(570, 289, 148, 18.0 * kCodecModeCount);
+            rect = NSMakeRect(kRightControlX, 289, kToolboxMenuWidth, 18.0 * kCodecModeCount);
             count = kCodecModeCount;
             id = kCodecModeParamId;
         }
@@ -2528,9 +2565,9 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(140, 609, 148, 16))) { _openMenu = 1; [self setNeedsDisplay:YES]; return; }
-    if (NSPointInRect(point, NSMakeRect(140, 453, 148, 16))) { _openMenu = 2; [self setNeedsDisplay:YES]; return; }
-    if (NSPointInRect(point, NSMakeRect(570, 273, 148, 16))) { _openMenu = 3; [self setNeedsDisplay:YES]; return; }
+    if (NSPointInRect(point, NSMakeRect(kLeftControlX, 609, kToolboxMenuWidth, 16))) { _openMenu = 1; [self setNeedsDisplay:YES]; return; }
+    if (NSPointInRect(point, NSMakeRect(kLeftControlX, 501, kToolboxMenuWidth, 18))) { _openMenu = 2; [self setNeedsDisplay:YES]; return; }
+    if (NSPointInRect(point, NSMakeRect(kRightControlX, 273, kToolboxMenuWidth, 16))) { _openMenu = 3; [self setNeedsDisplay:YES]; return; }
     if (NSPointInRect(point, NSMakeRect(140, 642, 148, 22))) {
         applyParam(*p, kPerformanceModeParamId,
             point.x < 214.0 ? static_cast<double>(PerformanceMode::Free) : static_cast<double>(PerformanceMode::Midi));
@@ -2602,19 +2639,43 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         return;
     }
 
-    static const CGFloat leftRows[] = { 274, 304, 334, 364, 394, 424, 484, 514 };
+    static const CGFloat leftRows[] = { 346, 372, 398, 424, 450, 476, 528, 274 };
+    static const clap_id leftIds[] = {
+        kScanRateParamId, kTextureParamId, kGeometryParamId, kChaosParamId,
+        kFoldParamId, kEvolveParamId, kChannelSpreadParamId, kGainParamId
+    };
     for (int i = 0; i < 8; ++i) {
-        if (NSPointInRect(point, NSMakeRect(30, leftRows[i] - 9.0, 390, 24))) {
-            _dragSlider = i + 1;
-            [self updateSlider:point];
+        if (NSPointInRect(point, NSMakeRect(
+                kLeftToolboxX, leftRows[i] - 9.0, kToolboxWidth, 24))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, leftIds[i], &defaultValue)) {
+                applyParam(*p, leftIds[i], defaultValue);
+                _dragSlider = -1;
+            } else {
+                _dragSlider = i + 1;
+                [self updateSlider:point];
+            }
             return;
         }
     }
-    static const CGFloat rightRows[] = { 304, 334, 364, 408, 438, 468 };
+    static const CGFloat rightRows[] = { 300, 326, 352, 378, 404, 430 };
+    static const clap_id rightIds[] = {
+        kCodecRateParamId, kBitDepthParamId, kCodecDamageParamId,
+        kDriveParamId, kShredParamId, kResonanceParamId
+    };
     for (int i = 0; i < 6; ++i) {
-        if (NSPointInRect(point, NSMakeRect(460, rightRows[i] - 9.0, 390, 24))) {
-            _dragSlider = i + 101;
-            [self updateSlider:point];
+        if (NSPointInRect(point, NSMakeRect(
+                kRightToolboxX, rightRows[i] - 9.0, kToolboxWidth, 24))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, rightIds[i], &defaultValue)) {
+                applyParam(*p, rightIds[i], defaultValue);
+                _dragSlider = -1;
+            } else {
+                _dragSlider = i + 101;
+                [self updateSlider:point];
+            }
             return;
         }
     }
@@ -2736,7 +2797,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.fault",
-    "s3g Processor Fault",
+    "s3g Processor Fault 8ch",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

@@ -1898,7 +1898,7 @@ static std::vector<float> readWavMono(NSURL* url)
     NSString* status = s3g::clap_gui::peakDbText(
         _plugin->outputPeak.load(std::memory_order_relaxed));
     s3g::clap_gui::drawEncoderTitleBand(
-        @"s3g AMBI ENCODER VOT 64",
+        @"s3g AMBI ENCODER VOT",
         [NSString stringWithUTF8String:_titlePresetName],
         status,
         s3g::clap_gui::encoderTitleBand(kGuiW, kGuiH),
@@ -2613,7 +2613,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-vot-encoder-64",
-    "s3g Ambi Encoder VOT 64",
+    "s3g Ambi Encoder VOT",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

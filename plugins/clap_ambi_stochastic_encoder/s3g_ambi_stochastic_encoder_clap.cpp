@@ -2404,7 +2404,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     NSDictionary* attrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
     NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
-    [@"s3g AMBI ENCODER STOCHASTIC 64" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
+    [@"s3g AMBI ENCODER STOCHASTIC" drawAtPoint:NSMakePoint(18, 14) withAttributes:titleAttrs];
     s3g::clap_gui::drawEncoderPresetMenu(
         [self presetDisplayName],
         s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
@@ -2763,7 +2763,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-stochastic-encoder-64",
-    "s3g Ambi Encoder Stochastic 64",
+    "s3g Ambi Encoder Stochastic",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

@@ -3596,7 +3596,7 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     NSRectFill([self bounds]);
     NSDictionary* attrs = s3g::clap_gui::softLabelAttrs();
     NSDictionary* values = s3g::clap_gui::softValueAttrs();
-    [@"s3g AMBI ENCODER NEURAL ECOLOGY 64" drawAtPoint:NSMakePoint(18, 14)
+    [@"s3g AMBI ENCODER NEURAL ECOLOGY" drawAtPoint:NSMakePoint(18, 14)
         withAttributes:s3g::clap_gui::softTitleAttrs()];
     s3g::clap_gui::drawEncoderPresetMenu(
         [self presetDisplayName],
@@ -4008,7 +4008,7 @@ constexpr const char* features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-neural-ecology-64",
-    "s3g Ambi Encoder Neural Ecology 64",
+    "s3g Ambi Encoder Neural Ecology",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

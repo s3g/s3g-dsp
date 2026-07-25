@@ -37,13 +37,20 @@ namespace {
 constexpr uint32_t kChannelCount = s3g::kWaveGeometryChannels;
 constexpr uint32_t kStateVersion = 3;
 constexpr uint32_t kGuiWidth = 1000;
-constexpr uint32_t kGuiHeight = 800;
+constexpr uint32_t kGuiHeight = 1002;
+constexpr double kLegacyContentTop = 34.0;
+constexpr double kContentTranslation =
+    s3g::gui_layout::kStandardMetrics.contentTop - kLegacyContentTop;
+constexpr double kContentCoordinateHeight =
+    static_cast<double>(kGuiHeight) - kContentTranslation;
 constexpr uint32_t kScopeFrames = 128;
 constexpr double kMotionRateMinHz = 0.01;
 constexpr double kMotionRateMaxHz = 1.0;
-constexpr double kEngineRowPitch = 22.0;
-constexpr double kEngineFirstRow = 42.0;
-constexpr double kEnginePanelHeight = 386.0;
+constexpr double kEngineRowPitch =
+    s3g::gui_layout::kStandardMetrics.rowPitch;
+constexpr double kEngineFirstRow = 36.0;
+constexpr double kEnginePanelHeight =
+    s3g::gui_layout::toolboxHeightForRows(13u);
 
 constexpr clap_id kFoldParamId = 1;
 constexpr clap_id kDriveParamId = 2;
@@ -598,6 +605,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     int _hoverMenuItem;
     NSPoint _menuOrigin;
     uint32_t _menuItemCount;
+    char _titlePresetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
@@ -631,6 +639,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         _hoverMenuItem = -1;
         _menuOrigin = NSMakePoint(0, 0);
         _menuItemCount = 0;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
     }
     return self;
 }
@@ -661,7 +670,9 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 - (void)drawEngineRow:(NSString*)name value:(NSString*)value norm:(CGFloat)norm y:(CGFloat)y attrs:(NSDictionary*)attrs small:(NSDictionary*)small
 {
     s3g::clap_gui::Style style;
-    s3g::clap_gui::drawSlider(name, value, norm, y, attrs, small, style, 654, 750, 920, 150);
+    s3g::clap_gui::drawProcessorSlider(
+        name, value, norm, y, 644.0, 344.0,
+        attrs, small, style);
 }
 - (NSRect)fieldPageButtonRect:(NSRect)rect index:(int)index
 {
@@ -856,27 +867,53 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSFont* titleFont = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
-    NSDictionary* lab = @{ NSForegroundColorAttributeName:style.text, NSFontAttributeName:titleFont };
+    NSDictionary* titleAttrs = s3g::clap_gui::softTitleAttrs();
+    NSDictionary* lab = s3g::clap_gui::softLabelAttrs();
     NSDictionary* small = @{ NSForegroundColorAttributeName:style.dim, NSFontAttributeName:mono };
-    [@"s3g PROCESSOR WAVE GEOMETRY" drawAtPoint:NSMakePoint(18, 14) withAttributes:lab];
-    [[NSString stringWithFormat:@"%uCH", kChannelCount] drawAtPoint:NSMakePoint(936, 14) withAttributes:small];
+    NSString* titleText = [NSString stringWithFormat:
+        @"s3g PROCESSOR WAVE GEOMETRY %uCH", kChannelCount];
+    s3g::clap_gui::drawProcessorTitleBand(
+        titleText,
+        [NSString stringWithUTF8String:_titlePresetName],
+        s3g::clap_gui::peakDbText(
+            p->outputPeak.load(std::memory_order_relaxed)),
+        s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight),
+        titleAttrs, lab, small, style);
 
-    [self drawField:NSMakeRect(12, 34, 620, 694) attrs:lab small:small];
+    [NSGraphicsContext saveGraphicsState];
+    NSAffineTransform* contentTransform = [NSAffineTransform transform];
+    [contentTransform translateXBy:0.0 yBy:kContentTranslation];
+    [contentTransform concat];
+
+    [self drawField:NSMakeRect(
+        12, 34, 620, kContentCoordinateHeight - 46.0)
+        attrs:lab small:small];
 
     const CGFloat panelX = 644.0;
     const CGFloat panelW = 344.0;
     const CGFloat headerH = 21.0;
-    const CGFloat gap = 8.0;
+    const CGFloat gap =
+        s3g::gui_layout::kStandardMetrics.panelGap;
     CGFloat panelY = 34.0;
     auto drawHeader = [&](NSString* title, bool open, CGFloat y) {
         s3g::clap_gui::drawDisclosurePanelHeader(title, open, panelX, y, panelW, headerH, lab, style);
     };
 
-    const CGFloat engineH = _showEngine ? static_cast<CGFloat>(kEnginePanelHeight) : headerH;
+    const CGFloat outputH = 80.0;
+    s3g::clap_gui::drawPanelFrame(panelX, panelY, panelW, outputH, style);
+    s3g::clap_gui::drawPanelHeader(
+        @"OUTPUT", true, panelX, panelY, panelW, headerH, lab, style);
+    const auto& prm = p->settings.base;
+    [self drawEngineRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", prm.gainDb]
+        norm:(prm.gainDb + 60.0f) / 72.0f y:engineRowY(panelY, 0) attrs:small small:small];
+    [self drawEngineRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f]
+        norm:prm.mix y:engineRowY(panelY, 1) attrs:small small:small];
+    panelY += outputH + gap;
+
+    const CGFloat engineH = _showEngine
+        ? static_cast<CGFloat>(kEnginePanelHeight) : headerH;
     s3g::clap_gui::drawPanelFrame(panelX, panelY, panelW, engineH, style);
     drawHeader(@"WAVE ENGINE", _showEngine, panelY);
-    const auto& prm = p->settings.base;
     if (_showEngine) {
         [self drawEngineRow:@"FOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.fold * 100.0f] norm:prm.fold y:engineRowY(panelY, 0) attrs:small small:small];
         [self drawEngineRow:@"DRIV" value:[NSString stringWithFormat:@"%.0f%%", prm.drive * 100.0f] norm:prm.drive y:engineRowY(panelY, 1) attrs:small small:small];
@@ -891,12 +928,13 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         [self drawEngineRow:@"TRNS" value:[NSString stringWithFormat:@"%+.2f", prm.trans] norm:(prm.trans + 1.0f) * 0.5f y:engineRowY(panelY, 10) attrs:small small:small];
         [self drawEngineRow:@"TAPE" value:[NSString stringWithFormat:@"%.0f%%", prm.tape * 100.0f] norm:prm.tape y:engineRowY(panelY, 11) attrs:small small:small];
         [self drawEngineRow:@"SPED" value:[NSString stringWithFormat:@"%.0f%%", prm.speed * 100.0f] norm:prm.speed y:engineRowY(panelY, 12) attrs:small small:small];
-        [self drawEngineRow:@"MIX" value:[NSString stringWithFormat:@"%.0f%%", prm.mix * 100.0f] norm:prm.mix y:engineRowY(panelY, 13) attrs:small small:small];
-        [self drawEngineRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f", prm.gainDb] norm:(prm.gainDb + 60.0f) / 72.0f y:engineRowY(panelY, 14) attrs:small small:small];
     }
     panelY += engineH + gap;
 
-    const CGFloat topologyH = _showTopology ? 350.0 : headerH;
+    const CGFloat topologyH = _showTopology
+        ? static_cast<CGFloat>(
+            s3g::gui_layout::toolboxHeightForRows(16u))
+        : headerH;
     s3g::clap_gui::drawPanelFrame(panelX, panelY, panelW, topologyH, style);
     drawHeader(@"TOPOLOGY", _showTopology, panelY);
     const auto& t = p->settings.topology;
@@ -921,7 +959,8 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         values.neighborSuffix = true;
         values.radius = t.neighborRadius;
         values.centroid = t.centroidAmount;
-        s3g::clap_gui::drawTopologyRows(values, panelY + 22.0, small, small, style);
+        s3g::clap_gui::drawTopologyRows(
+            values, panelY, small, small, style);
     }
     panelY += topologyH + gap;
 
@@ -986,11 +1025,15 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         NSRect menuRect = NSMakeRect(_menuOrigin.x, _menuOrigin.y, 178.0, itemH * static_cast<CGFloat>(count));
         s3g::clap_gui::drawDropdownMenu(menuRect, itemH, items, count, selected, _hoverMenuItem, small, style);
     }
+    [NSGraphicsContext restoreGraphicsState];
 }
 - (void)updateDrag:(NSPoint)point
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    const double n = std::clamp((point.x - 750.0) / 150.0, 0.0, 1.0);
+    const double n = std::clamp(
+        (point.x - s3g::gui_layout::processorControlX(644.0))
+            / s3g::gui_layout::processorTrackWidth(344.0),
+        0.0, 1.0);
     switch (_dragParam) {
     case kFoldParamId: applyParam(*p, kFoldParamId, n); break;
     case kDriveParamId: applyParam(*p, kDriveParamId, n); break;
@@ -1038,8 +1081,17 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     auto* p = static_cast<Plugin*>(_plugin);
+    const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
+    if (s3g::clap_gui::handleProcessorTitleClick(
+            pt, &p->plugin, @"Processor Wave Geometry", titleBand,
+            _titlePresetName, sizeof(_titlePresetName))) {
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    pt.y -= kContentTranslation;
 
-    const NSRect fieldPanel = NSMakeRect(12.0, 34.0, 620.0, 694.0);
+    const NSRect fieldPanel = NSMakeRect(
+        12.0, 34.0, 620.0, kContentCoordinateHeight - 46.0);
     if (NSPointInRect(pt, fieldPanel)) {
         for (int i = 0; i < 2; ++i) {
             NSRect button = [self fieldPageButtonRect:fieldPanel index:i];
@@ -1090,49 +1142,84 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     const CGFloat panelX = 644.0;
     const CGFloat panelW = 344.0;
     const CGFloat headerH = 21.0;
-    const CGFloat gap = 8.0;
+    const CGFloat gap =
+        s3g::gui_layout::kStandardMetrics.panelGap;
     auto headerRect = [&](CGFloat y) {
         return NSMakeRect(panelX, y, panelW, headerH);
     };
     auto menuOrigin = [&](CGFloat x, CGFloat preferredY, uint32_t itemCount) {
         const CGFloat itemH = 18.0;
-        const CGFloat bottom = static_cast<CGFloat>(kGuiHeight) - 10.0;
+        const CGFloat bottom = kContentCoordinateHeight - 10.0;
         return NSMakePoint(x, std::max<CGFloat>(28.0, std::min<CGFloat>(preferredY, bottom - itemH * static_cast<CGFloat>(itemCount))));
     };
 
     CGFloat panelY = 34.0;
-    const CGFloat engineH = _showEngine ? static_cast<CGFloat>(kEnginePanelHeight) : headerH;
+    const CGFloat outputH = 80.0;
+    const clap_id outputIds[] = { kGainParamId, kMixParamId };
+    for (uint32_t i = 0; i < 2u; ++i) {
+        const CGFloat rowY = static_cast<CGFloat>(engineRowY(panelY, i));
+        if (!NSPointInRect(
+                pt, NSMakeRect(panelX, rowY - 8.0, panelW, 24.0))) continue;
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, outputIds[i], &defaultValue)) {
+            applyParam(*p, outputIds[i], defaultValue);
+            _dragParam = 0;
+        } else {
+            _dragParam = static_cast<int>(outputIds[i]);
+            [self updateDrag:pt];
+        }
+        return;
+    }
+    panelY += outputH + gap;
+    const CGFloat engineH = _showEngine
+        ? static_cast<CGFloat>(kEnginePanelHeight) : headerH;
     if (NSPointInRect(pt, headerRect(panelY))) {
         _showEngine = !_showEngine;
         [self setNeedsDisplay:YES];
         return;
     }
     if (_showEngine) {
-        const clap_id engineIds[] = {kFoldParamId,kDriveParamId,kHoldParamId,kClipParamId,kRectifyParamId,kEdgeParamId,kZeroParamId,kPolarParamId,kBitsParamId,kStepParamId,kTransParamId,kTapeParamId,kSpeedParamId,kMixParamId,kGainParamId};
-        for (uint32_t i = 0; i < 15u; ++i) {
+        const clap_id engineIds[] = {kFoldParamId,kDriveParamId,kHoldParamId,kClipParamId,kRectifyParamId,kEdgeParamId,kZeroParamId,kPolarParamId,kBitsParamId,kStepParamId,kTransParamId,kTapeParamId,kSpeedParamId};
+        for (uint32_t i = 0; i < 13u; ++i) {
             const CGFloat rowY = static_cast<CGFloat>(engineRowY(panelY, i));
-            if (NSPointInRect(pt, NSMakeRect(648, rowY - 8.0, 324, 24.0))) {
-                _dragParam = static_cast<int>(engineIds[i]);
-                [self updateDrag:pt];
+            if (NSPointInRect(
+                    pt, NSMakeRect(panelX, rowY - 8.0, panelW, 24.0))) {
+                double defaultValue = 0.0;
+                if (s3g::clap_gui::sliderDoubleClickDefault(
+                        event, &p->plugin, engineIds[i], &defaultValue)) {
+                    applyParam(*p, engineIds[i], defaultValue);
+                    _dragParam = 0;
+                } else {
+                    _dragParam = static_cast<int>(engineIds[i]);
+                    [self updateDrag:pt];
+                }
                 return;
             }
         }
     }
     panelY += engineH + gap;
 
-    const CGFloat topologyH = _showTopology ? 350.0 : headerH;
+    const CGFloat topologyH = _showTopology
+        ? static_cast<CGFloat>(
+            s3g::gui_layout::toolboxHeightForRows(16u))
+        : headerH;
     if (NSPointInRect(pt, headerRect(panelY))) {
         _showTopology = !_showTopology;
         [self setNeedsDisplay:YES];
         return;
     }
     if (_showTopology) {
-        const auto row = s3g::clap_gui::hitTopologyRow(pt, panelY + 22.0);
+        const auto row = s3g::clap_gui::hitTopologyRow(
+            pt, panelY, panelX, panelW);
         if (row == s3g::clap_gui::TopologyRow::Shape) {
             _openMenu = 1;
             _hoverMenuItem = -1;
             _menuItemCount = s3g::kTopologyShapeCount;
-            _menuOrigin = menuOrigin(750.0, s3g::clap_gui::topologyRowY(panelY + 22.0, row) + 18.0, _menuItemCount);
+            _menuOrigin = menuOrigin(
+                s3g::gui_layout::processorControlX(panelX),
+                s3g::clap_gui::topologyRowY(panelY, row) + 18.0,
+                _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -1140,7 +1227,10 @@ const clap_plugin_latency_t latencyExt { latencyGet };
             _openMenu = 2;
             _hoverMenuItem = -1;
             _menuItemCount = s3g::kTopologyMotionModeCount;
-            _menuOrigin = menuOrigin(750.0, s3g::clap_gui::topologyRowY(panelY + 22.0, row) + 18.0, _menuItemCount);
+            _menuOrigin = menuOrigin(
+                s3g::gui_layout::processorControlX(panelX),
+                s3g::clap_gui::topologyRowY(panelY, row) + 18.0,
+                _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -1148,7 +1238,10 @@ const clap_plugin_latency_t latencyExt { latencyGet };
             _openMenu = 4;
             _hoverMenuItem = -1;
             _menuItemCount = s3g::kTopologyVariantCount;
-            _menuOrigin = menuOrigin(750.0, s3g::clap_gui::topologyRowY(panelY + 22.0, row) + 18.0, _menuItemCount);
+            _menuOrigin = menuOrigin(
+                s3g::gui_layout::processorControlX(panelX),
+                s3g::clap_gui::topologyRowY(panelY, row) + 18.0,
+                _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -1156,7 +1249,10 @@ const clap_plugin_latency_t latencyExt { latencyGet };
             _openMenu = 3;
             _hoverMenuItem = -1;
             _menuItemCount = 3;
-            _menuOrigin = menuOrigin(750.0, s3g::clap_gui::topologyRowY(panelY + 22.0, row) + 18.0, _menuItemCount);
+            _menuOrigin = menuOrigin(
+                s3g::gui_layout::processorControlX(panelX),
+                s3g::clap_gui::topologyRowY(panelY, row) + 18.0,
+                _menuItemCount);
             [self setNeedsDisplay:YES];
             return;
         }
@@ -1176,7 +1272,15 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         default: _dragParam = 0; break;
         }
         if (_dragParam != 0) {
-            [self updateDrag:pt];
+            const clap_id param = static_cast<clap_id>(_dragParam);
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, param, &defaultValue)) {
+                applyParam(*p, param, defaultValue);
+                _dragParam = 0;
+            } else {
+                [self updateDrag:pt];
+            }
             return;
         }
     }
@@ -1212,10 +1316,16 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         }
     }
 }
-- (void)mouseMoved:(NSEvent*)event { [self updateMenuHover:[self convertPoint:[event locationInWindow] fromView:nil]]; }
+- (void)mouseMoved:(NSEvent*)event
+{
+    NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    pt.y -= kContentTranslation;
+    [self updateMenuHover:pt];
+}
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
+    pt.y -= kContentTranslation;
     [self updateMenuHover:pt];
     if (_dragTopologyView) {
         const CGFloat dx = pt.x - _lastDragPoint.x;

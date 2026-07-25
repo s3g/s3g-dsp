@@ -21,6 +21,10 @@ This is the working style reference for custom macOS CLAP plugin GUIs in
   baseline rather than the ordinary toolbox-label baseline. Use the shared
   title-band or title-preset renderer; do not draw this caption through the
   general toolbox-menu helper.
+- Title bands do not draw a standalone underline. Every toolbox and primary
+  field/view uses the shared two-pixel accent line on its own top edge.
+- Begin the first toolbox or primary field/view at y 42 px in every editor.
+  The title controls end at y 31 px, leaving a consistent 11 px clear band.
 - Prefer compact panels, square controls, thin linework, and high-contrast
   gray accents. Avoid pure white text as the default visual voice.
 - Avoid nested panel containers. A panel should sit directly on the main
@@ -49,14 +53,20 @@ Put the searchable family before the specific member:
 
 For example: `s3g Ambi Decoder Head`, `s3g Ambi Encoder Point`,
 `s3g Ambi Encoder Surface Terrain`, `s3g Panner LBAP`, and
-`s3g Processor Delay`. The editor title and macOS bundle display name follow
-the same word order as the CLAP descriptor.
+`s3g Processor Delay 8ch`. The editor title and macOS bundle display name
+follow the same word order as the CLAP descriptor.
+
+Append a channel count only when it distinguishes a meaningful variant.
+Encoder names omit the family-wide 64-channel capability. Processor names keep
+their specific width, such as `8ch`, `16ch`, or `24ch`; the GUI renders that
+suffix as `8CH`, `16CH`, or `24CH`. The far-right title status is reserved for
+`PK` and exceptional transient states, not a repeated channel count.
 
 `Processor` identifies a developed, self-contained effect or instrument
 workflow. It is not a signal-format or implementation label, and it does not
 promise that a member uses topology. Wave Geometry and Spectral Topology do;
 other members may use buffers, delays, loops, grains, codec damage, or another
-model. `s3g Processor Ambi Grain` remains in this family because its loaded-file
+model. `s3g Processor Ambi Grain 16ch` remains in this family because its loaded-file
 granulation workflow is more closely related to the other Processors; requiring
 ambisonic media is an input-format constraint rather than its primary family
 identity.
@@ -473,3 +483,11 @@ The current primary reference is `s3g Processor Delay 8ch`:
 - lane cursors intersect the waveform timeline
 - loop region markers show the active window
 - output lanes use compact square cells rather than a full patch matrix
+
+Across the Processor family, the title band is rendered by the shared
+Processor helper and reads `PRESET`, `LOAD`, `SAVE`. Contextual media loading
+stays with the waveform or source panel. The control stack begins with a
+dedicated `OUTPUT` toolbox, with `OUT` first and only final-audition controls
+following it. Processor toolbox rows use the 36 px first-control offset and
+consistent final-row padding defined in the
+[GUI Layout Templates](gui-layout-templates.md#processor-family-reference).

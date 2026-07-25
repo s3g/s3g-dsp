@@ -2437,7 +2437,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     const auto style = s3g::clap_gui::softTextStyle();
     [style.bg setFill];
     NSRectFill([self bounds]);
-    [@"s3g AMBI ENCODER PULSAR 64" drawAtPoint:NSMakePoint(18, 14)
+    [@"s3g AMBI ENCODER PULSAR" drawAtPoint:NSMakePoint(18, 14)
         withAttributes:s3g::clap_gui::softTitleAttrs()];
     s3g::clap_gui::drawEncoderPresetMenu(
         [self presetDisplayName],
@@ -2778,7 +2778,7 @@ constexpr const char* features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-pulsar-encoder-64",
-    "s3g Ambi Encoder Pulsar 64",
+    "s3g Ambi Encoder Pulsar",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

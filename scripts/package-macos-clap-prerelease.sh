@@ -217,8 +217,8 @@ Included plugins ($bundle_count bundles):
 - s3g Ambi Node Bus Mixer 128
 - s3g Spectral Spray 2ch
 - s3g Spectral Spray 8ch
-- s3g Processor Spectral Topology 8ch
-- s3g Processor Spectral Topology 24ch
+- s3g Processor Spectral 8ch
+- s3g Processor Spectral 24ch
 - s3g Shard Scatter
 - s3g Orbit Delay
 - s3g Cascade Taps
