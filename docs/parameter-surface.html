@@ -28,7 +28,7 @@
 
         <p>Parameter Surface turns several complete instrument states into a playable two-dimensional space. Each cell holds a preset or captured state. Moving the <code>X/Y</code> cursor blends the continuous synthesis controls of nearby cells and selects discrete controls from the nearest cell.</p>
 
-        <p>The first implementations are <a href="ambi-stochastic-encoder.html">Ambi Encoder Stochastic</a> and <a href="ambi-wrangler-encoder.html">Ambi Encoder Wrangler</a>. Both expose the surface as a <code>SURF</code> page in the main field view and expose <code>SURFACE X</code> and <code>SURFACE Y</code> as automatable host parameters.</p>
+        <p>The shared implementations are <a href="ambi-stochastic-encoder.html">Ambi Encoder Stochastic</a>, <a href="ambi-wrangler-encoder.html">Ambi Encoder Wrangler</a>, <a href="ambi-water-encoder.html">Ambi Encoder Water</a>, <a href="ambi-wind-encoder.html">Ambi Encoder Wind</a>, <a href="ambi-pyrosphere-encoder.html">Ambi Encoder Pyrosphere</a>, <a href="ambi-cryosphere-encoder.html">Ambi Encoder Cryosphere</a>, and <a href="ambi-insect-encoder.html">Ambi Encoder Insect</a>. Each exposes the surface as a <code>SURF</code> page in the main field view and exposes <code>SURFACE X</code> and <code>SURFACE Y</code> as automatable host parameters.</p>
 
         <h2 id="workflow">Building a Surface</h2>
 
@@ -50,7 +50,11 @@
 
         <p>Every active cell contributes according to its distance from the cursor. <code>CURVE</code> reshapes those normalized contributions: <code>SOFT</code> keeps more neighboring cells present, <code>LINEAR</code> preserves the direct distance weights, <code>SMOOTH</code> eases toward the dominant cell, and <code>TIGHT</code> makes the strongest cell take over more decisively. <code>FOCUS</code> changes the distance exponent: lower values create broad mixtures; higher values concentrate the result around nearby cells. Landing exactly on a cell recalls its continuous values exactly.</p>
 
-        <p><code>GLIDE</code> sets temporal settling independently of the spatial blend. Its shared steps run from <code>OFF</code> through 2 seconds, and the displayed duration is the approximate time to settle 99% of the way to a new target. For encoders, glide is applied to the actual ambisonic point coordinates with shortest-path azimuth movement. The points in <code>FIELD</code> therefore show the same continuous trajectory used by the audio render instead of jumping to a new cell position.</p>
+        <p><code>GLIDE</code> sets temporal settling independently of the spatial blend. Its shared steps run from <code>OFF</code> through 2 seconds, and the displayed duration is the approximate time to settle 99% of the way to a new target. The automated or dragged X/Y position becomes a target (the diamond marker); the active crosshair glides toward it and drives the interpolated toolbox values. Sliders therefore move through intermediate values instead of adopting the target blend in one GUI frame.</p>
+
+        <p>Topology menus and other discrete controls still select a definite nearest cell—there is no meaningful fractional menu value—but the switch is made by the active gliding cursor rather than the target cursor. When that boundary is crossed, encoder topology geometry receives a second continuous transition: Stochastic morphs its internal topology graph before rebuilding neighborhood relationships; Wrangler glides its generated point targets; Water and Cryosphere crossfade their regime and environment fields; Wind and Pyrosphere crossfade their material or fuel fields; and Insect crossfades regime, call-type, habitat, and population changes. Shortest-path azimuth movement is used in the final ambisonic coordinate path. A topology name may change decisively while its field geometry and audio position continue moving smoothly.</p>
+
+        <p><code>VOICES</code> remains an integer nearest-cell readout, but changing population is not a threshold event. Each potential lane receives a distance-weighted membership gain from the cells that contain it. Shared low-numbered lanes stay present, while surplus lanes fade into or out of both synthesis and the field drawing; output normalization follows the resulting fractional population. A point disappears only when its audible membership has reached silence.</p>
 
         <table class="readout-table">
           <thead>
@@ -60,11 +64,12 @@
             <tr><td>Continuous synthesis controls</td><td>Distance-weighted interpolation across all cells.</td></tr>
             <tr><td>Angles</td><td>Shortest-path circular interpolation, avoiding a long sweep through zero at the ±180° boundary.</td></tr>
             <tr><td>Menus, toggles, counts, and other discrete controls</td><td>Value from the nearest cell.</td></tr>
+            <tr><td><code>VOICES</code> population</td><td>Integer nearest-cell display with continuous per-lane membership for audio, drawing, and output normalization.</td></tr>
             <tr><td>Final audition and routing</td><td>Remain live outside the surface so performance level and output format do not jump between cells.</td></tr>
           </tbody>
         </table>
 
-        <p>For the current encoder instruments, <code>OUT</code> and <code>ORDER</code> are never interpolated. Wrangler's Listener controls also remain live so its existing auditory score is not replaced by the surface; Stochastic stores its listener selection with each cell and interpolates listener amount as part of the generator state. Wrangler interpolates continuous per-voice curves while nearest-cell selection governs stepped curve modes.</p>
+        <p>For the current encoder instruments, <code>OUT</code> and <code>ORDER</code> are never interpolated. Wrangler's Listener controls also remain live so its existing auditory score is not replaced by the surface; Stochastic, Water, Wind, Pyrosphere, Cryosphere, and Insect store their listener selection with each cell and interpolate listener amount as part of the generator state. Wrangler interpolates continuous per-voice curves while nearest-cell selection governs stepped curve modes.</p>
 
         <h2 id="automation">Automation and Transport</h2>
 
@@ -105,6 +110,7 @@
           <h2>Surface Instruments</h2>
           <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>
           <a href="ambi-wrangler-encoder.html">Wrangler Encoder</a>
+          <a href="ambi-insect-encoder.html">Insect Encoder</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>

@@ -36,6 +36,7 @@
           <li>Select a physical production <code>REGIME</code> and a communicative <code>CALL TYPE</code>, then balance population <code>ACTIVITY</code>, <code>TEMPERATURE</code>, <code>VARIATION</code>, and <code>COUPLING</code>.</li>
           <li>Shape the regime-specific call clocks before tuning its body, contact, and radiation controls.</li>
           <li>Place and animate the population with swarm motion, field origin, environment, and optional field-listener controls.</li>
+          <li>Use <code>SURF</code> to arrange contrasting populations as a playable two-dimensional ecology, or <code>POP</code> it into a separate utility panel while editing the field.</li>
           <li>Follow the instrument with an ambisonic decoder or meter.</li>
         </ol>
 
@@ -78,6 +79,9 @@
         <p>The optional field listener lets the completed insect ecology hear itself. Eight cubical virtual lobes analyze the generated <code>ACN/SN3D</code> field after the direct insects and environment return have been combined. They retain fast and slow energy, novelty, roughness, spectral tilt, habituation, charge, and directional gradients. The response is bounded control feedback—not sample recirculation—and the analysis remains warm while listening is off.</p>
         <p><code>OFF</code> leaves the original synthesis path unchanged. <code>FOLLOW</code> reinforces populated directions that the field hears strongly. <code>COUNTER</code> transfers that response toward opposing directions. <code>BALANCE</code> applies negative feedback to restrain dominant directions. <code>LISTEN AMOUNT</code> scales the complete adaptation. <code>LEGACY</code> retains directional gain shaping; <code>CHORUS</code> uses novelty and charge to accelerate calling, activity, synchrony, and spectral edge; <code>SETTLE</code> lets sustained regions slow, darken, and stabilize; and <code>ENTRAIN</code> imprints local energy, roughness, and spectral balance onto call clocks, colony coupling, pitch, resonance, and flight-weighted spatial steering. The eight <code>HEARD</code> meters show relative lobe energy and the <code>GAIN</code> meters show the normalized response returned to the population. Mode and amount changes glide rather than switching gains abruptly.</p>
 
+        <h2 id="surface">Parameter Surface</h2>
+        <p><code>SURF</code> stores as many as 24 factory or captured insect states as cells in a two-dimensional performance space. The automatable <code>Surface X</code>/<code>Surface Y</code> target drives a gliding active cursor; continuous metabolism, call, body, swarm, origin, environment, and listener-amount controls interpolate across cells. Regime, call type, habitat, and other discrete choices follow the nearest cell with a transition crossfade. Population changes use per-voice membership gains, so surplus insects fade into or out of both synthesis and the field drawing instead of switching at a cell boundary. <code>CURVE</code>, <code>FOCUS</code>, and <code>GLIDE</code> shape the interpolation, while <code>OUT</code> and <code>ORDER</code> remain live. <code>POP</code> opens the synchronized SURF editor in an attached utility panel. See <a href="parameter-surface.html">Parameter Surface</a> for the shared workflow.</p>
+
         <h2 id="presets">Presets</h2>
         <p>The 18 factory presets cover cricket choirs, katydid waves, cicada masses, mosquitoes, bees, beetles, interior ticks, substrate tremulation, layered forests, and mixed summer populations. Factory presets default to <code>3OA</code>, <code>-6 dB</code>, and field listening <code>OFF</code>. <code>RANDOM</code> builds a seeded cinematic profile from related metabolism, morphology, articulation, social, density, motion, texture, and habitat traits while preserving the selected listener mode, amount, and response. It stays inside bounded regime-aware ranges while avoiding arbitrary combinations of every control. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3ginsect</code> presets in <code>~/Music/s3g/Presets/Ambi Insect Encoder/</code>; presets saved by earlier versions remain loadable.</p>
 
@@ -111,6 +115,7 @@
           <a href="#motion">Swarm Motion</a>
           <a href="#environment">Environment Field</a>
           <a href="#field-listener">Field Listener</a>
+          <a href="#surface">Parameter Surface</a>
           <a href="#presets">Presets</a>
           <a href="#routing">Order and Routing</a>
         </div>

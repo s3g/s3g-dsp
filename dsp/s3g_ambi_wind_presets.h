@@ -144,6 +144,20 @@ inline AmbiWindParams ambiWindFactoryPreset(uint32_t index)
     case 21u: p.place = 2u; p.space = 0.18f; break; // Loose Tarp Gusts / Porch
     default: p.place = 0u; p.space = index == 16u ? 0.10f : 0.12f; break;
     }
+    // Cinematic weather extensions retain the established preset ordering.
+    if (index == 7u) { // Sand Across Metal
+        p.materialMode = 10u;
+        p.particles = 0.92f;
+    } else if (index == 10u) { // Storm Gust Wall
+        p.particles = 0.46f;
+        p.pressure = 0.62f;
+    } else if (index == 15u) { // Backwash Weather
+        p.pressure = 0.72f;
+    } else if (index == 16u) { // Tornado Column
+        p.vortex = 1.0f;
+        p.pressure = 0.88f;
+        p.particles = 0.72f;
+    }
     return p;
 }
 

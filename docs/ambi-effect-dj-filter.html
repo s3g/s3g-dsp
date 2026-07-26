@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Effect DJ Filter - s3g-dsp</title>
+    <meta name="description" content="Order-adaptive DJ-style low-pass and high-pass filtering through tetrahedral, cubical, and icosahedral auditory bodies.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Effect DJ Filter</h1>
+
+        <p><strong>s3g Ambi Effect DJ Filter 64</strong> is the first member of the Ambi Effect family: insert processing for complete <code>ACN/SN3D</code> fields from first through seventh order. Its global control moves continuously from low-pass filtering on the left, through an open center, to high-pass filtering on the right. Twelve persistent pickup trims can vary that position around the body.</p>
+
+        <p>The effect borrows the directional body learned through <a href="listener-mode.html">Listener Mode</a>, but uses that body as an audio-processing topology. It is a separate architecture from the fixed third-order, 24-point <a href="3oafx-effects.html">3OAFX Effects</a>.</p>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <pre><code>1OA-7OA ACN/SN3D field
+-&gt; unchanged encoded field --------------------------+
+|                                                     |
++-&gt; decode Tetra 4 / Cube 8 / Icosa 12 pickups       |
+    -&gt; global DJ position + per-pickup filter trims   |
+    -&gt; Local / Cross / Diffuse / Roaming topology    |
+    -&gt; subtract the original pickup signals           |
+    -&gt; optional directional wet mask                  |
+    -&gt; re-encode only that residual ------------------+
+                                                      |
+                         dry field + residual -&gt; MIX -&gt; OUT</code></pre>
+
+        <ol>
+          <li>The selected active-order field is copied to the dry path and decoded at each virtual pickup in the chosen auditory body.</li>
+          <li>Two continuously running filter wings form low-pass and high-pass versions of every pickup signal.</li>
+          <li>The global DJ control and each pickup's bipolar trim determine an independent low-pass/open/high-pass position; the selected topology then relates those filtered signals across the body.</li>
+          <li>The original pickup signals are subtracted, leaving only the change made inside the auditory body.</li>
+          <li>The optional directional mask scales that residual at each pickup, allowing one region to stay wet while other directions approach the untouched field.</li>
+          <li>A regularized encoder returns the masked residual to the active-order field, where <code>MIX</code> scales it against the unchanged input.</li>
+          <li><code>OUT</code> applies final gain and channels above the selected order remain silent.</li>
+        </ol>
+
+        <p>Re-encoding only the processed-minus-original residual keeps material outside the selected pickup subspace intact. With every pickup trim at zero, the exact center makes filter depth and topology depth zero, so the residual disappears and the active-order field passes unchanged apart from <code>OUT</code>. A nonzero pickup trim deliberately keeps that point active while the global control is centered. Both filter wings continue running internally, which keeps automation across the center smooth.</p>
+
+        <h2 id="body">Order and Auditory Body</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Order</th><th>Active channels</th><th>AUTO body</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1OA</td><td>4</td><td>TETRA 4</td></tr>
+            <tr><td>2OA</td><td>9</td><td>CUBE 8</td></tr>
+            <tr><td>3OA-7OA</td><td>16-64</td><td>ICOSA 12</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>AUTO</code> follows the mapping above. You can override it with <code>TETRA 4</code>, <code>CUBE 8</code>, or <code>ICOSA 12</code>. Choosing a smaller body at a higher order gives fewer, broader processing anchors and leaves more of the encoded field outside the correction subspace. The plugin always exposes 64 input and output pins; channels above the selected order are inactive.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Function</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>ORDER</td><td>Selects <code>1OA</code> through <code>7OA</code> and therefore 4 through 64 active field channels.</td></tr>
+            <tr><td>BODY</td><td>Selects <code>AUTO</code>, <code>TETRA 4</code>, <code>CUBE 8</code>, or <code>ICOSA 12</code>.</td></tr>
+            <tr><td>DJ FILTER</td><td>Sweeps from maximum low-pass at the left through <code>OPEN</code> at center to maximum high-pass at the right.</td></tr>
+            <tr><td>PICKUP 01-12 FILTER TRIM</td><td>Shifts an individual pickup by up to half the complete DJ-filter range toward LP or HP. Inactive pickup settings are retained when the body changes.</td></tr>
+            <tr><td>RESONANCE</td><td>Adds emphasis around the moving cutoff. The cascaded state-variable filter keeps a damped second stage for controlled high settings.</td></tr>
+            <tr><td>TOPOLOGY</td><td>Chooses how filtered pickup signals are related before residual re-encoding.</td></tr>
+            <tr><td>AMOUNT</td><td>Blends from each pickup's own filtered signal toward the chosen topology. Its effective depth follows the DJ filter away from center.</td></tr>
+            <tr><td>ROAM RATE</td><td>Sets the traversal rate for <code>ROAMING</code>, from <code>0.005</code> to <code>2 Hz</code>.</td></tr>
+            <tr><td>MIX</td><td>Scales the re-encoded residual while preserving the original field.</td></tr>
+            <tr><td>MASK</td><td>Blends from the normal all-wet residual at <code>OFF</code> toward a directionally weighted wet region.</td></tr>
+            <tr><td>MASK AZ / EL</td><td>Aims the center of the wet region in ambisonic azimuth and elevation.</td></tr>
+            <tr><td>MASK WIDTH</td><td>Changes the directional falloff from a concentrated pickup region to a broad spatial wash.</td></tr>
+            <tr><td>OUT</td><td>Applies final gain from <code>-60</code> to <code>+12 dB</code>.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="pickup-editor">Pickup Editing and Meters</h2>
+
+        <p>Click a numbered point in the auditory-body display to select it, then drag the large bipolar trim rail below the body. Double-click either the point or the rail to return that pickup to zero trim. The twelve pickup parameters are independently automatable, even when the current body activates only four or eight of them.</p>
+
+        <p>Each point contains a pre-effect input meter. Its fill rises from the bottom over a <code>-60 dB</code> display range, so it shows which virtual pickups are actually receiving the incoming encoded field before filtering, topology, or masking. The small marker below each point shows its LP/HP trim. The point outline represents its current wet-mask gain: bright approaches fully wet and dim approaches the untouched field.</p>
+
+        <h2 id="wet-mask">Directional Wet Mask</h2>
+
+        <p>The mask is applied after filtering and topology but before residual re-encoding. <code>MASK: OFF</code> preserves the normal all-wet behavior. Raising <code>MASK</code> makes the region nearest <code>AZ</code>/<code>EL</code> retain more of the effect while other pickups contribute less correction. Since the dry path remains the original HOA field, a masked-out direction does not pass through a replacement decoder.</p>
+
+        <p>The dashed aim circle in the body display shows the mask center and approximate width. The mask follows the currently selected Tetra, Cube, or Icosa body, and its pickup gains are smoothed during automation.</p>
+
+        <h2 id="topologies">Topology Modes</h2>
+
+        <ul>
+          <li><strong>LOCAL</strong> returns each filtered pickup to its own directional anchor.</li>
+          <li><strong>CROSS</strong> sends each filtered pickup to the opposing anchor.</li>
+          <li><strong>DIFFUSE</strong> replaces each pickup with the average of its nearest neighbors on the selected body.</li>
+          <li><strong>ROAMING</strong> continuously moves pickup signals around a connected path over the body. <code>ROAM RATE</code> controls one complete traversal.</li>
+        </ul>
+
+        <p>Topology is deliberately coupled to each pickup's filter depth. A pickup at its effective <code>OPEN</code> position receives no topology correction; with every trim at zero, the global center remains a reliable neutral point during one-knob performance sweeps.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Place the effect after an ambisonic encoder or encoded-media source and before the decoder.</li>
+          <li>Match <code>ORDER</code> to the incoming field. Start with <code>BODY: AUTO</code>, <code>TOPOLOGY: LOCAL</code>, and the DJ filter at <code>OPEN</code>.</li>
+          <li>Sweep left to remove high frequencies or right to remove low frequencies. Add resonance after establishing the useful range.</li>
+          <li>Select active pickup points and offset a few toward LP or HP. Their meters make it easier to place stronger variation where the encoded field is actually active.</li>
+          <li>Try <code>CROSS</code> or <code>DIFFUSE</code> with a moderate amount for spatial redistribution, then use <code>ROAMING</code> when the filtering should travel through the field.</li>
+          <li>Raise <code>MASK</code>, aim its azimuth/elevation, and adjust width when the effect should occupy one directional region while the rest remains progressively dry.</li>
+          <li>At high orders, compare <code>ICOSA 12</code> with a deliberately smaller Cube or Tetra body. The smaller selection is not lower-order decoding; it is a coarser set of processing anchors inside the selected order.</li>
+        </ol>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambisonic-effects.html">
+            <span>Previous</span>
+            Ambisonic Effects
+          </a>
+          <a class="page-nav-link next" href="3oafx-effects.html">
+            <span>Next</span>
+            3OAFX Effects
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#body">Order and Body</a>
+          <a href="#controls">Controls</a>
+          <a href="#pickup-editor">Pickup Editing and Meters</a>
+          <a href="#wet-mask">Directional Wet Mask</a>
+          <a href="#topologies">Topology Modes</a>
+          <a href="#workflow">Workflow</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

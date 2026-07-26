@@ -61,7 +61,15 @@
 
         <h2 id="presets">Presets</h2>
 
+        <p><code>PARTICLES</code> introduces fine airborne impacts, <code>VORTEX</code> explicitly drives rotating column motion, and <code>PRESSURE</code> strengthens slow low-frequency pressure breathing. The material set now includes <code>SAND</code>, <code>DEBRIS</code>, and <code>STRUCTURE</code> responses for cinematic weather and destruction beds.</p>
+
+        <p>The field viewport’s <code>SURF</code> page stores complete presets or captured states as cells on a two-dimensional interpolation surface. The automatable <code>Surface X</code>/<code>Surface Y</code> cursor blends continuous parameters while discrete modes use the nearest cell. <code>CURVE</code>, <code>FOCUS</code>, and <code>GLIDE</code> control interpolation character and settling time; the surface is retained in project state.</p>
+
         <p>The 22 factory presets range from the restrained <code>PAIA Bench Wind</code> reference patch to tree-line, architectural, storm, material, and aeolian scenes. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3gwind</code> presets, including listener mode, amount, and response, with the default folder at <code>~/Music/s3g/Presets/Ambi Wind Encoder/</code>. <code>RANDOM</code> also chooses a complete listener configuration, so a randomized scene may immediately become self-steering and adaptive.</p>
+
+        <h2 id="surface">Parameter Surface</h2>
+
+        <p><code>SURF</code> arranges as many as 24 captured or factory states in a two-dimensional performance space. <code>CURVE</code> and <code>FOCUS</code> shape the spatial blend. <code>GLIDE</code> makes the active crosshair and participating toolbox controls move toward the target diamond over time, rather than switching at the dragged or automated cursor position. When the nearest cell changes, the material field crossfades through the selected glide time, so its resonant topology and spatial response do not jump even though the menu name changes decisively. Although <code>VOICES</code> remains an integer readout, surplus wind lanes fade continuously in synthesis and in the field view as cell influence changes. <code>POP</code> opens the synchronized surface in an attached utility panel. <code>OUT</code>, <code>ORDER</code>, and the cursor remain live outside the surface. See <a href="parameter-surface.html">Parameter Surface</a> for the shared editing and automation rules.</p>
 
         <h2 id="routing">Order and Routing</h2>
 
@@ -130,6 +138,7 @@
           <a href="#motion">Microweather Motion</a>
           <a href="#environment">Environment Field</a>
           <a href="#presets">Presets</a>
+          <a href="#surface">Parameter Surface</a>
           <a href="#routing">Order and Routing</a>
         </div>
       </aside>

@@ -204,6 +204,16 @@ struct EncoderTitleBand {
     double statusRightInset = 18.0;
 };
 
+struct EnvironmentalFieldHeader {
+    double titleSafeWidth = 218.0;
+    double pageButtonOffset = 236.0;
+    double pageButtonWidth = 45.0;
+    double pageButtonGap = 5.0;
+    double rightControlsOffset = 410.0;
+    double headerInsetY = 4.0;
+    double buttonHeight = 13.0;
+};
+
 struct PannerFamilyLayout {
     Canvas canvas {};
     Rect mainPanel {};
@@ -340,6 +350,38 @@ struct ImprintFamilyLayout {
 };
 
 inline constexpr Metrics kStandardMetrics {};
+
+inline constexpr EnvironmentalFieldHeader kEnvironmentalFieldHeader {};
+
+constexpr Rect environmentalFieldPageButtonRect(
+    Rect fieldPanel, uint32_t index)
+{
+    return {
+        fieldPanel.x + kEnvironmentalFieldHeader.pageButtonOffset
+            + static_cast<double>(index)
+                * (kEnvironmentalFieldHeader.pageButtonWidth
+                    + kEnvironmentalFieldHeader.pageButtonGap),
+        fieldPanel.y + kEnvironmentalFieldHeader.headerInsetY,
+        kEnvironmentalFieldHeader.pageButtonWidth,
+        kEnvironmentalFieldHeader.buttonHeight,
+    };
+}
+
+constexpr bool environmentalFieldHeaderFits(Rect fieldPanel)
+{
+    const Rect fieldButton = environmentalFieldPageButtonRect(fieldPanel, 0u);
+    const Rect surfButton = environmentalFieldPageButtonRect(fieldPanel, 1u);
+    const double titleRight = fieldPanel.x
+        + kEnvironmentalFieldHeader.titleSafeWidth;
+    const double controlsLeft = fieldPanel.x
+        + kEnvironmentalFieldHeader.rightControlsOffset;
+    return fieldButton.x >= titleRight + 12.0
+        && surfButton.x >= fieldButton.x + fieldButton.width
+        && surfButton.x + surfButton.width + 12.0 <= controlsLeft
+        && fieldButton.y >= fieldPanel.y
+        && fieldButton.y + fieldButton.height
+            <= fieldPanel.y + 21.0;
+}
 
 constexpr double processorLabelX(double panelX)
 {

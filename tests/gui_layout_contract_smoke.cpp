@@ -38,6 +38,20 @@ static_assert(layout::toolboxRowY(42.0, 3u) == 156.0);
 static_assert(layout::kStandardMetrics.toolboxBottomClearance == 18.0);
 static_assert(layout::kStandardMetrics.contentTop == 42.0);
 static_assert(layout::kStandardMetrics.headerLabelInset == 8.0);
+constexpr layout::Rect kEnvironmentalFieldPanel {
+    18.0, 42.0, 596.0, 608.0
+};
+constexpr auto kEnvironmentalFieldButton =
+    layout::environmentalFieldPageButtonRect(kEnvironmentalFieldPanel, 0u);
+constexpr auto kEnvironmentalSurfButton =
+    layout::environmentalFieldPageButtonRect(kEnvironmentalFieldPanel, 1u);
+static_assert(layout::environmentalFieldHeaderFits(kEnvironmentalFieldPanel));
+static_assert(kEnvironmentalFieldButton.x == 254.0);
+static_assert(kEnvironmentalSurfButton.x == 304.0);
+static_assert(kEnvironmentalFieldButton.width == 45.0);
+static_assert(kEnvironmentalSurfButton.x + kEnvironmentalSurfButton.width
+    < kEnvironmentalFieldPanel.x
+        + layout::kEnvironmentalFieldHeader.rightControlsOffset);
 static_assert(layout::kStandardMetrics.labelInset == 16.0);
 static_assert(layout::kStandardMetrics.labelInset
     - layout::kStandardMetrics.headerLabelInset == 8.0);

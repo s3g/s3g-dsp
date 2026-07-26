@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Pyrosphere Encoder - s3g-dsp</title>
+    <meta name="description" content="A geological ambisonic instrument for combustion, thermal stress, fracture, spall, debris, pressure, and plume behavior in s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a><a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a><a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a><a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a><a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Pyrosphere Encoder</h1>
+        <p><code>s3g Ambi Encoder Pyrosphere</code> is the thermal counterpart to Cryosphere: a zero-input geological instrument in which combustion acts on fuel, structures, and rock. It turns heat release, pyrolysis, thermal stress, fracture, spall, pressure, debris, and plume transport into a first-through-seventh-order <code>ACN/SN3D</code> field.</p>
+
+        <h2 id="design">Thermal-geology design</h2>
+        <p>The source model is aperiodic. Each field voice maintains a heat reservoir and stochastic combustion layer while its material accumulates thermal stress. Threshold crossings launch branching fracture cascades, surface-spall bursts, fragment showers, pressure releases, and occasional collapse events. Standing timber and forest materials add three independently loaded structural generations: trunk, limbs, and fine branches. Wind and plume motion drive Strouhal-scaled shedding forces; heat damage lowers failure resistance until bright branch snaps cascade into trunk rupture, a hinged descent, and a separate ground impact. Broadband and filtered-noise impulses replace the pitched ember oscillators and resonant fire patches used by the earlier prototype.</p>
+        <p><code>MATERIAL</code> changes heat uptake, combustion continuity, brittleness, fracture likelihood, spall behavior, debris mass, and spectral loss. The set is <code>GAS</code>, <code>WICK / WAX</code>, <code>DUFF / PEAT</code>, <code>TIMBER</code>, <code>COAL</code>, <code>OIL</code>, <code>MASONRY</code>, <code>METAL</code>, <code>EMBERS</code>, <code>RESIN</code>, <code>GRASS</code>, <code>FOREST</code>, and <code>ROCK / TALUS</code>. This makes a timber burn, a peat bed, a masonry spall field, and a heated talus slope different event systems rather than different filters on one fire sound.</p>
+        <p><code>HEAT</code>, <code>IGNITION RATE</code>, <code>FLARE DEPTH</code>, <code>ROAR</code>, <code>FLICKER</code>, <code>PYROLYSIS</code>, <code>OXYGEN</code>, and <code>CHAR</code> control heat release. <code>IGNITION RATE</code> is a direct logarithmic clock from 2 mHz to 12 Hz: it schedules heat-release changes and proportionally paces thermal damage, fragments, and structural consequences. Intermediate values are displayed in millihertz below 1 Hz, and <code>FLICKER</code> changes instability without secretly adding events. <code>BRITTLENESS</code>, <code>COMB DETAIL</code>, <code>FRAGMENTS</code>, <code>PLUME VORTEX</code>, and <code>PRESSURE</code> control material failure and transport. The <code>STRUCT LOAD</code>, <code>BRANCH SNAP</code>, and <code>TREE FALL</code> controls govern accumulated wind/heat loading, the high-frequency detail and branching of rupture, and the probability and weight of the final hinge/fall/impact consequence. The model draws on fire-sound decomposition, hierarchical tree-motion sound generation, and experimental acoustic-emission work on thermally shocked rock; it is a realtime procedural interpretation, not a finite-element fire simulation or a recording player. See <a href="references.html#voice-physical-modeling">References</a>.</p>
+
+        <h2 id="presets">Presets and SURF</h2>
+        <p>Thirteen factory scenes establish distinct process regions: Duff Smoulder, Timber Pyrolysis, Resinous Brush, Grass Front, Forest Combustion Front, Root Burn, Coal Seam, Oil Pool, Masonry Thermal Spall, Rock Talus Spall, Structural Collapse, Firestorm Debris Field, and Burned Timber Fall. The final scene foregrounds loading, branch-generation snaps, trunk failure, descent, and ground impact.</p>
+        <p>On the viewport’s <code>SURF</code> page, <code>ADD</code> stores the current preset as a cell and <code>CAP</code> overwrites the selected cell. In <code>PLAY</code>, the automatable <code>Surface X</code>/<code>Surface Y</code> cursor interpolates continuous parameters; discrete fuel, place, and response choices use the nearest cell. <code>VOICES</code> stays an integer readout while surplus combustion lanes fade continuously in both synthesis and the field drawing. <code>CURVE</code>, <code>FOCUS</code>, and <code>GLIDE</code> shape the morph; <code>POP</code> opens the synchronized surface in an attached utility panel.</p>
+
+        <h2 id="routing">Routing</h2>
+        <p>The output bus is always 64 channels; <code>ORDER</code> activates the first 4, 9, 16, 25, 36, 49, or 64 ACN channels. Follow it with an Ambisonic decoder, processor, or visualizer.</p>
+      </main>
+      <aside class="toc" aria-label="Page navigation"><div class="toc-section">
+        <h2>On This Page</h2><a href="#design">Thermal-geology design</a>
+        <a href="#presets">Presets and SURF</a><a href="#routing">Routing</a>
+      </div></aside>
+    </div>
+  </body>
+</html>

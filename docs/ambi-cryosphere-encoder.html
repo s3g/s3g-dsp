@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Cryosphere Encoder - s3g-dsp</title>
+    <meta name="description" content="A geological ambisonic instrument for frost stress, ice fracture, stick-slip, calving, impacts, cavitation, and granular snow in s3g-dsp.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a><a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a><a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a><a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a><a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Cryosphere Encoder</h1>
+        <p><code>s3g Ambi Encoder Cryosphere</code> is the frozen counterpart to Pyrosphere: a zero-input geological instrument in which frost and moving ice act on bedrock, substrate, snowpack, and water. Ice growth, strain, fracture, basal slip, calving, impact, cavitation, and granular transport are distributed across as many as 64 moving <code>ACN/SN3D</code> field voices.</p>
+
+        <h2 id="design">Cryogeology design</h2>
+        <p>The source model is aperiodic. Each field voice accumulates frost and ice-growth stress, releases branching fracture cascades, and loads an independent basal stick-slip process. Surface ice additionally behaves as a three-generation plate: broad slab flex, secondary fault lines, and fine radial cracks accumulate pressure independently. Irregular weight steps open bright cracks, which can cascade into a through-rupture, local plate collapse, and a separate low impact. Granular snow and ice transport scrape across the selected substrate. Calving events detach mass first, then schedule a physically separate water impact and cavitation tail. A diffuse filtered body response preserves scale without the persistent inharmonic oscillator bank used by the earlier prototype.</p>
+        <p><code>ICE GROWTH</code>, <code>EVENT RATE</code>, <code>SLAB SCALE</code>, <code>BRANCHING</code>, <code>FRACTURE DENSITY</code>, <code>FRACTURE MASS</code>, <code>FRACTURE TAIL</code>, <code>BODY SCATTER</code>, and <code>BRITTLENESS</code> shape solid failure. <code>EVENT RATE</code> is a logarithmic master geological clock from <code>HOLD</code> to <code>1×</code>; it paces frost strain, basal slip, granular contacts, calving checks, and structural plate loading together, while each event retains its full material articulation. <code>SURFACE LOAD</code> controls pressure/footstep drive, <code>ICE SNAP</code> exposes fine high-frequency radial failure, and <code>PLATE FAILURE</code> governs through-fracture and local collapse. <code>GRANULES</code>, <code>FROZEN IMPACTS</code>, <code>CALVING</code>, and <code>BRINE POCKETS</code> govern loose material and phase-boundary events. Process profiles distinguish frost cracking, ice segregation, permafrost heave, basal stick-slip, pressure ridging, calving, iceberg impact, avalanche release, snowpack creep, hail, sleet, freezing rain, and meltwater under ice; substrate profiles distinguish open ice, rock, snowpack, moraine, concrete, metal, glass, ice tunnel, ice cave, and glacier.</p>
+        <p>The fracture, ice-segregation, basal-slip, and iceberg-impact paths are informed by field and laboratory geophysics. In particular, the delayed calving impact/cavitation stage is separate from detachment, while basal slip is treated as load-and-release rather than a continuous tone. This remains a realtime procedural interpretation rather than a predictive glacier model. See <a href="references.html#voice-physical-modeling">References</a>.</p>
+
+        <h2 id="presets">Presets and SURF</h2>
+        <p>Thirteen factory scenes establish distinct process regions: Alpine Frost Crack, Ice Segregation Gneiss, Permafrost Heave, Basal Glacier Stick-Slip, Pressure Ridge, Calving Front, Iceberg Water Impact, Avalanche Release, Snowpack Creep, Hail on Metal, Sleet on Glass, Meltwater Under Ice, and Ice Under Foot. The final scene foregrounds pressure cadence, radial cracks, plate rupture, and local collapse.</p>
+        <p>The <code>SURF</code> page stores complete presets as editable cells. Automatable <code>Surface X</code>/<code>Surface Y</code> coordinates blend continuous event, body, motion, and environment parameters; discrete regimes and materials select the nearest cell. <code>VOICES</code> stays an integer readout while surplus frozen-water parcels fade continuously in both synthesis and the field drawing. Curve, focus, and up-to-two-second glide settings are saved with project state; <code>POP</code> opens the synchronized surface in an attached utility panel.</p>
+
+        <h2 id="routing">Routing</h2>
+        <p>The 64-channel output exposes first- through seventh-order Ambisonics. Set <code>ORDER</code>, then follow the encoder with the appropriate decoder or field processor.</p>
+      </main>
+      <aside class="toc" aria-label="Page navigation"><div class="toc-section">
+        <h2>On This Page</h2><a href="#design">Cryogeology design</a>
+        <a href="#presets">Presets and SURF</a><a href="#routing">Routing</a>
+      </div></aside>
+    </div>
+  </body>
+</html>

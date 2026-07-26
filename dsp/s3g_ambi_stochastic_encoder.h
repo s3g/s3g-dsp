@@ -326,9 +326,11 @@ public:
         globalKinetic_ = 0.0f;
         cascadePulse_.fill(0.0f);
         smoothedOutputGain_ = dbToGain(params_.outputGainDb)
-            / std::sqrt(static_cast<float>(std::max<uint32_t>(1u, params_.voices)));
+            / std::sqrt(surfaceVoiceMass());
+        const uint32_t processingVoices = processingVoiceCount();
         for (uint32_t voice = 0u; voice < kAmbiStochasticMaxVoices; ++voice) {
-            const auto base = baseTopologyPoint(voice, std::max<uint32_t>(1u, params_.voices));
+            const auto base = baseTopologyPoint(voice,
+                std::max<uint32_t>(1u, processingVoices));
             topologySecondary_[voice] = {
                 static_cast<float>(base[0]), static_cast<float>(base[1]), static_cast<float>(base[2])
             };
@@ -344,7 +346,7 @@ public:
             secondaryNeighborIndex_[voice] = (voice + 2u) % kAmbiStochasticMaxVoices;
         }
         bool anyFieldActive = false;
-        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+        for (uint32_t voice = 0u; voice < processingVoices; ++voice) {
             anyFieldActive = anyFieldActive || voices_[voice].fieldActive;
         }
         if (!anyFieldActive && params_.fieldDensity > 0.0f) {
@@ -352,11 +354,11 @@ public:
             voices_[0].fieldRemainingSamples = activeDurationSamples(0u);
         }
         uint32_t activeVoices = 0u;
-        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+        for (uint32_t voice = 0u; voice < processingVoices; ++voice) {
             if (voices_[voice].fieldActive) ++activeVoices;
         }
         globalActivity_ = static_cast<float>(activeVoices)
-            / static_cast<float>(std::max<uint32_t>(1u, params_.voices));
+            / surfaceVoiceMass();
         updateTopology(0.0f, true);
     }
 
@@ -410,7 +412,7 @@ public:
         params.surfaceX = clamp(params.surfaceX, 0.0f, 1.0f);
         params.surfaceY = clamp(params.surfaceY, 0.0f, 1.0f);
 
-        const uint32_t oldVoices = params_.voices;
+        const uint32_t oldVoices = processingVoiceCount();
         const uint32_t oldBreakpoints = params_.breakpoints;
         const float oldMacroDuration = params_.macroDurationSeconds;
         params_ = params;
@@ -418,9 +420,10 @@ public:
             macroRemainingSamples_ = std::max(1.0f, macroRemainingSamples_
                 * params_.macroDurationSeconds / oldMacroDuration);
         }
-        if (params_.voices > oldVoices) {
-            for (uint32_t voice = oldVoices; voice < params_.voices; ++voice) {
-                const auto base = baseTopologyPoint(voice, params_.voices);
+        const uint32_t newVoices = processingVoiceCount();
+        if (newVoices > oldVoices) {
+            for (uint32_t voice = oldVoices; voice < newVoices; ++voice) {
+                const auto base = baseTopologyPoint(voice, newVoices);
                 topologySecondary_[voice] = {
                     static_cast<float>(base[0]), static_cast<float>(base[1]), static_cast<float>(base[2])
                 };
@@ -435,7 +438,7 @@ public:
             }
         }
         if (params_.breakpoints != oldBreakpoints) {
-            for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+            for (uint32_t voice = 0u; voice < newVoices; ++voice) {
                 initializeVoiceGenerators(voice, voices_[voice].midiRole
                     ? midiToHz(static_cast<float>(voices_[voice].note)) : seedFrequencyForVoice(voice, 0u));
             }
@@ -450,7 +453,44 @@ public:
             0.0f, 2000.0f);
     }
 
+    void setParameterSurfaceVoiceMembership(
+        const std::array<float, kAmbiStochasticMaxVoices>& membership)
+    {
+        surfaceVoiceMembershipEnabled_ = true;
+        surfaceVoiceLimit_ = 1u;
+        for (uint32_t voice = 0u;
+            voice < kAmbiStochasticMaxVoices; ++voice) {
+            surfaceVoiceMembership_[voice] = clamp(
+                std::isfinite(membership[voice])
+                    ? membership[voice] : 0.0f,
+                0.0f, 1.0f);
+            if (surfaceVoiceMembership_[voice] > 1.0e-4f) {
+                surfaceVoiceLimit_ = voice + 1u;
+            }
+        }
+    }
+
+    void clearParameterSurfaceVoiceMembership()
+    {
+        surfaceVoiceMembershipEnabled_ = false;
+        surfaceVoiceLimit_ = params_.voices;
+    }
+
     AmbiStochasticParams params() const { return params_; }
+    uint32_t processingVoiceCount() const
+    {
+        return surfaceVoiceMembershipEnabled_
+            ? std::max(params_.voices, surfaceVoiceLimit_)
+            : params_.voices;
+    }
+    float voiceRenderGain(uint32_t voice) const
+    {
+        voice = std::min<uint32_t>(
+            voice, kAmbiStochasticMaxVoices - 1u);
+        return surfaceVoiceMembershipEnabled_
+            ? surfaceVoiceMembership_[voice]
+            : voice < params_.voices ? 1.0f : 0.0f;
+    }
     const std::array<AmbiStochasticPoint, kAmbiStochasticMaxVoices>& points() const { return points_; }
     Vec3 topologyPosition(uint32_t voice) const
     {
@@ -465,7 +505,8 @@ public:
     float fieldListenActivity() const { return fieldListener_.activity(); }
     AmbiStochasticListenerTelemetry fieldListenVoiceTelemetry(uint32_t voice) const
     {
-        const uint32_t safe = std::min<uint32_t>(voice, params_.voices - 1u);
+        const uint32_t safe = std::min<uint32_t>(
+            voice, processingVoiceCount() - 1u);
         const ListenerVoiceScore score = listenerScoreForVoice(safe);
         const bool listening = params_.fieldListenMode != AmbiStochasticListenMode::Off;
         const float capture = listening ? voices_[safe].listenerCapture : 0.0f;
@@ -504,7 +545,8 @@ public:
     float voiceFrequency(uint32_t voice) const { return voiceState(voice).currentFrequency; }
     float voicePeriodRatio(uint32_t voice) const
     {
-        const float seed = seedFrequencyForVoice(std::min<uint32_t>(voice, params_.voices - 1u), 0u);
+        const float seed = seedFrequencyForVoice(std::min<uint32_t>(
+            voice, processingVoiceCount() - 1u), 0u);
         return voiceFrequency(voice) / std::max(0.001f, seed);
     }
     float voiceKinetic(uint32_t voice) const { return kinetic_[safeVoice(voice)]; }
@@ -579,7 +621,8 @@ public:
     {
         uint32_t selected = 0u;
         float oldest = -1.0f;
-        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+        for (uint32_t voice = 0u;
+            voice < processingVoiceCount(); ++voice) {
             if (!voices_[voice].midiRole || voices_[voice].envelope.stage == AmbiStochasticEnvelopeStage::Idle) {
                 selected = voice;
                 break;
@@ -615,10 +658,10 @@ public:
             if (outputs[channel]) std::fill(outputs[channel], outputs[channel] + frames, 0.0f);
         }
 
-        const uint32_t voices = params_.voices;
+        const uint32_t voices = processingVoiceCount();
         const uint32_t ambiChannels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), outputChannels);
         const float targetOutputGain = dbToGain(params_.outputGainDb)
-            / std::sqrt(static_cast<float>(std::max<uint32_t>(1u, voices)));
+            / std::sqrt(surfaceVoiceMass());
         const float attackCoef = envelopeCoefficient(params_.attackMs);
         const float decayCoef = envelopeCoefficient(params_.decayMs);
         const float releaseCoef = envelopeCoefficient(params_.releaseMs);
@@ -677,11 +720,16 @@ public:
                     const float fieldGain = 0.72f + topologyRadius_[voiceIndex] * 0.28f;
                     const float internalAmplitude = std::tanh(sample * 1.18f) * envelope
                         * velocity * fieldGain * distanceGain[voiceIndex];
-                    const float amplitude = internalAmplitude * smoothedOutputGain_;
+                    const float membership = voiceRenderGain(voiceIndex);
+                    const float memberAmplitude = internalAmplitude
+                        * membership;
+                    const float amplitude = memberAmplitude
+                        * smoothedOutputGain_;
                     energySum[voiceIndex] += amplitude * amplitude;
                     voice.age += 1.0f / static_cast<float>(sampleRate_);
                     for (uint32_t channel = 0u; channel < ambiChannels; ++channel) {
-                        listenerFrame[channel] += internalAmplitude * basis[voiceIndex][channel];
+                        listenerFrame[channel] += memberAmplitude
+                            * basis[voiceIndex][channel];
                         if (outputs[channel]) {
                             outputs[channel][frame] = flushDenormal(outputs[channel][frame]
                                 + amplitude * basis[voiceIndex][channel]);
@@ -702,6 +750,15 @@ public:
     }
 
 private:
+    float surfaceVoiceMass() const
+    {
+        if (!surfaceVoiceMembershipEnabled_) {
+            return static_cast<float>(
+                std::max<uint32_t>(1u, params_.voices));
+        }
+        return parameterSurfaceVoiceMass(surfaceVoiceMembership_);
+    }
+
     struct MacroScene {
         float density = 1.0f;
         float duration = 1.0f;
@@ -743,14 +800,16 @@ private:
     {
         if (params_.fieldListenMode == AmbiStochasticListenMode::Off
             || params_.fieldListenAmount <= 0.000001f) {
-            for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+            for (uint32_t voice = 0u;
+                voice < processingVoiceCount(); ++voice) {
                 voices_[voice].listenerCapture = 0.0f;
                 voices_[voice].listenerEvolutionAccumulator = 0.0f;
             }
             return;
         }
         const float activity = fieldListener_.activity();
-        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+        for (uint32_t voice = 0u;
+            voice < processingVoiceCount(); ++voice) {
             auto& state = voices_[voice];
             const ListenerVoiceScore score = listenerScoreForVoice(voice);
             const float heardEnergy = clamp(score.energy, 0.0f, 1.0f);
@@ -854,8 +913,10 @@ private:
 
     float seedFrequencyForVoice(uint32_t voice, uint32_t generator) const
     {
-        const float lane = params_.voices <= 1u ? 0.0f
-            : static_cast<float>(voice) / static_cast<float>(params_.voices - 1u) * 2.0f - 1.0f;
+        const uint32_t voices = processingVoiceCount();
+        const float lane = voices <= 1u ? 0.0f
+            : static_cast<float>(voice)
+                / static_cast<float>(voices - 1u) * 2.0f - 1.0f;
         static constexpr float generatorOffsets[kAmbiStochasticGeneratorCount] { -0.72f, -0.18f, 0.26f, 0.82f };
         const float spread = lane * params_.seedSpreadSemitones * 0.50f
             + generatorOffsets[std::min<uint32_t>(generator, kAmbiStochasticGeneratorCount - 1u)]
@@ -1283,7 +1344,7 @@ private:
     float scaledFieldDensity() const
     {
         const float densityExponent = 1.0f + std::max(0.0f,
-            std::log2(static_cast<float>(params_.voices) / 8.0f)) * 1.5f;
+            std::log2(surfaceVoiceMass() / 8.0f)) * 1.5f;
         return clamp(std::pow(params_.fieldDensity, densityExponent) * macroCurrent_.density, 0.0f, 1.0f);
     }
 
@@ -1331,13 +1392,14 @@ private:
 
     void scheduleCascade(uint32_t sourceIndex)
     {
-        if (params_.neighborTransfer <= 0.0001f || params_.voices < 2u) return;
+        const uint32_t voices = processingVoiceCount();
+        if (params_.neighborTransfer <= 0.0001f || voices < 2u) return;
         auto& source = voices_[sourceIndex];
         const float baseStrength = params_.neighborTransfer
             * (0.34f + params_.fieldContrast * 0.66f) * macroCurrent_.cascade
             * listenerCascadeRate(source.listenerCapture);
         const auto scheduleTarget = [&](uint32_t targetIndex, float scale) {
-            if (targetIndex == sourceIndex || targetIndex >= params_.voices) return;
+            if (targetIndex == sourceIndex || targetIndex >= voices) return;
             auto& target = voices_[targetIndex];
             const Vec3 sourcePoint = topologyPosition_[sourceIndex];
             const Vec3 targetPoint = topologyPosition_[targetIndex];
@@ -1373,7 +1435,8 @@ private:
             static_cast<float>(sampleRate_) * (0.22f + params_.fieldContrast * 1.05f)));
         const float pulseDecay = std::exp(-frames / std::max(1.0f,
             static_cast<float>(sampleRate_) * 0.18f));
-        for (uint32_t voiceIndex = 0u; voiceIndex < params_.voices; ++voiceIndex) {
+        for (uint32_t voiceIndex = 0u;
+            voiceIndex < processingVoiceCount(); ++voiceIndex) {
             auto& voice = voices_[voiceIndex];
             voice.cascadeExcitation *= excitationDecay;
             cascadePulse_[voiceIndex] *= pulseDecay;
@@ -1392,19 +1455,24 @@ private:
 
     void updateTimeFields(float frames)
     {
-        uint32_t activeVoices = 0u;
-        for (uint32_t voiceIndex = 0u; voiceIndex < params_.voices; ++voiceIndex) {
-            if (voices_[voiceIndex].fieldActive) ++activeVoices;
+        float activeVoices = 0.0f;
+        const uint32_t voices = processingVoiceCount();
+        for (uint32_t voiceIndex = 0u;
+            voiceIndex < voices; ++voiceIndex) {
+            if (voices_[voiceIndex].fieldActive) {
+                activeVoices += voiceRenderGain(voiceIndex);
+            }
         }
-        const float measuredActivity = static_cast<float>(activeVoices)
-            / static_cast<float>(std::max<uint32_t>(1u, params_.voices));
+        const float measuredActivity = activeVoices
+            / surfaceVoiceMass();
         const float activitySmoothing = 1.0f - std::exp(-frames
             / std::max(1.0f, static_cast<float>(sampleRate_) * 0.22f));
         globalActivity_ += (measuredActivity - globalActivity_) * activitySmoothing;
         const float targetActivity = scaledFieldDensity();
         const float homeostasis = clamp((targetActivity - globalActivity_) * 0.82f, -0.32f, 0.32f);
 
-        for (uint32_t voiceIndex = 0u; voiceIndex < params_.voices; ++voiceIndex) {
+        for (uint32_t voiceIndex = 0u;
+            voiceIndex < voices; ++voiceIndex) {
             auto& voice = voices_[voiceIndex];
             const float fieldFrames = frames
                 * listenerFieldClockRate(voice.listenerCapture);
@@ -1462,9 +1530,14 @@ private:
         const float velocityLimit = 0.10f + params_.topologyDepth * 0.72f;
         const float walkDrive = (0.35f + params_.topologyDepth * 1.85f)
             * (0.28f + std::sqrt(params_.topologyRateHz));
-        const float smoothing = dt > 0.0f ? 1.0f - std::exp(-dt / 0.070f) : 1.0f;
+        const float smoothing = snapPoints ? 1.0f
+            : parameterSurfaceGlideMs_ > 0.0f
+            ? parameterSurfaceGlideCoefficient(
+                parameterSurfaceGlideMs_, dt)
+            : dt > 0.0f ? 1.0f - std::exp(-dt / 0.070f) : 1.0f;
         float kineticTotal = 0.0f;
-        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+        const uint32_t voices = processingVoiceCount();
+        for (uint32_t voice = 0u; voice < voices; ++voice) {
             if (moving) {
                 Vec3& primary = topologyPrimary_[voice];
                 Vec3& secondary = topologySecondary_[voice];
@@ -1480,7 +1553,8 @@ private:
                 secondary.z = reflect(secondary.z + primary.z * dt * travel, -1.0f, 1.0f);
             }
 
-            const TopologyPoint anchor = topologyPointForLane(voice, params_.voices, controls);
+            const TopologyPoint anchor = topologyPointForLane(
+                voice, voices, controls);
             const float depth = params_.topologyDepth;
             Vec3 target {
                 static_cast<float>(anchor.x) * (1.0f - depth * 0.32f) + topologySecondary_[voice].x * depth * 0.88f,
@@ -1503,19 +1577,21 @@ private:
                 + topologyPosition_[voice].y * topologyPosition_[voice].y
                 + topologyPosition_[voice].z * topologyPosition_[voice].z) / 1.7320508f, 0.0f, 1.0f);
         }
-        globalKinetic_ += (kineticTotal / static_cast<float>(params_.voices) - globalKinetic_) * 0.08f;
+        globalKinetic_ += (kineticTotal
+            / static_cast<float>(voices) - globalKinetic_) * 0.08f;
         updateNeighborGraph();
         updateAedPoints(dt, snapPoints);
     }
 
     void updateNeighborGraph()
     {
-        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+        const uint32_t voices = processingVoiceCount();
+        for (uint32_t voice = 0u; voice < voices; ++voice) {
             float firstDistance = std::numeric_limits<float>::max();
             float secondDistance = std::numeric_limits<float>::max();
             uint32_t first = voice;
             uint32_t second = voice;
-            for (uint32_t other = 0u; other < params_.voices; ++other) {
+            for (uint32_t other = 0u; other < voices; ++other) {
                 if (other == voice) continue;
                 const float dx = topologyPosition_[voice].x - topologyPosition_[other].x;
                 const float dy = topologyPosition_[voice].y - topologyPosition_[other].y;
@@ -1536,15 +1612,16 @@ private:
             const float nearest = std::sqrt(std::max(0.0f, firstDistance));
             neighborInfluence_[voice] = clamp(1.0f - nearest / 1.45f, 0.0f, 1.0f);
             uint32_t close = 0u;
-            for (uint32_t other = 0u; other < params_.voices; ++other) {
+            for (uint32_t other = 0u; other < voices; ++other) {
                 if (other == voice) continue;
                 const float dx = topologyPosition_[voice].x - topologyPosition_[other].x;
                 const float dy = topologyPosition_[voice].y - topologyPosition_[other].y;
                 const float dz = topologyPosition_[voice].z - topologyPosition_[other].z;
                 if (dx * dx + dy * dy + dz * dz < 0.75f) ++close;
             }
-            crowding_[voice] = params_.voices > 1u
-                ? static_cast<float>(close) / static_cast<float>(params_.voices - 1u) : 0.0f;
+            crowding_[voice] = voices > 1u
+                ? static_cast<float>(close)
+                    / static_cast<float>(voices - 1u) : 0.0f;
             selectionPulse_[voice] *= 0.92f;
         }
     }
@@ -1554,7 +1631,8 @@ private:
         const float glide = snapPoints ? 1.0f
             : parameterSurfaceGlideCoefficient(
                 parameterSurfaceGlideMs_, dt);
-        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+        for (uint32_t voice = 0u;
+            voice < processingVoiceCount(); ++voice) {
             const Vec3 topology = topologyPosition_[voice];
             const float length = std::sqrt(topology.x * topology.x + topology.y * topology.y + topology.z * topology.z);
             const float localAzimuth = length > 0.0001f
@@ -1586,12 +1664,13 @@ private:
     void updateEnergy(const std::array<float, kAmbiStochasticMaxVoices>& sum, uint32_t frames)
     {
         float total = 0.0f;
-        for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
+        const uint32_t voices = processingVoiceCount();
+        for (uint32_t voice = 0u; voice < voices; ++voice) {
             const float rms = std::sqrt(sum[voice] / static_cast<float>(std::max<uint32_t>(1u, frames)));
             voices_[voice].energy += (rms - voices_[voice].energy) * (rms > voices_[voice].energy ? 0.24f : 0.045f);
-            total += voices_[voice].energy;
+            total += voices_[voice].energy * voiceRenderGain(voice);
         }
-        const float average = total / static_cast<float>(params_.voices);
+        const float average = total / surfaceVoiceMass();
         globalEnergy_ += (average - globalEnergy_) * 0.08f;
     }
 
@@ -1640,7 +1719,8 @@ private:
             || params_.fieldListenMode == AmbiStochasticListenMode::Off) {
             return result;
         }
-        voice = std::min<uint32_t>(voice, params_.voices - 1u);
+        voice = std::min<uint32_t>(
+            voice, processingVoiceCount() - 1u);
         const AmbiStochasticPoint& point =
             points_[voice];
         const uint32_t local = nearestListenerPickup(
@@ -1732,6 +1812,10 @@ private:
     float globalKinetic_ = 0.0f;
     float smoothedOutputGain_ = 0.0f;
     float parameterSurfaceGlideMs_ = 0.0f;
+    bool surfaceVoiceMembershipEnabled_ = false;
+    uint32_t surfaceVoiceLimit_ = 1u;
+    std::array<float, kAmbiStochasticMaxVoices>
+        surfaceVoiceMembership_ {};
     AmbiFieldListener fieldListener_ {};
 };
 

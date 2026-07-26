@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace s3g::clap_gui {
@@ -77,13 +78,20 @@ inline NSBezierPath* parameterSurfacePolygonPath(
 template <typename Surface>
 inline void drawParameterSurfaceVoronoi(
     const Surface& surface, NSRect plot, float cursorX, float cursorY,
-    int selectedCell, NSDictionary* labelAttrs)
+    int selectedCell, NSDictionary* labelAttrs,
+    float targetX = std::numeric_limits<float>::quiet_NaN(),
+    float targetY = std::numeric_limits<float>::quiet_NaN())
 {
     const uint32_t count = std::min<uint32_t>(surface.cellCount,
         static_cast<uint32_t>(surface.cells.size()));
     const NSPoint cursor = NSMakePoint(
         plot.origin.x + std::clamp(cursorX, 0.0f, 1.0f) * plot.size.width,
         NSMaxY(plot) - std::clamp(cursorY, 0.0f, 1.0f) * plot.size.height);
+    const bool hasTarget = std::isfinite(targetX) && std::isfinite(targetY);
+    const NSPoint target = hasTarget ? NSMakePoint(
+        plot.origin.x + std::clamp(targetX, 0.0f, 1.0f) * plot.size.width,
+        NSMaxY(plot) - std::clamp(targetY, 0.0f, 1.0f) * plot.size.height)
+        : cursor;
     std::vector<NSPoint> sites;
     sites.reserve(count);
     for (uint32_t index = 0u; index < count; ++index) {
@@ -184,6 +192,19 @@ inline void drawParameterSurfaceVoronoi(
         cursor.x - 5.0, cursor.y - 5.0, 10.0, 10.0)];
     [cursorBox setLineWidth:1.5];
     [cursorBox stroke];
+    if (hasTarget && std::hypot(target.x - cursor.x,
+            target.y - cursor.y) > 2.0) {
+        [[NSColor colorWithCalibratedRed:0.62 green:0.66 blue:0.68
+            alpha:0.72] setStroke];
+        NSBezierPath* targetMarker = [NSBezierPath bezierPath];
+        [targetMarker moveToPoint:NSMakePoint(target.x, target.y - 6.0)];
+        [targetMarker lineToPoint:NSMakePoint(target.x + 6.0, target.y)];
+        [targetMarker lineToPoint:NSMakePoint(target.x, target.y + 6.0)];
+        [targetMarker lineToPoint:NSMakePoint(target.x - 6.0, target.y)];
+        [targetMarker closePath];
+        [targetMarker setLineWidth:1.2];
+        [targetMarker stroke];
+    }
     [NSGraphicsContext restoreGraphicsState];
 
     [[NSColor colorWithCalibratedRed:0.35 green:0.38 blue:0.40 alpha:1.0]

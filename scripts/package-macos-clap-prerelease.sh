@@ -32,6 +32,10 @@ bundles=(
   "$src_root/clap_ambi_neural_ecology/s3g_ambi_neural_ecology.clap"
   "$src_root/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap"
   "$src_root/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder.clap"
+  "$src_root/clap_ambi_wind_encoder/s3g_ambi_wind_encoder.clap"
+  "$src_root/clap_ambi_water_encoder/s3g_ambi_water_encoder.clap"
+  "$src_root/clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder.clap"
+  "$src_root/clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder.clap"
   "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"
   "$src_root/clap_ambi_ray_encoder/s3g_ambi_ray_encoder.clap"
   "$src_root/clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder.clap"
@@ -75,6 +79,7 @@ bundles=(
   "$src_root/clap_array_trim/s3g_array_trim_32.clap"
   "$src_root/clap_array_trim/s3g_array_trim_64.clap"
   "$src_root/clap_ambisonic_rotate/s3g_ambisonic_rotate.clap"
+  "$src_root/clap_ambi_effect_dj_filter/s3g_ambi_effect_dj_filter.clap"
   "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_64.clap"
   "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_128.clap"
   "$src_root/clap_ambi_group_depth/s3g_ambi_depth_16.clap"
@@ -160,6 +165,10 @@ Included plugins ($bundle_count bundles):
 - s3g Ambi Encoder Pulsar 64
 - s3g Ambi Encoder Stochastic 64
 - s3g Ambi Encoder Wrangler 64
+- s3g Ambi Encoder Wind 64
+- s3g Ambi Encoder Water 64
+- s3g Ambi Encoder Pyrosphere 64
+- s3g Ambi Encoder Cryosphere 64
 - s3g Processor Ambi Imprint 64ch
 - s3g Ambi Encoder Ray
 - s3g Ambi Encoder Ray Bilocation
@@ -203,6 +212,7 @@ Included plugins ($bundle_count bundles):
 - s3g Array Trim 32
 - s3g Array Trim 64
 - s3g Ambi Transform Rot 64
+- s3g Ambi Effect DJ Filter 64
 - s3g Ambi Transform Depth 16
 - s3g Ambi Transform Grp Rot 64
 - s3g Ambi Transform Grp Rot 128

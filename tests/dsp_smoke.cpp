@@ -8384,9 +8384,10 @@ int main()
     }
 
     constexpr std::array<uint32_t, s3g::kAmbiWaterFactoryPresetCount> expectedWaterRegimes {
-        0u, 1u, 2u, 6u, 5u, 4u, 2u, 7u, 0u, 1u, 6u, 3u, 0u, 0u, 1u, 5u
+        0u, 1u, 2u, 6u, 5u, 4u, 2u, 7u, 0u, 1u, 6u, 8u, 0u, 0u, 1u, 5u
     };
-    if (s3g::kAmbiWaterRegimeCount != 8u) {
+    if (s3g::kAmbiWaterRegimeCount != 13u
+        || s3g::kAmbiWaterEnvironmentCount != 10u) {
         std::cerr << "Ambi Water regime taxonomy is incomplete\n";
         return 1;
     }

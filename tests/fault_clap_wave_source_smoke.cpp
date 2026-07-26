@@ -677,7 +677,30 @@ int main(int argc, char** argv)
         };
         ok = paramsExtension && paramsExtension->flush;
         if (ok) {
-            flushParam(kCodecModeParamId, static_cast<double>(s3g::PsdRawFieldCodecMode::FaxQam));
+            clap_param_info_t codecInfo {};
+            bool foundCodec = false;
+            for (uint32_t index = 0u; index < paramsExtension->count(plugin); ++index) {
+                clap_param_info_t candidate {};
+                if (paramsExtension->get_info(plugin, index, &candidate)
+                    && candidate.id == kCodecModeParamId) {
+                    codecInfo = candidate;
+                    foundCodec = true;
+                    break;
+                }
+            }
+            char aptText[16] {};
+            double aptValue = -1.0;
+            ok = foundCodec
+                && codecInfo.max_value == static_cast<double>(s3g::PsdRawFieldCodecMode::Apt)
+                && paramsExtension->value_to_text(plugin, kCodecModeParamId,
+                    static_cast<double>(s3g::PsdRawFieldCodecMode::Apt), aptText, sizeof(aptText))
+                && std::strcmp(aptText, "APT") == 0
+                && paramsExtension->text_to_value(plugin, kCodecModeParamId, "APT", &aptValue)
+                && aptValue == static_cast<double>(s3g::PsdRawFieldCodecMode::Apt);
+            if (!ok) std::cerr << "Fault did not expose the APT codec parameter value\n";
+        }
+        if (ok) {
+            flushParam(kCodecModeParamId, static_cast<double>(s3g::PsdRawFieldCodecMode::Apt));
             flushParam(kRandomizeFieldParamId, 0.613);
             flushParam(kCodecModeParamId, static_cast<double>(s3g::PsdRawFieldCodecMode::ModemFsk));
             MemoryOutput generatedOutput;
@@ -689,7 +712,7 @@ int main(int argc, char** argv)
                 std::memcpy(&generated, generatedOutput.bytes.data(), sizeof(generated));
                 ok = generated.sourceMode == 0u
                     && generated.params.codecMode == s3g::PsdRawFieldCodecMode::ModemFsk
-                    && generated.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::FaxQam;
+                    && generated.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::Apt;
             }
         }
         if (!ok) std::cerr << "Fault GEN FIELD did not latch the selected codec profile\n";

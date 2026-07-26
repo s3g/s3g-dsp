@@ -474,10 +474,25 @@ interpolation, the shared `SOFT`, `LINEAR`, `SMOOTH`, and `TIGHT` normalized
 weight curves, a 0.25…8 focus exponent, shortest-path angle interpolation, and
 nearest-cell selection for discrete values. `GLIDE` uses the common OFF, 40,
 80, 160, 240, 400, 640, 1000, 1500, and 2000 ms steps; the displayed time is
-the approximate 99% settling time. Any field point affected by a surface must
-apply this glide in its DSP coordinate path, including shortest-path azimuth,
-so its field drawing and encoded motion cannot jump between cell states. The
-surface uses exact clipped
+the approximate 99% settling time. It smooths the effective performance cursor
+that feeds all participating continuous controls; the raw host/drag cursor is
+drawn as a target diamond while the active crosshair and toolbox feedback show
+the gliding state. Nearest-cell discrete controls switch only when the active
+cursor crosses their boundary. Any field topology affected by a surface must
+also morph its internal geometry or point targets through the same transition,
+including shortest-path azimuth, so its field drawing, neighborhood model, and
+encoded motion cannot jump between cell states.
+
+`VOICES` stays an integer nearest-cell control for host and menu feedback, but
+the population transition must be continuous. Each potential point or lane
+uses the normalized sum of the active-cell weights for cells whose stored
+voice count includes that lane. The same membership controls synthesis gain,
+field marker alpha/size, topology-edge alpha, hit-test population, and
+fractional output normalization. Shared low-numbered lanes remain at full
+membership; surplus lanes disappear only when their audible membership (or an
+engine's explicit release envelope) reaches silence.
+
+The surface uses exact clipped
 Voronoi polygons, the muted HSV region palette, influence halos, circular
 nodes, and crosshair treatment established by s3g-mc Snapshot Surface; sampled
 or tiled approximations are not permitted. `SURFACE X` and `SURFACE Y` are normalized,
@@ -488,10 +503,11 @@ menu that participates in the surface displays its effective interpolated or
 nearest-cell value at the GUI refresh rate; EDIT displays the base state being
 captured. A plugin with an existing score/listener system declares
 whether that system is part of a cell or remains live; Wrangler keeps its
-auditory score live, while Stochastic includes its listener in the cell state.
+auditory score live, while Stochastic, Water, and Wind include their listener
+in the cell state.
 Complete surface state belongs to plugin/project state; portable one-preset
-files remain one-state formats. Stochastic and Wrangler are the reference
-implementations.
+files remain one-state formats. Stochastic, Wrangler, Water, Wind, Fire, and
+Cryosphere are the reference implementations.
 
 ### Compact spatial-encoder slots
 

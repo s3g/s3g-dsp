@@ -168,6 +168,8 @@ struct Plugin {
     s3g::AmbiWranglerEncoder engine {};
     s3g::AmbiWranglerParams audioParams {};
     WranglerSurface audioSurface {};
+    std::atomic<float> effectiveSurfaceX { 0.5f };
+    std::atomic<float> effectiveSurfaceY { 0.5f };
     uint32_t audioPresetIndex = 0u;
     char audioCustomPresetName[64] {};
     std::array<std::vector<float>, kOutputChannels>
@@ -233,6 +235,8 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAmbiWranglerMaxVoices> guiDistance {};
     std::array<std::atomic<float>, s3g::kAmbiWranglerMaxVoices> guiEnergy {};
     std::array<std::atomic<float>, s3g::kAmbiWranglerMaxVoices> guiMask {};
+    std::array<std::atomic<float>, s3g::kAmbiWranglerMaxVoices> guiRenderGain {};
+    std::atomic<uint32_t> guiVoiceCount { 1u };
     std::array<std::atomic<uint32_t>, s3g::kAmbiWranglerMaxVoices> guiRegister {};
     std::array<std::atomic<uint32_t>, s3g::kAmbiWranglerMaxVoices> guiReadEar {};
     std::array<std::atomic<uint32_t>, s3g::kAmbiWranglerMaxVoices> guiComparatorBit {};
@@ -296,11 +300,11 @@ bool paramValueFromParams(
 
 s3g::AmbiWranglerParams wranglerSurfaceParams(
     const s3g::AmbiWranglerParams& base,
-    const WranglerSurface& surface)
+    const WranglerSurface& surface, float cursorX, float cursorY)
 {
     if (!surface.enabled || surface.cellCount < 2u) return base;
     const auto weights = s3g::parameterSurfaceWeights(
-        surface, base.surfaceX, base.surfaceY);
+        surface, cursorX, cursorY);
     if (weights.activeCount < 2u) return base;
     const auto& nearest = s3g::parameterSurfaceNearestParams(
         surface, weights, base);
@@ -396,13 +400,67 @@ s3g::AmbiWranglerParams wranglerSurfaceParams(
     return result;
 }
 
+s3g::AmbiWranglerParams wranglerSurfaceParams(
+    const s3g::AmbiWranglerParams& base,
+    const WranglerSurface& surface)
+{
+    return wranglerSurfaceParams(
+        base, surface, base.surfaceX, base.surfaceY);
+}
+
+void snapAudioSurfaceCursor(Plugin& plugin)
+{
+    plugin.effectiveSurfaceX.store(
+        plugin.audioParams.surfaceX, std::memory_order_relaxed);
+    plugin.effectiveSurfaceY.store(
+        plugin.audioParams.surfaceY, std::memory_order_relaxed);
+}
+
+bool advanceAudioSurfaceCursor(Plugin& plugin, float deltaSeconds)
+{
+    const bool gliding = plugin.audioSurface.enabled
+        && plugin.audioSurface.cellCount >= 2u
+        && plugin.audioSurface.glideMs > 0.0f;
+    const float glideMs = gliding ? plugin.audioSurface.glideMs : 0.0f;
+    const float currentX = plugin.effectiveSurfaceX.load(
+        std::memory_order_relaxed);
+    const float currentY = plugin.effectiveSurfaceY.load(
+        std::memory_order_relaxed);
+    const float nextX = s3g::parameterSurfaceGlideValue(
+        currentX, plugin.audioParams.surfaceX, glideMs, deltaSeconds);
+    const float nextY = s3g::parameterSurfaceGlideValue(
+        currentY, plugin.audioParams.surfaceY, glideMs, deltaSeconds);
+    plugin.effectiveSurfaceX.store(nextX,
+        std::memory_order_relaxed);
+    plugin.effectiveSurfaceY.store(nextY,
+        std::memory_order_relaxed);
+    return std::fabs(nextX - currentX) > 1.0e-7f
+        || std::fabs(nextY - currentY) > 1.0e-7f;
+}
+
 void applyAudioSurface(Plugin& plugin)
 {
     plugin.engine.setParameterSurfaceGlideMs(
         plugin.audioSurface.enabled && plugin.audioSurface.cellCount >= 2u
             ? plugin.audioSurface.glideMs : 0.0f);
-    plugin.engine.setParams(
-        wranglerSurfaceParams(plugin.audioParams, plugin.audioSurface));
+    const float cursorX = plugin.effectiveSurfaceX.load(
+        std::memory_order_relaxed);
+    const float cursorY = plugin.effectiveSurfaceY.load(
+        std::memory_order_relaxed);
+    plugin.engine.setParams(wranglerSurfaceParams(
+        plugin.audioParams, plugin.audioSurface, cursorX, cursorY));
+    if (plugin.audioSurface.enabled
+        && plugin.audioSurface.cellCount >= 2u) {
+        const auto weights = s3g::parameterSurfaceWeights(
+            plugin.audioSurface, cursorX, cursorY);
+        plugin.engine.setParameterSurfaceVoiceMembership(
+            s3g::parameterSurfaceVoiceMembership<
+                s3g::kAmbiWranglerMaxVoices>(
+                plugin.audioSurface, weights,
+                plugin.audioParams.voices));
+    } else {
+        plugin.engine.clearParameterSurfaceVoiceMembership();
+    }
 }
 
 void publishControlParamsLocked(Plugin& plugin)
@@ -1704,6 +1762,7 @@ bool activate(
         p->engine.prepare(sampleRate);
         p->engine.setParams(p->audioParams);
         p->audioParams = p->engine.params();
+        snapAudioSurfaceCursor(*p);
         applyAudioSurface(*p);
         {
             AtomicFlagGuard mailboxGuard(p->paramsMailboxLock);
@@ -1763,6 +1822,8 @@ void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
+    snapAudioSurfaceCursor(*p);
+    applyAudioSurface(*p);
     p->engine.reset();
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
 }
@@ -1826,14 +1887,39 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 
     auto renderSpan = [&](uint32_t offset, uint32_t count) {
         if (!canRender || count == 0u) return;
-        std::array<float*, kOutputChannels> spanOutputs {};
-        for (uint32_t channel = 0u; channel < outChannels; ++channel) {
-            spanOutputs[channel] = hasFloatOutput
-                ? (output->data32[channel]
-                    ? output->data32[channel] + offset : nullptr)
-                : p->doubleRenderScratch[channel].data() + offset;
+        constexpr uint32_t kSurfaceControlFrames = 64u;
+        uint32_t localOffset = 0u;
+        while (localOffset < count) {
+            const float currentX = p->effectiveSurfaceX.load(
+                std::memory_order_relaxed);
+            const float currentY = p->effectiveSurfaceY.load(
+                std::memory_order_relaxed);
+            const bool cursorMoving = p->audioSurface.enabled
+                && p->audioSurface.glideMs > 0.0f
+                && (std::fabs(currentX - p->audioParams.surfaceX) > 1.0e-6f
+                    || std::fabs(currentY - p->audioParams.surfaceY) > 1.0e-6f);
+            const uint32_t spanFrames = cursorMoving
+                ? std::min<uint32_t>(kSurfaceControlFrames,
+                    count - localOffset)
+                : count - localOffset;
+            if (advanceAudioSurfaceCursor(*p,
+                    static_cast<float>(spanFrames)
+                        / static_cast<float>(p->sampleRate))) {
+                applyAudioSurface(*p);
+            }
+            std::array<float*, kOutputChannels> spanOutputs {};
+            for (uint32_t channel = 0u;
+                channel < outChannels; ++channel) {
+                const uint32_t spanOffset = offset + localOffset;
+                spanOutputs[channel] = hasFloatOutput
+                    ? (output->data32[channel]
+                        ? output->data32[channel] + spanOffset : nullptr)
+                    : p->doubleRenderScratch[channel].data() + spanOffset;
+            }
+            p->engine.process(
+                spanOutputs.data(), outChannels, spanFrames);
+            localOffset += spanFrames;
         }
-        p->engine.process(spanOutputs.data(), outChannels, count);
     };
 
     bool paramsDirty = tryConsumeControlParams(*p);
@@ -1940,7 +2026,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);
 #if defined(__APPLE__)
     const uint32_t voices = std::min<uint32_t>(
-        p->audioParams.voices, s3g::kAmbiWranglerMaxVoices);
+        p->engine.processingVoiceCount(),
+        s3g::kAmbiWranglerMaxVoices);
+    p->guiVoiceCount.store(voices, std::memory_order_relaxed);
     for (uint32_t voice = 0u; voice < voices; ++voice) {
         const auto point = p->engine.voicePoint(voice);
         p->guiAzimuth[voice].store(point.azimuthDeg, std::memory_order_relaxed);
@@ -1948,6 +2036,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         p->guiDistance[voice].store(point.distance, std::memory_order_relaxed);
         p->guiEnergy[voice].store(p->engine.voiceEnergy(voice), std::memory_order_relaxed);
         p->guiMask[voice].store(p->engine.voiceMaskLevel(voice), std::memory_order_relaxed);
+        p->guiRenderGain[voice].store(
+            p->engine.voiceRenderGain(voice),
+            std::memory_order_relaxed);
         p->guiRegister[voice].store(p->engine.voiceRegister(voice), std::memory_order_relaxed);
         p->guiReadEar[voice].store(p->engine.voiceReadEar(voice), std::memory_order_relaxed);
         p->guiComparatorBit[voice].store(p->engine.voiceComparatorBit(voice), std::memory_order_relaxed);
@@ -2867,9 +2958,18 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     const auto snapshot = controlStateSnapshot(*_plugin);
     _paramsSnapshot = snapshot.params;
     _surfaceSnapshot = snapshot.surface;
+    const bool audioActive = _plugin->active.load(
+        std::memory_order_acquire);
+    const float effectiveX = audioActive
+        ? _plugin->effectiveSurfaceX.load(std::memory_order_relaxed)
+        : _paramsSnapshot.surfaceX;
+    const float effectiveY = audioActive
+        ? _plugin->effectiveSurfaceY.load(std::memory_order_relaxed)
+        : _paramsSnapshot.surfaceY;
     _displayParamsSnapshot = _surfaceEdit
         ? _paramsSnapshot
-        : wranglerSurfaceParams(_paramsSnapshot, _surfaceSnapshot);
+        : wranglerSurfaceParams(_paramsSnapshot, _surfaceSnapshot,
+            effectiveX, effectiveY);
     _presetIndexSnapshot = snapshot.presetIndex;
     std::snprintf(_customPresetNameSnapshot,
         sizeof(_customPresetNameSnapshot), "%s",
@@ -3594,7 +3694,9 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         field.origin.x + 10.0, field.origin.y + 10.0) withAttributes:valueAttrs];
 
     const uint32_t voices = std::clamp<uint32_t>(
-        _paramsSnapshot.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+        _surfaceEdit ? _paramsSnapshot.voices
+            : _plugin->guiVoiceCount.load(std::memory_order_relaxed),
+        1u, s3g::kAmbiWranglerMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
     const uint32_t pickupCount =
         _paramsSnapshot.pickupSet == s3g::AmbiWranglerPickupSet::Tetra4 ? 4u : 8u;
@@ -3949,11 +4051,21 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [glideText drawAtPoint:NSMakePoint(field.origin.x + 350.0,
         field.origin.y + 40.0) withAttributes:valueAttrs];
 
+    const bool audioActive = _plugin->active.load(
+        std::memory_order_acquire);
+    const float effectiveX = audioActive
+        ? _plugin->effectiveSurfaceX.load(std::memory_order_relaxed)
+        : _paramsSnapshot.surfaceX;
+    const float effectiveY = audioActive
+        ? _plugin->effectiveSurfaceY.load(std::memory_order_relaxed)
+        : _paramsSnapshot.surfaceY;
     s3g::clap_gui::drawParameterSurfaceVoronoi(
-        _surfaceSnapshot, plot, _paramsSnapshot.surfaceX,
-        _paramsSnapshot.surfaceY, _selectedSurfaceCell, valueAttrs);
-    [[NSString stringWithFormat:@"X %.3f   Y %.3f   /   %u CELLS   /   %@",
+        _surfaceSnapshot, plot, effectiveX, effectiveY,
+        _selectedSurfaceCell, valueAttrs,
+        _paramsSnapshot.surfaceX, _paramsSnapshot.surfaceY);
+    [[NSString stringWithFormat:@"T %.3f %.3f   /   A %.3f %.3f   /   %u CELLS   /   %@",
         _paramsSnapshot.surfaceX, _paramsSnapshot.surfaceY,
+        effectiveX, effectiveY,
         _surfaceSnapshot.cellCount,
         _surfaceSnapshot.cellCount < 2u ? @"ADD TWO CELLS TO ENABLE" :
             (_surfaceSnapshot.enabled ? @"INTERPOLATING" : @"BYPASSED")]
@@ -4005,13 +4117,22 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(field), NSMinY(field) + 18) toPoint:NSMakePoint(NSMidX(field), NSMaxY(field) - 18)];
 
     const uint32_t voices = std::clamp<uint32_t>(
-        _paramsSnapshot.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+        _surfaceEdit ? _paramsSnapshot.voices
+            : _plugin->guiVoiceCount.load(std::memory_order_relaxed),
+        1u, s3g::kAmbiWranglerMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
     std::array<NSPoint, s3g::kAmbiWranglerMaxVoices> projected {};
     for (uint32_t voice = 0; voice < voices; ++voice) projected[voice] = [self projectVoice:voice depth:nullptr];
-    [s3g::clap_gui::color(0x5c5c5c, 0.18) setStroke];
     for (uint32_t voice = 0; voice < voices; ++voice) {
         const uint32_t next = (voice + 1u) % voices;
+        const float edgeMembership = _surfaceEdit ? 1.0f
+            : std::min(
+                _plugin->guiRenderGain[voice].load(
+                    std::memory_order_relaxed),
+                _plugin->guiRenderGain[next].load(
+                    std::memory_order_relaxed));
+        [s3g::clap_gui::color(0x5c5c5c,
+            0.18 * std::clamp(edgeMembership, 0.0f, 1.0f)) setStroke];
         NSBezierPath* path = [NSBezierPath bezierPath];
         [path moveToPoint:projected[voice]];
         [path lineToPoint:projected[next]];
@@ -4023,22 +4144,25 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         const BOOL selected = voice == _selectedVoice;
         const float energy = _plugin->guiEnergy[voice].load(std::memory_order_relaxed);
         const float mask = std::clamp(_plugin->guiMask[voice].load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const float membership = _surfaceEdit ? 1.0f
+            : std::clamp(_plugin->guiRenderGain[voice].load(
+                std::memory_order_relaxed), 0.0f, 1.0f);
         const CGFloat base = voices > 32u ? 7.0 : 9.0;
-        const CGFloat size = ((selected ? base + 5.0 : base) + std::clamp(std::sqrt(std::max(0.0f, energy)) * 34.0f, 0.0f, 8.0f)) * (0.55 + mask * 0.45);
+        const CGFloat size = ((selected ? base + 5.0 : base) + std::clamp(std::sqrt(std::max(0.0f, energy)) * 34.0f, 0.0f, 8.0f)) * (0.55 + mask * 0.45) * (0.45 + membership * 0.55);
         const NSRect marker = NSMakeRect(projected[voice].x - size * 0.5, projected[voice].y - size * 0.5, size, size);
         if (mask > 0.12f) {
             const CGFloat halo = size * (1.2 + mask * 1.4);
             NSRect haloRect = NSMakeRect(projected[voice].x - halo * 0.5, projected[voice].y - halo * 0.5, halo, halo);
-            [[[self voiceColor:voice selected:selected] colorWithAlphaComponent:0.08 + mask * 0.16] setFill];
+            [[[self voiceColor:voice selected:selected] colorWithAlphaComponent:(0.08 + mask * 0.16) * membership] setFill];
             [[NSBezierPath bezierPathWithOvalInRect:haloRect] fill];
         }
-        [[[self voiceColor:voice selected:selected] colorWithAlphaComponent:(selected ? 0.98 : 0.22 + mask * 0.70)] setFill];
+        [[[self voiceColor:voice selected:selected] colorWithAlphaComponent:(selected ? 0.98 : 0.22 + mask * 0.70) * membership] setFill];
         NSRectFill(marker);
-        [s3g::clap_gui::color(selected ? 0xe6e6e6 : 0x4f4f4f, selected ? 1.0 : 0.25 + mask * 0.55) setStroke];
+        [s3g::clap_gui::color(selected ? 0xe6e6e6 : 0x4f4f4f, (selected ? 1.0 : 0.25 + mask * 0.55) * membership) setStroke];
         NSFrameRect(marker);
         NSString* label = [NSString stringWithFormat:@"%u", voice + 1u];
         const NSSize labelSize = [label sizeWithAttributes:idAttrs];
-        if (mask > 0.25f || selected) {
+        if (membership > 0.45f && (mask > 0.25f || selected)) {
             [label drawAtPoint:NSMakePoint(NSMidX(marker) - labelSize.width * 0.5, NSMidY(marker) - labelSize.height * 0.5 - 0.5) withAttributes:idAttrs];
         }
     }
@@ -4345,7 +4469,9 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 {
     if (!NSPointInRect(point, [self fieldRect])) return -1;
     const uint32_t voices = std::clamp<uint32_t>(
-        _paramsSnapshot.voices, 1u, s3g::kAmbiWranglerMaxVoices);
+        _surfaceEdit ? _paramsSnapshot.voices
+            : _plugin->guiVoiceCount.load(std::memory_order_relaxed),
+        1u, s3g::kAmbiWranglerMaxVoices);
     int best = -1;
     CGFloat bestDistance = 15.0;
     for (uint32_t voice = 0; voice < voices; ++voice) {

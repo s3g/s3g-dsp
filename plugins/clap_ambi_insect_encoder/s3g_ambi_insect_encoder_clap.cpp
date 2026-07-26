@@ -1,5 +1,6 @@
 #include "s3g_ambi_insect_encoder.h"
 #include "s3g_ambi_insect_presets.h"
+#include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
@@ -11,6 +12,7 @@
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
+#include "../common/s3g_parameter_surface_cocoa.h"
 #endif
 
 #include <algorithm>
@@ -26,9 +28,9 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiInsectMaxChannels;
-constexpr uint32_t kStateVersion = 5;
+constexpr uint32_t kStateVersion = 6;
 constexpr uint32_t kCustomPresetMagic = 0x31534e49u; // INS1
-constexpr uint32_t kCustomPresetVersion = 5;
+constexpr uint32_t kCustomPresetVersion = 6;
 
 constexpr clap_id kPresetParamId = 1;
 constexpr clap_id kOrderParamId = 2;
@@ -71,6 +73,10 @@ constexpr clap_id kCallTypeParamId = 38;
 constexpr clap_id kFieldListenModeParamId = 39;
 constexpr clap_id kFieldListenAmountParamId = 40;
 constexpr clap_id kFieldListenResponseParamId = 41;
+constexpr clap_id kSurfaceXParamId = 42;
+constexpr clap_id kSurfaceYParamId = 43;
+
+using InsectSurface = s3g::ParameterSurfaceState<s3g::AmbiInsectParams>;
 
 constexpr size_t kStateV1ParamsSize =
     offsetof(s3g::AmbiInsectParams, callType);
@@ -80,10 +86,13 @@ constexpr size_t kStateV3ParamsSize =
     offsetof(s3g::AmbiInsectParams, fieldListenMode);
 constexpr size_t kStateV4ParamsSize =
     offsetof(s3g::AmbiInsectParams, fieldListenAmount);
+constexpr size_t kStateV5ParamsSize =
+    offsetof(s3g::AmbiInsectParams, surfaceX);
 static_assert((kStateV1ParamsSize % alignof(uint32_t)) == 0u);
 static_assert((kStateV2ParamsSize % alignof(uint32_t)) == 0u);
 static_assert((kStateV3ParamsSize % alignof(uint32_t)) == 0u);
 static_assert((kStateV4ParamsSize % alignof(uint32_t)) == 0u);
+static_assert((kStateV5ParamsSize % alignof(uint32_t)) == 0u);
 
 struct SavedStateV1 {
     uint32_t version = 1u;
@@ -125,11 +134,22 @@ static_assert(offsetof(SavedStateV4, params) == sizeof(uint32_t));
 static_assert(offsetof(SavedStateV4, presetIndex)
     == sizeof(uint32_t) + kStateV4ParamsSize);
 
+struct SavedStateV5 {
+    uint32_t version = 5u;
+    std::array<uint8_t, kStateV5ParamsSize> params {};
+    uint32_t presetIndex = 0u;
+    char customPresetName[64] {};
+};
+static_assert(offsetof(SavedStateV5, params) == sizeof(uint32_t));
+static_assert(offsetof(SavedStateV5, presetIndex)
+    == sizeof(uint32_t) + kStateV5ParamsSize);
+
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiInsectParams params {};
     uint32_t presetIndex = 0u;
     char customPresetName[64] {};
+    InsectSurface surface {};
 };
 
 struct CustomPresetFile {
@@ -145,6 +165,11 @@ struct Plugin {
     double sampleRate = 48000.0;
     s3g::AmbiInsectEncoder engine {};
     s3g::AmbiInsectParams params {};
+    s3g::AmbiInsectParams effectiveParams {};
+    InsectSurface surface {};
+    std::atomic<float> effectiveSurfaceX { 0.5f };
+    std::atomic<float> effectiveSurfaceY { 0.5f };
+    std::atomic<bool> active { false };
     uint32_t presetIndex = 0u;
     char customPresetName[64] {};
     uint32_t randomSeed = 0x6d2b79f5u;
@@ -162,6 +187,9 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAmbiInsectMaxVoices> guiDistance {};
     std::array<std::atomic<float>, s3g::kAmbiInsectMaxVoices> guiEnergy {};
     std::array<std::atomic<float>, s3g::kAmbiInsectMaxVoices> guiCall {};
+    std::atomic<uint32_t> guiVoiceCount { 1u };
+    std::array<std::atomic<float>, s3g::kAmbiInsectMaxVoices>
+        guiRenderGain {};
     std::array<std::atomic<uint32_t>, s3g::kAmbiInsectMaxVoices> guiMethod {};
     std::array<std::atomic<float>, s3g::kAmbiFieldListenerMaxLobes>
         guiListenEnvelope {};
@@ -236,8 +264,13 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
         std::array<uint8_t, kStateV4ParamsSize> legacy {};
         ok = std::fread(legacy.data(), 1, legacy.size(), handle) == legacy.size();
         if (ok) std::memcpy(&file.params, legacy.data(), legacy.size());
+    } else if (ok && file.version == 5u) {
+        std::array<uint8_t, kStateV5ParamsSize> legacy {};
+        ok = std::fread(legacy.data(), 1, legacy.size(), handle) == legacy.size();
+        if (ok) std::memcpy(&file.params, legacy.data(), legacy.size());
     } else if (ok) {
-        ok = std::fread(&file.params, 1, sizeof(file.params), handle) == sizeof(file.params);
+        ok = std::fread(&file.params, 1, sizeof(file.params), handle)
+                == sizeof(file.params);
     }
     std::fclose(handle);
     return ok;
@@ -322,6 +355,8 @@ const MechanismLabels& mechanismLabels(uint32_t regime)
         std::min<uint32_t>(regime, s3g::kAmbiInsectRegimeCount - 1u)];
 }
 
+void applyEffectiveParams(Plugin& plugin);
+
 void randomizeSafe(Plugin& plugin)
 {
     uint32_t seed = plugin.randomSeed ^ static_cast<uint32_t>(std::lround(plugin.outputPeak.load(std::memory_order_relaxed) * 1000000.0f));
@@ -330,20 +365,23 @@ void randomizeSafe(Plugin& plugin)
     const auto fieldListenMode = plugin.params.fieldListenMode;
     const float fieldListenAmount = plugin.params.fieldListenAmount;
     const auto fieldListenResponse = plugin.params.fieldListenResponse;
+    const float surfaceX = plugin.params.surfaceX;
+    const float surfaceY = plugin.params.surfaceY;
     auto p = s3g::ambiInsectCinematicRandomParams(seed);
     p.order = order;
     p.outputGainDb = outputGainDb;
     p.fieldListenMode = fieldListenMode;
     p.fieldListenAmount = fieldListenAmount;
     p.fieldListenResponse = fieldListenResponse;
+    p.surfaceX = surfaceX;
+    p.surfaceY = surfaceY;
 
     plugin.randomSeed = seed;
     plugin.params = p;
     plugin.presetIndex = 0u;
     std::snprintf(plugin.customPresetName, sizeof(plugin.customPresetName), "Random");
-    plugin.engine.setParams(plugin.params);
+    applyEffectiveParams(plugin);
     plugin.engine.beginTransition();
-    plugin.params = plugin.engine.params();
 }
 
 bool assignParam(s3g::AmbiInsectParams& params, clap_id id, double value)
@@ -400,7 +438,145 @@ bool assignParam(s3g::AmbiInsectParams& params, clap_id id, double value)
                 std::clamp<uint32_t>(
                     static_cast<uint32_t>(std::lround(value)), 0u, 3u));
         return true;
+    case kSurfaceXParamId: params.surfaceX = static_cast<float>(value); return true;
+    case kSurfaceYParamId: params.surfaceY = static_cast<float>(value); return true;
     default: return false;
+    }
+}
+
+s3g::AmbiInsectParams insectSurfaceParams(
+    const Plugin& plugin, float cursorX, float cursorY)
+{
+    const auto& base = plugin.params;
+    if (!plugin.surface.enabled || plugin.surface.cellCount < 2u) return base;
+    const auto weights = s3g::parameterSurfaceWeights(
+        plugin.surface, cursorX, cursorY);
+    if (weights.activeCount < 2u) return base;
+    const auto& nearest = s3g::parameterSurfaceNearestParams(
+        plugin.surface, weights, base);
+    auto result = nearest;
+#define S3G_INSECT_SURFACE_BLEND(member) \
+    result.member = s3g::parameterSurfaceBlend(plugin.surface, weights, \
+        [](const s3g::AmbiInsectParams& p) { return p.member; }, base.member)
+    S3G_INSECT_SURFACE_BLEND(activity);
+    S3G_INSECT_SURFACE_BLEND(temperature);
+    S3G_INSECT_SURFACE_BLEND(variation);
+    S3G_INSECT_SURFACE_BLEND(coupling);
+    S3G_INSECT_SURFACE_BLEND(phraseRateHz);
+    S3G_INSECT_SURFACE_BLEND(chirpRateHz);
+    S3G_INSECT_SURFACE_BLEND(pulseRateHz);
+    S3G_INSECT_SURFACE_BLEND(callLength);
+    S3G_INSECT_SURFACE_BLEND(rest);
+    S3G_INSECT_SURFACE_BLEND(bodyPitchHz);
+    S3G_INSECT_SURFACE_BLEND(bodySize);
+    S3G_INSECT_SURFACE_BLEND(rasp);
+    S3G_INSECT_SURFACE_BLEND(wing);
+    S3G_INSECT_SURFACE_BLEND(brightness);
+    S3G_INSECT_SURFACE_BLEND(resonance);
+    S3G_INSECT_SURFACE_BLEND(air);
+    S3G_INSECT_SURFACE_BLEND(fieldRateHz);
+    S3G_INSECT_SURFACE_BLEND(roam);
+    S3G_INSECT_SURFACE_BLEND(cohesion);
+    S3G_INSECT_SURFACE_BLEND(scatter);
+    S3G_INSECT_SURFACE_BLEND(orbit);
+    S3G_INSECT_SURFACE_BLEND(lift);
+    S3G_INSECT_SURFACE_BLEND(nearPass);
+    S3G_INSECT_SURFACE_BLEND(spatialFollow);
+    result.centerAzimuthDeg = s3g::parameterSurfaceBlendAngleDegrees(
+        plugin.surface, weights,
+        [](const s3g::AmbiInsectParams& p) { return p.centerAzimuthDeg; },
+        base.centerAzimuthDeg);
+    S3G_INSECT_SURFACE_BLEND(centerElevationDeg);
+    S3G_INSECT_SURFACE_BLEND(centerDistance);
+    S3G_INSECT_SURFACE_BLEND(space);
+    S3G_INSECT_SURFACE_BLEND(environmentSize);
+    S3G_INSECT_SURFACE_BLEND(environmentDecay);
+    S3G_INSECT_SURFACE_BLEND(environmentDamping);
+    S3G_INSECT_SURFACE_BLEND(fieldListenAmount);
+#undef S3G_INSECT_SURFACE_BLEND
+    result.order = base.order;
+    result.outputGainDb = base.outputGainDb;
+    result.surfaceX = base.surfaceX;
+    result.surfaceY = base.surfaceY;
+    return result;
+}
+
+void snapSurfaceCursor(Plugin& plugin)
+{
+    plugin.effectiveSurfaceX.store(
+        plugin.params.surfaceX, std::memory_order_relaxed);
+    plugin.effectiveSurfaceY.store(
+        plugin.params.surfaceY, std::memory_order_relaxed);
+}
+
+bool advanceSurfaceCursor(Plugin& plugin, float deltaSeconds)
+{
+    const bool gliding = plugin.surface.enabled
+        && plugin.surface.cellCount >= 2u && plugin.surface.glideMs > 0.0f;
+    const float glideMs = gliding ? plugin.surface.glideMs : 0.0f;
+    const float currentX = plugin.effectiveSurfaceX.load(
+        std::memory_order_relaxed);
+    const float currentY = plugin.effectiveSurfaceY.load(
+        std::memory_order_relaxed);
+    const float nextX = s3g::parameterSurfaceGlideValue(
+        currentX, plugin.params.surfaceX, glideMs, deltaSeconds);
+    const float nextY = s3g::parameterSurfaceGlideValue(
+        currentY, plugin.params.surfaceY, glideMs, deltaSeconds);
+    plugin.effectiveSurfaceX.store(nextX, std::memory_order_relaxed);
+    plugin.effectiveSurfaceY.store(nextY, std::memory_order_relaxed);
+    return std::fabs(nextX - currentX) > 1.0e-7f
+        || std::fabs(nextY - currentY) > 1.0e-7f;
+}
+
+void applyEffectiveParams(Plugin& plugin)
+{
+    plugin.engine.setParameterSurfaceGlideMs(
+        plugin.surface.enabled && plugin.surface.cellCount >= 2u
+            ? plugin.surface.glideMs : 0.0f);
+    const bool audioActive = plugin.active.load(std::memory_order_acquire);
+    const float cursorX = audioActive
+        ? plugin.effectiveSurfaceX.load(std::memory_order_relaxed)
+        : plugin.params.surfaceX;
+    const float cursorY = audioActive
+        ? plugin.effectiveSurfaceY.load(std::memory_order_relaxed)
+        : plugin.params.surfaceY;
+    const auto effective = insectSurfaceParams(plugin, cursorX, cursorY);
+    const bool topologyChanged = plugin.effectiveParams.voices != 0u
+        && (effective.voices != plugin.effectiveParams.voices
+            || effective.regime != plugin.effectiveParams.regime
+            || effective.callType != plugin.effectiveParams.callType
+            || effective.place != plugin.effectiveParams.place);
+    plugin.engine.setParams(effective);
+    if (plugin.surface.enabled && plugin.surface.cellCount >= 2u) {
+        const auto weights = s3g::parameterSurfaceWeights(
+            plugin.surface, cursorX, cursorY);
+        plugin.engine.setParameterSurfaceVoiceMembership(
+            s3g::parameterSurfaceVoiceMembership<
+                s3g::kAmbiInsectMaxVoices>(
+                plugin.surface, weights, plugin.params.voices));
+    } else {
+        plugin.engine.clearParameterSurfaceVoiceMembership();
+    }
+    if (topologyChanged) plugin.engine.beginTransition();
+    plugin.effectiveParams = plugin.engine.params();
+}
+
+void sanitizeInsectState(Plugin& plugin)
+{
+    plugin.engine.setParams(plugin.params);
+    plugin.params = plugin.engine.params();
+    s3g::sanitizeParameterSurface(plugin.surface);
+    for (uint32_t index = 0u; index < plugin.surface.cellCount; ++index) {
+        plugin.engine.setParams(plugin.surface.cells[index].params);
+        plugin.surface.cells[index].params = plugin.engine.params();
+    }
+    applyEffectiveParams(plugin);
+}
+
+void requestSurfaceProcess(Plugin& plugin)
+{
+    if (plugin.host && plugin.host->request_process) {
+        plugin.host->request_process(plugin.host);
     }
 }
 
@@ -410,18 +586,12 @@ void applyParam(Plugin& p, clap_id id, double value)
         p.presetIndex = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, s3g::kAmbiInsectFactoryPresetCount - 1u);
         p.customPresetName[0] = '\0';
         p.params = s3g::ambiInsectFactoryPreset(p.presetIndex);
-        p.engine.setParams(p.params);
+        applyEffectiveParams(p);
         p.engine.beginTransition();
-        p.params = p.engine.params();
         return;
     }
     if (!assignParam(p.params, id, value)) return;
-    p.engine.setParams(p.params);
-    if (id == kOrderParamId || id == kVoicesParamId || id == kRegimeParamId
-        || id == kCallTypeParamId || id == kPlaceParamId) {
-        p.engine.beginTransition();
-    }
-    p.params = p.engine.params();
+    applyEffectiveParams(p);
 }
 
 bool init(const clap_plugin_t*) { return true; }
@@ -439,19 +609,26 @@ void destroy(const clap_plugin_t* plugin)
 bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t)
 {
     auto* p = self(plugin);
+    p->active.store(false, std::memory_order_release);
     p->sampleRate = sampleRate;
     p->engine.prepare(sampleRate);
-    p->engine.setParams(p->params);
-    p->params = p->engine.params();
+    snapSurfaceCursor(*p);
+    sanitizeInsectState(*p);
+    p->active.store(true, std::memory_order_release);
     return true;
 }
 
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin)
+{
+    self(plugin)->active.store(false, std::memory_order_release);
+}
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
+    snapSurfaceCursor(*p);
+    applyEffectiveParams(*p);
     p->engine.reset();
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
 #if defined(__APPLE__)
@@ -486,11 +663,35 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     if (output.data32) s3g::clearAudioBufferFromChannel(output, 0, frames);
     if (!output.data32 || outChannels == 0u) return CLAP_PROCESS_CONTINUE;
 
-    std::array<float*, kOutputChannels> outputs {};
-    for (uint32_t ch = 0u; ch < outChannels; ++ch) outputs[ch] = output.data32[ch];
-    p->engine.setParams(p->params);
-    p->engine.process(outputs.data(), outChannels, frames);
-    p->params = p->engine.params();
+    constexpr uint32_t kSurfaceControlFrames = 64u;
+    uint32_t surfaceOffset = 0u;
+    while (surfaceOffset < frames) {
+        const float currentX = p->effectiveSurfaceX.load(
+            std::memory_order_relaxed);
+        const float currentY = p->effectiveSurfaceY.load(
+            std::memory_order_relaxed);
+        const bool cursorMoving = p->surface.enabled
+            && p->surface.cellCount >= 2u && p->surface.glideMs > 0.0f
+            && (std::fabs(currentX - p->params.surfaceX) > 1.0e-6f
+                || std::fabs(currentY - p->params.surfaceY) > 1.0e-6f);
+        const uint32_t spanFrames = cursorMoving
+            ? std::min<uint32_t>(kSurfaceControlFrames,
+                frames - surfaceOffset)
+            : frames - surfaceOffset;
+        if (advanceSurfaceCursor(*p,
+                static_cast<float>(spanFrames)
+                    / static_cast<float>(p->sampleRate))) {
+            applyEffectiveParams(*p);
+        }
+        std::array<float*, kOutputChannels> spanOutputs {};
+        for (uint32_t ch = 0u; ch < outChannels; ++ch) {
+            spanOutputs[ch] = output.data32[ch]
+                ? output.data32[ch] + surfaceOffset : nullptr;
+        }
+        p->engine.process(spanOutputs.data(), outChannels, spanFrames);
+        surfaceOffset += spanFrames;
+    }
+    p->effectiveParams = p->engine.params();
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
 
     float peak = 0.0f;
@@ -500,7 +701,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     }
     p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);
 #if defined(__APPLE__)
-    const uint32_t voices = std::min<uint32_t>(p->params.voices, s3g::kAmbiInsectMaxVoices);
+    const uint32_t voices = std::min<uint32_t>(
+        p->engine.processingVoiceCount(), s3g::kAmbiInsectMaxVoices);
+    p->guiVoiceCount.store(voices, std::memory_order_relaxed);
     for (uint32_t voice = 0u; voice < voices; ++voice) {
         const auto point = p->engine.voicePoint(voice);
         p->guiAzimuth[voice].store(point.azimuthDeg, std::memory_order_relaxed);
@@ -508,6 +711,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         p->guiDistance[voice].store(point.distance, std::memory_order_relaxed);
         p->guiEnergy[voice].store(p->engine.voiceEnergy(voice), std::memory_order_relaxed);
         p->guiCall[voice].store(p->engine.voiceCallLevel(voice), std::memory_order_relaxed);
+        p->guiRenderGain[voice].store(
+            p->engine.voiceRenderGain(voice), std::memory_order_relaxed);
         p->guiMethod[voice].store(
             p->engine.voiceProductionMethod(voice),
             std::memory_order_relaxed);
@@ -583,6 +788,8 @@ constexpr ParamDef kParams[] {
     { kFieldListenModeParamId, "Field Listen Mode", 0.0, 3.0, 0.0, true },
     { kFieldListenAmountParamId, "Listen Amount", 0.0, 1.0, 1.0, false },
     { kFieldListenResponseParamId, "Listen Response", 0.0, 3.0, 0.0, true },
+    { kSurfaceXParamId, "Surface X", 0.0, 1.0, 0.5, false },
+    { kSurfaceYParamId, "Surface Y", 0.0, 1.0, 0.5, false },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
@@ -631,6 +838,8 @@ const char* paramModule(clap_id id)
     case kFieldListenModeParamId:
     case kFieldListenAmountParamId:
     case kFieldListenResponseParamId: return "Field Listener";
+    case kSurfaceXParamId:
+    case kSurfaceYParamId: return "Parameter Surface";
     default: return "Ambi Insect Encoder";
     }
 }
@@ -702,6 +911,8 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kFieldListenResponseParamId:
         *value = static_cast<uint32_t>(params.fieldListenResponse);
         return true;
+    case kSurfaceXParamId: *value = params.surfaceX; return true;
+    case kSurfaceYParamId: *value = params.surfaceY; return true;
     default: return false;
     }
 }
@@ -753,7 +964,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         || id == kInertiaParamId || id == kEnvironmentReturnParamId
         || id == kEnvironmentSizeParamId || id == kEnvironmentDecayParamId
         || id == kEnvironmentDampingParamId
-        || id == kFieldListenAmountParamId) {
+        || id == kFieldListenAmountParamId
+        || id == kSurfaceXParamId || id == kSurfaceYParamId) {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
     } else {
         std::snprintf(display, size, "%.2f", value);
@@ -835,7 +1047,8 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         || id == kInertiaParamId || id == kEnvironmentReturnParamId
         || id == kEnvironmentSizeParamId || id == kEnvironmentDecayParamId
         || id == kEnvironmentDampingParamId
-        || id == kFieldListenAmountParamId) {
+        || id == kFieldListenAmountParamId
+        || id == kSurfaceXParamId || id == kSurfaceYParamId) {
         *value *= 0.01;
     }
     return true;
@@ -853,6 +1066,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     state.params = p->params;
     state.presetIndex = p->presetIndex;
     std::snprintf(state.customPresetName, sizeof(state.customPresetName), "%s", p->customPresetName);
+    state.surface = p->surface;
     return writeExact(stream, &state, sizeof(state));
 }
 
@@ -918,6 +1132,20 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             state.presetIndex, s3g::kAmbiInsectFactoryPresetCount - 1u);
         std::snprintf(p->customPresetName,
             sizeof(p->customPresetName), "%s", state.customPresetName);
+    } else if (version == 5u) {
+        SavedStateV5 state {};
+        state.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+                sizeof(state) - sizeof(state.version))) {
+            return false;
+        }
+        p->params = {};
+        std::memcpy(&p->params, state.params.data(), state.params.size());
+        p->presetIndex = std::min<uint32_t>(
+            state.presetIndex, s3g::kAmbiInsectFactoryPresetCount - 1u);
+        std::snprintf(p->customPresetName,
+            sizeof(p->customPresetName), "%s", state.customPresetName);
     } else if (version == kStateVersion) {
         SavedState state {};
         state.version = version;
@@ -931,12 +1159,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             state.presetIndex, s3g::kAmbiInsectFactoryPresetCount - 1u);
         std::snprintf(p->customPresetName,
             sizeof(p->customPresetName), "%s", state.customPresetName);
+        p->surface = state.surface;
     } else {
         return false;
     }
-    p->engine.setParams(p->params);
+    snapSurfaceCursor(*p);
+    sanitizeInsectState(*p);
     p->engine.beginTransition();
-    p->params = p->engine.params();
     return true;
 }
 
@@ -1088,7 +1317,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     return spec.min + norm * (spec.max - spec.min);
 }
 
-@interface S3GAmbiInsectEncoderView : NSView {
+@interface S3GAmbiInsectEncoderView : NSView <NSWindowDelegate> {
     Plugin* _plugin;
     NSTimer* _timer;
     uint32_t _selectedVoice;
@@ -1105,10 +1334,22 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     int _hoverMenuItem;
     uint32_t _menuItemCount;
     NSRect _openMenuRect;
+    BOOL _surfaceEdit;
+    int _selectedSurfaceCell;
+    int _dragSurfaceCell;
+    BOOL _dragSurfaceCursor;
+    BOOL _surfacePopupChild;
+    S3GAmbiInsectEncoderView* _surfacePopupOwner;
+    NSPanel* _surfacePanel;
+    S3GAmbiInsectEncoderView* _surfacePopupView;
+    NSClipView* _surfacePopupClip;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
+- (void)openSurfacePopup;
+- (void)hideSurfacePopup;
+- (void)destroySurfacePopup;
 @end
 
 @implementation S3GAmbiInsectEncoderView
@@ -1132,6 +1373,15 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         _hoverMenuItem = -1;
         _menuItemCount = 0;
         _openMenuRect = NSZeroRect;
+        _surfaceEdit = NO;
+        _selectedSurfaceCell = -1;
+        _dragSurfaceCell = -1;
+        _dragSurfaceCursor = NO;
+        _surfacePopupChild = NO;
+        _surfacePopupOwner = nil;
+        _surfacePanel = nil;
+        _surfacePopupView = nil;
+        _surfacePopupClip = nil;
         [self setWantsLayer:YES];
     }
     return self;
@@ -1141,6 +1391,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 
 - (void)dealloc
 {
+    if (!_surfacePopupChild) [self destroySurfacePopup];
     [self stopRefreshTimer];
     [super dealloc];
 }
@@ -1186,8 +1437,147 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 
 - (NSRect)pageButtonRect:(int)index
 {
-    const NSRect panel = [self fieldPanelRect];
-    return NSMakeRect(panel.origin.x + 104.0 + index * 48.0, panel.origin.y + 4.0, 43.0, 13.0);
+    return s3g::clap_gui::environmentalFieldPageButtonRect(
+        [self fieldPanelRect], static_cast<uint32_t>(index));
+}
+
+- (NSRect)surfacePlotRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0, field.origin.y + 76.0,
+        field.size.width - 20.0, field.size.height - 88.0);
+}
+
+- (NSRect)surfaceButtonRect:(int)index
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0 + index * 52.0,
+        field.origin.y + 10.0, 46.0, 16.0);
+}
+
+- (NSRect)surfaceCurveRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0,
+        field.origin.y + 38.0, 104.0, 18.0);
+}
+
+- (NSRect)surfaceFocusRect:(int)index
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 170.0 + index * 24.0,
+        field.origin.y + 38.0, 20.0, 18.0);
+}
+
+- (NSRect)surfaceGlideRect:(int)index
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 336.0 + index * 24.0,
+        field.origin.y + 38.0, 20.0, 18.0);
+}
+
+- (void)syncSurfaceEditMode:(BOOL)editing
+{
+    _surfaceEdit = editing;
+    if (_surfacePopupChild && _surfacePopupOwner) {
+        _surfacePopupOwner->_surfaceEdit = editing;
+        [_surfacePopupOwner setNeedsDisplay:YES];
+    } else if (_surfacePopupView) {
+        _surfacePopupView->_surfaceEdit = editing;
+        [_surfacePopupView setNeedsDisplay:YES];
+    }
+}
+
+- (void)openSurfacePopup
+{
+    if (_surfacePopupChild) return;
+    const NSRect source = [self fieldPanelRect];
+    if (!_surfacePanel) {
+        _surfacePanel = [[NSPanel alloc] initWithContentRect:
+            NSMakeRect(0.0, 0.0, source.size.width, source.size.height)
+            styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+                | NSWindowStyleMaskUtilityWindow)
+            backing:NSBackingStoreBuffered defer:NO];
+        [_surfacePanel setTitle:@"s3g AMBI ENCODER INSECT — SURF"];
+        [_surfacePanel setReleasedWhenClosed:NO];
+        [_surfacePanel setHidesOnDeactivate:YES];
+        [_surfacePanel setDelegate:self];
+        _surfacePopupView = [[S3GAmbiInsectEncoderView alloc]
+            initWithPlugin:_plugin];
+        _surfacePopupView->_surfacePopupChild = YES;
+        _surfacePopupView->_surfacePopupOwner = self;
+        _surfacePopupView->_fieldPage = 1;
+        _surfacePopupView->_surfaceEdit = _surfaceEdit;
+        _surfacePopupClip = [[NSClipView alloc] initWithFrame:
+            NSMakeRect(0.0, 0.0, source.size.width, source.size.height)];
+        [_surfacePopupClip setDrawsBackground:NO];
+        [_surfacePopupClip setDocumentView:_surfacePopupView];
+        [_surfacePanel setContentView:_surfacePopupClip];
+        [_surfacePopupClip setBoundsOrigin:source.origin];
+        [_surfacePopupView release];
+        [_surfacePopupClip release];
+
+        NSWindow* parent = [self window];
+        const NSRect parentFrame = parent ? [parent frame]
+            : [[NSScreen mainScreen] visibleFrame];
+        const NSRect panelFrame = [_surfacePanel frame];
+        CGFloat x = NSMaxX(parentFrame) + 8.0;
+        CGFloat y = NSMaxY(parentFrame) - panelFrame.size.height;
+        NSScreen* screen = parent ? [parent screen] : [NSScreen mainScreen];
+        const NSRect visible = screen ? [screen visibleFrame] : parentFrame;
+        if (x + panelFrame.size.width > NSMaxX(visible)) {
+            x = NSMinX(parentFrame) - panelFrame.size.width - 8.0;
+        }
+        [_surfacePanel setFrameOrigin:NSMakePoint(
+            std::max(NSMinX(visible), x),
+            std::clamp(y, NSMinY(visible), std::max(NSMinY(visible),
+                NSMaxY(visible) - panelFrame.size.height)))];
+    }
+    _surfacePopupView->_fieldPage = 1;
+    [self syncSurfaceEditMode:_surfaceEdit];
+    _fieldPage = 0;
+    NSWindow* parent = [self window];
+    NSWindow* previousParent = [_surfacePanel parentWindow];
+    if (previousParent && previousParent != parent) {
+        [previousParent removeChildWindow:_surfacePanel];
+    }
+    if (parent && [_surfacePanel parentWindow] != parent) {
+        [parent addChildWindow:_surfacePanel ordered:NSWindowAbove];
+    }
+    [_surfacePopupView startRefreshTimer];
+    [_surfacePanel makeKeyAndOrderFront:nil];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)hideSurfacePopup
+{
+    if (!_surfacePanel) return;
+    [_surfacePopupView stopRefreshTimer];
+    NSWindow* parent = [_surfacePanel parentWindow];
+    if (parent) [parent removeChildWindow:_surfacePanel];
+    [_surfacePanel orderOut:nil];
+}
+
+- (void)destroySurfacePopup
+{
+    if (!_surfacePanel) return;
+    [_surfacePopupView stopRefreshTimer];
+    [_surfacePanel setDelegate:nil];
+    NSWindow* parent = [_surfacePanel parentWindow];
+    if (parent) [parent removeChildWindow:_surfacePanel];
+    [_surfacePanel orderOut:nil];
+    [_surfacePanel release];
+    _surfacePanel = nil;
+    _surfacePopupView = nil;
+    _surfacePopupClip = nil;
+}
+
+- (void)windowWillClose:(NSNotification*)notification
+{
+    if ([notification object] != _surfacePanel) return;
+    [_surfacePopupView stopRefreshTimer];
+    NSWindow* parent = [_surfacePanel parentWindow];
+    if (parent) [parent removeChildWindow:_surfacePanel];
 }
 
 - (NSRect)viewButtonRect:(int)index
@@ -1296,9 +1686,9 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     CustomPresetFile file {};
     if (!loadCustomPresetFile([[[panel URL] path] UTF8String], file)) return;
     _plugin->params = file.params;
-    _plugin->engine.setParams(_plugin->params);
+    snapSurfaceCursor(*_plugin);
+    sanitizeInsectState(*_plugin);
     _plugin->engine.beginTransition();
-    _plugin->params = _plugin->engine.params();
     std::snprintf(_plugin->customPresetName, sizeof(_plugin->customPresetName), "%s", file.name[0] ? file.name : "Custom");
     [self setNeedsDisplay:YES];
 }
@@ -1318,15 +1708,88 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     return [NSColor colorWithCalibratedHue:hue saturation:sat brightness:bri alpha:selected ? 1.0 : 0.84];
 }
 
+- (void)drawSurfacePage:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs
+    style:(const s3g::clap_gui::Style&)style
+{
+    const NSRect field = [self fieldRect];
+    [s3g::clap_gui::color(0x090909) setFill];
+    NSRectFill(field);
+    [s3g::clap_gui::color(0x555555) setStroke];
+    NSFrameRect(field);
+    const NSRect header = NSMakeRect(field.origin.x, field.origin.y,
+        field.size.width, 28.0);
+    static NSString* labels[] = {
+        @"PLAY", @"ON", @"ADD", @"DEL", @"CAP", @"POP"
+    };
+    labels[0] = _surfaceEdit ? @"EDIT" : @"PLAY";
+    labels[1] = _plugin->surface.enabled ? @"ON" : @"OFF";
+    for (int index = 0; index < 6; ++index) {
+        const BOOL active = (index == 0 && _surfaceEdit)
+            || (index == 1 && _plugin->surface.enabled)
+            || (index == 5 && (_surfacePopupChild || [_surfacePanel isVisible]));
+        s3g::clap_gui::drawHeaderButton([self surfaceButtonRect:index],
+            header, labels[index], active, attrs, style);
+    }
+    const NSRect curve = [self surfaceCurveRect];
+    [style.strip setFill]; NSRectFill(curve);
+    [style.grid setStroke]; NSFrameRect(curve);
+    [[NSString stringWithFormat:@"CURVE  %s",
+        s3g::parameterSurfaceCurveName(_plugin->surface.curve)]
+        drawAtPoint:NSMakePoint(curve.origin.x + 5.0, curve.origin.y + 2.0)
+        withAttributes:valueAttrs];
+    [@"FOCUS" drawAtPoint:NSMakePoint(field.origin.x + 122.0,
+        field.origin.y + 40.0) withAttributes:attrs];
+    s3g::clap_gui::drawHeaderButton([self surfaceFocusRect:0], header,
+        @"-", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceFocusRect:1], header,
+        @"+", false, attrs, style);
+    [[NSString stringWithFormat:@"%.2f", _plugin->surface.focus]
+        drawAtPoint:NSMakePoint(field.origin.x + 222.0,
+            field.origin.y + 40.0) withAttributes:valueAttrs];
+    [@"GLIDE" drawAtPoint:NSMakePoint(field.origin.x + 280.0,
+        field.origin.y + 40.0) withAttributes:attrs];
+    s3g::clap_gui::drawHeaderButton([self surfaceGlideRect:0], header,
+        @"-", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceGlideRect:1], header,
+        @"+", false, attrs, style);
+    NSString* glide = _plugin->surface.glideMs < 0.5f ? @"OFF"
+        : [NSString stringWithFormat:@"%.0f MS", _plugin->surface.glideMs];
+    [glide drawAtPoint:NSMakePoint(field.origin.x + 388.0,
+        field.origin.y + 40.0) withAttributes:valueAttrs];
+    const NSRect plot = [self surfacePlotRect];
+    const bool audioActive = _plugin->active.load(std::memory_order_acquire);
+    const float effectiveX = audioActive
+        ? _plugin->effectiveSurfaceX.load(std::memory_order_relaxed)
+        : _plugin->params.surfaceX;
+    const float effectiveY = audioActive
+        ? _plugin->effectiveSurfaceY.load(std::memory_order_relaxed)
+        : _plugin->params.surfaceY;
+    s3g::clap_gui::drawParameterSurfaceVoronoi(_plugin->surface, plot,
+        effectiveX, effectiveY, _selectedSurfaceCell, valueAttrs,
+        _plugin->params.surfaceX, _plugin->params.surfaceY);
+    [[NSString stringWithFormat:
+        @"T %.3f %.3f   /   A %.3f %.3f   /   %u CELLS   /   %@",
+        _plugin->params.surfaceX, _plugin->params.surfaceY,
+        effectiveX, effectiveY, _plugin->surface.cellCount,
+        _plugin->surface.cellCount < 2u ? @"ADD TWO CELLS TO ENABLE" :
+            (_plugin->surface.enabled ? @"INTERPOLATING" : @"BYPASSED")]
+        drawAtPoint:NSMakePoint(plot.origin.x + 8.0,
+            NSMaxY(plot) - 18.0) withAttributes:valueAttrs];
+}
+
 - (void)drawField:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const NSRect panel = [self fieldPanelRect];
     const NSRect field = [self fieldRect];
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
-    _fieldPage = 0;
     s3g::clap_gui::drawPanelHeader(@"INSECT FIELD", true, panel.origin.x, panel.origin.y, panel.size.width, 21, attrs, style);
     const NSRect header = NSMakeRect(panel.origin.x, panel.origin.y, panel.size.width, 21);
     s3g::clap_gui::drawHeaderButton([self pageButtonRect:0], header, @"FIELD", _fieldPage == 0, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self pageButtonRect:1], header, @"SURF", _fieldPage == 1, attrs, style);
+    if (_fieldPage == 1) {
+        [self drawSurfacePage:attrs valueAttrs:valueAttrs style:style];
+        return;
+    }
     s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
     s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
@@ -1346,13 +1809,23 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMinX(field) + 18, NSMidY(field)) toPoint:NSMakePoint(NSMaxX(field) - 18, NSMidY(field))];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(NSMidX(field), NSMinY(field) + 18) toPoint:NSMakePoint(NSMidX(field), NSMaxY(field) - 18)];
 
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiInsectMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(
+        _surfaceEdit ? _plugin->params.voices
+            : _plugin->guiVoiceCount.load(std::memory_order_relaxed),
+        1u, s3g::kAmbiInsectMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
     std::array<NSPoint, s3g::kAmbiInsectMaxVoices> projected {};
     for (uint32_t voice = 0; voice < voices; ++voice) projected[voice] = [self projectVoice:voice depth:nullptr];
-    [s3g::clap_gui::color(0x5c5c5c, 0.18) setStroke];
     for (uint32_t voice = 0; voice < voices; ++voice) {
         const uint32_t next = (voice + 1u) % voices;
+        const float edgeMembership = _surfaceEdit ? 1.0f
+            : std::min(
+                _plugin->guiRenderGain[voice].load(
+                    std::memory_order_relaxed),
+                _plugin->guiRenderGain[next].load(
+                    std::memory_order_relaxed));
+        [s3g::clap_gui::color(0x5c5c5c,
+            0.18 * std::clamp(edgeMembership, 0.0f, 1.0f)) setStroke];
         NSBezierPath* path = [NSBezierPath bezierPath];
         [path moveToPoint:projected[voice]];
         [path lineToPoint:projected[next]];
@@ -1364,23 +1837,34 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         const BOOL selected = voice == _selectedVoice;
         const float energy = _plugin->guiEnergy[voice].load(std::memory_order_relaxed);
         const float call = std::clamp(_plugin->guiCall[voice].load(std::memory_order_relaxed), 0.0f, 1.0f);
+        const float membership = _surfaceEdit ? 1.0f
+            : std::clamp(_plugin->guiRenderGain[voice].load(
+                std::memory_order_relaxed), 0.0f, 1.0f);
         const float activity = std::clamp(std::sqrt(std::max(0.0f, energy)) * 18.0f, 0.0f, 1.0f);
         const CGFloat base = voices > 32u ? 7.0 : 9.0;
-        const CGFloat size = (selected ? base + 5.0 : base) + activity * 5.0f + call * 7.0f;
+        const CGFloat size = ((selected ? base + 5.0 : base)
+            + activity * 5.0f + call * 7.0f)
+            * (0.45f + membership * 0.55f);
         const NSRect marker = NSMakeRect(projected[voice].x - size * 0.5, projected[voice].y - size * 0.5, size, size);
         if (call > 0.04f || activity > 0.04f) {
             const CGFloat halo = size * (1.15 + call * 1.9 + activity * 0.6);
             NSRect haloRect = NSMakeRect(projected[voice].x - halo * 0.5, projected[voice].y - halo * 0.5, halo, halo);
-            [[[self voiceColor:voice selected:selected] colorWithAlphaComponent:0.05 + call * 0.18 + activity * 0.08] setFill];
+            [[[self voiceColor:voice selected:selected]
+                colorWithAlphaComponent:(0.05 + call * 0.18
+                    + activity * 0.08) * membership] setFill];
             [[NSBezierPath bezierPathWithOvalInRect:haloRect] fill];
         }
-        [[[self voiceColor:voice selected:selected] colorWithAlphaComponent:(selected ? 0.98 : 0.22 + call * 0.54 + activity * 0.20)] setFill];
+        [[[self voiceColor:voice selected:selected] colorWithAlphaComponent:
+            (selected ? 0.98 : 0.22 + call * 0.54 + activity * 0.20)
+                * membership] setFill];
         NSRectFill(marker);
-        [s3g::clap_gui::color(selected ? 0xe6e6e6 : 0x4f4f4f, selected ? 1.0 : 0.22 + call * 0.46 + activity * 0.18) setStroke];
+        [s3g::clap_gui::color(selected ? 0xe6e6e6 : 0x4f4f4f,
+            (selected ? 1.0 : 0.22 + call * 0.46 + activity * 0.18)
+                * membership) setStroke];
         NSFrameRect(marker);
         NSString* label = [NSString stringWithFormat:@"%u", voice + 1u];
         const NSSize labelSize = [label sizeWithAttributes:idAttrs];
-        if (call > 0.28f || selected) {
+        if (membership > 0.45f && (call > 0.28f || selected)) {
             [label drawAtPoint:NSMakePoint(NSMidX(marker) - labelSize.width * 0.5, NSMidY(marker) - labelSize.height * 0.5 - 0.5) withAttributes:idAttrs];
         }
     }
@@ -1420,7 +1904,8 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
-    const auto p = _plugin->params;
+    const auto p = _surfaceEdit
+        ? _plugin->params : _plugin->effectiveParams;
     const uint32_t regime = std::min<uint32_t>(
         p.regime, s3g::kAmbiInsectRegimeCount - 1u);
     const auto& labels = mechanismLabels(regime);
@@ -1660,7 +2145,10 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 - (int)hitVoice:(NSPoint)point
 {
     if (!NSPointInRect(point, [self fieldRect])) return -1;
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiInsectMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(
+        _surfaceEdit ? _plugin->params.voices
+            : _plugin->guiVoiceCount.load(std::memory_order_relaxed),
+        1u, s3g::kAmbiInsectMaxVoices);
     int best = -1;
     CGFloat bestDistance = 15.0;
     for (uint32_t voice = 0; voice < voices; ++voice) {
@@ -1672,6 +2160,48 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         }
     }
     return best;
+}
+
+- (int)hitSurfaceCell:(NSPoint)point
+{
+    const NSRect plot = [self surfacePlotRect];
+    int best = -1;
+    CGFloat bestDistance = 15.0;
+    for (uint32_t index = 0u; index < _plugin->surface.cellCount; ++index) {
+        const auto& cell = _plugin->surface.cells[index];
+        const NSPoint site = NSMakePoint(
+            plot.origin.x + cell.x * plot.size.width,
+            NSMaxY(plot) - cell.y * plot.size.height);
+        const CGFloat distance = std::hypot(
+            point.x - site.x, point.y - site.y);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = static_cast<int>(index);
+        }
+    }
+    return best;
+}
+
+- (void)updateSurfacePosition:(NSPoint)point cursor:(BOOL)cursor
+{
+    const NSRect plot = [self surfacePlotRect];
+    const float x = std::clamp(static_cast<float>(
+        (point.x - plot.origin.x) / plot.size.width), 0.0f, 1.0f);
+    const float y = std::clamp(static_cast<float>(
+        (NSMaxY(plot) - point.y) / plot.size.height), 0.0f, 1.0f);
+    if (cursor) {
+        applyParam(*_plugin, kSurfaceXParamId, x);
+        applyParam(*_plugin, kSurfaceYParamId, y);
+    } else if (_dragSurfaceCell >= 0
+        && static_cast<uint32_t>(_dragSurfaceCell)
+            < _plugin->surface.cellCount) {
+        auto& cell = _plugin->surface.cells[
+            static_cast<uint32_t>(_dragSurfaceCell)];
+        cell.x = x;
+        cell.y = y;
+        applyEffectiveParams(*_plugin);
+    }
+    requestSurfaceProcess(*_plugin);
 }
 
 - (void)setParam:(clap_id)param fromPoint:(NSPoint)point
@@ -1723,12 +2253,105 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     }
     const NSRect panel = [self fieldPanelRect];
     if (NSPointInRect(point, panel)) {
-        for (int i = 0; i < 1; ++i) {
+        for (int i = 0; i < 2; ++i) {
             if (NSPointInRect(point, [self pageButtonRect:i])) {
+                if (_surfacePopupChild) return;
                 _fieldPage = i;
                 [self setNeedsDisplay:YES];
                 return;
             }
+        }
+        if (_fieldPage == 1) {
+            if (NSPointInRect(point, [self surfaceButtonRect:5])) {
+                if (_surfacePopupChild) [_surfacePopupOwner hideSurfacePopup];
+                else [self openSurfacePopup];
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, [self surfaceButtonRect:0])) {
+                [self syncSurfaceEditMode:!_surfaceEdit];
+            } else if (NSPointInRect(point, [self surfaceButtonRect:1])) {
+                if (_plugin->surface.cellCount < 2u) NSBeep();
+                else {
+                    _plugin->surface.enabled = !_plugin->surface.enabled;
+                    applyEffectiveParams(*_plugin);
+                    requestSurfaceProcess(*_plugin);
+                }
+            } else if (NSPointInRect(point, [self surfaceButtonRect:2])) {
+                NSString* name = [self presetDisplayName];
+                if (s3g::addParameterSurfaceCell(_plugin->surface,
+                        _plugin->params,
+                        static_cast<int32_t>(_plugin->presetIndex),
+                        [name UTF8String])) {
+                    _selectedSurfaceCell = static_cast<int>(
+                        _plugin->surface.cellCount) - 1;
+                } else NSBeep();
+            } else if (NSPointInRect(point, [self surfaceButtonRect:3])) {
+                if (_selectedSurfaceCell < 0
+                    || !s3g::removeParameterSurfaceCell(_plugin->surface,
+                        static_cast<uint32_t>(_selectedSurfaceCell))) {
+                    NSBeep();
+                }
+                _selectedSurfaceCell = _plugin->surface.cellCount == 0u ? -1
+                    : std::min(_selectedSurfaceCell,
+                        static_cast<int>(_plugin->surface.cellCount) - 1);
+                applyEffectiveParams(*_plugin);
+                requestSurfaceProcess(*_plugin);
+            } else if (NSPointInRect(point, [self surfaceButtonRect:4])) {
+                if (_selectedSurfaceCell < 0
+                    || static_cast<uint32_t>(_selectedSurfaceCell)
+                        >= _plugin->surface.cellCount) {
+                    NSBeep();
+                } else {
+                    auto& cell = _plugin->surface.cells[
+                        static_cast<uint32_t>(_selectedSurfaceCell)];
+                    cell.params = _plugin->params;
+                    cell.presetIndex = static_cast<int32_t>(
+                        _plugin->presetIndex);
+                    std::snprintf(cell.name, sizeof(cell.name), "%s",
+                        [[self presetDisplayName] UTF8String]);
+                    applyEffectiveParams(*_plugin);
+                    requestSurfaceProcess(*_plugin);
+                }
+            } else if (NSPointInRect(point, [self surfaceCurveRect])) {
+                const uint32_t next = (static_cast<uint32_t>(
+                    _plugin->surface.curve) + 1u)
+                    % s3g::kParameterSurfaceCurveCount;
+                _plugin->surface.curve =
+                    static_cast<s3g::ParameterSurfaceCurve>(next);
+                applyEffectiveParams(*_plugin);
+                requestSurfaceProcess(*_plugin);
+            } else if (NSPointInRect(point, [self surfaceFocusRect:0])
+                || NSPointInRect(point, [self surfaceFocusRect:1])) {
+                const float scale = NSPointInRect(point,
+                    [self surfaceFocusRect:0]) ? 0.8f : 1.25f;
+                _plugin->surface.focus = std::clamp(
+                    _plugin->surface.focus * scale, 0.25f, 8.0f);
+                applyEffectiveParams(*_plugin);
+                requestSurfaceProcess(*_plugin);
+            } else if (NSPointInRect(point, [self surfaceGlideRect:0])
+                || NSPointInRect(point, [self surfaceGlideRect:1])) {
+                const int direction = NSPointInRect(point,
+                    [self surfaceGlideRect:0]) ? -1 : 1;
+                _plugin->surface.glideMs =
+                    s3g::parameterSurfaceSteppedGlide(
+                        _plugin->surface.glideMs, direction);
+                applyEffectiveParams(*_plugin);
+                requestSurfaceProcess(*_plugin);
+            } else if (NSPointInRect(point, [self surfacePlotRect])) {
+                if (_surfaceEdit) {
+                    const int cell = [self hitSurfaceCell:point];
+                    if (cell >= 0) {
+                        _selectedSurfaceCell = cell;
+                        _dragSurfaceCell = cell;
+                    }
+                } else {
+                    _dragSurfaceCursor = YES;
+                    [self updateSurfacePosition:point cursor:YES];
+                }
+            }
+            [self setNeedsDisplay:YES];
+            return;
         }
         for (int i = 0; i < 2; ++i) {
             if (NSPointInRect(point, [self zoomButtonRect:i])) {
@@ -1781,7 +2404,11 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    _fieldPage = 0;
+    if (_fieldPage == 1 && (_dragSurfaceCursor || _dragSurfaceCell >= 0)) {
+        [self updateSurfacePosition:point cursor:_dragSurfaceCursor];
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_dragView) {
         const CGFloat dx = point.x - _lastDragPoint.x;
         const CGFloat dy = point.y - _lastDragPoint.y;
@@ -1801,6 +2428,8 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     _dragParam = 0;
     _dragView = NO;
     _dragBreakpointRow = -1;
+    _dragSurfaceCell = -1;
+    _dragSurfaceCursor = NO;
 }
 
 - (void)viewDidMoveToWindow
@@ -1852,6 +2481,7 @@ void guiDestroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
     if (!p->guiView) return;
+    [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) destroySurfacePopup];
     [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) stopRefreshTimer];
     s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
     p->guiVisible = false;
@@ -1875,7 +2505,7 @@ bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win)
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) hideSurfacePopup]; [static_cast<S3GAmbiInsectEncoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 
 #endif
@@ -1914,11 +2544,14 @@ const clap_plugin_t* create(const clap_host_t* host)
     p->host = host;
     p->params = s3g::ambiInsectFactoryPreset(0u);
     p->engine.prepare(p->sampleRate);
-    p->engine.setParams(p->params);
-    p->params = p->engine.params();
+    snapSurfaceCursor(*p);
+    sanitizeInsectState(*p);
 #if defined(__APPLE__)
     for (auto& weight : p->guiListenWeight) {
         weight.store(1.0f, std::memory_order_relaxed);
+    }
+    for (auto& gain : p->guiRenderGain) {
+        gain.store(1.0f, std::memory_order_relaxed);
     }
 #endif
     p->plugin.desc = &descriptor;

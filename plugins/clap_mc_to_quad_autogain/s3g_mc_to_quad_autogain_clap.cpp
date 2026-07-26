@@ -385,7 +385,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 #if defined(__APPLE__)
 constexpr auto kOutputPanel = s3g::gui_layout::outputUtilityPanel(
-    s3g::gui_layout::PanelRole::Output, 42.0, 2u);
+    s3g::gui_layout::PanelRole::Output, 42.0, 6u);
 constexpr auto kRoutingPanel = s3g::gui_layout::fittedStackPanel(
     s3g::gui_layout::PanelRole::Routing, kOutputPanel, 7u);
 constexpr std::array kOutputColumnPanels { kOutputPanel, kRoutingPanel };
@@ -463,7 +463,11 @@ static NSColor* s3gMcQuadColor(int rgb, CGFloat alpha = 1.0)
     s3g::clap_gui::drawPanelFrame(mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, mapPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"QUAD MAP", true, mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, 21, lab, style);
     NSString* info = [NSString stringWithFormat:@"%u IN / %@ / W %.0f%% / ROT %.0f / %@", count, [NSString stringWithUTF8String:layoutName(layout)], static_cast<double>(prm.widthPercent), static_cast<double>(prm.rotationDegrees), [NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(prm.autogain))]];
-    [info drawAtPoint:NSMakePoint(150, 39) withAttributes:small];
+    s3g::clap_gui::drawBoundedRightText(
+        info,
+        NSMakeRect(mapPanel.origin.x + 132.0, mapPanel.origin.y + 5.0,
+            mapPanel.size.width - 144.0, 15.0),
+        small);
 
     NSRect field = s3g::clap_gui::cocoaRect(
         s3g::gui_layout::kOutputUtilityFamilyLayout.field);
@@ -528,6 +532,31 @@ static NSColor* s3gMcQuadColor(int rgb, CGFloat alpha = 1.0)
     drawPanel(@"ROUTING", kRoutingPanel);
     [self drawRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", static_cast<double>(prm.outputGainDb)] norm:(prm.outputGainDb + 24.0) / 48.0 y:s3g::gui_layout::rowY(kOutputPanel, 0u) panel:kOutputPanel attrs:lab small:small];
     [self drawMenuRow:@"AGN" value:[NSString stringWithUTF8String:autogainName(static_cast<uint32_t>(prm.autogain))] y:s3g::gui_layout::rowY(kOutputPanel, 1u) panel:kOutputPanel attrs:lab small:small];
+
+    auto drawMeter = [&](uint32_t row, NSString* name, uint32_t index) {
+        const float current = p->outputPeaks[index].load(std::memory_order_relaxed);
+        const float pk = p->outputPeaks[index].exchange(current * 0.92f, std::memory_order_relaxed);
+        const double db = 20.0 * std::log10(std::max(0.000001f, pk));
+        const CGFloat norm = std::clamp<CGFloat>((db + 60.0) / 60.0, 0.0, 1.0);
+        const CGFloat y = s3g::gui_layout::rowY(kOutputPanel, 1u)
+            + 24.0 + static_cast<CGFloat>(row - 2u) * 22.0;
+        NSRect r = NSMakeRect(
+            kOutputPanel.frame.x + 42.0, y,
+            kOutputPanel.frame.width - 110.0, 15.0);
+        [style.strip setFill]; NSRectFill(r);
+        [fill setFill]; NSRectFill(NSMakeRect(r.origin.x + 1, r.origin.y + 1, (r.size.width - 2) * norm, r.size.height - 2));
+        [grid setStroke]; NSFrameRect(r);
+        [name drawAtPoint:NSMakePoint(kOutputPanel.frame.x + 16.0, y - 1.0)
+            withAttributes:small];
+        s3g::clap_gui::drawBoundedRightText(
+            [NSString stringWithFormat:@"%+4.1f", db],
+            NSMakeRect(NSMaxX(s3g::clap_gui::cocoaRect(kOutputPanel.frame)) - 52.0, y - 1.0, 40.0, 15.0), small);
+    };
+    drawMeter(2u, @"L", 0u);
+    drawMeter(3u, @"R", 1u);
+    drawMeter(4u, @"RB", 2u);
+    drawMeter(5u, @"LB", 3u);
+
     [self drawRow:@"IN" value:[NSString stringWithFormat:@"%u", count] norm:(count - 2.0) / 126.0 y:s3g::gui_layout::rowY(kRoutingPanel, 0u) panel:kRoutingPanel attrs:lab small:small];
     [self drawRow:@"WIDTH" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.widthPercent)] norm:prm.widthPercent / 200.0 y:s3g::gui_layout::rowY(kRoutingPanel, 1u) panel:kRoutingPanel attrs:lab small:small];
     [self drawRow:@"ROT" value:[NSString stringWithFormat:@"%+.0f°", static_cast<double>(prm.rotationDegrees)] norm:(prm.rotationDegrees + 180.0) / 360.0 y:s3g::gui_layout::rowY(kRoutingPanel, 2u) panel:kRoutingPanel attrs:lab small:small];
@@ -535,36 +564,6 @@ static NSColor* s3gMcQuadColor(int rgb, CGFloat alpha = 1.0)
     [self drawRow:@"WGT" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.layoutWeightPercent)] norm:prm.layoutWeightPercent / 100.0 y:s3g::gui_layout::rowY(kRoutingPanel, 4u) panel:kRoutingPanel attrs:lab small:small];
     [self drawRow:@"ATT" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.attenuation3dPercent)] norm:prm.attenuation3dPercent / 100.0 y:s3g::gui_layout::rowY(kRoutingPanel, 5u) panel:kRoutingPanel attrs:lab small:small];
     [self drawRow:@"DST" value:[NSString stringWithFormat:@"%.0f%%", static_cast<double>(prm.distance3dPercent)] norm:prm.distance3dPercent / 200.0 y:s3g::gui_layout::rowY(kRoutingPanel, 6u) panel:kRoutingPanel attrs:lab small:small];
-
-    NSRect meterPanel = s3g::clap_gui::cocoaRect(
-        s3g::gui_layout::kOutputUtilityFamilyLayout.meter);
-    s3g::clap_gui::drawPanelFrame(
-        meterPanel.origin.x, meterPanel.origin.y,
-        meterPanel.size.width, meterPanel.size.height, style);
-    s3g::clap_gui::drawPanelHeader(
-        @"QUAD OUT", true, meterPanel.origin.x, meterPanel.origin.y,
-        meterPanel.size.width, 21.0, lab, style);
-    auto drawMeter = [&](CGFloat y, NSString* name, uint32_t index) {
-        const float current = p->outputPeaks[index].load(std::memory_order_relaxed);
-        const float pk = p->outputPeaks[index].exchange(current * 0.92f, std::memory_order_relaxed);
-        const double db = 20.0 * std::log10(std::max(0.000001f, pk));
-        const CGFloat norm = std::clamp<CGFloat>((db + 60.0) / 60.0, 0.0, 1.0);
-        NSRect r = NSMakeRect(
-            meterPanel.origin.x + 42.0, y,
-            meterPanel.size.width - 104.0, 15);
-        [style.bg setFill]; NSRectFill(r);
-        [fill setFill]; NSRectFill(NSMakeRect(r.origin.x + 2, r.origin.y + 2, (r.size.width - 4) * norm, r.size.height - 4));
-        [grid setStroke]; NSFrameRect(r);
-        [name drawAtPoint:NSMakePoint(meterPanel.origin.x + 12.0, y)
-            withAttributes:small];
-        s3g::clap_gui::drawBoundedRightText(
-            [NSString stringWithFormat:@"%+4.1f", db],
-            NSMakeRect(NSMaxX(meterPanel) - 52.0, y, 40.0, 15.0), small);
-    };
-    drawMeter(meterPanel.origin.y + 110.0, @"L", 0);
-    drawMeter(meterPanel.origin.y + 84.0, @"R", 1);
-    drawMeter(meterPanel.origin.y + 58.0, @"RB", 2);
-    drawMeter(meterPanel.origin.y + 32.0, @"LB", 3);
 
     if (_openMenu > 0 && _menuItems > 0) {
         const CGFloat itemH = 18.0;

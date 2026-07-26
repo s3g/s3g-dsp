@@ -855,6 +855,19 @@ inline NSRect topologyProcessorFieldContentRect(NSRect fieldPanel)
         fieldPanel.size.height - 38.0);
 }
 
+inline NSRect environmentalFieldPageButtonRect(
+    NSRect fieldPanel, uint32_t index)
+{
+    return cocoaRect(s3g::gui_layout::environmentalFieldPageButtonRect(
+        {
+            static_cast<double>(fieldPanel.origin.x),
+            static_cast<double>(fieldPanel.origin.y),
+            static_cast<double>(fieldPanel.size.width),
+            static_cast<double>(fieldPanel.size.height),
+        },
+        index));
+}
+
 inline NSRect topologyProcessorFieldPageButtonRect(
     NSRect fieldPanel, uint32_t index)
 {

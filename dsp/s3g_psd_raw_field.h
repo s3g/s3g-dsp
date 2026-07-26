@@ -20,6 +20,7 @@ constexpr uint32_t kPsdRawFieldCodebookSize = 32;
 constexpr uint32_t kPsdRawFieldTransformSize = 32;
 constexpr uint32_t kPsdRawFieldLpcOrder = 6;
 constexpr uint32_t kPsdRawFieldDiscLookahead = 32;
+constexpr uint32_t kPsdRawFieldAptLineWords = 2080;
 constexpr std::size_t kPsdRawFieldMaxSourceBytes = 64u * 1024u * 1024u;
 
 struct PsdRawFieldSource {
@@ -115,8 +116,9 @@ enum class PsdRawFieldCodecMode : uint32_t {
     FaxQam = 13,
     SigmaOneBit = 14,
     HybridPredictive = 15,
+    Apt = 16,
 };
-constexpr uint32_t kPsdRawFieldCodecModeCount = 16;
+constexpr uint32_t kPsdRawFieldCodecModeCount = 17;
 
 enum class PsdRawFieldChannelScheme : uint32_t {
     Parallel = 0,
@@ -293,6 +295,13 @@ public:
             sigmaOutput_[ch] = 0.0f;
             sigmaClock_[ch] = 0.0f;
             sigmaLastBit_[ch] = false;
+            aptCarrierPhase_[ch] = static_cast<float>(ch) * 0.03125f;
+            aptClock_[ch] = 0.0f;
+            aptEnvelope_[ch] = 0.08f;
+            aptVideo_[ch] = -1.0f;
+            aptPreviousVideo_[ch] = -1.0f;
+            aptWord_[ch] = 0u;
+            aptLine_[ch] = 0u;
         }
         shaper_.reset();
         sectionPhase_ = 0.0f;
@@ -535,7 +544,8 @@ private:
             db += 2.0f;
         } else if (params_.codecMode == PsdRawFieldCodecMode::ModemFsk
             || params_.codecMode == PsdRawFieldCodecMode::FaxQam
-            || params_.codecMode == PsdRawFieldCodecMode::SigmaOneBit) {
+            || params_.codecMode == PsdRawFieldCodecMode::SigmaOneBit
+            || params_.codecMode == PsdRawFieldCodecMode::Apt) {
             db -= 2.5f;
         }
         return clamp(db, -8.0f, 10.0f);
@@ -769,6 +779,51 @@ private:
                 + fieldNoise(index ^ seed ^ 0x91e10da5u) * 0.08f;
             const float edge = (index & 127u) == 0u ? fieldNoise((index >> 7u) ^ seed) * 0.48f : 0.0f;
             return fieldByte(base + correction + edge);
+        }
+        case PsdRawFieldCodecMode::Apt: {
+            const uint32_t line = index / kPsdRawFieldAptLineWords;
+            const uint32_t word = index % kPsdRawFieldAptLineWords;
+            if (word < 39u) {
+                return fieldByte(word < 28u && ((word >> 1u) & 1u) != 0u ? 0.96f : -0.96f);
+            }
+            if (word < 86u) {
+                const bool minuteMark = (line % 120u) < 2u;
+                return fieldByte(minuteMark ? 0.88f : -0.88f);
+            }
+            if (word < 995u) {
+                const uint32_t pixel = word - 86u;
+                const float cloud = interpolatedFieldNoise(
+                    pixel + line * 937u, 83u, seed ^ 0x6d2b79f5u) * 0.46f;
+                const float contour = std::sin(
+                    static_cast<float>(pixel) * 0.021f + static_cast<float>(line) * 0.13f) * 0.31f;
+                return fieldByte(cloud + contour + 0.12f);
+            }
+            if (word < 1040u) {
+                const uint32_t wedge = std::min<uint32_t>(15u, (word - 995u) / 3u);
+                const float step = static_cast<float>((wedge + ((line >> 3u) & 15u)) & 15u)
+                    * (2.0f / 15.0f) - 1.0f;
+                return fieldByte(step * 0.82f);
+            }
+            if (word < 1079u) {
+                const uint32_t local = word - 1040u;
+                return fieldByte(local < 35u && (local % 5u) < 2u ? 0.96f : -0.96f);
+            }
+            if (word < 1126u) {
+                const bool minuteMark = (line % 120u) >= 2u && (line % 120u) < 4u;
+                return fieldByte(minuteMark ? -0.88f : 0.88f);
+            }
+            if (word < 2035u) {
+                const uint32_t pixel = word - 1126u;
+                const float thermal = interpolatedFieldNoise(
+                    pixel + line * 919u, 117u, seed ^ 0x91e10da5u) * 0.42f;
+                const float bands = std::sin(
+                    static_cast<float>(pixel) * 0.014f - static_cast<float>(line) * 0.09f) * 0.34f;
+                return fieldByte(thermal + bands - 0.10f);
+            }
+            const uint32_t wedge = std::min<uint32_t>(15u, (word - 2035u) / 3u);
+            const float step = static_cast<float>((15u - wedge + ((line >> 3u) & 15u)) & 15u)
+                * (2.0f / 15.0f) - 1.0f;
+            return fieldByte(step * 0.82f);
         }
         case PsdRawFieldCodecMode::RawPcm:
         default: {
@@ -1140,7 +1195,8 @@ private:
         const bool ownsClock = params_.codecMode == PsdRawFieldCodecMode::Cvsd
             || params_.codecMode == PsdRawFieldCodecMode::ModemFsk
             || params_.codecMode == PsdRawFieldCodecMode::FaxQam
-            || params_.codecMode == PsdRawFieldCodecMode::SigmaOneBit;
+            || params_.codecMode == PsdRawFieldCodecMode::SigmaOneBit
+            || params_.codecMode == PsdRawFieldCodecMode::Apt;
         float x = ownsClock ? clean : downsampleStage(clean, ch);
         if (static_cast<uint32_t>(params_.codecMode) < static_cast<uint32_t>(PsdRawFieldCodecMode::CelpScramble)
             && frameDrop_[ch]) {
@@ -1219,6 +1275,9 @@ private:
             break;
         case PsdRawFieldCodecMode::HybridPredictive:
             x = hybridCodec(x, ch);
+            break;
+        case PsdRawFieldCodecMode::Apt:
+            x = aptCodec(clean, ch);
             break;
         case PsdRawFieldCodecMode::RawPcm:
         default:
@@ -1820,6 +1879,98 @@ private:
         return output;
     }
 
+    float aptVideoWord(float input, uint32_t ch, uint32_t word)
+    {
+        float video = quantize(input, params_.bitDepth);
+        if (word < 39u) {
+            video = word < 28u && ((word >> 1u) & 1u) != 0u ? 0.96f : -0.96f;
+        } else if (word < 86u) {
+            video = (aptLine_[ch] % 120u) < 2u ? 0.88f : -0.88f;
+        } else if (word < 995u) {
+            // Image A: the current source sample is the transmitted brightness.
+        } else if (word < 1040u) {
+            const uint32_t wedge = std::min<uint32_t>(15u, (word - 995u) / 3u);
+            video = (static_cast<float>((wedge + ((aptLine_[ch] >> 3u) & 15u)) & 15u)
+                * (2.0f / 15.0f) - 1.0f) * 0.82f;
+        } else if (word < 1079u) {
+            const uint32_t local = word - 1040u;
+            video = local < 35u && (local % 5u) < 2u ? 0.96f : -0.96f;
+        } else if (word < 1126u) {
+            const uint32_t line = aptLine_[ch] % 120u;
+            video = line >= 2u && line < 4u ? -0.88f : 0.88f;
+        } else if (word < 2035u) {
+            // Image B: the current source sample is the transmitted brightness.
+        } else {
+            const uint32_t wedge = std::min<uint32_t>(15u, (word - 2035u) / 3u);
+            video = (static_cast<float>((15u - wedge + ((aptLine_[ch] >> 3u) & 15u)) & 15u)
+                * (2.0f / 15.0f) - 1.0f) * 0.82f;
+        }
+
+        const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_
+            ^ (aptLine_[ch] * 0x9e3779b9u) ^ (word * 0x632be59bu)
+            ^ (ch * 0x85ebca6bu));
+        const bool syncWord = word < 39u || (word >= 1040u && word < 1079u);
+        const float upsetChance = params_.codecDamage * params_.codecDamage
+            * (syncWord ? 0.055f : 0.18f);
+        if (hash01(h) < upsetChance) {
+            if ((h & 3u) == 0u) video = -video;
+            else if ((h & 3u) == 1u) video = aptPreviousVideo_[ch];
+            else video = fieldNoise(h ^ 0xa511e9b3u);
+        }
+        if (frameDrop_[ch]) {
+            video = lerp(aptPreviousVideo_[ch], -0.92f,
+                0.18f + params_.codecDamage * 0.48f);
+        }
+        aptPreviousVideo_[ch] = video;
+        return clamp(video, -1.0f, 1.0f);
+    }
+
+    float aptCodec(float input, uint32_t ch)
+    {
+        const bool wordTick = codecSample_[ch] == 0u || codecClockTick(aptClock_[ch]);
+        if (wordTick) {
+            aptVideo_[ch] = aptVideoWord(input, ch, aptWord_[ch]);
+            const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_
+                ^ (aptLine_[ch] * 0x45d9f3bu) ^ (ch * 0x27d4eb2du));
+            uint32_t advance = 1u;
+            if (hash01(h) < params_.codecDamage * params_.codecDamage * 0.006f) {
+                advance += 1u + ((h >> 17u) & 3u);
+                aptCarrierPhase_[ch] += ((h & 1u) != 0u ? 1.0f : -1.0f)
+                    * params_.codecDamage * 0.08f;
+            }
+            aptWord_[ch] += advance;
+            if (aptWord_[ch] >= kPsdRawFieldAptLineWords) {
+                aptWord_[ch] %= kPsdRawFieldAptLineWords;
+                ++aptLine_[ch];
+            }
+        }
+
+        const float targetEnvelope = 0.06f + (aptVideo_[ch] * 0.5f + 0.5f) * 0.94f;
+        const float wordRate = static_cast<float>(sampleRate_) / codecInterval();
+        const float envelopeCutoff = clamp(wordRate * 0.72f, 8.0f, 12000.0f);
+        const float envelopeSmoothing = 1.0f - std::exp(
+            -2.0f * kPi * envelopeCutoff / static_cast<float>(sampleRate_));
+        aptEnvelope_[ch] += (targetEnvelope - aptEnvelope_[ch]) * envelopeSmoothing;
+
+        const float laneSkew = (static_cast<float>(ch) - 3.5f)
+            * 2.4f * params_.channelSpread;
+        const float flutter = std::sin(
+            2.0f * kPi * (static_cast<float>(aptLine_[ch] % 128u) / 128.0f))
+            * params_.codecDamage * 5.0f;
+        aptCarrierPhase_[ch] += (2400.0f + laneSkew + flutter)
+            / static_cast<float>(sampleRate_);
+        aptCarrierPhase_[ch] -= std::floor(aptCarrierPhase_[ch]);
+        float transmission = std::sin(2.0f * kPi * aptCarrierPhase_[ch])
+            * aptEnvelope_[ch] * 0.82f;
+        const float noise = fieldNoise(codecSample_[ch] ^ tapeSeed_
+            ^ (ch * 0x6d2b79f5u) ^ 0xd1b54a35u);
+        const float noiseGain = params_.codecDamage * params_.codecDamage
+            * (frameDrop_[ch] ? 0.18f : 0.035f);
+        transmission += noise * noiseGain;
+        return lerp(input, transmission,
+            clamp(0.78f + params_.codecDamage * 0.20f, 0.0f, 0.98f));
+    }
+
     static uint32_t hash(uint32_t x)
     {
         x ^= x >> 16u;
@@ -1976,6 +2127,13 @@ private:
     std::array<float, kPsdRawFieldChannels> sigmaOutput_ {};
     std::array<float, kPsdRawFieldChannels> sigmaClock_ {};
     std::array<bool, kPsdRawFieldChannels> sigmaLastBit_ {};
+    std::array<float, kPsdRawFieldChannels> aptCarrierPhase_ {};
+    std::array<float, kPsdRawFieldChannels> aptClock_ {};
+    std::array<float, kPsdRawFieldChannels> aptEnvelope_ {};
+    std::array<float, kPsdRawFieldChannels> aptVideo_ {};
+    std::array<float, kPsdRawFieldChannels> aptPreviousVideo_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> aptWord_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> aptLine_ {};
     float loudnessEnergy_ = 0.04f;
     float loudnessGain_ = 1.0f;
     float targetPitchRatio_ = 1.0f;

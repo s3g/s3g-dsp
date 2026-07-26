@@ -3,6 +3,7 @@
 #include "s3g_ambi_environment_field.h"
 #include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_speaker_decoder.h"
+#include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
 
 #include <algorithm>
@@ -181,6 +182,8 @@ struct AmbiInsectParams {
     float fieldListenAmount = 1.0f;
     AmbiFieldListenerResponse fieldListenResponse =
         AmbiFieldListenerResponse::Legacy;
+    float surfaceX = 0.5f;
+    float surfaceY = 0.5f;
 };
 
 inline AmbiEnvironmentProfileId ambiInsectEnvironmentProfile(uint32_t place)
@@ -441,6 +444,10 @@ public:
             params.fieldListenAmount, params_.fieldListenAmount, 0.0f, 1.0f);
         params.fieldListenResponse =
             sanitizeAmbiFieldListenerResponse(params.fieldListenResponse);
+        params.surfaceX = clampFinite(
+            params.surfaceX, params_.surfaceX, 0.0f, 1.0f);
+        params.surfaceY = clampFinite(
+            params.surfaceY, params_.surfaceY, 0.0f, 1.0f);
         if (params.sceneSeed == 0u) params.sceneSeed = kAmbiInsectDefaultSceneSeed;
 
         const uint32_t oldVoices = params_.voices;
@@ -454,6 +461,44 @@ public:
     }
 
     AmbiInsectParams params() const { return params_; }
+    void setParameterSurfaceGlideMs(float glideMs)
+    {
+        parameterSurfaceGlideMs_ = clamp(
+            std::isfinite(glideMs) ? glideMs : 0.0f, 0.0f, 2000.0f);
+    }
+    void setParameterSurfaceVoiceMembership(
+        const std::array<float, kAmbiInsectMaxVoices>& membership)
+    {
+        surfaceVoiceMembershipEnabled_ = true;
+        surfaceVoiceLimit_ = 1u;
+        for (uint32_t voice = 0u; voice < kAmbiInsectMaxVoices; ++voice) {
+            surfaceVoiceMembership_[voice] = clamp(
+                std::isfinite(membership[voice])
+                    ? membership[voice] : 0.0f,
+                0.0f, 1.0f);
+            if (surfaceVoiceMembership_[voice] > 1.0e-4f) {
+                surfaceVoiceLimit_ = voice + 1u;
+            }
+        }
+    }
+    void clearParameterSurfaceVoiceMembership()
+    {
+        surfaceVoiceMembershipEnabled_ = false;
+        surfaceVoiceLimit_ = params_.voices;
+    }
+    uint32_t processingVoiceCount() const
+    {
+        return surfaceVoiceMembershipEnabled_
+            ? std::max(params_.voices, surfaceVoiceLimit_)
+            : params_.voices;
+    }
+    float voiceRenderGain(uint32_t voice) const
+    {
+        voice = std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u);
+        return surfaceVoiceMembershipEnabled_
+            ? surfaceVoiceMembership_[voice]
+            : voice < params_.voices ? 1.0f : 0.0f;
+    }
     void beginTransition() { transitionRequested_.store(true, std::memory_order_release); }
     float voiceEnergy(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u)].energy; }
     float voiceCallLevel(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiInsectMaxVoices - 1u)].callViz; }
@@ -499,7 +544,7 @@ public:
             if (outputs[channel]) std::fill(outputs[channel], outputs[channel] + frames, 0.0f);
         }
 
-        const uint32_t voices = params_.voices;
+        const uint32_t voices = processingVoiceCount();
         const uint32_t ambiChannels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), outputChannels);
         constexpr uint32_t kControlFrames = 16u;
         for (uint32_t chunkStart = 0u; chunkStart < frames; chunkStart += kControlFrames) {
@@ -556,8 +601,10 @@ public:
                 environmentField_.beginFrame();
                 for (uint32_t voice = 0u; voice < voices; ++voice) {
                     const auto voiceOutput = processVoice(voice);
+                    const float surfaceGain = voiceRenderGain(voice);
                     float sample = voiceOutput.direct * smoothedOutputGain_
-                        * distanceGain[voice] * listenGain[voice];
+                        * distanceGain[voice] * listenGain[voice]
+                        * surfaceGain;
                     if (!std::isfinite(sample)) {
                         initializeVoice(voice);
                         sample = 0.0f;
@@ -565,7 +612,8 @@ public:
                     voices_[voice].energy += (sample * sample - voices_[voice].energy) * 0.0012f;
                     if (std::fabs(sample) < 0.0000001f) continue;
                     environmentField_.addSource(voiceOutput.fieldSend * smoothedOutputGain_
-                        * distanceGain[voice] * listenGain[voice] * 2.2f,
+                        * distanceGain[voice] * listenGain[voice]
+                        * surfaceGain * 2.2f,
                         directions[voice]);
                     for (uint32_t channel = 0u; channel < ambiChannels; ++channel) {
                         if (outputs[channel]) outputs[channel][frame] = flushDenormal(outputs[channel][frame]
@@ -951,9 +999,18 @@ private:
         }
     }
 
-    static float normalizedOutputGain(const AmbiInsectParams& params)
+    float surfaceVoiceMass() const
     {
-        const float voiceNorm = std::pow(static_cast<float>(std::max<uint32_t>(1u, params.voices)), 0.48f);
+        if (!surfaceVoiceMembershipEnabled_) {
+            return static_cast<float>(
+                std::max<uint32_t>(1u, params_.voices));
+        }
+        return parameterSurfaceVoiceMass(surfaceVoiceMembership_);
+    }
+
+    float normalizedOutputGain(const AmbiInsectParams& params) const
+    {
+        const float voiceNorm = std::pow(surfaceVoiceMass(), 0.48f);
         return dbToGain(params.outputGainDb) * 1.55f / voiceNorm;
     }
 
@@ -1241,7 +1298,9 @@ private:
             smoothReady_ = true;
             return;
         }
-        const float coefficient = 1.0f - std::exp(-dt * 20.0f);
+        const float coefficient = parameterSurfaceGlideMs_ > 0.0f
+            ? parameterSurfaceGlideCoefficient(parameterSurfaceGlideMs_, dt)
+            : 1.0f - std::exp(-dt * 20.0f);
         smoothParams_.order = params_.order;
         smoothParams_.voices = params_.voices;
         smoothParams_.regime = params_.regime;
@@ -1287,6 +1346,8 @@ private:
         S3G_SMOOTH_INSECT_PARAM(environmentSize);
         S3G_SMOOTH_INSECT_PARAM(environmentDecay);
         S3G_SMOOTH_INSECT_PARAM(environmentDamping);
+        smoothParams_.surfaceX = params_.surfaceX;
+        smoothParams_.surfaceY = params_.surfaceY;
 #undef S3G_SMOOTH_INSECT_PARAM
     }
 
@@ -1295,7 +1356,7 @@ private:
         const auto& params = smoothParams_;
         fieldPhase_ = wrapUnit(fieldPhase_ + params.fieldRateHz * dt);
         const float fieldAngle = fieldPhase_ * kPi * 2.0f;
-        const uint32_t voices = params.voices;
+        const uint32_t voices = processingVoiceCount();
         const float listenSteering =
             params.fieldListenMode != AmbiFieldListenMode::Off
                 && params.fieldListenResponse
@@ -1376,7 +1437,8 @@ private:
     void updateVoiceAudioControls()
     {
         const auto& params = smoothParams_;
-        const uint32_t voices = std::max<uint32_t>(1u, params.voices);
+        const uint32_t voices = std::max<uint32_t>(
+            1u, processingVoiceCount());
         const float sizeScale = std::exp2(
             (0.5f - params.bodySize) * 1.4f);
         const float maximumPitch = static_cast<float>(sampleRate_) * 0.40f;
@@ -2022,6 +2084,11 @@ private:
     float cicadaEntrainmentCoefficient_ = 0.000104f;
     AmbiInsectCallProfile callProfile_ {};
     bool smoothReady_ = false;
+    float parameterSurfaceGlideMs_ = 0.0f;
+    bool surfaceVoiceMembershipEnabled_ = false;
+    uint32_t surfaceVoiceLimit_ = 1u;
+    std::array<float, kAmbiInsectMaxVoices>
+        surfaceVoiceMembership_ {};
     std::array<float, kAmbiInsectMaxChannels> lastOutput_ {};
     std::array<float, kAmbiInsectMaxChannels> transitionTail_ {};
     std::array<float, kAmbiInsectMaxChannels> listenerFrame_ {};

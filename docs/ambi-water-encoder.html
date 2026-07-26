@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Ambi Water Encoder</h1>
 
-        <p><code>s3g Ambi Encoder Water 64</code> is a zero-input procedural instrument for currents, rain, cascades, surges, vortices, sloshes, drips, and bubble plumes. As many as 64 moving parcels combine flow noise with discrete droplet, splash, and bubble events, then encode the result directly to first-through-seventh-order <code>ACN/SN3D</code>.</p>
+        <p><code>s3g Ambi Encoder Water 64</code> is a zero-input procedural instrument for currents, rain, cascades, surges, vortices, sloshes, drips, bubble plumes, breakers, backwash, hail, sleet, and freezing rain. As many as 64 moving parcels combine flow noise with discrete droplet, splash, bubble, foam, and shoreline-contact events, then encode the result directly to first-through-seventh-order <code>ACN/SN3D</code>.</p>
 
         <p>Procedural water synthesis combines a continuous noise body with short modeled events. Droplets and splashes supply impacts, while bubble size controls resonant pitch and decay; no water recordings are played.</p>
 
@@ -42,7 +42,7 @@
 
         <h2 id="source">Water Source</h2>
 
-        <p><code>WATER REGIME</code> selects <code>CURRENT</code>, <code>RAIN</code>, <code>CASCADE</code>, <code>SURGE</code>, <code>VORTEX</code>, <code>SLOSH</code>, <code>DRIP</code>, or <code>BUBBLE PLUME</code>. <code>ENVIRONMENT</code> changes the contact material among <code>OPEN</code>, <code>ROCK</code>, <code>LEAVES</code>, <code>MUD</code>, <code>CONCRETE</code>, <code>METAL</code>, <code>GLASS</code>, <code>PIPE</code>, and <code>CAVE</code>.</p>
+        <p><code>WATER REGIME</code> selects <code>CURRENT</code>, <code>RAIN</code>, <code>CASCADE</code>, <code>SURGE</code>, <code>VORTEX</code>, <code>SLOSH</code>, <code>DRIP</code>, <code>BUBBLE PLUME</code>, <code>BREAKER</code>, <code>BACKWASH</code>, <code>HAIL</code>, <code>SLEET</code>, or <code>FREEZING RAIN</code>. <code>ENVIRONMENT</code> adds <code>ICE</code> to the open, rock, vegetation, mud, concrete, metal, glass, pipe, and cave contact responses.</p>
 
         <p><code>WATER</code>, <code>FLOW</code>, <code>SCALE</code>, <code>TURBULENCE</code>, and <code>AERATION</code> establish the continuous body and the conditions from which discrete events emerge.</p>
 
@@ -52,6 +52,7 @@
           <li><code>DROPS</code>, <code>SPLASH</code>, and <code>BUBBLES</code> set the three event layers; <code>EVENT DENSITY</code>, <code>EVENT SIZE</code>, and <code>EVENT LIFE</code> control their population and duration.</li>
           <li>The event model uses radius-dependent bubble resonance, damping, rise, and impact scaling as synthesis constraints rather than playing water recordings.</li>
           <li><code>DEPTH</code>, <code>BRIGHTNESS</code>, <code>BUBBLE RISE</code>, <code>DAMPING</code>, and <code>IMPACT TEXTURE</code> balance submerged body, surface detail, and contact response.</li>
+          <li><code>FOAM</code> adds aerated high-frequency surface noise; <code>SHORE CONTACT</code> adds granular impacts and scraping at a boundary. Breaker and backwash regimes emphasize these layers automatically.</li>
         </ul>
 
         <h2 id="motion">Parcel Motion</h2>
@@ -66,7 +67,13 @@
 
         <h2 id="presets">Presets</h2>
 
+        <p>The field viewport’s <code>SURF</code> page turns complete presets or captured states into cells on a two-dimensional parameter surface. <code>PLAY</code> moves the automatable <code>Surface X</code>/<code>Surface Y</code> cursor; <code>EDIT</code> moves cells. Continuous controls interpolate, circular direction takes the shortest route, and discrete modes follow the nearest cell. <code>CURVE</code>, <code>FOCUS</code>, and <code>GLIDE</code> shape the transition. Surface cells are saved in project state.</p>
+
         <p>The 16 factory presets include creeks, rain surfaces, spillways, drips, slosh, vortices, waterfalls, bubbles, rapids, runoff, storms, and still water. <code>SAVE</code> and <code>LOAD</code> write portable <code>.s3gwater</code> presets, including listener mode, amount, and response, with the default folder at <code>~/Music/s3g/Presets/Ambi Water Encoder/</code>. <code>RANDOM</code> also chooses a complete listener configuration, so a randomized scene may immediately become self-steering and adaptive.</p>
+
+        <h2 id="surface">Parameter Surface</h2>
+
+        <p><code>SURF</code> arranges as many as 24 captured or factory states in a two-dimensional performance space. <code>CURVE</code> and <code>FOCUS</code> shape the spatial blend. <code>GLIDE</code> makes the active crosshair and participating toolbox controls move toward the target diamond over time, rather than switching at the dragged or automated cursor position. When the nearest cell changes, water regime and environment layers crossfade through the selected glide time, so their field geometry and sound do not jump even though the menu names change decisively. Although <code>VOICES</code> remains an integer readout, surplus parcels fade continuously in synthesis and in the field view as cell influence changes. <code>POP</code> opens the synchronized surface in an attached utility panel. <code>OUT</code>, <code>ORDER</code>, and the cursor remain live outside the surface. See <a href="parameter-surface.html">Parameter Surface</a> for the shared editing and automation rules.</p>
 
         <h2 id="routing">Order and Routing</h2>
 
@@ -136,6 +143,7 @@
           <a href="#motion">Parcel Motion</a>
           <a href="#environment">Environment Field</a>
           <a href="#presets">Presets</a>
+          <a href="#surface">Parameter Surface</a>
           <a href="#routing">Order and Routing</a>
         </div>
       </aside>

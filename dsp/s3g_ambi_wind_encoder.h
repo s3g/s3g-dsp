@@ -3,6 +3,7 @@
 #include "s3g_ambi_environment_field.h"
 #include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_speaker_decoder.h"
+#include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
 
 #include <algorithm>
@@ -17,6 +18,7 @@ constexpr uint32_t kAmbiWindMaxVoices = 64;
 constexpr uint32_t kAmbiWindMaxOrder = 7;
 constexpr uint32_t kAmbiWindMaxChannels = 64;
 constexpr uint32_t kAmbiWindPlaceCount = 7;
+constexpr uint32_t kAmbiWindMaterialCount = 13;
 
 struct AmbiWindParams {
     uint32_t order = 3;
@@ -62,6 +64,13 @@ struct AmbiWindParams {
     float fieldListenAmount = 1.0f;
     AmbiFieldListenerResponse fieldListenResponse =
         AmbiFieldListenerResponse::Legacy;
+    // Extended weather-object layers. Appended for state compatibility.
+    float particles = 0.0f;
+    float vortex = 0.0f;
+    float pressure = 0.0f;
+    // Host-automatable cursor for the wrapper-owned Parameter Surface.
+    float surfaceX = 0.5f;
+    float surfaceY = 0.5f;
 };
 
 inline AmbiEnvironmentProfileId ambiWindEnvironmentProfile(uint32_t place)
@@ -220,7 +229,8 @@ public:
         params.deviation = clampFinite(params.deviation, params_.deviation, 0.0f, 1.0f);
         params.gustShape = std::clamp<uint32_t>(params.gustShape, 0u, 5u);
         params.vectorRateHz = clampFinite(params.vectorRateHz, params_.vectorRateHz, 0.0f, 0.5f);
-        params.materialMode = std::clamp<uint32_t>(params.materialMode, 0u, 9u);
+        params.materialMode = std::clamp<uint32_t>(
+            params.materialMode, 0u, kAmbiWindMaterialCount - 1u);
         params.gustEdge = std::clamp<uint32_t>(params.gustEdge, 0u, 2u);
         params.center = clampFinite(params.center, params_.center, 0.0f, 1.0f);
         params.sweep = clampFinite(params.sweep, params_.sweep, 0.0f, 1.0f);
@@ -250,6 +260,16 @@ public:
             params.fieldListenAmount, params_.fieldListenAmount, 0.0f, 1.0f);
         params.fieldListenResponse =
             sanitizeAmbiFieldListenerResponse(params.fieldListenResponse);
+        params.particles = clampFinite(
+            params.particles, params_.particles, 0.0f, 1.0f);
+        params.vortex = clampFinite(
+            params.vortex, params_.vortex, 0.0f, 1.0f);
+        params.pressure = clampFinite(
+            params.pressure, params_.pressure, 0.0f, 1.0f);
+        params.surfaceX = clampFinite(
+            params.surfaceX, params_.surfaceX, 0.0f, 1.0f);
+        params.surfaceY = clampFinite(
+            params.surfaceY, params_.surfaceY, 0.0f, 1.0f);
 
         const uint32_t oldVoices = params_.voices;
         params_ = params;
@@ -263,10 +283,53 @@ public:
     }
 
     AmbiWindParams params() const { return params_; }
+    void setParameterSurfaceGlideMs(float glideMs)
+    {
+        parameterSurfaceGlideMs_ = clamp(
+            std::isfinite(glideMs) ? glideMs : 0.0f, 0.0f, 2000.0f);
+    }
+    void setParameterSurfaceVoiceMembership(
+        const std::array<float, kAmbiWindMaxVoices>& membership)
+    {
+        surfaceVoiceMembershipEnabled_ = true;
+        surfaceVoiceLimit_ = 1u;
+        for (uint32_t voice = 0u; voice < kAmbiWindMaxVoices; ++voice) {
+            surfaceVoiceMembership_[voice] = clamp(
+                std::isfinite(membership[voice])
+                    ? membership[voice] : 0.0f,
+                0.0f, 1.0f);
+            if (surfaceVoiceMembership_[voice] > 1.0e-4f) {
+                surfaceVoiceLimit_ = voice + 1u;
+            }
+        }
+    }
+    void clearParameterSurfaceVoiceMembership()
+    {
+        surfaceVoiceMembershipEnabled_ = false;
+        surfaceVoiceLimit_ = params_.voices;
+    }
+    uint32_t processingVoiceCount() const
+    {
+        return surfaceVoiceMembershipEnabled_
+            ? std::max(params_.voices, surfaceVoiceLimit_)
+            : params_.voices;
+    }
+    float voiceRenderGain(uint32_t voice) const
+    {
+        voice = std::min<uint32_t>(voice, kAmbiWindMaxVoices - 1u);
+        return surfaceVoiceMembershipEnabled_
+            ? surfaceVoiceMembership_[voice]
+            : voice < params_.voices ? 1.0f : 0.0f;
+    }
     void beginTransition() { transitionRequested_.store(true, std::memory_order_release); }
     float voiceEnergy(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiWindMaxVoices - 1u)].energy; }
     AmbiWindPoint voicePoint(uint32_t voice) const { return points_[std::min<uint32_t>(voice, kAmbiWindMaxVoices - 1u)]; }
     float voiceGustLevel(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiWindMaxVoices - 1u)].gustViz; }
+    float materialWeight(uint32_t material) const
+    {
+        return materialWeights_[std::min<uint32_t>(
+            material, kAmbiWindMaterialCount - 1u)];
+    }
     float fieldListenEnvelope(uint32_t lobe) const { return fieldListener_.envelope(lobe); }
     float fieldListenFastEnvelope(uint32_t lobe) const { return fieldListener_.fastEnvelope(lobe); }
     float fieldListenSlowEnvelope(uint32_t lobe) const { return fieldListener_.slowEnvelope(lobe); }
@@ -289,9 +352,9 @@ public:
             if (outputs[ch]) std::fill(outputs[ch], outputs[ch] + frames, 0.0f);
         }
 
-        const uint32_t voices = params_.voices;
+        const uint32_t voices = processingVoiceCount();
         const uint32_t ambiChannels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), outputChannels);
-        const float voiceNorm = std::pow(static_cast<float>(std::max<uint32_t>(1u, voices)), 0.43f);
+        const float voiceNorm = std::pow(surfaceVoiceMass(), 0.43f);
         constexpr uint32_t kControlFrames = 16u;
 
         for (uint32_t chunkStart = 0u; chunkStart < frames; chunkStart += kControlFrames) {
@@ -328,7 +391,9 @@ public:
                 environmentField_.beginFrame();
                 for (uint32_t v = 0u; v < voices; ++v) {
                     const auto voiceOutput = processVoice(v);
-                    float sample = voiceOutput.direct * smoothedOutputGain_ * distGain[v];
+                    const float membership = voiceRenderGain(v);
+                    float sample = voiceOutput.direct * smoothedOutputGain_
+                        * distGain[v] * membership;
                     if (!std::isfinite(sample)) {
                         initializeVoice(v);
                         sample = 0.0f;
@@ -338,7 +403,8 @@ public:
                     const float fieldSample = (voiceOutput.airSend
                         * (0.22f + voices_[v].gustViz * 0.58f)
                         + voiceOutput.objectSend * 0.92f)
-                        * smoothedOutputGain_ * distGain[v] * 3.0f;
+                        * smoothedOutputGain_ * distGain[v] * 3.0f
+                        * membership;
                     environmentField_.addSource(fieldSample, directions[v]);
                     for (uint32_t ch = 0u; ch < ambiChannels; ++ch) {
                         listenerFrame[ch] += sample * basis[v][ch];
@@ -370,6 +436,15 @@ public:
     }
 
 private:
+    float surfaceVoiceMass() const
+    {
+        if (!surfaceVoiceMembershipEnabled_) {
+            return static_cast<float>(
+                std::max<uint32_t>(1u, params_.voices));
+        }
+        return parameterSurfaceVoiceMass(surfaceVoiceMembership_);
+    }
+
     static float clampFinite(float value, float fallback, float low, float high)
     {
         return clamp(std::isfinite(value) ? value : fallback, low, high);
@@ -461,7 +536,8 @@ private:
     void setMaterialWeights(uint32_t mode)
     {
         materialWeights_.fill(0.0f);
-        materialWeights_[std::min<uint32_t>(mode, 9u)] = 1.0f;
+        materialWeights_[std::min<uint32_t>(
+            mode, kAmbiWindMaterialCount - 1u)] = 1.0f;
     }
 
     float noise(AmbiWindVoice& voice)
@@ -528,7 +604,9 @@ private:
             return;
         }
 
-        const float coeff = 1.0f - std::exp(-dt * 22.0f);
+        const float coeff = parameterSurfaceGlideMs_ > 0.0f
+            ? parameterSurfaceGlideCoefficient(parameterSurfaceGlideMs_, dt)
+            : 1.0f - std::exp(-dt * 22.0f);
         smoothParams_.order = params_.order;
         smoothParams_.voices = params_.voices;
         smoothParams_.gustShape = params_.gustShape;
@@ -572,7 +650,17 @@ private:
         smoothParams_.fieldListenAmount = smoothToward(
             smoothParams_.fieldListenAmount, params_.fieldListenAmount, coeff);
         smoothParams_.fieldListenResponse = params_.fieldListenResponse;
-        const float materialCoeff = 1.0f - std::exp(-dt * 12.0f);
+        smoothParams_.particles = smoothToward(
+            smoothParams_.particles, params_.particles, coeff);
+        smoothParams_.vortex = smoothToward(
+            smoothParams_.vortex, params_.vortex, coeff);
+        smoothParams_.pressure = smoothToward(
+            smoothParams_.pressure, params_.pressure, coeff);
+        smoothParams_.surfaceX = params_.surfaceX;
+        smoothParams_.surfaceY = params_.surfaceY;
+        const float materialCoeff = parameterSurfaceGlideMs_ > 0.0f
+            ? parameterSurfaceGlideCoefficient(parameterSurfaceGlideMs_, dt)
+            : 1.0f - std::exp(-dt * 12.0f);
         for (uint32_t mode = 0u; mode < materialWeights_.size(); ++mode) {
             const float target = mode == params_.materialMode ? 1.0f : 0.0f;
             materialWeights_[mode] = smoothToward(materialWeights_[mode], target, materialCoeff);
@@ -606,7 +694,7 @@ private:
             });
         }
         const Vec3 sideDir { -flowDir.y, flowDir.x, 0.0f };
-        const uint32_t voices = p.voices;
+        const uint32_t voices = processingVoiceCount();
 
         for (uint32_t i = 0u; i < voices; ++i) {
             const float lane = static_cast<float>(i) / static_cast<float>(std::max<uint32_t>(1u, voices - 1u));
@@ -618,7 +706,8 @@ private:
             const float shear = std::sin((cell * 0.41f + seedB) * kPi * 2.0f);
             const float curl = std::sin((cell * 1.37f + seedA * 0.7f) * kPi * 2.0f);
             const float gust = voices_[i].gustViz;
-            const float tornado = std::max(0.0f, (p.motionCurl - 0.52f) / 0.48f);
+            const float tornado = clamp(std::max(0.0f,
+                (p.motionCurl - 0.52f) / 0.48f) + p.vortex, 0.0f, 1.0f);
             const float vortexPhase = flowPhase * (0.95f + p.motionRateHz * 5.2f) + lane * kPi * 9.0f + seedB * kPi * 2.0f;
             const Vec3 baseDir = directionFromAed(base.azimuthDeg + p.centerAzimuthDeg + vectorAz * 0.32f,
                 clamp(base.elevationDeg + p.centerElevationDeg + vectorEl, -88.0f, 88.0f));
@@ -667,7 +756,8 @@ private:
         const auto& p = smoothParams_;
         auto& voice = voices_[index];
         if (!voiceHealthy(voice)) initializeVoice(index);
-        const uint32_t voices = std::max<uint32_t>(1u, p.voices);
+        const uint32_t voices = std::max<uint32_t>(
+            1u, processingVoiceCount());
         const float lane = static_cast<float>(index) / static_cast<float>(std::max<uint32_t>(1u, voices - 1u));
         const float rnd = hashSigned(voice.seed + index * 97u);
         const float laneSkew = (lane - 0.5f) * p.spread + rnd * p.deviation;
@@ -783,9 +873,14 @@ private:
             + white * (0.08f + hiss * 0.20f);
 
         const float flutterWave = std::sin((voice.flutterPhase + lane * 0.25f) * kPi * 2.0f);
-        const float pressure = 0.030f + wind * (0.22f + gustDepth * 0.32f) + gust * gustDepth * 1.10f + motion * p.field * 0.48f;
+        const float pressure = 0.030f + wind * (0.22f + gustDepth * 0.32f)
+            + gust * gustDepth * (1.10f + p.pressure * 0.52f)
+            + motion * p.field * 0.48f
+            + p.pressure * voice.lowWind * 0.20f;
         const float flutterAmp = 1.0f + flutterWave * flutter * (0.10f + turbulence * 0.22f + material * 0.12f);
-        const float crackChance = turbulence * p.grit * (0.00030f + gust * 0.00075f + motion * 0.00090f);
+        const float particleAmount = clamp(p.particles, 0.0f, 1.0f);
+        const float crackChance = turbulence * (p.grit + particleAmount * 0.72f)
+            * (0.00030f + gust * 0.00075f + motion * 0.00090f);
         if (hash01(voice.seed + 131u) < crackChance) voice.crackle = 1.0f;
         voice.crackle *= clamp(0.997f - p.grit * 0.038f - turbulence * 0.012f, 0.93f, 0.9992f);
         const float grain = voice.crackle * rough * (0.06f + p.grit * 0.88f);
@@ -799,8 +894,15 @@ private:
         const float harp = materialWeights_[7];
         const float reeds = materialWeights_[8];
         const float fabric = materialWeights_[9];
+        const float sand = materialWeights_[10];
+        const float debris = materialWeights_[11];
+        const float structure = materialWeights_[12];
+        const float effectiveParticles = clamp(particleAmount + sand * 0.52f
+            + debris * 0.74f, 0.0f, 1.0f);
         const float modeLift = leaf * 0.16f + hollow * -0.26f + wire * 0.34f + metal * 0.50f
-            + chimes * 0.46f + blocks * -0.10f + harp * 0.31f + reeds * 0.13f + fabric * -0.20f;
+            + chimes * 0.46f + blocks * -0.10f + harp * 0.31f + reeds * 0.13f
+            + fabric * -0.20f + sand * 0.24f + debris * -0.06f
+            + structure * -0.34f;
 
         const float filterNorm = clamp(center + modeLift + (gust - 0.5f) * sweep * (0.36f + sweep * 0.52f)
                 + flutterWave * flutter * sweep * 0.18f + motion * p.field * 0.26f + (lane - 0.5f) * p.spread * 0.44f,
@@ -819,18 +921,23 @@ private:
 
         const float gustRise = std::max(0.0f, gust - voice.lastGust);
         voice.lastGust += (gust - voice.lastGust) * 0.006f;
-        const float strikeMode = chimes + blocks;
+        const float strikeMode = chimes + blocks + debris + structure;
         const float strikeChance = strikeMode * material * (0.0045f + gustRise * 0.58f + turbulence * 0.0026f + motion * 0.012f);
         if (hash01(voice.seed + 271u) < strikeChance) {
             const float pitchSeed = hash01(voice.seed += 0x7f4a7c15u);
             const float chimeHz = 580.0f + pitchSeed * pitchSeed * 5600.0f + lane * 420.0f;
             const float blockHz = 120.0f + pitchSeed * 980.0f + body * 320.0f;
-            voice.objectHz = lerp(blockHz, chimeHz, chimes / std::max(0.0001f, strikeMode));
+            const float hardShare = (chimes + debris * 0.42f)
+                / std::max(0.0001f, strikeMode);
+            voice.objectHz = lerp(blockHz * (1.0f - structure * 0.45f),
+                chimeHz, hardShare);
             voice.objectEnv = std::max(voice.objectEnv, 0.34f + gust * 0.66f);
         }
         voice.objectPhase += voice.objectHz * dt;
         voice.objectPhase -= std::floor(voice.objectPhase);
-        voice.objectEnv *= clamp(1.0f - (0.00065f + chimes * 0.0010f + blocks * 0.0078f + p.grit * 0.0024f), 0.955f, 0.9995f);
+        voice.objectEnv *= clamp(1.0f - (0.00065f + chimes * 0.0010f
+            + blocks * 0.0078f + debris * 0.010f + structure * 0.0038f
+            + p.grit * 0.0024f), 0.955f, 0.9995f);
         const float struckTone = (std::sin(voice.objectPhase * kPi * 2.0f)
             + std::sin((voice.objectPhase * 2.68f + 0.13f) * kPi * 2.0f) * (0.14f + chimes * 0.36f)
             + rough * blocks * 0.42f) * voice.objectEnv;
@@ -839,10 +946,18 @@ private:
         const float reedTone = std::tanh((rough * 3.0f + flutterWave * 0.85f + voice.lowWind * 0.90f) * (0.9f + q * 2.3f))
             * reeds * (0.08f + gust * 0.28f + turbulence * 0.12f);
         const float fabricTone = (voice.lowWind * 1.45f + rough * 0.34f + grain * 0.60f) * fabric * (0.12f + gust * 0.38f) * (0.50f + body);
+        const float particleTone = (rough * (0.18f + sand * 0.62f)
+            + grain * (0.44f + debris * 0.72f)) * effectiveParticles
+            * (0.12f + gust * 0.58f + motion * 0.34f);
+        const float structureTone = (voice.lowWind * 1.80f
+            + toneBand * 0.34f + struckTone * 0.22f) * structure
+            * (0.10f + gust * 0.46f + p.pressure * 0.42f);
         const float ringTone = std::sin((voice.eddyPhase * (0.8f + material * 9.0f) + lane * 0.5f) * kPi * 2.0f)
             * material * (0.026f + wire * 0.052f + metal * 0.072f + leaf * 0.018f) * (gust + motion * 0.50f);
         const float objectTone = voice.objectFilter.process(struckTone * (chimes * 0.135f + blocks * 0.170f)
-                + harpTone * 0.140f + reedTone * 0.150f + fabricTone * 0.190f + ringTone,
+                + harpTone * 0.140f + reedTone * 0.150f
+                + fabricTone * 0.190f + particleTone * 0.22f
+                + structureTone * 0.18f + ringTone,
             centerHz * (0.55f + material * 1.6f), clamp(0.18f + q * 0.58f + material * 0.18f, 0.0f, 0.92f), static_cast<float>(sampleRate_)) * material;
 
         const float mixed = toneBand * (0.32f + material * 0.30f + q * 0.10f)
@@ -867,7 +982,8 @@ private:
     float fieldListenerResponse(uint32_t index) const
     {
         if (smoothParams_.fieldListenMode == AmbiFieldListenMode::Off) return 0.0f;
-        const auto& point = points_[std::min<uint32_t>(index, smoothParams_.voices - 1u)];
+        const auto& point = points_[std::min<uint32_t>(
+            index, processingVoiceCount() - 1u)];
         const float preference = fieldListener_.preference(
             directionFromAed(point.azimuthDeg, point.elevationDeg),
             smoothParams_.fieldListenMode);
@@ -879,7 +995,7 @@ private:
     {
         if (smoothParams_.fieldListenMode == AmbiFieldListenMode::Off) return {};
         const auto& point = points_[std::min<uint32_t>(
-            index, smoothParams_.voices - 1u)];
+            index, processingVoiceCount() - 1u)];
         return fieldListener_.score(
             directionFromAed(point.azimuthDeg, point.elevationDeg),
             smoothParams_.fieldListenMode);
@@ -895,7 +1011,15 @@ private:
     float vectorPhase_ = 0.0f;
     float transitionFade_ = 1.0f;
     float smoothedOutputGain_ = dbToGain(-6.0f);
-    std::array<float, 10> materialWeights_ { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+    std::array<float, kAmbiWindMaterialCount> materialWeights_ {
+        1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f
+    };
+    float parameterSurfaceGlideMs_ = 0.0f;
+    bool surfaceVoiceMembershipEnabled_ = false;
+    uint32_t surfaceVoiceLimit_ = 1u;
+    std::array<float, kAmbiWindMaxVoices>
+        surfaceVoiceMembership_ {};
     bool smoothReady_ = false;
     std::array<float, kAmbiWindMaxChannels> lastOutput_ {};
     std::array<float, kAmbiWindMaxChannels> transitionTail_ {};

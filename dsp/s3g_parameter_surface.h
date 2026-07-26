@@ -226,6 +226,16 @@ inline float parameterSurfaceGlideCoefficient(
         -kNinetyNinePercent * deltaSeconds / seconds), 0.0f, 1.0f);
 }
 
+inline float parameterSurfaceGlideValue(
+    float current, float target, float glideMs, float deltaSeconds)
+{
+    current = std::isfinite(current) ? current : target;
+    target = std::isfinite(target) ? target : current;
+    const float next = current + (target - current)
+        * parameterSurfaceGlideCoefficient(glideMs, deltaSeconds);
+    return std::fabs(target - next) < 1.0e-6f ? target : next;
+}
+
 inline float parameterSurfaceSteppedGlide(float glideMs, int direction)
 {
     static constexpr std::array<float, 10u> values {{
@@ -343,6 +353,82 @@ inline float parameterSurfaceBlend(
         total += getter(surface.cells[index].params) * weights.values[index];
     }
     return total / weights.sum;
+}
+
+// Rates and time constants sound more natural when interpolation follows
+// ratios rather than arithmetic distance. A tiny positive floor keeps HOLD or
+// zero-valued cells blendable without creating discontinuities between cells.
+template <typename Params, typename Getter>
+inline float parameterSurfaceBlendLog(
+    const ParameterSurfaceState<Params>& surface,
+    const ParameterSurfaceWeights& weights, Getter getter,
+    float fallback, float minimumPositive)
+{
+    if (weights.activeCount == 0u || weights.sum <= 0.0f) return fallback;
+    if (weights.exact && weights.nearest < surface.cellCount
+        && surface.cells[weights.nearest].active) {
+        const float exact = getter(surface.cells[weights.nearest].params);
+        return std::isfinite(exact) ? exact : fallback;
+    }
+    minimumPositive = std::max(1.0e-9f, minimumPositive);
+    float total = 0.0f;
+    for (uint32_t index = 0u;
+        index < std::min<uint32_t>(surface.cellCount,
+            kParameterSurfaceMaxCells); ++index) {
+        if (!surface.cells[index].active
+            || weights.values[index] <= 0.0f) continue;
+        const float value = std::max(minimumPositive,
+            std::isfinite(getter(surface.cells[index].params))
+                ? getter(surface.cells[index].params) : fallback);
+        total += std::log(value) * weights.values[index];
+    }
+    return std::exp(total / weights.sum);
+}
+
+// A point belongs to every cell whose stored voice count includes its lane.
+// Blending those binary memberships makes population changes continuous even
+// though the visible VOICES control remains an integer nearest-cell value.
+template <size_t VoiceCount, typename Params>
+inline std::array<float, VoiceCount> parameterSurfaceVoiceMembership(
+    const ParameterSurfaceState<Params>& surface,
+    const ParameterSurfaceWeights& weights, uint32_t fallbackVoices)
+{
+    std::array<float, VoiceCount> membership {};
+    fallbackVoices = std::min<uint32_t>(
+        fallbackVoices, static_cast<uint32_t>(VoiceCount));
+    if (!surface.enabled || weights.activeCount < 2u
+        || weights.sum <= 0.0f) {
+        for (uint32_t voice = 0u; voice < fallbackVoices; ++voice) {
+            membership[voice] = 1.0f;
+        }
+        return membership;
+    }
+    const uint32_t cellCount = std::min<uint32_t>(
+        surface.cellCount, kParameterSurfaceMaxCells);
+    for (uint32_t cellIndex = 0u;
+        cellIndex < cellCount; ++cellIndex) {
+        const auto& cell = surface.cells[cellIndex];
+        if (!cell.active || weights.values[cellIndex] <= 0.0f) continue;
+        const float normalized = weights.values[cellIndex] / weights.sum;
+        const uint32_t voices = std::min<uint32_t>(
+            cell.params.voices, static_cast<uint32_t>(VoiceCount));
+        for (uint32_t voice = 0u; voice < voices; ++voice) {
+            membership[voice] += normalized;
+        }
+    }
+    for (float& value : membership) value = clamp(value, 0.0f, 1.0f);
+    return membership;
+}
+
+template <size_t VoiceCount>
+inline float parameterSurfaceVoiceMass(
+    const std::array<float, VoiceCount>& membership)
+{
+    float mass = 0.0f;
+    for (const float value : membership) {
+        mass += clamp(std::isfinite(value) ? value : 0.0f, 0.0f, 1.0f);
+    }
+    return std::max(1.0f, mass);
 }
 
 template <typename Params, typename Getter>

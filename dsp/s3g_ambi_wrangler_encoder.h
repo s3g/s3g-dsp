@@ -493,7 +493,9 @@ public:
             voices_[i].reg = (hash(voices_[i].seed) & 0xffu) | 1u;
             initializeVoice(i);
             voices_[i].renderGain =
-                i < params_.voices ? 1.0f : 0.0f;
+                surfaceVoiceMembershipEnabled_
+                ? surfaceVoiceMembership_[i]
+                : i < params_.voices ? 1.0f : 0.0f;
             points_[i] = basePoint(i, std::max<uint32_t>(1u, params_.voices));
             targetPoints_[i] = points_[i];
             renderBasis_[i] = acnSn3dBasis7(directionFromAed(
@@ -506,7 +508,9 @@ public:
         }
         const uint32_t activeChannels =
             ambiChannelsForOrder(params_.order);
-        processingVoiceLimit_ = params_.voices;
+        processingVoiceLimit_ = surfaceVoiceMembershipEnabled_
+            ? std::max(params_.voices, surfaceVoiceLimit_)
+            : params_.voices;
         processingChannelLimit_ = activeChannels;
         for (uint32_t ch = 0u;
             ch < kAmbiWranglerMaxChannels; ++ch) {
@@ -664,8 +668,42 @@ public:
             0.0f, 2000.0f);
     }
 
+    void setParameterSurfaceVoiceMembership(
+        const std::array<float, kAmbiWranglerMaxVoices>& membership)
+    {
+        surfaceVoiceMembershipEnabled_ = true;
+        surfaceVoiceLimit_ = 1u;
+        for (uint32_t voice = 0u;
+            voice < kAmbiWranglerMaxVoices; ++voice) {
+            surfaceVoiceMembership_[voice] = clamp(
+                std::isfinite(membership[voice])
+                    ? membership[voice] : 0.0f,
+                0.0f, 1.0f);
+            if (surfaceVoiceMembership_[voice] > 1.0e-4f) {
+                surfaceVoiceLimit_ = voice + 1u;
+            }
+        }
+        processingVoiceLimit_ = std::max(
+            processingVoiceLimit_, surfaceVoiceLimit_);
+    }
+
+    void clearParameterSurfaceVoiceMembership()
+    {
+        surfaceVoiceMembershipEnabled_ = false;
+        surfaceVoiceLimit_ = params_.voices;
+    }
+
     AmbiWranglerParams params() const { return params_; }
     uint32_t engineCount() const { return params_.voices; }
+    uint32_t processingVoiceCount() const
+    {
+        return processingVoiceLimit_;
+    }
+    float voiceRenderGain(uint32_t voice) const
+    {
+        return voices_[std::min<uint32_t>(
+            voice, kAmbiWranglerMaxVoices - 1u)].renderGain;
+    }
     uint32_t nodeEngine(uint32_t node) const
     {
         return std::min<uint32_t>(
@@ -794,7 +832,9 @@ public:
     }
     float listenerCapture() const
     {
-        const uint32_t voices = params_.voices;
+        const uint32_t voices = surfaceVoiceMembershipEnabled_
+            ? std::max(params_.voices, surfaceVoiceLimit_)
+            : params_.voices;
         if (voices == 0u) return 0.0f;
         float sum = 0.0f;
         for (uint32_t voice = 0u; voice < voices; ++voice) {
@@ -831,8 +871,7 @@ public:
         const uint32_t ambiChannels = std::min<uint32_t>(
             requestedAmbiChannels, outputChannels);
         const float targetGain = dbToGain(params_.outputGainDb)
-            / std::sqrt(static_cast<float>(
-                std::max<uint32_t>(1u, voices)));
+            / std::sqrt(surfaceVoiceMass());
         constexpr uint32_t kControlFrames = 16u;
         constexpr uint32_t kSpatialControlFrames = 64u;
         constexpr float kRenderSilence = 0.000001f;
@@ -965,7 +1004,9 @@ public:
                 for (uint32_t v = 0u;
                     v < processingVoiceLimit_; ++v) {
                     auto& voice = voices_[v];
-                    const float voiceTarget = v < voices ? 1.0f : 0.0f;
+                    const float voiceTarget = surfaceVoiceMembershipEnabled_
+                        ? surfaceVoiceMembership_[v]
+                        : v < voices ? 1.0f : 0.0f;
                     voice.renderGain += (voiceTarget - voice.renderGain)
                         * (voiceTarget > voice.renderGain
                                 ? voiceAttackCoefficient_
@@ -1112,6 +1153,15 @@ private:
             -1.0f / static_cast<float>(
                 circuitSampleRate_
                 * std::max(0.000001f, seconds)));
+    }
+
+    float surfaceVoiceMass() const
+    {
+        if (!surfaceVoiceMembershipEnabled_) {
+            return static_cast<float>(
+                std::max<uint32_t>(1u, params_.voices));
+        }
+        return parameterSurfaceVoiceMass(surfaceVoiceMembership_);
     }
 
     static float coefficientFromTable(
@@ -1509,7 +1559,9 @@ private:
 
         std::array<float, kAmbiFieldListenerMaxLobes> transitionSum {};
         std::array<uint32_t, kAmbiFieldListenerMaxLobes> transitionCount {};
-        const uint32_t voices = params_.voices;
+        const uint32_t voices = surfaceVoiceMembershipEnabled_
+            ? std::max(params_.voices, surfaceVoiceLimit_)
+            : params_.voices;
         for (uint32_t voice = 0u; voice < voices; ++voice) {
             const uint32_t ear = nearestListener(directionFromAed(
                 points_[voice].azimuthDeg, points_[voice].elevationDeg));
@@ -1545,7 +1597,9 @@ private:
         topologyPhase_ += dt * params_.topologyRateHz
             * listenerTopologyClockRate(fieldCapture);
         if (topologyPhase_ > 100000.0f) topologyPhase_ -= 100000.0f;
-        const uint32_t voices = params_.voices;
+        const uint32_t voices = surfaceVoiceMembershipEnabled_
+            ? std::max(params_.voices, surfaceVoiceLimit_)
+            : params_.voices;
         TopologyState state {};
         state.shape = params_.topologyShape;
         state.motionMode = params_.topologyMotion;
@@ -1612,7 +1666,10 @@ private:
     float voiceMask(uint32_t index) const
     {
         if (params_.maskMode == 0u || params_.maskDepth <= 0.0001f) return 1.0f;
-        const uint32_t voices = std::max<uint32_t>(1u, params_.voices);
+        const uint32_t voices = std::max<uint32_t>(1u,
+            surfaceVoiceMembershipEnabled_
+                ? std::max(params_.voices, surfaceVoiceLimit_)
+                : params_.voices);
         const float lane = static_cast<float>(index) / static_cast<float>(std::max<uint32_t>(1u, voices - 1u));
         const float phase = maskPhase_ + hash01(voices_[index].seed + 1009u);
         const float wheel = phase - std::floor(phase);
@@ -2772,6 +2829,10 @@ private:
     float maskPhase_ = 0.0f;
     float smoothedOutputGain_ = 0.0f;
     float parameterSurfaceGlideMs_ = 0.0f;
+    bool surfaceVoiceMembershipEnabled_ = false;
+    uint32_t surfaceVoiceLimit_ = 1u;
+    std::array<float, kAmbiWranglerMaxVoices>
+        surfaceVoiceMembership_ {};
     float startupGain_ = 0.0f;
     float outputTransitionDecay_ = 0.0f;
     float transitionDecay_ = 0.0f;

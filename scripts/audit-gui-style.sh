@@ -190,6 +190,8 @@ large_encoder_order_family=(
   "plugins/clap_ambi_vot_encoder/s3g_ambi_vot_encoder_clap.cpp"
   "plugins/clap_ambi_vox_encoder/s3g_ambi_vox_encoder_clap.cpp"
   "plugins/clap_ambi_water_encoder/s3g_ambi_water_encoder_clap.cpp"
+  "plugins/clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder_clap.cpp"
+  "plugins/clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder_clap.cpp"
   "plugins/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder_clap.cpp"
   "plugins/clap_ambi_wind_encoder/s3g_ambi_wind_encoder_clap.cpp"
 )
@@ -213,6 +215,8 @@ encoder_family_members=(
   "plugins/clap_ambi_vot_encoder/s3g_ambi_vot_encoder_clap.cpp|s3g Ambi Encoder VOT"
   "plugins/clap_ambi_vox_encoder/s3g_ambi_vox_encoder_clap.cpp|s3g Ambi Encoder Vox"
   "plugins/clap_ambi_water_encoder/s3g_ambi_water_encoder_clap.cpp|s3g Ambi Encoder Water"
+  "plugins/clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder_clap.cpp|s3g Ambi Encoder Pyrosphere"
+  "plugins/clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder_clap.cpp|s3g Ambi Encoder Cryosphere"
   "plugins/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder_clap.cpp|s3g Ambi Encoder Wave Terrain"
   "plugins/clap_ambi_wind_encoder/s3g_ambi_wind_encoder_clap.cpp|s3g Ambi Encoder Wind"
   "plugins/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder_clap.cpp|s3g Ambi Encoder Wrangler"
@@ -335,6 +339,8 @@ compact_output_first_contracts=(
   'plugins/clap_ambi_vot_encoder/s3g_ambi_vot_encoder_clap.cpp|drawSlider:@"OUT"[^\n]*kOutputParamId[^\n]*y:78'
   'plugins/clap_ambi_vox_encoder/s3g_ambi_vox_encoder_clap.cpp|drawSlider:@"OUT"[^\n]*kOutputParamId[^\n]*y:78'
   'plugins/clap_ambi_water_encoder/s3g_ambi_water_encoder_clap.cpp|kOutputParamId, 630, 78'
+  'plugins/clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder_clap.cpp|kOutputParamId, 630, 78'
+  'plugins/clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder_clap.cpp|kOutputParamId, 630, 78'
   'plugins/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder_clap.cpp|"OUT", kOutputParamId, 630, 78'
   'plugins/clap_ambi_wind_encoder/s3g_ambi_wind_encoder_clap.cpp|kOutputParamId, 630, 78'
   'plugins/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder_clap.cpp|kGuiSliders\[0\]\.id == kOutputParamId'

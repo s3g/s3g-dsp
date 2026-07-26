@@ -171,6 +171,50 @@ int main(int argc, char** argv)
             && valid(xInfo, "Surface X") && valid(yInfo, "Surface Y");
     }
 
+    const bool pyrosphere = std::strcmp(argv[2],
+        "org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64") == 0;
+    const bool cryosphere = std::strcmp(argv[2],
+        "org.s3g.s3g-dsp.ambi-cryosphere-encoder-64") == 0;
+    if (ok && (pyrosphere || cryosphere)) {
+        clap_param_info_t rateInfo {};
+        bool foundRate = false;
+        for (uint32_t index = 0u; index < params->count(plugin); ++index) {
+            clap_param_info_t info {};
+            if (!params->get_info(plugin, index, &info)) continue;
+            if (info.id == 5u) {
+                rateInfo = info;
+                foundRate = true;
+                break;
+            }
+        }
+        char lowText[64] {};
+        char middleText[64] {};
+        if (pyrosphere) {
+            ok = foundRate
+                && std::strcmp(rateInfo.name, "Ignition Rate") == 0
+                && approximately(rateInfo.min_value, 0.002)
+                && approximately(rateInfo.max_value, 12.0)
+                && params->value_to_text(plugin, 5u, 0.015,
+                    lowText, sizeof(lowText))
+                && params->value_to_text(plugin, 5u, 0.5,
+                    middleText, sizeof(middleText))
+                && std::strstr(lowText, "mHz")
+                && std::strstr(middleText, "mHz")
+                && std::strcmp(lowText, middleText) != 0;
+        } else {
+            ok = foundRate
+                && std::strcmp(rateInfo.name, "Event Rate") == 0
+                && approximately(rateInfo.min_value, 0.0)
+                && approximately(rateInfo.max_value, 1.0)
+                && params->value_to_text(plugin, 5u, 0.0,
+                    lowText, sizeof(lowText))
+                && params->value_to_text(plugin, 5u, 0.025,
+                    middleText, sizeof(middleText))
+                && std::strcmp(lowText, "HOLD") == 0
+                && std::strstr(middleText, "0.025x");
+        }
+    }
+
     auto flushCursor = [&](double x, double y) {
         EventList events;
         events.add(xId, x);

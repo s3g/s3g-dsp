@@ -20,7 +20,7 @@ DAWs are not support targets at this stage.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-The current macOS package installs 81 CLAP bundles, including fixed-width
+The current macOS package installs 87 CLAP bundles, including fixed-width
 variants for several effects, bus tools, and speaker-array utilities.
 All bundles build, but clap-validator conformance remains in progress for some
 older wrappers, chiefly around parameter text conversion and buffered state
@@ -37,7 +37,8 @@ Plugin areas:
   [decoders](https://s3g.github.io/s3g-dsp/ambisonic-decoders.html),
   [effects](https://s3g.github.io/s3g-dsp/ambisonic-effects.html), and
   [utilities](https://s3g.github.io/s3g-dsp/ambisonic-utilities.html) for
-  `ACN/SN3D` workflows, including 3OAFX and Ambi Imprint. The
+  `ACN/SN3D` workflows, including 3OAFX, Ambi Imprint, and the order-adaptive
+  Ambi Effect DJ Filter. The
   [Listener Mode guide](https://s3g.github.io/s3g-dsp/listener-mode.html)
   describes plugins that use their own encoded field as an internal score;
   [Parameter Surface](https://s3g.github.io/s3g-dsp/parameter-surface.html)
@@ -181,7 +182,7 @@ Create the local pre-release zip after a complete CLAP build with:
 ./scripts/package-macos-clap-prerelease.sh
 ```
 
-The package contains 82 CLAP bundles, the VOT wavetable library, the Ambi Vox
+The package contains 87 CLAP bundles, the VOT wavetable library, the Ambi Vox
 demo voicebank, and the applicable license notices. The packaging script
 ad-hoc signs and strictly verifies every bundle by default. Set
 `S3G_CODESIGN_IDENTITY` to use a different macOS signing identity; notarization

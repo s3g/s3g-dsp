@@ -139,6 +139,44 @@ int main()
             return 1;
         }
     }
+    profileParams.fieldCodecMode = s3g::PsdRawFieldCodecMode::Apt;
+    profileField.setParams(profileParams);
+    profileField.reset();
+    if (profileField.byteAt(0u) >= profileField.byteAt(2u)
+        || profileField.byteAt(1040u) <= profileField.byteAt(1042u)
+        || profileField.byteAt(0u) != profileField.byteAt(s3g::kPsdRawFieldAptLineWords)) {
+        std::cerr << "Fault APT field did not retain its 1040/832 Hz sync-line grammar\n";
+        return 1;
+    }
+    profileParams.codecMode = s3g::PsdRawFieldCodecMode::Apt;
+    profileParams.codecRate = std::log2(48000.0f / 4160.0f) / 14.0f;
+    profileParams.bitDepth = 8.0f;
+    profileParams.codecDamage = 0.0f;
+    profileParams.drive = 0.0f;
+    profileParams.shred = 0.0f;
+    profileParams.resonance = 0.0f;
+    profileField.setParams(profileParams);
+    profileField.reset();
+    profileField.process(pointers.data(), s3g::kPsdRawFieldChannels, frames);
+    auto toneEnergy = [&](float frequency) {
+        double real = 0.0;
+        double imaginary = 0.0;
+        for (uint32_t i = 512u; i < frames; ++i) {
+            const double phase = 2.0 * static_cast<double>(s3g::kPi)
+                * static_cast<double>(frequency) * static_cast<double>(i) / 48000.0;
+            real += static_cast<double>(output[0][i]) * std::cos(phase);
+            imaginary -= static_cast<double>(output[0][i]) * std::sin(phase);
+        }
+        const double scale = 1.0 / static_cast<double>(frames - 512u);
+        return (real * real + imaginary * imaginary) * scale * scale;
+    };
+    const double aptCarrierEnergy = toneEnergy(2400.0f);
+    const double aptOffCarrierEnergy = std::max(toneEnergy(1800.0f), toneEnergy(3000.0f));
+    if (aptCarrierEnergy < 1.0e-4 || aptCarrierEnergy < aptOffCarrierEnergy * 4.0) {
+        std::cerr << "Fault APT codec did not retain its 2400 Hz AM subcarrier: carrier="
+                  << aptCarrierEnergy << " off=" << aptOffCarrierEnergy << "\n";
+        return 1;
+    }
 
     s3g::PsdRawField rawField;
     rawField.setSource(rawSource);
@@ -214,7 +252,7 @@ int main()
         return 1;
     }
 
-    constexpr std::array<s3g::PsdRawFieldCodecMode, 10> upgradedModes {
+    constexpr std::array<s3g::PsdRawFieldCodecMode, 11> upgradedModes {
         s3g::PsdRawFieldCodecMode::Adpcm,
         s3g::PsdRawFieldCodecMode::MuLaw,
         s3g::PsdRawFieldCodecMode::ALaw,
@@ -225,6 +263,7 @@ int main()
         s3g::PsdRawFieldCodecMode::BlockTransform,
         s3g::PsdRawFieldCodecMode::FaxQam,
         s3g::PsdRawFieldCodecMode::SigmaOneBit,
+        s3g::PsdRawFieldCodecMode::Apt,
     };
     std::array<float, frames> lowDamageProfile {};
     std::array<float, frames> highDamageProfile {};

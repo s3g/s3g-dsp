@@ -1474,6 +1474,7 @@ const char* codecModeName(uint32_t mode)
     case 13u: return "FAX";
     case 14u: return "SIGMA 1-BIT";
     case 15u: return "HYBRID";
+    case 16u: return "APT";
     case 0u:
     default: return "PCM";
     }
@@ -2410,7 +2411,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     } else if (_openMenu == 3) {
         NSString* const items[] = {
             @"PCM", @"DELTA", @"ADPCM", @"MU-LAW", @"A-LAW", @"CELP", @"DISC", @"CVSD",
-            @"SUBBAND", @"LPC", @"TRANSFORM", @"PREDICT", @"MODEM", @"FAX", @"SIGMA 1-BIT", @"HYBRID"
+            @"SUBBAND", @"LPC", @"TRANSFORM", @"PREDICT", @"MODEM", @"FAX", @"SIGMA 1-BIT", @"HYBRID", @"APT"
         };
         s3g::clap_gui::drawDropdownMenu(NSMakeRect(kRightControlX, 289, kToolboxMenuWidth, 18.0 * kCodecModeCount), 18.0,
             items, kCodecModeCount,
@@ -2806,7 +2807,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.9.1",
+    "0.10.0",
     "Eight-channel free-running or MIDI-playable byte geometry, codec damage, and resonant nonlinear synthesis.",
     features
 };

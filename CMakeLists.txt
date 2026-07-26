@@ -57,6 +57,12 @@ target_link_libraries(s3g_ambi_wrangler_listener_smoke PRIVATE s3g_dsp)
 add_executable(s3g_parameter_surface_smoke tests/parameter_surface_smoke.cpp)
 target_link_libraries(s3g_parameter_surface_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_ambi_effect_dj_filter_smoke tests/ambi_effect_dj_filter_smoke.cpp)
+target_link_libraries(s3g_ambi_effect_dj_filter_smoke PRIVATE s3g_dsp)
+
+add_executable(s3g_environmental_encoder_smoke tests/environmental_encoder_smoke.cpp)
+target_link_libraries(s3g_environmental_encoder_smoke PRIVATE s3g_dsp)
+
 add_executable(s3g_vox_builder_smoke tests/vox_builder_smoke.cpp)
 target_link_libraries(s3g_vox_builder_smoke PRIVATE s3g_dsp)
 
@@ -155,6 +161,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_wrangler_encoder)
   add_subdirectory(plugins/clap_ambi_wind_encoder)
   add_subdirectory(plugins/clap_ambi_water_encoder)
+  add_subdirectory(plugins/clap_ambi_pyrosphere_encoder)
+  add_subdirectory(plugins/clap_ambi_cryosphere_encoder)
   add_subdirectory(plugins/clap_ambi_insect_encoder)
   add_subdirectory(plugins/clap_ambi_pulsar_encoder)
   add_subdirectory(plugins/clap_ambi_neural_ecology)
@@ -187,6 +195,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_array_delay)
   add_subdirectory(plugins/clap_array_trim)
   add_subdirectory(plugins/clap_ambisonic_rotate)
+  add_subdirectory(plugins/clap_ambi_effect_dj_filter)
   add_subdirectory(plugins/clap_ambi_group_rotate)
   add_subdirectory(plugins/clap_ambi_group_depth)
   add_subdirectory(plugins/clap_ambisonic_order_band_tool)
@@ -220,11 +229,31 @@ if(S3G_BUILD_CLAP_PLUGIN)
     COMMAND $<TARGET_FILE:s3g_parameter_surface_clap_smoke>
       $<TARGET_FILE:s3g_ambi_wrangler_encoder_clap>
       org.s3g.s3g-dsp.ambi-wrangler-encoder-64 63 64
+    COMMAND $<TARGET_FILE:s3g_parameter_surface_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_water_encoder_clap>
+      org.s3g.s3g-dsp.ambi-water-encoder-64 43 44
+    COMMAND $<TARGET_FILE:s3g_parameter_surface_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_wind_encoder_clap>
+      org.s3g.s3g-dsp.ambi-wind-encoder-64 55 56
+    COMMAND $<TARGET_FILE:s3g_parameter_surface_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_pyrosphere_encoder_clap>
+      org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64 55 56
+    COMMAND $<TARGET_FILE:s3g_parameter_surface_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_cryosphere_encoder_clap>
+      org.s3g.s3g-dsp.ambi-cryosphere-encoder-64 43 44
+    COMMAND $<TARGET_FILE:s3g_parameter_surface_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_insect_encoder_clap>
+      org.s3g.s3g-dsp.ambi-insect-encoder-64 42 43
     DEPENDS
       s3g_parameter_surface_smoke
       s3g_parameter_surface_clap_smoke
       s3g_ambi_stochastic_encoder_clap
       s3g_ambi_wrangler_encoder_clap
+      s3g_ambi_water_encoder_clap
+      s3g_ambi_wind_encoder_clap
+      s3g_ambi_pyrosphere_encoder_clap
+      s3g_ambi_cryosphere_encoder_clap
+      s3g_ambi_insect_encoder_clap
     COMMENT "Validating shared Parameter Surface DSP, CLAP parameters, and state")
 
   if(APPLE)
@@ -243,6 +272,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_vot_encoder_clap> org.s3g.s3g-dsp.ambi-vot-encoder-64 1160 894
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_vox_encoder_clap> org.s3g.s3g-dsp.ambi-vox-encoder-64 1160 920
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_water_encoder_clap> org.s3g.s3g-dsp.ambi-water-encoder-64 1160 858
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_pyrosphere_encoder_clap> org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64 1160 858
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_cryosphere_encoder_clap> org.s3g.s3g-dsp.ambi-cryosphere-encoder-64 1160 858
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_wave_terrain_encoder_clap> org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64 1158 828
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_wind_encoder_clap> org.s3g.s3g-dsp.ambi-wind-encoder-64 1160 858
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_wrangler_encoder_clap> org.s3g.s3g-dsp.ambi-wrangler-encoder-64 1160 858
@@ -262,6 +293,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_ambi_vot_encoder_clap
         s3g_ambi_vox_encoder_clap
         s3g_ambi_water_encoder_clap
+        s3g_ambi_pyrosphere_encoder_clap
+        s3g_ambi_cryosphere_encoder_clap
         s3g_ambi_wave_terrain_encoder_clap
         s3g_ambi_wind_encoder_clap
         s3g_ambi_wrangler_encoder_clap
@@ -395,6 +428,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_ambi_group_depth_128_clap
         s3g_ambisonic_order_band_tool_clap
       COMMENT "Rendering and validating every Ambi Transform-family GUI")
+
+    add_custom_target(audit_gui_ambi_effect_family
+      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_dj_filter_clap> org.s3g.s3g-dsp.ambi-effect-dj-filter-64 820 640 "s3g Ambi Effect " responsive
+      DEPENDS
+        s3g_gui_layout_contract_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_ambi_effect_dj_filter_clap
+      COMMENT "Rendering and validating every Ambi Effect-family GUI")
 
     add_custom_target(audit_gui_matrix_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>

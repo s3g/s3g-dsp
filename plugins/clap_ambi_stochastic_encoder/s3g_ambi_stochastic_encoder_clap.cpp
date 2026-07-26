@@ -307,6 +307,9 @@ struct Plugin {
     s3g::AmbiStochasticParams params {};
     s3g::AmbiStochasticParams effectiveParams {};
     StochasticSurface surface {};
+    std::atomic<float> effectiveSurfaceX { 0.5f };
+    std::atomic<float> effectiveSurfaceY { 0.5f };
+    std::atomic<bool> active { false };
     PresetMailbox presetMailbox {};
     std::atomic<bool> presetRescanPending { false };
     int32_t factoryPresetIndex = 0;
@@ -334,6 +337,8 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiTopologyY {};
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiTopologyZ {};
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiEnergy {};
+    std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiRenderGain {};
+    std::atomic<uint32_t> guiVoiceCount { 1u };
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiKinetic {};
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiNeighborInfluence {};
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiSelectionPulse {};
@@ -432,12 +437,13 @@ bool assignParam(s3g::AmbiStochasticParams& params, clap_id id, double value)
     return true;
 }
 
-s3g::AmbiStochasticParams stochasticSurfaceParams(const Plugin& plugin)
+s3g::AmbiStochasticParams stochasticSurfaceParams(
+    const Plugin& plugin, float cursorX, float cursorY)
 {
     const auto& base = plugin.params;
     if (!plugin.surface.enabled || plugin.surface.cellCount < 2u) return base;
     const auto weights = s3g::parameterSurfaceWeights(
-        plugin.surface, base.surfaceX, base.surfaceY);
+        plugin.surface, cursorX, cursorY);
     if (weights.activeCount < 2u) return base;
     const auto& nearest = s3g::parameterSurfaceNearestParams(
         plugin.surface, weights, base);
@@ -488,12 +494,72 @@ s3g::AmbiStochasticParams stochasticSurfaceParams(const Plugin& plugin)
     return result;
 }
 
+s3g::AmbiStochasticParams stochasticSurfaceParams(const Plugin& plugin)
+{
+    if (!plugin.active.load(std::memory_order_acquire)) {
+        return stochasticSurfaceParams(
+            plugin, plugin.params.surfaceX, plugin.params.surfaceY);
+    }
+    return stochasticSurfaceParams(plugin,
+        plugin.effectiveSurfaceX.load(std::memory_order_relaxed),
+        plugin.effectiveSurfaceY.load(std::memory_order_relaxed));
+}
+
+void snapSurfaceCursor(Plugin& plugin)
+{
+    plugin.effectiveSurfaceX.store(
+        plugin.params.surfaceX, std::memory_order_relaxed);
+    plugin.effectiveSurfaceY.store(
+        plugin.params.surfaceY, std::memory_order_relaxed);
+}
+
+bool advanceSurfaceCursor(Plugin& plugin, float deltaSeconds)
+{
+    const bool gliding = plugin.surface.enabled
+        && plugin.surface.cellCount >= 2u
+        && plugin.surface.glideMs > 0.0f;
+    const float glideMs = gliding ? plugin.surface.glideMs : 0.0f;
+    const float currentX = plugin.effectiveSurfaceX.load(
+        std::memory_order_relaxed);
+    const float currentY = plugin.effectiveSurfaceY.load(
+        std::memory_order_relaxed);
+    const float nextX = s3g::parameterSurfaceGlideValue(
+        currentX, plugin.params.surfaceX, glideMs, deltaSeconds);
+    const float nextY = s3g::parameterSurfaceGlideValue(
+        currentY, plugin.params.surfaceY, glideMs, deltaSeconds);
+    plugin.effectiveSurfaceX.store(nextX,
+        std::memory_order_relaxed);
+    plugin.effectiveSurfaceY.store(nextY,
+        std::memory_order_relaxed);
+    return std::fabs(nextX - currentX) > 1.0e-7f
+        || std::fabs(nextY - currentY) > 1.0e-7f;
+}
+
 void applyEffectiveParams(Plugin& plugin)
 {
     plugin.engine.setParameterSurfaceGlideMs(
         plugin.surface.enabled && plugin.surface.cellCount >= 2u
             ? plugin.surface.glideMs : 0.0f);
-    plugin.engine.setParams(stochasticSurfaceParams(plugin));
+    const bool audioActive = plugin.active.load(
+        std::memory_order_acquire);
+    const float cursorX = audioActive
+        ? plugin.effectiveSurfaceX.load(std::memory_order_relaxed)
+        : plugin.params.surfaceX;
+    const float cursorY = audioActive
+        ? plugin.effectiveSurfaceY.load(std::memory_order_relaxed)
+        : plugin.params.surfaceY;
+    plugin.engine.setParams(stochasticSurfaceParams(
+        plugin, cursorX, cursorY));
+    if (plugin.surface.enabled && plugin.surface.cellCount >= 2u) {
+        const auto weights = s3g::parameterSurfaceWeights(
+            plugin.surface, cursorX, cursorY);
+        plugin.engine.setParameterSurfaceVoiceMembership(
+            s3g::parameterSurfaceVoiceMembership<
+                s3g::kAmbiStochasticMaxVoices>(
+                plugin.surface, weights, plugin.params.voices));
+    } else {
+        plugin.engine.clearParameterSurfaceVoiceMembership();
+    }
     plugin.effectiveParams = plugin.engine.params();
 }
 
@@ -687,6 +753,9 @@ void publishGuiSnapshot(Plugin& plugin)
     const auto& points = plugin.engine.points();
     const auto& neighbors = plugin.engine.neighborIndices();
     const auto& secondary = plugin.engine.secondaryNeighborIndices();
+    plugin.guiVoiceCount.store(
+        plugin.engine.processingVoiceCount(),
+        std::memory_order_relaxed);
     for (uint32_t voice = 0u; voice < s3g::kAmbiStochasticMaxVoices; ++voice) {
         plugin.guiAzimuth[voice].store(points[voice].azimuthDeg, std::memory_order_relaxed);
         plugin.guiElevation[voice].store(points[voice].elevationDeg, std::memory_order_relaxed);
@@ -696,6 +765,9 @@ void publishGuiSnapshot(Plugin& plugin)
         plugin.guiTopologyY[voice].store(topology.y, std::memory_order_relaxed);
         plugin.guiTopologyZ[voice].store(topology.z, std::memory_order_relaxed);
         plugin.guiEnergy[voice].store(plugin.engine.voiceEnergy(voice), std::memory_order_relaxed);
+        plugin.guiRenderGain[voice].store(
+            plugin.engine.voiceRenderGain(voice),
+            std::memory_order_relaxed);
         plugin.guiKinetic[voice].store(plugin.engine.voiceKinetic(voice), std::memory_order_relaxed);
         plugin.guiNeighborInfluence[voice].store(plugin.engine.voiceContact(voice), std::memory_order_relaxed);
         plugin.guiSelectionPulse[voice].store(plugin.engine.voiceNetworkPulse(voice), std::memory_order_relaxed);
@@ -780,6 +852,7 @@ void destroy(const clap_plugin_t* plugin)
 bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t maxFrames)
 {
     auto* state = self(plugin);
+    state->active.store(false, std::memory_order_release);
     state->sampleRate = sampleRate;
     state->maxFrames = std::max<uint32_t>(1u, maxFrames);
     for (uint32_t channel = 0u; channel < kOutputChannels; ++channel) {
@@ -787,6 +860,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
         state->scratchPointers[channel] = state->scratch[channel].data();
     }
     state->engine.prepare(sampleRate);
+    snapSurfaceCursor(*state);
     applyEffectiveParams(*state);
     state->engine.reset();
     state->lastOutputSample.fill(0.0f);
@@ -794,10 +868,14 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     state->presetTransitionFrames = 0u;
     state->presetTransitionRemaining = 0u;
     state->presetTransitionNeedsInit = false;
+    state->active.store(true, std::memory_order_release);
     return true;
 }
 
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin)
+{
+    self(plugin)->active.store(false, std::memory_order_release);
+}
 
 bool startProcessing(const clap_plugin_t* plugin)
 {
@@ -821,8 +899,9 @@ void stopProcessing(const clap_plugin_t* plugin)
 void reset(const clap_plugin_t* plugin)
 {
     auto* state = self(plugin);
-    state->engine.reset();
+    snapSurfaceCursor(*state);
     applyEffectiveParams(*state);
+    state->engine.reset();
     state->outputPeak.store(0.0f, std::memory_order_relaxed);
     state->lastOutputSample.fill(0.0f);
     state->presetTransitionOffset.fill(0.0f);
@@ -854,8 +933,38 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
         outputs[channel] = useScratch ? state->scratchPointers[channel] : output.data32[channel];
     }
-    state->engine.process(outputs.data(), outputChannels, frames);
-    applyPresetTransition(*state, outputs, outputChannels, frames);
+    constexpr uint32_t kSurfaceControlFrames = 64u;
+    uint32_t surfaceOffset = 0u;
+    while (surfaceOffset < frames) {
+        const float currentX = state->effectiveSurfaceX.load(
+            std::memory_order_relaxed);
+        const float currentY = state->effectiveSurfaceY.load(
+            std::memory_order_relaxed);
+        const bool cursorMoving = state->surface.enabled
+            && state->surface.glideMs > 0.0f
+            && (std::fabs(currentX - state->params.surfaceX) > 1.0e-6f
+                || std::fabs(currentY - state->params.surfaceY) > 1.0e-6f);
+        const uint32_t spanFrames = cursorMoving
+            ? std::min<uint32_t>(kSurfaceControlFrames,
+                frames - surfaceOffset)
+            : frames - surfaceOffset;
+        if (advanceSurfaceCursor(*state,
+                static_cast<float>(spanFrames)
+                    / static_cast<float>(state->sampleRate))) {
+            applyEffectiveParams(*state);
+        }
+        std::array<float*, kOutputChannels> spanOutputs {};
+        for (uint32_t channel = 0u;
+            channel < outputChannels; ++channel) {
+            spanOutputs[channel] = outputs[channel]
+                ? outputs[channel] + surfaceOffset : nullptr;
+        }
+        state->engine.process(
+            spanOutputs.data(), outputChannels, spanFrames);
+        applyPresetTransition(*state, spanOutputs,
+            outputChannels, spanFrames);
+        surfaceOffset += spanFrames;
+    }
 
     float blockPeak = 0.0f;
     for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
@@ -2023,7 +2132,10 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 - (int)hitPoint:(NSPoint)point
 {
     if (!NSPointInRect(point, [self fieldRect])) return -1;
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiStochasticMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(
+        _surfaceEdit ? _plugin->params.voices
+            : _plugin->guiVoiceCount.load(std::memory_order_relaxed),
+        1u, s3g::kAmbiStochasticMaxVoices);
     int best = -1;
     CGFloat bestDistance = 14.0;
     for (uint32_t voice = 0u; voice < voices; ++voice) {
@@ -2470,11 +2582,21 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     [glideText drawAtPoint:NSMakePoint(field.origin.x + 350.0,
         field.origin.y + 40.0) withAttributes:valueAttrs];
 
+    const bool audioActive = _plugin->active.load(
+        std::memory_order_acquire);
+    const float effectiveX = audioActive
+        ? _plugin->effectiveSurfaceX.load(std::memory_order_relaxed)
+        : _plugin->params.surfaceX;
+    const float effectiveY = audioActive
+        ? _plugin->effectiveSurfaceY.load(std::memory_order_relaxed)
+        : _plugin->params.surfaceY;
     s3g::clap_gui::drawParameterSurfaceVoronoi(
-        _plugin->surface, plot, _plugin->params.surfaceX,
-        _plugin->params.surfaceY, _selectedSurfaceCell, valueAttrs);
-    [[NSString stringWithFormat:@"X %.3f   Y %.3f   /   %u CELLS   /   %@",
+        _plugin->surface, plot, effectiveX, effectiveY,
+        _selectedSurfaceCell, valueAttrs,
+        _plugin->params.surfaceX, _plugin->params.surfaceY);
+    [[NSString stringWithFormat:@"T %.3f %.3f   /   A %.3f %.3f   /   %u CELLS   /   %@",
         _plugin->params.surfaceX, _plugin->params.surfaceY,
+        effectiveX, effectiveY,
         _plugin->surface.cellCount,
         _plugin->surface.cellCount < 2u ? @"ADD TWO CELLS TO ENABLE" :
             (_plugin->surface.enabled ? @"INTERPOLATING" : @"BYPASSED")]
@@ -2523,13 +2645,19 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     [sphere setLineWidth:0.8];
     [sphere stroke];
 
-    const uint32_t voices = std::clamp<uint32_t>(_plugin->params.voices, 1u, s3g::kAmbiStochasticMaxVoices);
+    const uint32_t voices = std::clamp<uint32_t>(
+        _surfaceEdit ? _plugin->params.voices
+            : _plugin->guiVoiceCount.load(std::memory_order_relaxed),
+        1u, s3g::kAmbiStochasticMaxVoices);
     _selectedVoice = std::min<uint32_t>(_selectedVoice, voices - 1u);
     _plugin->guiSelectedVoice.store(_selectedVoice, std::memory_order_relaxed);
     std::array<NSPoint, s3g::kAmbiStochasticMaxVoices> projected {};
     for (uint32_t voice = 0u; voice < voices; ++voice) projected[voice] = [self projectVoice:voice depth:nullptr];
 
     for (uint32_t voice = 0u; voice < voices; ++voice) {
+        const float membership = _surfaceEdit ? 1.0f
+            : std::clamp(_plugin->guiRenderGain[voice].load(
+                std::memory_order_relaxed), 0.0f, 1.0f);
         const uint32_t neighbors[] {
             std::min<uint32_t>(_plugin->guiNeighbor[voice].load(std::memory_order_relaxed), voices - 1u),
             std::min<uint32_t>(_plugin->guiSecondaryNeighbor[voice].load(std::memory_order_relaxed), voices - 1u)
@@ -2542,7 +2670,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
             [link moveToPoint:projected[voice]];
             [link lineToPoint:projected[neighbors[edge]]];
             [s3g::clap_gui::color(edge == 0u ? 0xa0a0a0 : 0x686868,
-                (edge == 0u ? 0.12 : 0.06) + influence * 0.32 + pulse * 0.22) setStroke];
+                ((edge == 0u ? 0.12 : 0.06) + influence * 0.32
+                    + pulse * 0.22) * membership) setStroke];
             [link setLineWidth:0.55 + influence * 0.75];
             [link stroke];
         }
@@ -2552,21 +2681,32 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     for (uint32_t voice = 0u; voice < voices; ++voice) {
         const bool selected = voice == _selectedVoice;
         const bool active = _plugin->guiFieldActive[voice].load(std::memory_order_relaxed) != 0u;
+        const float membership = _surfaceEdit ? 1.0f
+            : std::clamp(_plugin->guiRenderGain[voice].load(
+                std::memory_order_relaxed), 0.0f, 1.0f);
         const float energy = _plugin->guiEnergy[voice].load(std::memory_order_relaxed);
         const float kinetic = _plugin->guiKinetic[voice].load(std::memory_order_relaxed);
         const CGFloat baseSize = voices > 32u ? 7.0 : 9.0;
-        const CGFloat size = (selected ? baseSize + 5.0 : baseSize) + std::clamp(energy * 9.0f + kinetic * 2.0f, 0.0f, 6.0f);
+        const CGFloat size = ((selected ? baseSize + 5.0 : baseSize)
+            + std::clamp(energy * 9.0f + kinetic * 2.0f,
+                0.0f, 6.0f)) * (0.45f + membership * 0.55f);
         const NSRect marker = NSMakeRect(projected[voice].x - size * 0.5, projected[voice].y - size * 0.5, size, size);
         const auto point = [self snapshotPoint:voice];
         [[pointColor(point.azimuthDeg, point.elevationDeg, point.distance, selected)
-            colorWithAlphaComponent:active ? (selected ? 1.0 : 0.82) : 0.22] setFill];
+            colorWithAlphaComponent:(active ? (selected ? 1.0 : 0.82) : 0.22)
+                * membership] setFill];
         NSRectFill(marker);
-        [s3g::clap_gui::color(selected ? 0xe0e0e0 : (active ? 0x565656 : 0x2a2a2a)) setStroke];
+        [s3g::clap_gui::color(selected ? 0xe0e0e0
+            : (active ? 0x565656 : 0x2a2a2a), membership) setStroke];
         NSFrameRect(marker);
         NSString* label = [NSString stringWithFormat:@"%u", voice + 1u];
         const NSSize labelSize = [label sizeWithAttributes:idAttrs];
-        [label drawAtPoint:NSMakePoint(NSMidX(marker) - labelSize.width * 0.5,
-            NSMidY(marker) - labelSize.height * 0.5 - 0.5) withAttributes:idAttrs];
+        if (membership > 0.45f) {
+            [label drawAtPoint:NSMakePoint(
+                NSMidX(marker) - labelSize.width * 0.5,
+                NSMidY(marker) - labelSize.height * 0.5 - 0.5)
+                withAttributes:idAttrs];
+        }
     }
     [NSGraphicsContext restoreGraphicsState];
 

@@ -3,6 +3,7 @@
 #include "s3g_ambi_environment_field.h"
 #include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_speaker_decoder.h"
+#include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
 
 #include <algorithm>
@@ -16,8 +17,8 @@ namespace s3g {
 constexpr uint32_t kAmbiWaterMaxVoices = 64;
 constexpr uint32_t kAmbiWaterMaxOrder = 7;
 constexpr uint32_t kAmbiWaterMaxChannels = 64;
-constexpr uint32_t kAmbiWaterRegimeCount = 8;
-constexpr uint32_t kAmbiWaterEnvironmentCount = 9;
+constexpr uint32_t kAmbiWaterRegimeCount = 13;
+constexpr uint32_t kAmbiWaterEnvironmentCount = 10;
 constexpr uint32_t kAmbiWaterPlaceCount = 6;
 constexpr uint32_t kAmbiWaterEventSlots = 2;
 constexpr uint32_t kAmbiWaterMicroSlots = 3;
@@ -65,6 +66,12 @@ struct AmbiWaterParams {
     float fieldListenAmount = 1.0f;
     AmbiFieldListenerResponse fieldListenResponse =
         AmbiFieldListenerResponse::Legacy;
+    // Coastal and frozen-precipitation layers. Appended for state compatibility.
+    float foam = 0.0f;
+    float shore = 0.0f;
+    // Host-automatable cursor for the wrapper-owned Parameter Surface.
+    float surfaceX = 0.5f;
+    float surfaceY = 0.5f;
 };
 
 inline AmbiEnvironmentProfileId ambiWaterEnvironmentProfile(uint32_t place)
@@ -347,6 +354,12 @@ public:
             params.fieldListenAmount, params_.fieldListenAmount, 0.0f, 1.0f);
         params.fieldListenResponse =
             sanitizeAmbiFieldListenerResponse(params.fieldListenResponse);
+        params.foam = clampFinite(params.foam, params_.foam, 0.0f, 1.0f);
+        params.shore = clampFinite(params.shore, params_.shore, 0.0f, 1.0f);
+        params.surfaceX = clampFinite(
+            params.surfaceX, params_.surfaceX, 0.0f, 1.0f);
+        params.surfaceY = clampFinite(
+            params.surfaceY, params_.surfaceY, 0.0f, 1.0f);
 
         const uint32_t oldVoices = params_.voices;
         params_ = params;
@@ -360,10 +373,58 @@ public:
     }
 
     AmbiWaterParams params() const { return params_; }
+    void setParameterSurfaceGlideMs(float glideMs)
+    {
+        parameterSurfaceGlideMs_ = clamp(
+            std::isfinite(glideMs) ? glideMs : 0.0f, 0.0f, 2000.0f);
+    }
+    void setParameterSurfaceVoiceMembership(
+        const std::array<float, kAmbiWaterMaxVoices>& membership)
+    {
+        surfaceVoiceMembershipEnabled_ = true;
+        surfaceVoiceLimit_ = 1u;
+        for (uint32_t voice = 0u; voice < kAmbiWaterMaxVoices; ++voice) {
+            surfaceVoiceMembership_[voice] = clamp(
+                std::isfinite(membership[voice])
+                    ? membership[voice] : 0.0f,
+                0.0f, 1.0f);
+            if (surfaceVoiceMembership_[voice] > 1.0e-4f) {
+                surfaceVoiceLimit_ = voice + 1u;
+            }
+        }
+    }
+    void clearParameterSurfaceVoiceMembership()
+    {
+        surfaceVoiceMembershipEnabled_ = false;
+        surfaceVoiceLimit_ = params_.voices;
+    }
+    uint32_t processingVoiceCount() const
+    {
+        return surfaceVoiceMembershipEnabled_
+            ? std::max(params_.voices, surfaceVoiceLimit_)
+            : params_.voices;
+    }
+    float voiceRenderGain(uint32_t voice) const
+    {
+        voice = std::min<uint32_t>(voice, kAmbiWaterMaxVoices - 1u);
+        return surfaceVoiceMembershipEnabled_
+            ? surfaceVoiceMembership_[voice]
+            : voice < params_.voices ? 1.0f : 0.0f;
+    }
     void beginTransition() { transitionRequested_.store(true, std::memory_order_release); }
     float voiceEnergy(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiWaterMaxVoices - 1u)].energy; }
     float voiceEventLevel(uint32_t voice) const { return voices_[std::min<uint32_t>(voice, kAmbiWaterMaxVoices - 1u)].eventViz; }
     AmbiWaterPoint voicePoint(uint32_t voice) const { return points_[std::min<uint32_t>(voice, kAmbiWaterMaxVoices - 1u)]; }
+    float regimeWeight(uint32_t regime) const
+    {
+        return regimeWeights_[std::min<uint32_t>(
+            regime, kAmbiWaterRegimeCount - 1u)];
+    }
+    float environmentWeight(uint32_t environment) const
+    {
+        return environmentWeights_[std::min<uint32_t>(
+            environment, kAmbiWaterEnvironmentCount - 1u)];
+    }
     float sceneCompensationDb() const
     {
         return 20.0f * std::log10(std::max(0.000001f, smoothedSceneGain_));
@@ -390,9 +451,9 @@ public:
             if (outputs[ch]) std::fill(outputs[ch], outputs[ch] + frames, 0.0f);
         }
 
-        const uint32_t voices = params_.voices;
+        const uint32_t voices = processingVoiceCount();
         const uint32_t ambiChannels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), outputChannels);
-        const float voiceNorm = std::pow(static_cast<float>(std::max<uint32_t>(1u, voices)), 0.46f);
+        const float voiceNorm = std::pow(surfaceVoiceMass(), 0.46f);
         constexpr uint32_t kControlFrames = 16u;
 
         for (uint32_t chunkStart = 0u; chunkStart < frames; chunkStart += kControlFrames) {
@@ -431,7 +492,8 @@ public:
                 smoothedOutputGain_ += (targetGain - smoothedOutputGain_) * 0.0015f;
                 environmentField_.beginFrame();
                 for (uint32_t voice = 0u; voice < voices; ++voice) {
-                    float sample = processVoice(voice) * smoothedOutputGain_ * distanceGain[voice];
+                    float sample = processVoice(voice) * smoothedOutputGain_
+                        * distanceGain[voice] * voiceRenderGain(voice);
                     if (!std::isfinite(sample)) {
                         initializeVoice(voice);
                         sample = 0.0f;
@@ -472,6 +534,15 @@ public:
     }
 
 private:
+    float surfaceVoiceMass() const
+    {
+        if (!surfaceVoiceMembershipEnabled_) {
+            return static_cast<float>(
+                std::max<uint32_t>(1u, params_.voices));
+        }
+        return parameterSurfaceVoiceMass(surfaceVoiceMembership_);
+    }
+
     static uint32_t hash(uint32_t x)
     {
         x ^= x >> 16u;
@@ -523,13 +594,15 @@ private:
 
     float predictiveSceneGain(const AmbiWaterParams& p) const
     {
-        const float currentMode = regimeWeights_[0];
-        const float rainMode = regimeWeights_[1];
-        const float cascadeMode = regimeWeights_[2];
-        const float surgeMode = regimeWeights_[3];
+        const float currentMode = regimeWeights_[0] + regimeWeights_[9] * 0.45f;
+        const float rainMode = regimeWeights_[1] + regimeWeights_[10] * 0.92f
+            + regimeWeights_[11] * 0.78f + regimeWeights_[12];
+        const float cascadeMode = regimeWeights_[2] + regimeWeights_[8] * 0.52f;
+        const float surgeMode = regimeWeights_[3] + regimeWeights_[8] * 0.86f
+            + regimeWeights_[9] * 0.62f;
         const float vortexMode = regimeWeights_[4];
         const float sloshMode = regimeWeights_[5];
-        const float dripMode = regimeWeights_[6];
+        const float dripMode = regimeWeights_[6] + regimeWeights_[11] * 0.22f;
         const float plumeMode = regimeWeights_[7];
 
         const float bodyMode = currentMode * 0.96f + rainMode * 0.62f
@@ -572,10 +645,14 @@ private:
             + std::pow(spray * 0.55f, 2.0f)
             + std::pow(drops * 0.22f, 2.0f)
             + std::pow(splash * 0.50f, 2.0f)
-            + std::pow(bubbles * 0.04f, 2.0f));
+            + std::pow(bubbles * 0.04f, 2.0f)
+            + std::pow(p.foam * (0.10f + surgeMode * 0.24f), 2.0f)
+            + std::pow(p.shore * (regimeWeights_[8] + regimeWeights_[9])
+                * 0.12f, 2.0f));
         const float outputScale = 0.18f + p.water * 0.78f + p.density * 0.08f;
         const float predicted = familyEnergy * outputScale;
-        const float sourceActivity = p.water + p.aeration + p.drops + p.splash + p.bubbles;
+        const float sourceActivity = p.water + p.aeration + p.drops
+            + p.splash + p.bubbles + p.foam + p.shore;
         if (!std::isfinite(predicted) || sourceActivity < 0.002f) return 1.0f;
 
         constexpr float targetActivity = 0.055f;
@@ -693,7 +770,9 @@ private:
             return;
         }
 
-        const float coeff = 1.0f - std::exp(-dt * 20.0f);
+        const float coeff = parameterSurfaceGlideMs_ > 0.0f
+            ? parameterSurfaceGlideCoefficient(parameterSurfaceGlideMs_, dt)
+            : 1.0f - std::exp(-dt * 20.0f);
         smoothParams_.order = params_.order;
         smoothParams_.voices = params_.voices;
         smoothParams_.regime = params_.regime;
@@ -736,12 +815,22 @@ private:
         smoothParams_.fieldListenAmount = smoothToward(
             smoothParams_.fieldListenAmount, params_.fieldListenAmount, coeff);
         smoothParams_.fieldListenResponse = params_.fieldListenResponse;
+        smoothParams_.foam = smoothToward(
+            smoothParams_.foam, params_.foam, coeff);
+        smoothParams_.shore = smoothToward(
+            smoothParams_.shore, params_.shore, coeff);
+        smoothParams_.surfaceX = params_.surfaceX;
+        smoothParams_.surfaceY = params_.surfaceY;
 
-        const float regimeCoeff = 1.0f - std::exp(-dt * 7.5f);
+        const float regimeCoeff = parameterSurfaceGlideMs_ > 0.0f
+            ? parameterSurfaceGlideCoefficient(parameterSurfaceGlideMs_, dt)
+            : 1.0f - std::exp(-dt * 7.5f);
         for (uint32_t mode = 0u; mode < regimeWeights_.size(); ++mode) {
             regimeWeights_[mode] = smoothToward(regimeWeights_[mode], mode == params_.regime ? 1.0f : 0.0f, regimeCoeff);
         }
-        const float environmentCoeff = 1.0f - std::exp(-dt * 11.0f);
+        const float environmentCoeff = parameterSurfaceGlideMs_ > 0.0f
+            ? parameterSurfaceGlideCoefficient(parameterSurfaceGlideMs_, dt)
+            : 1.0f - std::exp(-dt * 11.0f);
         for (uint32_t mode = 0u; mode < environmentWeights_.size(); ++mode) {
             environmentWeights_[mode] = smoothToward(environmentWeights_[mode], mode == params_.environment ? 1.0f : 0.0f, environmentCoeff);
         }
@@ -750,14 +839,16 @@ private:
     void updateMotion(float dt)
     {
         const auto& p = smoothParams_;
-        const uint32_t voices = p.voices;
-        const float currentMode = regimeWeights_[0];
-        const float rainMode = regimeWeights_[1];
-        const float cascadeMode = regimeWeights_[2];
-        const float surgeMode = regimeWeights_[3];
+        const uint32_t voices = processingVoiceCount();
+        const float currentMode = regimeWeights_[0] + regimeWeights_[9] * 0.45f;
+        const float rainMode = regimeWeights_[1] + regimeWeights_[10] * 0.92f
+            + regimeWeights_[11] * 0.78f + regimeWeights_[12];
+        const float cascadeMode = regimeWeights_[2] + regimeWeights_[8] * 0.52f;
+        const float surgeMode = regimeWeights_[3] + regimeWeights_[8] * 0.86f
+            + regimeWeights_[9] * 0.62f;
         const float vortexMode = regimeWeights_[4];
         const float sloshMode = regimeWeights_[5];
-        const float dripMode = regimeWeights_[6];
+        const float dripMode = regimeWeights_[6] + regimeWeights_[11] * 0.22f;
         const float plumeMode = regimeWeights_[7];
         const float listenAmount = p.fieldListenMode == AmbiFieldListenMode::Off
             ? 0.0f : fieldListener_.activity() * p.fieldListenAmount;
@@ -1587,13 +1678,15 @@ private:
         }
         splashResponse = clamp(splashResponse, 0.68f, 1.32f);
 
-        const float currentMode = regimeWeights_[0];
-        const float rainMode = regimeWeights_[1];
-        const float cascadeMode = regimeWeights_[2];
-        const float surgeMode = regimeWeights_[3];
+        const float currentMode = regimeWeights_[0] + regimeWeights_[9] * 0.45f;
+        const float rainMode = regimeWeights_[1] + regimeWeights_[10] * 0.92f
+            + regimeWeights_[11] * 0.78f + regimeWeights_[12];
+        const float cascadeMode = regimeWeights_[2] + regimeWeights_[8] * 0.52f;
+        const float surgeMode = regimeWeights_[3] + regimeWeights_[8] * 0.86f
+            + regimeWeights_[9] * 0.62f;
         const float vortexMode = regimeWeights_[4];
         const float sloshMode = regimeWeights_[5];
-        const float dripMode = regimeWeights_[6];
+        const float dripMode = regimeWeights_[6] + regimeWeights_[11] * 0.22f;
         const float plumeMode = regimeWeights_[7];
 
         const float white = randomSigned(voice);
@@ -1614,14 +1707,19 @@ private:
         const float glass = environmentWeights_[6];
         const float pipe = environmentWeights_[7];
         const float cave = environmentWeights_[8];
+        const float ice = environmentWeights_[9];
         const float environmentBright = rock * 0.10f + leaves * 0.25f - mud * 0.28f + concrete * 0.18f
-            + metal * 0.34f + glass * 0.46f + pipe * 0.08f - cave * 0.18f;
+            + metal * 0.34f + glass * 0.46f + pipe * 0.08f
+            - cave * 0.18f + ice * 0.52f;
         const float environmentHardness = rock * 0.42f + leaves * 0.10f + mud * 0.02f
-            + concrete * 0.58f + metal * 0.78f + glass * 0.88f + pipe * 0.66f + cave * 0.24f;
-        const float environmentDamp = mud * 0.72f + leaves * 0.34f + cave * 0.22f;
+            + concrete * 0.58f + metal * 0.78f + glass * 0.88f
+            + pipe * 0.66f + cave * 0.24f + ice * 0.92f;
+        const float environmentDamp = mud * 0.72f + leaves * 0.34f
+            + cave * 0.22f + ice * 0.08f;
         const float liquidSurface = clamp(environmentWeights_[0] + rock * 0.68f
                 + leaves * 0.04f + mud * 0.16f + concrete * 0.12f
-                + metal * 0.16f + glass * 0.02f + pipe * 0.36f + cave * 0.62f,
+                + metal * 0.16f + glass * 0.02f + pipe * 0.36f
+                + cave * 0.62f + ice * 0.02f,
             0.0f, 1.0f);
         const float entrainment = clamp(liquidSurface * (currentMode * 0.52f
                 + rainMode * 0.42f + cascadeMode * 0.82f + surgeMode * 0.72f
@@ -1716,13 +1814,13 @@ private:
         const float materialBaseHz = 1200.0f * environmentWeights_[0]
             + 1800.0f * rock + 680.0f * leaves + 220.0f * mud
             + 2400.0f * concrete + 3300.0f * metal + 4800.0f * glass
-            + 980.0f * pipe + 460.0f * cave;
+            + 980.0f * pipe + 460.0f * cave + 4100.0f * ice;
         const float materialHz = clamp(materialBaseHz * (0.64f + brightness * 0.92f),
             90.0f, 9200.0f);
         const float materialResonance = clamp(0.025f + rock * 0.055f + leaves * 0.010f
                 + concrete * 0.070f + metal * 0.145f + glass * 0.095f
                 + pipe * 0.120f + cave * 0.040f + p.resonance * 0.055f
-                - p.damping * 0.025f,
+                + ice * 0.180f - p.damping * 0.025f,
             0.0f, 0.28f);
         const float materialNoise = (rough * 0.58f + voice.midNoise * 0.28f
                 + sprayNoise * 0.14f) * impactEnvelope
@@ -1755,15 +1853,23 @@ private:
             + microTone * (currentMode * 0.016f + rainMode * 0.028f
                 + cascadeMode * 0.036f + surgeMode * 0.026f + vortexMode * 0.030f
                 + sloshMode * 0.022f + dripMode * 0.024f + plumeMode * 0.042f);
+        const float shorelineMode = clamp(regimeWeights_[8] + regimeWeights_[9],
+            0.0f, 1.0f);
+        const float foamTone = (sprayNoise * 0.72f + voice.slowNoise * 0.28f)
+            * p.foam * (0.10f + surgeMode * 0.42f + cascadeMode * 0.18f)
+            * (0.48f + std::fabs(std::sin(voice.travel * kPi * 2.0f)) * 0.52f);
+        const float shoreTone = (rough * (0.18f + dropLevel * 0.52f)
+            + dropImpact * 0.24f) * p.shore * shorelineMode
+            * (0.18f + p.current * 0.42f);
         const float transferMix = clamp(environmentHardness * 0.52f + cave * 0.28f
-                + pipe * 0.20f + glass * 0.12f,
+                + pipe * 0.20f + glass * 0.12f + ice * 0.18f,
             0.0f, 0.78f);
         const float transferHz = freqFromNorm(clamp(0.20f + brightness * 0.24f
                 + environmentBright * 0.42f + p.depth * 0.08f,
             0.0f, 1.0f), 95.0f, 5200.0f);
         const float transferResonance = clamp(0.025f + rock * 0.045f + concrete * 0.050f
                 + metal * 0.115f + glass * 0.075f + pipe * 0.125f + cave * 0.070f
-                + p.resonance * 0.050f - p.damping * 0.025f,
+                + ice * 0.155f + p.resonance * 0.050f - p.damping * 0.025f,
             0.0f, 0.27f);
         const float transferredEvents = voice.transferFilter.process(eventSource,
             transferHz, transferResonance, static_cast<float>(sampleRate_));
@@ -1771,6 +1877,7 @@ private:
             + surfaceBand * sprayAmount
             + eventSource * (1.0f - transferMix * 0.42f)
             + transferredEvents * transferMix * 0.72f
+            + foamTone + shoreTone
             + surfaceTexture * p.contact
                 * (0.052f + environmentHardness * 0.090f + leaves * 0.095f);
         const float drive = 0.90f + turbulence * 0.84f + p.aeration * 0.48f + p.resonance * 0.34f;
@@ -1789,7 +1896,8 @@ private:
     float fieldListenerResponse(uint32_t index) const
     {
         if (smoothParams_.fieldListenMode == AmbiFieldListenMode::Off) return 0.0f;
-        const auto& point = points_[std::min<uint32_t>(index, smoothParams_.voices - 1u)];
+        const auto& point = points_[std::min<uint32_t>(
+            index, processingVoiceCount() - 1u)];
         const float preference = fieldListener_.preference(
             directionFromAed(point.azimuthDeg, point.elevationDeg),
             smoothParams_.fieldListenMode);
@@ -1801,7 +1909,7 @@ private:
     {
         if (smoothParams_.fieldListenMode == AmbiFieldListenMode::Off) return {};
         const auto& point = points_[std::min<uint32_t>(
-            index, smoothParams_.voices - 1u)];
+            index, processingVoiceCount() - 1u)];
         return fieldListener_.score(
             directionFromAed(point.azimuthDeg, point.elevationDeg),
             smoothParams_.fieldListenMode);
@@ -1812,8 +1920,19 @@ private:
     std::array<AmbiWaterVoice, kAmbiWaterMaxVoices> voices_ {};
     std::array<AmbiWaterPoint, kAmbiWaterMaxVoices> points_ {};
     std::array<AmbiWaterPoint, kAmbiWaterMaxVoices> targetPoints_ {};
-    std::array<float, kAmbiWaterRegimeCount> regimeWeights_ { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-    std::array<float, kAmbiWaterEnvironmentCount> environmentWeights_ { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+    std::array<float, kAmbiWaterRegimeCount> regimeWeights_ {
+        1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f
+    };
+    std::array<float, kAmbiWaterEnvironmentCount> environmentWeights_ {
+        1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f
+    };
+    float parameterSurfaceGlideMs_ = 0.0f;
+    bool surfaceVoiceMembershipEnabled_ = false;
+    uint32_t surfaceVoiceLimit_ = 1u;
+    std::array<float, kAmbiWaterMaxVoices>
+        surfaceVoiceMembership_ {};
     std::array<float, kAmbiWaterMaxChannels> lastOutput_ {};
     std::array<float, kAmbiWaterMaxChannels> transitionTail_ {};
     AmbiEnvironmentField environmentField_ {};

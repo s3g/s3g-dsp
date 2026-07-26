@@ -178,6 +178,18 @@ inline AmbiWaterParams ambiWaterFactoryPreset(uint32_t index)
     case 14u: p.place = 0u; p.space = 0.12f; break; // Storm Sheet / Open
     default: p.place = 0u; p.space = 0.08f; break; // Still Pool / Open
     }
+    if (preset == 2u || preset == 6u) { // Spillway / waterfall spray
+        p.foam = 0.74f;
+    } else if (preset == 8u) { // Pebble Rapids
+        p.foam = 0.58f;
+        p.shore = 0.64f;
+    } else if (preset == 11u) { // Slow Shoreline
+        p.regime = 8u;
+        p.foam = 0.68f;
+        p.shore = 0.82f;
+    } else if (preset == 14u) { // Storm Sheet
+        p.foam = 0.52f;
+    }
     return p;
 }
 
