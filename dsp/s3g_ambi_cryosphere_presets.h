@@ -13,7 +13,7 @@ struct AmbiCryospherePresetInfo {
     const char* description;
 };
 
-inline constexpr uint32_t kAmbiCryosphereFactoryPresetCount = 13u;
+inline constexpr uint32_t kAmbiCryosphereFactoryPresetCount = 14u;
 inline constexpr std::array<AmbiCryospherePresetInfo,
     kAmbiCryosphereFactoryPresetCount> kAmbiCryospherePresetInfo {{
         { "Alpine Frost Crack", "Moist bedrock accumulating freezing stress and releasing sparse cracks." },
@@ -29,6 +29,7 @@ inline constexpr std::array<AmbiCryospherePresetInfo,
         { "Sleet on Glass", "Mixed granular and wet frozen contacts against glass." },
         { "Meltwater Under Ice", "Basal water, brine pressure, sliding, and grinding beneath glacier ice." },
         { "Ice Under Foot", "A loaded surface plate flexing, opening radial cracks, snapping through, and collapsing locally under weight." },
+        { "Singing Lake Ice", "Sparse dull plate strikes launch compact descending flexural pews with a short inharmonic after-ring." },
     }};
 
 inline AmbiCryospherePresetInfo ambiCryosphereFactoryPresetInfo(
@@ -102,11 +103,17 @@ inline AmbiCryosphereParams ambiCryosphereFactoryPreset(uint32_t index)
         p.aeration=.24f; p.splash=.24f; p.bubbles=.92f; p.density=.44f; p.eventSize=.52f; p.eventDecay=.42f;
         p.contact=.72f; p.depth=.86f; p.current=.88f; p.convergence=.58f; p.shore=.92f; p.spread=.72f; p.space=.36f;
         p.surfaceLoad=.42f; p.snap=.58f; p.plateFailure=.22f; break;
-    default:
+    case 12u:
         p.voices=28; p.regime=0u; p.environment=0u; p.water=.68f; p.flow=1.0f; p.scale=.46f; p.turbulence=.84f;
         p.aeration=.08f; p.drops=.06f; p.splash=.04f; p.bubbles=.24f; p.density=.62f; p.eventSize=.46f; p.eventDecay=.28f;
         p.contact=.98f; p.brightness=.88f; p.resonance=.08f; p.damping=.46f; p.current=.16f; p.convergence=.36f;
         p.surfaceLoad=1.0f; p.snap=1.0f; p.plateFailure=.82f; p.spread=.66f; p.motionRateHz=.20f; p.space=.12f; p.outputGainDb=-9.0f; break;
+    default:
+        p.voices=8; p.regime=13u; p.environment=0u; p.water=.74f; p.flow=.04f; p.scale=.78f; p.turbulence=.18f;
+        p.aeration=0.0f; p.drops=.01f; p.splash=0.0f; p.bubbles=.04f; p.density=.14f; p.eventSize=.78f; p.eventDecay=.32f;
+        p.contact=.86f; p.depth=.84f; p.brightness=.46f; p.resonance=.66f; p.damping=.34f; p.current=.02f; p.convergence=.08f;
+        p.surfaceLoad=.20f; p.snap=.72f; p.plateFailure=.02f; p.spread=.82f; p.deviation=.04f; p.motionRateHz=.012f;
+        p.width=.88f; p.centerDistance=1.08f; p.space=.18f; p.environmentDecay=.42f; p.environmentDamping=.46f; p.outputGainDb=-11.0f; break;
     }
     return p;
 }

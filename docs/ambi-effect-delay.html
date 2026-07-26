@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Effect Delay - s3g-dsp</title>
+    <meta name="description" content="Order-adaptive auditory-body delay with per-pickup time and feedback, topology routing, meters, and a directional dry/wet mask.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Effect Delay</h1>
+
+        <p><strong>s3g Ambi Effect Delay 64</strong> delays a complete first- through seventh-order <code>ACN/SN3D</code> field through the same Icosa12 or Dodeca20 listener-pickup architecture as <a href="ambi-effect-dj-filter.html">Ambi Effect DJ Filter</a>. Each pickup has an independent time and feedback trim, while macro <code>SPRD</code> and <code>DEV</code> make coherent multi-point relationships easy to perform.</p>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <pre><code>1OA-7OA ACN/SN3D field
+-&gt; unchanged encoded field ----------------------------+
+|                                                       |
++-&gt; decode Icosa 12 / Dodeca 20 listener pickups       |
+    -&gt; per-pickup OLA delay time, feedback, and tone    |
+    -&gt; Local / Cross / Diffuse / Roaming topology      |
+    -&gt; wet-mask interpolation + outside dry level      |
+    -&gt; subtract original and re-encode correction ------+
+                                                        |
+                           dry field + correction -&gt; MIX -&gt; OUT</code></pre>
+
+        <p>The delay does not process HOA channels as unrelated lanes. It decodes the selected body, runs one overlap-add fractional delay per pickup, routes the delayed pickup signals through the topology, and re-encodes only the resulting correction. Material outside the pickup subspace therefore remains available on the original-field path.</p>
+
+        <ol>
+          <li>The active-order HOA input is copied to the original-field path and decoded at the selected auditory body.</li>
+          <li>Independent pickup delays apply effective time, feedback, and feedback tone before topology routing. Time changes hold the existing read tap while a second tap moves, then overlap-add the pair through a complementary 35 ms window.</li>
+          <li>The directional mask chooses between the routed delay and the outside-region dry level at each pickup.</li>
+          <li>The original pickup signal is subtracted, the correction is re-encoded, and <code>MIX</code> scales it against the unchanged field before <code>OUT</code>.</li>
+        </ol>
+
+        <h2 id="body">Order and Auditory Body</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Order</th><th>Active channels</th><th>AUTO body</th></tr></thead>
+          <tbody>
+            <tr><td>1OA-3OA</td><td>4-16</td><td>ICOSA 12</td></tr>
+            <tr><td>4OA-7OA</td><td>25-64</td><td>DODECA 20</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>AUTO</code> selects the body shown above. Every order is deliberately upscaled to at least twelve pickup directions; <code>ICOSA 12</code> and <code>DODECA 20</code> can also be selected directly. Settings for all twenty pickups remain stored and automatable when Icosa activates the first twelve.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Function</th></tr></thead>
+          <tbody>
+            <tr><td>ORDER / BODY</td><td>Selects the active HOA order and <code>AUTO</code>, <code>ICOSA 12</code>, or <code>DODECA 20</code> pickup body.</td></tr>
+            <tr><td>TIME</td><td>Sets the global delay time from <code>5</code> to <code>2000 ms</code>. Automation uses dual-tap overlap-add transitions rather than a continuously moving read head, avoiding zippering and continuous Doppler glide.</td></tr>
+            <tr><td>PICKUP 01-20 TIME TRIM</td><td>Offsets one pickup exponentially around the global time, from shorter to longer delays.</td></tr>
+            <tr><td>FEEDBACK</td><td>Sets the common repeat level up to <code>88%</code>.</td></tr>
+            <tr><td>PICKUP 01-20 FEEDBACK TRIM</td><td>Adds or subtracts feedback at one pickup, with the result constrained to the stable range.</td></tr>
+            <tr><td>TONE</td><td>Moves the feedback-path low-pass from dark repeats toward an open high-frequency response.</td></tr>
+            <tr><td>SPRD</td><td>Orders delay time across the active body and applies a smaller complementary feedback relationship.</td></tr>
+            <tr><td>DEV</td><td>Adds stable irregular offsets. With spread, deviation, and pickup trims at zero, every point has the same time and feedback.</td></tr>
+            <tr><td>TOPOLOGY / AMT</td><td>Routes delayed pickup signals locally, to opposites, through nearest-neighbor diffusion, or around a roaming body path.</td></tr>
+            <tr><td>RATE</td><td>Sets the <code>ROAMING</code> traversal rate from <code>0.005</code> to <code>2 Hz</code>.</td></tr>
+            <tr><td>MIX</td><td>Scales the re-encoded correction against the unchanged input field.</td></tr>
+            <tr><td>MASK / AZ / EL / WIDTH</td><td>Places and shapes the directionally wet delay region.</td></tr>
+            <tr><td>MASK CURVE</td><td>Moves from a soft directional falloff through the original response at midpoint to a much tighter effect island at the upper end.</td></tr>
+            <tr><td>DRY</td><td>Attenuates the original signal outside the wet region from unity at <code>0%</code> down to <code>-100% FX ONLY</code>. The negative endpoint leaves only the masked effect island when <code>MIX</code> is fully wet.</td></tr>
+            <tr><td>OUT</td><td>Applies final gain from <code>-60</code> to <code>+12 dB</code>.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="pickup-editor">Pickup Editor, Meters, and Camera</h2>
+
+        <p>Click a numbered pickup, then drag the <code>TIME - / TIME +</code> and <code>FB - / FB +</code> rails below the body. Double-click a rail to reset that value, or double-click a pickup to reset both. The readout reports the selected pickup's effective time and feedback after macro relationships and manual trims.</p>
+
+        <p>Every smaller pickup point has a listener-style radial pre-delay energy halo over a <code>-60 dB</code> range. The halo expands and brightens with incoming energy, while the marker ticks show the effective macro relationship after <code>SPRD</code>, <code>DEV</code>, and local trim. The selected point also shows the active Local, Cross, Diffuse, or Roaming hearing route; outline brightness follows directional wet-mask gain.</p>
+
+        <p>Use <code>TOP</code>, <code>SIDE</code>, and <code>3/4</code> for standard views. Click-drag empty field space to orbit freely. Camera state is saved with the plugin, while pickup and rail gestures remain dedicated to parameter editing.</p>
+
+        <h2 id="mask">Directional Dry/Wet Mask</h2>
+
+        <p><code>MASK: OFF</code> applies the delay across the whole selected body. Raising it concentrates the processed target around <code>AZ</code>/<code>EL</code>; <code>WIDTH</code> controls its angular footprint while <code>CURVE</code> controls the softness of the boundary. Outside that island, <code>DRY: 0%</code> preserves the original pickup signal and negative values attenuate it until <code>-100% FX ONLY</code> removes it from the body correction subspace. Because <code>MIX</code> blends the correction with the original HOA field, complete outside-region removal requires a fully wet mix.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert the effect after an ambisonic source and before the decoder, then match <code>ORDER</code> to the field.</li>
+          <li>Start with <code>BODY: AUTO</code>, <code>LOCAL</code>, moderate feedback, and a short enough time to identify the directional repeats.</li>
+          <li>Raise <code>SPRD</code> for an ordered delay fan, then add <code>DEV</code> for less regular timing.</li>
+          <li>Use the meters to select active pickups and refine time or feedback on the two rails.</li>
+          <li>Introduce <code>CROSS</code>, <code>DIFFUSE</code>, or <code>ROAMING</code> with <code>AMT</code> after the timing relationship is established.</li>
+          <li>Engage the directional mask when the repeats should occupy one region. Lower <code>DRY</code> when the complementary region should be attenuated rather than merely uneffected.</li>
+        </ol>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-effect-dj-filter.html">
+            <span>Previous</span>
+            Ambi Effect DJ Filter
+          </a>
+          <a class="page-nav-link next" href="ambi-effect-pitch.html">
+            <span>Next</span>
+            Ambi Effect Pitch
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#body">Order and Body</a>
+          <a href="#controls">Controls</a>
+          <a href="#pickup-editor">Pickup Editor and Camera</a>
+          <a href="#mask">Directional Mask</a>
+          <a href="#workflow">Workflow</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

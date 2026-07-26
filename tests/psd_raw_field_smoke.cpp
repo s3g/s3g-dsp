@@ -177,6 +177,109 @@ int main()
                   << aptCarrierEnergy << " off=" << aptOffCarrierEnergy << "\n";
         return 1;
     }
+    profileParams.carrierTune = 12.0f;
+    profileField.setParams(profileParams);
+    profileField.reset();
+    profileField.process(pointers.data(), s3g::kPsdRawFieldChannels, frames);
+    const float raisedCarrierFrequency = 2.0f * (2400.0f
+        - 3.5f * 2.4f * profileParams.channelSpread);
+    const double raisedCarrierEnergy = toneEnergy(raisedCarrierFrequency);
+    const double oldCarrierEnergy = toneEnergy(2400.0f);
+    if (raisedCarrierEnergy < 1.0e-4 || raisedCarrierEnergy < oldCarrierEnergy * 4.0) {
+        std::cerr << "Fault CARRIER did not transpose APT by one octave: raised="
+                  << raisedCarrierEnergy << " old=" << oldCarrierEnergy << "\n";
+        return 1;
+    }
+
+    // Protocol modulation is a second operator: every source must create a
+    // deterministic, finite, audible departure from the unmodulated codec.
+    auto modulationParams = profileParams;
+    modulationParams.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+    modulationParams.fieldCodecMode = s3g::PsdRawFieldCodecMode::HfFax;
+    modulationParams.codecRate = 0.38f;
+    modulationParams.codecDamage = 0.18f;
+    modulationParams.carrierTune = 0.0f;
+    modulationParams.channelSpread = 0.61f;
+    modulationParams.modSource = s3g::PsdRawFieldModSource::Off;
+    modulationParams.modTarget = s3g::PsdRawFieldModTarget::Data;
+    modulationParams.modRate = std::log(73.0f / 0.05f) / std::log(160000.0f);
+    modulationParams.modRatio = 1.0f;
+    modulationParams.modIndex = 0.82f;
+    modulationParams.modFeedback = 0.0f;
+    modulationParams.modClockLock = 0u;
+    auto renderModulation = [&](const s3g::PsdRawFieldParams& p) {
+        field.prepare(48000.0);
+        field.setParams(p);
+        field.reset();
+        field.process(pointers.data(), s3g::kPsdRawFieldChannels, frames);
+        return output[0];
+    };
+    const auto unmodulated = renderModulation(modulationParams);
+    for (uint32_t source = 1u; source < s3g::kPsdRawFieldModSourceCount; ++source) {
+        auto modulatedParams = modulationParams;
+        modulatedParams.modSource = static_cast<s3g::PsdRawFieldModSource>(source);
+        if (modulatedParams.modSource == s3g::PsdRawFieldModSource::Feedback) {
+            modulatedParams.modFeedback = 0.72f;
+        }
+        const auto first = renderModulation(modulatedParams);
+        double difference = 0.0;
+        for (uint32_t i = 0u; i < frames; ++i) {
+            if (!std::isfinite(first[i])) {
+                std::cerr << "Fault protocol modulator produced a non-finite sample for source "
+                          << source << "\n";
+                return 1;
+            }
+            difference += std::abs(static_cast<double>(first[i] - unmodulated[i]));
+        }
+        if (difference <= 0.01) {
+            std::cerr << "Fault protocol modulator source was inaudible: " << source
+                      << " difference=" << difference << "\n";
+            return 1;
+        }
+        const auto second = renderModulation(modulatedParams);
+        for (uint32_t i = 0u; i < frames; ++i) {
+            if (first[i] != second[i]) {
+                std::cerr << "Fault protocol modulator reset was not deterministic for source "
+                          << source << " at sample " << i << "\n";
+                return 1;
+            }
+        }
+    }
+
+    // Each destination operates on a different layer of the transmission:
+    // carrier frequency, deviation, codec clock, data, or error process.
+    for (uint32_t target = 0u; target < s3g::kPsdRawFieldModTargetCount; ++target) {
+        auto targetedParams = modulationParams;
+        targetedParams.modSource = s3g::PsdRawFieldModSource::Sine;
+        targetedParams.modTarget = static_cast<s3g::PsdRawFieldModTarget>(target);
+        targetedParams.modIndex = 0.86f;
+        const auto targeted = renderModulation(targetedParams);
+        double difference = 0.0;
+        for (uint32_t i = 0u; i < frames; ++i) {
+            difference += std::abs(static_cast<double>(targeted[i] - unmodulated[i]));
+        }
+        if (difference <= 0.01) {
+            std::cerr << "Fault protocol modulation target was inaudible: " << target
+                      << " difference=" << difference << "\n";
+            return 1;
+        }
+    }
+
+    auto clockParams = modulationParams;
+    clockParams.modSource = s3g::PsdRawFieldModSource::Sine;
+    clockParams.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+    clockParams.modClockLock = 0u;
+    const auto freeClock = renderModulation(clockParams);
+    clockParams.modClockLock = 1u;
+    const auto lockedClock = renderModulation(clockParams);
+    double clockDifference = 0.0;
+    for (uint32_t i = 0u; i < frames; ++i) {
+        clockDifference += std::abs(static_cast<double>(freeClock[i] - lockedClock[i]));
+    }
+    if (clockDifference <= 0.01) {
+        std::cerr << "Fault FREE and LOCK protocol clocks were indistinguishable\n";
+        return 1;
+    }
 
     s3g::PsdRawField rawField;
     rawField.setSource(rawSource);
@@ -252,7 +355,7 @@ int main()
         return 1;
     }
 
-    constexpr std::array<s3g::PsdRawFieldCodecMode, 11> upgradedModes {
+    constexpr std::array<s3g::PsdRawFieldCodecMode, 17> upgradedModes {
         s3g::PsdRawFieldCodecMode::Adpcm,
         s3g::PsdRawFieldCodecMode::MuLaw,
         s3g::PsdRawFieldCodecMode::ALaw,
@@ -264,6 +367,12 @@ int main()
         s3g::PsdRawFieldCodecMode::FaxQam,
         s3g::PsdRawFieldCodecMode::SigmaOneBit,
         s3g::PsdRawFieldCodecMode::Apt,
+        s3g::PsdRawFieldCodecMode::HfFax,
+        s3g::PsdRawFieldCodecMode::Hellschreiber,
+        s3g::PsdRawFieldCodecMode::Morse,
+        s3g::PsdRawFieldCodecMode::SparkCw,
+        s3g::PsdRawFieldCodecMode::BaudotRtty,
+        s3g::PsdRawFieldCodecMode::Sstv,
     };
     std::array<float, frames> lowDamageProfile {};
     std::array<float, frames> highDamageProfile {};

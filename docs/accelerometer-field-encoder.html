@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Accelerometer Field Encoder - s3g-dsp</title>
+    <meta name="description" content="Documentation and research basis for the s3g ACN/SN3D accelerometer structural-synthesis encoder.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Accelerometer Field Encoder</h1>
+
+        <p>The Accelerometer Field Encoder is a CLAP structural-synthesis instrument and Ambisonic encoder. It models what becomes audible when an array of vibration sensors is attached directly to a bell, leaf, stem, wooden surface, glass body, or tensioned wire. Its normal output is first-, second-, or third-order <code>ACN/SN3D</code>; an alternate output mode exposes the eight conditioned sensor stems. It can generate its own microscopic mechanical events or accept a mono external excitation signal.</p>
+
+        <p>This is not ordinary audio passed through a “contact microphone” equalizer. Excitation, structural modes, propagation, pickup geometry, sensor loading, mounting, conditioning, surface radiation, and spherical-harmonic projection remain separate stages. The eight sensors observe one shared body; they are not independent synthesizer copies. Individual attachments can cross modal nodes, reverse partial polarity, or reject modes while the sounding object and excitation remain unchanged.</p>
+
+        <h2 id="concept">Concept</h2>
+
+        <p>Bill Fontana’s <em>Silent Echoes</em> placed accelerometers on Notre-Dame’s bells to disclose modes kept in motion by the surrounding city and restoration work, without requiring conventional bell strikes. Experimental bell analysis similarly places multiple accelerometers at asymmetric positions so that one sensor is less likely to miss a mode at its node. Biotremology uses accelerometers, piezoelectric contact sensors, and laser vibrometers to observe insect-produced vibrations conducted through leaves and stems rather than through air.</p>
+
+        <p>These practices suggest an instrument whose subject is not only an object, but an entire measurement relationship: small force → dispersive structure → orientation-sensitive sensor array → spatial radiation field. The synthesis therefore makes the virtual measurement setup playable.</p>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>A procedural event model generates ambient loading, paired footsteps, chewing, scraping, tremulation, or taps. An external signal can be added as force.</li>
+          <li>That force excites 24 damped modes. Each substrate supplies a different modal distribution, decay law, dispersion, and sensitivity to added sensor mass.</li>
+          <li>Source position weights the force by each mode shape. Distance-dependent loss then attenuates upper modes more strongly.</li>
+          <li>Eight distributed pickup positions and sensitive axes apply separate mode-shape and propagation weights. A pickup at a node can reject a mode; changing axis reveals orthogonal bending motion.</li>
+          <li>Each sensor derives acceleration, velocity, or displacement, then applies its own mount transmissibility, conditioner high-pass response, sensor noise, gain, and bounded output.</li>
+          <li>The contact field blends those close measurements with frequency-dependent surface radiation and projects every surface point into spherical harmonics.</li>
+          <li>The default third-order output occupies 16 channels in <code>ACN/SN3D</code>. The CLAP keeps that port width fixed: lower orders fill the first 4 or 9 channels and clear the remainder; sensor-stem mode fills the first eight channels before HOA projection and clears channels 9–16.</li>
+        </ol>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Group</th><th>Control</th><th>Model role</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Event</td><td>Excitation</td><td>Ambient, footsteps, chewing, scrape, tremulation, or tap gesture.</td></tr>
+            <tr><td>Event</td><td>Rate / Activity / Force / Texture</td><td>Event density, probability, mechanical amplitude, and impulse-to-friction character.</td></tr>
+            <tr><td>Event</td><td>Ambient Drive</td><td>Continuous low-level environmental force that can disclose long resonances.</td></tr>
+            <tr><td>Event</td><td>External Drive</td><td>Amount of an optional input signal injected as structural force.</td></tr>
+            <tr><td>Structure</td><td>Substrate</td><td>Leaf, stem, bell bronze, wood, glass, or wire modal family.</td></tr>
+            <tr><td>Structure</td><td>Size</td><td>Scales all modal frequencies while retaining their material relationship.</td></tr>
+            <tr><td>Structure</td><td>Damping / Irregularity</td><td>Mode decay and deterministic departure from an ideal symmetric structure.</td></tr>
+            <tr><td>Transmission</td><td>Source Position</td><td>Where force enters the mode shapes.</td></tr>
+            <tr><td>Transmission</td><td>Pickup Position / Axis</td><td>Local mode-shape sample and orientation of the virtual uniaxial sensor.</td></tr>
+            <tr><td>Transmission</td><td>Propagation Loss / Contact Detail</td><td>Distance- and frequency-dependent loss plus the broadband force path that remains between narrow modes.</td></tr>
+            <tr><td>Sensor</td><td>Readout</td><td>Acceleration by default; velocity and displacement reveal the derivative-domain contrast.</td></tr>
+            <tr><td>Sensor</td><td>Sensor Mass</td><td>Lowers structural modal frequencies according to substrate sensitivity.</td></tr>
+            <tr><td>Sensor</td><td>Mount Stiffness</td><td>Controls high-frequency transmissibility from soft pad to rigid attachment.</td></tr>
+            <tr><td>Sensor</td><td>Conditioner HPF / Noise</td><td>Low-frequency electronics roll-off and a small post-pickup self-noise floor.</td></tr>
+            <tr><td>Field</td><td>Contact / Radiation</td><td>Moves from intimate sensor-domain detail toward the smoother modal surface-radiation estimate.</td></tr>
+            <tr><td>Field</td><td>Spatial Extent / Field AED</td><td>Scales and rotates the virtual object’s sensor and radiation geometry.</td></tr>
+            <tr><td>Output</td><td>Order / Mode</td><td>First- through third-order <code>ACN/SN3D</code> by default, or eight optional sensor stems.</td></tr>
+            <tr><td>Output</td><td>Air Radiation / Gain</td><td>Surface-radiation contribution and final output calibration.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="model-basis">Model Basis</h2>
+
+        <p>The core is modal synthesis. Each mode has a frequency, exponential decay, excitation weight, local pickup weight, and radiation weight. This follows bell resynthesis practice in which a recorded response is decomposed into decaying sinusoids. Bell modes occur as close pairs: small departures from symmetry split those pairs and create slow beating or warble. The bronze profile retains paired modes and lets source and pickup azimuth choose different combinations.</p>
+
+        <p>Plant profiles are bending-mode interpretations rather than finite-element plant replicas. Experiments show frequency-dependent nodes along herbaceous stems, along with low-, high-, or band-pass transmission in different leaves and petioles. A single sensor can underestimate motion when its sensitive axis does not align with the major bending axis; the prototype’s axis control crossfades two orthogonal mode-shape components to make that limitation audible. Leaves use short, strongly damped modes plus a separate broadband transmission path, avoiding the false implication that every microscopic contact rings like struck metal.</p>
+
+        <p>The default readout uses structural acceleration. Relative to displacement, a sinusoidal component’s acceleration grows with the square of frequency, so upper modes become much more prominent. Velocity and displacement modes are included as analytical and musical comparisons; they do not claim that an accelerometer directly measures those quantities without integration.</p>
+
+        <p>The mount belongs inside the timbre model. Sensor guidance notes that added mounting mass can lower the mounted resonance, while soft materials damp high-frequency transmissibility. The model separates mass loading from mount stiffness and gives light structures such as leaves and wires greater mass sensitivity than bronze. These are normalized musical relationships, not predictions in grams, newtons, metres, or <code>g</code>.</p>
+
+        <p>Spatial encoding happens after structural observation. Every sensor has a direction on the virtual object and an <code>ACN/SN3D</code> basis. Its contact/radiation signal is multiplied by that basis and accumulated into the HOA bus. Rotating the field therefore preserves the omnidirectional component while rotating directional harmonics. Sensor-stem mode bypasses only this final projection; it retains the same structure, attachment, mount, and conditioner processing.</p>
+
+        <p>See <a href="references.html#accelerometry-structural-listening">Accelerometry and Structural Listening</a> on the central References page for the bell, plant-transmission, sensor-axis, contact-sensor, and mounting sources used in the design.</p>
+
+        <h2 id="presets">Presets</h2>
+
+        <p>Eight starting states exercise different measurement relationships: <code>SILENT BRONZE</code>, <code>BELL WORKS</code>, <code>LEAF FOOTFALLS</code>, <code>CATERPILLAR CHEW</code>, <code>PETIOLE DUET</code>, <code>WEB PLUCKS</code>, <code>WOOD GRAIN</code>, and <code>GLASS DUST</code>. The first is driven mainly by a continuous environmental force; the others foreground discrete structural events. <code>CATERPILLAR CHEW</code> follows the documented <em>P. rapae</em> pattern: roughly 4.1 broad-frequency mandible closures per second, grouped into short strip-removal series with intervening head-extension pauses. Each closure is a three-stage contact, fibrous tear, and frayed release with unequal internal fractures—not a simultaneous full-band impact. Only a trace reaches the leaf resonator, preventing its body from behaving like a struck plate. Preset names describe synthesis scenarios, not recordings of particular species or historical objects.</p>
+
+        <h2 id="plugin-workflow">CLAP and Renderer Workflow</h2>
+
+        <p>The CLAP bundle is named <code>s3g Ambi Encoder Accelerometer Field 16</code>. Its native 980 × 700 interface follows the shared s3g encoder family while giving the synthesis its own structural-sensor display: one vibrating body, the force point, eight virtual attachments, their orientation axes, and the contact-to-radiation field. The lower panels keep excitation, structure, sensor-array, and spatial-output controls visually separate. <code>CATERPILLAR CHEW</code> is the default preset, and the normal output is third-order <code>ACN/SN3D</code>.</p>
+
+        <p>Build the plugin with the CLAP preset. After a complete CLAP build, the repository install script copies it with the rest of the family into the user plugin folder:</p>
+
+        <pre><code>cmake --preset clap
+cmake --build --preset clap --target s3g_accelerometer_field_encoder_clap
+# After building the complete CLAP collection:
+./scripts/install-clap-bundles.sh</code></pre>
+
+        <p>Build the core smoke test and renderer with the development preset:</p>
+
+        <pre><code>cmake --preset dev
+cmake --build --preset dev --target \
+  s3g_accelerometer_field_encoder_smoke \
+  s3g_accelerometer_field_encoder_render
+./build/s3g_accelerometer_field_encoder_smoke
+./build/s3g_accelerometer_field_encoder_render --list
+./build/s3g_accelerometer_field_encoder_render leaf-chew-3oa.wav 3 12
+./build/s3g_accelerometer_field_encoder_render leaf-chew-stems.wav 3 12 raw</code></pre>
+
+        <p>The renderer writes a 48 kHz, 16-bit multichannel WAV. Its default is 16-channel third-order <code>ACN/SN3D</code>; append <code>raw</code> to write eight sensor stems, or append <code>hoa 1</code> or <code>hoa 2</code> to select a lower order. The public header <code>dsp/s3g_accelerometer_field_encoder.h</code> and CLAP both accept external excitation, so the same model can operate as a generator or a structure-resonating effect.</p>
+
+        <h2 id="limits">Limits and Next Step</h2>
+
+        <p>The prototype captures documented relationships, not calibrated apparatus. Its positions are normalized, modal profiles are compact archetypes, and it does not yet simulate full two- or three-dimensional geometry, nonlinear leaf contact, an identified sensor transfer function, or a specific accelerometer’s volts-per-<code>g</code> response. The spatial radiation layer is a weighted surface-point model, not a boundary-element acoustic solution.</p>
+
+        <p>The most useful next step is a measured-profile importer: force/acceleration impulse responses or a table of frequency, decay, complex amplitude, source position, and pickup position could replace an archetype while preserving the same sensor array and spatial encoder.</p>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#concept">Concept</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#controls">Controls</a>
+          <a href="#model-basis">Model Basis</a>
+          <a href="#presets">Presets</a>
+          <a href="#plugin-workflow">CLAP and Renderer Workflow</a>
+          <a href="#limits">Limits and Next Step</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

@@ -21,6 +21,8 @@ constexpr uint32_t kPsdRawFieldTransformSize = 32;
 constexpr uint32_t kPsdRawFieldLpcOrder = 6;
 constexpr uint32_t kPsdRawFieldDiscLookahead = 32;
 constexpr uint32_t kPsdRawFieldAptLineWords = 2080;
+constexpr uint32_t kPsdRawFieldHfFaxLineWords = 576;
+constexpr uint32_t kPsdRawFieldSstvLineWords = 1018;
 constexpr std::size_t kPsdRawFieldMaxSourceBytes = 64u * 1024u * 1024u;
 
 struct PsdRawFieldSource {
@@ -117,8 +119,14 @@ enum class PsdRawFieldCodecMode : uint32_t {
     SigmaOneBit = 14,
     HybridPredictive = 15,
     Apt = 16,
+    HfFax = 17,
+    Hellschreiber = 18,
+    Morse = 19,
+    SparkCw = 20,
+    BaudotRtty = 21,
+    Sstv = 22,
 };
-constexpr uint32_t kPsdRawFieldCodecModeCount = 17;
+constexpr uint32_t kPsdRawFieldCodecModeCount = 23;
 
 enum class PsdRawFieldChannelScheme : uint32_t {
     Parallel = 0,
@@ -127,6 +135,34 @@ enum class PsdRawFieldChannelScheme : uint32_t {
     Shuffled = 3,
     Divergent = 4,
 };
+
+enum class PsdRawFieldModSource : uint32_t {
+    Off = 0,
+    Sine = 1,
+    Triangle = 2,
+    Noise = 3,
+    Field = 4,
+    Sync = 5,
+    Gate = 6,
+    Apt = 7,
+    HfFax = 8,
+    Hellschreiber = 9,
+    Morse = 10,
+    SparkCw = 11,
+    BaudotRtty = 12,
+    Sstv = 13,
+    Feedback = 14,
+};
+constexpr uint32_t kPsdRawFieldModSourceCount = 15;
+
+enum class PsdRawFieldModTarget : uint32_t {
+    Carrier = 0,
+    Deviation = 1,
+    Clock = 2,
+    Data = 3,
+    Damage = 4,
+};
+constexpr uint32_t kPsdRawFieldModTargetCount = 5;
 
 struct PsdRawFieldParams {
     float scanRate = 0.44f;
@@ -141,12 +177,20 @@ struct PsdRawFieldParams {
     float codecRate = 0.35f;
     float bitDepth = 8.0f;
     float codecDamage = 0.28f;
+    float carrierTune = 0.0f;
     float drive = 0.68f;
     float shred = 0.58f;
     float resonance = 0.18f;
     float gainDb = -12.0f;
     uint32_t seed = 0x50434431u;
     PsdRawFieldCodecMode fieldCodecMode = PsdRawFieldCodecMode::MuLaw;
+    PsdRawFieldModSource modSource = PsdRawFieldModSource::Off;
+    PsdRawFieldModTarget modTarget = PsdRawFieldModTarget::Carrier;
+    float modRate = 0.35f;
+    float modRatio = 1.0f;
+    float modIndex = 0.0f;
+    float modFeedback = 0.0f;
+    uint32_t modClockLock = 0u;
 };
 
 class PsdRawField {
@@ -302,6 +346,42 @@ public:
             aptPreviousVideo_[ch] = -1.0f;
             aptWord_[ch] = 0u;
             aptLine_[ch] = 0u;
+            transmissionPhase_[ch] = static_cast<float>(ch) * 0.03125f;
+            hfFaxClock_[ch] = 0.0f;
+            hfFaxVideo_[ch] = 0.0f;
+            hfFaxPreviousVideo_[ch] = 0.0f;
+            hfFaxWord_[ch] = 0u;
+            hfFaxLine_[ch] = 0u;
+            hellClock_[ch] = 0.0f;
+            hellEnvelope_[ch] = 0.0f;
+            hellGlyph_[ch] = 0u;
+            hellPixel_[ch] = 0u;
+            morseEnvelope_[ch] = 0.0f;
+            morsePattern_[ch] = 0u;
+            morseLength_[ch] = 0u;
+            morseElement_[ch] = 0u;
+            morseSamples_[ch] = 0u;
+            morseGate_[ch] = false;
+            morseInGap_[ch] = false;
+            sparkBurst_[ch] = 0.0f;
+            rttyClock_[ch] = 0.0f;
+            rttyCode_[ch] = 0u;
+            rttyBit_[ch] = 0u;
+            rttyMark_[ch] = true;
+            rttyFigures_[ch] = false;
+            sstvClock_[ch] = 0.0f;
+            sstvFrequency_[ch] = 1900.0f;
+            sstvPreviousFrequency_[ch] = 1900.0f;
+            sstvWord_[ch] = 0u;
+            sstvLine_[ch] = 0u;
+            modPhase_[ch] = static_cast<float>(ch) * 0.013f;
+            modValue_[ch] = 0.0f;
+            modPrevious_[ch] = 0.0f;
+            modHeldNoise_[ch] = fieldNoise(tapeSeed_ ^ (ch * 0x9e3779b9u));
+            modFeedbackState_[ch] = 0.0f;
+            modSparkEnvelope_[ch] = 0.0f;
+            modStep_[ch] = 0u;
+            effectiveDamage_[ch] = params_.codecDamage;
         }
         shaper_.reset();
         sectionPhase_ = 0.0f;
@@ -410,6 +490,7 @@ public:
                 const float dc = smoothed - dcX_[ch] + dcR * dcY_[ch];
                 dcX_[ch] = smoothed;
                 dcY_[ch] = dc;
+                updateModulator(dc, ch);
                 if (newCodecFrame) updateCodecFrame(ch, pos);
                 shapedInput[ch] = codecStage(dc, ch);
             }
@@ -499,12 +580,22 @@ private:
         p.codecRate = clamp(p.codecRate, 0.0f, 1.0f);
         p.bitDepth = clamp(p.bitDepth, 2.0f, 16.0f);
         p.codecDamage = clamp(p.codecDamage, 0.0f, 1.0f);
+        p.carrierTune = clamp(p.carrierTune, -24.0f, 24.0f);
         p.drive = clamp(p.drive, 0.0f, 1.0f);
         p.shred = clamp(p.shred, 0.0f, 1.0f);
         p.resonance = clamp(p.resonance, 0.0f, 1.0f);
         p.gainDb = clamp(p.gainDb, -60.0f, 6.0f);
         p.fieldCodecMode = static_cast<PsdRawFieldCodecMode>(std::min<uint32_t>(
             kPsdRawFieldCodecModeCount - 1u, static_cast<uint32_t>(p.fieldCodecMode)));
+        p.modSource = static_cast<PsdRawFieldModSource>(std::min<uint32_t>(
+            kPsdRawFieldModSourceCount - 1u, static_cast<uint32_t>(p.modSource)));
+        p.modTarget = static_cast<PsdRawFieldModTarget>(std::min<uint32_t>(
+            kPsdRawFieldModTargetCount - 1u, static_cast<uint32_t>(p.modTarget)));
+        p.modRate = clamp(p.modRate, 0.0f, 1.0f);
+        p.modRatio = clamp(p.modRatio, 0.125f, 16.0f);
+        p.modIndex = clamp(p.modIndex, 0.0f, 1.0f);
+        p.modFeedback = clamp(p.modFeedback, 0.0f, 0.98f);
+        p.modClockLock = std::min<uint32_t>(1u, p.modClockLock);
         return p;
     }
 
@@ -545,7 +636,13 @@ private:
         } else if (params_.codecMode == PsdRawFieldCodecMode::ModemFsk
             || params_.codecMode == PsdRawFieldCodecMode::FaxQam
             || params_.codecMode == PsdRawFieldCodecMode::SigmaOneBit
-            || params_.codecMode == PsdRawFieldCodecMode::Apt) {
+            || params_.codecMode == PsdRawFieldCodecMode::Apt
+            || params_.codecMode == PsdRawFieldCodecMode::HfFax
+            || params_.codecMode == PsdRawFieldCodecMode::Hellschreiber
+            || params_.codecMode == PsdRawFieldCodecMode::Morse
+            || params_.codecMode == PsdRawFieldCodecMode::SparkCw
+            || params_.codecMode == PsdRawFieldCodecMode::BaudotRtty
+            || params_.codecMode == PsdRawFieldCodecMode::Sstv) {
             db -= 2.5f;
         }
         return clamp(db, -8.0f, 10.0f);
@@ -824,6 +921,72 @@ private:
             const float step = static_cast<float>((15u - wedge + ((line >> 3u) & 15u)) & 15u)
                 * (2.0f / 15.0f) - 1.0f;
             return fieldByte(step * 0.82f);
+        }
+        case PsdRawFieldCodecMode::HfFax: {
+            const uint32_t line = index / kPsdRawFieldHfFaxLineWords;
+            const uint32_t word = index % kPsdRawFieldHfFaxLineWords;
+            if (word < 16u) return fieldByte(((word >> 1u) & 1u) != 0u ? 0.98f : -0.98f);
+            if (word < 32u) return fieldByte((line & 1u) != 0u ? 0.90f : -0.90f);
+            const uint32_t pixel = word - 32u;
+            const float weather = interpolatedFieldNoise(pixel + line * 557u, 61u,
+                seed ^ 0x7f4a7c15u) * 0.48f;
+            const float contour = std::sin(static_cast<float>(pixel) * 0.028f
+                + static_cast<float>(line) * 0.11f) * 0.35f;
+            return fieldByte(weather + contour);
+        }
+        case PsdRawFieldCodecMode::Hellschreiber: {
+            const uint32_t character = index / 98u;
+            const uint32_t pixel = index % 98u;
+            const uint32_t column = pixel / 14u;
+            const uint32_t rowPixel = (pixel % 14u) >> 1u;
+            const uint32_t glyph = hash(character ^ seed) % 26u;
+            const bool ink = column < 5u
+                && ((hellGlyphRow(glyph, rowPixel) >> (4u - column)) & 1u) != 0u;
+            return fieldByte(ink ? 0.92f : -0.92f);
+        }
+        case PsdRawFieldCodecMode::Morse: {
+            const uint32_t cell = index % 64u;
+            const uint32_t letter = (index / 64u + (seed & 31u)) % 26u;
+            uint8_t length = 0u;
+            const uint16_t pattern = morsePatternForLetter(letter, length);
+            uint32_t cursor = 0u;
+            for (uint32_t element = 0u; element < length; ++element) {
+                const uint32_t units = ((pattern >> element) & 1u) != 0u ? 3u : 1u;
+                if (cell >= cursor && cell < cursor + units * 4u) return fieldByte(0.92f);
+                cursor += units * 4u + 4u;
+            }
+            return fieldByte(-0.92f);
+        }
+        case PsdRawFieldCodecMode::SparkCw: {
+            const uint32_t local = index & 127u;
+            const bool burst = local == 0u || local == 24u || local == 48u || local == 96u;
+            const float decay = std::exp(-static_cast<float>(local % 24u) * 0.24f);
+            return fieldByte(burst || (local % 24u) < 12u
+                ? fieldNoise(index ^ seed) * decay
+                : -0.92f);
+        }
+        case PsdRawFieldCodecMode::BaudotRtty: {
+            const uint32_t frame = index / 8u;
+            const uint32_t bit = index % 8u;
+            const uint8_t code = baudotLetterCode(hash(frame ^ seed) % 26u);
+            const bool mark = bit == 0u ? false : bit <= 5u
+                ? ((code >> (bit - 1u)) & 1u) != 0u
+                : true;
+            return fieldByte(mark ? 0.88f : -0.88f);
+        }
+        case PsdRawFieldCodecMode::Sstv: {
+            const uint32_t line = index / kPsdRawFieldSstvLineWords;
+            const uint32_t word = index % kPsdRawFieldSstvLineWords;
+            if (word < 20u) return fieldByte(-1.0f);
+            if (word < 28u) return fieldByte(-0.62f);
+            const uint32_t local = word - 28u;
+            const uint32_t section = local / 328u;
+            const uint32_t pixel = local % 328u;
+            if (section >= 3u || pixel >= 320u) return fieldByte(-0.62f);
+            const float ramp = static_cast<float>(pixel) * (2.0f / 319.0f) - 1.0f;
+            const float image = interpolatedFieldNoise(pixel + line * 331u,
+                47u + section * 19u, seed ^ (section * 0x9e3779b9u)) * 0.42f;
+            return fieldByte(ramp * 0.44f + image);
         }
         case PsdRawFieldCodecMode::RawPcm:
         default: {
@@ -1139,7 +1302,7 @@ private:
             heldTick_[ch] = true;
             return x;
         }
-        const float holdSamples = codecInterval();
+        const float holdSamples = codecInterval(ch);
         hold_[ch] += 1.0f;
         if (hold_[ch] >= holdSamples) {
             hold_[ch] -= holdSamples;
@@ -1149,18 +1312,213 @@ private:
         return held_[ch];
     }
 
-    float codecInterval() const
+    float baseCodecInterval() const
     {
         return std::pow(2.0f, params_.codecRate * 14.0f);
     }
 
-    bool codecClockTick(float& clock) const
+    float codecInterval(uint32_t ch) const
     {
-        const float interval = codecInterval();
+        float interval = baseCodecInterval();
+        if (params_.modSource != PsdRawFieldModSource::Off
+            && params_.modTarget == PsdRawFieldModTarget::Clock
+            && ch < kPsdRawFieldChannels) {
+            interval *= std::pow(2.0f, modValue_[ch] * params_.modIndex * 6.0f);
+        }
+        return clamp(interval, 1.0f, 65536.0f);
+    }
+
+    bool codecClockTick(float& clock, uint32_t ch) const
+    {
+        const float interval = codecInterval(ch);
         clock += 1.0f;
         if (clock < interval) return false;
         clock -= interval;
         return true;
+    }
+
+    float nominalCarrierFrequency() const
+    {
+        switch (params_.codecMode) {
+        case PsdRawFieldCodecMode::ModemFsk: return 1805.0f;
+        case PsdRawFieldCodecMode::FaxQam: return 1700.0f;
+        case PsdRawFieldCodecMode::Apt: return 2400.0f;
+        case PsdRawFieldCodecMode::HfFax: return 1900.0f;
+        case PsdRawFieldCodecMode::Hellschreiber: return 900.0f;
+        case PsdRawFieldCodecMode::Morse:
+        case PsdRawFieldCodecMode::SparkCw: return 700.0f;
+        case PsdRawFieldCodecMode::BaudotRtty: return 1700.0f;
+        case PsdRawFieldCodecMode::Sstv: return 1900.0f;
+        default: return 440.0f;
+        }
+    }
+
+    float lockedModulatorFrequency(PsdRawFieldModSource source) const
+    {
+        const float updateRate = static_cast<float>(sampleRate_) / baseCodecInterval();
+        switch (source) {
+        case PsdRawFieldModSource::Apt: return updateRate / 2080.0f;
+        case PsdRawFieldModSource::HfFax: return updateRate / 576.0f;
+        case PsdRawFieldModSource::Hellschreiber: return updateRate / (13.0f * 98.0f);
+        case PsdRawFieldModSource::Morse:
+        case PsdRawFieldModSource::SparkCw:
+            return static_cast<float>(sampleRate_) /
+                (static_cast<float>(sampleRate_) * 0.12f + baseCodecInterval() * 320.0f);
+        case PsdRawFieldModSource::BaudotRtty: return updateRate / (16.0f * 8.0f);
+        case PsdRawFieldModSource::Sstv: return updateRate / 1018.0f;
+        case PsdRawFieldModSource::Sync:
+        case PsdRawFieldModSource::Gate: return updateRate / 64.0f;
+        case PsdRawFieldModSource::Sine:
+        case PsdRawFieldModSource::Triangle:
+        case PsdRawFieldModSource::Noise: return nominalCarrierFrequency();
+        case PsdRawFieldModSource::Field:
+        case PsdRawFieldModSource::Feedback:
+        case PsdRawFieldModSource::Off:
+        default: return 1.0f;
+        }
+    }
+
+    float morseModulatorGate(float input, float phase) const
+    {
+        const uint32_t letter = static_cast<uint32_t>(
+            clamp(input * 0.5f + 0.5f, 0.0f, 0.99999f) * 26.0f);
+        uint8_t length = 0u;
+        const uint16_t pattern = morsePatternForLetter(letter, length);
+        uint32_t totalUnits = 3u;
+        for (uint32_t element = 0u; element < length; ++element) {
+            totalUnits += (((pattern >> element) & 1u) != 0u ? 3u : 1u);
+            if (element + 1u < length) ++totalUnits;
+        }
+        const uint32_t unit = std::min<uint32_t>(totalUnits - 1u,
+            static_cast<uint32_t>(phase * static_cast<float>(totalUnits)));
+        uint32_t cursor = 0u;
+        for (uint32_t element = 0u; element < length; ++element) {
+            const uint32_t keyedUnits = ((pattern >> element) & 1u) != 0u ? 3u : 1u;
+            if (unit >= cursor && unit < cursor + keyedUnits) return 1.0f;
+            cursor += keyedUnits + 1u;
+        }
+        return -1.0f;
+    }
+
+    void updateModulator(float input, uint32_t ch)
+    {
+        const auto source = params_.modSource;
+        if (source == PsdRawFieldModSource::Off) {
+            modValue_[ch] = 0.0f;
+            effectiveDamage_[ch] = params_.codecDamage;
+            return;
+        }
+
+        const float freeRate = 0.05f * std::pow(160000.0f, params_.modRate);
+        const float baseRate = params_.modClockLock != 0u
+            ? lockedModulatorFrequency(source)
+            : freeRate;
+        const float frequency = clamp(baseRate * params_.modRatio,
+            0.0001f, static_cast<float>(sampleRate_) * 0.45f);
+        const float previousPhase = modPhase_[ch];
+        modPhase_[ch] += frequency / static_cast<float>(sampleRate_);
+        modPhase_[ch] -= std::floor(modPhase_[ch]);
+        const bool wrapped = modPhase_[ch] < previousPhase;
+        if (wrapped) {
+            ++modStep_[ch];
+            modHeldNoise_[ch] = fieldNoise(modStep_[ch] ^ tapeSeed_
+                ^ (ch * 0x9e3779b9u) ^ 0x68e31da4u);
+        }
+
+        const float phase = modPhase_[ch];
+        float value = 0.0f;
+        switch (source) {
+        case PsdRawFieldModSource::Sine:
+            value = std::sin(2.0f * kPi * phase);
+            break;
+        case PsdRawFieldModSource::Triangle:
+            value = triangle(phase) * 2.0f - 1.0f;
+            break;
+        case PsdRawFieldModSource::Noise:
+            value = modHeldNoise_[ch];
+            break;
+        case PsdRawFieldModSource::Field:
+            value = input;
+            break;
+        case PsdRawFieldModSource::Sync:
+            value = phase < 0.055f ? 1.0f : -1.0f;
+            break;
+        case PsdRawFieldModSource::Gate:
+            value = phase < 0.5f ? 1.0f : -1.0f;
+            break;
+        case PsdRawFieldModSource::Apt: {
+            const uint32_t word = static_cast<uint32_t>(phase * 2080.0f);
+            if (word < 39u || (word >= 1040u && word < 1079u)) {
+                value = ((word >> 1u) & 1u) != 0u ? 1.0f : -1.0f;
+            } else {
+                value = clamp(input * 0.68f
+                    + std::sin(2.0f * kPi * phase * 11.0f) * 0.32f, -1.0f, 1.0f);
+            }
+            break;
+        }
+        case PsdRawFieldModSource::HfFax: {
+            const uint32_t word = static_cast<uint32_t>(phase * 576.0f);
+            value = word < 32u
+                ? (((word >> 1u) & 1u) != 0u ? 1.0f : -1.0f)
+                : clamp(input * 0.55f + (phase * 2.0f - 1.0f) * 0.45f, -1.0f, 1.0f);
+            break;
+        }
+        case PsdRawFieldModSource::Hellschreiber: {
+            const uint32_t pixel = std::min<uint32_t>(97u, static_cast<uint32_t>(phase * 98.0f));
+            const uint32_t column = pixel / 14u;
+            const uint32_t row = (pixel % 14u) >> 1u;
+            const uint32_t glyph = hash(modStep_[ch] ^ tapeSeed_ ^ (ch * 0x632be59bu)) % 26u;
+            const bool ink = column < 5u
+                && ((hellGlyphRow(glyph, row) >> (4u - column)) & 1u) != 0u;
+            value = ink ? 1.0f : -1.0f;
+            break;
+        }
+        case PsdRawFieldModSource::Morse:
+            value = morseModulatorGate(input, phase);
+            break;
+        case PsdRawFieldModSource::SparkCw: {
+            const float gate = morseModulatorGate(input, phase);
+            if (gate > 0.0f && modPrevious_[ch] <= 0.0f) modSparkEnvelope_[ch] = 1.0f;
+            modSparkEnvelope_[ch] *= 0.9975f;
+            value = gate > 0.0f
+                ? clamp(modHeldNoise_[ch] * modSparkEnvelope_[ch] * 1.6f, -1.0f, 1.0f)
+                : -1.0f;
+            break;
+        }
+        case PsdRawFieldModSource::BaudotRtty: {
+            const uint32_t bit = std::min<uint32_t>(7u, static_cast<uint32_t>(phase * 8.0f));
+            const uint8_t code = baudotLetterCode(hash(modStep_[ch] ^ tapeSeed_) % 26u);
+            const bool mark = bit == 0u ? false : bit <= 5u
+                ? ((code >> (bit - 1u)) & 1u) != 0u
+                : true;
+            value = mark ? 1.0f : -1.0f;
+            break;
+        }
+        case PsdRawFieldModSource::Sstv: {
+            const uint32_t word = static_cast<uint32_t>(phase * 1018.0f);
+            if (word < 20u) value = -1.0f;
+            else if (word < 28u || ((word - 28u) % 328u) >= 320u) value = -0.5f;
+            else value = clamp(input * 0.62f
+                + std::sin(2.0f * kPi * phase * 3.0f) * 0.38f, -1.0f, 1.0f);
+            break;
+        }
+        case PsdRawFieldModSource::Feedback:
+            value = std::tanh(modFeedbackState_[ch] * 2.2f
+                + modPrevious_[ch] * params_.modFeedback * 1.8f);
+            break;
+        case PsdRawFieldModSource::Off:
+        default:
+            break;
+        }
+
+        if (source != PsdRawFieldModSource::Feedback && params_.modFeedback > 0.0001f) {
+            value = std::tanh(value + modPrevious_[ch] * params_.modFeedback * 1.45f);
+        }
+        modPrevious_[ch] = value;
+        modValue_[ch] = clamp(value, -1.0f, 1.0f);
+        effectiveDamage_[ch] = params_.modTarget == PsdRawFieldModTarget::Damage
+            ? clamp(params_.codecDamage + modValue_[ch] * params_.modIndex, 0.0f, 1.0f)
+            : params_.codecDamage;
     }
 
     void updateCodecFrame(uint32_t ch, uint32_t pos)
@@ -1169,7 +1527,8 @@ private:
         const uint32_t independent = hash(pos ^ (ch * 0x45d9f3bu) ^ shared);
         const uint32_t selector = hash(shared ^ (ch * 0x27d4eb2du));
         const uint32_t h = hash01(selector) < params_.channelSpread ? independent : shared;
-        const float loss = params_.codecDamage * params_.codecDamage * 0.35f;
+        const float damage = effectiveDamage_[ch];
+        const float loss = damage * damage * 0.35f;
         frameDrop_[ch] = static_cast<float>(h & 0xffffu) / 65535.0f < loss;
         codeGain_[ch] = lerp(0.15f, 0.9f, static_cast<float>((h >> 16u) & 0xffu) / 255.0f);
         codePitch_[ch] = 24u + ((h >> 24u) & 95u);
@@ -1191,12 +1550,23 @@ private:
 
     float codecStage(float input, uint32_t ch)
     {
-        const float clean = clamp(input, -1.0f, 1.0f);
+        activeModChannel_ = ch;
+        float clean = clamp(input, -1.0f, 1.0f);
+        if (params_.modSource != PsdRawFieldModSource::Off
+            && params_.modTarget == PsdRawFieldModTarget::Data) {
+            clean = clamp(clean + modValue_[ch] * params_.modIndex * 1.5f, -1.0f, 1.0f);
+        }
         const bool ownsClock = params_.codecMode == PsdRawFieldCodecMode::Cvsd
             || params_.codecMode == PsdRawFieldCodecMode::ModemFsk
             || params_.codecMode == PsdRawFieldCodecMode::FaxQam
             || params_.codecMode == PsdRawFieldCodecMode::SigmaOneBit
-            || params_.codecMode == PsdRawFieldCodecMode::Apt;
+            || params_.codecMode == PsdRawFieldCodecMode::Apt
+            || params_.codecMode == PsdRawFieldCodecMode::HfFax
+            || params_.codecMode == PsdRawFieldCodecMode::Hellschreiber
+            || params_.codecMode == PsdRawFieldCodecMode::Morse
+            || params_.codecMode == PsdRawFieldCodecMode::SparkCw
+            || params_.codecMode == PsdRawFieldCodecMode::BaudotRtty
+            || params_.codecMode == PsdRawFieldCodecMode::Sstv;
         float x = ownsClock ? clean : downsampleStage(clean, ch);
         if (static_cast<uint32_t>(params_.codecMode) < static_cast<uint32_t>(PsdRawFieldCodecMode::CelpScramble)
             && frameDrop_[ch]) {
@@ -1279,13 +1649,41 @@ private:
         case PsdRawFieldCodecMode::Apt:
             x = aptCodec(clean, ch);
             break;
+        case PsdRawFieldCodecMode::HfFax:
+            x = hfFaxCodec(clean, ch);
+            break;
+        case PsdRawFieldCodecMode::Hellschreiber:
+            x = hellschreiberCodec(clean, ch);
+            break;
+        case PsdRawFieldCodecMode::Morse:
+            x = morseCodec(clean, ch, false);
+            break;
+        case PsdRawFieldCodecMode::SparkCw:
+            x = morseCodec(clean, ch, true);
+            break;
+        case PsdRawFieldCodecMode::BaudotRtty:
+            x = baudotRttyCodec(clean, ch);
+            break;
+        case PsdRawFieldCodecMode::Sstv:
+            x = sstvCodec(clean, ch);
+            break;
         case PsdRawFieldCodecMode::RawPcm:
         default:
             x = quantize(x, params_.bitDepth);
             break;
         }
 
-        predictor_[ch] += (x - predictor_[ch]) * lerp(0.18f, 0.82f, params_.codecDamage);
+        if (params_.modSource != PsdRawFieldModSource::Off
+            && params_.modTarget == PsdRawFieldModTarget::Damage) {
+            const float damage = effectiveDamage_[ch];
+            const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_ ^ (ch * 0xd1b54a35u));
+            if (hash01(h) < damage * damage * 0.045f) {
+                x = (h & 1u) != 0u ? -x : fieldNoise(h ^ 0xa511e9b3u);
+            }
+        }
+        predictor_[ch] += (x - predictor_[ch]) * lerp(0.18f, 0.82f, effectiveDamage_[ch]);
+        modFeedbackState_[ch] += (clamp(x, -1.5f, 1.5f) - modFeedbackState_[ch])
+            * lerp(0.08f, 0.42f, 1.0f - params_.modFeedback);
         ++codecSample_[ch];
         return clamp(x, -1.5f, 1.5f);
     }
@@ -1454,7 +1852,7 @@ private:
 
     float cvsdCodec(float x, uint32_t ch)
     {
-        if (codecSample_[ch] == 0u || codecClockTick(cvsdClock_[ch])) {
+        if (codecSample_[ch] == 0u || codecClockTick(cvsdClock_[ch], ch)) {
             bool bit = x >= cvsdIntegrator_[ch];
             const float flipChance = params_.codecDamage * params_.codecDamage * 0.28f;
             if (hash01(codecSample_[ch] ^ tapeSeed_ ^ (ch * 0x632be59bu)) < flipChance) bit = !bit;
@@ -1475,7 +1873,7 @@ private:
             cvsdIntegrator_[ch] = clamp(cvsdIntegrator_[ch], -1.0f, 1.0f);
             cvsdLastBit_[ch] = bit;
         }
-        const float bitRate = static_cast<float>(sampleRate_) / codecInterval();
+        const float bitRate = static_cast<float>(sampleRate_) / codecInterval(ch);
         const float cutoff = clamp(bitRate * lerp(0.11f, 0.24f,
             clamp((params_.bitDepth - 2.0f) / 14.0f, 0.0f, 1.0f)), 12.0f, 12000.0f);
         const float smoothing = 1.0f - std::exp(
@@ -1707,9 +2105,36 @@ private:
         return output;
     }
 
+    float tunedFrequency(float frequency) const
+    {
+        const bool active = params_.modSource != PsdRawFieldModSource::Off
+            && activeModChannel_ < kPsdRawFieldChannels;
+        if (active && params_.modTarget == PsdRawFieldModTarget::Deviation) {
+            const float center = nominalCarrierFrequency();
+            const float deviationScale = std::pow(2.0f,
+                modValue_[activeModChannel_] * params_.modIndex * 3.0f);
+            frequency = center + (frequency - center) * deviationScale;
+        }
+        float semitones = params_.carrierTune;
+        if (active && params_.modTarget == PsdRawFieldModTarget::Carrier) {
+            semitones += modValue_[activeModChannel_] * params_.modIndex * 24.0f;
+        }
+        const float transposed = frequency * std::pow(2.0f, semitones * (1.0f / 12.0f));
+        return clamp(transposed, 20.0f, static_cast<float>(sampleRate_) * 0.45f);
+    }
+
+    bool codecClockTickScaled(float& clock, float scale, uint32_t ch) const
+    {
+        const float interval = std::max(1.0f, codecInterval(ch) * scale);
+        clock += 1.0f;
+        if (clock < interval) return false;
+        clock -= interval;
+        return true;
+    }
+
     float modemCodec(float x, uint32_t ch)
     {
-        if ((codecSample_[ch] == 0u || codecClockTick(modemClock_[ch])) && !frameDrop_[ch]) {
+        if ((codecSample_[ch] == 0u || codecClockTick(modemClock_[ch], ch)) && !frameDrop_[ch]) {
             const uint32_t stateShift = std::min<uint32_t>(3u,
                 static_cast<uint32_t>(std::max(0.0f, params_.bitDepth - 2.0f)) / 4u);
             const uint32_t states = 2u << stateShift;
@@ -1723,8 +2148,8 @@ private:
                 modemPhase_[ch] += hash01(codecSample_[ch] ^ 0xa511e9b3u) * 0.25f;
             }
             const float laneSkew = (static_cast<float>(ch) - 3.5f) * 21.0f * params_.channelSpread;
-            modemFrequency_[ch] = lerp(430.0f, 3180.0f,
-                static_cast<float>(symbol) / static_cast<float>(states - 1u)) + laneSkew;
+            modemFrequency_[ch] = tunedFrequency(lerp(430.0f, 3180.0f,
+                static_cast<float>(symbol) / static_cast<float>(states - 1u)) + laneSkew);
             modemAmplitude_[ch] = lerp(0.28f, 0.86f, std::abs(x));
         }
         modemPhase_[ch] += modemFrequency_[ch] / static_cast<float>(sampleRate_);
@@ -1738,7 +2163,7 @@ private:
 
     float faxCodec(float x, uint32_t ch)
     {
-        const bool symbolTick = codecSample_[ch] == 0u || codecClockTick(faxClock_[ch]);
+        const bool symbolTick = codecSample_[ch] == 0u || codecClockTick(faxClock_[ch], ch);
         if (symbolTick) {
             faxPreviousI_[ch] = faxTargetI_[ch];
             faxPreviousQ_[ch] = faxTargetQ_[ch];
@@ -1818,7 +2243,7 @@ private:
             ++faxSymbol_[ch];
         }
 
-        const float symbolPhase = clamp(faxClock_[ch] / codecInterval(), 0.0f, 1.0f);
+        const float symbolPhase = clamp(faxClock_[ch] / codecInterval(ch), 0.0f, 1.0f);
         const float raisedCosine = 0.5f - 0.5f * std::cos(kPi * symbolPhase);
         const float shapedI = lerp(faxPreviousI_[ch], faxTargetI_[ch], raisedCosine);
         const float shapedQ = lerp(faxPreviousQ_[ch], faxTargetQ_[ch], raisedCosine);
@@ -1826,8 +2251,8 @@ private:
         const float coupling = params_.codecDamage * 0.08f;
         faxI_[ch] += (shapedI + faxQ_[ch] * coupling - faxI_[ch]) * equalizer;
         faxQ_[ch] += (shapedQ - faxI_[ch] * coupling - faxQ_[ch]) * equalizer;
-        const float carrierFrequency = 1700.0f
-            + (static_cast<float>(ch) - 3.5f) * 13.0f * params_.channelSpread;
+        const float carrierFrequency = tunedFrequency(1700.0f
+            + (static_cast<float>(ch) - 3.5f) * 13.0f * params_.channelSpread);
         faxPhase_[ch] += carrierFrequency / static_cast<float>(sampleRate_);
         faxPhase_[ch] -= std::floor(faxPhase_[ch]);
         const float phase = 2.0f * kPi * faxPhase_[ch];
@@ -1837,7 +2262,7 @@ private:
 
     float sigmaCodec(float x, uint32_t ch)
     {
-        if (codecSample_[ch] == 0u || codecClockTick(sigmaClock_[ch])) {
+        if (codecSample_[ch] == 0u || codecClockTick(sigmaClock_[ch], ch)) {
             const float feedback = sigmaLastBit_[ch] ? 1.0f : -1.0f;
             sigmaError_[ch] += x - feedback;
             sigmaError_[ch] *= lerp(0.9998f, 0.996f, params_.codecDamage);
@@ -1849,7 +2274,7 @@ private:
         }
         const float detail = clamp((params_.bitDepth - 2.0f) / 14.0f, 0.0f, 1.0f);
         const float encoded = sigmaLastBit_[ch] ? 1.0f : -1.0f;
-        const float bitRate = static_cast<float>(sampleRate_) / codecInterval();
+        const float bitRate = static_cast<float>(sampleRate_) / codecInterval(ch);
         const float cutoff = clamp(bitRate * lerp(0.08f, 0.22f, detail), 8.0f, 12000.0f);
         const float reconstruction = 1.0f - std::exp(
             -2.0f * kPi * cutoff / static_cast<float>(sampleRate_));
@@ -1927,7 +2352,7 @@ private:
 
     float aptCodec(float input, uint32_t ch)
     {
-        const bool wordTick = codecSample_[ch] == 0u || codecClockTick(aptClock_[ch]);
+        const bool wordTick = codecSample_[ch] == 0u || codecClockTick(aptClock_[ch], ch);
         if (wordTick) {
             aptVideo_[ch] = aptVideoWord(input, ch, aptWord_[ch]);
             const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_
@@ -1946,7 +2371,7 @@ private:
         }
 
         const float targetEnvelope = 0.06f + (aptVideo_[ch] * 0.5f + 0.5f) * 0.94f;
-        const float wordRate = static_cast<float>(sampleRate_) / codecInterval();
+        const float wordRate = static_cast<float>(sampleRate_) / codecInterval(ch);
         const float envelopeCutoff = clamp(wordRate * 0.72f, 8.0f, 12000.0f);
         const float envelopeSmoothing = 1.0f - std::exp(
             -2.0f * kPi * envelopeCutoff / static_cast<float>(sampleRate_));
@@ -1957,7 +2382,7 @@ private:
         const float flutter = std::sin(
             2.0f * kPi * (static_cast<float>(aptLine_[ch] % 128u) / 128.0f))
             * params_.codecDamage * 5.0f;
-        aptCarrierPhase_[ch] += (2400.0f + laneSkew + flutter)
+        aptCarrierPhase_[ch] += tunedFrequency(2400.0f + laneSkew + flutter)
             / static_cast<float>(sampleRate_);
         aptCarrierPhase_[ch] -= std::floor(aptCarrierPhase_[ch]);
         float transmission = std::sin(2.0f * kPi * aptCarrierPhase_[ch])
@@ -1969,6 +2394,302 @@ private:
         transmission += noise * noiseGain;
         return lerp(input, transmission,
             clamp(0.78f + params_.codecDamage * 0.20f, 0.0f, 0.98f));
+    }
+
+    float hfFaxCodec(float input, uint32_t ch)
+    {
+        const bool pixelTick = codecSample_[ch] == 0u || codecClockTick(hfFaxClock_[ch], ch);
+        if (pixelTick) {
+            hfFaxPreviousVideo_[ch] = hfFaxVideo_[ch];
+            const uint32_t word = hfFaxWord_[ch];
+            if (word < 16u) {
+                hfFaxVideo_[ch] = ((word >> 1u) & 1u) != 0u ? 1.0f : -1.0f;
+            } else if (word < 32u) {
+                hfFaxVideo_[ch] = (hfFaxLine_[ch] & 1u) != 0u ? 0.92f : -0.92f;
+            } else {
+                hfFaxVideo_[ch] = quantize(input, params_.bitDepth);
+            }
+            const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_
+                ^ (hfFaxLine_[ch] * 0x9e3779b9u) ^ (word * 0x85ebca6bu)
+                ^ (ch * 0x632be59bu));
+            if (hash01(h) < params_.codecDamage * params_.codecDamage * 0.16f) {
+                hfFaxVideo_[ch] = (h & 1u) != 0u
+                    ? -hfFaxVideo_[ch]
+                    : hfFaxPreviousVideo_[ch];
+            }
+            if (frameDrop_[ch]) hfFaxVideo_[ch] = -0.96f;
+            uint32_t advance = 1u;
+            if (hash01(h ^ 0xa511e9b3u) < params_.codecDamage * params_.codecDamage * 0.005f) {
+                advance += 1u + ((h >> 20u) & 3u);
+                transmissionPhase_[ch] += ((h & 2u) != 0u ? 1.0f : -1.0f)
+                    * params_.codecDamage * 0.08f;
+            }
+            hfFaxWord_[ch] += advance;
+            if (hfFaxWord_[ch] >= kPsdRawFieldHfFaxLineWords) {
+                hfFaxWord_[ch] %= kPsdRawFieldHfFaxLineWords;
+                ++hfFaxLine_[ch];
+            }
+        }
+
+        const float pixelPhase = clamp(hfFaxClock_[ch] / codecInterval(ch), 0.0f, 1.0f);
+        const float video = lerp(hfFaxPreviousVideo_[ch], hfFaxVideo_[ch],
+            0.5f - 0.5f * std::cos(kPi * pixelPhase));
+        const float laneSkew = (static_cast<float>(ch) - 3.5f)
+            * 2.0f * params_.channelSpread;
+        const float flutter = std::sin(static_cast<float>(hfFaxLine_[ch]) * 0.031f)
+            * params_.codecDamage * 11.0f;
+        const float frequency = tunedFrequency(1900.0f + video * 400.0f + laneSkew + flutter);
+        transmissionPhase_[ch] += frequency / static_cast<float>(sampleRate_);
+        transmissionPhase_[ch] -= std::floor(transmissionPhase_[ch]);
+        float transmission = std::sin(2.0f * kPi * transmissionPhase_[ch]) * 0.76f;
+        transmission += fieldNoise(codecSample_[ch] ^ tapeSeed_ ^ (ch * 0x27d4eb2du))
+            * params_.codecDamage * params_.codecDamage * 0.045f;
+        return lerp(input, transmission, 0.82f + params_.codecDamage * 0.15f);
+    }
+
+    static uint8_t hellGlyphRow(uint32_t glyph, uint32_t row)
+    {
+        constexpr std::array<std::array<uint8_t, 7>, 26> alphabet {{
+            {{ 14, 17, 17, 31, 17, 17, 17 }}, {{ 30, 17, 17, 30, 17, 17, 30 }},
+            {{ 14, 17, 16, 16, 16, 17, 14 }}, {{ 30, 17, 17, 17, 17, 17, 30 }},
+            {{ 31, 16, 16, 30, 16, 16, 31 }}, {{ 31, 16, 16, 30, 16, 16, 16 }},
+            {{ 14, 17, 16, 23, 17, 17, 15 }}, {{ 17, 17, 17, 31, 17, 17, 17 }},
+            {{ 14, 4, 4, 4, 4, 4, 14 }}, {{ 1, 1, 1, 1, 17, 17, 14 }},
+            {{ 17, 18, 20, 24, 20, 18, 17 }}, {{ 16, 16, 16, 16, 16, 16, 31 }},
+            {{ 17, 27, 21, 21, 17, 17, 17 }}, {{ 17, 25, 21, 19, 17, 17, 17 }},
+            {{ 14, 17, 17, 17, 17, 17, 14 }}, {{ 30, 17, 17, 30, 16, 16, 16 }},
+            {{ 14, 17, 17, 17, 21, 18, 13 }}, {{ 30, 17, 17, 30, 20, 18, 17 }},
+            {{ 15, 16, 16, 14, 1, 1, 30 }}, {{ 31, 4, 4, 4, 4, 4, 4 }},
+            {{ 17, 17, 17, 17, 17, 17, 14 }}, {{ 17, 17, 17, 17, 17, 10, 4 }},
+            {{ 17, 17, 17, 21, 21, 21, 10 }}, {{ 17, 17, 10, 4, 10, 17, 17 }},
+            {{ 17, 17, 10, 4, 4, 4, 4 }}, {{ 31, 1, 2, 4, 8, 16, 31 }},
+        }};
+        return alphabet[glyph % alphabet.size()][row % 7u];
+    }
+
+    float hellschreiberCodec(float input, uint32_t ch)
+    {
+        if (codecSample_[ch] == 0u || codecClockTickScaled(hellClock_[ch], 13.0f, ch)) {
+            const uint32_t pixel = hellPixel_[ch];
+            const uint32_t column = pixel / 14u;
+            const uint32_t row = (pixel % 14u) >> 1u;
+            bool ink = column < 5u
+                && ((hellGlyphRow(hellGlyph_[ch], row) >> (4u - column)) & 1u) != 0u;
+            const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_
+                ^ (ch * 0x9e3779b9u) ^ (pixel * 0x632be59bu));
+            if (hash01(h) < params_.codecDamage * params_.codecDamage * 0.22f) ink = !ink;
+            if (frameDrop_[ch]) ink = false;
+            const float target = ink ? 1.0f : 0.0f;
+            hellEnvelope_[ch] = lerp(hellEnvelope_[ch], target,
+                lerp(0.92f, 0.34f, params_.codecDamage));
+            uint32_t advance = 1u;
+            if (hash01(h ^ 0x91e10da5u) < params_.codecDamage * params_.codecDamage * 0.012f) {
+                advance += (h & 1u) != 0u ? 1u : 7u;
+            }
+            hellPixel_[ch] += advance;
+            if (hellPixel_[ch] >= 98u) {
+                hellPixel_[ch] %= 98u;
+                const float normalized = clamp(input * 0.5f + 0.5f, 0.0f, 0.99999f);
+                hellGlyph_[ch] = static_cast<uint32_t>(normalized * 26.0f);
+            }
+        }
+        const float smoothing = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.0007));
+        const float target = hellEnvelope_[ch] > 0.5f ? 1.0f : 0.0f;
+        hellEnvelope_[ch] += (target - hellEnvelope_[ch]) * smoothing;
+        const float laneSkew = (static_cast<float>(ch) - 3.5f) * 1.4f * params_.channelSpread;
+        transmissionPhase_[ch] += tunedFrequency(900.0f + laneSkew)
+            / static_cast<float>(sampleRate_);
+        transmissionPhase_[ch] -= std::floor(transmissionPhase_[ch]);
+        float keyed = std::sin(2.0f * kPi * transmissionPhase_[ch])
+            * hellEnvelope_[ch] * 0.86f;
+        keyed += fieldNoise(codecSample_[ch] ^ tapeSeed_ ^ 0xb5297a4du)
+            * params_.codecDamage * hellEnvelope_[ch] * 0.035f;
+        return lerp(input, keyed, 0.86f + params_.codecDamage * 0.11f);
+    }
+
+    static uint16_t morsePatternForLetter(uint32_t letter, uint8_t& length)
+    {
+        constexpr std::array<uint16_t, 26> patterns {
+            2u, 1u, 5u, 1u, 0u, 4u, 3u, 0u, 0u, 14u, 5u, 2u, 3u,
+            1u, 7u, 6u, 11u, 2u, 0u, 1u, 4u, 8u, 6u, 9u, 13u, 3u
+        };
+        constexpr std::array<uint8_t, 26> lengths {
+            2u, 4u, 4u, 3u, 1u, 4u, 3u, 4u, 2u, 4u, 3u, 4u, 2u,
+            2u, 3u, 4u, 4u, 3u, 3u, 1u, 3u, 4u, 3u, 4u, 4u, 4u
+        };
+        const uint32_t index = letter % patterns.size();
+        length = lengths[index];
+        return patterns[index];
+    }
+
+    bool updateMorseGate(float input, uint32_t ch)
+    {
+        if (morseSamples_[ch] > 0u) {
+            --morseSamples_[ch];
+            return morseGate_[ch];
+        }
+        const uint32_t dotSamples = std::max<uint32_t>(8u, static_cast<uint32_t>(
+            static_cast<float>(sampleRate_) * 0.012f + codecInterval(ch) * 32.0f));
+        if (morseGate_[ch]) {
+            morseGate_[ch] = false;
+            morseInGap_[ch] = true;
+            morseSamples_[ch] = dotSamples * (morseElement_[ch] >= morseLength_[ch] ? 3u : 1u);
+            return false;
+        }
+        if (morseInGap_[ch] && morseElement_[ch] >= morseLength_[ch]) {
+            morseLength_[ch] = 0u;
+            morseInGap_[ch] = false;
+        }
+        if (morseLength_[ch] == 0u) {
+            const float normalized = clamp(input * 0.5f + 0.5f, 0.0f, 0.99999f);
+            const uint32_t letter = static_cast<uint32_t>(normalized * 26.0f);
+            morsePattern_[ch] = morsePatternForLetter(letter, morseLength_[ch]);
+            morseElement_[ch] = 0u;
+        }
+        morseInGap_[ch] = false;
+        morseGate_[ch] = true;
+        const bool dash = ((morsePattern_[ch] >> morseElement_[ch]) & 1u) != 0u;
+        ++morseElement_[ch];
+        morseSamples_[ch] = dotSamples * (dash ? 3u : 1u);
+        const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_
+            ^ (ch * 0x85ebca6bu) ^ (morseElement_[ch] * 0x632be59bu));
+        if (hash01(h) < params_.codecDamage * params_.codecDamage * 0.14f || frameDrop_[ch]) {
+            morseGate_[ch] = false;
+        }
+        return morseGate_[ch];
+    }
+
+    float morseCodec(float input, uint32_t ch, bool spark)
+    {
+        const bool wasGate = morseGate_[ch];
+        const bool gate = updateMorseGate(input, ch);
+        if (spark && gate && !wasGate) sparkBurst_[ch] = 1.0f;
+        const float edgeSeconds = spark ? 0.00015f : lerp(0.00035f, 0.0035f, params_.codecDamage);
+        const float edge = 1.0f - std::exp(-1.0f / std::max(1.0f,
+            static_cast<float>(sampleRate_) * edgeSeconds));
+        morseEnvelope_[ch] += ((gate ? 1.0f : 0.0f) - morseEnvelope_[ch]) * edge;
+        const float h = fieldNoise(codecSample_[ch] ^ tapeSeed_ ^ (ch * 0x9e3779b9u));
+        const float chirp = spark ? sparkBurst_[ch] * (95.0f + h * 55.0f)
+            : params_.codecDamage * h * 7.0f;
+        const float laneSkew = (static_cast<float>(ch) - 3.5f) * 1.5f * params_.channelSpread;
+        transmissionPhase_[ch] += tunedFrequency(700.0f + laneSkew + chirp)
+            / static_cast<float>(sampleRate_);
+        transmissionPhase_[ch] -= std::floor(transmissionPhase_[ch]);
+        const float phase = 2.0f * kPi * transmissionPhase_[ch];
+        float keyed = std::sin(phase) * morseEnvelope_[ch] * 0.88f;
+        if (spark) {
+            sparkBurst_[ch] *= 0.9992f;
+            keyed += (std::sin(phase * 2.03f) * 0.28f + std::sin(phase * 3.91f) * 0.14f
+                + h * 0.34f) * sparkBurst_[ch] * morseEnvelope_[ch];
+        } else {
+            keyed += std::sin(phase * 2.0f) * morseEnvelope_[ch]
+                * params_.codecDamage * 0.09f;
+        }
+        return lerp(input, keyed, spark ? 0.94f : 0.90f);
+    }
+
+    static uint8_t baudotLetterCode(uint32_t letter)
+    {
+        constexpr std::array<uint8_t, 26> codes {
+            3u, 25u, 14u, 9u, 1u, 13u, 26u, 20u, 6u, 11u, 15u, 18u, 28u,
+            12u, 24u, 22u, 23u, 10u, 5u, 16u, 7u, 30u, 19u, 29u, 21u, 17u
+        };
+        return codes[letter % codes.size()];
+    }
+
+    void beginRttyCharacter(float input, uint32_t ch)
+    {
+        const float normalized = clamp(input * 0.5f + 0.5f, 0.0f, 0.99999f);
+        const bool wantsFigures = std::abs(input) > 0.78f;
+        if (wantsFigures != rttyFigures_[ch]) {
+            rttyCode_[ch] = wantsFigures ? 27u : 31u;
+            const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_ ^ (ch * 0x27d4eb2du));
+            if (hash01(h) >= params_.codecDamage * params_.codecDamage * 0.38f) {
+                rttyFigures_[ch] = wantsFigures;
+            }
+        } else {
+            rttyCode_[ch] = baudotLetterCode(static_cast<uint32_t>(normalized * 26.0f));
+        }
+        rttyBit_[ch] = 0u;
+        rttyMark_[ch] = false;
+    }
+
+    float baudotRttyCodec(float input, uint32_t ch)
+    {
+        if (codecSample_[ch] == 0u) beginRttyCharacter(input, ch);
+        if (codecClockTickScaled(rttyClock_[ch], 16.0f, ch)) {
+            ++rttyBit_[ch];
+            if (rttyBit_[ch] >= 8u) {
+                beginRttyCharacter(input, ch);
+            } else if (rttyBit_[ch] <= 5u) {
+                rttyMark_[ch] = ((rttyCode_[ch] >> (rttyBit_[ch] - 1u)) & 1u) != 0u;
+            } else {
+                rttyMark_[ch] = true;
+            }
+            const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_
+                ^ (ch * 0x45d9f3bu) ^ (rttyBit_[ch] * 0x9e3779b9u));
+            if (hash01(h) < params_.codecDamage * params_.codecDamage * 0.20f || frameDrop_[ch]) {
+                rttyMark_[ch] = !rttyMark_[ch];
+            }
+        }
+        const float shift = rttyMark_[ch] ? 85.0f : -85.0f;
+        const float laneSkew = (static_cast<float>(ch) - 3.5f) * 2.2f * params_.channelSpread;
+        const float frequency = tunedFrequency(1700.0f + shift + laneSkew);
+        transmissionPhase_[ch] += frequency / static_cast<float>(sampleRate_);
+        transmissionPhase_[ch] -= std::floor(transmissionPhase_[ch]);
+        const float phase = 2.0f * kPi * transmissionPhase_[ch];
+        float fsk = (std::sin(phase) + std::sin(phase * 2.0f) * params_.codecDamage * 0.07f) * 0.76f;
+        fsk += fieldNoise(codecSample_[ch] ^ tapeSeed_ ^ 0x68e31da4u)
+            * params_.codecDamage * params_.codecDamage * 0.035f;
+        return lerp(input, fsk, 0.88f + params_.codecDamage * 0.09f);
+    }
+
+    float sstvToneForWord(float input, uint32_t ch, uint32_t word) const
+    {
+        if (word < 20u) return 1200.0f;
+        if (word < 28u) return 1500.0f;
+        const uint32_t local = word - 28u;
+        const uint32_t section = local / 328u;
+        const uint32_t pixel = local % 328u;
+        if (section >= 3u || pixel >= 320u) return 1500.0f;
+        const float channelBias = section == 0u ? 0.10f : section == 1u ? -0.13f : 0.0f;
+        const float lineTexture = std::sin(static_cast<float>(sstvLine_[ch]) * 0.17f
+            + static_cast<float>(pixel) * 0.019f + static_cast<float>(section) * 2.1f) * 0.12f;
+        const float luminance = clamp(input + channelBias + lineTexture, -1.0f, 1.0f);
+        return 1900.0f + luminance * 400.0f;
+    }
+
+    float sstvCodec(float input, uint32_t ch)
+    {
+        if (codecSample_[ch] == 0u || codecClockTick(sstvClock_[ch], ch)) {
+            sstvPreviousFrequency_[ch] = sstvFrequency_[ch];
+            sstvFrequency_[ch] = sstvToneForWord(input, ch, sstvWord_[ch]);
+            const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_
+                ^ (sstvLine_[ch] * 0x632be59bu) ^ (sstvWord_[ch] * 0x85ebca6bu)
+                ^ (ch * 0x27d4eb2du));
+            if (hash01(h) < params_.codecDamage * params_.codecDamage * 0.16f) {
+                sstvFrequency_[ch] = (h & 1u) != 0u ? 1200.0f
+                    : lerp(1500.0f, 2300.0f, hash01(h ^ 0xa511e9b3u));
+            }
+            uint32_t advance = 1u;
+            if (hash01(h ^ 0x91e10da5u) < params_.codecDamage * params_.codecDamage * 0.007f) {
+                advance += 1u + ((h >> 19u) & 7u);
+            }
+            sstvWord_[ch] += advance;
+            if (sstvWord_[ch] >= kPsdRawFieldSstvLineWords) {
+                sstvWord_[ch] %= kPsdRawFieldSstvLineWords;
+                ++sstvLine_[ch];
+            }
+        }
+        const float pixelPhase = clamp(sstvClock_[ch] / codecInterval(ch), 0.0f, 1.0f);
+        const float frequency = tunedFrequency(lerp(sstvPreviousFrequency_[ch], sstvFrequency_[ch],
+            0.5f - 0.5f * std::cos(kPi * pixelPhase)));
+        transmissionPhase_[ch] += frequency / static_cast<float>(sampleRate_);
+        transmissionPhase_[ch] -= std::floor(transmissionPhase_[ch]);
+        float tone = std::sin(2.0f * kPi * transmissionPhase_[ch]) * 0.76f;
+        tone += fieldNoise(codecSample_[ch] ^ tapeSeed_ ^ 0xd1b54a35u)
+            * params_.codecDamage * params_.codecDamage * 0.04f;
+        return lerp(input, tone, 0.84f + params_.codecDamage * 0.13f);
     }
 
     static uint32_t hash(uint32_t x)
@@ -2134,6 +2855,43 @@ private:
     std::array<float, kPsdRawFieldChannels> aptPreviousVideo_ {};
     std::array<uint32_t, kPsdRawFieldChannels> aptWord_ {};
     std::array<uint32_t, kPsdRawFieldChannels> aptLine_ {};
+    std::array<float, kPsdRawFieldChannels> transmissionPhase_ {};
+    std::array<float, kPsdRawFieldChannels> hfFaxClock_ {};
+    std::array<float, kPsdRawFieldChannels> hfFaxVideo_ {};
+    std::array<float, kPsdRawFieldChannels> hfFaxPreviousVideo_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> hfFaxWord_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> hfFaxLine_ {};
+    std::array<float, kPsdRawFieldChannels> hellClock_ {};
+    std::array<float, kPsdRawFieldChannels> hellEnvelope_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> hellGlyph_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> hellPixel_ {};
+    std::array<float, kPsdRawFieldChannels> morseEnvelope_ {};
+    std::array<uint16_t, kPsdRawFieldChannels> morsePattern_ {};
+    std::array<uint8_t, kPsdRawFieldChannels> morseLength_ {};
+    std::array<uint8_t, kPsdRawFieldChannels> morseElement_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> morseSamples_ {};
+    std::array<bool, kPsdRawFieldChannels> morseGate_ {};
+    std::array<bool, kPsdRawFieldChannels> morseInGap_ {};
+    std::array<float, kPsdRawFieldChannels> sparkBurst_ {};
+    std::array<float, kPsdRawFieldChannels> rttyClock_ {};
+    std::array<uint8_t, kPsdRawFieldChannels> rttyCode_ {};
+    std::array<uint8_t, kPsdRawFieldChannels> rttyBit_ {};
+    std::array<bool, kPsdRawFieldChannels> rttyMark_ {};
+    std::array<bool, kPsdRawFieldChannels> rttyFigures_ {};
+    std::array<float, kPsdRawFieldChannels> sstvClock_ {};
+    std::array<float, kPsdRawFieldChannels> sstvFrequency_ {};
+    std::array<float, kPsdRawFieldChannels> sstvPreviousFrequency_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> sstvWord_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> sstvLine_ {};
+    std::array<float, kPsdRawFieldChannels> modPhase_ {};
+    std::array<float, kPsdRawFieldChannels> modValue_ {};
+    std::array<float, kPsdRawFieldChannels> modPrevious_ {};
+    std::array<float, kPsdRawFieldChannels> modHeldNoise_ {};
+    std::array<float, kPsdRawFieldChannels> modFeedbackState_ {};
+    std::array<float, kPsdRawFieldChannels> modSparkEnvelope_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> modStep_ {};
+    std::array<float, kPsdRawFieldChannels> effectiveDamage_ {};
+    uint32_t activeModChannel_ = 0u;
     float loudnessEnergy_ = 0.04f;
     float loudnessGain_ = 1.0f;
     float targetPitchRatio_ = 1.0f;

@@ -64,16 +64,16 @@ RenderResult renderSine(s3g::AmbiEffectDjFilterParams params, float frequency)
 bool bodyDefaultsCheck()
 {
     return s3g::ambiEffectDefaultBodyForOrder(1u)
-            == s3g::AmbiEffectBody::Tetra4
+            == s3g::AmbiEffectBody::Icosa12
         && s3g::ambiEffectDefaultBodyForOrder(2u)
-            == s3g::AmbiEffectBody::Cube8
+            == s3g::AmbiEffectBody::Icosa12
         && s3g::ambiEffectDefaultBodyForOrder(3u)
             == s3g::AmbiEffectBody::Icosa12
         && s3g::ambiEffectDefaultBodyForOrder(7u)
-            == s3g::AmbiEffectBody::Icosa12
+            == s3g::AmbiEffectBody::Dodeca20
         && s3g::resolveAmbiEffectBody(
                s3g::AmbiEffectBody::Tetra4, 7u)
-            == s3g::AmbiEffectBody::Tetra4;
+            == s3g::AmbiEffectBody::Icosa12;
 }
 
 bool openIdentityCheck()
@@ -163,7 +163,7 @@ bool pickupVariationAndMaskCheck()
     constexpr uint32_t channels = 4u;
     s3g::AmbiEffectDjFilterParams params {};
     params.order = 1u;
-    params.body = s3g::AmbiEffectBody::Tetra4;
+    params.body = s3g::AmbiEffectBody::Icosa12;
     params.filter = 0.5f;
     params.topologyAmount = 0.0f;
     params.pickupFilterTrim[0] = -1.0f;
@@ -210,6 +210,7 @@ bool pickupVariationAndMaskCheck()
     params.maskAzimuthDeg = 0.0f;
     params.maskElevationDeg = 0.0f;
     params.maskWidth = 0.0f;
+    params.maskDry = 0.0f;
     processor.setParams(params);
     processor.reset();
     float minimumWet = 1.0f;
@@ -218,13 +219,68 @@ bool pickupVariationAndMaskCheck()
         minimumWet = std::min(minimumWet, processor.nodeWetMask(node));
         maximumWet = std::max(maximumWet, processor.nodeWetMask(node));
     }
+    std::array<std::array<float, frames>, channels> maskedOutput {};
+    for (uint32_t ch = 0u; ch < channels; ++ch) {
+        outputPointers[ch] = maskedOutput[ch].data();
+    }
+    processor.process(inputPointers.data(), outputPointers.data(),
+        channels, channels, frames);
+    double maskedEnergy = 0.0;
+    double inputEnergy = 0.0;
+    for (uint32_t ch = 0u; ch < channels; ++ch) {
+        for (uint32_t frame = frames / 2u; frame < frames; ++frame) {
+            maskedEnergy += static_cast<double>(maskedOutput[ch][frame])
+                * maskedOutput[ch][frame];
+            inputEnergy += static_cast<double>(input[ch][frame])
+                * input[ch][frame];
+        }
+    }
     std::printf(
-        "Ambi Effect pickup variation energy %.6g; meter %.6g; mask %.3f..%.3f\n",
-        difference, meterPeak, minimumWet, maximumWet);
+        "Ambi Effect pickup variation %.6g; meter %.6g; mask %.3f..%.3f; dry-zero energy %.6g/%.6g\n",
+        difference, meterPeak, minimumWet, maximumWet,
+        maskedEnergy, inputEnergy);
     return difference > 0.001
         && meterPeak > 0.001f
         && minimumWet < 0.30f
-        && maximumWet > 0.99f;
+        && maximumWet > 0.99f
+        && maskedEnergy < inputEnergy * 0.92;
+}
+
+bool pickupRelationshipCheck()
+{
+    float minimumFilter = 1.0f;
+    float maximumFilter = 0.0f;
+    float minimumRes = 1.0f;
+    float maximumRes = 0.0f;
+    for (uint32_t node = 0u; node < 12u; ++node) {
+        const float sameFilter = s3g::ambiEffectPickupFilterPosition(
+            0.5f, 0.0f, 0.0f, 0.0f, node, 12u);
+        const float sameRes = s3g::ambiEffectPickupResonance(
+            0.3f, 0.0f, 0.0f, 0.0f, node, 12u);
+        if (std::fabs(sameFilter - 0.5f) > 1.0e-7f
+            || std::fabs(sameRes - 0.3f) > 1.0e-7f) return false;
+        const float variedFilter = s3g::ambiEffectPickupFilterPosition(
+            0.5f, 0.0f, 0.8f, 0.6f, node, 12u);
+        const float variedRes = s3g::ambiEffectPickupResonance(
+            0.5f, 0.0f, 0.8f, 0.6f, node, 12u);
+        minimumFilter = std::min(minimumFilter, variedFilter);
+        maximumFilter = std::max(maximumFilter, variedFilter);
+        minimumRes = std::min(minimumRes, variedRes);
+        maximumRes = std::max(maximumRes, variedRes);
+    }
+    const float trimmedRes = s3g::ambiEffectPickupResonance(
+        0.3f, 0.8f, 0.0f, 0.0f, 0u, 12u);
+    const float softCurve = s3g::ambiEffectMaskExponent(0.35f, 0.0f);
+    const float currentCurve = s3g::ambiEffectMaskExponent(0.35f, 0.5f);
+    const float tightCurve = s3g::ambiEffectMaskExponent(0.35f, 1.0f);
+    std::printf("Ambi Effect relationships filter %.3f..%.3f; res %.3f..%.3f; trim %.3f; mask exp %.3f/%.3f/%.3f\n",
+        minimumFilter, maximumFilter, minimumRes, maximumRes, trimmedRes,
+        softCurve, currentCurve, tightCurve);
+    return maximumFilter - minimumFilter > 0.35f
+        && maximumRes - minimumRes > 0.20f
+        && trimmedRes > 0.69f
+        && currentCurve > softCurve * 7.9f
+        && tightCurve > currentCurve * 7.9f;
 }
 
 bool automationSafetyCheck()
@@ -245,10 +301,12 @@ bool automationSafetyCheck()
     for (uint32_t block = 0u; block < 200u; ++block) {
         s3g::AmbiEffectDjFilterParams params {};
         params.order = 1u + block % 7u;
-        params.body = static_cast<s3g::AmbiEffectBody>(block % 4u);
+        params.body = static_cast<s3g::AmbiEffectBody>(block % 5u);
         params.topology = static_cast<s3g::AmbiEffectTopology>(block % 4u);
         params.filter = static_cast<float>(block % 21u) / 20.0f;
         params.resonance = static_cast<float>(block % 11u) / 10.0f;
+        params.spread = static_cast<float>(block % 9u) / 8.0f;
+        params.deviation = static_cast<float>(block % 7u) / 6.0f;
         params.topologyAmount = 1.0f;
         params.roamingRateHz = 2.0f;
         params.mix = 1.0f;
@@ -256,6 +314,8 @@ bool automationSafetyCheck()
             node < s3g::kAmbiEffectDjFilterMaxPickups; ++node) {
             params.pickupFilterTrim[node] = static_cast<float>(
                 static_cast<int>((block + node) % 21u) - 10) / 10.0f;
+            params.pickupResonanceTrim[node] = static_cast<float>(
+                static_cast<int>((block + node * 3u) % 21u) - 10) / 10.0f;
         }
         params.maskAmount = static_cast<float>(block % 11u) / 10.0f;
         params.maskAzimuthDeg = -180.0f
@@ -263,6 +323,8 @@ bool automationSafetyCheck()
         params.maskElevationDeg = -90.0f
             + static_cast<float>(block % 19u) * 10.0f;
         params.maskWidth = static_cast<float>(block % 11u) / 10.0f;
+        params.maskCurve = static_cast<float>(block % 9u) / 8.0f;
+        params.maskDry = static_cast<float>(block % 13u) / 12.0f;
         processor.setParams(params);
         for (uint32_t ch = 0u; ch < kChannels; ++ch) {
             for (uint32_t frame = 0u; frame < frames; ++frame) {
@@ -300,6 +362,10 @@ int main()
     if (!pickupVariationAndMaskCheck()) {
         std::fprintf(stderr,
             "Ambi Effect pickup variation or directional mask failed\n");
+        return 1;
+    }
+    if (!pickupRelationshipCheck()) {
+        std::fprintf(stderr, "Ambi Effect pickup relationships failed\n");
         return 1;
     }
     if (!automationSafetyCheck()) {

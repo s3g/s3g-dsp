@@ -201,6 +201,50 @@ void renderDuration(Encoder& encoder, float seconds)
     }
 }
 
+template <typename Encoder, typename Meter>
+float renderDurationPeakMeter(Encoder& encoder, float seconds, Meter meter)
+{
+    constexpr uint32_t blockFrames = 256u;
+    constexpr uint32_t channels = 16u;
+    std::array<std::array<float, blockFrames>, channels> storage {};
+    std::array<float*, channels> outputs {};
+    for (uint32_t channel = 0u; channel < channels; ++channel) {
+        outputs[channel] = storage[channel].data();
+    }
+    float maximum = 0.0f;
+    uint32_t remaining = static_cast<uint32_t>(seconds * 48000.0f);
+    while (remaining > 0u) {
+        const uint32_t frames = std::min(remaining, blockFrames);
+        encoder.process(outputs.data(), channels, frames);
+        maximum = std::max(maximum, meter(encoder));
+        remaining -= frames;
+    }
+    return maximum;
+}
+
+template <typename Encoder, typename Params>
+float renderLowFrequencyFraction(const Params& params)
+{
+    constexpr uint32_t frames = 65536u;
+    std::array<float, frames> storage {};
+    std::array<float*, 1> outputs { storage.data() };
+    Encoder encoder;
+    encoder.prepare(48000.0);
+    encoder.setParams(params);
+    encoder.process(outputs.data(), outputs.size(), frames);
+    const float coefficient = 1.0f
+        - std::exp(-2.0f * s3g::kPi * 120.0f / 48000.0f);
+    float lowpass = 0.0f;
+    double lowEnergy = 0.0;
+    double totalEnergy = 0.0;
+    for (uint32_t frame = 4096u; frame < frames; ++frame) {
+        lowpass += (storage[frame] - lowpass) * coefficient;
+        lowEnergy += static_cast<double>(lowpass) * lowpass;
+        totalEnergy += static_cast<double>(storage[frame]) * storage[frame];
+    }
+    return static_cast<float>(lowEnergy / std::max(1.0e-12, totalEnergy));
+}
+
 } // namespace
 
 int main()
@@ -211,10 +255,10 @@ int main()
         s3g::AmbiWaterParams>);
     constexpr std::array<uint32_t, s3g::kAmbiPyrosphereFactoryPresetCount>
         expectedPyrosphereMaterials { 2u, 3u, 9u, 10u, 11u, 2u,
-            4u, 5u, 6u, 12u, 6u, 11u, 11u };
+            4u, 5u, 6u, 12u, 6u, 11u, 11u, 13u };
     constexpr std::array<uint32_t, s3g::kAmbiCryosphereFactoryPresetCount>
         expectedCryosphereProcesses { 0u, 1u, 2u, 3u, 4u, 5u,
-            6u, 7u, 8u, 9u, 10u, 12u, 0u };
+            6u, 7u, 8u, 9u, 10u, 12u, 0u, 13u };
     bool presetMappingsValid = true;
     for (uint32_t index = 0u; index < expectedPyrosphereMaterials.size();
         ++index) {
@@ -388,6 +432,62 @@ int main()
         + denseCryosphere.structuralSnapEventCount()
         + denseCryosphere.plateFailureEventCount();
 
+    auto flamethrower = s3g::ambiPyrosphereFactoryPreset(13u);
+    auto flamethrowerWithoutJet = flamethrower;
+    flamethrowerWithoutJet.materialMode = 0u;
+    const float flamethrowerDifference = renderDifference<
+        s3g::AmbiPyrosphereEncoder>(flamethrower, flamethrowerWithoutJet);
+    s3g::AmbiPyrosphereEncoder flamethrowerEncoder;
+    flamethrowerEncoder.prepare(48000.0);
+    flamethrowerEncoder.setParams(flamethrower);
+    renderDuration(flamethrowerEncoder, 2.0f);
+    auto lightFlamethrowerBody = flamethrower;
+    lightFlamethrowerBody.body = 0.08f;
+    lightFlamethrowerBody.space = 0.0f;
+    auto heavyFlamethrowerBody = lightFlamethrowerBody;
+    heavyFlamethrowerBody.body = 0.96f;
+    const float lightFlamethrowerLowFraction = renderLowFrequencyFraction<
+        s3g::AmbiPyrosphereEncoder>(lightFlamethrowerBody);
+    const float heavyFlamethrowerLowFraction = renderLowFrequencyFraction<
+        s3g::AmbiPyrosphereEncoder>(heavyFlamethrowerBody);
+    auto zeroWander = flamethrower;
+    zeroWander.vectorRateHz = 0.0f;
+    s3g::AmbiPyrosphereEncoder wanderSanitizer;
+    wanderSanitizer.prepare(48000.0);
+    wanderSanitizer.setParams(zeroWander);
+
+    auto singingLake = s3g::ambiCryosphereFactoryPreset(13u);
+    auto singingLakeWithoutPlateWaves = singingLake;
+    singingLakeWithoutPlateWaves.regime = 0u;
+    const float singingLakeDifference = renderDurationDifference<
+        s3g::AmbiCryosphereEncoder>(singingLake,
+            singingLakeWithoutPlateWaves, 4.0f);
+    s3g::AmbiCryosphereEncoder singingLakeEncoder;
+    singingLakeEncoder.prepare(48000.0);
+    singingLakeEncoder.setParams(singingLake);
+    const float singingLakePeakLayer = renderDurationPeakMeter(
+        singingLakeEncoder, 12.0f,
+        [](const s3g::AmbiCryosphereEncoder& encoder) {
+            return encoder.singingIceLayerEnergy();
+        });
+
+    s3g::SingingIceModel flexuralPacket;
+    flexuralPacket.prepare(48000.0, 0x51a91ce5u);
+    flexuralPacket.excite(1.0f, 0.78f, 0.46f, 0.66f, 0.34f, 0.84f);
+    float earlyFlexuralFrequency = 0.0f;
+    float lateFlexuralFrequency = 0.0f;
+    double flexuralEnergy = 0.0;
+    for (uint32_t frame = 0u; frame < 96000u; ++frame) {
+        const auto packet = flexuralPacket.process();
+        flexuralEnergy += static_cast<double>(packet.sample) * packet.sample;
+        if (frame == 2400u) {
+            earlyFlexuralFrequency = flexuralPacket.dominantFrequencyHz();
+        } else if (frame == 26400u) {
+            lateFlexuralFrequency = flexuralPacket.dominantFrequencyHz();
+        }
+    }
+    const bool flexuralPacketEnded = !flexuralPacket.active();
+
     std::cout << "pyrosphere/cryosphere/wind/water peaks: "
               << pyrospherePeak << " / "
               << cryospherePeak << " / " << windPeak << " / " << waterPeak
@@ -431,6 +531,21 @@ int main()
     std::cout << "cryosphere event clock counts hold/max: "
               << heldCryosphereEvents << " / " << denseCryosphereEvents
               << "\n";
+    std::cout << "flamethrower/singing-lake model differences: "
+              << flamethrowerDifference << " / " << singingLakeDifference
+              << "\n";
+    std::cout << "pressure-jet/singing-ice layer energies: "
+              << flamethrowerEncoder.jetLayerEnergy() << " / "
+              << singingLakePeakLayer << "\n";
+    std::cout << "flamethrower low-band fraction light/heavy body: "
+              << lightFlamethrowerLowFraction << " / "
+              << heavyFlamethrowerLowFraction << "\n";
+    std::cout << "sanitized plume-wander floor: "
+              << wanderSanitizer.params().vectorRateHz << " Hz\n";
+    std::cout << "singing-ice events and flexural descent: "
+              << singingLakeEncoder.singingIceEventCount() << " / "
+              << earlyFlexuralFrequency << " -> "
+              << lateFlexuralFrequency << " Hz\n";
     return presetMappingsValid
             && pyrospherePeak > 0.0f && cryospherePeak > 0.0f
             && windPeak > 0.0f && waterPeak > 0.0f
@@ -458,6 +573,20 @@ int main()
                 > sparsePyrosphere.ignitionEventCount() + 500u
             && heldCryosphereEvents == 0u
             && denseCryosphereEvents > 50u
+            && flamethrowerDifference > 1.0e-4f
+            && flamethrowerEncoder.jetLayerEnergy() > 1.0e-8f
+            && singingLakeDifference > 1.0e-5f
+            && singingLakePeakLayer > 1.0e-9f
+            && singingLakeEncoder.singingIceEventCount() > 0u
+            && flexuralEnergy > 1.0e-6
+            && earlyFlexuralFrequency > 300.0f
+            && earlyFlexuralFrequency > lateFlexuralFrequency * 1.70f
+            && lateFlexuralFrequency > 40.0f
+            && flexuralPacketEnded
+            && heavyFlamethrowerLowFraction
+                > lightFlamethrowerLowFraction * 1.15f
+            && wanderSanitizer.params().vectorRateHz
+                >= s3g::kAmbiPyrosphereMinPlumeWanderHz
             && pyrospherePeriodicity < 0.72f
             && cryospherePeriodicity < 0.72f
         ? 0 : 1;

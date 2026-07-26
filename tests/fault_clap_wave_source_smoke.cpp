@@ -30,6 +30,15 @@ constexpr clap_id kAttackParamId = 57u;
 constexpr clap_id kDecayParamId = 58u;
 constexpr clap_id kSustainParamId = 59u;
 constexpr clap_id kReleaseParamId = 60u;
+constexpr clap_id kCarrierTuneParamId = 61u;
+constexpr clap_id kPresetParamId = 50u;
+constexpr clap_id kModSourceParamId = 62u;
+constexpr clap_id kModTargetParamId = 63u;
+constexpr clap_id kModRateParamId = 64u;
+constexpr clap_id kModRatioParamId = 65u;
+constexpr clap_id kModIndexParamId = 66u;
+constexpr clap_id kModFeedbackParamId = 67u;
+constexpr clap_id kModClockLockParamId = 68u;
 constexpr clap_id kCodecModeParamId = 15u;
 constexpr clap_id kRandomizeFieldParamId = 23u;
 
@@ -42,6 +51,49 @@ struct LegacyParamsV13 {
     uint32_t seed;
 };
 static_assert(sizeof(LegacyParamsV13) == 68u, "Unexpected version-13 parameter layout");
+
+struct LegacyParamsV15 {
+    float scanRate, texture, geometry, chaos, fold, evolve;
+    s3g::PsdRawFieldChannelScheme channelScheme;
+    float channelSpread;
+    s3g::PsdRawFieldCodecMode codecMode;
+    float codecRate, bitDepth, codecDamage, drive, shred, resonance, gainDb;
+    uint32_t seed;
+    s3g::PsdRawFieldCodecMode fieldCodecMode;
+};
+static_assert(sizeof(LegacyParamsV15) == 72u, "Unexpected version-15 parameter layout");
+
+LegacyParamsV15 legacyParamsV15(const s3g::PsdRawFieldParams& params)
+{
+    return {
+        params.scanRate, params.texture, params.geometry, params.chaos, params.fold, params.evolve,
+        params.channelScheme, params.channelSpread, params.codecMode, params.codecRate, params.bitDepth,
+        params.codecDamage, params.drive, params.shred, params.resonance, params.gainDb, params.seed,
+        params.fieldCodecMode,
+    };
+}
+
+struct LegacyParamsV16 {
+    float scanRate, texture, geometry, chaos, fold, evolve;
+    uint32_t channelScheme;
+    float channelSpread;
+    uint32_t codecMode;
+    float codecRate, bitDepth, codecDamage, carrierTune, drive, shred, resonance, gainDb;
+    uint32_t seed;
+    uint32_t fieldCodecMode;
+};
+static_assert(sizeof(LegacyParamsV16) == 76u, "Unexpected version-16 parameter layout");
+
+LegacyParamsV16 legacyParamsV16(const s3g::PsdRawFieldParams& params)
+{
+    return {
+        params.scanRate, params.texture, params.geometry, params.chaos, params.fold, params.evolve,
+        static_cast<uint32_t>(params.channelScheme), params.channelSpread,
+        static_cast<uint32_t>(params.codecMode), params.codecRate, params.bitDepth,
+        params.codecDamage, params.carrierTune, params.drive, params.shred, params.resonance,
+        params.gainDb, params.seed, static_cast<uint32_t>(params.fieldCodecMode),
+    };
+}
 
 LegacyParamsV13 legacyParams(const s3g::PsdRawFieldParams& params)
 {
@@ -66,10 +118,20 @@ LegacyParamsV13 legacyParams(const s3g::PsdRawFieldParams& params)
     };
 }
 
+LegacyParamsV13 legacyParams(const LegacyParamsV15& params)
+{
+    return {
+        params.scanRate, params.texture, params.geometry, params.chaos, params.fold, params.evolve,
+        static_cast<uint32_t>(params.channelScheme), params.channelSpread,
+        static_cast<uint32_t>(params.codecMode), params.codecRate, params.bitDepth, params.codecDamage,
+        params.drive, params.shred, params.resonance, params.gainDb, params.seed,
+    };
+}
+
 struct SavedStateV14 {
     uint32_t version = 14u;
     uint32_t selectedPreset = 12u;
-    s3g::PsdRawFieldParams params {};
+    LegacyParamsV15 params {};
     uint32_t sourceMode = 2u;
     uint32_t runState = 1u;
     char sourcePath[kSourcePathCapacity] {};
@@ -78,6 +140,36 @@ static_assert(sizeof(SavedStateV14) == 4184u, "Unexpected version-14 Fault state
 
 struct SavedStateV15 {
     uint32_t version = 15u;
+    uint32_t selectedPreset = 12u;
+    LegacyParamsV15 params {};
+    uint32_t sourceMode = 2u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = 0u;
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(SavedStateV15) == 4204u, "Unexpected version-15 Fault state layout");
+
+struct SavedStateV16 {
+    uint32_t version = 16u;
+    uint32_t selectedPreset = 12u;
+    LegacyParamsV16 params {};
+    uint32_t sourceMode = 2u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = 0u;
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(SavedStateV16) == 4208u, "Unexpected version-16 Fault state layout");
+
+struct SavedStateV17 {
+    uint32_t version = 17u;
     uint32_t selectedPreset = 12u;
     s3g::PsdRawFieldParams params {};
     uint32_t sourceMode = 2u;
@@ -89,7 +181,7 @@ struct SavedStateV15 {
     float releaseMs = 850.0f;
     char sourcePath[kSourcePathCapacity] {};
 };
-static_assert(sizeof(SavedStateV15) == 4204u, "Unexpected current Fault state layout");
+static_assert(sizeof(SavedStateV17) == 4236u, "Unexpected current Fault state layout");
 
 struct SavedStateV13 {
     uint32_t version = 13u;
@@ -538,16 +630,50 @@ int main(int argc, char** argv)
         MemoryOutput currentOutput;
         clap_ostream_t currentStream { &currentOutput, streamWrite };
         ok = stateExtension->save(plugin, &currentStream)
-            && currentOutput.bytes.size() == sizeof(SavedStateV15);
+            && currentOutput.bytes.size() == sizeof(SavedStateV17);
         if (ok) {
-            SavedStateV15 saved {};
+            SavedStateV17 saved {};
             std::memcpy(&saved, currentOutput.bytes.data(), sizeof(saved));
-            ok = saved.version == 15u && saved.selectedPreset == 12u
+            ok = saved.version == 17u && saved.selectedPreset == 12u
                 && saved.sourceMode == 2u && saved.runState == 1u
                 && saved.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::RawPcm
+                && saved.params.carrierTune == 0.0f
+                && saved.params.modSource == s3g::PsdRawFieldModSource::Off
+                && saved.params.modIndex == 0.0f
                 && saved.performanceMode == 1u && saved.attackMs == 1.0f
                 && saved.decayMs == 5.0f && saved.sustain == 1.0f && saved.releaseMs == 5.0f;
         }
+    }
+
+    if (ok) {
+        s3g::PsdRawFieldParams oldParams {};
+        oldParams.codecMode = s3g::PsdRawFieldCodecMode::Sstv;
+        oldParams.fieldCodecMode = s3g::PsdRawFieldCodecMode::HfFax;
+        oldParams.carrierTune = -7.5f;
+        SavedStateV16 legacy {};
+        legacy.params = legacyParamsV16(oldParams);
+        std::snprintf(legacy.sourcePath, sizeof(legacy.sourcePath), "%s", wavePath.c_str());
+        MemoryInput legacyInput { reinterpret_cast<const uint8_t*>(&legacy), sizeof(legacy), 0u };
+        clap_istream_t legacyStream { &legacyInput, streamRead };
+        ok = stateExtension->load(plugin, &legacyStream);
+        MemoryOutput migratedOutput;
+        clap_ostream_t migratedStream { &migratedOutput, streamWrite };
+        ok = ok && stateExtension->save(plugin, &migratedStream)
+            && migratedOutput.bytes.size() == sizeof(SavedStateV17);
+        if (ok) {
+            SavedStateV17 migrated {};
+            std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
+            ok = migrated.version == 17u
+                && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::Sstv
+                && migrated.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::HfFax
+                && migrated.params.carrierTune == -7.5f
+                && migrated.params.modSource == s3g::PsdRawFieldModSource::Off
+                && migrated.params.modTarget == s3g::PsdRawFieldModTarget::Carrier
+                && migrated.params.modIndex == 0.0f
+                && migrated.params.modFeedback == 0.0f
+                && migrated.params.modClockLock == 0u;
+        }
+        if (!ok) std::cerr << "Fault did not migrate version-16 protocol modulation defaults\n";
     }
 
     if (ok) {
@@ -560,11 +686,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV15);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV17);
         if (ok) {
-            SavedStateV15 migrated {};
+            SavedStateV17 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 15u && migrated.selectedPreset == 12u
+            ok = migrated.version == 17u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.performanceMode == 0u && migrated.attackMs == 12.0f
                 && migrated.decayMs == 280.0f && migrated.sustain == 0.72f
@@ -583,11 +709,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV15);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV17);
         if (ok) {
-            SavedStateV15 migrated {};
+            SavedStateV17 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 15u && migrated.selectedPreset == 12u
+            ok = migrated.version == 17u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -605,11 +731,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV15);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV17);
         if (ok) {
-            SavedStateV15 migrated {};
+            SavedStateV17 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 15u && migrated.selectedPreset == 12u
+            ok = migrated.version == 17u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -627,11 +753,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV15);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV17);
         if (ok) {
-            SavedStateV15 migrated {};
+            SavedStateV17 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 15u && migrated.selectedPreset == 13u
+            ok = migrated.version == 17u && migrated.selectedPreset == 13u
                 && migrated.sourceMode == 1u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -649,11 +775,11 @@ int main(int argc, char** argv)
         MemoryOutput stoppedOutput;
         clap_ostream_t stoppedOutputStream { &stoppedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &stoppedOutputStream)
-            && stoppedOutput.bytes.size() == sizeof(SavedStateV15);
+            && stoppedOutput.bytes.size() == sizeof(SavedStateV17);
         if (ok) {
-            SavedStateV15 savedStopped {};
+            SavedStateV17 savedStopped {};
             std::memcpy(&savedStopped, stoppedOutput.bytes.data(), sizeof(savedStopped));
-            ok = savedStopped.version == 15u && savedStopped.runState == 0u;
+            ok = savedStopped.version == 17u && savedStopped.runState == 0u;
         }
         if (!ok) std::cerr << "Fault did not preserve its stopped transport state\n";
     }
@@ -689,33 +815,170 @@ int main(int argc, char** argv)
                 }
             }
             char aptText[16] {};
+            char sstvText[16] {};
             double aptValue = -1.0;
+            double sstvValue = -1.0;
             ok = foundCodec
-                && codecInfo.max_value == static_cast<double>(s3g::PsdRawFieldCodecMode::Apt)
+                && codecInfo.max_value == static_cast<double>(s3g::PsdRawFieldCodecMode::Sstv)
                 && paramsExtension->value_to_text(plugin, kCodecModeParamId,
                     static_cast<double>(s3g::PsdRawFieldCodecMode::Apt), aptText, sizeof(aptText))
                 && std::strcmp(aptText, "APT") == 0
                 && paramsExtension->text_to_value(plugin, kCodecModeParamId, "APT", &aptValue)
-                && aptValue == static_cast<double>(s3g::PsdRawFieldCodecMode::Apt);
-            if (!ok) std::cerr << "Fault did not expose the APT codec parameter value\n";
+                && aptValue == static_cast<double>(s3g::PsdRawFieldCodecMode::Apt)
+                && paramsExtension->value_to_text(plugin, kCodecModeParamId,
+                    static_cast<double>(s3g::PsdRawFieldCodecMode::Sstv), sstvText, sizeof(sstvText))
+                && std::strcmp(sstvText, "SSTV") == 0
+                && paramsExtension->text_to_value(plugin, kCodecModeParamId, "SSTV", &sstvValue)
+                && sstvValue == static_cast<double>(s3g::PsdRawFieldCodecMode::Sstv);
+            if (!ok) std::cerr << "Fault did not expose the full transmission codec range\n";
         }
         if (ok) {
             flushParam(kCodecModeParamId, static_cast<double>(s3g::PsdRawFieldCodecMode::Apt));
+            flushParam(kCarrierTuneParamId, 12.0);
+            char carrierText[16] {};
+            double carrierValue = 0.0;
+            ok = paramsExtension->value_to_text(plugin, kCarrierTuneParamId,
+                    12.0, carrierText, sizeof(carrierText))
+                && std::strcmp(carrierText, "4800 Hz") == 0
+                && paramsExtension->text_to_value(plugin, kCarrierTuneParamId,
+                    "2400 Hz", &carrierValue)
+                && std::abs(carrierValue) < 1.0e-9;
+            if (!ok) std::cerr << "Fault did not expose protocol-relative carrier tuning\n";
+        }
+        if (ok) {
+            char sourceText[24] {};
+            char targetText[24] {};
+            char clockText[16] {};
+            char rateText[24] {};
+            double sourceValue = -1.0;
+            double targetValue = -1.0;
+            double clockValue = -1.0;
+            double rateValue = -1.0;
+            constexpr double displayedRate = 0.61;
+            ok = paramsExtension->value_to_text(plugin, kModSourceParamId,
+                    static_cast<double>(s3g::PsdRawFieldModSource::Hellschreiber),
+                    sourceText, sizeof(sourceText))
+                && std::strcmp(sourceText, "HELL") == 0
+                && paramsExtension->text_to_value(plugin, kModSourceParamId,
+                    "HELL", &sourceValue)
+                && sourceValue == static_cast<double>(s3g::PsdRawFieldModSource::Hellschreiber)
+                && paramsExtension->value_to_text(plugin, kModTargetParamId,
+                    static_cast<double>(s3g::PsdRawFieldModTarget::Clock),
+                    targetText, sizeof(targetText))
+                && std::strcmp(targetText, "CLOCK") == 0
+                && paramsExtension->text_to_value(plugin, kModTargetParamId,
+                    "CLOCK", &targetValue)
+                && targetValue == static_cast<double>(s3g::PsdRawFieldModTarget::Clock)
+                && paramsExtension->value_to_text(plugin, kModClockLockParamId,
+                    1.0, clockText, sizeof(clockText))
+                && std::strcmp(clockText, "LOCK") == 0
+                && paramsExtension->text_to_value(plugin, kModClockLockParamId,
+                    "LOCK", &clockValue)
+                && clockValue == 1.0
+                && paramsExtension->value_to_text(plugin, kModRateParamId,
+                    displayedRate, rateText, sizeof(rateText))
+                && paramsExtension->text_to_value(plugin, kModRateParamId,
+                    rateText, &rateValue)
+                && std::abs(rateValue - displayedRate) < 0.002;
+            if (!ok) std::cerr << "Fault did not expose protocol modulation parameter text\n";
+        }
+        if (ok) {
+            flushParam(kModSourceParamId,
+                static_cast<double>(s3g::PsdRawFieldModSource::Sstv));
+            flushParam(kModTargetParamId,
+                static_cast<double>(s3g::PsdRawFieldModTarget::Damage));
+            flushParam(kModRateParamId, 0.63);
+            flushParam(kModRatioParamId, 3.0);
+            flushParam(kModIndexParamId, 0.74);
+            flushParam(kModFeedbackParamId, 0.61);
+            flushParam(kModClockLockParamId, 1.0);
+        }
+        if (ok) {
             flushParam(kRandomizeFieldParamId, 0.613);
             flushParam(kCodecModeParamId, static_cast<double>(s3g::PsdRawFieldCodecMode::ModemFsk));
             MemoryOutput generatedOutput;
             clap_ostream_t generatedStream { &generatedOutput, streamWrite };
             ok = stateExtension->save(plugin, &generatedStream)
-                && generatedOutput.bytes.size() == sizeof(SavedStateV15);
+                && generatedOutput.bytes.size() == sizeof(SavedStateV17);
             if (ok) {
-                SavedStateV15 generated {};
+                SavedStateV17 generated {};
                 std::memcpy(&generated, generatedOutput.bytes.data(), sizeof(generated));
                 ok = generated.sourceMode == 0u
                     && generated.params.codecMode == s3g::PsdRawFieldCodecMode::ModemFsk
-                    && generated.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::Apt;
+                    && generated.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::Apt
+                    && generated.params.carrierTune == 12.0f
+                    && generated.params.modSource == s3g::PsdRawFieldModSource::Sstv
+                    && generated.params.modTarget == s3g::PsdRawFieldModTarget::Damage
+                    && std::abs(generated.params.modRate - 0.63f) < 1.0e-6f
+                    && std::abs(generated.params.modRatio - 3.0f) < 1.0e-6f
+                    && std::abs(generated.params.modIndex - 0.74f) < 1.0e-6f
+                    && std::abs(generated.params.modFeedback - 0.61f) < 1.0e-6f
+                    && generated.params.modClockLock == 1u;
             }
         }
         if (!ok) std::cerr << "Fault GEN FIELD did not latch the selected codec profile\n";
+        if (ok) {
+            constexpr const char* expectedPresetNames[] {
+                "INIT", "SLOW CLOCK", "CODEC SCAR", "FIELD DIVERGE", "GATED BREAKS",
+                "SYNC GLASS", "MU DUST", "DELTA STAIRS", "ADPCM FEEDBACK",
+                "MORSE CHOIR", "SPARK EMBERS", "WIDE FAX", "WAVE TRACE",
+            };
+            std::array<std::array<bool, s3g::kPsdRawFieldModTargetCount>,
+                s3g::kPsdRawFieldModSourceCount> combinations {};
+            uint32_t uniqueCombinations = 0u;
+            for (uint32_t preset = 0u; ok && preset <= 12u; ++preset) {
+                char presetText[32] {};
+                flushParam(kPresetParamId, preset);
+                MemoryOutput presetOutput;
+                clap_ostream_t presetStream { &presetOutput, streamWrite };
+                ok = paramsExtension->value_to_text(plugin, kPresetParamId,
+                        preset, presetText, sizeof(presetText))
+                    && std::strcmp(presetText, expectedPresetNames[preset]) == 0
+                    && stateExtension->save(plugin, &presetStream)
+                    && presetOutput.bytes.size() == sizeof(SavedStateV17);
+                if (!ok) break;
+                SavedStateV17 savedPreset {};
+                std::memcpy(&savedPreset, presetOutput.bytes.data(), sizeof(savedPreset));
+                constexpr uint32_t presetFrames = 1024u;
+                std::array<std::array<float, presetFrames>, kChannels> presetAudio {};
+                std::array<float*, kChannels> presetPointers {};
+                for (uint32_t ch = 0u; ch < kChannels; ++ch) {
+                    presetPointers[ch] = presetAudio[ch].data();
+                }
+                s3g::PsdRawField presetRenderer;
+                presetRenderer.prepare(48000.0);
+                presetRenderer.setParams(savedPreset.params);
+                presetRenderer.reset();
+                presetRenderer.process(presetPointers.data(), kChannels, presetFrames);
+                double presetEnergy = 0.0;
+                for (const auto& channel : presetAudio) {
+                    for (float sample : channel) {
+                        ok = ok && std::isfinite(sample) && std::abs(sample) <= 1.0f;
+                        presetEnergy += static_cast<double>(sample) * sample;
+                    }
+                }
+                ok = ok && presetEnergy > 1.0e-8;
+                if (preset == 0u) {
+                    ok = savedPreset.params.modSource == s3g::PsdRawFieldModSource::Off
+                        && savedPreset.params.modIndex == 0.0f;
+                    continue;
+                }
+                const uint32_t source = static_cast<uint32_t>(savedPreset.params.modSource);
+                const uint32_t target = static_cast<uint32_t>(savedPreset.params.modTarget);
+                ok = savedPreset.selectedPreset == preset
+                    && source > 0u && source < s3g::kPsdRawFieldModSourceCount
+                    && target < s3g::kPsdRawFieldModTargetCount
+                    && savedPreset.params.modIndex >= 0.10f
+                    && savedPreset.params.modRatio >= 0.125f
+                    && savedPreset.params.modRatio <= 16.0f;
+                if (ok && !combinations[source][target]) {
+                    combinations[source][target] = true;
+                    ++uniqueCombinations;
+                }
+            }
+            ok = ok && uniqueCombinations == 12u;
+            if (!ok) std::cerr << "Fault factory presets were not modulation-aware and distinct\n";
+        }
     }
     plugin->destroy(plugin);
     entry->deinit();

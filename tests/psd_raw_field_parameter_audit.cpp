@@ -123,13 +123,16 @@ void printCase(const FloatCase& test)
 }
 
 template <typename Enum>
-void printEnumCase(const char* name, Enum Params::*member, uint32_t count)
+void printEnumCase(const char* name, Enum Params::*member, uint32_t count,
+    const std::function<void(Params&)>& context = {})
 {
     Params firstParams {};
+    if (context) context(firstParams);
     firstParams.*member = static_cast<Enum>(0u);
     const Render first = render(firstParams);
     for (uint32_t mode = 1u; mode < count; ++mode) {
         Params otherParams {};
+        if (context) context(otherParams);
         otherParams.*member = static_cast<Enum>(mode);
         const Render other = render(otherParams);
         const Difference d = compare(first, other);
@@ -169,11 +172,51 @@ int main()
         { "codecDamage FAX", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::FaxQam; } },
         { "codecDamage SIGMA", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::SigmaOneBit; } },
         { "codecDamage APT", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Apt; } },
+        { "codecDamage HF FAX", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::HfFax; } },
+        { "codecDamage HELL", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Hellschreiber; } },
+        { "codecDamage MORSE", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Morse; } },
+        { "codecDamage SPARK", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::SparkCw; } },
+        { "codecDamage RTTY", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::BaudotRtty; } },
+        { "codecDamage SSTV", &Params::codecDamage, 0.0f, 1.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Sstv; } },
         { "codecRate CVSD", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Cvsd; } },
         { "codecRate SUBBAND", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::SubbandAdpcm; } },
         { "codecRate FAX", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::FaxQam; } },
         { "codecRate SIGMA", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::SigmaOneBit; } },
         { "codecRate APT", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Apt; } },
+        { "codecRate HF FAX", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::HfFax; } },
+        { "codecRate HELL", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Hellschreiber; } },
+        { "codecRate MORSE", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Morse; } },
+        { "codecRate RTTY", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::BaudotRtty; } },
+        { "codecRate SSTV", &Params::codecRate, 0.0f, 0.8f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Sstv; } },
+        { "carrierTune APT", &Params::carrierTune, -24.0f, 24.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Apt; } },
+        { "carrierTune HF FAX", &Params::carrierTune, -24.0f, 24.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::HfFax; } },
+        { "carrierTune HELL", &Params::carrierTune, -24.0f, 24.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Hellschreiber; } },
+        { "carrierTune MORSE", &Params::carrierTune, -24.0f, 24.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Morse; } },
+        { "carrierTune RTTY", &Params::carrierTune, -24.0f, 24.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::BaudotRtty; } },
+        { "carrierTune SSTV", &Params::carrierTune, -24.0f, 24.0f, [](Params& p) { p.codecMode = s3g::PsdRawFieldCodecMode::Sstv; } },
+        { "modRate", &Params::modRate, 0.2f, 0.8f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modSource = s3g::PsdRawFieldModSource::Sine;
+            p.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+            p.modIndex = 0.8f;
+        } },
+        { "modRatio", &Params::modRatio, 0.125f, 16.0f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modSource = s3g::PsdRawFieldModSource::Triangle;
+            p.modTarget = s3g::PsdRawFieldModTarget::Deviation;
+            p.modIndex = 0.8f;
+        } },
+        { "modIndex", &Params::modIndex, 0.0f, 1.0f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modSource = s3g::PsdRawFieldModSource::Apt;
+            p.modTarget = s3g::PsdRawFieldModTarget::Data;
+        } },
+        { "modFeedback", &Params::modFeedback, 0.0f, 0.98f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modSource = s3g::PsdRawFieldModSource::Sine;
+            p.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+            p.modIndex = 0.8f;
+        } },
         { "drive", &Params::drive, 0.0f, 1.0f, {} },
         { "shred", &Params::shred, 0.0f, 1.0f, {} },
         { "resonance", &Params::resonance, 0.0f, 1.0f, {} },
@@ -189,5 +232,18 @@ int main()
 
     printEnumCase("codecMode", &Params::codecMode, s3g::kPsdRawFieldCodecModeCount);
     printEnumCase("channelScheme", &Params::channelScheme, 5u);
+    printEnumCase("modSource", &Params::modSource, s3g::kPsdRawFieldModSourceCount,
+        [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modTarget = s3g::PsdRawFieldModTarget::Data;
+            p.modIndex = 0.8f;
+            p.modFeedback = 0.7f;
+        });
+    printEnumCase("modTarget", &Params::modTarget, s3g::kPsdRawFieldModTargetCount,
+        [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modSource = s3g::PsdRawFieldModSource::HfFax;
+            p.modIndex = 0.8f;
+        });
     return 0;
 }

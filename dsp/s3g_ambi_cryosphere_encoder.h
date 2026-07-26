@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_geological_field.h"
+#include "s3g_singing_ice.h"
 #include "s3g_structural_failure.h"
 
 #include <algorithm>
@@ -14,7 +15,7 @@ namespace s3g {
 inline constexpr uint32_t kAmbiCryosphereMaxOrder = 7u;
 inline constexpr uint32_t kAmbiCryosphereMaxChannels = 64u;
 inline constexpr uint32_t kAmbiCryosphereMaxVoices = 64u;
-inline constexpr uint32_t kAmbiCryosphereRegimeCount = 13u;
+inline constexpr uint32_t kAmbiCryosphereRegimeCount = 14u;
 inline constexpr uint32_t kAmbiCryosphereEnvironmentCount = 10u;
 inline constexpr uint32_t kAmbiCryospherePlaceCount = 6u;
 
@@ -104,7 +105,7 @@ inline constexpr std::array<AmbiCryosphereRegimeProfile,
         // FROST CRACK, ICE SEGREGATION, PERMAFROST HEAVE,
         // BASAL STICK-SLIP, PRESSURE RIDGE, CALVING,
         // ICEBERG IMPACT, AVALANCHE, SNOWPACK CREEP,
-        // HAIL, SLEET, FREEZING RAIN, MELTWATER UNDER ICE.
+        // HAIL, SLEET, FREEZING RAIN, MELTWATER UNDER ICE, SINGING LAKE.
         { 0.82f, 0.88f, 0.12f, 0.08f, 0.00f, 0.12f, 0.32f, 0.94f },
         { 1.00f, 0.72f, 0.10f, 0.10f, 0.00f, 0.10f, 0.62f, 0.80f },
         { 0.94f, 0.64f, 0.58f, 0.34f, 0.02f, 0.10f, 0.78f, 0.68f },
@@ -118,6 +119,7 @@ inline constexpr std::array<AmbiCryosphereRegimeProfile,
         { 0.22f, 0.42f, 0.30f, 1.00f, 0.02f, 0.42f, 0.34f, 0.78f },
         { 0.62f, 0.64f, 0.24f, 0.84f, 0.10f, 0.52f, 0.44f, 0.90f },
         { 0.44f, 0.42f, 0.82f, 0.28f, 0.08f, 0.76f, 0.64f, 0.56f },
+        { 0.72f, 0.82f, 0.08f, 0.02f, 0.00f, 0.08f, 0.74f, 0.88f },
     }};
 
 struct AmbiCryosphereSubstrateProfile {
@@ -173,7 +175,10 @@ struct AmbiCryosphereVoice {
     float forcePulse = 0.0f;
     float eventLevel = 0.0f;
     float energy = 0.0f;
+    float singingSample = 0.0f;
+    float singingActivity = 0.0f;
     StructuralFailureModel structure {};
+    SingingIceModel singingIce {};
 };
 
 class AmbiCryosphereEncoder {
@@ -198,12 +203,14 @@ public:
         transitionRequested_.store(false, std::memory_order_relaxed);
         smoothedOutputGain_ = dbToGain(params_.outputGainDb);
         iceLayerEnergy_ = 0.0f;
+        singingIceLayerEnergy_ = 0.0f;
         fractureEventCount_ = 0u;
         slipEventCount_ = 0u;
         calvingEventCount_ = 0u;
         impactEventCount_ = 0u;
         structuralSnapEventCount_ = 0u;
         plateFailureEventCount_ = 0u;
+        singingIceEventCount_ = 0u;
     }
 
     void setParams(AmbiCryosphereParams params)
@@ -288,6 +295,7 @@ public:
     }
 
     float iceLayerEnergy() const { return iceLayerEnergy_; }
+    float singingIceLayerEnergy() const { return singingIceLayerEnergy_; }
     uint64_t fractureEventCount() const { return fractureEventCount_; }
     uint64_t slipEventCount() const { return slipEventCount_; }
     uint64_t calvingEventCount() const { return calvingEventCount_; }
@@ -300,6 +308,7 @@ public:
     {
         return plateFailureEventCount_;
     }
+    uint64_t singingIceEventCount() const { return singingIceEventCount_; }
 
     void process(float* const* outputs, uint32_t outputChannels,
         uint32_t frames)
@@ -323,6 +332,7 @@ public:
         const float voiceNorm = std::pow(field_.voiceMass(), 0.44f);
         constexpr uint32_t kControlFrames = 16u;
         double layerEnergy = 0.0;
+        double singingEnergy = 0.0;
 
         for (uint32_t chunkStart = 0u; chunkStart < frames;
             chunkStart += kControlFrames) {
@@ -357,6 +367,9 @@ public:
                         sample = 0.0f;
                     }
                     layerEnergy += static_cast<double>(sample) * sample;
+                    singingEnergy += static_cast<double>(
+                        voices_[voice].singingSample)
+                        * voices_[voice].singingSample;
                     const auto& basis = field_.basis(voice);
                     for (uint32_t channel = 0u; channel < ambiChannels;
                         ++channel) {
@@ -407,6 +420,11 @@ public:
             / std::max<uint32_t>(1u,
                 frames * std::max<uint32_t>(1u, voiceCount)));
         iceLayerEnergy_ += (measured - iceLayerEnergy_) * 0.24f;
+        const float measuredSinging = static_cast<float>(singingEnergy
+            / std::max<uint32_t>(1u,
+                frames * std::max<uint32_t>(1u, voiceCount)));
+        singingIceLayerEnergy_ +=
+            (measuredSinging - singingIceLayerEnergy_) * 0.24f;
     }
 
 private:
@@ -519,6 +537,8 @@ private:
         voice.impactCountdown = -1.0f;
         voice.structure.prepare(sampleRate_,
             0x1ceba11u + index * 0x85ebca6bu);
+        voice.singingIce.prepare(sampleRate_,
+            0x51a91ce5u + index * 0xc2b2ae35u);
     }
 
     void triggerFracture(AmbiCryosphereVoice& voice,
@@ -540,6 +560,12 @@ private:
         voice.tailEnvelope = std::max(voice.tailEnvelope,
             strength * params_.resonance * 0.46f);
         ++fractureEventCount_;
+        if (!branch && params_.regime == 13u) {
+            voice.singingIce.excite(strength, params_.scale,
+                params_.brightness, params_.resonance, params_.damping,
+                params_.depth);
+            ++singingIceEventCount_;
+        }
         if (!branch) {
             voice.branchesRemaining = static_cast<uint32_t>(
                 randomUnit(voice.rng)
@@ -656,6 +682,17 @@ private:
         const auto structural = voice.structure.process(structureParams);
         if (structural.snapTriggered) ++structuralSnapEventCount_;
         if (structural.consequenceTriggered) ++plateFailureEventCount_;
+        if (params_.regime == 13u
+            && (structural.snapTriggered
+                || structural.consequenceTriggered)) {
+            const float strength = structural.consequenceTriggered
+                ? 1.0f : 0.58f;
+            voice.singingIce.excite(strength
+                    * (0.36f + params_.surfaceLoad * 0.64f),
+                params_.scale, params_.brightness, params_.resonance,
+                params_.damping, params_.depth);
+            ++singingIceEventCount_;
+        }
         voice.strain += dt * (freezeDrive * 2.8f + mechanicalDrive * 1.7f)
             * (0.72f + std::fabs(voice.slowNoise) * 0.48f);
         voice.strain = std::max(0.0f, voice.strain - dt
@@ -799,6 +836,15 @@ private:
         const float diffuseTail = voice.tailEnvelope
             * (voice.slowNoise * 0.44f + contactBand * 0.26f)
             * (1.0f - params_.damping * 0.58f);
+        if (params_.regime == 13u) {
+            const auto singing = voice.singingIce.process();
+            voice.singingSample = singing.sample;
+            voice.singingActivity = singing.activity;
+        } else {
+            if (voice.singingIce.active()) voice.singingIce.reset();
+            voice.singingSample = 0.0f;
+            voice.singingActivity = 0.0f;
+        }
         const float listenerGain = 1.0f
             + field_.listenerDrive(index) * 0.20f;
         const float iceSample = (creep + fracture * 0.42f + macro * 0.48f
@@ -812,12 +858,14 @@ private:
             + structural.rupture * 0.54f + structural.fall * 0.48f
             + structural.impact * 0.72f)
             * (0.24f + params_.surfaceLoad * 0.62f);
-        const float sample = (iceSample + structuralSample) * listenerGain;
+        const float sample = (iceSample + structuralSample
+            + voice.singingSample * (0.46f + params_.resonance * 0.74f))
+            * listenerGain;
 
         const float event = std::max({ voice.fractureEnvelope,
             voice.macroEnvelope, voice.slipEnvelope, voice.grainEnvelope,
             voice.impactEnvelope, voice.cavitationEnvelope,
-            structural.activity });
+            structural.activity, voice.singingActivity });
         voice.eventLevel += (event - voice.eventLevel) * 0.018f;
         voice.energy += (sample * sample - voice.energy) * 0.0012f;
         return std::isfinite(sample) ? sample : 0.0f;
@@ -832,12 +880,14 @@ private:
     float smoothedOutputGain_ = dbToGain(-6.0f);
     float transitionFade_ = 1.0f;
     float iceLayerEnergy_ = 0.0f;
+    float singingIceLayerEnergy_ = 0.0f;
     uint64_t fractureEventCount_ = 0u;
     uint64_t slipEventCount_ = 0u;
     uint64_t calvingEventCount_ = 0u;
     uint64_t impactEventCount_ = 0u;
     uint64_t structuralSnapEventCount_ = 0u;
     uint64_t plateFailureEventCount_ = 0u;
+    uint64_t singingIceEventCount_ = 0u;
     std::atomic<bool> transitionRequested_ { false };
 };
 

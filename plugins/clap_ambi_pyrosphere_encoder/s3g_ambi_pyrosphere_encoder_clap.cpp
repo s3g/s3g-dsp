@@ -233,7 +233,8 @@ uint32_t randomChoice(uint32_t& seed, uint32_t count)
 
 constexpr const char* kMaterialNames[] = {
     "GAS", "WICK / WAX", "DUFF / PEAT", "TIMBER", "COAL", "OIL",
-    "MASONRY", "METAL", "EMBERS", "RESIN", "GRASS", "FOREST", "ROCK / TALUS"
+    "MASONRY", "METAL", "EMBERS", "RESIN", "GRASS", "FOREST",
+    "ROCK / TALUS", "PRESSURE JET"
 };
 
 constexpr const char* kPlaceNames[] = {
@@ -278,7 +279,8 @@ void randomizeSafe(Plugin& plugin)
     p.spread = randomRange(seed, 0.06f, 0.42f);
     p.deviation = randomRange(seed, 0.025f, 0.22f);
     p.gustShape = randomChoice(seed, 6u);
-    p.vectorRateHz = randomRange(seed, 0.004f, 0.080f);
+    p.vectorRateHz = randomLogRange(seed,
+        s3g::kAmbiPyrosphereMinPlumeWanderHz, 0.080f);
     p.materialMode = randomChoice(seed, s3g::kAmbiPyrosphereMaterialCount);
     const bool resonantObject = p.materialMode == 5u || p.materialMode == 6u || p.materialMode == 7u;
     if (resonantObject) {
@@ -311,7 +313,7 @@ void randomizeSafe(Plugin& plugin)
         ? randomRange(seed, 0.38f, 0.92f) : randomRange(seed, 0.0f, 0.28f);
     p.vortex = randomUnit(seed) < 0.20f
         ? randomRange(seed, 0.48f, 0.94f) : randomRange(seed, 0.0f, 0.26f);
-    p.pressure = p.materialMode == 12u
+    p.pressure = p.materialMode == 12u || p.materialMode == 13u
         ? randomRange(seed, 0.44f, 0.92f) : randomRange(seed, 0.0f, 0.34f);
     const bool standingWood = p.materialMode == 3u
         || p.materialMode == 9u || p.materialMode == 11u;
@@ -321,6 +323,21 @@ void randomizeSafe(Plugin& plugin)
         ? randomRange(seed, 0.48f, 0.96f) : randomRange(seed, 0.18f, 0.58f);
     p.fall = p.materialMode == 11u
         ? randomRange(seed, 0.38f, 0.88f) : randomRange(seed, 0.0f, 0.28f);
+    if (p.materialMode == 13u) {
+        p.voices = 8u + randomChoice(seed, 13u);
+        p.wind = randomRange(seed, 0.72f, 1.0f);
+        p.turbulence = randomRange(seed, 0.72f, 1.0f);
+        p.material = randomRange(seed, 0.72f, 1.0f);
+        p.air = randomRange(seed, 0.62f, 1.0f);
+        p.hiss = randomRange(seed, 0.58f, 0.94f);
+        p.body = randomRange(seed, 0.62f, 0.96f);
+        p.breath = randomRange(seed, 0.78f, 1.0f);
+        p.pressure = randomRange(seed, 0.74f, 1.0f);
+        p.spread = randomRange(seed, 0.08f, 0.34f);
+        p.particles = randomRange(seed, 0.0f, 0.08f);
+        p.structuralLoad = 0.0f;
+        p.fall = 0.0f;
+    }
     p.order = order;
     p.outputGainDb = outputGainDb;
     p.fieldListenMode = fieldListenMode;
@@ -428,7 +445,10 @@ s3g::AmbiPyrosphereParams pyrosphereSurfaceParams(
     S3G_PYROSPHERE_SURFACE_BLEND(hiss);
     S3G_PYROSPHERE_SURFACE_BLEND(spread);
     S3G_PYROSPHERE_SURFACE_BLEND(deviation);
-    S3G_PYROSPHERE_SURFACE_BLEND(vectorRateHz);
+    result.vectorRateHz = s3g::parameterSurfaceBlendLog(
+        plugin.surface, weights,
+        [](const s3g::AmbiPyrosphereParams& p) { return p.vectorRateHz; },
+        base.vectorRateHz, s3g::kAmbiPyrosphereMinPlumeWanderHz);
     S3G_PYROSPHERE_SURFACE_BLEND(center);
     S3G_PYROSPHERE_SURFACE_BLEND(sweep);
     S3G_PYROSPHERE_SURFACE_BLEND(q);
@@ -724,7 +744,9 @@ constexpr ParamDef kParams[] {
     { kSpreadParamId, "Spread", 0.0, 1.0, 0.26, false },
     { kDeviationParamId, "Deviation", 0.0, 1.0, 0.12, false },
     { kGustShapeParamId, "Flame Shape", 0.0, 5.0, 2.0, true },
-    { kRateModeAParamId, "Plume Wander", 0.0, 0.5, 0.024, false },
+    { kRateModeAParamId, "Plume Wander",
+        s3g::kAmbiPyrosphereMinPlumeWanderHz,
+        s3g::kAmbiPyrosphereMaxPlumeWanderHz, 0.024, false },
     { kRateModeBParamId, "Affected Material", 0.0, static_cast<double>(s3g::kAmbiPyrosphereMaterialCount - 1u), 0.0, true },
     { kGustEdgeParamId, "Ignition Edge", 0.0, 2.0, 0.0, true },
     { kThresholdParamId, "Burn Core", 0.0, 1.0, 0.38, false },
@@ -910,7 +932,11 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     } else if (id == kOrderParamId) {
         std::snprintf(display, size, "%.0fOA", value);
     } else if (id == kRateModeAParamId) {
-        std::snprintf(display, size, "%.3f Hz", value);
+        if (value < 0.01) {
+            std::snprintf(display, size, "%.1f mHz", value * 1000.0);
+        } else {
+            std::snprintf(display, size, "%.3f Hz", value);
+        }
     } else if (id == kRateModeBParamId) {
         std::snprintf(display, size, "%s", kMaterialNames[std::min<uint32_t>(
             static_cast<uint32_t>(std::lround(value)),
@@ -1182,7 +1208,9 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kOutputParamId, 630, 78, -60.0, 12.0, false },
     { kPwmAParamId, 630, 130, 0.0, 1.0, false },
     { kPwmBParamId, 630, 156, 0.0, 1.0, false },
-    { kRateModeAParamId, 630, 222, 0.0, 0.5, true },
+    { kRateModeAParamId, 630, 222,
+        s3g::kAmbiPyrosphereMinPlumeWanderHz,
+        s3g::kAmbiPyrosphereMaxPlumeWanderHz, true },
     { kVoicesParamId, 630, 274, 1.0, 64.0, false },
     { kRateAParamId, 630, 300, 0.0, 1.0, false },
     { kRateBParamId, 630, 326,
@@ -1982,7 +2010,8 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
     static NSString* materialItems[] = { @"GAS", @"WICK / WAX", @"DUFF / PEAT",
         @"TIMBER", @"COAL", @"OIL", @"MASONRY", @"METAL", @"EMBERS",
-        @"RESIN", @"GRASS", @"FOREST", @"ROCK / TALUS" };
+        @"RESIN", @"GRASS", @"FOREST", @"ROCK / TALUS", @"PRESSURE JET" };
+    static_assert(std::size(materialItems) == s3g::kAmbiPyrosphereMaterialCount);
     static NSString* placeItems[] = { @"OPEN", @"CANOPY", @"PORCH", @"ROOM", @"HANGAR", @"CANYON", @"TUNNEL" };
     static NSString* listenItems[] = { @"OFF", @"FOLLOW", @"COUNTER", @"BALANCE" };
     static NSString* responseItems[] = {

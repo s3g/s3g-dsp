@@ -13,7 +13,7 @@ struct AmbiPyrospherePresetInfo {
     const char* description;
 };
 
-inline constexpr uint32_t kAmbiPyrosphereFactoryPresetCount = 13u;
+inline constexpr uint32_t kAmbiPyrosphereFactoryPresetCount = 14u;
 inline constexpr std::array<AmbiPyrospherePresetInfo,
     kAmbiPyrosphereFactoryPresetCount> kAmbiPyrospherePresetInfo {{
         { "Duff Smoulder", "A damp porous fuel bed with muted combustion and internal material failure." },
@@ -29,6 +29,7 @@ inline constexpr std::array<AmbiPyrospherePresetInfo,
         { "Structural Collapse", "Heat-weakened masonry and metal releasing heavy debris cascades." },
         { "Firestorm Debris Field", "A large rotating combustion front driving fracture, pressure, and debris." },
         { "Burned Timber Fall", "A standing fire-weakened tree loading, snapping through branch generations, hinging, and striking the ground." },
+        { "Flamethrower Jet", "A sustained pressurized fuel jet with a dense nozzle core, turbulent shear roar, hiss, and downstream heat-release modulation." },
     }};
 
 inline AmbiPyrospherePresetInfo ambiPyrosphereFactoryPresetInfo(
@@ -106,11 +107,17 @@ inline AmbiPyrosphereParams ambiPyrosphereFactoryPreset(uint32_t index)
         p.pressure=.96f; p.vortex=1.0f; p.spread=1.0f; p.motionRateHz=.28f; p.motionCurl=1.0f; p.motionUpdraft=1.0f;
         p.centerDistance=1.22f; p.outputGainDb=-11.0f;
         p.structuralLoad=.84f; p.snap=.88f; p.fall=.66f; break;
-    default:
+    case 12u:
         p.order=4u; p.voices=52; p.materialMode=11u; p.wind=.82f; p.gustRate=12.0f; p.gustDepth=.72f; p.turbulence=.66f; p.flutter=.34f;
         p.material=.98f; p.body=.88f; p.breath=.56f; p.air=.34f; p.hiss=.22f; p.q=.88f; p.grit=.90f; p.particles=.72f;
         p.pressure=.52f; p.vortex=.54f; p.spread=.88f; p.motionRateHz=.072f; p.motionFlow=.84f; p.motionShear=.78f; p.motionCurl=.38f; p.motionUpdraft=.48f;
         p.structuralLoad=1.0f; p.snap=1.0f; p.fall=1.0f; p.centerDistance=1.16f; p.space=.16f; p.outputGainDb=-11.0f; break;
+    default:
+        p.voices=12; p.materialMode=13u; p.wind=1.0f; p.gustRate=.42f; p.gustDepth=.18f; p.turbulence=.94f; p.flutter=.22f;
+        p.material=.94f; p.body=.88f; p.breath=1.0f; p.air=.88f; p.hiss=.82f; p.q=.08f; p.grit=.04f; p.particles=.02f;
+        p.center=.92f; p.sweep=.62f; p.shrill=.48f; p.pressure=1.0f; p.vortex=.74f; p.spread=.24f; p.deviation=.05f;
+        p.motionRateHz=.15f; p.motionFlow=1.0f; p.motionShear=.88f; p.motionCurl=.18f; p.motionUpdraft=.24f;
+        p.structuralLoad=0.0f; p.snap=.12f; p.fall=0.0f; p.centerDistance=.86f; p.space=.12f; p.outputGainDb=-11.0f; break;
     }
     return p;
 }

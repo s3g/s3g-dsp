@@ -232,7 +232,8 @@ uint32_t randomChoice(uint32_t& seed, uint32_t count)
 constexpr const char* kRegimeNames[] = {
     "FROST CRACK", "ICE SEGREGATION", "PERMAFROST HEAVE", "BASAL STICK-SLIP",
     "PRESSURE RIDGE", "CALVING", "ICEBERG IMPACT", "AVALANCHE",
-    "SNOWPACK CREEP", "HAIL", "SLEET", "FREEZING RAIN", "MELTWATER UNDER ICE"
+    "SNOWPACK CREEP", "HAIL", "SLEET", "FREEZING RAIN",
+    "MELTWATER UNDER ICE", "SINGING LAKE"
 };
 
 constexpr const char* kEnvironmentNames[] = {
@@ -409,13 +410,34 @@ void randomizeSafe(Plugin& plugin)
         p.surfaceLoad = std::max(p.surfaceLoad, 0.38f);
         p.snap = std::max(p.snap, 0.58f);
         break;
-    default: // Meltwater under ice
+    case 12u: // Meltwater under ice
         p.water = std::max(p.water, 0.54f);
         p.bubbles = std::max(p.bubbles, 0.72f);
         p.current = std::max(p.current, 0.72f);
         p.shore = std::max(p.shore, 0.68f);
         p.environment = 9u;
         p.surfaceLoad = std::max(p.surfaceLoad, 0.40f);
+        break;
+    default: // Singing lake
+        p.environment = 0u;
+        p.voices = 6u + randomChoice(seed, 9u);
+        p.flow = randomLogRange(seed, 0.012f, 0.12f);
+        p.scale = randomRange(seed, 0.60f, 0.90f);
+        p.turbulence = randomRange(seed, 0.08f, 0.32f);
+        p.aeration = randomRange(seed, 0.0f, 0.08f);
+        p.drops = randomRange(seed, 0.0f, 0.08f);
+        p.splash = 0.0f;
+        p.density = randomRange(seed, 0.08f, 0.24f);
+        p.eventSize = randomRange(seed, 0.62f, 0.92f);
+        p.eventDecay = randomRange(seed, 0.22f, 0.55f);
+        p.depth = randomRange(seed, 0.68f, 0.92f);
+        p.brightness = randomRange(seed, 0.32f, 0.62f);
+        p.resonance = randomRange(seed, 0.45f, 0.78f);
+        p.damping = randomRange(seed, 0.22f, 0.50f);
+        p.current = randomRange(seed, 0.0f, 0.12f);
+        p.convergence = randomRange(seed, 0.04f, 0.20f);
+        p.surfaceLoad = randomRange(seed, 0.12f, 0.30f);
+        p.plateFailure = randomRange(seed, 0.0f, 0.06f);
         break;
     }
 
@@ -2025,7 +2047,9 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     static NSString* regimeItems[] = { @"FROST CRACK", @"ICE SEGREGATION",
         @"PERMAFROST HEAVE", @"BASAL STICK-SLIP", @"PRESSURE RIDGE",
         @"CALVING", @"ICEBERG IMPACT", @"AVALANCHE", @"SNOWPACK CREEP",
-        @"HAIL", @"SLEET", @"FREEZING RAIN", @"MELTWATER UNDER ICE" };
+        @"HAIL", @"SLEET", @"FREEZING RAIN", @"MELTWATER UNDER ICE",
+        @"SINGING LAKE" };
+    static_assert(std::size(regimeItems) == s3g::kAmbiCryosphereRegimeCount);
     static NSString* environmentItems[] = { @"OPEN ICE", @"ROCK", @"SNOWPACK",
         @"MORAINE", @"CONCRETE", @"METAL", @"GLASS", @"ICE TUNNEL",
         @"ICE CAVE", @"GLACIER" };

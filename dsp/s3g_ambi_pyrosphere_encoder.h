@@ -2,6 +2,7 @@
 
 #include "s3g_geological_field.h"
 #include "s3g_structural_failure.h"
+#include "s3g_turbulent_flame_jet.h"
 
 #include <algorithm>
 #include <array>
@@ -15,9 +16,11 @@ inline constexpr uint32_t kAmbiPyrosphereMaxOrder = 7u;
 inline constexpr uint32_t kAmbiPyrosphereMaxChannels = 64u;
 inline constexpr uint32_t kAmbiPyrosphereMaxVoices = 64u;
 inline constexpr uint32_t kAmbiPyrospherePlaceCount = 7u;
-inline constexpr uint32_t kAmbiPyrosphereMaterialCount = 13u;
+inline constexpr uint32_t kAmbiPyrosphereMaterialCount = 14u;
 inline constexpr float kAmbiPyrosphereMinIgnitionRateHz = 0.002f;
 inline constexpr float kAmbiPyrosphereMaxIgnitionRateHz = 12.0f;
+inline constexpr float kAmbiPyrosphereMinPlumeWanderHz = 0.001f;
+inline constexpr float kAmbiPyrosphereMaxPlumeWanderHz = 0.5f;
 
 inline float ambiPyrosphereTemporalScale(float ignitionRateHz)
 {
@@ -110,7 +113,7 @@ struct AmbiPyrosphereMaterialProfile {
 };
 
 // GAS, WICK/WAX, DUFF/PEAT, TIMBER, COAL, OIL, MASONRY, METAL,
-// EMBERS, RESIN, GRASS, FOREST, ROCK/TALUS.
+// EMBERS, RESIN, GRASS, FOREST, ROCK/TALUS, PRESSURE JET.
 inline constexpr std::array<AmbiPyrosphereMaterialProfile,
     kAmbiPyrosphereMaterialCount> kAmbiPyrosphereMaterialProfiles {{
         { 1.00f, 0.08f, 0.02f, 0.01f, 0.00f, 0.00f, 0.82f, 0.92f },
@@ -126,10 +129,12 @@ inline constexpr std::array<AmbiPyrosphereMaterialProfile,
         { 0.90f, 0.42f, 0.92f, 0.14f, 0.10f, 0.12f, 0.78f, 0.52f },
         { 0.76f, 0.82f, 0.86f, 0.58f, 0.76f, 0.36f, 0.42f, 0.40f },
         { 0.02f, 1.00f, 0.84f, 1.00f, 0.48f, 0.46f, 0.20f, 0.28f },
+        { 1.00f, 0.04f, 0.01f, 0.00f, 0.00f, 0.00f, 0.78f, 0.88f },
     }};
 
 struct AmbiPyrosphereVoice {
     uint32_t rng = 1u;
+    float subNoise = 0.0f;
     float slowNoise = 0.0f;
     float midNoise = 0.0f;
     float airNoise = 0.0f;
@@ -154,7 +159,10 @@ struct AmbiPyrosphereVoice {
     float forcePulse = 0.0f;
     float eventLevel = 0.0f;
     float energy = 0.0f;
+    float jetSample = 0.0f;
+    float jetActivity = 0.0f;
     StructuralFailureModel structure {};
+    TurbulentFlameJetModel flameJet {};
 };
 
 class AmbiPyrosphereEncoder {
@@ -179,6 +187,7 @@ public:
         transitionRequested_.store(false, std::memory_order_relaxed);
         smoothedOutputGain_ = dbToGain(params_.outputGainDb);
         combustionLayerEnergy_ = 0.0f;
+        jetLayerEnergy_ = 0.0f;
         geologicalEventCount_ = 0u;
         spallEventCount_ = 0u;
         collapseEventCount_ = 0u;
@@ -197,7 +206,7 @@ public:
         fieldParams.deviation = clamp(params.deviation
             * (0.48f + params.field * 0.72f), 0.0f, 1.0f);
         fieldParams.motionRateHz = clamp(params.motionRateHz
-            + params.vectorRateHz * 0.32f, 0.001f, 2.0f);
+            + params.vectorRateHz, 0.001f, 2.0f);
         fieldParams.transport = params.motionFlow
             * (0.42f + params.field * 0.58f);
         fieldParams.shear = params.motionShear;
@@ -271,6 +280,7 @@ public:
     }
 
     float combustionLayerEnergy() const { return combustionLayerEnergy_; }
+    float jetLayerEnergy() const { return jetLayerEnergy_; }
     uint64_t geologicalEventCount() const { return geologicalEventCount_; }
     uint64_t spallEventCount() const { return spallEventCount_; }
     uint64_t collapseEventCount() const { return collapseEventCount_; }
@@ -303,6 +313,7 @@ public:
         const float voiceNorm = std::pow(field_.voiceMass(), 0.46f);
         constexpr uint32_t kControlFrames = 16u;
         double layerEnergy = 0.0;
+        double jetEnergy = 0.0;
 
         for (uint32_t chunkStart = 0u; chunkStart < frames;
             chunkStart += kControlFrames) {
@@ -337,6 +348,8 @@ public:
                         sample = 0.0f;
                     }
                     layerEnergy += static_cast<double>(sample) * sample;
+                    jetEnergy += static_cast<double>(voices_[voice].jetSample)
+                        * voices_[voice].jetSample;
                     const auto& basis = field_.basis(voice);
                     for (uint32_t channel = 0u; channel < ambiChannels;
                         ++channel) {
@@ -388,6 +401,10 @@ public:
                 frames * std::max<uint32_t>(1u, voiceCount)));
         combustionLayerEnergy_ +=
             (measured - combustionLayerEnergy_) * 0.24f;
+        const float measuredJet = static_cast<float>(jetEnergy
+            / std::max<uint32_t>(1u,
+                frames * std::max<uint32_t>(1u, voiceCount)));
+        jetLayerEnergy_ += (measuredJet - jetLayerEnergy_) * 0.24f;
     }
 
 private:
@@ -416,7 +433,8 @@ private:
         S3G_PYRO_CLAMP(spread, 0.0f, 1.0f);
         S3G_PYRO_CLAMP(deviation, 0.0f, 1.0f);
         params.gustShape = std::min<uint32_t>(params.gustShape, 5u);
-        S3G_PYRO_CLAMP(vectorRateHz, 0.0f, 0.5f);
+        S3G_PYRO_CLAMP(vectorRateHz, kAmbiPyrosphereMinPlumeWanderHz,
+            kAmbiPyrosphereMaxPlumeWanderHz);
         params.materialMode = std::min<uint32_t>(
             params.materialMode, kAmbiPyrosphereMaterialCount - 1u);
         params.gustEdge = std::min<uint32_t>(params.gustEdge, 2u);
@@ -500,6 +518,7 @@ private:
         voice.fragmentTimer = 0.0f;
         voice.structure.prepare(sampleRate_,
             0xb12a4c5du + index * 0x85ebca6bu);
+        voice.flameJet.prepare(sampleRate_);
     }
 
     void triggerFracture(AmbiPyrosphereVoice& voice,
@@ -550,12 +569,16 @@ private:
         const float sr = static_cast<float>(sampleRate_);
         const float dt = 1.0f / sr;
         const float white = randomSigned(voice.rng);
-        const float slowHz = 18.0f + params_.body * 130.0f
+        const float subHz = 14.0f + (1.0f - params_.body) * 52.0f
+            + material.collapse * 12.0f;
+        const float slowHz = 48.0f + (1.0f - params_.body) * 140.0f
             + material.collapse * 42.0f;
         const float midHz = 260.0f + params_.sweep * 2100.0f
             + material.highColor * 680.0f;
         const float airHz = 2200.0f + params_.shrill * 10800.0f
             + params_.air * 2400.0f;
+        voice.subNoise += (white - voice.subNoise)
+            * (1.0f - std::exp(-kPi * 2.0f * subHz / sr));
         voice.slowNoise += (white - voice.slowNoise)
             * (1.0f - std::exp(-kPi * 2.0f * slowHz / sr));
         voice.midNoise += (white - voice.midNoise)
@@ -616,6 +639,15 @@ private:
             * (0.72f + std::fabs(voice.slowNoise)
                 * (0.34f + params_.flutter * 0.92f)),
             0.0f, 1.8f);
+        const bool pressureJet = params_.materialMode == 13u;
+        const auto jet = pressureJet
+            ? voice.flameJet.process(white, params_.pressure, params_.wind,
+                params_.turbulence, params_.breath, params_.hiss,
+                params_.body, clamp(params_.sweep * 0.62f
+                    + params_.shrill * 0.38f, 0.0f, 1.0f))
+            : TurbulentFlameJetOutput {};
+        voice.jetSample = jet.sample;
+        voice.jetActivity = jet.activity;
 
         float standingStructure = 0.0f;
         float hierarchy = 0.36f;
@@ -721,8 +753,9 @@ private:
             / (0.0011f + material.damping * 0.006f));
 
         const float combustion = material.combustibility * params_.material;
-        const float roar = std::tanh((voice.slowNoise
-                * (1.1f + params_.body * 2.8f)
+        const float roar = std::tanh((voice.subNoise
+                * (1.4f + params_.body * 4.2f)
+            + voice.slowNoise * (0.8f + params_.body * 1.8f)
             + midBand * (0.34f + params_.turbulence * 1.42f))
             * (0.46f + params_.turbulence * 1.54f))
             * unstableHeat * combustion;
@@ -737,17 +770,20 @@ private:
             * (midBand * 0.72f + voice.slowNoise * 0.64f
                 + voice.forcePulse * 0.38f);
         const float debris = voice.debrisEnvelope
-            * (voice.slowNoise * 1.16f + midBand * 0.38f)
+            * (voice.subNoise * 0.82f + voice.slowNoise * 0.72f
+                + midBand * 0.38f)
             * (0.48f + params_.grit * 0.72f);
         const float fragments = voice.fragmentEnvelope
             * (highBand * 0.74f + derivative * 0.18f);
         const float pressure = voice.pressureEnvelope
-            * voice.slowNoise * params_.pressure * 1.18f;
+            * (voice.subNoise * 0.92f + voice.slowNoise * 0.34f)
+            * params_.pressure * 1.18f;
         const float listenerGain = 1.0f
             + field_.listenerDrive(index) * 0.22f;
         const float combustionSample = (roar * 0.34f + flameNoise * 0.26f
             + fracture * 0.34f + spall * 0.48f + debris * 0.38f
-            + fragments * 0.30f + pressure * 0.42f)
+            + fragments * 0.30f + pressure * 0.42f
+            + voice.jetSample * 0.92f)
             * (0.18f + params_.wind * 0.68f);
         const float structuralSample = (structural.flex * 0.10f
             + structural.crack * 0.52f + structural.snap * 0.66f
@@ -761,7 +797,7 @@ private:
         const float event = std::max({ voice.fractureEnvelope,
             voice.spallEnvelope, voice.debrisEnvelope,
             voice.fragmentEnvelope, voice.pressureEnvelope,
-            structural.activity });
+            structural.activity, voice.jetActivity });
         voice.eventLevel += (event - voice.eventLevel) * 0.018f;
         voice.energy += (sample * sample - voice.energy) * 0.0012f;
         return std::isfinite(sample) ? sample : 0.0f;
@@ -776,6 +812,7 @@ private:
     float smoothedOutputGain_ = dbToGain(-6.0f);
     float transitionFade_ = 1.0f;
     float combustionLayerEnergy_ = 0.0f;
+    float jetLayerEnergy_ = 0.0f;
     uint64_t geologicalEventCount_ = 0u;
     uint64_t spallEventCount_ = 0u;
     uint64_t collapseEventCount_ = 0u;

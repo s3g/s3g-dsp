@@ -8,18 +8,20 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace s3g {
 
 constexpr uint32_t kAmbiEffectDjFilterMaxOrder = 7u;
 constexpr uint32_t kAmbiEffectDjFilterMaxChannels = 64u;
-constexpr uint32_t kAmbiEffectDjFilterMaxPickups = 12u;
+constexpr uint32_t kAmbiEffectDjFilterMaxPickups = 20u;
 
 enum class AmbiEffectBody : uint32_t {
     Auto = 0u,
     Tetra4 = 1u,
     Cube8 = 2u,
     Icosa12 = 3u,
+    Dodeca20 = 4u,
 };
 
 enum class AmbiEffectTopology : uint32_t {
@@ -29,34 +31,67 @@ enum class AmbiEffectTopology : uint32_t {
     Roaming = 3u,
 };
 
+enum class AmbiEffectEngine : uint32_t {
+    DjFilter = 0u,
+    Delay = 1u,
+    Pitch = 2u,
+    Gain = 3u,
+};
+
 struct AmbiEffectDjFilterParams {
+    AmbiEffectEngine engine = AmbiEffectEngine::DjFilter;
     uint32_t order = 7u;
     AmbiEffectBody body = AmbiEffectBody::Auto;
     AmbiEffectTopology topology = AmbiEffectTopology::Local;
     float filter = 0.5f;
     float resonance = 0.12f;
+    float spread = 0.0f;
+    float deviation = 0.0f;
     float topologyAmount = 0.65f;
     float roamingRateHz = 0.08f;
     float mix = 1.0f;
     float outputGainDb = 0.0f;
     std::array<float, kAmbiEffectDjFilterMaxPickups> pickupFilterTrim {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups> pickupResonanceTrim {};
     float maskAmount = 0.0f;
     float maskAzimuthDeg = 0.0f;
     float maskElevationDeg = 0.0f;
     float maskWidth = 0.35f;
+    float maskCurve = 0.5f;
+    float maskDry = 1.0f;
+    float delayTimeMs = 320.0f;
+    float delayFeedback = 0.32f;
+    float delayTone = 0.62f;
+    std::array<float, kAmbiEffectDjFilterMaxPickups> pickupDelayTimeTrim {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups> pickupDelayFeedbackTrim {};
+    float pitchSemitones = 0.0f;
+    float pitchWindowMs = 80.0f;
+    float pitchGlideMs = 250.0f;
+    std::array<float, kAmbiEffectDjFilterMaxPickups> pickupPitchTrim {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups> pickupPitchWindowTrim {};
+    float gainDb = 0.0f;
+    std::array<float, kAmbiEffectDjFilterMaxPickups> pickupGainTrim {};
 };
 
 inline AmbiEffectDjFilterParams sanitizeAmbiEffectDjFilterParams(
     AmbiEffectDjFilterParams params)
 {
+    params.engine = static_cast<AmbiEffectEngine>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.engine), 3u));
     params.order = std::clamp<uint32_t>(
         params.order, 1u, kAmbiEffectDjFilterMaxOrder);
     params.body = static_cast<AmbiEffectBody>(
-        std::min<uint32_t>(static_cast<uint32_t>(params.body), 3u));
+        std::min<uint32_t>(static_cast<uint32_t>(params.body), 4u));
+    if (params.body == AmbiEffectBody::Tetra4
+        || params.body == AmbiEffectBody::Cube8) {
+        params.body = AmbiEffectBody::Icosa12;
+    }
     params.topology = static_cast<AmbiEffectTopology>(
         std::min<uint32_t>(static_cast<uint32_t>(params.topology), 3u));
     params.filter = clamp(params.filter, 0.0f, 1.0f);
     params.resonance = clamp(params.resonance, 0.0f, 1.0f);
+    params.spread = clamp(params.spread, 0.0f, 1.0f);
+    params.deviation = clamp(params.deviation, 0.0f, 1.0f);
     params.topologyAmount = clamp(params.topologyAmount, 0.0f, 1.0f);
     params.roamingRateHz = clamp(params.roamingRateHz, 0.005f, 2.0f);
     params.mix = clamp(params.mix, 0.0f, 1.0f);
@@ -64,16 +99,143 @@ inline AmbiEffectDjFilterParams sanitizeAmbiEffectDjFilterParams(
     for (float& trim : params.pickupFilterTrim) {
         trim = clamp(trim, -1.0f, 1.0f);
     }
+    for (float& trim : params.pickupResonanceTrim) {
+        trim = clamp(trim, -1.0f, 1.0f);
+    }
     params.maskAmount = clamp(params.maskAmount, 0.0f, 1.0f);
     params.maskAzimuthDeg = clamp(params.maskAzimuthDeg, -180.0f, 180.0f);
     params.maskElevationDeg = clamp(params.maskElevationDeg, -90.0f, 90.0f);
     params.maskWidth = clamp(params.maskWidth, 0.0f, 1.0f);
+    params.maskCurve = clamp(params.maskCurve, 0.0f, 1.0f);
+    params.maskDry = clamp(params.maskDry, 0.0f, 1.0f);
+    params.delayTimeMs = clamp(params.delayTimeMs, 5.0f, 2000.0f);
+    params.delayFeedback = clamp(params.delayFeedback, 0.0f, 0.88f);
+    params.delayTone = clamp(params.delayTone, 0.0f, 1.0f);
+    for (float& trim : params.pickupDelayTimeTrim) {
+        trim = clamp(trim, -1.0f, 1.0f);
+    }
+    for (float& trim : params.pickupDelayFeedbackTrim) {
+        trim = clamp(trim, -1.0f, 1.0f);
+    }
+    params.pitchSemitones = clamp(params.pitchSemitones, -24.0f, 24.0f);
+    params.pitchWindowMs = clamp(params.pitchWindowMs, 20.0f, 180.0f);
+    params.pitchGlideMs = clamp(params.pitchGlideMs, 10.0f, 2000.0f);
+    for (float& trim : params.pickupPitchTrim) {
+        trim = clamp(trim, -1.0f, 1.0f);
+    }
+    for (float& trim : params.pickupPitchWindowTrim) {
+        trim = clamp(trim, -1.0f, 1.0f);
+    }
+    params.gainDb = clamp(params.gainDb, -60.0f, 18.0f);
+    for (float& trim : params.pickupGainTrim) {
+        trim = clamp(trim, -1.0f, 1.0f);
+    }
     return params;
 }
 
 inline float ambiEffectPickupFilterPosition(float globalPosition, float trim)
 {
     return clamp(globalPosition + trim * 0.5f, 0.0f, 1.0f);
+}
+
+inline float ambiEffectPickupHash(uint32_t pickup, uint32_t salt)
+{
+    uint32_t x = pickup * 747796405u + salt * 2891336453u;
+    x = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
+    x = (x >> 22u) ^ x;
+    return static_cast<float>(x & 0xffffu) / 32767.5f - 1.0f;
+}
+
+inline float ambiEffectPickupOrdinal(uint32_t pickup, uint32_t count)
+{
+    return count > 1u
+        ? static_cast<float>(pickup) * 2.0f
+            / static_cast<float>(count - 1u) - 1.0f
+        : 0.0f;
+}
+
+inline float ambiEffectPickupFilterPosition(float globalPosition, float trim,
+    float spread, float deviation, uint32_t pickup, uint32_t count)
+{
+    const float relationship = ambiEffectPickupOrdinal(pickup, count)
+        * clamp(spread, 0.0f, 1.0f) * 0.38f
+        + ambiEffectPickupHash(pickup, 1u)
+            * clamp(deviation, 0.0f, 1.0f) * 0.22f;
+    return clamp(globalPosition + trim * 0.5f + relationship, 0.0f, 1.0f);
+}
+
+inline float ambiEffectPickupResonance(float globalResonance, float trim,
+    float spread, float deviation, uint32_t pickup, uint32_t count)
+{
+    const float relationship = -ambiEffectPickupOrdinal(pickup, count)
+        * clamp(spread, 0.0f, 1.0f) * 0.22f
+        + ambiEffectPickupHash(pickup, 7u)
+            * clamp(deviation, 0.0f, 1.0f) * 0.18f;
+    return clamp(globalResonance + trim * 0.5f + relationship, 0.0f, 1.0f);
+}
+
+inline float ambiEffectPickupDelayMs(float globalMs, float trim,
+    float spread, float deviation, uint32_t pickup, uint32_t count)
+{
+    const float exponent = trim * 1.5f
+        + ambiEffectPickupOrdinal(pickup, count)
+            * clamp(spread, 0.0f, 1.0f)
+        + ambiEffectPickupHash(pickup, 11u)
+            * clamp(deviation, 0.0f, 1.0f) * 0.5f;
+    return clamp(globalMs * std::pow(2.0f, exponent), 5.0f, 2000.0f);
+}
+
+inline float ambiEffectPickupDelayFeedback(float globalFeedback, float trim,
+    float spread, float deviation, uint32_t pickup, uint32_t count)
+{
+    const float relationship = trim * 0.35f
+        - ambiEffectPickupOrdinal(pickup, count)
+            * clamp(spread, 0.0f, 1.0f) * 0.10f
+        + ambiEffectPickupHash(pickup, 19u)
+            * clamp(deviation, 0.0f, 1.0f) * 0.08f;
+    return clamp(globalFeedback + relationship, 0.0f, 0.88f);
+}
+
+inline float ambiEffectPickupPitchSemitones(float globalSemitones, float trim,
+    float spread, float deviation, uint32_t pickup, uint32_t count)
+{
+    return clamp(globalSemitones + trim * 12.0f
+        + ambiEffectPickupOrdinal(pickup, count)
+            * clamp(spread, 0.0f, 1.0f) * 12.0f
+        + ambiEffectPickupHash(pickup, 23u)
+            * clamp(deviation, 0.0f, 1.0f) * 3.0f,
+        -24.0f, 24.0f);
+}
+
+inline float ambiEffectPickupPitchWindowMs(float globalMs, float trim,
+    float spread, float deviation, uint32_t pickup, uint32_t count)
+{
+    const float relationship = trim * 60.0f
+        - ambiEffectPickupOrdinal(pickup, count)
+            * clamp(spread, 0.0f, 1.0f) * 18.0f
+        + ambiEffectPickupHash(pickup, 29u)
+            * clamp(deviation, 0.0f, 1.0f) * 12.0f;
+    return clamp(globalMs + relationship, 20.0f, 180.0f);
+}
+
+inline float ambiEffectPickupGainDb(float globalDb, float trim,
+    float spread, float deviation, uint32_t pickup, uint32_t count)
+{
+    return clamp(globalDb + trim * 24.0f
+        + ambiEffectPickupOrdinal(pickup, count)
+            * clamp(spread, 0.0f, 1.0f) * 18.0f
+        + ambiEffectPickupHash(pickup, 31u)
+            * clamp(deviation, 0.0f, 1.0f) * 9.0f,
+        -60.0f, 18.0f);
+}
+
+inline float ambiEffectMaskExponent(float width, float curve)
+{
+    const float widthExponent = std::pow(
+        12.0f, 1.0f - clamp(width, 0.0f, 1.0f)) * 0.5f;
+    const float curveScale = std::pow(
+        8.0f, clamp(curve, 0.0f, 1.0f) * 2.0f - 1.0f);
+    return widthExponent * curveScale;
 }
 
 inline uint32_t ambiEffectChannelsForOrder(uint32_t order)
@@ -85,16 +247,19 @@ inline uint32_t ambiEffectChannelsForOrder(uint32_t order)
 inline AmbiEffectBody ambiEffectDefaultBodyForOrder(uint32_t order)
 {
     order = std::clamp<uint32_t>(order, 1u, kAmbiEffectDjFilterMaxOrder);
-    if (order == 1u) return AmbiEffectBody::Tetra4;
-    if (order == 2u) return AmbiEffectBody::Cube8;
-    return AmbiEffectBody::Icosa12;
+    return order <= 3u
+        ? AmbiEffectBody::Icosa12 : AmbiEffectBody::Dodeca20;
 }
 
 inline AmbiEffectBody resolveAmbiEffectBody(
     AmbiEffectBody requested, uint32_t order)
 {
     requested = static_cast<AmbiEffectBody>(
-        std::min<uint32_t>(static_cast<uint32_t>(requested), 3u));
+        std::min<uint32_t>(static_cast<uint32_t>(requested), 4u));
+    if (requested == AmbiEffectBody::Tetra4
+        || requested == AmbiEffectBody::Cube8) {
+        requested = AmbiEffectBody::Icosa12;
+    }
     return requested == AmbiEffectBody::Auto
         ? ambiEffectDefaultBodyForOrder(order) : requested;
 }
@@ -105,6 +270,7 @@ inline uint32_t ambiEffectBodyPickupCount(AmbiEffectBody body)
     case AmbiEffectBody::Tetra4: return 4u;
     case AmbiEffectBody::Cube8: return 8u;
     case AmbiEffectBody::Icosa12: return 12u;
+    case AmbiEffectBody::Dodeca20: return 20u;
     case AmbiEffectBody::Auto:
     default: return 4u;
     }
@@ -117,8 +283,54 @@ inline const char* ambiEffectBodyName(AmbiEffectBody body)
     case AmbiEffectBody::Tetra4: return "TETRA 4";
     case AmbiEffectBody::Cube8: return "CUBE 8";
     case AmbiEffectBody::Icosa12: return "ICOSA 12";
+    case AmbiEffectBody::Dodeca20: return "DODECA 20";
     }
     return "AUTO";
+}
+
+inline std::array<Vec3, kAmbiEffectDjFilterMaxPickups>
+ambiEffectBodyDirections(AmbiEffectBody body)
+{
+    std::array<Vec3, kAmbiEffectDjFilterMaxPickups> result {};
+    constexpr float k = 0.5773502691896258f;
+    constexpr float phi = 1.6180339887498948f;
+    constexpr float invPhi = 1.0f / phi;
+    if (body == AmbiEffectBody::Tetra4) {
+        const std::array<Vec3, 4u> points {{
+            { k, k, k }, { -k, -k, k }, { -k, k, -k }, { k, -k, -k },
+        }};
+        for (uint32_t i = 0u; i < points.size(); ++i) result[i] = normalize(points[i]);
+        return result;
+    }
+    if (body == AmbiEffectBody::Cube8) {
+        const std::array<Vec3, 8u> points {{
+            { k, k, k }, { -k, -k, k }, { -k, k, -k }, { k, -k, -k },
+            { -k, -k, -k }, { k, k, -k }, { k, -k, k }, { -k, k, k },
+        }};
+        for (uint32_t i = 0u; i < points.size(); ++i) result[i] = normalize(points[i]);
+        return result;
+    }
+    if (body == AmbiEffectBody::Dodeca20) {
+        const std::array<Vec3, 20u> points {{
+            { 1, 1, 1 }, { 1, 1, -1 }, { 1, -1, 1 }, { 1, -1, -1 },
+            { -1, 1, 1 }, { -1, 1, -1 }, { -1, -1, 1 }, { -1, -1, -1 },
+            { 0, invPhi, phi }, { 0, invPhi, -phi },
+            { 0, -invPhi, phi }, { 0, -invPhi, -phi },
+            { invPhi, phi, 0 }, { invPhi, -phi, 0 },
+            { -invPhi, phi, 0 }, { -invPhi, -phi, 0 },
+            { phi, 0, invPhi }, { phi, 0, -invPhi },
+            { -phi, 0, invPhi }, { -phi, 0, -invPhi },
+        }};
+        for (uint32_t i = 0u; i < points.size(); ++i) result[i] = normalize(points[i]);
+        return result;
+    }
+    const std::array<Vec3, 12u> points {{
+        { 0, 1, phi }, { 0, -1, phi }, { phi, 0, 1 }, { 1, phi, 0 },
+        { -1, phi, 0 }, { -phi, 0, 1 }, { -phi, 0, -1 }, { -1, -phi, 0 },
+        { 0, -1, -phi }, { 1, -phi, 0 }, { phi, 0, -1 }, { 0, 1, -phi },
+    }};
+    for (uint32_t i = 0u; i < points.size(); ++i) result[i] = normalize(points[i]);
+    return result;
 }
 
 inline const char* ambiEffectTopologyName(AmbiEffectTopology topology)
@@ -155,14 +367,23 @@ public:
             static_cast<uint32_t>(std::round(sampleRate_ / 3000.0)));
         buildMatrixCache();
         setParams(params_);
+        if (params_.engine == AmbiEffectEngine::Delay) {
+            ensureDelayBuffers();
+        } else if (params_.engine == AmbiEffectEngine::Pitch) {
+            ensurePitchBuffers();
+        }
         snapTargets();
         resetFilterStates();
+        resetDelayStates();
+        resetPitchStates();
     }
 
     void reset()
     {
         snapTargets();
         resetFilterStates();
+        resetDelayStates();
+        resetPitchStates();
         roamingPhase_ = 0.0f;
         previousTopology_ = params_.topology;
         targetTopology_ = params_.topology;
@@ -186,11 +407,27 @@ public:
         params_ = next;
         targetFilter_ = params_.filter;
         targetResonance_ = params_.resonance;
+        targetSpread_ = params_.spread;
+        targetDeviation_ = params_.deviation;
         targetTopologyAmount_ = params_.topologyAmount;
         targetRoamingRateHz_ = params_.roamingRateHz;
         targetMix_ = params_.mix;
         targetOutputGain_ = dbToGain(params_.outputGainDb);
         targetPickupFilterTrim_ = params_.pickupFilterTrim;
+        targetPickupResonanceTrim_ = params_.pickupResonanceTrim;
+        targetMaskDry_ = params_.maskDry;
+        targetDelayTimeMs_ = params_.delayTimeMs;
+        targetDelayFeedback_ = params_.delayFeedback;
+        targetDelayTone_ = params_.delayTone;
+        targetPickupDelayTimeTrim_ = params_.pickupDelayTimeTrim;
+        targetPickupDelayFeedbackTrim_ = params_.pickupDelayFeedbackTrim;
+        targetPitchSemitones_ = params_.pitchSemitones;
+        targetPitchWindowMs_ = params_.pitchWindowMs;
+        targetPitchGlideMs_ = params_.pitchGlideMs;
+        targetPickupPitchTrim_ = params_.pickupPitchTrim;
+        targetPickupPitchWindowTrim_ = params_.pickupPitchWindowTrim;
+        targetGainDb_ = params_.gainDb;
+        targetPickupGainTrim_ = params_.pickupGainTrim;
         if (matrixChanged) updateMatrixTargets();
         updateMaskTargets();
     }
@@ -277,9 +514,11 @@ public:
             }
 
             std::array<float, kAmbiEffectDjFilterMaxPickups> filterDepth {};
-            for (uint32_t node = 0u; node < bodyCount; ++node) {
+            if (params_.engine == AmbiEffectEngine::DjFilter) {
+              for (uint32_t node = 0u; node < bodyCount; ++node) {
                 const float position = ambiEffectPickupFilterPosition(
-                    currentFilter_, currentPickupFilterTrim_[node]);
+                    currentFilter_, currentPickupFilterTrim_[node],
+                    currentSpread_, currentDeviation_, node, bodyCount);
                 const float side = std::fabs(position * 2.0f - 1.0f);
                 const float depth = side * side * (3.0f - side * 2.0f);
                 const float lpFirst = lowPass_[node][0].process(
@@ -297,6 +536,40 @@ public:
                 nodeLevel_[node] += (magnitude - nodeLevel_[node])
                     * levelCoefficient_;
                 nodeLevel_[node] = flushDenormal(nodeLevel_[node]);
+              }
+            } else if (params_.engine == AmbiEffectEngine::Delay) {
+              for (uint32_t node = 0u; node < bodyCount; ++node) {
+                filtered[node] = processDelayNode(
+                    node, bodyCount, ears[node]);
+                filterDepth[node] = 1.0f;
+                const float magnitude = std::fabs(ears[node]);
+                nodeLevel_[node] += (magnitude - nodeLevel_[node])
+                    * levelCoefficient_;
+                nodeLevel_[node] = flushDenormal(nodeLevel_[node]);
+              }
+            } else if (params_.engine == AmbiEffectEngine::Pitch) {
+              for (uint32_t node = 0u; node < bodyCount; ++node) {
+                filtered[node] = processPitchNode(
+                    node, bodyCount, ears[node]);
+                filterDepth[node] = 1.0f;
+                const float magnitude = std::fabs(ears[node]);
+                nodeLevel_[node] += (magnitude - nodeLevel_[node])
+                    * levelCoefficient_;
+                nodeLevel_[node] = flushDenormal(nodeLevel_[node]);
+              }
+            } else {
+              for (uint32_t node = 0u; node < bodyCount; ++node) {
+                const float gainDb = ambiEffectPickupGainDb(
+                    currentGainDb_, currentPickupGainTrim_[node],
+                    currentSpread_, currentDeviation_, node, bodyCount);
+                filtered[node] = flushDenormal(
+                    ears[node] * dbToGain(gainDb));
+                filterDepth[node] = 1.0f;
+                const float magnitude = std::fabs(ears[node]);
+                nodeLevel_[node] += (magnitude - nodeLevel_[node])
+                    * levelCoefficient_;
+                nodeLevel_[node] = flushDenormal(nodeLevel_[node]);
+              }
             }
             for (uint32_t node = bodyCount;
                 node < kAmbiEffectDjFilterMaxPickups; ++node) {
@@ -316,8 +589,10 @@ public:
                     * filterDepth[node];
                 const float bodyOutput = lerp(
                     filtered[node], routed, routeDepth);
-                delta[node] = (bodyOutput - ears[node])
-                    * currentMaskGain_[node];
+                const float maskedTarget = lerp(
+                    ears[node] * currentMaskDry_, bodyOutput,
+                    currentMaskGain_[node]);
+                delta[node] = maskedTarget - ears[node];
             }
             for (uint32_t node = bodyCount;
                 node < kAmbiEffectDjFilterMaxPickups; ++node) {
@@ -449,6 +724,10 @@ private:
             * parameterCoefficient_;
         currentResonance_ += (targetResonance_ - currentResonance_)
             * parameterCoefficient_;
+        currentSpread_ += (targetSpread_ - currentSpread_)
+            * parameterCoefficient_;
+        currentDeviation_ += (targetDeviation_ - currentDeviation_)
+            * parameterCoefficient_;
         currentTopologyAmount_ += (
             targetTopologyAmount_ - currentTopologyAmount_)
             * parameterCoefficient_;
@@ -465,8 +744,49 @@ private:
                 targetPickupFilterTrim_[node]
                 - currentPickupFilterTrim_[node])
                 * parameterCoefficient_;
+            currentPickupResonanceTrim_[node] += (
+                targetPickupResonanceTrim_[node]
+                - currentPickupResonanceTrim_[node])
+                * parameterCoefficient_;
             currentMaskGain_[node] += (
                 targetMaskGain_[node] - currentMaskGain_[node])
+                * parameterCoefficient_;
+        }
+        currentMaskDry_ += (targetMaskDry_ - currentMaskDry_)
+            * parameterCoefficient_;
+        currentDelayFeedback_ += (
+            targetDelayFeedback_ - currentDelayFeedback_)
+            * parameterCoefficient_;
+        currentDelayTone_ += (targetDelayTone_ - currentDelayTone_)
+            * parameterCoefficient_;
+        currentPitchSemitones_ += (
+            targetPitchSemitones_ - currentPitchSemitones_)
+            * parameterCoefficient_;
+        currentPitchWindowMs_ += (
+            targetPitchWindowMs_ - currentPitchWindowMs_)
+            * parameterCoefficient_;
+        currentPitchGlideMs_ += (
+            targetPitchGlideMs_ - currentPitchGlideMs_)
+            * parameterCoefficient_;
+        currentGainDb_ += (targetGainDb_ - currentGainDb_)
+            * parameterCoefficient_;
+        for (uint32_t node = 0u;
+            node < kAmbiEffectDjFilterMaxPickups; ++node) {
+            currentPickupDelayFeedbackTrim_[node] += (
+                targetPickupDelayFeedbackTrim_[node]
+                - currentPickupDelayFeedbackTrim_[node])
+                * parameterCoefficient_;
+            currentPickupPitchTrim_[node] += (
+                targetPickupPitchTrim_[node]
+                - currentPickupPitchTrim_[node])
+                * parameterCoefficient_;
+            currentPickupPitchWindowTrim_[node] += (
+                targetPickupPitchWindowTrim_[node]
+                - currentPickupPitchWindowTrim_[node])
+                * parameterCoefficient_;
+            currentPickupGainTrim_[node] += (
+                targetPickupGainTrim_[node]
+                - currentPickupGainTrim_[node])
                 * parameterCoefficient_;
         }
     }
@@ -479,7 +799,13 @@ private:
         for (uint32_t node = 0u;
             node < kAmbiEffectDjFilterMaxPickups; ++node) {
             const float position = ambiEffectPickupFilterPosition(
-                currentFilter_, currentPickupFilterTrim_[node]);
+                currentFilter_, currentPickupFilterTrim_[node],
+                currentSpread_, currentDeviation_, node,
+                std::max<uint32_t>(1u, activePickupCount()));
+            const float resonance = ambiEffectPickupResonance(
+                currentResonance_, currentPickupResonanceTrim_[node],
+                currentSpread_, currentDeviation_, node,
+                std::max<uint32_t>(1u, activePickupCount()));
             const float side = std::fabs(position * 2.0f - 1.0f);
             const float cutoffPosition = std::pow(side, 0.70f);
             const float lpCutoff = exponentialMap(
@@ -487,12 +813,217 @@ private:
             const float hpCutoff = exponentialMap(
                 22.0f, hpMaximum, cutoffPosition);
             lowPassCoefficients_[node] = coefficientsFor(
-                lpCutoff, currentResonance_);
+                lpCutoff, resonance);
             highPassCoefficients_[node] = coefficientsFor(
-                hpCutoff, currentResonance_);
+                hpCutoff, resonance);
             lowPassDamping_[node] = coefficientsFor(lpCutoff, 0.22f);
             highPassDamping_[node] = coefficientsFor(hpCutoff, 0.22f);
         }
+    }
+
+    void ensureDelayBuffers()
+    {
+        const uint32_t needed = std::max<uint32_t>(4u,
+            static_cast<uint32_t>(std::ceil(sampleRate_ * 2.05)) + 4u);
+        if (delayBufferSize_ == needed && !delayBuffers_[0].empty()) return;
+        delayBufferSize_ = needed;
+        for (auto& buffer : delayBuffers_) buffer.assign(needed, 0.0f);
+        delayWriteIndex_.fill(0u);
+        delayToneState_.fill(0.0f);
+        delayCrossfadeIncrement_ = 1.0f / std::max(
+            1.0f, static_cast<float>(sampleRate_) * 0.035f);
+        resetDelayTapTargets();
+    }
+
+    void resetDelayStates()
+    {
+        for (auto& buffer : delayBuffers_) {
+            std::fill(buffer.begin(), buffer.end(), 0.0f);
+        }
+        delayWriteIndex_.fill(0u);
+        delayToneState_.fill(0.0f);
+        resetDelayTapTargets();
+    }
+
+    void resetDelayTapTargets()
+    {
+        const uint32_t count = std::max<uint32_t>(1u, activePickupCount());
+        for (uint32_t node = 0u;
+            node < kAmbiEffectDjFilterMaxPickups; ++node) {
+            const float timeMs = ambiEffectPickupDelayMs(
+                targetDelayTimeMs_, targetPickupDelayTimeTrim_[node],
+                targetSpread_, targetDeviation_, node, count);
+            const float samples = clamp(
+                timeMs * static_cast<float>(sampleRate_) * 0.001f,
+                1.0f, static_cast<float>(std::max<uint32_t>(4u,
+                    delayBufferSize_) - 3u));
+            delayTapCurrentSamples_[node] = samples;
+            delayTapNextSamples_[node] = samples;
+            delayCrossfadePhase_[node] = 1.0f;
+        }
+    }
+
+    float readDelayTap(uint32_t node, float delaySamples) const
+    {
+        float position = static_cast<float>(delayWriteIndex_[node])
+            - delaySamples;
+        while (position < 0.0f) {
+            position += static_cast<float>(delayBufferSize_);
+        }
+        const uint32_t first = static_cast<uint32_t>(position)
+            % delayBufferSize_;
+        const uint32_t second = (first + 1u) % delayBufferSize_;
+        return lerp(delayBuffers_[node][first], delayBuffers_[node][second],
+            position - std::floor(position));
+    }
+
+    float processDelayNode(uint32_t node, uint32_t count, float input)
+    {
+        if (node >= kAmbiEffectDjFilterMaxPickups
+            || delayBufferSize_ < 4u || delayBuffers_[node].empty()) {
+            return 0.0f;
+        }
+        const float timeMs = ambiEffectPickupDelayMs(
+            targetDelayTimeMs_, targetPickupDelayTimeTrim_[node],
+            targetSpread_, targetDeviation_, node, count);
+        const float desiredSamples = clamp(
+            timeMs * static_cast<float>(sampleRate_) * 0.001f,
+            1.0f, static_cast<float>(delayBufferSize_ - 3u));
+        if (delayCrossfadePhase_[node] >= 1.0f
+            && std::fabs(desiredSamples
+                - delayTapCurrentSamples_[node]) > 0.25f) {
+            delayTapNextSamples_[node] = desiredSamples;
+            delayCrossfadePhase_[node] = 0.0f;
+        }
+        float delayed = readDelayTap(node, delayTapCurrentSamples_[node]);
+        if (delayCrossfadePhase_[node] < 1.0f) {
+            const float phase = clamp(delayCrossfadePhase_[node], 0.0f, 1.0f);
+            const float angle = phase * kPi * 0.5f;
+            const float toGain = std::sin(angle);
+            const float fromGain = std::cos(angle);
+            delayed = delayed * fromGain * fromGain
+                + readDelayTap(node, delayTapNextSamples_[node])
+                    * toGain * toGain;
+            delayCrossfadePhase_[node] += delayCrossfadeIncrement_;
+            if (delayCrossfadePhase_[node] >= 1.0f) {
+                delayCrossfadePhase_[node] = 1.0f;
+                delayTapCurrentSamples_[node] = delayTapNextSamples_[node];
+            }
+        }
+        const float cutoff = 450.0f * std::pow(
+            18000.0f / 450.0f, currentDelayTone_);
+        const float toneCoefficient = 1.0f - std::exp(
+            -2.0f * kPi * cutoff / static_cast<float>(sampleRate_));
+        delayToneState_[node] += (delayed - delayToneState_[node])
+            * toneCoefficient;
+        const float feedback = ambiEffectPickupDelayFeedback(
+            currentDelayFeedback_, currentPickupDelayFeedbackTrim_[node],
+            currentSpread_, currentDeviation_, node, count);
+        delayBuffers_[node][delayWriteIndex_[node]] = flushDenormal(
+            input + std::tanh(delayToneState_[node] * feedback));
+        delayWriteIndex_[node] = (delayWriteIndex_[node] + 1u)
+            % delayBufferSize_;
+        return flushDenormal(delayed);
+    }
+
+    void ensurePitchBuffers()
+    {
+        const uint32_t needed = std::max<uint32_t>(256u,
+            static_cast<uint32_t>(std::ceil(sampleRate_ * 0.22)) + 8u);
+        if (pitchBufferSize_ == needed && !pitchBuffers_[0].empty()) return;
+        pitchBufferSize_ = needed;
+        for (auto& buffer : pitchBuffers_) buffer.assign(needed, 0.0f);
+        resetPitchStates();
+    }
+
+    void resetPitchStates()
+    {
+        for (auto& buffer : pitchBuffers_) {
+            std::fill(buffer.begin(), buffer.end(), 0.0f);
+        }
+        pitchWriteIndex_.fill(0u);
+        pitchPhaseA_.fill(0.0f);
+        pitchPhaseB_.fill(0.5f);
+        pitchRatio_.fill(1.0f);
+        pitchWindowSamples_.fill(clamp(
+            targetPitchWindowMs_ * 0.001f * static_cast<float>(sampleRate_),
+            8.0f, static_cast<float>(std::max<uint32_t>(12u,
+                pitchBufferSize_) - 4u)));
+    }
+
+    float readPitchTap(uint32_t node, float delaySamples) const
+    {
+        float position = static_cast<float>(pitchWriteIndex_[node])
+            - delaySamples;
+        while (position < 0.0f) {
+            position += static_cast<float>(pitchBufferSize_);
+        }
+        while (position >= static_cast<float>(pitchBufferSize_)) {
+            position -= static_cast<float>(pitchBufferSize_);
+        }
+        const uint32_t first = static_cast<uint32_t>(position)
+            % pitchBufferSize_;
+        const uint32_t second = (first + 1u) % pitchBufferSize_;
+        return lerp(pitchBuffers_[node][first], pitchBuffers_[node][second],
+            position - std::floor(position));
+    }
+
+    float processPitchNode(uint32_t node, uint32_t count, float input)
+    {
+        if (node >= kAmbiEffectDjFilterMaxPickups
+            || pitchBufferSize_ < 12u || pitchBuffers_[node].empty()) {
+            return input;
+        }
+        auto& buffer = pitchBuffers_[node];
+        buffer[pitchWriteIndex_[node]] = input;
+        const float semitones = ambiEffectPickupPitchSemitones(
+            currentPitchSemitones_, currentPickupPitchTrim_[node],
+            currentSpread_, currentDeviation_, node, count);
+        const float targetRatio = std::pow(2.0f, semitones / 12.0f);
+        const float glideCoefficient = 1.0f - std::exp(-1.0f
+            / std::max(1.0f, static_cast<float>(sampleRate_)
+                * currentPitchGlideMs_ * 0.001f));
+        pitchRatio_[node] += (targetRatio - pitchRatio_[node])
+            * glideCoefficient;
+        const float targetWindow = ambiEffectPickupPitchWindowMs(
+            currentPitchWindowMs_, currentPickupPitchWindowTrim_[node],
+            currentSpread_, currentDeviation_, node, count)
+            * 0.001f * static_cast<float>(sampleRate_);
+        pitchWindowSamples_[node] += (
+            targetWindow - pitchWindowSamples_[node])
+            * parameterCoefficient_;
+        pitchWindowSamples_[node] = clamp(pitchWindowSamples_[node], 8.0f,
+            static_cast<float>(pitchBufferSize_ - 4u));
+
+        float wet = input;
+        const float ratioDelta = std::fabs(pitchRatio_[node] - 1.0f);
+        if (ratioDelta >= 0.00015f) {
+            const float phaseStep = ratioDelta
+                / std::max(8.0f, pitchWindowSamples_[node]);
+            pitchPhaseA_[node] += phaseStep;
+            pitchPhaseB_[node] += phaseStep;
+            pitchPhaseA_[node] -= std::floor(pitchPhaseA_[node]);
+            pitchPhaseB_[node] -= std::floor(pitchPhaseB_[node]);
+            const auto readPhase = [&](float phase) {
+                const float delay = pitchRatio_[node] >= 1.0f
+                    ? pitchWindowSamples_[node] * (1.0f - phase)
+                    : pitchWindowSamples_[node] * phase;
+                return readPitchTap(node, clamp(delay, 1.0f,
+                    static_cast<float>(pitchBufferSize_ - 4u)));
+            };
+            const float a = readPhase(pitchPhaseA_[node]);
+            const float b = readPhase(pitchPhaseB_[node]);
+            const auto window = [](float phase) {
+                return 0.5f - 0.5f * std::cos(
+                    2.0f * kPi * clamp(phase, 0.0f, 1.0f));
+            };
+            const float wa = window(pitchPhaseA_[node]);
+            const float wb = window(pitchPhaseB_[node]);
+            wet = (a * wa + b * wb) / std::max(0.0001f, wa + wb);
+        }
+        pitchWriteIndex_[node] = (pitchWriteIndex_[node] + 1u)
+            % pitchBufferSize_;
+        return flushDenormal(wet);
     }
 
     void smoothMatrices()
@@ -540,12 +1071,28 @@ private:
     {
         currentFilter_ = targetFilter_;
         currentResonance_ = targetResonance_;
+        currentSpread_ = targetSpread_;
+        currentDeviation_ = targetDeviation_;
         currentTopologyAmount_ = targetTopologyAmount_;
         currentRoamingRateHz_ = targetRoamingRateHz_;
         currentMix_ = targetMix_;
         currentOutputGain_ = targetOutputGain_;
         currentPickupFilterTrim_ = targetPickupFilterTrim_;
+        currentPickupResonanceTrim_ = targetPickupResonanceTrim_;
         currentMaskGain_ = targetMaskGain_;
+        currentMaskDry_ = targetMaskDry_;
+        currentDelayTimeMs_ = targetDelayTimeMs_;
+        currentDelayFeedback_ = targetDelayFeedback_;
+        currentDelayTone_ = targetDelayTone_;
+        currentPickupDelayTimeTrim_ = targetPickupDelayTimeTrim_;
+        currentPickupDelayFeedbackTrim_ = targetPickupDelayFeedbackTrim_;
+        currentPitchSemitones_ = targetPitchSemitones_;
+        currentPitchWindowMs_ = targetPitchWindowMs_;
+        currentPitchGlideMs_ = targetPitchGlideMs_;
+        currentPickupPitchTrim_ = targetPickupPitchTrim_;
+        currentPickupPitchWindowTrim_ = targetPickupPitchWindowTrim_;
+        currentGainDb_ = targetGainDb_;
+        currentPickupGainTrim_ = targetPickupGainTrim_;
         filterCoefficientCountdown_ = 0u;
         snapMatrixTargets();
     }
@@ -590,8 +1137,8 @@ private:
                 0.0f, 1.0f);
             maximum = std::max(maximum, alignment[node]);
         }
-        const float exponent = std::pow(
-            12.0f, 1.0f - params_.maskWidth) * 0.5f;
+        const float exponent = ambiEffectMaskExponent(
+            params_.maskWidth, params_.maskCurve);
         for (uint32_t node = 0u; node < currentMatrix_->count; ++node) {
             const float directional = std::pow(
                 clamp(alignment[node] / maximum, 0.0f, 1.0f), exponent);
@@ -604,7 +1151,7 @@ private:
     {
         for (uint32_t order = 1u;
             order <= kAmbiEffectDjFilterMaxOrder; ++order) {
-            for (uint32_t bodyIndex = 0u; bodyIndex < 3u; ++bodyIndex) {
+            for (uint32_t bodyIndex = 0u; bodyIndex < 4u; ++bodyIndex) {
                 buildMatrix(matrixCache_[order - 1u][bodyIndex],
                     order, static_cast<AmbiEffectBody>(bodyIndex + 1u));
             }
@@ -636,11 +1183,29 @@ private:
             }
             return;
         }
-        matrix.count = 12u;
-        const std::array<Vec3, 12u> points {{
-            { 0, 1, phi }, { 0, -1, phi }, { phi, 0, 1 }, { 1, phi, 0 },
-            { -1, phi, 0 }, { -phi, 0, 1 }, { -phi, 0, -1 }, { -1, -phi, 0 },
-            { 0, -1, -phi }, { 1, -phi, 0 }, { phi, 0, -1 }, { 0, 1, -phi },
+        if (body == AmbiEffectBody::Icosa12) {
+            matrix.count = 12u;
+            const std::array<Vec3, 12u> points {{
+                { 0, 1, phi }, { 0, -1, phi }, { phi, 0, 1 }, { 1, phi, 0 },
+                { -1, phi, 0 }, { -phi, 0, 1 }, { -phi, 0, -1 }, { -1, -phi, 0 },
+                { 0, -1, -phi }, { 1, -phi, 0 }, { phi, 0, -1 }, { 0, 1, -phi },
+            }};
+            for (uint32_t i = 0u; i < points.size(); ++i) {
+                matrix.directions[i] = normalize(points[i]);
+            }
+            return;
+        }
+        matrix.count = 20u;
+        constexpr float invPhi = 1.0f / phi;
+        const std::array<Vec3, 20u> points {{
+            { 1, 1, 1 }, { 1, 1, -1 }, { 1, -1, 1 }, { 1, -1, -1 },
+            { -1, 1, 1 }, { -1, 1, -1 }, { -1, -1, 1 }, { -1, -1, -1 },
+            { 0, invPhi, phi }, { 0, invPhi, -phi },
+            { 0, -invPhi, phi }, { 0, -invPhi, -phi },
+            { invPhi, phi, 0 }, { invPhi, -phi, 0 },
+            { -invPhi, phi, 0 }, { -invPhi, -phi, 0 },
+            { phi, 0, invPhi }, { phi, 0, -invPhi },
+            { -phi, 0, invPhi }, { -phi, 0, -invPhi },
         }};
         for (uint32_t i = 0u; i < points.size(); ++i) {
             matrix.directions[i] = normalize(points[i]);
@@ -860,7 +1425,7 @@ private:
     double sampleRate_ = 48000.0;
     AmbiEffectDjFilterParams params_ {};
     bool matricesBuilt_ = false;
-    std::array<std::array<MatrixSet, 3u>,
+    std::array<std::array<MatrixSet, 4u>,
         kAmbiEffectDjFilterMaxOrder> matrixCache_ {};
     const MatrixSet* currentMatrix_ = nullptr;
     bool matrixSmoothingActive_ = false;
@@ -893,14 +1458,20 @@ private:
         kAmbiEffectDjFilterMaxPickups> targetPickupFilterTrim_ {};
     std::array<float,
         kAmbiEffectDjFilterMaxPickups> currentPickupFilterTrim_ {};
-    std::array<float, kAmbiEffectDjFilterMaxPickups> targetMaskGain_ {
-        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
-        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
-    };
-    std::array<float, kAmbiEffectDjFilterMaxPickups> currentMaskGain_ {
-        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
-        1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
-    };
+    std::array<float,
+        kAmbiEffectDjFilterMaxPickups> targetPickupResonanceTrim_ {};
+    std::array<float,
+        kAmbiEffectDjFilterMaxPickups> currentPickupResonanceTrim_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups> targetMaskGain_ = [] {
+        std::array<float, kAmbiEffectDjFilterMaxPickups> value {};
+        value.fill(1.0f);
+        return value;
+    }();
+    std::array<float, kAmbiEffectDjFilterMaxPickups> currentMaskGain_ = [] {
+        std::array<float, kAmbiEffectDjFilterMaxPickups> value {};
+        value.fill(1.0f);
+        return value;
+    }();
     uint32_t filterCoefficientInterval_ = 16u;
     uint32_t filterCoefficientCountdown_ = 0u;
 
@@ -913,6 +1484,10 @@ private:
     float currentFilter_ = 0.5f;
     float targetResonance_ = 0.12f;
     float currentResonance_ = 0.12f;
+    float targetSpread_ = 0.0f;
+    float currentSpread_ = 0.0f;
+    float targetDeviation_ = 0.0f;
+    float currentDeviation_ = 0.0f;
     float targetTopologyAmount_ = 0.65f;
     float currentTopologyAmount_ = 0.65f;
     float targetRoamingRateHz_ = 0.08f;
@@ -921,6 +1496,64 @@ private:
     float currentMix_ = 1.0f;
     float targetOutputGain_ = 1.0f;
     float currentOutputGain_ = 1.0f;
+    float targetMaskDry_ = 1.0f;
+    float currentMaskDry_ = 1.0f;
+    float targetDelayTimeMs_ = 320.0f;
+    float currentDelayTimeMs_ = 320.0f;
+    float targetDelayFeedback_ = 0.32f;
+    float currentDelayFeedback_ = 0.32f;
+    float targetDelayTone_ = 0.62f;
+    float currentDelayTone_ = 0.62f;
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        targetPickupDelayTimeTrim_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        currentPickupDelayTimeTrim_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        targetPickupDelayFeedbackTrim_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        currentPickupDelayFeedbackTrim_ {};
+    std::array<std::vector<float>, kAmbiEffectDjFilterMaxPickups>
+        delayBuffers_ {};
+    std::array<uint32_t, kAmbiEffectDjFilterMaxPickups> delayWriteIndex_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups> delayToneState_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        delayTapCurrentSamples_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        delayTapNextSamples_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        delayCrossfadePhase_ {};
+    float delayCrossfadeIncrement_ = 1.0f / 1680.0f;
+    uint32_t delayBufferSize_ = 0u;
+
+    float targetPitchSemitones_ = 0.0f;
+    float currentPitchSemitones_ = 0.0f;
+    float targetPitchWindowMs_ = 80.0f;
+    float currentPitchWindowMs_ = 80.0f;
+    float targetPitchGlideMs_ = 250.0f;
+    float currentPitchGlideMs_ = 250.0f;
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        targetPickupPitchTrim_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        currentPickupPitchTrim_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        targetPickupPitchWindowTrim_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        currentPickupPitchWindowTrim_ {};
+    std::array<std::vector<float>, kAmbiEffectDjFilterMaxPickups>
+        pitchBuffers_ {};
+    std::array<uint32_t, kAmbiEffectDjFilterMaxPickups> pitchWriteIndex_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups> pitchPhaseA_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups> pitchPhaseB_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups> pitchRatio_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups> pitchWindowSamples_ {};
+    uint32_t pitchBufferSize_ = 0u;
+
+    float targetGainDb_ = 0.0f;
+    float currentGainDb_ = 0.0f;
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        targetPickupGainTrim_ {};
+    std::array<float, kAmbiEffectDjFilterMaxPickups>
+        currentPickupGainTrim_ {};
 
     float parameterCoefficient_ = 0.001f;
     float matrixCoefficient_ = 0.0007f;

@@ -26,7 +26,8 @@
 namespace {
 
 constexpr uint32_t kChannels = s3g::kAmbiEffectDjFilterMaxChannels;
-constexpr uint32_t kStateVersion = 2u;
+constexpr uint32_t kStateVersion = 5u;
+constexpr uint32_t kLegacyPickupCount = 12u;
 constexpr uint32_t kGuiWidth = 820u;
 constexpr uint32_t kGuiHeight = 640u;
 
@@ -44,9 +45,93 @@ enum ParamId : clap_id {
     kParamMaskAzimuth = 11,
     kParamMaskElevation = 12,
     kParamMaskWidth = 13,
+    kParamMaskDry = 14,
+    kParamSpread = 15,
+    kParamDeviation = 16,
+    kParamMaskCurve = 17,
     kParamPickupFilterFirst = 100,
     kParamPickupFilterLast = kParamPickupFilterFirst
         + s3g::kAmbiEffectDjFilterMaxPickups - 1u,
+    kParamPickupResonanceFirst = 200,
+    kParamPickupResonanceLast = kParamPickupResonanceFirst
+        + s3g::kAmbiEffectDjFilterMaxPickups - 1u,
+};
+
+struct AmbiEffectDjFilterParamsV4 {
+    s3g::AmbiEffectEngine engine = s3g::AmbiEffectEngine::DjFilter;
+    uint32_t order = 7u;
+    s3g::AmbiEffectBody body = s3g::AmbiEffectBody::Auto;
+    s3g::AmbiEffectTopology topology = s3g::AmbiEffectTopology::Local;
+    float filter = 0.5f;
+    float resonance = 0.12f;
+    float spread = 0.0f;
+    float deviation = 0.0f;
+    float topologyAmount = 0.65f;
+    float roamingRateHz = 0.08f;
+    float mix = 1.0f;
+    float outputGainDb = 0.0f;
+    std::array<float, kLegacyPickupCount> pickupFilterTrim {};
+    std::array<float, kLegacyPickupCount> pickupResonanceTrim {};
+    float maskAmount = 0.0f;
+    float maskAzimuthDeg = 0.0f;
+    float maskElevationDeg = 0.0f;
+    float maskWidth = 0.35f;
+    float maskCurve = 0.5f;
+    float maskDry = 1.0f;
+    float delayTimeMs = 320.0f;
+    float delayFeedback = 0.32f;
+    float delayTone = 0.62f;
+    std::array<float, kLegacyPickupCount> pickupDelayTimeTrim {};
+    std::array<float, kLegacyPickupCount> pickupDelayFeedbackTrim {};
+};
+
+struct AmbiEffectDjFilterParamsV3 {
+    s3g::AmbiEffectEngine engine = s3g::AmbiEffectEngine::DjFilter;
+    uint32_t order = 7u;
+    s3g::AmbiEffectBody body = s3g::AmbiEffectBody::Auto;
+    s3g::AmbiEffectTopology topology = s3g::AmbiEffectTopology::Local;
+    float filter = 0.5f;
+    float resonance = 0.12f;
+    float spread = 0.0f;
+    float deviation = 0.0f;
+    float topologyAmount = 0.65f;
+    float roamingRateHz = 0.08f;
+    float mix = 1.0f;
+    float outputGainDb = 0.0f;
+    std::array<float, kLegacyPickupCount>
+        pickupFilterTrim {};
+    std::array<float, kLegacyPickupCount>
+        pickupResonanceTrim {};
+    float maskAmount = 0.0f;
+    float maskAzimuthDeg = 0.0f;
+    float maskElevationDeg = 0.0f;
+    float maskWidth = 0.35f;
+    float maskDry = 1.0f;
+    float delayTimeMs = 320.0f;
+    float delayFeedback = 0.32f;
+    float delayTone = 0.62f;
+    std::array<float, kLegacyPickupCount>
+        pickupDelayTimeTrim {};
+    std::array<float, kLegacyPickupCount>
+        pickupDelayFeedbackTrim {};
+};
+
+struct AmbiEffectDjFilterParamsV2 {
+    uint32_t order = 7u;
+    s3g::AmbiEffectBody body = s3g::AmbiEffectBody::Auto;
+    s3g::AmbiEffectTopology topology = s3g::AmbiEffectTopology::Local;
+    float filter = 0.5f;
+    float resonance = 0.12f;
+    float topologyAmount = 0.65f;
+    float roamingRateHz = 0.08f;
+    float mix = 1.0f;
+    float outputGainDb = 0.0f;
+    std::array<float, kLegacyPickupCount>
+        pickupFilterTrim {};
+    float maskAmount = 0.0f;
+    float maskAzimuthDeg = 0.0f;
+    float maskElevationDeg = 0.0f;
+    float maskWidth = 0.35f;
 };
 
 struct AmbiEffectDjFilterParamsV1 {
@@ -70,11 +155,20 @@ bool pickupFilterParamIndex(clap_id id, uint32_t& index)
     return true;
 }
 
+bool pickupResonanceParamIndex(clap_id id, uint32_t& index)
+{
+    if (id < kParamPickupResonanceFirst
+        || id > kParamPickupResonanceLast) return false;
+    index = static_cast<uint32_t>(id - kParamPickupResonanceFirst);
+    return true;
+}
+
 bool isAmbiEffectParam(clap_id id)
 {
     uint32_t pickup = 0u;
-    return (id >= kParamOrder && id <= kParamMaskWidth)
-        || pickupFilterParamIndex(id, pickup);
+    return (id >= kParamOrder && id <= kParamMaskCurve)
+        || pickupFilterParamIndex(id, pickup)
+        || pickupResonanceParamIndex(id, pickup);
 }
 
 struct Plugin {
@@ -90,6 +184,9 @@ struct Plugin {
     std::atomic<uint32_t> resolvedBody {
         static_cast<uint32_t>(s3g::AmbiEffectBody::Icosa12) };
     std::atomic<float> roamingPhase { 0.0f };
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 35.0f;
+    float guiViewElDeg = 34.0f;
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -122,6 +219,12 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         plugin.processor.setParams(plugin.params);
         return;
     }
+    if (pickupResonanceParamIndex(id, pickup)) {
+        plugin.params.pickupResonanceTrim[pickup] = static_cast<float>(value);
+        plugin.params = s3g::sanitizeAmbiEffectDjFilterParams(plugin.params);
+        plugin.processor.setParams(plugin.params);
+        return;
+    }
     switch (id) {
     case kParamOrder:
         plugin.params.order = std::clamp<uint32_t>(
@@ -140,6 +243,15 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         break;
     case kParamResonance:
         plugin.params.resonance = static_cast<float>(value);
+        break;
+    case kParamSpread:
+        plugin.params.spread = static_cast<float>(value);
+        break;
+    case kParamDeviation:
+        plugin.params.deviation = static_cast<float>(value);
+        break;
+    case kParamMaskCurve:
+        plugin.params.maskCurve = static_cast<float>(value);
         break;
     case kParamTopologyAmount:
         plugin.params.topologyAmount = static_cast<float>(value);
@@ -165,6 +277,9 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kParamMaskWidth:
         plugin.params.maskWidth = static_cast<float>(value);
         break;
+    case kParamMaskDry:
+        plugin.params.maskDry = static_cast<float>(value + 1.0);
+        break;
     default:
         return;
     }
@@ -178,6 +293,9 @@ double getParam(const Plugin& plugin, clap_id id)
     if (pickupFilterParamIndex(id, pickup)) {
         return plugin.params.pickupFilterTrim[pickup];
     }
+    if (pickupResonanceParamIndex(id, pickup)) {
+        return plugin.params.pickupResonanceTrim[pickup];
+    }
     switch (id) {
     case kParamOrder: return plugin.params.order;
     case kParamBody: return static_cast<uint32_t>(plugin.params.body);
@@ -185,6 +303,9 @@ double getParam(const Plugin& plugin, clap_id id)
         return static_cast<uint32_t>(plugin.params.topology);
     case kParamFilter: return plugin.params.filter;
     case kParamResonance: return plugin.params.resonance;
+    case kParamSpread: return plugin.params.spread;
+    case kParamDeviation: return plugin.params.deviation;
+    case kParamMaskCurve: return plugin.params.maskCurve;
     case kParamTopologyAmount: return plugin.params.topologyAmount;
     case kParamRoamingRate: return plugin.params.roamingRateHz;
     case kParamMix: return plugin.params.mix;
@@ -193,6 +314,7 @@ double getParam(const Plugin& plugin, clap_id id)
     case kParamMaskAzimuth: return plugin.params.maskAzimuthDeg;
     case kParamMaskElevation: return plugin.params.maskElevationDeg;
     case kParamMaskWidth: return plugin.params.maskWidth;
+    case kParamMaskDry: return plugin.params.maskDry - 1.0;
     default: return 0.0;
     }
 }
@@ -343,7 +465,7 @@ const clap_plugin_audio_ports_t audioPorts {
 
 uint32_t paramsCount(const clap_plugin_t*)
 {
-    return 13u + s3g::kAmbiEffectDjFilterMaxPickups;
+    return 17u + s3g::kAmbiEffectDjFilterMaxPickups * 2u;
 }
 
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
@@ -352,14 +474,28 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
     if (!info) return false;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
     std::strncpy(info->module, "Ambi Effect", sizeof(info->module));
-    if (index >= 13u
-        && index < 13u + s3g::kAmbiEffectDjFilterMaxPickups) {
-        const uint32_t pickup = index - 13u;
+    if (index >= 17u
+        && index < 17u + s3g::kAmbiEffectDjFilterMaxPickups) {
+        const uint32_t pickup = index - 17u;
         info->id = kParamPickupFilterFirst + pickup;
         std::strncpy(info->module, "Ambi Effect/Pickups",
             sizeof(info->module));
         std::snprintf(info->name, sizeof(info->name),
             "Pickup %02u filter trim", pickup + 1u);
+        info->min_value = -1.0;
+        info->max_value = 1.0;
+        info->default_value = 0.0;
+        return true;
+    }
+    if (index >= 17u + s3g::kAmbiEffectDjFilterMaxPickups
+        && index < 17u + s3g::kAmbiEffectDjFilterMaxPickups * 2u) {
+        const uint32_t pickup = index - 17u
+            - s3g::kAmbiEffectDjFilterMaxPickups;
+        info->id = kParamPickupResonanceFirst + pickup;
+        std::strncpy(info->module, "Ambi Effect/Pickups",
+            sizeof(info->module));
+        std::snprintf(info->name, sizeof(info->name),
+            "Pickup %02u resonance trim", pickup + 1u);
         info->min_value = -1.0;
         info->max_value = 1.0;
         info->default_value = 0.0;
@@ -376,7 +512,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
         info->id = kParamBody;
         info->flags |= CLAP_PARAM_IS_STEPPED;
         std::strncpy(info->name, "Auditory body", sizeof(info->name));
-        info->min_value = 0.0; info->max_value = 3.0;
+        info->min_value = 0.0; info->max_value = 4.0;
         info->default_value = 0.0; return true;
     case 2:
         info->id = kParamTopology;
@@ -434,6 +570,26 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
         std::strncpy(info->name, "Directional mask width", sizeof(info->name));
         info->min_value = 0.0; info->max_value = 1.0;
         info->default_value = 0.35; return true;
+    case 13:
+        info->id = kParamMaskDry;
+        std::strncpy(info->name, "Directional mask dry attenuation", sizeof(info->name));
+        info->min_value = -1.0; info->max_value = 0.0;
+        info->default_value = 0.0; return true;
+    case 14:
+        info->id = kParamSpread;
+        std::strncpy(info->name, "Pickup spread", sizeof(info->name));
+        info->min_value = 0.0; info->max_value = 1.0;
+        info->default_value = 0.0; return true;
+    case 15:
+        info->id = kParamDeviation;
+        std::strncpy(info->name, "Pickup deviation", sizeof(info->name));
+        info->min_value = 0.0; info->max_value = 1.0;
+        info->default_value = 0.0; return true;
+    case 16:
+        info->id = kParamMaskCurve;
+        std::strncpy(info->name, "Directional mask curve", sizeof(info->name));
+        info->min_value = 0.0; info->max_value = 1.0;
+        info->default_value = 0.5; return true;
     default:
         return false;
     }
@@ -465,6 +621,11 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId,
         }
         return true;
     }
+    if (pickupResonanceParamIndex(paramId, pickup)) {
+        (void)pickup;
+        std::snprintf(display, size, "%+.0f%%", value * 100.0);
+        return true;
+    }
     switch (paramId) {
     case kParamOrder:
         std::snprintf(display, size, "%uOA", roundedUint(value));
@@ -472,7 +633,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId,
     case kParamBody:
         std::snprintf(display, size, "%s",
             s3g::ambiEffectBodyName(static_cast<s3g::AmbiEffectBody>(
-                std::min<uint32_t>(roundedUint(value), 3u))));
+                std::min<uint32_t>(roundedUint(value), 4u))));
         return true;
     case kParamTopology:
         std::snprintf(display, size, "%s",
@@ -493,11 +654,18 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId,
         return true;
     }
     case kParamResonance:
+    case kParamSpread:
+    case kParamDeviation:
+    case kParamMaskCurve:
     case kParamTopologyAmount:
     case kParamMix:
     case kParamMaskAmount:
     case kParamMaskWidth:
         std::snprintf(display, size, "%.0f%%", value * 100.0);
+        return true;
+    case kParamMaskDry:
+        if (value <= -0.995) std::snprintf(display, size, "-100%% FX ONLY");
+        else std::snprintf(display, size, "%.0f%%", value * 100.0);
         return true;
     case kParamRoamingRate:
         std::snprintf(display, size, "%.3f Hz", value);
@@ -535,12 +703,17 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId,
         }
         return false;
     }
+    if (pickupResonanceParamIndex(paramId, pickup)) {
+        (void)pickup;
+        *value = std::atof(display) * 0.01;
+        return true;
+    }
     switch (paramId) {
     case kParamOrder:
         *value = std::atof(display);
         return true;
     case kParamBody:
-        for (uint32_t index = 0u; index <= 3u; ++index) {
+        for (uint32_t index = 0u; index <= 4u; ++index) {
             const auto body = static_cast<s3g::AmbiEffectBody>(index);
             if (std::strcmp(display, s3g::ambiEffectBodyName(body)) == 0) {
                 *value = static_cast<double>(index);
@@ -573,11 +746,22 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId,
         }
         return false;
     case kParamResonance:
+    case kParamSpread:
+    case kParamDeviation:
+    case kParamMaskCurve:
     case kParamTopologyAmount:
     case kParamMix:
     case kParamMaskAmount:
     case kParamMaskWidth:
         *value = std::atof(display) * 0.01;
+        return true;
+    case kParamMaskDry:
+        if (std::strcmp(display, "-100% FX ONLY") == 0
+            || std::strcmp(display, "FX ONLY") == 0) {
+            *value = -1.0;
+        } else {
+            *value = std::atof(display) * 0.01;
+        }
         return true;
     case kParamRoamingRate:
     case kParamOutput:
@@ -638,9 +822,13 @@ bool streamReadAll(const clap_istream_t* stream,
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
-    const auto& current = self(plugin)->params;
+    const auto* p = self(plugin);
+    const auto& current = p->params;
     return streamWriteAll(stream, &kStateVersion, sizeof(kStateVersion))
-        && streamWriteAll(stream, &current, sizeof(current));
+        && streamWriteAll(stream, &current, sizeof(current))
+        && streamWriteAll(stream, &p->guiViewMode, sizeof(p->guiViewMode))
+        && streamWriteAll(stream, &p->guiViewAzDeg, sizeof(p->guiViewAzDeg))
+        && streamWriteAll(stream, &p->guiViewElDeg, sizeof(p->guiViewElDeg));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -649,8 +837,110 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     uint32_t version = 0u;
     if (!streamReadAll(stream, &version, sizeof(version))) return false;
     s3g::AmbiEffectDjFilterParams loaded {};
+    int32_t loadedViewMode = 2;
+    float loadedViewAzDeg = 35.0f;
+    float loadedViewElDeg = 34.0f;
     if (version == kStateVersion) {
         if (!streamReadAll(stream, &loaded, sizeof(loaded))) return false;
+        if (!streamReadAll(stream, &loadedViewMode,
+                sizeof(loadedViewMode))
+            || !streamReadAll(stream, &loadedViewAzDeg,
+                sizeof(loadedViewAzDeg))
+            || !streamReadAll(stream, &loadedViewElDeg,
+                sizeof(loadedViewElDeg))) return false;
+    } else if (version == 4u) {
+        AmbiEffectDjFilterParamsV4 old {};
+        if (!streamReadAll(stream, &old, sizeof(old))) return false;
+        loaded.engine = old.engine;
+        loaded.order = old.order;
+        loaded.body = old.body;
+        loaded.topology = old.topology;
+        loaded.filter = old.filter;
+        loaded.resonance = old.resonance;
+        loaded.spread = old.spread;
+        loaded.deviation = old.deviation;
+        loaded.topologyAmount = old.topologyAmount;
+        loaded.roamingRateHz = old.roamingRateHz;
+        loaded.mix = old.mix;
+        loaded.outputGainDb = old.outputGainDb;
+        std::copy(old.pickupFilterTrim.begin(), old.pickupFilterTrim.end(),
+            loaded.pickupFilterTrim.begin());
+        std::copy(old.pickupResonanceTrim.begin(), old.pickupResonanceTrim.end(),
+            loaded.pickupResonanceTrim.begin());
+        loaded.maskAmount = old.maskAmount;
+        loaded.maskAzimuthDeg = old.maskAzimuthDeg;
+        loaded.maskElevationDeg = old.maskElevationDeg;
+        loaded.maskWidth = old.maskWidth;
+        loaded.maskCurve = old.maskCurve;
+        loaded.maskDry = old.maskDry;
+        loaded.delayTimeMs = old.delayTimeMs;
+        loaded.delayFeedback = old.delayFeedback;
+        loaded.delayTone = old.delayTone;
+        std::copy(old.pickupDelayTimeTrim.begin(), old.pickupDelayTimeTrim.end(),
+            loaded.pickupDelayTimeTrim.begin());
+        std::copy(old.pickupDelayFeedbackTrim.begin(), old.pickupDelayFeedbackTrim.end(),
+            loaded.pickupDelayFeedbackTrim.begin());
+        if (!streamReadAll(stream, &loadedViewMode,
+                sizeof(loadedViewMode))
+            || !streamReadAll(stream, &loadedViewAzDeg,
+                sizeof(loadedViewAzDeg))
+            || !streamReadAll(stream, &loadedViewElDeg,
+                sizeof(loadedViewElDeg))) return false;
+    } else if (version == 3u) {
+        AmbiEffectDjFilterParamsV3 old {};
+        if (!streamReadAll(stream, &old, sizeof(old))) return false;
+        loaded.engine = old.engine;
+        loaded.order = old.order;
+        loaded.body = old.body;
+        loaded.topology = old.topology;
+        loaded.filter = old.filter;
+        loaded.resonance = old.resonance;
+        loaded.spread = old.spread;
+        loaded.deviation = old.deviation;
+        loaded.topologyAmount = old.topologyAmount;
+        loaded.roamingRateHz = old.roamingRateHz;
+        loaded.mix = old.mix;
+        loaded.outputGainDb = old.outputGainDb;
+        std::copy(old.pickupFilterTrim.begin(), old.pickupFilterTrim.end(),
+            loaded.pickupFilterTrim.begin());
+        std::copy(old.pickupResonanceTrim.begin(), old.pickupResonanceTrim.end(),
+            loaded.pickupResonanceTrim.begin());
+        loaded.maskAmount = old.maskAmount;
+        loaded.maskAzimuthDeg = old.maskAzimuthDeg;
+        loaded.maskElevationDeg = old.maskElevationDeg;
+        loaded.maskWidth = old.maskWidth;
+        loaded.maskDry = old.maskDry;
+        loaded.delayTimeMs = old.delayTimeMs;
+        loaded.delayFeedback = old.delayFeedback;
+        loaded.delayTone = old.delayTone;
+        std::copy(old.pickupDelayTimeTrim.begin(), old.pickupDelayTimeTrim.end(),
+            loaded.pickupDelayTimeTrim.begin());
+        std::copy(old.pickupDelayFeedbackTrim.begin(), old.pickupDelayFeedbackTrim.end(),
+            loaded.pickupDelayFeedbackTrim.begin());
+        if (!streamReadAll(stream, &loadedViewMode,
+                sizeof(loadedViewMode))
+            || !streamReadAll(stream, &loadedViewAzDeg,
+                sizeof(loadedViewAzDeg))
+            || !streamReadAll(stream, &loadedViewElDeg,
+                sizeof(loadedViewElDeg))) return false;
+    } else if (version == 2u) {
+        AmbiEffectDjFilterParamsV2 old {};
+        if (!streamReadAll(stream, &old, sizeof(old))) return false;
+        loaded.order = old.order;
+        loaded.body = old.body;
+        loaded.topology = old.topology;
+        loaded.filter = old.filter;
+        loaded.resonance = old.resonance;
+        loaded.topologyAmount = old.topologyAmount;
+        loaded.roamingRateHz = old.roamingRateHz;
+        loaded.mix = old.mix;
+        loaded.outputGainDb = old.outputGainDb;
+        std::copy(old.pickupFilterTrim.begin(), old.pickupFilterTrim.end(),
+            loaded.pickupFilterTrim.begin());
+        loaded.maskAmount = old.maskAmount;
+        loaded.maskAzimuthDeg = old.maskAzimuthDeg;
+        loaded.maskElevationDeg = old.maskElevationDeg;
+        loaded.maskWidth = old.maskWidth;
     } else if (version == 1u) {
         AmbiEffectDjFilterParamsV1 old {};
         if (!streamReadAll(stream, &old, sizeof(old))) return false;
@@ -668,6 +958,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     auto* p = self(plugin);
     p->params = s3g::sanitizeAmbiEffectDjFilterParams(loaded);
+    p->guiViewMode = std::clamp<int32_t>(loadedViewMode, -1, 2);
+    p->guiViewAzDeg = std::isfinite(loadedViewAzDeg)
+        ? loadedViewAzDeg : 35.0f;
+    p->guiViewElDeg = std::clamp(
+        std::isfinite(loadedViewElDeg) ? loadedViewElDeg : 34.0f,
+        -85.0f, 85.0f);
     p->processor.setParams(p->params);
     return true;
 }
@@ -677,33 +973,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 std::array<s3g::Vec3, s3g::kAmbiEffectDjFilterMaxPickups>
 bodyDirections(s3g::AmbiEffectBody body)
 {
-    std::array<s3g::Vec3, s3g::kAmbiEffectDjFilterMaxPickups> result {};
-    constexpr float k = 0.5773502691896258f;
-    constexpr float phi = 1.6180339887498948f;
-    if (body == s3g::AmbiEffectBody::Tetra4) {
-        result[0] = s3g::normalize({ k, k, k });
-        result[1] = s3g::normalize({ -k, -k, k });
-        result[2] = s3g::normalize({ -k, k, -k });
-        result[3] = s3g::normalize({ k, -k, -k });
-    } else if (body == s3g::AmbiEffectBody::Cube8) {
-        const std::array<s3g::Vec3, 8u> points {{
-            { k, k, k }, { -k, -k, k }, { -k, k, -k }, { k, -k, -k },
-            { -k, -k, -k }, { k, k, -k }, { k, -k, k }, { -k, k, k },
-        }};
-        for (uint32_t i = 0u; i < points.size(); ++i) {
-            result[i] = s3g::normalize(points[i]);
-        }
-    } else {
-        const std::array<s3g::Vec3, 12u> points {{
-            { 0, 1, phi }, { 0, -1, phi }, { phi, 0, 1 }, { 1, phi, 0 },
-            { -1, phi, 0 }, { -phi, 0, 1 }, { -phi, 0, -1 }, { -1, -phi, 0 },
-            { 0, -1, -phi }, { 1, -phi, 0 }, { phi, 0, -1 }, { 0, 1, -phi },
-        }};
-        for (uint32_t i = 0u; i < points.size(); ++i) {
-            result[i] = s3g::normalize(points[i]);
-        }
-    }
-    return result;
+    return s3g::ambiEffectBodyDirections(body);
 }
 
 } // namespace
@@ -716,15 +986,21 @@ constexpr s3g::gui_layout::Rect kAmbiEffectFieldPanel {
     18.0, 42.0, 506.0, 580.0 };
 constexpr s3g::gui_layout::Rect kAmbiEffectFieldPlot {
     34.0, 78.0, 474.0, 526.0 };
-constexpr auto kFilterPanel = s3g::gui_layout::kTransformFamilyLayout.primaryFour;
-constexpr auto kTopologyPanel = s3g::gui_layout::kTransformFamilyLayout.secondaryFour;
+constexpr s3g::gui_layout::Panel kFilterPanel {
+    s3g::gui_layout::PluginClass::CompactUtility,
+    s3g::gui_layout::PanelRole::Engine,
+    { 536.0, 134.0, 266.0, 184.0 }, 36.0, 26.0, 6u,
+};
+constexpr s3g::gui_layout::Panel kTopologyPanel {
+    s3g::gui_layout::PluginClass::CompactUtility,
+    s3g::gui_layout::PanelRole::Topology,
+    { 536.0, 330.0, 266.0, 106.0 }, 36.0, 26.0, 3u,
+};
 constexpr s3g::gui_layout::Panel kMaskPanel {
     s3g::gui_layout::PluginClass::CompactUtility,
     s3g::gui_layout::PanelRole::Utility,
-    { 536.0, 422.0, 266.0, 132.0 }, 36.0, 26.0, 4u,
+    { 536.0, 448.0, 266.0, 184.0 }, 36.0, 26.0, 6u,
 };
-constexpr float kBodyYaw = -0.58f;
-constexpr float kBodyElevation = 0.40f;
 constexpr CGFloat kBodyRadius = 150.0;
 
 struct ProjectedBody {
@@ -732,41 +1008,56 @@ struct ProjectedBody {
     std::array<float, s3g::kAmbiEffectDjFilterMaxPickups> depths {};
 };
 
-NSPoint projectBodyDirection(s3g::Vec3 direction)
+NSPoint projectBodyDirection(
+    s3g::Vec3 direction, float azimuthDeg, float elevationDeg)
 {
     const NSRect field = s3g::clap_gui::cocoaRect(kAmbiEffectFieldPlot);
-    const float rotatedX = direction.x * std::cos(kBodyYaw)
-        - direction.y * std::sin(kBodyYaw);
-    const float rotatedY = direction.x * std::sin(kBodyYaw)
-        + direction.y * std::cos(kBodyYaw);
-    const float projectedY = rotatedY * std::cos(kBodyElevation)
-        - direction.z * std::sin(kBodyElevation);
+    const float yaw = -azimuthDeg * s3g::kPi / 180.0f;
+    const float elevation = elevationDeg * s3g::kPi / 180.0f;
+    const float rotatedX = direction.x * std::cos(yaw)
+        - direction.y * std::sin(yaw);
+    const float rotatedY = direction.x * std::sin(yaw)
+        + direction.y * std::cos(yaw);
+    const float projectedY = rotatedY * std::cos(elevation)
+        - direction.z * std::sin(elevation);
     return NSMakePoint(
         NSMidX(field) + rotatedX * kBodyRadius,
         field.origin.y + 190.0 - projectedY * kBodyRadius);
 }
 
-ProjectedBody projectBody(s3g::AmbiEffectBody body)
+ProjectedBody projectBody(
+    s3g::AmbiEffectBody body, float azimuthDeg, float elevationDeg)
 {
     ProjectedBody result {};
     const auto directions = bodyDirections(body);
     const uint32_t count = s3g::ambiEffectBodyPickupCount(body);
     for (uint32_t node = 0u; node < count; ++node) {
-        result.points[node] = projectBodyDirection(directions[node]);
-        const float rotatedY = directions[node].x * std::sin(kBodyYaw)
-            + directions[node].y * std::cos(kBodyYaw);
-        result.depths[node] = rotatedY * std::sin(kBodyElevation)
-            + directions[node].z * std::cos(kBodyElevation);
+        result.points[node] = projectBodyDirection(
+            directions[node], azimuthDeg, elevationDeg);
+        const float yaw = -azimuthDeg * s3g::kPi / 180.0f;
+        const float elevation = elevationDeg * s3g::kPi / 180.0f;
+        const float rotatedY = directions[node].x * std::sin(yaw)
+            + directions[node].y * std::cos(yaw);
+        result.depths[node] = rotatedY * std::sin(elevation)
+            + directions[node].z * std::cos(elevation);
     }
     return result;
 }
 
-NSRect pickupTrimAxisRect()
+NSRect pickupFilterAxisRect()
 {
     const NSRect field = s3g::clap_gui::cocoaRect(kAmbiEffectFieldPlot);
     return NSMakeRect(field.origin.x + 42.0,
-        field.origin.y + field.size.height - 62.0,
-        field.size.width - 84.0, 22.0);
+        field.origin.y + field.size.height - 132.0,
+        field.size.width - 84.0, 16.0);
+}
+
+NSRect pickupResonanceAxisRect()
+{
+    const NSRect field = s3g::clap_gui::cocoaRect(kAmbiEffectFieldPlot);
+    return NSMakeRect(field.origin.x + 42.0,
+        field.origin.y + field.size.height - 66.0,
+        field.size.width - 84.0, 16.0);
 }
 }
 
@@ -778,6 +1069,11 @@ NSRect pickupTrimAxisRect()
     NSPoint _menuOrigin;
     uint32_t _menuItems;
     uint32_t _selectedPickup;
+    int _viewMode;
+    CGFloat _viewAzDeg;
+    CGFloat _viewElDeg;
+    BOOL _dragView;
+    NSPoint _lastDragPoint;
     NSTimer* _refreshTimer;
 }
 - (id)initWithPlugin:(void*)plugin;
@@ -786,6 +1082,8 @@ NSRect pickupTrimAxisRect()
 - (void)setParam:(clap_id)param value:(double)value;
 - (void)updateSliderAtPoint:(NSPoint)point;
 - (void)updateMenuHover:(NSPoint)point;
+- (void)storeViewState;
+- (void)setViewPreset:(int)mode;
 @end
 
 @implementation S3GAmbiEffectDjFilterView
@@ -801,6 +1099,12 @@ NSRect pickupTrimAxisRect()
         _menuOrigin = NSZeroPoint;
         _menuItems = 0u;
         _selectedPickup = 0u;
+        auto* p = static_cast<Plugin*>(plugin);
+        _viewMode = p ? p->guiViewMode : 2;
+        _viewAzDeg = p ? p->guiViewAzDeg : 35.0;
+        _viewElDeg = p ? p->guiViewElDeg : 34.0;
+        _dragView = NO;
+        _lastDragPoint = NSZeroPoint;
         _refreshTimer = nil;
     }
     return self;
@@ -808,8 +1112,35 @@ NSRect pickupTrimAxisRect()
 
 - (void)dealloc
 {
+    [self storeViewState];
     [self stopRefreshTimer];
     [super dealloc];
+}
+
+- (void)storeViewState
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    if (!p) return;
+    p->guiViewMode = _viewMode;
+    p->guiViewAzDeg = static_cast<float>(_viewAzDeg);
+    p->guiViewElDeg = static_cast<float>(_viewElDeg);
+}
+
+- (void)setViewPreset:(int)mode
+{
+    _viewMode = mode;
+    if (mode == 0) {
+        _viewAzDeg = 90.0;
+        _viewElDeg = 0.0;
+    } else if (mode == 1) {
+        _viewAzDeg = 90.0;
+        _viewElDeg = 90.0;
+    } else {
+        _viewAzDeg = 35.0;
+        _viewElDeg = 34.0;
+    }
+    [self storeViewState];
+    [self setNeedsDisplay:YES];
 }
 
 - (BOOL)isFlipped { return YES; }
@@ -894,9 +1225,11 @@ NSRect pickupTrimAxisRect()
         fieldPanel.origin.y, fieldPanel.size.width,
         fieldPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(
-        @"AUDITORY BODY / RESIDUAL FIELD", true,
+        @"LISTENER PICKUPS / FILTER FIELD", true,
         fieldPanel.origin.x, fieldPanel.origin.y,
         fieldPanel.size.width, 21.0, text, style);
+    s3g::clap_gui::drawTopologyProcessorCameraButtons(
+        fieldPanel, _viewMode, text, style);
     NSRect field = s3g::clap_gui::cocoaRect(kAmbiEffectFieldPlot);
     [s3g::clap_gui::color(0x0d0f0f) setFill];
     NSRectFill(field);
@@ -906,7 +1239,8 @@ NSRect pickupTrimAxisRect()
     const uint32_t bodyCount = s3g::ambiEffectBodyPickupCount(resolved);
     if (_selectedPickup >= bodyCount) _selectedPickup = 0u;
     const auto directions = bodyDirections(resolved);
-    const ProjectedBody projected = projectBody(resolved);
+    const ProjectedBody projected = projectBody(resolved,
+        static_cast<float>(_viewAzDeg), static_cast<float>(_viewElDeg));
     const auto& points = projected.points;
     const auto& depths = projected.depths;
 
@@ -934,26 +1268,38 @@ NSRect pickupTrimAxisRect()
     [shell setLineWidth:1.0];
     [shell stroke];
 
+    NSBezierPath* heardRoute = [NSBezierPath bezierPath];
     if (p->params.topology == s3g::AmbiEffectTopology::Cross) {
-        NSBezierPath* cross = [NSBezierPath bezierPath];
-        for (uint32_t node = 0u; node < bodyCount; ++node) {
-            uint32_t opposite = 0u;
-            float minimum = 2.0f;
-            for (uint32_t other = 0u; other < bodyCount; ++other) {
-                const float relation = directions[node].x * directions[other].x
-                    + directions[node].y * directions[other].y
-                    + directions[node].z * directions[other].z;
-                if (relation < minimum) { minimum = relation; opposite = other; }
-            }
-            if (node < opposite) {
-                [cross moveToPoint:points[node]];
-                [cross lineToPoint:points[opposite]];
-            }
+        uint32_t opposite = 0u;
+        float minimum = 2.0f;
+        for (uint32_t other = 0u; other < bodyCount; ++other) {
+            const float relation = directions[_selectedPickup].x * directions[other].x
+                + directions[_selectedPickup].y * directions[other].y
+                + directions[_selectedPickup].z * directions[other].z;
+            if (relation < minimum) { minimum = relation; opposite = other; }
         }
-        [s3g::clap_gui::color(0xd0d4d2, 0.42) setStroke];
-        [cross setLineWidth:1.4];
-        [cross stroke];
+        [heardRoute moveToPoint:points[_selectedPickup]];
+        [heardRoute lineToPoint:points[opposite]];
+    } else if (p->params.topology == s3g::AmbiEffectTopology::Diffuse) {
+        for (uint32_t other = 0u; other < bodyCount; ++other) {
+            const float relation = directions[_selectedPickup].x * directions[other].x
+                + directions[_selectedPickup].y * directions[other].y
+                + directions[_selectedPickup].z * directions[other].z;
+            if (other == _selectedPickup || relation < nearestDot - 0.0001f) continue;
+            [heardRoute moveToPoint:points[_selectedPickup]];
+            [heardRoute lineToPoint:points[other]];
+        }
+    } else {
+        const CGFloat orbit = p->params.topology == s3g::AmbiEffectTopology::Roaming
+            ? 14.0 + 4.0 * std::sin(p->roamingPhase.load(
+                std::memory_order_relaxed) * 2.0f * s3g::kPi) : 11.0;
+        [heardRoute appendBezierPathWithOvalInRect:NSMakeRect(
+            points[_selectedPickup].x - orbit,
+            points[_selectedPickup].y - orbit, orbit * 2.0, orbit * 2.0)];
     }
+    [s3g::clap_gui::color(0xd0d4d2,
+        0.24 + p->params.topologyAmount * 0.58) setStroke];
+    [heardRoute setLineWidth:1.5]; [heardRoute stroke];
 
     if (p->params.maskAmount > 0.001f) {
         const float azimuth = p->params.maskAzimuthDeg
@@ -966,7 +1312,8 @@ NSRect pickupTrimAxisRect()
             cosElevation * std::sin(azimuth),
             std::sin(elevation),
         };
-        const NSPoint maskPoint = projectBodyDirection(direction);
+        const NSPoint maskPoint = projectBodyDirection(direction,
+            static_cast<float>(_viewAzDeg), static_cast<float>(_viewElDeg));
         const CGFloat maskRadius = 16.0 + p->params.maskWidth * 38.0;
         [s3g::clap_gui::color(0xcbd0cd,
             0.20 + p->params.maskAmount * 0.46) setStroke];
@@ -974,7 +1321,7 @@ NSRect pickupTrimAxisRect()
             NSMakeRect(maskPoint.x - maskRadius,
                 maskPoint.y - maskRadius,
                 maskRadius * 2.0, maskRadius * 2.0)];
-        [mask setLineWidth:1.3];
+        [mask setLineWidth:0.8 + p->params.maskCurve * 1.2];
         CGFloat dash[] { 4.0, 3.0 };
         [mask setLineDash:dash count:2 phase:0.0];
         [mask stroke];
@@ -997,26 +1344,32 @@ NSRect pickupTrimAxisRect()
             const float wet = p->params.maskAmount < 0.005f
                 ? 1.0f
                 : p->nodeWetMask[node].load(std::memory_order_relaxed);
-            const CGFloat size = 20.0;
+            const CGFloat size = 14.0;
             NSRect marker = NSMakeRect(points[node].x - size * 0.5,
                 points[node].y - size * 0.5, size, size);
-            [s3g::clap_gui::color(0x161918, 0.94) setFill];
-            NSRectFill(marker);
-            const CGFloat meterHeight = (size - 4.0) * meter;
+            const CGFloat halo = 8.0 + std::sqrt(meter) * 15.0;
             [s3g::clap_gui::color(
                 pass == 1u ? 0xd8dcda : 0x858c89,
-                0.32 + meter * 0.68) setFill];
-            NSRectFill(NSMakeRect(marker.origin.x + 2.0,
-                marker.origin.y + size - 2.0 - meterHeight,
-                size - 4.0, meterHeight));
+                0.025 + meter * 0.22) setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+                points[node].x - halo, points[node].y - halo,
+                halo * 2.0, halo * 2.0)] fill];
+            [s3g::clap_gui::color(0x161918, 0.94) setFill];
+            NSRectFill(marker);
+            [s3g::clap_gui::color(
+                pass == 1u ? 0xd8dcda : 0x858c89,
+                0.10 + meter * 0.28) setFill];
+            NSRectFill(NSInsetRect(marker, 2.0, 2.0));
             [s3g::clap_gui::color(
                 node == _selectedPickup ? 0xe2e5e3 : 0x8c9490,
                 node == _selectedPickup ? 0.94 : 0.20 + wet * 0.66)
                 setStroke];
             NSFrameRect(marker);
-            const float trim = p->params.pickupFilterTrim[node];
+            const float trim = s3g::ambiEffectPickupFilterPosition(
+                p->params.filter, p->params.pickupFilterTrim[node],
+                p->params.spread, p->params.deviation, node, bodyCount);
             const CGFloat trimX = marker.origin.x
-                + (trim + 1.0f) * 0.5f * marker.size.width;
+                + trim * marker.size.width;
             [s3g::clap_gui::color(0x363c39) setFill];
             NSRectFill(NSMakeRect(marker.origin.x,
                 NSMaxY(marker) + 3.0, marker.size.width, 2.0));
@@ -1024,6 +1377,15 @@ NSRect pickupTrimAxisRect()
                 node == _selectedPickup ? 1.0 : 0.72) setFill];
             NSRectFill(NSMakeRect(trimX - 1.0,
                 NSMaxY(marker) + 1.0, 2.0, 6.0));
+            const float resTrim = s3g::ambiEffectPickupResonance(
+                p->params.resonance, p->params.pickupResonanceTrim[node],
+                p->params.spread, p->params.deviation, node, bodyCount);
+            const CGFloat resY = marker.origin.y
+                + (1.0f - resTrim) * marker.size.height;
+            [s3g::clap_gui::color(0xd9dddb,
+                node == _selectedPickup ? 1.0 : 0.72) setFill];
+            NSRectFill(NSMakeRect(marker.origin.x - 5.0,
+                resY - 1.0, 6.0, 2.0));
             [[NSString stringWithFormat:@"%u", node + 1u]
                 drawAtPoint:NSMakePoint(NSMaxX(marker) + 3.0,
                     marker.origin.y - 2.0)
@@ -1031,11 +1393,13 @@ NSRect pickupTrimAxisRect()
         }
     }
 
-    const NSRect axis = pickupTrimAxisRect();
-    const CGFloat axisY = axis.origin.y;
-    const CGFloat axisX = axis.origin.x;
-    const CGFloat axisWidth = axis.size.width;
+    const NSRect filterAxis = pickupFilterAxisRect();
+    const NSRect resonanceAxis = pickupResonanceAxisRect();
+    const CGFloat axisX = filterAxis.origin.x;
+    const CGFloat axisWidth = filterAxis.size.width;
     const float selectedTrim = p->params.pickupFilterTrim[_selectedPickup];
+    const float selectedResTrim =
+        p->params.pickupResonanceTrim[_selectedPickup];
     const float selectedLevel = p->nodeLevel[_selectedPickup].load(
         std::memory_order_relaxed);
     const float selectedDb = std::max(-120.0f,
@@ -1043,42 +1407,50 @@ NSRect pickupTrimAxisRect()
     const float selectedWet = p->params.maskAmount < 0.005f
         ? 1.0f
         : p->nodeWetMask[_selectedPickup].load(std::memory_order_relaxed);
-    NSString* trimText = selectedTrim < -0.005f
-        ? [NSString stringWithFormat:@"LP %.0f%%", -selectedTrim * 100.0f]
-        : (selectedTrim > 0.005f
-            ? [NSString stringWithFormat:@"HP %.0f%%", selectedTrim * 100.0f]
-            : @"0");
+    const float effectiveFilter = s3g::ambiEffectPickupFilterPosition(
+        p->params.filter, selectedTrim, p->params.spread,
+        p->params.deviation, _selectedPickup, bodyCount);
+    const float effectiveResonance = s3g::ambiEffectPickupResonance(
+        p->params.resonance, selectedResTrim, p->params.spread,
+        p->params.deviation, _selectedPickup, bodyCount);
     [[NSString stringWithFormat:
-        @"PICKUP %02u  ·  IN %.0f dB  ·  WET %.0f%%  ·  TRIM %@",
-        _selectedPickup + 1u, selectedDb, selectedWet * 100.0f, trimText]
-        drawAtPoint:NSMakePoint(axisX, axisY - 23.0)
+        @"HEARD AT PICKUP %02u  ·  IN %.0f dB  ·  WET %.0f%%  ·  F %.0f%%  R %.0f%%",
+        _selectedPickup + 1u, selectedDb, selectedWet * 100.0f,
+        effectiveFilter * 100.0f, effectiveResonance * 100.0f]
+        drawAtPoint:NSMakePoint(axisX, filterAxis.origin.y - 22.0)
         withAttributes:value];
-    [s3g::clap_gui::color(0x171a19) setFill];
-    NSRectFill(axis);
-    [style.grid setStroke];
-    NSFrameRect(axis);
-    [@"LP TRIM" drawAtPoint:NSMakePoint(axisX, axisY + 28.0)
-        withAttributes:value];
-    [@"0" drawAtPoint:NSMakePoint(axisX + axisWidth * 0.5 - 3.0,
-        axisY + 28.0) withAttributes:value];
-    [@"HP TRIM" drawAtPoint:NSMakePoint(axisX + axisWidth - 42.0,
-        axisY + 28.0) withAttributes:value];
-    const CGFloat centerX = axisX + axisWidth * 0.5;
-    const CGFloat cursorX = axisX
-        + axisWidth * (selectedTrim + 1.0f) * 0.5f;
-    [s3g::clap_gui::color(0x343937) setFill];
-    NSRectFill(NSMakeRect(centerX - 1.0, axisY, 2.0, axis.size.height));
-    [s3g::clap_gui::color(0xd9dddb) setFill];
-    NSRectFill(NSMakeRect(cursorX - 2.0, axisY - 4.0, 4.0, 30.0));
-    [s3g::clap_gui::color(0x8b928e, 0.42) setFill];
-    NSRectFill(NSMakeRect(std::min(centerX, cursorX), axisY,
-        std::fabs(cursorX - centerX), 3.0));
+    const auto drawPickupAxis = [&](NSRect axis, float trim,
+        NSString* left, NSString* center, NSString* right) {
+        [s3g::clap_gui::color(0x171a19) setFill];
+        NSRectFill(axis);
+        [style.grid setStroke];
+        NSFrameRect(axis);
+        [left drawAtPoint:NSMakePoint(axis.origin.x, NSMaxY(axis) + 5.0)
+            withAttributes:value];
+        [center drawAtPoint:NSMakePoint(NSMidX(axis) - 3.0,
+            NSMaxY(axis) + 5.0) withAttributes:value];
+        [right drawAtPoint:NSMakePoint(NSMaxX(axis) - 42.0,
+            NSMaxY(axis) + 5.0) withAttributes:value];
+        const CGFloat centerX = NSMidX(axis);
+        const CGFloat cursorX = axis.origin.x
+            + axis.size.width * (trim + 1.0f) * 0.5f;
+        [s3g::clap_gui::color(0x343937) setFill];
+        NSRectFill(NSMakeRect(centerX - 1.0, axis.origin.y,
+            2.0, axis.size.height));
+        [s3g::clap_gui::color(0xd9dddb) setFill];
+        NSRectFill(NSMakeRect(cursorX - 2.0, axis.origin.y - 3.0,
+            4.0, axis.size.height + 6.0));
+    };
+    drawPickupAxis(filterAxis, selectedTrim,
+        @"LP TRIM", @"0", @"HP TRIM");
+    drawPickupAxis(resonanceAxis, selectedResTrim,
+        @"RES -", @"0", @"RES +");
 
     s3g::clap_gui::drawPanelFrame(kLayout.output, style);
     s3g::clap_gui::drawPanelHeader(@"FIELD", true,
         kLayout.output, text, style);
     s3g::clap_gui::drawPanelFrame(kFilterPanel, style);
-    s3g::clap_gui::drawPanelHeader(@"DJ FILTER", true,
+    s3g::clap_gui::drawPanelHeader(@"DJ FILTER / RELATIONSHIPS", true,
         kFilterPanel, text, style);
     s3g::clap_gui::drawPanelFrame(kTopologyPanel, style);
     s3g::clap_gui::drawPanelHeader(@"TOPOLOGY", true,
@@ -1114,9 +1486,15 @@ NSRect pickupTrimAxisRect()
     [self drawSlider:@"RES" value:[NSString stringWithFormat:@"%.0f%%",
         p->params.resonance * 100.0f] norm:p->params.resonance
         panel:kFilterPanel row:2u attrs:value style:style];
+    [self drawSlider:@"SPRD" value:[NSString stringWithFormat:@"%.0f%%",
+        p->params.spread * 100.0f] norm:p->params.spread
+        panel:kFilterPanel row:3u attrs:value style:style];
+    [self drawSlider:@"DEV" value:[NSString stringWithFormat:@"%.0f%%",
+        p->params.deviation * 100.0f] norm:p->params.deviation
+        panel:kFilterPanel row:4u attrs:value style:style];
     [self drawSlider:@"MIX" value:[NSString stringWithFormat:@"%.0f%%",
         p->params.mix * 100.0f] norm:p->params.mix
-        panel:kFilterPanel row:3u attrs:value style:style];
+        panel:kFilterPanel row:5u attrs:value style:style];
     [self drawMenu:@"MODE"
         value:[NSString stringWithUTF8String:
             s3g::ambiEffectTopologyName(p->params.topology)]
@@ -1131,10 +1509,6 @@ NSRect pickupTrimAxisRect()
         value:[NSString stringWithFormat:@"%.3f Hz", p->params.roamingRateHz]
         norm:roamNorm panel:kTopologyPanel row:2u
         attrs:value style:style];
-    [@"TRIMS + MASK ACT ON THE RESIDUAL"
-        drawAtPoint:NSMakePoint(kTopologyPanel.frame.x + 16.0,
-            s3g::gui_layout::rowY(kTopologyPanel, 3u))
-        withAttributes:value];
     [self drawSlider:@"MASK"
         value:(p->params.maskAmount < 0.005f
             ? @"OFF"
@@ -1157,13 +1531,24 @@ NSRect pickupTrimAxisRect()
             p->params.maskWidth * 100.0f]
         norm:p->params.maskWidth panel:kMaskPanel row:3u
         attrs:value style:style];
+    [self drawSlider:@"CURVE"
+        value:[NSString stringWithFormat:@"%.0f%%",
+            p->params.maskCurve * 100.0f]
+        norm:p->params.maskCurve panel:kMaskPanel row:4u
+        attrs:value style:style];
+    [self drawSlider:@"DRY" value:(p->params.maskDry < 0.005f
+        ? @"-100% FX ONLY"
+        : [NSString stringWithFormat:@"%.0f%%",
+            (p->params.maskDry - 1.0f) * 100.0f])
+        norm:p->params.maskDry panel:kMaskPanel row:5u
+        attrs:value style:style];
 
     if (_openMenu > 0 && _menuItems > 0u) {
         NSString* orderItems[] = {
             @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA"
         };
         NSString* bodyItems[] = {
-            @"AUTO", @"TETRA 4", @"CUBE 8", @"ICOSA 12"
+            @"AUTO", @"ICOSA 12", @"DODECA 20"
         };
         NSString* topologyItems[] = {
             @"LOCAL", @"CROSS", @"DIFFUSE", @"ROAMING"
@@ -1173,7 +1558,8 @@ NSRect pickupTrimAxisRect()
         const int selected = _openMenu == 1
             ? static_cast<int>(p->params.order) - 1
             : (_openMenu == 2
-                ? static_cast<int>(p->params.body)
+                ? (p->params.body == s3g::AmbiEffectBody::Auto ? 0
+                    : (p->params.body == s3g::AmbiEffectBody::Dodeca20 ? 2 : 1))
                 : static_cast<int>(p->params.topology));
         const CGFloat width = s3g::gui_layout::processorMenuWidth(
             kLayout.output.frame.width);
@@ -1190,7 +1576,16 @@ NSRect pickupTrimAxisRect()
     uint32_t pickup = 0u;
     if (_dragSlider >= 0 && pickupFilterParamIndex(
             static_cast<clap_id>(_dragSlider), pickup)) {
-        const NSRect axis = pickupTrimAxisRect();
+        const NSRect axis = pickupFilterAxisRect();
+        const double norm = std::clamp(
+            (point.x - axis.origin.x) / axis.size.width, 0.0, 1.0);
+        [self setParam:static_cast<clap_id>(_dragSlider)
+            value:norm * 2.0 - 1.0];
+        return;
+    }
+    if (_dragSlider >= 0 && pickupResonanceParamIndex(
+            static_cast<clap_id>(_dragSlider), pickup)) {
+        const NSRect axis = pickupResonanceAxisRect();
         const double norm = std::clamp(
             (point.x - axis.origin.x) / axis.size.width, 0.0, 1.0);
         [self setParam:static_cast<clap_id>(_dragSlider)
@@ -1206,6 +1601,9 @@ NSRect pickupTrimAxisRect()
     switch (_dragSlider) {
     case kParamFilter: [self setParam:kParamFilter value:norm]; break;
     case kParamResonance: [self setParam:kParamResonance value:norm]; break;
+    case kParamSpread: [self setParam:kParamSpread value:norm]; break;
+    case kParamDeviation: [self setParam:kParamDeviation value:norm]; break;
+    case kParamMaskCurve: [self setParam:kParamMaskCurve value:norm]; break;
     case kParamTopologyAmount:
         [self setParam:kParamTopologyAmount value:norm]; break;
     case kParamRoamingRate:
@@ -1222,6 +1620,8 @@ NSRect pickupTrimAxisRect()
         [self setParam:kParamMaskElevation value:-90.0 + norm * 180.0]; break;
     case kParamMaskWidth:
         [self setParam:kParamMaskWidth value:norm]; break;
+    case kParamMaskDry:
+        [self setParam:kParamMaskDry value:norm - 1.0]; break;
     default: break;
     }
 }
@@ -1261,7 +1661,8 @@ NSRect pickupTrimAxisRect()
             18.0, _menuItems);
         if (hit >= 0) {
             if (_openMenu == 1) [self setParam:kParamOrder value:hit + 1.0];
-            else if (_openMenu == 2) [self setParam:kParamBody value:hit];
+            else if (_openMenu == 2) [self setParam:kParamBody
+                value:(hit == 0 ? 0.0 : (hit == 1 ? 3.0 : 4.0))];
             else [self setParam:kParamTopology value:hit];
         }
         _openMenu = 0;
@@ -1270,10 +1671,22 @@ NSRect pickupTrimAxisRect()
         return;
     }
 
+    const NSRect fieldPanel = s3g::clap_gui::cocoaRect(
+        kAmbiEffectFieldPanel);
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (NSPointInRect(point,
+            s3g::clap_gui::topologyProcessorCameraButtonRect(
+                fieldPanel, index))) {
+            [self setViewPreset:static_cast<int>(index)];
+            return;
+        }
+    }
+
     const auto resolved = s3g::resolveAmbiEffectBody(
         p->params.body, p->params.order);
     const uint32_t bodyCount = s3g::ambiEffectBodyPickupCount(resolved);
-    const ProjectedBody projected = projectBody(resolved);
+    const ProjectedBody projected = projectBody(resolved,
+        static_cast<float>(_viewAzDeg), static_cast<float>(_viewElDeg));
     for (uint32_t node = 0u; node < bodyCount; ++node) {
         const CGFloat dx = point.x - projected.points[node].x;
         const CGFloat dy = point.y - projected.points[node].y;
@@ -1281,12 +1694,29 @@ NSRect pickupTrimAxisRect()
         _selectedPickup = node;
         if ([event clickCount] >= 2) {
             [self setParam:kParamPickupFilterFirst + node value:0.0];
+            [self setParam:kParamPickupResonanceFirst + node value:0.0];
         }
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSInsetRect(pickupTrimAxisRect(), 0.0, -8.0))) {
+    if (NSPointInRect(point,
+        NSInsetRect(pickupFilterAxisRect(), 0.0, -8.0))) {
         const clap_id pickupParam = kParamPickupFilterFirst + _selectedPickup;
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+            event, &p->plugin, pickupParam, &defaultValue)) {
+            [self setParam:pickupParam value:defaultValue];
+            _dragSlider = -1;
+        } else {
+            _dragSlider = static_cast<int>(pickupParam);
+            [self updateSliderAtPoint:point];
+        }
+        return;
+    }
+    if (NSPointInRect(point,
+        NSInsetRect(pickupResonanceAxisRect(), 0.0, -8.0))) {
+        const clap_id pickupParam =
+            kParamPickupResonanceFirst + _selectedPickup;
         double defaultValue = 0.0;
         if (s3g::clap_gui::sliderDoubleClickDefault(
             event, &p->plugin, pickupParam, &defaultValue)) {
@@ -1306,7 +1736,7 @@ NSRect pickupTrimAxisRect()
     };
     const MenuHit menus[] {
         { s3g::gui_layout::sliderHitRect(kLayout.output, 1u), 1, 7u },
-        { s3g::gui_layout::sliderHitRect(kFilterPanel, 0u), 2, 4u },
+        { s3g::gui_layout::sliderHitRect(kFilterPanel, 0u), 2, 3u },
         { s3g::gui_layout::sliderHitRect(kTopologyPanel, 0u), 3, 4u },
     };
     for (const auto& menu : menus) {
@@ -1331,13 +1761,17 @@ NSRect pickupTrimAxisRect()
         { s3g::gui_layout::sliderHitRect(kLayout.output, 0u), kParamOutput },
         { s3g::gui_layout::sliderHitRect(kFilterPanel, 1u), kParamFilter },
         { s3g::gui_layout::sliderHitRect(kFilterPanel, 2u), kParamResonance },
-        { s3g::gui_layout::sliderHitRect(kFilterPanel, 3u), kParamMix },
+        { s3g::gui_layout::sliderHitRect(kFilterPanel, 3u), kParamSpread },
+        { s3g::gui_layout::sliderHitRect(kFilterPanel, 4u), kParamDeviation },
+        { s3g::gui_layout::sliderHitRect(kFilterPanel, 5u), kParamMix },
         { s3g::gui_layout::sliderHitRect(kTopologyPanel, 1u), kParamTopologyAmount },
         { s3g::gui_layout::sliderHitRect(kTopologyPanel, 2u), kParamRoamingRate },
         { s3g::gui_layout::sliderHitRect(kMaskPanel, 0u), kParamMaskAmount },
         { s3g::gui_layout::sliderHitRect(kMaskPanel, 1u), kParamMaskAzimuth },
         { s3g::gui_layout::sliderHitRect(kMaskPanel, 2u), kParamMaskElevation },
         { s3g::gui_layout::sliderHitRect(kMaskPanel, 3u), kParamMaskWidth },
+        { s3g::gui_layout::sliderHitRect(kMaskPanel, 4u), kParamMaskCurve },
+        { s3g::gui_layout::sliderHitRect(kMaskPanel, 5u), kParamMaskDry },
     };
     for (const auto& slider : sliders) {
         if (!NSPointInRect(point,
@@ -1353,12 +1787,27 @@ NSRect pickupTrimAxisRect()
         }
         return;
     }
+    if (NSPointInRect(point,
+        s3g::clap_gui::cocoaRect(kAmbiEffectFieldPlot))) {
+        _dragView = YES;
+        _lastDragPoint = point;
+    }
 }
 
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     [self updateMenuHover:point];
+    if (_dragView) {
+        _viewAzDeg += (point.x - _lastDragPoint.x) * 0.35;
+        _viewElDeg = std::clamp(_viewElDeg
+            + (point.y - _lastDragPoint.y) * 0.35, -85.0, 85.0);
+        _viewMode = -1;
+        _lastDragPoint = point;
+        [self storeViewState];
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_dragSlider >= 0) [self updateSliderAtPoint:point];
 }
 
@@ -1372,6 +1821,7 @@ NSRect pickupTrimAxisRect()
 {
     (void)event;
     _dragSlider = -1;
+    _dragView = NO;
 }
 
 @end
