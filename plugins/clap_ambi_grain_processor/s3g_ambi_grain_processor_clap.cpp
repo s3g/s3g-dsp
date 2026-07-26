@@ -229,6 +229,7 @@ std::shared_ptr<s3g::AmbiGrainSample> readSampleFromPath(const std::string& path
                 sample->audio[static_cast<size_t>(i) * sample->channels + ch] = src[i];
             }
         }
+        s3g::normalizeAmbiGrainSample(*sample);
         [buffer release];
         [file release];
         return sample;
@@ -822,7 +823,7 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
     [self drawTransportButton:NSMakeRect(130, 49, 26, 22) kind:1 active:!isPlaying];
     [self drawTransportButton:NSMakeRect(164, 49, 26, 22) kind:2 active:NO];
     auto sample = std::atomic_load_explicit(&p->sample, std::memory_order_acquire);
-    NSString* info = sample ? [NSString stringWithFormat:@"%u ch / %.1f sec / %.0f Hz", sample->channels, static_cast<double>(sample->frames) / sample->sampleRate, sample->sampleRate] : @"no ambisonic file loaded";
+    NSString* info = sample ? [NSString stringWithFormat:@"%u ch / %.1f sec / %.0f Hz / norm %+.1f dB", sample->channels, static_cast<double>(sample->frames) / sample->sampleRate, sample->sampleRate, 20.0 * std::log10(std::max(0.000001f, sample->normalizationGain))] : @"no ambisonic file loaded";
     [info drawAtPoint:NSMakePoint(202, 53) withAttributes:text];
     s3g::clap_gui::drawPanelFrame(18, 92, 552, 458, style);
     s3g::clap_gui::drawPanelHeader(@"WAVEFORM", true, 18, 92, 552, 20, text, style);

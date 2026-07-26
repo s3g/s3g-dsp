@@ -2,14 +2,36 @@
 
 #include "s3g_math.h"
 #include "s3g_realtime.h"
+#include "s3g_topology.h"
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cmath>
+#include <cstdint>
+#include <limits>
+#include <memory>
 #include <vector>
 
 namespace s3g {
 
 constexpr int kDelayProcessorMaxChannels = 128;
+
+struct DelayRouteParams {
+    float route = 0.0f;
+    float turn = 0.0f;
+    float branch = 0.35f;
+    float loss = 0.25f;
+};
+
+inline DelayRouteParams sanitizeDelayRouteParams(DelayRouteParams params)
+{
+    params.route = clamp(params.route, 0.0f, 1.0f);
+    params.turn = clamp(params.turn, -1.0f, 1.0f);
+    params.branch = clamp(params.branch, 0.0f, 1.0f);
+    params.loss = clamp(params.loss, 0.0f, 1.0f);
+    return params;
+}
 
 class DelayProcessor {
 public:
@@ -27,6 +49,7 @@ public:
         delayToMs_.assign(static_cast<size_t>(channels_), 250.0f);
         delayFade_.assign(static_cast<size_t>(channels_), 1.0f);
         delaySettleSamples_.assign(static_cast<size_t>(channels_), delaySettleSampleCount());
+        delayPending_.assign(static_cast<size_t>(channels_), 0u);
         feedback_.assign(static_cast<size_t>(channels_), 0.30f);
         feedbackTarget_.assign(static_cast<size_t>(channels_), 0.30f);
         tone_.assign(static_cast<size_t>(channels_), 0.65f);
@@ -50,6 +73,44 @@ public:
         smearSlow_.assign(static_cast<size_t>(channels_), 0.0f);
         delayedFrame_.assign(static_cast<size_t>(channels_), 0.0f);
         filteredFrame_.assign(static_cast<size_t>(channels_), 0.0f);
+        legacyFeedbackFrame_.assign(static_cast<size_t>(channels_), 0.0f);
+        localFeedbackFrame_.assign(static_cast<size_t>(channels_), 0.0f);
+        routedFeedbackFrame_.assign(static_cast<size_t>(channels_), 0.0f);
+
+        const size_t routeCapacity = static_cast<size_t>(channels_) * static_cast<size_t>(channels_);
+        routeWeightTarget_.assign(routeCapacity, 0.0f);
+        routeWeightCurrent_.assign(routeCapacity, 0.0f);
+        centroidWeightTarget_.assign(routeCapacity, 0.0f);
+        centroidWeightCurrent_.assign(routeCapacity, 0.0f);
+        routeDistanceTarget_.assign(routeCapacity, 0.0f);
+        routeDistanceCurrent_.assign(routeCapacity, 0.0f);
+        routeGainTarget_.assign(routeCapacity, 1.0f);
+        routeGainCurrent_.assign(routeCapacity, 1.0f);
+        routeFilterCoeffTarget_.assign(routeCapacity, 1.0f);
+        routeFilterCoeffCurrent_.assign(routeCapacity, 1.0f);
+        routeFilterState_.assign(routeCapacity, 0.0f);
+        edgeEnergyState_.assign(routeCapacity, 0.0f);
+        edgePhaseState_.assign(routeCapacity, 0.0f);
+        edgePreviousLaunch_.assign(routeCapacity, 0.0f);
+        activeRouteEdges_.assign(routeCapacity, 0u);
+        edgeEnergyPublished_ = std::make_unique<std::atomic<float>[]>(
+            kRouteTelemetryCapacity);
+        edgePhasePublished_ = std::make_unique<std::atomic<float>[]>(
+            kRouteTelemetryCapacity);
+        activeRouteEdgeCount_ = 0u;
+        routeParamSmoothing_ = smoothingCoefficient(0.018f);
+        routeMatrixSmoothing_ = smoothingCoefficient(0.032f);
+        routeDistanceSmoothing_ = smoothingCoefficient(0.045f);
+        routeEnergyAttack_ = smoothingCoefficient(0.006f);
+        routeEnergyRelease_ = smoothingCoefficient(0.420f);
+        nodeEnergyAttack_ = smoothingCoefficient(0.008f);
+        nodeEnergyRelease_ = smoothingCoefficient(0.260f);
+        routeParams_ = sanitizeDelayRouteParams(routeParams_);
+        routeCurrent_ = routeParams_;
+        routeTailEstimateFrames_ = 0u;
+        routeTailRemaining_ = 0u;
+        routeTailRemainingPublished_.store(0u, std::memory_order_relaxed);
+        routeTelemetryActive_ = false;
         hasProcessed_ = false;
         for (int ch = 0; ch < channels_; ++ch) {
             const size_t index = static_cast<size_t>(ch);
@@ -57,6 +118,15 @@ public:
             networkNeighborB_[index] = (ch + 1) % std::max(1, channels_);
             networkNeighborC_[index] = (ch + channels_ / 2) % std::max(1, channels_);
         }
+        if (requestedActiveLaneCount_ == 0u) {
+            requestedActiveLaneCount_ = static_cast<uint32_t>(channels_);
+            for (uint32_t lane = 0u; lane < requestedActiveLaneCount_; ++lane) {
+                requestedActiveLanes_[lane] = lane;
+            }
+        }
+        rebuildRouteTargets(true);
+        resetRouteTelemetry();
+        updateRouteTailEstimate();
     }
 
     void reset()
@@ -69,9 +139,18 @@ public:
         delayToMs_ = delayMs_;
         std::fill(delayFade_.begin(), delayFade_.end(), 1.0f);
         std::fill(delaySettleSamples_.begin(), delaySettleSamples_.end(), delaySettleSampleCount());
+        std::fill(delayPending_.begin(), delayPending_.end(), 0u);
         std::fill(pitchPhase_.begin(), pitchPhase_.end(), 0.0f);
         std::fill(smearFast_.begin(), smearFast_.end(), 0.0f);
         std::fill(smearSlow_.begin(), smearSlow_.end(), 0.0f);
+        std::fill(routeFilterState_.begin(), routeFilterState_.end(), 0.0f);
+        std::fill(edgePreviousLaunch_.begin(), edgePreviousLaunch_.end(), 0.0f);
+        routeCurrent_ = routeParams_;
+        routeTailRemaining_ = 0u;
+        routeTailRemainingPublished_.store(0u, std::memory_order_relaxed);
+        rebuildRouteTargets(true);
+        resetRouteTelemetry();
+        routeTelemetryActive_ = false;
         hasProcessed_ = false;
     }
 
@@ -87,6 +166,7 @@ public:
                 delayToMs_[index] = target;
                 delayFade_[index] = 1.0f;
                 delaySettleSamples_[index] = delaySettleSampleCount();
+                delayPending_[index] = 0u;
                 return;
             }
 
@@ -94,7 +174,14 @@ public:
                 return;
             }
             delayTargetMs_[index] = target;
-            delaySettleSamples_[index] = 0;
+            // Start the debounce window on the first meaningful change, not
+            // every subsequent target update. Continuous topology motion can
+            // therefore reach the crossfade instead of postponing it forever.
+            if (delayPending_[index] == 0u) {
+                delayPending_[index] = 1u;
+                delaySettleSamples_[index] = 0;
+            }
+            updateRouteTailEstimate();
         }
     }
 
@@ -106,6 +193,7 @@ public:
             if (!hasProcessed_) {
                 feedback_[index] = feedbackTarget_[index];
             }
+            updateRouteTailEstimate();
         }
     }
 
@@ -190,6 +278,121 @@ public:
         }
     }
 
+    void setRouteParams(const DelayRouteParams& params)
+    {
+        const DelayRouteParams next = sanitizeDelayRouteParams(params);
+        const bool changed = std::fabs(next.route - routeParams_.route) > 0.000001f
+            || std::fabs(next.turn - routeParams_.turn) > 0.000001f
+            || std::fabs(next.branch - routeParams_.branch) > 0.000001f
+            || std::fabs(next.loss - routeParams_.loss) > 0.000001f;
+        if (!changed) return;
+        const bool activating = routeParams_.route <= 0.000001f
+            && next.route > 0.000001f;
+        routeParams_ = next;
+        if (!hasProcessed_) {
+            routeCurrent_ = routeParams_;
+        }
+        rebuildRouteTargets(!hasProcessed_);
+        updateRouteTailEstimate();
+        if (activating) {
+            routeTailRemaining_ = routeTailFramesPublished_.load(std::memory_order_relaxed);
+            routeTailRemainingPublished_.store(routeTailRemaining_, std::memory_order_relaxed);
+        }
+    }
+
+    DelayRouteParams routeParams() const { return routeParams_; }
+
+    void setTopology(const TopologyState& topology,
+                     const uint32_t* activeLanes,
+                     uint32_t activeLaneCount)
+    {
+        routeTopology_ = topology;
+        routeTopology_.amount = std::clamp(routeTopology_.amount, 0.0, 1.0);
+        routeTopology_.jitter = std::clamp(routeTopology_.jitter, 0.0, 1.0);
+        routeTopology_.collapse = std::clamp(routeTopology_.collapse, 0.0, 1.0);
+        routeTopology_.dirX = std::clamp(routeTopology_.dirX, -1.0, 1.0);
+        routeTopology_.dirY = std::clamp(routeTopology_.dirY, -1.0, 1.0);
+        routeTopology_.dirZ = std::clamp(routeTopology_.dirZ, -1.0, 1.0);
+        routeTopology_.twist = std::clamp(routeTopology_.twist, -1.0, 1.0);
+        routeTopology_.flare = std::clamp(routeTopology_.flare, -1.0, 1.0);
+        routeTopology_.shape = std::min<uint32_t>(routeTopology_.shape, kTopologyShapeCount - 1u);
+        routeTopology_.neighborCount = std::clamp<uint32_t>(routeTopology_.neighborCount, 1u, 3u);
+        routeTopology_.neighborRadius = std::clamp(routeTopology_.neighborRadius, 0.0, 1.0);
+        routeTopology_.centroidAmount = std::clamp(routeTopology_.centroidAmount, 0.0, 1.0);
+
+        requestedActiveLaneCount_ = 0u;
+        std::array<bool, kDelayProcessorMaxChannels> seen {};
+        if (activeLanes) {
+            const uint32_t limit = std::min<uint32_t>(
+                activeLaneCount, static_cast<uint32_t>(kDelayProcessorMaxChannels));
+            for (uint32_t index = 0u; index < limit; ++index) {
+                const uint32_t lane = activeLanes[index];
+                const uint32_t channelLimit = channels_ > 0
+                    ? static_cast<uint32_t>(channels_)
+                    : static_cast<uint32_t>(kDelayProcessorMaxChannels);
+                if (lane >= channelLimit || seen[lane]) {
+                    continue;
+                }
+                seen[lane] = true;
+                requestedActiveLanes_[requestedActiveLaneCount_++] = lane;
+            }
+        }
+        if (requestedActiveLaneCount_ == 0u && channels_ > 0) {
+            requestedActiveLaneCount_ = static_cast<uint32_t>(std::max(0, channels_));
+            for (uint32_t lane = 0u; lane < requestedActiveLaneCount_; ++lane) {
+                requestedActiveLanes_[lane] = lane;
+            }
+        }
+        rebuildRouteTargets(!hasProcessed_);
+        updateRouteTailEstimate();
+    }
+
+    float edgeEnergy(uint32_t source, uint32_t destination) const
+    {
+        if (source >= static_cast<uint32_t>(std::max(0, channels_))
+            || destination >= static_cast<uint32_t>(std::max(0, channels_))) {
+            return 0.0f;
+        }
+        return edgeEnergyPublished_[telemetryIndex(source, destination)].load(
+            std::memory_order_relaxed);
+    }
+
+    float edgePhase(uint32_t source, uint32_t destination) const
+    {
+        if (source >= static_cast<uint32_t>(std::max(0, channels_))
+            || destination >= static_cast<uint32_t>(std::max(0, channels_))) {
+            return 0.0f;
+        }
+        return edgePhasePublished_[telemetryIndex(source, destination)].load(
+            std::memory_order_relaxed);
+    }
+
+    float nodeEnergy(uint32_t lane) const
+    {
+        if (lane >= static_cast<uint32_t>(std::max(0, channels_))) return 0.0f;
+        return nodeEnergyPublished_[lane].load(std::memory_order_relaxed);
+    }
+
+    float centroidEnergy() const
+    {
+        return centroidEnergyPublished_.load(std::memory_order_relaxed);
+    }
+
+    float centroidPhase() const
+    {
+        return centroidPhasePublished_.load(std::memory_order_relaxed);
+    }
+
+    uint32_t routeTailFrames() const
+    {
+        return routeTailFramesPublished_.load(std::memory_order_relaxed);
+    }
+
+    uint32_t routeTailRemainingFrames() const
+    {
+        return routeTailRemainingPublished_.load(std::memory_order_relaxed);
+    }
+
     void processFrame(const float* input, float* wetOutput)
     {
         if (!input || !wetOutput || channels_ <= 0 || maxDelaySamples_ <= 0) {
@@ -225,28 +428,41 @@ public:
         }
         centroid /= static_cast<float>(std::max(1, channels_));
 
-        for (int ch = 0; ch < channels_; ++ch) {
-            const size_t index = static_cast<size_t>(ch);
-            const int neighborA = validChannel(networkNeighborA_[index]) ? networkNeighborA_[index] : ch;
-            const int neighborB = validChannel(networkNeighborB_[index]) ? networkNeighborB_[index] : neighborA;
-            const int neighborC = validChannel(networkNeighborC_[index]) ? networkNeighborC_[index] : neighborB;
-            const int neighborCount = std::clamp(networkNeighborCount_[index], 1, 3);
-            float neighbor = filteredFrame_[static_cast<size_t>(neighborA)];
-            if (neighborCount >= 2) {
-                neighbor += filteredFrame_[static_cast<size_t>(neighborB)];
+        const bool routeActive = routeParams_.route > 0.000001f
+            || routeCurrent_.route > 0.000001f || routeTailRemaining_ > 0u;
+        if (!routeActive) {
+            if (routeTelemetryActive_) {
+                resetRouteTelemetry();
+                routeTelemetryActive_ = false;
             }
-            if (neighborCount >= 3) {
-                neighbor += filteredFrame_[static_cast<size_t>(neighborC)];
+            // Keep this as the original junction, including operation order.
+            // It is the compatibility path for every v1-v10 state and for a
+            // freshly instantiated processor with ROUTE at zero.
+            for (int ch = 0; ch < channels_; ++ch) {
+                const size_t index = static_cast<size_t>(ch);
+                const int neighborA = validChannel(networkNeighborA_[index]) ? networkNeighborA_[index] : ch;
+                const int neighborB = validChannel(networkNeighborB_[index]) ? networkNeighborB_[index] : neighborA;
+                const int neighborC = validChannel(networkNeighborC_[index]) ? networkNeighborC_[index] : neighborB;
+                const int neighborCount = std::clamp(networkNeighborCount_[index], 1, 3);
+                float neighbor = filteredFrame_[static_cast<size_t>(neighborA)];
+                if (neighborCount >= 2) {
+                    neighbor += filteredFrame_[static_cast<size_t>(neighborB)];
+                }
+                if (neighborCount >= 3) {
+                    neighbor += filteredFrame_[static_cast<size_t>(neighborC)];
+                }
+                neighbor /= static_cast<float>(neighborCount);
+                const float centroidMix = networkCentroid_[index];
+                const float networked = neighbor * (1.0f - centroidMix) + centroid * centroidMix;
+                const float feedbackSource = filteredFrame_[index] + (networked - filteredFrame_[index]) * network_[index];
+                const float character = character_[index];
+                const float feedbackTrim = 1.0f - character * 0.28f;
+                const float feedbackSend = flushDenormal(tapeSaturate(feedbackSource * feedback_[index] * feedbackTrim, character));
+                const float writeValue = input[ch] + feedbackSend;
+                writeSample(ch, safetyLimit(tapeSaturate(writeValue, character * 0.35f)));
             }
-            neighbor /= static_cast<float>(neighborCount);
-            const float centroidMix = networkCentroid_[index];
-            const float networked = neighbor * (1.0f - centroidMix) + centroid * centroidMix;
-            const float feedbackSource = filteredFrame_[index] + (networked - filteredFrame_[index]) * network_[index];
-            const float character = character_[index];
-            const float feedbackTrim = 1.0f - character * 0.28f;
-            const float feedbackSend = flushDenormal(tapeSaturate(feedbackSource * feedback_[index] * feedbackTrim, character));
-            const float writeValue = input[ch] + feedbackSend;
-            writeSample(ch, safetyLimit(tapeSaturate(writeValue, character * 0.35f)));
+        } else {
+            processRoutedFeedback(input, wetOutput, centroid);
         }
 
         writeIndex_ = (writeIndex_ + 1) % maxDelaySamples_;
@@ -257,9 +473,603 @@ public:
     double maxDelayMs() const { return (static_cast<double>(maxDelaySamples_ - 2) / sampleRate_) * 1000.0; }
 
 private:
+    static constexpr size_t kRouteTelemetryCapacity =
+        static_cast<size_t>(kDelayProcessorMaxChannels)
+        * static_cast<size_t>(kDelayProcessorMaxChannels);
+    static constexpr uint32_t kRouteTelemetryPublishInterval = 16u;
+
     bool validChannel(int channel) const
     {
         return channel >= 0 && channel < channels_;
+    }
+
+    static constexpr size_t telemetryIndex(uint32_t source, uint32_t destination)
+    {
+        return static_cast<size_t>(source) * kDelayProcessorMaxChannels
+            + static_cast<size_t>(destination);
+    }
+
+    size_t routeIndex(uint32_t source, uint32_t destination) const
+    {
+        return static_cast<size_t>(source) * static_cast<size_t>(channels_)
+            + static_cast<size_t>(destination);
+    }
+
+    float smoothingCoefficient(float seconds) const
+    {
+        return 1.0f - std::exp(-1.0f /
+            std::max(1.0f, static_cast<float>(sampleRate_) * seconds));
+    }
+
+    float effectiveDelaySamples(size_t index) const
+    {
+        float delay = delayMs_[index];
+        if (delayFade_[index] < 1.0f) {
+            const float fade = smoothstep(delayFade_[index]);
+            delay = delayFromMs_[index]
+                + (delayToMs_[index] - delayFromMs_[index]) * fade;
+        }
+        return std::max(2.0f, delay * static_cast<float>(sampleRate_ * 0.001));
+    }
+
+    void resetRouteTelemetry()
+    {
+        std::fill(edgeEnergyState_.begin(), edgeEnergyState_.end(), 0.0f);
+        std::fill(edgePhaseState_.begin(), edgePhaseState_.end(), 0.0f);
+        nodeEnergyState_.fill(0.0f);
+        centroidEnergyState_ = 0.0f;
+        centroidPhaseState_ = 0.0f;
+        centroidPreviousLaunch_ = 0.0f;
+        routeTelemetryPublishCounter_ = 0u;
+        // Only the prepared physical lanes are observable. Keeping this reset
+        // to the active capacity avoids a 32k-atomic spike when a routed tail
+        // finally hands the audio thread back to the legacy path.
+        for (uint32_t source = 0u;
+             source < static_cast<uint32_t>(std::max(0, channels_)); ++source) {
+            for (uint32_t destination = 0u;
+                 destination < static_cast<uint32_t>(std::max(0, channels_));
+                 ++destination) {
+                const size_t edge = telemetryIndex(source, destination);
+                if (edgeEnergyPublished_) {
+                    edgeEnergyPublished_[edge].store(
+                        0.0f, std::memory_order_relaxed);
+                }
+                if (edgePhasePublished_) {
+                    edgePhasePublished_[edge].store(
+                        0.0f, std::memory_order_relaxed);
+                }
+            }
+        }
+        for (uint32_t lane = 0u;
+             lane < static_cast<uint32_t>(std::max(0, channels_)); ++lane) {
+            nodeEnergyPublished_[lane].store(0.0f, std::memory_order_relaxed);
+        }
+        centroidEnergyPublished_.store(0.0f, std::memory_order_relaxed);
+        centroidPhasePublished_.store(0.0f, std::memory_order_relaxed);
+    }
+
+    void updateRouteTailEstimate()
+    {
+        if (channels_ <= 0 || maxDelaySamples_ <= 0) {
+            routeTailEstimateFrames_ = 0u;
+            routeTailFramesPublished_.store(0u, std::memory_order_relaxed);
+            return;
+        }
+        float maximumFeedback = 0.0f;
+        for (int lane = 0; lane < channels_; ++lane) {
+            maximumFeedback = std::max(maximumFeedback,
+                clamp(feedbackTarget_[static_cast<size_t>(lane)], 0.0f, 0.82f));
+        }
+        const double repeats = maximumFeedback > 0.0001f
+            ? std::ceil(std::log(0.001) / std::log(static_cast<double>(maximumFeedback)))
+            : 1.0;
+        const double frames = std::max(1.0, repeats)
+            * static_cast<double>(std::max(2, maxDelaySamples_ - 2));
+        routeTailEstimateFrames_ = static_cast<uint32_t>(std::min<double>(
+            frames, static_cast<double>(std::numeric_limits<uint32_t>::max())));
+        routeTailFramesPublished_.store(
+            routeParams_.route > 0.000001f ? routeTailEstimateFrames_ : 0u,
+            std::memory_order_relaxed);
+    }
+
+    void rebuildRouteTargets(bool snap)
+    {
+        if (channels_ <= 0 || routeWeightTarget_.empty()) return;
+
+        std::fill(routeWeightTarget_.begin(), routeWeightTarget_.end(), 0.0f);
+        std::fill(centroidWeightTarget_.begin(), centroidWeightTarget_.end(), 0.0f);
+        std::fill(routeDistanceTarget_.begin(), routeDistanceTarget_.end(), 0.0f);
+        std::fill(routeGainTarget_.begin(), routeGainTarget_.end(), 1.0f);
+        std::fill(routeFilterCoeffTarget_.begin(), routeFilterCoeffTarget_.end(), 1.0f);
+
+        std::array<bool, kDelayProcessorMaxChannels> active {};
+        uint32_t activeCount = 0u;
+        for (uint32_t ordinal = 0u; ordinal < requestedActiveLaneCount_; ++ordinal) {
+            const uint32_t lane = requestedActiveLanes_[ordinal];
+            if (lane >= static_cast<uint32_t>(channels_) || active[lane]) continue;
+            active[lane] = true;
+            activeLanes_[activeCount] = lane;
+            ++activeCount;
+        }
+        activeLaneCount_ = activeCount;
+        if (activeLaneCount_ == 0u) {
+            activeLaneCount_ = static_cast<uint32_t>(channels_);
+            for (uint32_t lane = 0u; lane < activeLaneCount_; ++lane) {
+                active[lane] = true;
+                activeLanes_[lane] = lane;
+                routePoints_[lane] = topologyPointForLane(
+                    lane, activeLaneCount_, routeTopology_);
+            }
+        } else {
+            for (uint32_t ordinal = 0u; ordinal < activeLaneCount_; ++ordinal) {
+                const uint32_t lane = activeLanes_[ordinal];
+                routePoints_[lane] = topologyPointForLane(
+                    ordinal, activeLaneCount_, routeTopology_);
+            }
+        }
+
+        TopologyPoint centroidPoint {};
+        for (uint32_t ordinal = 0u; ordinal < activeLaneCount_; ++ordinal) {
+            const auto& point = routePoints_[activeLanes_[ordinal]];
+            centroidPoint.x += point.x;
+            centroidPoint.y += point.y;
+            centroidPoint.z += point.z;
+        }
+        const double inverseCount = 1.0 / static_cast<double>(std::max<uint32_t>(1u, activeLaneCount_));
+        centroidPoint.x *= inverseCount;
+        centroidPoint.y *= inverseCount;
+        centroidPoint.z *= inverseCount;
+
+        double maximumPairDistance = 0.001;
+        for (uint32_t a = 0u; a < activeLaneCount_; ++a) {
+            const auto& first = routePoints_[activeLanes_[a]];
+            for (uint32_t b = a + 1u; b < activeLaneCount_; ++b) {
+                const auto& second = routePoints_[activeLanes_[b]];
+                const double dx = first.x - second.x;
+                const double dy = first.y - second.y;
+                const double dz = first.z - second.z;
+                maximumPairDistance = std::max(maximumPairDistance,
+                    std::sqrt(dx * dx + dy * dy + dz * dz));
+            }
+        }
+
+        double axisX = routeTopology_.dirX;
+        double axisY = routeTopology_.dirY;
+        double axisZ = routeTopology_.dirZ;
+        normalize3(axisX, axisY, axisZ);
+        auto directDistance = [&](uint32_t firstLane, uint32_t secondLane) {
+            const auto& first = routePoints_[firstLane];
+            const auto& second = routePoints_[secondLane];
+            const double dx = first.x - second.x;
+            const double dy = first.y - second.y;
+            const double dz = first.z - second.z;
+            return std::sqrt(dx * dx + dy * dy + dz * dz);
+        };
+        auto centroidDistance = [&](uint32_t lane) {
+            const auto& point = routePoints_[lane];
+            const double dx = point.x - centroidPoint.x;
+            const double dy = point.y - centroidPoint.y;
+            const double dz = point.z - centroidPoint.z;
+            return std::sqrt(dx * dx + dy * dy + dz * dz);
+        };
+        auto turnBias = [&](uint32_t sourceOrdinal, uint32_t destinationOrdinal) {
+            const uint32_t source = activeLanes_[sourceOrdinal];
+            const uint32_t destination = activeLanes_[destinationOrdinal];
+            const auto& first = routePoints_[source];
+            const auto& second = routePoints_[destination];
+            const double sx = first.x - centroidPoint.x;
+            const double sy = first.y - centroidPoint.y;
+            const double sz = first.z - centroidPoint.z;
+            const double dx = second.x - centroidPoint.x;
+            const double dy = second.y - centroidPoint.y;
+            const double dz = second.z - centroidPoint.z;
+            const double sourceLength = std::sqrt(sx * sx + sy * sy + sz * sz);
+            const double destinationLength = std::sqrt(dx * dx + dy * dy + dz * dz);
+            double circulation = 0.0;
+            if (sourceLength > 0.00001 && destinationLength > 0.00001) {
+                const double crossX = sy * dz - sz * dy;
+                const double crossY = sz * dx - sx * dz;
+                const double crossZ = sx * dy - sy * dx;
+                circulation = (crossX * axisX + crossY * axisY + crossZ * axisZ)
+                    / (sourceLength * destinationLength);
+            }
+            if (std::fabs(circulation) < 0.0001 && activeLaneCount_ > 2u) {
+                const uint32_t forward = (destinationOrdinal + activeLaneCount_ - sourceOrdinal)
+                    % activeLaneCount_;
+                circulation = forward > 0u && forward <= activeLaneCount_ / 2u
+                    ? 0.5 : -0.5;
+            }
+            return static_cast<float>(std::exp(
+                static_cast<double>(routeParams_.turn) * circulation * 2.4));
+        };
+
+        const uint32_t requestedNeighbors = std::clamp<uint32_t>(
+            routeTopology_.neighborCount, 1u, 3u);
+        const double radius = 0.18 + routeTopology_.neighborRadius * 3.20;
+        const float rankOpenness = lerp(0.08f, 1.0f, routeParams_.branch);
+        const float centroidMixRequested = static_cast<float>(
+            std::clamp(routeTopology_.centroidAmount, 0.0, 1.0));
+
+        for (uint32_t sourceOrdinal = 0u; sourceOrdinal < activeLaneCount_; ++sourceOrdinal) {
+            const uint32_t source = activeLanes_[sourceOrdinal];
+            if (activeLaneCount_ < 2u) {
+                routeWeightTarget_[routeIndex(source, source)] = 1.0f;
+                continue;
+            }
+
+            std::array<double, 3> neighborScore {
+                std::numeric_limits<double>::max(),
+                std::numeric_limits<double>::max(),
+                std::numeric_limits<double>::max()
+            };
+            std::array<double, 3> neighborDistance {
+                std::numeric_limits<double>::max(),
+                std::numeric_limits<double>::max(),
+                std::numeric_limits<double>::max()
+            };
+            std::array<uint32_t, 3> neighborOrdinal {};
+            for (uint32_t destinationOrdinal = 0u;
+                 destinationOrdinal < activeLaneCount_; ++destinationOrdinal) {
+                if (destinationOrdinal == sourceOrdinal) continue;
+                const uint32_t destination = activeLanes_[destinationOrdinal];
+                const double distance = directDistance(source, destination);
+                // Direction must participate in candidate selection, not only
+                // in the weights that are normalized afterwards. Otherwise a
+                // one-neighbor graph makes TURN mathematically inert.
+                const double score = distance / std::max(
+                    0.10f, turnBias(sourceOrdinal, destinationOrdinal));
+                for (uint32_t slot = 0u; slot < requestedNeighbors; ++slot) {
+                    if (score >= neighborScore[slot]) continue;
+                    for (uint32_t move = requestedNeighbors - 1u; move > slot; --move) {
+                        neighborScore[move] = neighborScore[move - 1u];
+                        neighborDistance[move] = neighborDistance[move - 1u];
+                        neighborOrdinal[move] = neighborOrdinal[move - 1u];
+                    }
+                    neighborScore[slot] = score;
+                    neighborDistance[slot] = distance;
+                    neighborOrdinal[slot] = destinationOrdinal;
+                    break;
+                }
+            }
+            uint32_t neighborCount = 0u;
+            for (uint32_t slot = 0u; slot < requestedNeighbors; ++slot) {
+                if (!std::isfinite(neighborScore[slot])) continue;
+                if (neighborCount > 0u && neighborDistance[slot] > radius) continue;
+                if (neighborCount != slot) {
+                    neighborScore[neighborCount] = neighborScore[slot];
+                    neighborDistance[neighborCount] = neighborDistance[slot];
+                    neighborOrdinal[neighborCount] = neighborOrdinal[slot];
+                }
+                ++neighborCount;
+            }
+
+            std::array<bool, kDelayProcessorMaxChannels> directCandidate {};
+            std::array<float, kDelayProcessorMaxChannels> neighborRaw {};
+            std::array<float, kDelayProcessorMaxChannels> hubRaw {};
+            std::array<float, kDelayProcessorMaxChannels> directPath {};
+            std::array<float, kDelayProcessorMaxChannels> hubPath {};
+            float neighborSum = 0.0f;
+            for (uint32_t slot = 0u; slot < neighborCount; ++slot) {
+                const uint32_t destinationOrdinal = neighborOrdinal[slot];
+                const uint32_t destination = activeLanes_[destinationOrdinal];
+                directCandidate[destination] = true;
+                const float distance = static_cast<float>(neighborDistance[slot]);
+                const float rank = std::pow(rankOpenness, static_cast<float>(slot));
+                const float raw = rank * turnBias(sourceOrdinal, destinationOrdinal)
+                    / std::max(0.08f, 0.08f + distance);
+                neighborRaw[destination] = raw;
+                directPath[destination] = distance;
+                neighborSum += raw;
+            }
+
+            std::array<double, 3> hubScore {
+                std::numeric_limits<double>::max(),
+                std::numeric_limits<double>::max(),
+                std::numeric_limits<double>::max()
+            };
+            std::array<uint32_t, 3> hubOrdinal {};
+            bool foundNonNeighbor = false;
+            for (uint32_t destinationOrdinal = 0u;
+                 destinationOrdinal < activeLaneCount_; ++destinationOrdinal) {
+                if (destinationOrdinal == sourceOrdinal) continue;
+                const uint32_t destination = activeLanes_[destinationOrdinal];
+                if (!directCandidate[destination]) foundNonNeighbor = true;
+            }
+            for (uint32_t destinationOrdinal = 0u;
+                 destinationOrdinal < activeLaneCount_; ++destinationOrdinal) {
+                if (destinationOrdinal == sourceOrdinal) continue;
+                const uint32_t destination = activeLanes_[destinationOrdinal];
+                if (foundNonNeighbor && directCandidate[destination]) continue;
+                const double path = centroidDistance(source) + centroidDistance(destination);
+                const double score = path /
+                    std::max(0.10f, turnBias(sourceOrdinal, destinationOrdinal));
+                for (uint32_t slot = 0u; slot < requestedNeighbors; ++slot) {
+                    if (score >= hubScore[slot]) continue;
+                    for (uint32_t move = requestedNeighbors - 1u; move > slot; --move) {
+                        hubScore[move] = hubScore[move - 1u];
+                        hubOrdinal[move] = hubOrdinal[move - 1u];
+                    }
+                    hubScore[slot] = score;
+                    hubOrdinal[slot] = destinationOrdinal;
+                    break;
+                }
+            }
+            float hubSum = 0.0f;
+            for (uint32_t slot = 0u; slot < requestedNeighbors; ++slot) {
+                if (!std::isfinite(hubScore[slot])) continue;
+                const uint32_t destinationOrdinal = hubOrdinal[slot];
+                const uint32_t destination = activeLanes_[destinationOrdinal];
+                const float path = static_cast<float>(
+                    centroidDistance(source) + centroidDistance(destination));
+                const float rank = std::pow(rankOpenness, static_cast<float>(slot));
+                const float raw = rank * turnBias(sourceOrdinal, destinationOrdinal)
+                    / std::max(0.08f, 0.08f + path);
+                hubRaw[destination] = raw;
+                hubPath[destination] = path;
+                hubSum += raw;
+            }
+
+            float centroidMix = hubSum > 0.000001f ? centroidMixRequested : 0.0f;
+            if (neighborSum <= 0.000001f) centroidMix = 1.0f;
+            float rowSum = 0.0f;
+            for (uint32_t destinationOrdinal = 0u;
+                 destinationOrdinal < activeLaneCount_; ++destinationOrdinal) {
+                const uint32_t destination = activeLanes_[destinationOrdinal];
+                if (destination == source) continue;
+                const float neighborWeight = neighborSum > 0.000001f
+                    ? (1.0f - centroidMix) * neighborRaw[destination] / neighborSum : 0.0f;
+                const float hubWeight = hubSum > 0.000001f
+                    ? centroidMix * hubRaw[destination] / hubSum : 0.0f;
+                const float weight = neighborWeight + hubWeight;
+                if (weight <= 0.000001f) continue;
+                const size_t edge = routeIndex(source, destination);
+                routeWeightTarget_[edge] = weight;
+                centroidWeightTarget_[edge] = hubWeight;
+                routeDistanceTarget_[edge] =
+                    (neighborWeight * directPath[destination]
+                        + hubWeight * hubPath[destination]) / weight;
+                rowSum += weight;
+            }
+            if (rowSum <= 0.000001f) {
+                routeWeightTarget_[routeIndex(source, source)] = 1.0f;
+            } else if (std::fabs(rowSum - 1.0f) > 0.000001f) {
+                const float inverse = 1.0f / rowSum;
+                for (uint32_t destinationOrdinal = 0u;
+                     destinationOrdinal < activeLaneCount_; ++destinationOrdinal) {
+                    const uint32_t destination = activeLanes_[destinationOrdinal];
+                    const size_t edge = routeIndex(source, destination);
+                    routeWeightTarget_[edge] *= inverse;
+                    centroidWeightTarget_[edge] *= inverse;
+                }
+            }
+        }
+
+        for (uint32_t lane = 0u; lane < static_cast<uint32_t>(channels_); ++lane) {
+            if (!active[lane]) routeWeightTarget_[routeIndex(lane, lane)] = 1.0f;
+        }
+
+        for (uint32_t source = 0u; source < static_cast<uint32_t>(channels_); ++source) {
+            for (uint32_t destination = 0u;
+                 destination < static_cast<uint32_t>(channels_); ++destination) {
+                const size_t edge = routeIndex(source, destination);
+                if (routeWeightTarget_[edge] <= 0.000001f) continue;
+                const bool hubRoute = centroidWeightTarget_[edge] > 0.000001f;
+                const float denominator = static_cast<float>(maximumPairDistance)
+                    * (hubRoute ? 2.0f : 1.0f);
+                const float distance = clamp(
+                    routeDistanceTarget_[edge] / std::max(0.001f, denominator),
+                    0.0f, 1.0f);
+                const float absorption = routeParams_.loss * distance;
+                routeGainTarget_[edge] = std::pow(10.0f, -absorption * 12.0f / 20.0f);
+                if (absorption <= 0.000001f) {
+                    routeFilterCoeffTarget_[edge] = 1.0f;
+                } else {
+                    const float cutoff = std::min(
+                        static_cast<float>(sampleRate_ * 0.45),
+                        18000.0f * std::pow(650.0f / 18000.0f, absorption));
+                    routeFilterCoeffTarget_[edge] = 1.0f - std::exp(
+                        -2.0f * static_cast<float>(M_PI) * cutoff
+                        / static_cast<float>(sampleRate_));
+                }
+            }
+        }
+
+        if (snap) {
+            std::copy(routeWeightTarget_.begin(), routeWeightTarget_.end(),
+                routeWeightCurrent_.begin());
+            std::copy(centroidWeightTarget_.begin(), centroidWeightTarget_.end(),
+                centroidWeightCurrent_.begin());
+            std::copy(routeDistanceTarget_.begin(), routeDistanceTarget_.end(),
+                routeDistanceCurrent_.begin());
+            std::copy(routeGainTarget_.begin(), routeGainTarget_.end(),
+                routeGainCurrent_.begin());
+            std::copy(routeFilterCoeffTarget_.begin(), routeFilterCoeffTarget_.end(),
+                routeFilterCoeffCurrent_.begin());
+        }
+        activeRouteEdgeCount_ = 0u;
+        for (size_t edge = 0u; edge < routeWeightTarget_.size(); ++edge) {
+            if (routeWeightTarget_[edge] > 0.000001f
+                || routeWeightCurrent_[edge] > 0.000001f) {
+                activeRouteEdges_[activeRouteEdgeCount_++] = static_cast<uint32_t>(edge);
+            } else {
+                routeFilterState_[edge] = 0.0f;
+                edgeEnergyState_[edge] = 0.0f;
+                edgePhaseState_[edge] = 0.0f;
+                edgePreviousLaunch_[edge] = 0.0f;
+                const uint32_t source = static_cast<uint32_t>(
+                    edge / static_cast<size_t>(channels_));
+                const uint32_t destination = static_cast<uint32_t>(
+                    edge % static_cast<size_t>(channels_));
+                edgeEnergyPublished_[telemetryIndex(source, destination)].store(
+                    0.0f, std::memory_order_relaxed);
+                edgePhasePublished_[telemetryIndex(source, destination)].store(
+                    0.0f, std::memory_order_relaxed);
+            }
+        }
+    }
+
+    void processRoutedFeedback(const float* input, const float* wetOutput, float centroid)
+    {
+        routeTelemetryActive_ = true;
+        const bool publishTelemetry = routeTelemetryPublishCounter_ == 0u;
+        routeTelemetryPublishCounter_ =
+            (routeTelemetryPublishCounter_ + 1u)
+            % kRouteTelemetryPublishInterval;
+        routeCurrent_.route += (routeParams_.route - routeCurrent_.route)
+            * routeParamSmoothing_;
+        if (routeParams_.route <= 0.000001f && routeCurrent_.route < 0.000001f) {
+            routeCurrent_.route = 0.0f;
+        }
+        const float routeAmount = routeCurrent_.route;
+        std::fill(routedFeedbackFrame_.begin(), routedFeedbackFrame_.end(), 0.0f);
+
+        float activeCentroid = 0.0f;
+        for (uint32_t ordinal = 0u; ordinal < activeLaneCount_; ++ordinal) {
+            activeCentroid += filteredFrame_[activeLanes_[ordinal]];
+        }
+        activeCentroid /= static_cast<float>(std::max<uint32_t>(1u, activeLaneCount_));
+        // Preserve the all-channel v10 centroid exactly at ROUTE zero, then
+        // shed inactive prepared lanes continuously as the explicit route
+        // graph takes ownership of the return.
+        const float routedCentroid = centroid
+            + (activeCentroid - centroid) * routeAmount;
+
+        for (int ch = 0; ch < channels_; ++ch) {
+            const size_t index = static_cast<size_t>(ch);
+            const int neighborA = validChannel(networkNeighborA_[index]) ? networkNeighborA_[index] : ch;
+            const int neighborB = validChannel(networkNeighborB_[index]) ? networkNeighborB_[index] : neighborA;
+            const int neighborC = validChannel(networkNeighborC_[index]) ? networkNeighborC_[index] : neighborB;
+            const int neighborCount = std::clamp(networkNeighborCount_[index], 1, 3);
+            float neighbor = filteredFrame_[static_cast<size_t>(neighborA)];
+            if (neighborCount >= 2) neighbor += filteredFrame_[static_cast<size_t>(neighborB)];
+            if (neighborCount >= 3) neighbor += filteredFrame_[static_cast<size_t>(neighborC)];
+            neighbor /= static_cast<float>(neighborCount);
+            const float centroidMix = networkCentroid_[index];
+            const float networked = neighbor * (1.0f - centroidMix)
+                + routedCentroid * centroidMix;
+            const float legacySource = filteredFrame_[index]
+                + (networked - filteredFrame_[index]) * network_[index];
+            const float character = character_[index];
+            const float feedbackTrim = 1.0f - character * 0.28f;
+            legacyFeedbackFrame_[index] = flushDenormal(tapeSaturate(
+                legacySource * feedback_[index] * feedbackTrim, character));
+            localFeedbackFrame_[index] = flushDenormal(tapeSaturate(
+                filteredFrame_[index] * feedback_[index] * feedbackTrim, character));
+        }
+
+        float centroidLaunch = 0.0f;
+        float centroidDelayWeight = 0.0f;
+        float centroidDelaySum = 0.0f;
+        bool routedLaunch = false;
+        for (uint32_t activeIndex = 0u; activeIndex < activeRouteEdgeCount_; ++activeIndex) {
+            const size_t edge = activeRouteEdges_[activeIndex];
+            const uint32_t source = static_cast<uint32_t>(edge / static_cast<size_t>(channels_));
+            const uint32_t destination = static_cast<uint32_t>(edge % static_cast<size_t>(channels_));
+            routeWeightCurrent_[edge] += (routeWeightTarget_[edge] - routeWeightCurrent_[edge])
+                * routeMatrixSmoothing_;
+            centroidWeightCurrent_[edge] +=
+                (centroidWeightTarget_[edge] - centroidWeightCurrent_[edge])
+                * routeMatrixSmoothing_;
+            routeDistanceCurrent_[edge] +=
+                (routeDistanceTarget_[edge] - routeDistanceCurrent_[edge])
+                * routeDistanceSmoothing_;
+            routeGainCurrent_[edge] += (routeGainTarget_[edge] - routeGainCurrent_[edge])
+                * routeMatrixSmoothing_;
+            routeFilterCoeffCurrent_[edge] +=
+                (routeFilterCoeffTarget_[edge] - routeFilterCoeffCurrent_[edge])
+                * routeMatrixSmoothing_;
+            if (routeWeightTarget_[edge] <= 0.000001f
+                && routeWeightCurrent_[edge] < 0.000001f) {
+                routeWeightCurrent_[edge] = 0.0f;
+            }
+
+            float& filtered = routeFilterState_[edge];
+            filtered = flushDenormal(filtered
+                + routeFilterCoeffCurrent_[edge]
+                    * (localFeedbackFrame_[source] - filtered));
+            const float contribution = flushDenormal(filtered
+                * routeWeightCurrent_[edge] * routeGainCurrent_[edge]);
+            routedFeedbackFrame_[destination] += contribution;
+
+            const float activity = std::fabs(contribution) * routeAmount;
+            float& energy = edgeEnergyState_[edge];
+            energy += (activity - energy)
+                * (activity > energy ? routeEnergyAttack_ : routeEnergyRelease_);
+            energy = flushDenormal(energy);
+            const float previousLaunch = edgePreviousLaunch_[edge];
+            if (activity > 0.00001f
+                && activity > previousLaunch * 1.65f + 0.000002f) {
+                edgePhaseState_[edge] = 0.0f;
+            }
+            edgePreviousLaunch_[edge] = activity;
+            edgePhaseState_[edge] += 1.0f /
+                effectiveDelaySamples(static_cast<size_t>(destination));
+            edgePhaseState_[edge] -= std::floor(edgePhaseState_[edge]);
+            if (publishTelemetry) {
+                edgeEnergyPublished_[telemetryIndex(source, destination)].store(
+                    energy, std::memory_order_relaxed);
+                edgePhasePublished_[telemetryIndex(source, destination)].store(
+                    edgePhaseState_[edge], std::memory_order_relaxed);
+            }
+            routedLaunch = routedLaunch || activity > 0.00001f;
+
+            const float centroidFraction = routeWeightCurrent_[edge] > 0.000001f
+                ? clamp(centroidWeightCurrent_[edge] / routeWeightCurrent_[edge], 0.0f, 1.0f)
+                : 0.0f;
+            const float centroidActivity = activity * centroidFraction;
+            centroidLaunch += centroidActivity;
+            centroidDelaySum += centroidActivity
+                * effectiveDelaySamples(static_cast<size_t>(destination));
+            centroidDelayWeight += centroidActivity;
+        }
+
+        for (int ch = 0; ch < channels_; ++ch) {
+            const size_t index = static_cast<size_t>(ch);
+            const float feedbackSend = legacyFeedbackFrame_[index]
+                + (routedFeedbackFrame_[index] - legacyFeedbackFrame_[index])
+                    * routeAmount;
+            const float character = character_[index];
+            const float writeValue = input[ch] + feedbackSend;
+            writeSample(ch, safetyLimit(tapeSaturate(writeValue, character * 0.35f)));
+
+            const float activity = std::fabs(wetOutput[ch]) * routeAmount;
+            float& energy = nodeEnergyState_[index];
+            energy += (activity - energy)
+                * (activity > energy ? nodeEnergyAttack_ : nodeEnergyRelease_);
+            energy = flushDenormal(energy);
+            if (publishTelemetry) {
+                nodeEnergyPublished_[index].store(
+                    energy, std::memory_order_relaxed);
+            }
+        }
+
+        centroidEnergyState_ += (centroidLaunch - centroidEnergyState_)
+            * (centroidLaunch > centroidEnergyState_
+                    ? routeEnergyAttack_ : routeEnergyRelease_);
+        centroidEnergyState_ = flushDenormal(centroidEnergyState_);
+        if (centroidLaunch > 0.00001f
+            && centroidLaunch > centroidPreviousLaunch_ * 1.65f + 0.000002f) {
+            centroidPhaseState_ = 0.0f;
+        }
+        centroidPreviousLaunch_ = centroidLaunch;
+        const float centroidDelay = centroidDelayWeight > 0.000001f
+            ? centroidDelaySum / centroidDelayWeight
+            : static_cast<float>(sampleRate_ * 0.25);
+        centroidPhaseState_ += 1.0f / std::max(2.0f, centroidDelay);
+        centroidPhaseState_ -= std::floor(centroidPhaseState_);
+        if (publishTelemetry) {
+            centroidEnergyPublished_.store(
+                centroidEnergyState_, std::memory_order_relaxed);
+            centroidPhasePublished_.store(
+                centroidPhaseState_, std::memory_order_relaxed);
+        }
+
+        if (routeParams_.route > 0.000001f || routedLaunch) {
+            routeTailRemaining_ = std::max(routeTailRemaining_, routeTailEstimateFrames_);
+        } else if (routeTailRemaining_ > 0u) {
+            --routeTailRemaining_;
+        }
+        routeTailRemainingPublished_.store(routeTailRemaining_, std::memory_order_relaxed);
     }
 
     size_t indexFor(int channel, int sample) const
@@ -361,30 +1171,47 @@ private:
 
     void updateDelayCommit(size_t index)
     {
-        if (delaySettleSamples_[index] < delaySettleSampleCount()) {
-            ++delaySettleSamples_[index];
-        }
-
         if (delayFade_[index] < 1.0f) {
             delayFade_[index] = std::min(1.0f, delayFade_[index] + 1.0f / (static_cast<float>(sampleRate_) * delayFadeSeconds()));
             if (delayFade_[index] >= 1.0f) {
                 delayMs_[index] = delayToMs_[index];
                 delayFromMs_[index] = delayMs_[index];
+                if (std::fabs(delayTargetMs_[index] - delayMs_[index]) >= 0.25f) {
+                    delayPending_[index] = 1u;
+                    delaySettleSamples_[index] = 0;
+                } else {
+                    delayPending_[index] = 0u;
+                    delaySettleSamples_[index] = delaySettleSampleCount();
+                }
             }
             return;
         }
 
+        if (delayPending_[index] == 0u) {
+            if (std::fabs(delayTargetMs_[index] - delayMs_[index]) < 0.25f) {
+                return;
+            }
+            delayPending_[index] = 1u;
+            delaySettleSamples_[index] = 0;
+        }
+
+        if (delaySettleSamples_[index] < delaySettleSampleCount()) {
+            ++delaySettleSamples_[index];
+        }
         if (delaySettleSamples_[index] < delaySettleSampleCount()) {
             return;
         }
 
         if (std::fabs(delayTargetMs_[index] - delayMs_[index]) < 0.25f) {
+            delayPending_[index] = 0u;
+            delaySettleSamples_[index] = delaySettleSampleCount();
             return;
         }
 
         delayFromMs_[index] = delayMs_[index];
         delayToMs_[index] = delayTargetMs_[index];
         delayFade_[index] = 0.0f;
+        delayPending_[index] = 0u;
     }
 
     int delaySettleSampleCount() const
@@ -452,6 +1279,7 @@ private:
     std::vector<float> delayToMs_;
     std::vector<float> delayFade_;
     std::vector<int> delaySettleSamples_;
+    std::vector<uint8_t> delayPending_;
     std::vector<float> feedback_;
     std::vector<float> feedbackTarget_;
     std::vector<float> tone_;
@@ -475,6 +1303,56 @@ private:
     std::vector<float> smearSlow_;
     std::vector<float> delayedFrame_;
     std::vector<float> filteredFrame_;
+    std::vector<float> legacyFeedbackFrame_;
+    std::vector<float> localFeedbackFrame_;
+    std::vector<float> routedFeedbackFrame_;
+
+    DelayRouteParams routeParams_ {};
+    DelayRouteParams routeCurrent_ {};
+    TopologyState routeTopology_ {};
+    std::array<uint32_t, kDelayProcessorMaxChannels> requestedActiveLanes_ {};
+    uint32_t requestedActiveLaneCount_ = 0u;
+    std::array<uint32_t, kDelayProcessorMaxChannels> activeLanes_ {};
+    uint32_t activeLaneCount_ = 0u;
+    std::array<TopologyPoint, kDelayProcessorMaxChannels> routePoints_ {};
+    std::vector<float> routeWeightTarget_;
+    std::vector<float> routeWeightCurrent_;
+    std::vector<float> centroidWeightTarget_;
+    std::vector<float> centroidWeightCurrent_;
+    std::vector<float> routeDistanceTarget_;
+    std::vector<float> routeDistanceCurrent_;
+    std::vector<float> routeGainTarget_;
+    std::vector<float> routeGainCurrent_;
+    std::vector<float> routeFilterCoeffTarget_;
+    std::vector<float> routeFilterCoeffCurrent_;
+    std::vector<float> routeFilterState_;
+    std::vector<float> edgeEnergyState_;
+    std::vector<float> edgePhaseState_;
+    std::vector<float> edgePreviousLaunch_;
+    std::vector<uint32_t> activeRouteEdges_;
+    uint32_t activeRouteEdgeCount_ = 0u;
+    float routeParamSmoothing_ = 1.0f;
+    float routeMatrixSmoothing_ = 1.0f;
+    float routeDistanceSmoothing_ = 1.0f;
+    float routeEnergyAttack_ = 1.0f;
+    float routeEnergyRelease_ = 1.0f;
+    float nodeEnergyAttack_ = 1.0f;
+    float nodeEnergyRelease_ = 1.0f;
+    std::array<float, kDelayProcessorMaxChannels> nodeEnergyState_ {};
+    float centroidEnergyState_ = 0.0f;
+    float centroidPhaseState_ = 0.0f;
+    float centroidPreviousLaunch_ = 0.0f;
+    bool routeTelemetryActive_ = false;
+    uint32_t routeTelemetryPublishCounter_ = 0u;
+    uint32_t routeTailEstimateFrames_ = 0u;
+    uint32_t routeTailRemaining_ = 0u;
+    std::unique_ptr<std::atomic<float>[]> edgeEnergyPublished_;
+    std::unique_ptr<std::atomic<float>[]> edgePhasePublished_;
+    std::array<std::atomic<float>, kDelayProcessorMaxChannels> nodeEnergyPublished_ {};
+    std::atomic<float> centroidEnergyPublished_ { 0.0f };
+    std::atomic<float> centroidPhasePublished_ { 0.0f };
+    std::atomic<uint32_t> routeTailFramesPublished_ { 0u };
+    std::atomic<uint32_t> routeTailRemainingPublished_ { 0u };
 };
 
 } // namespace s3g

@@ -125,6 +125,10 @@ audit, not inferred from these names.
   when a meter, preview, status, dropdown, or action row visibly occupies the
   added area. Do not leave large empty panel interiors because another plugin
   has more controls in the same panel type.
+- Size field panels to the field they contain; do not stretch a field shell to
+  the canvas bottom merely because a neighboring column is taller. Processor
+  canvases end 12 px after the lowest real panel, field, footer, or status
+  item, whichever extends farthest.
 - Use consistent stacked-panel gaps inside a plugin family. Macro and other
   toolbox stacks should stay around 12-14 px unless the whole family layout is
   intentionally revised.
@@ -216,6 +220,12 @@ grammar:
 
 - Put compact `TOP`, `SIDE`, and `3/4` view buttons in the primary visual
   header when a point scene can be reoriented.
+- Camera-enabled fields rotate with an ordinary click-drag; do not hide the
+  primary camera gesture behind Shift or another modifier. Alternate scope,
+  sonogram, or channel pages retain the primary field's content bounds and
+  shared channel-grid geometry.
+- Keep PK exclusively at the far right of the plugin title band. A field or
+  toolbox header must not repeat the same peak readout.
 - Put camera zoom `-` / `+` immediately to the left of `TOP`, `SIDE`, and
   `3/4` when both are present. Keep this ordering consistent across encoders,
   decoders, and panners.
@@ -412,8 +422,9 @@ hit geometry from `plugins/common/s3g_gui_layout.h`.
 - Align related columns at the same top y-position.
 - Do not put cards inside cards.
 - Keep parameter toolboxes visible. When a stack becomes tall, add a second
-  parameter column and let the responsive viewport scale the wider design
-  canvas. Do not hide ordinary controls behind collapsible headers.
+  parameter column and expand the editor's minimum width. Keep fonts and
+  controls at 1:1 scale; resize the host window instead of scaling the drawing
+  surface. Do not hide ordinary controls behind collapsible headers.
 - Put final output level at the top of the first parameter column. When the
   layout has a dedicated `OUTPUT` panel, that panel comes first and `OUT` is
   its first row; keep related final-stage controls such as `MIX`, safety,
@@ -486,6 +497,13 @@ Before adding or shipping a new custom plugin GUI, check these items:
   `drawDisclosurePanelHeader()`, and have a working header click target.
 - Spatial camera buttons and zoom follow the package ordering and save view
   state when the view is part of normal creative editing.
+- Parameter Surface implementations use a final `SURF` field-view tab, the
+  shared control-strip order, 24-cell limit, exact Snapshot Surface-style
+  Voronoi rendering, and automatable normalized X/Y cursor defined in the
+  layout template. PLAY visibly drives every participating toolbox control;
+  EDIT shows the capture base. The shared `POP` action opens a host-attached,
+  lifecycle-safe SURF utility panel while the primary view returns to FIELD.
+  Final-audition controls are not interpolated.
 
 ## Current Visual Reference
 

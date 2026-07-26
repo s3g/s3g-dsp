@@ -28,6 +28,10 @@
 
         <p>Encoders create an <code>ACN/SN3D</code> sound field from ordinary source lanes or generate an encoded field directly. Choose an audio-input encoder when a REAPER source already exists; choose a spatial instrument when the plugin itself is the sound source.</p>
 
+        <p>Several encoders can analyze their own field and use its directional history to shape later movement or synthesis. See <a href="listener-mode.html">Listener Mode</a> for the shared concept, control vocabulary, and differences among implementations.</p>
+
+        <p>Stochastic and Wrangler also provide a <a href="parameter-surface.html">Parameter Surface</a>: arrange as many as 24 preset cells and navigate their interpolated instrument state with automatable <code>SURFACE X/Y</code> controls.</p>
+
         <p>Encoder editors retain their native control geometry inside a responsive viewport. A host may resize the window down to 480 by 360 pixels; horizontal and vertical scrollers expose the complete editor without shrinking its controls or changing point-field hit testing. Moving an editor to a smaller display requests a screen-fitting viewport automatically.</p>
 
         <h2 id="audio-input">Audio-input Encoders</h2>
@@ -52,8 +56,8 @@
           <li><a href="ambi-insect-encoder.html">Ambi Insect Encoder</a>: combines call-function templates with stridulation, tymbalisation, wing vibration, percussion, tremulation, and swarm motion.</li>
           <li><a href="ambi-pulsar-encoder.html">Ambi Pulsar Encoder</a>: repeats short windowed waveforms from rhythmic rates into pitch, with recurrent-network waveform capture.</li>
           <li><a href="ambi-neural-ecology.html">Ambi Neural Ecology</a>: grows four to sixty-four recurrent nodes whose adaptive four/eight-pickup auditory field navigates a Hunt/Tudor-referenced lattice score.</li>
-          <li><a href="ambi-stochastic-encoder.html">Ambi Stochastic Encoder</a>: uses second-order random walks to evolve breakpoint amplitude and duration curves.</li>
-          <li><a href="ambi-wrangler-encoder.html">Ambi Wrangler Encoder</a>: couples oscillator pairs through comparator-driven feedback shift registers for repeating but unstable patterns.</li>
+          <li><a href="ambi-stochastic-encoder.html">Ambi Stochastic Encoder</a>: uses second-order random walks to evolve breakpoint amplitude and duration curves; its <code>SURF</code> page interpolates complete generator states.</li>
+          <li><a href="ambi-wrangler-encoder.html">Ambi Wrangler Encoder</a>: couples oscillator pairs through comparator-driven feedback shift registers for repeating but unstable patterns; its <code>SURF</code> page includes the continuous per-voice curves.</li>
         </ul>
 
         <h2 id="routing">Routing Baseline</h2>
@@ -61,9 +65,9 @@
         <p>Set the REAPER track width before inserting an encoder. The 64-channel encoders use the first <code>(order + 1)^2</code> channels and silence the unused higher-order channels. Follow the encoder with a tool from <a href="ambisonic-decoders.html">Decoders</a>, <a href="ambisonic-effects.html">Effects</a>, or <a href="ambisonic-utilities.html">Utilities</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="3oafx.html">
+          <a class="page-nav-link" href="parameter-surface.html">
             <span>Previous</span>
-            Ambisonics Overview
+            Parameter Surface
           </a>
           <a class="page-nav-link next" href="3oafx-point-encoder.html">
             <span>Next</span>
@@ -76,6 +80,8 @@
         <div class="toc-section">
           <h2>Ambisonics</h2>
           <a href="3oafx.html">Overview</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>

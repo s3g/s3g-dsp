@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Listener Mode - s3g-dsp</title>
+    <meta name="description" content="Shared Listener Mode concepts, controls, signal paths, and plugin variations for s3g-dsp ambisonic tools.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="3oafx.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Listener Mode</h1>
+
+        <p>Listener Mode lets a plugin analyze its own ambisonic field and use what it hears to influence what happens next. It turns spatial output into an internal score: direction, activity, change, and—in the more developed listeners—spectral and temporal character can guide later movement, synthesis, or field shaping.</p>
+
+        <p>This is a shared design idea rather than one identical circuit copied into every plugin. A room effect may rebalance reflections, a procedural instrument may choose its next region, and a recurrent instrument may return decoded audio to its generating network. The individual plugin page remains the authority for its exact controls and tap point.</p>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>The plugin forms an internal <code>ACN/SN3D</code> ambisonic field, usually before final <code>OUT</code> trim.</li>
+          <li>Four tetrahedral or eight cube-corner virtual pickups sample that field in several directions. Some specialized listeners align pickups to a loaded profile or let their directions adapt.</li>
+          <li>Each pickup measures recent signal or energy. Extended listeners also derive features such as fast and slow energy, novelty, roughness, spectral balance, habituation, charge, and directional gradients.</li>
+          <li>A listening mode decides which directions or pickup relationships matter.</li>
+          <li>A response law maps the analysis back to bounded synthesis, movement, register, reflection, or field-shaping controls. Plugins with an explicit <code>FIELD RETURN</code> may also run a separate, conditioned audio-return path.</li>
+        </ol>
+
+        <p>The virtual pickups decode the HOA field mathematically inside the plugin. They do not require a loudspeaker decoder, an extra REAPER track, or monitoring feedback through the host.</p>
+
+        <h2 id="auditory-body">The Auditory Body</h2>
+
+        <p>The common listener uses a symmetric directional body. <code>TETRA 4</code> provides four broad viewpoints; <code>CUBE 8</code> adds their opposites for eight cube-corner directions. Plugins with a fixed eight-pickup listener use the cube body without exposing the aperture as a control. Ambi Imprint instead follows the directions stored in its response profile, while Ambi Neural Ecology can steer each pickup within a bounded region around its tetrahedral or cubical anchor.</p>
+
+        <p>These pickups hear spatial relationships that a mono sum would discard. A source moving between directions changes which pickups become active; width, rotation, environment return, reflections, and ambisonic order may also change the field presented to the listener. Pickup meters are analysis displays, not additional audio outputs.</p>
+
+        <h2 id="controls">Shared Control Vocabulary</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control family</th><th>General meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>LISTEN / FIELD LISTEN</td><td>Enables the listener or selects its directional law. <code>OFF</code> preserves the plugin's open-loop behavior.</td></tr>
+            <tr><td>FOLLOW</td><td>Favors recently active or strongly heard regions.</td></tr>
+            <tr><td>COUNTER</td><td>Applies the heard relationship toward the opposing direction.</td></tr>
+            <tr><td>BALANCE</td><td>Favors underexposed directions or restrains dominant ones.</td></tr>
+            <tr><td>LOCAL / TRACE</td><td>Associates a voice, lobe, or event with its nearest pickup.</td></tr>
+            <tr><td>CROSS</td><td>Reads an opposing or cross-connected pickup.</td></tr>
+            <tr><td>DIFFUSE</td><td>Uses a stable mixture of the complete pickup body.</td></tr>
+            <tr><td>ROAMING / RING</td><td>Moves a read head through the pickup relationships over time.</td></tr>
+            <tr><td>RESPONSE</td><td>Chooses what the heard features do. Names such as <code>SETTLE</code>, <code>RESONATE</code>, <code>IMPRINT</code>, <code>ENTRAIN</code>, and <code>WRITE</code> are plugin-specific.</td></tr>
+            <tr><td>AMOUNT / ECOLOGY / CAPTURE / VISCOSITY</td><td>Scales the depth of the listener's control influence. The label reflects the synthesis model.</td></tr>
+            <tr><td>FIELD RETURN</td><td>Mixes a directional audio return into a generating circuit when that plugin supports one. This is distinct from control feedback.</td></tr>
+            <tr><td>PROPAGATION</td><td>Delays and, where documented, filters an audio return to give it temporal distance.</td></tr>
+            <tr><td>RETURN BYPASS</td><td>Disables only the audio-return path. Analysis, meters, and control responses may remain active.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Not every listener exposes every family. In particular, <code>FOLLOW</code>/<code>COUNTER</code>/<code>BALANCE</code> describe a directional preference, while <code>LOCAL</code>/<code>CROSS</code>/<code>DIFFUSE</code>/<code>ROAMING</code> describe how several voices or neural lobes read an auditory body. They solve related but different routing problems.</p>
+
+        <h2 id="response-laws">Response Laws</h2>
+
+        <p>The response name describes how a plugin interprets the same broad class of evidence:</p>
+
+        <ul>
+          <li><strong>Reinforcing responses</strong> increase attraction, event activity, resonance, or motion in heard directions. Names include <code>FOLLOW</code>, <code>CHARGE</code>, <code>CHORUS</code>, and <code>RESONATE</code>.</li>
+          <li><strong>Balancing responses</strong> seek quieter regions or reduce activity where the field remains dominant. Names include <code>BALANCE</code>, <code>SETTLE</code>, and capture or viscosity controls.</li>
+          <li><strong>Imprinting responses</strong> transfer features of the heard field into newly generated material. <code>IMPRINT</code>, <code>ENTRAIN</code>, and Wrangler's <code>WRITE</code> belong to this family, although each affects very different state.</li>
+          <li><strong>Legacy or classic responses</strong> preserve an earlier listener behavior while newer analysis features remain available to alternate response laws.</li>
+        </ul>
+
+        <p>Response names are not interchangeable presets. For example, Water's <code>IMPRINT</code> affects event material and size, Pulsar's <code>IMPRINT</code> latches features into a new grain, and Wrangler's <code>WRITE</code> can influence a shift-register bit.</p>
+
+        <h2 id="feedback">Control Feedback and Audio Return</h2>
+
+        <p>Most s3g Listener Modes are <strong>control feedback</strong>. The plugin measures its field, then changes bounded control values used to create the next field. Audio samples are not recirculated. Ambi Ray, for example, changes directional reflection gains without changing the authored room geometry, and Wave Terrain changes traversal decisions without feeding decoded audio into its oscillator.</p>
+
+        <p>Ambi Neural Ecology, Ambi Pulsar, and Wrangler can also use an explicit <strong>audio return</strong>. Those paths are delayed, normalized, filtered, saturated, or otherwise bounded according to the generating circuit. A return bypass therefore does not necessarily turn Listener Mode off; it can leave the auditory analysis and control response running.</p>
+
+        <p>Final <code>OUT</code> trim is kept outside the listener loop where a plugin documents pre-output listening. This allows final audition level to change without retuning the ecology. Other exclusions are deliberate: Ray listens to its early and late room response but excludes the direct source, while Bilocation keeps separate listeners for its A and B spaces.</p>
+
+        <h2 id="workflow">Working with Listener Mode</h2>
+
+        <ol>
+          <li>Build or recall a stable patch with listening <code>OFF</code>, and use that as the open-loop reference.</li>
+          <li>Enable the listener and choose the simplest directional mode that expresses the goal: reinforce with <code>FOLLOW</code> or <code>LOCAL</code>, oppose with <code>COUNTER</code> or <code>CROSS</code>, or redistribute with <code>BALANCE</code>.</li>
+          <li>Raise the listener amount, ecology, capture, or viscosity gradually. The middle of the range usually makes the relationship easier to hear than an immediate maximum setting.</li>
+          <li>Where available, compare response laws without changing the underlying patch. Watch the pickup and response meters to distinguish what the field hears from what the synthesis receives.</li>
+          <li>Add <code>FIELD RETURN</code> only when audio recirculation is part of the intended instrument. Use <code>RETURN BYPASS</code> to compare that deeper loop while retaining the listener's control behavior.</li>
+          <li>Recheck the result through the intended ambisonic decoder. Listener Mode acts on the encoded field, but the final audition still depends on the output order and decoder.</li>
+        </ol>
+
+        <p>Mode and amount changes are smoothed in the listeners designed for live adjustment. Saved plugin state includes the relevant listener controls; consult the plugin page for portable preset behavior and backward-compatibility details.</p>
+
+        <h2 id="plugins">Plugins Using the Concept</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Plugin</th><th>What listens</th><th>What changes next</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><a href="ambi-imprint.html">Ambi Imprint</a></td><td>Re-encoded wet response</td><td>Directional response-profile gains</td></tr>
+            <tr><td><a href="ambi-ray-encoder.html">Ambi Ray</a> and <a href="ambi-ray-bilocation-encoder.html">Ray Bilocation</a></td><td>Early and late room fields</td><td>Bounded reflection and late-line balance</td></tr>
+            <tr><td><a href="ambi-wave-terrain-encoder.html">Ambi Wave Terrain</a></td><td>Generated pre-output field</td><td>Region choice, scan orientation, activity, and traversal weighting</td></tr>
+            <tr><td><a href="ambi-water-encoder.html">Ambi Water</a>, <a href="ambi-wind-encoder.html">Wind</a>, and <a href="ambi-insect-encoder.html">Insect</a></td><td>Generated field plus encoded environment</td><td>Directional motion and response-specific event or material behavior</td></tr>
+            <tr><td><a href="ambi-stochastic-encoder.html">Ambi Stochastic</a></td><td>Generated pre-output field</td><td>Voice-local negative-feedback capture and evolution rates</td></tr>
+            <tr><td><a href="ambi-wrangler-encoder.html">Ambi Wrangler</a></td><td>Completed generated field</td><td>Register writing or settling, with optional delayed audio return</td></tr>
+            <tr><td><a href="ambi-pulsar-encoder.html">Ambi Pulsar</a></td><td>Post-depth point field</td><td>Event and grain response ecology, with optional neural return</td></tr>
+            <tr><td><a href="ambi-neural-ecology.html">Ambi Neural Ecology</a></td><td>Live recurrent field</td><td>Neural equations, adaptive pickup directions, motion, and lattice decisions</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="distinctions">What Listener Mode Is Not</h2>
+
+        <ul>
+          <li><strong>Ray listener position:</strong> <code>LISTENER X/Y/Z</code> is a geometric point used to calculate source distance, direction, delay, and reflections. <code>FIELD LISTEN</code> is the room's internal directional memory. Ray can use both at once.</li>
+          <li><strong>A decoder listening mode:</strong> Ambi Head Decoder and Ambi Stereo Decoder render an existing field for audition. They do not make the upstream instrument respond to its own output.</li>
+          <li><strong>DAW or acoustic feedback:</strong> the listener is contained inside the plugin. It does not listen to a microphone, the master output, or sound returning through the room.</li>
+          <li><strong>A universal modulation mapping:</strong> plugins share an auditory idea and vocabulary, but each maps the evidence into controls appropriate to its own synthesis or processing model.</li>
+        </ul>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="3oafx.html">
+            <span>Previous</span>
+            Ambisonics Overview
+          </a>
+          <a class="page-nav-link next" href="parameter-surface.html">
+            <span>Next</span>
+            Parameter Surface
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="3oafx.html">Overview</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#auditory-body">The Auditory Body</a>
+          <a href="#controls">Shared Controls</a>
+          <a href="#response-laws">Response Laws</a>
+          <a href="#feedback">Control and Audio Feedback</a>
+          <a href="#workflow">Workflow</a>
+          <a href="#plugins">Plugins</a>
+          <a href="#distinctions">Distinctions</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

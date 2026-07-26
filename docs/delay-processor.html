@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Delay Processor</h1>
 
-        <p>The s3g Processor Delay treats each active channel as a parallel delay lane. Each lane can have its own time, feedback, tone, pitch, smear, and diffusion behavior.</p>
+        <p>The s3g Processor Delay treats each active channel as a delay node. Each node can have its own time, feedback, tone, pitch, smear, and diffusion behavior. Its Echo Routes layer can then move regenerated repeats from node to node through the topology.</p>
 
         <p>Instead of exposing every lane as a separate parameter list, the plugin uses a compact topology surface. Moving the surface changes relationships between lanes while keeping automation readable. See the <a href="topology-framework.html">Topology Framework</a> page for the shared model.</p>
 
@@ -43,7 +43,7 @@
           </div>
           <div>
             <h3>Delay Engine</h3>
-            <p>The points become smoothed per-lane delay settings.</p>
+            <p>The points become smoothed per-node delay settings and repeat routes.</p>
           </div>
         </div>
 
@@ -60,7 +60,7 @@
 
         <p>There are two routing layers. REAPER's FX pin connector sends track channels into and out of the plugin. The Delay Processor matrix routes those plugin lanes after they arrive.</p>
 
-        <p>For topology, active matrix input rows become active points. If only rows 1 and 2 are active, the topology is 2-point, even if those rows feed many outputs.</p>
+        <p>For topology, each active matrix input row keeps its physical lane identity and becomes an active point. If only rows 3 and 7 are active, the topology is a two-point graph made from nodes 3 and 7, even if those rows feed many outputs.</p>
 
         <table class="readout-table">
           <thead>
@@ -95,6 +95,17 @@
         </table>
 
         <p>For sources narrower than the plugin, use REAPER pins to expand the source into the plugin inputs. Then keep the plugin matrix diagonal while shaping the topology.</p>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>Each active input lane enters its local delay node.</li>
+          <li>The node's <code>TIME</code>, <code>TONE</code>, <code>PITCH</code>, <code>CHAR</code>, and <code>SMR</code> processing produces the audible local tap.</li>
+          <li><code>FDBK</code> creates the node's regenerated return. At <code>ROUTE</code> zero this follows the existing topology-diffusion path; raising <code>ROUTE</code> crossfades that return toward source-local feedback transported through Echo Routes.</li>
+          <li>When <code>ROUTE</code> is raised, a normalized portion of that return leaves the node and is distributed to topology neighbors or the centroid hub.</li>
+          <li>A routed repeat is written into the destination node and waits for that node's <code>TIME</code> before it is heard. Its color and pitch therefore develop at every node it visits.</li>
+          <li>The patch matrix collects the requested node lanes, followed by <code>MIX</code>, output gain, and safety.</li>
+        </ol>
 
         <h2 id="topology-map">Topology Map</h2>
 
@@ -189,6 +200,21 @@
 
         <p>Topology controls do not replace the engine sliders. They control how far each lane departs from the base settings.</p>
 
+        <h2 id="echo-routes">Echo Routes</h2>
+
+        <p>Echo Routes turns the topology graph into a repeat-scale transport. It does not add a second short propagation delay: every hop uses the destination node's existing delay time. An impulse can therefore appear first at node A after <code>TIME A</code>, then at node B after <code>TIME A + TIME B</code>, and continue along a longer rhythmic path while each visited node applies its own pitch and color.</p>
+
+        <ul>
+          <li><code>ROUTE</code>: moves a portion of each regenerated return away from its current node and into the graph. At zero, the earlier Delay Processor feedback path is unchanged. Since this is feedback transport, <code>FDBK</code> must be above zero for a repeat to walk.</li>
+          <li><code>TURN</code>: signed circulation bias around the topology's current orientation. Negative and positive settings favor opposite travel directions; zero leaves the graph reciprocal.</li>
+          <li><code>BRCH</code>: route focus. Low values favor one strong continuation; high values divide the repeat among more of the eligible neighbors and centroid destinations.</li>
+          <li><code>LOSS</code>: distance-dependent level and high-frequency loss. Long routes become quieter and darker while the node-level <code>TONE</code> remains the main delay color.</li>
+        </ul>
+
+        <p><code>NN</code> sets the maximum number of neighbor continuations, <code>RAD</code> determines connection reach and proximity weighting, and <code>CENT</code> opens a normalized virtual-hub route to nodes outside the immediate neighbor set. Topology shape and motion change the destinations used by future launches; repeats already waiting inside node delays are allowed to finish naturally.</p>
+
+        <p>On the <code>TOPO</code> page, edge brightness follows actual routed energy and moving markers show the current repeat traversal. Node activity shows arrivals rather than a static estimate of the diffusion setting.</p>
+
         <h2 id="readout">Readout Terms</h2>
 
         <table class="readout-table">
@@ -205,6 +231,7 @@
             <tr><td>PIT</td><td>Steady pitch shift in semitones.</td></tr>
             <tr><td>SMR</td><td>Delay tap smear amount.</td></tr>
             <tr><td>DIFF</td><td>Cross-lane diffusion based on neighbor links and centroid influence.</td></tr>
+            <tr><td>ROUT</td><td>Measured Echo Routes activity leaving or arriving at the node.</td></tr>
           </tbody>
         </table>
 
@@ -214,6 +241,7 @@
           <li>Patch matrix controls which lanes are active.</li>
           <li>Topology controls generate per-lane differences.</li>
           <li>ANIM and VAR provide motion scene behavior using the same topology controls.</li>
+          <li>Echo Routes changes where regenerated repeats go; it does not replace the node delay times.</li>
           <li>Mix remains a global dry/wet control.</li>
           <li>Per-lane details stay inside the plugin.</li>
         </ul>
@@ -251,8 +279,10 @@
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
           <a href="#routing">REAPER Pins</a>
+          <a href="#signal-flow">Signal Flow</a>
           <a href="#topology-map">Topology Map</a>
           <a href="#engine-sliders">Engine Sliders</a>
+          <a href="#echo-routes">Echo Routes</a>
           <a href="#readout">Readout Terms</a>
           <a href="#control-model">Control Model</a>
         </div>

@@ -51,6 +51,15 @@ static_assert(layout::toolboxHeightForRows(1u) == 54.0);
 static_assert(layout::toolboxHeightForRows(4u) == 132.0);
 static_assert(layout::toolboxHeightForRows(7u) == 210.0);
 static_assert(layout::toolboxHeightForRows(0u) == 0.0);
+static_assert(layout::kTopologyProcessorColumns.field.x == 12.0);
+static_assert(layout::kTopologyProcessorColumns.field.y
+    == layout::kStandardMetrics.contentTop);
+static_assert(layout::kTopologyProcessorColumns.field.width == 620.0);
+static_assert(layout::kTopologyProcessorColumns.field.height == 638.0);
+static_assert(layout::kTopologyProcessorColumns.field.x
+        + layout::kTopologyProcessorColumns.field.width
+        + layout::kStandardMetrics.panelGap
+    == layout::kTopologyProcessorColumns.first.x);
 constexpr bool kConditionalRows[] { true, false, true, false, true };
 static_assert(layout::compactedVisibleRow(kConditionalRows, 5u, 0u) == 0u);
 static_assert(layout::compactedVisibleRow(kConditionalRows, 5u, 2u) == 1u);

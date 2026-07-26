@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Wave Geometry Processor</h1>
 
-        <p><code>s3g Processor Wave Geometry 8ch</code> is a topology-shaped wave processor for fixed-width multichannel tracks. It is non-FFT and processes incoming audio directly: folding, rectification, clipping, sample-step motion, bit collapse, polarity patterns, and a dual tape-head loop layer are combined per lane.</p>
+        <p><code>s3g Processor Wave Geometry 8ch</code> is a topology-shaped wave processor for fixed-width multichannel tracks. It is non-FFT and processes incoming audio directly: folding, rectification, clipping, sample-step motion, bit collapse, polarity patterns, and a dual tape-head loop layer are combined per lane. Its Wave Mesh can then send that shaped material through short, resonant paths between topology nodes.</p>
 
         <p>It produces fractured, bent, repeated, and hard-edged waveform changes while keeping the eight lanes coordinated through topology. Choose a Macro effect when a gentler process or smaller control set is more appropriate.</p>
 
@@ -34,9 +34,10 @@
 
         <ol>
           <li>REAPER audio enters the internal patch matrix.</li>
-          <li>Active outputs become topology lanes.</li>
+          <li>The matrix selects which inputs excite the eight topology nodes. Unpatched nodes remain available as Wave Mesh receivers.</li>
           <li>The topology map derives per-lane wave-shaping and tape-head variation.</li>
-          <li>The processed lane output is shown in the <code>SCOPE</code> page as a post-processing oscilloscope.</li>
+          <li>When <code>COUP</code> is raised, processed lanes excite the Wave Mesh. Neighbor edges carry delayed, damped waves between nodes and the junctions scatter part of that energy back through the network.</li>
+          <li>The local wet signal and mesh return are combined through a bounded stage before <code>MIX</code>, output gain, and safety. The processed lane output is shown in the <code>SCOPE</code> page.</li>
         </ol>
 
         <h2 id="engine-controls">Engine Controls</h2>
@@ -56,20 +57,31 @@
           <li><code>OUT</code>: final output gain.</li>
         </ul>
 
+        <h2 id="wave-mesh">Wave Mesh</h2>
+
+        <p>The Wave Mesh turns the topology graph into a short sample-domain propagation network. Unlike the longer dual tape-head layer, it exchanges energy between lanes over millisecond-scale paths. Transients can strike neighboring nodes, circulate through several routes, and form membrane- or wire-like resonances.</p>
+
+        <ul>
+          <li><code>COUP</code>: sends the local processed lanes into the mesh and blends the returned field into the result. At zero, the mesh is bypassed and the legacy Wave Geometry path is unchanged.</li>
+          <li><code>TENS</code>: controls propagation velocity. Higher tension shortens travel time and raises the network modes; lower tension produces slower, lower movement.</li>
+          <li><code>DECY</code>: controls junction reflection and therefore how long energy recirculates.</li>
+          <li><code>DAMP</code>: increases high-frequency and distance-dependent absorption on each route.</li>
+        </ul>
+
         <h2 id="topology">Topology</h2>
 
-        <p>The topology panel uses the same shared controls as other topology processors. Point position and radius influence lane-specific fold, drive, hold, clip, rectification, edge, zero, polarity, bits, step, transform, tape amount, and tape speed. This keeps REAPER automation compact while still producing per-lane variation.</p>
+        <p>The topology panel uses the same shared controls as other topology processors. Point position and radius influence lane-specific fold, drive, hold, clip, rectification, edge, zero, polarity, bits, step, transform, tape amount, and tape speed. With the Wave Mesh active, nearest-neighbor connections become signal paths, point distance controls travel time, radius controls connection reach, and centroid adds a shared central relationship.</p>
 
         <p>The topology window has two pages:</p>
 
         <ul>
-          <li><code>TOPO</code>: point network plus heatmap view.</li>
+          <li><code>TOPO</code>: point network plus heatmap view. Active routes brighten with mesh energy and propagation markers show waves moving between nodes.</li>
           <li><code>SCOPE</code>: post-processing oscilloscope display for the eight lane outputs.</li>
         </ul>
 
         <h2 id="patching">Patch Matrix</h2>
 
-        <p>The patch matrix selects which REAPER inputs feed the processed lanes. Use it when the track is wider than the material or when one input should feed several lanes. For a simple eight-channel insert, leave the matrix in its default full-lane routing.</p>
+        <p>The patch matrix selects which REAPER inputs feed the processed lanes. Use it when the track is wider than the material or when one input should feed several lanes. With <code>COUP</code> active, an unpatched node receives no direct excitation but can still receive a wave from its neighbors or the centroid hub. For a simple eight-channel insert, leave the matrix in its default full-lane routing.</p>
 
         <h2 id="tape-heads">Dual Tape Heads</h2>
 
@@ -114,6 +126,7 @@
           <h2>On This Page</h2>
           <a href="#signal-flow">Signal Flow</a>
           <a href="#engine-controls">Engine Controls</a>
+          <a href="#wave-mesh">Wave Mesh</a>
           <a href="#topology">Topology</a>
           <a href="#patching">Patch Matrix</a>
           <a href="#tape-heads">Dual Tape Heads</a>

@@ -50,6 +50,12 @@
 
         <p><code>SAVE</code> and <code>LOAD</code> preserve the complete instrument in portable <code>.s3gawp</code> files, including the circuit law, voice count, DJ Filter, all per-voice curves, and listener settings. <code>RANDOM</code> can produce either an energetic, wide-ranging patch or a calmer bass or pad state. Use it as a starting point, then reduce coupling, choose <code>BOUNDED</code>, or engage <code>SETTLE</code> when you want a gentler result.</p>
 
+        <h2 id="parameter-surface">Parameter Surface</h2>
+
+        <p>The <code>SURF</code> page arranges as many as 24 captured or factory states in a two-dimensional performance space. <code>EDIT</code> selects and drags cells; <code>ADD</code>, <code>DEL</code>, and <code>CAP</code> manage their contents. In <code>PLAY</code>, the crosshair interpolates the instrument and the participating toolbox controls move with the effective state. <code>CURVE</code> changes the blend response, <code>FOCUS</code> ranges from broad mixtures to tighter nearest-cell regions, and <code>GLIDE</code> gives field-point changes a consistent settling time. <code>POP</code> opens SURF in an attached panel and restores FIELD in the main editor for simultaneous monitoring.</p>
+
+        <p>Continuous oscillator, coupling, filter, topology, projection, mask, and per-voice curve values interpolate by distance. Discrete circuit, oscillator-input, register, topology, and curve modes come from the nearest cell. <code>OUT</code>, <code>ORDER</code>, all Listener controls, and the cursor remain live outside the interpolation. Automate the normalized <code>SURFACE X</code> and <code>SURFACE Y</code> CLAP parameters from the DAW. Project state stores the complete surface; portable <code>.s3gawp</code> files remain single instrument states. See <a href="parameter-surface.html">Parameter Surface</a> for the shared rules.</p>
+
         <h2 id="synthesis">Logic Synthesis</h2>
 
         <p>The circuit-law button in the <code>OSCILLATORS</code> header changes how the same front-panel controls are interpreted.</p>
@@ -186,6 +192,8 @@
         <div class="toc-section">
           <h2>Ambisonics</h2>
           <a href="3oafx.html">Overview</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>
@@ -212,6 +220,7 @@
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
           <a href="#presets">Factory States</a>
+          <a href="#parameter-surface">Parameter Surface</a>
           <a href="#synthesis">Logic Synthesis</a>
           <a href="#voice-curves">Per-Voice Curves</a>
           <a href="#topology">Topology and Placement</a>

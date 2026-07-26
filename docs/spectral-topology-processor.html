@@ -26,17 +26,19 @@
       <main class="content" id="content">
         <h1>Processor Spectral</h1>
 
-        <p><code>s3g Processor Spectral 8ch/24ch</code> is a topology-shaped spectral processor for fixed-width multichannel tracks. It uses the shared topology model to vary spectral spray, freeze, damage, repeat, and phase behavior across active lanes.</p>
+        <p><code>s3g Processor Spectral 8ch/24ch</code> is a spectral mesh for fixed-width multichannel tracks. Its 8 or 24 processing nodes analyze synchronized FFT frames, apply local spectral texture, and transport material through the topology network before resynthesis.</p>
 
-        <p>The processor analyzes short overlapping FFT frames, then moves, holds, repeats, removes, or blurs their frequency bins before resynthesis. Use it for spectral motion that remains coordinated across lanes; choose Wave Geometry for direct waveform shaping or a Macro effect for a smaller shared control set.</p>
+        <p>This makes the point graph part of the audio path rather than only a source of per-lane parameter offsets. Use Processor Spectral when captured or live frequency material should move between channels; choose Spectral Spray for lane-local FFT processing, Wave Geometry for direct waveform shaping, or a Macro effect for a smaller shared control set.</p>
 
         <h2 id="signal-flow">Signal Flow</h2>
 
         <ol>
-          <li>REAPER audio enters the internal patch matrix.</li>
-          <li>Active outputs become topology lanes.</li>
-          <li>The topology map derives lane-specific spectral parameters.</li>
-          <li>The processed output can be viewed in the <code>SONO</code> page as a grayscale post-processing sonogram.</li>
+          <li>REAPER audio enters the patch matrix, which injects sources into the fixed 8- or 24-node mesh.</li>
+          <li>Each node analyzes overlapping FFT frames and applies its local spray, smear, damage, phase, and frequency-window processing.</li>
+          <li><code>CAP</code> can replace the local source spectra, and <code>FRZ</code> blends those captures into the material presented to the mesh.</li>
+          <li>The topology graph selects nearest-neighbor routes. Its propagation memory can deliver each neighbor spectrum immediately or after a distance-derived fractional number of FFT frames.</li>
+          <li><code>RPT</code> history and feedback operate on the routed field before resynthesis.</li>
+          <li><code>MIX</code> blends the latency-aligned dry and wet paths, and <code>OUT</code> sets final level.</li>
         </ol>
 
         <h2 id="engine-controls">Engine Controls</h2>
@@ -44,33 +46,63 @@
         <ul>
           <li><code>BINS</code>: spectral spray range.</li>
           <li><code>DRFT</code>: bin drift and movement across the spectral field.</li>
-          <li><code>HOLD</code> and <code>FRZ</code>: hold and freeze behavior for spectral material.</li>
-          <li><code>FDBK</code>: bounded spectral feedback.</li>
+          <li><code>HOLD</code>: decay of peak spectral memory.</li>
+          <li><code>FRZ</code>: blend into a true spectral capture. Engaging it captures automatically; <code>CAP</code> replaces the capture and <code>CLR</code> empties it.</li>
+          <li><code>FDBK</code>: bounded recirculation of the routed spectral field.</li>
           <li><code>SMR</code>: spectral smear.</li>
           <li><code>HOLE</code>: dropout cells in the spectral path.</li>
           <li><code>PHAS</code>: phase blur.</li>
-          <li><code>BRK</code> and <code>RPT</code>: broken-bin and spectral-repeat layers.</li>
+          <li><code>DMG</code>: broken-bin and dropout damage.</li>
+          <li><code>RPT</code>: retrieval from a spectral history of up to 32 frames.</li>
+          <li><code>LO</code> and <code>HI</code>: lower and upper limits of the processed frequency window.</li>
+          <li><code>TRANS</code>: preservation of transient attacks through the spectral process.</li>
           <li><code>TILT</code>: frequency tilt across the processor.</li>
-          <li><code>MIX</code>: dry/wet mix.</li>
+          <li><code>MIX</code>: global dry/wet mix.</li>
           <li><code>OUT</code>: final output gain.</li>
         </ul>
 
         <h2 id="topology">Topology</h2>
 
-        <p>The topology panel uses the same control language as the Delay Processor and Wave Geometry Processor. Point position, radius, neighbor relationships, and centroid movement shape how the spectral controls differ from lane to lane.</p>
+        <p>The topology panel uses the same point language as the Delay Processor and Wave Geometry Processor, but here the relationships route spectral material between nodes.</p>
+
+        <ul>
+          <li><code>AMT</code>: master depth for topology influence and spectral transport. At zero, every node remains a local spectral processor with no cross-node transport.</li>
+          <li><code>NN</code>: number of actual nearest-neighbor destinations for each node.</li>
+          <li><code>RAD</code>: reach and distance weighting of the neighbor paths.</li>
+          <li><code>CENT</code>: blend into a normalized whole-field spectral pool.</li>
+          <li><code>TWIST</code>: braids low and high frequency regions along opposing routes.</li>
+          <li><code>FLARE</code>: biases the frequency regions sent through the mesh.</li>
+          <li><code>SHAPE</code>, displacement, and motion controls move the nodes and therefore change the routing relationships.</li>
+        </ul>
 
         <p>The topology window has two pages:</p>
 
         <ul>
-          <li><code>TOPO</code>: point network plus topology heatmap view.</li>
+          <li><code>TOPO</code>: point network plus topology heatmap view. Graph edges show current transport activity.</li>
           <li><code>SONO</code>: one-second, grayscale post-processing sonogram for the lane outputs.</li>
         </ul>
 
         <p>The sonogram is a visual analyzer for the plugin output. It is not an additional audio effect, and it does not change the spectral processing.</p>
 
+        <h2 id="propagation">Propagation</h2>
+
+        <p>The propagation panel turns the mesh from an instantaneous crossfeed network into a traversable spectral space. Travel time follows the current smoothed distance between connected nodes, so moving or reshaping the graph also bends the timing of the routed field. The whole-field <code>CENT</code> path remains immediate.</p>
+
+        <ul>
+          <li><code>VEL</code>: propagation speed. At 100%, neighbor routing is instantaneous and matches earlier Processor Spectral sessions. Lower values reveal progressively longer travel, reaching roughly 127 FFT hops at the slowest, longest route.</li>
+          <li><code>DISP</code>: frequency-dependent travel. Positive settings let low bins lead while high bins arrive later; negative settings reverse that relationship.</li>
+          <li><code>DAMP</code>: distance- and frequency-dependent loss along a route. Raise it to make long journeys quieter and darker.</li>
+        </ul>
+
+        <p>Moving markers on active graph edges show the current propagation phase. They are transport feedback, not extra modulation, and become stationary at the instantaneous <code>VEL</code> setting.</p>
+
         <h2 id="patching">Patch Matrix</h2>
 
-        <p>The patch matrix selects which REAPER inputs feed the spectral lanes. Use it when the track is wider than the source material or when one input should feed several lanes. The 24-channel build uses a compact matrix so all lanes remain visible.</p>
+        <p>The patch matrix injects REAPER inputs into the mesh; it does not determine its node count. All 8 or 24 nodes remain available as transport destinations, so a node with no direct input can still receive and output wet spectral material from its neighbors or the centroid pool. Use the matrix when the track is wider than the source material or when one input should seed several nodes. The 24-channel build uses a compact matrix so all nodes remain visible.</p>
+
+        <h2 id="performance">Performance Example</h2>
+
+        <p>Patch a chord into one node, raise <code>AMT</code> and <code>NN</code>, then engage <code>FRZ</code> while the chord is sounding. Mute the source and the captured spectrum can continue through the mesh. Lower <code>VEL</code> until each connection becomes a distinct spectral arrival, add positive <code>DISP</code> for a low-to-high unfurling, and use <code>DAMP</code> to keep distant echoes behind the source. <code>CAP</code> replaces the frozen material, <code>RPT</code> recalls earlier frames, <code>FDBK</code> extends circulation, and <code>CLR</code> empties the capture.</p>
 
         <h2 id="reaper">REAPER Notes</h2>
 
@@ -110,7 +142,9 @@
           <a href="#signal-flow">Signal Flow</a>
           <a href="#engine-controls">Engine Controls</a>
           <a href="#topology">Topology</a>
+          <a href="#propagation">Propagation</a>
           <a href="#patching">Patch Matrix</a>
+          <a href="#performance">Performance Example</a>
           <a href="#reaper">REAPER Notes</a>
         </div>
       </aside>

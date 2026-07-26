@@ -8,6 +8,7 @@
 #include "../dsp/s3g_ambi_pulsar_encoder.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
 #include <iostream>
@@ -219,6 +220,26 @@ int main(int argc, char** argv)
             [scroll reflectScrolledClipView:[scroll contentView]];
             const NSPoint origin = [[scroll contentView] bounds].origin;
             ok = origin.x > 100.0 && origin.y > 120.0;
+        }
+        if (ok) {
+            @try {
+                [document setValue:@3 forKey:@"visualPage"];
+                NSData* listenPage = [document dataWithPDFInsideRect:[document bounds]];
+                ok = listenPage && [listenPage length] > 0u;
+                const char* captureDirectory = std::getenv("S3G_GUI_SMOKE_PDF_DIR");
+                if (ok && captureDirectory && captureDirectory[0]) {
+                    NSString* directory = [NSString stringWithUTF8String:captureDirectory];
+                    [[NSFileManager defaultManager]
+                        createDirectoryAtPath:directory
+                        withIntermediateDirectories:YES
+                        attributes:nil
+                        error:nil];
+                    ok = [listenPage writeToFile:[directory
+                        stringByAppendingPathComponent:@"pulsar-listen.pdf"] atomically:YES];
+                }
+            } @catch (NSException*) {
+                ok = false;
+            }
         }
         ok = ok && gui->show(plugin) && gui->hide(plugin);
 

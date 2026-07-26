@@ -37,7 +37,11 @@ Plugin areas:
   [decoders](https://s3g.github.io/s3g-dsp/ambisonic-decoders.html),
   [effects](https://s3g.github.io/s3g-dsp/ambisonic-effects.html), and
   [utilities](https://s3g.github.io/s3g-dsp/ambisonic-utilities.html) for
-  `ACN/SN3D` workflows, including 3OAFX and Ambi Imprint.
+  `ACN/SN3D` workflows, including 3OAFX and Ambi Imprint. The
+  [Listener Mode guide](https://s3g.github.io/s3g-dsp/listener-mode.html)
+  describes plugins that use their own encoded field as an internal score;
+  [Parameter Surface](https://s3g.github.io/s3g-dsp/parameter-surface.html)
+  describes preset-cell interpolation and automatable X/Y performance.
 - [Instruments](https://s3g.github.io/s3g-dsp/instruments.html): loaded-loop,
   granular, vector-wavetable, weather, liquid, WORLD/voicebank vocal, and
   stochastic instruments, including the eight-channel
@@ -195,6 +199,7 @@ The local smoke executables exercise shared DSP code:
 ./build/s3g_ambi_ray_bilocation_encoder_smoke
 ./build/s3g_ambi_pulsar_encoder_smoke
 ./build/s3g_ambi_neural_ecology_smoke
+./build/s3g_parameter_surface_smoke
 ./build/s3g_psd_raw_field_smoke
 ./build/s3g_psd_raw_field_parameter_audit
 ```
@@ -202,7 +207,9 @@ The local smoke executables exercise shared DSP code:
 The smoke tests cover multichannel routing, loop playback, finite output,
 bounded peaks, de-click stress, high-order encoder/decoder paths, Ambi Imprint
 safety, Ambi Ray room-response behavior, and Fault codec, morph, evolution,
-and parameter-sensitivity behavior.
+parameter-sensitivity behavior, plus shared Parameter Surface interpolation.
+In a CLAP build, `audit_parameter_surface` also validates both instrument
+wrappers' X/Y automation metadata and state round trips.
 
 Check the static documentation and advisory GUI conventions with:
 

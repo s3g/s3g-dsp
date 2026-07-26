@@ -1,5 +1,6 @@
 #include "s3g_ambi_stochastic_encoder.h"
 #include "s3g_ambi_stochastic_presets.h"
+#include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
@@ -13,6 +14,7 @@
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
+#include "../common/s3g_parameter_surface_cocoa.h"
 #endif
 
 #include <algorithm>
@@ -24,13 +26,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <new>
 #include <vector>
 
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiStochasticMaxChannels;
-constexpr uint32_t kStateVersion = 10u;
+constexpr uint32_t kStateVersion = 13u;
 constexpr uint32_t kGuiWidth = 1160u;
 constexpr uint32_t kGuiHeight = 860u;
 constexpr uint32_t kGuiWaveSamples = 256u;
@@ -77,6 +80,11 @@ constexpr clap_id kFieldRestParamId = 39;
 constexpr clap_id kMacroDurationParamId = 40;
 constexpr clap_id kFieldListenModeParamId = 41;
 constexpr clap_id kFieldListenAmountParamId = 42;
+constexpr clap_id kSurfaceXParamId = 43;
+constexpr clap_id kSurfaceYParamId = 44;
+
+using StochasticSurface =
+    s3g::ParameterSurfaceState<s3g::AmbiStochasticParams>;
 
 struct LegacyAmbiStochasticParamsV7 {
     uint32_t order = 3;
@@ -130,6 +138,42 @@ struct SavedState {
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
     float guiViewZoom = 1.0f;
+    StochasticSurface surface {};
+};
+
+struct LegacySavedStateV12 {
+    uint32_t version = 12u;
+    s3g::AmbiStochasticParams params {};
+    int32_t factoryPresetIndex = 0;
+    char presetName[64] {};
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+    s3g::ParameterSurfaceStateV2<s3g::AmbiStochasticParams> surface {};
+};
+
+struct LegacySavedStateV11 {
+    uint32_t version = 11u;
+    s3g::AmbiStochasticParams params {};
+    int32_t factoryPresetIndex = 0;
+    char presetName[64] {};
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
+    s3g::ParameterSurfaceStateV1<s3g::AmbiStochasticParams> surface {};
+};
+
+struct LegacySavedStateV10 {
+    uint32_t version = 10u;
+    std::array<uint8_t, 168u> params {};
+    int32_t factoryPresetIndex = 0;
+    char presetName[64] {};
+    int32_t guiViewMode = 2;
+    float guiViewAzDeg = 38.0f;
+    float guiViewElDeg = 32.0f;
+    float guiViewZoom = 1.0f;
 };
 
 struct LegacySavedStateV9 {
@@ -176,8 +220,8 @@ struct LegacySavedStateV6 {
 
 static_assert(offsetof(s3g::AmbiStochasticParams, fieldListenMode) == 160u);
 static_assert(offsetof(s3g::AmbiStochasticParams, fieldListenAmount) == 164u);
-static_assert(sizeof(s3g::AmbiStochasticParams) == 168u);
-static_assert(sizeof(SavedState) == 256u);
+static_assert(sizeof(s3g::AmbiStochasticParams) == 176u);
+static_assert(sizeof(LegacySavedStateV10) == 256u);
 static_assert(sizeof(LegacySavedStateV9) == 252u);
 static_assert(sizeof(LegacySavedStateV8) == 248u);
 static_assert(sizeof(LegacySavedStateV7) == 240u);
@@ -261,6 +305,8 @@ struct Plugin {
     uint32_t maxFrames = 0u;
     s3g::AmbiStochasticEncoder engine {};
     s3g::AmbiStochasticParams params {};
+    s3g::AmbiStochasticParams effectiveParams {};
+    StochasticSurface surface {};
     PresetMailbox presetMailbox {};
     std::atomic<bool> presetRescanPending { false };
     int32_t factoryPresetIndex = 0;
@@ -379,16 +425,101 @@ bool assignParam(s3g::AmbiStochasticParams& params, clap_id id, double value)
     case kFieldListenModeParamId: params.fieldListenMode = static_cast<s3g::AmbiStochasticListenMode>(
         static_cast<uint32_t>(std::lround(value))); break;
     case kFieldListenAmountParamId: params.fieldListenAmount = static_cast<float>(value); break;
+    case kSurfaceXParamId: params.surfaceX = static_cast<float>(value); break;
+    case kSurfaceYParamId: params.surfaceY = static_cast<float>(value); break;
     default: return false;
     }
     return true;
 }
 
+s3g::AmbiStochasticParams stochasticSurfaceParams(const Plugin& plugin)
+{
+    const auto& base = plugin.params;
+    if (!plugin.surface.enabled || plugin.surface.cellCount < 2u) return base;
+    const auto weights = s3g::parameterSurfaceWeights(
+        plugin.surface, base.surfaceX, base.surfaceY);
+    if (weights.activeCount < 2u) return base;
+    const auto& nearest = s3g::parameterSurfaceNearestParams(
+        plugin.surface, weights, base);
+    auto result = nearest;
+#define S3G_STOCHASTIC_SURFACE_BLEND(member) \
+    result.member = s3g::parameterSurfaceBlend(plugin.surface, weights, \
+        [](const s3g::AmbiStochasticParams& p) { return p.member; }, base.member)
+    S3G_STOCHASTIC_SURFACE_BLEND(baseNote);
+    S3G_STOCHASTIC_SURFACE_BLEND(seedSpreadSemitones);
+    S3G_STOCHASTIC_SURFACE_BLEND(detuneCents);
+    S3G_STOCHASTIC_SURFACE_BLEND(frequencyFloorHz);
+    S3G_STOCHASTIC_SURFACE_BLEND(amplitudeStep);
+    S3G_STOCHASTIC_SURFACE_BLEND(durationStep);
+    S3G_STOCHASTIC_SURFACE_BLEND(amplitudeRange);
+    S3G_STOCHASTIC_SURFACE_BLEND(durationRange);
+    S3G_STOCHASTIC_SURFACE_BLEND(fieldDensity);
+    S3G_STOCHASTIC_SURFACE_BLEND(neighborTransfer);
+    S3G_STOCHASTIC_SURFACE_BLEND(selectionMemory);
+    S3G_STOCHASTIC_SURFACE_BLEND(fieldDurationSeconds);
+    S3G_STOCHASTIC_SURFACE_BLEND(fieldContrast);
+    S3G_STOCHASTIC_SURFACE_BLEND(fieldRestSeconds);
+    S3G_STOCHASTIC_SURFACE_BLEND(macroDurationSeconds);
+    S3G_STOCHASTIC_SURFACE_BLEND(attackMs);
+    S3G_STOCHASTIC_SURFACE_BLEND(decayMs);
+    S3G_STOCHASTIC_SURFACE_BLEND(sustain);
+    S3G_STOCHASTIC_SURFACE_BLEND(releaseMs);
+    S3G_STOCHASTIC_SURFACE_BLEND(topologyRateHz);
+    S3G_STOCHASTIC_SURFACE_BLEND(topologyAmount);
+    S3G_STOCHASTIC_SURFACE_BLEND(topologyDepth);
+    S3G_STOCHASTIC_SURFACE_BLEND(topologyScale);
+    S3G_STOCHASTIC_SURFACE_BLEND(topologyCollapse);
+    S3G_STOCHASTIC_SURFACE_BLEND(topologyTwist);
+    result.centerAzimuthDeg = s3g::parameterSurfaceBlendAngleDegrees(
+        plugin.surface, weights,
+        [](const s3g::AmbiStochasticParams& p) {
+            return p.centerAzimuthDeg;
+        }, base.centerAzimuthDeg);
+    S3G_STOCHASTIC_SURFACE_BLEND(centerElevationDeg);
+    S3G_STOCHASTIC_SURFACE_BLEND(centerDistance);
+    S3G_STOCHASTIC_SURFACE_BLEND(spatialFollow);
+    S3G_STOCHASTIC_SURFACE_BLEND(fieldListenAmount);
+#undef S3G_STOCHASTIC_SURFACE_BLEND
+    // Routing and final audition remain the live performance frame.
+    result.order = base.order;
+    result.outputGainDb = base.outputGainDb;
+    result.surfaceX = base.surfaceX;
+    result.surfaceY = base.surfaceY;
+    return result;
+}
+
+void applyEffectiveParams(Plugin& plugin)
+{
+    plugin.engine.setParameterSurfaceGlideMs(
+        plugin.surface.enabled && plugin.surface.cellCount >= 2u
+            ? plugin.surface.glideMs : 0.0f);
+    plugin.engine.setParams(stochasticSurfaceParams(plugin));
+    plugin.effectiveParams = plugin.engine.params();
+}
+
+void sanitizeStochasticState(Plugin& plugin)
+{
+    plugin.engine.setParams(plugin.params);
+    plugin.params = plugin.engine.params();
+    s3g::sanitizeParameterSurface(plugin.surface);
+    for (uint32_t index = 0u; index < plugin.surface.cellCount; ++index) {
+        plugin.engine.setParams(plugin.surface.cells[index].params);
+        plugin.surface.cells[index].params = plugin.engine.params();
+    }
+    applyEffectiveParams(plugin);
+}
+
+void requestSurfaceProcess(Plugin& plugin)
+{
+    if (plugin.host && plugin.host->request_process) {
+        plugin.host->request_process(plugin.host);
+    }
+}
+
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
     if (!assignParam(plugin.params, id, value)) return;
-    plugin.engine.setParams(plugin.params);
-    plugin.params = plugin.engine.params();
+    applyEffectiveParams(plugin);
 }
 
 float randomUnit(uint32_t& seed)
@@ -485,8 +616,8 @@ void applyPendingPreset(Plugin& plugin)
     }
     if (!hasPreset) return;
 
-    plugin.engine.setParams(latest);
-    plugin.params = plugin.engine.params();
+    plugin.params = latest;
+    applyEffectiveParams(plugin);
     plugin.engine.reset();
     plugin.presetTransitionFrames = std::max<uint32_t>(1u,
         static_cast<uint32_t>(std::lround(plugin.sampleRate * 0.012)));
@@ -656,7 +787,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
         state->scratchPointers[channel] = state->scratch[channel].data();
     }
     state->engine.prepare(sampleRate);
-    state->engine.setParams(state->params);
+    applyEffectiveParams(*state);
     state->engine.reset();
     state->lastOutputSample.fill(0.0f);
     state->presetTransitionOffset.fill(0.0f);
@@ -691,7 +822,7 @@ void reset(const clap_plugin_t* plugin)
 {
     auto* state = self(plugin);
     state->engine.reset();
-    state->engine.setParams(state->params);
+    applyEffectiveParams(*state);
     state->outputPeak.store(0.0f, std::memory_order_relaxed);
     state->lastOutputSample.fill(0.0f);
     state->presetTransitionOffset.fill(0.0f);
@@ -838,6 +969,8 @@ constexpr ParamDef kParams[] {
     { kMacroDurationParamId, "Macro Duration", 2.0, 300.0, 24.0, false },
     { kFieldListenModeParamId, "Field Listener", 0.0, 4.0, 0.0, true },
     { kFieldListenAmountParamId, "Listener Capture", 0.0, 1.0, 0.62, false },
+    { kSurfaceXParamId, "Surface X", 0.0, 1.0, 0.5, false },
+    { kSurfaceYParamId, "Surface Y", 0.0, 1.0, 0.5, false },
 };
 
 struct PresetJsonField {
@@ -845,7 +978,7 @@ struct PresetJsonField {
     const char* key;
 };
 
-constexpr std::array<PresetJsonField, std::size(kParams)> kPresetJsonFields {{
+constexpr std::array<PresetJsonField, 42u> kPresetJsonFields {{
     { kOrderParamId, "order" },
     { kVoicesParamId, "voices" },
     { kModeParamId, "mode" },
@@ -909,7 +1042,11 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->id = definition.id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE | (definition.stepped ? CLAP_PARAM_IS_STEPPED : 0u);
     std::strncpy(info->name, definition.name, sizeof(info->name));
-    std::strncpy(info->module, "Ambi Stochastic Encoder", sizeof(info->module));
+    std::strncpy(info->module,
+        definition.id == kSurfaceXParamId || definition.id == kSurfaceYParamId
+            ? "Parameter Surface"
+            : "Ambi Stochastic Encoder",
+        sizeof(info->module));
     info->min_value = definition.minimum;
     info->max_value = definition.maximum;
     info->default_value = definition.defaultValue;
@@ -962,6 +1099,8 @@ bool parameterValue(const s3g::AmbiStochasticParams& params, clap_id id, double*
     case kOutputParamId: *value = params.outputGainDb; return true;
     case kFieldListenModeParamId: *value = static_cast<uint32_t>(params.fieldListenMode); return true;
     case kFieldListenAmountParamId: *value = params.fieldListenAmount; return true;
+    case kSurfaceXParamId: *value = params.surfaceX; return true;
+    case kSurfaceYParamId: *value = params.surfaceY; return true;
     default: return false;
     }
 }
@@ -1013,6 +1152,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         std::snprintf(display, size, "%+.0f DEG", value);
     } else if (id == kDistanceParamId || id == kTopologyScaleParamId) {
         std::snprintf(display, size, "%.2f", value);
+    } else if (id == kSurfaceXParamId || id == kSurfaceYParamId) {
+        std::snprintf(display, size, "%.3f", value);
     } else if (id == kOutputParamId) {
         std::snprintf(display, size, "%+.1f DB", value);
     } else if (id == kTopologyTwistParamId) {
@@ -1074,6 +1215,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     saved.guiViewElDeg = state->guiViewElDeg;
     saved.guiViewZoom = state->guiViewZoom;
 #endif
+    saved.surface = state->surface;
     return stream->write(stream, &saved, sizeof(saved)) == static_cast<int64_t>(sizeof(saved));
 }
 
@@ -1100,6 +1242,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     float loadedViewAzDeg = 38.0f;
     float loadedViewElDeg = 32.0f;
     float loadedViewZoom = 1.0f;
+    StochasticSurface loadedSurface {};
 
     if (version == kStateVersion) {
         SavedState saved {};
@@ -1107,6 +1250,47 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
                 sizeof(saved) - sizeof(version))) return false;
         loadedParams = saved.params;
+        loadedPresetIndex = saved.factoryPresetIndex;
+        std::strncpy(loadedPresetName, saved.presetName, sizeof(loadedPresetName) - 1u);
+        loadedViewMode = saved.guiViewMode;
+        loadedViewAzDeg = saved.guiViewAzDeg;
+        loadedViewElDeg = saved.guiViewElDeg;
+        loadedViewZoom = saved.guiViewZoom;
+        loadedSurface = saved.surface;
+    } else if (version == 12u) {
+        LegacySavedStateV12 saved {};
+        saved.version = version;
+        if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
+                sizeof(saved) - sizeof(version))) return false;
+        loadedParams = saved.params;
+        loadedPresetIndex = saved.factoryPresetIndex;
+        std::strncpy(loadedPresetName, saved.presetName,
+            sizeof(loadedPresetName) - 1u);
+        loadedViewMode = saved.guiViewMode;
+        loadedViewAzDeg = saved.guiViewAzDeg;
+        loadedViewElDeg = saved.guiViewElDeg;
+        loadedViewZoom = saved.guiViewZoom;
+        loadedSurface = s3g::migrateParameterSurfaceV2(saved.surface);
+    } else if (version == 11u) {
+        LegacySavedStateV11 saved {};
+        saved.version = version;
+        if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
+                sizeof(saved) - sizeof(version))) return false;
+        loadedParams = saved.params;
+        loadedPresetIndex = saved.factoryPresetIndex;
+        std::strncpy(loadedPresetName, saved.presetName,
+            sizeof(loadedPresetName) - 1u);
+        loadedViewMode = saved.guiViewMode;
+        loadedViewAzDeg = saved.guiViewAzDeg;
+        loadedViewElDeg = saved.guiViewElDeg;
+        loadedViewZoom = saved.guiViewZoom;
+        loadedSurface = s3g::migrateParameterSurfaceV1(saved.surface);
+    } else if (version == 10u) {
+        LegacySavedStateV10 saved {};
+        saved.version = version;
+        if (!readFully(reinterpret_cast<uint8_t*>(&saved) + sizeof(version),
+                sizeof(saved) - sizeof(version))) return false;
+        std::memcpy(&loadedParams, saved.params.data(), saved.params.size());
         loadedPresetIndex = saved.factoryPresetIndex;
         std::strncpy(loadedPresetName, saved.presetName, sizeof(loadedPresetName) - 1u);
         loadedViewMode = saved.guiViewMode;
@@ -1166,8 +1350,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 
     auto* state = self(plugin);
     state->params = loadedParams;
-    state->engine.setParams(state->params);
-    state->params = state->engine.params();
+    state->surface = loadedSurface;
+    sanitizeStochasticState(*state);
     state->factoryPresetIndex = (loadedPresetIndex >= 0
             && loadedPresetIndex < static_cast<int32_t>(s3g::kAmbiStochasticFactoryPresetCount))
         ? loadedPresetIndex : -1;
@@ -1389,7 +1573,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 
 } // namespace
 
-@interface S3GAmbiStochasticEncoderView : NSView {
+@interface S3GAmbiStochasticEncoderView : NSView <NSWindowDelegate> {
     Plugin* _plugin;
     NSTimer* _timer;
     clap_id _dragParam;
@@ -1405,10 +1589,22 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     CGFloat _viewZoom;
     BOOL _dragView;
     NSPoint _lastDragPoint;
+    BOOL _surfaceEdit;
+    int _selectedSurfaceCell;
+    int _dragSurfaceCell;
+    BOOL _dragSurfaceCursor;
+    BOOL _surfacePopupChild;
+    S3GAmbiStochasticEncoderView* _surfacePopupOwner;
+    NSPanel* _surfacePanel;
+    S3GAmbiStochasticEncoderView* _surfacePopupView;
+    NSClipView* _surfacePopupClip;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
+- (void)openSurfacePopup;
+- (void)hideSurfacePopup;
+- (void)destroySurfacePopup;
 @end
 
 @implementation S3GAmbiStochasticEncoderView
@@ -1432,6 +1628,15 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
         _dragView = NO;
         _lastDragPoint = NSZeroPoint;
+        _surfaceEdit = YES;
+        _selectedSurfaceCell = plugin && plugin->surface.cellCount > 0u ? 0 : -1;
+        _dragSurfaceCell = -1;
+        _dragSurfaceCursor = NO;
+        _surfacePopupChild = NO;
+        _surfacePopupOwner = nil;
+        _surfacePanel = nil;
+        _surfacePopupView = nil;
+        _surfacePopupClip = nil;
         [self setWantsLayer:YES];
     }
     return self;
@@ -1481,7 +1686,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 
 - (void)dealloc
 {
-    [self storeViewState];
+    if (!_surfacePopupChild) [self destroySurfacePopup];
+    if (!_surfacePopupChild) [self storeViewState];
     [self stopRefreshTimer];
     [super dealloc];
 }
@@ -1507,6 +1713,195 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 {
     const NSRect field = [self fieldRect];
     return NSMakeRect(field.origin.x + 10.0, NSMaxY(field) - 42.0, 92.0, 15.0);
+}
+
+- (NSRect)surfaceEditRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0, field.origin.y + 10.0, 50.0, 18.0);
+}
+
+- (NSRect)surfaceEnableRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 64.0, field.origin.y + 10.0, 48.0, 18.0);
+}
+
+- (NSRect)surfaceAddRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 116.0, field.origin.y + 10.0, 42.0, 18.0);
+}
+
+- (NSRect)surfaceDeleteRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 162.0, field.origin.y + 10.0, 42.0, 18.0);
+}
+
+- (NSRect)surfaceCaptureRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 208.0, field.origin.y + 10.0, 52.0, 18.0);
+}
+
+- (NSRect)surfacePresetRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 270.0, field.origin.y + 10.0, 174.0, 18.0);
+}
+
+- (NSRect)surfacePopRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 448.0,
+        field.origin.y + 10.0, 26.0, 18.0);
+}
+
+- (NSRect)surfaceFocusMinusRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 178.0, field.origin.y + 38.0, 20.0, 18.0);
+}
+
+- (NSRect)surfaceFocusPlusRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 238.0, field.origin.y + 38.0, 20.0, 18.0);
+}
+
+- (NSRect)surfaceCurveRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0,
+        field.origin.y + 38.0, 112.0, 18.0);
+}
+
+- (NSRect)surfaceGlideMinusRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 326.0,
+        field.origin.y + 38.0, 20.0, 18.0);
+}
+
+- (NSRect)surfaceGlidePlusRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 420.0,
+        field.origin.y + 38.0, 20.0, 18.0);
+}
+
+- (NSRect)surfacePlotRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0, field.origin.y + 68.0,
+        field.size.width - 20.0, field.size.height - 80.0);
+}
+
+- (void)syncSurfaceEditMode:(BOOL)editing
+{
+    _surfaceEdit = editing;
+    if (_surfacePopupChild && _surfacePopupOwner) {
+        _surfacePopupOwner->_surfaceEdit = editing;
+        [_surfacePopupOwner setNeedsDisplay:YES];
+    } else if (_surfacePopupView) {
+        _surfacePopupView->_surfaceEdit = editing;
+        [_surfacePopupView setNeedsDisplay:YES];
+    }
+}
+
+- (void)openSurfacePopup
+{
+    if (_surfacePopupChild) return;
+    const NSRect source = [self fieldPanelRect];
+    if (!_surfacePanel) {
+        _surfacePanel = [[NSPanel alloc] initWithContentRect:
+            NSMakeRect(0.0, 0.0, source.size.width, source.size.height)
+            styleMask:(NSWindowStyleMaskTitled
+                | NSWindowStyleMaskClosable
+                | NSWindowStyleMaskUtilityWindow)
+            backing:NSBackingStoreBuffered defer:NO];
+        [_surfacePanel setTitle:@"s3g AMBI ENCODER STOCHASTIC — SURF"];
+        [_surfacePanel setReleasedWhenClosed:NO];
+        [_surfacePanel setHidesOnDeactivate:YES];
+        [_surfacePanel setDelegate:self];
+
+        _surfacePopupView = [[S3GAmbiStochasticEncoderView alloc]
+            initWithPlugin:_plugin];
+        _surfacePopupView->_surfacePopupChild = YES;
+        _surfacePopupView->_surfacePopupOwner = self;
+        _surfacePopupView->_fieldPage = 2;
+        _surfacePopupView->_surfaceEdit = _surfaceEdit;
+        _surfacePopupClip = [[NSClipView alloc] initWithFrame:
+            NSMakeRect(0.0, 0.0, source.size.width, source.size.height)];
+        [_surfacePopupClip setDrawsBackground:NO];
+        [_surfacePopupClip setDocumentView:_surfacePopupView];
+        [_surfacePanel setContentView:_surfacePopupClip];
+        [_surfacePopupClip setBoundsOrigin:source.origin];
+        [_surfacePopupView release];
+        [_surfacePopupClip release];
+
+        NSWindow* parent = [self window];
+        const NSRect parentFrame = parent ? [parent frame]
+            : [[NSScreen mainScreen] visibleFrame];
+        const NSRect panelFrame = [_surfacePanel frame];
+        CGFloat x = NSMaxX(parentFrame) + 8.0;
+        CGFloat y = NSMaxY(parentFrame) - panelFrame.size.height;
+        NSScreen* screen = parent ? [parent screen] : [NSScreen mainScreen];
+        const NSRect visible = screen ? [screen visibleFrame] : parentFrame;
+        if (x + panelFrame.size.width > NSMaxX(visible)) {
+            x = NSMinX(parentFrame) - panelFrame.size.width - 8.0;
+        }
+        [_surfacePanel setFrameOrigin:NSMakePoint(
+            std::max(NSMinX(visible), x),
+            std::clamp(y, NSMinY(visible),
+                std::max(NSMinY(visible), NSMaxY(visible) - panelFrame.size.height)))];
+    }
+    _surfacePopupView->_fieldPage = 2;
+    [self syncSurfaceEditMode:_surfaceEdit];
+    _fieldPage = 0;
+    NSWindow* parent = [self window];
+    NSWindow* previousParent = [_surfacePanel parentWindow];
+    if (previousParent && previousParent != parent) {
+        [previousParent removeChildWindow:_surfacePanel];
+    }
+    if (parent && [_surfacePanel parentWindow] != parent) {
+        [parent addChildWindow:_surfacePanel ordered:NSWindowAbove];
+    }
+    [_surfacePopupView startRefreshTimer];
+    [_surfacePanel makeKeyAndOrderFront:nil];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)hideSurfacePopup
+{
+    if (!_surfacePanel) return;
+    [_surfacePopupView stopRefreshTimer];
+    NSWindow* parent = [_surfacePanel parentWindow];
+    if (parent) [parent removeChildWindow:_surfacePanel];
+    [_surfacePanel orderOut:nil];
+}
+
+- (void)destroySurfacePopup
+{
+    if (!_surfacePanel) return;
+    [_surfacePopupView stopRefreshTimer];
+    [_surfacePanel setDelegate:nil];
+    NSWindow* parent = [_surfacePanel parentWindow];
+    if (parent) [parent removeChildWindow:_surfacePanel];
+    [_surfacePanel orderOut:nil];
+    [_surfacePanel release];
+    _surfacePanel = nil;
+    _surfacePopupView = nil;
+    _surfacePopupClip = nil;
+}
+
+- (void)windowWillClose:(NSNotification*)notification
+{
+    if ([notification object] != _surfacePanel) return;
+    [_surfacePopupView stopRefreshTimer];
+    NSWindow* parent = [_surfacePanel parentWindow];
+    if (parent) [parent removeChildWindow:_surfacePanel];
 }
 
 - (NSString*)presetDisplayName
@@ -1959,6 +2354,134 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
             s3g::clap_gui::color(0xd7d7d7), 8.0)];
 }
 
+- (NSPoint)surfacePointForCell:(uint32_t)index
+{
+    const NSRect plot = [self surfacePlotRect];
+    if (!_plugin || index >= _plugin->surface.cellCount) return NSZeroPoint;
+    const auto& cell = _plugin->surface.cells[index];
+    return NSMakePoint(plot.origin.x + cell.x * plot.size.width,
+        NSMaxY(plot) - cell.y * plot.size.height);
+}
+
+- (int)hitSurfaceCell:(NSPoint)point
+{
+    if (!_plugin || !NSPointInRect(point, [self surfacePlotRect])) return -1;
+    int best = -1;
+    CGFloat bestDistance = 14.0;
+    for (uint32_t index = 0u; index < _plugin->surface.cellCount; ++index) {
+        const NSPoint site = [self surfacePointForCell:index];
+        const CGFloat distance = std::hypot(point.x - site.x, point.y - site.y);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = static_cast<int>(index);
+        }
+    }
+    return best;
+}
+
+- (void)updateSurfacePosition:(NSPoint)point cursor:(BOOL)cursor
+{
+    if (!_plugin) return;
+    const NSRect plot = [self surfacePlotRect];
+    const float x = static_cast<float>(std::clamp(
+        (point.x - plot.origin.x) / plot.size.width, 0.0, 1.0));
+    const float y = static_cast<float>(std::clamp(
+        (NSMaxY(plot) - point.y) / plot.size.height, 0.0, 1.0));
+    if (cursor) {
+        applyParam(*_plugin, kSurfaceXParamId, x);
+        applyParam(*_plugin, kSurfaceYParamId, y);
+    } else if (_dragSurfaceCell >= 0
+        && static_cast<uint32_t>(_dragSurfaceCell) < _plugin->surface.cellCount) {
+        auto& cell = _plugin->surface.cells[static_cast<uint32_t>(_dragSurfaceCell)];
+        cell.x = x;
+        cell.y = y;
+        applyEffectiveParams(*_plugin);
+    }
+    requestSurfaceProcess(*_plugin);
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawSurfacePage:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs
+    style:(const s3g::clap_gui::Style&)style
+{
+    const NSRect field = [self fieldRect];
+    const NSRect plot = [self surfacePlotRect];
+    [s3g::clap_gui::color(0x090909) setFill];
+    NSRectFill(field);
+    [s3g::clap_gui::color(0x555555) setStroke];
+    NSFrameRect(field);
+
+    const NSRect controlHeader = NSMakeRect(field.origin.x, field.origin.y,
+        field.size.width, 36.0);
+    s3g::clap_gui::drawHeaderButton([self surfaceEditRect], controlHeader,
+        _surfaceEdit ? @"EDIT" : @"PLAY", _surfaceEdit, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceEnableRect], controlHeader,
+        _plugin->surface.enabled ? @"ON" : @"OFF", _plugin->surface.enabled,
+        attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceAddRect], controlHeader,
+        @"ADD", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceDeleteRect], controlHeader,
+        @"DEL", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceCaptureRect], controlHeader,
+        @"CAP", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfacePopRect], controlHeader,
+        @"POP", _surfacePopupChild || [_surfacePanel isVisible], attrs, style);
+
+    const NSRect preset = [self surfacePresetRect];
+    [style.strip setFill];
+    NSRectFill(preset);
+    [style.grid setStroke];
+    NSFrameRect(preset);
+    NSString* cellName = @"SELECT CELL";
+    if (_selectedSurfaceCell >= 0
+        && static_cast<uint32_t>(_selectedSurfaceCell) < _plugin->surface.cellCount) {
+        const auto& cell = _plugin->surface.cells[static_cast<uint32_t>(_selectedSurfaceCell)];
+        if (cell.name[0] != '\0') cellName = [NSString stringWithUTF8String:cell.name];
+    }
+    [cellName drawAtPoint:NSMakePoint(preset.origin.x + 7.0, preset.origin.y + 2.0)
+        withAttributes:valueAttrs];
+    s3g::clap_gui::drawHeaderButton([self surfaceFocusMinusRect], controlHeader,
+        @"-", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceFocusPlusRect], controlHeader,
+        @"+", false, attrs, style);
+    [[NSString stringWithFormat:@"%.2f", _plugin->surface.focus] drawAtPoint:
+        NSMakePoint(field.origin.x + 202.0, field.origin.y + 40.0)
+        withAttributes:valueAttrs];
+    [@"FOCUS" drawAtPoint:NSMakePoint(field.origin.x + 132.0, field.origin.y + 40.0)
+        withAttributes:attrs];
+    const NSRect curve = [self surfaceCurveRect];
+    [style.strip setFill];
+    NSRectFill(curve);
+    [style.grid setStroke];
+    NSFrameRect(curve);
+    [[NSString stringWithFormat:@"CURVE  %s",
+        s3g::parameterSurfaceCurveName(_plugin->surface.curve)]
+        drawAtPoint:NSMakePoint(curve.origin.x + 7.0, curve.origin.y + 2.0)
+        withAttributes:valueAttrs];
+    [@"GLIDE" drawAtPoint:NSMakePoint(field.origin.x + 278.0,
+        field.origin.y + 40.0) withAttributes:attrs];
+    s3g::clap_gui::drawHeaderButton([self surfaceGlideMinusRect], controlHeader,
+        @"-", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceGlidePlusRect], controlHeader,
+        @"+", false, attrs, style);
+    NSString* glideText = _plugin->surface.glideMs < 0.5f
+        ? @"OFF" : [NSString stringWithFormat:@"%.0f MS",
+            _plugin->surface.glideMs];
+    [glideText drawAtPoint:NSMakePoint(field.origin.x + 350.0,
+        field.origin.y + 40.0) withAttributes:valueAttrs];
+
+    s3g::clap_gui::drawParameterSurfaceVoronoi(
+        _plugin->surface, plot, _plugin->params.surfaceX,
+        _plugin->params.surfaceY, _selectedSurfaceCell, valueAttrs);
+    [[NSString stringWithFormat:@"X %.3f   Y %.3f   /   %u CELLS   /   %@",
+        _plugin->params.surfaceX, _plugin->params.surfaceY,
+        _plugin->surface.cellCount,
+        _plugin->surface.cellCount < 2u ? @"ADD TWO CELLS TO ENABLE" :
+            (_plugin->surface.enabled ? @"INTERPOLATING" : @"BYPASSED")]
+        drawAtPoint:NSMakePoint(plot.origin.x + 8.0, NSMaxY(plot) - 18.0)
+        withAttributes:valueAttrs];
+}
+
 - (void)drawField:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const NSRect panel = [self fieldPanelRect];
@@ -1970,8 +2493,14 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         @"FIELD", _fieldPage == 0, attrs, style);
     s3g::clap_gui::drawHeaderButton([self pageButtonRect:1], header,
         @"LISTEN", _fieldPage == 1, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self pageButtonRect:2], header,
+        @"SURF", _fieldPage == 2, attrs, style);
     if (_fieldPage == 1) {
         [self drawListenerPage:attrs valueAttrs:valueAttrs style:style];
+        return;
+    }
+    if (_fieldPage == 2) {
+        [self drawSurfacePage:attrs valueAttrs:valueAttrs style:style];
         return;
     }
     static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
@@ -2150,7 +2679,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
-    const auto& params = _plugin->params;
+    const auto params = _surfaceEdit
+        ? _plugin->params : stochasticSurfaceParams(*_plugin);
     s3g::clap_gui::drawPanelFrame(kOutputPanel, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, kOutputPanel, attrs, style);
     [self drawSlider:@"OUT" param:kOutputParamId value:params.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
@@ -2241,35 +2771,50 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         @"FULL 7OA FIELD"
     };
     static NSString* listenerItems[] = { @"OFF", @"LOCAL", @"CROSS", @"DIFFUSE", @"ROAMING" };
+    static NSString* curveItems[] = { @"SOFT", @"LINEAR", @"SMOOTH", @"TIGHT" };
+    const auto displayParams = _surfaceEdit
+        ? _plugin->params : stochasticSurfaceParams(*_plugin);
     NSString** items = modeItems;
-    int selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.mode));
+    int selected = static_cast<int>(static_cast<uint32_t>(displayParams.mode));
     if (_openMenu == 2) {
         items = orderItems;
-        selected = static_cast<int>(_plugin->params.order) - 1;
+        selected = static_cast<int>(displayParams.order) - 1;
     } else if (_openMenu == 3) {
         items = selectionItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.selection));
+        selected = static_cast<int>(static_cast<uint32_t>(displayParams.selection));
     } else if (_openMenu == 4) {
         items = transitionItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.transition));
+        selected = static_cast<int>(static_cast<uint32_t>(displayParams.transition));
     } else if (_openMenu == 5) {
         items = distributionItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.amplitudeDistribution));
+        selected = static_cast<int>(static_cast<uint32_t>(displayParams.amplitudeDistribution));
     } else if (_openMenu == 6) {
         items = distributionItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.durationDistribution));
+        selected = static_cast<int>(static_cast<uint32_t>(displayParams.durationDistribution));
     } else if (_openMenu == 7) {
         items = shapeItems;
-        selected = static_cast<int>(_plugin->params.topologyShape);
+        selected = static_cast<int>(displayParams.topologyShape);
     } else if (_openMenu == 8) {
         items = motionItems;
-        selected = static_cast<int>(_plugin->params.topologyMotion);
+        selected = static_cast<int>(displayParams.topologyMotion);
     } else if (_openMenu == 9) {
         items = factoryItems;
         selected = _plugin->factoryPresetIndex;
     } else if (_openMenu == 10) {
         items = listenerItems;
-        selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.fieldListenMode));
+        selected = static_cast<int>(static_cast<uint32_t>(displayParams.fieldListenMode));
+    } else if (_openMenu == 11) {
+        items = factoryItems;
+        selected = -1;
+        if (_selectedSurfaceCell >= 0
+            && static_cast<uint32_t>(_selectedSurfaceCell) < _plugin->surface.cellCount) {
+            selected = _plugin->surface.cells[
+                static_cast<uint32_t>(_selectedSurfaceCell)].presetIndex;
+        }
+    } else if (_openMenu == 12) {
+        items = curveItems;
+        selected = static_cast<int>(
+            static_cast<uint32_t>(_plugin->surface.curve));
     }
     s3g::clap_gui::drawDropdownMenu(_openMenuRect, 21.0, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
@@ -2435,6 +2980,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     case 8: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kTopologyPanel, 1u));
     case 9: return [self presetMenuRect];
     case 10: return s3g::clap_gui::cocoaRect(layout::menuBoxRect(kListenerPanel, 0u));
+    case 11: return _fieldPage == 2 ? [self surfacePresetRect] : NSZeroRect;
+    case 12: return _fieldPage == 2 ? [self surfaceCurveRect] : NSZeroRect;
     default: return NSZeroRect;
     }
 }
@@ -2452,6 +2999,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     case 8: return 18u;
     case 9: return s3g::kAmbiStochasticFactoryPresetCount;
     case 10: return 5u;
+    case 11: return s3g::kAmbiStochasticFactoryPresetCount;
+    case 12: return s3g::kParameterSurfaceCurveCount;
     default: return 0u;
     }
 }
@@ -2476,6 +3025,35 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         [self applyFactoryPreset:static_cast<uint32_t>(item)];
         _openMenu = 0;
         _hoverMenuItem = -1;
+        return;
+    }
+    if (_openMenu == 11) {
+        if (_selectedSurfaceCell >= 0
+            && static_cast<uint32_t>(_selectedSurfaceCell) < _plugin->surface.cellCount
+            && static_cast<uint32_t>(item) < s3g::kAmbiStochasticFactoryPresetCount) {
+            auto& cell = _plugin->surface.cells[
+                static_cast<uint32_t>(_selectedSurfaceCell)];
+            cell.params = s3g::ambiStochasticFactoryPreset(static_cast<uint32_t>(item));
+            cell.presetIndex = item;
+            const auto info = s3g::ambiStochasticFactoryPresetInfo(static_cast<uint32_t>(item));
+            std::snprintf(cell.name, sizeof(cell.name), "%s", info.name);
+            applyEffectiveParams(*_plugin);
+            requestSurfaceProcess(*_plugin);
+        }
+        _openMenu = 0;
+        _hoverMenuItem = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (_openMenu == 12) {
+        _plugin->surface.curve = static_cast<s3g::ParameterSurfaceCurve>(
+            std::min<uint32_t>(static_cast<uint32_t>(item),
+                s3g::kParameterSurfaceCurveCount - 1u));
+        applyEffectiveParams(*_plugin);
+        requestSurfaceProcess(*_plugin);
+        _openMenu = 0;
+        _hoverMenuItem = -1;
+        [self setNeedsDisplay:YES];
         return;
     }
     switch (_openMenu) {
@@ -2532,18 +3110,122 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         [self randomizePreset];
         return;
     }
-    for (int menu = 1; menu <= 10; ++menu) {
+    for (int menu = 1; menu <= 12; ++menu) {
         if (NSPointInRect(point, [self menuBoxRect:menu])) {
             [self openMenu:menu];
             return;
         }
     }
-    for (int index = 0; index < 2; ++index) {
+    for (int index = 0; index < 3; ++index) {
         if (NSPointInRect(point, [self pageButtonRect:index])) {
+            if (_surfacePopupChild) return;
             _fieldPage = index;
             [self setNeedsDisplay:YES];
             return;
         }
+    }
+    if (_fieldPage == 2) {
+        if (NSPointInRect(point, [self surfacePopRect])) {
+            if (_surfacePopupChild) {
+                [[self window] performClose:nil];
+            } else {
+                [self openSurfacePopup];
+            }
+            return;
+        }
+        if (NSPointInRect(point, [self surfaceEditRect])) {
+            [self syncSurfaceEditMode:!_surfaceEdit];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, [self surfaceEnableRect])) {
+            if (_plugin->surface.cellCount < 2u) {
+                NSBeep();
+            } else {
+                _plugin->surface.enabled = !_plugin->surface.enabled;
+                applyEffectiveParams(*_plugin);
+                requestSurfaceProcess(*_plugin);
+            }
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, [self surfaceAddRect])) {
+            if (s3g::addParameterSurfaceCell(_plugin->surface, _plugin->params,
+                    _plugin->factoryPresetIndex, _plugin->presetName)) {
+                _selectedSurfaceCell = static_cast<int>(_plugin->surface.cellCount) - 1;
+            } else {
+                NSBeep();
+            }
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, [self surfaceDeleteRect])) {
+            if (_selectedSurfaceCell < 0
+                || !s3g::removeParameterSurfaceCell(_plugin->surface,
+                    static_cast<uint32_t>(_selectedSurfaceCell))) {
+                NSBeep();
+            }
+            _selectedSurfaceCell = _plugin->surface.cellCount == 0u ? -1
+                : std::min(_selectedSurfaceCell,
+                    static_cast<int>(_plugin->surface.cellCount) - 1);
+            applyEffectiveParams(*_plugin);
+            requestSurfaceProcess(*_plugin);
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, [self surfaceCaptureRect])) {
+            if (_selectedSurfaceCell < 0
+                || static_cast<uint32_t>(_selectedSurfaceCell) >= _plugin->surface.cellCount) {
+                NSBeep();
+            } else {
+                auto& cell = _plugin->surface.cells[
+                    static_cast<uint32_t>(_selectedSurfaceCell)];
+                cell.params = _plugin->params;
+                cell.presetIndex = _plugin->factoryPresetIndex;
+                std::snprintf(cell.name, sizeof(cell.name), "%s", _plugin->presetName);
+                applyEffectiveParams(*_plugin);
+                requestSurfaceProcess(*_plugin);
+            }
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, [self surfaceFocusMinusRect])
+            || NSPointInRect(point, [self surfaceFocusPlusRect])) {
+            const float scale = NSPointInRect(point, [self surfaceFocusMinusRect])
+                ? 0.8f : 1.25f;
+            _plugin->surface.focus = std::clamp(
+                _plugin->surface.focus * scale, 0.25f, 8.0f);
+            applyEffectiveParams(*_plugin);
+            requestSurfaceProcess(*_plugin);
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, [self surfaceGlideMinusRect])
+            || NSPointInRect(point, [self surfaceGlidePlusRect])) {
+            const int direction = NSPointInRect(point,
+                [self surfaceGlideMinusRect]) ? -1 : 1;
+            _plugin->surface.glideMs = s3g::parameterSurfaceSteppedGlide(
+                _plugin->surface.glideMs, direction);
+            applyEffectiveParams(*_plugin);
+            requestSurfaceProcess(*_plugin);
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, [self surfacePlotRect])) {
+            if (_surfaceEdit) {
+                const int cell = [self hitSurfaceCell:point];
+                if (cell >= 0) {
+                    _selectedSurfaceCell = cell;
+                    _dragSurfaceCell = cell;
+                }
+            } else {
+                _dragSurfaceCursor = YES;
+                [self updateSurfacePosition:point cursor:YES];
+            }
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        return;
     }
     if (_fieldPage == 1) {
         if (NSPointInRect(point, [self listenerVoiceRect])) {
@@ -2609,6 +3291,14 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         [self updateSliderAtPoint:point];
         return;
     }
+    if (_dragSurfaceCell >= 0) {
+        [self updateSurfacePosition:point cursor:NO];
+        return;
+    }
+    if (_dragSurfaceCursor) {
+        [self updateSurfacePosition:point cursor:YES];
+        return;
+    }
     if (_dragView) {
         _viewMode = -1;
         _viewAzDeg = std::fmod(_viewAzDeg + (point.x - _lastDragPoint.x) * 0.55 + 540.0, 360.0) - 180.0;
@@ -2624,6 +3314,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     (void)event;
     _dragParam = CLAP_INVALID_ID;
     _dragView = NO;
+    _dragSurfaceCell = -1;
+    _dragSurfaceCursor = NO;
 }
 
 - (void)mouseMoved:(NSEvent*)event
@@ -2675,6 +3367,7 @@ void guiDestroy(const clap_plugin_t* plugin)
     state->guiVisible.store(false, std::memory_order_relaxed);
     auto* view = static_cast<S3GAmbiStochasticEncoderView*>(state->guiView);
     [view stopRefreshTimer];
+    [view destroySurfacePopup];
     s3g::clap_gui::destroyResponsiveViewport(state->guiViewport, state->guiView);
 }
 
@@ -2713,7 +3406,9 @@ bool guiHide(const clap_plugin_t* plugin)
     auto* state = self(plugin);
     if (!state->guiView) return false;
     state->guiVisible.store(false, std::memory_order_relaxed);
-    [static_cast<S3GAmbiStochasticEncoderView*>(state->guiView) stopRefreshTimer];
+    auto* view = static_cast<S3GAmbiStochasticEncoderView*>(state->guiView);
+    [view stopRefreshTimer];
+    [view hideSurfacePopup];
     return s3g::clap_gui::setResponsiveViewportHidden(state->guiViewport, true);
 }
 

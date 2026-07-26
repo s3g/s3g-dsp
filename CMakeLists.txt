@@ -54,6 +54,9 @@ endif()
 add_executable(s3g_ambi_wrangler_listener_smoke tests/ambi_wrangler_listener_smoke.cpp)
 target_link_libraries(s3g_ambi_wrangler_listener_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_parameter_surface_smoke tests/parameter_surface_smoke.cpp)
+target_link_libraries(s3g_parameter_surface_smoke PRIVATE s3g_dsp)
+
 add_executable(s3g_vox_builder_smoke tests/vox_builder_smoke.cpp)
 target_link_libraries(s3g_vox_builder_smoke PRIVATE s3g_dsp)
 
@@ -114,6 +117,10 @@ if(S3G_BUILD_CLAP_PLUGIN OR S3G_BUILD_STANDALONE_APPS)
 endif()
 
 if(S3G_BUILD_CLAP_PLUGIN)
+  add_executable(s3g_parameter_surface_clap_smoke tests/parameter_surface_clap_smoke.cpp)
+  target_include_directories(s3g_parameter_surface_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_parameter_surface_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
+
   if(APPLE)
     add_executable(s3g_ambi_pulsar_encoder_gui_smoke tests/pulsar_encoder_gui_smoke.mm)
     target_include_directories(s3g_ambi_pulsar_encoder_gui_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
@@ -205,6 +212,21 @@ if(S3G_BUILD_CLAP_PLUGIN)
       s3g_ambi_pulsar_encoder_clap
     COMMENT "Building and validating shared GUI layout-contract pilots")
 
+  add_custom_target(audit_parameter_surface
+    COMMAND $<TARGET_FILE:s3g_parameter_surface_smoke>
+    COMMAND $<TARGET_FILE:s3g_parameter_surface_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_stochastic_encoder_clap>
+      org.s3g.s3g-dsp.ambi-stochastic-encoder-64 43 44
+    COMMAND $<TARGET_FILE:s3g_parameter_surface_clap_smoke>
+      $<TARGET_FILE:s3g_ambi_wrangler_encoder_clap>
+      org.s3g.s3g-dsp.ambi-wrangler-encoder-64 63 64
+    DEPENDS
+      s3g_parameter_surface_smoke
+      s3g_parameter_surface_clap_smoke
+      s3g_ambi_stochastic_encoder_clap
+      s3g_ambi_wrangler_encoder_clap
+    COMMENT "Validating shared Parameter Surface DSP, CLAP parameters, and state")
+
   if(APPLE)
     add_custom_target(audit_gui_encoder_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
@@ -277,16 +299,16 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMENT "Rendering and validating every Panner-family GUI")
 
     add_custom_target(audit_gui_processor_family
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-8ch 1356 820 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-24ch 1356 820 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-8ch 1356 696 "s3g Processor " responsive-wide
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-24ch 1356 696 "s3g Processor " responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_buffer_processor_clap> org.s3g.s3g-dsp.buffer-processor 760 584 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_wave_geometry_processor_clap> org.s3g.s3g-dsp.wave-geometry-processor 1356 1002 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_wave_geometry_processor_clap> org.s3g.s3g-dsp.wave-geometry-processor 1356 788 "s3g Processor " responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_loop_processor_clap> org.s3g.s3g-dsp.loop-processor-8ch 920 640 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_multi_loop_processor_clap> org.s3g.s3g-dsp.multi-loop-processor-8ch 920 674 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_psd_raw_field_clap> org.s3g.s3g-dsp.fault 880 846 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_grain_processor_clap> org.s3g.s3g-dsp.ambi-grain-processor 920 640 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1356 950 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1356 950 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1356 950 "s3g Processor " responsive-wide
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1356 950 "s3g Processor " responsive-wide
       DEPENDS
         s3g_encoder_family_gui_smoke
         s3g_8ch_delay_processor_clap

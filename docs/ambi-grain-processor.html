@@ -44,6 +44,8 @@
 
         <h2 id="grain-model">Grain Model</h2>
 
+        <p>When a file loads, the processor peak-normalizes the complete multichannel field to 0.95 with one shared gain. It never normalizes channels independently, so the ACN/SN3D level relationships and spatial image remain intact.</p>
+
         <p>The processor uses one shared event stream. Each grain reads the same source time across every active ambisonic channel, applies the selected envelope, and writes into a circular multichannel tape layer before output.</p>
 
         <p>This matters for ambisonics: the W, X, Y, Z, and higher-order channels are not independent audio stems. Keeping the grain timing shared helps preserve the encoded spatial relationships while still allowing dense granular motion.</p>
@@ -117,6 +119,7 @@
         <div class="toc-section">
           <h2>Ambisonics</h2>
           <a href="3oafx.html">Overview</a>
+          <a href="listener-mode.html">Listener Mode</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>

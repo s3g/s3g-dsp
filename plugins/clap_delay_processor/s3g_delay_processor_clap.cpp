@@ -19,6 +19,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -40,18 +41,19 @@ static_assert(kChannelCount > 0 && kChannelCount <= s3g::kLanePatchMaxChannels,
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.delay-processor-24ch";
 constexpr const char* kPluginName = "s3g Processor Delay 24ch";
 constexpr const char* kPluginDescription =
-    "24-channel topological delay processor with per-lane delay, feedback, tone, pitch, and cross-lane diffusion.";
+    "24-channel topological delay with per-lane shaping, diffusion, and directed Echo Routes that walk repeats across the channel graph.";
 #else
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.delay-processor-8ch";
 constexpr const char* kPluginName = "s3g Processor Delay 8ch";
 constexpr const char* kPluginDescription =
-    "8-channel topological delay processor with per-lane delay, feedback, tone, pitch, and cross-lane diffusion.";
+    "8-channel topological delay with per-lane shaping, diffusion, and directed Echo Routes that walk repeats across the channel graph.";
 #endif
 
 constexpr bool kLockUnusedChannelsToPassThrough = kChannelCount >= 24;
 constexpr uint32_t kVisiblePatchChannels = kChannelCount < 24 ? kChannelCount : 24;
 constexpr uint32_t kScopeFrames = 131072;
-constexpr uint32_t kStateVersion = 10;
+constexpr uint32_t kStateVersion = 11;
+constexpr uint32_t kV10StateVersion = 10;
 constexpr uint32_t kV9StateVersion = 9;
 constexpr uint32_t kV8StateVersion = 8;
 constexpr uint32_t kV7StateVersion = 7;
@@ -86,6 +88,11 @@ constexpr clap_id kTopologyNeighborCountParamId = 22;
 constexpr clap_id kTopologyRadiusParamId = 23;
 constexpr clap_id kTopologyCentroidParamId = 24;
 constexpr clap_id kTopologyMotionVariantParamId = 25;
+constexpr clap_id kRouteAmountParamId = 26;
+constexpr clap_id kRouteTurnParamId = 27;
+constexpr clap_id kRouteBranchParamId = 28;
+constexpr clap_id kRouteLossParamId = 29;
+constexpr uint32_t kParameterBankSize = 30;
 constexpr uint32_t kTopologyShapeCount = s3g::kTopologyShapeCount;
 constexpr uint32_t kTopologyMotionModeCount = s3g::kTopologyMotionModeCount;
 constexpr uint32_t kTopologyVariantCount = s3g::kTopologyVariantCount;
@@ -120,6 +127,37 @@ const char* topologyVariantName(uint32_t variant)
     return s3g::topologyVariantName(variant);
 }
 
+struct __attribute__((packed)) SavedStateV10 {
+    uint32_t version = kV10StateVersion;
+    uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
+    uint32_t clearUnused = 0;
+    double delayMs = 280.0;
+    double feedback = 0.35;
+    double mix = 0.45;
+    double tone = 0.60;
+    double character = 0.0;
+    double tapAmount = 0.0;
+    double outputTrimDb = -6.0;
+    double topologySpread = 0.0;
+    double topologySkew = 0.0;
+    double topologyJitter = 0.0;
+    double displaceCollapse = 0.0;
+    double displaceDirX = 0.0;
+    double displaceDirY = 0.0;
+    double displaceDirZ = 1.0;
+    double displaceTwist = 0.0;
+    double displaceFlare = 0.0;
+    double pitchSemitones = 0.0;
+    uint32_t topologyShape = 0;
+    uint32_t topologyMotionMode = 0;
+    uint32_t topologyMotionVariant = 0;
+    double topologyMotionRateHz = 0.10;
+    double topologyMotionDepth = 0.0;
+    uint32_t topologyNeighborCount = 2;
+    double topologyRadius = 0.65;
+    double topologyCentroid = 0.22;
+};
+
 struct __attribute__((packed)) SavedState {
     uint32_t version = kStateVersion;
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
@@ -149,6 +187,11 @@ struct __attribute__((packed)) SavedState {
     uint32_t topologyNeighborCount = 2;
     double topologyRadius = 0.65;
     double topologyCentroid = 0.22;
+    double routeAmount = 0.0;
+    double routeTurn = 0.0;
+    double routeBranch = 0.35;
+    double routeLoss = 0.25;
+    double topologyMotionPhase = 0.0;
 };
 
 struct __attribute__((packed)) SavedStateV9 {
@@ -348,11 +391,16 @@ struct SavedStateV1 {
     double topologyJitter = 0.0;
 };
 
-struct Plugin {
-    clap_plugin_t plugin {};
-    const clap_host_t* host = nullptr;
-    double sampleRate = 48000.0;
-    uint32_t maxFrames = 0;
+static_assert(sizeof(SavedStateV1) == 64u);
+static_assert(offsetof(SavedStateV10, patchRows) == 4u);
+static_assert(offsetof(SavedStateV10, delayMs) == 520u);
+static_assert(offsetof(SavedStateV10, topologyCentroid) == 696u);
+static_assert(sizeof(SavedStateV10) == 704u);
+static_assert(offsetof(SavedState, routeAmount) == 704u);
+static_assert(offsetof(SavedState, topologyMotionPhase) == 736u);
+static_assert(sizeof(SavedState) == 744u);
+
+struct DelaySettings {
     double delayMs = 280.0;
     double feedback = 0.35;
     double mix = 0.45;
@@ -379,11 +427,45 @@ struct Plugin {
     double topologyRadius = 0.65;
     double topologyCentroid = 0.22;
     uint32_t topologyShape = 0;
+    double routeAmount = 0.0;
+    double routeTurn = 0.0;
+    double routeBranch = 0.35;
+    double routeLoss = 0.25;
+};
+
+struct Plugin : DelaySettings {
+    clap_plugin_t plugin {};
+    const clap_host_t* host = nullptr;
+    double sampleRate = 48000.0;
+    uint32_t maxFrames = 0;
     bool clearUnused = false;
     const clap_host_tail_t* hostTail = nullptr;
+    DelaySettings audioSettings {};
+    std::array<std::atomic<double>, kParameterBankSize> parameterValues {};
+    std::atomic<uint64_t> parameterRevision { 1u };
+    uint64_t audioParameterRevision = 0u;
+    std::atomic<double> publishedMotionPhase { 0.0 };
+    std::atomic<bool> motionPhaseRestorePending { false };
+    std::atomic<bool> clearUnusedPublished { false };
+    bool audioClearUnused = false;
+    std::array<std::atomic<uint64_t>, kChannelCount> patchRowsPublished {};
+    std::atomic<uint64_t> patchRevision { 1u };
+    uint64_t audioPatchRevision = 0u;
+    std::array<uint64_t, kChannelCount> audioPatchRows {};
+    std::array<uint32_t, kChannelCount> audioActiveLanes {};
+    uint32_t audioActiveLaneCount = kChannelCount;
+    std::atomic<bool> tailChangePending { false };
+    uint32_t audioLegacyTailRemainingFrames = 0u;
+    std::atomic<uint32_t> publishedLegacyTailFrames { 0u };
+    std::atomic<uint32_t> publishedRouteTailFrames { 0u };
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<bool> outputClip { false };
     std::array<std::array<std::atomic<float>, kScopeFrames>, kChannelCount> scope {};
+    std::array<std::array<std::atomic<float>, kChannelCount>, kChannelCount> routeEdgeEnergy {};
+    std::array<std::array<std::atomic<float>, kChannelCount>, kChannelCount> routeEdgePhase {};
+    std::array<std::atomic<float>, kChannelCount> routeNodeEnergy {};
+    std::atomic<float> routeCentroidEnergy { 0.0f };
+    std::atomic<float> routeCentroidPhase { 0.0f };
     std::atomic<uint32_t> scopeWrite { 0u };
     uint32_t meterRedrawCountdown = 0;
     s3g::LanePatch patch;
@@ -403,8 +485,10 @@ Plugin* self(const clap_plugin_t* plugin)
 }
 
 
-uint32_t activePatchRows(const Plugin& p);
 void requestGuiRedraw(Plugin& p);
+void publishRouteTelemetry(Plugin& p);
+void publishLegacyTail(
+    Plugin& p, uint32_t elapsedFrames, bool clearResidual);
 
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
@@ -417,7 +501,7 @@ double clamp01(double value)
 
 double clampFeedback(double value)
 {
-    return std::clamp(value, 0.0, 0.95);
+    return std::clamp(value, 0.0, 0.82);
 }
 
 double clampDelayMs(double value)
@@ -457,7 +541,8 @@ double laneNoise(uint32_t channel)
 
 using TopologyPoint = s3g::TopologyPoint;
 
-bool topologyMotionActive(const Plugin& p)
+template <typename Settings>
+bool topologyMotionActive(const Settings& p)
 {
     s3g::TopologyState state {};
     state.motionMode = p.topologyMotionMode;
@@ -466,7 +551,8 @@ bool topologyMotionActive(const Plugin& p)
     return s3g::topologyMotionActive(state);
 }
 
-s3g::TopologyState topologyStateForPlugin(const Plugin& p)
+template <typename Settings>
+s3g::TopologyState topologyStateForPlugin(const Settings& p)
 {
     s3g::TopologyState state {};
     state.amount = p.topologySpread;
@@ -489,22 +575,26 @@ s3g::TopologyState topologyStateForPlugin(const Plugin& p)
     return state;
 }
 
-s3g::TopologyControls topologyControlsForPlugin(const Plugin& p)
+template <typename Settings>
+s3g::TopologyControls topologyControlsForPlugin(const Settings& p)
 {
     return s3g::topologyControlsFromState(topologyStateForPlugin(p));
 }
 
-TopologyPoint topologyPointForLane(const Plugin& p, uint32_t channel, uint32_t count)
+template <typename Settings>
+TopologyPoint topologyPointForLane(const Settings& p, uint32_t channel, uint32_t count)
 {
     return s3g::topologyPointForLane(channel, count, topologyControlsForPlugin(p));
 }
 
-double topologyLaneValue(const Plugin& p, uint32_t channel, uint32_t count)
+template <typename Settings>
+double topologyLaneValue(const Settings& p, uint32_t channel, uint32_t count)
 {
     return topologyPointForLane(p, channel, count).lane;
 }
 
-double topologyAmount(const Plugin& p)
+template <typename Settings>
+double topologyAmount(const Settings& p)
 {
     const double motionAmount = std::max({
         p.topologySpread,
@@ -516,12 +606,35 @@ double topologyAmount(const Plugin& p)
     return s3g::topologyAmount(motionAmount);
 }
 
-std::array<int, 3> nearestTopologyNeighbors(const Plugin& p, uint32_t channel, uint32_t count)
+uint32_t legacyTailEstimateFrames(
+    const DelaySettings& settings, double sampleRate)
+{
+    const double amount = topologyAmount(settings);
+    const double feedbackEstimate = std::clamp(
+        settings.feedback + amount * kTopologyFeedbackSpread
+            + settings.topologyJitter * kTopologyFeedbackJitter,
+        0.0,
+        0.82);
+    const double repeatsToMinus60 = feedbackEstimate > 0.001
+        ? std::ceil(std::log(0.001) / std::log(feedbackEstimate))
+        : 1.0;
+    const double tailSeconds = std::clamp(
+        2.25 * repeatsToMinus60 + 0.5, 0.5, 120.0);
+    const uint64_t frames = static_cast<uint64_t>(std::ceil(
+        tailSeconds * std::max(1.0, sampleRate)));
+    return static_cast<uint32_t>(std::min<uint64_t>(
+        frames,
+        static_cast<uint64_t>(std::numeric_limits<int32_t>::max() - 1)));
+}
+
+template <typename Settings>
+std::array<int, 3> nearestTopologyNeighbors(const Settings& p, uint32_t channel, uint32_t count)
 {
     return s3g::nearestTopologyNeighbors(topologyStateForPlugin(p), channel, count);
 }
 
-double resolvedChannelDelayMs(const Plugin& p, uint32_t channel, uint32_t count)
+template <typename Settings>
+double resolvedChannelDelayMs(const Settings& p, uint32_t channel, uint32_t count)
 {
     const auto topo = topologyPointForLane(p, channel, count);
     const double amount = topologyAmount(p);
@@ -541,7 +654,8 @@ double resolvedChannelDelayMs(const Plugin& p, uint32_t channel, uint32_t count)
         kDelayMaxMs);
 }
 
-double resolvedChannelFeedback(const Plugin& p, uint32_t channel, uint32_t count)
+template <typename Settings>
+double resolvedChannelFeedback(const Settings& p, uint32_t channel, uint32_t count)
 {
     const auto topo = topologyPointForLane(p, channel, count);
     const double amount = topologyAmount(p);
@@ -561,7 +675,8 @@ double resolvedChannelFeedback(const Plugin& p, uint32_t channel, uint32_t count
         0.82);
 }
 
-double resolvedChannelTone(const Plugin& p, uint32_t channel, uint32_t count)
+template <typename Settings>
+double resolvedChannelTone(const Settings& p, uint32_t channel, uint32_t count)
 {
     const auto topo = topologyPointForLane(p, channel, count);
     const double amount = topologyAmount(p);
@@ -575,7 +690,8 @@ double resolvedChannelTone(const Plugin& p, uint32_t channel, uint32_t count)
     return std::clamp(p.tone + toneField * amount * kTopologyToneSpread, 0.0, 1.0);
 }
 
-double resolvedChannelNetwork(const Plugin& p, uint32_t channel, uint32_t count)
+template <typename Settings>
+double resolvedChannelNetwork(const Settings& p, uint32_t channel, uint32_t count)
 {
     const auto topo = topologyPointForLane(p, channel, count);
     const double amount = topologyAmount(p);
@@ -595,7 +711,8 @@ double resolvedChannelNetwork(const Plugin& p, uint32_t channel, uint32_t count)
     return std::clamp(field * amount * kTopologyNetworkSpread, 0.0, 0.68);
 }
 
-double resolvedChannelCharacter(const Plugin& p, uint32_t channel, uint32_t count)
+template <typename Settings>
+double resolvedChannelCharacter(const Settings& p, uint32_t channel, uint32_t count)
 {
     const auto topo = topologyPointForLane(p, channel, count);
     const double amount = topologyAmount(p);
@@ -609,7 +726,8 @@ double resolvedChannelCharacter(const Plugin& p, uint32_t channel, uint32_t coun
     return std::clamp(p.character + field * amount * 0.62, 0.0, 1.0);
 }
 
-double resolvedChannelSmearAmount(const Plugin& p, uint32_t channel, uint32_t count)
+template <typename Settings>
+double resolvedChannelSmearAmount(const Settings& p, uint32_t channel, uint32_t count)
 {
     const auto topo = topologyPointForLane(p, channel, count);
     const double amount = topologyAmount(p);
@@ -623,7 +741,8 @@ double resolvedChannelSmearAmount(const Plugin& p, uint32_t channel, uint32_t co
     return std::clamp(p.tapAmount + field * amount * 0.54, 0.0, 1.0);
 }
 
-double resolvedChannelPitchSemitones(const Plugin& p, uint32_t channel, uint32_t count)
+template <typename Settings>
+double resolvedChannelPitchSemitones(const Settings& p, uint32_t channel, uint32_t count)
 {
     const auto topo = topologyPointForLane(p, channel, count);
     const double amount = topologyAmount(p);
@@ -645,321 +764,277 @@ double resolvedChannelPitchSemitones(const Plugin& p, uint32_t channel, uint32_t
         kPitchMaxSemitones);
 }
 
-void applyParamsToDsp(Plugin& p)
+constexpr std::array<clap_id, 29> kStoredParamIds {
+    kDelayMsParamId,
+    kFeedbackParamId,
+    kMixParamId,
+    kToneParamId,
+    kTopologySpreadParamId,
+    kTopologySkewParamId,
+    kTopologyJitterParamId,
+    kDisplaceCollapseParamId,
+    kDisplaceDirXParamId,
+    kDisplaceDirYParamId,
+    kDisplaceDirZParamId,
+    kDisplaceTwistParamId,
+    kDisplaceFlareParamId,
+    kPitchParamId,
+    kTopologyShapeParamId,
+    kCharacterParamId,
+    kOutputTrimParamId,
+    kTapParamId,
+    kTopologyMotionModeParamId,
+    kTopologyMotionRateParamId,
+    kTopologyMotionDepthParamId,
+    kTopologyNeighborCountParamId,
+    kTopologyRadiusParamId,
+    kTopologyCentroidParamId,
+    kTopologyMotionVariantParamId,
+    kRouteAmountParamId,
+    kRouteTurnParamId,
+    kRouteBranchParamId,
+    kRouteLossParamId,
+};
+
+template <typename Settings>
+bool assignSettingsParam(Settings& p, clap_id paramId, double value)
 {
-    const uint32_t topologyCount = std::max<uint32_t>(1, std::min<uint32_t>(kChannelCount, activePatchRows(p)));
-    for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
-        p.delay.setChannelDelayMs(static_cast<int>(ch), static_cast<float>(resolvedChannelDelayMs(p, ch, topologyCount)));
-        p.delay.setChannelFeedback(static_cast<int>(ch), static_cast<float>(resolvedChannelFeedback(p, ch, topologyCount)));
-        p.delay.setChannelTone(static_cast<int>(ch), static_cast<float>(resolvedChannelTone(p, ch, topologyCount)));
-        p.delay.setChannelNetwork(static_cast<int>(ch), static_cast<float>(resolvedChannelNetwork(p, ch, topologyCount)));
-        const auto neighbors = nearestTopologyNeighbors(p, ch, topologyCount);
-        p.delay.setChannelNetworkTopology(static_cast<int>(ch),
-            neighbors[0],
-            neighbors[1],
-            neighbors[2],
-            static_cast<int>(std::clamp<uint32_t>(p.topologyNeighborCount, 1u, 3u)),
-            static_cast<float>(p.topologyCentroid));
-        p.delay.setChannelCharacter(static_cast<int>(ch), static_cast<float>(resolvedChannelCharacter(p, ch, topologyCount)));
-        p.delay.setChannelSmearAmount(static_cast<int>(ch), static_cast<float>(resolvedChannelSmearAmount(p, ch, topologyCount)));
-        p.delay.setChannelPitchSemitones(static_cast<int>(ch), static_cast<float>(resolvedChannelPitchSemitones(p, ch, topologyCount)));
+    switch (paramId) {
+    case kDelayMsParamId: p.delayMs = clampDelayMs(value); break;
+    case kFeedbackParamId: p.feedback = clampFeedback(value); break;
+    case kMixParamId: p.mix = clamp01(value); break;
+    case kToneParamId: p.tone = clamp01(value); break;
+    case kCharacterParamId: p.character = clamp01(value); break;
+    case kTapParamId: p.tapAmount = clamp01(value); break;
+    case kOutputTrimParamId: p.outputTrimDb = clampOutputTrimDb(value); break;
+    case kPitchParamId: p.pitchSemitones = std::clamp(value, kPitchMinSemitones, kPitchMaxSemitones); break;
+    case kTopologyShapeParamId: p.topologyShape = std::min<uint32_t>(kTopologyShapeCount - 1u, roundedUint(value)); break;
+    case kTopologySpreadParamId: p.topologySpread = clamp01(value); break;
+    case kTopologySkewParamId: p.topologySkew = clampBipolar(value); break;
+    case kTopologyJitterParamId: p.topologyJitter = clamp01(value); break;
+    case kDisplaceCollapseParamId: p.displaceCollapse = clamp01(value); break;
+    case kDisplaceDirXParamId: p.displaceDirX = clampBipolar(value); break;
+    case kDisplaceDirYParamId: p.displaceDirY = clampBipolar(value); break;
+    case kDisplaceDirZParamId: p.displaceDirZ = clampBipolar(value); break;
+    case kDisplaceTwistParamId: p.displaceTwist = clampBipolar(value); break;
+    case kDisplaceFlareParamId: p.displaceFlare = clampBipolar(value); break;
+    case kTopologyMotionModeParamId:
+        p.topologyMotionMode = std::min<uint32_t>(kTopologyMotionModeCount - 1u, roundedUint(value));
+        break;
+    case kTopologyMotionVariantParamId: p.topologyMotionVariant = std::min<uint32_t>(kTopologyVariantCount - 1u, roundedUint(value)); break;
+    case kTopologyMotionRateParamId: p.topologyMotionRateHz = clampMotionRateHz(value); break;
+    case kTopologyMotionDepthParamId: p.topologyMotionDepth = clamp01(value); break;
+    case kTopologyNeighborCountParamId: p.topologyNeighborCount = std::clamp<uint32_t>(roundedUint(value), 1u, 3u); break;
+    case kTopologyRadiusParamId: p.topologyRadius = clamp01(value); break;
+    case kTopologyCentroidParamId: p.topologyCentroid = clamp01(value); break;
+    case kRouteAmountParamId: p.routeAmount = clamp01(value); break;
+    case kRouteTurnParamId: p.routeTurn = clampBipolar(value); break;
+    case kRouteBranchParamId: p.routeBranch = clamp01(value); break;
+    case kRouteLossParamId: p.routeLoss = clamp01(value); break;
+    default: return false;
+    }
+    return true;
+}
+
+template <typename Settings>
+bool settingsParamValue(const Settings& p, clap_id paramId, double& value)
+{
+    switch (paramId) {
+    case kDelayMsParamId: value = p.delayMs; break;
+    case kFeedbackParamId: value = p.feedback; break;
+    case kMixParamId: value = p.mix; break;
+    case kToneParamId: value = p.tone; break;
+    case kCharacterParamId: value = p.character; break;
+    case kTapParamId: value = p.tapAmount; break;
+    case kOutputTrimParamId: value = p.outputTrimDb; break;
+    case kPitchParamId: value = p.pitchSemitones; break;
+    case kTopologyShapeParamId: value = p.topologyShape; break;
+    case kTopologySpreadParamId: value = p.topologySpread; break;
+    case kTopologySkewParamId: value = p.topologySkew; break;
+    case kTopologyJitterParamId: value = p.topologyJitter; break;
+    case kDisplaceCollapseParamId: value = p.displaceCollapse; break;
+    case kDisplaceDirXParamId: value = p.displaceDirX; break;
+    case kDisplaceDirYParamId: value = p.displaceDirY; break;
+    case kDisplaceDirZParamId: value = p.displaceDirZ; break;
+    case kDisplaceTwistParamId: value = p.displaceTwist; break;
+    case kDisplaceFlareParamId: value = p.displaceFlare; break;
+    case kTopologyMotionModeParamId: value = p.topologyMotionMode; break;
+    case kTopologyMotionVariantParamId: value = p.topologyMotionVariant; break;
+    case kTopologyMotionRateParamId: value = p.topologyMotionRateHz; break;
+    case kTopologyMotionDepthParamId: value = p.topologyMotionDepth; break;
+    case kTopologyNeighborCountParamId: value = p.topologyNeighborCount; break;
+    case kTopologyRadiusParamId: value = p.topologyRadius; break;
+    case kTopologyCentroidParamId: value = p.topologyCentroid; break;
+    case kRouteAmountParamId: value = p.routeAmount; break;
+    case kRouteTurnParamId: value = p.routeTurn; break;
+    case kRouteBranchParamId: value = p.routeBranch; break;
+    case kRouteLossParamId: value = p.routeLoss; break;
+    default: return false;
+    }
+    return true;
+}
+
+void storeSettingsInParameterBank(Plugin& p, const DelaySettings& settings)
+{
+    for (const clap_id id : kStoredParamIds) {
+        double value = 0.0;
+        if (settingsParamValue(settings, id, value)) {
+            p.parameterValues[id].store(value, std::memory_order_relaxed);
+        }
+    }
+    p.parameterRevision.fetch_add(1u, std::memory_order_release);
+}
+
+void loadSettingsFromParameterBank(const Plugin& p, DelaySettings& settings)
+{
+    const double phase = settings.topologyMotionPhase;
+    for (const clap_id id : kStoredParamIds) {
+        assignSettingsParam(
+            settings, id,
+            p.parameterValues[id].load(std::memory_order_relaxed));
+    }
+    settings.topologyMotionPhase = phase;
+}
+
+void syncGuiSettings(Plugin& p)
+{
+    loadSettingsFromParameterBank(p, static_cast<DelaySettings&>(p));
+    p.topologyMotionPhase = p.publishedMotionPhase.load(
+        std::memory_order_relaxed);
+}
+
+void markTailChanged(Plugin& p)
+{
+    p.tailChangePending.store(true, std::memory_order_release);
+}
+
+void deliverTailChangedOnAudioThread(Plugin& p)
+{
+    if (p.tailChangePending.exchange(false, std::memory_order_acq_rel)
+        && p.host && p.hostTail && p.hostTail->changed) {
+        p.hostTail->changed(p.host);
     }
 }
 
-void applyTopologyMotionSceneDefaults(Plugin& p, uint32_t mode)
+void syncAudioPatch(Plugin& p, bool force = false)
 {
-    p.topologyMotionMode = std::min<uint32_t>(kTopologyMotionModeCount - 1u, mode);
-    p.topologyMotionVariant = 0;
-    p.topologyMotionPhase = 0.0;
-    switch (p.topologyMotionMode) {
-    case 1: // FREE
-        p.topologyShape = 11;
-        p.topologySpread = 0.45;
-        p.displaceCollapse = 0.28;
-        p.displaceDirX = 0.35;
-        p.displaceDirY = -0.20;
-        p.displaceDirZ = 0.85;
-        p.displaceTwist = 0.22;
-        p.displaceFlare = 0.12;
-        p.topologyJitter = 0.18;
-        p.topologyMotionRateHz = 0.18;
-        p.topologyMotionDepth = 0.72;
-        p.topologyNeighborCount = 2;
-        p.topologyRadius = 0.65;
-        p.topologyCentroid = 0.22;
-        break;
-    case 2: // DRIFT
-        p.topologyShape = 0;
-        p.topologySpread = 0.34;
-        p.displaceCollapse = 0.08;
-        p.displaceDirX = 0.25;
-        p.displaceDirY = -0.18;
-        p.displaceDirZ = 0.90;
-        p.displaceTwist = 0.08;
-        p.displaceFlare = 0.10;
-        p.topologyJitter = 0.10;
-        p.topologyMotionRateHz = 0.04;
-        p.topologyMotionDepth = 0.72;
-        p.topologyNeighborCount = 2;
-        p.topologyRadius = 0.75;
-        p.topologyCentroid = 0.16;
-        break;
-    case 3: // PULSE
-        p.topologyShape = 4;
-        p.topologySpread = 0.45;
-        p.displaceCollapse = 0.32;
-        p.displaceDirX = 0.0;
-        p.displaceDirY = 0.0;
-        p.displaceDirZ = 1.0;
-        p.displaceTwist = 0.0;
-        p.displaceFlare = 0.28;
-        p.topologyJitter = 0.04;
-        p.topologyMotionRateHz = 0.16;
-        p.topologyMotionDepth = 0.78;
-        p.topologyNeighborCount = 2;
-        p.topologyRadius = 0.62;
-        p.topologyCentroid = 0.32;
-        break;
-    case 4: // ORBIT
-        p.topologyShape = 3;
-        p.topologySpread = 0.52;
-        p.displaceCollapse = 0.0;
-        p.displaceDirX = 0.0;
-        p.displaceDirY = 1.0;
-        p.displaceDirZ = 0.10;
-        p.displaceTwist = 0.08;
-        p.displaceFlare = 0.0;
-        p.topologyJitter = 0.08;
-        p.topologyMotionRateHz = 0.10;
-        p.topologyMotionDepth = 0.78;
-        p.topologyNeighborCount = 2;
-        p.topologyRadius = 0.80;
-        p.topologyCentroid = 0.18;
-        break;
-    case 5: // FOLD
-        p.topologyShape = 2;
-        p.topologySpread = 0.58;
-        p.displaceCollapse = 0.38;
-        p.displaceDirX = 0.0;
-        p.displaceDirY = 0.20;
-        p.displaceDirZ = 1.0;
-        p.displaceTwist = 0.40;
-        p.displaceFlare = -0.24;
-        p.topologyJitter = 0.06;
-        p.topologyMotionRateHz = 0.12;
-        p.topologyMotionDepth = 0.72;
-        p.topologyNeighborCount = 2;
-        p.topologyRadius = 0.55;
-        p.topologyCentroid = 0.34;
-        break;
-    case 6: // WEAVE
-        p.topologyShape = 8;
-        p.topologySpread = 0.48;
-        p.displaceCollapse = 0.10;
-        p.displaceDirX = 0.36;
-        p.displaceDirY = -0.20;
-        p.displaceDirZ = 0.86;
-        p.displaceTwist = 0.18;
-        p.displaceFlare = -0.14;
-        p.topologyJitter = 0.08;
-        p.topologyMotionRateHz = 0.14;
-        p.topologyMotionDepth = 0.74;
-        p.topologyNeighborCount = 2;
-        p.topologyRadius = 0.70;
-        p.topologyCentroid = 0.20;
-        break;
-    case 7: // GRID
-        p.topologyShape = 10;
-        p.topologySpread = 0.62;
-        p.displaceCollapse = 0.02;
-        p.displaceDirX = 0.0;
-        p.displaceDirY = 0.0;
-        p.displaceDirZ = 1.0;
-        p.displaceTwist = 0.12;
-        p.displaceFlare = 0.10;
-        p.topologyJitter = 0.02;
-        p.topologyMotionRateHz = 0.11;
-        p.topologyMotionDepth = 0.68;
-        p.topologyNeighborCount = 3;
-        p.topologyRadius = 0.58;
-        p.topologyCentroid = 0.20;
-        break;
-    case 8: // TRACE
-        p.topologyShape = 11;
-        p.topologySpread = 0.50;
-        p.displaceCollapse = 0.08;
-        p.displaceDirX = 0.20;
-        p.displaceDirY = 0.16;
-        p.displaceDirZ = 0.96;
-        p.displaceTwist = 0.16;
-        p.displaceFlare = 0.08;
-        p.topologyJitter = 0.12;
-        p.topologyMotionRateHz = 0.09;
-        p.topologyMotionDepth = 0.76;
-        p.topologyNeighborCount = 2;
-        p.topologyRadius = 0.72;
-        p.topologyCentroid = 0.18;
-        break;
-    case 9: // HOVER
-        p.topologyShape = 4;
-        p.topologySpread = 0.30;
-        p.displaceCollapse = 0.22;
-        p.displaceDirX = 0.0;
-        p.displaceDirY = 0.55;
-        p.displaceDirZ = 0.88;
-        p.displaceTwist = 0.02;
-        p.displaceFlare = 0.06;
-        p.topologyJitter = 0.04;
-        p.topologyMotionRateHz = 0.05;
-        p.topologyMotionDepth = 0.64;
-        p.topologyNeighborCount = 2;
-        p.topologyRadius = 0.62;
-        p.topologyCentroid = 0.30;
-        break;
-    case 10: // LEAP
-        p.topologyShape = 6;
-        p.topologySpread = 0.42;
-        p.displaceCollapse = 0.12;
-        p.displaceDirX = 0.20;
-        p.displaceDirY = -0.10;
-        p.displaceDirZ = 0.90;
-        p.displaceTwist = 0.14;
-        p.displaceFlare = 0.28;
-        p.topologyJitter = 0.22;
-        p.topologyMotionRateHz = 0.22;
-        p.topologyMotionDepth = 0.76;
-        p.topologyNeighborCount = 1;
-        p.topologyRadius = 0.52;
-        p.topologyCentroid = 0.12;
-        break;
-    case 11: // FIELD
-        p.topologyShape = 4;
-        p.topologySpread = 0.56;
-        p.displaceCollapse = 0.06;
-        p.displaceDirX = 0.0;
-        p.displaceDirY = 0.0;
-        p.displaceDirZ = 1.0;
-        p.displaceTwist = 0.28;
-        p.displaceFlare = 0.18;
-        p.topologyJitter = 0.10;
-        p.topologyMotionRateHz = 0.12;
-        p.topologyMotionDepth = 0.70;
-        p.topologyNeighborCount = 3;
-        p.topologyRadius = 0.68;
-        p.topologyCentroid = 0.26;
-        break;
-    case 12: // PAIR
-        p.topologyShape = 7;
-        p.topologySpread = 0.38;
-        p.displaceCollapse = 0.12;
-        p.displaceDirX = 0.0;
-        p.displaceDirY = 0.0;
-        p.displaceDirZ = 1.0;
-        p.displaceTwist = 0.10;
-        p.displaceFlare = 0.20;
-        p.topologyJitter = 0.02;
-        p.topologyMotionRateHz = 0.10;
-        p.topologyMotionDepth = 0.68;
-        p.topologyNeighborCount = 1;
-        p.topologyRadius = 0.45;
-        p.topologyCentroid = 0.18;
-        break;
-    case 13: // FLOW
-        p.topologyShape = 3;
-        p.topologySpread = 0.50;
-        p.displaceCollapse = 0.04;
-        p.displaceDirX = 0.12;
-        p.displaceDirY = 0.20;
-        p.displaceDirZ = 0.94;
-        p.displaceTwist = 0.22;
-        p.displaceFlare = 0.06;
-        p.topologyJitter = 0.08;
-        p.topologyMotionRateHz = 0.13;
-        p.topologyMotionDepth = 0.72;
-        p.topologyNeighborCount = 2;
-        p.topologyRadius = 0.78;
-        p.topologyCentroid = 0.16;
-        break;
-    case 14: // GROUP
-        p.topologyShape = 6;
-        p.topologySpread = 0.44;
-        p.displaceCollapse = 0.24;
-        p.displaceDirX = 0.0;
-        p.displaceDirY = 0.0;
-        p.displaceDirZ = 1.0;
-        p.displaceTwist = 0.08;
-        p.displaceFlare = 0.10;
-        p.topologyJitter = 0.18;
-        p.topologyMotionRateHz = 0.08;
-        p.topologyMotionDepth = 0.68;
-        p.topologyNeighborCount = 3;
-        p.topologyRadius = 0.60;
-        p.topologyCentroid = 0.38;
-        break;
-    case 15: // MARCH
-        p.topologyShape = 9;
-        p.topologySpread = 0.62;
-        p.displaceCollapse = 0.02;
-        p.displaceDirX = 1.0;
-        p.displaceDirY = 0.0;
-        p.displaceDirZ = 0.0;
-        p.displaceTwist = 0.04;
-        p.displaceFlare = 0.0;
-        p.topologyJitter = 0.00;
-        p.topologyMotionRateHz = 0.16;
-        p.topologyMotionDepth = 0.66;
-        p.topologyNeighborCount = 2;
-        p.topologyRadius = 0.54;
-        p.topologyCentroid = 0.12;
-        break;
-    case 16: // PATH
-        p.topologyShape = 9;
-        p.topologySpread = 0.54;
-        p.displaceCollapse = 0.14;
-        p.displaceDirX = 0.35;
-        p.displaceDirY = 0.10;
-        p.displaceDirZ = 0.90;
-        p.displaceTwist = 0.18;
-        p.displaceFlare = 0.06;
-        p.topologyJitter = 0.08;
-        p.topologyMotionRateHz = 0.12;
-        p.topologyMotionDepth = 0.72;
-        p.topologyNeighborCount = 2;
-        p.topologyRadius = 0.64;
-        p.topologyCentroid = 0.20;
-        break;
-    case 17: // SCAT
-        p.topologyShape = 6;
-        p.topologySpread = 0.58;
-        p.displaceCollapse = 0.04;
-        p.displaceDirX = 0.10;
-        p.displaceDirY = -0.10;
-        p.displaceDirZ = 0.95;
-        p.displaceTwist = 0.10;
-        p.displaceFlare = 0.22;
-        p.topologyJitter = 0.38;
-        p.topologyMotionRateHz = 0.18;
-        p.topologyMotionDepth = 0.78;
-        p.topologyNeighborCount = 1;
-        p.topologyRadius = 0.50;
-        p.topologyCentroid = 0.10;
-        break;
-    case 0:
-    default:
-        p.topologyMotionMode = 0;
-        p.topologyMotionDepth = 0.0;
-        break;
+    const uint64_t revision = p.patchRevision.load(std::memory_order_acquire);
+    if (!force && revision == p.audioPatchRevision) return;
+    p.audioActiveLaneCount = 0u;
+    for (uint32_t row = 0; row < kChannelCount; ++row) {
+        const uint64_t mask = p.patchRowsPublished[row].load(
+            std::memory_order_acquire);
+        p.audioPatchRows[row] = mask;
+        if (mask != 0u) {
+            p.audioActiveLanes[p.audioActiveLaneCount++] = row;
+        }
     }
+    if (p.audioActiveLaneCount == 0u) {
+        for (uint32_t row = 0; row < kChannelCount; ++row) {
+            p.audioActiveLanes[row] = row;
+        }
+        p.audioActiveLaneCount = kChannelCount;
+    }
+    p.audioPatchRevision = revision;
+}
+
+void applyParamsToDsp(Plugin& p, const DelaySettings& settings)
+{
+    const uint32_t topologyCount = std::max<uint32_t>(
+        1u, std::min<uint32_t>(kChannelCount, p.audioActiveLaneCount));
+    for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
+        uint32_t logicalLane = 0u;
+        bool laneIsActive = false;
+        for (uint32_t ordinal = 0; ordinal < topologyCount; ++ordinal) {
+            if (p.audioActiveLanes[ordinal] == ch) {
+                logicalLane = ordinal;
+                laneIsActive = true;
+                break;
+            }
+        }
+        p.delay.setChannelDelayMs(static_cast<int>(ch), static_cast<float>(resolvedChannelDelayMs(settings, logicalLane, topologyCount)));
+        p.delay.setChannelFeedback(static_cast<int>(ch), static_cast<float>(resolvedChannelFeedback(settings, logicalLane, topologyCount)));
+        p.delay.setChannelTone(static_cast<int>(ch), static_cast<float>(resolvedChannelTone(settings, logicalLane, topologyCount)));
+        p.delay.setChannelNetwork(static_cast<int>(ch), static_cast<float>(resolvedChannelNetwork(settings, logicalLane, topologyCount)));
+        const auto logicalNeighbors = nearestTopologyNeighbors(settings, logicalLane, topologyCount);
+        std::array<int, 3> physicalNeighbors {
+            static_cast<int>(ch), static_cast<int>(ch), static_cast<int>(ch)
+        };
+        if (laneIsActive) {
+            for (uint32_t i = 0; i < physicalNeighbors.size(); ++i) {
+                const int logical = logicalNeighbors[i];
+                if (logical >= 0 && static_cast<uint32_t>(logical) < topologyCount) {
+                    physicalNeighbors[i] = static_cast<int>(
+                        p.audioActiveLanes[static_cast<uint32_t>(logical)]);
+                }
+            }
+        }
+        p.delay.setChannelNetworkTopology(static_cast<int>(ch),
+            physicalNeighbors[0],
+            physicalNeighbors[1],
+            physicalNeighbors[2],
+            laneIsActive
+                ? static_cast<int>(std::clamp<uint32_t>(settings.topologyNeighborCount, 1u, 3u))
+                : 0,
+            static_cast<float>(settings.topologyCentroid));
+        p.delay.setChannelCharacter(static_cast<int>(ch), static_cast<float>(resolvedChannelCharacter(settings, logicalLane, topologyCount)));
+        p.delay.setChannelSmearAmount(static_cast<int>(ch), static_cast<float>(resolvedChannelSmearAmount(settings, logicalLane, topologyCount)));
+        p.delay.setChannelPitchSemitones(static_cast<int>(ch), static_cast<float>(resolvedChannelPitchSemitones(settings, logicalLane, topologyCount)));
+    }
+
+    s3g::DelayRouteParams route {};
+    route.route = static_cast<float>(settings.routeAmount);
+    route.turn = static_cast<float>(settings.routeTurn);
+    route.branch = static_cast<float>(settings.routeBranch);
+    route.loss = static_cast<float>(settings.routeLoss);
+    p.delay.setRouteParams(route);
+    p.delay.setTopology(
+        topologyStateForPlugin(settings),
+        p.audioActiveLanes.data(), p.audioActiveLaneCount);
+}
+
+void syncAudioSettings(Plugin& p, bool force = false)
+{
+    const uint64_t parameterRevision = p.parameterRevision.load(
+        std::memory_order_acquire);
+    const uint64_t patchRevision = p.patchRevision.load(
+        std::memory_order_acquire);
+    const bool parametersChanged = force
+        || parameterRevision != p.audioParameterRevision;
+    const bool patchChanged = force || patchRevision != p.audioPatchRevision;
+    if (!parametersChanged && !patchChanged) return;
+
+    if (patchChanged) syncAudioPatch(p, true);
+    if (parametersChanged) {
+        loadSettingsFromParameterBank(p, p.audioSettings);
+        if (p.motionPhaseRestorePending.exchange(
+                false, std::memory_order_acq_rel)) {
+            p.audioSettings.topologyMotionPhase =
+                p.publishedMotionPhase.load(std::memory_order_relaxed);
+        }
+        if (p.audioSettings.topologyMotionMode == 0u) {
+            p.audioSettings.topologyMotionPhase = 0.0;
+            p.publishedMotionPhase.store(0.0, std::memory_order_relaxed);
+        }
+        p.audioParameterRevision = parameterRevision;
+    }
+    p.audioClearUnused = p.clearUnusedPublished.load(std::memory_order_acquire);
+    applyParamsToDsp(p, p.audioSettings);
 }
 
 void advanceTopologyMotion(Plugin& p, uint32_t frames)
 {
-    if (!topologyMotionActive(p) || p.sampleRate <= 0.0 || frames == 0) {
+    auto& settings = p.audioSettings;
+    if (!topologyMotionActive(settings) || p.sampleRate <= 0.0 || frames == 0) {
         return;
     }
-    p.topologyMotionPhase += (static_cast<double>(frames) / p.sampleRate) * p.topologyMotionRateHz;
-    p.topologyMotionPhase -= std::floor(p.topologyMotionPhase);
-    applyParamsToDsp(p);
+    settings.topologyMotionPhase +=
+        (static_cast<double>(frames) / p.sampleRate)
+        * settings.topologyMotionRateHz;
+    settings.topologyMotionPhase -= std::floor(settings.topologyMotionPhase);
+    p.publishedMotionPhase.store(
+        settings.topologyMotionPhase, std::memory_order_relaxed);
+    applyParamsToDsp(p, settings);
     requestGuiRedraw(p);
 }
 
@@ -994,6 +1069,12 @@ void preparePatch(Plugin& p)
     if (!hasPatch) {
         p.patch.setIdentity(kChannelCount);
     }
+    p.clearUnusedPublished.store(p.clearUnused, std::memory_order_release);
+    for (uint32_t row = 0; row < kChannelCount; ++row) {
+        p.patchRowsPublished[row].store(
+            p.patch.rowMask(row), std::memory_order_relaxed);
+    }
+    p.patchRevision.fetch_add(1u, std::memory_order_release);
 }
 
 void togglePatchCellFromGui(Plugin& p, uint32_t input, uint32_t output)
@@ -1001,18 +1082,9 @@ void togglePatchCellFromGui(Plugin& p, uint32_t input, uint32_t output)
     p.clearUnused = !kLockUnusedChannelsToPassThrough;
     p.patch.setWidth(kChannelCount);
     p.patch.toggle(input, output);
-    applyParamsToDsp(p);
-}
-
-uint32_t activePatchRows(const Plugin& p)
-{
-    uint32_t count = 0;
-    for (uint32_t row = 0; row < kChannelCount; ++row) {
-        if (p.patch.rowMask(row) != 0) {
-            ++count;
-        }
-    }
-    return count > 0 ? count : kChannelCount;
+    preparePatch(p);
+    markTailChanged(p);
+    requestGuiRedraw(p);
 }
 
 bool init(const clap_plugin_t*) { return true; }
@@ -1038,7 +1110,9 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     p->outputClip.store(false, std::memory_order_relaxed);
     preparePatch(*p);
     p->delay.prepare(sampleRate, static_cast<int>(kChannelCount), 2.25);
-    applyParamsToDsp(*p);
+    syncAudioSettings(*p, true);
+    publishRouteTelemetry(*p);
+    publishLegacyTail(*p, 0u, true);
     return true;
 }
 
@@ -1057,7 +1131,9 @@ void reset(const clap_plugin_t* plugin)
     p->delay.reset();
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
     p->outputClip.store(false, std::memory_order_relaxed);
-    applyParamsToDsp(*p);
+    syncAudioSettings(*p, true);
+    publishRouteTelemetry(*p);
+    publishLegacyTail(*p, 0u, true);
 }
 
 bool paramAffectsTail(clap_id paramId)
@@ -1082,6 +1158,10 @@ bool paramAffectsTail(clap_id paramId)
     case kTopologyNeighborCountParamId:
     case kTopologyRadiusParamId:
     case kTopologyCentroidParamId:
+    case kRouteAmountParamId:
+    case kRouteTurnParamId:
+    case kRouteBranchParamId:
+    case kRouteLossParamId:
         return true;
     default:
         return false;
@@ -1090,93 +1170,17 @@ bool paramAffectsTail(clap_id paramId)
 
 void setParam(Plugin& p, clap_id paramId, double value)
 {
-    const bool tailWasAffected = paramAffectsTail(paramId);
-    switch (paramId) {
-    case kDelayMsParamId:
-        p.delayMs = clampDelayMs(value);
-        break;
-    case kFeedbackParamId:
-        p.feedback = clampFeedback(value);
-        break;
-    case kMixParamId:
-        p.mix = clamp01(value);
-        break;
-    case kToneParamId:
-        p.tone = clamp01(value);
-        break;
-    case kCharacterParamId:
-        p.character = clamp01(value);
-        break;
-    case kTapParamId:
-        p.tapAmount = clamp01(value);
-        break;
-    case kOutputTrimParamId:
-        p.outputTrimDb = clampOutputTrimDb(value);
-        break;
-    case kPitchParamId:
-        p.pitchSemitones = std::clamp(value, kPitchMinSemitones, kPitchMaxSemitones);
-        break;
-    case kTopologyShapeParamId:
-        p.topologyShape = std::min<uint32_t>(kTopologyShapeCount - 1u, roundedUint(value));
-        break;
-    case kTopologySpreadParamId:
-        p.topologySpread = clamp01(value);
-        break;
-    case kTopologySkewParamId:
-        p.topologySkew = std::clamp(value, -1.0, 1.0);
-        break;
-    case kTopologyJitterParamId:
-        p.topologyJitter = clamp01(value);
-        break;
-    case kDisplaceCollapseParamId:
-        p.displaceCollapse = clamp01(value);
-        break;
-    case kDisplaceDirXParamId:
-        p.displaceDirX = clampBipolar(value);
-        break;
-    case kDisplaceDirYParamId:
-        p.displaceDirY = clampBipolar(value);
-        break;
-    case kDisplaceDirZParamId:
-        p.displaceDirZ = clampBipolar(value);
-        break;
-    case kDisplaceTwistParamId:
-        p.displaceTwist = clampBipolar(value);
-        break;
-    case kDisplaceFlareParamId:
-        p.displaceFlare = clampBipolar(value);
-        break;
-    case kTopologyMotionModeParamId:
-        p.topologyMotionMode = std::min<uint32_t>(kTopologyMotionModeCount - 1u, roundedUint(value));
-        if (p.topologyMotionMode == 0u) {
-            p.topologyMotionPhase = 0.0;
-        }
-        break;
-    case kTopologyMotionVariantParamId:
-        p.topologyMotionVariant = std::min<uint32_t>(kTopologyVariantCount - 1u, roundedUint(value));
-        break;
-    case kTopologyMotionRateParamId:
-        p.topologyMotionRateHz = clampMotionRateHz(value);
-        break;
-    case kTopologyMotionDepthParamId:
-        p.topologyMotionDepth = clamp01(value);
-        break;
-    case kTopologyNeighborCountParamId:
-        p.topologyNeighborCount = std::clamp<uint32_t>(roundedUint(value), 1u, 3u);
-        break;
-    case kTopologyRadiusParamId:
-        p.topologyRadius = clamp01(value);
-        break;
-    case kTopologyCentroidParamId:
-        p.topologyCentroid = clamp01(value);
-        break;
-    default:
-        return;
+    DelaySettings sanitized {};
+    if (!assignSettingsParam(sanitized, paramId, value)) return;
+    double storedValue = 0.0;
+    settingsParamValue(sanitized, paramId, storedValue);
+    p.parameterValues[paramId].store(storedValue, std::memory_order_relaxed);
+    p.parameterRevision.fetch_add(1u, std::memory_order_release);
+    if (paramId == kTopologyMotionModeParamId && roundedUint(storedValue) == 0u) {
+        p.publishedMotionPhase.store(0.0, std::memory_order_relaxed);
+        p.motionPhaseRestorePending.store(true, std::memory_order_release);
     }
-    applyParamsToDsp(p);
-    if (tailWasAffected && p.hostTail && p.hostTail->changed) {
-        p.hostTail->changed(p.host);
-    }
+    if (paramAffectsTail(paramId)) markTailChanged(p);
     requestGuiRedraw(p);
 }
 
@@ -1261,7 +1265,7 @@ void clearOutputs(const clap_audio_buffer_t& output, uint32_t channels, uint32_t
 
 float applyOutputStage(Plugin& p, float value, float& blockPeak, bool& blockClip)
 {
-    const float trimmed = value * dbToGain(p.outputTrimDb);
+    const float trimmed = value * dbToGain(p.audioSettings.outputTrimDb);
     const float peak = std::fabs(trimmed);
     blockPeak = std::max(blockPeak, peak);
     blockClip = blockClip || peak >= 0.98f;
@@ -1289,8 +1293,55 @@ void publishOutputMeter(Plugin& p, float blockPeak, bool blockClip, uint32_t fra
 #endif
 }
 
+void publishRouteTelemetry(Plugin& p)
+{
+    for (uint32_t source = 0; source < kChannelCount; ++source) {
+        p.routeNodeEnergy[source].store(
+            p.delay.nodeEnergy(source), std::memory_order_relaxed);
+        for (uint32_t destination = 0; destination < kChannelCount; ++destination) {
+            p.routeEdgeEnergy[source][destination].store(
+                p.delay.edgeEnergy(source, destination),
+                std::memory_order_relaxed);
+            p.routeEdgePhase[source][destination].store(
+                p.delay.edgePhase(source, destination),
+                std::memory_order_relaxed);
+        }
+    }
+    p.routeCentroidEnergy.store(
+        p.delay.centroidEnergy(), std::memory_order_relaxed);
+    p.routeCentroidPhase.store(
+        p.delay.centroidPhase(), std::memory_order_relaxed);
+    p.publishedRouteTailFrames.store(
+        std::max(p.delay.routeTailFrames(),
+            p.delay.routeTailRemainingFrames()),
+        std::memory_order_relaxed);
+}
+
+void noteLegacyTailTarget(Plugin& p)
+{
+    p.audioLegacyTailRemainingFrames = std::max(
+        p.audioLegacyTailRemainingFrames,
+        legacyTailEstimateFrames(p.audioSettings, p.sampleRate));
+}
+
+void publishLegacyTail(Plugin& p, uint32_t elapsedFrames, bool clearResidual)
+{
+    if (clearResidual) {
+        p.audioLegacyTailRemainingFrames = 0u;
+    } else if (p.audioLegacyTailRemainingFrames > elapsedFrames) {
+        p.audioLegacyTailRemainingFrames -= elapsedFrames;
+    } else {
+        p.audioLegacyTailRemainingFrames = 0u;
+    }
+    noteLegacyTailTarget(p);
+    p.publishedLegacyTailFrames.store(
+        p.audioLegacyTailRemainingFrames, std::memory_order_release);
+}
+
 void processFloatSegment(Plugin& p, const clap_audio_buffer_t& input, const clap_audio_buffer_t& output, uint32_t startFrame, uint32_t frames)
 {
+    syncAudioSettings(p);
+    noteLegacyTailTarget(p);
     advanceTopologyMotion(p, frames);
     std::array<float, kChannelCount> inFrame {};
     std::array<float, kChannelCount> wetFrame {};
@@ -1311,11 +1362,11 @@ void processFloatSegment(Plugin& p, const clap_audio_buffer_t& input, const clap
             bool hasConnection = false;
             const uint64_t outBit = uint64_t { 1 } << outCh;
             for (uint32_t inCh = 0; inCh < kChannelCount; ++inCh) {
-                if ((p.patch.rowMask(inCh) & outBit) == 0) {
+                if ((p.audioPatchRows[inCh] & outBit) == 0) {
                     continue;
                 }
                 hasConnection = true;
-                sum += s3g::lerp(inFrame[inCh], wetFrame[inCh], static_cast<float>(p.mix));
+                sum += s3g::lerp(inFrame[inCh], wetFrame[inCh], static_cast<float>(p.audioSettings.mix));
             }
             if (hasConnection) {
                 const float out = applyOutputStage(p, sum, blockPeak, blockClip);
@@ -1330,6 +1381,8 @@ void processFloatSegment(Plugin& p, const clap_audio_buffer_t& input, const clap
 
 void processDoubleSegment(Plugin& p, const clap_audio_buffer_t& input, const clap_audio_buffer_t& output, uint32_t startFrame, uint32_t frames)
 {
+    syncAudioSettings(p);
+    noteLegacyTailTarget(p);
     advanceTopologyMotion(p, frames);
     std::array<float, kChannelCount> inFrame {};
     std::array<float, kChannelCount> wetFrame {};
@@ -1350,11 +1403,11 @@ void processDoubleSegment(Plugin& p, const clap_audio_buffer_t& input, const cla
             bool hasConnection = false;
             const uint64_t outBit = uint64_t { 1 } << outCh;
             for (uint32_t inCh = 0; inCh < kChannelCount; ++inCh) {
-                if ((p.patch.rowMask(inCh) & outBit) == 0) {
+                if ((p.audioPatchRows[inCh] & outBit) == 0) {
                     continue;
                 }
                 hasConnection = true;
-                sum += s3g::lerp(inFrame[inCh], wetFrame[inCh], static_cast<float>(p.mix));
+                sum += s3g::lerp(inFrame[inCh], wetFrame[inCh], static_cast<float>(p.audioSettings.mix));
             }
             if (hasConnection) {
                 const float out = applyOutputStage(p, sum, blockPeak, blockClip);
@@ -1405,9 +1458,15 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 {
     auto* p = self(plugin);
     const uint32_t frames = process->frames_count;
+    syncAudioSettings(*p);
+    deliverTailChangedOnAudioThread(*p);
 
     if (process->audio_inputs_count == 0 || process->audio_outputs_count == 0) {
         readParamEvents(*p, process->in_events);
+        syncAudioSettings(*p);
+        publishRouteTelemetry(*p);
+        publishLegacyTail(*p, frames, false);
+        deliverTailChangedOnAudioThread(*p);
         return CLAP_PROCESS_CONTINUE;
     }
 
@@ -1416,7 +1475,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     const uint32_t channels = std::min({ input.channel_count, output.channel_count, kChannelCount });
 
     if (channels == kChannelCount && input.data32 && output.data32) {
-        if (p->clearUnused && !kLockUnusedChannelsToPassThrough) {
+        if (p->audioClearUnused && !kLockUnusedChannelsToPassThrough) {
             clearOutputs(output, kChannelCount, frames);
         } else {
             copyAvailableChannels(input, output, kChannelCount, frames);
@@ -1426,7 +1485,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
                 processFloatSegment(*p, input, output, start, count);
             });
     } else if (channels == kChannelCount && input.data64 && output.data64) {
-        if (p->clearUnused && !kLockUnusedChannelsToPassThrough) {
+        if (p->audioClearUnused && !kLockUnusedChannelsToPassThrough) {
             clearOutputs(output, kChannelCount, frames);
         } else {
             copyAvailableChannels(input, output, kChannelCount, frames);
@@ -1440,7 +1499,11 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         copyAvailableChannels(input, output, channels, frames);
     }
 
-    finishExtraOutputs(input, output, channels, frames, !p->clearUnused || kLockUnusedChannelsToPassThrough);
+    finishExtraOutputs(input, output, channels, frames, !p->audioClearUnused || kLockUnusedChannelsToPassThrough);
+    syncAudioSettings(*p);
+    publishRouteTelemetry(*p);
+    publishLegacyTail(*p, frames, false);
+    deliverTailChangedOnAudioThread(*p);
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -1481,7 +1544,7 @@ const clap_plugin_audio_ports_t audioPorts {
     audioPortsGet
 };
 
-uint32_t paramsCount(const clap_plugin_t*) { return 24; }
+uint32_t paramsCount(const clap_plugin_t*) { return 28; }
 
 bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info)
 {
@@ -1504,7 +1567,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         info->id = kFeedbackParamId;
         std::strncpy(info->name, "Feedback", sizeof(info->name));
         info->min_value = 0.0;
-        info->max_value = 0.95;
+        info->max_value = 0.82;
         info->default_value = 0.35;
         return true;
     case 2:
@@ -1681,6 +1744,38 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         info->max_value = 1.0;
         info->default_value = 0.22;
         return true;
+    case 24:
+        info->id = kRouteAmountParamId;
+        std::strncpy(info->name, "Route", sizeof(info->name));
+        std::strncpy(info->module, "Echo Routes", sizeof(info->module));
+        info->min_value = 0.0;
+        info->max_value = 1.0;
+        info->default_value = 0.0;
+        return true;
+    case 25:
+        info->id = kRouteTurnParamId;
+        std::strncpy(info->name, "Turn", sizeof(info->name));
+        std::strncpy(info->module, "Echo Routes", sizeof(info->module));
+        info->min_value = -1.0;
+        info->max_value = 1.0;
+        info->default_value = 0.0;
+        return true;
+    case 26:
+        info->id = kRouteBranchParamId;
+        std::strncpy(info->name, "Branch", sizeof(info->name));
+        std::strncpy(info->module, "Echo Routes", sizeof(info->module));
+        info->min_value = 0.0;
+        info->max_value = 1.0;
+        info->default_value = 0.35;
+        return true;
+    case 27:
+        info->id = kRouteLossParamId;
+        std::strncpy(info->name, "Loss", sizeof(info->name));
+        std::strncpy(info->module, "Echo Routes", sizeof(info->module));
+        info->min_value = 0.0;
+        info->max_value = 1.0;
+        info->default_value = 0.25;
+        return true;
     default:
         return false;
     }
@@ -1693,85 +1788,13 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
     }
 
     const auto* p = self(plugin);
-    switch (paramId) {
-    case kDelayMsParamId:
-        *value = p->delayMs;
-        return true;
-    case kFeedbackParamId:
-        *value = p->feedback;
-        return true;
-    case kMixParamId:
-        *value = p->mix;
-        return true;
-    case kToneParamId:
-        *value = p->tone;
-        return true;
-    case kCharacterParamId:
-        *value = p->character;
-        return true;
-    case kTapParamId:
-        *value = p->tapAmount;
-        return true;
-    case kOutputTrimParamId:
-        *value = p->outputTrimDb;
-        return true;
-    case kPitchParamId:
-        *value = p->pitchSemitones;
-        return true;
-    case kTopologyShapeParamId:
-        *value = static_cast<double>(p->topologyShape);
-        return true;
-    case kTopologySpreadParamId:
-        *value = p->topologySpread;
-        return true;
-    case kTopologySkewParamId:
-        *value = p->topologySkew;
-        return true;
-    case kTopologyJitterParamId:
-        *value = p->topologyJitter;
-        return true;
-    case kDisplaceCollapseParamId:
-        *value = p->displaceCollapse;
-        return true;
-    case kDisplaceDirXParamId:
-        *value = p->displaceDirX;
-        return true;
-    case kDisplaceDirYParamId:
-        *value = p->displaceDirY;
-        return true;
-    case kDisplaceDirZParamId:
-        *value = p->displaceDirZ;
-        return true;
-    case kDisplaceTwistParamId:
-        *value = p->displaceTwist;
-        return true;
-    case kDisplaceFlareParamId:
-        *value = p->displaceFlare;
-        return true;
-    case kTopologyMotionModeParamId:
-        *value = static_cast<double>(p->topologyMotionMode);
-        return true;
-    case kTopologyMotionVariantParamId:
-        *value = static_cast<double>(p->topologyMotionVariant);
-        return true;
-    case kTopologyMotionRateParamId:
-        *value = p->topologyMotionRateHz;
-        return true;
-    case kTopologyMotionDepthParamId:
-        *value = p->topologyMotionDepth;
-        return true;
-    case kTopologyNeighborCountParamId:
-        *value = static_cast<double>(p->topologyNeighborCount);
-        return true;
-    case kTopologyRadiusParamId:
-        *value = p->topologyRadius;
-        return true;
-    case kTopologyCentroidParamId:
-        *value = p->topologyCentroid;
-        return true;
-    default:
+    if (paramId >= kParameterBankSize
+        || std::find(kStoredParamIds.begin(), kStoredParamIds.end(), paramId)
+            == kStoredParamIds.end()) {
         return false;
     }
+    *value = p->parameterValues[paramId].load(std::memory_order_relaxed);
+    return true;
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char* display, uint32_t size)
@@ -1816,6 +1839,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
     case kTopologyMotionDepthParamId:
     case kTopologyRadiusParamId:
     case kTopologyCentroidParamId:
+    case kRouteAmountParamId:
+    case kRouteBranchParamId:
+    case kRouteLossParamId:
         std::snprintf(display, size, "%.1f %%", value * 100.0);
         return true;
     case kTopologySkewParamId:
@@ -1824,6 +1850,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char
     case kDisplaceDirZParamId:
     case kDisplaceTwistParamId:
     case kDisplaceFlareParamId:
+    case kRouteTurnParamId:
         std::snprintf(display, size, "%+.1f %%", value * 100.0);
         return true;
     default:
@@ -1892,6 +1919,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* displa
     case kTopologyMotionDepthParamId:
     case kTopologyRadiusParamId:
     case kTopologyCentroidParamId:
+    case kRouteAmountParamId:
+    case kRouteBranchParamId:
+    case kRouteLossParamId:
         if (std::strchr(display, '%') || *value > 1.0) {
             *value *= 0.01;
         }
@@ -1902,6 +1932,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* displa
     case kDisplaceDirZParamId:
     case kDisplaceTwistParamId:
     case kDisplaceFlareParamId:
+    case kRouteTurnParamId:
         if (std::strchr(display, '%') || *value < -1.0 || *value > 1.0) {
             *value *= 0.01;
         }
@@ -1941,19 +1972,23 @@ uint32_t tailGet(const clap_plugin_t* plugin)
         return 0;
     }
 
-    const double amount = topologyAmount(*p);
-    const double feedbackEstimate = std::clamp(
-        p->feedback + amount * kTopologyFeedbackSpread + p->topologyJitter * kTopologyFeedbackJitter,
-        0.0,
-        0.95);
-    if (feedbackEstimate >= 0.80 || resolvedChannelNetwork(*p, 0, kChannelCount) > 0.45) {
-        return static_cast<uint32_t>(std::numeric_limits<int32_t>::max());
-    }
+    DelaySettings settings {};
+    loadSettingsFromParameterBank(*p, settings);
+    const uint64_t legacyFrames = std::max<uint32_t>(
+        legacyTailEstimateFrames(settings, p->sampleRate),
+        p->publishedLegacyTailFrames.load(std::memory_order_acquire));
 
-    const double delaySeconds = kDelayMaxMs * 0.001;
-    const double repeatsToMinus60 = feedbackEstimate > 0.001 ? std::ceil(std::log(0.001) / std::log(feedbackEstimate)) : 1.0;
-    const double tailSeconds = std::clamp(delaySeconds * repeatsToMinus60 + 0.5, 0.5, 30.0);
-    return static_cast<uint32_t>(std::ceil(tailSeconds * p->sampleRate));
+    uint64_t routeFrames = p->publishedRouteTailFrames.load(
+        std::memory_order_relaxed);
+    if (settings.routeAmount > 0.000001 && routeFrames == 0u) {
+        // The audio thread publishes the core's exact estimate. Until it has
+        // observed a newly automated route value, advertise a finite ceiling.
+        routeFrames = static_cast<uint64_t>(std::ceil(
+            120.0 * std::max(1.0, p->sampleRate)));
+    }
+    return static_cast<uint32_t>(std::min<uint64_t>(
+        std::max(legacyFrames, routeFrames),
+        static_cast<uint64_t>(std::numeric_limits<int32_t>::max())));
 }
 
 const clap_plugin_tail_t tail {
@@ -1998,7 +2033,8 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         return false;
     }
 
-    const auto* p = self(plugin);
+    auto* p = self(plugin);
+    syncGuiSettings(*p);
     SavedState state {};
     state.version = kStateVersion;
     for (uint32_t row = 0; row < s3g::kLanePatchMaxChannels; ++row) {
@@ -2030,6 +2066,12 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     state.topologyNeighborCount = p->topologyNeighborCount;
     state.topologyRadius = p->topologyRadius;
     state.topologyCentroid = p->topologyCentroid;
+    state.routeAmount = p->routeAmount;
+    state.routeTurn = p->routeTurn;
+    state.routeBranch = p->routeBranch;
+    state.routeLoss = p->routeLoss;
+    state.topologyMotionPhase = p->publishedMotionPhase.load(
+        std::memory_order_relaxed);
     return writeAll(stream, &state, sizeof(state));
 }
 
@@ -2051,6 +2093,16 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readAll(stream, cursor, sizeof(state) - sizeof(state.version))) {
             return false;
         }
+    } else if (version == kV10StateVersion) {
+        SavedStateV10 oldState {};
+        oldState.version = version;
+        auto* cursor = reinterpret_cast<uint8_t*>(&oldState) + sizeof(oldState.version);
+        if (!readAll(stream, cursor, sizeof(oldState) - sizeof(oldState.version))) {
+            return false;
+        }
+        static_assert(sizeof(oldState) <= offsetof(SavedState, routeAmount));
+        std::memcpy(&state, &oldState, sizeof(oldState));
+        state.version = kStateVersion;
     } else if (version == kV9StateVersion) {
         SavedStateV9 oldState {};
         oldState.version = version;
@@ -2300,7 +2352,6 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     for (uint32_t row = 0; row < s3g::kLanePatchMaxChannels; ++row) {
         p->patch.setRowMask(row, state.patchRows[row]);
     }
-    preparePatch(*p);
     p->clearUnused = (state.clearUnused != 0) && !kLockUnusedChannelsToPassThrough;
     p->delayMs = clampDelayMs(state.delayMs);
     p->feedback = clampFeedback(state.feedback);
@@ -2327,10 +2378,22 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     p->topologyNeighborCount = std::clamp<uint32_t>(state.topologyNeighborCount, 1u, 3u);
     p->topologyRadius = clamp01(state.topologyRadius);
     p->topologyCentroid = clamp01(state.topologyCentroid);
+    p->routeAmount = clamp01(state.routeAmount);
+    p->routeTurn = clampBipolar(state.routeTurn);
+    p->routeBranch = clamp01(state.routeBranch);
+    p->routeLoss = clamp01(state.routeLoss);
+    p->topologyMotionPhase = std::isfinite(state.topologyMotionPhase)
+        ? state.topologyMotionPhase - std::floor(state.topologyMotionPhase)
+        : 0.0;
     if (p->topologyMotionMode == 0u) {
         p->topologyMotionPhase = 0.0;
     }
-    applyParamsToDsp(*p);
+    preparePatch(*p);
+    p->publishedMotionPhase.store(
+        p->topologyMotionPhase, std::memory_order_relaxed);
+    p->motionPhaseRestorePending.store(true, std::memory_order_release);
+    storeSettingsInParameterBank(*p, static_cast<const DelaySettings&>(*p));
+    markTailChanged(*p);
     requestGuiRedraw(*p);
     return true;
 }
@@ -2351,6 +2414,7 @@ const clap_plugin_state_t state {
     NSPoint _lastDragPoint;
     double _viewYaw;
     double _viewPitch;
+    int _cameraView;
     bool _showReadout;
     int _fieldPage;
     int _openMenu;
@@ -2375,7 +2439,7 @@ static NSColor* s3gTapeColor(int rgb) { return s3g::clap_gui::color(rgb); }
 static NSColor* s3gHeatColor(double value, double alpha) { return s3g::clap_gui::heatColor(value, alpha); }
 static constexpr CGFloat kDelayGuiWidth =
     s3g::gui_layout::kTopologyProcessorColumns.canvasWidth;
-static constexpr CGFloat kDelayGuiHeight = 820.0;
+static constexpr CGFloat kDelayGuiHeight = 696.0;
 static constexpr CGFloat kDelayGuiPanelX =
     s3g::gui_layout::kTopologyProcessorColumns.first.x;
 static constexpr CGFloat kDelayGuiTopologyPanelX =
@@ -2416,6 +2480,7 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         _lastDragPoint = NSMakePoint(0, 0);
         _viewYaw = -0.52;
         _viewPitch = 0.34;
+        _cameraView = 2;
         _showReadout = false;
         _fieldPage = 0;
         _openMenu = 0;
@@ -2462,7 +2527,23 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         return;
     }
     auto* p = static_cast<Plugin*>(_plugin);
-    if (topologyMotionActive(*p)) {
+    DelaySettings settings {};
+    loadSettingsFromParameterBank(*p, settings);
+    bool routeVisualLive =
+        p->routeCentroidEnergy.load(std::memory_order_relaxed) > 0.0001f;
+    for (uint32_t source = 0u; !routeVisualLive && source < kChannelCount;
+         ++source) {
+        routeVisualLive =
+            p->routeNodeEnergy[source].load(std::memory_order_relaxed)
+                > 0.0001f;
+        for (uint32_t destination = 0u;
+             !routeVisualLive && destination < kChannelCount; ++destination) {
+            routeVisualLive =
+                p->routeEdgeEnergy[source][destination].load(
+                    std::memory_order_relaxed) > 0.0001f;
+        }
+    }
+    if (topologyMotionActive(settings) || routeVisualLive) {
         [self setNeedsDisplay:YES];
     }
 }
@@ -2485,18 +2566,15 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
 
 - (NSRect)fieldPageButtonRect:(NSRect)rect index:(int)index
 {
-    const CGFloat buttonW = 58.0;
-    const CGFloat buttonGap = 8.0;
-    const CGFloat totalW = buttonW * 2.0 + buttonGap;
-    const CGFloat x = rect.origin.x + (rect.size.width - totalW) * 0.5 + static_cast<CGFloat>(index) * (buttonW + buttonGap);
-    return NSMakeRect(x, rect.origin.y + 3.0, buttonW, 15.0);
+    return s3g::clap_gui::topologyProcessorFieldPageButtonRect(
+        rect, static_cast<uint32_t>(index));
 }
 
 - (void)drawScope:(NSRect)rect small:(NSDictionary*)small
 {
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
-    const NSRect scopeRect = NSMakeRect(rect.origin.x + 10.0, rect.origin.y + 28.0, rect.size.width - 20.0, rect.size.height - 38.0);
+    const NSRect scopeRect = rect;
     [style.strip setFill];
     NSRectFill(scopeRect);
     [style.grid setStroke];
@@ -2504,24 +2582,17 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
     [@"POST PROCESSING OSCILLOSCOPE" drawAtPoint:NSMakePoint(scopeRect.origin.x + 10.0, scopeRect.origin.y + 8.0) withAttributes:small];
 
     const uint32_t lanes = kChannelCount;
-    const uint32_t cols = lanes <= 8u ? 2u : 4u;
-    const uint32_t rows = (lanes + cols - 1u) / cols;
-    const CGFloat gap = lanes <= 8u ? 8.0 : 5.0;
-    const CGFloat labelH = 24.0;
-    const CGFloat cellW = (scopeRect.size.width - gap * static_cast<CGFloat>(cols + 1u)) / static_cast<CGFloat>(cols);
-    const CGFloat cellH = (scopeRect.size.height - labelH - gap * static_cast<CGFloat>(rows + 1u)) / static_cast<CGFloat>(rows);
+    const auto channelGrid =
+        s3g::clap_gui::topologyProcessorChannelGrid(scopeRect, lanes);
     const uint32_t write = p->scopeWrite.load(std::memory_order_relaxed);
     constexpr uint32_t kDrawFrames = 512u;
     const uint32_t oneSecondFrames = static_cast<uint32_t>(std::clamp(p->sampleRate, 8000.0, static_cast<double>(kScopeFrames - 1u)));
     const uint32_t historyFrames = std::min<uint32_t>(kScopeFrames - 1u, std::max<uint32_t>(kDrawFrames, oneSecondFrames));
 
     for (uint32_t lane = 0; lane < lanes; ++lane) {
-        const uint32_t col = lane % cols;
-        const uint32_t row = lane / cols;
-        const NSRect laneRect = NSMakeRect(scopeRect.origin.x + gap + static_cast<CGFloat>(col) * (cellW + gap),
-                                          scopeRect.origin.y + labelH + gap + static_cast<CGFloat>(row) * (cellH + gap),
-                                          cellW,
-                                          cellH);
+        const NSRect laneRect =
+            s3g::clap_gui::topologyProcessorChannelRect(
+                channelGrid, lane);
         [s3g::clap_gui::color(0x101010, 1.0) setFill];
         NSRectFill(laneRect);
         [style.grid setStroke];
@@ -2600,25 +2671,25 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
 {
     (void)dirtyRect;
     auto* p = static_cast<Plugin*>(_plugin);
-    NSColor* bg = s3gTapeColor(0x0c0c0c);
-    NSColor* strip = s3gTapeColor(0x131313);
-    NSColor* cellBg = s3gTapeColor(0x1d1d1d);
-    NSColor* grid = s3gTapeColor(0x636363);
-    NSColor* dim = s3gTapeColor(0x9e9e9e);
-    NSColor* text = s3gTapeColor(0xf0f0f0);
-    NSColor* accent = s3gTapeColor(0xd1d1d1);
-    NSColor* fillColor = s3gTapeColor(0x8f8f8f);
+    syncGuiSettings(*p);
     s3g::clap_gui::Style style;
+    NSColor* bg = style.bg;
+    NSColor* strip = style.strip;
+    NSColor* cellBg = style.cellBg;
+    NSColor* grid = style.grid;
+    NSColor* text = style.text;
+    NSColor* accent = style.accent;
+    NSColor* fillColor = style.fill;
 
     [bg setFill];
     NSRectFill([self bounds]);
 
-    NSFont* mono = [NSFont fontWithName:@"Menlo" size:10.0] ?: [NSFont monospacedSystemFontOfSize:10.0 weight:NSFontWeightRegular];
-    NSFont* monoTiny = [NSFont fontWithName:@"Menlo" size:7.0] ?: [NSFont monospacedSystemFontOfSize:7.0 weight:NSFontWeightRegular];
-    NSDictionary* labelAttrs = @{ NSForegroundColorAttributeName: text, NSFontAttributeName: mono };
-    NSDictionary* smallAttrs = @{ NSForegroundColorAttributeName: dim, NSFontAttributeName: mono };
-    NSDictionary* tinyAttrs = @{ NSForegroundColorAttributeName: dim, NSFontAttributeName: monoTiny };
-    NSDictionary* sectionAttrs = @{ NSForegroundColorAttributeName: accent, NSFontAttributeName: mono };
+    NSDictionary* smallAttrs = s3g::clap_gui::textAttrs(
+        style.dim, 10.0);
+    NSDictionary* tinyAttrs = s3g::clap_gui::textAttrs(
+        style.dim, 7.0);
+    NSDictionary* sectionAttrs =
+        s3g::clap_gui::softLabelAttrs();
 
     const float peak = p->outputPeak.load(std::memory_order_relaxed);
     const bool clipped = p->outputClip.exchange(false, std::memory_order_relaxed);
@@ -2641,8 +2712,13 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
     [contentTransform translateXBy:0.0 yBy:kDelayContentTranslation];
     [contentTransform concat];
 
+    const auto& fieldLayout =
+        s3g::gui_layout::kTopologyProcessorColumns.field;
     NSRect topologyPanel = NSMakeRect(
-        12, 34, 620, kDelayContentCoordinateHeight - 46.0);
+        fieldLayout.x,
+        fieldLayout.y - kDelayContentTranslation,
+        fieldLayout.width,
+        fieldLayout.height);
     [cellBg setFill];
     NSRectFill(topologyPanel);
     [grid setStroke];
@@ -2651,29 +2727,30 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
     NSRectFill(NSMakeRect(12, 34, 620, 21));
     [accent setFill];
     NSRectFill(NSMakeRect(12, 34, 620, 2));
-    [@"TOPOLOGY" drawAtPoint:NSMakePoint(18, 39) withAttributes:sectionAttrs];
+    [@"TOPOLOGY" drawAtPoint:NSMakePoint(
+        topologyPanel.origin.x + 12.0,
+        topologyPanel.origin.y + 5.0)
+        withAttributes:sectionAttrs];
     s3g::clap_gui::Style pageStyle;
     NSString* pageLabels[2] = { @"TOPO", @"SCOPE" };
     for (int i = 0; i < 2; ++i) {
         NSRect button = [self fieldPageButtonRect:topologyPanel index:i];
         s3g::clap_gui::drawHeaderButton(button, topologyPanel, pageLabels[i], _fieldPage == i, smallAttrs, pageStyle);
     }
-    const char* viewNames[] = { "TOP", "SIDE", "3/4" };
-    for (uint32_t i = 0; i < 3; ++i) {
-        NSRect viewRect = NSMakeRect(478 + i * 48, 38, 42, 14);
-        [strip setFill];
-        NSRectFill(viewRect);
-        [grid setStroke];
-        NSFrameRect(viewRect);
-        [[NSString stringWithUTF8String:viewNames[i]] drawAtPoint:NSMakePoint(viewRect.origin.x + 8, viewRect.origin.y + 1) withAttributes:smallAttrs];
+    if (_fieldPage == 0) {
+        s3g::clap_gui::drawTopologyProcessorCameraButtons(
+            topologyPanel, _cameraView, smallAttrs, pageStyle);
     }
 
-    const CGFloat fieldX = 22.0;
-    const CGFloat fieldY = 62.0;
-    const CGFloat fieldW = 600.0;
-    const CGFloat fieldH = 600.0;
+    const NSRect fieldRect =
+        s3g::clap_gui::topologyProcessorFieldContentRect(
+            topologyPanel);
+    const CGFloat fieldX = fieldRect.origin.x;
+    const CGFloat fieldY = fieldRect.origin.y;
+    const CGFloat fieldW = fieldRect.size.width;
+    const CGFloat fieldH = fieldRect.size.height;
     if (_fieldPage == 1) {
-        [self drawScope:NSMakeRect(fieldX, fieldY, fieldW, fieldH) small:smallAttrs];
+        [self drawScope:fieldRect small:smallAttrs];
     } else {
     [strip setFill];
     NSRectFill(NSMakeRect(fieldX, fieldY, fieldW, fieldH));
@@ -2700,7 +2777,19 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
                            topoRect.origin.y + topoRect.size.height * 0.52 - static_cast<CGFloat>(yr * topoRect.size.height * 0.38 * scale));
     };
 
-    const uint32_t visualLanes = std::min<uint32_t>(kChannelCount, activePatchRows(*p));
+    std::array<uint32_t, kChannelCount> activePins {};
+    uint32_t activePinCount = 0u;
+    for (uint32_t lane = 0; lane < kChannelCount; ++lane) {
+        if (p->patch.rowMask(lane) != 0u) {
+            activePins[activePinCount++] = lane;
+        }
+    }
+    if (activePinCount == 0u) {
+        for (uint32_t lane = 0; lane < kChannelCount; ++lane) {
+            activePins[activePinCount++] = lane;
+        }
+    }
+    const uint32_t visualLanes = activePinCount;
     constexpr uint32_t kHeatCols = 54;
     constexpr uint32_t kHeatRows = 18;
     [s3gTapeColor(0x090b0d) setFill];
@@ -2772,7 +2861,77 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         }
     }
 
+    // Directional telemetry overlays the static topology. Energy controls
+    // line weight/brightness; phase advances the marker source-to-destination.
+    for (uint32_t source = 0; source < visualLanes; ++source) {
+        const uint32_t physicalSource = activePins[source];
+        for (uint32_t destination = 0; destination < visualLanes; ++destination) {
+            if (source == destination) continue;
+            const uint32_t physicalDestination = activePins[destination];
+            const double energy = std::clamp<double>(
+                p->routeEdgeEnergy[physicalSource][physicalDestination].load(
+                    std::memory_order_relaxed),
+                0.0, 1.0);
+            if (energy <= 0.0001) continue;
+
+            NSBezierPath* liveEdge = [NSBezierPath bezierPath];
+            [liveEdge moveToPoint:nodePoints[source]];
+            [liveEdge lineToPoint:nodePoints[destination]];
+            [liveEdge setLineWidth:0.75 + static_cast<CGFloat>(energy) * 2.5];
+            [s3g::clap_gui::color(0xf2f2f2,
+                0.12 + energy * 0.72) setStroke];
+            [liveEdge stroke];
+
+            double phase = p->routeEdgePhase[physicalSource][physicalDestination]
+                .load(std::memory_order_relaxed);
+            phase -= std::floor(phase);
+            const NSPoint marker = NSMakePoint(
+                nodePoints[source].x
+                    + (nodePoints[destination].x - nodePoints[source].x) * phase,
+                nodePoints[source].y
+                    + (nodePoints[destination].y - nodePoints[source].y) * phase);
+            const CGFloat markerRadius = 1.5 + static_cast<CGFloat>(energy) * 2.0;
+            [s3g::clap_gui::color(0xffffff,
+                0.35 + energy * 0.65) setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+                marker.x - markerRadius, marker.y - markerRadius,
+                markerRadius * 2.0, markerRadius * 2.0)] fill];
+        }
+    }
+
     const NSPoint centroidPoint = projectTopology(centroidX, centroidY, centroidZ);
+    const double centroidEnergy = std::clamp<double>(
+        p->routeCentroidEnergy.load(std::memory_order_relaxed), 0.0, 1.0);
+    if (centroidEnergy > 0.0001) {
+        [s3g::clap_gui::color(0xe8e8e8,
+            0.05 + centroidEnergy * 0.22) setStroke];
+        for (uint32_t lane = 0; lane < visualLanes; ++lane) {
+            NSBezierPath* spoke = [NSBezierPath bezierPath];
+            [spoke moveToPoint:centroidPoint];
+            [spoke lineToPoint:nodePoints[lane]];
+            [spoke setLineWidth:0.5 + centroidEnergy];
+            [spoke stroke];
+        }
+        const CGFloat centroidHalo = 9.0
+            + static_cast<CGFloat>(centroidEnergy) * 17.0;
+        [s3g::clap_gui::color(0xffffff,
+            0.05 + centroidEnergy * 0.20) setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            centroidPoint.x - centroidHalo,
+            centroidPoint.y - centroidHalo,
+            centroidHalo * 2.0, centroidHalo * 2.0)] fill];
+
+        double centroidPhase = p->routeCentroidPhase.load(
+            std::memory_order_relaxed);
+        centroidPhase -= std::floor(centroidPhase);
+        const double angle = centroidPhase * 6.283185307179586;
+        const NSPoint centroidMarker = NSMakePoint(
+            centroidPoint.x + std::cos(angle) * centroidHalo,
+            centroidPoint.y + std::sin(angle) * centroidHalo);
+        [accent setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            centroidMarker.x - 2.0, centroidMarker.y - 2.0, 4.0, 4.0)] fill];
+    }
     [s3gTapeColor(0xd8d8d8) setStroke];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(centroidPoint.x - 6, centroidPoint.y)
                               toPoint:NSMakePoint(centroidPoint.x + 6, centroidPoint.y)];
@@ -2780,14 +2939,31 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
                               toPoint:NSMakePoint(centroidPoint.x, centroidPoint.y + 6)];
 
     for (uint32_t lane = 0; lane < visualLanes; ++lane) {
+        const uint32_t physicalLane = activePins[lane];
+        const double nodeEnergy = std::clamp<double>(
+            p->routeNodeEnergy[physicalLane].load(std::memory_order_relaxed),
+            0.0, 1.0);
+        if (nodeEnergy > 0.0001) {
+            const CGFloat haloRadius = 8.0 + static_cast<CGFloat>(nodeEnergy) * 13.0;
+            [s3g::clap_gui::color(0xf0f0f0,
+                0.06 + nodeEnergy * 0.24) setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+                nodePoints[lane].x - haloRadius,
+                nodePoints[lane].y - haloRadius,
+                haloRadius * 2.0, haloRadius * 2.0)] fill];
+        }
         const CGFloat r = 5.0;
         [accent setFill];
         NSRectFill(NSMakeRect(nodePoints[lane].x - r, nodePoints[lane].y - r, r * 2.0, r * 2.0));
-        NSString* label = [NSString stringWithFormat:@"%u", lane + 1];
+        NSString* label = [NSString stringWithFormat:@"%u", physicalLane + 1u];
         [label drawAtPoint:NSMakePoint(nodePoints[lane].x + 7, nodePoints[lane].y - 8) withAttributes:smallAttrs];
     }
 
-    NSString* topologyName = visualLanes == 8 ? @"8PT NEIGHBOR MAP"
+    const bool routesVisualActive = p->routeAmount > 0.000001
+        || p->publishedRouteTailFrames.load(std::memory_order_relaxed) > 0u;
+    NSString* topologyName = routesVisualActive
+        ? [NSString stringWithFormat:@"ECHO ROUTES / %u NODES", visualLanes]
+        : visualLanes == 8 ? @"8PT NEIGHBOR MAP"
         : visualLanes == 6 ? @"6PT NEIGHBOR MAP"
         : visualLanes == 4 ? @"4PT NEIGHBOR MAP"
         : @"SPHERE NEIGHBOR MAP";
@@ -2799,18 +2975,6 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         ? @"X=AZ Y=EL Z=DIST"
         : [NSString stringWithFormat:@"CENTROID + %uNN", drawNeighborCount];
     [shapeHint drawAtPoint:NSMakePoint(fieldX + fieldW - 188, fieldY + 40) withAttributes:smallAttrs];
-    std::array<uint32_t, kChannelCount> activePins {};
-    uint32_t activePinCount = 0;
-    for (uint32_t lane = 0; lane < kChannelCount; ++lane) {
-        if (p->patch.rowMask(lane) != 0) {
-            activePins[activePinCount++] = lane;
-        }
-    }
-    if (activePinCount == 0) {
-        for (uint32_t lane = 0; lane < kChannelCount; ++lane) {
-            activePins[activePinCount++] = lane;
-        }
-    }
     NSRect readoutButton = NSMakeRect(fieldX + fieldW - 42, fieldY + 54, 32, 15);
     [strip setFill];
     NSRectFill(readoutButton);
@@ -2823,11 +2987,11 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
             const uint32_t lane = activePins[row];
             NSString* line = [NSString stringWithFormat:@"L%u %4.0f %.2f %.2f %.2f %.2f",
                                         lane + 1u,
-                                        resolvedChannelDelayMs(*p, lane, visualLanes),
-                                        resolvedChannelFeedback(*p, lane, visualLanes),
-                                        resolvedChannelCharacter(*p, lane, visualLanes),
-                                        resolvedChannelNetwork(*p, lane, visualLanes),
-                                        resolvedChannelSmearAmount(*p, lane, visualLanes)];
+                                        resolvedChannelDelayMs(*p, row, visualLanes),
+                                        resolvedChannelFeedback(*p, row, visualLanes),
+                                        resolvedChannelCharacter(*p, row, visualLanes),
+                                        resolvedChannelNetwork(*p, row, visualLanes),
+                                        resolvedChannelSmearAmount(*p, row, visualLanes)];
             [line drawAtPoint:NSMakePoint(fieldX + fieldW - 188, fieldY + 70 + row * 15.0) withAttributes:smallAttrs];
         }
     } else {
@@ -2877,8 +3041,8 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
                    y:delayEngineRowY(panelY, 0)
           labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
     [self drawSlider:@"FDBK"
-               value:[NSString stringWithFormat:@"%3.0f%%", (p->feedback / 0.95) * 100.0]
-                norm:static_cast<CGFloat>(p->feedback / 0.95)
+               value:[NSString stringWithFormat:@"%3.0f%%", p->feedback * 100.0]
+                norm:static_cast<CGFloat>(p->feedback / 0.82)
                    y:delayEngineRowY(panelY, 1)
           labelAttrs:smallAttrs valueAttrs:smallAttrs strip:strip grid:grid fill:fillColor text:text];
     [self drawSlider:@"TONE"
@@ -2941,6 +3105,30 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
     s3g::clap_gui::drawTopologyRows(
         topoValues, topologyY, smallAttrs, smallAttrs, topologyStyle,
         kDelayGuiTopologyRowPitch, topologyX, panelW);
+
+    const CGFloat echoRoutesY = 490.0;
+    const CGFloat echoRoutesH = 132.0;
+    drawPanelFrame(topologyX, echoRoutesY, echoRoutesH);
+    drawHeader(@"ECHO ROUTES", topologyX, echoRoutesY);
+    auto drawEchoRouteSlider = [&](NSString* name, NSString* value,
+                                   CGFloat norm, uint32_t row) {
+        s3g::clap_gui::drawProcessorSlider(
+            name, value, norm,
+            echoRoutesY + 36.0 + static_cast<CGFloat>(row) * 26.0,
+            topologyX, panelW, smallAttrs, smallAttrs, style);
+    };
+    drawEchoRouteSlider(@"ROUTE",
+        [NSString stringWithFormat:@"%3.0f%%", p->routeAmount * 100.0],
+        static_cast<CGFloat>(p->routeAmount), 0u);
+    drawEchoRouteSlider(@"TURN",
+        [NSString stringWithFormat:@"%+3.0f%%", p->routeTurn * 100.0],
+        static_cast<CGFloat>((p->routeTurn + 1.0) * 0.5), 1u);
+    drawEchoRouteSlider(@"BRCH",
+        [NSString stringWithFormat:@"%3.0f%%", p->routeBranch * 100.0],
+        static_cast<CGFloat>(p->routeBranch), 2u);
+    drawEchoRouteSlider(@"LOSS",
+        [NSString stringWithFormat:@"%3.0f%%", p->routeLoss * 100.0],
+        static_cast<CGFloat>(p->routeLoss), 3u);
 
     const bool compactMatrix = kVisiblePatchChannels > 8;
     const CGFloat left = compactMatrix ? 686.0 : 718.0;
@@ -3048,32 +3236,35 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
 - (void)resetTopology
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    p->topologyShape = 0;
-    p->topologySpread = 0.0;
-    p->topologySkew = 0.0;
-    p->topologyJitter = 0.0;
-    p->displaceCollapse = 0.0;
-    p->displaceDirX = 0.0;
-    p->displaceDirY = 0.0;
-    p->displaceDirZ = 1.0;
-    p->displaceTwist = 0.0;
-    p->displaceFlare = 0.0;
-    p->topologyMotionMode = 0;
-    p->topologyMotionVariant = 0;
-    p->topologyMotionRateHz = 0.10;
-    p->topologyMotionDepth = 0.0;
-    p->topologyMotionPhase = 0.0;
-    p->topologyNeighborCount = 2;
-    p->topologyRadius = 0.65;
-    p->topologyCentroid = 0.22;
+    constexpr clap_id ids[] {
+        kTopologyShapeParamId, kTopologySpreadParamId,
+        kTopologySkewParamId, kTopologyJitterParamId,
+        kDisplaceCollapseParamId, kDisplaceDirXParamId,
+        kDisplaceDirYParamId, kDisplaceDirZParamId,
+        kDisplaceTwistParamId, kDisplaceFlareParamId,
+        kTopologyMotionModeParamId, kTopologyMotionVariantParamId,
+        kTopologyMotionRateParamId, kTopologyMotionDepthParamId,
+        kTopologyNeighborCountParamId, kTopologyRadiusParamId,
+        kTopologyCentroidParamId,
+    };
+    constexpr double defaults[] {
+        0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 0.10, 0.0, 2.0, 0.65, 0.22,
+    };
+    static_assert(std::size(ids) == std::size(defaults));
+    for (size_t i = 0; i < std::size(ids); ++i) {
+        setParam(*p, ids[i], defaults[i]);
+    }
     _viewYaw = -0.52;
     _viewPitch = 0.34;
-    applyParamsToDsp(*p);
+    _cameraView = 2;
     [self setNeedsDisplay:YES];
 }
 
 - (void)setTopologyView:(uint32_t)view
 {
+    _cameraView = static_cast<int>(std::min<uint32_t>(view, 2u));
     if (view == 0) {
         _viewYaw = 0.0;
         _viewPitch = 0.95;
@@ -3090,7 +3281,7 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
 - (void)updateSliderAtPoint:(NSPoint)pt
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    if (_dragSlider < 0 || _dragSlider > 22) {
+    if (_dragSlider < 0 || _dragSlider > 26) {
         return;
     }
     const CGFloat panelX =
@@ -3099,57 +3290,39 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         (pt.x - s3g::gui_layout::processorControlX(panelX))
             / s3g::gui_layout::processorTrackWidth(kDelayGuiPanelWidth),
         0.0, 1.0);
-    if (_dragSlider == 0) {
-        p->delayMs = kDelayMinMs + norm * (kDelayMaxMs - kDelayMinMs);
-    } else if (_dragSlider == 1) {
-        p->feedback = norm * 0.95;
-    } else if (_dragSlider == 2) {
-        p->mix = norm;
-    } else if (_dragSlider == 3) {
-        p->tone = norm;
-    } else if (_dragSlider == 4) {
-        p->pitchSemitones = kPitchMinSemitones + norm * (kPitchMaxSemitones - kPitchMinSemitones);
-    } else if (_dragSlider == 5) {
-        p->character = norm;
-    } else if (_dragSlider == 6) {
-        p->tapAmount = norm;
-    } else if (_dragSlider == 7) {
-        p->outputTrimDb = kOutputTrimMinDb + norm * (kOutputTrimMaxDb - kOutputTrimMinDb);
-    } else if (_dragSlider == 8) {
-        p->topologyShape = std::min<uint32_t>(kTopologyShapeCount - 1u, roundedUint(norm * static_cast<double>(kTopologyShapeCount - 1u)));
-    } else if (_dragSlider == 9) {
-        p->topologySpread = norm;
-    } else if (_dragSlider == 10) {
-        p->displaceCollapse = norm;
-    } else if (_dragSlider == 11) {
-        p->displaceDirX = norm * 2.0 - 1.0;
-    } else if (_dragSlider == 12) {
-        p->displaceDirY = norm * 2.0 - 1.0;
-    } else if (_dragSlider == 13) {
-        p->displaceDirZ = norm * 2.0 - 1.0;
-    } else if (_dragSlider == 14) {
-        p->displaceTwist = norm * 2.0 - 1.0;
-    } else if (_dragSlider == 15) {
-        p->displaceFlare = norm * 2.0 - 1.0;
-    } else if (_dragSlider == 16) {
-        p->topologyJitter = norm;
-    } else if (_dragSlider == 17) {
-        p->topologyMotionMode = std::min<uint32_t>(kTopologyMotionModeCount - 1u, roundedUint(norm * static_cast<double>(kTopologyMotionModeCount - 1u)));
-        if (p->topologyMotionMode == 0u) {
-            p->topologyMotionPhase = 0.0;
-        }
-    } else if (_dragSlider == 18) {
-        p->topologyMotionRateHz = kTopologyMotionMinHz + norm * (kTopologyMotionMaxHz - kTopologyMotionMinHz);
-    } else if (_dragSlider == 19) {
-        p->topologyMotionDepth = norm;
-    } else if (_dragSlider == 20) {
-        p->topologyNeighborCount = std::clamp<uint32_t>(1u + roundedUint(norm * 2.0), 1u, 3u);
-    } else if (_dragSlider == 21) {
-        p->topologyRadius = norm;
-    } else if (_dragSlider == 22) {
-        p->topologyCentroid = norm;
+    clap_id paramId = CLAP_INVALID_ID;
+    double value = norm;
+    switch (_dragSlider) {
+    case 0: paramId = kDelayMsParamId; value = kDelayMinMs + norm * (kDelayMaxMs - kDelayMinMs); break;
+    case 1: paramId = kFeedbackParamId; value = norm * 0.82; break;
+    case 2: paramId = kMixParamId; break;
+    case 3: paramId = kToneParamId; break;
+    case 4: paramId = kPitchParamId; value = kPitchMinSemitones + norm * (kPitchMaxSemitones - kPitchMinSemitones); break;
+    case 5: paramId = kCharacterParamId; break;
+    case 6: paramId = kTapParamId; break;
+    case 7: paramId = kOutputTrimParamId; value = kOutputTrimMinDb + norm * (kOutputTrimMaxDb - kOutputTrimMinDb); break;
+    case 8: paramId = kTopologyShapeParamId; value = norm * static_cast<double>(kTopologyShapeCount - 1u); break;
+    case 9: paramId = kTopologySpreadParamId; break;
+    case 10: paramId = kDisplaceCollapseParamId; break;
+    case 11: paramId = kDisplaceDirXParamId; value = norm * 2.0 - 1.0; break;
+    case 12: paramId = kDisplaceDirYParamId; value = norm * 2.0 - 1.0; break;
+    case 13: paramId = kDisplaceDirZParamId; value = norm * 2.0 - 1.0; break;
+    case 14: paramId = kDisplaceTwistParamId; value = norm * 2.0 - 1.0; break;
+    case 15: paramId = kDisplaceFlareParamId; value = norm * 2.0 - 1.0; break;
+    case 16: paramId = kTopologyJitterParamId; break;
+    case 17: paramId = kTopologyMotionModeParamId; value = norm * static_cast<double>(kTopologyMotionModeCount - 1u); break;
+    case 18: paramId = kTopologyMotionRateParamId; value = kTopologyMotionMinHz + norm * (kTopologyMotionMaxHz - kTopologyMotionMinHz); break;
+    case 19: paramId = kTopologyMotionDepthParamId; break;
+    case 20: paramId = kTopologyNeighborCountParamId; value = 1.0 + norm * 2.0; break;
+    case 21: paramId = kTopologyRadiusParamId; break;
+    case 22: paramId = kTopologyCentroidParamId; break;
+    case 23: paramId = kRouteAmountParamId; break;
+    case 24: paramId = kRouteTurnParamId; value = norm * 2.0 - 1.0; break;
+    case 25: paramId = kRouteBranchParamId; break;
+    case 26: paramId = kRouteLossParamId; break;
+    default: break;
     }
-    applyParamsToDsp(*p);
+    if (paramId != CLAP_INVALID_ID) setParam(*p, paramId, value);
     [self setNeedsDisplay:YES];
 }
 
@@ -3169,6 +3342,7 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
 {
     NSPoint pt = [self convertPoint:[event locationInWindow] fromView:nil];
     auto* p = static_cast<Plugin*>(_plugin);
+    syncGuiSettings(*p);
     const auto titleBand = s3g::clap_gui::encoderTitleBand(
         kDelayGuiWidth, kDelayGuiHeight);
     if (s3g::clap_gui::handleProcessorTitleClick(
@@ -3185,15 +3359,14 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         if (NSPointInRect(pt, menuRect)) {
             const uint32_t index = std::min<uint32_t>(_menuItemCount - 1u, static_cast<uint32_t>((pt.y - _menuOrigin.y) / itemH));
             if (_openMenu == 1) {
-                p->topologyShape = std::min<uint32_t>(kTopologyShapeCount - 1u, index);
+                setParam(*p, kTopologyShapeParamId, index);
             } else if (_openMenu == 2) {
-                applyTopologyMotionSceneDefaults(*p, index);
+                setParam(*p, kTopologyMotionModeParamId, index);
             } else if (_openMenu == 4) {
-                p->topologyMotionVariant = std::min<uint32_t>(kTopologyVariantCount - 1u, index);
+                setParam(*p, kTopologyMotionVariantParamId, index);
             } else if (_openMenu == 3) {
-                p->topologyNeighborCount = std::clamp<uint32_t>(index + 1u, 1u, 3u);
+                setParam(*p, kTopologyNeighborCountParamId, index + 1u);
             }
-            applyParamsToDsp(*p);
         }
         _openMenu = 0;
         _hoverMenuItem = -1;
@@ -3202,8 +3375,13 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         return;
     }
 
+    const auto& fieldLayout =
+        s3g::gui_layout::kTopologyProcessorColumns.field;
     const NSRect topologyPanel = NSMakeRect(
-        12.0, 34.0, 620.0, kDelayContentCoordinateHeight - 46.0);
+        fieldLayout.x,
+        fieldLayout.y - kDelayContentTranslation,
+        fieldLayout.width,
+        fieldLayout.height);
     if (NSPointInRect(pt, topologyPanel)) {
         for (int i = 0; i < 2; ++i) {
             NSRect button = [self fieldPageButtonRect:topologyPanel index:i];
@@ -3216,7 +3394,10 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
     }
 
     for (uint32_t i = 0; i < 3; ++i) {
-        if (_fieldPage == 0 && NSPointInRect(pt, NSMakeRect(478 + i * 48, 38, 42, 14))) {
+        if (_fieldPage == 0 && NSPointInRect(
+                pt,
+                s3g::clap_gui::topologyProcessorCameraButtonRect(
+                    topologyPanel, i))) {
             [self setTopologyView:i];
             return;
         }
@@ -3386,6 +3567,31 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         }
     }
 
+    const CGFloat echoRoutesY = 490.0;
+    const int echoRouteDragIds[] = { 23, 24, 25, 26 };
+    const clap_id echoRouteParamIds[] = {
+        kRouteAmountParamId, kRouteTurnParamId,
+        kRouteBranchParamId, kRouteLossParamId
+    };
+    for (uint32_t i = 0; i < 4u; ++i) {
+        const CGFloat rowY = echoRoutesY + 36.0
+            + static_cast<CGFloat>(i) * 26.0;
+        const NSRect rowRect = NSMakeRect(
+            topologyX, rowY - 8.0, panelW, 24.0);
+        if (!NSPointInRect(pt, rowRect)) continue;
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, echoRouteParamIds[i], &defaultValue)) {
+            setParam(*p, echoRouteParamIds[i], defaultValue);
+            _dragSlider = -1;
+        } else {
+            _dragSlider = echoRouteDragIds[i];
+            [self updateSliderAtPoint:pt];
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
+
     {
         const bool compactMatrix = kVisiblePatchChannels > 8;
         const CGFloat left = compactMatrix ? 686.0 : 718.0;
@@ -3409,7 +3615,9 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         return;
     }
 
-    NSRect topologyView = NSMakeRect(22.0, 62.0, 600.0, 600.0);
+    const NSRect topologyView =
+        s3g::clap_gui::topologyProcessorFieldContentRect(
+            topologyPanel);
     if (_fieldPage == 0 && NSPointInRect(pt, topologyView)) {
         _dragTopologyView = true;
         _lastDragPoint = pt;
@@ -3434,6 +3642,7 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
         const CGFloat dy = pt.y - _lastDragPoint.y;
         _viewYaw += dx * 0.015;
         _viewPitch = std::clamp(_viewPitch + dy * 0.012, -0.75, 0.95);
+        _cameraView = -1;
         _lastDragPoint = pt;
         [self setNeedsDisplay:YES];
         return;
@@ -3481,7 +3690,8 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating)
     if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport,
             static_cast<NSView*>(p->guiView),
             static_cast<uint32_t>(kDelayGuiWidth),
-            static_cast<uint32_t>(kDelayGuiHeight))) {
+            static_cast<uint32_t>(kDelayGuiHeight),
+            static_cast<uint32_t>(kDelayGuiWidth), 360u)) {
         [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false;
     }
     return true;
@@ -3508,12 +3718,13 @@ bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
     return s3g::clap_gui::getResponsiveViewportSize(
         self(plugin)->guiViewport,
         static_cast<uint32_t>(kDelayGuiWidth),
-        static_cast<uint32_t>(kDelayGuiHeight), width, height);
+        static_cast<uint32_t>(kDelayGuiHeight), width, height,
+        static_cast<uint32_t>(kDelayGuiWidth), 360u);
 }
 
 bool guiCanResize(const clap_plugin_t*) { return true; }
 bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
-bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, static_cast<uint32_t>(kDelayGuiWidth), static_cast<uint32_t>(kDelayGuiHeight), width, height); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, static_cast<uint32_t>(kDelayGuiWidth), static_cast<uint32_t>(kDelayGuiHeight), width, height, static_cast<uint32_t>(kDelayGuiWidth), 360u); }
 
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
 {
@@ -3636,11 +3847,14 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
         return nullptr;
     }
 
-    p->delay.prepare(48000.0, static_cast<int>(kChannelCount), 2.25);
-    preparePatch(*p);
-    applyParamsToDsp(*p);
     p->host = host;
     p->hostTail = host && host->get_extension ? static_cast<const clap_host_tail_t*>(host->get_extension(host, CLAP_EXT_TAIL)) : nullptr;
+    storeSettingsInParameterBank(*p, static_cast<const DelaySettings&>(*p));
+    preparePatch(*p);
+    p->delay.prepare(48000.0, static_cast<int>(kChannelCount), 2.25);
+    syncAudioSettings(*p, true);
+    publishRouteTelemetry(*p);
+    publishLegacyTail(*p, 0u, true);
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;
     p->plugin.init = init;

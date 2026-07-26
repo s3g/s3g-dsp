@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Topology Effects</h1>
 
-        <p>Topology effects turn selected audio lanes into points and map the relationships among those points to effect parameters. They suit multichannel material whose internal structure should move as one network rather than as unrelated channels.</p>
+        <p>Topology effects organize processing lanes as points and map the relationships among those points to sound. They suit multichannel material whose internal structure should move as one network rather than as unrelated channels.</p>
 
         <h2 id="framework">Start with the Framework</h2>
 
@@ -35,14 +35,14 @@
         <h2 id="plugins">Plugins</h2>
 
         <ul>
-          <li><a href="delay-processor.html">Delay Processor 8ch/24ch</a>: maps point distance and direction to delay time, feedback, filtering, modulation, and level.</li>
-          <li><a href="wave-geometry-processor.html">Wave Geometry Processor 8ch</a>: maps the network to fold, clip, sample-step, bit-collapse, scope, and tape-head behavior without an FFT.</li>
-          <li><a href="spectral-topology-processor.html">Processor Spectral 8ch/24ch</a>: maps topology to FFT-bin processing and displays the result as a grayscale sonogram.</li>
+          <li><a href="delay-processor.html">Delay Processor 8ch/24ch</a>: maps the field to node delay behavior, then lets regenerated repeats walk through directed neighbor and centroid routes.</li>
+          <li><a href="wave-geometry-processor.html">Wave Geometry Processor 8ch</a>: shapes waveforms directly, then sends them through a short topology wave mesh with distance-derived travel time, scattering, decay, and damping.</li>
+          <li><a href="spectral-topology-processor.html">Processor Spectral 8ch/24ch</a>: transports live and captured FFT material between neighbor nodes, with distance-derived travel time, spectral dispersion, route damping, and a whole-field pool.</li>
         </ul>
 
         <h2 id="shared-model">Shared Model</h2>
 
-        <p>A lane patch selects the participating channels. Those lanes become points, and motion changes their distances, clusters, and directional relationships. Each effect interprets the same network differently, so automation can preserve a recognizable spatial or structural gesture while changing the DSP model.</p>
+        <p>Each effect interprets the shared network differently, so automation can preserve a recognizable structural gesture while changing the DSP model. Delay uses its lane patch to select participating physical nodes; each routed repeat then waits inside the destination node's long delay before continuing. Wave Geometry sends waveform energy through short sample-domain paths, while Processor Spectral transports FFT material through frame-domain paths. Their matrices inject sources into meshes whose unpatched nodes remain available as receivers.</p>
 
         <p><a href="delay-processor.html">Delay Processor</a> is the best first effect example because its display makes the mapping especially direct.</p>
 

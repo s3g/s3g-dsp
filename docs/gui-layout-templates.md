@@ -446,6 +446,53 @@ Compact encoders keep the same OUT-then-ORDER adjacency using their native row
 pitch. Final-audition controls may follow ORDER in the OUTPUT toolbox; source,
 engine, synthesis, and navigation controls begin in the next toolbox.
 
+### Parameter Surface page
+
+Procedural instruments without an internal score may expose the shared
+`SURF` page inside the primary field-view toolbox. `SURF` is a peer of
+`FIELD`, `CURVE`, and `LISTEN`; it never creates a disclosure panel or a third
+parameter column. Page tabs retain the common 70 px width and 4 px header
+inset, in the semantic order `FIELD`, plugin-specific edit/listen pages, then
+`SURF`.
+
+The surface uses two compact control rows. The first uses the shared order
+`EDIT/PLAY`, `ON/OFF`, `ADD`, `DEL`, `CAP`, selected-cell preset, then `POP`.
+The second uses `CURVE`, `FOCUS -/+`, then `GLIDE -/+`. The plot fills the
+remaining field view. Cell sites are movable only in EDIT; the X/Y cursor is
+movable only in PLAY. Empty space is not retained for unavailable cells, and
+the surface remains off until at least two cells exist.
+
+On macOS, `POP` opens the same interactive SURF view in a host-attached utility
+panel and returns the primary editor to `FIELD`, allowing both views to remain
+visible. The auxiliary view shares plugin state and host X/Y automation; it
+does not own a second surface. Its page is locked to `SURF`, its `POP` button
+closes the panel, and plugin GUI hide/destroy must hide or destroy it. Closing
+the panel never changes the saved surface or the main editor's camera state.
+
+All implementations support as many as 24 cells, inverse-distance
+interpolation, the shared `SOFT`, `LINEAR`, `SMOOTH`, and `TIGHT` normalized
+weight curves, a 0.25…8 focus exponent, shortest-path angle interpolation, and
+nearest-cell selection for discrete values. `GLIDE` uses the common OFF, 40,
+80, 160, 240, 400, 640, 1000, 1500, and 2000 ms steps; the displayed time is
+the approximate 99% settling time. Any field point affected by a surface must
+apply this glide in its DSP coordinate path, including shortest-path azimuth,
+so its field drawing and encoded motion cannot jump between cell states. The
+surface uses exact clipped
+Voronoi polygons, the muted HSV region palette, influence halos, circular
+nodes, and crosshair treatment established by s3g-mc Snapshot Surface; sampled
+or tiled approximations are not permitted. `SURFACE X` and `SURFACE Y` are normalized,
+automatable host parameters under the `Parameter Surface` module. `OUT`,
+`ORDER`, final-audition controls, and cursor coordinates stay outside the
+interpolated snapshot. In PLAY with the surface on, every toolbox slider and
+menu that participates in the surface displays its effective interpolated or
+nearest-cell value at the GUI refresh rate; EDIT displays the base state being
+captured. A plugin with an existing score/listener system declares
+whether that system is part of a cell or remains live; Wrangler keeps its
+auditory score live, while Stochastic includes its listener in the cell state.
+Complete surface state belongs to plugin/project state; portable one-preset
+files remain one-state formats. Stochastic and Wrangler are the reference
+implementations.
+
 ### Compact spatial-encoder slots
 
 Compact spatial encoders keep the same semantic ordering even when their
@@ -577,27 +624,50 @@ anchor.
 
 Parameter toolboxes do not collapse. A Processor whose complete control set
 fits in one column keeps a single persistent stack. A taller Processor uses a
-second parameter column on a wider responsive design canvas; resizing scales
-that canvas instead of hiding controls.
+second parameter column on a wider responsive design canvas; the host window
+expands instead of scaling or hiding controls.
 
 Delay 8ch/24ch, Wave Geometry 8ch, and Spectral 8ch/24ch share the topology
 Processor column contract:
 
-- responsive canvas width 1356 px; each member retains the height required by
-  its primary visualization
-- primary field x 12 / width 620
+- responsive canvas width 1356 px; fitted canvas heights are Delay 8ch/24ch
+  696 px, Wave Geometry 8ch 788 px, Spectral 8ch 814 px, and Spectral 24ch
+  904 px
+- primary field x 12 / y 42 / width 620 / height 638; its 600 px interior has
+  a 10 px bottom inset and the field shell never stretches to fill a taller
+  neighboring column
+- field and toolbox headings use the shared soft-label font/color and a 12 px
+  field-title inset; effects do not substitute brighter legacy palettes
+- the `TOPO` page always exposes `TOP`, `SIDE`, and `3/4` camera buttons in
+  the field header; ordinary click-drag in the 600 px field rotates from the
+  selected camera without requiring a modifier key
+- the second field page keeps the same 600 x 600 content surface. Channel
+  views use the shared 2 x 4 grid through 8 channels and 4-column adaptive
+  grid above 8 channels, with identical gaps and cell heights across effects
+- PK appears once, at the far right of the plugin title band; field headers do
+  not repeat it
 - first parameter column x 644 / width 344: `OUTPUT`, processing `ENGINE`, then
   `PATCH MATRIX`
-- second parameter column x 1000 / width 344: `TOPOLOGY` at y 42
+- second parameter column x 1000 / width 344: `TOPOLOGY` at y 42, followed
+  by any topology-specific transport panel (`ECHO ROUTES`, `WAVE MESH`, or
+  `PROPAGATION`)
 - 12 px field/column, inter-column, and right-edge gutters
-- all four toolboxes are permanently visible; headers are static and have no
+- all toolboxes are permanently visible; headers are static and have no
   disclosure marker
+- editor minimum width is 1356 px, so hosts resize narrow saved windows to the
+  complete two-column canvas
+- the drawing surface is never magnified or reduced; typography and controls
+  remain at 1:1 scale
+- height may resize independently and expose overflow through vertical
+  scrolling
+- the canvas ends with a 12 px exterior gutter after the lowest real field,
+  panel, patch footer, or status item
 
 The remaining layout follows the Processor subtype:
 
 | Subtype | Persistent layout after `OUTPUT` |
 | --- | --- |
-| Topology effect | first column: processing engine then patch/routing; second column: `TOPOLOGY` |
+| Topology effect | first column: processing engine then patch/routing; second column: `TOPOLOGY`, then the effect-specific mesh/propagation controls when present |
 | Loaded-media instrument | playback/source engine, source/window, `RELATIONSHIPS` |
 | Buffer/time processor | engine, `RELATIONSHIPS`, corruption/memory |
 | Developed generator | field/source, codec/shape, performance/envelope |

@@ -234,6 +234,7 @@ struct MacroFamilyLayout {
 struct TopologyProcessorColumns {
     double canvasWidth = 0.0;
     double rightInset = 0.0;
+    Rect field {};
     Column first {};
     Column second {};
 };
@@ -406,9 +407,16 @@ inline constexpr Column kLargeEncoderSecondColumn { 896.0, 246.0, 42.0 };
 inline constexpr TopologyProcessorColumns kTopologyProcessorColumns {
     1356.0,
     12.0,
+    { 12.0, 42.0, 620.0, 638.0 },
     { 644.0, 344.0, 42.0 },
     { 1000.0, 344.0, 42.0 },
 };
+static_assert(
+    kTopologyProcessorColumns.field.x
+        + kTopologyProcessorColumns.field.width
+        + kStandardMetrics.panelGap
+        == kTopologyProcessorColumns.first.x,
+    "Topology Processor field and first control column must use the standard panel gap.");
 static_assert(
     kTopologyProcessorColumns.second.x
         - (kTopologyProcessorColumns.first.x

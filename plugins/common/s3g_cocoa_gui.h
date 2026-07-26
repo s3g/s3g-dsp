@@ -41,10 +41,10 @@ inline bool sliderDoubleClickDefault(NSEvent* event,
     return false;
 }
 
-// Encoder editors use a fixed-size drawing surface so their visual geometry,
-// hit testing, and native controls remain stable.  This state adds a resizable
-// viewport around that surface; hosts may make the window smaller and expose
-// the rest of the editor with standard Cocoa scrollers.
+// Editors use a fixed-size drawing surface so visual geometry, hit testing,
+// and native controls remain stable. This state adds a resizable viewport
+// around that surface. Smaller viewports expose overflow with Cocoa scrollers;
+// the drawing surface itself always remains at 1:1 scale.
 struct ResponsiveViewport {
     void* container = nullptr;
     void* screenObserver = nullptr;
@@ -147,14 +147,17 @@ inline bool getResponsiveViewportSize(const ResponsiveViewport& state,
                                       uint32_t nativeWidth,
                                       uint32_t nativeHeight,
                                       uint32_t* width,
-                                      uint32_t* height)
+                                      uint32_t* height,
+                                      uint32_t minimumWidth = 480u,
+                                      uint32_t minimumHeight = 360u)
 {
     if (!width || !height) return false;
     if (state.width > 0u && state.height > 0u) {
         *width = state.width;
         *height = state.height;
     } else {
-        const NSSize size = responsiveViewportSizeForScreen(nativeWidth, nativeHeight);
+        const NSSize size = responsiveViewportSizeForScreen(
+            nativeWidth, nativeHeight, minimumWidth, minimumHeight);
         *width = static_cast<uint32_t>(size.width);
         *height = static_cast<uint32_t>(size.height);
     }
@@ -176,15 +179,17 @@ inline bool adjustResponsiveViewportSize(const ResponsiveViewport& state,
                                          uint32_t nativeWidth,
                                          uint32_t nativeHeight,
                                          uint32_t* width,
-                                         uint32_t* height)
+                                         uint32_t* height,
+                                         uint32_t initialMinimumWidth = 480u,
+                                         uint32_t initialMinimumHeight = 360u)
 {
     if (!width || !height) return false;
-    const uint32_t minWidth = state.minimumWidth > 0u
+    const uint32_t minWidth = state.nativeWidth > 0u
         ? std::min(state.minimumWidth, nativeWidth)
-        : std::min(480u, nativeWidth);
-    const uint32_t minHeight = state.minimumHeight > 0u
+        : std::min(initialMinimumWidth, nativeWidth);
+    const uint32_t minHeight = state.nativeHeight > 0u
         ? std::min(state.minimumHeight, nativeHeight)
-        : std::min(360u, nativeHeight);
+        : std::min(initialMinimumHeight, nativeHeight);
     *width = std::clamp(*width, minWidth, nativeWidth);
     *height = std::clamp(*height, minHeight, nativeHeight);
     return true;
@@ -839,6 +844,106 @@ inline void drawHeaderButton(NSRect button,
                                    button.origin.y + (button.size.height - size.height) * 0.5 - 0.5)
         withAttributes:attrs];
     (void)headerRect;
+}
+
+inline NSRect topologyProcessorFieldContentRect(NSRect fieldPanel)
+{
+    return NSMakeRect(
+        fieldPanel.origin.x + 10.0,
+        fieldPanel.origin.y + 28.0,
+        fieldPanel.size.width - 20.0,
+        fieldPanel.size.height - 38.0);
+}
+
+inline NSRect topologyProcessorFieldPageButtonRect(
+    NSRect fieldPanel, uint32_t index)
+{
+    constexpr CGFloat buttonWidth = 58.0;
+    constexpr CGFloat buttonGap = 8.0;
+    constexpr CGFloat totalWidth = buttonWidth * 2.0 + buttonGap;
+    return NSMakeRect(
+        fieldPanel.origin.x
+            + (fieldPanel.size.width - totalWidth) * 0.5
+            + static_cast<CGFloat>(index) * (buttonWidth + buttonGap),
+        fieldPanel.origin.y + 3.0,
+        buttonWidth,
+        15.0);
+}
+
+inline NSRect topologyProcessorCameraButtonRect(
+    NSRect fieldPanel, uint32_t index)
+{
+    constexpr CGFloat buttonWidth = 42.0;
+    constexpr CGFloat buttonGap = 6.0;
+    constexpr CGFloat rightInset = 16.0;
+    constexpr CGFloat totalWidth = buttonWidth * 3.0 + buttonGap * 2.0;
+    return NSMakeRect(
+        NSMaxX(fieldPanel) - rightInset - totalWidth
+            + static_cast<CGFloat>(index) * (buttonWidth + buttonGap),
+        fieldPanel.origin.y + 3.0,
+        buttonWidth,
+        15.0);
+}
+
+inline void drawTopologyProcessorCameraButtons(
+    NSRect fieldPanel,
+    int selectedView,
+    NSDictionary* attrs,
+    const Style& style)
+{
+    NSString* labels[3] = { @"TOP", @"SIDE", @"3/4" };
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        drawHeaderButton(
+            topologyProcessorCameraButtonRect(fieldPanel, index),
+            fieldPanel,
+            labels[index],
+            selectedView == static_cast<int>(index),
+            attrs,
+            style);
+    }
+}
+
+struct TopologyProcessorChannelGrid {
+    NSRect contentRect {};
+    uint32_t columns = 0u;
+    uint32_t rows = 0u;
+    CGFloat gap = 0.0;
+    CGFloat labelHeight = 24.0;
+    CGFloat cellWidth = 0.0;
+    CGFloat cellHeight = 0.0;
+};
+
+inline TopologyProcessorChannelGrid topologyProcessorChannelGrid(
+    NSRect contentRect, uint32_t channelCount)
+{
+    TopologyProcessorChannelGrid grid;
+    grid.contentRect = contentRect;
+    grid.columns = channelCount <= 8u ? 2u : 4u;
+    grid.rows = (channelCount + grid.columns - 1u) / grid.columns;
+    grid.gap = channelCount <= 8u ? 8.0 : 5.0;
+    grid.cellWidth = (contentRect.size.width
+        - grid.gap * static_cast<CGFloat>(grid.columns + 1u))
+        / static_cast<CGFloat>(grid.columns);
+    grid.cellHeight = (contentRect.size.height - grid.labelHeight
+        - grid.gap * static_cast<CGFloat>(grid.rows + 1u))
+        / static_cast<CGFloat>(grid.rows);
+    return grid;
+}
+
+inline NSRect topologyProcessorChannelRect(
+    const TopologyProcessorChannelGrid& grid, uint32_t channel)
+{
+    const uint32_t column = channel % grid.columns;
+    const uint32_t row = channel / grid.columns;
+    return NSMakeRect(
+        grid.contentRect.origin.x + grid.gap
+            + static_cast<CGFloat>(column)
+                * (grid.cellWidth + grid.gap),
+        grid.contentRect.origin.y + grid.labelHeight + grid.gap
+            + static_cast<CGFloat>(row)
+                * (grid.cellHeight + grid.gap),
+        grid.cellWidth,
+        grid.cellHeight);
 }
 
 inline void drawHeaderActionButton(NSRect button,

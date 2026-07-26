@@ -18,6 +18,7 @@ constexpr uint32_t kAmbiGrainChannels = 16;
 constexpr float kAmbiGrainMaxDensity = 160.0f;
 constexpr float kAmbiGrainMaxGrainMs = 4000.0f;
 constexpr float kAmbiGrainMaxOverlap = 32.0f;
+constexpr float kAmbiGrainNormalizedPeak = 0.95f;
 
 enum class AmbiGrainMode : uint32_t {
     Scan = 0,
@@ -40,7 +41,39 @@ struct AmbiGrainSample {
     uint32_t channels = 0;
     double sampleRate = 48000.0;
     std::string path;
+    float sourcePeak = 0.0f;
+    float normalizationGain = 1.0f;
 };
+
+inline float normalizeAmbiGrainSample(AmbiGrainSample& sample,
+                                      float targetPeak = kAmbiGrainNormalizedPeak)
+{
+    sample.sourcePeak = 0.0f;
+    sample.normalizationGain = 1.0f;
+    if (sample.frames == 0u || sample.channels == 0u || sample.audio.empty()) return 1.0f;
+
+    const size_t sampleCount = std::min(
+        sample.audio.size(),
+        static_cast<size_t>(sample.frames) * static_cast<size_t>(sample.channels));
+    for (size_t i = 0; i < sampleCount; ++i) {
+        float& value = sample.audio[i];
+        if (!std::isfinite(value)) {
+            value = 0.0f;
+            continue;
+        }
+        sample.sourcePeak = std::max(sample.sourcePeak, std::fabs(value));
+    }
+    if (sample.sourcePeak <= 0.00000001f) return 1.0f;
+
+    targetPeak = std::isfinite(targetPeak)
+        ? clamp(targetPeak, 0.000001f, 1.0f)
+        : kAmbiGrainNormalizedPeak;
+    sample.normalizationGain = targetPeak / sample.sourcePeak;
+    for (size_t i = 0; i < sampleCount; ++i) {
+        sample.audio[i] *= sample.normalizationGain;
+    }
+    return sample.normalizationGain;
+}
 
 struct AmbiGrainParams {
     uint32_t order = 3;

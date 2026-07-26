@@ -7,6 +7,7 @@
 #include <clap/ext/latency.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
+#include <clap/ext/tail.h>
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
@@ -17,10 +18,12 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <new>
 #include <vector>
 
@@ -35,10 +38,10 @@ namespace {
 #endif
 
 constexpr uint32_t kChannelCount = s3g::kWaveGeometryChannels;
-constexpr uint32_t kStateVersion = 3;
+constexpr uint32_t kStateVersion = 4;
 constexpr uint32_t kGuiWidth = static_cast<uint32_t>(
     s3g::gui_layout::kTopologyProcessorColumns.canvasWidth);
-constexpr uint32_t kGuiHeight = 1002;
+constexpr uint32_t kGuiHeight = 788;
 constexpr double kPrimaryPanelX =
     s3g::gui_layout::kTopologyProcessorColumns.first.x;
 constexpr double kSecondaryPanelX =
@@ -58,6 +61,13 @@ constexpr double kEngineRowPitch =
 constexpr double kEngineFirstRow = 36.0;
 constexpr double kEnginePanelHeight =
     s3g::gui_layout::toolboxHeightForRows(13u);
+constexpr double kTopologyPanelY = kLegacyContentTop;
+constexpr double kTopologyPanelHeight =
+    s3g::gui_layout::toolboxHeightForRows(16u);
+constexpr double kMeshPanelY = kTopologyPanelY + kTopologyPanelHeight
+    + s3g::gui_layout::kStandardMetrics.panelGap;
+constexpr double kMeshPanelHeight =
+    s3g::gui_layout::toolboxHeightForRows(4u);
 
 constexpr clap_id kFoldParamId = 1;
 constexpr clap_id kDriveParamId = 2;
@@ -75,6 +85,10 @@ constexpr clap_id kBitsParamId = 13;
 constexpr clap_id kStepParamId = 14;
 constexpr clap_id kTapeParamId = 15;
 constexpr clap_id kSpeedParamId = 16;
+constexpr clap_id kMeshCouplingParamId = 17;
+constexpr clap_id kMeshTensionParamId = 18;
+constexpr clap_id kMeshDecayParamId = 19;
+constexpr clap_id kMeshDampingParamId = 20;
 
 constexpr clap_id kTopologyShapeParamId = 30;
 constexpr clap_id kTopologyAmountParamId = 31;
@@ -92,6 +106,22 @@ constexpr clap_id kTopologyDepthParamId = 42;
 constexpr clap_id kTopologyNeighborsParamId = 43;
 constexpr clap_id kTopologyRadiusParamId = 44;
 constexpr clap_id kTopologyCentroidParamId = 45;
+constexpr uint32_t kParameterBankSize = 46u;
+
+constexpr clap_id kStoredParamIds[] {
+    kFoldParamId, kDriveParamId, kHoldParamId, kClipParamId,
+    kRectifyParamId, kEdgeParamId, kZeroParamId, kPolarParamId,
+    kTransParamId, kMixParamId, kGainParamId, kSafetyParamId,
+    kBitsParamId, kStepParamId, kTapeParamId, kSpeedParamId,
+    kMeshCouplingParamId, kMeshTensionParamId, kMeshDecayParamId,
+    kMeshDampingParamId, kTopologyShapeParamId, kTopologyAmountParamId,
+    kTopologySeedParamId, kTopologyPullParamId, kTopologyXParamId,
+    kTopologyYParamId, kTopologyZParamId, kTopologyTwistParamId,
+    kTopologyFlareParamId, kTopologyMotionParamId,
+    kTopologyVariantParamId, kTopologyRateParamId,
+    kTopologyDepthParamId, kTopologyNeighborsParamId,
+    kTopologyRadiusParamId, kTopologyCentroidParamId
+};
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -99,27 +129,73 @@ struct SavedState {
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
 };
 
-
+// Versions 1-3 wrote native settings structs directly. Freeze their exact
+// layouts here so adding the mesh cannot change how many bytes an old preset
+// consumes.
 struct LegacyWaveGeometryParamsV2 {
-    float fold = 0.22f;
-    float drive = 0.18f;
-    float hold = 0.0f;
-    float clip = 0.18f;
-    float rectify = 0.0f;
-    float edge = 0.0f;
-    float zero = 0.0f;
-    float polar = 0.0f;
-    float bits = 0.0f;
-    float step = 0.0f;
-    float trans = 0.0f;
-    float mix = 0.72f;
-    float gainDb = -3.0f;
-    float safety = 0.82f;
+    float fold;
+    float drive;
+    float hold;
+    float clip;
+    float rectify;
+    float edge;
+    float zero;
+    float polar;
+    float bits;
+    float step;
+    float trans;
+    float mix;
+    float gainDb;
+    float safety;
+};
+
+struct LegacyWaveGeometryParamsV3 {
+    float fold;
+    float drive;
+    float hold;
+    float clip;
+    float rectify;
+    float edge;
+    float zero;
+    float polar;
+    float bits;
+    float step;
+    float trans;
+    float tape;
+    float speed;
+    float mix;
+    float gainDb;
+    float safety;
+};
+
+struct LegacyTopologyStateV3 {
+    double amount;
+    double jitter;
+    double collapse;
+    double dirX;
+    double dirY;
+    double dirZ;
+    double twist;
+    double flare;
+    uint32_t shape;
+    uint32_t motionMode;
+    uint32_t motionVariant;
+    double motionRateHz;
+    double motionDepth;
+    double motionPhase;
+    uint32_t neighborCount;
+    double neighborRadius;
+    double centroidAmount;
 };
 
 struct LegacyWaveGeometrySettingsV2 {
     LegacyWaveGeometryParamsV2 base {};
-    s3g::TopologyState topology {};
+    LegacyTopologyStateV3 topology {};
+};
+
+struct LegacyWaveGeometrySettingsV3 {
+    LegacyWaveGeometryParamsV3 base {};
+    LegacyTopologyStateV3 topology {};
 };
 
 struct SavedStateV2 {
@@ -128,26 +204,67 @@ struct SavedStateV2 {
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
 };
 
+struct SavedStateV3 {
+    uint32_t version = 3;
+    LegacyWaveGeometrySettingsV3 settings {};
+    uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
+};
+
 struct SavedStateV1 {
     uint32_t version = 1;
-    s3g::WaveGeometrySettings settings {};
+    LegacyWaveGeometrySettingsV3 settings {};
 };
+
+static_assert(sizeof(LegacyWaveGeometryParamsV2) == 56u);
+static_assert(sizeof(LegacyWaveGeometryParamsV3) == 64u);
+static_assert(sizeof(LegacyTopologyStateV3) == 128u);
+static_assert(sizeof(LegacyWaveGeometrySettingsV2) == 184u);
+static_assert(sizeof(LegacyWaveGeometrySettingsV3) == 192u);
+static_assert(offsetof(SavedStateV1, settings) == 8u);
+static_assert(sizeof(SavedStateV1) == 200u);
+static_assert(offsetof(SavedStateV2, settings) == 8u);
+static_assert(offsetof(SavedStateV2, patchRows) == 192u);
+static_assert(sizeof(SavedStateV2) == 704u);
+static_assert(offsetof(SavedStateV3, settings) == 8u);
+static_assert(offsetof(SavedStateV3, patchRows) == 200u);
+static_assert(sizeof(SavedStateV3) == 712u);
+static_assert(sizeof(s3g::WaveGeometryMeshParams) == 16u);
+static_assert(offsetof(SavedState, settings) == 8u);
+static_assert(offsetof(SavedState, patchRows) == 216u);
+static_assert(sizeof(SavedState) == 728u);
 
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_tail_t* hostTail = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0;
+    // `settings` belongs to the main/GUI thread. Host automation and GUI
+    // gestures publish scalar values through the atomic bank; only the audio
+    // thread owns `audioSettings` and mutates the DSP core.
     s3g::WaveGeometrySettings settings {};
+    s3g::WaveGeometrySettings audioSettings {};
+    std::array<std::atomic<double>, kParameterBankSize> parameterValues {};
+    std::atomic<uint64_t> parameterRevision { 1u };
+    uint64_t audioParameterRevision = 0u;
+    std::atomic<double> publishedMotionPhase { 0.0 };
+    std::atomic<bool> motionPhaseRestorePending { false };
+    std::atomic<uint32_t> publishedMeshTailFrames { 0u };
     s3g::WaveGeometryProcessor processor;
+    // The LanePatch object is main-thread owned. Audio consumes immutable row
+    // masks published atomically whenever the GUI or state loader changes it.
     s3g::LanePatch patch;
+    std::array<std::atomic<uint64_t>, kChannelCount> patchRowsPublished {};
     std::vector<std::vector<float>> input32;
     std::vector<std::vector<float>> output32;
     std::vector<const float*> inputPtrs;
     std::vector<float*> outputPtrs;
     std::array<std::array<std::atomic<float>, kScopeFrames>, kChannelCount> scope {};
+    std::array<std::array<std::atomic<float>, kChannelCount>, kChannelCount> meshEdgeEnergy {};
+    std::array<std::array<std::atomic<float>, kChannelCount>, kChannelCount> meshEdgePhase {};
     std::atomic<uint32_t> scopeWrite { 0u };
     std::atomic<float> outputPeak { 0.0f };
+    std::atomic<bool> tailChangePending { false };
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -157,6 +274,29 @@ struct Plugin {
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+void markTailChanged(Plugin& p)
+{
+    p.tailChangePending.store(true, std::memory_order_release);
+}
+
+// clap.tail requires changed() to be delivered on the audio thread. GUI,
+// state, and params.flush paths only coalesce a pending notification.
+void deliverTailChangedOnAudioThread(Plugin& p)
+{
+    if (p.tailChangePending.exchange(false, std::memory_order_acq_rel)
+        && p.host && p.hostTail && p.hostTail->changed) {
+        p.hostTail->changed(p.host);
+    }
+}
+
+bool paramAffectsTail(clap_id id)
+{
+    return id == kTapeParamId || id == kSpeedParamId
+        || (id >= kMeshCouplingParamId && id <= kMeshDampingParamId)
+        || (id >= kTopologyShapeParamId
+            && id <= kTopologyCentroidParamId);
+}
 
 double clampMotionRate(double value)
 {
@@ -173,31 +313,14 @@ double engineRowY(double panelY, uint32_t index)
     return panelY + kEngineFirstRow + static_cast<double>(index) * kEngineRowPitch;
 }
 
-void applyLaneParams(Plugin& p)
+bool assignSettingsParam(
+    s3g::WaveGeometrySettings& settings,
+    clap_id id,
+    double value)
 {
-    for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
-        p.processor.setLaneParams(ch, s3g::waveGeometryLaneParams(p.settings, ch, kChannelCount));
-    }
-}
-
-bool topologyMotionActive(const Plugin& p)
-{
-    return s3g::topologyMotionActive(p.settings.topology);
-}
-
-void advanceTopologyMotion(Plugin& p, uint32_t frames)
-{
-    if (!topologyMotionActive(p) || p.sampleRate <= 0.0 || frames == 0u) return;
-    auto& t = p.settings.topology;
-    t.motionPhase += (static_cast<double>(frames) / p.sampleRate) * t.motionRateHz;
-    t.motionPhase -= std::floor(t.motionPhase);
-    applyLaneParams(p);
-}
-
-void applyParam(Plugin& p, clap_id id, double value)
-{
-    auto& prm = p.settings.base;
-    auto& t = p.settings.topology;
+    auto& prm = settings.base;
+    auto& mesh = settings.mesh;
+    auto& t = settings.topology;
     switch (id) {
     case kFoldParamId: prm.fold = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kDriveParamId: prm.drive = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
@@ -212,10 +335,14 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kTransParamId: prm.trans = static_cast<float>(std::clamp(value, -1.0, 1.0)); break;
     case kTapeParamId: prm.tape = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kSpeedParamId: prm.speed = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kMeshCouplingParamId: mesh.coupling = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kMeshTensionParamId: mesh.tension = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kMeshDecayParamId: mesh.decay = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kMeshDampingParamId: mesh.damping = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kMixParamId: prm.mix = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kGainParamId: prm.gainDb = static_cast<float>(std::clamp(value, -60.0, 12.0)); break;
     case kSafetyParamId: prm.safety = static_cast<float>(std::clamp(value, 0.12, 0.92)); break;
-    case kTopologyShapeParamId: t.shape = std::min<uint32_t>(s3g::kTopologyShapeCount - 1u, static_cast<uint32_t>(std::floor(value + 0.5))); break;
+    case kTopologyShapeParamId: t.shape = static_cast<uint32_t>(std::clamp<int32_t>(static_cast<int32_t>(std::lround(value)), 0, static_cast<int32_t>(s3g::kTopologyShapeCount - 1u))); break;
     case kTopologyAmountParamId: t.amount = std::clamp(value, 0.0, 1.0); break;
     case kTopologySeedParamId: t.jitter = std::clamp(value, 0.0, 1.0); break;
     case kTopologyPullParamId: t.collapse = std::clamp(value, 0.0, 1.0); break;
@@ -224,16 +351,166 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kTopologyZParamId: t.dirZ = std::clamp(value, -1.0, 1.0); break;
     case kTopologyTwistParamId: t.twist = std::clamp(value, -1.0, 1.0); break;
     case kTopologyFlareParamId: t.flare = std::clamp(value, -1.0, 1.0); break;
-    case kTopologyMotionParamId: t.motionMode = std::min<uint32_t>(s3g::kTopologyMotionModeCount - 1u, static_cast<uint32_t>(std::floor(value + 0.5))); break;
-    case kTopologyVariantParamId: t.motionVariant = std::min<uint32_t>(s3g::kTopologyVariantCount - 1u, static_cast<uint32_t>(std::floor(value + 0.5))); break;
+    case kTopologyMotionParamId: t.motionMode = static_cast<uint32_t>(std::clamp<int32_t>(static_cast<int32_t>(std::lround(value)), 0, static_cast<int32_t>(s3g::kTopologyMotionModeCount - 1u))); break;
+    case kTopologyVariantParamId: t.motionVariant = static_cast<uint32_t>(std::clamp<int32_t>(static_cast<int32_t>(std::lround(value)), 0, static_cast<int32_t>(s3g::kTopologyVariantCount - 1u))); break;
     case kTopologyRateParamId: t.motionRateHz = clampMotionRate(value); break;
     case kTopologyDepthParamId: t.motionDepth = std::clamp(value, 0.0, 1.0); break;
-    case kTopologyNeighborsParamId: t.neighborCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::floor(value + 0.5)), 1u, 3u); break;
+    case kTopologyNeighborsParamId: t.neighborCount = static_cast<uint32_t>(std::clamp<int32_t>(static_cast<int32_t>(std::lround(value)), 1, 3)); break;
     case kTopologyRadiusParamId: t.neighborRadius = std::clamp(value, 0.0, 1.0); break;
     case kTopologyCentroidParamId: t.centroidAmount = std::clamp(value, 0.0, 1.0); break;
-    default: break;
+    default: return false;
     }
-    applyLaneParams(p);
+    return true;
+}
+
+bool settingsParamValue(
+    const s3g::WaveGeometrySettings& settings,
+    clap_id id,
+    double& value)
+{
+    const auto& prm = settings.base;
+    const auto& mesh = settings.mesh;
+    const auto& t = settings.topology;
+    switch (id) {
+    case kFoldParamId: value = prm.fold; return true;
+    case kDriveParamId: value = prm.drive; return true;
+    case kHoldParamId: value = prm.hold; return true;
+    case kClipParamId: value = prm.clip; return true;
+    case kRectifyParamId: value = prm.rectify; return true;
+    case kEdgeParamId: value = prm.edge; return true;
+    case kZeroParamId: value = prm.zero; return true;
+    case kPolarParamId: value = prm.polar; return true;
+    case kBitsParamId: value = prm.bits; return true;
+    case kStepParamId: value = prm.step; return true;
+    case kTransParamId: value = prm.trans; return true;
+    case kTapeParamId: value = prm.tape; return true;
+    case kSpeedParamId: value = prm.speed; return true;
+    case kMeshCouplingParamId: value = mesh.coupling; return true;
+    case kMeshTensionParamId: value = mesh.tension; return true;
+    case kMeshDecayParamId: value = mesh.decay; return true;
+    case kMeshDampingParamId: value = mesh.damping; return true;
+    case kMixParamId: value = prm.mix; return true;
+    case kGainParamId: value = prm.gainDb; return true;
+    case kSafetyParamId: value = prm.safety; return true;
+    case kTopologyShapeParamId: value = t.shape; return true;
+    case kTopologyAmountParamId: value = t.amount; return true;
+    case kTopologySeedParamId: value = t.jitter; return true;
+    case kTopologyPullParamId: value = t.collapse; return true;
+    case kTopologyXParamId: value = t.dirX; return true;
+    case kTopologyYParamId: value = t.dirY; return true;
+    case kTopologyZParamId: value = t.dirZ; return true;
+    case kTopologyTwistParamId: value = t.twist; return true;
+    case kTopologyFlareParamId: value = t.flare; return true;
+    case kTopologyMotionParamId: value = t.motionMode; return true;
+    case kTopologyVariantParamId: value = t.motionVariant; return true;
+    case kTopologyRateParamId: value = t.motionRateHz; return true;
+    case kTopologyDepthParamId: value = t.motionDepth; return true;
+    case kTopologyNeighborsParamId: value = t.neighborCount; return true;
+    case kTopologyRadiusParamId: value = t.neighborRadius; return true;
+    case kTopologyCentroidParamId: value = t.centroidAmount; return true;
+    default: return false;
+    }
+}
+
+void storeSettingsInParameterBank(
+    Plugin& p,
+    const s3g::WaveGeometrySettings& settings)
+{
+    for (const clap_id id : kStoredParamIds) {
+        double value = 0.0;
+        if (settingsParamValue(settings, id, value)) {
+            p.parameterValues[id].store(value, std::memory_order_relaxed);
+        }
+    }
+    p.parameterRevision.fetch_add(1u, std::memory_order_release);
+}
+
+void loadSettingsFromParameterBank(
+    const Plugin& p,
+    s3g::WaveGeometrySettings& settings)
+{
+    const double phase = settings.topology.motionPhase;
+    for (const clap_id id : kStoredParamIds) {
+        assignSettingsParam(
+            settings,
+            id,
+            p.parameterValues[id].load(std::memory_order_relaxed));
+    }
+    settings.topology.motionPhase = phase;
+}
+
+void syncGuiSettings(Plugin& p)
+{
+    loadSettingsFromParameterBank(p, p.settings);
+    p.settings.topology.motionPhase = p.publishedMotionPhase.load(
+        std::memory_order_relaxed);
+}
+
+void applyLaneParams(
+    Plugin& p,
+    const s3g::WaveGeometrySettings& settings)
+{
+    for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
+        p.processor.setLaneParams(
+            ch,
+            s3g::waveGeometryLaneParams(settings, ch, kChannelCount));
+    }
+}
+
+void applyProcessorSettings(
+    Plugin& p,
+    const s3g::WaveGeometrySettings& settings)
+{
+    applyLaneParams(p, settings);
+    p.processor.setMeshParams(settings.mesh);
+    p.processor.setTopology(settings.topology);
+}
+
+void syncAudioSettings(Plugin& p, bool force = false)
+{
+    const uint64_t revision = p.parameterRevision.load(
+        std::memory_order_acquire);
+    if (!force && revision == p.audioParameterRevision) return;
+    loadSettingsFromParameterBank(p, p.audioSettings);
+    if (p.motionPhaseRestorePending.exchange(
+            false, std::memory_order_acq_rel)) {
+        p.audioSettings.topology.motionPhase =
+            p.publishedMotionPhase.load(std::memory_order_relaxed);
+    }
+    p.audioParameterRevision = revision;
+    applyProcessorSettings(p, p.audioSettings);
+    p.publishedMeshTailFrames.store(
+        p.processor.meshTailRemainingFrames(),
+        std::memory_order_release);
+}
+
+bool topologyMotionActive(const Plugin& p)
+{
+    return s3g::topologyMotionActive(p.audioSettings.topology);
+}
+
+void advanceTopologyMotion(Plugin& p, uint32_t frames)
+{
+    if (!topologyMotionActive(p) || p.sampleRate <= 0.0 || frames == 0u) return;
+    auto& t = p.audioSettings.topology;
+    t.motionPhase += (static_cast<double>(frames) / p.sampleRate)
+        * t.motionRateHz;
+    t.motionPhase -= std::floor(t.motionPhase);
+    p.publishedMotionPhase.store(t.motionPhase, std::memory_order_relaxed);
+    applyLaneParams(p, p.audioSettings);
+    p.processor.setTopology(t);
+}
+
+void applyParam(Plugin& p, clap_id id, double value)
+{
+    if (id >= kParameterBankSize) return;
+    s3g::WaveGeometrySettings singleValue {};
+    if (!assignSettingsParam(singleValue, id, value)) return;
+    double sanitized = 0.0;
+    if (!settingsParamValue(singleValue, id, sanitized)) return;
+    p.parameterValues[id].store(sanitized, std::memory_order_relaxed);
+    p.parameterRevision.fetch_add(1u, std::memory_order_release);
+    if (paramAffectsTail(id)) markTailChanged(p);
 }
 
 void preparePatch(Plugin& p)
@@ -249,29 +526,26 @@ void preparePatch(Plugin& p)
     if (!hasPatch) {
         p.patch.setIdentity(kChannelCount);
     }
+    for (uint32_t row = 0; row < kChannelCount; ++row) {
+        p.patchRowsPublished[row].store(
+            p.patch.rowMask(row), std::memory_order_release);
+    }
 }
 
 void togglePatchCellFromGui(Plugin& p, uint32_t input, uint32_t output)
 {
     p.patch.setWidth(kChannelCount);
     p.patch.toggle(input, output);
+    preparePatch(p);
 }
 
-uint32_t activePatchOutputs(const Plugin& p)
+uint64_t injectedPatchOutputMask(const Plugin& p)
 {
-    uint32_t count = 0;
-    for (uint32_t out = 0; out < kChannelCount; ++out) {
-        const uint64_t bit = uint64_t { 1 } << out;
-        bool active = false;
-        for (uint32_t in = 0; in < kChannelCount; ++in) {
-            if ((p.patch.rowMask(in) & bit) != 0) {
-                active = true;
-                break;
-            }
-        }
-        if (active) ++count;
+    uint64_t mask = 0u;
+    for (uint32_t input = 0; input < kChannelCount; ++input) {
+        mask |= p.patch.rowMask(input);
     }
-    return count > 0 ? count : kChannelCount;
+    return mask & ((uint64_t { 1 } << kChannelCount) - 1u);
 }
 
 bool init(const clap_plugin_t*) { return true; }
@@ -304,7 +578,16 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     }
     preparePatch(*p);
     if (!p->processor.prepare(sampleRate, kChannelCount, 0u, 0u, p->maxFrames)) return false;
-    applyLaneParams(*p);
+    syncAudioSettings(*p, true);
+    p->publishedMeshTailFrames.store(
+        p->processor.meshTailRemainingFrames(),
+        std::memory_order_release);
+    for (uint32_t source = 0; source < kChannelCount; ++source) {
+        for (uint32_t destination = 0; destination < kChannelCount; ++destination) {
+            p->meshEdgeEnergy[source][destination].store(0.0f, std::memory_order_relaxed);
+            p->meshEdgePhase[source][destination].store(0.0f, std::memory_order_relaxed);
+        }
+    }
     return true;
 }
 
@@ -316,13 +599,30 @@ void deactivate(const clap_plugin_t* plugin)
     (void)plugin;
 #endif
 }
-bool startProcessing(const clap_plugin_t*) { return true; }
-void stopProcessing(const clap_plugin_t*) {}
+bool startProcessing(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    syncAudioSettings(*p, true);
+    deliverTailChangedOnAudioThread(*p);
+    return true;
+}
+void stopProcessing(const clap_plugin_t* plugin)
+{
+    deliverTailChangedOnAudioThread(*self(plugin));
+}
 void reset(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
     p->processor.reset();
+    p->publishedMeshTailFrames.store(0u, std::memory_order_release);
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
+    for (uint32_t source = 0; source < kChannelCount; ++source) {
+        for (uint32_t destination = 0; destination < kChannelCount; ++destination) {
+            p->meshEdgeEnergy[source][destination].store(0.0f, std::memory_order_relaxed);
+            p->meshEdgePhase[source][destination].store(0.0f, std::memory_order_relaxed);
+        }
+    }
+    deliverTailChangedOnAudioThread(*p);
 }
 
 void readParamEvents(Plugin& p, const clap_input_events_t* in)
@@ -342,6 +642,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 {
     auto* p = self(plugin);
     readParamEvents(*p, proc->in_events);
+    syncAudioSettings(*p);
+    deliverTailChangedOnAudioThread(*p);
     if (proc->audio_inputs_count == 0 || proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto& input = proc->audio_inputs[0];
     const auto& output = proc->audio_outputs[0];
@@ -350,12 +652,13 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 
     advanceTopologyMotion(*p, frames);
 
-    preparePatch(*p);
     for (uint32_t lane = 0; lane < kChannelCount; ++lane) {
         std::fill(p->input32[lane].begin(), p->input32[lane].begin() + frames, 0.0f);
         const uint64_t laneBit = uint64_t { 1 } << lane;
         for (uint32_t inCh = 0; inCh < kChannelCount; ++inCh) {
-            if ((p->patch.rowMask(inCh) & laneBit) == 0) continue;
+            const uint64_t rowMask = p->patchRowsPublished[inCh].load(
+                std::memory_order_acquire);
+            if ((rowMask & laneBit) == 0) continue;
             for (uint32_t i = 0; i < frames; ++i) {
                 if (inCh < input.channel_count && input.data32 && input.data32[inCh]) p->input32[lane][i] += input.data32[inCh][i];
                 else if (inCh < input.channel_count && input.data64 && input.data64[inCh]) p->input32[lane][i] += static_cast<float>(input.data64[inCh][i]);
@@ -363,6 +666,19 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         }
     }
     p->processor.process(p->inputPtrs.data(), kChannelCount, p->outputPtrs.data(), kChannelCount, frames);
+    p->publishedMeshTailFrames.store(
+        p->processor.meshTailRemainingFrames(),
+        std::memory_order_release);
+    for (uint32_t source = 0; source < kChannelCount; ++source) {
+        for (uint32_t destination = 0; destination < kChannelCount; ++destination) {
+            p->meshEdgeEnergy[source][destination].store(
+                p->processor.edgeEnergy(source, destination),
+                std::memory_order_relaxed);
+            p->meshEdgePhase[source][destination].store(
+                p->processor.edgePhase(source, destination),
+                std::memory_order_relaxed);
+        }
+    }
 
     float blockPeak = 0.0f;
     const uint32_t scopeBase = p->scopeWrite.load(std::memory_order_relaxed);
@@ -415,6 +731,10 @@ constexpr ParamDef kParamDefs[] {
     { kTransParamId, "Transform", -1.0, 1.0, 0.0 },
     { kTapeParamId, "Dual Tape Heads", 0.0, 1.0, 0.0 },
     { kSpeedParamId, "Tape Head Speed", 0.0, 1.0, 0.25 },
+    { kMeshCouplingParamId, "Mesh Coupling", 0.0, 1.0, 0.0 },
+    { kMeshTensionParamId, "Mesh Tension", 0.0, 1.0, 0.62 },
+    { kMeshDecayParamId, "Mesh Decay", 0.0, 1.0, 0.35 },
+    { kMeshDampingParamId, "Mesh Damping", 0.0, 1.0, 0.45 },
     { kMixParamId, "Mix", 0.0, 1.0, 1.0 },
     { kGainParamId, "Output", -60.0, 12.0, -3.0 },
     { kSafetyParamId, "Safety", 0.12, 0.92, 0.82 },
@@ -444,7 +764,11 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->id = def.id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, def.id < kTopologyShapeParamId ? "Wave Engine" : "Topology", sizeof(info->module));
+    const char* module = def.id >= kMeshCouplingParamId
+            && def.id <= kMeshDampingParamId
+        ? "Wave Mesh"
+        : (def.id < kTopologyShapeParamId ? "Wave Engine" : "Topology");
+    std::strncpy(info->module, module, sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -453,45 +777,13 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
-    if (!value) return false;
+    if (!value || id >= kParameterBankSize) return false;
     const auto& p = *self(plugin);
-    const auto& prm = p.settings.base;
-    const auto& t = p.settings.topology;
-    switch (id) {
-    case kFoldParamId: *value = prm.fold; return true;
-    case kDriveParamId: *value = prm.drive; return true;
-    case kHoldParamId: *value = prm.hold; return true;
-    case kClipParamId: *value = prm.clip; return true;
-    case kRectifyParamId: *value = prm.rectify; return true;
-    case kEdgeParamId: *value = prm.edge; return true;
-    case kZeroParamId: *value = prm.zero; return true;
-    case kPolarParamId: *value = prm.polar; return true;
-    case kBitsParamId: *value = prm.bits; return true;
-    case kStepParamId: *value = prm.step; return true;
-    case kTransParamId: *value = prm.trans; return true;
-    case kTapeParamId: *value = prm.tape; return true;
-    case kSpeedParamId: *value = prm.speed; return true;
-    case kMixParamId: *value = prm.mix; return true;
-    case kGainParamId: *value = prm.gainDb; return true;
-    case kSafetyParamId: *value = prm.safety; return true;
-    case kTopologyShapeParamId: *value = t.shape; return true;
-    case kTopologyAmountParamId: *value = t.amount; return true;
-    case kTopologySeedParamId: *value = t.jitter; return true;
-    case kTopologyPullParamId: *value = t.collapse; return true;
-    case kTopologyXParamId: *value = t.dirX; return true;
-    case kTopologyYParamId: *value = t.dirY; return true;
-    case kTopologyZParamId: *value = t.dirZ; return true;
-    case kTopologyTwistParamId: *value = t.twist; return true;
-    case kTopologyFlareParamId: *value = t.flare; return true;
-    case kTopologyMotionParamId: *value = t.motionMode; return true;
-    case kTopologyVariantParamId: *value = t.motionVariant; return true;
-    case kTopologyRateParamId: *value = t.motionRateHz; return true;
-    case kTopologyDepthParamId: *value = t.motionDepth; return true;
-    case kTopologyNeighborsParamId: *value = t.neighborCount; return true;
-    case kTopologyRadiusParamId: *value = t.neighborRadius; return true;
-    case kTopologyCentroidParamId: *value = t.centroidAmount; return true;
-    default: return false;
-    }
+    s3g::WaveGeometrySettings probe {};
+    double ignored = 0.0;
+    if (!settingsParamValue(probe, id, ignored)) return false;
+    *value = p.parameterValues[id].load(std::memory_order_relaxed);
+    return true;
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
@@ -513,84 +805,247 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, doubl
 {
     if (!display || !value) return false;
     *value = std::atof(display);
+    if (std::strchr(display, '%')) *value *= 0.01;
     return true;
 }
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
+
+template <typename State>
+bool readStateRemainder(const clap_istream_t* stream, uint32_t version, State& state)
+{
+    state.version = version;
+    auto* cursor = reinterpret_cast<uint8_t*>(&state) + sizeof(state.version);
+    uint64_t remaining = sizeof(state) - sizeof(state.version);
+    while (remaining > 0u) {
+        const int64_t read = stream->read(stream, cursor, remaining);
+        if (read <= 0 || static_cast<uint64_t>(read) > remaining) return false;
+        cursor += read;
+        remaining -= static_cast<uint64_t>(read);
+    }
+    return true;
+}
+
+bool writeStateBytes(const clap_ostream_t* stream, const void* data, uint64_t size)
+{
+    auto* cursor = static_cast<const uint8_t*>(data);
+    while (size > 0u) {
+        const int64_t written = stream->write(stream, cursor, size);
+        if (written <= 0 || static_cast<uint64_t>(written) > size) return false;
+        cursor += written;
+        size -= static_cast<uint64_t>(written);
+    }
+    return true;
+}
+
+bool readStateBytes(const clap_istream_t* stream, void* data, uint64_t size)
+{
+    auto* cursor = static_cast<uint8_t*>(data);
+    while (size > 0u) {
+        const int64_t read = stream->read(stream, cursor, size);
+        if (read <= 0 || static_cast<uint64_t>(read) > size) return false;
+        cursor += read;
+        size -= static_cast<uint64_t>(read);
+    }
+    return true;
+}
+
+s3g::TopologyState migrateLegacyTopology(const LegacyTopologyStateV3& legacy)
+{
+    s3g::TopologyState topology {};
+    topology.amount = legacy.amount;
+    topology.jitter = legacy.jitter;
+    topology.collapse = legacy.collapse;
+    topology.dirX = legacy.dirX;
+    topology.dirY = legacy.dirY;
+    topology.dirZ = legacy.dirZ;
+    topology.twist = legacy.twist;
+    topology.flare = legacy.flare;
+    topology.shape = legacy.shape;
+    topology.motionMode = legacy.motionMode;
+    topology.motionVariant = legacy.motionVariant;
+    topology.motionRateHz = legacy.motionRateHz;
+    topology.motionDepth = legacy.motionDepth;
+    topology.motionPhase = legacy.motionPhase;
+    topology.neighborCount = legacy.neighborCount;
+    topology.neighborRadius = legacy.neighborRadius;
+    topology.centroidAmount = legacy.centroidAmount;
+    return topology;
+}
+
+s3g::WaveGeometrySettings migrateLegacySettings(
+    const LegacyWaveGeometrySettingsV3& legacy)
+{
+    s3g::WaveGeometrySettings settings {};
+    auto& base = settings.base;
+    base.fold = legacy.base.fold;
+    base.drive = legacy.base.drive;
+    base.hold = legacy.base.hold;
+    base.clip = legacy.base.clip;
+    base.rectify = legacy.base.rectify;
+    base.edge = legacy.base.edge;
+    base.zero = legacy.base.zero;
+    base.polar = legacy.base.polar;
+    base.bits = legacy.base.bits;
+    base.step = legacy.base.step;
+    base.trans = legacy.base.trans;
+    base.tape = legacy.base.tape;
+    base.speed = legacy.base.speed;
+    base.mix = legacy.base.mix;
+    base.gainDb = legacy.base.gainDb;
+    base.safety = legacy.base.safety;
+    settings.topology = migrateLegacyTopology(legacy.topology);
+    settings.mesh.coupling = 0.0f;
+    return settings;
+}
+
+s3g::WaveGeometrySettings migrateLegacySettings(
+    const LegacyWaveGeometrySettingsV2& legacy)
+{
+    s3g::WaveGeometrySettings settings {};
+    auto& base = settings.base;
+    base.fold = legacy.base.fold;
+    base.drive = legacy.base.drive;
+    base.hold = legacy.base.hold;
+    base.clip = legacy.base.clip;
+    base.rectify = legacy.base.rectify;
+    base.edge = legacy.base.edge;
+    base.zero = legacy.base.zero;
+    base.polar = legacy.base.polar;
+    base.bits = legacy.base.bits;
+    base.step = legacy.base.step;
+    base.trans = legacy.base.trans;
+    base.mix = legacy.base.mix;
+    base.gainDb = legacy.base.gainDb;
+    base.safety = legacy.base.safety;
+    settings.topology = migrateLegacyTopology(legacy.topology);
+    settings.mesh.coupling = 0.0f;
+    return settings;
+}
+
+void sanitizeMeshSettings(s3g::WaveGeometrySettings& settings)
+{
+    settings.base = s3g::sanitizeWaveGeometryParams(settings.base);
+    settings.mesh.coupling = std::clamp(settings.mesh.coupling, 0.0f, 1.0f);
+    settings.mesh.tension = std::clamp(settings.mesh.tension, 0.0f, 1.0f);
+    settings.mesh.decay = std::clamp(settings.mesh.decay, 0.0f, 1.0f);
+    settings.mesh.damping = std::clamp(settings.mesh.damping, 0.0f, 1.0f);
+    if (!std::isfinite(settings.topology.motionPhase)) {
+        settings.topology.motionPhase = 0.0;
+    } else {
+        settings.topology.motionPhase -= std::floor(
+            settings.topology.motionPhase);
+    }
+}
+
+template <typename State>
+void restorePatch(Plugin& p, const State& state)
+{
+    p.patch.setWidth(kChannelCount);
+    for (uint32_t row = 0; row < kChannelCount; ++row) {
+        p.patch.setRowMask(row, state.patchRows[row]);
+    }
+    preparePatch(p);
+}
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     SavedState s {};
     auto* p = self(plugin);
+    syncGuiSettings(*p);
     s.settings = p->settings;
     for (uint32_t row = 0; row < s3g::kLanePatchMaxChannels; ++row) {
         s.patchRows[row] = p->patch.rowMask(row);
     }
-    return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
+    return writeStateBytes(stream, &s, sizeof(s));
 }
+
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     uint32_t version = 0;
-    if (stream->read(stream, &version, sizeof(version)) != static_cast<int64_t>(sizeof(version))) return false;
+    if (!readStateBytes(stream, &version, sizeof(version))) return false;
     auto* p = self(plugin);
     if (version == kStateVersion) {
         SavedState s {};
-        s.version = version;
-        auto* cursor = reinterpret_cast<uint8_t*>(&s) + sizeof(s.version);
-        const int64_t remaining = static_cast<int64_t>(sizeof(s) - sizeof(s.version));
-        if (stream->read(stream, cursor, remaining) != remaining) return false;
+        if (!readStateRemainder(stream, version, s)) return false;
         p->settings = s.settings;
-        p->patch.setWidth(kChannelCount);
-        for (uint32_t row = 0; row < kChannelCount; ++row) {
-            p->patch.setRowMask(row, s.patchRows[row]);
-        }
-        preparePatch(*p);
+        restorePatch(*p, s);
+    } else if (version == 3u) {
+        SavedStateV3 s {};
+        if (!readStateRemainder(stream, version, s)) return false;
+        p->settings = migrateLegacySettings(s.settings);
+        restorePatch(*p, s);
     } else if (version == 2u) {
         SavedStateV2 s {};
-        s.version = version;
-        auto* cursor = reinterpret_cast<uint8_t*>(&s) + sizeof(s.version);
-        const int64_t remaining = static_cast<int64_t>(sizeof(s) - sizeof(s.version));
-        if (stream->read(stream, cursor, remaining) != remaining) return false;
-        p->settings = {};
-        p->settings.base.fold = s.settings.base.fold;
-        p->settings.base.drive = s.settings.base.drive;
-        p->settings.base.hold = s.settings.base.hold;
-        p->settings.base.clip = s.settings.base.clip;
-        p->settings.base.rectify = s.settings.base.rectify;
-        p->settings.base.edge = s.settings.base.edge;
-        p->settings.base.zero = s.settings.base.zero;
-        p->settings.base.polar = s.settings.base.polar;
-        p->settings.base.bits = s.settings.base.bits;
-        p->settings.base.step = s.settings.base.step;
-        p->settings.base.trans = s.settings.base.trans;
-        p->settings.base.mix = s.settings.base.mix;
-        p->settings.base.gainDb = s.settings.base.gainDb;
-        p->settings.base.safety = s.settings.base.safety;
-        p->settings.topology = s.settings.topology;
-        p->patch.setWidth(kChannelCount);
-        for (uint32_t row = 0; row < kChannelCount; ++row) {
-            p->patch.setRowMask(row, s.patchRows[row]);
-        }
-        preparePatch(*p);
+        if (!readStateRemainder(stream, version, s)) return false;
+        p->settings = migrateLegacySettings(s.settings);
+        restorePatch(*p, s);
     } else if (version == 1u) {
         SavedStateV1 s {};
-        s.version = version;
-        auto* cursor = reinterpret_cast<uint8_t*>(&s) + sizeof(s.version);
-        const int64_t remaining = static_cast<int64_t>(sizeof(s) - sizeof(s.version));
-        if (stream->read(stream, cursor, remaining) != remaining) return false;
-        p->settings = s.settings;
+        if (!readStateRemainder(stream, version, s)) return false;
+        p->settings = migrateLegacySettings(s.settings);
         p->patch.setIdentity(kChannelCount);
+        preparePatch(*p);
     } else {
         return false;
     }
-    applyLaneParams(*p);
+    sanitizeMeshSettings(p->settings);
+    p->publishedMotionPhase.store(
+        p->settings.topology.motionPhase,
+        std::memory_order_relaxed);
+    p->motionPhaseRestorePending.store(true, std::memory_order_release);
+    storeSettingsInParameterBank(*p, p->settings);
+    markTailChanged(*p);
     return true;
 }
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 uint32_t latencyGet(const clap_plugin_t* plugin) { return self(plugin)->processor.latencyFrames(); }
 const clap_plugin_latency_t latencyExt { latencyGet };
+
+uint32_t tailGet(const clap_plugin_t* plugin)
+{
+    const auto* p = self(plugin);
+    if (!p) return 0u;
+    // Topology can raise the effective per-lane tape amount above the base
+    // TAPE control, and a recently lowered control can still leave smoothed
+    // tape output. The allocated 1.5-second ring is the safe upper bound.
+    const uint64_t tapeTail = static_cast<uint64_t>(
+        std::ceil(std::max(1.0, p->sampleRate) * 1.5));
+    uint64_t meshTail = p->publishedMeshTailFrames.load(
+        std::memory_order_acquire);
+    const double meshCoupling = p->parameterValues[kMeshCouplingParamId].load(
+        std::memory_order_relaxed);
+    const double meshDecay = p->parameterValues[kMeshDecayParamId].load(
+        std::memory_order_relaxed);
+    if (meshCoupling > 0.0001) {
+        // tail.get() is valid before activate(), when the processor has not yet
+        // built topology-dependent delay targets. Use the mesh's maximum route
+        // as a conservative pre-activation estimate, then retain whichever
+        // estimate is longer after activation.
+        const double sampleRate = std::max(1.0, p->sampleRate);
+        const double maximumRoute = std::ceil(sampleRate * 0.040);
+        const double reflection = 0.96 * std::pow(
+            std::clamp(meshDecay, 0.0, 1.0),
+            1.35);
+        const double traversals = reflection <= 0.0001
+            ? 1.0
+            : std::max(2.0, std::ceil(
+                std::log(0.0001) / std::log(std::min(0.999, reflection))) + 1.0);
+        const uint64_t conservative = static_cast<uint64_t>(
+            std::ceil(maximumRoute * traversals));
+        meshTail = std::max(meshTail, conservative);
+    }
+    constexpr uint64_t kClapTailInfinite =
+        static_cast<uint64_t>(std::numeric_limits<int32_t>::max());
+    // The lane tape feeds the mesh rather than running beside it, so the
+    // worst-case decay is serial. `publishedMeshTailFrames` also preserves
+    // the draining network after the target COUP value reaches zero.
+    return static_cast<uint32_t>(std::min(
+        tapeTail + meshTail, kClapTailInfinite - 1u));
+}
+const clap_plugin_tail_t tailExt { tailGet };
 
 } // namespace
 
@@ -602,6 +1057,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     NSPoint _lastDragPoint;
     double _viewYaw;
     double _viewPitch;
+    int _cameraView;
     NSTimer* _timer;
     bool _showReadout;
     int _fieldPage;
@@ -618,6 +1074,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 - (void)drawField:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
 - (void)drawScope:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
 - (NSRect)fieldPageButtonRect:(NSRect)rect index:(int)index;
+- (void)setTopologyView:(uint32_t)view;
 - (void)updateDrag:(NSPoint)point;
 - (void)updateMenuHover:(NSPoint)point;
 @end
@@ -633,6 +1090,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         _lastDragPoint = NSMakePoint(0, 0);
         _viewYaw = -0.52;
         _viewPitch = 0.34;
+        _cameraView = 2;
         _timer = nil;
         _showReadout = false;
         _fieldPage = 0;
@@ -677,11 +1135,23 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 }
 - (NSRect)fieldPageButtonRect:(NSRect)rect index:(int)index
 {
-    const CGFloat buttonW = 58.0;
-    const CGFloat buttonGap = 8.0;
-    const CGFloat totalW = buttonW * 2.0 + buttonGap;
-    const CGFloat x = rect.origin.x + (rect.size.width - totalW) * 0.5 + static_cast<CGFloat>(index) * (buttonW + buttonGap);
-    return NSMakeRect(x, rect.origin.y + 3.0, buttonW, 15.0);
+    return s3g::clap_gui::topologyProcessorFieldPageButtonRect(
+        rect, static_cast<uint32_t>(index));
+}
+- (void)setTopologyView:(uint32_t)view
+{
+    _cameraView = static_cast<int>(std::min<uint32_t>(view, 2u));
+    if (view == 0u) {
+        _viewYaw = 0.0;
+        _viewPitch = 0.95;
+    } else if (view == 1u) {
+        _viewYaw = -1.57079632679;
+        _viewPitch = 0.0;
+    } else {
+        _viewYaw = -0.52;
+        _viewPitch = 0.34;
+    }
+    [self setNeedsDisplay:YES];
 }
 - (NSPoint)projectPoint:(s3g::TopologyPoint)point inRect:(NSRect)rect
 {
@@ -711,16 +1181,24 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         NSRect button = [self fieldPageButtonRect:rect index:i];
         s3g::clap_gui::drawHeaderButton(button, rect, pageLabels[i], _fieldPage == i, small, style);
     }
+    if (_fieldPage == 0) {
+        s3g::clap_gui::drawTopologyProcessorCameraButtons(
+            rect, _cameraView, small, style);
+    }
 
+    const NSRect fieldRect =
+        s3g::clap_gui::topologyProcessorFieldContentRect(rect);
     if (_fieldPage == 1) {
-        [self drawScope:rect attrs:attrs small:small];
+        [self drawScope:fieldRect attrs:attrs small:small];
         return;
     }
 
     const auto state = topologyStateForPlugin(*p);
     const auto controls = s3g::topologyControlsFromState(state);
-    const uint32_t visualLanes = std::min<uint32_t>(kChannelCount, activePatchOutputs(*p));
-    const NSRect fieldRect = NSMakeRect(rect.origin.x + 10.0, rect.origin.y + 28.0, 600.0, 600.0);
+    // The patch matrix injects sources, but the mesh always retains all eight
+    // nodes so an unpatched lane can receive a propagated wave.
+    const uint32_t visualLanes = kChannelCount;
+    const uint64_t injectedMask = injectedPatchOutputMask(*p);
     const NSRect topoRect = NSMakeRect(fieldRect.origin.x + 30.0, fieldRect.origin.y + 28.0, fieldRect.size.width - 60.0, 348.0);
     const NSRect heatRect = NSMakeRect(fieldRect.origin.x + 30.0, fieldRect.origin.y + 394.0, fieldRect.size.width - 60.0, 180.0);
     [style.strip setFill]; NSRectFill(fieldRect);
@@ -747,35 +1225,123 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         }
     }
 
-    [s3g::clap_gui::color(0xb8b8b8, 0.60) setStroke];
+    std::array<float, kChannelCount> nodeEnergy {};
+    if (p->settings.mesh.coupling > 0.0001f
+        && state.centroidAmount > 0.0001) {
+        const s3g::TopologyPoint centerPoint {};
+        const NSPoint center = [self projectPoint:centerPoint inRect:topoRect];
+        float centerEnergy = 0.0f;
+        for (uint32_t lane = 0; lane < visualLanes; ++lane) {
+            float routeEnergy = 0.0f;
+            for (uint32_t other = 0; other < visualLanes; ++other) {
+                if (other == lane) continue;
+                routeEnergy = std::max({
+                    routeEnergy,
+                    p->meshEdgeEnergy[lane][other].load(std::memory_order_relaxed),
+                    p->meshEdgeEnergy[other][lane].load(std::memory_order_relaxed)
+                });
+            }
+            routeEnergy = std::clamp(routeEnergy, 0.0f, 1.0f);
+            nodeEnergy[lane] = std::max(nodeEnergy[lane], routeEnergy);
+            centerEnergy = std::max(centerEnergy, routeEnergy);
+            const auto point = s3g::topologyPointForLane(
+                lane, visualLanes, controls);
+            const NSPoint node = [self projectPoint:point inRect:topoRect];
+            const float level = std::sqrt(routeEnergy);
+            [s3g::clap_gui::color(
+                0x787878,
+                0.10 + static_cast<float>(state.centroidAmount)
+                    * (0.12 + level * 0.34)) setStroke];
+            [NSBezierPath strokeLineFromPoint:center toPoint:node];
+        }
+        const CGFloat centerSize = 5.0
+            + static_cast<CGFloat>(std::sqrt(centerEnergy)) * 8.0;
+        [s3g::clap_gui::color(
+            0xc0c0c0,
+            0.28 + std::sqrt(centerEnergy) * 0.52) setFill];
+        NSRectFill(NSMakeRect(
+            center.x - centerSize * 0.5,
+            center.y - centerSize * 0.5,
+            centerSize,
+            centerSize));
+    }
+    bool edgeDrawn[kChannelCount][kChannelCount] {};
     for (uint32_t lane = 0; lane < visualLanes; ++lane) {
-        const auto pt = s3g::topologyPointForLane(lane, visualLanes, controls);
-        const NSPoint a = [self projectPoint:pt inRect:topoRect];
         const auto nn = s3g::nearestTopologyNeighbors(state, lane, visualLanes);
         for (uint32_t i = 0; i < std::min<uint32_t>(state.neighborCount, 3u); ++i) {
-            if (nn[i] < 0 || static_cast<uint32_t>(nn[i]) <= lane) continue;
-            const auto other = s3g::topologyPointForLane(static_cast<uint32_t>(nn[i]), visualLanes, controls);
-            const NSPoint b = [self projectPoint:other inRect:topoRect];
+            if (nn[i] < 0 || static_cast<uint32_t>(nn[i]) >= visualLanes
+                || static_cast<uint32_t>(nn[i]) == lane) continue;
+            const uint32_t aIndex = std::min<uint32_t>(lane, static_cast<uint32_t>(nn[i]));
+            const uint32_t bIndex = std::max<uint32_t>(lane, static_cast<uint32_t>(nn[i]));
+            if (edgeDrawn[aIndex][bIndex]) continue;
+            edgeDrawn[aIndex][bIndex] = true;
+
+            const auto aPoint = s3g::topologyPointForLane(aIndex, visualLanes, controls);
+            const auto bPoint = s3g::topologyPointForLane(bIndex, visualLanes, controls);
+            const NSPoint a = [self projectPoint:aPoint inRect:topoRect];
+            const NSPoint b = [self projectPoint:bPoint inRect:topoRect];
+            const float energyAB = std::clamp(
+                p->meshEdgeEnergy[aIndex][bIndex].load(std::memory_order_relaxed),
+                0.0f, 1.0f);
+            const float energyBA = std::clamp(
+                p->meshEdgeEnergy[bIndex][aIndex].load(std::memory_order_relaxed),
+                0.0f, 1.0f);
+            const float edgeLevel = std::sqrt(std::max(energyAB, energyBA));
+            nodeEnergy[aIndex] = std::max(nodeEnergy[aIndex], std::max(energyAB, energyBA));
+            nodeEnergy[bIndex] = std::max(nodeEnergy[bIndex], std::max(energyAB, energyBA));
+
+            if (p->settings.mesh.coupling <= 0.0001f) {
+                [s3g::clap_gui::color(0xb8b8b8, 0.60) setStroke];
+            } else {
+                const int gray = 0x58 + static_cast<int>(edgeLevel * 0x60);
+                const uint32_t rgb = static_cast<uint32_t>((gray << 16) | (gray << 8) | gray);
+                [s3g::clap_gui::color(rgb, 0.42 + edgeLevel * 0.48) setStroke];
+            }
             [NSBezierPath strokeLineFromPoint:a toPoint:b];
+
+            auto drawTravelMarker = [&](uint32_t source, uint32_t destination,
+                                        NSPoint from, NSPoint to, float energy) {
+                if (p->settings.mesh.coupling <= 0.0001f || energy <= 0.0004f) return;
+                const float phase = std::clamp(
+                    p->meshEdgePhase[source][destination].load(std::memory_order_relaxed),
+                    0.0f, 1.0f);
+                const float level = std::sqrt(energy);
+                const CGFloat markerSize = 2.0 + static_cast<CGFloat>(level) * 4.0;
+                const NSPoint marker = NSMakePoint(
+                    from.x + (to.x - from.x) * static_cast<CGFloat>(phase),
+                    from.y + (to.y - from.y) * static_cast<CGFloat>(phase));
+                [s3g::clap_gui::color(0xd0d0d0, 0.30 + level * 0.70) setFill];
+                NSRectFill(NSMakeRect(
+                    marker.x - markerSize * 0.5,
+                    marker.y - markerSize * 0.5,
+                    markerSize,
+                    markerSize));
+            };
+            drawTravelMarker(aIndex, bIndex, a, b, energyAB);
+            drawTravelMarker(bIndex, aIndex, b, a, energyBA);
         }
     }
     for (uint32_t lane = 0; lane < visualLanes; ++lane) {
         const auto pt = s3g::topologyPointForLane(lane, visualLanes, controls);
         const NSPoint c = [self projectPoint:pt inRect:topoRect];
         const CGFloat size = 8.0 + static_cast<CGFloat>(std::clamp(pt.radius, 0.0, 1.5)) * 2.0;
-        [style.text setFill];
+        const float activity = std::sqrt(std::clamp(nodeEnergy[lane], 0.0f, 1.0f));
+        if (p->settings.mesh.coupling > 0.0001f && activity > 0.015f) {
+            const CGFloat haloSize = size + 5.0 + static_cast<CGFloat>(activity) * 15.0;
+            [s3g::clap_gui::color(0xb8b8b8, 0.18 + activity * 0.52) setStroke];
+            NSFrameRect(NSMakeRect(
+                c.x - haloSize * 0.5, c.y - haloSize * 0.5,
+                haloSize, haloSize));
+        }
+        const bool injected = (injectedMask & (uint64_t { 1 } << lane)) != 0u;
+        if (injected) [style.text setFill];
+        else [s3g::clap_gui::color(0x626262, 0.82) setFill];
         NSRectFill(NSMakeRect(c.x - size * 0.5, c.y - size * 0.5, size, size));
         [[NSString stringWithFormat:@"L%u", lane + 1u] drawAtPoint:NSMakePoint(c.x + 7.0, c.y - 6.0) withAttributes:small];
     }
 
-    const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(pk)
-        drawAtPoint:NSMakePoint(NSMaxX(rect) - 92.0, rect.origin.y + 10.0) withAttributes:small];
-
-    NSString* topologyName = visualLanes == 8 ? @"8PT NEIGHBOR MAP"
-        : visualLanes == 6 ? @"6PT NEIGHBOR MAP"
-        : visualLanes == 4 ? @"4PT NEIGHBOR MAP"
-        : [NSString stringWithFormat:@"%uPT NEIGHBOR MAP", visualLanes];
+    NSString* topologyName = p->settings.mesh.coupling > 0.0001f
+        ? @"8PT WAVE MESH" : @"8PT NEIGHBOR MAP";
     [topologyName drawAtPoint:NSMakePoint(fieldRect.origin.x + fieldRect.size.width - 188.0, fieldRect.origin.y + 10.0) withAttributes:small];
     [[NSString stringWithFormat:@"SHAPE = %@", [NSString stringWithUTF8String:s3g::topologyShapeName(state.shape)]]
         drawAtPoint:NSMakePoint(fieldRect.origin.x + fieldRect.size.width - 188.0, fieldRect.origin.y + 25.0)
@@ -813,7 +1379,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     (void)attrs;
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
-    const NSRect scopeRect = NSMakeRect(rect.origin.x + 20.0, rect.origin.y + 36.0, rect.size.width - 40.0, rect.size.height - 56.0);
+    const NSRect scopeRect = rect;
     [style.strip setFill];
     NSRectFill(scopeRect);
     [style.grid setStroke];
@@ -821,19 +1387,13 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     [@"POST PROCESSING OSCILLOSCOPE" drawAtPoint:NSMakePoint(scopeRect.origin.x + 10.0, scopeRect.origin.y + 8.0) withAttributes:small];
 
     const uint32_t lanes = kChannelCount;
-    const uint32_t rows = 4u;
-    const uint32_t cols = 2u;
-    const CGFloat gap = 10.0;
-    const CGFloat cellW = (scopeRect.size.width - gap * 3.0) / static_cast<CGFloat>(cols);
-    const CGFloat cellH = (scopeRect.size.height - 34.0 - gap * 5.0) / static_cast<CGFloat>(rows);
+    const auto channelGrid =
+        s3g::clap_gui::topologyProcessorChannelGrid(scopeRect, lanes);
     const uint32_t write = p->scopeWrite.load(std::memory_order_relaxed);
     for (uint32_t lane = 0; lane < lanes; ++lane) {
-        const uint32_t col = lane % cols;
-        const uint32_t row = lane / cols;
-        const NSRect laneRect = NSMakeRect(scopeRect.origin.x + gap + static_cast<CGFloat>(col) * (cellW + gap),
-                                          scopeRect.origin.y + 30.0 + gap + static_cast<CGFloat>(row) * (cellH + gap),
-                                          cellW,
-                                          cellH);
+        const NSRect laneRect =
+            s3g::clap_gui::topologyProcessorChannelRect(
+                channelGrid, lane);
         [s3g::clap_gui::color(0x101010, 1.0) setFill];
         NSRectFill(laneRect);
         [style.grid setStroke];
@@ -865,6 +1425,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 {
     (void)dirty;
     auto* p = static_cast<Plugin*>(_plugin);
+    syncGuiSettings(*p);
     s3g::clap_gui::Style style;
     [style.bg setFill]; NSRectFill([self bounds]);
     NSFont* mono = [NSFont fontWithName:@"Menlo" size:10] ?: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
@@ -886,8 +1447,13 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     [contentTransform translateXBy:0.0 yBy:kContentTranslation];
     [contentTransform concat];
 
+    const auto& fieldLayout =
+        s3g::gui_layout::kTopologyProcessorColumns.field;
     [self drawField:NSMakeRect(
-        12, 34, 620, kContentCoordinateHeight - 46.0)
+        fieldLayout.x,
+        fieldLayout.y - kContentTranslation,
+        fieldLayout.width,
+        fieldLayout.height)
         attrs:lab small:small];
 
     const CGFloat panelX = kPrimaryPanelX;
@@ -932,9 +1498,8 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     [self drawEngineRow:@"SPED" value:[NSString stringWithFormat:@"%.0f%%", prm.speed * 100.0f] norm:prm.speed y:engineRowY(panelY, 12) attrs:small small:small];
     panelY += engineH + gap;
 
-    const CGFloat topologyY = 34.0;
-    const CGFloat topologyH = static_cast<CGFloat>(
-        s3g::gui_layout::toolboxHeightForRows(16u));
+    const CGFloat topologyY = static_cast<CGFloat>(kTopologyPanelY);
+    const CGFloat topologyH = static_cast<CGFloat>(kTopologyPanelHeight);
     s3g::clap_gui::drawPanelFrame(
         topologyX, topologyY, panelW, topologyH, style);
     drawHeader(@"TOPOLOGY", topologyX, topologyY);
@@ -963,6 +1528,28 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         values, topologyY, small, small, style,
         s3g::gui_layout::kStandardMetrics.rowPitch,
         topologyX, panelW);
+
+    const CGFloat meshY = static_cast<CGFloat>(kMeshPanelY);
+    const CGFloat meshH = static_cast<CGFloat>(kMeshPanelHeight);
+    s3g::clap_gui::drawPanelFrame(topologyX, meshY, panelW, meshH, style);
+    drawHeader(@"WAVE MESH", topologyX, meshY);
+    const auto& mesh = p->settings.mesh;
+    auto drawMeshRow = [&](NSString* name, float value, uint32_t row) {
+        s3g::clap_gui::drawProcessorSlider(
+            name,
+            [NSString stringWithFormat:@"%.0f%%", value * 100.0f],
+            value,
+            engineRowY(meshY, row),
+            topologyX,
+            panelW,
+            small,
+            small,
+            style);
+    };
+    drawMeshRow(@"COUP", mesh.coupling, 0u);
+    drawMeshRow(@"TENS", mesh.tension, 1u);
+    drawMeshRow(@"DECY", mesh.decay, 2u);
+    drawMeshRow(@"DAMP", mesh.damping, 3u);
 
     const bool compactMatrix = kChannelCount > 8;
     const CGFloat matrixH = compactMatrix ? 354.0 : 248.0;
@@ -1030,11 +1617,14 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 - (void)updateDrag:(NSPoint)point
 {
     auto* p = static_cast<Plugin*>(_plugin);
+    const bool meshParam =
+        _dragParam >= static_cast<int>(kMeshCouplingParamId)
+        && _dragParam <= static_cast<int>(kMeshDampingParamId);
     const bool topologyParam =
         _dragParam >= static_cast<int>(kTopologyAmountParamId)
         && _dragParam <= static_cast<int>(kTopologyCentroidParamId);
     const double panelX =
-        topologyParam ? kSecondaryPanelX : kPrimaryPanelX;
+        (meshParam || topologyParam) ? kSecondaryPanelX : kPrimaryPanelX;
     const double n = std::clamp(
         (point.x - s3g::gui_layout::processorControlX(panelX))
             / s3g::gui_layout::processorTrackWidth(kPanelWidth),
@@ -1053,6 +1643,10 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     case kTransParamId: applyParam(*p, kTransParamId, -1.0 + n * 2.0); break;
     case kTapeParamId: applyParam(*p, kTapeParamId, n); break;
     case kSpeedParamId: applyParam(*p, kSpeedParamId, n); break;
+    case kMeshCouplingParamId: applyParam(*p, kMeshCouplingParamId, n); break;
+    case kMeshTensionParamId: applyParam(*p, kMeshTensionParamId, n); break;
+    case kMeshDecayParamId: applyParam(*p, kMeshDecayParamId, n); break;
+    case kMeshDampingParamId: applyParam(*p, kMeshDampingParamId, n); break;
     case kMixParamId: applyParam(*p, kMixParamId, n); break;
     case kGainParamId: applyParam(*p, kGainParamId, -60.0 + n * 72.0); break;
     case kTopologyAmountParamId: applyParam(*p, kTopologyAmountParamId, n); break;
@@ -1095,8 +1689,13 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     }
     pt.y -= kContentTranslation;
 
+    const auto& fieldLayout =
+        s3g::gui_layout::kTopologyProcessorColumns.field;
     const NSRect fieldPanel = NSMakeRect(
-        12.0, 34.0, 620.0, kContentCoordinateHeight - 46.0);
+        fieldLayout.x,
+        fieldLayout.y - kContentTranslation,
+        fieldLayout.width,
+        fieldLayout.height);
     if (NSPointInRect(pt, fieldPanel)) {
         for (int i = 0; i < 2; ++i) {
             NSRect button = [self fieldPageButtonRect:fieldPanel index:i];
@@ -1108,17 +1707,29 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         }
     }
 
-    const bool shiftDown = ([event modifierFlags] & NSEventModifierFlagShift) != 0;
-    const NSRect topologyView = NSMakeRect(22.0, 62.0, 600.0, 640.0);
-    if (_fieldPage == 0 && shiftDown && NSPointInRect(pt, topologyView)) {
-        _dragTopologyView = true;
-        _lastDragPoint = pt;
-        return;
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (_fieldPage == 0 && NSPointInRect(
+                pt,
+                s3g::clap_gui::topologyProcessorCameraButtonRect(
+                    fieldPanel, index))) {
+            [self setTopologyView:index];
+            return;
+        }
     }
 
     if (NSPointInRect(pt, NSMakeRect(580.0, 116.0, 32.0, 15.0))) {
         _showReadout = !_showReadout;
         [self setNeedsDisplay:YES];
+        return;
+    }
+
+    const NSRect topologyView =
+        s3g::clap_gui::topologyProcessorFieldContentRect(
+            fieldPanel);
+    if (_fieldPage == 0 && _openMenu == 0
+        && NSPointInRect(pt, topologyView)) {
+        _dragTopologyView = true;
+        _lastDragPoint = pt;
         return;
     }
 
@@ -1195,7 +1806,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     }
     panelY += engineH + gap;
 
-    const CGFloat topologyY = 34.0;
+    const CGFloat topologyY = static_cast<CGFloat>(kTopologyPanelY);
     {
         const auto row = s3g::clap_gui::hitTopologyRow(
             pt, topologyY, topologyX, panelW);
@@ -1272,6 +1883,34 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         }
     }
 
+    const CGFloat meshY = static_cast<CGFloat>(kMeshPanelY);
+    const clap_id meshIds[] = {
+        kMeshCouplingParamId,
+        kMeshTensionParamId,
+        kMeshDecayParamId,
+        kMeshDampingParamId,
+    };
+    for (uint32_t row = 0; row < 4u; ++row) {
+        const CGFloat rowY = static_cast<CGFloat>(engineRowY(meshY, row));
+        if (!NSPointInRect(
+                pt,
+                NSMakeRect(
+                    topologyX,
+                    rowY - s3g::gui_layout::kStandardMetrics.hitInset,
+                    panelW,
+                    s3g::gui_layout::kStandardMetrics.hitHeight))) continue;
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, meshIds[row], &defaultValue)) {
+            applyParam(*p, meshIds[row], defaultValue);
+            _dragParam = 0;
+        } else {
+            _dragParam = static_cast<int>(meshIds[row]);
+            [self updateDrag:pt];
+        }
+        return;
+    }
+
     const bool compactMatrix = kChannelCount > 8;
     {
         const CGFloat left = compactMatrix ? 686.0 : 718.0;
@@ -1304,6 +1943,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         const CGFloat dy = pt.y - _lastDragPoint.y;
         _viewYaw += dx * 0.015;
         _viewPitch = std::clamp(_viewPitch + dy * 0.012, -0.75, 0.95);
+        _cameraView = -1;
         _lastDragPoint = pt;
         [self setNeedsDisplay:YES];
         return;
@@ -1316,13 +1956,13 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 namespace {
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GWaveGeometryView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GWaveGeometryView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight, kGuiWidth, 360u)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
 void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; [static_cast<S3GWaveGeometryView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h, kGuiWidth, 360u); }
 bool guiCanResize(const clap_plugin_t*) { return true; }
 bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
-bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h, kGuiWidth, 360u); }
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, w, h); }
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
@@ -1341,6 +1981,7 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, CLAP_EXT_LATENCY) == 0) return &latencyExt;
+    if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
 #if defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
@@ -1357,7 +1998,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.1.0",
-    "Topology-driven waveform geometry processor for fold, polarity, step, edge, and sample-domain bits.",
+    "Topology-driven waveform geometry processor with nonlinear shaping, tape heads, and a sample-domain wave mesh.",
     features
 };
 
@@ -1367,6 +2008,9 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
     p->host = host;
+    p->hostTail = host && host->get_extension
+        ? static_cast<const clap_host_tail_t*>(host->get_extension(host, CLAP_EXT_TAIL))
+        : nullptr;
     p->settings.base.fold = 0.22f;
     p->settings.base.drive = 0.18f;
     p->settings.base.hold = 0.0f;
@@ -1381,6 +2025,10 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     p->settings.base.mix = 1.0f;
     p->settings.base.trans = 0.0f;
     p->settings.base.safety = 0.82f;
+    p->settings.mesh.coupling = 0.0f;
+    p->settings.mesh.tension = 0.62f;
+    p->settings.mesh.decay = 0.35f;
+    p->settings.mesh.damping = 0.45f;
     p->settings.topology.amount = 0.35;
     p->settings.topology.jitter = 0.08;
     p->settings.topology.collapse = 0.0;
@@ -1397,6 +2045,11 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     p->settings.topology.neighborCount = 2;
     p->settings.topology.neighborRadius = 0.65;
     p->settings.topology.centroidAmount = 0.18;
+    p->audioSettings = p->settings;
+    p->publishedMotionPhase.store(
+        p->settings.topology.motionPhase,
+        std::memory_order_relaxed);
+    storeSettingsInParameterBank(*p, p->settings);
     p->patch.setWidth(kChannelCount);
     p->patch.setIdentity(kChannelCount);
     p->plugin.desc = &descriptor;

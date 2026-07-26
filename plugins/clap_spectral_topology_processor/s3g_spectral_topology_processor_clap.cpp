@@ -7,6 +7,7 @@
 #include <clap/ext/latency.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
+#include <clap/ext/tail.h>
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
@@ -18,9 +19,11 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <new>
 #include <vector>
 
@@ -35,10 +38,10 @@ namespace {
 #endif
 
 constexpr uint32_t kChannelCount = s3g::kSpectralTopologyChannels;
-constexpr uint32_t kStateVersion = 2;
+constexpr uint32_t kStateVersion = 4;
 constexpr uint32_t kGuiWidth = static_cast<uint32_t>(
     s3g::gui_layout::kTopologyProcessorColumns.canvasWidth);
-constexpr uint32_t kGuiHeight = 950;
+constexpr uint32_t kGuiHeight = 950u;
 constexpr double kPrimaryPanelX =
     s3g::gui_layout::kTopologyProcessorColumns.first.x;
 constexpr double kSecondaryPanelX =
@@ -51,13 +54,28 @@ constexpr double kContentTranslation =
 constexpr double kContentCoordinateHeight =
     static_cast<double>(kGuiHeight) - kContentTranslation;
 constexpr uint32_t kScopeFrames = 131072;
+constexpr uint32_t kFftSize = 2048u;
+constexpr uint32_t kFftOverlap = 4u;
+constexpr uint32_t kFftHopFrames = kFftSize / kFftOverlap;
+// clap/ext/tail.h reserves every value >= INT32_MAX for an infinite tail.
+// The vendored CLAP revision documents that sentinel without naming it.
+constexpr uint32_t kClapTailInfinite =
+    static_cast<uint32_t>(std::numeric_limits<int32_t>::max());
 constexpr double kMotionRateMinHz = 0.01;
 constexpr double kMotionRateMaxHz = 1.0;
 constexpr double kEngineRowPitch =
     s3g::gui_layout::kStandardMetrics.rowPitch;
 constexpr double kEngineFirstRow = 36.0;
 constexpr double kEnginePanelHeight =
-    s3g::gui_layout::toolboxHeightForRows(11u);
+    s3g::gui_layout::toolboxHeightForRows(14u);
+constexpr double kPropagationPanelHeight =
+    s3g::gui_layout::toolboxHeightForRows(3u);
+constexpr double kTopologyPanelY = 34.0;
+constexpr double kTopologyPanelHeight =
+    s3g::gui_layout::toolboxHeightForRows(16u);
+constexpr double kPropagationPanelY = kTopologyPanelY
+    + kTopologyPanelHeight
+    + s3g::gui_layout::kStandardMetrics.panelGap;
 
 constexpr clap_id kSprayBinsParamId = 1;
 constexpr clap_id kDriftParamId = 2;
@@ -73,6 +91,12 @@ constexpr clap_id kGainParamId = 11;
 constexpr clap_id kSafetyParamId = 12;
 constexpr clap_id kDamageParamId = 13;
 constexpr clap_id kRepeatParamId = 14;
+constexpr clap_id kLoFreqParamId = 15;
+constexpr clap_id kHiFreqParamId = 16;
+constexpr clap_id kTransientProtectParamId = 17;
+constexpr clap_id kPropagationVelocityParamId = 18;
+constexpr clap_id kPropagationDispersionParamId = 19;
+constexpr clap_id kPropagationDampingParamId = 20;
 
 constexpr clap_id kTopologyShapeParamId = 30;
 constexpr clap_id kTopologyAmountParamId = 31;
@@ -93,21 +117,112 @@ constexpr clap_id kTopologyCentroidParamId = 45;
 
 struct SavedState {
     uint32_t version = kStateVersion;
+    float transientProtect = 0.35f;
+    float propagationVelocity = 1.0f;
+    float propagationDispersion = 0.0f;
+    float propagationDamping = 0.0f;
+    uint32_t reserved = 0u;
     s3g::SpectralTopologySettings settings {};
+    uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
+};
+
+// Versions 1 and 2 wrote native structs directly. Keep their exact field
+// layout frozen here so future settings additions cannot silently change the
+// number of bytes consumed while migrating an old preset.
+struct LegacySpectralSprayParamsV2 {
+    float sprayBins;
+    float drift;
+    float hold;
+    float freeze;
+    float feedback;
+    float smear;
+    float holes;
+    float phaseBlur;
+    float damage;
+    float repeat;
+    float loFreq;
+    float hiFreq;
+    float gainDb;
+    float mix;
+    float tilt;
+    float safety;
+};
+
+struct LegacyTopologyStateV2 {
+    double amount;
+    double jitter;
+    double collapse;
+    double dirX;
+    double dirY;
+    double dirZ;
+    double twist;
+    double flare;
+    uint32_t shape;
+    uint32_t motionMode;
+    uint32_t motionVariant;
+    double motionRateHz;
+    double motionDepth;
+    double motionPhase;
+    uint32_t neighborCount;
+    double neighborRadius;
+    double centroidAmount;
+};
+
+struct LegacySpectralTopologySettingsV2 {
+    LegacySpectralSprayParamsV2 base;
+    LegacyTopologyStateV2 topology;
+};
+
+struct SavedStateV2 {
+    uint32_t version = 2;
+    LegacySpectralTopologySettingsV2 settings {};
+    uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
+};
+
+struct SavedStateV3 {
+    uint32_t version = 3;
+    float transientProtect = 0.35f;
+    LegacySpectralTopologySettingsV2 settings {};
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
 };
 
 struct SavedStateV1 {
     uint32_t version = 1;
-    s3g::SpectralTopologySettings settings {};
+    LegacySpectralTopologySettingsV2 settings {};
 };
+
+static_assert(sizeof(LegacySpectralSprayParamsV2) == 64u);
+static_assert(sizeof(LegacyTopologyStateV2) == 128u);
+static_assert(sizeof(LegacySpectralTopologySettingsV2) == 192u);
+static_assert(offsetof(SavedStateV1, settings) == 8u);
+static_assert(sizeof(SavedStateV1) == 200u);
+static_assert(offsetof(SavedStateV2, settings) == 8u);
+static_assert(offsetof(SavedStateV2, patchRows) == 200u);
+static_assert(sizeof(SavedStateV2) == 712u);
+static_assert(offsetof(SavedStateV3, transientProtect) == 4u);
+static_assert(offsetof(SavedStateV3, settings) == 8u);
+static_assert(offsetof(SavedStateV3, patchRows) == 200u);
+static_assert(sizeof(SavedStateV3) == 712u);
+static_assert(offsetof(SavedState, transientProtect) == 4u);
+static_assert(offsetof(SavedState, propagationVelocity) == 8u);
+static_assert(offsetof(SavedState, propagationDispersion) == 12u);
+static_assert(offsetof(SavedState, propagationDamping) == 16u);
+static_assert(offsetof(SavedState, reserved) == 20u);
+static_assert(offsetof(SavedState, settings) == 24u);
+static_assert(offsetof(SavedState, patchRows) == 216u);
+static_assert(sizeof(SavedState) == 728u);
 
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_tail_t* hostTail = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0;
     s3g::SpectralTopologySettings settings {};
+    float transientProtect = 0.35f;
+    float propagationVelocity = 1.0f;
+    float propagationDispersion = 0.0f;
+    float propagationDamping = 0.0f;
     s3g::SpectralTopologyProcessor processor;
     s3g::LanePatch patch;
     std::vector<std::vector<float>> input32;
@@ -117,6 +232,8 @@ struct Plugin {
     std::array<std::array<std::atomic<float>, kScopeFrames>, kChannelCount> scope {};
     std::atomic<uint32_t> scopeWrite { 0u };
     std::atomic<float> outputPeak { 0.0f };
+    std::atomic<bool> tailChangePending { false };
+    bool tailCaptureState = false;
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -126,6 +243,31 @@ struct Plugin {
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+void markTailChanged(Plugin& p)
+{
+    p.tailChangePending.store(true, std::memory_order_release);
+}
+
+// clap.tail requires hostTail->changed() on the audio thread. Main-thread
+// state and GUI paths only mark the change; processing entry points coalesce
+// and deliver it safely.
+void deliverTailChangedOnAudioThread(Plugin& p)
+{
+    if (p.tailChangePending.exchange(false, std::memory_order_acq_rel)
+        && p.host && p.hostTail && p.hostTail->changed) {
+        p.hostTail->changed(p.host);
+    }
+}
+
+bool paramAffectsTail(clap_id id)
+{
+    return id == kHoldParamId || id == kFreezeParamId
+        || id == kFeedbackParamId || id == kRepeatParamId
+        || id == kPropagationVelocityParamId
+        || (id >= kTopologyShapeParamId
+            && id <= kTopologyCentroidParamId);
+}
 
 double clampMotionRate(double value)
 {
@@ -144,9 +286,21 @@ double engineRowY(double panelY, uint32_t index)
 
 void applyLaneParams(Plugin& p)
 {
+    auto& base = p.settings.base;
+    base.loFreq = std::clamp(base.loFreq, 0.0f, 23980.0f);
+    base.hiFreq = std::clamp(base.hiFreq, 20.0f, 24000.0f);
+    if (base.hiFreq < base.loFreq + 20.0f) {
+        base.hiFreq = base.loFreq + 20.0f;
+    }
     for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
         p.processor.setLaneParams(ch, s3g::spectralTopologyLaneParams(p.settings, ch, kChannelCount));
     }
+    p.processor.setTopologyState(p.settings.topology);
+    p.processor.setTransientProtect(p.transientProtect);
+    p.processor.setPropagation(
+        p.propagationVelocity,
+        p.propagationDispersion,
+        p.propagationDamping);
 }
 
 bool topologyMotionActive(const Plugin& p)
@@ -165,19 +319,26 @@ void advanceTopologyMotion(Plugin& p, uint32_t frames)
 
 void applyParam(Plugin& p, clap_id id, double value)
 {
+    const bool tailWasAffected = paramAffectsTail(id);
     auto& prm = p.settings.base;
     auto& t = p.settings.topology;
     switch (id) {
     case kSprayBinsParamId: prm.sprayBins = static_cast<float>(std::clamp(value, 0.0, 192.0)); break;
     case kDriftParamId: prm.drift = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kHoldParamId: prm.hold = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
-    case kFreezeParamId: prm.freeze = static_cast<float>(std::clamp(value, 0.0, 0.92)); break;
+    case kFreezeParamId: prm.freeze = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kFeedbackParamId: prm.feedback = static_cast<float>(std::clamp(value, 0.0, 0.72)); break;
     case kSmearParamId: prm.smear = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kHolesParamId: prm.holes = static_cast<float>(std::clamp(value, 0.0, 0.60)); break;
     case kPhaseBlurParamId: prm.phaseBlur = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kDamageParamId: prm.damage = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kRepeatParamId: prm.repeat = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kLoFreqParamId: prm.loFreq = static_cast<float>(std::clamp(value, 0.0, std::max(0.0, static_cast<double>(prm.hiFreq) - 20.0))); break;
+    case kHiFreqParamId: prm.hiFreq = static_cast<float>(std::clamp(value, std::min(24000.0, static_cast<double>(prm.loFreq) + 20.0), 24000.0)); break;
+    case kTransientProtectParamId: p.transientProtect = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kPropagationVelocityParamId: p.propagationVelocity = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kPropagationDispersionParamId: p.propagationDispersion = static_cast<float>(std::clamp(value, -1.0, 1.0)); break;
+    case kPropagationDampingParamId: p.propagationDamping = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kTiltParamId: prm.tilt = static_cast<float>(std::clamp(value, -1.0, 1.0)); break;
     case kMixParamId: prm.mix = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kGainParamId: prm.gainDb = static_cast<float>(std::clamp(value, -60.0, 12.0)); break;
@@ -201,21 +362,12 @@ void applyParam(Plugin& p, clap_id id, double value)
     default: break;
     }
     applyLaneParams(p);
+    if (tailWasAffected) markTailChanged(p);
 }
 
 void preparePatch(Plugin& p)
 {
     p.patch.setWidth(kChannelCount);
-    bool hasPatch = false;
-    for (uint32_t row = 0; row < kChannelCount; ++row) {
-        if (p.patch.rowMask(row) != 0) {
-            hasPatch = true;
-            break;
-        }
-    }
-    if (!hasPatch) {
-        p.patch.setIdentity(kChannelCount);
-    }
 }
 
 void togglePatchCellFromGui(Plugin& p, uint32_t input, uint32_t output)
@@ -224,21 +376,14 @@ void togglePatchCellFromGui(Plugin& p, uint32_t input, uint32_t output)
     p.patch.toggle(input, output);
 }
 
-uint32_t activePatchOutputs(const Plugin& p)
+bool patchOutputInjected(const Plugin& p, uint32_t output)
 {
-    uint32_t count = 0;
-    for (uint32_t out = 0; out < kChannelCount; ++out) {
-        const uint64_t bit = uint64_t { 1 } << out;
-        bool active = false;
-        for (uint32_t in = 0; in < kChannelCount; ++in) {
-            if ((p.patch.rowMask(in) & bit) != 0) {
-                active = true;
-                break;
-            }
-        }
-        if (active) ++count;
+    if (output >= kChannelCount) return false;
+    const uint64_t bit = uint64_t { 1 } << output;
+    for (uint32_t input = 0; input < kChannelCount; ++input) {
+        if ((p.patch.rowMask(input) & bit) != 0) return true;
     }
-    return count > 0 ? count : kChannelCount;
+    return false;
 }
 
 bool init(const clap_plugin_t*) { return true; }
@@ -270,8 +415,9 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
         p->outputPtrs[ch] = p->output32[ch].data();
     }
     preparePatch(*p);
-    if (!p->processor.prepare(sampleRate, kChannelCount, 2048u, 4u, p->maxFrames)) return false;
+    if (!p->processor.prepare(sampleRate, kChannelCount, kFftSize, kFftOverlap, p->maxFrames)) return false;
     applyLaneParams(*p);
+    p->tailCaptureState = p->processor.hasCapture();
     return true;
 }
 
@@ -283,13 +429,24 @@ void deactivate(const clap_plugin_t* plugin)
     (void)plugin;
 #endif
 }
-bool startProcessing(const clap_plugin_t*) { return true; }
-void stopProcessing(const clap_plugin_t*) {}
+bool startProcessing(const clap_plugin_t* plugin)
+{
+    deliverTailChangedOnAudioThread(*self(plugin));
+    return true;
+}
+void stopProcessing(const clap_plugin_t* plugin)
+{
+    deliverTailChangedOnAudioThread(*self(plugin));
+}
 void reset(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
+    const bool hadCapture = p->tailCaptureState || p->processor.hasCapture();
     p->processor.reset();
+    p->tailCaptureState = false;
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
+    if (hadCapture) markTailChanged(*p);
+    deliverTailChangedOnAudioThread(*p);
 }
 
 void readParamEvents(Plugin& p, const clap_input_events_t* in)
@@ -309,6 +466,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 {
     auto* p = self(plugin);
     readParamEvents(*p, proc->in_events);
+    deliverTailChangedOnAudioThread(*p);
     if (proc->audio_inputs_count == 0 || proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto& input = proc->audio_inputs[0];
     const auto& output = proc->audio_outputs[0];
@@ -330,6 +488,12 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         }
     }
     p->processor.process(p->inputPtrs.data(), kChannelCount, p->outputPtrs.data(), kChannelCount, frames);
+    const bool hasCapture = p->processor.hasCapture();
+    if (hasCapture != p->tailCaptureState) {
+        p->tailCaptureState = hasCapture;
+        markTailChanged(*p);
+    }
+    deliverTailChangedOnAudioThread(*p);
 
     float blockPeak = 0.0f;
     const uint32_t scopeBase = p->scopeWrite.load(std::memory_order_relaxed);
@@ -358,7 +522,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 {
     if (index != 0 || !info) return false;
     info->id = isInput ? 10 : 20;
-    std::snprintf(info->name, sizeof(info->name), "8ch %s", isInput ? "In" : "Out");
+    std::snprintf(info->name, sizeof(info->name), "%uch %s", kChannelCount, isInput ? "In" : "Out");
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = kChannelCount;
     info->port_type = CLAP_PORT_SURROUND;
@@ -372,7 +536,7 @@ constexpr ParamDef kParamDefs[] {
     { kSprayBinsParamId, "Spray Bins", 0.0, 192.0, 18.0 },
     { kDriftParamId, "Drift", 0.0, 1.0, 0.18 },
     { kHoldParamId, "Hold", 0.0, 1.0, 0.72 },
-    { kFreezeParamId, "Freeze", 0.0, 0.92, 0.0 },
+    { kFreezeParamId, "Freeze", 0.0, 1.0, 0.0 },
     { kFeedbackParamId, "Feedback", 0.0, 0.72, 0.18 },
     { kSmearParamId, "Smear", 0.0, 1.0, 0.25 },
     { kHolesParamId, "Holes", 0.0, 0.60, 0.05 },
@@ -383,6 +547,12 @@ constexpr ParamDef kParamDefs[] {
     { kMixParamId, "Mix", 0.0, 1.0, 1.0 },
     { kGainParamId, "Output", -60.0, 12.0, -2.5 },
     { kSafetyParamId, "Safety", 0.12, 0.92, 0.82 },
+    { kLoFreqParamId, "Lo Freq", 0.0, 24000.0, 0.0 },
+    { kHiFreqParamId, "Hi Freq", 20.0, 24000.0, 20000.0 },
+    { kTransientProtectParamId, "Transient Protect", 0.0, 1.0, 0.35 },
+    { kPropagationVelocityParamId, "Propagation Velocity", 0.0, 1.0, 1.0 },
+    { kPropagationDispersionParamId, "Propagation Dispersion", -1.0, 1.0, 0.0 },
+    { kPropagationDampingParamId, "Propagation Damping", 0.0, 1.0, 0.0 },
     { kTopologyShapeParamId, "Topology Shape", 0.0, static_cast<double>(s3g::kTopologyShapeCount - 1u), 0.0 },
     { kTopologyAmountParamId, "Topology Amount", 0.0, 1.0, 0.35 },
     { kTopologySeedParamId, "Topology Seed", 0.0, 1.0, 0.08 },
@@ -409,7 +579,11 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->id = def.id;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
     std::strncpy(info->name, def.name, sizeof(info->name));
-    std::strncpy(info->module, def.id < kTopologyShapeParamId ? "Spectral Engine" : "Topology", sizeof(info->module));
+    const char* module = def.id >= kPropagationVelocityParamId
+            && def.id <= kPropagationDampingParamId
+        ? "Propagation"
+        : def.id < kTopologyShapeParamId ? "Spectral Engine" : "Topology";
+    std::strncpy(info->module, module, sizeof(info->module));
     info->min_value = def.min;
     info->max_value = def.max;
     info->default_value = def.def;
@@ -433,6 +607,12 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kPhaseBlurParamId: *value = prm.phaseBlur; return true;
     case kDamageParamId: *value = prm.damage; return true;
     case kRepeatParamId: *value = prm.repeat; return true;
+    case kLoFreqParamId: *value = prm.loFreq; return true;
+    case kHiFreqParamId: *value = prm.hiFreq; return true;
+    case kTransientProtectParamId: *value = p.transientProtect; return true;
+    case kPropagationVelocityParamId: *value = p.propagationVelocity; return true;
+    case kPropagationDispersionParamId: *value = p.propagationDispersion; return true;
+    case kPropagationDampingParamId: *value = p.propagationDamping; return true;
     case kTiltParamId: *value = prm.tilt; return true;
     case kMixParamId: *value = prm.mix; return true;
     case kGainParamId: *value = prm.gainDb; return true;
@@ -461,8 +641,10 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
 {
     if (!display || size == 0) return false;
     if (id == kSprayBinsParamId) std::snprintf(display, size, "%.0f bins", value);
+    else if (id == kLoFreqParamId || id == kHiFreqParamId) std::snprintf(display, size, "%.0f Hz", value);
     else if (id == kGainParamId) std::snprintf(display, size, "%+.1f dB", value);
-    else if (id == kTiltParamId || id == kTopologyXParamId || id == kTopologyYParamId ||
+    else if (id == kTiltParamId || id == kPropagationDispersionParamId
+             || id == kTopologyXParamId || id == kTopologyYParamId ||
              id == kTopologyZParamId || id == kTopologyTwistParamId || id == kTopologyFlareParamId) std::snprintf(display, size, "%+.2f", value);
     else if (id == kTopologyShapeParamId) std::snprintf(display, size, "%s", s3g::topologyShapeName(static_cast<uint32_t>(std::floor(value + 0.5))));
     else if (id == kTopologyMotionParamId) std::snprintf(display, size, "%s", s3g::topologyMotionModeName(static_cast<uint32_t>(std::floor(value + 0.5))));
@@ -472,39 +654,183 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     else std::snprintf(display, size, "%.0f%%", value * 100.0);
     return true;
 }
-bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, double* value)
+bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, double* value)
 {
     if (!display || !value) return false;
-    *value = std::atof(display);
+
+    if (id == kTopologyShapeParamId) {
+        for (uint32_t i = 0; i < s3g::kTopologyShapeCount; ++i) {
+            if (std::strcmp(display, s3g::topologyShapeName(i)) == 0) {
+                *value = static_cast<double>(i);
+                return true;
+            }
+        }
+    } else if (id == kTopologyMotionParamId) {
+        for (uint32_t i = 0; i < s3g::kTopologyMotionModeCount; ++i) {
+            if (std::strcmp(display, s3g::topologyMotionModeName(i)) == 0) {
+                *value = static_cast<double>(i);
+                return true;
+            }
+        }
+    } else if (id == kTopologyVariantParamId) {
+        for (uint32_t i = 0; i < s3g::kTopologyVariantCount; ++i) {
+            if (std::strcmp(display, s3g::topologyVariantName(i)) == 0) {
+                *value = static_cast<double>(i);
+                return true;
+            }
+        }
+    }
+
+    char* end = nullptr;
+    const double parsed = std::strtod(display, &end);
+    if (end == display || !std::isfinite(parsed)) return false;
+    *value = std::strchr(display, '%') ? parsed * 0.01 : parsed;
     return true;
 }
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
+
+s3g::SpectralTopologySettings migrateLegacySettings(
+    const LegacySpectralTopologySettingsV2& legacy)
+{
+    s3g::SpectralTopologySettings settings {};
+    auto& base = settings.base;
+    base.sprayBins = legacy.base.sprayBins;
+    base.drift = legacy.base.drift;
+    base.hold = legacy.base.hold;
+    base.freeze = legacy.base.freeze;
+    base.feedback = legacy.base.feedback;
+    base.smear = legacy.base.smear;
+    base.holes = legacy.base.holes;
+    base.phaseBlur = legacy.base.phaseBlur;
+    base.damage = legacy.base.damage;
+    base.repeat = legacy.base.repeat;
+    base.loFreq = legacy.base.loFreq;
+    base.hiFreq = legacy.base.hiFreq;
+    base.gainDb = legacy.base.gainDb;
+    base.mix = legacy.base.mix;
+    base.tilt = legacy.base.tilt;
+    base.safety = legacy.base.safety;
+
+    auto& topology = settings.topology;
+    topology.amount = legacy.topology.amount;
+    topology.jitter = legacy.topology.jitter;
+    topology.collapse = legacy.topology.collapse;
+    topology.dirX = legacy.topology.dirX;
+    topology.dirY = legacy.topology.dirY;
+    topology.dirZ = legacy.topology.dirZ;
+    topology.twist = legacy.topology.twist;
+    topology.flare = legacy.topology.flare;
+    topology.shape = legacy.topology.shape;
+    topology.motionMode = legacy.topology.motionMode;
+    topology.motionVariant = legacy.topology.motionVariant;
+    topology.motionRateHz = legacy.topology.motionRateHz;
+    topology.motionDepth = legacy.topology.motionDepth;
+    topology.motionPhase = legacy.topology.motionPhase;
+    topology.neighborCount = legacy.topology.neighborCount;
+    topology.neighborRadius = legacy.topology.neighborRadius;
+    topology.centroidAmount = legacy.topology.centroidAmount;
+    return settings;
+}
+
+template <typename State>
+bool readStateRemainder(const clap_istream_t* stream, uint32_t version, State& state)
+{
+    state.version = version;
+    auto* cursor = reinterpret_cast<uint8_t*>(&state) + sizeof(state.version);
+    uint64_t remaining = sizeof(state) - sizeof(state.version);
+    while (remaining > 0u) {
+        const int64_t read = stream->read(stream, cursor, remaining);
+        if (read <= 0 || static_cast<uint64_t>(read) > remaining) return false;
+        cursor += read;
+        remaining -= static_cast<uint64_t>(read);
+    }
+    return true;
+}
+
+bool writeStateBytes(const clap_ostream_t* stream, const void* data, uint64_t size)
+{
+    auto* cursor = static_cast<const uint8_t*>(data);
+    while (size > 0u) {
+        const int64_t written = stream->write(stream, cursor, size);
+        if (written <= 0 || static_cast<uint64_t>(written) > size) return false;
+        cursor += written;
+        size -= static_cast<uint64_t>(written);
+    }
+    return true;
+}
+
+bool readStateBytes(const clap_istream_t* stream, void* data, uint64_t size)
+{
+    auto* cursor = static_cast<uint8_t*>(data);
+    while (size > 0u) {
+        const int64_t read = stream->read(stream, cursor, size);
+        if (read <= 0 || static_cast<uint64_t>(read) > size) return false;
+        cursor += read;
+        size -= static_cast<uint64_t>(read);
+    }
+    return true;
+}
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     SavedState s {};
     auto* p = self(plugin);
+    s.transientProtect = p->transientProtect;
+    s.propagationVelocity = p->propagationVelocity;
+    s.propagationDispersion = p->propagationDispersion;
+    s.propagationDamping = p->propagationDamping;
     s.settings = p->settings;
+    // Motion phase is runtime transport, not a user parameter. Excluding it
+    // keeps state deterministic whether a host reaches the preset through
+    // process() or params.flush().
+    s.settings.topology.motionPhase = 0.0;
     for (uint32_t row = 0; row < s3g::kLanePatchMaxChannels; ++row) {
         s.patchRows[row] = p->patch.rowMask(row);
     }
-    return stream->write(stream, &s, sizeof(s)) == static_cast<int64_t>(sizeof(s));
+    return writeStateBytes(stream, &s, sizeof(s));
 }
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     uint32_t version = 0;
-    if (stream->read(stream, &version, sizeof(version)) != static_cast<int64_t>(sizeof(version))) return false;
+    if (!readStateBytes(stream, &version, sizeof(version))) return false;
     auto* p = self(plugin);
     if (version == kStateVersion) {
         SavedState s {};
-        s.version = version;
-        auto* cursor = reinterpret_cast<uint8_t*>(&s) + sizeof(s.version);
-        const int64_t remaining = static_cast<int64_t>(sizeof(s) - sizeof(s.version));
-        if (stream->read(stream, cursor, remaining) != remaining) return false;
+        if (!readStateRemainder(stream, version, s)) return false;
         p->settings = s.settings;
+        p->transientProtect = std::clamp(s.transientProtect, 0.0f, 1.0f);
+        p->propagationVelocity = std::clamp(s.propagationVelocity, 0.0f, 1.0f);
+        p->propagationDispersion = std::clamp(s.propagationDispersion, -1.0f, 1.0f);
+        p->propagationDamping = std::clamp(s.propagationDamping, 0.0f, 1.0f);
+        p->patch.setWidth(kChannelCount);
+        for (uint32_t row = 0; row < kChannelCount; ++row) {
+            p->patch.setRowMask(row, s.patchRows[row]);
+        }
+        preparePatch(*p);
+    } else if (version == 3u) {
+        SavedStateV3 s {};
+        if (!readStateRemainder(stream, version, s)) return false;
+        p->settings = migrateLegacySettings(s.settings);
+        p->transientProtect = std::clamp(s.transientProtect, 0.0f, 1.0f);
+        p->propagationVelocity = 1.0f;
+        p->propagationDispersion = 0.0f;
+        p->propagationDamping = 0.0f;
+        p->patch.setWidth(kChannelCount);
+        for (uint32_t row = 0; row < kChannelCount; ++row) {
+            p->patch.setRowMask(row, s.patchRows[row]);
+        }
+        preparePatch(*p);
+    } else if (version == 2u) {
+        SavedStateV2 s {};
+        if (!readStateRemainder(stream, version, s)) return false;
+        p->settings = migrateLegacySettings(s.settings);
+        p->transientProtect = 0.35f;
+        p->propagationVelocity = 1.0f;
+        p->propagationDispersion = 0.0f;
+        p->propagationDamping = 0.0f;
         p->patch.setWidth(kChannelCount);
         for (uint32_t row = 0; row < kChannelCount; ++row) {
             p->patch.setRowMask(row, s.patchRows[row]);
@@ -512,25 +838,128 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         preparePatch(*p);
     } else if (version == 1u) {
         SavedStateV1 s {};
-        s.version = version;
-        auto* cursor = reinterpret_cast<uint8_t*>(&s) + sizeof(s.version);
-        const int64_t remaining = static_cast<int64_t>(sizeof(s) - sizeof(s.version));
-        if (stream->read(stream, cursor, remaining) != remaining) return false;
-        p->settings = s.settings;
+        if (!readStateRemainder(stream, version, s)) return false;
+        p->settings = migrateLegacySettings(s.settings);
+        p->transientProtect = 0.35f;
+        p->propagationVelocity = 1.0f;
+        p->propagationDispersion = 0.0f;
+        p->propagationDamping = 0.0f;
         p->patch.setIdentity(kChannelCount);
     } else {
         return false;
     }
+    p->settings.topology.motionPhase = 0.0;
     applyLaneParams(*p);
+    markTailChanged(*p);
     return true;
 }
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 uint32_t latencyGet(const clap_plugin_t* plugin) { return self(plugin)->processor.latencyFrames(); }
 const clap_plugin_latency_t latencyExt { latencyGet };
 
+uint32_t tailGet(const clap_plugin_t* plugin)
+{
+    const auto* p = self(plugin);
+    if (!p) return 0u;
+
+    double hold = 0.0;
+    double freeze = 0.0;
+    double feedback = 0.0;
+    double repeat = 0.0;
+    if (topologyMotionActive(*p)) {
+        // Motion continuously changes the derived lane controls. Advertise a
+        // stable worst case instead of changing the host tail every block as
+        // motionPhase advances.
+        hold = 1.0;
+        freeze = std::clamp(static_cast<double>(p->settings.base.freeze), 0.0, 1.0);
+        feedback = 0.72;
+        repeat = 0.82;
+    } else {
+        for (uint32_t ch = 0; ch < kChannelCount; ++ch) {
+            const auto params = s3g::spectralTopologyLaneParams(
+                p->settings, ch, kChannelCount);
+            hold = std::max(hold, static_cast<double>(params.hold));
+            freeze = std::max(freeze, static_cast<double>(params.freeze));
+            feedback = std::max(feedback, static_cast<double>(params.feedback));
+            repeat = std::max(repeat, static_cast<double>(params.repeat));
+        }
+    }
+    if (freeze > 0.0001 && p->processor.hasCapture()) {
+        return kClapTailInfinite;
+    }
+
+    const double sampleRate = std::max(1.0, p->sampleRate);
+    const double hopSeconds = static_cast<double>(kFftHopFrames) / sampleRate;
+    const double minus60Db = std::log(1000.0);
+    const double holdTau = hold > 0.0001
+        ? 0.025 * std::pow(160.0, std::clamp(hold, 0.0, 1.0))
+        : 0.0;
+    const double holdHops = holdTau > 0.0
+        ? std::ceil(minus60Db * holdTau / hopSeconds)
+        : 0.0;
+
+    const double feedbackGain = std::clamp(feedback * 0.92, 0.0, 0.95);
+    const double feedbackHops = feedbackGain > 0.0001
+        ? std::ceil(std::log(0.001) / std::log(feedbackGain))
+        : 0.0;
+
+    const double repeatGain = std::clamp(repeat * 0.82, 0.0, 0.999);
+    const double repeatCycles = repeatGain > 0.0001
+        ? std::ceil(std::log(0.001) / std::log(repeatGain))
+        : 0.0;
+    const double repeatDelay = repeatGain > 0.0001
+        ? 2.0 + std::floor(repeat * repeat
+            * static_cast<double>(s3g::kSpectralMeshHistoryFrames - 3u))
+        : 0.0;
+
+    // Propagation is transparent at VEL=1 with zero dispersion. Otherwise an
+    // active mesh can emit material from the oldest propagation frame, even
+    // after the direct and locally processed paths have become silent. Each
+    // feedback or repeat recurrence can launch another trip through that
+    // history, so a single added span would under-report slow recirculation.
+    const bool delayedPropagation = p->settings.topology.amount > 0.0001
+        && p->propagationVelocity < 0.999999f;
+    const double propagationTraversals = delayedPropagation
+        ? 1.0 + feedbackHops + repeatCycles
+        : 0.0;
+    const double propagationHops = delayedPropagation
+        ? static_cast<double>(s3g::kSpectralMeshPropagationFrames - 1u)
+            * propagationTraversals
+        : 0.0;
+
+    const double tailFrames = static_cast<double>(p->processor.latencyFrames())
+        + (holdHops + feedbackHops + repeatCycles * repeatDelay
+            + propagationHops)
+            * static_cast<double>(kFftHopFrames);
+    return static_cast<uint32_t>(std::clamp(
+        tailFrames, 0.0,
+        static_cast<double>(kClapTailInfinite - 1u)));
+}
+
+const clap_plugin_tail_t tailExt { tailGet };
+
 } // namespace
 
 #if defined(__APPLE__)
+namespace {
+NSRect spectralEngineCaptureButtonRect(CGFloat panelY)
+{
+    return NSMakeRect(kPrimaryPanelX + kPanelWidth - 86.0, panelY + 2.0, 38.0, 17.0);
+}
+
+NSRect spectralEngineClearButtonRect(CGFloat panelY)
+{
+    return NSMakeRect(kPrimaryPanelX + kPanelWidth - 44.0, panelY + 2.0, 38.0, 17.0);
+}
+
+NSString* spectralFrequencyText(float frequencyHz)
+{
+    return frequencyHz >= 1000.0f
+        ? [NSString stringWithFormat:@"%.1fk", frequencyHz * 0.001f]
+        : [NSString stringWithFormat:@"%.0f Hz", frequencyHz];
+}
+} // namespace
+
 @interface S3GSpectralTopologyView : NSView {
     void* _plugin;
     int _dragParam;
@@ -538,6 +967,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     NSPoint _lastDragPoint;
     double _viewYaw;
     double _viewPitch;
+    int _cameraView;
     NSTimer* _timer;
     bool _showReadout;
     int _fieldPage;
@@ -554,6 +984,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 - (void)drawField:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
 - (void)drawScope:(NSRect)rect attrs:(NSDictionary*)attrs small:(NSDictionary*)small;
 - (NSRect)fieldPageButtonRect:(NSRect)rect index:(int)index;
+- (void)setTopologyView:(uint32_t)view;
 - (void)updateDrag:(NSPoint)point;
 - (void)updateMenuHover:(NSPoint)point;
 @end
@@ -569,6 +1000,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         _lastDragPoint = NSMakePoint(0, 0);
         _viewYaw = -0.52;
         _viewPitch = 0.34;
+        _cameraView = 2;
         _timer = nil;
         _showReadout = false;
         _fieldPage = 0;
@@ -613,11 +1045,24 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 }
 - (NSRect)fieldPageButtonRect:(NSRect)rect index:(int)index
 {
-    const CGFloat buttonW = 58.0;
-    const CGFloat buttonGap = 8.0;
-    const CGFloat totalW = buttonW * 2.0 + buttonGap;
-    const CGFloat x = rect.origin.x + (rect.size.width - totalW) * 0.5 + static_cast<CGFloat>(index) * (buttonW + buttonGap);
-    return NSMakeRect(x, rect.origin.y + 3.0, buttonW, 15.0);
+    return s3g::clap_gui::topologyProcessorFieldPageButtonRect(
+        rect, static_cast<uint32_t>(index));
+}
+
+- (void)setTopologyView:(uint32_t)view
+{
+    _cameraView = static_cast<int>(std::min<uint32_t>(view, 2u));
+    if (view == 0u) {
+        _viewYaw = 0.0;
+        _viewPitch = 0.95;
+    } else if (view == 1u) {
+        _viewYaw = -1.57079632679;
+        _viewPitch = 0.0;
+    } else {
+        _viewYaw = -0.52;
+        _viewPitch = 0.34;
+    }
+    [self setNeedsDisplay:YES];
 }
 
 - (NSPoint)projectPoint:(s3g::TopologyPoint)point inRect:(NSRect)rect
@@ -648,16 +1093,24 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         NSRect button = [self fieldPageButtonRect:rect index:i];
         s3g::clap_gui::drawHeaderButton(button, rect, pageLabels[i], _fieldPage == i, small, style);
     }
+    if (_fieldPage == 0) {
+        s3g::clap_gui::drawTopologyProcessorCameraButtons(
+            rect, _cameraView, small, style);
+    }
 
+    const NSRect fieldRect =
+        s3g::clap_gui::topologyProcessorFieldContentRect(rect);
     if (_fieldPage == 1) {
-        [self drawScope:rect attrs:attrs small:small];
+        [self drawScope:fieldRect attrs:attrs small:small];
         return;
     }
 
     const auto state = topologyStateForPlugin(*p);
     const auto controls = s3g::topologyControlsFromState(state);
-    const uint32_t visualLanes = std::min<uint32_t>(kChannelCount, activePatchOutputs(*p));
-    const NSRect fieldRect = NSMakeRect(rect.origin.x + 10.0, rect.origin.y + 28.0, 600.0, 600.0);
+    // Every physical output is a mesh node. The patch matrix only determines
+    // which nodes receive direct input; unpatched nodes can still receive
+    // transported spectral material.
+    const uint32_t visualLanes = kChannelCount;
     const NSRect topoRect = NSMakeRect(fieldRect.origin.x + 30.0, fieldRect.origin.y + 28.0, fieldRect.size.width - 60.0, 348.0);
     const NSRect heatRect = NSMakeRect(fieldRect.origin.x + 30.0, fieldRect.origin.y + 394.0, fieldRect.size.width - 60.0, 180.0);
     [style.strip setFill]; NSRectFill(fieldRect);
@@ -684,30 +1137,68 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         }
     }
 
-    [s3g::clap_gui::color(0xb8b8b8, 0.60) setStroke];
+    std::array<bool, kChannelCount * kChannelCount> drawnEdges {};
     for (uint32_t lane = 0; lane < visualLanes; ++lane) {
         const auto pt = s3g::topologyPointForLane(lane, visualLanes, controls);
         const NSPoint a = [self projectPoint:pt inRect:topoRect];
         const auto nn = s3g::nearestTopologyNeighbors(state, lane, visualLanes);
         for (uint32_t i = 0; i < std::min<uint32_t>(state.neighborCount, 3u); ++i) {
-            if (nn[i] < 0 || static_cast<uint32_t>(nn[i]) <= lane) continue;
-            const auto other = s3g::topologyPointForLane(static_cast<uint32_t>(nn[i]), visualLanes, controls);
+            if (nn[i] < 0 || static_cast<uint32_t>(nn[i]) >= visualLanes) continue;
+            const uint32_t destination = static_cast<uint32_t>(nn[i]);
+            if (destination == lane) continue;
+            const uint32_t low = std::min(lane, destination);
+            const uint32_t high = std::max(lane, destination);
+            const size_t edgeKey = static_cast<size_t>(low) * kChannelCount + high;
+            if (drawnEdges[edgeKey]) continue;
+            drawnEdges[edgeKey] = true;
+            const float activity = std::clamp(std::max(
+                p->processor.edgeActivity(lane, destination),
+                p->processor.edgeActivity(destination, lane)), 0.0f, 1.0f);
+            const CGFloat energy = static_cast<CGFloat>(std::sqrt(activity));
+            [s3g::clap_gui::color(0xb8b8b8, 0.20 + energy * 0.78) setStroke];
+            NSBezierPath* edge = [NSBezierPath bezierPath];
+            [edge setLineWidth:0.65 + energy * 2.35];
+            const auto other = s3g::topologyPointForLane(destination, visualLanes, controls);
             const NSPoint b = [self projectPoint:other inRect:topoRect];
-            [NSBezierPath strokeLineFromPoint:a toPoint:b];
+            [edge moveToPoint:a];
+            [edge lineToPoint:b];
+            [edge stroke];
+
+            auto drawPulse = [&](uint32_t source, uint32_t dest,
+                                 NSPoint from, NSPoint to) {
+                const float directedActivity = std::clamp(
+                    p->processor.edgeActivity(source, dest), 0.0f, 1.0f);
+                if (directedActivity <= 0.0001f) return;
+                const float pulse = p->processor.edgePulsePosition(source, dest);
+                if (!std::isfinite(pulse)) return;
+                const CGFloat position = static_cast<CGFloat>(
+                    std::clamp(pulse, 0.0f, 1.0f));
+                const NSPoint marker = NSMakePoint(
+                    from.x + (to.x - from.x) * position,
+                    from.y + (to.y - from.y) * position);
+                const CGFloat markerEnergy = static_cast<CGFloat>(
+                    std::sqrt(directedActivity));
+                const CGFloat markerSize = 3.0 + markerEnergy * 4.5;
+                [s3g::clap_gui::color(
+                    0xf2f2f2, 0.32 + markerEnergy * 0.68) setFill];
+                NSRectFill(NSMakeRect(
+                    marker.x - markerSize * 0.5,
+                    marker.y - markerSize * 0.5,
+                    markerSize, markerSize));
+            };
+            drawPulse(lane, destination, a, b);
+            drawPulse(destination, lane, b, a);
         }
     }
     for (uint32_t lane = 0; lane < visualLanes; ++lane) {
         const auto pt = s3g::topologyPointForLane(lane, visualLanes, controls);
         const NSPoint c = [self projectPoint:pt inRect:topoRect];
         const CGFloat size = 8.0 + static_cast<CGFloat>(std::clamp(pt.radius, 0.0, 1.5)) * 2.0;
-        [style.text setFill];
+        NSColor* nodeColor = patchOutputInjected(*p, lane) ? style.accent : style.text;
+        [nodeColor setFill];
         NSRectFill(NSMakeRect(c.x - size * 0.5, c.y - size * 0.5, size, size));
         [[NSString stringWithFormat:@"L%u", lane + 1u] drawAtPoint:NSMakePoint(c.x + 7.0, c.y - 6.0) withAttributes:small];
     }
-
-    const float pk = p->outputPeak.load(std::memory_order_relaxed);
-    [s3g::clap_gui::peakDbText(pk)
-        drawAtPoint:NSMakePoint(NSMaxX(rect) - 92.0, rect.origin.y + 10.0) withAttributes:small];
 
     NSString* topologyName = visualLanes == 8 ? @"8PT NEIGHBOR MAP"
         : visualLanes == 6 ? @"6PT NEIGHBOR MAP"
@@ -717,8 +1208,9 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     [[NSString stringWithFormat:@"SHAPE = %@", [NSString stringWithUTF8String:s3g::topologyShapeName(state.shape)]]
         drawAtPoint:NSMakePoint(fieldRect.origin.x + fieldRect.size.width - 188.0, fieldRect.origin.y + 25.0)
       withAttributes:small];
-    NSString* xyzText = state.shape == 0u ? @"XYZ = TILT FRZ PHAS" : @"XYZ = BIN DROP RPT";
+    NSString* xyzText = state.shape == 0u ? @"XYZ = TILT HOLD PHAS" : @"XYZ = BIN DROP RPT";
     [xyzText drawAtPoint:NSMakePoint(fieldRect.origin.x + fieldRect.size.width - 188.0, fieldRect.origin.y + 40.0) withAttributes:small];
+    [@"BRIGHT NODE = DIRECT IN" drawAtPoint:NSMakePoint(fieldRect.origin.x + 42.0, fieldRect.origin.y + 10.0) withAttributes:small];
 
     NSRect readoutButton = NSMakeRect(fieldRect.origin.x + fieldRect.size.width - 42.0, fieldRect.origin.y + 54.0, 32.0, 15.0);
     [style.strip setFill];
@@ -749,7 +1241,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     (void)attrs;
     auto* p = static_cast<Plugin*>(_plugin);
     s3g::clap_gui::Style style;
-    const NSRect sonoRect = NSMakeRect(rect.origin.x + 10.0, rect.origin.y + 28.0, rect.size.width - 20.0, rect.size.height - 38.0);
+    const NSRect sonoRect = rect;
     [style.strip setFill];
     NSRectFill(sonoRect);
     [style.grid setStroke];
@@ -757,12 +1249,8 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     [@"POST PROCESSING SONOGRAM" drawAtPoint:NSMakePoint(sonoRect.origin.x + 10.0, sonoRect.origin.y + 8.0) withAttributes:small];
 
     const uint32_t lanes = kChannelCount;
-    const uint32_t cols = lanes <= 8u ? 2u : 4u;
-    const uint32_t rows = (lanes + cols - 1u) / cols;
-    const CGFloat gap = lanes <= 8u ? 7.0 : 4.0;
-    const CGFloat labelH = 24.0;
-    const CGFloat cellW = (sonoRect.size.width - gap * static_cast<CGFloat>(cols + 1u)) / static_cast<CGFloat>(cols);
-    const CGFloat cellH = (sonoRect.size.height - labelH - gap * static_cast<CGFloat>(rows + 1u)) / static_cast<CGFloat>(rows);
+    const auto channelGrid =
+        s3g::clap_gui::topologyProcessorChannelGrid(sonoRect, lanes);
     const uint32_t write = p->scopeWrite.load(std::memory_order_relaxed);
     constexpr uint32_t kTimeBins = 96u;
     constexpr uint32_t kFreqBins = 24u;
@@ -772,12 +1260,9 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     constexpr double kTau = 6.28318530717958647692;
 
     for (uint32_t lane = 0; lane < lanes; ++lane) {
-        const uint32_t col = lane % cols;
-        const uint32_t row = lane / cols;
-        const NSRect laneRect = NSMakeRect(sonoRect.origin.x + gap + static_cast<CGFloat>(col) * (cellW + gap),
-                                          sonoRect.origin.y + labelH + gap + static_cast<CGFloat>(row) * (cellH + gap),
-                                          cellW,
-                                          cellH);
+        const NSRect laneRect =
+            s3g::clap_gui::topologyProcessorChannelRect(
+                channelGrid, lane);
         [s3g::clap_gui::color(0x090b0d, 1.0) setFill];
         NSRectFill(laneRect);
         [style.grid setStroke];
@@ -852,8 +1337,13 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     [contentTransform translateXBy:0.0 yBy:kContentTranslation];
     [contentTransform concat];
 
+    const auto& fieldLayout =
+        s3g::gui_layout::kTopologyProcessorColumns.field;
     [self drawField:NSMakeRect(
-        12, 34, 620, kContentCoordinateHeight - 46.0)
+        fieldLayout.x,
+        fieldLayout.y - kContentTranslation,
+        fieldLayout.width,
+        fieldLayout.height)
         attrs:lab small:small];
 
     const CGFloat panelX = kPrimaryPanelX;
@@ -883,10 +1373,19 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         static_cast<CGFloat>(kEnginePanelHeight);
     s3g::clap_gui::drawPanelFrame(panelX, panelY, panelW, engineH, style);
     drawHeader(@"SPECTRAL ENGINE", panelX, panelY);
+    const NSRect engineHeader = NSMakeRect(panelX, panelY, panelW, headerH);
+    const NSRect captureButton = spectralEngineCaptureButtonRect(panelY);
+    const NSRect clearButton = spectralEngineClearButtonRect(panelY);
+    s3g::clap_gui::drawHeaderActionButton(captureButton, engineHeader, @"CAP", small, style);
+    s3g::clap_gui::drawHeaderActionButton(clearButton, engineHeader, @"CLR", small, style);
+    if (p->processor.hasCapture()) {
+        [style.accent setFill];
+        NSRectFill(NSMakeRect(captureButton.origin.x + 3.0, captureButton.origin.y + 3.0, 3.0, 3.0));
+    }
     [self drawEngineRow:@"BINS" value:[NSString stringWithFormat:@"%.0f", prm.sprayBins] norm:prm.sprayBins / 192.0f y:engineRowY(panelY, 0) attrs:small small:small];
     [self drawEngineRow:@"DRFT" value:[NSString stringWithFormat:@"%.0f%%", prm.drift * 100.0f] norm:prm.drift y:engineRowY(panelY, 1) attrs:small small:small];
     [self drawEngineRow:@"HOLD" value:[NSString stringWithFormat:@"%.0f%%", prm.hold * 100.0f] norm:prm.hold y:engineRowY(panelY, 2) attrs:small small:small];
-    [self drawEngineRow:@"FRZ" value:[NSString stringWithFormat:@"%.0f%%", prm.freeze * 100.0f] norm:prm.freeze / 0.92f y:engineRowY(panelY, 3) attrs:small small:small];
+    [self drawEngineRow:@"FRZ" value:[NSString stringWithFormat:@"%.0f%%", prm.freeze * 100.0f] norm:prm.freeze y:engineRowY(panelY, 3) attrs:small small:small];
     [self drawEngineRow:@"FDBK" value:[NSString stringWithFormat:@"%.0f%%", prm.feedback * 100.0f] norm:prm.feedback / 0.72f y:engineRowY(panelY, 4) attrs:small small:small];
     [self drawEngineRow:@"SMR" value:[NSString stringWithFormat:@"%.0f%%", prm.smear * 100.0f] norm:prm.smear y:engineRowY(panelY, 5) attrs:small small:small];
     [self drawEngineRow:@"HOLE" value:[NSString stringWithFormat:@"%.0f%%", prm.holes * 100.0f] norm:prm.holes / 0.60f y:engineRowY(panelY, 6) attrs:small small:small];
@@ -894,11 +1393,13 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     [self drawEngineRow:@"DMG" value:[NSString stringWithFormat:@"%.0f%%", prm.damage * 100.0f] norm:prm.damage y:engineRowY(panelY, 8) attrs:small small:small];
     [self drawEngineRow:@"RPT" value:[NSString stringWithFormat:@"%.0f%%", prm.repeat * 100.0f] norm:prm.repeat y:engineRowY(panelY, 9) attrs:small small:small];
     [self drawEngineRow:@"TILT" value:[NSString stringWithFormat:@"%+.2f", prm.tilt] norm:(prm.tilt + 1.0f) * 0.5f y:engineRowY(panelY, 10) attrs:small small:small];
+    [self drawEngineRow:@"LO" value:spectralFrequencyText(prm.loFreq) norm:prm.loFreq / 24000.0f y:engineRowY(panelY, 11) attrs:small small:small];
+    [self drawEngineRow:@"HI" value:spectralFrequencyText(prm.hiFreq) norm:(prm.hiFreq - 20.0f) / 23980.0f y:engineRowY(panelY, 12) attrs:small small:small];
+    [self drawEngineRow:@"TRANS" value:[NSString stringWithFormat:@"%.0f%%", p->transientProtect * 100.0f] norm:p->transientProtect y:engineRowY(panelY, 13) attrs:small small:small];
     panelY += engineH + gap;
 
-    const CGFloat topologyY = 34.0;
-    const CGFloat topologyH = static_cast<CGFloat>(
-        s3g::gui_layout::toolboxHeightForRows(16u));
+    const CGFloat topologyY = static_cast<CGFloat>(kTopologyPanelY);
+    const CGFloat topologyH = static_cast<CGFloat>(kTopologyPanelHeight);
     s3g::clap_gui::drawPanelFrame(
         topologyX, topologyY, panelW, topologyH, style);
     drawHeader(@"TOPOLOGY", topologyX, topologyY);
@@ -927,6 +1428,30 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         values, topologyY, small, small, style,
         s3g::gui_layout::kStandardMetrics.rowPitch,
         topologyX, panelW);
+
+    const CGFloat propagationY = static_cast<CGFloat>(kPropagationPanelY);
+    const CGFloat propagationH = static_cast<CGFloat>(kPropagationPanelHeight);
+    s3g::clap_gui::drawPanelFrame(
+        topologyX, propagationY, panelW, propagationH, style);
+    drawHeader(@"PROPAGATION", topologyX, propagationY);
+    s3g::clap_gui::drawProcessorSlider(
+        @"VEL",
+        [NSString stringWithFormat:@"%.0f%%", p->propagationVelocity * 100.0f],
+        p->propagationVelocity,
+        engineRowY(propagationY, 0u), topologyX, panelW,
+        small, small, style);
+    s3g::clap_gui::drawProcessorSlider(
+        @"DISP",
+        [NSString stringWithFormat:@"%+.2f", p->propagationDispersion],
+        (p->propagationDispersion + 1.0f) * 0.5f,
+        engineRowY(propagationY, 1u), topologyX, panelW,
+        small, small, style);
+    s3g::clap_gui::drawProcessorSlider(
+        @"DAMP",
+        [NSString stringWithFormat:@"%.0f%%", p->propagationDamping * 100.0f],
+        p->propagationDamping,
+        engineRowY(propagationY, 2u), topologyX, panelW,
+        small, small, style);
 
     const bool compactMatrix = kChannelCount > 8;
     const CGFloat matrixH = compactMatrix ? 354.0 : 248.0;
@@ -962,7 +1487,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
                 }
             }
         }
-        [@"UNUSED: CLEAR" drawAtPoint:NSMakePoint(650.0, top + cell * kChannelCount + 18.0) withAttributes:small];
+        [@"PATCH: DIRECT IN / EMPTY: MESH RECEIVE" drawAtPoint:NSMakePoint(650.0, top + cell * kChannelCount + 18.0) withAttributes:small];
     }
 
     if (_openMenu > 0 && _menuItemCount > 0) {
@@ -994,11 +1519,15 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 - (void)updateDrag:(NSPoint)point
 {
     auto* p = static_cast<Plugin*>(_plugin);
+    const bool propagationParam =
+        _dragParam >= static_cast<int>(kPropagationVelocityParamId)
+        && _dragParam <= static_cast<int>(kPropagationDampingParamId);
     const bool topologyParam =
         _dragParam >= static_cast<int>(kTopologyAmountParamId)
         && _dragParam <= static_cast<int>(kTopologyCentroidParamId);
     const double panelX =
-        topologyParam ? kSecondaryPanelX : kPrimaryPanelX;
+        topologyParam || propagationParam
+        ? kSecondaryPanelX : kPrimaryPanelX;
     const double n = std::clamp(
         (point.x - s3g::gui_layout::processorControlX(panelX))
             / s3g::gui_layout::processorTrackWidth(kPanelWidth),
@@ -1007,7 +1536,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     case kSprayBinsParamId: applyParam(*p, kSprayBinsParamId, n * 192.0); break;
     case kDriftParamId: applyParam(*p, kDriftParamId, n); break;
     case kHoldParamId: applyParam(*p, kHoldParamId, n); break;
-    case kFreezeParamId: applyParam(*p, kFreezeParamId, n * 0.92); break;
+    case kFreezeParamId: applyParam(*p, kFreezeParamId, n); break;
     case kFeedbackParamId: applyParam(*p, kFeedbackParamId, n * 0.72); break;
     case kSmearParamId: applyParam(*p, kSmearParamId, n); break;
     case kHolesParamId: applyParam(*p, kHolesParamId, n * 0.60); break;
@@ -1015,6 +1544,13 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     case kDamageParamId: applyParam(*p, kDamageParamId, n); break;
     case kRepeatParamId: applyParam(*p, kRepeatParamId, n); break;
     case kTiltParamId: applyParam(*p, kTiltParamId, -1.0 + n * 2.0); break;
+    case kLoFreqParamId: applyParam(*p, kLoFreqParamId, n * 24000.0); break;
+    case kHiFreqParamId: applyParam(*p, kHiFreqParamId, 20.0 + n * 23980.0); break;
+    case kTransientProtectParamId: applyParam(*p, kTransientProtectParamId, n); break;
+    case kPropagationVelocityParamId: applyParam(*p, kPropagationVelocityParamId, n); break;
+    case kPropagationDispersionParamId: applyParam(*p, kPropagationDispersionParamId, -1.0 + n * 2.0); break;
+    case kPropagationDampingParamId: applyParam(*p, kPropagationDampingParamId, n); break;
+    case kGainParamId: applyParam(*p, kGainParamId, -60.0 + n * 72.0); break;
     case kMixParamId: applyParam(*p, kMixParamId, n); break;
     case kTopologyAmountParamId: applyParam(*p, kTopologyAmountParamId, n); break;
     case kTopologyPullParamId: applyParam(*p, kTopologyPullParamId, n); break;
@@ -1056,8 +1592,13 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     }
     pt.y -= kContentTranslation;
 
+    const auto& fieldLayout =
+        s3g::gui_layout::kTopologyProcessorColumns.field;
     const NSRect fieldPanel = NSMakeRect(
-        12.0, 34.0, 620.0, kContentCoordinateHeight - 46.0);
+        fieldLayout.x,
+        fieldLayout.y - kContentTranslation,
+        fieldLayout.width,
+        fieldLayout.height);
     if (NSPointInRect(pt, fieldPanel)) {
         for (int i = 0; i < 2; ++i) {
             NSRect button = [self fieldPageButtonRect:fieldPanel index:i];
@@ -1069,17 +1610,29 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         }
     }
 
-    const bool shiftDown = ([event modifierFlags] & NSEventModifierFlagShift) != 0;
-    const NSRect topologyView = NSMakeRect(22.0, 62.0, 600.0, 600.0);
-    if (_fieldPage == 0 && shiftDown && NSPointInRect(pt, topologyView)) {
-        _dragTopologyView = true;
-        _lastDragPoint = pt;
-        return;
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (_fieldPage == 0 && NSPointInRect(
+                pt,
+                s3g::clap_gui::topologyProcessorCameraButtonRect(
+                    fieldPanel, index))) {
+            [self setTopologyView:index];
+            return;
+        }
     }
 
     if (NSPointInRect(pt, NSMakeRect(580.0, 116.0, 32.0, 15.0))) {
         _showReadout = !_showReadout;
         [self setNeedsDisplay:YES];
+        return;
+    }
+
+    const NSRect topologyView =
+        s3g::clap_gui::topologyProcessorFieldContentRect(
+            fieldPanel);
+    if (_fieldPage == 0 && _openMenu == 0
+        && NSPointInRect(pt, topologyView)) {
+        _dragTopologyView = true;
+        _lastDragPoint = pt;
         return;
     }
 
@@ -1137,8 +1690,29 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     panelY += outputH + gap;
     const CGFloat engineH =
         static_cast<CGFloat>(kEnginePanelHeight);
-    const clap_id engineIds[] = {kSprayBinsParamId,kDriftParamId,kHoldParamId,kFreezeParamId,kFeedbackParamId,kSmearParamId,kHolesParamId,kPhaseBlurParamId,kDamageParamId,kRepeatParamId,kTiltParamId};
-    for (uint32_t i = 0; i < 11u; ++i) {
+    const NSRect captureButton = spectralEngineCaptureButtonRect(panelY);
+    const NSRect clearButton = spectralEngineClearButtonRect(panelY);
+    if (NSPointInRect(pt, captureButton)) {
+        p->processor.requestCapture();
+        markTailChanged(*p);
+        if (p->host && p->host->request_process) p->host->request_process(p->host);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(pt, clearButton)) {
+        p->processor.requestClearCapture();
+        markTailChanged(*p);
+        if (p->host && p->host->request_process) p->host->request_process(p->host);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    const clap_id engineIds[] = {
+        kSprayBinsParamId, kDriftParamId, kHoldParamId, kFreezeParamId,
+        kFeedbackParamId, kSmearParamId, kHolesParamId, kPhaseBlurParamId,
+        kDamageParamId, kRepeatParamId, kTiltParamId, kLoFreqParamId,
+        kHiFreqParamId, kTransientProtectParamId
+    };
+    for (uint32_t i = 0; i < sizeof(engineIds) / sizeof(engineIds[0]); ++i) {
         const CGFloat rowY = static_cast<CGFloat>(engineRowY(panelY, i));
         if (NSPointInRect(
                 pt, NSMakeRect(panelX, rowY - 8.0, panelW, 24.0))) {
@@ -1156,7 +1730,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
     }
     panelY += engineH + gap;
 
-    const CGFloat topologyY = 34.0;
+    const CGFloat topologyY = static_cast<CGFloat>(kTopologyPanelY);
     {
         const auto row = s3g::clap_gui::hitTopologyRow(
             pt, topologyY, topologyX, panelW);
@@ -1233,6 +1807,30 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         }
     }
 
+    const clap_id propagationIds[] = {
+        kPropagationVelocityParamId,
+        kPropagationDispersionParamId,
+        kPropagationDampingParamId
+    };
+    for (uint32_t i = 0u; i < 3u; ++i) {
+        const CGFloat rowY = static_cast<CGFloat>(
+            engineRowY(kPropagationPanelY, i));
+        if (!NSPointInRect(
+                pt, NSMakeRect(topologyX, rowY - 8.0, panelW, 24.0))) {
+            continue;
+        }
+        double defaultValue = 0.0;
+        if (s3g::clap_gui::sliderDoubleClickDefault(
+                event, &p->plugin, propagationIds[i], &defaultValue)) {
+            applyParam(*p, propagationIds[i], defaultValue);
+            _dragParam = 0;
+        } else {
+            _dragParam = static_cast<int>(propagationIds[i]);
+            [self updateDrag:pt];
+        }
+        return;
+    }
+
     const bool compactMatrix = kChannelCount > 8;
     {
         const CGFloat left = compactMatrix ? 686.0 : 718.0;
@@ -1265,6 +1863,7 @@ const clap_plugin_latency_t latencyExt { latencyGet };
         const CGFloat dy = pt.y - _lastDragPoint.y;
         _viewYaw += dx * 0.015;
         _viewPitch = std::clamp(_viewPitch + dy * 0.012, -0.75, 0.95);
+        _cameraView = -1;
         _lastDragPoint = pt;
         [self setNeedsDisplay:YES];
         return;
@@ -1277,13 +1876,13 @@ const clap_plugin_latency_t latencyExt { latencyGet };
 namespace {
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GSpectralTopologyView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GSpectralTopologyView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), kGuiWidth, kGuiHeight, kGuiWidth, 360u)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
 void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; [static_cast<S3GSpectralTopologyView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
-bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h, kGuiWidth, 360u); }
 bool guiCanResize(const clap_plugin_t*) { return true; }
 bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) { return s3g::clap_gui::getResponsiveResizeHints(hints); }
-bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h); }
+bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::adjustResponsiveViewportSize(self(plugin)->guiViewport, kGuiWidth, kGuiHeight, w, h, kGuiWidth, 360u); }
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3g::clap_gui::setResponsiveViewportSize(self(plugin)->guiViewport, w, h); }
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
@@ -1302,6 +1901,7 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, CLAP_EXT_LATENCY) == 0) return &latencyExt;
+    if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
 #if defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
@@ -1318,7 +1918,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.1.0",
-    "Topology-driven multichannel spectral processor built around the Spectral Spray engine.",
+    "Synchronized multichannel spectral mesh with delayed topology propagation, capture, and field memory.",
     features
 };
 
@@ -1328,6 +1928,9 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
     p->host = host;
+    p->hostTail = host && host->get_extension
+        ? static_cast<const clap_host_tail_t*>(host->get_extension(host, CLAP_EXT_TAIL))
+        : nullptr;
     p->settings.base.sprayBins = 18.0f;
     p->settings.base.drift = 0.18f;
     p->settings.base.hold = 0.72f;
@@ -1338,10 +1941,16 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     p->settings.base.phaseBlur = 0.28f;
     p->settings.base.damage = 0.0f;
     p->settings.base.repeat = 0.0f;
+    p->settings.base.loFreq = 0.0f;
+    p->settings.base.hiFreq = 20000.0f;
     p->settings.base.gainDb = -2.5f;
     p->settings.base.mix = 1.0f;
     p->settings.base.tilt = 0.0f;
     p->settings.base.safety = 0.82f;
+    p->transientProtect = 0.35f;
+    p->propagationVelocity = 1.0f;
+    p->propagationDispersion = 0.0f;
+    p->propagationDamping = 0.0f;
     p->settings.topology.amount = 0.35;
     p->settings.topology.jitter = 0.08;
     p->settings.topology.collapse = 0.0;

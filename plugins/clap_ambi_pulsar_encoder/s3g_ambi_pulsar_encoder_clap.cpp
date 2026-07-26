@@ -1323,6 +1323,9 @@ struct GuiSliderSpec {
     CGFloat trackWidth;
 };
 
+constexpr CGFloat kListeningLeftPanelX = 38.0;
+constexpr CGFloat kListeningRightPanelX = 314.0;
+
 constexpr GuiSliderSpec kGuiSliders[] {
     { kOutputParamId, "OUT", kOutputPanel.frame.x, layout::rowY(kOutputPanel, 0u), layout::kStandardMetrics.trackWidth },
     { kEmissionParamId, "EMISSION", kClockPanel.frame.x, layout::rowY(kClockPanel, 0u), layout::kStandardMetrics.trackWidth },
@@ -1368,10 +1371,10 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kNeuralEnvelopeParamId, "ENVELOPE", kCapturePanel.frame.x, layout::rowY(kCapturePanel, 1u), layout::kStandardMetrics.trackWidth },
     { kNeuralFmParamId, "FM DEPTH", kCapturePanel.frame.x, layout::rowY(kCapturePanel, 2u), layout::kStandardMetrics.trackWidth },
 
-    { kFieldReturnParamId, "FIELD RETURN", 38.0, 540.0, 82.0 },
-    { kPropagationParamId, "PROPAGATION", 38.0, 574.0, 82.0 },
-    { kPickupFocusParamId, "FOCUS", 314.0, 540.0, 82.0 },
-    { kLaneListeningParamId, "ECOLOGY", 314.0, 574.0, 82.0 },
+    { kFieldReturnParamId, "FIELD RETURN", kListeningLeftPanelX, 540.0, 82.0 },
+    { kPropagationParamId, "PROPAGATION", kListeningLeftPanelX, 574.0, 82.0 },
+    { kPickupFocusParamId, "FOCUS", kListeningRightPanelX, 540.0, 82.0 },
+    { kLaneListeningParamId, "ECOLOGY", kListeningRightPanelX, 574.0, 82.0 },
 
     { kLaneFormantIds[0], "CARRIER HZ", 18.0, 702.0, 82.0 },
     { kLaneCarrierRatioIds[0], "CLOCK RATIO", 18.0, 726.0, 82.0 },
@@ -1464,6 +1467,13 @@ double guiValue(clap_id id, CGFloat normalized)
 
 NSRect guiSliderHitRect(const GuiSliderSpec& slider)
 {
+    if (listeningGuiParam(slider.id)) {
+        const CGFloat hitWidth = layout::kStandardMetrics.valueInset
+            + layout::kStandardMetrics.processorValueWidth;
+        return NSMakeRect(slider.panelX + layout::kStandardMetrics.hitInset,
+            slider.y - layout::kStandardMetrics.hitInset,
+            hitWidth, layout::kStandardMetrics.hitHeight);
+    }
     const CGFloat hitWidth = slider.panelX < 300.0 ? 280.0
         : slider.panelX < 620.0 ? 292.0 : slider.panelX < 890.0 ? 234.0 : 230.0;
     return NSMakeRect(slider.panelX + 8.0, slider.y - 8.0, hitWidth, 24.0);
@@ -1603,10 +1613,27 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     return NSMakeRect(panel.origin.x + 98.0 + static_cast<CGFloat>(index) * 74.0,
         panel.origin.y + 4.0, 70.0, 13.0);
 }
-- (NSRect)neuralSetRect { return NSMakeRect(112.0, 484.0, 104.0, 15.0); }
-- (NSRect)pickupSetRect { return NSMakeRect(306.0, 484.0, 104.0, 15.0); }
-- (NSRect)listeningModeRect { return NSMakeRect(488.0, 484.0, 104.0, 15.0); }
-- (NSRect)listenerResponseRect { return NSMakeRect(488.0, 510.0, 104.0, 15.0); }
+- (NSRect)listeningMenuRectForPanelX:(CGFloat)panelX y:(CGFloat)y
+{
+    return NSMakeRect(panelX + layout::kStandardMetrics.controlInset, y,
+        layout::kStandardMetrics.menuWidth, 15.0);
+}
+- (NSRect)neuralSetRect
+{
+    return [self listeningMenuRectForPanelX:kListeningLeftPanelX y:484.0];
+}
+- (NSRect)pickupSetRect
+{
+    return [self listeningMenuRectForPanelX:kListeningRightPanelX y:484.0];
+}
+- (NSRect)listeningModeRect
+{
+    return [self listeningMenuRectForPanelX:kListeningLeftPanelX y:510.0];
+}
+- (NSRect)listenerResponseRect
+{
+    return [self listeningMenuRectForPanelX:kListeningRightPanelX y:510.0];
+}
 - (NSRect)listeningEnableRect { return NSMakeRect(46.0, 610.0, 118.0, 15.0); }
 - (NSRect)listeningBypassRect { return NSMakeRect(172.0, 610.0, 118.0, 15.0); }
 - (NSRect)laneButtonRect:(uint32_t)lane

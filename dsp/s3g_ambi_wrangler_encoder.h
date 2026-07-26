@@ -2,6 +2,7 @@
 
 #include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_speaker_decoder.h"
+#include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
 #include "s3g_topology.h"
 
@@ -174,6 +175,10 @@ struct AmbiWranglerParams {
     std::array<float, kAmbiWranglerMaxVoices> bpCrossLpf {};
     std::array<float, kAmbiWranglerMaxVoices> bpRungMode {};
     std::array<float, kAmbiWranglerMaxVoices> bpRungSize {};
+    // Performance cursor for the optional Parameter Surface. These remain in
+    // the base parameter frame; the wrapper derives interpolated DSP params.
+    float surfaceX = 0.5f;
+    float surfaceY = 0.5f;
 };
 
 static_assert(
@@ -612,6 +617,8 @@ public:
         params.settleTarget = clamp(params.settleTarget, 0.0f, 0.95f);
         params.settleRecoverySeconds = clamp(params.settleRecoverySeconds, 0.25f, 12.0f);
         params.filterMorph = clamp(params.filterMorph, 0.0f, 1.0f);
+        params.surfaceX = clamp(params.surfaceX, 0.0f, 1.0f);
+        params.surfaceY = clamp(params.surfaceY, 0.0f, 1.0f);
         const bool pickupSetChanged = params.pickupSet != params_.pickupSet;
         const bool circuitLawChanged =
             params.circuitLaw != params_.circuitLaw;
@@ -648,6 +655,13 @@ public:
             }
         }
         if (pickupSetChanged) configureListener();
+    }
+
+    void setParameterSurfaceGlideMs(float glideMs)
+    {
+        parameterSurfaceGlideMs_ = clamp(
+            std::isfinite(glideMs) ? glideMs : 0.0f,
+            0.0f, 2000.0f);
     }
 
     AmbiWranglerParams params() const { return params_; }
@@ -1307,6 +1321,18 @@ private:
             channelOrderGain_[ch] =
                 ch < activeChannels ? 1.0f : 0.0f;
         }
+        // A restored or initial surface state is an initial condition. Snap
+        // the unheard points to it; GLIDE begins with the first subsequent
+        // performance move rather than panning in from constructor defaults.
+        updateTopology(0.0f, true);
+        for (uint32_t i = 0u; i < kAmbiWranglerMaxVoices; ++i) {
+            renderBasis_[i] = acnSn3dBasis7(directionFromAed(
+                points_[i].azimuthDeg, points_[i].elevationDeg));
+            targetRenderBasis_[i] = renderBasis_[i];
+            renderDistanceGain_[i] =
+                1.0f / std::max(0.50f, points_[i].distance);
+            targetRenderDistanceGain_[i] = renderDistanceGain_[i];
+        }
     }
 
     void configureListener()
@@ -1506,7 +1532,7 @@ private:
             (listenerDelayWrite_ + 1u) % listenerDelay_[0].size();
     }
 
-    void updateTopology(float dt)
+    void updateTopology(float dt, bool snapPoints = false)
     {
         const bool settleResponse =
             params_.listenerResponse == AmbiWranglerListenerResponse::Settle;
@@ -1531,7 +1557,11 @@ private:
         state.twist = 0.0f;
         state.jitter = std::max(params_.runglerA, params_.runglerB)
             * 0.24f;
-        const float follow = 1.0f - std::pow(params_.spatialFollow, 4.0f);
+        const float follow = snapPoints ? 1.0f
+            : parameterSurfaceGlideMs_ > 0.0f
+            ? parameterSurfaceGlideCoefficient(
+                parameterSurfaceGlideMs_, dt)
+            : 1.0f - std::pow(params_.spatialFollow, 4.0f);
         for (uint32_t i = 0u; i < voices; ++i) {
             const auto tp = topologyPointForLane(i, voices, state);
             Vec3 spatialDirection = normalize({
@@ -2741,6 +2771,7 @@ private:
     float topologyPhase_ = 0.0f;
     float maskPhase_ = 0.0f;
     float smoothedOutputGain_ = 0.0f;
+    float parameterSurfaceGlideMs_ = 0.0f;
     float startupGain_ = 0.0f;
     float outputTransitionDecay_ = 0.0f;
     float transitionDecay_ = 0.0f;

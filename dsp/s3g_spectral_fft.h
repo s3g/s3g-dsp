@@ -44,6 +44,28 @@ struct SpectralFrameView {
     uint32_t channel = 0;
 };
 
+struct SpectralFrameBlockView {
+    float* realData = nullptr;
+    float* imagData = nullptr;
+    uint32_t channels = 0;
+    uint32_t bins = 0;
+    uint32_t fftSize = 0;
+
+    float* real(uint32_t channel) const
+    {
+        return realData && channel < channels
+            ? realData + static_cast<size_t>(channel) * bins
+            : nullptr;
+    }
+
+    float* imag(uint32_t channel) const
+    {
+        return imagData && channel < channels
+            ? imagData + static_cast<size_t>(channel) * bins
+            : nullptr;
+    }
+};
+
 class SpectralFftProcessor {
 public:
     ~SpectralFftProcessor()
@@ -104,6 +126,8 @@ public:
         splitImag_.assign(halfSize_, 0.0f);
         binReal_.assign(bins_, 0.0f);
         binImag_.assign(bins_, 0.0f);
+        blockReal_.assign(static_cast<size_t>(channels_) * bins_, 0.0f);
+        blockImag_.assign(static_cast<size_t>(channels_) * bins_, 0.0f);
 
         states_.assign(channels_, ChannelState {});
         for (auto& state : states_) {
@@ -156,6 +180,35 @@ public:
         }
     }
 
+    // Analyze every channel before invoking the kernel, then resynthesize every
+    // channel from the same synchronized spectral block. This is the path used
+    // by processors that move material between channels.
+    template <typename Kernel>
+    void processBlock(const float* const* input, float* const* output, uint32_t frames, Kernel&& kernel)
+    {
+        if (!ready_ || channels_ == 0u || frames == 0u) {
+            return;
+        }
+
+        for (uint32_t frame = 0; frame < frames; ++frame) {
+            for (uint32_t ch = 0; ch < channels_; ++ch) {
+                const float sample = input && input[ch] ? input[ch][frame] : 0.0f;
+                states_[ch].input[writePos_] = flushDenormal(sample);
+                output[ch][frame] = flushDenormal(states_[ch].output[writePos_]);
+                states_[ch].output[writePos_] = 0.0f;
+            }
+
+            ++writePos_;
+            if (writePos_ >= fftSize_) {
+                writePos_ = 0u;
+            }
+
+            if ((writePos_ % hopSize_) == 0u) {
+                processHopBlock(kernel);
+            }
+        }
+    }
+
 private:
     struct ChannelState {
         std::vector<float> input;
@@ -181,6 +234,8 @@ private:
         splitImag_.clear();
         binReal_.clear();
         binImag_.clear();
+        blockReal_.clear();
+        blockImag_.clear();
         states_.clear();
     }
 
@@ -242,6 +297,88 @@ private:
 #endif
     }
 
+    void analyzeChannel(uint32_t ch, float* real, float* imag)
+    {
+#if S3G_HAS_ACCELERATE_FFT
+        auto& state = states_[ch];
+        for (uint32_t i = 0; i < fftSize_; ++i) {
+            const uint32_t index = (writePos_ + i) % fftSize_;
+            frame_[i] = state.input[index] * window_[i];
+        }
+
+        DSPSplitComplex split { splitReal_.data(), splitImag_.data() };
+        vDSP_ctoz(reinterpret_cast<const DSPComplex*>(frame_.data()), 2, &split, 1, halfSize_);
+        vDSP_fft_zrip(fftSetup_, &split, 1, fftLog2_, FFT_FORWARD);
+
+        real[0] = splitReal_[0];
+        imag[0] = 0.0f;
+        real[halfSize_] = splitImag_[0];
+        imag[halfSize_] = 0.0f;
+        for (uint32_t bin = 1u; bin < halfSize_; ++bin) {
+            real[bin] = splitReal_[bin];
+            imag[bin] = splitImag_[bin];
+        }
+#else
+        (void)ch;
+        (void)real;
+        (void)imag;
+#endif
+    }
+
+    void synthesizeChannel(uint32_t ch, const float* real, const float* imag)
+    {
+#if S3G_HAS_ACCELERATE_FFT
+        splitReal_[0] = real[0];
+        splitImag_[0] = real[halfSize_];
+        for (uint32_t bin = 1u; bin < halfSize_; ++bin) {
+            splitReal_[bin] = real[bin];
+            splitImag_[bin] = imag[bin];
+        }
+
+        DSPSplitComplex split { splitReal_.data(), splitImag_.data() };
+        vDSP_fft_zrip(fftSetup_, &split, 1, fftLog2_, FFT_INVERSE);
+        vDSP_ztoc(&split, 1, reinterpret_cast<DSPComplex*>(frame_.data()), 2, halfSize_);
+
+        auto& state = states_[ch];
+        const float scale = windowScale_ / static_cast<float>(fftSize_);
+        for (uint32_t i = 0; i < fftSize_; ++i) {
+            const uint32_t index = (writePos_ + i) % fftSize_;
+            state.output[index] += flushDenormal(frame_[i] * window_[i] * scale);
+        }
+#else
+        (void)ch;
+        (void)real;
+        (void)imag;
+#endif
+    }
+
+    template <typename Kernel>
+    void processHopBlock(Kernel& kernel)
+    {
+#if S3G_HAS_ACCELERATE_FFT
+        for (uint32_t ch = 0; ch < channels_; ++ch) {
+            analyzeChannel(
+                ch,
+                blockReal_.data() + static_cast<size_t>(ch) * bins_,
+                blockImag_.data() + static_cast<size_t>(ch) * bins_);
+        }
+
+        SpectralFrameBlockView view {
+            blockReal_.data(), blockImag_.data(), channels_, bins_, fftSize_
+        };
+        kernel(view);
+
+        for (uint32_t ch = 0; ch < channels_; ++ch) {
+            synthesizeChannel(
+                ch,
+                blockReal_.data() + static_cast<size_t>(ch) * bins_,
+                blockImag_.data() + static_cast<size_t>(ch) * bins_);
+        }
+#else
+        (void)kernel;
+#endif
+    }
+
 #if S3G_HAS_ACCELERATE_FFT
     FFTSetup fftSetup_ = nullptr;
 #endif
@@ -262,6 +399,8 @@ private:
     std::vector<float> splitImag_;
     std::vector<float> binReal_;
     std::vector<float> binImag_;
+    std::vector<float> blockReal_;
+    std::vector<float> blockImag_;
     std::vector<ChannelState> states_;
 };
 

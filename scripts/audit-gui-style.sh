@@ -1000,7 +1000,39 @@ for file in "${topology_processor_sources[@]}"; do
     warn "layout" "$file" \
       "Topology Processors use the shared 1356 px two-column canvas with TOPOLOGY anchored in the second column."
   fi
+  if ! rg -q '(kDelayGuiWidth\), 360u|kGuiWidth, 360u)' "$file"; then
+    warn "layout" "$file" \
+      "Topology Processor viewports advertise the full 1356 px canvas as their minimum width; never magnify or reduce the GUI."
+  fi
+  if ! rg -q 'kTopologyProcessorColumns\.field' "$file" \
+      || ! rg -q 'fieldLayout\.height' "$file"; then
+    warn "layout" "$file" \
+      "Topology Processor field draw and hit geometry use the shared fixed-height field frame; never stretch the shell to the canvas bottom."
+  fi
+  if ! rg -q 'drawTopologyProcessorCameraButtons' "$file" \
+      || ! rg -q 'topologyProcessorCameraButtonRect' "$file" \
+      || ! rg -q 'topologyProcessorFieldContentRect' "$file"; then
+    warn "layout" "$file" \
+      "Topology Processor fields share TOP, SIDE, and 3/4 buttons plus direct click-drag camera geometry."
+  fi
+  if ! rg -q 'topologyProcessorChannelGrid' "$file" \
+      || ! rg -q 'topologyProcessorChannelRect' "$file"; then
+    warn "layout" "$file" \
+      "Topology Processor second pages use the shared 600 px channel-view grid."
+  fi
+  if rg -q 'NSEventModifierFlagShift|peakDbText\(pk\)|NSMaxX\(rect\) - 92\.0' "$file"; then
+    warn "layout" "$file" \
+      "Topology camera drag needs no modifier, and PK appears only in the plugin title band."
+  fi
 done
+
+delay_processor_source="plugins/clap_delay_processor/s3g_delay_processor_clap.cpp"
+if rg -q '0x636363|0x9e9e9e|0xf0f0f0|0xd1d1d1' "$delay_processor_source" \
+    || ! rg -q 'topologyPanel\.origin\.x \+ 12\.0' "$delay_processor_source" \
+    || ! rg -q 'sectionAttrs =.*softLabelAttrs|softLabelAttrs\(\);' "$delay_processor_source"; then
+  warn "typography" "$delay_processor_source" \
+    "Processor Delay uses the shared soft typography palette and 12 px topology-field title inset."
+fi
 
 fault_source="plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp"
 if ! rg -q 'processorLabelX\(kLeftToolboxX\), 647\.0' "$fault_source" \
@@ -1089,6 +1121,33 @@ done
 if [[ -d plugins/clap_3oafx_rack ]]; then
   warn "retired" "plugins/clap_3oafx_rack" \
     "The retired 3OAFX Rack source directory must not return."
+fi
+
+section "Parameter Surface"
+surface_members=(
+  plugins/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder_clap.cpp
+  plugins/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder_clap.cpp
+)
+for file in "${surface_members[@]}"; do
+  if ! rg -q 'drawParameterSurfaceVoronoi' "$file"; then
+    warn "surface" "$file" \
+      "SURF views use the shared exact Snapshot Surface-style Voronoi renderer, not sampled tiles."
+  fi
+  if ! rg -q 'displayParams|stochasticSurfaceParams' "$file"; then
+    warn "surface" "$file" \
+      "PLAY must draw participating toolbox controls from the effective interpolated state."
+  fi
+  if ! rg -q 'surfacePopRect' "$file" \
+      || ! rg -q 'openSurfacePopup' "$file" \
+      || ! rg -q 'hideSurfacePopup' "$file" \
+      || ! rg -q 'destroySurfacePopup' "$file"; then
+    warn "surface" "$file" \
+      "SURF POP must provide the shared attached panel and follow CLAP hide/destroy lifecycle."
+  fi
+done
+if ! rg -q 'kParameterSurfaceMaxCells = 24u' dsp/s3g_parameter_surface.h; then
+  warn "surface" "dsp/s3g_parameter_surface.h" \
+    "The shared Parameter Surface capacity is 24 cells and retains eight-cell state migration."
 fi
 
 section "Analyzer Family"

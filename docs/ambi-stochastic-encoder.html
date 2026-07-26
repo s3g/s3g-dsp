@@ -73,6 +73,12 @@
 
         <p>User presets are versioned JSON documents and can be moved between systems or kept with a project archive. Changing a control after loading or selecting a preset marks the current state as <code>CUSTOM</code>. REAPER project state continues to store the complete plugin state independently.</p>
 
+        <h2 id="parameter-surface">Parameter Surface</h2>
+
+        <p>The <code>SURF</code> page turns as many as 24 captured or factory states into a two-dimensional performance space. Use <code>ADD</code>, <code>DEL</code>, and <code>CAP</code> in edit mode, assign a factory state from the selected-cell menu, then switch to <code>PLAY</code> and move the crosshair. <code>CURVE</code> changes the blend response, <code>FOCUS</code> changes how tightly the cursor favors nearby cells, and <code>GLIDE</code> sets the settling time for field-point motion. In play mode, the participating toolbox controls move with the effective interpolated state. <code>POP</code> opens SURF in an attached panel and returns the primary view to FIELD so both remain visible.</p>
+
+        <p>Continuous walk, time-field, envelope, topology, projection, and listener-amount controls interpolate by distance. Menus, counts, and listener mode follow the nearest cell. <code>OUT</code>, <code>ORDER</code>, and the X/Y cursor remain live rather than jumping with a cell. <code>SURFACE X</code> and <code>SURFACE Y</code> are normalized, automatable CLAP parameters. The complete surface is saved in REAPER project state; portable <code>.s3gstochastic</code> files remain single states. See <a href="parameter-surface.html">Parameter Surface</a> for the shared workflow.</p>
+
         <h2 id="walks">Second-Order Walks</h2>
 
         <table class="readout-table">
@@ -197,6 +203,8 @@
         <div class="toc-section">
           <h2>Ambisonics</h2>
           <a href="3oafx.html">Overview</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
           <a href="ambisonic-effects.html">Effects</a>
@@ -226,6 +234,7 @@
           <a href="#presets">Preset Library</a>
           <a href="#walks">Second-Order Walks</a>
           <a href="#user-presets">User Presets</a>
+          <a href="#parameter-surface">Parameter Surface</a>
           <a href="#selection">Generator Selection</a>
           <a href="#time-fields">Time-Fields</a>
           <a href="#macro-scenes">Macro Scenes</a>

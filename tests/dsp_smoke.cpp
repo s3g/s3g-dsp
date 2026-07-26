@@ -1786,34 +1786,701 @@ int main()
         }
     }
 
-    s3g::DelayProcessor delay;
-    delay.prepare(1000.0, 2, 1.0);
-    delay.setChannelDelayMs(0, 10.0f);
-    delay.setChannelFeedback(0, 0.0f);
-    delay.setChannelTone(0, 1.0f);
+    auto delay = std::make_unique<s3g::DelayProcessor>();
+    delay->prepare(1000.0, 2, 1.0);
+    delay->setChannelDelayMs(0, 10.0f);
+    delay->setChannelFeedback(0, 0.0f);
+    delay->setChannelTone(0, 1.0f);
     float delayIn[2] {};
     float delayOut[2] {};
     delayIn[0] = 1.0f;
-    delay.processFrame(delayIn, delayOut);
+    delay->processFrame(delayIn, delayOut);
     delayIn[0] = 0.0f;
     for (int i = 0; i < 10; ++i) {
-        delay.processFrame(delayIn, delayOut);
+        delay->processFrame(delayIn, delayOut);
     }
     if (std::abs(delayOut[0] - 1.0f) > 0.0001f) {
         std::cerr << "Delay processor impulse timing failed\n";
         return 1;
     }
 
-    s3g::DelayProcessor delayStress;
-    delayStress.prepare(48000.0, 8, 2.25);
+    // ECHO ROUTES is a compatibility-preserving extension of the established
+    // Delay junction. ROUTE=0 must keep the exact legacy operation order even
+    // when the new topology and the other route controls have been supplied.
+    auto delayRouteLegacy = std::make_unique<s3g::DelayProcessor>();
+    auto delayRouteOff = std::make_unique<s3g::DelayProcessor>();
+    delayRouteLegacy->prepare(2000.0, 4, 0.5);
+    delayRouteOff->prepare(2000.0, 4, 0.5);
+    for (int ch = 0; ch < 4; ++ch) {
+        for (auto* processor : {
+                 delayRouteLegacy.get(), delayRouteOff.get() }) {
+            processor->setChannelDelayMs(ch, 12.0f + static_cast<float>(ch) * 7.0f);
+            processor->setChannelFeedback(ch, 0.61f + static_cast<float>(ch) * 0.025f);
+            processor->setChannelTone(ch, 0.32f + static_cast<float>(ch) * 0.14f);
+            processor->setChannelPitchSemitones(ch, ch % 2 == 0 ? 3.0f : -4.0f);
+            processor->setChannelNetwork(ch, 0.48f);
+            processor->setChannelNetworkTopology(
+                ch, (ch + 1) % 4, (ch + 3) % 4, (ch + 2) % 4, 3, 0.37f);
+            processor->setChannelCharacter(ch, 0.28f + static_cast<float>(ch) * 0.09f);
+            processor->setChannelSmearAmount(ch, 0.18f + static_cast<float>(ch) * 0.11f);
+        }
+    }
+    s3g::TopologyState delayRouteOffTopology {};
+    delayRouteOffTopology.amount = 0.73;
+    delayRouteOffTopology.shape = 8u;
+    delayRouteOffTopology.jitter = 0.42;
+    delayRouteOffTopology.neighborCount = 3u;
+    delayRouteOffTopology.neighborRadius = 0.92;
+    delayRouteOffTopology.centroidAmount = 0.81;
+    const uint32_t delayRouteOffLanes[] { 0u, 2u, 3u };
+    delayRouteOff->setTopology(
+        delayRouteOffTopology, delayRouteOffLanes,
+        static_cast<uint32_t>(std::size(delayRouteOffLanes)));
+    delayRouteOff->setRouteParams({ 0.0f, 1.0f, 1.0f, 1.0f });
+    std::array<float, 4> delayRouteLegacyIn {};
+    std::array<float, 4> delayRouteLegacyOut {};
+    std::array<float, 4> delayRouteOffOut {};
+    float delayRouteZeroError = 0.0f;
+    for (uint32_t frame = 0u; frame < 4096u; ++frame) {
+        for (uint32_t ch = 0u; ch < 4u; ++ch) {
+            delayRouteLegacyIn[ch] =
+                std::sin(static_cast<float>(frame) *
+                    (0.017f + static_cast<float>(ch) * 0.0061f)) * 0.14f;
+            if ((frame + ch * 19u) % 337u == 0u) {
+                delayRouteLegacyIn[ch] += 0.21f;
+            }
+        }
+        delayRouteLegacy->processFrame(
+            delayRouteLegacyIn.data(), delayRouteLegacyOut.data());
+        delayRouteOff->processFrame(
+            delayRouteLegacyIn.data(), delayRouteOffOut.data());
+        for (uint32_t ch = 0u; ch < 4u; ++ch) {
+            delayRouteZeroError = std::max(delayRouteZeroError,
+                std::fabs(delayRouteLegacyOut[ch] - delayRouteOffOut[ch]));
+        }
+    }
+    if (delayRouteZeroError != 0.0f
+        || delayRouteOff->routeTailFrames() != 0u
+        || delayRouteOff->routeTailRemainingFrames() != 0u) {
+        std::cerr << "Delay ROUTE=0 legacy parity failed: "
+                  << delayRouteZeroError << "\n";
+        return 1;
+    }
+
+    // Physical active-lane identities must survive sparse patching. A repeat
+    // launched from lane 3 waits for lane 3's TIME, enters lane 7, then waits
+    // for lane 7's TIME. Turning ROUTE off after launch may not erase it.
+    auto delaySparseRoute = std::make_unique<s3g::DelayProcessor>();
+    delaySparseRoute->prepare(1000.0, 8, 0.25);
     for (int ch = 0; ch < 8; ++ch) {
-        delayStress.setChannelDelayMs(ch, 80.0f + static_cast<float>(ch) * 41.0f);
-        delayStress.setChannelFeedback(ch, 0.78f);
-        delayStress.setChannelTone(ch, 0.45f);
-        delayStress.setChannelNetwork(ch, 0.55f);
-        delayStress.setChannelCharacter(ch, 0.85f);
-        delayStress.setChannelSmearAmount(ch, 0.90f);
-        delayStress.setChannelPitchSemitones(ch, ch % 2 == 0 ? 24.0f : -24.0f);
+        delaySparseRoute->setChannelDelayMs(ch,
+            ch == 2 ? 10.0f : (ch == 6 ? 19.0f : 31.0f));
+        delaySparseRoute->setChannelFeedback(ch, 0.72f);
+        delaySparseRoute->setChannelTone(ch, 1.0f);
+        delaySparseRoute->setChannelPitchSemitones(ch, 0.0f);
+        delaySparseRoute->setChannelNetwork(ch, 0.0f);
+        delaySparseRoute->setChannelCharacter(ch, 0.0f);
+        delaySparseRoute->setChannelSmearAmount(ch, 0.0f);
+    }
+    s3g::TopologyState delaySparseTopology {};
+    delaySparseTopology.neighborCount = 1u;
+    delaySparseTopology.neighborRadius = 1.0;
+    delaySparseTopology.centroidAmount = 0.0;
+    const uint32_t delaySparseLanes[] { 2u, 6u };
+    delaySparseRoute->setTopology(
+        delaySparseTopology, delaySparseLanes,
+        static_cast<uint32_t>(std::size(delaySparseLanes)));
+    delaySparseRoute->setRouteParams({ 1.0f, 0.0f, 0.0f, 0.0f });
+    std::array<float, 8> delaySparseIn {};
+    std::array<float, 8> delaySparseOut {};
+    int delaySparseSourceOnset = -1;
+    int delaySparseRemoteOnset = -1;
+    float delaySparseEdgePeak = 0.0f;
+    float delaySparseNodePeak = 0.0f;
+    float delaySparseInactivePeak = 0.0f;
+    float delaySparsePhase = 0.0f;
+    uint32_t delaySparseResidualTail = 0u;
+    for (int frame = 0; frame < 96; ++frame) {
+        delaySparseIn.fill(0.0f);
+        if (frame == 0) delaySparseIn[2] = 1.0f;
+        delaySparseRoute->processFrame(
+            delaySparseIn.data(), delaySparseOut.data());
+        if (delaySparseSourceOnset < 0
+            && std::fabs(delaySparseOut[2]) > 0.000001f) {
+            delaySparseSourceOnset = frame;
+        }
+        if (delaySparseRemoteOnset < 0
+            && std::fabs(delaySparseOut[6]) > 0.000001f) {
+            delaySparseRemoteOnset = frame;
+        }
+        delaySparseEdgePeak = std::max(delaySparseEdgePeak,
+            delaySparseRoute->edgeEnergy(2u, 6u));
+        delaySparseNodePeak = std::max(delaySparseNodePeak,
+            delaySparseRoute->nodeEnergy(6u));
+        delaySparseInactivePeak = std::max({
+            delaySparseInactivePeak,
+            std::fabs(delaySparseOut[0]),
+            std::fabs(delaySparseOut[1]),
+            delaySparseRoute->edgeEnergy(0u, 1u)
+        });
+        if (delaySparseRoute->edgeEnergy(2u, 6u) > 0.000001f) {
+            delaySparsePhase = delaySparseRoute->edgePhase(2u, 6u);
+        }
+        if (frame == 15) {
+            delaySparseRoute->setRouteParams(
+                { 0.0f, 0.0f, 0.0f, 0.0f });
+            delaySparseResidualTail =
+                delaySparseRoute->routeTailRemainingFrames();
+        }
+    }
+    if (delaySparseSourceOnset != 10
+        || std::abs(delaySparseRemoteOnset - 29) > 1
+        || delaySparseEdgePeak <= 0.000001f
+        || delaySparseNodePeak <= 0.000001f
+        || delaySparseInactivePeak > 0.000001f
+        || delaySparsePhase < 0.0f || delaySparsePhase >= 1.0f
+        || delaySparseResidualTail == 0u) {
+        std::cerr << "Delay sparse Echo Route timing/telemetry failed: "
+                  << delaySparseSourceOnset << " / "
+                  << delaySparseRemoteOnset << " edge/node/inactive/phase/tail="
+                  << delaySparseEdgePeak << " / " << delaySparseNodePeak
+                  << " / " << delaySparseInactivePeak << " / "
+                  << delaySparsePhase << " / " << delaySparseResidualTail
+                  << "\n";
+        return 1;
+    }
+    delaySparseRoute->reset();
+    if (delaySparseRoute->edgeEnergy(2u, 6u) != 0.0f
+        || delaySparseRoute->nodeEnergy(6u) != 0.0f
+        || delaySparseRoute->centroidEnergy() != 0.0f
+        || delaySparseRoute->centroidPhase() != 0.0f
+        || delaySparseRoute->routeTailRemainingFrames() != 0u) {
+        std::cerr << "Delay Echo Route reset did not clear state/telemetry\n";
+        return 1;
+    }
+
+    struct DelayRouteRenderMetrics {
+        std::array<float, 4> outputEnergy {};
+        std::array<float, 16> edgePeak {};
+        float outputPeak = 0.0f;
+        float centroidPeak = 0.0f;
+        float centroidPhase = 0.0f;
+    };
+    auto renderDelayRouteFour = [](
+        s3g::DelayRouteParams route,
+        s3g::TopologyState topology,
+        int excitation) {
+        auto processor = std::make_unique<s3g::DelayProcessor>();
+        processor->prepare(1000.0, 4, 0.25);
+        for (int ch = 0; ch < 4; ++ch) {
+            processor->setChannelDelayMs(
+                ch, 10.0f + static_cast<float>(ch) * 3.0f);
+            processor->setChannelFeedback(ch, 0.72f);
+            processor->setChannelTone(ch, 1.0f);
+            processor->setChannelNetwork(ch, 0.0f);
+            processor->setChannelPitchSemitones(ch, 0.0f);
+            processor->setChannelCharacter(ch, 0.0f);
+            processor->setChannelSmearAmount(ch, 0.0f);
+        }
+        const uint32_t lanes[] { 0u, 1u, 2u, 3u };
+        processor->setTopology(
+            topology, lanes, static_cast<uint32_t>(std::size(lanes)));
+        processor->setRouteParams(route);
+        DelayRouteRenderMetrics metrics;
+        std::array<float, 4> input {};
+        std::array<float, 4> output {};
+        for (uint32_t frame = 0u; frame < 420u; ++frame) {
+            input.fill(0.0f);
+            if (excitation == 0 && frame == 0u) {
+                input[0] = 1.0f;
+            } else if (excitation == 1 && frame < 48u) {
+                input[0] = 0.10f;
+            } else if (excitation == 2 && frame < 48u) {
+                input[0] = (frame & 1u) == 0u ? 0.10f : -0.10f;
+            }
+            processor->processFrame(input.data(), output.data());
+            for (uint32_t ch = 0u; ch < 4u; ++ch) {
+                metrics.outputEnergy[ch] += std::fabs(output[ch]);
+                metrics.outputPeak = std::max(
+                    metrics.outputPeak, std::fabs(output[ch]));
+                for (uint32_t destination = 0u;
+                     destination < 4u; ++destination) {
+                    const size_t edge = static_cast<size_t>(ch) * 4u
+                        + destination;
+                    metrics.edgePeak[edge] = std::max(
+                        metrics.edgePeak[edge],
+                        processor->edgeEnergy(ch, destination));
+                }
+            }
+            metrics.centroidPeak = std::max(
+                metrics.centroidPeak, processor->centroidEnergy());
+            if (processor->centroidEnergy() > 0.000001f) {
+                metrics.centroidPhase = processor->centroidPhase();
+            }
+        }
+        return metrics;
+    };
+
+    s3g::TopologyState delayRouteGraphTopology {};
+    delayRouteGraphTopology.amount = 0.58;
+    delayRouteGraphTopology.shape = 8u;
+    delayRouteGraphTopology.dirX = 0.18;
+    delayRouteGraphTopology.dirY = 0.36;
+    delayRouteGraphTopology.dirZ = 0.91;
+    delayRouteGraphTopology.neighborCount = 3u;
+    delayRouteGraphTopology.neighborRadius = 1.0;
+    delayRouteGraphTopology.centroidAmount = 0.0;
+    auto delayRouteTurnTopology = delayRouteGraphTopology;
+    delayRouteTurnTopology.neighborCount = 1u;
+    delayRouteTurnTopology.centroidAmount = 0.0;
+    const auto delayRouteTurnNegative = renderDelayRouteFour(
+        { 1.0f, -1.0f, 0.35f, 0.0f },
+        delayRouteTurnTopology, 0);
+    const auto delayRouteTurnPositive = renderDelayRouteFour(
+        { 1.0f, 1.0f, 0.35f, 0.0f },
+        delayRouteTurnTopology, 0);
+    auto dominantDelayRouteDestination = [](
+        const DelayRouteRenderMetrics& metrics) {
+        uint32_t destination = 1u;
+        for (uint32_t candidate = 2u; candidate < 4u; ++candidate) {
+            if (metrics.edgePeak[candidate]
+                > metrics.edgePeak[destination]) {
+                destination = candidate;
+            }
+        }
+        return destination;
+    };
+    const uint32_t delayRouteTurnNegativeDestination =
+        dominantDelayRouteDestination(delayRouteTurnNegative);
+    const uint32_t delayRouteTurnPositiveDestination =
+        dominantDelayRouteDestination(delayRouteTurnPositive);
+    if (delayRouteTurnNegativeDestination
+            == delayRouteTurnPositiveDestination
+        || delayRouteTurnNegative.edgePeak[
+                delayRouteTurnNegativeDestination] <= 0.000001f
+        || delayRouteTurnPositive.edgePeak[
+                delayRouteTurnPositiveDestination] <= 0.000001f) {
+        std::cerr << "Delay TURN did not reverse the dominant route: "
+                  << delayRouteTurnNegativeDestination << " / "
+                  << delayRouteTurnPositiveDestination << " edges "
+                  << delayRouteTurnNegative.edgePeak[1] << ","
+                  << delayRouteTurnNegative.edgePeak[2] << ","
+                  << delayRouteTurnNegative.edgePeak[3] << " / "
+                  << delayRouteTurnPositive.edgePeak[1] << ","
+                  << delayRouteTurnPositive.edgePeak[2] << ","
+                  << delayRouteTurnPositive.edgePeak[3] << "\n";
+        return 1;
+    }
+
+    const auto delayRouteFocused = renderDelayRouteFour(
+        { 1.0f, 0.72f, 0.0f, 0.0f },
+        delayRouteGraphTopology, 0);
+    const auto delayRouteBranched = renderDelayRouteFour(
+        { 1.0f, 0.72f, 1.0f, 0.0f },
+        delayRouteGraphTopology, 0);
+    auto delayRouteSecondaryShare = [](
+        const DelayRouteRenderMetrics& metrics) {
+        std::array<float, 3> outgoing {
+            metrics.edgePeak[1], metrics.edgePeak[2], metrics.edgePeak[3]
+        };
+        std::sort(outgoing.begin(), outgoing.end(), std::greater<float>());
+        return (outgoing[1] + outgoing[2])
+            / std::max(0.000001f, outgoing[0]);
+    };
+    const float delayRouteFocusedShare =
+        delayRouteSecondaryShare(delayRouteFocused);
+    const float delayRouteBranchedShare =
+        delayRouteSecondaryShare(delayRouteBranched);
+    if (delayRouteBranchedShare <= delayRouteFocusedShare + 0.10f
+        || delayRouteFocused.outputPeak > 1.86f
+        || delayRouteBranched.outputPeak > 1.86f) {
+        std::cerr << "Delay BRCH focus/spread or bounded send failed: "
+                  << delayRouteFocusedShare << " / "
+                  << delayRouteBranchedShare << " peak "
+                  << delayRouteFocused.outputPeak << " / "
+                  << delayRouteBranched.outputPeak << "\n";
+        return 1;
+    }
+
+    // LOSS must attenuate long edges more strongly. Compare the same graph's
+    // telemetry before and after maximum loss and normalize each edge against
+    // its loss-free launch level.
+    const auto delayRouteLossless = renderDelayRouteFour(
+        { 1.0f, 0.0f, 1.0f, 0.0f },
+        delayRouteGraphTopology, 0);
+    const auto delayRouteLossy = renderDelayRouteFour(
+        { 1.0f, 0.0f, 1.0f, 1.0f },
+        delayRouteGraphTopology, 0);
+    const auto delayRouteControls =
+        s3g::topologyControlsFromState(delayRouteGraphTopology);
+    const auto delayRouteSourcePoint =
+        s3g::topologyPointForLane(0u, 4u, delayRouteControls);
+    uint32_t delayRouteNearest = 1u;
+    uint32_t delayRouteFarthest = 1u;
+    double delayRouteNearestDistance = std::numeric_limits<double>::max();
+    double delayRouteFarthestDistance = -1.0;
+    for (uint32_t destination = 1u; destination < 4u; ++destination) {
+        if (delayRouteLossless.edgePeak[destination] <= 0.000001f) continue;
+        const auto point = s3g::topologyPointForLane(
+            destination, 4u, delayRouteControls);
+        const double dx = point.x - delayRouteSourcePoint.x;
+        const double dy = point.y - delayRouteSourcePoint.y;
+        const double dz = point.z - delayRouteSourcePoint.z;
+        const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (distance < delayRouteNearestDistance) {
+            delayRouteNearestDistance = distance;
+            delayRouteNearest = destination;
+        }
+        if (distance > delayRouteFarthestDistance) {
+            delayRouteFarthestDistance = distance;
+            delayRouteFarthest = destination;
+        }
+    }
+    const float delayRouteNearLossRatio =
+        delayRouteLossy.edgePeak[delayRouteNearest]
+        / std::max(0.000001f,
+            delayRouteLossless.edgePeak[delayRouteNearest]);
+    const float delayRouteFarLossRatio =
+        delayRouteLossy.edgePeak[delayRouteFarthest]
+        / std::max(0.000001f,
+            delayRouteLossless.edgePeak[delayRouteFarthest]);
+    if (delayRouteFarthestDistance <= delayRouteNearestDistance
+        || delayRouteFarLossRatio >= delayRouteNearLossRatio - 0.02f) {
+        std::cerr << "Delay LOSS distance attenuation failed: "
+                  << delayRouteNearest << "/" << delayRouteFarthest
+                  << " ratios " << delayRouteNearLossRatio << " / "
+                  << delayRouteFarLossRatio << "\n";
+        return 1;
+    }
+
+    auto renderDelayRouteFrequency = [](float loss, float hz) {
+        constexpr float sampleRate = 8000.0f;
+        auto processor = std::make_unique<s3g::DelayProcessor>();
+        processor->prepare(sampleRate, 2, 0.25);
+        for (int ch = 0; ch < 2; ++ch) {
+            processor->setChannelDelayMs(ch, 5.0f);
+            processor->setChannelFeedback(ch, 0.72f);
+            processor->setChannelTone(ch, 1.0f);
+            processor->setChannelNetwork(ch, 0.0f);
+        }
+        s3g::TopologyState topology {};
+        topology.neighborCount = 1u;
+        topology.neighborRadius = 1.0;
+        topology.centroidAmount = 0.0;
+        const uint32_t lanes[] { 0u, 1u };
+        processor->setTopology(
+            topology, lanes, static_cast<uint32_t>(std::size(lanes)));
+        processor->setRouteParams({ 1.0f, 0.0f, 0.0f, loss });
+        std::array<float, 2> input {};
+        std::array<float, 2> output {};
+        double energy = 0.0;
+        for (uint32_t frame = 0u; frame < 1600u; ++frame) {
+            input.fill(0.0f);
+            if (frame < 512u) {
+                input[0] = std::sin(
+                    2.0f * static_cast<float>(M_PI) * hz
+                    * static_cast<float>(frame) / sampleRate) * 0.10f;
+            }
+            processor->processFrame(input.data(), output.data());
+            if (frame >= 80u) {
+                energy += static_cast<double>(output[1]) * output[1];
+            }
+        }
+        return std::sqrt(energy);
+    };
+    const double delayRouteLowLossless =
+        renderDelayRouteFrequency(0.0f, 180.0f);
+    const double delayRouteLowLossy =
+        renderDelayRouteFrequency(1.0f, 180.0f);
+    const double delayRouteHighLossless =
+        renderDelayRouteFrequency(0.0f, 3000.0f);
+    const double delayRouteHighLossy =
+        renderDelayRouteFrequency(1.0f, 3000.0f);
+    const double delayRouteLowFrequencyRatio = delayRouteLowLossy
+        / std::max(0.000000001, delayRouteLowLossless);
+    const double delayRouteHighFrequencyRatio = delayRouteHighLossy
+        / std::max(0.000000001, delayRouteHighLossless);
+    if (delayRouteHighFrequencyRatio
+            >= delayRouteLowFrequencyRatio * 0.80) {
+        std::cerr << "Delay LOSS high-frequency absorption failed: "
+                  << delayRouteLowFrequencyRatio << " / "
+                  << delayRouteHighFrequencyRatio << "\n";
+        return 1;
+    }
+
+    s3g::TopologyState delayRouteNeighborOnlyTopology =
+        delayRouteGraphTopology;
+    delayRouteNeighborOnlyTopology.neighborCount = 1u;
+    delayRouteNeighborOnlyTopology.centroidAmount = 0.0;
+    auto delayRouteCentroidTopology = delayRouteNeighborOnlyTopology;
+    delayRouteCentroidTopology.centroidAmount = 1.0;
+    const auto delayRouteNeighborOnly = renderDelayRouteFour(
+        { 1.0f, 0.0f, 1.0f, 0.0f },
+        delayRouteNeighborOnlyTopology, 0);
+    const auto delayRouteCentroid = renderDelayRouteFour(
+        { 1.0f, 0.0f, 1.0f, 0.0f },
+        delayRouteCentroidTopology, 0);
+    const uint32_t delayRouteDirectDestination =
+        dominantDelayRouteDestination(delayRouteNeighborOnly);
+    const uint32_t delayRouteCentroidDestination =
+        dominantDelayRouteDestination(delayRouteCentroid);
+    if (delayRouteDirectDestination == delayRouteCentroidDestination
+        || delayRouteNeighborOnly.centroidPeak > 0.000001f
+        || delayRouteCentroid.centroidPeak <= 0.000001f
+        || delayRouteCentroid.centroidPhase < 0.0f
+        || delayRouteCentroid.centroidPhase >= 1.0f) {
+        std::cerr << "Delay CENT virtual-hub route failed: destinations/energy="
+                  << delayRouteDirectDestination << " / "
+                  << delayRouteCentroidDestination << " / "
+                  << delayRouteNeighborOnly.centroidPeak << " / "
+                  << delayRouteCentroid.centroidPeak << "\n";
+        return 1;
+    }
+
+    auto renderDelayRouteMotionPartition = [](
+        const std::vector<uint32_t>& blockSizes) {
+        auto processor = std::make_unique<s3g::DelayProcessor>();
+        processor->prepare(2000.0, 4, 0.25);
+        for (int ch = 0; ch < 4; ++ch) {
+            processor->setChannelDelayMs(
+                ch, 9.0f + static_cast<float>(ch) * 4.0f);
+            processor->setChannelFeedback(ch, 0.68f);
+            processor->setChannelTone(ch, 0.72f);
+            processor->setChannelNetwork(ch, 0.22f);
+        }
+        s3g::TopologyState topology {};
+        topology.amount = 0.55;
+        topology.shape = 11u;
+        topology.motionMode = 4u;
+        topology.motionDepth = 0.86;
+        topology.motionRateHz = 0.91;
+        topology.neighborCount = 3u;
+        topology.neighborRadius = 0.86;
+        topology.centroidAmount = 0.42;
+        const uint32_t lanes[] { 0u, 1u, 2u, 3u };
+        processor->setTopology(
+            topology, lanes, static_cast<uint32_t>(std::size(lanes)));
+        processor->setRouteParams({ 0.78f, 0.44f, 0.63f, 0.31f });
+        std::vector<std::array<float, 4>> rendered(2048u);
+        std::array<float, 4> input {};
+        uint32_t frame = 0u;
+        size_t blockIndex = 0u;
+        while (frame < rendered.size()) {
+            const uint32_t requested = blockSizes[
+                blockIndex++ % blockSizes.size()];
+            const uint32_t end = std::min<uint32_t>(
+                static_cast<uint32_t>(rendered.size()), frame + requested);
+            for (; frame < end; ++frame) {
+                if ((frame % 37u) == 0u) {
+                    topology.motionPhase = static_cast<double>(frame % 997u)
+                        / 997.0;
+                    processor->setTopology(
+                        topology, lanes,
+                        static_cast<uint32_t>(std::size(lanes)));
+                }
+                for (uint32_t ch = 0u; ch < 4u; ++ch) {
+                    input[ch] = std::sin(
+                        static_cast<float>(frame)
+                        * (0.021f + static_cast<float>(ch) * 0.006f))
+                        * 0.09f;
+                }
+                processor->processFrame(
+                    input.data(), rendered[frame].data());
+            }
+        }
+        return rendered;
+    };
+    const auto delayRouteMotionUniform =
+        renderDelayRouteMotionPartition({ 64u });
+    const auto delayRouteMotionIrregular =
+        renderDelayRouteMotionPartition({ 17u, 113u, 29u, 7u });
+    float delayRouteMotionPartitionError = 0.0f;
+    float delayRouteMotionMaximumStep = 0.0f;
+    std::array<float, 4> delayRouteMotionPrevious {};
+    for (size_t frame = 0u;
+         frame < delayRouteMotionUniform.size(); ++frame) {
+        for (uint32_t ch = 0u; ch < 4u; ++ch) {
+            const float sample = delayRouteMotionUniform[frame][ch];
+            if (!std::isfinite(sample)) {
+                std::cerr << "Delay route topology motion became non-finite\n";
+                return 1;
+            }
+            delayRouteMotionPartitionError = std::max(
+                delayRouteMotionPartitionError,
+                std::fabs(sample - delayRouteMotionIrregular[frame][ch]));
+            delayRouteMotionMaximumStep = std::max(
+                delayRouteMotionMaximumStep,
+                std::fabs(sample - delayRouteMotionPrevious[ch]));
+            delayRouteMotionPrevious[ch] = sample;
+        }
+    }
+    if (delayRouteMotionPartitionError != 0.0f
+        || delayRouteMotionMaximumStep > 1.86f) {
+        std::cerr << "Delay route motion/block behavior failed: "
+                  << delayRouteMotionPartitionError << " / "
+                  << delayRouteMotionMaximumStep << "\n";
+        return 1;
+    }
+
+    struct DelayRouteDelayMotionMetrics {
+        float earlyPhaseIncrement = 0.0f;
+        float latePhaseIncrement = 0.0f;
+    };
+    auto renderDelayRouteDelayMotion = [](
+        const std::vector<uint32_t>& updatePartitions) {
+        constexpr uint32_t frameCount = 900u;
+        auto processor = std::make_unique<s3g::DelayProcessor>();
+        processor->prepare(1000.0, 2, 0.25);
+        for (int ch = 0; ch < 2; ++ch) {
+            processor->setChannelDelayMs(ch, 20.0f);
+            processor->setChannelFeedback(ch, 0.70f);
+            processor->setChannelTone(ch, 1.0f);
+            processor->setChannelNetwork(ch, 0.0f);
+        }
+        s3g::TopologyState topology {};
+        topology.neighborCount = 1u;
+        topology.neighborRadius = 1.0;
+        topology.centroidAmount = 0.0;
+        const uint32_t lanes[] { 0u, 1u };
+        processor->setTopology(
+            topology, lanes, static_cast<uint32_t>(std::size(lanes)));
+        processor->setRouteParams({ 1.0f, 0.0f, 0.0f, 0.0f });
+
+        DelayRouteDelayMotionMetrics metrics;
+        std::array<float, 2> input {};
+        std::array<float, 2> output {};
+        float previousPhase = processor->edgePhase(0u, 1u);
+        uint32_t earlyCount = 0u;
+        uint32_t lateCount = 0u;
+        uint32_t frame = 0u;
+        size_t partitionIndex = 0u;
+        while (frame < frameCount) {
+            const uint32_t partition = std::max<uint32_t>(
+                1u, updatePartitions[
+                    partitionIndex++ % updatePartitions.size()]);
+            const float progress = static_cast<float>(frame)
+                / static_cast<float>(frameCount - 1u);
+            processor->setChannelDelayMs(1, 20.0f + progress * 80.0f);
+            const uint32_t end = std::min(frameCount, frame + partition);
+            for (; frame < end; ++frame) {
+                processor->processFrame(input.data(), output.data());
+                const float phase = processor->edgePhase(0u, 1u);
+                float increment = phase - previousPhase;
+                if (increment < 0.0f) increment += 1.0f;
+                previousPhase = phase;
+                if (frame >= 20u && frame < 90u) {
+                    metrics.earlyPhaseIncrement += increment;
+                    ++earlyCount;
+                }
+                if (frame >= 800u && frame < 880u) {
+                    metrics.latePhaseIncrement += increment;
+                    ++lateCount;
+                }
+            }
+        }
+        metrics.earlyPhaseIncrement /= static_cast<float>(earlyCount);
+        metrics.latePhaseIncrement /= static_cast<float>(lateCount);
+        return metrics;
+    };
+    const auto delayRouteDelayMotionFine =
+        renderDelayRouteDelayMotion({ 1u });
+    const auto delayRouteDelayMotionIrregular =
+        renderDelayRouteDelayMotion({ 7u, 31u, 5u, 19u });
+    if (delayRouteDelayMotionFine.earlyPhaseIncrement < 0.045f
+        || delayRouteDelayMotionIrregular.earlyPhaseIncrement < 0.045f
+        || delayRouteDelayMotionFine.latePhaseIncrement
+            >= delayRouteDelayMotionFine.earlyPhaseIncrement * 0.80f
+        || delayRouteDelayMotionIrregular.latePhaseIncrement
+            >= delayRouteDelayMotionIrregular.earlyPhaseIncrement * 0.80f) {
+        std::cerr << "Delay continuous target updates starved delay commit: "
+                  << delayRouteDelayMotionFine.earlyPhaseIncrement << " -> "
+                  << delayRouteDelayMotionFine.latePhaseIncrement << " / "
+                  << delayRouteDelayMotionIrregular.earlyPhaseIncrement
+                  << " -> "
+                  << delayRouteDelayMotionIrregular.latePhaseIncrement
+                  << "\n";
+        return 1;
+    }
+
+    auto stressDelayRoutes = [](uint32_t channelCount) {
+        auto processor = std::make_unique<s3g::DelayProcessor>();
+        processor->prepare(4000.0, static_cast<int>(channelCount), 0.5);
+        std::vector<uint32_t> lanes(channelCount);
+        std::vector<float> input(channelCount, 0.0f);
+        std::vector<float> output(channelCount, 0.0f);
+        for (uint32_t ch = 0u; ch < channelCount; ++ch) {
+            lanes[ch] = ch;
+            processor->setChannelDelayMs(
+                static_cast<int>(ch), 7.0f + static_cast<float>(ch % 13u) * 2.7f);
+            processor->setChannelFeedback(static_cast<int>(ch), 0.82f);
+            processor->setChannelTone(static_cast<int>(ch),
+                0.18f + static_cast<float>(ch % 5u) * 0.17f);
+            processor->setChannelNetwork(static_cast<int>(ch), 0.68f);
+            processor->setChannelCharacter(static_cast<int>(ch), 1.0f);
+            processor->setChannelSmearAmount(static_cast<int>(ch), 1.0f);
+            processor->setChannelPitchSemitones(static_cast<int>(ch),
+                (ch & 1u) == 0u ? 24.0f : -24.0f);
+        }
+        s3g::TopologyState topology {};
+        topology.amount = 1.0;
+        topology.shape = 6u;
+        topology.jitter = 1.0;
+        topology.twist = 0.78;
+        topology.flare = -0.66;
+        topology.motionMode = 17u;
+        topology.motionDepth = 1.0;
+        topology.motionRateHz = 3.7;
+        topology.neighborCount = 3u;
+        topology.neighborRadius = 1.0;
+        topology.centroidAmount = 1.0;
+        processor->setTopology(topology, lanes.data(), channelCount);
+        processor->setRouteParams({ 1.0f, 1.0f, 1.0f, 0.0f });
+        float peak = 0.0f;
+        for (uint32_t frame = 0u; frame < 8000u; ++frame) {
+            if ((frame % 79u) == 0u) {
+                topology.motionPhase = static_cast<double>(frame % 4000u)
+                    / 4000.0;
+                processor->setTopology(topology, lanes.data(), channelCount);
+            }
+            for (uint32_t ch = 0u; ch < channelCount; ++ch) {
+                input[ch] = std::sin(
+                    static_cast<float>(frame)
+                    * (0.013f + static_cast<float>(ch) * 0.00071f))
+                    * 0.11f;
+            }
+            processor->processFrame(input.data(), output.data());
+            for (float sample : output) {
+                if (!std::isfinite(sample)) return -1.0f;
+                peak = std::max(peak, std::fabs(sample));
+            }
+        }
+        if (processor->routeTailFrames() == 0u
+            || !std::isfinite(processor->edgeEnergy(0u, 1u))
+            || !std::isfinite(processor->nodeEnergy(0u))) {
+            return -1.0f;
+        }
+        return peak;
+    };
+    const float delayRouteStress8 = stressDelayRoutes(8u);
+    const float delayRouteStress24 = stressDelayRoutes(24u);
+    if (delayRouteStress8 <= 0.0f || delayRouteStress8 > 6.0f
+        || delayRouteStress24 <= 0.0f || delayRouteStress24 > 6.0f) {
+        std::cerr << "Delay Echo Route 8/24 stability failed: "
+                  << delayRouteStress8 << " / "
+                  << delayRouteStress24 << "\n";
+        return 1;
+    }
+
+    auto delayStress = std::make_unique<s3g::DelayProcessor>();
+    delayStress->prepare(48000.0, 8, 2.25);
+    for (int ch = 0; ch < 8; ++ch) {
+        delayStress->setChannelDelayMs(ch, 80.0f + static_cast<float>(ch) * 41.0f);
+        delayStress->setChannelFeedback(ch, 0.78f);
+        delayStress->setChannelTone(ch, 0.45f);
+        delayStress->setChannelNetwork(ch, 0.55f);
+        delayStress->setChannelCharacter(ch, 0.85f);
+        delayStress->setChannelSmearAmount(ch, 0.90f);
+        delayStress->setChannelPitchSemitones(ch, ch % 2 == 0 ? 24.0f : -24.0f);
     }
     float delayStressIn[8] {};
     float delayStressOut[8] {};
@@ -1821,13 +2488,13 @@ int main()
     for (int i = 0; i < 96000; ++i) {
         if (i == 24000 || i == 48000 || i == 72000) {
             for (int ch = 0; ch < 8; ++ch) {
-                delayStress.setChannelDelayMs(ch, 140.0f + static_cast<float>((ch * 137 + i / 1000) % 1700));
+                delayStress->setChannelDelayMs(ch, 140.0f + static_cast<float>((ch * 137 + i / 1000) % 1700));
             }
         }
         for (int ch = 0; ch < 8; ++ch) {
             delayStressIn[ch] = std::sin(static_cast<float>(i) * (0.011f + static_cast<float>(ch) * 0.0027f)) * 0.12f;
         }
-        delayStress.processFrame(delayStressIn, delayStressOut);
+        delayStress->processFrame(delayStressIn, delayStressOut);
         for (float value : delayStressOut) {
             if (!std::isfinite(value)) {
                 std::cerr << "Delay processor stress output is not finite\n";
@@ -4024,6 +4691,33 @@ int main()
         }
     }
 
+    s3g::AmbiGrainSample ambiGrainNormalizationSample;
+    ambiGrainNormalizationSample.frames = 2u;
+    ambiGrainNormalizationSample.channels = 4u;
+    ambiGrainNormalizationSample.audio = {
+        0.05f, -0.10f, 0.15f, -0.20f,
+        0.025f, -0.05f, 0.075f, -0.10f,
+    };
+    const auto ambiGrainOriginalAudio = ambiGrainNormalizationSample.audio;
+    const float ambiGrainNormalizationGain = s3g::normalizeAmbiGrainSample(ambiGrainNormalizationSample);
+    float ambiGrainNormalizedPeak = 0.0f;
+    for (size_t i = 0; i < ambiGrainNormalizationSample.audio.size(); ++i) {
+        const float value = ambiGrainNormalizationSample.audio[i];
+        ambiGrainNormalizedPeak = std::max(ambiGrainNormalizedPeak, std::fabs(value));
+        const float appliedGain = value / ambiGrainOriginalAudio[i];
+        if (std::fabs(appliedGain - ambiGrainNormalizationGain) > 0.00001f) {
+            std::cerr << "Ambi Grain normalization changed inter-channel relationships\n";
+            return 1;
+        }
+    }
+    if (std::fabs(ambiGrainNormalizedPeak - s3g::kAmbiGrainNormalizedPeak) > 0.00001f
+        || std::fabs(ambiGrainNormalizationSample.sourcePeak - 0.20f) > 0.00001f
+        || ambiGrainNormalizationGain <= 1.0f) {
+        std::cerr << "Ambi Grain source normalization failed: "
+                  << ambiGrainNormalizedPeak << " / " << ambiGrainNormalizationGain << "\n";
+        return 1;
+    }
+
     auto ambiGrainSample = std::make_shared<s3g::AmbiGrainSample>();
     ambiGrainSample->frames = 96000;
     ambiGrainSample->channels = s3g::kAmbiGrainChannels;
@@ -4608,6 +5302,38 @@ int main()
         std::cerr << "Spectral FFT passthrough outside expected range: peak=" << spectralPeak << " err=" << spectralErr << "\n";
         return 1;
     }
+
+    spectral.reset();
+    std::fill(spectralOutL.begin(), spectralOutL.end(), 0.0f);
+    std::fill(spectralOutR.begin(), spectralOutR.end(), 0.0f);
+    uint32_t spectralBlockKernelCalls = 0u;
+    spectral.processBlock(spectralIn, spectralOut, spectralFrames, [&](s3g::SpectralFrameBlockView frame) {
+        if (frame.channels != 2u || frame.bins != 513u || frame.fftSize != 1024u
+            || !frame.real(0u) || !frame.imag(0u) || !frame.real(1u) || !frame.imag(1u)) {
+            std::cerr << "Spectral FFT block metadata failed\n";
+            std::exit(1);
+        }
+        ++spectralBlockKernelCalls;
+    });
+    float spectralBlockErr = 0.0f;
+    float spectralBlockPeak = 0.0f;
+    for (uint32_t i = 2048u; i + spectralLatency < spectralFrames - 1024u; ++i) {
+        const uint32_t outIndex = i + spectralLatency;
+        if (!std::isfinite(spectralOutL[outIndex]) || !std::isfinite(spectralOutR[outIndex])) {
+            std::cerr << "Spectral FFT block output is not finite\n";
+            return 1;
+        }
+        spectralBlockPeak = std::max(spectralBlockPeak, std::abs(spectralOutL[outIndex]));
+        spectralBlockPeak = std::max(spectralBlockPeak, std::abs(spectralOutR[outIndex]));
+        spectralBlockErr = std::max(spectralBlockErr, std::abs(spectralOutL[outIndex] - spectralInL[i]));
+        spectralBlockErr = std::max(spectralBlockErr, std::abs(spectralOutR[outIndex] - spectralInR[i]));
+    }
+    if (spectralBlockKernelCalls == 0u || spectralBlockPeak <= 0.00001f || spectralBlockErr > 0.02f) {
+        std::cerr << "Spectral FFT block passthrough outside expected range: calls="
+                  << spectralBlockKernelCalls << " peak=" << spectralBlockPeak
+                  << " err=" << spectralBlockErr << "\n";
+        return 1;
+    }
 #endif
 
 #if S3G_HAS_ACCELERATE_FFT
@@ -4793,29 +5519,34 @@ int main()
     s3g::SpectralTopologySettings spectralTopologySettings;
     spectralTopologySettings.base = s3g::SpectralSprayParams {};
     spectralTopologySettings.base.mix = 1.0f;
-    spectralTopologySettings.base.gainDb = -9.0f;
-    spectralTopologySettings.base.sprayBins = 22.0f;
-    spectralTopologySettings.base.drift = 0.30f;
-    spectralTopologySettings.base.hold = 0.70f;
-    spectralTopologySettings.base.feedback = 0.18f;
-    spectralTopologySettings.base.smear = 0.45f;
-    spectralTopologySettings.base.phaseBlur = 0.24f;
-    spectralTopologySettings.base.safety = 0.76f;
-    spectralTopologySettings.topology.amount = 0.65;
-    spectralTopologySettings.topology.jitter = 0.22;
-    spectralTopologySettings.topology.collapse = 0.18;
+    spectralTopologySettings.base.gainDb = -12.0f;
+    spectralTopologySettings.base.sprayBins = 104.0f;
+    spectralTopologySettings.base.drift = 0.82f;
+    spectralTopologySettings.base.hold = 0.94f;
+    spectralTopologySettings.base.freeze = 0.72f;
+    spectralTopologySettings.base.feedback = 0.72f;
+    spectralTopologySettings.base.smear = 0.90f;
+    spectralTopologySettings.base.holes = 0.56f;
+    spectralTopologySettings.base.phaseBlur = 0.88f;
+    spectralTopologySettings.base.damage = 0.72f;
+    spectralTopologySettings.base.repeat = 0.76f;
+    spectralTopologySettings.base.safety = 0.58f;
+    spectralTopologySettings.topology.amount = 0.96;
+    spectralTopologySettings.topology.jitter = 0.52;
+    spectralTopologySettings.topology.collapse = 0.36;
     spectralTopologySettings.topology.dirX = 0.30;
     spectralTopologySettings.topology.dirY = -0.18;
     spectralTopologySettings.topology.dirZ = 0.90;
-    spectralTopologySettings.topology.twist = 0.24;
-    spectralTopologySettings.topology.flare = 0.12;
+    spectralTopologySettings.topology.twist = 0.72;
+    spectralTopologySettings.topology.flare = 0.58;
     spectralTopologySettings.topology.shape = 11;
-    spectralTopologySettings.topology.neighborCount = 2;
-    spectralTopologySettings.topology.neighborRadius = 0.68;
-    spectralTopologySettings.topology.centroidAmount = 0.24;
+    spectralTopologySettings.topology.neighborCount = 3;
+    spectralTopologySettings.topology.neighborRadius = 1.0;
+    spectralTopologySettings.topology.centroidAmount = 0.58;
     for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
         spectralTopology.setLaneParams(ch, s3g::spectralTopologyLaneParams(spectralTopologySettings, ch, s3g::kSpectralTopologyChannels));
     }
+    spectralTopology.setTopologyState(spectralTopologySettings.topology);
     std::array<std::array<float, 512>, s3g::kSpectralTopologyChannels> spectralTopologyInBuffers {};
     std::array<std::array<float, 512>, s3g::kSpectralTopologyChannels> spectralTopologyOutBuffers {};
     std::array<const float*, s3g::kSpectralTopologyChannels> spectralTopologyIn {};
@@ -4831,10 +5562,11 @@ int main()
         if ((block % 8u) == 0u) {
             spectralTopologySettings.topology.motionPhase = static_cast<double>(block) * 0.027;
             spectralTopologySettings.topology.motionMode = 1;
-            spectralTopologySettings.topology.motionDepth = 0.55;
+            spectralTopologySettings.topology.motionDepth = 0.88;
             for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
                 spectralTopology.setLaneParams(ch, s3g::spectralTopologyLaneParams(spectralTopologySettings, ch, s3g::kSpectralTopologyChannels));
             }
+            spectralTopology.setTopologyState(spectralTopologySettings.topology);
         }
         for (uint32_t i = 0; i < 512u; ++i) {
             const float t = static_cast<float>(block * 512u + i) / 48000.0f;
@@ -4865,6 +5597,753 @@ int main()
         std::cerr << "Spectral Topology stress outside expected range: peak=" << spectralTopologyPeak
                   << " step=" << spectralTopologyMaxStep << "\n";
         return 1;
+    }
+
+    // Spectral Mesh: MIX must be a single final dry/wet interpolation. Compare
+    // three synchronized renders instead of relying on a particular wet phase.
+    {
+        constexpr uint32_t meshFrames = 512u;
+        constexpr uint32_t meshBlocks = 48u;
+        using MeshBlock = std::array<std::array<float, meshFrames>, s3g::kSpectralTopologyChannels>;
+
+        auto meshDry = std::make_unique<s3g::SpectralTopologyProcessor>();
+        auto meshHalf = std::make_unique<s3g::SpectralTopologyProcessor>();
+        auto meshWet = std::make_unique<s3g::SpectralTopologyProcessor>();
+        if (!meshDry->prepare(48000.0, s3g::kSpectralTopologyChannels, 1024u, 4u, meshFrames)
+            || !meshHalf->prepare(48000.0, s3g::kSpectralTopologyChannels, 1024u, 4u, meshFrames)
+            || !meshWet->prepare(48000.0, s3g::kSpectralTopologyChannels, 1024u, 4u, meshFrames)) {
+            std::cerr << "Spectral Mesh mix processors failed to prepare\n";
+            return 1;
+        }
+
+        s3g::SpectralSprayParams meshParams {};
+        meshParams.sprayBins = 48.0f;
+        meshParams.drift = 0.32f;
+        meshParams.hold = 0.35f;
+        meshParams.freeze = 0.0f;
+        meshParams.feedback = 0.12f;
+        meshParams.smear = 0.72f;
+        meshParams.holes = 0.38f;
+        meshParams.phaseBlur = 0.46f;
+        meshParams.damage = 0.18f;
+        meshParams.repeat = 0.12f;
+        meshParams.loFreq = 0.0f;
+        meshParams.hiFreq = 20000.0f;
+        meshParams.gainDb = 0.0f;
+        meshParams.safety = 0.98f;
+        s3g::TopologyState meshMixTopology {};
+        meshMixTopology.amount = 0.82;
+        meshMixTopology.neighborCount = 2u;
+        meshMixTopology.neighborRadius = 0.90;
+        meshMixTopology.centroidAmount = 0.20;
+        meshMixTopology.twist = 0.24;
+
+        auto configureMixProcessor = [&](s3g::SpectralTopologyProcessor& processor, float mix) {
+            auto params = meshParams;
+            params.mix = mix;
+            for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                processor.setLaneParams(ch, params);
+            }
+            processor.setTopologyState(meshMixTopology);
+            processor.setTransientProtect(0.0f);
+            processor.reset();
+        };
+        configureMixProcessor(*meshDry, 0.0f);
+        configureMixProcessor(*meshHalf, 0.5f);
+        configureMixProcessor(*meshWet, 1.0f);
+
+        auto mixInputBuffers = std::make_unique<MeshBlock>();
+        auto mixDryBuffers = std::make_unique<MeshBlock>();
+        auto mixHalfBuffers = std::make_unique<MeshBlock>();
+        auto mixWetBuffers = std::make_unique<MeshBlock>();
+        std::array<const float*, s3g::kSpectralTopologyChannels> mixInput {};
+        std::array<float*, s3g::kSpectralTopologyChannels> mixDryOutput {};
+        std::array<float*, s3g::kSpectralTopologyChannels> mixHalfOutput {};
+        std::array<float*, s3g::kSpectralTopologyChannels> mixWetOutput {};
+        for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+            mixInput[ch] = (*mixInputBuffers)[ch].data();
+            mixDryOutput[ch] = (*mixDryBuffers)[ch].data();
+            mixHalfOutput[ch] = (*mixHalfBuffers)[ch].data();
+            mixWetOutput[ch] = (*mixWetBuffers)[ch].data();
+        }
+
+        double mixEarlyDryEnergy = 0.0;
+        double mixLateDryEnergy = 0.0;
+        double mixBlendErrorEnergy = 0.0;
+        double mixWetDifferenceEnergy = 0.0;
+        uint64_t mixEarlySamples = 0u;
+        uint64_t mixLateSamples = 0u;
+        uint64_t mixBlendSamples = 0u;
+        const uint32_t mixLatency = meshDry->latencyFrames();
+        for (uint32_t block = 0; block < meshBlocks; ++block) {
+            for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                std::fill((*mixInputBuffers)[ch].begin(), (*mixInputBuffers)[ch].end(), 0.0f);
+            }
+            for (uint32_t i = 0; i < meshFrames; ++i) {
+                const uint32_t sample = block * meshFrames + i;
+                const float t = static_cast<float>(sample) / 48000.0f;
+                (*mixInputBuffers)[0][i] = std::sin(6.28318530718f * 750.0f * t) * 0.018f
+                    + std::sin(6.28318530718f * 1406.25f * t) * 0.009f;
+                if (s3g::kSpectralTopologyChannels > 2u) {
+                    (*mixInputBuffers)[2][i] = std::sin(6.28318530718f * 984.375f * t + 0.37f) * 0.014f;
+                }
+            }
+            meshDry->process(mixInput.data(), s3g::kSpectralTopologyChannels,
+                mixDryOutput.data(), s3g::kSpectralTopologyChannels, meshFrames);
+            meshHalf->process(mixInput.data(), s3g::kSpectralTopologyChannels,
+                mixHalfOutput.data(), s3g::kSpectralTopologyChannels, meshFrames);
+            meshWet->process(mixInput.data(), s3g::kSpectralTopologyChannels,
+                mixWetOutput.data(), s3g::kSpectralTopologyChannels, meshFrames);
+
+            for (uint32_t i = 0; i < meshFrames; ++i) {
+                const uint32_t sample = block * meshFrames + i;
+                const double dry = static_cast<double>((*mixDryBuffers)[0][i]);
+                if (sample < mixLatency) {
+                    mixEarlyDryEnergy += dry * dry;
+                    ++mixEarlySamples;
+                } else if (sample >= mixLatency + 2048u) {
+                    mixLateDryEnergy += dry * dry;
+                    ++mixLateSamples;
+                }
+            }
+            if (block >= 12u) {
+                for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                    for (uint32_t i = 0; i < meshFrames; ++i) {
+                        const float dry = (*mixDryBuffers)[ch][i];
+                        const float wet = (*mixWetBuffers)[ch][i];
+                        const float half = (*mixHalfBuffers)[ch][i];
+                        if (!std::isfinite(dry) || !std::isfinite(wet) || !std::isfinite(half)) {
+                            std::cerr << "Spectral Mesh mix output is not finite\n";
+                            return 1;
+                        }
+                        const double expectedHalf = 0.5 * (static_cast<double>(dry) + static_cast<double>(wet));
+                        const double blendError = static_cast<double>(half) - expectedHalf;
+                        const double wetDifference = static_cast<double>(wet) - static_cast<double>(dry);
+                        mixBlendErrorEnergy += blendError * blendError;
+                        mixWetDifferenceEnergy += wetDifference * wetDifference;
+                        ++mixBlendSamples;
+                    }
+                }
+            }
+        }
+        const double mixEarlyDryRms = std::sqrt(mixEarlyDryEnergy / std::max<uint64_t>(1u, mixEarlySamples));
+        const double mixLateDryRms = std::sqrt(mixLateDryEnergy / std::max<uint64_t>(1u, mixLateSamples));
+        const double mixBlendErrorRms = std::sqrt(mixBlendErrorEnergy / std::max<uint64_t>(1u, mixBlendSamples));
+        const double mixWetDifferenceRms = std::sqrt(mixWetDifferenceEnergy / std::max<uint64_t>(1u, mixBlendSamples));
+        if (mixEarlyDryRms > 0.000001 || mixLateDryRms < 0.005
+            || mixWetDifferenceRms < 0.0005
+            || mixBlendErrorRms > mixWetDifferenceRms * 0.12 + 0.000002) {
+            std::cerr << "Spectral Mesh latency/mix law failed: early/late="
+                      << mixEarlyDryRms << "/" << mixLateDryRms
+                      << " blend/difference=" << mixBlendErrorRms << "/"
+                      << mixWetDifferenceRms << "\n";
+            return 1;
+        }
+        std::cout << "Spectral Mesh latency/mix RMS: " << mixEarlyDryRms << " / "
+                  << mixLateDryRms << " / " << mixBlendErrorRms << " / "
+                  << mixWetDifferenceRms << "\n";
+    }
+
+    // A one-lane source must travel only to its calculated graph destination
+    // with CENT=0. CENT=1 should make the same material available at an
+    // otherwise unrelated node.
+    {
+        constexpr uint32_t meshFrames = 512u;
+        constexpr uint32_t meshBlocks = 40u;
+        using MeshBlock = std::array<std::array<float, meshFrames>, s3g::kSpectralTopologyChannels>;
+
+        s3g::TopologyState routeTopology {};
+        routeTopology.amount = 1.0;
+        routeTopology.neighborCount = 1u;
+        routeTopology.neighborRadius = 1.0;
+        routeTopology.centroidAmount = 0.0;
+        const uint32_t routeSource = 0u;
+        const auto routeNeighbors = s3g::nearestTopologyNeighbors(
+            routeTopology, routeSource, s3g::kSpectralTopologyChannels);
+        const uint32_t routeNeighbor = static_cast<uint32_t>(routeNeighbors[0]);
+        uint32_t routeFar = routeSource;
+        for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+            if (ch != routeSource && ch != routeNeighbor) {
+                routeFar = ch;
+                break;
+            }
+        }
+        if (routeNeighbor == routeSource || routeNeighbor >= s3g::kSpectralTopologyChannels
+            || routeFar == routeSource) {
+            std::cerr << "Spectral Mesh route probe could not find distinct nodes\n";
+            return 1;
+        }
+
+        s3g::SpectralSprayParams routeParams {};
+        routeParams.sprayBins = 0.0f;
+        routeParams.drift = 0.0f;
+        routeParams.hold = 0.0f;
+        routeParams.freeze = 0.0f;
+        routeParams.feedback = 0.0f;
+        routeParams.smear = 0.0f;
+        routeParams.holes = 0.0f;
+        routeParams.phaseBlur = 0.0f;
+        routeParams.damage = 0.0f;
+        routeParams.repeat = 0.0f;
+        routeParams.loFreq = 0.0f;
+        routeParams.hiFreq = 20000.0f;
+        routeParams.gainDb = 0.0f;
+        routeParams.mix = 1.0f;
+        routeParams.tilt = 0.0f;
+        routeParams.safety = 0.98f;
+
+        auto routeOnly = std::make_unique<s3g::SpectralTopologyProcessor>();
+        auto routeCentroid = std::make_unique<s3g::SpectralTopologyProcessor>();
+        if (!routeOnly->prepare(48000.0, s3g::kSpectralTopologyChannels, 1024u, 4u, meshFrames)
+            || !routeCentroid->prepare(48000.0, s3g::kSpectralTopologyChannels, 1024u, 4u, meshFrames)) {
+            std::cerr << "Spectral Mesh routing processors failed to prepare\n";
+            return 1;
+        }
+        for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+            routeOnly->setLaneParams(ch, routeParams);
+            routeCentroid->setLaneParams(ch, routeParams);
+        }
+        routeOnly->setTopologyState(routeTopology);
+        auto centroidTopology = routeTopology;
+        centroidTopology.centroidAmount = 1.0;
+        routeCentroid->setTopologyState(centroidTopology);
+        routeOnly->setTransientProtect(0.0f);
+        routeCentroid->setTransientProtect(0.0f);
+        routeOnly->reset();
+        routeCentroid->reset();
+
+        auto routeInputBuffers = std::make_unique<MeshBlock>();
+        auto routeOnlyBuffers = std::make_unique<MeshBlock>();
+        auto routeCentroidBuffers = std::make_unique<MeshBlock>();
+        std::array<const float*, s3g::kSpectralTopologyChannels> routeInput {};
+        std::array<float*, s3g::kSpectralTopologyChannels> routeOnlyOutput {};
+        std::array<float*, s3g::kSpectralTopologyChannels> routeCentroidOutput {};
+        for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+            routeInput[ch] = (*routeInputBuffers)[ch].data();
+            routeOnlyOutput[ch] = (*routeOnlyBuffers)[ch].data();
+            routeCentroidOutput[ch] = (*routeCentroidBuffers)[ch].data();
+        }
+        std::array<double, s3g::kSpectralTopologyChannels> routeOnlyEnergy {};
+        std::array<double, s3g::kSpectralTopologyChannels> routeCentroidEnergy {};
+        uint64_t routeSamples = 0u;
+        for (uint32_t block = 0; block < meshBlocks; ++block) {
+            for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                std::fill((*routeInputBuffers)[ch].begin(), (*routeInputBuffers)[ch].end(), 0.0f);
+            }
+            for (uint32_t i = 0; i < meshFrames; ++i) {
+                const float t = static_cast<float>(block * meshFrames + i) / 48000.0f;
+                (*routeInputBuffers)[routeSource][i] = std::sin(6.28318530718f * 750.0f * t) * 0.08f;
+            }
+            routeOnly->process(routeInput.data(), s3g::kSpectralTopologyChannels,
+                routeOnlyOutput.data(), s3g::kSpectralTopologyChannels, meshFrames);
+            routeCentroid->process(routeInput.data(), s3g::kSpectralTopologyChannels,
+                routeCentroidOutput.data(), s3g::kSpectralTopologyChannels, meshFrames);
+            if (block >= 10u) {
+                for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                    for (uint32_t i = 0; i < meshFrames; ++i) {
+                        const float routed = (*routeOnlyBuffers)[ch][i];
+                        const float pooled = (*routeCentroidBuffers)[ch][i];
+                        if (!std::isfinite(routed) || !std::isfinite(pooled)) {
+                            std::cerr << "Spectral Mesh routing output is not finite\n";
+                            return 1;
+                        }
+                        routeOnlyEnergy[ch] += static_cast<double>(routed) * routed;
+                        routeCentroidEnergy[ch] += static_cast<double>(pooled) * pooled;
+                    }
+                }
+                routeSamples += meshFrames;
+            }
+        }
+        const double routeNeighborRms = std::sqrt(
+            routeOnlyEnergy[routeNeighbor] / std::max<uint64_t>(1u, routeSamples));
+        const double routeFarRms = std::sqrt(
+            routeOnlyEnergy[routeFar] / std::max<uint64_t>(1u, routeSamples));
+        const double centroidFarRms = std::sqrt(
+            routeCentroidEnergy[routeFar] / std::max<uint64_t>(1u, routeSamples));
+        const float routeEdgeActivity = routeOnly->edgeActivity(routeSource, routeNeighbor);
+        const float farEdgeActivity = routeOnly->edgeActivity(routeSource, routeFar);
+        if (routeNeighborRms < 0.005 || routeFarRms > routeNeighborRms * 0.02 + 0.000001
+            || centroidFarRms < 0.004 || centroidFarRms < routeFarRms * 8.0 + 0.001
+            || routeEdgeActivity < 0.50f || farEdgeActivity > 0.01f) {
+            std::cerr << "Spectral Mesh neighbor/centroid routing failed: neighbor/far/centroid="
+                      << routeNeighborRms << "/" << routeFarRms << "/" << centroidFarRms
+                      << " activity=" << routeEdgeActivity << "/" << farEdgeActivity << "\n";
+            return 1;
+        }
+        std::cout << "Spectral Mesh neighbor/far/centroid RMS + activity: "
+                  << routeNeighborRms << " / " << routeFarRms << " / "
+                  << centroidFarRms << " / " << routeEdgeActivity << " / "
+                  << farEdgeActivity << "\n";
+    }
+
+    // Propagation turns an edge into a finite-time spectral path. A compact
+    // source burst lets us compare travel timing without depending on the
+    // precise sample shape of the FFT overlap/add window.
+    {
+        constexpr uint32_t propagationFrames = 512u;
+        constexpr uint32_t propagationBlocks = 112u;
+        constexpr uint32_t propagationBurstBegin = 4u;
+        constexpr uint32_t propagationBurstEnd = 12u;
+        using PropagationBlock =
+            std::array<std::array<float, propagationFrames>, s3g::kSpectralTopologyChannels>;
+
+        s3g::TopologyState propagationTopology {};
+        propagationTopology.amount = 1.0;
+        propagationTopology.neighborCount = 1u;
+        propagationTopology.neighborRadius = 1.0;
+        propagationTopology.centroidAmount = 0.0;
+        const uint32_t propagationSource = 0u;
+        const auto propagationNeighbors = s3g::nearestTopologyNeighbors(
+            propagationTopology, propagationSource, s3g::kSpectralTopologyChannels);
+        const uint32_t propagationNeighbor =
+            static_cast<uint32_t>(propagationNeighbors[0]);
+        if (propagationNeighbor == propagationSource
+            || propagationNeighbor >= s3g::kSpectralTopologyChannels) {
+            std::cerr << "Spectral propagation could not find a distinct neighbor\n";
+            return 1;
+        }
+
+        s3g::SpectralSprayParams propagationParams {};
+        propagationParams.sprayBins = 0.0f;
+        propagationParams.drift = 0.0f;
+        propagationParams.hold = 0.0f;
+        propagationParams.freeze = 0.0f;
+        propagationParams.feedback = 0.0f;
+        propagationParams.smear = 0.0f;
+        propagationParams.holes = 0.0f;
+        propagationParams.phaseBlur = 0.0f;
+        propagationParams.damage = 0.0f;
+        propagationParams.repeat = 0.0f;
+        propagationParams.loFreq = 0.0f;
+        propagationParams.hiFreq = 20000.0f;
+        propagationParams.gainDb = 0.0f;
+        propagationParams.mix = 1.0f;
+        propagationParams.tilt = 0.0f;
+        propagationParams.safety = 0.98f;
+
+        struct PropagationRender {
+            std::vector<double> sourceEnergy;
+            std::vector<double> neighborEnergy;
+            bool prepared = false;
+            bool finite = true;
+            bool pulseFinite = true;
+            float pulseMinimum = 1.0f;
+            float pulseMaximum = 0.0f;
+        };
+
+        auto renderPropagation = [&](float velocity,
+                                     float dispersion,
+                                     float damping,
+                                     float frequency,
+                                     double meshAmount) {
+            PropagationRender render;
+            render.sourceEnergy.assign(propagationBlocks, 0.0);
+            render.neighborEnergy.assign(propagationBlocks, 0.0);
+            auto processor = std::make_unique<s3g::SpectralTopologyProcessor>();
+            render.prepared = processor->prepare(
+                48000.0, s3g::kSpectralTopologyChannels, 1024u, 4u,
+                propagationFrames);
+            if (!render.prepared) return render;
+
+            for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                processor->setLaneParams(ch, propagationParams);
+            }
+            auto topology = propagationTopology;
+            topology.amount = meshAmount;
+            processor->setTopologyState(topology);
+            processor->setTransientProtect(0.0f);
+            processor->setPropagation(velocity, dispersion, damping);
+            processor->reset();
+
+            auto inputBuffers = std::make_unique<PropagationBlock>();
+            auto outputBuffers = std::make_unique<PropagationBlock>();
+            std::array<const float*, s3g::kSpectralTopologyChannels> input {};
+            std::array<float*, s3g::kSpectralTopologyChannels> output {};
+            for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                input[ch] = (*inputBuffers)[ch].data();
+                output[ch] = (*outputBuffers)[ch].data();
+            }
+
+            for (uint32_t block = 0; block < propagationBlocks; ++block) {
+                for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                    std::fill((*inputBuffers)[ch].begin(), (*inputBuffers)[ch].end(), 0.0f);
+                }
+                if (block >= propagationBurstBegin && block < propagationBurstEnd) {
+                    for (uint32_t i = 0; i < propagationFrames; ++i) {
+                        const uint32_t sample = block * propagationFrames + i;
+                        const float t = static_cast<float>(sample) / 48000.0f;
+                        (*inputBuffers)[propagationSource][i] =
+                            std::sin(6.28318530718f * frequency * t) * 0.055f;
+                    }
+                }
+                processor->process(input.data(), s3g::kSpectralTopologyChannels,
+                    output.data(), s3g::kSpectralTopologyChannels,
+                    propagationFrames);
+                for (uint32_t i = 0; i < propagationFrames; ++i) {
+                    const float source = (*outputBuffers)[propagationSource][i];
+                    const float neighbor = (*outputBuffers)[propagationNeighbor][i];
+                    if (!std::isfinite(source) || !std::isfinite(neighbor)) {
+                        render.finite = false;
+                    }
+                    render.sourceEnergy[block] += static_cast<double>(source) * source;
+                    render.neighborEnergy[block] += static_cast<double>(neighbor) * neighbor;
+                }
+                const float pulse = processor->edgePulsePosition(
+                    propagationSource, propagationNeighbor);
+                render.pulseFinite = render.pulseFinite && std::isfinite(pulse)
+                    && pulse >= 0.0f && pulse <= 1.0f;
+                render.pulseMinimum = std::min(render.pulseMinimum, pulse);
+                render.pulseMaximum = std::max(render.pulseMaximum, pulse);
+            }
+            return render;
+        };
+
+        auto totalEnergy = [](const std::vector<double>& energy) {
+            double total = 0.0;
+            for (double value : energy) total += value;
+            return total;
+        };
+        auto energyCentroid = [](const std::vector<double>& energy) {
+            double weighted = 0.0;
+            double total = 0.0;
+            for (size_t i = 0; i < energy.size(); ++i) {
+                weighted += static_cast<double>(i) * energy[i];
+                total += energy[i];
+            }
+            return weighted / std::max(0.000000000001, total);
+        };
+        auto firstEnergyBlock = [](const std::vector<double>& energy) {
+            double peak = 0.0;
+            for (double value : energy) peak = std::max(peak, value);
+            const double threshold = std::max(0.000000000001, peak * 0.015);
+            for (size_t i = 0; i < energy.size(); ++i) {
+                if (energy[i] >= threshold) return static_cast<uint32_t>(i);
+            }
+            return std::numeric_limits<uint32_t>::max();
+        };
+
+        const auto fast = renderPropagation(1.0f, 0.0f, 0.0f, 750.0f, 1.0);
+        const auto slow = renderPropagation(0.0f, 0.0f, 0.0f, 750.0f, 1.0);
+        const auto damped = renderPropagation(0.0f, 0.0f, 1.0f, 750.0f, 1.0);
+        // FFT bin 14 advances by pi per hop at overlap=4. A 20.5-frame
+        // complex lerp would cancel its antipodal adjacent frames unless the
+        // fractional reader preserves power independently from phase.
+        const auto fractional = renderPropagation(
+            1.0f - 20.5f / 126.0f,
+            0.0f, 0.0f, 656.25f, 1.0);
+        const uint32_t fastOnset = firstEnergyBlock(fast.neighborEnergy);
+        const uint32_t slowOnset = firstEnergyBlock(slow.neighborEnergy);
+        const double fastCentroid = energyCentroid(fast.neighborEnergy);
+        const double slowCentroid = energyCentroid(slow.neighborEnergy);
+        const double fastEnergy = totalEnergy(fast.neighborEnergy);
+        const double slowEnergy = totalEnergy(slow.neighborEnergy);
+        const double dampedEnergy = totalEnergy(damped.neighborEnergy);
+        const double fractionalEnergy = totalEnergy(fractional.neighborEnergy);
+        if (!fast.prepared || !slow.prepared || !damped.prepared
+            || !fractional.prepared
+            || !fast.finite || !slow.finite || !damped.finite
+            || !fractional.finite
+            || !fast.pulseFinite || !slow.pulseFinite || !damped.pulseFinite
+            || fastEnergy < 0.00001 || slowEnergy < 0.000001
+            || fastOnset == std::numeric_limits<uint32_t>::max()
+            || slowOnset == std::numeric_limits<uint32_t>::max()
+            || fastOnset > propagationBurstBegin + 3u
+            || slowOnset < fastOnset + 4u
+            || slowCentroid < fastCentroid + 4.0
+            || dampedEnergy >= slowEnergy * 0.72
+            || fractionalEnergy < slowEnergy * 0.55
+            || fractionalEnergy > slowEnergy * 1.80
+            || slow.pulseMaximum - slow.pulseMinimum < 0.50f) {
+            std::cerr << "Spectral propagation velocity/damping failed: onset="
+                      << fastOnset << "/" << slowOnset << " centroid="
+                      << fastCentroid << "/" << slowCentroid << " energy="
+                      << fastEnergy << "/" << slowEnergy << "/"
+                      << dampedEnergy << "/" << fractionalEnergy
+                      << " pulse=" << slow.pulseMinimum << "/"
+                      << slow.pulseMaximum << "\n";
+            return 1;
+        }
+
+        const auto dispersedLow = renderPropagation(
+            0.30f, 1.0f, 0.0f, 375.0f, 1.0);
+        const auto dispersedHigh = renderPropagation(
+            0.30f, 1.0f, 0.0f, 9000.0f, 1.0);
+        const uint32_t lowOnset = firstEnergyBlock(dispersedLow.neighborEnergy);
+        const uint32_t highOnset = firstEnergyBlock(dispersedHigh.neighborEnergy);
+        const double lowCentroid = energyCentroid(dispersedLow.neighborEnergy);
+        const double highCentroid = energyCentroid(dispersedHigh.neighborEnergy);
+        if (!dispersedLow.prepared || !dispersedHigh.prepared
+            || !dispersedLow.finite || !dispersedHigh.finite
+            || totalEnergy(dispersedLow.neighborEnergy) < 0.000001
+            || totalEnergy(dispersedHigh.neighborEnergy) < 0.000001
+            || (highOnset < lowOnset + 2u
+                && highCentroid < lowCentroid + 2.0)) {
+            std::cerr << "Spectral propagation dispersion failed: onset="
+                      << lowOnset << "/" << highOnset << " centroid="
+                      << lowCentroid << "/" << highCentroid << "\n";
+            return 1;
+        }
+
+        const auto localOnly = renderPropagation(
+            0.0f, 1.0f, 1.0f, 750.0f, 0.0);
+        const double localSourceEnergy = totalEnergy(localOnly.sourceEnergy);
+        const double localNeighborEnergy = totalEnergy(localOnly.neighborEnergy);
+        if (!localOnly.prepared || !localOnly.finite
+            || localSourceEnergy < 0.00001
+            || localNeighborEnergy > localSourceEnergy * 0.000001 + 0.000000000001) {
+            std::cerr << "Spectral propagation AMT=0 isolation failed: source/neighbor="
+                      << localSourceEnergy << "/" << localNeighborEnergy << "\n";
+            return 1;
+        }
+
+        // Drive the longest, brightest paths while field memory, repeat, and
+        // moving topology are active. This is deliberately separate from the
+        // timing probes so the safety assertion stays straightforward.
+        auto stress = std::make_unique<s3g::SpectralTopologyProcessor>();
+        if (!stress->prepare(48000.0, s3g::kSpectralTopologyChannels,
+                1024u, 4u, propagationFrames)) {
+            std::cerr << "Spectral propagation stress failed to prepare\n";
+            return 1;
+        }
+        auto stressParams = propagationParams;
+        stressParams.sprayBins = 128.0f;
+        stressParams.drift = 1.0f;
+        stressParams.hold = 0.96f;
+        stressParams.feedback = 0.85f;
+        stressParams.smear = 1.0f;
+        stressParams.holes = 0.80f;
+        stressParams.phaseBlur = 1.0f;
+        stressParams.damage = 0.92f;
+        stressParams.repeat = 1.0f;
+        stressParams.gainDb = 12.0f;
+        stressParams.safety = 0.24f;
+        for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+            stress->setLaneParams(ch, stressParams);
+        }
+        auto stressTopology = propagationTopology;
+        stressTopology.neighborCount = 3u;
+        stressTopology.centroidAmount = 1.0;
+        stressTopology.twist = 1.0;
+        stressTopology.flare = 1.0;
+        stressTopology.jitter = 0.82;
+        stressTopology.motionMode = 1;
+        stressTopology.motionDepth = 1.0;
+        stress->setTopologyState(stressTopology);
+        stress->setTransientProtect(0.0f);
+        stress->setPropagation(0.0f, 1.0f, 0.0f);
+        stress->reset();
+
+        auto stressInputBuffers = std::make_unique<PropagationBlock>();
+        auto stressOutputBuffers = std::make_unique<PropagationBlock>();
+        std::array<const float*, s3g::kSpectralTopologyChannels> stressInput {};
+        std::array<float*, s3g::kSpectralTopologyChannels> stressOutput {};
+        for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+            stressInput[ch] = (*stressInputBuffers)[ch].data();
+            stressOutput[ch] = (*stressOutputBuffers)[ch].data();
+        }
+        float propagationStressPeak = 0.0f;
+        for (uint32_t block = 0; block < 72u; ++block) {
+            stressTopology.motionPhase = static_cast<double>(block) * 0.093;
+            stress->setTopologyState(stressTopology);
+            if (block == 12u) stress->requestCapture();
+            if (block == 18u) {
+                stressParams.freeze = 1.0f;
+                for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                    stress->setLaneParams(ch, stressParams);
+                }
+            }
+            for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                for (uint32_t i = 0; i < propagationFrames; ++i) {
+                    const uint32_t sample = block * propagationFrames + i;
+                    const float t = static_cast<float>(sample) / 48000.0f;
+                    (*stressInputBuffers)[ch][i] = block < 24u
+                        ? (std::sin(6.28318530718f
+                                * (83.0f + static_cast<float>(ch) * 37.0f) * t)
+                            + 0.44f * std::sin(6.28318530718f
+                                * (1734.375f + static_cast<float>(ch) * 93.75f) * t))
+                            * 0.14f
+                        : 0.0f;
+                }
+            }
+            stress->process(stressInput.data(), s3g::kSpectralTopologyChannels,
+                stressOutput.data(), s3g::kSpectralTopologyChannels,
+                propagationFrames);
+            for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                for (float value : (*stressOutputBuffers)[ch]) {
+                    if (!std::isfinite(value)) {
+                        std::cerr << "Spectral propagation stress output is not finite\n";
+                        return 1;
+                    }
+                    propagationStressPeak = std::max(
+                        propagationStressPeak, std::abs(value));
+                }
+            }
+            const float pulse = stress->edgePulsePosition(
+                propagationSource, propagationNeighbor);
+            if (!std::isfinite(pulse) || pulse < 0.0f || pulse > 1.0f) {
+                std::cerr << "Spectral propagation pulse position is invalid: "
+                          << pulse << "\n";
+                return 1;
+            }
+        }
+        if (propagationStressPeak < 0.00001f || propagationStressPeak > 1.000001f) {
+            std::cerr << "Spectral propagation stress peak is outside bounds: "
+                      << propagationStressPeak << "\n";
+            return 1;
+        }
+        std::cout << "Spectral propagation onset/centroid/energy: "
+                  << fastOnset << "/" << slowOnset << "  "
+                  << fastCentroid << "/" << slowCentroid << "  "
+                  << slowEnergy << "/" << dampedEnergy << "/"
+                  << fractionalEnergy << " dispersion="
+                  << lowOnset << "/" << highOnset << " pulse="
+                  << slow.pulseMinimum << "/" << slow.pulseMaximum
+                  << " stress=" << propagationStressPeak << "\n";
+    }
+
+    // Explicit CAP followed by FRZ must sustain after the ordinary FFT/OLA tail
+    // has died. CLR must invalidate that captured field and let silence return.
+    {
+        constexpr uint32_t meshFrames = 512u;
+        constexpr uint32_t captureBlocks = 60u;
+        using MeshBlock = std::array<std::array<float, meshFrames>, s3g::kSpectralTopologyChannels>;
+
+        auto frozenMesh = std::make_unique<s3g::SpectralTopologyProcessor>();
+        auto controlMesh = std::make_unique<s3g::SpectralTopologyProcessor>();
+        if (!frozenMesh->prepare(48000.0, s3g::kSpectralTopologyChannels, 1024u, 4u, meshFrames)
+            || !controlMesh->prepare(48000.0, s3g::kSpectralTopologyChannels, 1024u, 4u, meshFrames)) {
+            std::cerr << "Spectral Mesh capture processors failed to prepare\n";
+            return 1;
+        }
+        s3g::SpectralSprayParams captureParams {};
+        captureParams.sprayBins = 0.0f;
+        captureParams.drift = 0.0f;
+        captureParams.hold = 0.0f;
+        captureParams.freeze = 0.0f;
+        captureParams.feedback = 0.0f;
+        captureParams.smear = 0.0f;
+        captureParams.holes = 0.0f;
+        captureParams.phaseBlur = 0.0f;
+        captureParams.damage = 0.0f;
+        captureParams.repeat = 0.0f;
+        captureParams.loFreq = 0.0f;
+        captureParams.hiFreq = 20000.0f;
+        captureParams.gainDb = -3.0f;
+        captureParams.mix = 1.0f;
+        captureParams.tilt = 0.0f;
+        captureParams.safety = 0.98f;
+        s3g::TopologyState captureTopology {};
+        captureTopology.amount = 0.72;
+        captureTopology.neighborCount = 2u;
+        captureTopology.neighborRadius = 0.90;
+        captureTopology.centroidAmount = 0.18;
+        for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+            frozenMesh->setLaneParams(ch, captureParams);
+            controlMesh->setLaneParams(ch, captureParams);
+        }
+        frozenMesh->setTopologyState(captureTopology);
+        controlMesh->setTopologyState(captureTopology);
+        frozenMesh->setTransientProtect(0.0f);
+        controlMesh->setTransientProtect(0.0f);
+        frozenMesh->reset();
+        controlMesh->reset();
+
+        auto captureInputBuffers = std::make_unique<MeshBlock>();
+        auto frozenOutputBuffers = std::make_unique<MeshBlock>();
+        auto controlOutputBuffers = std::make_unique<MeshBlock>();
+        std::array<const float*, s3g::kSpectralTopologyChannels> captureInput {};
+        std::array<float*, s3g::kSpectralTopologyChannels> frozenOutput {};
+        std::array<float*, s3g::kSpectralTopologyChannels> controlOutput {};
+        for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+            captureInput[ch] = (*captureInputBuffers)[ch].data();
+            frozenOutput[ch] = (*frozenOutputBuffers)[ch].data();
+            controlOutput[ch] = (*controlOutputBuffers)[ch].data();
+        }
+        double frozenTailEnergy = 0.0;
+        double controlTailEnergy = 0.0;
+        uint64_t captureTailSamples = 0u;
+        bool observedCapture = false;
+        for (uint32_t block = 0; block < captureBlocks; ++block) {
+            if (block == 12u) {
+                frozenMesh->requestCapture();
+                controlMesh->requestCapture();
+            }
+            if (block == 20u) {
+                auto frozenParams = captureParams;
+                frozenParams.freeze = 1.0f;
+                for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                    frozenMesh->setLaneParams(ch, frozenParams);
+                }
+            }
+            for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                std::fill((*captureInputBuffers)[ch].begin(), (*captureInputBuffers)[ch].end(), 0.0f);
+            }
+            if (block < 20u) {
+                for (uint32_t i = 0; i < meshFrames; ++i) {
+                    const float t = static_cast<float>(block * meshFrames + i) / 48000.0f;
+                    (*captureInputBuffers)[0][i] = std::sin(6.28318530718f * 750.0f * t) * 0.075f
+                        + std::sin(6.28318530718f * 1593.75f * t) * 0.025f;
+                }
+            }
+            frozenMesh->process(captureInput.data(), s3g::kSpectralTopologyChannels,
+                frozenOutput.data(), s3g::kSpectralTopologyChannels, meshFrames);
+            controlMesh->process(captureInput.data(), s3g::kSpectralTopologyChannels,
+                controlOutput.data(), s3g::kSpectralTopologyChannels, meshFrames);
+            observedCapture = observedCapture || (frozenMesh->hasCapture() && controlMesh->hasCapture());
+            if (block >= 40u) {
+                for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                    for (uint32_t i = 0; i < meshFrames; ++i) {
+                        const float frozen = (*frozenOutputBuffers)[ch][i];
+                        const float control = (*controlOutputBuffers)[ch][i];
+                        if (!std::isfinite(frozen) || !std::isfinite(control)) {
+                            std::cerr << "Spectral Mesh capture output is not finite\n";
+                            return 1;
+                        }
+                        frozenTailEnergy += static_cast<double>(frozen) * frozen;
+                        controlTailEnergy += static_cast<double>(control) * control;
+                        ++captureTailSamples;
+                    }
+                }
+            }
+        }
+        const double frozenTailRms = std::sqrt(
+            frozenTailEnergy / std::max<uint64_t>(1u, captureTailSamples));
+        const double controlTailRms = std::sqrt(
+            controlTailEnergy / std::max<uint64_t>(1u, captureTailSamples));
+        if (!observedCapture || !frozenMesh->hasCapture() || frozenTailRms < 0.002
+            || frozenTailRms < controlTailRms * 12.0 + 0.001) {
+            std::cerr << "Spectral Mesh capture/freeze tail failed: captured="
+                      << observedCapture << " tail/control=" << frozenTailRms
+                      << "/" << controlTailRms << "\n";
+            return 1;
+        }
+
+        frozenMesh->requestClearCapture();
+        double clearedTailEnergy = 0.0;
+        uint64_t clearedTailSamples = 0u;
+        for (uint32_t block = 0; block < 12u; ++block) {
+            frozenMesh->process(captureInput.data(), s3g::kSpectralTopologyChannels,
+                frozenOutput.data(), s3g::kSpectralTopologyChannels, meshFrames);
+            if (block >= 8u) {
+                for (uint32_t ch = 0; ch < s3g::kSpectralTopologyChannels; ++ch) {
+                    for (float value : (*frozenOutputBuffers)[ch]) {
+                        clearedTailEnergy += static_cast<double>(value) * value;
+                        ++clearedTailSamples;
+                    }
+                }
+            }
+        }
+        const double clearedTailRms = std::sqrt(
+            clearedTailEnergy / std::max<uint64_t>(1u, clearedTailSamples));
+        if (frozenMesh->hasCapture() || clearedTailRms > frozenTailRms * 0.08 + 0.00001) {
+            std::cerr << "Spectral Mesh clear capture failed: captured="
+                      << frozenMesh->hasCapture() << " cleared/frozen="
+                      << clearedTailRms << "/" << frozenTailRms << "\n";
+            return 1;
+        }
+        std::cout << "Spectral Mesh frozen/control/cleared RMS: "
+                  << frozenTailRms << " / " << controlTailRms << " / "
+                  << clearedTailRms << "\n";
     }
 #endif
 
@@ -5061,6 +6540,405 @@ int main()
     if (waveGeometryPeak <= 0.000001f || waveGeometryPeak > 1.0f || waveGeometryDelta <= 0.00001f) {
         std::cerr << "Wave geometry peak/delta outside expected range: " << waveGeometryPeak << " / " << waveGeometryDelta << "\n";
         return 1;
+    }
+
+    uint32_t waveMeshFastOnset = 0u;
+    uint32_t waveMeshSlowOnset = 0u;
+    float waveMeshTailEarly = 0.0f;
+    float waveMeshTailLate = 0.0f;
+    float waveMeshPartitionError = 0.0f;
+    {
+        constexpr uint32_t channelCount = s3g::kWaveGeometryChannels;
+        using WavePlanar = std::array<std::vector<float>, channelCount>;
+
+        s3g::WaveGeometryParams neutral {};
+        neutral.fold = 0.0f;
+        neutral.drive = 0.0f;
+        neutral.hold = 0.0f;
+        neutral.clip = 0.0f;
+        neutral.rectify = 0.0f;
+        neutral.edge = 0.0f;
+        neutral.zero = 0.0f;
+        neutral.polar = 0.0f;
+        neutral.bits = 0.0f;
+        neutral.step = 0.0f;
+        neutral.trans = 0.0f;
+        neutral.tape = 0.0f;
+        neutral.speed = 0.0f;
+        neutral.mix = 1.0f;
+        neutral.gainDb = -6.0f;
+        neutral.safety = 0.92f;
+
+        s3g::TopologyState meshTopology {};
+        meshTopology.amount = 1.0;
+        meshTopology.neighborCount = 1u;
+        meshTopology.neighborRadius = 0.72;
+        meshTopology.centroidAmount = 0.0;
+        const auto neighbors = s3g::nearestTopologyNeighbors(
+            meshTopology, 0u, channelCount);
+        if (neighbors[0] < 0) {
+            std::cerr << "Wave mesh topology did not resolve a source neighbor\n";
+            return 1;
+        }
+        const uint32_t routedNeighbor = static_cast<uint32_t>(neighbors[0]);
+        uint32_t nonNeighbor = channelCount;
+        for (uint32_t candidate = 1u; candidate < channelCount; ++candidate) {
+            const auto candidateNeighbors = s3g::nearestTopologyNeighbors(
+                meshTopology, candidate, channelCount);
+            if (candidate != routedNeighbor
+                && candidateNeighbors[0] != 0) {
+                nonNeighbor = candidate;
+                break;
+            }
+        }
+        if (nonNeighbor >= channelCount) {
+            std::cerr << "Wave mesh topology did not resolve an indirect lane\n";
+            return 1;
+        }
+
+        auto makeProcessor = [&](const auto& mesh,
+                                 const s3g::TopologyState& topology,
+                                 const s3g::WaveGeometryParams& params,
+                                 uint32_t maximumBlock) {
+            auto processor = std::make_unique<s3g::WaveGeometryProcessor>();
+            for (uint32_t ch = 0; ch < channelCount; ++ch) {
+                processor->setLaneParams(ch, params);
+            }
+            processor->prepare(
+                48000.0, channelCount, 0u, 0u, maximumBlock);
+            processor->setMeshParams(mesh);
+            processor->setTopology(topology);
+            return processor;
+        };
+
+        auto processRange = [&](s3g::WaveGeometryProcessor& processor,
+                                const WavePlanar& input,
+                                WavePlanar& output,
+                                uint32_t offset,
+                                uint32_t frames) {
+            std::array<const float*, channelCount> inputPointers {};
+            std::array<float*, channelCount> outputPointers {};
+            for (uint32_t ch = 0; ch < channelCount; ++ch) {
+                inputPointers[ch] = input[ch].data() + offset;
+                outputPointers[ch] = output[ch].data() + offset;
+            }
+            processor.process(
+                inputPointers.data(), channelCount,
+                outputPointers.data(), channelCount, frames);
+        };
+
+        auto firstSignal = [](const std::vector<float>& signal, float threshold) {
+            for (uint32_t i = 0u; i < signal.size(); ++i) {
+                if (std::abs(signal[i]) > threshold) return i;
+            }
+            return static_cast<uint32_t>(signal.size());
+        };
+
+        struct MeshRender {
+            WavePlanar output;
+            float peakEdgeEnergy = 0.0f;
+            float peakCentroidEdgeEnergy = 0.0f;
+            float maximumEdgePhase = 0.0f;
+            bool telemetryValid = true;
+        };
+        auto renderMeshForTopology = [&](const auto& mesh,
+                                         const s3g::TopologyState& topology,
+                                         uint32_t totalFrames,
+                                         uint32_t blockFrames) {
+            WavePlanar input {};
+            MeshRender rendered {};
+            for (uint32_t ch = 0; ch < channelCount; ++ch) {
+                input[ch].assign(totalFrames, 0.0f);
+                rendered.output[ch].assign(totalFrames, 0.0f);
+            }
+            for (uint32_t i = 0u; i < std::min<uint32_t>(64u, totalFrames); ++i) {
+                input[0][i] = 0.28f * std::cos(static_cast<float>(i) * 0.17f)
+                    * (1.0f - static_cast<float>(i) / 64.0f);
+            }
+            auto processor = makeProcessor(
+                mesh, topology, neutral, blockFrames);
+            for (uint32_t offset = 0u; offset < totalFrames;) {
+                const uint32_t count = std::min(blockFrames, totalFrames - offset);
+                processRange(*processor, input, rendered.output, offset, count);
+                const float edgeEnergy = processor->edgeEnergy(0u, routedNeighbor);
+                const float edgePhase = processor->edgePhase(0u, routedNeighbor);
+                if (!std::isfinite(edgeEnergy) || !std::isfinite(edgePhase)
+                    || edgeEnergy < 0.0f || edgeEnergy > 1.0001f
+                    || edgePhase < 0.0f || edgePhase > 1.0001f) {
+                    rendered.telemetryValid = false;
+                }
+                rendered.peakEdgeEnergy = std::max(
+                    rendered.peakEdgeEnergy, edgeEnergy);
+                rendered.peakCentroidEdgeEnergy = std::max(
+                    rendered.peakCentroidEdgeEnergy,
+                    processor->edgeEnergy(0u, nonNeighbor));
+                rendered.maximumEdgePhase = std::max(
+                    rendered.maximumEdgePhase, edgePhase);
+                offset += count;
+            }
+            return rendered;
+        };
+        auto renderMesh = [&](const auto& mesh,
+                              uint32_t totalFrames,
+                              uint32_t blockFrames) {
+            return renderMeshForTopology(
+                mesh, meshTopology, totalFrames, blockFrames);
+        };
+
+        // COUP = 0 must retain the exact lane-local processor, regardless of
+        // otherwise active topology or mesh controls.
+        constexpr uint32_t isolationFrames = 1024u;
+        WavePlanar isolationInput {};
+        WavePlanar defaultOutput {};
+        WavePlanar explicitZeroOutput {};
+        for (uint32_t ch = 0; ch < channelCount; ++ch) {
+            isolationInput[ch].assign(isolationFrames, 0.0f);
+            defaultOutput[ch].assign(isolationFrames, 0.0f);
+            explicitZeroOutput[ch].assign(isolationFrames, 0.0f);
+        }
+        for (uint32_t i = 0u; i < isolationFrames; ++i) {
+            isolationInput[0][i] = 0.19f * std::sin(
+                static_cast<float>(i) * 0.083f);
+        }
+        s3g::WaveGeometrySettings defaultSettings {};
+        auto zeroMesh = defaultSettings.mesh;
+        zeroMesh.coupling = 0.0f;
+        zeroMesh.tension = 1.0f;
+        zeroMesh.decay = 1.0f;
+        zeroMesh.damping = 1.0f;
+        auto defaultProcessor = makeProcessor(
+            defaultSettings.mesh, meshTopology, neutral, isolationFrames);
+        auto zeroProcessor = makeProcessor(
+            zeroMesh, meshTopology, neutral, isolationFrames);
+        processRange(*defaultProcessor, isolationInput, defaultOutput,
+            0u, isolationFrames);
+        processRange(*zeroProcessor, isolationInput, explicitZeroOutput,
+            0u, isolationFrames);
+        float isolationDifference = 0.0f;
+        float isolatedNeighborPeak = 0.0f;
+        for (uint32_t ch = 0; ch < channelCount; ++ch) {
+            for (uint32_t i = 0u; i < isolationFrames; ++i) {
+                isolationDifference = std::max(isolationDifference, std::abs(
+                    defaultOutput[ch][i] - explicitZeroOutput[ch][i]));
+                if (ch != 0u) {
+                    isolatedNeighborPeak = std::max(
+                        isolatedNeighborPeak, std::abs(explicitZeroOutput[ch][i]));
+                }
+            }
+        }
+        if (isolationDifference > 0.000001f
+            || isolatedNeighborPeak > 0.000001f) {
+            std::cerr << "Wave mesh COUP=0 changed local/isolation behavior: "
+                      << isolationDifference << " / " << isolatedNeighborPeak << "\n";
+            return 1;
+        }
+
+        // A direct topology neighbor must receive the source after a physical
+        // edge delay, before a lane requiring another graph traversal.
+        auto routingMesh = defaultSettings.mesh;
+        routingMesh.coupling = 0.92f;
+        routingMesh.tension = 0.56f;
+        routingMesh.decay = 0.28f;
+        routingMesh.damping = 0.18f;
+        const auto routed = renderMesh(routingMesh, 8192u, 64u);
+        const uint32_t localOnset = firstSignal(routed.output[0], 0.000001f);
+        const uint32_t neighborOnset = firstSignal(
+            routed.output[routedNeighbor], 0.000001f);
+        const uint32_t otherOnset = firstSignal(
+            routed.output[nonNeighbor], 0.000001f);
+        if (localOnset >= routed.output[0].size()
+            || neighborOnset >= routed.output[routedNeighbor].size()
+            || neighborOnset <= localOnset + 1u
+            || otherOnset <= neighborOnset
+            || !routed.telemetryValid
+            || routed.peakEdgeEnergy <= 0.000001f
+            || routed.maximumEdgePhase <= 0.0001f) {
+            std::cerr << "Wave mesh topology/delay routing failed: local/neighbor/other="
+                      << localOnset << "/" << neighborOnset << "/" << otherOnset
+                      << " edge=" << routed.peakEdgeEnergy
+                      << " phase=" << routed.maximumEdgePhase << "\n";
+            return 1;
+        }
+
+        // CENT creates a delayed virtual-hub route to lanes that are not
+        // direct nearest neighbors. With CENT disabled that directed edge is
+        // absent; at full CENT it must carry measurable, delayed energy.
+        auto centroidTopology = meshTopology;
+        centroidTopology.centroidAmount = 1.0;
+        const auto centroidRouted = renderMeshForTopology(
+            routingMesh, centroidTopology, 8192u, 64u);
+        const uint32_t centroidOnset = firstSignal(
+            centroidRouted.output[nonNeighbor], 0.000001f);
+        if (routed.peakCentroidEdgeEnergy > 0.000001f
+            || centroidRouted.peakCentroidEdgeEnergy <= 0.000001f
+            || centroidOnset >= centroidRouted.output[nonNeighbor].size()
+            || centroidOnset <= localOnset + 1u) {
+            std::cerr << "Wave mesh CENT hub routing failed: edge off/on="
+                      << routed.peakCentroidEdgeEnergy << "/"
+                      << centroidRouted.peakCentroidEdgeEnergy
+                      << " onset=" << centroidOnset << "\n";
+            return 1;
+        }
+
+        // Higher tension raises propagation speed and therefore must produce
+        // an earlier first arrival over the same edge.
+        auto slowMesh = routingMesh;
+        slowMesh.tension = 0.0f;
+        slowMesh.decay = 0.10f;
+        auto fastMesh = slowMesh;
+        fastMesh.tension = 1.0f;
+        const auto slowRender = renderMesh(slowMesh, 8192u, 31u);
+        const auto fastRender = renderMesh(fastMesh, 8192u, 31u);
+        waveMeshSlowOnset = firstSignal(
+            slowRender.output[routedNeighbor], 0.000001f);
+        waveMeshFastOnset = firstSignal(
+            fastRender.output[routedNeighbor], 0.000001f);
+        if (waveMeshFastOnset >= waveMeshSlowOnset
+            || waveMeshSlowOnset >= slowRender.output[routedNeighbor].size()) {
+            std::cerr << "Wave mesh TENS arrival order failed: fast/slow="
+                      << waveMeshFastOnset << "/" << waveMeshSlowOnset << "\n";
+            return 1;
+        }
+
+        // Aggressive recirculation with substantial loss must remain finite
+        // and settle rather than accumulating an unbounded graph tail.
+        auto tailMesh = routingMesh;
+        tailMesh.coupling = 1.0f;
+        tailMesh.tension = 0.68f;
+        tailMesh.decay = 0.82f;
+        tailMesh.damping = 0.88f;
+        const auto tailRender = renderMesh(tailMesh, 96000u, 127u);
+        double earlyEnergy = 0.0;
+        double lateEnergy = 0.0;
+        float tailPeak = 0.0f;
+        for (uint32_t ch = 0; ch < channelCount; ++ch) {
+            for (uint32_t i = 0u; i < tailRender.output[ch].size(); ++i) {
+                const float value = tailRender.output[ch][i];
+                if (!std::isfinite(value)) {
+                    std::cerr << "Wave mesh tail output is not finite\n";
+                    return 1;
+                }
+                tailPeak = std::max(tailPeak, std::abs(value));
+                if (i >= 64u && i < 4096u) {
+                    earlyEnergy += static_cast<double>(value) * value;
+                }
+                if (i + 12000u >= tailRender.output[ch].size()) {
+                    lateEnergy += static_cast<double>(value) * value;
+                }
+            }
+        }
+        waveMeshTailEarly = static_cast<float>(std::sqrt(
+            earlyEnergy / static_cast<double>(channelCount * 4032u)));
+        waveMeshTailLate = static_cast<float>(std::sqrt(
+            lateEnergy / static_cast<double>(channelCount * 12000u)));
+        if (tailPeak <= 0.000001f || tailPeak > 1.0001f
+            || waveMeshTailEarly <= 0.0000001f
+            || waveMeshTailLate >= waveMeshTailEarly * 0.35f) {
+            std::cerr << "Wave mesh DECY/DAMP tail is not bounded: peak/early/late="
+                      << tailPeak << "/" << waveMeshTailEarly
+                      << "/" << waveMeshTailLate << "\n";
+            return 1;
+        }
+
+        // POL and ZERO depend on absolute sample time. One large process call
+        // and irregular host partitions must therefore be sample-identical.
+        constexpr uint32_t partitionFrames = 2048u;
+        auto timedParams = neutral;
+        timedParams.polar = 0.81f;
+        timedParams.zero = 0.71f;
+        WavePlanar partitionInput {};
+        WavePlanar wholeOutput {};
+        WavePlanar partitionedOutput {};
+        for (uint32_t ch = 0; ch < channelCount; ++ch) {
+            partitionInput[ch].assign(partitionFrames, 0.0f);
+            wholeOutput[ch].assign(partitionFrames, 0.0f);
+            partitionedOutput[ch].assign(partitionFrames, 0.0f);
+            for (uint32_t i = 0u; i < partitionFrames; ++i) {
+                partitionInput[ch][i] = 0.14f * std::sin(
+                    static_cast<float>(i) * (0.021f + 0.003f * ch)
+                    + static_cast<float>(ch) * 0.27f);
+            }
+        }
+        auto wholeProcessor = makeProcessor(
+            zeroMesh, meshTopology, timedParams, partitionFrames);
+        auto partitionedProcessor = makeProcessor(
+            zeroMesh, meshTopology, timedParams, partitionFrames);
+        processRange(*wholeProcessor, partitionInput, wholeOutput,
+            0u, partitionFrames);
+        constexpr std::array<uint32_t, 9> partitions {
+            1u, 7u, 64u, 3u, 129u, 11u, 257u, 5u, 97u
+        };
+        uint32_t partitionOffset = 0u;
+        uint32_t partitionIndex = 0u;
+        while (partitionOffset < partitionFrames) {
+            const uint32_t count = std::min(
+                partitions[partitionIndex % partitions.size()],
+                partitionFrames - partitionOffset);
+            processRange(*partitionedProcessor, partitionInput,
+                partitionedOutput, partitionOffset, count);
+            partitionOffset += count;
+            ++partitionIndex;
+        }
+        for (uint32_t ch = 0; ch < channelCount; ++ch) {
+            for (uint32_t i = 0u; i < partitionFrames; ++i) {
+                waveMeshPartitionError = std::max(
+                    waveMeshPartitionError, std::abs(
+                        wholeOutput[ch][i] - partitionedOutput[ch][i]));
+            }
+        }
+        if (waveMeshPartitionError > 0.000002f) {
+            std::cerr << "Wave geometry POL/ZERO block partition mismatch: "
+                      << waveMeshPartitionError << "\n";
+            return 1;
+        }
+
+        // Reset must clear the waveguide rings and UI telemetry as well as the
+        // original per-lane state.
+        auto resetProcessor = makeProcessor(
+            tailMesh, meshTopology, neutral, 128u);
+        WavePlanar resetInput {};
+        WavePlanar resetOutput {};
+        constexpr uint32_t resetFrames = 4096u;
+        for (uint32_t ch = 0; ch < channelCount; ++ch) {
+            resetInput[ch].assign(resetFrames, 0.0f);
+            resetOutput[ch].assign(resetFrames, 0.0f);
+        }
+        resetInput[0][0] = 0.4f;
+        for (uint32_t offset = 0u; offset < resetFrames; offset += 128u) {
+            processRange(*resetProcessor, resetInput, resetOutput,
+                offset, std::min<uint32_t>(128u, resetFrames - offset));
+        }
+        resetProcessor->reset();
+        if (resetProcessor->edgeEnergy(0u, routedNeighbor) != 0.0f
+            || resetProcessor->edgePhase(0u, routedNeighbor) != 0.0f) {
+            std::cerr << "Wave mesh reset did not clear edge telemetry\n";
+            return 1;
+        }
+        for (uint32_t ch = 0; ch < channelCount; ++ch) {
+            std::fill(resetInput[ch].begin(), resetInput[ch].end(), 0.0f);
+            std::fill(resetOutput[ch].begin(), resetOutput[ch].end(), 0.0f);
+        }
+        float resetPeak = 0.0f;
+        for (uint32_t offset = 0u; offset < resetFrames; offset += 128u) {
+            processRange(*resetProcessor, resetInput, resetOutput,
+                offset, std::min<uint32_t>(128u, resetFrames - offset));
+        }
+        for (uint32_t ch = 0; ch < channelCount; ++ch) {
+            for (float value : resetOutput[ch]) {
+                if (!std::isfinite(value)) {
+                    std::cerr << "Wave mesh reset output is not finite\n";
+                    return 1;
+                }
+                resetPeak = std::max(resetPeak, std::abs(value));
+            }
+        }
+        if (resetPeak > 0.000001f
+            || resetProcessor->edgeEnergy(0u, routedNeighbor) > 0.000001f) {
+            std::cerr << "Wave mesh reset retained delayed state: "
+                      << resetPeak << " / "
+                      << resetProcessor->edgeEnergy(0u, routedNeighbor) << "\n";
+            return 1;
+        }
     }
 
     s3g::AmbiSubDecoder ambiSubDecoder;
@@ -7018,6 +8896,10 @@ int main()
               << macroShredLowTune[1] << " / " << macroShredHighTune[1] << "\n";
     std::cout << "buffer processor peak/step: " << bufferPeak << " / " << bufferMaxStep << "\n";
     std::cout << "wave geometry peak/delta: " << waveGeometryPeak << " / " << waveGeometryDelta << "\n";
+    std::cout << "wave mesh fast/slow onset, tail, partition: "
+              << waveMeshFastOnset << " / " << waveMeshSlowOnset << "  "
+              << waveMeshTailEarly << " -> " << waveMeshTailLate << "  "
+              << waveMeshPartitionError << "\n";
     std::cout << "ambi sub decoder peak/spread: " << ambiSubPeak << " / " << ambiSubSpread << "\n";
     std::cout << "array HPF low/high: " << arrayHpfLowTail << " / " << arrayHpfHighPeak << "\n";
     std::cout << "array delay impulse: " << arrayDelayOut[0][0] << "\n";

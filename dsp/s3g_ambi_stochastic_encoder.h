@@ -2,6 +2,7 @@
 
 #include "s3g_ambi_field_listener.h"
 #include "s3g_ambisonic_speaker_decoder.h"
+#include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
 #include "s3g_topology.h"
 
@@ -103,6 +104,10 @@ struct AmbiStochasticParams {
     float outputGainDb = -6.0f;
     AmbiStochasticListenMode fieldListenMode = AmbiStochasticListenMode::Off;
     float fieldListenAmount = 0.62f;
+    // Host-automatable cursor for the wrapper-owned Parameter Surface.
+    // The DSP engine does not interpret these values directly.
+    float surfaceX = 0.5f;
+    float surfaceY = 0.5f;
 };
 
 struct AmbiStochasticPoint {
@@ -352,7 +357,7 @@ public:
         }
         globalActivity_ = static_cast<float>(activeVoices)
             / static_cast<float>(std::max<uint32_t>(1u, params_.voices));
-        updateTopology(0.0f);
+        updateTopology(0.0f, true);
     }
 
     void setParams(AmbiStochasticParams params)
@@ -402,6 +407,8 @@ public:
         params.fieldListenMode = static_cast<AmbiStochasticListenMode>(
             std::min<uint32_t>(static_cast<uint32_t>(params.fieldListenMode), 4u));
         params.fieldListenAmount = clamp(params.fieldListenAmount, 0.0f, 1.0f);
+        params.surfaceX = clamp(params.surfaceX, 0.0f, 1.0f);
+        params.surfaceY = clamp(params.surfaceY, 0.0f, 1.0f);
 
         const uint32_t oldVoices = params_.voices;
         const uint32_t oldBreakpoints = params_.breakpoints;
@@ -434,6 +441,13 @@ public:
             }
         }
         updateTopology(0.0f);
+    }
+
+    void setParameterSurfaceGlideMs(float glideMs)
+    {
+        parameterSurfaceGlideMs_ = clamp(
+            std::isfinite(glideMs) ? glideMs : 0.0f,
+            0.0f, 2000.0f);
     }
 
     AmbiStochasticParams params() const { return params_; }
@@ -1423,7 +1437,7 @@ private:
         }
     }
 
-    void updateTopology(float dt)
+    void updateTopology(float dt, bool snapPoints = false)
     {
         if (dt > 0.0f) topologyPhase_ = std::fmod(
             topologyPhase_ + params_.topologyRateHz * dt, 1.0f);
@@ -1491,7 +1505,7 @@ private:
         }
         globalKinetic_ += (kineticTotal / static_cast<float>(params_.voices) - globalKinetic_) * 0.08f;
         updateNeighborGraph();
-        updateAedPoints();
+        updateAedPoints(dt, snapPoints);
     }
 
     void updateNeighborGraph()
@@ -1535,8 +1549,11 @@ private:
         }
     }
 
-    void updateAedPoints()
+    void updateAedPoints(float dt, bool snapPoints)
     {
+        const float glide = snapPoints ? 1.0f
+            : parameterSurfaceGlideCoefficient(
+                parameterSurfaceGlideMs_, dt);
         for (uint32_t voice = 0u; voice < params_.voices; ++voice) {
             const Vec3 topology = topologyPosition_[voice];
             const float length = std::sqrt(topology.x * topology.x + topology.y * topology.y + topology.z * topology.z);
@@ -1544,13 +1561,25 @@ private:
                 ? std::atan2(topology.x, topology.z) * 180.0f / kPi : 0.0f;
             const float localElevation = length > 0.0001f
                 ? std::asin(clamp(topology.y / length, -1.0f, 1.0f)) * 180.0f / kPi : 0.0f;
-            points_[voice].azimuthDeg = wrapSignedDeg(params_.centerAzimuthDeg + localAzimuth * params_.spatialFollow);
-            points_[voice].elevationDeg = clamp(params_.centerElevationDeg + localElevation * params_.spatialFollow,
+            const float targetAzimuth = wrapSignedDeg(
+                params_.centerAzimuthDeg
+                    + localAzimuth * params_.spatialFollow);
+            const float targetElevation = clamp(
+                params_.centerElevationDeg
+                    + localElevation * params_.spatialFollow,
                 -90.0f, 90.0f);
             const float localDistance = clamp(length, 0.15f, 2.0f);
-            points_[voice].distance = clamp(params_.centerDistance
+            const float targetDistance = clamp(params_.centerDistance
                     * lerp(1.0f, localDistance, params_.spatialFollow),
                 0.15f, 2.0f);
+            points_[voice].azimuthDeg = wrapSignedDeg(
+                points_[voice].azimuthDeg
+                    + wrapSignedDeg(targetAzimuth
+                        - points_[voice].azimuthDeg) * glide);
+            points_[voice].elevationDeg += (targetElevation
+                - points_[voice].elevationDeg) * glide;
+            points_[voice].distance += (targetDistance
+                - points_[voice].distance) * glide;
         }
     }
 
@@ -1702,6 +1731,7 @@ private:
     float globalEnergy_ = 0.0f;
     float globalKinetic_ = 0.0f;
     float smoothedOutputGain_ = 0.0f;
+    float parameterSurfaceGlideMs_ = 0.0f;
     AmbiFieldListener fieldListener_ {};
 };
 

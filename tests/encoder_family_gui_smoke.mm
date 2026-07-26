@@ -2,16 +2,21 @@
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
+#include <clap/ext/state.h>
+#include <clap/ext/tail.h>
 
 #include "../plugins/common/s3g_cocoa_gui.h"
 #include "../dsp/s3g_musical_scales.h"
 
+#include <array>
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
 #include <iostream>
+#include <limits>
+#include <vector>
 
 namespace {
 
@@ -23,6 +28,117 @@ bool closeEnough(CGFloat a, CGFloat b)
     return std::fabs(a - b) < 0.5;
 }
 
+struct MemoryPluginState {
+    std::vector<uint8_t> bytes;
+    size_t offset = 0u;
+};
+
+struct SingleParamEventInput {
+    clap_input_events_t events {};
+    clap_event_param_value_t value {};
+};
+
+uint32_t singleParamEventSize(const clap_input_events_t*)
+{
+    return 1u;
+}
+
+const clap_event_header_t* singleParamEventGet(
+    const clap_input_events_t* events, uint32_t index)
+{
+    if (!events || index != 0u) return nullptr;
+    const auto* input = static_cast<const SingleParamEventInput*>(events->ctx);
+    return input ? &input->value.header : nullptr;
+}
+
+void setSingleParamEvent(
+    SingleParamEventInput& input, clap_id paramId, double value)
+{
+    input.events.ctx = &input;
+    input.events.size = singleParamEventSize;
+    input.events.get = singleParamEventGet;
+    input.value = {};
+    input.value.header.size = sizeof(input.value);
+    input.value.header.time = 0u;
+    input.value.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    input.value.header.type = CLAP_EVENT_PARAM_VALUE;
+    input.value.param_id = paramId;
+    input.value.note_id = -1;
+    input.value.port_index = -1;
+    input.value.channel = -1;
+    input.value.key = -1;
+    input.value.value = value;
+}
+
+// Frozen public-state fixture for Delay Processor v10. Keeping the previous
+// payload here makes migration coverage independent of the plug-in's current
+// C++ type and exercises the same byte stream a host session provides.
+struct __attribute__((packed)) DelayProcessorStateV10 {
+    uint32_t version = 10u;
+    uint64_t patchRows[64] {};
+    uint32_t clearUnused = 0u;
+    double delayMs = 280.0;
+    double feedback = 0.35;
+    double mix = 0.45;
+    double tone = 0.60;
+    double character = 0.0;
+    double tapAmount = 0.0;
+    double outputTrimDb = -6.0;
+    double topologySpread = 0.0;
+    double topologySkew = 0.0;
+    double topologyJitter = 0.0;
+    double displaceCollapse = 0.0;
+    double displaceDirX = 0.0;
+    double displaceDirY = 0.0;
+    double displaceDirZ = 1.0;
+    double displaceTwist = 0.0;
+    double displaceFlare = 0.0;
+    double pitchSemitones = 0.0;
+    uint32_t topologyShape = 0u;
+    uint32_t topologyMotionMode = 0u;
+    uint32_t topologyMotionVariant = 0u;
+    double topologyMotionRateHz = 0.10;
+    double topologyMotionDepth = 0.0;
+    uint32_t topologyNeighborCount = 2u;
+    double topologyRadius = 0.65;
+    double topologyCentroid = 0.22;
+};
+
+static_assert(sizeof(DelayProcessorStateV10) == 704u,
+              "Delay Processor v10 state fixture changed");
+
+int64_t stateWrite(const clap_ostream_t* stream,
+                   const void* source,
+                   uint64_t requested)
+{
+    auto* state = static_cast<MemoryPluginState*>(stream->ctx);
+    if (!state || (!source && requested > 0u)) return -1;
+    if (requested == 0u) return 0;
+    const size_t count = std::min<size_t>(
+        static_cast<size_t>(requested), 13u);
+    const auto* first = static_cast<const uint8_t*>(source);
+    state->bytes.insert(state->bytes.end(), first, first + count);
+    return static_cast<int64_t>(count);
+}
+
+int64_t stateRead(const clap_istream_t* stream,
+                  void* destination,
+                  uint64_t requested)
+{
+    auto* state = static_cast<MemoryPluginState*>(stream->ctx);
+    if (!state || (!destination && requested > 0u)) return -1;
+    const size_t available = state->offset < state->bytes.size()
+        ? state->bytes.size() - state->offset
+        : 0u;
+    const size_t count = std::min<size_t>({
+        available, static_cast<size_t>(requested), 11u });
+    if (count > 0u) {
+        std::memcpy(destination, state->bytes.data() + state->offset, count);
+        state->offset += count;
+    }
+    return static_cast<int64_t>(count);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -31,7 +147,7 @@ int main(int argc, char** argv)
         std::cerr
             << "usage: s3g_encoder_family_gui_smoke <plugin binary> <plugin id>"
             << " <native width> <native height>"
-            << " [host-name prefix responsive|dynamic|fixed]\n";
+            << " [host-name prefix responsive|responsive-wide|dynamic|fixed]\n";
         return 2;
     }
 
@@ -40,7 +156,11 @@ int main(int argc, char** argv)
     const uint32_t nativeHeight = static_cast<uint32_t>(std::strtoul(argv[4], nullptr, 10));
     const char* expectedNamePrefix =
         argc == 7 ? argv[5] : "s3g Ambi Encoder ";
-    const bool responsive = argc != 7 || std::strcmp(argv[6], "responsive") == 0;
+    const bool responsiveWide =
+        argc == 7 && std::strcmp(argv[6], "responsive-wide") == 0;
+    const bool responsive = argc != 7
+        || std::strcmp(argv[6], "responsive") == 0
+        || responsiveWide;
     const bool dynamic = argc == 7 && std::strcmp(argv[6], "dynamic") == 0;
     const bool fixed = argc == 7 && std::strcmp(argv[6], "fixed") == 0;
     if ((!responsive && !dynamic && !fixed)
@@ -75,6 +195,37 @@ int main(int argc, char** argv)
                     << scale.name << "\n";
                 return 1;
             }
+        }
+        const NSRect topologyField = NSMakeRect(
+            12.0, 34.0, 620.0, 638.0);
+        const NSRect topologyContent =
+            s3g::clap_gui::topologyProcessorFieldContentRect(
+                topologyField);
+        const NSRect firstPageButton =
+            s3g::clap_gui::topologyProcessorFieldPageButtonRect(
+                topologyField, 0u);
+        const NSRect lastCameraButton =
+            s3g::clap_gui::topologyProcessorCameraButtonRect(
+                topologyField, 2u);
+        const auto eightChannelGrid =
+            s3g::clap_gui::topologyProcessorChannelGrid(
+                topologyContent, 8u);
+        const auto twentyFourChannelGrid =
+            s3g::clap_gui::topologyProcessorChannelGrid(
+                topologyContent, 24u);
+        if (!closeEnough(topologyContent.origin.x, 22.0)
+            || !closeEnough(topologyContent.origin.y, 62.0)
+            || !closeEnough(topologyContent.size.width, 600.0)
+            || !closeEnough(topologyContent.size.height, 600.0)
+            || !closeEnough(firstPageButton.origin.x, 260.0)
+            || !closeEnough(lastCameraButton.origin.x, 574.0)
+            || eightChannelGrid.columns != 2u
+            || eightChannelGrid.rows != 4u
+            || !closeEnough(eightChannelGrid.cellHeight, 134.0)
+            || twentyFourChannelGrid.columns != 4u
+            || twentyFourChannelGrid.rows != 6u) {
+            std::cerr << "Shared topology field interaction geometry failed\n";
+            return 1;
         }
 
         failureStage = "bundle load";
@@ -261,8 +412,9 @@ int main(int argc, char** argv)
         uint32_t height = 0u;
         if (ok) failureStage = "resize contract";
         if (responsive || dynamic) {
-            const uint32_t expectedMinimumWidth = std::min(
-                dynamic ? 720u : 480u, nativeWidth);
+            const uint32_t expectedMinimumWidth = responsiveWide
+                ? nativeWidth
+                : std::min(dynamic ? 720u : 480u, nativeWidth);
             const uint32_t expectedMinimumHeight = std::min(
                 dynamic ? 430u : 360u, nativeHeight);
             clap_gui_resize_hints_t hints {};
@@ -292,8 +444,10 @@ int main(int argc, char** argv)
         if (ok) failureStage = "GUI create";
         ok = ok && gui->create(plugin, CLAP_WINDOW_API_COCOA, false);
 
-        const uint32_t testWidth =
-            (responsive || dynamic) ? std::min(720u, nativeWidth) : nativeWidth;
+        const uint32_t testWidth = responsiveWide
+            ? nativeWidth
+            : ((responsive || dynamic)
+                ? std::min(720u, nativeWidth) : nativeWidth);
         const uint32_t testHeight =
             (responsive || dynamic) ? std::min(540u, nativeHeight) : nativeHeight;
         if (ok) failureStage = "GUI resize";
@@ -331,6 +485,1000 @@ int main(int argc, char** argv)
                 && closeEnough([document frame].size.width, nativeWidth)
                 && closeEnough([document frame].size.height, nativeHeight);
         }
+        const bool topologyProcessor = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.delay-processor-8ch") == 0
+            || std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.delay-processor-24ch") == 0
+            || std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.wave-geometry-processor") == 0
+            || std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.spectral-topology-processor") == 0
+            || std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.spectral-topology-processor-24ch") == 0;
+        const bool spectralTopology = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.spectral-topology-processor") == 0
+            || std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.spectral-topology-processor-24ch") == 0;
+        const bool waveGeometry = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.wave-geometry-processor") == 0;
+        const bool delayProcessor = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.delay-processor-8ch") == 0
+            || std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.delay-processor-24ch") == 0;
+        const bool parameterSurfaceEncoder = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.ambi-stochastic-encoder-64") == 0
+            || std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.ambi-wrangler-encoder-64") == 0;
+        NSPanel* parameterSurfacePanel = nil;
+        auto mouseEvent = [&](NSEventType type, NSPoint documentPoint) {
+            return [NSEvent
+                mouseEventWithType:type
+                location:[document convertPoint:documentPoint toView:nil]
+                modifierFlags:0
+                timestamp:0.0
+                windowNumber:0
+                context:nil
+                eventNumber:0
+                clickCount:1
+                pressure:1.0];
+        };
+        if (ok && parameterSurfaceEncoder) {
+            failureStage = "Parameter Surface POP window";
+            const bool wrangler = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.ambi-wrangler-encoder-64") == 0;
+            const int surfacePage = wrangler ? 3 : 2;
+            const CGFloat fieldY = wrangler ? 76.0 : 72.0;
+            const NSPoint surfaceTab = NSMakePoint(
+                18.0 + 98.0 + surfacePage * 74.0 + 35.0,
+                42.0 + 4.0 + 6.5);
+            const NSPoint popButton = NSMakePoint(
+                34.0 + 448.0 + 13.0, fieldY + 10.0 + 9.0);
+            const NSPoint addButton = NSMakePoint(
+                34.0 + 116.0 + 21.0, fieldY + 10.0 + 9.0);
+            const NSPoint enableButton = NSMakePoint(
+                34.0 + 64.0 + 24.0, fieldY + 10.0 + 9.0);
+            const NSPoint editPlayButton = NSMakePoint(
+                34.0 + 10.0 + 25.0, fieldY + 10.0 + 9.0);
+            auto clickDocument = [&](NSPoint point) {
+                NSView* hit = [parent hitTest:
+                    [parent convertPoint:point fromView:document]];
+                if (hit != document) return false;
+                [hit mouseDown:mouseEvent(NSEventTypeLeftMouseDown, point)];
+                [hit mouseUp:mouseEvent(NSEventTypeLeftMouseUp, point)];
+                return true;
+            };
+            @try {
+                ok = gui->show(plugin)
+                    && clickDocument(surfaceTab)
+                    && [[document valueForKey:@"fieldPage"] intValue]
+                        == surfacePage
+                    && clickDocument(addButton)
+                    && clickDocument(addButton)
+                    && clickDocument(enableButton)
+                    && clickDocument(editPlayButton)
+                    && clickDocument(popButton)
+                    && [[document valueForKey:@"fieldPage"] intValue] == 0;
+                parameterSurfacePanel = ok
+                    ? [document valueForKey:@"surfacePanel"] : nil;
+                NSClipView* clip = parameterSurfacePanel
+                    ? static_cast<NSClipView*>(
+                        [parameterSurfacePanel contentView]) : nil;
+                NSView* popupDocument = clip ? [clip documentView] : nil;
+                ok = ok && parameterSurfacePanel
+                    && [parameterSurfacePanel isVisible]
+                    && [clip isKindOfClass:[NSClipView class]]
+                    && popupDocument
+                    && [[popupDocument valueForKey:@"fieldPage"] intValue]
+                        == surfacePage;
+                if (ok) {
+                    const CGFloat plotHeight = wrangler ? 478.0 : 374.0;
+                    const NSPoint cursorPoint = NSMakePoint(
+                        44.0 + 544.0 * 0.73,
+                        fieldY + 68.0 + plotHeight * (1.0 - 0.27));
+                    auto popupEvent = [&](NSEventType type, NSPoint point) {
+                        return [NSEvent
+                            mouseEventWithType:type
+                            location:[popupDocument convertPoint:point toView:nil]
+                            modifierFlags:0 timestamp:0.0
+                            windowNumber:[parameterSurfacePanel windowNumber]
+                            context:nil eventNumber:0 clickCount:1 pressure:1.0];
+                    };
+                    [popupDocument mouseDown:popupEvent(
+                        NSEventTypeLeftMouseDown, cursorPoint)];
+                    [popupDocument mouseUp:popupEvent(
+                        NSEventTypeLeftMouseUp, cursorPoint)];
+                    double cursorX = -1.0;
+                    double cursorY = -1.0;
+                    ok = params->get_value(plugin, wrangler ? 63u : 43u,
+                            &cursorX)
+                        && params->get_value(plugin, wrangler ? 64u : 44u,
+                            &cursorY)
+                        && std::fabs(cursorX - 0.73) < 0.01
+                        && std::fabs(cursorY - 0.27) < 0.01;
+                }
+                NSData* popupRender = ok
+                    ? [clip dataWithPDFInsideRect:[clip bounds]] : nil;
+                ok = ok && popupRender && [popupRender length] > 0u;
+                const char* captureDirectory = std::getenv(
+                    "S3G_GUI_SMOKE_PDF_DIR");
+                if (ok && captureDirectory && captureDirectory[0]) {
+                    NSString* directory = [NSString
+                        stringWithUTF8String:captureDirectory];
+                    [[NSFileManager defaultManager]
+                        createDirectoryAtPath:directory
+                        withIntermediateDirectories:YES
+                        attributes:nil error:nil];
+                    NSString* popupName = [[NSString
+                        stringWithFormat:@"%s.surf-pop", pluginId]
+                        stringByAppendingPathExtension:@"pdf"];
+                    ok = [popupRender writeToFile:
+                        [directory stringByAppendingPathComponent:popupName]
+                        atomically:YES];
+                }
+
+                if (ok) {
+                    NSEvent* popupDown = [NSEvent
+                        mouseEventWithType:NSEventTypeLeftMouseDown
+                        location:[popupDocument convertPoint:popButton toView:nil]
+                        modifierFlags:0 timestamp:0.0
+                        windowNumber:[parameterSurfacePanel windowNumber]
+                        context:nil eventNumber:0 clickCount:1 pressure:1.0];
+                    NSEvent* popupUp = [NSEvent
+                        mouseEventWithType:NSEventTypeLeftMouseUp
+                        location:[popupDocument convertPoint:popButton toView:nil]
+                        modifierFlags:0 timestamp:0.0
+                        windowNumber:[parameterSurfacePanel windowNumber]
+                        context:nil eventNumber:0 clickCount:1 pressure:1.0];
+                    [popupDocument mouseDown:popupDown];
+                    [popupDocument mouseUp:popupUp];
+                    ok = ![parameterSurfacePanel isVisible];
+                }
+
+                // Leave it open once more so guiHide() proves that the CLAP
+                // lifecycle also hides the auxiliary panel.
+                ok = ok && clickDocument(surfaceTab)
+                    && clickDocument(popButton)
+                    && [parameterSurfacePanel isVisible];
+            } @catch (NSException*) {
+                ok = false;
+            }
+        }
+        if (ok && delayProcessor) {
+            failureStage = "delay route parameter/default contract";
+            constexpr clap_id routeParam = 26u;
+            constexpr clap_id turnParam = 27u;
+            constexpr clap_id branchParam = 28u;
+            constexpr clap_id lossParam = 29u;
+            constexpr std::array<clap_id, 4u> routeParams {
+                routeParam, turnParam, branchParam, lossParam,
+            };
+            constexpr std::array<double, 4u> routeMinimums {
+                0.0, -1.0, 0.0, 0.0,
+            };
+            constexpr std::array<double, 4u> routeMaximums {
+                1.0, 1.0, 1.0, 1.0,
+            };
+            constexpr std::array<double, 4u> routeDefaults {
+                0.0, 0.0, 0.35, 0.25,
+            };
+            std::array<bool, routeParams.size()> foundRouteParams {};
+            for (uint32_t index = 0u;
+                 ok && index < params->count(plugin); ++index) {
+                clap_param_info_t info {};
+                ok = params->get_info(plugin, index, &info);
+                for (size_t routeIndex = 0u;
+                     ok && routeIndex < routeParams.size(); ++routeIndex) {
+                    if (info.id != routeParams[routeIndex]) continue;
+                    foundRouteParams[routeIndex] = true;
+                    ok = std::fabs(info.min_value
+                            - routeMinimums[routeIndex]) < 0.000001
+                        && std::fabs(info.max_value
+                            - routeMaximums[routeIndex]) < 0.000001
+                        && std::fabs(info.default_value
+                            - routeDefaults[routeIndex]) < 0.000001;
+                }
+            }
+            ok = ok && std::all_of(
+                foundRouteParams.begin(), foundRouteParams.end(),
+                [](bool found) { return found; });
+
+            const auto* delayTail = static_cast<const clap_plugin_tail_t*>(
+                plugin->get_extension(plugin, CLAP_EXT_TAIL));
+            const auto* delayState = static_cast<const clap_plugin_state_t*>(
+                plugin->get_extension(plugin, CLAP_EXT_STATE));
+            const uint32_t originalTail = delayTail && delayTail->get
+                ? delayTail->get(plugin)
+                : 0u;
+            ok = ok && delayTail && delayTail->get
+                && delayState && delayState->save && delayState->load
+                && originalTail > 0u
+                && originalTail
+                    < static_cast<uint32_t>(std::numeric_limits<int32_t>::max());
+
+            // Delay uses legacy content coordinates translated to the shared
+            // 42 px top inset. ECHO ROUTES follows the 16-row TOPOLOGY panel.
+            const CGFloat legacyContentTop = 34.0;
+            const CGFloat contentTranslation = static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.contentTop
+                - legacyContentTop);
+            const CGFloat secondControlX = static_cast<CGFloat>(
+                s3g::gui_layout::processorControlX(
+                    s3g::gui_layout::kTopologyProcessorColumns.second.x));
+            const CGFloat trackWidth = static_cast<CGFloat>(
+                s3g::gui_layout::processorTrackWidth(
+                    s3g::gui_layout::kTopologyProcessorColumns.second.width));
+            const CGFloat rowPitch = static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.rowPitch);
+            const CGFloat echoPanelY = legacyContentTop
+                + static_cast<CGFloat>(
+                    s3g::gui_layout::toolboxHeightForRows(16u))
+                + static_cast<CGFloat>(
+                    s3g::gui_layout::kStandardMetrics.panelGap);
+            const CGFloat routeRowY = echoPanelY
+                + static_cast<CGFloat>(
+                    s3g::gui_layout::kStandardMetrics.firstRowOffset)
+                + contentTranslation;
+            const std::array<NSPoint, 4u> routeRows {
+                NSMakePoint(secondControlX, routeRowY),
+                NSMakePoint(secondControlX, routeRowY + rowPitch),
+                NSMakePoint(secondControlX, routeRowY + 2.0 * rowPitch),
+                NSMakePoint(secondControlX, routeRowY + 3.0 * rowPitch),
+            };
+            auto routeMouseEvent = [&](NSEventType type,
+                                       NSPoint documentPoint,
+                                       NSInteger clickCount) {
+                return [NSEvent
+                    mouseEventWithType:type
+                    location:[document convertPoint:documentPoint toView:nil]
+                    modifierFlags:0
+                    timestamp:0.0
+                    windowNumber:0
+                    context:nil
+                    eventNumber:0
+                    clickCount:clickCount
+                    pressure:1.0];
+            };
+            auto dragRouteSlider = [&](size_t index) {
+                const NSPoint downPoint = NSMakePoint(
+                    routeRows[index].x + trackWidth * 0.25,
+                    routeRows[index].y);
+                const NSPoint dragPoint = NSMakePoint(
+                    routeRows[index].x + trackWidth * 0.75,
+                    routeRows[index].y);
+                NSView* hitView = [parent hitTest:
+                    [parent convertPoint:downPoint fromView:document]];
+                if (hitView != document) return false;
+                [hitView mouseDown:routeMouseEvent(
+                    NSEventTypeLeftMouseDown, downPoint, 1)];
+                double value = -10.0;
+                const double expectedDown = routeMinimums[index]
+                    + (routeMaximums[index] - routeMinimums[index]) * 0.25;
+                bool passed = params->get_value(
+                        plugin, routeParams[index], &value)
+                    && std::fabs(value - expectedDown) < 0.02;
+                if (passed) {
+                    [hitView mouseDragged:routeMouseEvent(
+                        NSEventTypeLeftMouseDragged, dragPoint, 1)];
+                    const double expectedDrag = routeMinimums[index]
+                        + (routeMaximums[index] - routeMinimums[index]) * 0.75;
+                    passed = params->get_value(
+                            plugin, routeParams[index], &value)
+                        && std::fabs(value - expectedDrag) < 0.02;
+                    [hitView mouseUp:routeMouseEvent(
+                        NSEventTypeLeftMouseUp, dragPoint, 1)];
+                }
+                return passed;
+            };
+            auto clickRouteSlider = [&](size_t index, double normalized) {
+                const NSPoint point = NSMakePoint(
+                    routeRows[index].x + trackWidth * normalized,
+                    routeRows[index].y);
+                NSView* hitView = [parent hitTest:
+                    [parent convertPoint:point fromView:document]];
+                if (hitView != document) return false;
+                [hitView mouseDown:routeMouseEvent(
+                    NSEventTypeLeftMouseDown, point, 1)];
+                [hitView mouseUp:routeMouseEvent(
+                    NSEventTypeLeftMouseUp, point, 1)];
+                double value = -10.0;
+                const double expected = routeMinimums[index]
+                    + (routeMaximums[index] - routeMinimums[index])
+                        * normalized;
+                return params->get_value(plugin, routeParams[index], &value)
+                    && std::fabs(value - expected) < 0.02;
+            };
+            auto resetRouteSlider = [&](size_t index) {
+                if (!clickRouteSlider(index, 0.82)) return false;
+                const NSPoint point = NSMakePoint(
+                    routeRows[index].x + trackWidth * 0.50,
+                    routeRows[index].y);
+                NSView* hitView = [parent hitTest:
+                    [parent convertPoint:point fromView:document]];
+                if (hitView != document) return false;
+                [hitView mouseDown:routeMouseEvent(
+                    NSEventTypeLeftMouseDown, point, 2)];
+                [hitView mouseUp:routeMouseEvent(
+                    NSEventTypeLeftMouseUp, point, 2)];
+                double restored = -10.0;
+                return params->get_value(
+                        plugin, routeParams[index], &restored)
+                    && std::fabs(restored - routeDefaults[index]) < 0.000001;
+            };
+
+            if (ok) {
+                failureStage = "delay route slider hit/default";
+                [[scroll contentView] scrollToPoint:NSMakePoint(0.0, 150.0)];
+                [scroll reflectScrolledClipView:[scroll contentView]];
+                for (size_t index = 0u;
+                     ok && index < routeParams.size(); ++index) {
+                    ok = dragRouteSlider(index);
+                }
+                for (size_t index = 0u;
+                     ok && index < routeParams.size(); ++index) {
+                    ok = resetRouteSlider(index);
+                }
+                // Establish non-default values for the current-state round
+                // trip after the default-reset path has been exercised.
+                for (size_t index = 0u;
+                     ok && index < routeParams.size(); ++index) {
+                    ok = dragRouteSlider(index);
+                }
+            }
+
+            if (ok) {
+                failureStage = "delay route v11 state/migration";
+                const uint32_t routedTail = delayTail->get(plugin);
+                std::array<double, routeParams.size()> expected {};
+                for (size_t index = 0u;
+                     ok && index < routeParams.size(); ++index) {
+                    ok = params->get_value(
+                        plugin, routeParams[index], &expected[index]);
+                }
+                MemoryPluginState currentState;
+                clap_ostream_t stateOutput { &currentState, stateWrite };
+                ok = ok && delayState->save(plugin, &stateOutput)
+                    && currentState.bytes.size() > sizeof(uint32_t)
+                    && routedTail >= originalTail
+                    && routedTail
+                        < static_cast<uint32_t>(
+                            std::numeric_limits<int32_t>::max());
+                uint32_t savedVersion = 0u;
+                if (ok) {
+                    std::memcpy(&savedVersion,
+                                currentState.bytes.data(),
+                                sizeof(savedVersion));
+                    ok = savedVersion == 11u;
+                }
+                for (size_t index = 0u;
+                     ok && index < routeParams.size(); ++index) {
+                    ok = clickRouteSlider(index, 0.10);
+                }
+                currentState.offset = 0u;
+                clap_istream_t stateInput { &currentState, stateRead };
+                ok = ok && delayState->load(plugin, &stateInput);
+                for (size_t index = 0u;
+                     ok && index < routeParams.size(); ++index) {
+                    double restored = -10.0;
+                    ok = params->get_value(
+                            plugin, routeParams[index], &restored)
+                        && std::fabs(restored - expected[index]) < 0.000001;
+                }
+
+                DelayProcessorStateV10 legacyState;
+                legacyState.patchRows[2] = uint64_t { 1 } << 2u;
+                legacyState.patchRows[6] = uint64_t { 1 } << 6u;
+                legacyState.clearUnused = 1u;
+                legacyState.delayMs = 20.0;
+                legacyState.feedback = 0.68;
+                legacyState.mix = 1.0;
+                legacyState.tone = 1.0;
+                MemoryPluginState migrationState;
+                const auto* legacyFirst = reinterpret_cast<const uint8_t*>(
+                    &legacyState);
+                migrationState.bytes.assign(
+                    legacyFirst, legacyFirst + sizeof(legacyState));
+                clap_istream_t migrationInput {
+                    &migrationState, stateRead
+                };
+                ok = ok && delayState->load(plugin, &migrationInput);
+                for (size_t index = 0u;
+                     ok && index < routeParams.size(); ++index) {
+                    double migrated = -10.0;
+                    ok = params->get_value(
+                            plugin, routeParams[index], &migrated)
+                        && std::fabs(migrated - routeDefaults[index])
+                            < 0.000001;
+                }
+                if (!ok) {
+                    std::cerr << "Delay route state v11 or v10 migration failed\n";
+                }
+            }
+
+            if (ok) {
+                failureStage = "delay route CLAP sparse propagation";
+                // The v10 migration fixture left only physical rows 3 and 7
+                // active. Engage routing after migration and verify that an
+                // impulse on node 3 reaches node 7, not a contiguous-prefix
+                // substitute.
+                ok = clickRouteSlider(0u, 0.90)
+                    && clickRouteSlider(2u, 0.01)
+                    && clickRouteSlider(3u, 0.01);
+                const uint32_t activeRouteTail = delayTail->get(plugin);
+                const uint32_t audioChannels = std::strcmp(
+                        pluginId,
+                        "org.s3g.s3g-dsp.delay-processor-24ch") == 0
+                    ? 24u : 8u;
+                constexpr uint32_t audioFrames = 128u;
+                std::vector<std::array<float, audioFrames>> audioInput(
+                    audioChannels);
+                std::vector<std::array<float, audioFrames>> audioOutput(
+                    audioChannels);
+                std::vector<float*> inputPointers(audioChannels, nullptr);
+                std::vector<float*> outputPointers(audioChannels, nullptr);
+                for (uint32_t channel = 0u;
+                     channel < audioChannels; ++channel) {
+                    inputPointers[channel] = audioInput[channel].data();
+                    outputPointers[channel] = audioOutput[channel].data();
+                }
+                clap_audio_buffer_t inputBuffer {};
+                inputBuffer.data32 = inputPointers.data();
+                inputBuffer.channel_count = audioChannels;
+                clap_audio_buffer_t outputBuffer {};
+                outputBuffer.data32 = outputPointers.data();
+                outputBuffer.channel_count = audioChannels;
+                clap_process_t processBlock {};
+                processBlock.frames_count = audioFrames;
+                processBlock.audio_inputs = &inputBuffer;
+                processBlock.audio_outputs = &outputBuffer;
+                processBlock.audio_inputs_count = 1u;
+                processBlock.audio_outputs_count = 1u;
+                ok = ok && activeRouteTail > 0u
+                    && activeRouteTail
+                        < static_cast<uint32_t>(
+                            std::numeric_limits<int32_t>::max())
+                    && plugin->activate(plugin, 48000.0, 1u, audioFrames)
+                    && plugin->start_processing(plugin);
+                float remotePeak = 0.0f;
+                uint32_t residualTail = 0u;
+                for (uint32_t block = 0u; ok && block < 36u; ++block) {
+                    for (auto& channel : audioInput) channel.fill(0.0f);
+                    for (auto& channel : audioOutput) channel.fill(0.0f);
+                    if (block == 0u) audioInput[2][0] = 0.5f;
+                    ok = plugin->process(plugin, &processBlock)
+                        != CLAP_PROCESS_ERROR;
+                    if (block == 10u) {
+                        ok = ok && clickRouteSlider(0u, 0.0);
+                        residualTail = delayTail->get(plugin);
+                    }
+                    if (block >= 11u) {
+                        for (float sample : audioOutput[6]) {
+                            remotePeak = std::max(
+                                remotePeak, std::fabs(sample));
+                        }
+                    }
+                }
+                plugin->stop_processing(plugin);
+                plugin->deactivate(plugin);
+                ok = ok && remotePeak > 0.000001f
+                    && residualTail > 0u
+                    && residualTail
+                        < static_cast<uint32_t>(
+                            std::numeric_limits<int32_t>::max());
+                if (!ok) {
+                    std::cerr
+                        << "Delay sparse route/residual tail failed: remote/tail="
+                        << remotePeak << "/" << residualTail << "\n";
+                }
+
+                if (ok) {
+                    failureStage = "delay legacy feedback tail high-water";
+                    constexpr clap_id feedbackParam = 2u;
+                    SingleParamEventInput paramEvent;
+                    ok = params->flush != nullptr;
+                    if (ok) {
+                        setSingleParamEvent(paramEvent, routeParam, 0.0);
+                        params->flush(plugin, &paramEvent.events, nullptr);
+                        setSingleParamEvent(paramEvent, feedbackParam, 0.0);
+                        params->flush(plugin, &paramEvent.events, nullptr);
+                    }
+
+                    for (auto& channel : audioInput) channel.fill(0.0f);
+                    for (auto& channel : audioOutput) channel.fill(0.0f);
+                    processBlock.in_events = nullptr;
+                    ok = ok
+                        && plugin->activate(plugin, 48000.0, 1u, audioFrames)
+                        && plugin->start_processing(plugin)
+                        && plugin->process(plugin, &processBlock)
+                            != CLAP_PROCESS_ERROR;
+                    const uint32_t lowFeedbackTail = ok
+                        ? delayTail->get(plugin)
+                        : 0u;
+
+                    setSingleParamEvent(paramEvent, feedbackParam, 0.82);
+                    processBlock.in_events = &paramEvent.events;
+                    ok = ok && plugin->process(plugin, &processBlock)
+                        != CLAP_PROCESS_ERROR;
+                    const uint32_t highFeedbackTail = ok
+                        ? delayTail->get(plugin)
+                        : 0u;
+
+                    setSingleParamEvent(paramEvent, feedbackParam, 0.0);
+                    ok = ok && plugin->process(plugin, &processBlock)
+                        != CLAP_PROCESS_ERROR;
+                    const uint32_t preservedFeedbackTail = ok
+                        ? delayTail->get(plugin)
+                        : 0u;
+                    processBlock.in_events = nullptr;
+                    plugin->stop_processing(plugin);
+                    plugin->deactivate(plugin);
+
+                    const uint32_t finiteTailCeiling = static_cast<uint32_t>(
+                        std::numeric_limits<int32_t>::max());
+                    ok = ok && lowFeedbackTail > 0u
+                        && highFeedbackTail > lowFeedbackTail
+                        && preservedFeedbackTail > lowFeedbackTail
+                        && preservedFeedbackTail <= highFeedbackTail
+                        && preservedFeedbackTail < finiteTailCeiling;
+                    if (!ok) {
+                        std::cerr
+                            << "Delay feedback tail collapsed after automation: "
+                            << lowFeedbackTail << " / " << highFeedbackTail
+                            << " / " << preservedFeedbackTail << "\n";
+                    }
+                }
+                [[scroll contentView] scrollToPoint:NSZeroPoint];
+                [scroll reflectScrolledClipView:[scroll contentView]];
+            }
+        }
+        if (ok && spectralTopology) {
+            failureStage = "spectral slider hit and drag";
+            const auto* spectralTail = static_cast<const clap_plugin_tail_t*>(
+                plugin->get_extension(plugin, CLAP_EXT_TAIL));
+            const uint32_t instantaneousTail = spectralTail && spectralTail->get
+                ? spectralTail->get(plugin)
+                : 0u;
+            // Processor Spectral draws its content in legacy coordinates and
+            // translates the complete content region to the shared 42 px top
+            // inset. Exercise a slider in each control section through AppKit
+            // hit testing so drawing/hit-coordinate drift cannot disable it.
+            const CGFloat legacyContentTop = 34.0;
+            const CGFloat contentTranslation = static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.contentTop
+                - legacyContentTop);
+            const CGFloat trackWidth = static_cast<CGFloat>(
+                s3g::gui_layout::processorTrackWidth(
+                    s3g::gui_layout::kTopologyProcessorColumns.first.width));
+            constexpr clap_id mixParam = 10u;
+            constexpr clap_id outputParam = 11u;
+            constexpr clap_id transientParam = 17u;
+            constexpr clap_id velocityParam = 18u;
+            constexpr clap_id dispersionParam = 19u;
+            constexpr clap_id dampingParam = 20u;
+            constexpr clap_id centroidParam = 45u;
+            auto dragSlider = [&](clap_id id, NSPoint rowPoint,
+                                  double minimum = 0.0,
+                                  double maximum = 1.0) {
+                const NSPoint downPoint = NSMakePoint(
+                    rowPoint.x + trackWidth * 0.25, rowPoint.y);
+                const NSPoint dragPoint = NSMakePoint(
+                    rowPoint.x + trackWidth * 0.75, rowPoint.y);
+                NSView* hitView = [parent hitTest:
+                    [parent convertPoint:downPoint fromView:document]];
+                double clickedValue = -1.0;
+                double draggedValue = -1.0;
+                bool passed = hitView == document;
+                if (passed) {
+                    [hitView mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, downPoint)];
+                    const double expectedClick = minimum
+                        + (maximum - minimum) * 0.25;
+                    passed = params->get_value(plugin, id, &clickedValue)
+                        && std::fabs(clickedValue - expectedClick) < 0.02;
+                }
+                if (passed) {
+                    [hitView mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, dragPoint)];
+                    const double expectedDrag = minimum
+                        + (maximum - minimum) * 0.75;
+                    passed = params->get_value(plugin, id, &draggedValue)
+                        && std::fabs(draggedValue - expectedDrag) < 0.02;
+                    [hitView mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, dragPoint)];
+                }
+                return passed;
+            };
+
+            const CGFloat firstControlX = static_cast<CGFloat>(
+                s3g::gui_layout::processorControlX(
+                    s3g::gui_layout::kTopologyProcessorColumns.first.x));
+            const CGFloat secondControlX = static_cast<CGFloat>(
+                s3g::gui_layout::processorControlX(
+                    s3g::gui_layout::kTopologyProcessorColumns.second.x));
+            const CGFloat firstRowOffset = static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.firstRowOffset);
+            const CGFloat rowPitch = static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.rowPitch);
+            const CGFloat outputRowY = legacyContentTop + firstRowOffset
+                + contentTranslation;
+            const CGFloat mixRowY = legacyContentTop + firstRowOffset
+                + rowPitch + contentTranslation;
+            ok = dragSlider(outputParam,
+                     NSMakePoint(firstControlX, outputRowY), -60.0, 12.0)
+                && dragSlider(mixParam,
+                     NSMakePoint(firstControlX, mixRowY));
+
+            if (ok) {
+                [[scroll contentView] scrollToPoint:NSMakePoint(0.0, 220.0)];
+                [scroll reflectScrolledClipView:[scroll contentView]];
+                const CGFloat enginePanelY = legacyContentTop + 80.0
+                    + s3g::gui_layout::kStandardMetrics.panelGap;
+                const CGFloat transientRowY = enginePanelY + firstRowOffset
+                    + 13.0 * rowPitch + contentTranslation;
+                const CGFloat centroidRowY = legacyContentTop + firstRowOffset
+                    + 15.0 * rowPitch + contentTranslation;
+                const CGFloat propagationPanelY = legacyContentTop
+                    + s3g::gui_layout::toolboxHeightForRows(16u)
+                    + s3g::gui_layout::kStandardMetrics.panelGap;
+                const CGFloat velocityRowY = propagationPanelY
+                    + firstRowOffset + contentTranslation;
+                const CGFloat dispersionRowY = velocityRowY + rowPitch;
+                const CGFloat dampingRowY = dispersionRowY + rowPitch;
+                ok = dragSlider(transientParam,
+                         NSMakePoint(firstControlX, transientRowY))
+                    && dragSlider(centroidParam,
+                         NSMakePoint(secondControlX, centroidRowY))
+                    && dragSlider(velocityParam,
+                         NSMakePoint(secondControlX, velocityRowY))
+                    && dragSlider(dispersionParam,
+                         NSMakePoint(secondControlX, dispersionRowY), -1.0, 1.0)
+                    && dragSlider(dampingParam,
+                         NSMakePoint(secondControlX, dampingRowY));
+                [[scroll contentView] scrollToPoint:NSZeroPoint];
+                [scroll reflectScrolledClipView:[scroll contentView]];
+            }
+            if (ok) {
+                failureStage = "spectral propagation tail";
+                constexpr uint32_t propagationSpanSamples = 127u * 512u;
+                const uint32_t delayedTail = spectralTail && spectralTail->get
+                    ? spectralTail->get(plugin)
+                    : 0u;
+                ok = spectralTail && delayedTail > instantaneousTail
+                    && delayedTail - instantaneousTail
+                        >= 3u * propagationSpanSamples;
+                if (!ok) {
+                    std::cerr << "Spectral propagation tail did not cover "
+                        "recirculation: immediate/delayed="
+                        << instantaneousTail << "/" << delayedTail << "\n";
+                }
+            }
+        }
+        if (ok && waveGeometry) {
+            failureStage = "wave mesh slider hit and drag";
+            const auto* waveTail = static_cast<const clap_plugin_tail_t*>(
+                plugin->get_extension(plugin, CLAP_EXT_TAIL));
+            const uint32_t localTail = waveTail && waveTail->get
+                ? waveTail->get(plugin)
+                : 1u;
+            const uint32_t minimumTapeTail = 72000u;
+            ok = waveTail && waveTail->get
+                && localTail >= minimumTapeTail;
+            if (!ok) {
+                std::cerr << "Wave Geometry tail does not cover its tape ring: "
+                          << localTail << "\n";
+            }
+            // Wave Geometry uses the same translated legacy content space as
+            // the other topology processors. Exercise output, topology, and
+            // every mesh row through actual AppKit hit testing.
+            const CGFloat legacyContentTop = 34.0;
+            const CGFloat contentTranslation = static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.contentTop
+                - legacyContentTop);
+            const CGFloat trackWidth = static_cast<CGFloat>(
+                s3g::gui_layout::processorTrackWidth(
+                    s3g::gui_layout::kTopologyProcessorColumns.first.width));
+            const CGFloat firstControlX = static_cast<CGFloat>(
+                s3g::gui_layout::processorControlX(
+                    s3g::gui_layout::kTopologyProcessorColumns.first.x));
+            const CGFloat secondControlX = static_cast<CGFloat>(
+                s3g::gui_layout::processorControlX(
+                    s3g::gui_layout::kTopologyProcessorColumns.second.x));
+            const CGFloat firstRowOffset = static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.firstRowOffset);
+            const CGFloat rowPitch = static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.rowPitch);
+            constexpr clap_id outputParam = 11u;
+            constexpr clap_id couplingParam = 17u;
+            constexpr clap_id tensionParam = 18u;
+            constexpr clap_id decayParam = 19u;
+            constexpr clap_id dampingParam = 20u;
+            constexpr clap_id centroidParam = 45u;
+            auto dragSlider = [&](clap_id id, NSPoint rowPoint,
+                                  double minimum = 0.0,
+                                  double maximum = 1.0) {
+                const NSPoint downPoint = NSMakePoint(
+                    rowPoint.x + trackWidth * 0.25, rowPoint.y);
+                const NSPoint dragPoint = NSMakePoint(
+                    rowPoint.x + trackWidth * 0.75, rowPoint.y);
+                NSView* hitView = [parent hitTest:
+                    [parent convertPoint:downPoint fromView:document]];
+                double clickedValue = -1.0;
+                double draggedValue = -1.0;
+                bool passed = hitView == document;
+                if (passed) {
+                    [hitView mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, downPoint)];
+                    const double expectedClick = minimum
+                        + (maximum - minimum) * 0.25;
+                    passed = params->get_value(plugin, id, &clickedValue)
+                        && std::fabs(clickedValue - expectedClick) < 0.02;
+                }
+                if (passed) {
+                    [hitView mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, dragPoint)];
+                    const double expectedDrag = minimum
+                        + (maximum - minimum) * 0.75;
+                    passed = params->get_value(plugin, id, &draggedValue)
+                        && std::fabs(draggedValue - expectedDrag) < 0.02;
+                    [hitView mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, dragPoint)];
+                }
+                return passed;
+            };
+            auto clickSliderAt = [&](clap_id id, NSPoint rowPoint,
+                                     double normalized) {
+                const NSPoint point = NSMakePoint(
+                    rowPoint.x + trackWidth * normalized, rowPoint.y);
+                NSView* hitView = [parent hitTest:
+                    [parent convertPoint:point fromView:document]];
+                if (hitView != document) return false;
+                [hitView mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, point)];
+                [hitView mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, point)];
+                double value = -1.0;
+                return params->get_value(plugin, id, &value)
+                    && std::fabs(value - normalized) < 0.02;
+            };
+
+            const CGFloat outputRowY = legacyContentTop + firstRowOffset
+                + contentTranslation;
+            ok = dragSlider(outputParam,
+                NSMakePoint(firstControlX, outputRowY), -60.0, 12.0);
+            if (ok) {
+                [[scroll contentView] scrollToPoint:NSMakePoint(0.0, 170.0)];
+                [scroll reflectScrolledClipView:[scroll contentView]];
+                const CGFloat topologyHeight = static_cast<CGFloat>(
+                    s3g::gui_layout::toolboxHeightForRows(16u));
+                const CGFloat meshPanelY = legacyContentTop + topologyHeight
+                    + static_cast<CGFloat>(
+                        s3g::gui_layout::kStandardMetrics.panelGap);
+                const CGFloat couplingRowY = meshPanelY + firstRowOffset
+                    + contentTranslation;
+                const CGFloat centroidRowY = legacyContentTop + firstRowOffset
+                    + 15.0 * rowPitch + contentTranslation;
+                const std::array<NSPoint, 4u> meshRows {
+                    NSMakePoint(secondControlX, couplingRowY),
+                    NSMakePoint(secondControlX, couplingRowY + rowPitch),
+                    NSMakePoint(secondControlX, couplingRowY + 2.0 * rowPitch),
+                    NSMakePoint(secondControlX, couplingRowY + 3.0 * rowPitch),
+                };
+                constexpr std::array<clap_id, 4u> meshParams {
+                    couplingParam, tensionParam, decayParam, dampingParam,
+                };
+                ok = dragSlider(couplingParam,
+                         meshRows[0])
+                    && dragSlider(tensionParam,
+                         meshRows[1])
+                    && dragSlider(decayParam,
+                         meshRows[2])
+                    && dragSlider(dampingParam,
+                         meshRows[3])
+                    && dragSlider(centroidParam,
+                         NSMakePoint(secondControlX, centroidRowY));
+
+                if (ok) {
+                    failureStage = "wave mesh state and tail";
+                    const uint32_t meshTail = waveTail->get(plugin);
+                    const auto* state = static_cast<const clap_plugin_state_t*>(
+                        plugin->get_extension(plugin, CLAP_EXT_STATE));
+                    MemoryPluginState savedState;
+                    clap_ostream_t outputState { &savedState, stateWrite };
+                    std::array<double, meshParams.size()> expected {};
+                    ok = meshTail > localTail && state && state->save && state->load;
+                    for (size_t i = 0u; ok && i < meshParams.size(); ++i) {
+                        ok = params->get_value(
+                            plugin, meshParams[i], &expected[i]);
+                    }
+                    char tensionText[32] {};
+                    double parsedTension = -1.0;
+                    ok = ok && params->value_to_text(
+                            plugin, tensionParam, expected[1],
+                            tensionText, sizeof(tensionText))
+                        && params->text_to_value(
+                            plugin, tensionParam, tensionText,
+                            &parsedTension)
+                        && std::fabs(parsedTension - expected[1]) < 0.000001;
+                    ok = ok && state->save(plugin, &outputState)
+                        && !savedState.bytes.empty();
+                    for (size_t i = 0u; ok && i < meshParams.size(); ++i) {
+                        ok = clickSliderAt(meshParams[i], meshRows[i], 0.10);
+                    }
+                    savedState.offset = 0u;
+                    clap_istream_t inputState { &savedState, stateRead };
+                    ok = ok && state->load(plugin, &inputState);
+                    for (size_t i = 0u; ok && i < meshParams.size(); ++i) {
+                        double restored = -1.0;
+                        ok = params->get_value(
+                                plugin, meshParams[i], &restored)
+                            && std::fabs(restored - expected[i]) < 0.000001;
+                    }
+                    ok = ok && waveTail->get(plugin) == meshTail;
+                    if (!ok) {
+                        std::cerr << "Wave mesh tail/state round trip failed: local/mesh="
+                                  << localTail << "/" << meshTail << "\n";
+                    }
+
+                    if (ok) {
+                        failureStage = "wave mesh CLAP audio handoff";
+                        constexpr uint32_t audioFrames = 128u;
+                        constexpr uint32_t audioChannels = 8u;
+                        std::array<std::array<float, audioFrames>, audioChannels> audioInput {};
+                        std::array<std::array<float, audioFrames>, audioChannels> audioOutput {};
+                        std::array<float*, audioChannels> inputPointers {};
+                        std::array<float*, audioChannels> outputPointers {};
+                        for (uint32_t channel = 0u; channel < audioChannels; ++channel) {
+                            inputPointers[channel] = audioInput[channel].data();
+                            outputPointers[channel] = audioOutput[channel].data();
+                        }
+                        clap_audio_buffer_t inputBuffer {};
+                        inputBuffer.data32 = inputPointers.data();
+                        inputBuffer.channel_count = audioChannels;
+                        clap_audio_buffer_t outputBuffer {};
+                        outputBuffer.data32 = outputPointers.data();
+                        outputBuffer.channel_count = audioChannels;
+                        clap_process_t processBlock {};
+                        processBlock.frames_count = audioFrames;
+                        processBlock.audio_inputs = &inputBuffer;
+                        processBlock.audio_outputs = &outputBuffer;
+                        processBlock.audio_inputs_count = 1u;
+                        processBlock.audio_outputs_count = 1u;
+                        ok = plugin->activate(plugin, 48000.0, 1u, audioFrames)
+                            && plugin->start_processing(plugin);
+                        float remotePeak = 0.0f;
+                        for (uint32_t block = 0u; ok && block < 40u; ++block) {
+                            for (auto& channel : audioInput) channel.fill(0.0f);
+                            for (auto& channel : audioOutput) channel.fill(0.0f);
+                            if (block == 0u) audioInput[0][0] = 0.35f;
+                            ok = plugin->process(plugin, &processBlock)
+                                != CLAP_PROCESS_ERROR;
+                            for (uint32_t channel = 1u; channel < audioChannels; ++channel) {
+                                for (float sample : audioOutput[channel]) {
+                                    remotePeak = std::max(remotePeak, std::fabs(sample));
+                                }
+                            }
+                        }
+                        plugin->stop_processing(plugin);
+                        plugin->deactivate(plugin);
+                        ok = ok && remotePeak > 0.000001f;
+                        if (!ok) {
+                            std::cerr << "Wave mesh atomic parameter handoff did not reach a remote lane: "
+                                      << remotePeak << "\n";
+                        }
+                        if (ok) {
+                            failureStage = "wave mesh residual tail";
+                            ok = clickSliderAt(
+                                    couplingParam, meshRows[0], 0.0)
+                                && waveTail->get(plugin) > localTail;
+                            if (!ok) {
+                                std::cerr << "Wave mesh residual tail was dropped when COUP reached zero\n";
+                            }
+                        }
+                    }
+                }
+                [[scroll contentView] scrollToPoint:NSZeroPoint];
+                [scroll reflectScrolledClipView:[scroll contentView]];
+            }
+        }
+        if (ok && topologyProcessor) {
+            failureStage = "topology field interaction";
+            const NSRect fieldPanel = s3g::clap_gui::cocoaRect(
+                s3g::gui_layout::kTopologyProcessorColumns.field);
+            const NSRect fieldContent =
+                s3g::clap_gui::topologyProcessorFieldContentRect(
+                    fieldPanel);
+            auto clickRect = [&](NSRect rect) {
+                const NSPoint point = NSMakePoint(
+                    NSMidX(rect), NSMidY(rect));
+                NSView* hitView = [parent hitTest:
+                    [parent convertPoint:point fromView:document]];
+                if (hitView != document) return false;
+                [hitView mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, point)];
+                [hitView mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, point)];
+                return true;
+            };
+
+            @try {
+                ok = clickRect(
+                        s3g::clap_gui::topologyProcessorCameraButtonRect(
+                            fieldPanel, 0u))
+                    && [[document valueForKey:@"cameraView"] intValue]
+                        == 0;
+                const NSPoint dragStart = NSMakePoint(
+                    fieldContent.origin.x + 180.0,
+                    fieldContent.origin.y + 240.0);
+                const NSPoint dragEnd = NSMakePoint(
+                    dragStart.x + 42.0, dragStart.y + 28.0);
+                NSView* dragView = [parent hitTest:
+                    [parent convertPoint:dragStart fromView:document]];
+                if (ok && dragView == document) {
+                    [dragView mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, dragStart)];
+                    [dragView mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, dragEnd)];
+                    [dragView mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, dragEnd)];
+                    ok = [[document valueForKey:@"cameraView"] intValue]
+                        == -1;
+                } else {
+                    ok = false;
+                }
+
+                ok = ok && clickRect(
+                        s3g::clap_gui::topologyProcessorFieldPageButtonRect(
+                            fieldPanel, 1u))
+                    && [[document valueForKey:@"fieldPage"] intValue]
+                        == 1;
+                NSData* secondPage = ok
+                    ? [document dataWithPDFInsideRect:[document bounds]]
+                    : nil;
+                ok = ok && secondPage && [secondPage length] > 0u;
+                const char* captureDirectory = std::getenv(
+                    "S3G_GUI_SMOKE_PDF_DIR");
+                if (ok && captureDirectory && captureDirectory[0]) {
+                    NSString* directory = [NSString
+                        stringWithUTF8String:captureDirectory];
+                    [[NSFileManager defaultManager]
+                        createDirectoryAtPath:directory
+                        withIntermediateDirectories:YES
+                        attributes:nil
+                        error:nil];
+                    NSString* pageName = [[NSString
+                        stringWithFormat:@"%s.page2", pluginId]
+                        stringByAppendingPathExtension:@"pdf"];
+                    ok = [secondPage writeToFile:
+                        [directory stringByAppendingPathComponent:pageName]
+                        atomically:YES];
+                }
+
+                ok = ok && clickRect(
+                        s3g::clap_gui::topologyProcessorFieldPageButtonRect(
+                            fieldPanel, 0u))
+                    && clickRect(
+                        s3g::clap_gui::topologyProcessorCameraButtonRect(
+                            fieldPanel, 2u))
+                    && [[document valueForKey:@"fieldPage"] intValue]
+                        == 0
+                    && [[document valueForKey:@"cameraView"] intValue]
+                        == 2;
+            } @catch (NSException*) {
+                ok = false;
+            }
+        }
         if (ok) failureStage = "render";
         if (ok) {
             NSData* rendered = [document dataWithPDFInsideRect:[document bounds]];
@@ -357,13 +1505,21 @@ int main(int argc, char** argv)
         }
         if (ok && responsive
             && (testWidth < nativeWidth || testHeight < nativeHeight)) {
-            [[scroll contentView] scrollToPoint:NSMakePoint(120.0, 70.0)];
+            [[scroll contentView] scrollToPoint:NSMakePoint(
+                testWidth < nativeWidth ? 120.0 : 0.0,
+                testHeight < nativeHeight ? 70.0 : 0.0)];
             [scroll reflectScrolledClipView:[scroll contentView]];
             const NSPoint origin = [[scroll contentView] bounds].origin;
-            ok = origin.x > 100.0 && origin.y > 50.0;
+            ok = (testWidth < nativeWidth
+                    ? origin.x > 100.0 : origin.x < 1.0)
+                && (testHeight < nativeHeight
+                    ? origin.y > 50.0 : origin.y < 1.0);
         }
         if (ok) failureStage = "show and hide";
         ok = ok && gui->show(plugin) && gui->hide(plugin);
+        if (ok && parameterSurfacePanel) {
+            ok = ![parameterSurfacePanel isVisible];
+        }
 
         gui->destroy(plugin);
         [parent release];

@@ -1,5 +1,6 @@
 #include "s3g_ambi_wrangler_encoder.h"
 #include "s3g_ambi_wrangler_presets.h"
+#include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
@@ -11,6 +12,7 @@
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
+#include "../common/s3g_parameter_surface_cocoa.h"
 #endif
 
 #include <algorithm>
@@ -21,15 +23,16 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <new>
 #include <vector>
 
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiWranglerMaxChannels;
-constexpr uint32_t kStateVersion = 14;
+constexpr uint32_t kStateVersion = 17;
 constexpr uint32_t kCustomPresetMagic = 0x33505741u; // AWP3
-constexpr uint32_t kCustomPresetVersion = 11;
+constexpr uint32_t kCustomPresetVersion = 12;
 constexpr double kMinimumSampleRate = 1000.0;
 constexpr double kMaximumSampleRate = 384000.0;
 constexpr uint32_t kMaximumActivationFrames = 1u << 20u;
@@ -96,10 +99,39 @@ constexpr clap_id kSettleAmountParamId = 59;
 constexpr clap_id kSettleTargetParamId = 60;
 constexpr clap_id kSettleRecoveryParamId = 61;
 constexpr clap_id kFilterMorphParamId = 62;
+constexpr clap_id kSurfaceXParamId = 63;
+constexpr clap_id kSurfaceYParamId = 64;
+
+using WranglerSurface =
+    s3g::ParameterSurfaceState<s3g::AmbiWranglerParams>;
 
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::AmbiWranglerParams params {};
+    uint32_t presetIndex = 0u;
+    char customPresetName[64] {};
+    WranglerSurface surface {};
+};
+
+struct LegacySavedStateV16 {
+    uint32_t version = 16u;
+    s3g::AmbiWranglerParams params {};
+    uint32_t presetIndex = 0u;
+    char customPresetName[64] {};
+    s3g::ParameterSurfaceStateV2<s3g::AmbiWranglerParams> surface {};
+};
+
+struct LegacySavedStateV15 {
+    uint32_t version = 15u;
+    s3g::AmbiWranglerParams params {};
+    uint32_t presetIndex = 0u;
+    char customPresetName[64] {};
+    s3g::ParameterSurfaceStateV1<s3g::AmbiWranglerParams> surface {};
+};
+
+struct LegacySavedStateV14 {
+    uint32_t version = 14u;
+    std::array<uint8_t, 6392u> params {};
     uint32_t presetIndex = 0u;
     char customPresetName[64] {};
 };
@@ -114,10 +146,11 @@ struct CustomPresetFile {
 static_assert(offsetof(s3g::AmbiWranglerParams, bpColorA) == 3576u);
 static_assert(sizeof(s3g::AmbiWranglerParams)
     == offsetof(s3g::AmbiWranglerParams, bpColorA)
-        + sizeof(std::array<float, s3g::kAmbiWranglerMaxVoices>) * 11u);
-static_assert(sizeof(s3g::AmbiWranglerParams) == 6392u);
-static_assert(sizeof(SavedState) == 6464u);
-static_assert(sizeof(CustomPresetFile) == 6464u);
+        + sizeof(std::array<float, s3g::kAmbiWranglerMaxVoices>) * 11u
+        + sizeof(float) * 2u);
+static_assert(sizeof(s3g::AmbiWranglerParams) == 6400u);
+static_assert(sizeof(LegacySavedStateV14) == 6464u);
+static_assert(sizeof(CustomPresetFile) == 6472u);
 static_assert(offsetof(SavedState, params) == sizeof(uint32_t));
 static_assert(offsetof(CustomPresetFile, params)
     == sizeof(uint32_t) * 2u + 64u);
@@ -134,6 +167,7 @@ struct Plugin {
     // state, and GUI code never call the engine or touch audioParams.
     s3g::AmbiWranglerEncoder engine {};
     s3g::AmbiWranglerParams audioParams {};
+    WranglerSurface audioSurface {};
     uint32_t audioPresetIndex = 0u;
     char audioCustomPresetName[64] {};
     std::array<std::vector<float>, kOutputChannels>
@@ -144,6 +178,7 @@ struct Plugin {
     // lock so every state/GUI query observes one complete parameter snapshot.
     std::atomic_flag controlLock = ATOMIC_FLAG_INIT;
     s3g::AmbiWranglerParams controlParams {};
+    WranglerSurface controlSurface {};
     uint32_t presetIndex = 0u;
     char customPresetName[64] {};
     uint32_t randomSeed = 0x6d2b79f5u;
@@ -155,6 +190,7 @@ struct Plugin {
     // at most one try-acquire and retries next block if the slot is occupied.
     std::atomic_flag paramsMailboxLock = ATOMIC_FLAG_INIT;
     s3g::AmbiWranglerParams paramsMailbox {};
+    WranglerSurface paramsMailboxSurface {};
     uint32_t paramsMailboxPresetIndex = 0u;
     char paramsMailboxCustomPresetName[64] {};
     uint64_t paramsMailboxDirtyMask = 0u;
@@ -162,7 +198,7 @@ struct Plugin {
     bool paramsMailboxPresetMetadataChanged = true;
     std::atomic<uint64_t> paramsMailboxRevision { 0u };
     uint64_t audioMailboxRevision = 0u;
-    std::array<uint64_t, 64u> controlParamEditRevision {};
+    std::array<uint64_t, 65u> controlParamEditRevision {};
     uint64_t controlStructuralEditRevision = 0u;
     uint64_t controlPresetEditRevision = 0u;
 
@@ -175,11 +211,13 @@ struct Plugin {
     char audioReportCustomPresetName[64] {};
     uint64_t audioReportDirtyMask = 0u;
     bool audioReportPresetChanged = false;
+    bool audioReportSurfaceCursorChanged = false;
     uint64_t audioReportMailboxRevision = 0u;
     std::atomic<uint64_t> audioReportRevision { 0u };
     uint64_t controlAudioReportRevision = 0u;
     uint64_t pendingAudioReportDirtyMask = 0u;
     bool pendingAudioReportPresetChanged = false;
+    bool pendingAudioReportSurfaceCursorChanged = false;
 
     std::atomic<float> outputPeak { 0.0f };
 #if defined(__APPLE__)
@@ -243,6 +281,7 @@ private:
 
 struct ControlStateSnapshot {
     s3g::AmbiWranglerParams params {};
+    WranglerSurface surface {};
     uint32_t presetIndex = 0u;
     char customPresetName[64] {};
     uint64_t mailboxRevision = 0u;
@@ -255,6 +294,117 @@ bool assignParam(
 bool paramValueFromParams(
     const s3g::AmbiWranglerParams& params, clap_id id, double& value);
 
+s3g::AmbiWranglerParams wranglerSurfaceParams(
+    const s3g::AmbiWranglerParams& base,
+    const WranglerSurface& surface)
+{
+    if (!surface.enabled || surface.cellCount < 2u) return base;
+    const auto weights = s3g::parameterSurfaceWeights(
+        surface, base.surfaceX, base.surfaceY);
+    if (weights.activeCount < 2u) return base;
+    const auto& nearest = s3g::parameterSurfaceNearestParams(
+        surface, weights, base);
+    auto result = nearest;
+#define S3G_WRANGLER_SURFACE_BLEND(member) \
+    result.member = s3g::parameterSurfaceBlend(surface, weights, \
+        [](const s3g::AmbiWranglerParams& p) { return p.member; }, base.member)
+    S3G_WRANGLER_SURFACE_BLEND(rateA);
+    S3G_WRANGLER_SURFACE_BLEND(rateB);
+    S3G_WRANGLER_SURFACE_BLEND(fmAtoB);
+    S3G_WRANGLER_SURFACE_BLEND(fmBtoA);
+    S3G_WRANGLER_SURFACE_BLEND(runglerA);
+    S3G_WRANGLER_SURFACE_BLEND(runglerB);
+    S3G_WRANGLER_SURFACE_BLEND(pwmA);
+    S3G_WRANGLER_SURFACE_BLEND(pwmB);
+    S3G_WRANGLER_SURFACE_BLEND(rampA);
+    S3G_WRANGLER_SURFACE_BLEND(rampB);
+    S3G_WRANGLER_SURFACE_BLEND(spread);
+    S3G_WRANGLER_SURFACE_BLEND(deviation);
+    S3G_WRANGLER_SURFACE_BLEND(threshold);
+    S3G_WRANGLER_SURFACE_BLEND(color);
+    S3G_WRANGLER_SURFACE_BLEND(filter);
+    S3G_WRANGLER_SURFACE_BLEND(resonance);
+    S3G_WRANGLER_SURFACE_BLEND(filterRun);
+    S3G_WRANGLER_SURFACE_BLEND(filterSweep);
+    S3G_WRANGLER_SURFACE_BLEND(saturation);
+    S3G_WRANGLER_SURFACE_BLEND(field);
+    S3G_WRANGLER_SURFACE_BLEND(maskDepth);
+    S3G_WRANGLER_SURFACE_BLEND(maskRateHz);
+    S3G_WRANGLER_SURFACE_BLEND(topologyRateHz);
+    S3G_WRANGLER_SURFACE_BLEND(topologyAmount);
+    S3G_WRANGLER_SURFACE_BLEND(topologyDepth);
+    S3G_WRANGLER_SURFACE_BLEND(topologyScale);
+    S3G_WRANGLER_SURFACE_BLEND(topologyCollapse);
+    result.centerAzimuthDeg = s3g::parameterSurfaceBlendAngleDegrees(
+        surface, weights,
+        [](const s3g::AmbiWranglerParams& p) { return p.centerAzimuthDeg; },
+        base.centerAzimuthDeg);
+    S3G_WRANGLER_SURFACE_BLEND(centerElevationDeg);
+    S3G_WRANGLER_SURFACE_BLEND(centerDistance);
+    S3G_WRANGLER_SURFACE_BLEND(spatialFollow);
+    S3G_WRANGLER_SURFACE_BLEND(snap);
+    S3G_WRANGLER_SURFACE_BLEND(snapDecay);
+    S3G_WRANGLER_SURFACE_BLEND(change);
+    S3G_WRANGLER_SURFACE_BLEND(filterMorph);
+#define S3G_WRANGLER_SURFACE_BLEND_ARRAY(member) \
+    for (uint32_t voice = 0u; voice < s3g::kAmbiWranglerMaxVoices; ++voice) { \
+        result.member[voice] = s3g::parameterSurfaceBlend(surface, weights, \
+            [voice](const s3g::AmbiWranglerParams& p) { return p.member[voice]; }, \
+            base.member[voice]); \
+    }
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpRateA);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpRateB);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpFmAtoB);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpFmBtoA);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpRunglerA);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpRunglerB);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpFilter);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpThreshold);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpPwmA);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpPwmB);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpRampA);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpRampB);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpAmp);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpColorA);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpColorB);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpFilterFreqB);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpFilterRes);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpFilterComp);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpCrossA);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpCrossB);
+    S3G_WRANGLER_SURFACE_BLEND_ARRAY(bpCrossLpf);
+#undef S3G_WRANGLER_SURFACE_BLEND_ARRAY
+#undef S3G_WRANGLER_SURFACE_BLEND
+    // Routing and listener/audition behavior remain live outside the surface.
+    result.order = base.order;
+    result.outputGainDb = base.outputGainDb;
+    result.listeningEnabled = base.listeningEnabled;
+    result.pickupSet = base.pickupSet;
+    result.listenMode = base.listenMode;
+    result.listenerResponse = base.listenerResponse;
+    result.fieldWrite = base.fieldWrite;
+    result.registerMotion = base.registerMotion;
+    result.fieldReturn = base.fieldReturn;
+    result.propagation = base.propagation;
+    result.returnBypass = base.returnBypass;
+    result.settleAmount = base.settleAmount;
+    result.settleTarget = base.settleTarget;
+    result.settleRecoverySeconds = base.settleRecoverySeconds;
+    result.surfaceX = base.surfaceX;
+    result.surfaceY = base.surfaceY;
+    result.engines = result.voices;
+    return result;
+}
+
+void applyAudioSurface(Plugin& plugin)
+{
+    plugin.engine.setParameterSurfaceGlideMs(
+        plugin.audioSurface.enabled && plugin.audioSurface.cellCount >= 2u
+            ? plugin.audioSurface.glideMs : 0.0f);
+    plugin.engine.setParams(
+        wranglerSurfaceParams(plugin.audioParams, plugin.audioSurface));
+}
+
 void publishControlParamsLocked(Plugin& plugin)
 {
     // `engines` is retained only to keep the core struct layout simple. It is
@@ -263,6 +413,7 @@ void publishControlParamsLocked(Plugin& plugin)
     plugin.controlParams.engines = plugin.controlParams.voices;
     AtomicFlagGuard mailboxGuard(plugin.paramsMailboxLock);
     plugin.paramsMailbox = plugin.controlParams;
+    plugin.paramsMailboxSurface = plugin.controlSurface;
     plugin.paramsMailboxPresetIndex = plugin.presetIndex;
     std::snprintf(plugin.paramsMailboxCustomPresetName,
         sizeof(plugin.paramsMailboxCustomPresetName), "%s",
@@ -300,7 +451,7 @@ void publishControlParamDeltasLocked(
         plugin.paramsMailboxRevision.fetch_add(
             1u, std::memory_order_release) + 1u;
     for (clap_id id = 0u;
-        id < plugin.controlParamEditRevision.size(); ++id) {
+        id < 64u; ++id) {
         if ((dirtyMask & (uint64_t { 1u } << id)) != 0u) {
             plugin.controlParamEditRevision[id] = revision;
         }
@@ -336,6 +487,7 @@ bool tryConsumeControlParams(Plugin& plugin)
     if (consumed) {
         if (plugin.paramsMailboxFullReplace) {
             plugin.audioParams = plugin.paramsMailbox;
+            plugin.audioSurface = plugin.paramsMailboxSurface;
             plugin.audioPresetIndex = plugin.paramsMailboxPresetIndex;
             std::memcpy(plugin.audioCustomPresetName,
                 plugin.paramsMailboxCustomPresetName,
@@ -742,16 +894,23 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
     FILE* handle = std::fopen(path, "rb");
     if (!handle) return false;
     file = {};
-    const bool ok =
-        std::fread(&file.magic, 1, sizeof(file.magic), handle)
+    bool ok = std::fread(&file.magic, 1, sizeof(file.magic), handle)
             == sizeof(file.magic)
-        && std::fread(&file.version, 1, sizeof(file.version), handle) == sizeof(file.version)
+        && std::fread(&file.version, 1, sizeof(file.version), handle)
+            == sizeof(file.version)
         && file.magic == kCustomPresetMagic
-        && file.version == kCustomPresetVersion
+        && (file.version == kCustomPresetVersion || file.version == 11u)
         && std::fread(file.name, 1, sizeof(file.name), handle)
-            == sizeof(file.name)
-        && std::fread(&file.params, 1, sizeof(file.params), handle)
+            == sizeof(file.name);
+    if (ok && file.version == kCustomPresetVersion) {
+        ok = std::fread(&file.params, 1, sizeof(file.params), handle)
             == sizeof(file.params);
+    } else if (ok) {
+        std::array<uint8_t, 6392u> legacyParams {};
+        ok = std::fread(legacyParams.data(), 1, legacyParams.size(), handle)
+            == legacyParams.size();
+        if (ok) std::memcpy(&file.params, legacyParams.data(), legacyParams.size());
+    }
     file.name[sizeof(file.name) - 1u] = '\0';
     std::fclose(handle);
     return ok;
@@ -1134,6 +1293,8 @@ bool assignParam(s3g::AmbiWranglerParams& params, clap_id id, double value)
         params.filterMorph = static_cast<float>(
             std::clamp(value * 0.5, 0.0, 1.0));
         return true;
+    case kSurfaceXParamId: params.surfaceX = static_cast<float>(value); return true;
+    case kSurfaceYParamId: params.surfaceY = static_cast<float>(value); return true;
     default: return false;
     }
 }
@@ -1246,9 +1407,22 @@ void mergeAudioReportLocked(Plugin& plugin)
         plugin.audioReportDirtyMask,
         plugin.audioReportPresetChanged,
         plugin.audioReportMailboxRevision);
+    if (plugin.audioReportSurfaceCursorChanged) {
+        if (controlEditRevisionForParam(plugin, kSurfaceXParamId)
+            <= plugin.audioReportMailboxRevision) {
+            plugin.controlParams.surfaceX =
+                plugin.audioReportParams.surfaceX;
+        }
+        if (controlEditRevisionForParam(plugin, kSurfaceYParamId)
+            <= plugin.audioReportMailboxRevision) {
+            plugin.controlParams.surfaceY =
+                plugin.audioReportParams.surfaceY;
+        }
+    }
     plugin.controlAudioReportRevision = revision;
     plugin.audioReportDirtyMask = 0u;
     plugin.audioReportPresetChanged = false;
+    plugin.audioReportSurfaceCursorChanged = false;
 }
 
 ControlStateSnapshot controlStateSnapshot(Plugin& plugin)
@@ -1257,6 +1431,7 @@ ControlStateSnapshot controlStateSnapshot(Plugin& plugin)
     mergeAudioReportLocked(plugin);
     ControlStateSnapshot snapshot {};
     snapshot.params = plugin.controlParams;
+    snapshot.surface = plugin.controlSurface;
     snapshot.presetIndex = plugin.presetIndex;
     snapshot.mailboxRevision =
         plugin.paramsMailboxRevision.load(
@@ -1277,15 +1452,20 @@ void applyControlParam(Plugin& plugin, clap_id id, double value)
         publishControlParamsLocked(plugin);
         return;
     }
-    if (assignParam(plugin.controlParams, id, value) && id < 64u) {
-        publishControlParamDeltasLocked(
-            plugin, uint64_t { 1u } << id);
+    if (assignParam(plugin.controlParams, id, value)) {
+        if (id == kSurfaceXParamId || id == kSurfaceYParamId) {
+            publishControlParamsLocked(plugin);
+        } else if (id < 64u) {
+            publishControlParamDeltasLocked(
+                plugin, uint64_t { 1u } << id);
+        }
     }
 }
 
 void replaceControlState(
     Plugin& plugin, const s3g::AmbiWranglerParams& params,
-    uint32_t presetIndex, const char* customPresetName)
+    uint32_t presetIndex, const char* customPresetName,
+    const WranglerSurface* surface = nullptr)
 {
     AtomicFlagGuard controlGuard(plugin.controlLock);
     mergeAudioReportLocked(plugin);
@@ -1295,7 +1475,114 @@ void replaceControlState(
     std::snprintf(plugin.customPresetName,
         sizeof(plugin.customPresetName), "%s",
         customPresetName ? customPresetName : "");
+    if (surface) {
+        plugin.controlSurface = *surface;
+        s3g::sanitizeParameterSurface(plugin.controlSurface);
+    }
     publishControlParamsLocked(plugin);
+}
+
+bool addControlSurfaceCell(Plugin& plugin)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    const bool added = s3g::addParameterSurfaceCell(
+        plugin.controlSurface, plugin.controlParams,
+        static_cast<int32_t>(plugin.presetIndex),
+        plugin.customPresetName[0] ? plugin.customPresetName
+            : s3g::ambiWranglerFactoryPresetInfo(plugin.presetIndex).name);
+    if (added) publishControlParamsLocked(plugin);
+    return added;
+}
+
+bool removeControlSurfaceCell(Plugin& plugin, uint32_t index)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    const bool removed = s3g::removeParameterSurfaceCell(
+        plugin.controlSurface, index);
+    if (removed) publishControlParamsLocked(plugin);
+    return removed;
+}
+
+bool captureControlSurfaceCell(Plugin& plugin, uint32_t index)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    if (index >= plugin.controlSurface.cellCount) return false;
+    auto& cell = plugin.controlSurface.cells[index];
+    cell.params = plugin.controlParams;
+    cell.presetIndex = static_cast<int32_t>(plugin.presetIndex);
+    const char* name = plugin.customPresetName[0] ? plugin.customPresetName
+        : s3g::ambiWranglerFactoryPresetInfo(plugin.presetIndex).name;
+    std::snprintf(cell.name, sizeof(cell.name), "%s", name);
+    publishControlParamsLocked(plugin);
+    return true;
+}
+
+bool setControlSurfaceCellPreset(
+    Plugin& plugin, uint32_t cellIndex, uint32_t presetIndex)
+{
+    if (presetIndex >= s3g::kAmbiWranglerFactoryPresetCount) return false;
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    if (cellIndex >= plugin.controlSurface.cellCount) return false;
+    auto& cell = plugin.controlSurface.cells[cellIndex];
+    cell.params = s3g::ambiWranglerFactoryPreset(presetIndex);
+    cell.presetIndex = static_cast<int32_t>(presetIndex);
+    std::snprintf(cell.name, sizeof(cell.name), "%s",
+        s3g::ambiWranglerFactoryPresetInfo(presetIndex).name);
+    publishControlParamsLocked(plugin);
+    return true;
+}
+
+void setControlSurfaceEnabled(Plugin& plugin, bool enabled)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    plugin.controlSurface.enabled = enabled
+        && plugin.controlSurface.cellCount >= 2u ? 1u : 0u;
+    publishControlParamsLocked(plugin);
+}
+
+void setControlSurfaceFocus(Plugin& plugin, float focus)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    plugin.controlSurface.focus = std::clamp(focus, 0.25f, 8.0f);
+    publishControlParamsLocked(plugin);
+}
+
+void setControlSurfaceCurve(
+    Plugin& plugin, s3g::ParameterSurfaceCurve curve)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    plugin.controlSurface.curve = static_cast<s3g::ParameterSurfaceCurve>(
+        std::min<uint32_t>(static_cast<uint32_t>(curve),
+            s3g::kParameterSurfaceCurveCount - 1u));
+    publishControlParamsLocked(plugin);
+}
+
+void setControlSurfaceGlide(Plugin& plugin, float glideMs)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    plugin.controlSurface.glideMs = std::clamp(
+        glideMs, 0.0f, 2000.0f);
+    publishControlParamsLocked(plugin);
+}
+
+bool setControlSurfaceCellPosition(
+    Plugin& plugin, uint32_t index, float x, float y)
+{
+    AtomicFlagGuard controlGuard(plugin.controlLock);
+    mergeAudioReportLocked(plugin);
+    if (index >= plugin.controlSurface.cellCount) return false;
+    plugin.controlSurface.cells[index].x = std::clamp(x, 0.0f, 1.0f);
+    plugin.controlSurface.cells[index].y = std::clamp(y, 0.0f, 1.0f);
+    publishControlParamsLocked(plugin);
+    return true;
 }
 
 void setControlCustomPresetName(Plugin& plugin, const char* name)
@@ -1358,9 +1645,13 @@ void applyControlEvents(Plugin& plugin, const clap_input_events_t* in)
             fullReplace = true;
         } else if (assignParam(
                 plugin.controlParams,
-                param->param_id, param->value)
-            && param->param_id < 64u) {
-            dirtyMask |= uint64_t { 1u } << param->param_id;
+                param->param_id, param->value)) {
+            if (param->param_id == kSurfaceXParamId
+                || param->param_id == kSurfaceYParamId) {
+                fullReplace = true;
+            } else if (param->param_id < 64u) {
+                dirtyMask |= uint64_t { 1u } << param->param_id;
+            }
         }
     }
     if (fullReplace) {
@@ -1405,6 +1696,7 @@ bool activate(
         }
         const auto snapshot = controlStateSnapshot(*p);
         p->audioParams = snapshot.params;
+        p->audioSurface = snapshot.surface;
         p->audioPresetIndex = snapshot.presetIndex;
         std::snprintf(p->audioCustomPresetName,
             sizeof(p->audioCustomPresetName), "%s",
@@ -1412,6 +1704,7 @@ bool activate(
         p->engine.prepare(sampleRate);
         p->engine.setParams(p->audioParams);
         p->audioParams = p->engine.params();
+        applyAudioSurface(*p);
         {
             AtomicFlagGuard mailboxGuard(p->paramsMailboxLock);
             const uint64_t currentRevision =
@@ -1456,8 +1749,13 @@ void deactivate(const clap_plugin_t* plugin)
         p->pendingAudioReportDirtyMask,
         p->pendingAudioReportPresetChanged,
         p->audioMailboxRevision);
+    if (p->pendingAudioReportSurfaceCursorChanged) {
+        p->controlParams.surfaceX = p->audioParams.surfaceX;
+        p->controlParams.surfaceY = p->audioParams.surfaceY;
+    }
     p->pendingAudioReportDirtyMask = 0u;
     p->pendingAudioReportPresetChanged = false;
+    p->pendingAudioReportSurfaceCursorChanged = false;
     publishControlParamsLocked(*p);
 }
 bool startProcessing(const clap_plugin_t*) { return true; }
@@ -1472,7 +1770,8 @@ void reset(const clap_plugin_t* plugin)
 void publishAudioReportTry(Plugin& plugin)
 {
     if (plugin.pendingAudioReportDirtyMask == 0u
-        && !plugin.pendingAudioReportPresetChanged) {
+        && !plugin.pendingAudioReportPresetChanged
+        && !plugin.pendingAudioReportSurfaceCursorChanged) {
         return;
     }
     if (plugin.audioReportLock.test_and_set(std::memory_order_acquire)) {
@@ -1489,10 +1788,14 @@ void publishAudioReportTry(Plugin& plugin)
     plugin.audioReportPresetChanged =
         plugin.audioReportPresetChanged
         || plugin.pendingAudioReportPresetChanged;
+    plugin.audioReportSurfaceCursorChanged =
+        plugin.audioReportSurfaceCursorChanged
+        || plugin.pendingAudioReportSurfaceCursorChanged;
     plugin.audioReportMailboxRevision =
         plugin.audioMailboxRevision;
     plugin.pendingAudioReportDirtyMask = 0u;
     plugin.pendingAudioReportPresetChanged = false;
+    plugin.pendingAudioReportSurfaceCursorChanged = false;
     plugin.audioReportRevision.fetch_add(1u, std::memory_order_release);
     plugin.audioReportLock.clear(std::memory_order_release);
 }
@@ -1551,8 +1854,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 
         if (eventTime > cursor) {
             if (paramsDirty) {
-                p->engine.setParams(p->audioParams);
-                p->audioParams = p->engine.params();
+                applyAudioSurface(*p);
                 paramsDirty = false;
             }
             renderSpan(cursor, eventTime - cursor);
@@ -1588,7 +1890,10 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
                 timestampDirty = true;
             } else if (assignParam(
                     p->audioParams, param->param_id, param->value)) {
-                if (param->param_id < 64u) {
+                if (param->param_id == kSurfaceXParamId
+                    || param->param_id == kSurfaceYParamId) {
+                    p->pendingAudioReportSurfaceCursorChanged = true;
+                } else if (param->param_id < 64u) {
                     p->pendingAudioReportDirtyMask |=
                         uint64_t { 1u } << param->param_id;
                 }
@@ -1599,11 +1904,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     }
 
     if (paramsDirty) {
-        p->engine.setParams(p->audioParams);
-        p->audioParams = p->engine.params();
+        applyAudioSurface(*p);
     }
     renderSpan(cursor, frames - cursor);
-    p->audioParams = p->engine.params();
     publishAudioReportTry(*p);
 
     if (!hasFloatOutput && canConvertDouble) {
@@ -1763,6 +2066,8 @@ constexpr ParamDef kParams[] {
     { kSettleTargetParamId, "Calm Target", 0.0, 0.95, 0.30, false },
     { kSettleRecoveryParamId, "Capture Recovery", 0.25, 12.0, 3.0, false },
     { kFilterMorphParamId, "DJ Filter Morph", 0.0, 2.0, 0.0, false },
+    { kSurfaceXParamId, "Surface X", 0.0, 1.0, 0.5, false },
+    { kSurfaceYParamId, "Surface Y", 0.0, 1.0, 0.5, false },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
@@ -1788,7 +2093,9 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         | (def.stepped ? CLAP_PARAM_IS_STEPPED : 0);
     std::strncpy(info->name, def.name, sizeof(info->name));
     std::strncpy(info->module,
-        isListenerParamId(def.id)
+        def.id == kSurfaceXParamId || def.id == kSurfaceYParamId
+            ? "Parameter Surface"
+            : isListenerParamId(def.id)
             ? "Field Listener" : "Ambi Wrangler Encoder",
         sizeof(info->module));
     info->min_value = def.min;
@@ -1865,6 +2172,8 @@ bool paramValueFromParams(
     case kFilterMorphParamId:
         *value = static_cast<double>(params.filterMorph) * 2.0;
         return true;
+    case kSurfaceXParamId: *value = params.surfaceX; return true;
+    case kSurfaceYParamId: *value = params.surfaceY; return true;
     default: return false;
     }
 }
@@ -1935,6 +2244,8 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         std::snprintf(display, size, "%.3f Hz", value);
     } else if (id == kAzimuthParamId || id == kElevationParamId) {
         std::snprintf(display, size, "%+.1f deg", value);
+    } else if (id == kSurfaceXParamId || id == kSurfaceYParamId) {
+        std::snprintf(display, size, "%.3f", value);
     } else if (id == kOutputParamId) {
         std::snprintf(display, size, "%+.1f dB", value);
     } else if (id == kRateAParamId || id == kRateBParamId) {
@@ -2165,7 +2476,10 @@ void paramsFlush(
             paramsDirty = true;
         } else if (assignParam(
                 p->audioParams, param->param_id, param->value)) {
-            if (param->param_id < 64u) {
+            if (param->param_id == kSurfaceXParamId
+                || param->param_id == kSurfaceYParamId) {
+                p->pendingAudioReportSurfaceCursorChanged = true;
+            } else if (param->param_id < 64u) {
                 p->pendingAudioReportDirtyMask |=
                     uint64_t { 1u } << param->param_id;
             }
@@ -2173,8 +2487,7 @@ void paramsFlush(
         }
     }
     if (paramsDirty) {
-        p->engine.setParams(p->audioParams);
-        p->audioParams = p->engine.params();
+        applyAudioSurface(*p);
     }
     publishAudioReportTry(*p);
 }
@@ -2193,6 +2506,10 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     std::snprintf(state.customPresetName,
         sizeof(state.customPresetName), "%s",
         snapshot.customPresetName);
+    state.surface = snapshot.surface;
+    for (uint32_t index = 0u; index < state.surface.cellCount; ++index) {
+        canonicalizeParamsPadding(state.surface.cells[index].params);
+    }
     return writeExact(stream, &state, sizeof(state));
 }
 
@@ -2201,20 +2518,65 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!stream || !stream->read) return false;
     uint32_t version = 0u;
     if (!readExact(stream, &version, sizeof(version))) return false;
-    // This format intentionally breaks with the pre-morph layouts. Refuse
-    // them rather than guessing at a raw struct whose semantics changed.
-    if (version != kStateVersion) return false;
-    SavedState state {};
-    state.version = version;
-    if (!readExact(stream,
-            reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
-            sizeof(state) - sizeof(state.version))) {
+    s3g::AmbiWranglerParams loadedParams {};
+    uint32_t loadedPresetIndex = 0u;
+    char loadedPresetName[64] {};
+    WranglerSurface loadedSurface {};
+    if (version == kStateVersion) {
+        SavedState state {};
+        state.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+                sizeof(state) - sizeof(state.version))) return false;
+        state.customPresetName[sizeof(state.customPresetName) - 1u] = '\0';
+        loadedParams = state.params;
+        loadedPresetIndex = state.presetIndex;
+        std::snprintf(loadedPresetName, sizeof(loadedPresetName), "%s",
+            state.customPresetName);
+        loadedSurface = state.surface;
+    } else if (version == 16u) {
+        LegacySavedStateV16 state {};
+        state.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+                sizeof(state) - sizeof(state.version))) return false;
+        state.customPresetName[sizeof(state.customPresetName) - 1u] = '\0';
+        loadedParams = state.params;
+        loadedPresetIndex = state.presetIndex;
+        std::snprintf(loadedPresetName, sizeof(loadedPresetName), "%s",
+            state.customPresetName);
+        loadedSurface = s3g::migrateParameterSurfaceV2(state.surface);
+    } else if (version == 15u) {
+        LegacySavedStateV15 state {};
+        state.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+                sizeof(state) - sizeof(state.version))) return false;
+        state.customPresetName[sizeof(state.customPresetName) - 1u] = '\0';
+        loadedParams = state.params;
+        loadedPresetIndex = state.presetIndex;
+        std::snprintf(loadedPresetName, sizeof(loadedPresetName), "%s",
+            state.customPresetName);
+        loadedSurface = s3g::migrateParameterSurfaceV1(state.surface);
+    } else if (version == 14u) {
+        LegacySavedStateV14 state {};
+        state.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+                sizeof(state) - sizeof(state.version))) return false;
+        state.customPresetName[sizeof(state.customPresetName) - 1u] = '\0';
+        std::memcpy(&loadedParams, state.params.data(), state.params.size());
+        loadedPresetIndex = state.presetIndex;
+        std::snprintf(loadedPresetName, sizeof(loadedPresetName), "%s",
+            state.customPresetName);
+    } else {
         return false;
     }
-    state.customPresetName[sizeof(state.customPresetName) - 1u] = '\0';
+    loadedPresetName[sizeof(loadedPresetName) - 1u] = '\0';
     auto* p = self(plugin);
     replaceControlState(
-        *p, state.params, state.presetIndex, state.customPresetName);
+        *p, loadedParams, loadedPresetIndex, loadedPresetName,
+        &loadedSurface);
     return true;
 }
 
@@ -2390,9 +2752,11 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         * rateModeScaleForDisplay(mode);
 }
 
-@interface S3GAmbiWranglerEncoderView : NSView {
+@interface S3GAmbiWranglerEncoderView : NSView <NSWindowDelegate> {
     Plugin* _plugin;
     s3g::AmbiWranglerParams _paramsSnapshot;
+    s3g::AmbiWranglerParams _displayParamsSnapshot;
+    WranglerSurface _surfaceSnapshot;
     uint32_t _presetIndexSnapshot;
     char _customPresetNameSnapshot[64];
     NSTimer* _timer;
@@ -2414,11 +2778,23 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     int _hoverMenuItem;
     uint32_t _menuItemCount;
     NSRect _openMenuRect;
+    BOOL _surfaceEdit;
+    int _selectedSurfaceCell;
+    int _dragSurfaceCell;
+    BOOL _dragSurfaceCursor;
+    BOOL _surfacePopupChild;
+    S3GAmbiWranglerEncoderView* _surfacePopupOwner;
+    NSPanel* _surfacePanel;
+    S3GAmbiWranglerEncoderView* _surfacePopupView;
+    NSClipView* _surfacePopupClip;
 }
 - (instancetype)initWithPlugin:(Plugin*)plugin;
 - (void)refreshControlSnapshot;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
+- (void)openSurfacePopup;
+- (void)hideSurfacePopup;
+- (void)destroySurfacePopup;
 @end
 
 @implementation S3GAmbiWranglerEncoderView
@@ -2428,6 +2804,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     if (self) {
         _plugin = plugin;
         _paramsSnapshot = {};
+        _displayParamsSnapshot = {};
+        _surfaceSnapshot = {};
         _presetIndexSnapshot = 0u;
         _customPresetNameSnapshot[0] = '\0';
         _timer = nil;
@@ -2449,7 +2827,17 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         _hoverMenuItem = -1;
         _menuItemCount = 0;
         _openMenuRect = NSZeroRect;
+        _surfaceEdit = YES;
+        _selectedSurfaceCell = -1;
+        _dragSurfaceCell = -1;
+        _dragSurfaceCursor = NO;
+        _surfacePopupChild = NO;
+        _surfacePopupOwner = nil;
+        _surfacePanel = nil;
+        _surfacePopupView = nil;
+        _surfacePopupClip = nil;
         [self refreshControlSnapshot];
+        if (_surfaceSnapshot.cellCount > 0u) _selectedSurfaceCell = 0;
         [self setWantsLayer:YES];
     }
     return self;
@@ -2459,6 +2847,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 
 - (void)dealloc
 {
+    if (!_surfacePopupChild) [self destroySurfacePopup];
     [self stopRefreshTimer];
     [super dealloc];
 }
@@ -2477,6 +2866,10 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     if (!_plugin) return;
     const auto snapshot = controlStateSnapshot(*_plugin);
     _paramsSnapshot = snapshot.params;
+    _surfaceSnapshot = snapshot.surface;
+    _displayParamsSnapshot = _surfaceEdit
+        ? _paramsSnapshot
+        : wranglerSurfaceParams(_paramsSnapshot, _surfaceSnapshot);
     _presetIndexSnapshot = snapshot.presetIndex;
     std::snprintf(_customPresetNameSnapshot,
         sizeof(_customPresetNameSnapshot), "%s",
@@ -2572,6 +2965,199 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     const NSRect panel = [self fieldPanelRect];
     return NSMakeRect(panel.origin.x + 98.0 + index * 74.0,
         panel.origin.y + 4.0, 70.0, 13.0);
+}
+
+- (NSRect)surfaceEditRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0, field.origin.y + 10.0, 50.0, 18.0);
+}
+
+- (NSRect)surfaceEnableRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 64.0, field.origin.y + 10.0, 48.0, 18.0);
+}
+
+- (NSRect)surfaceAddRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 116.0, field.origin.y + 10.0, 42.0, 18.0);
+}
+
+- (NSRect)surfaceDeleteRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 162.0, field.origin.y + 10.0, 42.0, 18.0);
+}
+
+- (NSRect)surfaceCaptureRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 208.0, field.origin.y + 10.0, 52.0, 18.0);
+}
+
+- (NSRect)surfacePresetRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 270.0, field.origin.y + 10.0, 174.0, 18.0);
+}
+
+- (NSRect)surfacePopRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 448.0,
+        field.origin.y + 10.0, 26.0, 18.0);
+}
+
+- (NSRect)surfaceFocusMinusRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 178.0, field.origin.y + 38.0, 20.0, 18.0);
+}
+
+- (NSRect)surfaceFocusPlusRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 238.0, field.origin.y + 38.0, 20.0, 18.0);
+}
+
+- (NSRect)surfaceCurveRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0,
+        field.origin.y + 38.0, 112.0, 18.0);
+}
+
+- (NSRect)surfaceGlideMinusRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 326.0,
+        field.origin.y + 38.0, 20.0, 18.0);
+}
+
+- (NSRect)surfaceGlidePlusRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 420.0,
+        field.origin.y + 38.0, 20.0, 18.0);
+}
+
+- (NSRect)surfacePlotRect
+{
+    const NSRect field = [self fieldRect];
+    return NSMakeRect(field.origin.x + 10.0, field.origin.y + 68.0,
+        field.size.width - 20.0, field.size.height - 80.0);
+}
+
+- (void)syncSurfaceEditMode:(BOOL)editing
+{
+    _surfaceEdit = editing;
+    [self refreshControlSnapshot];
+    if (_surfacePopupChild && _surfacePopupOwner) {
+        _surfacePopupOwner->_surfaceEdit = editing;
+        [_surfacePopupOwner refreshControlSnapshot];
+        [_surfacePopupOwner setNeedsDisplay:YES];
+    } else if (_surfacePopupView) {
+        _surfacePopupView->_surfaceEdit = editing;
+        [_surfacePopupView refreshControlSnapshot];
+        [_surfacePopupView setNeedsDisplay:YES];
+    }
+}
+
+- (void)openSurfacePopup
+{
+    if (_surfacePopupChild) return;
+    const NSRect source = [self fieldPanelRect];
+    if (!_surfacePanel) {
+        _surfacePanel = [[NSPanel alloc] initWithContentRect:
+            NSMakeRect(0.0, 0.0, source.size.width, source.size.height)
+            styleMask:(NSWindowStyleMaskTitled
+                | NSWindowStyleMaskClosable
+                | NSWindowStyleMaskUtilityWindow)
+            backing:NSBackingStoreBuffered defer:NO];
+        [_surfacePanel setTitle:@"s3g AMBI ENCODER WRANGLER — SURF"];
+        [_surfacePanel setReleasedWhenClosed:NO];
+        [_surfacePanel setHidesOnDeactivate:YES];
+        [_surfacePanel setDelegate:self];
+
+        _surfacePopupView = [[S3GAmbiWranglerEncoderView alloc]
+            initWithPlugin:_plugin];
+        _surfacePopupView->_surfacePopupChild = YES;
+        _surfacePopupView->_surfacePopupOwner = self;
+        _surfacePopupView->_fieldPage = 3;
+        _surfacePopupView->_surfaceEdit = _surfaceEdit;
+        [_surfacePopupView refreshControlSnapshot];
+        _surfacePopupClip = [[NSClipView alloc] initWithFrame:
+            NSMakeRect(0.0, 0.0, source.size.width, source.size.height)];
+        [_surfacePopupClip setDrawsBackground:NO];
+        [_surfacePopupClip setDocumentView:_surfacePopupView];
+        [_surfacePanel setContentView:_surfacePopupClip];
+        [_surfacePopupClip setBoundsOrigin:source.origin];
+        [_surfacePopupView release];
+        [_surfacePopupClip release];
+
+        NSWindow* parent = [self window];
+        const NSRect parentFrame = parent ? [parent frame]
+            : [[NSScreen mainScreen] visibleFrame];
+        const NSRect panelFrame = [_surfacePanel frame];
+        CGFloat x = NSMaxX(parentFrame) + 8.0;
+        CGFloat y = NSMaxY(parentFrame) - panelFrame.size.height;
+        NSScreen* screen = parent ? [parent screen] : [NSScreen mainScreen];
+        const NSRect visible = screen ? [screen visibleFrame] : parentFrame;
+        if (x + panelFrame.size.width > NSMaxX(visible)) {
+            x = NSMinX(parentFrame) - panelFrame.size.width - 8.0;
+        }
+        [_surfacePanel setFrameOrigin:NSMakePoint(
+            std::max(NSMinX(visible), x),
+            std::clamp(y, NSMinY(visible),
+                std::max(NSMinY(visible), NSMaxY(visible) - panelFrame.size.height)))];
+    }
+    _surfacePopupView->_fieldPage = 3;
+    [self syncSurfaceEditMode:_surfaceEdit];
+    _fieldPage = 0;
+    NSWindow* parent = [self window];
+    NSWindow* previousParent = [_surfacePanel parentWindow];
+    if (previousParent && previousParent != parent) {
+        [previousParent removeChildWindow:_surfacePanel];
+    }
+    if (parent && [_surfacePanel parentWindow] != parent) {
+        [parent addChildWindow:_surfacePanel ordered:NSWindowAbove];
+    }
+    [_surfacePopupView startRefreshTimer];
+    [_surfacePanel makeKeyAndOrderFront:nil];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)hideSurfacePopup
+{
+    if (!_surfacePanel) return;
+    [_surfacePopupView stopRefreshTimer];
+    NSWindow* parent = [_surfacePanel parentWindow];
+    if (parent) [parent removeChildWindow:_surfacePanel];
+    [_surfacePanel orderOut:nil];
+}
+
+- (void)destroySurfacePopup
+{
+    if (!_surfacePanel) return;
+    [_surfacePopupView stopRefreshTimer];
+    [_surfacePanel setDelegate:nil];
+    NSWindow* parent = [_surfacePanel parentWindow];
+    if (parent) [parent removeChildWindow:_surfacePanel];
+    [_surfacePanel orderOut:nil];
+    [_surfacePanel release];
+    _surfacePanel = nil;
+    _surfacePopupView = nil;
+    _surfacePopupClip = nil;
+}
+
+- (void)windowWillClose:(NSNotification*)notification
+{
+    if ([notification object] != _surfacePanel) return;
+    [_surfacePopupView stopRefreshTimer];
+    NSWindow* parent = [_surfacePanel parentWindow];
+    if (parent) [parent removeChildWindow:_surfacePanel];
 }
 
 - (NSRect)listenVoiceRect { return NSMakeRect(112.0, 484.0, 104.0, 15.0); }
@@ -3251,6 +3837,130 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         status, NSMaxX(field) - 4.0, 610.0, valueAttrs, 0.0);
 }
 
+- (NSPoint)surfacePointForCell:(uint32_t)index
+{
+    const NSRect plot = [self surfacePlotRect];
+    if (index >= _surfaceSnapshot.cellCount) return NSZeroPoint;
+    const auto& cell = _surfaceSnapshot.cells[index];
+    return NSMakePoint(plot.origin.x + cell.x * plot.size.width,
+        NSMaxY(plot) - cell.y * plot.size.height);
+}
+
+- (int)hitSurfaceCell:(NSPoint)point
+{
+    if (!NSPointInRect(point, [self surfacePlotRect])) return -1;
+    int best = -1;
+    CGFloat bestDistance = 14.0;
+    for (uint32_t index = 0u; index < _surfaceSnapshot.cellCount; ++index) {
+        const NSPoint site = [self surfacePointForCell:index];
+        const CGFloat distance = std::hypot(point.x - site.x, point.y - site.y);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = static_cast<int>(index);
+        }
+    }
+    return best;
+}
+
+- (void)updateSurfacePosition:(NSPoint)point cursor:(BOOL)cursor
+{
+    if (!_plugin) return;
+    const NSRect plot = [self surfacePlotRect];
+    const float x = static_cast<float>(std::clamp(
+        (point.x - plot.origin.x) / plot.size.width, 0.0, 1.0));
+    const float y = static_cast<float>(std::clamp(
+        (NSMaxY(plot) - point.y) / plot.size.height, 0.0, 1.0));
+    if (cursor) {
+        applyControlParam(*_plugin, kSurfaceXParamId, x);
+        applyControlParam(*_plugin, kSurfaceYParamId, y);
+    } else if (_dragSurfaceCell >= 0) {
+        setControlSurfaceCellPosition(*_plugin,
+            static_cast<uint32_t>(_dragSurfaceCell), x, y);
+    }
+    [self refreshControlSnapshot];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawSurfacePage:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs
+    style:(const s3g::clap_gui::Style&)style
+{
+    const NSRect field = [self fieldRect];
+    const NSRect plot = [self surfacePlotRect];
+    [s3g::clap_gui::color(0x090909) setFill];
+    NSRectFill(field);
+    [s3g::clap_gui::color(0x555555) setStroke];
+    NSFrameRect(field);
+    const NSRect controlHeader = NSMakeRect(field.origin.x, field.origin.y,
+        field.size.width, 36.0);
+    s3g::clap_gui::drawHeaderButton([self surfaceEditRect], controlHeader,
+        _surfaceEdit ? @"EDIT" : @"PLAY", _surfaceEdit, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceEnableRect], controlHeader,
+        _surfaceSnapshot.enabled ? @"ON" : @"OFF", _surfaceSnapshot.enabled,
+        attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceAddRect], controlHeader,
+        @"ADD", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceDeleteRect], controlHeader,
+        @"DEL", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceCaptureRect], controlHeader,
+        @"CAP", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfacePopRect], controlHeader,
+        @"POP", _surfacePopupChild || [_surfacePanel isVisible], attrs, style);
+    const NSRect preset = [self surfacePresetRect];
+    [style.strip setFill];
+    NSRectFill(preset);
+    [style.grid setStroke];
+    NSFrameRect(preset);
+    NSString* cellName = @"SELECT CELL";
+    if (_selectedSurfaceCell >= 0
+        && static_cast<uint32_t>(_selectedSurfaceCell) < _surfaceSnapshot.cellCount) {
+        const auto& cell = _surfaceSnapshot.cells[
+            static_cast<uint32_t>(_selectedSurfaceCell)];
+        if (cell.name[0] != '\0') cellName = [NSString stringWithUTF8String:cell.name];
+    }
+    [cellName drawAtPoint:NSMakePoint(preset.origin.x + 7.0, preset.origin.y + 2.0)
+        withAttributes:valueAttrs];
+    s3g::clap_gui::drawHeaderButton([self surfaceFocusMinusRect], controlHeader,
+        @"-", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceFocusPlusRect], controlHeader,
+        @"+", false, attrs, style);
+    [[NSString stringWithFormat:@"%.2f", _surfaceSnapshot.focus] drawAtPoint:
+        NSMakePoint(field.origin.x + 202.0, field.origin.y + 40.0)
+        withAttributes:valueAttrs];
+    [@"FOCUS" drawAtPoint:NSMakePoint(field.origin.x + 132.0, field.origin.y + 40.0)
+        withAttributes:attrs];
+    const NSRect curve = [self surfaceCurveRect];
+    [style.strip setFill];
+    NSRectFill(curve);
+    [style.grid setStroke];
+    NSFrameRect(curve);
+    [[NSString stringWithFormat:@"CURVE  %s",
+        s3g::parameterSurfaceCurveName(_surfaceSnapshot.curve)]
+        drawAtPoint:NSMakePoint(curve.origin.x + 7.0, curve.origin.y + 2.0)
+        withAttributes:valueAttrs];
+    [@"GLIDE" drawAtPoint:NSMakePoint(field.origin.x + 278.0,
+        field.origin.y + 40.0) withAttributes:attrs];
+    s3g::clap_gui::drawHeaderButton([self surfaceGlideMinusRect], controlHeader,
+        @"-", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self surfaceGlidePlusRect], controlHeader,
+        @"+", false, attrs, style);
+    NSString* glideText = _surfaceSnapshot.glideMs < 0.5f
+        ? @"OFF" : [NSString stringWithFormat:@"%.0f MS",
+            _surfaceSnapshot.glideMs];
+    [glideText drawAtPoint:NSMakePoint(field.origin.x + 350.0,
+        field.origin.y + 40.0) withAttributes:valueAttrs];
+
+    s3g::clap_gui::drawParameterSurfaceVoronoi(
+        _surfaceSnapshot, plot, _paramsSnapshot.surfaceX,
+        _paramsSnapshot.surfaceY, _selectedSurfaceCell, valueAttrs);
+    [[NSString stringWithFormat:@"X %.3f   Y %.3f   /   %u CELLS   /   %@",
+        _paramsSnapshot.surfaceX, _paramsSnapshot.surfaceY,
+        _surfaceSnapshot.cellCount,
+        _surfaceSnapshot.cellCount < 2u ? @"ADD TWO CELLS TO ENABLE" :
+            (_surfaceSnapshot.enabled ? @"INTERPOLATING" : @"BYPASSED")]
+        drawAtPoint:NSMakePoint(plot.origin.x + 8.0, NSMaxY(plot) - 18.0)
+        withAttributes:valueAttrs];
+}
+
 - (void)drawField:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const NSRect panel = [self fieldPanelRect];
@@ -3261,12 +3971,17 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     s3g::clap_gui::drawHeaderButton([self pageButtonRect:0], header, @"FIELD", _fieldPage == 0, attrs, style);
     s3g::clap_gui::drawHeaderButton([self pageButtonRect:1], header, @"CURVE", _fieldPage == 1, attrs, style);
     s3g::clap_gui::drawHeaderButton([self pageButtonRect:2], header, @"LISTEN", _fieldPage == 2, attrs, style);
+    s3g::clap_gui::drawHeaderButton([self pageButtonRect:3], header, @"SURF", _fieldPage == 3, attrs, style);
     if (_fieldPage == 1) {
         [self drawBreakpointEditor:attrs valueAttrs:valueAttrs style:style];
         return;
     }
     if (_fieldPage == 2) {
         [self drawListenerPage:attrs valueAttrs:valueAttrs style:style];
+        return;
+    }
+    if (_fieldPage == 3) {
+        [self drawSurfacePage:attrs valueAttrs:valueAttrs style:style];
         return;
     }
     s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
@@ -3348,7 +4063,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     char display[64] {};
     if (param == kRateAParamId || param == kRateBParamId) {
         const uint32_t mode = param == kRateAParamId
-            ? _paramsSnapshot.rateModeA : _paramsSnapshot.rateModeB;
+            ? _displayParamsSnapshot.rateModeA
+            : _displayParamsSnapshot.rateModeB;
         const double hz = rateNormToHzForDisplay(value, mode);
         if (hz < 1.0) std::snprintf(display, sizeof(display), "%.4f Hz", hz);
         else if (hz < 100.0) std::snprintf(display, sizeof(display), "%.2f Hz", hz);
@@ -3377,7 +4093,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
-    const auto p = _paramsSnapshot;
+    const auto p = _displayParamsSnapshot;
     s3g::clap_gui::drawPanelFrame(kOutputPanel, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, kOutputPanel, attrs, style);
     [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];
@@ -3482,6 +4198,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     case 12: return [self pickupSetRect];
     case 13: return [self listenModeRect];
     case 14: return [self listenerResponseRect];
+    case 15: return _fieldPage == 3 ? [self surfacePresetRect] : NSZeroRect;
+    case 16: return _fieldPage == 3 ? [self surfaceCurveRect] : NSZeroRect;
     default: return NSZeroRect;
     }
 }
@@ -3502,6 +4220,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     case 12: return 2u;
     case 13: return 4u;
     case 14: return 2u;
+    case 15: return s3g::kAmbiWranglerFactoryPresetCount;
+    case 16: return s3g::kParameterSurfaceCurveCount;
     default: return 0u;
     }
 }
@@ -3531,6 +4251,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     static NSString* pickupItems[] = { @"TETRA 4", @"CUBE 8" };
     static NSString* listenItems[] = { @"TRACE", @"RING", @"CROSS", @"BALANCE" };
     static NSString* responseItems[] = { @"WRITE", @"SETTLE" };
+    static NSString* curveItems[] = { @"SOFT", @"LINEAR", @"SMOOTH", @"TIGHT" };
     static NSString* presetItems[s3g::kAmbiWranglerFactoryPresetCount];
     static NSString* shapeItems[s3g::kTopologyShapeCount];
     static NSString* motionItems[s3g::kTopologyMotionModeCount];
@@ -3540,35 +4261,36 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         for (uint32_t i = 0; i < s3g::kTopologyShapeCount; ++i) shapeItems[i] = [[NSString stringWithUTF8String:s3g::topologyShapeName(i)] retain];
         for (uint32_t i = 0; i < s3g::kTopologyMotionModeCount; ++i) motionItems[i] = [[NSString stringWithUTF8String:s3g::topologyMotionModeName(i)] retain];
     });
+    const auto& displayParams = _displayParamsSnapshot;
     NSString** items = presetItems;
     int selected = static_cast<int>(_presetIndexSnapshot);
     if (_openMenu == 2) {
         items = rateItems;
-        selected = static_cast<int>(_paramsSnapshot.rateModeA);
+        selected = static_cast<int>(displayParams.rateModeA);
     } else if (_openMenu == 3) {
         items = rateItems;
-        selected = static_cast<int>(_paramsSnapshot.rateModeB);
+        selected = static_cast<int>(displayParams.rateModeB);
     } else if (_openMenu == 4) {
         items = shapeItems;
-        selected = static_cast<int>(_paramsSnapshot.topologyShape);
+        selected = static_cast<int>(displayParams.topologyShape);
     } else if (_openMenu == 5) {
         items = motionItems;
-        selected = static_cast<int>(_paramsSnapshot.topologyMotion);
+        selected = static_cast<int>(displayParams.topologyMotion);
     } else if (_openMenu == 6) {
         items = maskItems;
-        selected = static_cast<int>(_paramsSnapshot.maskMode);
+        selected = static_cast<int>(displayParams.maskMode);
     } else if (_openMenu == 7) {
         items = inputItems;
-        selected = static_cast<int>(_paramsSnapshot.inputA);
+        selected = static_cast<int>(displayParams.inputA);
     } else if (_openMenu == 8) {
         items = inputItems;
-        selected = static_cast<int>(_paramsSnapshot.inputB);
+        selected = static_cast<int>(displayParams.inputB);
     } else if (_openMenu == 9) {
         items = loopItems;
-        selected = static_cast<int>(_paramsSnapshot.rungLoop);
+        selected = static_cast<int>(displayParams.rungLoop);
     } else if (_openMenu == 10) {
         items = orderItems;
-        selected = static_cast<int>(_paramsSnapshot.order) - 1;
+        selected = static_cast<int>(displayParams.order) - 1;
     } else if (_openMenu == 12) {
         items = pickupItems;
         selected = static_cast<int>(_paramsSnapshot.pickupSet);
@@ -3578,6 +4300,18 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     } else if (_openMenu == 14) {
         items = responseItems;
         selected = static_cast<int>(_paramsSnapshot.listenerResponse);
+    } else if (_openMenu == 15) {
+        items = presetItems;
+        selected = -1;
+        if (_selectedSurfaceCell >= 0
+            && static_cast<uint32_t>(_selectedSurfaceCell) < _surfaceSnapshot.cellCount) {
+            selected = _surfaceSnapshot.cells[
+                static_cast<uint32_t>(_selectedSurfaceCell)].presetIndex;
+        }
+    } else if (_openMenu == 16) {
+        items = curveItems;
+        selected = static_cast<int>(
+            static_cast<uint32_t>(_surfaceSnapshot.curve));
     }
     s3g::clap_gui::drawDropdownMenu(_openMenuRect, 21.0, items, _menuItemCount, selected, _hoverMenuItem, attrs, style);
 }
@@ -3700,6 +4434,18 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
             else if (_openMenu == 12) applyControlParam(*_plugin, kPickupSetParamId, hit);
             else if (_openMenu == 13) applyControlParam(*_plugin, kListenModeParamId, hit);
             else if (_openMenu == 14) applyControlParam(*_plugin, kListenerResponseParamId, hit);
+            else if (_openMenu == 15 && _selectedSurfaceCell >= 0) {
+                setControlSurfaceCellPreset(*_plugin,
+                    static_cast<uint32_t>(_selectedSurfaceCell),
+                    static_cast<uint32_t>(hit));
+                [self refreshControlSnapshot];
+            }
+            else if (_openMenu == 16) {
+                setControlSurfaceCurve(*_plugin,
+                    static_cast<s3g::ParameterSurfaceCurve>(
+                        static_cast<uint32_t>(hit)));
+                [self refreshControlSnapshot];
+            }
         }
         _openMenu = 0;
         _hoverMenuItem = -1;
@@ -3722,7 +4468,9 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         [self setNeedsDisplay:YES];
         return;
     }
-    constexpr int controlMenus[] { 10, 2, 3, 4, 5, 6, 7, 8, 9 };
+    constexpr int controlMenus[] {
+        10, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16
+    };
     for (const int menu : controlMenus) {
         if (NSPointInRect(point, [self menuBoxRect:menu])) {
             [self openMenu:menu];
@@ -3731,9 +4479,10 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     }
     const NSRect panel = [self fieldPanelRect];
     if (NSPointInRect(point, panel)) {
-        for (int i = 0; i < 3; ++i) {
-            if (NSPointInRect(point, [self pageButtonRect:i])) {
-                _fieldPage = i;
+    for (int i = 0; i < 4; ++i) {
+        if (NSPointInRect(point, [self pageButtonRect:i])) {
+            if (_surfacePopupChild) return;
+            _fieldPage = i;
                 if (_fieldPage == 1) {
                     _curveVoiceBank =
                         std::min<uint32_t>(_selectedVoice / 16u, 3u);
@@ -3741,6 +4490,102 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
                 [self setNeedsDisplay:YES];
                 return;
             }
+        }
+        if (_fieldPage == 3) {
+            if (NSPointInRect(point, [self surfacePopRect])) {
+                if (_surfacePopupChild) {
+                    [[self window] performClose:nil];
+                } else {
+                    [self openSurfacePopup];
+                }
+                return;
+            }
+            if (NSPointInRect(point, [self surfaceEditRect])) {
+                [self syncSurfaceEditMode:!_surfaceEdit];
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, [self surfaceEnableRect])) {
+                if (_surfaceSnapshot.cellCount < 2u) {
+                    NSBeep();
+                } else {
+                    setControlSurfaceEnabled(*_plugin,
+                        _surfaceSnapshot.enabled == 0u);
+                    [self refreshControlSnapshot];
+                }
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, [self surfaceAddRect])) {
+                if (addControlSurfaceCell(*_plugin)) {
+                    [self refreshControlSnapshot];
+                    _selectedSurfaceCell =
+                        static_cast<int>(_surfaceSnapshot.cellCount) - 1;
+                } else {
+                    NSBeep();
+                }
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, [self surfaceDeleteRect])) {
+                if (_selectedSurfaceCell < 0
+                    || !removeControlSurfaceCell(*_plugin,
+                        static_cast<uint32_t>(_selectedSurfaceCell))) {
+                    NSBeep();
+                }
+                [self refreshControlSnapshot];
+                _selectedSurfaceCell = _surfaceSnapshot.cellCount == 0u ? -1
+                    : std::min(_selectedSurfaceCell,
+                        static_cast<int>(_surfaceSnapshot.cellCount) - 1);
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, [self surfaceCaptureRect])) {
+                if (_selectedSurfaceCell < 0
+                    || !captureControlSurfaceCell(*_plugin,
+                        static_cast<uint32_t>(_selectedSurfaceCell))) {
+                    NSBeep();
+                }
+                [self refreshControlSnapshot];
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, [self surfaceFocusMinusRect])
+                || NSPointInRect(point, [self surfaceFocusPlusRect])) {
+                const float scale = NSPointInRect(point,
+                    [self surfaceFocusMinusRect]) ? 0.8f : 1.25f;
+                setControlSurfaceFocus(*_plugin,
+                    _surfaceSnapshot.focus * scale);
+                [self refreshControlSnapshot];
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, [self surfaceGlideMinusRect])
+                || NSPointInRect(point, [self surfaceGlidePlusRect])) {
+                const int direction = NSPointInRect(point,
+                    [self surfaceGlideMinusRect]) ? -1 : 1;
+                setControlSurfaceGlide(*_plugin,
+                    s3g::parameterSurfaceSteppedGlide(
+                        _surfaceSnapshot.glideMs, direction));
+                [self refreshControlSnapshot];
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, [self surfacePlotRect])) {
+                if (_surfaceEdit) {
+                    const int cell = [self hitSurfaceCell:point];
+                    if (cell >= 0) {
+                        _selectedSurfaceCell = cell;
+                        _dragSurfaceCell = cell;
+                    }
+                } else {
+                    _dragSurfaceCursor = YES;
+                    [self updateSurfacePosition:point cursor:YES];
+                }
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            return;
         }
         if (_fieldPage == 1) {
             for (int bank = 0; bank < 2; ++bank) {
@@ -3900,6 +4745,14 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 - (void)mouseDragged:(NSEvent*)event
 {
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+    if (_dragSurfaceCell >= 0) {
+        [self updateSurfacePosition:point cursor:NO];
+        return;
+    }
+    if (_dragSurfaceCursor) {
+        [self updateSurfacePosition:point cursor:YES];
+        return;
+    }
     if (_fieldPage == 1 && _dragBreakpointRow >= 0
         && _dragBreakpointVoice >= 0) {
         // Both the armed dimension and the voice were locked on mouseDown;
@@ -3927,6 +4780,8 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     _dragView = NO;
     _dragBreakpointRow = -1;
     _dragBreakpointVoice = -1;
+    _dragSurfaceCell = -1;
+    _dragSurfaceCursor = NO;
 }
 
 - (void)viewDidMoveToWindow
@@ -3978,7 +4833,9 @@ void guiDestroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
     if (!p->guiView) return;
-    [static_cast<S3GAmbiWranglerEncoderView*>(p->guiView) stopRefreshTimer];
+    auto* view = static_cast<S3GAmbiWranglerEncoderView*>(p->guiView);
+    [view stopRefreshTimer];
+    [view destroySurfacePopup];
     s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
     p->guiVisible = false;
 }
@@ -4001,7 +4858,7 @@ bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win)
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3GAmbiWranglerEncoderView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiWranglerEncoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; auto* view = static_cast<S3GAmbiWranglerEncoderView*>(p->guiView); [view stopRefreshTimer]; [view hideSurfacePopup]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 
 #endif
