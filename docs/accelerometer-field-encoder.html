@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Ambi Encoder Modal - s3g-dsp</title>
-    <meta name="description" content="Documentation and research basis for the s3g gong-focused ACN/SN3D modal instrument.">
+    <meta name="description" content="Documentation and research basis for the s3g multi-body ACN/SN3D modal instrument.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -26,72 +26,88 @@
       <main class="content" id="content">
         <h1>Ambi Encoder Modal</h1>
 
-        <p>Ambi Encoder Modal is a gong-focused modal instrument that publishes first-, second-, or third-order <code>ACN/SN3D</code> directly. Its four body families are <code>GONG AGENG</code>, <code>BELL BRONZE</code>, the large Korean <code>JING</code>, and the small Korean <code>KKWAENGGWARI</code>. Eight virtual radiation points hear one shared 24-mode body and turn its changing vibration pattern into a spatial field.</p>
+        <p>Ambi Encoder Modal is a multi-body modal instrument that publishes first-, second-, or third-order <code>ACN/SN3D</code> directly. It creates four to eight independent resonant bodies, gives each one its own evolving modal state and continuous actuator history, and places the resulting ensemble in an editable spatial field. The bodies are deliberately fictional musical archetypes rather than claims to reproduce named or calibrated instruments.</p>
 
-        <p>The instrument is designed for immediate results: select a preset, choose a gong body and exciter, then shape Coupling, Energy, and projection. <code>RANDOM</code> starts from a curated gong state and makes bounded variations; it cannot select the unrelated plant, paper, shell, glass, wire, or membrane models retained internally only for migration of older sessions.</p>
+        <p>The instrument keeps its synthesis cost predictable with one fixed pool of 96 modes. Four active bodies receive 24 modes each; eight receive 12 each; intermediate body counts divide the same pool in complete pairs. Increasing the population therefore trades some detail within each body for a denser and more varied ensemble instead of multiplying CPU use.</p>
 
         <h2 id="signal-flow">Signal Flow</h2>
 
         <ol>
-          <li>Ambient force, double mallets, a mallet roll, scrape/rub, bowed rim, strike, the mono <code>Gong Force In</code>, or a MIDI note excites the body.</li>
-          <li>Twenty-four damped modes form close pairs and spectral clusters. Strike position changes which modal lobes receive energy.</li>
-          <li><code>COUPLING</code> introduces shared slow and fast amplitude/frequency motion; <code>ENERGY</code> adds bounded impact-dependent pitch relaxation and delayed upper-mode buildup.</li>
-          <li>Eight radiation points sample different modal positions and angles. Contact Detail and Air Radiation interpolate between close structural vibration and radiated gong sound.</li>
-          <li>Projection assigns those observations to a rotatable angular field and encodes the result as <code>ACN/SN3D</code>.</li>
-          <li>The optional Listener analyzes the internal field and can influence later gestures without returning audio to the resonator.</li>
+          <li>The <code>LISTENER / ACTUATOR</code>, mono <code>Modal Actuator In</code>, and MIDI note-ons feed the resonant banks themselves. There is no autonomous event generator, dry actuator feed, contact click, noise burst, or separate transient layer.</li>
+          <li>The fixed <code>TETRA 4</code> or <code>CUBE 8</code> listener samples the internal HOA field independently of the editable body constellation. Its directional history helps route bounded continuous drive to one body or across the ensemble.</li>
+          <li>The fixed 96-mode pool is divided among the active bodies. Close modal pairs produce beating, while <code>COUPLING</code> animates their sustained amplitude and frequency relationships.</li>
+          <li>Each body produces its own contact-to-radiation mixture before spatial projection. Per-body variation prevents an ensemble from becoming several copies of one resonator.</li>
+          <li><code>BODY SPREAD</code> distributes the body centers around the selected azimuth and elevation. Per-body AED offsets and distance can then be edited directly before the resulting directions are encoded as <code>ACN/SN3D</code>.</li>
+          <li>In <code>DIFFUSE</code> + <code>DRONE</code>, the Listener/Actuator combines underexposed listener directions with each body’s slow energy deficit, maintaining a steady distributed field without returning decoded audio to the resonators.</li>
+          <li>The normal output is HOA. Optional <code>8 BODY STEMS</code> publishes one post-body, pre-HOA signal per lane and clears lanes above the active body count.</li>
         </ol>
 
-        <h2 id="bodies">Gong Bodies</h2>
+        <h2 id="bodies">Modal Body Families</h2>
 
         <table class="readout-table">
           <thead><tr><th>Body</th><th>Modal emphasis</th></tr></thead>
           <tbody>
-            <tr><td>Gong Ageng</td><td>Low rumble and upper ding clusters around a 44.5 Hz reference landmark, with long differentiated envelopes and strong coupled evolution.</td></tr>
-            <tr><td>Bell Bronze</td><td>Hum, prime, tierce, quint, and nominal-like regions with close non-axisymmetric pairs and a poised bell warble.</td></tr>
-            <tr><td>Jing</td><td>A large Korean gong family referenced to the measured 114 Hz resting fundamental of a 382 mm instrument. Exact low harmonics soften below pitch under force and recover upward, moving against fixed short-lived and late beat components.</td></tr>
-            <tr><td>Kkwaenggwari</td><td>A compact Korean hand-gong family with reduced low-frequency radiation and strong attack/radiation regions around 1, 2, and 4 kHz. Its broad inharmonic pairs and brighter contact pulse favor rhythmic playing.</td></tr>
+            <tr><td>Deep Bronze</td><td>Low fundamentals, separated upper clusters, differentiated decay, and pronounced slow beating favor long, weighty fields.</td></tr>
+            <tr><td>Tiered Bronze</td><td>Ordered low, middle, and nominal-like regions combine with close mode pairs for a poised, gently warbling response.</td></tr>
+            <tr><td>Broad Bronze</td><td>Strong low groups move against shorter fixed components and late beating pairs, producing a wide and slowly changing spectrum.</td></tr>
+            <tr><td>Bright Bronze</td><td>Reduced low-frequency weight and broad inharmonic pairs favor an agile, continuously animated upper field.</td></tr>
           </tbody>
         </table>
 
-        <p>These are research-informed, playable archetypes rather than identifications of one specimen. Sangjin Cho’s jing analysis motivates the model’s emphasis on drive position, blow strength, beating, and frequency softening; published kkwaenggwari work motivates its higher, bright, performance-sensitive cluster family.</p>
+        <p>The family choice is a starting distribution, not an identity. Body index, deterministic variation, size, and coupling perturb that distribution independently, so an eight-body field contains eight related resonators rather than eight unison copies. Published measurements of bells, plates, and metal percussion provide useful information about beating, differentiated damping, modal coupling, and changing radiation, but do not make any body a model of the measured specimen.</p>
 
-        <h2 id="midi">MIDI Force Input</h2>
+        <h2 id="midi">MIDI and Actuator Input</h2>
 
-        <p>The CLAP exposes one note input named <code>Gong MIDI Strike In</code>. Note-on is an alternate physical strike: velocity controls contact and nonlinear energy, while the most recent note transposes the shared resonant body around C4 / MIDI note 60. Note-off does not gate or mute the result; the metal body continues its natural decay. CLAP note events and conventional MIDI note-on messages are both accepted, and their frame offsets are honored within each audio block.</p>
+        <p>The CLAP exposes one note input named <code>Modal Actuator MIDI In</code>. A note-on selects and smoothly energizes a modal body: velocity scales that modal-only envelope, while pitch offsets the addressed body around C4 / MIDI note 60. It does not add a click, pop, dry onset, or noise burst. Note-off does not truncate an already resonating body. CLAP note events and conventional MIDI note-on messages are both accepted, and their frame offsets are honored within each audio block.</p>
 
-        <p>MIDI and <code>Gong Force In</code> remain additive, so a performer can strike the model from a keyboard while feeding transducers, contact microphones, envelopes, or audio impulses into the mono force inlet. The procedural exciter remains available as a third concurrent source; set Activity and Ambient to zero for a strictly played instrument.</p>
+        <p>MIDI and <code>Modal Actuator In</code> remain additive. The mono input can carry control envelopes, contact signals, or audio, but it reaches the selected modal banks only and is never mixed dry to the output. The Listener/Actuator supplies the continuous internal drive; with <code>DIFFUSE</code> + <code>DRONE</code>, it moves energy toward quiet bodies and underexposed directions without phase-locking them.</p>
+
+        <h2 id="spatial-editor">Spatial Body Editor</h2>
+
+        <p>The field view follows the camera vocabulary shared by the repository’s other encoders. <code>TOP</code> and <code>SIDE</code> are orthographic editing views; <code>3/4</code> supplies the spatial overview. Drag a body directly in <code>TOP</code> or <code>SIDE</code> to change its AED position and distance. In <code>3/4</code>, clicking a body selects it. From any camera, dragging blank field space orbits into a free view. The minus and plus buttons change camera scale, and <code>RESET</code> clears every manual body offset and returns all body distances to 1.0.</p>
+
+        <p>The selected body also exposes automatable <code>AZ OFFSET</code>, <code>EL OFFSET</code>, and <code>DISTANCE</code> controls in the <code>BODY AED</code> panel. These manual values are additive to Field Azimuth, Field Elevation, and Body Spread, so the global constellation remains useful after point editing.</p>
+
+        <p>Body color uses the same perceptual AED distinction as the other spatial editors: in OKLCH, hue follows azimuth, lightness follows elevation, and chroma follows distance. The body’s base color therefore remains a stable position readout. Live modal energy is shown only by the surrounding halo; it does not replace the AED color.</p>
+
+        <p>The neutral diamonds labeled <code>E1</code>–<code>E4</code> or <code>E1</code>–<code>E8</code> are the fixed listener pickups. Their connecting shell follows the camera but not body AED edits; each gray halo shows what that pickup currently hears. Actuator routes use actual modal-drive telemetry, with moving diamonds showing force traveling from the listener relationship toward the bodies. In <code>DIFFUSE</code> mode several routes can remain active at once. These ears and routes are analysis/control displays, not additional audio outputs.</p>
 
         <h2 id="controls">Primary Controls</h2>
 
         <table class="readout-table">
           <thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead>
           <tbody>
-            <tr><td>Output</td><td>Order / Gain</td><td>Selects 1OA, 2OA, or 3OA and calibrates the final field.</td></tr>
-            <tr><td>Exciter</td><td>Exciter / Rate / Activity / Force / Texture / Ambient / Force In</td><td>Chooses and shapes the physical gesture entering the gong.</td></tr>
-            <tr><td>Modal Body</td><td>Body / Size / Damp / Irregularity / Coupling / Energy / Loss / Detail / Strike Pos</td><td>Defines the modal family, decay, nonlinear bloom, and point of contact.</td></tr>
-            <tr><td>Projection</td><td>Contact–Radiation / AED Spread / Azimuth / Elevation / Air</td><td>Moves from intimate structural sound to radiated sound and places it in the Ambisonic field.</td></tr>
-            <tr><td>Radiation Array</td><td>Center / Spread / Mode Angle</td><td>Moves the eight observations through modal nodes and changes how much of the gong face they span.</td></tr>
-            <tr><td>Listener</td><td>Listen / Influence / Response</td><td>Follow, Counter, or Balance can react to recent field activity through Excite, Settle, or Imprint behavior.</td></tr>
+            <tr><td>Output</td><td>Out / Order / Format</td><td>Selects 1OA, 2OA, or 3OA <code>ACN/SN3D</code>, or the optional eight discrete body stems, and calibrates the result.</td></tr>
+            <tr><td>Modal Body</td><td>Body / Bodies / Size / Damp / Irregularity / Coupling / Drive Position</td><td>Creates four to eight independent resonators inside the shared 96-mode budget.</td></tr>
+            <tr><td>Listener / Actuator</td><td>Ears / Routing / Drive / Behavior / Input</td><td>Selects the fixed Tetra 4 or Cube 8 listener, applies bounded direction-aware actuation, and sets the mono modal-only input contribution.</td></tr>
+            <tr><td>Projection</td><td>Azimuth / Elevation / Body Spread</td><td>Places and distributes the independent body centers through HOA space.</td></tr>
+            <tr><td>Body Character</td><td>Tone Center / Variation / Mode Angle / Contact–Radiation / Air Level</td><td>Changes the related-but-distinct spectral identities and structural-to-radiated balance within the ensemble.</td></tr>
+            <tr><td>Body AED</td><td>Az Offset / El Offset / Distance</td><td>Numerically edits the selected body’s manual position relative to the generated constellation.</td></tr>
+            <tr><td>Field View</td><td>Top / Side / 3/4 / − / + / Reset</td><td>Selects a camera, supports direct point editing, and restores the generated body layout.</td></tr>
           </tbody>
         </table>
 
         <h2 id="model-basis">Model Basis</h2>
 
-        <p>The core is a compact modal bank: each mode has a frequency, exponential decay, excitation weight, radiation weight, and two orthogonal spatial lobes. Small frequency differences within a pair produce beating, while their changing phase relationship makes the encoded field breathe rather than merely panning a mono gong. In the jing profile, the measured exact harmonics and neighboring components follow different pitch trajectories so impact beats change rate as the softened harmonics recover.</p>
+        <p>The core is a compact population of modal banks. Each mode has a frequency, exponential decay, actuation weight, pickup weight, and radiation weight; each body owns the state of the modes assigned to it, its conditioning path, and one independently encoded HOA direction. Small frequency differences within a pair produce beating, while body-to-body variation creates slower ensemble motion. The fixed budget is intentionally allocated across bodies rather than rendering a full modal bank at every position.</p>
 
-        <p>Ayers and Horner’s Gong Ageng resynthesis showed the value of selected harmonic landmarks, differentiated envelopes, strike variation, and synchronized slow/fast AM and FM. Nonlinear gong and plate studies by Bilbao and by Ducceschi, Touzé, and Bilbao identify impact-dependent pitch glide, frequency-dependent loss, and delayed high-frequency energy transfer. Ambi Encoder Modal uses those audible behaviors as bounded real-time trajectories rather than claiming to solve a full nonlinear plate.</p>
+        <p>Additive-resynthesis and nonlinear-plate studies show the value of selected spectral landmarks, differentiated modal envelopes, synchronized slow/fast AM and FM, frequency-dependent loss, coupling, and gradual spectral energy transfer. Ambi Encoder Modal recombines those general behaviors into fictional sustained bodies and bounded real-time trajectories rather than claiming to solve or identify a particular instrument.</p>
 
-        <p>Physical observation and encoded direction remain separate. Radiation Center and Spread change where the virtual points hear the body; AED Spread changes only their angular projection. Geometry and weights interpolate over 35 ms so that moving the array remains playable.</p>
+        <p>Modal identity and encoded direction remain separate. HOA Body Spread changes only where the independent body centers appear: at minimum they coincide at the selected field center; increasing it opens the ensemble into a rotated Fibonacci constellation. Manual body AED offsets and distance are applied after that generated placement. None of these spatial operations detune the bodies or widen a single mono source, and spatial geometry interpolates so that moving the ensemble remains playable.</p>
 
-        <p>See <a href="references.html#accelerometry-structural-listening">Gong Modal Synthesis and Structural Listening</a> for the research sources.</p>
+        <p>After the bodies sum, the ambisonic branch uses one linked soft-safety gain for the complete HOA frame. Because every coefficient receives the same gain, ACN/SN3D spatial ratios remain intact even when eight close, coincident bodies are driven coherently. Optional raw body stems deliberately bypass this HOA safety stage.</p>
+
+        <p>The Listener remains causal control, not an audio feedback return. Its world-fixed Tetra 4 or Cube 8 body analyzes the internal HOA field before the output-mode branch, independent of body count, Field Center, Body Spread, and manual AED edits. The actuator uses those directional scores together with per-body energy to apply bounded sustaining force. <code>DIFFUSE</code> routing with <code>DRONE</code> continuously favors bodies and directions below the ensemble’s target exposure without flattening the beating and decay that make them distinct. This behavior therefore remains available when the host receives body stems.</p>
+
+        <p>See <a href="references.html#accelerometry-structural-listening">Modal Synthesis and Structural Listening</a> for the research sources.</p>
 
         <h2 id="presets">Presets</h2>
 
-        <p>The focused bank contains <code>GONG AGENG</code>, <code>SILENT BRONZE</code>, <code>TEMPLE BRONZE</code>, <code>DOUBLE MALLET</code>, <code>MALLET ROLL</code>, <code>BOWED RIM</code>, <code>KKWAENGGWARI LEAD</code>, <code>BRONZE SCRAPE</code>, <code>BRIGHT BOSS</code>, <code>MUTED BLOOM</code>, <code>JING WIND</code>, <code>KKWAENGGWARI CHAE</code>, and <code>JING CEREMONY</code>. Gong Ageng is the default.</p>
+        <p>The 13 sustained presets are <code>DEEP FIELD</code>, <code>QUIET ALLOY</code>, <code>TIERED CONSTELLATION</code>, <code>PAIRED FIELD</code>, <code>DENSE CONSTELLATION</code>, <code>SLOW ORBIT</code>, <code>BRIGHT DRIFT</code>, <code>ALLOY CURRENT</code>, <code>BRIGHT FOCUS</code>, <code>MUTED BLOOM</code>, <code>BROAD WIND</code>, <code>BRIGHT HALO</code>, and <code>SLOW CEREMONY</code>. Deep Field is the default. Every preset describes a continuous playing condition and modal tendency, not an instrument specimen or a library of artificial attacks.</p>
 
         <h2 id="plugin-workflow">CLAP and Renderer Workflow</h2>
 
-        <p>The bundle is <code>s3g_ambi_encoder_modal.clap</code> and appears in hosts as <code>s3g Ambi Encoder Modal 16</code>. Its native 1160 × 760 interface uses the shared encoder title actions—Preset, Load, Save, and guarded Random—with Output first and separate Exciter, Modal Body, Projection, Radiation Array, and Listener panels.</p>
+        <p>The bundle is <code>s3g_ambi_encoder_modal.clap</code> and appears in hosts as <code>s3g Ambi Encoder Modal 16</code>. Its native 1160 × 760 interface uses the shared encoder title actions—Preset, Load, Save, and guarded Random—with Output first and separate Modal Body, Listener / Actuator, Projection, Body Character, Body AED, and Signal Path panels beside the editable camera view.</p>
 
         <pre><code>cmake --preset clap
 cmake --build --preset clap --target s3g_accelerometer_field_encoder_clap
@@ -104,15 +120,38 @@ cmake --build --preset dev --target \
 
         <h2 id="limits">Limits</h2>
 
-        <p>The four bodies are compact musical profiles, not calibrated replicas. The engine does not solve full two-dimensional gong geometry, identify one maker’s alloy and hammering pattern, or run the hundreds of modes required for a high-energy nonlinear plate simulation. Coupling and Energy reproduce selected audible consequences within a stable real-time instrument.</p>
+        <p>The body families are compact musical profiles, not calibrated replicas. The engine does not solve full two-dimensional geometry, identify an alloy or construction method, or run the hundreds of modes required for a high-energy nonlinear plate simulation. Its fixed pool also means that eight-body settings deliberately carry fewer modes per body than four-body settings. Modal Coupling and the continuous Listener/Actuator reproduce selected audible consequences within a bounded real-time instrument.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-ray-bilocation-encoder.html">
+            <span>Previous</span>
+            Ambi Ray Bilocation Encoder
+          </a>
+          <a class="page-nav-link next" href="ambi-vot-encoder.html">
+            <span>Next</span>
+            Ambi VOT Encoder
+          </a>
+        </nav>
       </main>
 
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#signal-flow">Signal Flow</a>
-          <a href="#bodies">Gong Bodies</a>
-          <a href="#midi">MIDI Force Input</a>
+          <a href="#bodies">Modal Body Families</a>
+          <a href="#midi">MIDI and Actuator Input</a>
+          <a href="#spatial-editor">Spatial Body Editor</a>
           <a href="#controls">Primary Controls</a>
           <a href="#model-basis">Model Basis</a>
           <a href="#presets">Presets</a>

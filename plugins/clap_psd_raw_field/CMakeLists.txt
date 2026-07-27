@@ -2,7 +2,7 @@ add_library(s3g_psd_raw_field_clap MODULE
   s3g_psd_raw_field_clap.cpp
 )
 
-set(S3G_FAULT_VERSION "0.16.1")
+set(S3G_FAULT_VERSION "0.18.0")
 
 add_executable(s3g_fault_clap_wave_source_smoke EXCLUDE_FROM_ALL
   ../../tests/fault_clap_wave_source_smoke.cpp

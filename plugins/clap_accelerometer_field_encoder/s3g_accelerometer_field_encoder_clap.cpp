@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <new>
 #include <vector>
 
@@ -29,7 +30,7 @@ namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAccelerometerFieldMaxChannels;
 constexpr uint32_t kInputChannels = 1u;
-constexpr uint32_t kStateVersion = 6u;
+constexpr uint32_t kStateVersion = 9u;
 constexpr uint32_t kFactoryPresetCount = s3g::kAccelerometerFieldPresetCount;
 constexpr uint32_t kCustomPresetIndex = kFactoryPresetCount;
 constexpr uint32_t kGuiWidth = 1160u;
@@ -76,7 +77,38 @@ enum ParamId : clap_id {
     kParamFieldListenResponse,
     kParamCoupling,
     kParamEnergy,
+    kParamBodyCount,
+    kParamBody1AzimuthOffset,
+    kParamBody1ElevationOffset,
+    kParamBody1Distance,
+    kParamBody2AzimuthOffset,
+    kParamBody2ElevationOffset,
+    kParamBody2Distance,
+    kParamBody3AzimuthOffset,
+    kParamBody3ElevationOffset,
+    kParamBody3Distance,
+    kParamBody4AzimuthOffset,
+    kParamBody4ElevationOffset,
+    kParamBody4Distance,
+    kParamBody5AzimuthOffset,
+    kParamBody5ElevationOffset,
+    kParamBody5Distance,
+    kParamBody6AzimuthOffset,
+    kParamBody6ElevationOffset,
+    kParamBody6Distance,
+    kParamBody7AzimuthOffset,
+    kParamBody7ElevationOffset,
+    kParamBody7Distance,
+    kParamBody8AzimuthOffset,
+    kParamBody8ElevationOffset,
+    kParamBody8Distance,
+    kParamListenerPickupSet,
 };
+
+constexpr clap_id kBodyAedParamBase = kParamBody1AzimuthOffset;
+constexpr uint32_t kBodyAedParamStride = 3u;
+static_assert(kParamBody8Distance == 61u);
+static_assert(kParamListenerPickupSet == 62u);
 
 enum class DisplayKind : uint8_t {
     Menu,
@@ -85,6 +117,7 @@ enum class DisplayKind : uint8_t {
     Decibels,
     Degrees,
     Position,
+    Distance,
 };
 
 struct ParamSpec {
@@ -100,47 +133,73 @@ struct ParamSpec {
     bool hidden = false;
 };
 
-constexpr std::array<ParamSpec, 36u> kParamSpecs {{
+constexpr std::array<ParamSpec, 62u> kParamSpecs {{
     { kParamPreset, "Preset", "Preset", 0.0, static_cast<double>(kFactoryPresetCount), 0.0, DisplayKind::Menu, false, false },
-    { kParamSubstrate, "Gong body", "Modal Body", 0.0, 12.0, 10.0, DisplayKind::Menu },
-    { kParamExcitation, "Exciter", "Exciter", 0.0, 5.0, 5.0, DisplayKind::Menu },
+    { kParamSubstrate, "Modal profile", "Modal Body", 0.0, 12.0, 10.0, DisplayKind::Menu },
+    { kParamExcitation, "Legacy transient exciter", "Legacy", 0.0, 5.0, 0.0, DisplayKind::Menu, false, true, true },
     { kParamReadout, "Legacy sensor readout", "Advanced", 0.0, 2.0, 0.0, DisplayKind::Menu, false, true, true },
-    { kParamEventRate, "Event rate", "Exciter", 0.01, 80.0, 0.18, DisplayKind::Hertz, true },
-    { kParamActivity, "Activity", "Exciter", 0.0, 1.0, 0.78, DisplayKind::Percent },
-    { kParamForce, "Mallet force", "Exciter", 0.0, 1.0, 0.62, DisplayKind::Percent },
-    { kParamTexture, "Mallet texture", "Exciter", 0.0, 1.0, 0.12, DisplayKind::Percent },
-    { kParamAmbientDrive, "Ambient drive", "Exciter", 0.0, 1.0, 0.012, DisplayKind::Percent },
-    { kParamExternalDrive, "Force input", "Exciter", 0.0, 1.0, 0.0, DisplayKind::Percent },
+    { kParamEventRate, "Legacy event rate", "Legacy", 0.01, 80.0, 0.01, DisplayKind::Hertz, true, true, true },
+    { kParamActivity, "Legacy activity", "Legacy", 0.0, 1.0, 0.0, DisplayKind::Percent, false, true, true },
+    { kParamForce, "Legacy mallet force", "Legacy", 0.0, 1.0, 0.0, DisplayKind::Percent, false, true, true },
+    { kParamTexture, "Legacy mallet texture", "Legacy", 0.0, 1.0, 0.0, DisplayKind::Percent, false, true, true },
+    { kParamAmbientDrive, "Legacy ambient drive", "Legacy", 0.0, 1.0, 0.0, DisplayKind::Percent, false, true, true },
+    { kParamExternalDrive, "Actuator input", "Listener / Actuator", 0.0, 1.0, 0.0, DisplayKind::Percent },
     { kParamSize, "Size", "Modal Body", 0.0, 1.0, 0.50, DisplayKind::Percent },
     { kParamDamping, "Damping", "Modal Body", 0.0, 1.0, 0.08, DisplayKind::Percent },
     { kParamIrregularity, "Irregularity", "Modal Body", 0.0, 1.0, 0.025, DisplayKind::Percent },
-    { kParamPropagationLoss, "Propagation loss", "Modal Body", 0.0, 1.0, 0.16, DisplayKind::Percent },
-    { kParamContactDetail, "Contact detail", "Modal Body", 0.0, 1.0, 0.055, DisplayKind::Percent },
-    { kParamSourcePosition, "Strike position", "Modal Body", 0.0, 1.0, 0.43, DisplayKind::Position },
-    { kParamPickupPosition, "Radiation center", "Radiation", 0.0, 1.0, 0.50, DisplayKind::Position },
-    { kParamPickupAxis, "Modal angle", "Radiation", 0.0, 1.0, 0.34, DisplayKind::Percent },
+    { kParamPropagationLoss, "Legacy propagation loss", "Legacy", 0.0, 1.0, 0.0, DisplayKind::Percent, false, true, true },
+    { kParamContactDetail, "Legacy contact detail", "Legacy", 0.0, 1.0, 0.0, DisplayKind::Percent, false, true, true },
+    { kParamSourcePosition, "Actuator position", "Modal Body", 0.0, 1.0, 0.43, DisplayKind::Position },
+    { kParamPickupPosition, "Tone center", "Body Character", 0.0, 1.0, 0.50, DisplayKind::Position },
+    { kParamPickupAxis, "Modal angle", "Body Character", 0.0, 1.0, 0.34, DisplayKind::Percent },
     { kParamSensorMass, "Legacy sensor mass", "Advanced", 0.0, 1.0, 0.01, DisplayKind::Percent, false, true, true },
     { kParamMountStiffness, "Legacy mount stiffness", "Advanced", 0.0, 1.0, 0.90, DisplayKind::Percent, false, true, true },
     { kParamConditionerHighpass, "Legacy conditioner HPF", "Advanced", 0.25, 180.0, 0.50, DisplayKind::Hertz, true, true, true },
-    { kParamSensorNoise, "Legacy sensor noise", "Advanced", 0.0, 1.0, 0.005, DisplayKind::Percent, false, true, true },
+    { kParamSensorNoise, "Legacy sensor noise", "Advanced", 0.0, 1.0, 0.0, DisplayKind::Percent, false, true, true },
     { kParamAirRadiation, "Air radiation", "Radiation", 0.0, 1.0, 0.24, DisplayKind::Percent },
     { kParamContactRadiation, "Contact / radiation", "Projection", 0.0, 1.0, 0.52, DisplayKind::Percent },
-    { kParamSpatialExtent, "AED spread", "Projection", 0.0, 1.0, 0.90, DisplayKind::Percent },
+    { kParamSpatialExtent, "Body spread", "Projection", 0.0, 1.0, 0.90, DisplayKind::Percent },
     { kParamFieldAzimuth, "Field azimuth", "Projection", -180.0, 180.0, 0.0, DisplayKind::Degrees },
     { kParamFieldElevation, "Field elevation", "Projection", -90.0, 90.0, 0.0, DisplayKind::Degrees },
     { kParamOrder, "Ambisonic order", "Output", 1.0, 3.0, 3.0, DisplayKind::Menu },
-    { kParamOutputMode, "Legacy output mode", "Advanced", 0.0, 1.0, 0.0, DisplayKind::Menu, false, false, true },
+    { kParamOutputMode, "Output format", "Output", 0.0, 2.0, 0.0, DisplayKind::Menu, false, false },
     { kParamOutputGain, "Output gain", "Output", -60.0, 12.0, -11.0, DisplayKind::Decibels },
-    { kParamArraySpread, "Radiation spread", "Radiation", 0.0, 1.0, 0.94, DisplayKind::Percent },
-    { kParamFieldListenMode, "Listen mode", "Listener", 0.0, 3.0, 0.0, DisplayKind::Menu },
-    { kParamFieldListenAmount, "Listen influence", "Listener", 0.0, 1.0, 0.62, DisplayKind::Percent },
-    { kParamFieldListenResponse, "Listen response", "Listener", 0.0, 2.0, 0.0, DisplayKind::Menu },
+    { kParamArraySpread, "Body variation", "Body Character", 0.0, 1.0, 0.94, DisplayKind::Percent },
+    { kParamFieldListenMode, "Actuator routing", "Listener / Actuator", 0.0, 3.0, 3.0, DisplayKind::Menu },
+    { kParamFieldListenAmount, "Actuator drive", "Listener / Actuator", 0.0, 1.0, 0.64, DisplayKind::Percent },
+    { kParamFieldListenResponse, "Actuator behavior", "Listener / Actuator", 0.0, 2.0, 2.0, DisplayKind::Menu },
     { kParamCoupling, "Modal coupling", "Modal Body", 0.0, 1.0, 0.72, DisplayKind::Percent },
-    { kParamEnergy, "Nonlinear energy", "Modal Body", 0.0, 1.0, 0.64, DisplayKind::Percent },
+    { kParamEnergy, "Legacy nonlinear energy", "Legacy", 0.0, 1.0, 0.0, DisplayKind::Percent, false, true, true },
+    { kParamBodyCount, "Body count", "Ensemble", 4.0, 8.0, 6.0, DisplayKind::Menu },
+    { kParamBody1AzimuthOffset, "Body 1 azimuth offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody1ElevationOffset, "Body 1 elevation offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody1Distance, "Body 1 distance", "Body AED", 0.15, 2.0, 1.0, DisplayKind::Distance },
+    { kParamBody2AzimuthOffset, "Body 2 azimuth offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody2ElevationOffset, "Body 2 elevation offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody2Distance, "Body 2 distance", "Body AED", 0.15, 2.0, 1.0, DisplayKind::Distance },
+    { kParamBody3AzimuthOffset, "Body 3 azimuth offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody3ElevationOffset, "Body 3 elevation offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody3Distance, "Body 3 distance", "Body AED", 0.15, 2.0, 1.0, DisplayKind::Distance },
+    { kParamBody4AzimuthOffset, "Body 4 azimuth offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody4ElevationOffset, "Body 4 elevation offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody4Distance, "Body 4 distance", "Body AED", 0.15, 2.0, 1.0, DisplayKind::Distance },
+    { kParamBody5AzimuthOffset, "Body 5 azimuth offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody5ElevationOffset, "Body 5 elevation offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody5Distance, "Body 5 distance", "Body AED", 0.15, 2.0, 1.0, DisplayKind::Distance },
+    { kParamBody6AzimuthOffset, "Body 6 azimuth offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody6ElevationOffset, "Body 6 elevation offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody6Distance, "Body 6 distance", "Body AED", 0.15, 2.0, 1.0, DisplayKind::Distance },
+    { kParamBody7AzimuthOffset, "Body 7 azimuth offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody7ElevationOffset, "Body 7 elevation offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody7Distance, "Body 7 distance", "Body AED", 0.15, 2.0, 1.0, DisplayKind::Distance },
+    { kParamBody8AzimuthOffset, "Body 8 azimuth offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody8ElevationOffset, "Body 8 elevation offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
+    { kParamBody8Distance, "Body 8 distance", "Body AED", 0.15, 2.0, 1.0, DisplayKind::Distance },
+    { kParamListenerPickupSet, "Listener pickups", "Listener / Actuator", 0.0, 1.0, 1.0, DisplayKind::Menu },
 }};
 
 constexpr const char* kSubstrateNames[] {
-    "GONG AGENG", "BELL BRONZE", "JING", "KKWAENGGWARI"
+    "DEEP BRONZE", "TIERED BRONZE", "BROAD BRONZE", "BRIGHT BRONZE"
 };
 constexpr const char* kExcitationNames[] {
     "AMBIENT", "DOUBLE MALLET", "MALLET ROLL", "SCRAPE / RUB",
@@ -150,12 +209,18 @@ constexpr const char* kReadoutNames[] {
     "ACCELERATION", "VELOCITY", "DISPLACEMENT"
 };
 constexpr const char* kOrderNames[] { "1OA / 4CH", "2OA / 9CH", "3OA / 16CH" };
-constexpr const char* kOutputModeNames[] { "ACN/SN3D", "8 SENSOR STEMS" };
+constexpr const char* kOutputModeNames[] { "ACN/SN3D", "8 BODY STEMS" };
+constexpr const char* kBodyCountNames[] {
+    "4 BODIES", "5 BODIES", "6 BODIES", "7 BODIES", "8 BODIES"
+};
 constexpr const char* kFieldListenModeNames[] {
-    "OFF", "FOLLOW", "COUNTER", "BALANCE"
+    "OFF", "LOCAL", "CROSS", "DIFFUSE"
 };
 constexpr const char* kFieldListenResponseNames[] {
-    "EXCITE", "SETTLE", "IMPRINT"
+    "RESONATE", "BALANCE", "DRONE"
+};
+constexpr const char* kListenerPickupSetNames[] {
+    "TETRA 4", "CUBE 8"
 };
 
 const ParamSpec* paramSpec(clap_id id)
@@ -171,6 +236,34 @@ uint32_t roundedIndex(double value, uint32_t count)
     if (count == 0u) return 0u;
     return std::min<uint32_t>(count - 1u,
         static_cast<uint32_t>(std::llround(std::max(0.0, value))));
+}
+
+enum class BodyAedParamKind : uint32_t {
+    AzimuthOffset = 0u,
+    ElevationOffset = 1u,
+    Distance = 2u,
+};
+
+bool decodeBodyAedParam(
+    clap_id id, uint32_t& body, BodyAedParamKind& kind)
+{
+    if (id < kBodyAedParamBase
+        || id >= kBodyAedParamBase
+            + s3g::kAccelerometerFieldMaxBodyCount * kBodyAedParamStride) {
+        return false;
+    }
+    const uint32_t offset = id - kBodyAedParamBase;
+    body = offset / kBodyAedParamStride;
+    kind = static_cast<BodyAedParamKind>(offset % kBodyAedParamStride);
+    return true;
+}
+
+clap_id bodyAedParamId(uint32_t body, BodyAedParamKind kind)
+{
+    body = std::min<uint32_t>(
+        body, s3g::kAccelerometerFieldMaxBodyCount - 1u);
+    return kBodyAedParamBase + body * kBodyAedParamStride
+        + static_cast<uint32_t>(kind);
 }
 
 const char* menuName(clap_id id, uint32_t index)
@@ -196,12 +289,18 @@ const char* menuName(clap_id id, uint32_t index)
     case kParamOutputMode:
         return kOutputModeNames[std::min<uint32_t>(index,
             static_cast<uint32_t>(std::size(kOutputModeNames)) - 1u)];
+    case kParamBodyCount:
+        return kBodyCountNames[std::min<uint32_t>(index,
+            static_cast<uint32_t>(std::size(kBodyCountNames)) - 1u)];
     case kParamFieldListenMode:
         return kFieldListenModeNames[std::min<uint32_t>(index,
             static_cast<uint32_t>(std::size(kFieldListenModeNames)) - 1u)];
     case kParamFieldListenResponse:
         return kFieldListenResponseNames[std::min<uint32_t>(index,
             static_cast<uint32_t>(std::size(kFieldListenResponseNames)) - 1u)];
+    case kParamListenerPickupSet:
+        return kListenerPickupSetNames[std::min<uint32_t>(index,
+            static_cast<uint32_t>(std::size(kListenerPickupSetNames)) - 1u)];
     default: return "";
     }
 }
@@ -213,12 +312,18 @@ uint32_t menuIndexForValue(clap_id id, double value)
     if (id == kParamOrder) {
         return roundedIndex(value - 1.0, menuCount(id));
     }
+    if (id == kParamBodyCount) {
+        return roundedIndex(value - 4.0, menuCount(id));
+    }
+    if (id == kParamOutputMode) {
+        return roundedIndex(value, 3u) == 0u ? 0u : 1u;
+    }
     if (id == kParamSubstrate) {
         switch (static_cast<s3g::AccelerometerSubstrate>(
             roundedIndex(value, 13u))) {
-        case s3g::AccelerometerSubstrate::BellBronze: return 1u;
-        case s3g::AccelerometerSubstrate::Jing: return 2u;
-        case s3g::AccelerometerSubstrate::Kkwaenggwari: return 3u;
+        case s3g::AccelerometerSubstrate::TieredBronze: return 1u;
+        case s3g::AccelerometerSubstrate::BroadBronze: return 2u;
+        case s3g::AccelerometerSubstrate::BrightBronze: return 3u;
         default: return 0u;
         }
     }
@@ -228,12 +333,17 @@ uint32_t menuIndexForValue(clap_id id, double value)
 double menuValueForIndex(clap_id id, uint32_t index)
 {
     if (id == kParamOrder) return static_cast<double>(index + 1u);
+    if (id == kParamBodyCount) return static_cast<double>(index + 4u);
+    if (id == kParamOutputMode) {
+        return index == 0u ? 0.0 : static_cast<double>(
+            static_cast<uint32_t>(s3g::AccelerometerFieldOutputMode::BodyStems));
+    }
     if (id == kParamSubstrate) {
         constexpr std::array<s3g::AccelerometerSubstrate, 4u> bodies {{
-            s3g::AccelerometerSubstrate::GongAgeng,
-            s3g::AccelerometerSubstrate::BellBronze,
-            s3g::AccelerometerSubstrate::Jing,
-            s3g::AccelerometerSubstrate::Kkwaenggwari,
+            s3g::AccelerometerSubstrate::DeepBronze,
+            s3g::AccelerometerSubstrate::TieredBronze,
+            s3g::AccelerometerSubstrate::BroadBronze,
+            s3g::AccelerometerSubstrate::BrightBronze,
         }};
         return static_cast<double>(static_cast<uint32_t>(
             bodies[std::min<uint32_t>(index, bodies.size() - 1u)]));
@@ -250,17 +360,28 @@ uint32_t menuCount(clap_id id)
     case kParamReadout: return static_cast<uint32_t>(std::size(kReadoutNames));
     case kParamOrder: return static_cast<uint32_t>(std::size(kOrderNames));
     case kParamOutputMode: return static_cast<uint32_t>(std::size(kOutputModeNames));
+    case kParamBodyCount: return static_cast<uint32_t>(std::size(kBodyCountNames));
     case kParamFieldListenMode: return static_cast<uint32_t>(std::size(kFieldListenModeNames));
     case kParamFieldListenResponse: return static_cast<uint32_t>(std::size(kFieldListenResponseNames));
+    case kParamListenerPickupSet: return static_cast<uint32_t>(std::size(kListenerPickupSetNames));
     default: return 0u;
     }
 }
+
+struct SavedGuiState {
+    int32_t viewMode = 2;
+    float viewAzimuthDeg = -35.0f;
+    float viewElevationDeg = 34.0f;
+    float viewZoom = 1.0f;
+    uint32_t selectedBody = 0u;
+};
 
 struct SavedState {
     uint32_t version = kStateVersion;
     uint32_t presetIndex = 0u;
     s3g::AccelerometerFieldParams params =
         s3g::accelerometerFieldFactoryPreset(0u);
+    SavedGuiState gui {};
 };
 
 // Version 1 preceded the independent physical array-spread control. Keep its
@@ -305,6 +426,26 @@ struct SavedStateHeader {
 };
 
 static_assert(offsetof(SavedState, params) == sizeof(SavedStateHeader));
+static_assert(offsetof(SavedState, gui)
+    == sizeof(SavedStateHeader) + sizeof(s3g::AccelerometerFieldParams));
+
+SavedGuiState sanitizeSavedGuiState(
+    SavedGuiState state, uint32_t bodyCount)
+{
+    const auto finiteOr = [](float value, float fallback) {
+        return std::isfinite(value) ? value : fallback;
+    };
+    state.viewMode = std::clamp<int32_t>(state.viewMode, -1, 2);
+    state.viewAzimuthDeg = std::clamp(
+        finiteOr(state.viewAzimuthDeg, -35.0f), -720.0f, 720.0f);
+    state.viewElevationDeg = std::clamp(
+        finiteOr(state.viewElevationDeg, 34.0f), -85.0f, 85.0f);
+    state.viewZoom = std::clamp(
+        finiteOr(state.viewZoom, 1.0f), 0.55f, 2.20f);
+    state.selectedBody = std::min<uint32_t>(
+        state.selectedBody, std::max<uint32_t>(1u, bodyCount) - 1u);
+    return state;
+}
 
 s3g::AccelerometerFieldParams migrateParams(
     const AccelerometerFieldParamsV1& old)
@@ -344,13 +485,26 @@ s3g::AccelerometerFieldParams migrateParams(
     return s3g::sanitizeAccelerometerFieldParams(result);
 }
 
-void focusGongParams(s3g::AccelerometerFieldParams& params)
+void focusModalParams(s3g::AccelerometerFieldParams& params)
 {
-    if (params.substrate != s3g::AccelerometerSubstrate::BellBronze
-        && params.substrate != s3g::AccelerometerSubstrate::GongAgeng
-        && params.substrate != s3g::AccelerometerSubstrate::Jing
-        && params.substrate != s3g::AccelerometerSubstrate::Kkwaenggwari) {
-        params.substrate = s3g::AccelerometerSubstrate::GongAgeng;
+    if (params.substrate != s3g::AccelerometerSubstrate::TieredBronze
+        && params.substrate != s3g::AccelerometerSubstrate::DeepBronze
+        && params.substrate != s3g::AccelerometerSubstrate::BroadBronze
+        && params.substrate != s3g::AccelerometerSubstrate::BrightBronze) {
+        params.substrate = s3g::AccelerometerSubstrate::DeepBronze;
+    }
+    if (params.outputMode
+        == s3g::AccelerometerFieldOutputMode::LegacySensorStems) {
+        params.outputMode = s3g::AccelerometerFieldOutputMode::BodyStems;
+    }
+    if (params.fieldListenMode == s3g::AmbiFieldListenMode::Off
+        && (params.activity > 1.0e-4f
+            || params.ambientDrive > 1.0e-4f)) {
+        params.fieldListenMode = s3g::AmbiFieldListenMode::Balance;
+        params.fieldListenAmount = std::max(
+            params.fieldListenAmount, 0.55f);
+        params.fieldListenResponse =
+            s3g::AmbiFieldListenerResponse::Imprint;
     }
     params = s3g::sanitizeAccelerometerFieldParams(params);
 }
@@ -368,12 +522,20 @@ struct Plugin {
     std::vector<float> scratchInput {};
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<float> listenerActivity { 0.0f };
-    std::atomic<float> listenerTarget { 0.5f };
+    std::atomic<float> actuatorActivity { 0.0f };
+    std::atomic<uint32_t> listenerPickupCount { 8u };
+    std::array<std::atomic<float>, s3g::kAmbiFieldListenerMaxLobes>
+        listenerPickupEnergy {};
+    std::array<std::atomic<float>, s3g::kAccelerometerFieldMaxBodyCount>
+        actuatorBodyDrive {};
+    std::array<std::atomic<float>, s3g::kAccelerometerFieldMaxBodyCount>
+        bodyEnergy {};
+    SavedGuiState guiState {};
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
-    char presetName[64] { "Gong Ageng" };
+    char presetName[64] { "Deep Field" };
 #endif
 };
 
@@ -425,6 +587,17 @@ bool readExact(const clap_istream_t* stream, void* destination, size_t size)
 double getParam(const Plugin& plugin, clap_id id)
 {
     const auto& p = plugin.params;
+    uint32_t body = 0u;
+    BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
+    if (decodeBodyAedParam(id, body, kind)) {
+        if (kind == BodyAedParamKind::AzimuthOffset) {
+            return p.bodyAzimuthOffsetDeg[body];
+        }
+        if (kind == BodyAedParamKind::ElevationOffset) {
+            return p.bodyElevationOffsetDeg[body];
+        }
+        return p.bodyDistance[body];
+    }
     switch (id) {
     case kParamPreset: return plugin.presetIndex;
     case kParamSubstrate: return static_cast<uint32_t>(p.substrate);
@@ -465,6 +638,9 @@ double getParam(const Plugin& plugin, clap_id id)
             static_cast<uint32_t>(p.fieldListenResponse), 1u, 3u) - 1u;
     case kParamCoupling: return p.coupling;
     case kParamEnergy: return p.energy;
+    case kParamBodyCount: return p.bodyCount;
+    case kParamListenerPickupSet:
+        return static_cast<uint32_t>(p.listenerPickupSet);
     default: return 0.0;
     }
 }
@@ -488,17 +664,27 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     }
 
     auto& p = plugin.params;
-    switch (id) {
+    uint32_t body = 0u;
+    BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
+    if (decodeBodyAedParam(id, body, kind)) {
+        if (kind == BodyAedParamKind::AzimuthOffset) {
+            p.bodyAzimuthOffsetDeg[body] = static_cast<float>(value);
+        } else if (kind == BodyAedParamKind::ElevationOffset) {
+            p.bodyElevationOffsetDeg[body] = static_cast<float>(value);
+        } else {
+            p.bodyDistance[body] = static_cast<float>(value);
+        }
+    } else switch (id) {
     case kParamSubstrate:
         switch (static_cast<s3g::AccelerometerSubstrate>(
             roundedIndex(value, 13u))) {
-        case s3g::AccelerometerSubstrate::BellBronze:
-            p.substrate = s3g::AccelerometerSubstrate::BellBronze; break;
-        case s3g::AccelerometerSubstrate::Jing:
-            p.substrate = s3g::AccelerometerSubstrate::Jing; break;
-        case s3g::AccelerometerSubstrate::Kkwaenggwari:
-            p.substrate = s3g::AccelerometerSubstrate::Kkwaenggwari; break;
-        default: p.substrate = s3g::AccelerometerSubstrate::GongAgeng; break;
+        case s3g::AccelerometerSubstrate::TieredBronze:
+            p.substrate = s3g::AccelerometerSubstrate::TieredBronze; break;
+        case s3g::AccelerometerSubstrate::BroadBronze:
+            p.substrate = s3g::AccelerometerSubstrate::BroadBronze; break;
+        case s3g::AccelerometerSubstrate::BrightBronze:
+            p.substrate = s3g::AccelerometerSubstrate::BrightBronze; break;
+        default: p.substrate = s3g::AccelerometerSubstrate::DeepBronze; break;
         }
         break;
     case kParamExcitation: p.excitation = static_cast<s3g::AccelerometerExcitation>(roundedIndex(value, 6u)); break;
@@ -528,16 +714,28 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kParamFieldAzimuth: p.fieldAzimuthDeg = static_cast<float>(value); break;
     case kParamFieldElevation: p.fieldElevationDeg = static_cast<float>(value); break;
     case kParamOrder: p.ambisonicOrder = roundedIndex(value - 1.0, 3u) + 1u; break;
-    case kParamOutputMode: p.outputMode = static_cast<s3g::AccelerometerFieldOutputMode>(roundedIndex(value, 2u)); break;
+    case kParamOutputMode:
+        p.outputMode = roundedIndex(value, 3u) == 0u
+            ? s3g::AccelerometerFieldOutputMode::Ambisonic
+            : s3g::AccelerometerFieldOutputMode::BodyStems;
+        break;
     case kParamOutputGain: p.outputGainDb = static_cast<float>(value); break;
     case kParamFieldListenMode: p.fieldListenMode = static_cast<s3g::AmbiFieldListenMode>(roundedIndex(value, 4u)); break;
     case kParamFieldListenAmount: p.fieldListenAmount = static_cast<float>(value); break;
     case kParamFieldListenResponse: p.fieldListenResponse = static_cast<s3g::AmbiFieldListenerResponse>(roundedIndex(value, 3u) + 1u); break;
     case kParamCoupling: p.coupling = static_cast<float>(value); break;
     case kParamEnergy: p.energy = static_cast<float>(value); break;
+    case kParamBodyCount: p.bodyCount = roundedIndex(value - 4.0, 5u) + 4u; break;
+    case kParamListenerPickupSet:
+        p.listenerPickupSet =
+            static_cast<s3g::AccelerometerFieldListenerPickupSet>(
+                roundedIndex(value, 2u));
+        break;
     default: return;
     }
     plugin.params = s3g::sanitizeAccelerometerFieldParams(plugin.params);
+    plugin.guiState.selectedBody = std::min<uint32_t>(
+        plugin.guiState.selectedBody, plugin.params.bodyCount - 1u);
     plugin.presetIndex = kCustomPresetIndex;
 #if defined(__APPLE__)
     std::snprintf(plugin.presetName, sizeof(plugin.presetName), "%s", "Custom");
@@ -545,7 +743,16 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     plugin.engine.setParams(plugin.params);
 }
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    // Hosts may create and show the editor before audio activation. Prepare a
+    // default-rate model here so its editable body field is already truthful.
+    p->engine.prepare(p->sampleRate);
+    p->engine.setParams(p->params);
+    p->engine.reset();
+    return true;
+}
 
 void destroy(const clap_plugin_t* plugin)
 {
@@ -584,8 +791,18 @@ void reset(const clap_plugin_t* plugin)
     p->engine.reset();
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
     p->listenerActivity.store(0.0f, std::memory_order_relaxed);
-    p->listenerTarget.store(
-        p->params.sourcePosition, std::memory_order_relaxed);
+    p->actuatorActivity.store(0.0f, std::memory_order_relaxed);
+    p->listenerPickupCount.store(
+        p->engine.listenerPickupCount(), std::memory_order_relaxed);
+    for (auto& energy : p->listenerPickupEnergy) {
+        energy.store(0.0f, std::memory_order_relaxed);
+    }
+    for (auto& drive : p->actuatorBodyDrive) {
+        drive.store(0.0f, std::memory_order_relaxed);
+    }
+    for (auto& energy : p->bodyEnergy) {
+        energy.store(0.0f, std::memory_order_relaxed);
+    }
 }
 
 ProcessEventBatch readInputEvents(Plugin& plugin,
@@ -645,6 +862,31 @@ void updatePeak(Plugin& plugin, float* const* outputs,
         std::memory_order_relaxed);
 }
 
+void updateEngineMeters(Plugin& plugin)
+{
+    plugin.listenerActivity.store(
+        plugin.engine.fieldListenerActivity(), std::memory_order_relaxed);
+    plugin.actuatorActivity.store(
+        plugin.engine.actuatorActivity(), std::memory_order_relaxed);
+    const uint32_t pickupCount = plugin.engine.listenerPickupCount();
+    plugin.listenerPickupCount.store(pickupCount, std::memory_order_relaxed);
+    for (uint32_t pickup = 0u;
+        pickup < s3g::kAmbiFieldListenerMaxLobes; ++pickup) {
+        plugin.listenerPickupEnergy[pickup].store(
+            pickup < pickupCount
+                ? plugin.engine.listenerPickupEnergy(pickup) : 0.0f,
+            std::memory_order_relaxed);
+    }
+    for (uint32_t body = 0u;
+        body < s3g::kAccelerometerFieldMaxBodyCount; ++body) {
+        plugin.actuatorBodyDrive[body].store(
+            plugin.engine.actuatorBodyDrive(body),
+            std::memory_order_relaxed);
+        plugin.bodyEnergy[body].store(
+            plugin.engine.bodyEnergy(body), std::memory_order_relaxed);
+    }
+}
+
 clap_process_status processFloat(Plugin& plugin,
     const clap_process_t& process,
     const clap_audio_buffer_t* input,
@@ -678,10 +920,9 @@ clap_process_status processFloat(Plugin& plugin,
             pointers.data(), outputChannels, end - offset);
         offset = end;
     }
-    plugin.listenerActivity.store(
-        plugin.engine.listenerActivity(), std::memory_order_relaxed);
-    plugin.listenerTarget.store(
-        plugin.engine.listenerTargetPosition(), std::memory_order_relaxed);
+    if (plugin.guiVisible.load(std::memory_order_relaxed)) {
+        updateEngineMeters(plugin);
+    }
     s3g::clearAudioBufferFromChannel(
         output, kOutputChannels, process.frames_count);
     updatePeak(plugin, output.data32,
@@ -748,10 +989,9 @@ clap_process_status processDouble(Plugin& plugin,
     }
     s3g::clearAudioBufferFromChannel(
         output, kOutputChannels, process.frames_count);
-    plugin.listenerActivity.store(
-        plugin.engine.listenerActivity(), std::memory_order_relaxed);
-    plugin.listenerTarget.store(
-        plugin.engine.listenerTargetPosition(), std::memory_order_relaxed);
+    if (plugin.guiVisible.load(std::memory_order_relaxed)) {
+        updateEngineMeters(plugin);
+    }
     plugin.outputPeak.store(std::max(
         plugin.outputPeak.load(std::memory_order_relaxed) * 0.90f, peak),
         std::memory_order_relaxed);
@@ -789,7 +1029,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     if (!info || index != 0u) return false;
     info->id = isInput ? 10u : 20u;
     std::strncpy(info->name,
-        isInput ? "Gong Force In" : "3OA ACN/SN3D Gong Field",
+        isInput ? "Modal Actuator In" : "3OA ACN/SN3D Modal Field",
         sizeof(info->name));
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = isInput ? kInputChannels : kOutputChannels;
@@ -815,7 +1055,7 @@ bool notePortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     info->supported_dialects =
         CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
     info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
-    std::strncpy(info->name, "Gong MIDI Strike In", sizeof(info->name));
+    std::strncpy(info->name, "Modal Actuator MIDI In", sizeof(info->name));
     return true;
 }
 
@@ -874,10 +1114,13 @@ bool formatParam(clap_id id, double value, char* text, uint32_t size)
         std::snprintf(text, size, "%+.1f dB", value);
         return true;
     case DisplayKind::Degrees:
-        std::snprintf(text, size, "%+.0f deg", value);
+        std::snprintf(text, size, "%+.0f°", value);
         return true;
     case DisplayKind::Position:
         std::snprintf(text, size, "%.0f %%", value * 100.0);
+        return true;
+    case DisplayKind::Distance:
+        std::snprintf(text, size, "%.2f", value);
         return true;
     }
     return false;
@@ -928,7 +1171,9 @@ const clap_plugin_params_t paramsExt {
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     const auto* p = self(plugin);
-    const SavedState state { kStateVersion, p->presetIndex, p->params };
+    const SavedState state {
+        kStateVersion, p->presetIndex, p->params, p->guiState
+    };
     return writeExact(stream, &state, sizeof(state));
 }
 
@@ -939,9 +1184,44 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         return false;
     }
     auto* p = self(plugin);
-    if (header.version == kStateVersion || header.version == 5u) {
+    if (header.version == kStateVersion) {
+        s3g::AccelerometerFieldParams loadedParams {};
+        SavedGuiState loadedGui {};
+        if (!readExact(stream, &loadedParams, sizeof(loadedParams))
+            || !readExact(stream, &loadedGui, sizeof(loadedGui))) {
+            return false;
+        }
+        p->params = s3g::sanitizeAccelerometerFieldParams(loadedParams);
+        p->guiState = sanitizeSavedGuiState(
+            loadedGui, p->params.bodyCount);
+    } else if (header.version == 8u) {
+        // Listener pickup set was appended in version 9. Version 8 already
+        // stored camera state directly after its shorter parameter block.
         s3g::AccelerometerFieldParams params {};
-        if (!readExact(stream, &params, sizeof(params))) return false;
+        SavedGuiState loadedGui {};
+        constexpr size_t legacyParamsSize = offsetof(
+            s3g::AccelerometerFieldParams, listenerPickupSet);
+        if (!readExact(stream, &params, legacyParamsSize)
+            || !readExact(stream, &loadedGui, sizeof(loadedGui))) {
+            return false;
+        }
+        p->params = s3g::sanitizeAccelerometerFieldParams(params);
+        p->guiState = sanitizeSavedGuiState(
+            loadedGui, p->params.bodyCount);
+    } else if (header.version == 7u) {
+        // Per-body AED offsets and camera state were appended in version 8.
+        s3g::AccelerometerFieldParams params {};
+        constexpr size_t legacyParamsSize = offsetof(
+            s3g::AccelerometerFieldParams, bodyAzimuthOffsetDeg);
+        if (!readExact(stream, &params, legacyParamsSize)) return false;
+        p->params = s3g::sanitizeAccelerometerFieldParams(params);
+    } else if (header.version == 6u || header.version == 5u) {
+        // Body count was appended in version 7. Older modal sessions enter
+        // the new ensemble at its six-body default.
+        s3g::AccelerometerFieldParams params {};
+        constexpr size_t legacyParamsSize = offsetof(
+            s3g::AccelerometerFieldParams, bodyCount);
+        if (!readExact(stream, &params, legacyParamsSize)) return false;
         p->params = s3g::sanitizeAccelerometerFieldParams(params);
     } else if (header.version == 4u) {
         // Coupling and nonlinear energy were appended in version 5.
@@ -966,8 +1246,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else {
         return false;
     }
-    if (header.version < kStateVersion) {
-        focusGongParams(p->params);
+    if (header.version < 8u) {
+        focusModalParams(p->params);
         p->presetIndex = kCustomPresetIndex;
     } else {
         p->presetIndex = std::min<uint32_t>(
@@ -995,77 +1275,197 @@ constexpr s3g::gui_layout::Canvas kGuiCanvas {
 constexpr auto kTitleBand =
     s3g::gui_layout::encoderTitleBand(kGuiCanvas);
 
-constexpr std::array<clap_id, 2u> kOutputControls {{
-    kParamOrder, kParamOutputGain,
+constexpr std::array<clap_id, 3u> kOutputControls {{
+    kParamOutputGain, kParamOrder, kParamOutputMode,
 }};
-constexpr std::array<clap_id, 7u> kExcitationControls {{
-    kParamExcitation, kParamEventRate, kParamActivity, kParamForce,
-    kParamTexture, kParamAmbientDrive, kParamExternalDrive,
+constexpr std::array<clap_id, 7u> kStructureControls {{
+    kParamSubstrate, kParamBodyCount, kParamSize, kParamDamping, kParamIrregularity,
+    kParamCoupling, kParamSourcePosition,
 }};
-constexpr std::array<clap_id, 9u> kStructureControls {{
-    kParamSubstrate, kParamSize, kParamDamping, kParamIrregularity,
-    kParamCoupling, kParamEnergy, kParamPropagationLoss,
-    kParamContactDetail, kParamSourcePosition,
+constexpr std::array<clap_id, 3u> kProjectionControls {{
+    kParamFieldAzimuth, kParamFieldElevation, kParamSpatialExtent,
 }};
-constexpr std::array<clap_id, 5u> kProjectionControls {{
-    kParamContactRadiation, kParamSpatialExtent, kParamFieldAzimuth,
-    kParamFieldElevation, kParamAirRadiation,
-}};
-constexpr std::array<clap_id, 3u> kRadiationControls {{
+constexpr std::array<clap_id, 5u> kRadiationControls {{
     kParamPickupPosition, kParamArraySpread, kParamPickupAxis,
+    kParamContactRadiation, kParamAirRadiation,
 }};
-constexpr std::array<clap_id, 3u> kListenerControls {{
-    kParamFieldListenMode, kParamFieldListenAmount,
-    kParamFieldListenResponse,
+constexpr std::array<clap_id, 5u> kActuatorControls {{
+    kParamListenerPickupSet, kParamFieldListenMode,
+    kParamFieldListenAmount, kParamFieldListenResponse,
+    kParamExternalDrive,
+}};
+constexpr std::array<s3g::gui_layout::EncoderFamilyControl, 4u>
+    kActuatorFamilyControls {{
+        s3g::gui_layout::EncoderFamilyControl::PickupSet,
+        s3g::gui_layout::EncoderFamilyControl::ListeningMode,
+        s3g::gui_layout::EncoderFamilyControl::ListenerAmountReturn,
+        s3g::gui_layout::EncoderFamilyControl::ListenerResponseBypass,
 }};
 
-NSRect fieldPanelRect() { return NSMakeRect(18.0, 42.0, 594.0, 700.0); }
-NSRect fieldPlotRect() { return NSMakeRect(30.0, 74.0, 570.0, 654.0); }
-NSRect outputPanelRect() { return NSMakeRect(630.0, 42.0, 250.0, 96.0); }
-NSRect excitationPanelRect() { return NSMakeRect(630.0, 150.0, 250.0, 216.0); }
-NSRect structurePanelRect() { return NSMakeRect(630.0, 378.0, 250.0, 286.0); }
-NSRect projectionPanelRect() { return NSMakeRect(896.0, 42.0, 246.0, 164.0); }
-NSRect radiationPanelRect() { return NSMakeRect(896.0, 218.0, 246.0, 112.0); }
-NSRect listenerPanelRect() { return NSMakeRect(896.0, 342.0, 246.0, 112.0); }
-NSRect signalPanelRect() { return NSMakeRect(896.0, 466.0, 246.0, 198.0); }
+std::array<clap_id, 3u> bodyPointControls(uint32_t body)
+{
+    return {{
+        bodyAedParamId(body, BodyAedParamKind::AzimuthOffset),
+        bodyAedParamId(body, BodyAedParamKind::ElevationOffset),
+        bodyAedParamId(body, BodyAedParamKind::Distance),
+    }};
+}
+
+constexpr s3g::gui_layout::Rect kFieldPanelFrame {
+    18.0, 42.0, 596.0, 706.0
+};
+constexpr auto kOutputPanelLayout = s3g::gui_layout::fittedPanel(
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Output,
+    s3g::gui_layout::kLargeEncoderFirstColumn,
+    s3g::gui_layout::kStandardMetrics.contentTop,
+    static_cast<uint32_t>(kOutputControls.size()));
+constexpr auto kStructurePanelLayout = s3g::gui_layout::fittedStackPanel(
+    s3g::gui_layout::PanelRole::Engine,
+    kOutputPanelLayout,
+    static_cast<uint32_t>(kStructureControls.size()));
+constexpr auto kActuatorPanelLayout = s3g::gui_layout::fittedStackPanel(
+    s3g::gui_layout::PanelRole::Listener,
+    kStructurePanelLayout,
+    static_cast<uint32_t>(kActuatorControls.size()));
+constexpr auto kProjectionPanelLayout = s3g::gui_layout::fittedPanel(
+    s3g::gui_layout::PluginClass::ProceduralEncoder,
+    s3g::gui_layout::PanelRole::Projection,
+    s3g::gui_layout::kLargeEncoderSecondColumn,
+    s3g::gui_layout::kStandardMetrics.contentTop,
+    static_cast<uint32_t>(kProjectionControls.size()));
+constexpr auto kRadiationPanelLayout = s3g::gui_layout::fittedStackPanel(
+    s3g::gui_layout::PanelRole::ToneShape,
+    kProjectionPanelLayout,
+    static_cast<uint32_t>(kRadiationControls.size()));
+constexpr auto kBodyPointPanelLayout = s3g::gui_layout::stackPanel(
+    s3g::gui_layout::PanelRole::SelectedObject,
+    kRadiationPanelLayout,
+    152.0,
+    3u);
+constexpr auto kSignalPanelLayout = s3g::gui_layout::stackPanel(
+    s3g::gui_layout::PanelRole::Utility,
+    kBodyPointPanelLayout,
+    166.0,
+    0u);
+
+constexpr std::array<s3g::gui_layout::Panel, 3u> kFirstColumnLayouts {{
+    kOutputPanelLayout, kStructurePanelLayout, kActuatorPanelLayout,
+}};
+constexpr std::array<s3g::gui_layout::Panel, 4u> kSecondColumnLayouts {{
+    kProjectionPanelLayout, kRadiationPanelLayout,
+    kBodyPointPanelLayout, kSignalPanelLayout,
+}};
+static_assert(s3g::gui_layout::validateColumn(
+    kFirstColumnLayouts, kGuiCanvas));
+static_assert(s3g::gui_layout::rolesFollowTemplate(
+    kFirstColumnLayouts,
+    s3g::gui_layout::kProceduralEncoderTemplate,
+    true));
+static_assert(s3g::gui_layout::controlsFollowFamilyOrder(
+    kActuatorFamilyControls,
+    s3g::gui_layout::kListenerControlOrder));
+static_assert(s3g::gui_layout::controlMatchesSlot(
+    kOutputPanelLayout,
+    s3g::gui_layout::kLargeEncoderOrderSlot));
+static_assert(s3g::gui_layout::validateColumn(
+    kSecondColumnLayouts, kGuiCanvas, false));
+static_assert(s3g::gui_layout::rectFitsCanvas(kFieldPanelFrame, kGuiCanvas));
+static_assert(s3g::gui_layout::kLargeEncoderFirstColumn.x
+    - (kFieldPanelFrame.x + kFieldPanelFrame.width) == 16.0);
+static_assert(kFieldPanelFrame.y + kFieldPanelFrame.height
+    + 12.0 == kGuiCanvas.height);
+
+NSRect fieldPanelRect()
+{
+    return s3g::clap_gui::cocoaRect(kFieldPanelFrame);
+}
+NSRect fieldPlotRect()
+{
+    const NSRect panel = fieldPanelRect();
+    return NSMakeRect(panel.origin.x + 16.0, panel.origin.y + 34.0,
+        panel.size.width - 32.0, panel.size.height - 50.0);
+}
+NSRect outputPanelRect()
+{
+    return s3g::clap_gui::cocoaRect(kOutputPanelLayout.frame);
+}
+NSRect actuatorPanelRect()
+{
+    return s3g::clap_gui::cocoaRect(kActuatorPanelLayout.frame);
+}
+NSRect structurePanelRect()
+{
+    return s3g::clap_gui::cocoaRect(kStructurePanelLayout.frame);
+}
+NSRect projectionPanelRect()
+{
+    return s3g::clap_gui::cocoaRect(kProjectionPanelLayout.frame);
+}
+NSRect radiationPanelRect()
+{
+    return s3g::clap_gui::cocoaRect(kRadiationPanelLayout.frame);
+}
+NSRect bodyPointPanelRect()
+{
+    return s3g::clap_gui::cocoaRect(kBodyPointPanelLayout.frame);
+}
+NSRect signalPanelRect()
+{
+    return s3g::clap_gui::cocoaRect(kSignalPanelLayout.frame);
+}
+NSRect modalZoomButtonRect(uint32_t index)
+{
+    const NSRect panel = fieldPanelRect();
+    const CGFloat cameraLeft = s3g::clap_gui::topologyProcessorCameraButtonRect(
+        panel, 0u).origin.x;
+    constexpr CGFloat width = 22.0;
+    constexpr CGFloat gap = 6.0;
+    constexpr CGFloat groupWidth = width * 2.0 + gap;
+    return NSMakeRect(cameraLeft - gap - groupWidth
+            + static_cast<CGFloat>(index) * (width + gap),
+        panel.origin.y + 3.0, width, 15.0);
+}
+NSRect modalResetLayoutButtonRect()
+{
+    const NSRect zoomOut = modalZoomButtonRect(0u);
+    return NSMakeRect(zoomOut.origin.x - 60.0,
+        fieldPanelRect().origin.y + 3.0, 52.0, 15.0);
+}
 
 NSRect panelForParam(clap_id id)
 {
+    uint32_t body = 0u;
+    BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
+    if (decodeBodyAedParam(id, body, kind)) return bodyPointPanelRect();
     switch (id) {
     case kParamOrder:
+    case kParamOutputMode:
     case kParamOutputGain:
         return outputPanelRect();
-    case kParamContactRadiation:
-    case kParamSpatialExtent:
     case kParamFieldAzimuth:
     case kParamFieldElevation:
-    case kParamAirRadiation:
+    case kParamSpatialExtent:
         return projectionPanelRect();
     case kParamFieldListenMode:
     case kParamFieldListenAmount:
     case kParamFieldListenResponse:
-        return listenerPanelRect();
-    case kParamExcitation:
-    case kParamEventRate:
-    case kParamActivity:
-    case kParamForce:
-    case kParamTexture:
-    case kParamAmbientDrive:
     case kParamExternalDrive:
-        return excitationPanelRect();
+    case kParamListenerPickupSet:
+        return actuatorPanelRect();
     case kParamSubstrate:
+    case kParamBodyCount:
     case kParamSize:
     case kParamDamping:
     case kParamIrregularity:
     case kParamCoupling:
-    case kParamEnergy:
-    case kParamPropagationLoss:
-    case kParamContactDetail:
     case kParamSourcePosition:
         return structurePanelRect();
     case kParamPickupPosition:
     case kParamArraySpread:
     case kParamPickupAxis:
+    case kParamContactRadiation:
+    case kParamAirRadiation:
         return radiationPanelRect();
     default:
         return outputPanelRect();
@@ -1074,11 +1474,19 @@ NSRect panelForParam(clap_id id)
 
 CGFloat controlRowY(NSRect panel, uint32_t row)
 {
-    return panel.origin.y + 36.0 + static_cast<CGFloat>(row) * 26.0;
+    return static_cast<CGFloat>(s3g::gui_layout::toolboxRowY(
+        panel.origin.y, row));
 }
 
 const char* shortParamName(clap_id id)
 {
+    uint32_t body = 0u;
+    BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
+    if (decodeBodyAedParam(id, body, kind)) {
+        if (kind == BodyAedParamKind::AzimuthOffset) return "AZ OFFSET";
+        if (kind == BodyAedParamKind::ElevationOffset) return "EL OFFSET";
+        return "DISTANCE";
+    }
     switch (id) {
     case kParamExcitation: return "EXCITER";
     case kParamEventRate: return "RATE";
@@ -1086,8 +1494,9 @@ const char* shortParamName(clap_id id)
     case kParamForce: return "FORCE";
     case kParamTexture: return "TEXTURE";
     case kParamAmbientDrive: return "AMBIENT";
-    case kParamExternalDrive: return "FORCE IN";
+    case kParamExternalDrive: return "INPUT";
     case kParamSubstrate: return "BODY";
+    case kParamBodyCount: return "BODIES";
     case kParamSize: return "SIZE";
     case kParamDamping: return "DAMP";
     case kParamIrregularity: return "IRREG";
@@ -1095,26 +1504,27 @@ const char* shortParamName(clap_id id)
     case kParamEnergy: return "ENERGY";
     case kParamPropagationLoss: return "LOSS";
     case kParamContactDetail: return "DETAIL";
-    case kParamSourcePosition: return "STRIKE POS";
+    case kParamSourcePosition: return "DRIVE POS";
     case kParamReadout: return "READOUT";
-    case kParamPickupPosition: return "CENTER";
-    case kParamArraySpread: return "SPREAD";
+    case kParamPickupPosition: return "TONE CENTER";
+    case kParamArraySpread: return "VARIATION";
     case kParamPickupAxis: return "MODE ANGLE";
     case kParamSensorMass: return "MASS";
     case kParamMountStiffness: return "MOUNT";
     case kParamConditionerHighpass: return "HPF";
     case kParamSensorNoise: return "NOISE";
-    case kParamAirRadiation: return "RADIATE";
-    case kParamOutputMode: return "MODE";
+    case kParamAirRadiation: return "AIR LEVEL";
+    case kParamOutputMode: return "FORMAT";
     case kParamOrder: return "ORDER";
-    case kParamContactRadiation: return "C / RAD";
-    case kParamSpatialExtent: return "AED SPREAD";
-    case kParamFieldAzimuth: return "AZIM";
-    case kParamFieldElevation: return "ELEV";
-    case kParamOutputGain: return "GAIN";
-    case kParamFieldListenMode: return "LISTEN";
-    case kParamFieldListenAmount: return "INFLUENCE";
-    case kParamFieldListenResponse: return "RESPONSE";
+    case kParamContactRadiation: return "CONTACT / RAD";
+    case kParamSpatialExtent: return "BODY SPREAD";
+    case kParamFieldAzimuth: return "AZIMUTH";
+    case kParamFieldElevation: return "ELEVATION";
+    case kParamOutputGain: return "OUT";
+    case kParamFieldListenMode: return "ROUTING";
+    case kParamFieldListenAmount: return "DRIVE";
+    case kParamFieldListenResponse: return "BEHAVIOR";
+    case kParamListenerPickupSet: return "EARS";
     default: return "PARAM";
     }
 }
@@ -1148,18 +1558,14 @@ struct GuiControlLocation {
 };
 
 template <size_t Count>
-bool findInGroup(NSPoint point, NSRect panel,
+bool findInGroup(NSPoint point, const s3g::gui_layout::Panel& layout,
     const std::array<clap_id, Count>& controls,
     GuiControlLocation& result)
 {
-    const CGFloat controlX = static_cast<CGFloat>(
-        s3g::gui_layout::processorControlX(panel.origin.x));
-    const CGFloat width = static_cast<CGFloat>(
-        s3g::gui_layout::processorMenuWidth(panel.size.width));
+    const NSRect panel = s3g::clap_gui::cocoaRect(layout.frame);
     for (uint32_t row = 0u; row < Count; ++row) {
-        const NSRect hit = NSMakeRect(
-            controlX - 6.0, controlRowY(panel, row) - 5.0,
-            width + 12.0, 24.0);
+        const NSRect hit = s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::sliderHitRect(layout, row));
         if (NSPointInRect(point, hit)) {
             result = { controls[row], panel, row };
             return true;
@@ -1187,26 +1593,20 @@ void randomizeSafe(Plugin& plugin)
 {
     const uint32_t order = plugin.params.ambisonicOrder;
     const float outputGain = plugin.params.outputGainDb;
-    const auto listenMode = plugin.params.fieldListenMode;
-    const float listenAmount = plugin.params.fieldListenAmount;
-    const auto listenResponse = plugin.params.fieldListenResponse;
+    const auto listenerPickupSet = plugin.params.listenerPickupSet;
+    const auto listenerMode = plugin.params.fieldListenMode;
+    const float listenerAmount = plugin.params.fieldListenAmount;
+    const auto listenerResponse = plugin.params.fieldListenResponse;
+    const float externalDrive = plugin.params.externalDrive;
     auto params = s3g::accelerometerFieldFactoryPreset(
         arc4random_uniform(kFactoryPresetCount));
     const auto vary = [](float value, float amount) {
         return s3g::clamp(value + guiRandomSigned() * amount, 0.0f, 1.0f);
     };
-    params.eventRateHz = s3g::clamp(params.eventRateHz
-            * (1.0f + guiRandomSigned() * 0.22f),
-        0.04f, 8.0f);
-    params.activity = vary(params.activity, 0.10f);
-    params.force = vary(params.force, 0.10f);
-    params.texture = vary(params.texture, 0.12f);
-    params.ambientDrive = vary(params.ambientDrive, 0.06f);
     params.size = vary(params.size, 0.08f);
     params.damping = vary(params.damping, 0.08f);
     params.irregularity = vary(params.irregularity, 0.07f);
     params.coupling = vary(params.coupling, 0.12f);
-    params.energy = vary(params.energy, 0.12f);
     params.sourcePosition = vary(params.sourcePosition, 0.10f);
     params.pickupPosition = vary(params.pickupPosition, 0.10f);
     params.arraySpread = s3g::clamp(
@@ -1216,14 +1616,79 @@ void randomizeSafe(Plugin& plugin)
     params.ambisonicOrder = order;
     params.outputGainDb = outputGain;
     params.outputMode = s3g::AccelerometerFieldOutputMode::Ambisonic;
-    params.fieldListenMode = listenMode;
-    params.fieldListenAmount = listenAmount;
-    params.fieldListenResponse = listenResponse;
+    params.listenerPickupSet = listenerPickupSet;
+    params.fieldListenMode = listenerMode;
+    params.fieldListenAmount = listenerAmount;
+    params.fieldListenResponse = listenerResponse;
+    params.externalDrive = externalDrive;
     params.seed ^= arc4random();
     plugin.params = s3g::sanitizeAccelerometerFieldParams(params);
     plugin.presetIndex = kCustomPresetIndex;
     plugin.engine.setParams(plugin.params);
     plugin.engine.reset();
+}
+
+struct GuiBodyAed {
+    float azimuthDeg = 0.0f;
+    float elevationDeg = 0.0f;
+    float distance = 1.0f;
+};
+
+GuiBodyAed guiBodyAed(const Plugin& plugin, uint32_t body)
+{
+    const s3g::Vec3 direction = plugin.engine.bodyDirection(body);
+    return {
+        std::atan2(direction.y, direction.x) * 180.0f / s3g::kPi,
+        std::asin(s3g::clamp(direction.z, -1.0f, 1.0f))
+            * 180.0f / s3g::kPi,
+        plugin.engine.bodyDistance(body),
+    };
+}
+
+float wrapGuiDegrees(float value)
+{
+    value = std::fmod(value + 180.0f, 360.0f);
+    if (value < 0.0f) value += 360.0f;
+    return value - 180.0f;
+}
+
+float modalLinearToSrgb(float value)
+{
+    const float x = std::clamp(value, 0.0f, 1.0f);
+    return x <= 0.0031308f
+        ? x * 12.92f
+        : 1.055f * std::pow(x, 1.0f / 2.4f) - 0.055f;
+}
+
+NSColor* modalBodyColorFromAed(
+    float azimuthDeg, float elevationDeg, float distance, bool selected,
+    double alpha = 1.0)
+{
+    const float hue = std::fmod(azimuthDeg / 360.0f + 1.0f, 1.0f);
+    const float light = std::clamp(
+        (std::clamp(elevationDeg, -90.0f, 90.0f) + 90.0f) / 180.0f,
+        0.28f, 0.88f);
+    const float chroma = std::clamp(distance / 2.4f, 0.08f, 1.0f) * 0.37f;
+    const float a = std::cos(hue * 2.0f * static_cast<float>(M_PI)) * chroma;
+    const float b = std::sin(hue * 2.0f * static_cast<float>(M_PI)) * chroma;
+    const float l3 = light + 0.3963377774f * a + 0.2158037573f * b;
+    const float m3 = light - 0.1055613458f * a - 0.0638541728f * b;
+    const float s3 = light - 0.0894841775f * a - 1.2914855480f * b;
+    const float l = l3 * l3 * l3;
+    const float m = m3 * m3 * m3;
+    const float s = s3 * s3 * s3;
+    float red = modalLinearToSrgb(
+        4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s);
+    float green = modalLinearToSrgb(
+        -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s);
+    float blue = modalLinearToSrgb(
+        -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s);
+    const float grayMix = selected ? 0.08f : 0.18f;
+    red = red * (1.0f - grayMix) + 0.74f * grayMix;
+    green = green * (1.0f - grayMix) + 0.74f * grayMix;
+    blue = blue * (1.0f - grayMix) + 0.74f * grayMix;
+    return [NSColor colorWithCalibratedRed:red green:green blue:blue
+        alpha:std::clamp(alpha, 0.0, 1.0)];
 }
 
 } // namespace
@@ -1234,6 +1699,15 @@ void randomizeSafe(Plugin& plugin)
     clap_id _openMenu;
     GuiControlLocation _openMenuLocation;
     NSTimer* _refreshTimer;
+    int _viewMode;
+    CGFloat _viewAzimuthDeg;
+    CGFloat _viewElevationDeg;
+    CGFloat _viewZoom;
+    BOOL _dragView;
+    int _dragBody;
+    NSPoint _lastDragPoint;
+    uint32_t _selectedBody;
+    CGFloat _actuatorFlowPhase;
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
@@ -1247,6 +1721,13 @@ void randomizeSafe(Plugin& plugin)
 - (void)drawOpenMenuWithStyle:(s3g::clap_gui::Style&)style
     attrs:(NSDictionary*)attrs;
 - (void)updateDraggedParamAtPoint:(NSPoint)point;
+- (void)storeViewState;
+- (void)setViewPreset:(int)mode;
+- (CGFloat)viewScaleForRect:(NSRect)rect;
+- (NSPoint)projectWorldPoint:(s3g::Vec3)point rect:(NSRect)rect
+    depth:(CGFloat*)depth;
+- (int)hitBodyAtPoint:(NSPoint)point inRect:(NSRect)rect;
+- (void)updateDraggedBodyAtPoint:(NSPoint)point inRect:(NSRect)rect;
 @end
 
 @implementation S3GAccelerometerFieldEncoderView
@@ -1260,6 +1741,16 @@ void randomizeSafe(Plugin& plugin)
         _openMenu = CLAP_INVALID_ID;
         _openMenuLocation = {};
         _refreshTimer = nil;
+        auto* p = static_cast<Plugin*>(plugin);
+        _viewMode = p ? p->guiState.viewMode : 2;
+        _viewAzimuthDeg = p ? p->guiState.viewAzimuthDeg : -35.0;
+        _viewElevationDeg = p ? p->guiState.viewElevationDeg : 34.0;
+        _viewZoom = p ? p->guiState.viewZoom : 1.0;
+        _selectedBody = p ? p->guiState.selectedBody : 0u;
+        _dragView = NO;
+        _dragBody = -1;
+        _lastDragPoint = NSZeroPoint;
+        _actuatorFlowPhase = 0.0;
     }
     return self;
 }
@@ -1295,6 +1786,13 @@ void randomizeSafe(Plugin& plugin)
     (void)timer;
     if (_plugin && ![self isHidden]
         && s3g::clap_support::hostAppIsActive()) {
+        const auto* p = static_cast<const Plugin*>(_plugin);
+        const CGFloat activity = std::clamp<CGFloat>(
+            p->actuatorActivity.load(std::memory_order_relaxed), 0.0, 1.0);
+        if (activity > 0.002) {
+            _actuatorFlowPhase = std::fmod(
+                _actuatorFlowPhase + 0.010 + activity * 0.022, 1.0);
+        }
         [self setNeedsDisplay:YES];
     }
 }
@@ -1302,6 +1800,177 @@ void randomizeSafe(Plugin& plugin)
 - (void)setParam:(clap_id)param value:(double)value
 {
     applyParam(*static_cast<Plugin*>(_plugin), param, value);
+    [self setNeedsDisplay:YES];
+}
+
+- (void)storeViewState
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    if (!p) return;
+    p->guiState.viewMode = _viewMode;
+    p->guiState.viewAzimuthDeg = static_cast<float>(_viewAzimuthDeg);
+    p->guiState.viewElevationDeg = static_cast<float>(_viewElevationDeg);
+    p->guiState.viewZoom = static_cast<float>(_viewZoom);
+    p->guiState.selectedBody = _selectedBody;
+}
+
+- (void)setViewPreset:(int)mode
+{
+    _viewMode = mode;
+    if (mode == 0) {
+        _viewAzimuthDeg = 0.0;
+        _viewElevationDeg = 0.0;
+    } else if (mode == 1) {
+        _viewAzimuthDeg = 90.0;
+        _viewElevationDeg = 90.0;
+    } else {
+        _viewAzimuthDeg = -35.0;
+        _viewElevationDeg = 34.0;
+    }
+    [self storeViewState];
+    [self setNeedsDisplay:YES];
+}
+
+- (CGFloat)viewScaleForRect:(NSRect)rect
+{
+    return std::min(rect.size.width, rect.size.height) * 0.34
+        * std::clamp<CGFloat>(_viewZoom, 0.55, 2.20);
+}
+
+- (NSPoint)projectWorldPoint:(s3g::Vec3)point rect:(NSRect)rect
+    depth:(CGFloat*)depth
+{
+    const CGFloat centerX = NSMidX(rect);
+    const CGFloat centerY = rect.origin.y + rect.size.height * 0.54;
+    const CGFloat scale = [self viewScaleForRect:rect];
+    if (_viewMode == 0) {
+        if (depth) *depth = static_cast<CGFloat>(point.z);
+        return NSMakePoint(centerX - static_cast<CGFloat>(point.y) * scale,
+            centerY - static_cast<CGFloat>(point.x) * scale);
+    }
+    if (_viewMode == 1) {
+        if (depth) *depth = static_cast<CGFloat>(point.x);
+        return NSMakePoint(centerX - static_cast<CGFloat>(point.y) * scale,
+            centerY - static_cast<CGFloat>(point.z) * scale);
+    }
+    const float azimuth = static_cast<float>(
+        _viewAzimuthDeg * M_PI / 180.0);
+    const float elevation = static_cast<float>(
+        _viewElevationDeg * M_PI / 180.0);
+    const float ca = std::cos(azimuth);
+    const float sa = std::sin(azimuth);
+    const float ce = std::cos(elevation);
+    const float se = std::sin(elevation);
+    const float x1 = ca * point.x - sa * point.y;
+    const float y1 = sa * point.x + ca * point.y;
+    const float y2 = ce * y1 - se * point.z;
+    const float z2 = se * y1 + ce * point.z;
+    if (depth) *depth = static_cast<CGFloat>(z2);
+    return NSMakePoint(centerX + static_cast<CGFloat>(x1) * scale,
+        centerY - static_cast<CGFloat>(y2) * scale);
+}
+
+- (int)hitBodyAtPoint:(NSPoint)point inRect:(NSRect)rect
+{
+    auto* p = static_cast<Plugin*>(_plugin);
+    if (!p) return -1;
+    const uint32_t count = std::clamp<uint32_t>(p->params.bodyCount, 4u, 8u);
+    const CGFloat drawnRadius = 15.0
+        + (8.0 - static_cast<CGFloat>(count)) * 0.8;
+    const CGFloat hitRadius = drawnRadius + 4.0;
+    int hit = -1;
+    CGFloat best = hitRadius * hitRadius;
+    CGFloat bestDepth = -std::numeric_limits<CGFloat>::infinity();
+    for (uint32_t body = 0u; body < count; ++body) {
+        const s3g::Vec3 direction = p->engine.bodyDirection(body);
+        const float distance = p->engine.bodyDistance(body);
+        const s3g::Vec3 world {
+            direction.x * distance,
+            direction.y * distance,
+            direction.z * distance,
+        };
+        CGFloat depth = 0.0;
+        const NSPoint projected = [self projectWorldPoint:world
+            rect:rect depth:&depth];
+        const CGFloat dx = point.x - projected.x;
+        const CGFloat dy = point.y - projected.y;
+        const CGFloat squared = dx * dx + dy * dy;
+        if (squared < best - 0.5
+            || (std::fabs(squared - best) <= 0.5 && depth > bestDepth)) {
+            best = squared;
+            bestDepth = depth;
+            hit = static_cast<int>(body);
+        }
+    }
+    return hit;
+}
+
+- (void)updateDraggedBodyAtPoint:(NSPoint)point inRect:(NSRect)rect
+{
+    if (_dragBody < 0
+        || _dragBody >= static_cast<int>(
+            s3g::kAccelerometerFieldMaxBodyCount)
+        || (_viewMode != 0 && _viewMode != 1)) {
+        return;
+    }
+    auto* p = static_cast<Plugin*>(_plugin);
+    const uint32_t body = static_cast<uint32_t>(_dragBody);
+    const GuiBodyAed current = guiBodyAed(*p, body);
+    const CGFloat centerX = NSMidX(rect);
+    const CGFloat centerY = rect.origin.y + rect.size.height * 0.54;
+    const CGFloat scale = [self viewScaleForRect:rect];
+    if (scale <= 1.0) return;
+
+    float desiredAzimuth = current.azimuthDeg;
+    float desiredElevation = current.elevationDeg;
+    float desiredDistance = current.distance;
+    if (_viewMode == 0) {
+        const float x = static_cast<float>(std::clamp(
+            (centerY - point.y) / scale, -2.0, 2.0));
+        const float y = static_cast<float>(std::clamp(
+            (centerX - point.x) / scale, -2.0, 2.0));
+        const float elevationRadians = current.elevationDeg
+            * s3g::kPi / 180.0f;
+        const float planar = std::sqrt(x * x + y * y);
+        desiredDistance = std::clamp(
+            planar / std::max(0.05f, std::cos(elevationRadians)),
+            0.15f, 2.0f);
+        desiredAzimuth = std::atan2(y, x) * 180.0f / s3g::kPi;
+    } else {
+        const float azimuthRadians = current.azimuthDeg
+            * s3g::kPi / 180.0f;
+        const float elevationRadians = current.elevationDeg
+            * s3g::kPi / 180.0f;
+        const float preservedX = std::cos(elevationRadians)
+            * std::cos(azimuthRadians) * current.distance;
+        const float y = static_cast<float>(std::clamp(
+            (centerX - point.x) / scale, -2.0, 2.0));
+        const float z = static_cast<float>(std::clamp(
+            (centerY - point.y) / scale, -2.0, 2.0));
+        desiredDistance = std::clamp(std::sqrt(
+            preservedX * preservedX + y * y + z * z), 0.15f, 2.0f);
+        desiredAzimuth = std::atan2(y, preservedX)
+            * 180.0f / s3g::kPi;
+        desiredElevation = std::asin(std::clamp(
+            z / std::max(0.15f, desiredDistance), -1.0f, 1.0f))
+            * 180.0f / s3g::kPi;
+    }
+
+    const float azimuthOffset = wrapGuiDegrees(
+        p->params.bodyAzimuthOffsetDeg[body]
+            + wrapGuiDegrees(desiredAzimuth - current.azimuthDeg));
+    const float elevationOffset = std::clamp(
+        p->params.bodyElevationOffsetDeg[body]
+            + desiredElevation - current.elevationDeg,
+        -180.0f, 180.0f);
+    applyParam(*p, bodyAedParamId(
+        body, BodyAedParamKind::AzimuthOffset), azimuthOffset);
+    applyParam(*p, bodyAedParamId(
+        body, BodyAedParamKind::ElevationOffset), elevationOffset);
+    applyParam(*p, bodyAedParamId(
+        body, BodyAedParamKind::Distance), desiredDistance);
+    _selectedBody = body;
+    [self storeViewState];
     [self setNeedsDisplay:YES];
 }
 
@@ -1333,6 +2002,7 @@ void randomizeSafe(Plugin& plugin)
 - (void)drawFieldWithStyle:(s3g::clap_gui::Style&)style
     attrs:(NSDictionary*)attrs peak:(float)peak
 {
+    (void)peak;
     auto* p = static_cast<Plugin*>(_plugin);
     const auto& params = p->params;
     const NSRect panel = fieldPanelRect();
@@ -1341,226 +2011,357 @@ void randomizeSafe(Plugin& plugin)
         panel.origin.x, panel.origin.y,
         panel.size.width, panel.size.height, style);
     s3g::clap_gui::drawPanelHeader(
-        @"GONG MODAL FIELD", true,
+        @"MODAL BODY FIELD", true,
         panel.origin.x, panel.origin.y,
-        panel.size.width, 21.0, attrs, style);
+        panel.size.width,
+        static_cast<CGFloat>(s3g::gui_layout::kStandardMetrics.headerHeight),
+        attrs, style);
+    s3g::clap_gui::drawTopologyProcessorCameraButtons(
+        panel, _viewMode, attrs, style);
+    s3g::clap_gui::drawHeaderButton(
+        modalZoomButtonRect(0u), panel, @"-", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton(
+        modalZoomButtonRect(1u), panel, @"+", false, attrs, style);
+    s3g::clap_gui::drawHeaderButton(
+        modalResetLayoutButtonRect(), panel, @"RESET", false, attrs, style);
     [s3g::clap_gui::color(0x0a0a0a) setFill];
     NSRectFill(field);
     [style.grid setStroke];
     NSFrameRect(field);
-
-    const CGFloat left = field.origin.x + 30.0;
-    const CGFloat right = NSMaxX(field) - 30.0;
-    const CGFloat centerX = (left + right) * 0.5;
-    const CGFloat centerY = field.origin.y + field.size.height * 0.46;
-    const CGFloat gongRadius = std::min<CGFloat>(
-        (right - left) * 0.42, field.size.height * 0.35);
-    const bool leafBody = params.substrate
-            == s3g::AccelerometerSubstrate::Leaf
-        || params.substrate == s3g::AccelerometerSubstrate::DryLeaf;
-    const CGFloat bodyHeight = leafBody
-        ? 76.0 : 96.0;
-    NSBezierPath* body = [NSBezierPath bezierPath];
-    if (leafBody) {
-        [body moveToPoint:NSMakePoint(left, centerY)];
-        [body curveToPoint:NSMakePoint(right, centerY)
-            controlPoint1:NSMakePoint(left + 116.0, centerY - bodyHeight)
-            controlPoint2:NSMakePoint(right - 116.0, centerY - bodyHeight * 0.72)];
-        [body curveToPoint:NSMakePoint(left, centerY)
-            controlPoint1:NSMakePoint(right - 116.0, centerY + bodyHeight * 0.72)
-            controlPoint2:NSMakePoint(left + 116.0, centerY + bodyHeight)];
-    } else if (params.substrate == s3g::AccelerometerSubstrate::BellBronze
-        || params.substrate == s3g::AccelerometerSubstrate::GongAgeng
-        || params.substrate == s3g::AccelerometerSubstrate::Jing
-        || params.substrate == s3g::AccelerometerSubstrate::Kkwaenggwari) {
-        [body appendBezierPathWithOvalInRect:NSMakeRect(
-            centerX - gongRadius, centerY - gongRadius,
-            gongRadius * 2.0, gongRadius * 2.0)];
-    } else if (params.substrate
-        == s3g::AccelerometerSubstrate::ShellChitin) {
-        [body moveToPoint:NSMakePoint(left + 46.0, centerY + 52.0)];
-        [body curveToPoint:NSMakePoint(right - 46.0, centerY + 52.0)
-            controlPoint1:NSMakePoint(left + 92.0, centerY - 92.0)
-            controlPoint2:NSMakePoint(right - 92.0, centerY - 92.0)];
-        [body curveToPoint:NSMakePoint(left + 46.0, centerY + 52.0)
-            controlPoint1:NSMakePoint(right - 122.0, centerY + 76.0)
-            controlPoint2:NSMakePoint(left + 122.0, centerY + 76.0)];
-        [body closePath];
-    } else if (params.substrate == s3g::AccelerometerSubstrate::Stem
-        || params.substrate == s3g::AccelerometerSubstrate::Wire) {
-        [body moveToPoint:NSMakePoint(left, centerY + 34.0)];
-        [body curveToPoint:NSMakePoint(right, centerY - 30.0)
-            controlPoint1:NSMakePoint(left + 145.0, centerY - 54.0)
-            controlPoint2:NSMakePoint(right - 145.0, centerY + 52.0)];
-        [body setLineWidth:params.substrate == s3g::AccelerometerSubstrate::Stem
-                ? 8.0 : 2.0];
-    } else if (params.substrate
-        == s3g::AccelerometerSubstrate::PolymerMembrane) {
-        [body appendBezierPathWithRoundedRect:NSMakeRect(
-            left + 16.0, centerY - 66.0,
-            right - left - 32.0, 132.0) xRadius:7.0 yRadius:7.0];
-    } else if (params.substrate
-        == s3g::AccelerometerSubstrate::PaperCardboard) {
-        [body appendBezierPathWithRoundedRect:NSMakeRect(
-            left + 24.0, centerY - 60.0,
-            right - left - 48.0, 120.0) xRadius:4.0 yRadius:4.0];
-    } else {
-        [body appendBezierPathWithRoundedRect:NSMakeRect(
-            left + 28.0, centerY - 58.0,
-            right - left - 56.0, 116.0) xRadius:18.0 yRadius:18.0];
-    }
-    [s3g::clap_gui::color(0x202020, 0.92) setFill];
-    if (params.substrate != s3g::AccelerometerSubstrate::Stem
-        && params.substrate != s3g::AccelerometerSubstrate::Wire) {
-        [body fill];
-    }
-    [s3g::clap_gui::color(0x797979, 0.82) setStroke];
-    [body stroke];
-
-    [s3g::clap_gui::color(0x696969, 0.54) setStroke];
-    for (const CGFloat ring : { 0.28, 0.58, 0.82 }) {
-        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
-            centerX - gongRadius * ring, centerY - gongRadius * ring,
-            gongRadius * ring * 2.0, gongRadius * ring * 2.0)] stroke];
-    }
-    const CGFloat bossRadius = 24.0 + 18.0 * params.size;
-    [s3g::clap_gui::color(0xaaaaaa, 0.46) setStroke];
-    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
-        centerX - bossRadius, centerY - bossRadius,
-        bossRadius * 2.0, bossRadius * 2.0)] stroke];
-
+    [NSGraphicsContext saveGraphicsState];
+    NSRectClip(NSInsetRect(field, 1.0, 1.0));
     const char* bodyName = menuName(kParamSubstrate,
         menuIndexForValue(kParamSubstrate, getParam(*p, kParamSubstrate)));
-    [[NSString stringWithFormat:@"%@  /  24 COUPLED MODES",
-        [NSString stringWithUTF8String:bodyName]]
+    const char* listenerName = menuName(kParamListenerPickupSet,
+        menuIndexForValue(kParamListenerPickupSet,
+            getParam(*p, kParamListenerPickupSet)));
+    [[NSString stringWithFormat:
+        @"%@  /  %u BODIES  /  96 MODES  /  %s LISTENER",
+        [NSString stringWithUTF8String:bodyName], params.bodyCount,
+        listenerName]
         drawAtPoint:NSMakePoint(field.origin.x + 12.0, field.origin.y + 12.0)
         withAttributes:attrs];
 
-    [s3g::clap_gui::color(0x737373, 0.52) setStroke];
-    if (params.substrate == s3g::AccelerometerSubstrate::DryLeaf) {
-        for (uint32_t vein = 1u; vein < 6u; ++vein) {
-            const CGFloat x = left
-                + (right - left) * static_cast<CGFloat>(vein) / 6.0;
-            const CGFloat reach = 18.0 + 8.0 * (vein & 1u);
-            [NSBezierPath strokeLineFromPoint:NSMakePoint(x, centerY)
-                toPoint:NSMakePoint(x - 24.0, centerY - reach)];
-            [NSBezierPath strokeLineFromPoint:NSMakePoint(x, centerY)
-                toPoint:NSMakePoint(x + 20.0, centerY + reach)];
-        }
-    } else if (params.substrate
-        == s3g::AccelerometerSubstrate::PaperCardboard) {
-        for (uint32_t layer = 0u; layer < 5u; ++layer) {
-            const CGFloat y = centerY - 40.0 + layer * 20.0;
-            [NSBezierPath strokeLineFromPoint:NSMakePoint(left + 32.0, y)
-                toPoint:NSMakePoint(right - 32.0, y)];
-        }
-    } else if (params.substrate
-        == s3g::AccelerometerSubstrate::PolymerMembrane) {
-        NSFrameRectWithWidth(NSMakeRect(left + 28.0, centerY - 54.0,
-            right - left - 56.0, 108.0), 1.0);
-        [NSBezierPath strokeLineFromPoint:NSMakePoint(left + 28.0, centerY - 54.0)
-            toPoint:NSMakePoint(right - 28.0, centerY + 54.0)];
-        [NSBezierPath strokeLineFromPoint:NSMakePoint(right - 28.0, centerY - 54.0)
-            toPoint:NSMakePoint(left + 28.0, centerY + 54.0)];
-    } else if (params.substrate
-        == s3g::AccelerometerSubstrate::ShellChitin) {
-        for (uint32_t rib = 1u; rib < 5u; ++rib) {
-            const CGFloat x = left + 46.0
-                + (right - left - 92.0) * static_cast<CGFloat>(rib) / 5.0;
-            [NSBezierPath strokeLineFromPoint:NSMakePoint(x, centerY + 50.0)
-                toPoint:NSMakePoint(x, centerY - 34.0 - 8.0 * (rib & 1u))];
-        }
+    const CGFloat centerX = NSMidX(field);
+    const CGFloat centerY = field.origin.y + field.size.height * 0.54;
+    const CGFloat plotRadius = [self viewScaleForRect:field];
+    [s3g::clap_gui::color(0x414141, 0.48) setStroke];
+    for (const CGFloat ring : { 0.34, 0.67, 1.0 }) {
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            centerX - plotRadius * ring, centerY - plotRadius * ring,
+            plotRadius * ring * 2.0, plotRadius * ring * 2.0)] stroke];
     }
-
-    [s3g::clap_gui::color(0x5f5f5f, 0.55) setStroke];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(
-        centerX - gongRadius, centerY)
-        toPoint:NSMakePoint(centerX + gongRadius, centerY)];
+        centerX - plotRadius, centerY)
+        toPoint:NSMakePoint(centerX + plotRadius, centerY)];
+    [NSBezierPath strokeLineFromPoint:NSMakePoint(
+        centerX, centerY - plotRadius)
+        toPoint:NSMakePoint(centerX, centerY + plotRadius)];
 
-    const CGFloat sourceX = centerX
-        + (params.sourcePosition - 0.5f) * gongRadius * 1.4;
-    NSBezierPath* source = [NSBezierPath bezierPath];
-    [source moveToPoint:NSMakePoint(sourceX, centerY - 86.0)];
-    [source lineToPoint:NSMakePoint(sourceX - 7.0, centerY - 72.0)];
-    [source lineToPoint:NSMakePoint(sourceX + 7.0, centerY - 72.0)];
-    [source closePath];
-    [s3g::clap_gui::color(0xd0d0d0, 0.90) setFill];
-    [source fill];
-    [@"STRIKE" drawAtPoint:NSMakePoint(sourceX - 19.0, centerY - 108.0)
-        withAttributes:attrs];
-
-    if (params.fieldListenMode != s3g::AmbiFieldListenMode::Off) {
-        const CGFloat activity = std::clamp<CGFloat>(
-            p->listenerActivity.load(std::memory_order_relaxed), 0.0, 1.0);
-        const CGFloat targetPosition = std::clamp<CGFloat>(
-            p->listenerTarget.load(std::memory_order_relaxed), 0.0, 1.0);
-        const CGFloat targetX = centerX
-            + (targetPosition - 0.5) * gongRadius * 1.4;
-        const CGFloat targetY = centerY + 86.0;
-        const CGFloat radius = 4.0 + activity * 5.0;
-        NSBezierPath* listener = [NSBezierPath bezierPath];
-        [listener moveToPoint:NSMakePoint(targetX, targetY - radius)];
-        [listener lineToPoint:NSMakePoint(targetX + radius, targetY)];
-        [listener lineToPoint:NSMakePoint(targetX, targetY + radius)];
-        [listener lineToPoint:NSMakePoint(targetX - radius, targetY)];
-        [listener closePath];
-        [s3g::clap_gui::color(0xd8d8d8,
-            0.42 + activity * 0.50) setStroke];
-        [listener setLineWidth:1.0 + activity];
-        [listener stroke];
-        [@"LISTENER" drawAtPoint:NSMakePoint(targetX - 25.0, targetY + 12.0)
-            withAttributes:attrs];
+    const uint32_t count = std::clamp<uint32_t>(params.bodyCount, 4u, 8u);
+    _selectedBody = std::min<uint32_t>(_selectedBody, count - 1u);
+    p->guiState.selectedBody = _selectedBody;
+    std::array<NSPoint, s3g::kAccelerometerFieldMaxBodyCount> points {};
+    std::array<CGFloat, s3g::kAccelerometerFieldMaxBodyCount> depths {};
+    std::array<GuiBodyAed, s3g::kAccelerometerFieldMaxBodyCount> bodyAed {};
+    std::array<s3g::Vec3, s3g::kAccelerometerFieldMaxBodyCount>
+        bodyDirections {};
+    std::array<uint32_t, s3g::kAccelerometerFieldMaxBodyCount> order {};
+    for (uint32_t body = 0u; body < count; ++body) {
+        order[body] = body;
+        bodyAed[body] = guiBodyAed(*p, body);
+        const s3g::Vec3 direction = p->engine.bodyDirection(body);
+        bodyDirections[body] = direction;
+        const float distance = p->engine.bodyDistance(body);
+        const s3g::Vec3 world {
+            direction.x * distance,
+            direction.y * distance,
+            direction.z * distance,
+        };
+        points[body] = [self projectWorldPoint:world
+            rect:field depth:&depths[body]];
     }
+    std::sort(order.begin(), order.begin() + count,
+        [&](uint32_t first, uint32_t second) {
+            return depths[first] < depths[second];
+        });
 
-    const CGFloat pulse = std::clamp<CGFloat>(
-        peak * 7.0f, 0.0f, 1.0f);
-    for (uint32_t sensor = 0u;
-        sensor < s3g::kAccelerometerFieldSensorCount; ++sensor) {
-        const float unit = (static_cast<float>(sensor) + 0.5f)
-            / static_cast<float>(s3g::kAccelerometerFieldSensorCount);
-        const float position = s3g::accelerometerFieldSensorPosition(
-            params, sensor);
-        const float axis = s3g::clamp(params.pickupAxis
-                + (unit - 0.5f) * 0.72f,
-            0.0f, 1.0f);
-        const CGFloat bearing = (-145.0 + position * 290.0)
-            * s3g::kPi / 180.0;
-        const CGFloat x = centerX + std::cos(bearing) * gongRadius * 0.76;
-        const CGFloat y = centerY + std::sin(bearing) * gongRadius * 0.76;
-        const CGFloat radius = 7.0 + pulse * 8.0
-            + params.contactRadiation * 4.0;
-        [s3g::clap_gui::color(0xbebebe,
-            0.10 + pulse * 0.20) setStroke];
-        NSFrameRectWithWidth(NSMakeRect(
-            x - radius, y - radius, radius * 2.0, radius * 2.0), 1.0);
+    const bool tetraListener = params.listenerPickupSet
+        == s3g::AccelerometerFieldListenerPickupSet::Tetra4;
+    const uint32_t pickupCount = tetraListener ? 4u : 8u;
+    std::array<s3g::Vec3, s3g::kAmbiFieldListenerMaxLobes>
+        listenerDirections {};
+    if (tetraListener) {
+        const auto& tetra = s3g::ambiFieldListenerTetraDirections();
+        std::copy(tetra.begin(), tetra.end(), listenerDirections.begin());
+    } else {
+        listenerDirections = s3g::ambiFieldListenerCubeDirections();
+    }
+    std::array<NSPoint, s3g::kAmbiFieldListenerMaxLobes> ears {};
+    std::array<CGFloat, s3g::kAmbiFieldListenerMaxLobes> earDepths {};
+    std::array<uint32_t, s3g::kAmbiFieldListenerMaxLobes> earOrder {};
+    float peakEarEnergy = 0.0f;
+    for (uint32_t ear = 0u; ear < pickupCount; ++ear) {
+        earOrder[ear] = ear;
+        const s3g::Vec3 direction = listenerDirections[ear];
+        ears[ear] = [self projectWorldPoint:s3g::Vec3 {
+                direction.x * 1.18f,
+                direction.y * 1.18f,
+                direction.z * 1.18f,
+            }
+            rect:field depth:&earDepths[ear]];
+        peakEarEnergy = std::max(peakEarEnergy,
+            p->listenerPickupEnergy[ear].load(std::memory_order_relaxed));
+    }
+    std::sort(earOrder.begin(), earOrder.begin() + pickupCount,
+        [&](uint32_t first, uint32_t second) {
+            return earDepths[first] < earDepths[second];
+        });
+
+    // The fixed listener shell is world-aligned and camera-projected. Its
+    // neutral geometry stays distinct from the bodies' AED/OKLCH identity.
+    [s3g::clap_gui::color(0x565656, 0.34) setStroke];
+    for (uint32_t first = 0u; first < pickupCount; ++first) {
+        for (uint32_t second = first + 1u;
+            second < pickupCount; ++second) {
+            const auto& a = listenerDirections[first];
+            const auto& b = listenerDirections[second];
+            const float dot = a.x * b.x + a.y * b.y + a.z * b.z;
+            const bool edge = tetraListener
+                || std::fabs(dot - 0.3333333333f) < 0.05f;
+            if (edge) {
+                [NSBezierPath strokeLineFromPoint:ears[first]
+                    toPoint:ears[second]];
+            }
+        }
+    }
+    for (uint32_t sorted = 0u; sorted < pickupCount; ++sorted) {
+        const uint32_t ear = earOrder[sorted];
+        const float raw = p->listenerPickupEnergy[ear].load(
+            std::memory_order_relaxed);
+        const CGFloat relative = peakEarEnergy > 1.0e-7f
+            ? std::clamp<CGFloat>(raw / peakEarEnergy, 0.0, 1.0) : 0.0;
+        const CGFloat absolute = std::clamp<CGFloat>(
+            raw / (raw + 0.015f), 0.0, 1.0);
+        const CGFloat strength = std::sqrt(relative * absolute);
+        const CGFloat halo = 6.0 + strength * 15.0;
         [s3g::clap_gui::color(0xc8c8c8,
-            0.50 + pulse * 0.45) setFill];
-        NSRectFill(NSMakeRect(x - 4.0, y - 4.0, 8.0, 8.0));
-        const CGFloat angle = (-70.0 + axis * 140.0) * s3g::kPi / 180.0;
-        [s3g::clap_gui::color(0xe0e0e0, 0.72) setStroke];
-        [NSBezierPath strokeLineFromPoint:NSMakePoint(x, y)
-            toPoint:NSMakePoint(x + std::cos(angle) * 15.0,
-                y - std::sin(angle) * 15.0)];
-        [[NSString stringWithFormat:@"%u", sensor + 1u]
-            drawAtPoint:NSMakePoint(x - 3.0, y + 10.0)
+            0.025 + strength * 0.17) setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            ears[ear].x - halo, ears[ear].y - halo,
+            halo * 2.0, halo * 2.0)] fill];
+        const CGFloat radius = 5.5 + strength * 1.5;
+        NSBezierPath* diamond = [NSBezierPath bezierPath];
+        [diamond moveToPoint:NSMakePoint(ears[ear].x, ears[ear].y - radius)];
+        [diamond lineToPoint:NSMakePoint(ears[ear].x + radius, ears[ear].y)];
+        [diamond lineToPoint:NSMakePoint(ears[ear].x, ears[ear].y + radius)];
+        [diamond lineToPoint:NSMakePoint(ears[ear].x - radius, ears[ear].y)];
+        [diamond closePath];
+        [s3g::clap_gui::color(0x8c8c8c,
+            0.36 + strength * 0.54) setFill];
+        [diamond fill];
+        [s3g::clap_gui::color(0xd2d2d2,
+            0.42 + strength * 0.46) setStroke];
+        [diamond setLineWidth:0.8 + strength * 1.2];
+        [diamond stroke];
+        NSString* label = [NSString stringWithFormat:@"E%u", ear + 1u];
+        const NSSize labelSize = [label sizeWithAttributes:attrs];
+        const CGFloat labelX = ears[ear].x < centerX
+            ? ears[ear].x + 8.0 : ears[ear].x - labelSize.width - 8.0;
+        [label drawAtPoint:NSMakePoint(labelX, ears[ear].y - 6.0)
             withAttributes:attrs];
     }
 
-    NSString* perspective = [NSString stringWithFormat:
-        @"CONTACT %3.0f%%     RADIATION %3.0f%%",
-        static_cast<double>((1.0f - params.contactRadiation) * 100.0f),
-        static_cast<double>(params.contactRadiation * 100.0f)];
-    [perspective drawAtPoint:NSMakePoint(
-        field.origin.x + 12.0, NSMaxY(field) - 27.0)
+    std::array<CGFloat, s3g::kAccelerometerFieldMaxBodyCount>
+        actuatorStrength {};
+    std::array<uint32_t, s3g::kAccelerometerFieldMaxBodyCount>
+        actuatorEar {};
+    for (uint32_t body = 0u; body < count; ++body) {
+        const float rawDrive = p->actuatorBodyDrive[body].load(
+            std::memory_order_relaxed);
+        const CGFloat drive = std::clamp<CGFloat>(
+            rawDrive / (rawDrive + 0.04f), 0.0, 1.0);
+        actuatorStrength[body] = drive;
+        s3g::Vec3 routeDirection = bodyDirections[body];
+        if (params.fieldListenMode == s3g::AmbiFieldListenMode::Counter) {
+            routeDirection = {
+                -routeDirection.x, -routeDirection.y, -routeDirection.z,
+            };
+        }
+        uint32_t bestEar = 0u;
+        float bestDot = -2.0f;
+        for (uint32_t ear = 0u; ear < pickupCount; ++ear) {
+            const auto& direction = listenerDirections[ear];
+            const float dot = routeDirection.x * direction.x
+                + routeDirection.y * direction.y
+                + routeDirection.z * direction.z;
+            if (dot > bestDot) {
+                bestDot = dot;
+                bestEar = ear;
+            }
+        }
+        actuatorEar[body] = bestEar;
+        if (drive > 0.008) {
+            [s3g::clap_gui::color(0xc0c0c0,
+                0.08 + drive * 0.56) setStroke];
+            NSBezierPath* route = [NSBezierPath bezierPath];
+            [route moveToPoint:ears[bestEar]];
+            [route lineToPoint:points[body]];
+            [route setLineWidth:0.6 + drive * 2.0];
+            [route stroke];
+        }
+    }
+    for (uint32_t sorted = 0u; sorted < count; ++sorted) {
+        const uint32_t body = order[sorted];
+        const bool selected = body == _selectedBody;
+        const CGFloat energy = std::clamp<CGFloat>(
+            p->bodyEnergy[body].load(std::memory_order_relaxed) * 18.0f,
+            0.0, 1.0);
+        const CGFloat radius = 15.0
+            + (8.0 - static_cast<CGFloat>(count)) * 0.8;
+        if (energy > 0.004) {
+            const CGFloat halo = radius + 4.0 + energy * 7.0;
+            [modalBodyColorFromAed(
+                bodyAed[body].azimuthDeg,
+                bodyAed[body].elevationDeg,
+                bodyAed[body].distance,
+                selected, 0.04 + energy * 0.22) setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+                points[body].x - halo, points[body].y - halo,
+                halo * 2.0, halo * 2.0)] fill];
+        }
+        [s3g::clap_gui::color(0x1d1d1d, 0.96) setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            points[body].x - radius, points[body].y - radius,
+            radius * 2.0, radius * 2.0)] fill];
+        [modalBodyColorFromAed(
+            bodyAed[body].azimuthDeg,
+            bodyAed[body].elevationDeg,
+            bodyAed[body].distance,
+            selected, 0.88) setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            points[body].x - radius + 2.0,
+            points[body].y - radius + 2.0,
+            radius * 2.0 - 4.0, radius * 2.0 - 4.0)] fill];
+        [modalBodyColorFromAed(
+            bodyAed[body].azimuthDeg,
+            bodyAed[body].elevationDeg,
+            bodyAed[body].distance,
+            true, 0.34 + energy * 0.62) setStroke];
+        NSBezierPath* outline = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            points[body].x - radius, points[body].y - radius,
+            radius * 2.0, radius * 2.0)];
+        [outline setLineWidth:1.0 + energy * 2.2];
+        [outline stroke];
+        [s3g::clap_gui::color(0x111111, 0.42) setStroke];
+        for (const CGFloat modeRing : { 0.38, 0.68 }) {
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+                points[body].x - radius * modeRing,
+                points[body].y - radius * modeRing,
+                radius * modeRing * 2.0, radius * modeRing * 2.0)] stroke];
+        }
+        [s3g::clap_gui::color(0x111111, 0.88) setFill];
+        NSRectFill(NSMakeRect(points[body].x - 6.0,
+            points[body].y - 6.0, 12.0, 12.0));
+        NSString* number = [NSString stringWithFormat:@"%u", body + 1u];
+        const NSSize numberSize = [number sizeWithAttributes:attrs];
+        [number drawAtPoint:NSMakePoint(
+            points[body].x - numberSize.width * 0.5,
+            points[body].y - numberSize.height * 0.5 - 0.5)
+            withAttributes:attrs];
+        if (selected) {
+            [s3g::clap_gui::color(0xb8b8b8, 0.92) setStroke];
+            NSFrameRect(NSMakeRect(points[body].x - radius - 4.0,
+                points[body].y - radius - 4.0,
+                radius * 2.0 + 8.0, radius * 2.0 + 8.0));
+        }
+    }
+
+    uint32_t dominantBody = 0u;
+    for (uint32_t body = 1u; body < count; ++body) {
+        if (actuatorStrength[body] > actuatorStrength[dominantBody]) {
+            dominantBody = body;
+        }
+    }
+    for (uint32_t body = 0u; body < count; ++body) {
+        const CGFloat drive = actuatorStrength[body];
+        if (drive <= 0.008) continue;
+        const NSPoint source = ears[actuatorEar[body]];
+        const NSPoint destination = points[body];
+        const CGFloat phase = std::fmod(_actuatorFlowPhase
+            + static_cast<CGFloat>(body)
+                / static_cast<CGFloat>(std::max<uint32_t>(1u, count)), 1.0);
+        const NSPoint flow = NSMakePoint(
+            source.x + (destination.x - source.x) * phase,
+            source.y + (destination.y - source.y) * phase);
+        const CGFloat radius = body == dominantBody
+            ? 3.5 + drive * 3.0 : 2.0 + drive * 2.0;
+        NSBezierPath* actuator = [NSBezierPath bezierPath];
+        [actuator moveToPoint:NSMakePoint(flow.x, flow.y - radius)];
+        [actuator lineToPoint:NSMakePoint(flow.x + radius, flow.y)];
+        [actuator lineToPoint:NSMakePoint(flow.x, flow.y + radius)];
+        [actuator lineToPoint:NSMakePoint(flow.x - radius, flow.y)];
+        [actuator closePath];
+        [s3g::clap_gui::color(0xe0e0e0,
+            0.46 + drive * 0.48) setFill];
+        [actuator fill];
+        [s3g::clap_gui::color(0xf0f0f0,
+            0.52 + drive * 0.42) setStroke];
+        [actuator setLineWidth:0.8 + drive];
+        [actuator stroke];
+    }
+
+    const CGFloat listenerActivity = std::clamp<CGFloat>(
+        p->listenerActivity.load(std::memory_order_relaxed), 0.0, 1.0);
+    const CGFloat listenerRadius = 5.0 + listenerActivity * 2.0;
+    [s3g::clap_gui::color(0x0a0a0a, 0.92) setFill];
+    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+        centerX - listenerRadius, centerY - listenerRadius,
+        listenerRadius * 2.0, listenerRadius * 2.0)] fill];
+    [s3g::clap_gui::color(0xc8c8c8,
+        0.46 + listenerActivity * 0.42) setStroke];
+    [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+        centerX - listenerRadius, centerY - listenerRadius,
+        listenerRadius * 2.0, listenerRadius * 2.0)] stroke];
+    [@"L" drawAtPoint:NSMakePoint(centerX - 3.0, centerY - 6.0)
+        withAttributes:attrs];
+    if (actuatorStrength[dominantBody] > 0.008) {
+        NSString* actuatorLabel = params.fieldListenMode
+                == s3g::AmbiFieldListenMode::Balance
+            ? @"DISTRIBUTED ACTUATOR" : @"ACTUATOR FLOW";
+        const NSSize labelSize = [actuatorLabel sizeWithAttributes:attrs];
+        const NSPoint labelOrigin = NSMakePoint(
+            centerX - labelSize.width * 0.5, centerY + listenerRadius + 8.0);
+        [s3g::clap_gui::color(0x0a0a0a, 0.84) setFill];
+        NSRectFill(NSInsetRect(NSMakeRect(
+            labelOrigin.x, labelOrigin.y,
+            labelSize.width, labelSize.height), -3.0, -2.0));
+        [actuatorLabel drawAtPoint:labelOrigin withAttributes:attrs];
+    }
+
+    const GuiBodyAed selectedAed = bodyAed[_selectedBody];
+    NSString* selectedReadout = [NSString stringWithFormat:
+        @"B%u  AZ %+5.1f  EL %+5.1f  DST %.2f  /  %@",
+        _selectedBody + 1u, selectedAed.azimuthDeg,
+        selectedAed.elevationDeg, selectedAed.distance,
+        (_viewMode == 0 || _viewMode == 1)
+            ? @"DRAG BODY" : @"SELECT BODY / DRAG BLANK CAMERA"];
+    [selectedReadout drawAtPoint:NSMakePoint(
+        field.origin.x + 12.0, NSMaxY(field) - 57.0)
+        withAttributes:attrs];
+    [@"OKLCH  H=AZ  L=EL  C=DIST" drawAtPoint:NSMakePoint(
+        field.origin.x + 12.0, NSMaxY(field) - 39.0)
         withAttributes:attrs];
     NSString* format = params.outputMode
             == s3g::AccelerometerFieldOutputMode::Ambisonic
         ? [NSString stringWithFormat:@"%uOA  ACN/SN3D",
             params.ambisonicOrder]
-        : @"8 DISCRETE SENSOR STEMS";
+        : [NSString stringWithFormat:@"%u BODY STEMS + %u ZERO",
+            count, 8u - count];
     [format drawAtPoint:NSMakePoint(
-        field.origin.x + 12.0, NSMaxY(field) - 13.0)
+        field.origin.x + 12.0, NSMaxY(field) - 21.0)
         withAttributes:attrs];
+    [NSGraphicsContext restoreGraphicsState];
 }
 
 - (void)drawOpenMenuWithStyle:(s3g::clap_gui::Style&)style
@@ -1592,6 +2393,13 @@ void randomizeSafe(Plugin& plugin)
 {
     (void)dirtyRect;
     auto* p = static_cast<Plugin*>(_plugin);
+    if (!_dragView && _dragBody < 0) {
+        _viewMode = p->guiState.viewMode;
+        _viewAzimuthDeg = p->guiState.viewAzimuthDeg;
+        _viewElevationDeg = p->guiState.viewElevationDeg;
+        _viewZoom = p->guiState.viewZoom;
+        _selectedBody = p->guiState.selectedBody;
+    }
     s3g::clap_gui::Style style;
     [style.bg setFill];
     NSRectFill([self bounds]);
@@ -1607,30 +2415,27 @@ void randomizeSafe(Plugin& plugin)
         s3g::clap_gui::softTitleAttrs(), labels, values, style);
 
     [self drawFieldWithStyle:style attrs:values peak:peak];
-    const auto drawPanel = [&](NSString* title, NSRect panel) {
-        s3g::clap_gui::drawPanelFrame(
-            panel.origin.x, panel.origin.y,
-            panel.size.width, panel.size.height, style);
-        s3g::clap_gui::drawPanelHeader(title, true,
-            panel.origin.x, panel.origin.y,
-            panel.size.width, 21.0, labels, style);
+    const auto drawPanel = [&](NSString* title,
+                               const s3g::gui_layout::Panel& panel) {
+        s3g::clap_gui::drawPanelFrame(panel, style);
+        s3g::clap_gui::drawPanelHeader(title, true, panel, labels, style);
     };
-    drawPanel(@"OUTPUT", outputPanelRect());
-    drawPanel(@"EXCITER", excitationPanelRect());
-    drawPanel(@"MODAL BODY", structurePanelRect());
-    drawPanel(@"PROJECTION", projectionPanelRect());
-    drawPanel(@"RADIATION ARRAY", radiationPanelRect());
-    drawPanel(@"LISTENER", listenerPanelRect());
-    drawPanel(@"SIGNAL PATH", signalPanelRect());
+    drawPanel(@"OUTPUT", kOutputPanelLayout);
+    drawPanel(@"MODAL BODY", kStructurePanelLayout);
+    drawPanel(@"LISTENER / ACTUATOR", kActuatorPanelLayout);
+    drawPanel(@"PROJECTION", kProjectionPanelLayout);
+    drawPanel(@"BODY CHARACTER", kRadiationPanelLayout);
+    drawPanel(@"BODY AED", kBodyPointPanelLayout);
+    drawPanel(@"SIGNAL PATH", kSignalPanelLayout);
 
     for (uint32_t row = 0u; row < kOutputControls.size(); ++row) {
         [self drawControl:kOutputControls[row]
             panel:outputPanelRect() row:row
             labelAttrs:labels valueAttrs:values style:style];
     }
-    for (uint32_t row = 0u; row < kExcitationControls.size(); ++row) {
-        [self drawControl:kExcitationControls[row]
-            panel:excitationPanelRect() row:row
+    for (uint32_t row = 0u; row < kActuatorControls.size(); ++row) {
+        [self drawControl:kActuatorControls[row]
+            panel:actuatorPanelRect() row:row
             labelAttrs:labels valueAttrs:values style:style];
     }
     for (uint32_t row = 0u; row < kStructureControls.size(); ++row) {
@@ -1648,32 +2453,43 @@ void randomizeSafe(Plugin& plugin)
             panel:radiationPanelRect() row:row
             labelAttrs:labels valueAttrs:values style:style];
     }
-    for (uint32_t row = 0u; row < kListenerControls.size(); ++row) {
-        [self drawControl:kListenerControls[row]
-            panel:listenerPanelRect() row:row
+    const auto selectedControls = bodyPointControls(_selectedBody);
+    for (uint32_t row = 0u; row < selectedControls.size(); ++row) {
+        [self drawControl:selectedControls[row]
+            panel:bodyPointPanelRect() row:row
             labelAttrs:labels valueAttrs:values style:style];
     }
+    const GuiBodyAed selectedAed = guiBodyAed(*p, _selectedBody);
+    [[NSString stringWithFormat:@"B%u  ACTUAL  %+5.1f / %+5.1f / %.2f",
+        _selectedBody + 1u, selectedAed.azimuthDeg,
+        selectedAed.elevationDeg, selectedAed.distance]
+        drawAtPoint:NSMakePoint(
+            bodyPointPanelRect().origin.x + 16.0,
+            bodyPointPanelRect().origin.y + 122.0)
+        withAttributes:values];
     const NSRect signal = signalPanelRect();
+    const CGFloat signalX = signal.origin.x + 16.0;
     const char* bodyName = menuName(kParamSubstrate,
         menuIndexForValue(kParamSubstrate, getParam(*p, kParamSubstrate)));
-    [[NSString stringWithFormat:@"%@ / 24 MODES",
+    [[NSString stringWithFormat:@"%@ PROFILE",
         [NSString stringWithUTF8String:bodyName]]
-        drawAtPoint:NSMakePoint(signal.origin.x + 12.0, signal.origin.y + 38.0)
+        drawAtPoint:NSMakePoint(signalX, signal.origin.y + 38.0)
         withAttributes:values];
-    [@"EXCITER" drawAtPoint:NSMakePoint(
-        signal.origin.x + 12.0, signal.origin.y + 67.0)
+    [@"LISTENER / ACTUATOR" drawAtPoint:NSMakePoint(
+        signalX, signal.origin.y + 64.0)
         withAttributes:labels];
     [@"↓" drawAtPoint:NSMakePoint(
-        signal.origin.x + 15.0, signal.origin.y + 83.0)
+        signalX + 3.0, signal.origin.y + 80.0)
         withAttributes:values];
-    [@"COUPLED MODAL BODY" drawAtPoint:NSMakePoint(
-        signal.origin.x + 12.0, signal.origin.y + 104.0)
+    [@"CONTINUOUS MODAL DRIVE" drawAtPoint:NSMakePoint(
+        signalX, signal.origin.y + 96.0)
         withAttributes:values];
-    [@"↓  8 RADIATION POINTS" drawAtPoint:NSMakePoint(
-        signal.origin.x + 12.0, signal.origin.y + 130.0)
+    [[NSString stringWithFormat:@"↓  %u BODIES / 96 MODES",
+        p->params.bodyCount]
+        drawAtPoint:NSMakePoint(signalX, signal.origin.y + 116.0)
         withAttributes:values];
     [@"ACN / SN3D FIELD" drawAtPoint:NSMakePoint(
-        signal.origin.x + 12.0, signal.origin.y + 158.0)
+        signalX, signal.origin.y + 136.0)
         withAttributes:values];
     [self drawOpenMenuWithStyle:style attrs:values];
 }
@@ -1683,18 +2499,18 @@ void randomizeSafe(Plugin& plugin)
     const auto* spec = paramSpec(_dragParam);
     if (!spec || spec->display == DisplayKind::Menu) return;
     GuiControlLocation location {};
-    const bool found = findInGroup(point, outputPanelRect(),
+    const bool found = findInGroup(point, kOutputPanelLayout,
             kOutputControls, location)
-        || findInGroup(point, excitationPanelRect(),
-            kExcitationControls, location)
-        || findInGroup(point, structurePanelRect(),
+        || findInGroup(point, kActuatorPanelLayout,
+            kActuatorControls, location)
+        || findInGroup(point, kStructurePanelLayout,
             kStructureControls, location)
-        || findInGroup(point, projectionPanelRect(),
+        || findInGroup(point, kProjectionPanelLayout,
             kProjectionControls, location)
-        || findInGroup(point, radiationPanelRect(),
+        || findInGroup(point, kRadiationPanelLayout,
             kRadiationControls, location)
-        || findInGroup(point, listenerPanelRect(),
-            kListenerControls, location);
+        || findInGroup(point, kBodyPointPanelLayout,
+            bodyPointControls(_selectedBody), location);
     const NSRect panel = found && location.id == _dragParam
         ? location.panel : panelForParam(_dragParam);
     const double x = s3g::gui_layout::processorControlX(panel.origin.x);
@@ -1753,13 +2569,64 @@ void randomizeSafe(Plugin& plugin)
         return;
     }
 
+    const NSRect fieldPanel = fieldPanelRect();
+    for (uint32_t index = 0u; index < 2u; ++index) {
+        if (NSPointInRect(point, modalZoomButtonRect(index))) {
+            _viewZoom = std::clamp<CGFloat>(
+                _viewZoom + (index == 0u ? -0.15 : 0.15), 0.55, 2.20);
+            [self storeViewState];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        if (NSPointInRect(point,
+            s3g::clap_gui::topologyProcessorCameraButtonRect(
+                fieldPanel, index))) {
+            [self setViewPreset:static_cast<int>(index)];
+            return;
+        }
+    }
+    if (NSPointInRect(point, modalResetLayoutButtonRect())) {
+        for (uint32_t body = 0u;
+            body < s3g::kAccelerometerFieldMaxBodyCount; ++body) {
+            applyParam(*p, bodyAedParamId(
+                body, BodyAedParamKind::AzimuthOffset), 0.0);
+            applyParam(*p, bodyAedParamId(
+                body, BodyAedParamKind::ElevationOffset), 0.0);
+            applyParam(*p, bodyAedParamId(
+                body, BodyAedParamKind::Distance), 1.0);
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, fieldPlotRect())) {
+        const int hit = [self hitBodyAtPoint:point inRect:fieldPlotRect()];
+        if (hit >= 0) {
+            _selectedBody = static_cast<uint32_t>(hit);
+            p->guiState.selectedBody = _selectedBody;
+            if (_viewMode == 0 || _viewMode == 1) {
+                _dragBody = hit;
+                [self updateDraggedBodyAtPoint:point inRect:fieldPlotRect()];
+            }
+            [self storeViewState];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        _dragView = YES;
+        _lastDragPoint = point;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+
     GuiControlLocation location {};
-    if (!findInGroup(point, outputPanelRect(), kOutputControls, location)
-        && !findInGroup(point, excitationPanelRect(), kExcitationControls, location)
-        && !findInGroup(point, structurePanelRect(), kStructureControls, location)
-        && !findInGroup(point, projectionPanelRect(), kProjectionControls, location)
-        && !findInGroup(point, radiationPanelRect(), kRadiationControls, location)
-        && !findInGroup(point, listenerPanelRect(), kListenerControls, location)) {
+    if (!findInGroup(point, kOutputPanelLayout, kOutputControls, location)
+        && !findInGroup(point, kActuatorPanelLayout, kActuatorControls, location)
+        && !findInGroup(point, kStructurePanelLayout, kStructureControls, location)
+        && !findInGroup(point, kProjectionPanelLayout, kProjectionControls, location)
+        && !findInGroup(point, kRadiationPanelLayout, kRadiationControls, location)
+        && !findInGroup(point, kBodyPointPanelLayout,
+            bodyPointControls(_selectedBody), location)) {
         return;
     }
     const auto* spec = paramSpec(location.id);
@@ -1782,16 +2649,34 @@ void randomizeSafe(Plugin& plugin)
 
 - (void)mouseDragged:(NSEvent*)event
 {
-    if (_dragParam == CLAP_INVALID_ID) return;
     const NSPoint point = [self convertPoint:[event locationInWindow]
         fromView:nil];
-    [self updateDraggedParamAtPoint:point];
+    if (_dragBody >= 0) {
+        [self updateDraggedBodyAtPoint:point inRect:fieldPlotRect()];
+        return;
+    }
+    if (_dragView) {
+        _viewAzimuthDeg += (point.x - _lastDragPoint.x) * 0.35;
+        _viewElevationDeg = std::clamp<CGFloat>(
+            _viewElevationDeg + (point.y - _lastDragPoint.y) * 0.35,
+            -85.0, 85.0);
+        _viewMode = -1;
+        _lastDragPoint = point;
+        [self storeViewState];
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (_dragParam != CLAP_INVALID_ID) {
+        [self updateDraggedParamAtPoint:point];
+    }
 }
 
 - (void)mouseUp:(NSEvent*)event
 {
     (void)event;
     _dragParam = CLAP_INVALID_ID;
+    _dragView = NO;
+    _dragBody = -1;
 }
 
 @end
@@ -1940,8 +2825,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.5.0",
-    "Gong-focused modal percussion for Gong Ageng, jing, kkwaenggwari, and bronze bodies with coupled nonlinear evolution and third-order ACN/SN3D encoding.",
+    "0.8.0",
+    "A transient-free, CPU-bounded ensemble of four to eight editable modal bodies with a visible Tetra/Cube listener-actuator environment and third-order ACN/SN3D encoding.",
     features,
 };
 

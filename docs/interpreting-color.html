@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Interpreting Color - s3g-dsp</title>
+    <meta name="description" content="Guide to AED, identity, grouping, activity, and magnitude color across s3g-dsp plugin displays.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Interpreting Color</h1>
+
+        <p>Most s3g-dsp editors stay grayscale until color can carry information. Color does not have one package-wide meaning, however. A spatial field, group display, meter, and topology heatmap use different color grammars. In spatial views, <code>AED</code> means azimuth, elevation, and distance.</p>
+
+        <div class="callout">
+          <p><strong>Read the view before the hue.</strong> Red can mean a source near front azimuth in an AED field, but a very high peak in a meter. A yellow Parameter Surface cell identifies one captured state; it does not mean a medium-high value.</p>
+        </div>
+
+        <h2 id="reading-context">Reading the Context</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Display context</th><th>Color answers</th><th>First cues to check</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Shared-AED point or speaker field</td><td>Where is it in AED?</td><td>Hue, lightness, and chroma together; then the numerical AED controls.</td></tr>
+            <tr><td>Sources, clouds, roles, or cells</td><td>Which set does it belong to?</td><td>Repeated color, point ID, role label, or enclosing region.</td></tr>
+            <tr><td>Meter, response map, or heatmap</td><td>How much is present here?</td><td>The local low-to-high scale and whether it measures audio or a control field.</td></tr>
+            <tr><td>Overlay, route, or selection state</td><td>What method or state is active?</td><td>Line style, outline, label, brightness, and opacity.</td></tr>
+          </tbody>
+        </table>
+
+        <p>This guide concerns display color. A parameter named <code>COLOR</code>, <code>TONE</code>, <code>SKIN</code>, or <code>PALETTE</code> may shape sound or procedural geometry instead; its plugin page is authoritative.</p>
+
+        <h2 id="aed">AED and OKLCH-derived Color</h2>
+
+        <p>The common point and speaker mapping derives color from azimuth, elevation, and distance with an OKLCH-derived model. The three visible color dimensions have separate jobs:</p>
+
+        <ul>
+          <li><strong>Hue follows azimuth.</strong> Moving around the listener turns around the color wheel. The hue does not change when the camera rotates.</li>
+          <li><strong>Lightness follows elevation.</strong> Lower points are darker; upper points are lighter.</li>
+          <li><strong>Chroma follows distance.</strong> Nearer points are more restrained or gray; farther points are more saturated.</li>
+        </ul>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="aed_3d.svg" alt="Three-dimensional AED diagram showing azimuth around the listener, elevation vertically, and distance radially">
+          </div>
+          <figcaption>AED describes the source position: azimuth is the horizontal angle, elevation is the vertical angle, and distance is the radial reach from the listener.</figcaption>
+        </figure>
+
+        <figure>
+          <div class="doc-graphic">
+            <img src="oklch_3d.svg" alt="Three-dimensional OKLCH diagram showing hue around a cylinder, lightness vertically, and chroma radially">
+          </div>
+          <figcaption>OKLCH uses corresponding coordinate roles: hue is angular, lightness is vertical, and chroma grows radially from the neutral center. The units and ranges differ from AED, and plugins may tune or clamp the final color.</figcaption>
+        </figure>
+
+        <div class="color-key" aria-label="Approximate azimuth hue landmarks">
+          <div class="color-key-item">
+            <span class="color-chip color-front" aria-hidden="true"></span>
+            <p><code>0°</code><br>front · red/pink origin</p>
+          </div>
+          <div class="color-key-item">
+            <span class="color-chip color-left" aria-hidden="true"></span>
+            <p><code>+90°</code><br>left · yellow/ochre</p>
+          </div>
+          <div class="color-key-item">
+            <span class="color-chip color-rear" aria-hidden="true"></span>
+            <p><code>±180°</code><br>rear · green/cyan</p>
+          </div>
+          <div class="color-key-item">
+            <span class="color-chip color-right" aria-hidden="true"></span>
+            <p><code>-90°</code><br>right · blue/violet</p>
+          </div>
+        </div>
+
+        <p>The named hue families are approximate. Elevation, distance, gamut limits, selection mixing, and the display itself all change the final pixel. Read a point comparatively and use the numerical coordinates for exact placement.</p>
+
+        <p>The full three-part mapping is used, with small per-plugin range adjustments, by the <a href="ambi-point-encoder.html">Ambi Point Encoder</a>, <a href="layout-panner.html">direct panners</a>, <a href="ambi-speaker-decoder.html">speaker, object, and adaptive decoder fields</a>, <a href="ambi-stochastic-encoder.html">Stochastic Encoder</a>, <a href="ambi-vot-encoder.html">VOT Encoder</a>, <a href="ambi-vox-encoder.html">Vox Encoder</a>, and <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>. Path control points in the <a href="ambi-path-encoder.html">Path Encoder</a> also use it. <a href="ambi-imprint.html">Ambi Imprint</a> uses azimuth for hue and elevation for lightness but keeps chroma fixed, so its point color does not report distance.</p>
+
+        <p>Point position remains the primary spatial cue. Color lets a direction stay recognizable when points cross in projection or when a camera view makes depth harder to read.</p>
+
+        <h2 id="identity">Identity and Grouping</h2>
+
+        <p>When several objects keep a color while moving, color usually identifies membership rather than position or level.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Plugin or view</th><th>What the color identifies</th><th>What not to infer</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><a href="ambi-cloud-encoder.html">Cloud Encoder</a></td><td>The small source markers use one of four fixed colors for their assigned cloud. Numbered cloud centers stay neutral.</td><td>Do not read source hue as azimuth or level.</td></tr>
+            <tr><td><a href="ambi-path-encoder.html">Path Encoder</a> and <a href="ambi-terrain-navigator.html">Surface Terrain</a></td><td>A repeating vivid palette identifies source lanes and helps track them along paths. Path control-point color can separately carry AED.</td><td>The lane palette is not a distance or magnitude scale.</td></tr>
+            <tr><td><a href="ambi-vox-encoder.html">Vox Encoder</a></td><td>Point fill carries AED; the muted outer frame, role label, and faint links identify ensemble cohorts such as SATB, chorus, or round groups.</td><td>The role frame does not replace the point's spatial color.</td></tr>
+            <tr><td><a href="parameter-surface.html">Parameter Surface</a></td><td>Each Voronoi cell receives a stable, distinct color by cell index. Halos and opacity show selection and influence.</td><td>Hue does not describe the preset's timbre, value, or position in an ordered scale.</td></tr>
+            <tr><td><a href="ambi-ray-bilocation-encoder.html">Ray Bilocation Encoder</a></td><td>Cyan identifies field/source A and amber identifies field/source B; opacity follows their current presence.</td><td>The pair colors do not encode AED.</td></tr>
+            <tr><td><a href="ambi-wave-terrain-encoder.html">Wave Terrain Encoder</a></td><td>White marks active reading contours; faint cyan and magenta distinguish the selected voice's current and next regions.</td><td>These are transition roles, not spatial coordinates.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Several procedural encoders use a spatially related but different field palette. <a href="ambi-wind-encoder.html">Wind</a>, <a href="ambi-water-encoder.html">Water</a>, <a href="ambi-pyrosphere-encoder.html">Pyrosphere</a>, <a href="ambi-cryosphere-encoder.html">Cryosphere</a>, <a href="ambi-wrangler-encoder.html">Wrangler</a>, and <a href="ambi-pulsar-encoder.html">Pulsar</a> use an HSV-derived hue that broadly follows azimuth with a different hue origin. Positive elevation increases brightness, while event, activity, mask, selection, and surface membership affect opacity or emphasis. Do not infer distance from saturation in these views. <a href="ambi-insect-encoder.html">Insect</a> is a further exception: hue identifies the sound-production method, while elevation can still affect brightness.</p>
+
+        <h2 id="magnitude">Magnitude and Energy</h2>
+
+        <p>The shared heat scale runs from deep blue through cyan, yellow, and orange to red. Within one view it means low to high, but the measured quantity depends on the view.</p>
+
+        <div class="color-ramp heat-ramp" aria-hidden="true"></div>
+        <div class="color-ramp-labels"><span>low</span><span>high</span></div>
+
+        <ul>
+          <li>The <a href="topology-framework.html#heatmap">topology heatmap</a> shows normalized point-field influence and geometry. It is explicitly not an audio level meter.</li>
+          <li>The <a href="multichannel-meter.html">Multichannel Meter</a> <code>HEAT</code> page shows channel energy over time. Its <code>FIELD</code> page instead uses a VU-style dark-green to red scale, and marker size also follows loudness.</li>
+          <li>The <a href="ambi-speaker-decoder.html">Speaker Decoder</a> <code>MAP</code> page shows each speaker's response to the selected-speaker probe direction. Values are normalized to the strongest response in that map; they are not absolute SPL. The ordinary <code>FIELD</code> page returns to AED color.</li>
+          <li>The <a href="ambisonic-energy-visualizer.html">Ambi Energy Visualizer</a> uses the selected ordered palette for reconstructed field energy. Its inverse-color wake is recent receding energy, not negative energy. Changing <code>MAP</code> changes only the display.</li>
+        </ul>
+
+        <p>Magnitude maps are comparative displays. A hotter area is stronger within the current view and normalization; it is not automatically a calibrated level or a directly comparable value from another plugin.</p>
+
+        <h2 id="state">State, Routes, and Emphasis</h2>
+
+        <ul>
+          <li>Selection usually adds a light outline, brightness, opacity, or size. Treat that as focus, not an increased parameter value.</li>
+          <li>In Group Matrix plugins, gray is the manual crosspoint ceiling and green is the live animated pattern inside that ceiling. In Node Mixer views, green marks the cursor and nodes currently reached by its influence.</li>
+          <li>In direct panners, faint cyan lines identify the LBAP solver topology and faint yellow lines identify VBAP. Imaginary support points share the overlay role and do not create output channels.</li>
+          <li>In the Head Decoder's transaural view, muted green lines show the direct speaker-to-ear paths and orange dashed curves show opposite-ear cancellation paths. Their thickness and opacity follow the corresponding amount.</li>
+          <li>In physics and ecology fields, a brighter outline, link, or halo can show collision, event, phrase, gust, or activity energy. Point size and labels remain separate cues; consult the plugin page before treating emphasis as gain.</li>
+        </ul>
+
+        <h2 id="readability">Reading Without Color Alone</h2>
+
+        <p>Use color as a fast secondary cue. Point IDs, group or role labels, line styles, outlines, marker geometry, positions, meters, and numerical controls provide the more reliable reading when hues are difficult to distinguish or a display changes their appearance.</p>
+
+        <p>For spatial work, the AED readout is authoritative. For metering, use the displayed level and peak cues. For grouping, follow the ID or role label. If a color changes after selecting an item, first assume selection emphasis unless the view's legend says that brightness or opacity carries a live quantity.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambisonics.html">
+            <span>Previous</span>
+            Ambisonics Overview
+          </a>
+          <a class="page-nav-link next" href="listener-mode.html">
+            <span>Next</span>
+            Listener Mode
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="parameter-surface.html">Parameter Surface</a>
+          <a href="ambisonic-encoders.html">Encoders</a>
+          <a href="ambisonic-decoders.html">Decoders</a>
+          <a href="ambisonic-effects.html">Effects</a>
+          <a href="ambisonic-utilities.html">Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#reading-context">Reading the Context</a>
+          <a href="#aed">AED and OKLCH Color</a>
+          <a href="#identity">Identity and Grouping</a>
+          <a href="#magnitude">Magnitude and Energy</a>
+          <a href="#state">State and Emphasis</a>
+          <a href="#readability">Reading Without Color</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

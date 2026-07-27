@@ -9,6 +9,13 @@
 
 int main()
 {
+    static_assert(static_cast<uint32_t>(s3g::PsdRawFieldModTarget::Off) == 5u,
+        "Fault must preserve legacy modulation target values");
+    static_assert(static_cast<uint32_t>(s3g::PsdRawFieldModTarget::Body) == 6u);
+    static_assert(static_cast<uint32_t>(s3g::PsdRawFieldModTarget::Ring) == 7u);
+    static_assert(static_cast<uint32_t>(s3g::PsdRawFieldModTarget::Strike) == 8u);
+    static_assert(static_cast<uint32_t>(s3g::PsdRawFieldModTarget::Fold) == 9u);
+    static_assert(static_cast<uint32_t>(s3g::PsdRawFieldModTarget::Scan) == 10u);
     constexpr uint32_t frames = 4096u;
     std::vector<uint8_t> rawBytes(100003u);
     for (std::size_t i = 0; i < rawBytes.size(); ++i) {
@@ -282,6 +289,511 @@ int main()
                       << " difference=" << difference << "\n";
             return 1;
         }
+    }
+
+    // The curated destination layer must turn a hard, stepped source toward a
+    // low modal body or a bounded event contour instead of another broadband
+    // codec overwrite.
+    struct CharacterMetrics {
+        double total = 0.0;
+        double low = 0.0;
+        double high = 0.0;
+        double roughness = 0.0;
+        double blockCrest = 0.0;
+    };
+    auto renderCharacter = [](const s3g::PsdRawFieldParams& characterParams) {
+        constexpr uint32_t characterFrames = 48000u;
+        constexpr uint32_t warmup = 6000u;
+        std::array<std::vector<float>, s3g::kPsdRawFieldChannels> characterAudio;
+        std::array<float*, s3g::kPsdRawFieldChannels> characterPointers {};
+        for (uint32_t ch = 0u; ch < s3g::kPsdRawFieldChannels; ++ch) {
+            characterAudio[ch].resize(characterFrames);
+            characterPointers[ch] = characterAudio[ch].data();
+        }
+        s3g::PsdRawField characterField;
+        characterField.prepare(48000.0);
+        characterField.setParams(characterParams);
+        characterField.reset();
+        characterField.process(characterPointers.data(), s3g::kPsdRawFieldChannels,
+            characterFrames);
+
+        const double lowCoeff = 1.0 - std::exp(-2.0 * s3g::kPi * 250.0 / 48000.0);
+        const double highCoeff = 1.0 - std::exp(-2.0 * s3g::kPi * 5000.0 / 48000.0);
+        double lowpass = 0.0;
+        double highLowpass = 0.0;
+        double blockEnergy = 0.0;
+        double blockRmsSum = 0.0;
+        double blockRmsMaximum = 0.0;
+        uint32_t blockSamples = 0u;
+        uint32_t blocks = 0u;
+        CharacterMetrics metrics;
+        for (uint32_t i = warmup; i < characterFrames; ++i) {
+            const double x = characterAudio[0][i];
+            lowpass += (x - lowpass) * lowCoeff;
+            highLowpass += (x - highLowpass) * highCoeff;
+            const double high = x - highLowpass;
+            metrics.total += x * x;
+            metrics.low += lowpass * lowpass;
+            metrics.high += high * high;
+            if (i > warmup) {
+                const double delta = x - characterAudio[0][i - 1u];
+                metrics.roughness += delta * delta;
+            }
+            blockEnergy += x * x;
+            if (++blockSamples == 256u) {
+                const double rms = std::sqrt(blockEnergy / 256.0);
+                blockRmsSum += rms;
+                blockRmsMaximum = std::max(blockRmsMaximum, rms);
+                blockEnergy = 0.0;
+                blockSamples = 0u;
+                ++blocks;
+            }
+        }
+        metrics.blockCrest = blockRmsMaximum
+            / std::max(1.0e-12, blockRmsSum / static_cast<double>(std::max(1u, blocks)));
+        return metrics;
+    };
+
+    auto bodyCharacter = modulationParams;
+    bodyCharacter.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+    bodyCharacter.fieldCodecMode = s3g::PsdRawFieldCodecMode::HfFax;
+    bodyCharacter.scanRate = 0.28f;
+    bodyCharacter.texture = 0.28f;
+    bodyCharacter.geometry = 0.55f;
+    bodyCharacter.chaos = 0.24f;
+    bodyCharacter.fold = 0.10f;
+    bodyCharacter.codecRate = 0.34f;
+    bodyCharacter.bitDepth = 9.0f;
+    bodyCharacter.codecDamage = 0.05f;
+    bodyCharacter.drive = 0.45f;
+    bodyCharacter.shred = 0.06f;
+    bodyCharacter.resonance = 0.78f;
+    bodyCharacter.gainDb = -12.0f;
+    bodyCharacter.modSource = s3g::PsdRawFieldModSource::Noise;
+    bodyCharacter.modTarget = s3g::PsdRawFieldModTarget::Body;
+    bodyCharacter.modRate = 0.60f;
+    bodyCharacter.modIndex = 0.68f;
+    bodyCharacter.modFeedback = 0.0f;
+    const CharacterMetrics bodyMetrics = renderCharacter(bodyCharacter);
+    auto carrierCharacter = bodyCharacter;
+    carrierCharacter.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+    const CharacterMetrics carrierMetrics = renderCharacter(carrierCharacter);
+    const double bodyLowShare = bodyMetrics.low / std::max(1.0e-12, bodyMetrics.total);
+    const double carrierLowShare = carrierMetrics.low / std::max(1.0e-12, carrierMetrics.total);
+    const double bodyHighShare = bodyMetrics.high / std::max(1.0e-12, bodyMetrics.total);
+    const double carrierHighShare = carrierMetrics.high / std::max(1.0e-12, carrierMetrics.total);
+    const double bodyRoughness = bodyMetrics.roughness / std::max(1.0e-12, bodyMetrics.total);
+    const double carrierRoughness = carrierMetrics.roughness / std::max(1.0e-12, carrierMetrics.total);
+    if (bodyLowShare < carrierLowShare * 5.0
+        || bodyHighShare > carrierHighShare * 0.82
+        || bodyRoughness > carrierRoughness * 0.85) {
+        std::cerr << "Fault BODY did not turn stepped carrier modulation into a low resonance: low="
+                  << bodyLowShare << "/" << carrierLowShare
+                  << " high=" << bodyHighShare << "/" << carrierHighShare
+                  << " rough=" << bodyRoughness << "/" << carrierRoughness << "\n";
+        return 1;
+    }
+
+    auto strikeCharacter = bodyCharacter;
+    strikeCharacter.codecMode = s3g::PsdRawFieldCodecMode::MuLaw;
+    strikeCharacter.fieldCodecMode = s3g::PsdRawFieldCodecMode::MuLaw;
+    strikeCharacter.resonance = 0.42f;
+    strikeCharacter.modSource = s3g::PsdRawFieldModSource::Gate;
+    strikeCharacter.modTarget = s3g::PsdRawFieldModTarget::Strike;
+    strikeCharacter.modRate = 0.40f;
+    const CharacterMetrics strikeMetrics = renderCharacter(strikeCharacter);
+    strikeCharacter.modulationEnabled = 0u;
+    const CharacterMetrics strikeOffMetrics = renderCharacter(strikeCharacter);
+    const double strikeHighShare = strikeMetrics.high / std::max(1.0e-12, strikeMetrics.total);
+    const double strikeOffHighShare = strikeOffMetrics.high / std::max(1.0e-12, strikeOffMetrics.total);
+    if (strikeMetrics.blockCrest < strikeOffMetrics.blockCrest * 1.25
+        || strikeHighShare > strikeOffHighShare * 1.15) {
+        std::cerr << "Fault STRIKE did not create bounded percussive dynamics: crest="
+                  << strikeMetrics.blockCrest << "/" << strikeOffMetrics.blockCrest
+                  << " high=" << strikeHighShare << "/" << strikeOffHighShare << "\n";
+        return 1;
+    }
+
+    auto modalStressParams = bodyCharacter;
+    modalStressParams.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Regenerator;
+    modalStressParams.modSource = s3g::PsdRawFieldModSource::Noise;
+    modalStressParams.modTarget = s3g::PsdRawFieldModTarget::Body;
+    modalStressParams.modIndex = 1.0f;
+    modalStressParams.modFeedback = 0.98f;
+    modalStressParams.modSource2 = s3g::PsdRawFieldModSource::Feedback;
+    modalStressParams.modTarget2 = s3g::PsdRawFieldModTarget::Ring;
+    modalStressParams.modIndex2 = 1.0f;
+    modalStressParams.modFeedback2 = 0.98f;
+    modalStressParams.modSource3 = s3g::PsdRawFieldModSource::Sync;
+    modalStressParams.modTarget3 = s3g::PsdRawFieldModTarget::Strike;
+    modalStressParams.modIndex3 = 1.0f;
+    modalStressParams.modFeedback3 = 0.98f;
+    modalStressParams.drive = 1.0f;
+    modalStressParams.shred = 1.0f;
+    modalStressParams.resonance = 1.0f;
+    modalStressParams.bassBody = 1.0f;
+    modalStressParams.bassPunch = 1.0f;
+    modalStressParams.bassTrace = 0.0f;
+    modalStressParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::BodyAndScan;
+    modalStressParams.bassGlide = 1.0f;
+    modalStressParams.bassOctave = s3g::PsdRawFieldBassOctave::Unison;
+    modalStressParams.bassLowWidth = 0.0f;
+    constexpr uint32_t modalStressFrames = 8192u;
+    for (const double stressRate : { 44100.0, 48000.0, 96000.0 }) {
+        for (uint32_t receiver = 0u; receiver < s3g::kPsdRawFieldBassReceiverCount; ++receiver) {
+            modalStressParams.bassReceiver = static_cast<s3g::PsdRawFieldBassReceiver>(receiver);
+            std::array<std::array<float, modalStressFrames>, s3g::kPsdRawFieldChannels> stressAudio {};
+            std::array<float*, s3g::kPsdRawFieldChannels> stressPointers {};
+            for (uint32_t ch = 0u; ch < s3g::kPsdRawFieldChannels; ++ch) {
+                stressPointers[ch] = stressAudio[ch].data();
+            }
+            s3g::PsdRawField modalStress;
+            modalStress.prepare(stressRate);
+            modalStress.setParams(modalStressParams);
+            modalStress.setPitchRatio(64.0f);
+            modalStress.reset();
+            modalStress.triggerBassExcite(1.0f);
+            modalStress.process(stressPointers.data(), s3g::kPsdRawFieldChannels,
+                modalStressFrames);
+            const auto reference = stressAudio[0];
+            for (const auto& channel : stressAudio) {
+                for (const float sample : channel) {
+                    if (!std::isfinite(sample) || std::abs(sample) > 1.0f) {
+                        std::cerr << "Fault bass/modal stress escaped its finite bounds at "
+                                  << stressRate << " Hz in receiver " << receiver << "\n";
+                        return 1;
+                    }
+                }
+            }
+            modalStress.reset();
+            modalStress.triggerBassExcite(1.0f);
+            modalStress.process(stressPointers.data(), s3g::kPsdRawFieldChannels,
+                modalStressFrames);
+            if (!std::equal(reference.begin(), reference.end(), stressAudio[0].begin())) {
+                std::cerr << "Fault bass/modal reset was not deterministic at "
+                          << stressRate << " Hz in receiver " << receiver << "\n";
+                return 1;
+            }
+        }
+    }
+
+    // The bass core is an opt-in reconstruction layer. Its neutral settings,
+    // and TRACE at full Fault, must preserve the pre-bass signal exactly.
+    auto compatibilityParams = modulationParams;
+    compatibilityParams.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+    compatibilityParams.fieldCodecMode = s3g::PsdRawFieldCodecMode::HfFax;
+    compatibilityParams.modSource = s3g::PsdRawFieldModSource::Off;
+    compatibilityParams.modSource2 = s3g::PsdRawFieldModSource::Off;
+    compatibilityParams.modSource3 = s3g::PsdRawFieldModSource::Off;
+    compatibilityParams.modIndex = 0.0f;
+    compatibilityParams.modIndex2 = 0.0f;
+    compatibilityParams.modIndex3 = 0.0f;
+    compatibilityParams.bassBody = 0.0f;
+    compatibilityParams.bassPunch = 0.0f;
+    compatibilityParams.bassTrace = 1.0f;
+    compatibilityParams.bassLowWidth = 1.0f;
+    const auto compatibilityReference = renderModulation(compatibilityParams);
+    auto neutralCoreParams = compatibilityParams;
+    neutralCoreParams.bassReceiver = s3g::PsdRawFieldBassReceiver::Error;
+    neutralCoreParams.bassTrace = 0.0f;
+    neutralCoreParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::BodyAndScan;
+    neutralCoreParams.bassGlide = 1.0f;
+    neutralCoreParams.bassOctave = s3g::PsdRawFieldBassOctave::Unison;
+    neutralCoreParams.bassLowWidth = 0.0f;
+    const auto neutralCore = renderModulation(neutralCoreParams);
+    auto fullTraceParams = compatibilityParams;
+    fullTraceParams.bassReceiver = s3g::PsdRawFieldBassReceiver::Divide;
+    fullTraceParams.bassBody = 1.0f;
+    fullTraceParams.bassTrace = 1.0f;
+    fullTraceParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::Body;
+    fullTraceParams.bassOctave = s3g::PsdRawFieldBassOctave::MinusTwo;
+    const auto fullTrace = renderModulation(fullTraceParams);
+    auto modulatedCompatibilityParams = modulationParams;
+    modulatedCompatibilityParams.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+    modulatedCompatibilityParams.fieldCodecMode = s3g::PsdRawFieldCodecMode::HfFax;
+    modulatedCompatibilityParams.modSource = s3g::PsdRawFieldModSource::Sine;
+    modulatedCompatibilityParams.modTarget = s3g::PsdRawFieldModTarget::Body;
+    modulatedCompatibilityParams.modSource2 = s3g::PsdRawFieldModSource::Hellschreiber;
+    modulatedCompatibilityParams.modTarget2 = s3g::PsdRawFieldModTarget::Ring;
+    modulatedCompatibilityParams.modSource3 = s3g::PsdRawFieldModSource::Gate;
+    modulatedCompatibilityParams.modTarget3 = s3g::PsdRawFieldModTarget::Strike;
+    modulatedCompatibilityParams.bassBody = 0.0f;
+    modulatedCompatibilityParams.bassPunch = 0.0f;
+    modulatedCompatibilityParams.bassTrace = 1.0f;
+    modulatedCompatibilityParams.bassLowWidth = 1.0f;
+    const auto modulatedCompatibilityReference = renderModulation(
+        modulatedCompatibilityParams);
+    auto protectedTraceParams = modulatedCompatibilityParams;
+    protectedTraceParams.bassReceiver = s3g::PsdRawFieldBassReceiver::Error;
+    protectedTraceParams.bassBody = 1.0f;
+    protectedTraceParams.bassPunch = 1.0f;
+    protectedTraceParams.bassLowWidth = 0.0f;
+    protectedTraceParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::BodyAndScan;
+    protectedTraceParams.bassOctave = s3g::PsdRawFieldBassOctave::Unison;
+    const auto protectedTrace = renderModulation(protectedTraceParams);
+    for (uint32_t i = 0u; i < frames; ++i) {
+        if (neutralCore[i] != compatibilityReference[i]
+            || fullTrace[i] != compatibilityReference[i]
+            || protectedTrace[i] != modulatedCompatibilityReference[i]) {
+            std::cerr << "Fault bass compatibility path changed neutral or fully protected TRACE=1 output\n";
+            return 1;
+        }
+    }
+
+    struct BassRender {
+        std::array<std::vector<float>, s3g::kPsdRawFieldChannels> audio;
+        double cursorAdvance = 0.0;
+    };
+    auto renderBass = [](const s3g::PsdRawFieldParams& bassParams,
+                         float pitchRatio, uint32_t sampleCount,
+                         bool triggerPunch, bool suppressProtocolPunch) {
+        BassRender result;
+        std::array<float*, s3g::kPsdRawFieldChannels> bassPointers {};
+        for (uint32_t ch = 0u; ch < s3g::kPsdRawFieldChannels; ++ch) {
+            result.audio[ch].resize(sampleCount);
+            bassPointers[ch] = result.audio[ch].data();
+        }
+        s3g::PsdRawField bassField;
+        bassField.prepare(48000.0);
+        bassField.setParams(bassParams);
+        bassField.setPitchRatio(pitchRatio);
+        bassField.reset();
+        const double cursorStart = bassField.cursorPosition(0u);
+        if (triggerPunch) bassField.triggerBassExcite(1.0f);
+        std::vector<float> fixedEnvelope;
+        if (suppressProtocolPunch) fixedEnvelope.assign(sampleCount, 1.0f);
+        bassField.process(bassPointers.data(), s3g::kPsdRawFieldChannels,
+            sampleCount, suppressProtocolPunch ? fixedEnvelope.data() : nullptr);
+        result.cursorAdvance = bassField.cursorPosition(0u) - cursorStart;
+        return result;
+    };
+    auto dominantBassFrequency = [](const BassRender& rendered, uint32_t warmup,
+                                    float minimum, float maximum) {
+        double bestEnergy = -1.0;
+        float bestFrequency = minimum;
+        for (float frequency = minimum; frequency <= maximum; frequency += 0.5f) {
+            const double coefficient = 2.0 * std::cos(2.0 * s3g::kPi
+                * static_cast<double>(frequency) / 48000.0);
+            double q1 = 0.0;
+            double q2 = 0.0;
+            for (uint32_t i = warmup; i < rendered.audio[0].size(); ++i) {
+                double mean = 0.0;
+                for (uint32_t ch = 0u; ch < s3g::kPsdRawFieldChannels; ++ch) {
+                    mean += rendered.audio[ch][i];
+                }
+                mean /= static_cast<double>(s3g::kPsdRawFieldChannels);
+                const double q0 = mean + coefficient * q1 - q2;
+                q2 = q1;
+                q1 = q0;
+            }
+            const double energy = q1 * q1 + q2 * q2 - coefficient * q1 * q2;
+            if (energy > bestEnergy) {
+                bestEnergy = energy;
+                bestFrequency = frequency;
+            }
+        }
+        return bestFrequency;
+    };
+
+    auto bassParams = compatibilityParams;
+    bassParams.scanRate = 0.22f;
+    bassParams.texture = 0.26f;
+    bassParams.geometry = 0.34f;
+    bassParams.chaos = 0.12f;
+    bassParams.fold = 0.0f;
+    bassParams.codecMode = s3g::PsdRawFieldCodecMode::MuLaw;
+    bassParams.fieldCodecMode = s3g::PsdRawFieldCodecMode::MuLaw;
+    bassParams.codecRate = 0.30f;
+    bassParams.codecDamage = 0.12f;
+    bassParams.drive = 0.0f;
+    bassParams.shred = 0.0f;
+    bassParams.resonance = 0.76f;
+    bassParams.channelSpread = 0.88f;
+    bassParams.gainDb = -12.0f;
+    bassParams.bassReceiver = s3g::PsdRawFieldBassReceiver::Direct;
+    bassParams.bassBody = 1.0f;
+    bassParams.bassPunch = 0.0f;
+    bassParams.bassTrace = 0.0f;
+    bassParams.bassGlide = 0.0f;
+    bassParams.bassOctave = s3g::PsdRawFieldBassOctave::MinusTwo;
+    bassParams.bassLowWidth = 0.0f;
+    constexpr uint32_t bassFrames = 24576u;
+    constexpr uint32_t bassWarmup = 4096u;
+
+    bassParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::Scan;
+    const BassRender scanOne = renderBass(bassParams, 1.0f, bassFrames, false, true);
+    const BassRender scanTwo = renderBass(bassParams, 2.0f, bassFrames, false, true);
+    bassParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::Body;
+    const BassRender bodyOne = renderBass(bassParams, 1.0f, bassFrames, false, true);
+    const BassRender bodyTwo = renderBass(bassParams, 2.0f, bassFrames, false, true);
+    bassParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::BodyAndScan;
+    const BassRender bodyScanTwo = renderBass(bassParams, 2.0f, bassFrames, false, true);
+    const float scanFrequencyOne = dominantBassFrequency(scanOne, bassWarmup, 48.0f, 150.0f);
+    const float scanFrequencyTwo = dominantBassFrequency(scanTwo, bassWarmup, 48.0f, 150.0f);
+    const float bodyFrequencyOne = dominantBassFrequency(bodyOne, bassWarmup, 48.0f, 150.0f);
+    const float bodyFrequencyTwo = dominantBassFrequency(bodyTwo, bassWarmup, 48.0f, 150.0f);
+    const float bodyScanFrequencyTwo = dominantBassFrequency(bodyScanTwo, bassWarmup, 48.0f, 150.0f);
+    const double scanPitchRatio = scanFrequencyTwo / std::max(1.0f, scanFrequencyOne);
+    const double bodyPitchRatio = bodyFrequencyTwo / std::max(1.0f, bodyFrequencyOne);
+    const double bodyScanPitchRatio = bodyScanFrequencyTwo / std::max(1.0f, bodyFrequencyOne);
+    // BODY selects the receiver divider/filter target, but the result remains
+    // clocked by codec crossings rather than an autonomous pitch-perfect sine.
+    // SCAN may therefore pull the measured sub slightly as it changes the
+    // material feeding the receiver, while BODY must retain the strong keying
+    // relationship.
+    if (scanPitchRatio < 0.75 || scanPitchRatio > 1.25
+        || bodyPitchRatio < 1.65 || bodyPitchRatio > 2.60
+        || bodyScanPitchRatio < 1.65 || bodyScanPitchRatio > 2.60
+        || std::abs(bodyTwo.cursorAdvance - bodyOne.cursorAdvance) > 0.001
+        || scanTwo.cursorAdvance < scanOne.cursorAdvance * 1.90
+        || scanTwo.cursorAdvance > scanOne.cursorAdvance * 2.10
+        || bodyScanTwo.cursorAdvance < bodyOne.cursorAdvance * 1.90
+        || bodyScanTwo.cursorAdvance > bodyOne.cursorAdvance * 2.10) {
+        std::cerr << "Fault receiver-derived bass tracking did not separate SCAN, BODY, and BODY + SCAN: "
+                  << "frequency=" << scanPitchRatio << "/" << bodyPitchRatio
+                  << "/" << bodyScanPitchRatio << " cursor="
+                  << scanOne.cursorAdvance << "/" << scanTwo.cursorAdvance << "/"
+                  << bodyOne.cursorAdvance << "/" << bodyTwo.cursorAdvance << "/"
+                  << bodyScanTwo.cursorAdvance << "\n";
+        return 1;
+    }
+
+    struct BassMetrics {
+        double total = 0.0;
+        double low = 0.0;
+        double lowDivergence = 0.0;
+        float peak = 0.0f;
+    };
+    auto bassMetrics = [](const BassRender& rendered, uint32_t warmup) {
+        BassMetrics metrics;
+        std::array<double, s3g::kPsdRawFieldChannels> lowState {};
+        const double coefficient = 1.0 - std::exp(-2.0 * s3g::kPi * 90.0 / 48000.0);
+        for (uint32_t i = warmup; i < rendered.audio[0].size(); ++i) {
+            for (uint32_t ch = 0u; ch < s3g::kPsdRawFieldChannels; ++ch) {
+                const double sample = rendered.audio[ch][i];
+                metrics.total += sample * sample;
+                metrics.peak = std::max(metrics.peak, std::abs(static_cast<float>(sample)));
+                lowState[ch] += (sample - lowState[ch]) * coefficient;
+                metrics.low += lowState[ch] * lowState[ch];
+            }
+            for (uint32_t ch = 1u; ch < s3g::kPsdRawFieldChannels; ++ch) {
+                const double difference = lowState[ch] - lowState[0];
+                metrics.lowDivergence += difference * difference;
+            }
+        }
+        return metrics;
+    };
+
+    auto receiverParams = bassParams;
+    receiverParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::Body;
+    receiverParams.bassBody = 0.86f;
+    receiverParams.bassTrace = 0.18f;
+    receiverParams.bassLowWidth = 0.22f;
+    receiverParams.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+    receiverParams.fieldCodecMode = s3g::PsdRawFieldCodecMode::HfFax;
+    receiverParams.codecDamage = 0.46f;
+    std::array<BassRender, s3g::kPsdRawFieldBassReceiverCount> receiverAudio;
+    for (uint32_t receiver = 0u; receiver < s3g::kPsdRawFieldBassReceiverCount; ++receiver) {
+        receiverParams.bassReceiver = static_cast<s3g::PsdRawFieldBassReceiver>(receiver);
+        receiverAudio[receiver] = renderBass(receiverParams, 1.0f, 16384u, false, true);
+        const BassMetrics metrics = bassMetrics(receiverAudio[receiver], 2048u);
+        if (metrics.total <= 1.0e-5 || metrics.low <= 1.0e-6 || metrics.peak > 1.0f) {
+            std::cerr << "Fault bass receiver was silent, non-bass, or unbounded: " << receiver
+                      << " total=" << metrics.total << " low=" << metrics.low
+                      << " peak=" << metrics.peak << "\n";
+            return 1;
+        }
+        for (const auto& channel : receiverAudio[receiver].audio) {
+            for (const float sample : channel) {
+                if (!std::isfinite(sample)) {
+                    std::cerr << "Fault bass receiver produced a non-finite sample: "
+                              << receiver << "\n";
+                    return 1;
+                }
+            }
+        }
+    }
+    for (uint32_t a = 0u; a < s3g::kPsdRawFieldBassReceiverCount; ++a) {
+        for (uint32_t b = a + 1u; b < s3g::kPsdRawFieldBassReceiverCount; ++b) {
+            double difference = 0.0;
+            for (uint32_t i = 2048u; i < receiverAudio[a].audio[0].size(); ++i) {
+                difference += std::abs(static_cast<double>(
+                    receiverAudio[a].audio[0][i] - receiverAudio[b].audio[0][i]));
+            }
+            if (difference <= 0.01) {
+                std::cerr << "Fault bass receivers collapsed together: " << a << "/" << b
+                          << " difference=" << difference << "\n";
+                return 1;
+            }
+        }
+    }
+
+    auto punchParams = receiverParams;
+    punchParams.bassReceiver = s3g::PsdRawFieldBassReceiver::Direct;
+    punchParams.bassPunch = 0.92f;
+    punchParams.bassTrace = 0.0f;
+    const BassRender punchOff = renderBass(punchParams, 1.0f, 24000u, false, true);
+    const BassRender punchOn = renderBass(punchParams, 1.0f, 24000u, true, true);
+    double earlyPunchDifference = 0.0;
+    double latePunchDifference = 0.0;
+    for (uint32_t i = 0u; i < 4096u; ++i) {
+        earlyPunchDifference += std::abs(static_cast<double>(
+            punchOn.audio[0][i] - punchOff.audio[0][i]));
+    }
+    for (uint32_t i = 19904u; i < 24000u; ++i) {
+        latePunchDifference += std::abs(static_cast<double>(
+            punchOn.audio[0][i] - punchOff.audio[0][i]));
+    }
+    auto positiveCrossings = [](const BassRender& rendered, uint32_t begin, uint32_t end) {
+        uint32_t crossings = 0u;
+        double previous = 0.0;
+        for (uint32_t ch = 0u; ch < s3g::kPsdRawFieldChannels; ++ch) {
+            previous += rendered.audio[ch][begin];
+        }
+        for (uint32_t i = begin + 1u; i < end; ++i) {
+            double current = 0.0;
+            for (uint32_t ch = 0u; ch < s3g::kPsdRawFieldChannels; ++ch) {
+                current += rendered.audio[ch][i];
+            }
+            if (previous <= 0.0 && current > 0.0) ++crossings;
+            previous = current;
+        }
+        return crossings;
+    };
+    const uint32_t punchEarlyCrossings = positiveCrossings(punchOn, 0u, 4096u);
+    const uint32_t punchLateCrossings = positiveCrossings(punchOn, 19904u, 24000u);
+    const uint32_t neutralEarlyCrossings = positiveCrossings(punchOff, 0u, 4096u);
+    const BassMetrics punchMetrics = bassMetrics(punchOn, 0u);
+    if (earlyPunchDifference <= 0.01
+        || latePunchDifference >= earlyPunchDifference * 0.25
+        || static_cast<double>(punchEarlyCrossings)
+            < static_cast<double>(neutralEarlyCrossings) * 0.75
+        || static_cast<double>(punchEarlyCrossings)
+            > static_cast<double>(neutralEarlyCrossings) * 1.25
+        || punchMetrics.peak > 1.0f) {
+        std::cerr << "Fault explicit EXCITE was not a bounded, pitch-neutral accent: early="
+                  << earlyPunchDifference << " late=" << latePunchDifference
+                  << " crossings=" << punchEarlyCrossings << "/" << punchLateCrossings
+                  << "/" << neutralEarlyCrossings << " peak=" << punchMetrics.peak << "\n";
+        return 1;
+    }
+
+    auto widthParams = receiverParams;
+    widthParams.bassReceiver = s3g::PsdRawFieldBassReceiver::Direct;
+    widthParams.bassBody = 1.0f;
+    widthParams.bassTrace = 0.28f;
+    widthParams.channelSpread = 1.0f;
+    widthParams.bassLowWidth = 1.0f;
+    const BassMetrics wideMetrics = bassMetrics(
+        renderBass(widthParams, 1.0f, 24000u, false, true), 4096u);
+    widthParams.bassLowWidth = 0.0f;
+    const BassMetrics narrowMetrics = bassMetrics(
+        renderBass(widthParams, 1.0f, 24000u, false, true), 4096u);
+    if (wideMetrics.lowDivergence <= 1.0e-8
+        || narrowMetrics.lowDivergence >= wideMetrics.lowDivergence * 0.93) {
+        std::cerr << "Fault LOW WIDTH did not create a more coherent bass field: narrow/wide="
+                  << narrowMetrics.lowDivergence << "/" << wideMetrics.lowDivergence << "\n";
+        return 1;
     }
 
     auto clockParams = modulationParams;

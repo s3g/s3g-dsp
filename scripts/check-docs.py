@@ -21,6 +21,90 @@ EXPECTED_TOP_NAV = [
     "https://github.com/s3g/s3g-dsp",
 ]
 
+DOC_SEQUENCE = [
+    "index.html",
+    "building-from-source.html",
+    "installing-plugins.html",
+    "multichannel.html",
+    "multichannel-effects.html",
+    "topology-processors.html",
+    "topology-framework.html",
+    "delay-processor.html",
+    "wave-geometry-processor.html",
+    "spectral-topology-processor.html",
+    "macro-processors.html",
+    "macro-shred.html",
+    "spectral-buffer-processors.html",
+    "distributed-output-processors.html",
+    "crcltr.html",
+    "monitoring-fold-down.html",
+    "mc-to-stereo-autogain.html",
+    "mc-to-quad-autogain.html",
+    "multichannel-meter.html",
+    "direct-panning.html",
+    "layout-panner.html",
+    "bus-mixing-routing.html",
+    "speaker-array-utilities.html",
+    "ambisonics.html",
+    "interpreting-color.html",
+    "listener-mode.html",
+    "parameter-surface.html",
+    "ambisonic-encoders.html",
+    "ambi-point-encoder.html",
+    "ambi-cloud-encoder.html",
+    "ambi-terrain-navigator.html",
+    "ambi-path-encoder.html",
+    "ambi-ray-encoder.html",
+    "ambi-ray-bilocation-encoder.html",
+    "accelerometer-field-encoder.html",
+    "ambi-vot-encoder.html",
+    "ambi-vox-encoder.html",
+    "ambi-wave-terrain-encoder.html",
+    "ambi-wind-encoder.html",
+    "ambi-water-encoder.html",
+    "ambi-pyrosphere-encoder.html",
+    "ambi-cryosphere-encoder.html",
+    "ambi-insect-encoder.html",
+    "ambi-pulsar-encoder.html",
+    "ambi-neural-ecology.html",
+    "ambi-stochastic-encoder.html",
+    "ambi-wrangler-encoder.html",
+    "ambisonic-decoders.html",
+    "ambi-speaker-decoder.html",
+    "ambisonic-stereo-decoder.html",
+    "ambisonic-head-decoder.html",
+    "ambisonic-effects.html",
+    "ambi-effect-dj-filter.html",
+    "ambi-effect-delay.html",
+    "ambi-effect-pitch.html",
+    "ambi-effect-gain.html",
+    "ambi-effect-displacement.html",
+    "ambi-imprint.html",
+    "ambisonic-rotate.html",
+    "ambisonic-bus-processors.html",
+    "ambi-grain-processor.html",
+    "ambisonic-utilities.html",
+    "ambisonic-order-band-tool.html",
+    "ambisonic-energy-visualizer.html",
+    "s3gimprint-format.html",
+    "s3gray-format.html",
+    "instruments.html",
+    "generative-instruments.html",
+    "fault.html",
+    "sample-instruments.html",
+    "loop-processor.html",
+    "multi-loop-processor.html",
+    "voice-instruments.html",
+    "vox-builder.html",
+    "references.html",
+]
+
+REDIRECT_PAGES = {
+    "effects.html",
+    "mix-pan.html",
+    "processors.html",
+}
+
 
 class Document(HTMLParser):
     def __init__(self, path: Path) -> None:
@@ -55,6 +139,8 @@ class Document(HTMLParser):
         self.toc_fragment_ids: list[str] = []
         self.top_nav_depth = 0
         self.top_nav_links: list[str] = []
+        self.page_nav_depth = 0
+        self.page_nav_links: list[tuple[str, str]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = {name: value or "" for name, value in attrs}
@@ -65,6 +151,8 @@ class Document(HTMLParser):
             self.aside_depth += 1
         if tag == "nav" and "top-nav" in classes:
             self.top_nav_depth += 1
+        if tag == "nav" and "page-nav" in classes:
+            self.page_nav_depth += 1
         if values.get("id"):
             self.ids.add(values["id"])
         if self.main_depth and tag in {"h2", "h3"} and values.get("id"):
@@ -81,6 +169,9 @@ class Document(HTMLParser):
             self.toc_fragment_ids.append(values["href"][1:])
         if self.top_nav_depth and tag == "a" and values.get("href"):
             self.top_nav_links.append(values["href"])
+        if self.page_nav_depth and tag == "a" and values.get("href"):
+            direction = "next" if "next" in classes else "previous"
+            self.page_nav_links.append((direction, values["href"]))
         if values.get("name") and tag == "a":
             self.ids.add(values["name"])
         if tag == "title":
@@ -144,6 +235,8 @@ class Document(HTMLParser):
             self.aside_depth -= 1
         if tag == "nav" and self.top_nav_depth:
             self.top_nav_depth -= 1
+        if tag == "nav" and self.page_nav_depth:
+            self.page_nav_depth -= 1
 
 
 def parse_document(path: Path) -> Document:
@@ -217,6 +310,30 @@ def main() -> int:
     pages = {path.resolve(): parse_document(path) for path in sorted(DOCS.glob("*.html"))}
     errors: list[str] = []
     local_reference_count = 0
+
+    page_names = {path.name for path in pages}
+    sequenced_pages = set(DOC_SEQUENCE)
+    expected_pages = sequenced_pages | REDIRECT_PAGES
+    for missing_page in sorted(expected_pages - page_names):
+        errors.append(f"documentation sequence references missing page docs/{missing_page}")
+    for unsequenced_page in sorted(page_names - expected_pages):
+        errors.append(f"docs/{unsequenced_page}: page is not in DOC_SEQUENCE or REDIRECT_PAGES")
+
+    for index, page_name in enumerate(DOC_SEQUENCE):
+        path = (DOCS / page_name).resolve()
+        document = pages.get(path)
+        if document is None:
+            continue
+        expected_page_nav: list[tuple[str, str]] = []
+        if index:
+            expected_page_nav.append(("previous", DOC_SEQUENCE[index - 1]))
+        if index + 1 < len(DOC_SEQUENCE):
+            expected_page_nav.append(("next", DOC_SEQUENCE[index + 1]))
+        if document.page_nav_links != expected_page_nav:
+            errors.append(
+                f"docs/{page_name}: page navigation is {document.page_nav_links}, "
+                f"expected {expected_page_nav}"
+            )
 
     for path, document in list(pages.items()):
         relative = path.relative_to(ROOT)

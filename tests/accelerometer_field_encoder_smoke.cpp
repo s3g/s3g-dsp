@@ -3,13 +3,19 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <limits>
+#include <vector>
 
 namespace {
 
-constexpr uint32_t kFrames = 48000u * 3u;
+constexpr uint32_t kSampleRate = 48000u;
+constexpr uint32_t kFrames = kSampleRate * 2u;
 using Buffer = std::array<float, kFrames>;
+using StemBuffers = std::array<std::vector<float>,
+    s3g::kAccelerometerFieldMaxBodyCount>;
 
 struct Metrics {
     double energy = 0.0;
@@ -18,11 +24,16 @@ struct Metrics {
     bool finite = true;
 };
 
-Metrics metrics(const Buffer& buffer)
+template <typename Samples>
+Metrics metrics(const Samples& buffer, size_t firstFrame = 0u,
+    size_t lastFrame = std::numeric_limits<size_t>::max())
 {
     Metrics result;
-    float previous = 0.0f;
-    for (float sample : buffer) {
+    lastFrame = std::min(lastFrame, buffer.size());
+    if (firstFrame >= lastFrame) return result;
+    float previous = buffer[firstFrame];
+    for (size_t frame = firstFrame; frame < lastFrame; ++frame) {
+        const float sample = buffer[frame];
         result.finite = result.finite && std::isfinite(sample);
         result.energy += static_cast<double>(sample) * sample;
         const double difference = static_cast<double>(sample) - previous;
@@ -30,16 +41,29 @@ Metrics metrics(const Buffer& buffer)
         result.peak = std::max(result.peak, std::fabs(sample));
         previous = sample;
     }
-    result.energy /= buffer.size();
-    result.differenceEnergy /= buffer.size();
+    const double count = static_cast<double>(lastFrame - firstFrame);
+    result.energy /= count;
+    result.differenceEnergy /= count;
     return result;
+}
+
+template <typename First, typename Second>
+double difference(const First& first, const Second& second)
+{
+    const size_t frames = std::min(first.size(), second.size());
+    if (frames == 0u) return 0.0;
+    double total = 0.0;
+    for (size_t frame = 0u; frame < frames; ++frame) {
+        total += std::fabs(first[frame] - second[frame]);
+    }
+    return total / static_cast<double>(frames);
 }
 
 void render(const s3g::AccelerometerFieldParams& params,
     Buffer& first, Buffer& second)
 {
     s3g::AccelerometerFieldEncoder engine;
-    engine.prepare(48000.0);
+    engine.prepare(kSampleRate);
     engine.setParams(params);
     engine.reset();
     std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
@@ -48,33 +72,60 @@ void render(const s3g::AccelerometerFieldParams& params,
     engine.process(nullptr, outputs.data(), outputs.size(), kFrames);
 }
 
-double difference(const Buffer& first, const Buffer& second)
+StemBuffers processStems(s3g::AccelerometerFieldEncoder& engine,
+    uint32_t frames, float initialValue = 0.0f,
+    const float* externalExcitation = nullptr)
 {
-    double total = 0.0;
-    for (uint32_t frame = 0u; frame < kFrames; ++frame) {
-        total += std::fabs(first[frame] - second[frame]);
+    StemBuffers audio;
+    std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
+    for (uint32_t body = 0u; body < audio.size(); ++body) {
+        audio[body].assign(frames, initialValue);
+        outputs[body] = audio[body].data();
     }
-    return total / kFrames;
+    engine.process(externalExcitation, outputs.data(), outputs.size(), frames);
+    return audio;
+}
+
+s3g::AccelerometerFieldParams balancedDroneParams(uint32_t bodyCount)
+{
+    auto params = s3g::accelerometerFieldFactoryPreset(10u);
+    params.bodyCount = bodyCount;
+    params.outputMode = s3g::AccelerometerFieldOutputMode::BodyStems;
+    params.activity = 0.0f;
+    params.ambientDrive = 0.0f;
+    params.externalDrive = 0.0f;
+    params.sensorNoise = 0.0f;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Balance;
+    params.fieldListenAmount = 0.86f;
+    params.fieldListenResponse = s3g::AmbiFieldListenerResponse::Imprint;
+    params.force = 0.56f;
+    params.outputGainDb = -12.0f;
+    return params;
 }
 
 bool testFactoryPresets()
 {
-    Buffer contact {};
-    Buffer air {};
+    Buffer first {};
+    Buffer second {};
     for (uint32_t preset = 0u;
         preset < s3g::kAccelerometerFieldPresetCount; ++preset) {
-        render(s3g::accelerometerFieldFactoryPreset(preset), contact, air);
-        const Metrics contactMetrics = metrics(contact);
-        const Metrics airMetrics = metrics(air);
-        if (!contactMetrics.finite || !airMetrics.finite
-            || !(contactMetrics.energy > 1.0e-10)
-            || !(contactMetrics.peak > 1.0e-5f)
-            || !(contactMetrics.peak <= 1.0f)
-            || !(airMetrics.peak <= 1.0f)) {
+        render(s3g::accelerometerFieldFactoryPreset(preset), first, second);
+        const Metrics firstMetrics = metrics(first);
+        const Metrics secondMetrics = metrics(second);
+        const Metrics firstTail = metrics(first, kSampleRate);
+        const Metrics secondTail = metrics(second, kSampleRate);
+        if (!firstMetrics.finite || !secondMetrics.finite
+            || !firstTail.finite || !secondTail.finite
+            || !(firstTail.energy > 1.0e-10)
+            || !(firstTail.peak > 1.0e-5f)
+            || !(firstMetrics.peak <= 1.0f)
+            || !(secondMetrics.peak <= 1.0f)) {
             std::cerr << "Ambi Encoder Modal preset " << preset
-                      << " failed finite/audibility bounds: contact energy "
-                      << contactMetrics.energy << ", peak " << contactMetrics.peak
-                      << ", air peak " << airMetrics.peak << "\n";
+                      << " failed sustained-tail bounds: tail energy "
+                      << firstTail.energy << ", tail peaks "
+                      << firstTail.peak << ", " << secondTail.peak
+                      << ", overall peaks " << firstMetrics.peak << ", "
+                      << secondMetrics.peak << "\n";
             return false;
         }
     }
@@ -85,10 +136,10 @@ bool testDeterminism()
 {
     Buffer first {};
     Buffer second {};
-    Buffer air {};
+    Buffer companion {};
     const auto params = s3g::accelerometerFieldFactoryPreset(3u);
-    render(params, first, air);
-    render(params, second, air);
+    render(params, first, companion);
+    render(params, second, companion);
     if (first != second) {
         std::cerr << "Ambi Encoder Modal is not deterministic for one seed\n";
         return false;
@@ -104,7 +155,7 @@ bool testHoaDefaultAndRotation()
     Buffer turnedY {};
     auto params = s3g::accelerometerFieldFactoryPreset(3u);
     s3g::AccelerometerFieldEncoder contract;
-    contract.prepare(48000.0);
+    contract.prepare(kSampleRate);
     contract.setParams(params);
     if (params.outputMode != s3g::AccelerometerFieldOutputMode::Ambisonic
         || params.ambisonicOrder != 3u
@@ -114,38 +165,31 @@ bool testHoaDefaultAndRotation()
     }
 
     params.ambisonicOrder = 1u;
+    // Spatial rotation is an encoder contract. Disable the world-fixed
+    // listener/actuator so its intentionally anchored feedback does not alter
+    // the source while measuring that projection invariant.
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+    const auto renderStrike = [](const auto& strikeParams,
+                                 Buffer& w, Buffer& y) {
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(kSampleRate);
+        engine.setParams(strikeParams);
+        engine.reset();
+        engine.strikeMidi(60, 0.82f);
+        std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
+        outputs[0] = w.data();
+        outputs[1] = y.data();
+        engine.process(nullptr, outputs.data(), outputs.size(), kFrames);
+    };
     params.fieldAzimuthDeg = 0.0f;
-    render(params, frontW, frontY);
+    renderStrike(params, frontW, frontY);
     params.fieldAzimuthDeg = 90.0f;
-    render(params, turnedW, turnedY);
-    if (!(difference(frontW, turnedW) < 1.0e-7)
-        || !(difference(frontY, turnedY) > 1.0e-5)) {
+    renderStrike(params, turnedW, turnedY);
+    const double wDifference = difference(frontW, turnedW);
+    const double yDifference = difference(frontY, turnedY);
+    if (!(wDifference < 1.0e-7) || !(yDifference > 1.0e-5)) {
         std::cerr << "HOA rotation did not preserve W while rotating direction: "
-                  << difference(frontW, turnedW) << ", "
-                  << difference(frontY, turnedY) << "\n";
-        return false;
-    }
-    return true;
-}
-
-bool testOptionalSensorStems()
-{
-    Buffer first {};
-    Buffer second {};
-    auto params = s3g::accelerometerFieldFactoryPreset(3u);
-    params.outputMode = s3g::AccelerometerFieldOutputMode::SensorStems;
-    s3g::AccelerometerFieldEncoder contract;
-    contract.prepare(48000.0);
-    contract.setParams(params);
-    if (contract.outputChannelCount() != s3g::kAccelerometerFieldSensorCount) {
-        std::cerr << "Sensor-stem mode exposed the wrong channel count\n";
-        return false;
-    }
-    render(params, first, second);
-    if (!(metrics(first).energy > 1.0e-10)
-        || !(metrics(second).energy > 1.0e-10)
-        || !(difference(first, second) > 1.0e-5)) {
-        std::cerr << "Optional sensor stems lost independent attachment views\n";
+                  << wDifference << ", " << yDifference << "\n";
         return false;
     }
     return true;
@@ -164,7 +208,7 @@ bool testLowerOrderClearsUnusedChannels()
     auto params = s3g::accelerometerFieldFactoryPreset(0u);
     params.ambisonicOrder = 1u;
     s3g::AccelerometerFieldEncoder engine;
-    engine.prepare(48000.0);
+    engine.prepare(kSampleRate);
     engine.setParams(params);
     engine.reset();
     engine.process(nullptr, outputs.data(), outputs.size(), frames);
@@ -179,108 +223,483 @@ bool testLowerOrderClearsUnusedChannels()
     return true;
 }
 
-bool testPickupGeometry()
+bool testBodyCountAndModeBudget()
 {
-    Buffer first {};
-    Buffer second {};
-    Buffer air {};
-    auto params = s3g::accelerometerFieldFactoryPreset(4u);
-    params.sensorNoise = 0.0f;
-    params.pickupPosition = 0.14f;
-    params.pickupAxis = 0.0f;
-    render(params, first, air);
-    params.pickupPosition = 0.72f;
-    params.pickupAxis = 0.94f;
-    render(params, second, air);
-    if (!(difference(first, second) > 1.0e-6)) {
-        std::cerr << "Pickup position and axis did not expose different mode shapes\n";
+    auto params = s3g::accelerometerFieldFactoryPreset(0u);
+    params.bodyCount = 0u;
+    if (s3g::sanitizeAccelerometerFieldParams(params).bodyCount
+        != s3g::kAccelerometerFieldMinBodyCount) {
+        std::cerr << "Body count did not clamp to four\n";
         return false;
     }
-    return true;
-}
+    params.bodyCount = std::numeric_limits<uint32_t>::max();
+    if (s3g::sanitizeAccelerometerFieldParams(params).bodyCount
+        != s3g::kAccelerometerFieldMaxBodyCount) {
+        std::cerr << "Body count did not clamp to eight\n";
+        return false;
+    }
 
-bool testArrayCenterAndSpread()
-{
     s3g::AccelerometerFieldEncoder engine;
-    engine.prepare(48000.0);
-    auto params = s3g::accelerometerFieldFactoryPreset(2u);
-    params.pickupPosition = 0.18f;
-    params.arraySpread = 0.0f;
-    engine.setParams(params);
-    const float localized = engine.sensorPosition(0u);
-    for (uint32_t sensor = 1u;
-        sensor < s3g::kAccelerometerFieldSensorCount; ++sensor) {
-        if (std::fabs(engine.sensorPosition(sensor) - localized) > 1.0e-6f) {
-            std::cerr << "Zero array spread did not co-locate the sensors\n";
+    engine.prepare(kSampleRate);
+    for (uint32_t count = s3g::kAccelerometerFieldMinBodyCount;
+        count <= s3g::kAccelerometerFieldMaxBodyCount; ++count) {
+        params.bodyCount = count;
+        engine.setParams(params);
+        uint32_t totalModes = 0u;
+        if (engine.bodyCount() != count
+            || engine.activeModeCount() != s3g::kAccelerometerFieldModeBudget) {
+            std::cerr << "Body allocation reported the wrong active count at "
+                      << count << " bodies\n";
+            return false;
+        }
+        for (uint32_t body = 0u;
+            body < s3g::kAccelerometerFieldMaxBodyCount; ++body) {
+            const uint32_t modes = engine.modesForBody(body);
+            if (body < count) {
+                if (modes == 0u || (modes & 1u) != 0u) {
+                    std::cerr << "Modal allocation split a resonant pair at "
+                              << count << " bodies, body " << body << "\n";
+                    return false;
+                }
+                totalModes += modes;
+            } else if (modes != 0u) {
+                std::cerr << "Inactive body retained modal allocation\n";
+                return false;
+            }
+        }
+        if (totalModes != s3g::kAccelerometerFieldModeBudget) {
+            std::cerr << "Modal allocation did not sum to 96 at " << count
+                      << " bodies: " << totalModes << "\n";
             return false;
         }
     }
-    params.pickupPosition = 0.82f;
-    engine.setParams(params);
-    if (!(engine.sensorPosition(0u) > localized + 0.25f)) {
-        std::cerr << "Array center did not move the localized pickup\n";
+    return true;
+}
+
+float directionDistance(s3g::Vec3 first, s3g::Vec3 second)
+{
+    const float x = first.x - second.x;
+    const float y = first.y - second.y;
+    const float z = first.z - second.z;
+    return std::sqrt(x * x + y * y + z * z);
+}
+
+bool testFixedListenerPickupSets()
+{
+    auto params = s3g::accelerometerFieldFactoryPreset(0u);
+    if (params.listenerPickupSet
+        != s3g::AccelerometerFieldListenerPickupSet::Cube8) {
+        std::cerr << "Modal listener did not default to Cube 8\n";
         return false;
     }
-    params.arraySpread = 1.0f;
+    auto unsafe = params;
+    unsafe.listenerPickupSet =
+        static_cast<s3g::AccelerometerFieldListenerPickupSet>(99u);
+    if (s3g::sanitizeAccelerometerFieldParams(unsafe).listenerPickupSet
+        != s3g::AccelerometerFieldListenerPickupSet::Cube8) {
+        std::cerr << "Invalid listener pickup set did not sanitize to Cube 8\n";
+        return false;
+    }
+
+    s3g::AccelerometerFieldEncoder engine;
+    engine.prepare(kSampleRate);
     engine.setParams(params);
-    if (!(engine.sensorPosition(7u) - engine.sensorPosition(0u) > 0.75f)) {
-        std::cerr << "Array spread did not separate the attachment points\n";
+    const auto& cube = s3g::ambiFieldListenerCubeDirections();
+    if (engine.listenerPickupCount() != cube.size()) {
+        std::cerr << "Cube listener did not configure eight fixed ears\n";
+        return false;
+    }
+    for (uint32_t ear = 0u; ear < cube.size(); ++ear) {
+        if (directionDistance(engine.listenerPickupDirection(ear), cube[ear])
+            > 1.0e-6f) {
+            std::cerr << "Cube listener direction mismatch at ear "
+                      << ear << "\n";
+            return false;
+        }
+    }
+
+    std::array<uint32_t, s3g::kAccelerometerFieldMaxBodyCount> modeCounts {};
+    std::array<s3g::Vec3, s3g::kAccelerometerFieldMaxBodyCount>
+        bodyDirections {};
+    for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+        modeCounts[body] = engine.modesForBody(body);
+        bodyDirections[body] = engine.bodyDirection(body);
+    }
+    params.listenerPickupSet =
+        s3g::AccelerometerFieldListenerPickupSet::Tetra4;
+    engine.setParams(params);
+    const auto& tetra = s3g::ambiFieldListenerTetraDirections();
+    if (engine.listenerPickupCount() != tetra.size()) {
+        std::cerr << "Tetra listener did not configure four fixed ears\n";
+        return false;
+    }
+    for (uint32_t ear = 0u; ear < tetra.size(); ++ear) {
+        const s3g::Vec3 actual = engine.listenerPickupDirection(ear);
+        if (directionDistance(actual, tetra[ear]) > 1.0e-6f) {
+            std::cerr << "Tetra listener direction mismatch at ear "
+                      << ear << "\n";
+            return false;
+        }
+        for (uint32_t other = ear + 1u; other < tetra.size(); ++other) {
+            const float dot = actual.x * tetra[other].x
+                + actual.y * tetra[other].y
+                + actual.z * tetra[other].z;
+            if (std::fabs(dot + 1.0f / 3.0f) > 2.0e-5f) {
+                std::cerr << "Tetra listener lost its symmetric geometry\n";
+                return false;
+            }
+        }
+    }
+    for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+        if (engine.modesForBody(body) != modeCounts[body]
+            || directionDistance(engine.bodyDirection(body),
+                bodyDirections[body]) > 1.0e-7f) {
+            std::cerr << "Switching listener sets rebuilt a modal body\n";
+            return false;
+        }
+    }
+
+    params.fieldAzimuthDeg = 127.0f;
+    params.fieldElevationDeg = -31.0f;
+    params.spatialExtent = 0.22f;
+    params.bodyAzimuthOffsetDeg[0] = 76.0f;
+    params.bodyElevationOffsetDeg[1] = -42.0f;
+    engine.setParams(params);
+    if (engine.listenerPickupCount() != tetra.size()) {
+        std::cerr << "Body geometry changed the listener ear count\n";
+        return false;
+    }
+    for (uint32_t ear = 0u; ear < tetra.size(); ++ear) {
+        if (directionDistance(engine.listenerPickupDirection(ear), tetra[ear])
+            > 1.0e-6f) {
+            std::cerr << "Body AED editing moved a fixed listener ear\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool testListenerAndActuatorTelemetry()
+{
+    constexpr uint32_t frames = kSampleRate;
+    auto params = balancedDroneParams(8u);
+    params.listenerPickupSet =
+        s3g::AccelerometerFieldListenerPickupSet::Tetra4;
+    s3g::AccelerometerFieldEncoder engine;
+    engine.prepare(kSampleRate);
+    engine.setParams(params);
+    engine.reset();
+    const StemBuffers drone = processStems(engine, frames);
+
+    float pickupPeak = 0.0f;
+    for (uint32_t ear = 0u; ear < 4u; ++ear) {
+        const float energy = engine.listenerPickupEnergy(ear);
+        if (!std::isfinite(energy) || energy < 0.0f) {
+            std::cerr << "Tetra listener produced invalid pickup telemetry\n";
+            return false;
+        }
+        pickupPeak = std::max(pickupPeak, energy);
+    }
+    for (uint32_t ear = 4u;
+        ear < s3g::kAmbiFieldListenerMaxLobes; ++ear) {
+        if (engine.listenerPickupEnergy(ear) != 0.0f) {
+            std::cerr << "Inactive Tetra listener ear retained telemetry\n";
+            return false;
+        }
+    }
+    if (!(pickupPeak > 1.0e-6f)) {
+        std::cerr << "Tetra listener did not hear the internal HOA field\n";
+        return false;
+    }
+    for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+        if (!(engine.actuatorBodyDrive(body) > 1.0e-7f)
+            || !(engine.bodyEnergy(body) > 1.0e-8f)
+            || !metrics(drone[body]).finite) {
+            std::cerr << "Diffuse actuator telemetry omitted body "
+                      << body << "\n";
+            return false;
+        }
+    }
+
+    params.listenerPickupSet =
+        s3g::AccelerometerFieldListenerPickupSet::Cube8;
+    engine.setParams(params);
+    if (engine.listenerPickupCount() != 8u) {
+        std::cerr << "Live listener switch did not configure Cube 8\n";
+        return false;
+    }
+    for (uint32_t ear = 0u; ear < 8u; ++ear) {
+        if (engine.listenerPickupEnergy(ear) != 0.0f) {
+            std::cerr << "Listener switch did not clear directional history\n";
+            return false;
+        }
+    }
+
+    const auto renderOffStrike = [](auto pickupSet) {
+        auto off = s3g::accelerometerFieldFactoryPreset(0u);
+        off.bodyCount = 4u;
+        off.outputMode = s3g::AccelerometerFieldOutputMode::BodyStems;
+        off.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+        off.externalDrive = 0.0f;
+        off.listenerPickupSet = pickupSet;
+        s3g::AccelerometerFieldEncoder probe;
+        probe.prepare(kSampleRate);
+        probe.setParams(off);
+        probe.reset();
+        probe.strikeMidi(60, 0.8f);
+        return processStems(probe, 12000u);
+    };
+    const StemBuffers tetraOff = renderOffStrike(
+        s3g::AccelerometerFieldListenerPickupSet::Tetra4);
+    const StemBuffers cubeOff = renderOffStrike(
+        s3g::AccelerometerFieldListenerPickupSet::Cube8);
+    if (tetraOff != cubeOff) {
+        std::cerr << "Analyzer-only listener geometry changed the Off path\n";
+        return false;
+    }
+
+    auto off = params;
+    off.bodyCount = 4u;
+    off.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+    off.listenerPickupSet =
+        s3g::AccelerometerFieldListenerPickupSet::Tetra4;
+    engine.setParams(off);
+    engine.reset();
+    engine.strikeMidi(60, 0.8f);
+    (void)processStems(engine, 4096u);
+    if (!(engine.actuatorBodyDrive(0u) > 1.0e-7f)) {
+        std::cerr << "MIDI actuator drive was not published\n";
+        return false;
+    }
+    for (uint32_t body = 1u;
+        body < s3g::kAccelerometerFieldMaxBodyCount; ++body) {
+        if (engine.actuatorBodyDrive(body) != 0.0f) {
+            std::cerr << "MIDI actuator telemetry leaked to another body\n";
+            return false;
+        }
+    }
+    engine.reset();
+    for (uint32_t body = 0u;
+        body < s3g::kAccelerometerFieldMaxBodyCount; ++body) {
+        if (engine.actuatorBodyDrive(body) != 0.0f) {
+            std::cerr << "Reset retained actuator telemetry\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool testCounterActuatorUsesSpatialAntipode()
+{
+    auto params = s3g::accelerometerFieldFactoryPreset(0u);
+    params.bodyCount = 6u;
+    params.outputMode = s3g::AccelerometerFieldOutputMode::BodyStems;
+    params.activity = 0.0f;
+    params.ambientDrive = 0.0f;
+    params.externalDrive = 0.0f;
+    params.sensorNoise = 0.0f;
+    params.spatialExtent = 1.0f;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+    params.fieldListenAmount = 1.0f;
+    params.listenerPickupSet =
+        s3g::AccelerometerFieldListenerPickupSet::Cube8;
+
+    s3g::AccelerometerFieldEncoder engine;
+    engine.prepare(kSampleRate);
+    engine.setParams(params);
+    engine.reset();
+    engine.strikeMidi(60, 1.0f);
+    if (engine.lastActuatedBody() != 0u) {
+        std::cerr << "Counter probe did not begin on body zero\n";
+        return false;
+    }
+    (void)processStems(engine, kSampleRate / 2u);
+
+    const s3g::Vec3 source = engine.bodyDirection(0u);
+    uint32_t antipodalBody = 0u;
+    float minimumDot = 1.0f;
+    for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+        const s3g::Vec3 candidate = engine.bodyDirection(body);
+        const float dot = source.x * candidate.x
+            + source.y * candidate.y + source.z * candidate.z;
+        if (dot < minimumDot) {
+            minimumDot = dot;
+            antipodalBody = body;
+        }
+    }
+
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Counter;
+    engine.setParams(params);
+    engine.strikeMidi(60, 1.0f);
+    if (engine.lastActuatedBody() != antipodalBody) {
+        std::cerr << "Counter actuator did not select the spatial antipode: "
+                  << engine.lastActuatedBody() << " instead of "
+                  << antipodalBody << "\n";
         return false;
     }
     return true;
 }
 
-bool testAedSpreadLocalization()
+bool testWorstCaseAmbisonicHeadroom()
+{
+    constexpr uint32_t blockFrames = 256u;
+    constexpr uint32_t blockCount = kSampleRate * 8u / blockFrames;
+    auto params = s3g::accelerometerFieldFactoryPreset(10u);
+    params.substrate = s3g::AccelerometerSubstrate::BroadBronze;
+    params.bodyCount = s3g::kAccelerometerFieldMaxBodyCount;
+    params.ambisonicOrder = s3g::kAccelerometerFieldMaxOrder;
+    params.outputMode = s3g::AccelerometerFieldOutputMode::Ambisonic;
+    params.outputGainDb = 12.0f;
+    params.bodyDistance.fill(0.15f);
+    params.spatialExtent = 0.0f;
+    params.fieldAzimuthDeg = 0.0f;
+    params.fieldElevationDeg = 0.0f;
+    params.bodyAzimuthOffsetDeg.fill(0.0f);
+    params.bodyElevationOffsetDeg.fill(0.0f);
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Balance;
+    params.fieldListenAmount = 1.0f;
+    params.fieldListenResponse =
+        s3g::AmbiFieldListenerResponse::Imprint;
+    params.externalDrive = 1.0f;
+    params.coupling = 1.0f;
+    params.energy = 1.0f;
+    params.force = 1.0f;
+    params.size = 0.0f;
+    params.damping = 0.0f;
+    params.sourcePosition = 0.0f;
+    params.pickupPosition = 0.0f;
+    params.pickupAxis = 0.0f;
+    params.contactRadiation = 0.0f;
+    params.airRadiation = 1.0f;
+    params.mountStiffness = 1.0f;
+    params.sensorMass = 0.0f;
+    params.conditionerHighpassHz = 0.25f;
+    params.arraySpread = 1.0f;
+    params.seed = 0x6d2b79f5u;
+
+    s3g::AccelerometerFieldEncoder engine;
+    engine.prepare(kSampleRate);
+    engine.setParams(params);
+    engine.reset();
+    const auto strikeAllBodies = [&]() {
+        auto off = params;
+        off.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+        off.fieldListenAmount = 0.0f;
+        engine.setParams(off);
+        for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+            engine.strikeMidi(60, 1.0f);
+        }
+        engine.setParams(params);
+    };
+    strikeAllBodies();
+
+    std::array<std::array<float, blockFrames>,
+        s3g::kAccelerometerFieldMaxChannels> audio {};
+    std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
+    for (uint32_t channel = 0u; channel < audio.size(); ++channel) {
+        outputs[channel] = audio[channel].data();
+    }
+    std::array<float, blockFrames> excitation {};
+    uint32_t noiseState = 0x01234567u ^ params.seed;
+    float peak = 0.0f;
+    for (uint32_t block = 0u; block < blockCount; ++block) {
+        if (block > 0u && block % (kSampleRate / blockFrames) == 0u) {
+            strikeAllBodies();
+        }
+        for (float& sample : excitation) {
+            noiseState ^= noiseState << 13u;
+            noiseState ^= noiseState >> 17u;
+            noiseState ^= noiseState << 5u;
+            sample = static_cast<float>(static_cast<int32_t>(noiseState))
+                / 2147483648.0f;
+        }
+        engine.process(excitation.data(), outputs.data(), outputs.size(),
+            blockFrames);
+        for (const auto& channel : audio) {
+            const Metrics channelMetrics = metrics(channel);
+            if (!channelMetrics.finite) {
+                std::cerr << "Worst-case Ambisonic output became non-finite\n";
+                return false;
+            }
+            peak = std::max(peak, channelMetrics.peak);
+        }
+    }
+    if (!(peak > 0.95f) || peak > 1.0001f) {
+        std::cerr << "Worst-case Ambisonic safety was not exercised or "
+                     "exceeded unity: "
+                  << peak << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool testBodyPlacementAndSpread()
 {
     s3g::AccelerometerFieldEncoder engine;
-    engine.prepare(48000.0);
+    engine.prepare(kSampleRate);
     auto params = s3g::accelerometerFieldFactoryPreset(2u);
+    params.bodyCount = 8u;
     params.fieldAzimuthDeg = 37.0f;
     params.fieldElevationDeg = -18.0f;
     params.spatialExtent = 0.0f;
+    params.arraySpread = 0.0f;
+    params.pickupPosition = 0.18f;
     engine.setParams(params);
-    const auto localized = engine.sensorDirection(0u);
-    for (uint32_t sensor = 1u;
-        sensor < s3g::kAccelerometerFieldSensorCount; ++sensor) {
-        const auto direction = engine.sensorDirection(sensor);
-        if (std::fabs(direction.x - localized.x) > 1.0e-6f
-            || std::fabs(direction.y - localized.y) > 1.0e-6f
-            || std::fabs(direction.z - localized.z) > 1.0e-6f) {
-            std::cerr << "Zero AED spread did not localize the field\n";
+
+    const s3g::Vec3 localizedDirection = engine.bodyDirection(0u);
+    const float localizedPosition = engine.bodyPosition(0u);
+    for (uint32_t body = 1u; body < params.bodyCount; ++body) {
+        if (directionDistance(engine.bodyDirection(body), localizedDirection)
+                > 1.0e-6f
+            || std::fabs(engine.bodyPosition(body) - localizedPosition)
+                > 1.0e-6f) {
+            std::cerr << "Zero spread did not co-locate active bodies\n";
             return false;
         }
     }
+
     params.spatialExtent = 1.0f;
+    params.arraySpread = 1.0f;
     engine.setParams(params);
-    const auto first = engine.sensorDirection(0u);
-    const auto last = engine.sensorDirection(7u);
-    const float separation = std::fabs(first.x - last.x)
-        + std::fabs(first.y - last.y) + std::fabs(first.z - last.z);
-    if (!(separation > 0.25f)) {
-        std::cerr << "AED spread did not distribute the encoded field\n";
+    float minimumDirectionSeparation = 2.0f;
+    for (uint32_t first = 0u; first < params.bodyCount; ++first) {
+        for (uint32_t second = first + 1u;
+            second < params.bodyCount; ++second) {
+            minimumDirectionSeparation = std::min(
+                minimumDirectionSeparation,
+                directionDistance(engine.bodyDirection(first),
+                    engine.bodyDirection(second)));
+        }
+    }
+    if (!(minimumDirectionSeparation > 0.35f)
+        || !(engine.bodyPosition(7u) - engine.bodyPosition(0u) > 0.75f)) {
+        std::cerr << "Full spread did not separate the body constellation: "
+                  << minimumDirectionSeparation << "\n";
         return false;
     }
     return true;
 }
 
-bool testArrayMotionSmoothing()
+bool testBodyGeometrySmoothing()
 {
     s3g::AccelerometerFieldEncoder engine;
-    engine.prepare(48000.0);
+    engine.prepare(kSampleRate);
     auto params = s3g::accelerometerFieldFactoryPreset(2u);
+    params.bodyCount = 6u;
     params.pickupPosition = 0.15f;
     params.arraySpread = 0.0f;
     engine.setParams(params);
     engine.reset();
-    const float initial = engine.currentSensorPosition(7u);
+    const uint32_t body = params.bodyCount - 1u;
+    const float initial = engine.currentBodyPosition(body);
 
     params.pickupPosition = 0.85f;
     params.arraySpread = 1.0f;
     engine.setParams(params);
-    const float target = engine.sensorPosition(7u);
+    const float target = engine.bodyPosition(body);
     if (!(target > initial + 0.50f)
-        || std::fabs(engine.currentSensorPosition(7u) - initial) > 1.0e-7f) {
-        std::cerr << "Array geometry snapped before audio-rate interpolation\n";
+        || std::fabs(engine.currentBodyPosition(body) - initial) > 1.0e-7f) {
+        std::cerr << "Body geometry snapped before audio-rate interpolation\n";
         return false;
     }
 
@@ -289,374 +708,513 @@ bool testArrayMotionSmoothing()
     std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
     outputs[0] = audio.data();
     engine.process(nullptr, outputs.data(), outputs.size(), 1u);
-    const float firstStep = engine.currentSensorPosition(7u);
+    const float firstStep = engine.currentBodyPosition(body);
     if (!(firstStep > initial)
         || !(firstStep < initial + (target - initial) * 0.01f)) {
-        std::cerr << "Array geometry did not begin with a click-free small step\n";
+        std::cerr << "Body geometry did not begin with a click-free small step\n";
         return false;
     }
     engine.process(nullptr, outputs.data(), outputs.size(), frames);
-    if (!(std::fabs(engine.currentSensorPosition(7u) - target)
+    if (!(std::fabs(engine.currentBodyPosition(body) - target)
             < std::fabs(target - initial) * 0.08f)) {
-        std::cerr << "Array geometry smoothing did not converge promptly\n";
+        std::cerr << "Body geometry smoothing did not converge promptly\n";
         return false;
     }
     return true;
 }
 
-bool testGongFamilyHeadroom()
+bool testPerBodyAedEditing()
 {
-    constexpr std::array<uint32_t, 4u> presets {{ 0u, 2u, 6u, 10u }};
-    Buffer first {};
-    Buffer second {};
-    for (const uint32_t preset : presets) {
-        auto params = s3g::accelerometerFieldFactoryPreset(preset);
-        params.outputMode = s3g::AccelerometerFieldOutputMode::SensorStems;
-        render(params, first, second);
-        const auto firstMetrics = metrics(first);
-        const auto secondMetrics = metrics(second);
-        if (!(firstMetrics.energy > 1.0e-10)
-            || !(secondMetrics.energy > 1.0e-10)
-            || !(firstMetrics.peak < 0.98f)
-            || !(secondMetrics.peak < 0.98f)) {
-            std::cerr << "Gong family preset lost usable radiation headroom: "
-                      << preset << ", " << firstMetrics.peak << ", "
-                      << secondMetrics.peak << "\n";
+    auto unsafe = s3g::accelerometerFieldFactoryPreset(0u);
+    unsafe.bodyAzimuthOffsetDeg[0] = 999.0f;
+    unsafe.bodyElevationOffsetDeg[0] = -999.0f;
+    unsafe.bodyDistance[0] = 999.0f;
+    unsafe.bodyAzimuthOffsetDeg[1] =
+        std::numeric_limits<float>::quiet_NaN();
+    unsafe.bodyElevationOffsetDeg[1] =
+        std::numeric_limits<float>::infinity();
+    unsafe.bodyDistance[1] = -std::numeric_limits<float>::infinity();
+    const auto safe = s3g::sanitizeAccelerometerFieldParams(unsafe);
+    if (safe.bodyAzimuthOffsetDeg[0] != 180.0f
+        || safe.bodyElevationOffsetDeg[0] != -180.0f
+        || safe.bodyDistance[0] != 2.0f
+        || safe.bodyAzimuthOffsetDeg[1] != 0.0f
+        || safe.bodyElevationOffsetDeg[1] != 0.0f
+        || safe.bodyDistance[1] != 1.0f) {
+        std::cerr << "Per-body AED fields did not sanitize safely\n";
+        return false;
+    }
+
+    auto params = s3g::accelerometerFieldFactoryPreset(0u);
+    params.bodyCount = 8u;
+    params.outputMode = s3g::AccelerometerFieldOutputMode::BodyStems;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+    params.externalDrive = 0.0f;
+    params.spatialExtent = 0.86f;
+    params.fieldAzimuthDeg = 23.0f;
+    params.fieldElevationDeg = -11.0f;
+    params.bodyAzimuthOffsetDeg.fill(0.0f);
+    params.bodyElevationOffsetDeg.fill(0.0f);
+    params.bodyDistance.fill(1.0f);
+
+    s3g::AccelerometerFieldEncoder engine;
+    engine.prepare(kSampleRate);
+    engine.setParams(params);
+    engine.reset();
+    std::array<s3g::Vec3, s3g::kAccelerometerFieldMaxBodyCount>
+        autoDirections {};
+    std::array<uint32_t, s3g::kAccelerometerFieldMaxBodyCount> modeCounts {};
+    for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+        autoDirections[body] = engine.bodyDirection(body);
+        modeCounts[body] = engine.modesForBody(body);
+    }
+
+    engine.strikeMidi(60, 0.84f);
+    const StemBuffers onset = processStems(engine, 4096u);
+    if (!(metrics(onset[0]).energy > 1.0e-12)) {
+        std::cerr << "AED test could not establish a ringing body\n";
+        return false;
+    }
+    const float energyBeforeEdit = engine.bodyEnergy(0u);
+    const float pitchBeforeEdit = engine.bodyPitchRatio(0u);
+    const float frequencyBeforeEdit = engine.bodyModeFrequencyHz(0u, 0u);
+
+    params.bodyAzimuthOffsetDeg[0] = 54.0f;
+    params.bodyElevationOffsetDeg[0] = -17.0f;
+    params.bodyDistance[0] = 1.70f;
+    engine.setParams(params);
+    if (!(directionDistance(engine.bodyDirection(0u), autoDirections[0])
+            > 0.20f)
+        || std::fabs(engine.bodyDistance(0u) - 1.70f) > 1.0e-7f
+        || engine.bodyEnergy(0u) != energyBeforeEdit
+        || engine.bodyPitchRatio(0u) != pitchBeforeEdit
+        || engine.bodyModeFrequencyHz(0u, 0u) != frequencyBeforeEdit) {
+        std::cerr << "Direct AED editing moved or reset modal state incorrectly\n";
+        return false;
+    }
+    for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+        if (engine.modesForBody(body) != modeCounts[body]) {
+            std::cerr << "Direct AED editing rebuilt the modal allocation\n";
+            return false;
+        }
+    }
+    const StemBuffers movedTail = processStems(engine, 4096u);
+    if (!(metrics(movedTail[0]).energy > 1.0e-13)) {
+        std::cerr << "Direct AED editing silenced an already-ringing body\n";
+        return false;
+    }
+
+    const float energyBeforeRestore = engine.bodyEnergy(0u);
+    params.bodyAzimuthOffsetDeg[0] = 0.0f;
+    params.bodyElevationOffsetDeg[0] = 0.0f;
+    params.bodyDistance[0] = 1.0f;
+    engine.setParams(params);
+    if (directionDistance(engine.bodyDirection(0u), autoDirections[0])
+            > 1.0e-6f
+        || engine.bodyEnergy(0u) != energyBeforeRestore) {
+        std::cerr << "Zero AED offsets did not restore automatic geometry "
+                  << "without resetting the body\n";
+        return false;
+    }
+
+    auto inactiveParams = params;
+    inactiveParams.bodyCount = 4u;
+    inactiveParams.bodyAzimuthOffsetDeg[7] = 39.0f;
+    inactiveParams.bodyElevationOffsetDeg[7] = 12.0f;
+    inactiveParams.bodyDistance[7] = 1.46f;
+    s3g::AccelerometerFieldEncoder inactiveEngine;
+    inactiveEngine.prepare(kSampleRate);
+    inactiveEngine.setParams(inactiveParams);
+    inactiveEngine.reset();
+    const auto storedWhileInactive = inactiveEngine.params();
+    if (storedWhileInactive.bodyAzimuthOffsetDeg[7] != 39.0f
+        || storedWhileInactive.bodyElevationOffsetDeg[7] != 12.0f
+        || storedWhileInactive.bodyDistance[7] != 1.46f) {
+        std::cerr << "An inactive body's AED edit was discarded\n";
+        return false;
+    }
+    inactiveParams.bodyCount = 8u;
+    inactiveEngine.setParams(inactiveParams);
+
+    auto automaticParams = inactiveParams;
+    automaticParams.bodyAzimuthOffsetDeg[7] = 0.0f;
+    automaticParams.bodyElevationOffsetDeg[7] = 0.0f;
+    automaticParams.bodyDistance[7] = 1.0f;
+    s3g::AccelerometerFieldEncoder automaticEngine;
+    automaticEngine.prepare(kSampleRate);
+    automaticEngine.setParams(automaticParams);
+    automaticEngine.reset();
+    const auto restoredEdit = inactiveEngine.params();
+    if (restoredEdit.bodyAzimuthOffsetDeg[7] != 39.0f
+        || restoredEdit.bodyElevationOffsetDeg[7] != 12.0f
+        || std::fabs(inactiveEngine.bodyDistance(7u) - 1.46f) > 1.0e-7f
+        || !(directionDistance(inactiveEngine.bodyDirection(7u),
+                 automaticEngine.bodyDirection(7u)) > 0.20f)) {
+        std::cerr << "An inactive AED edit did not survive body activation\n";
+        return false;
+    }
+
+    auto distanceParams = params;
+    distanceParams.bodyCount = 4u;
+    distanceParams.bodyDistance[0] = 0.50f;
+    s3g::AccelerometerFieldEncoder distanceEngine;
+    distanceEngine.prepare(kSampleRate);
+    distanceEngine.setParams(distanceParams);
+    distanceEngine.reset();
+    distanceEngine.strikeMidi(60, 0.80f);
+    const StemBuffers nearAudio = processStems(distanceEngine, 8192u);
+    distanceParams.bodyDistance[0] = 2.0f;
+    distanceEngine.setParams(distanceParams);
+    distanceEngine.reset();
+    if (distanceEngine.currentBodyDistance(0u) != 2.0f) {
+        std::cerr << "Engine reset lost the edited body distance\n";
+        return false;
+    }
+    distanceEngine.strikeMidi(60, 0.80f);
+    const StemBuffers farAudio = processStems(distanceEngine, 8192u);
+    const double nearEnergy = metrics(nearAudio[0]).energy;
+    const double farEnergy = metrics(farAudio[0]).energy;
+    if (!(nearEnergy > farEnergy * 8.0)) {
+        std::cerr << "Body distance stopped affecting level across reset: "
+                  << nearEnergy << ", " << farEnergy << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool testRawBodyStems()
+{
+    constexpr uint32_t frames = kSampleRate;
+    constexpr uint32_t count = 6u;
+    const auto params = balancedDroneParams(count);
+    s3g::AccelerometerFieldEncoder engine;
+    engine.prepare(kSampleRate);
+    engine.setParams(params);
+    engine.reset();
+    if (engine.outputChannelCount()
+        != s3g::kAccelerometerFieldMaxBodyCount) {
+        std::cerr << "Raw-body mode exposed the wrong channel contract\n";
+        return false;
+    }
+
+    const StemBuffers audio = processStems(engine, frames, 0.25f);
+    for (uint32_t body = 0u; body < count; ++body) {
+        const Metrics bodyMetrics = metrics(audio[body]);
+        if (!bodyMetrics.finite || !(bodyMetrics.energy > 1.0e-10)
+            || !(bodyMetrics.peak < 1.0f)) {
+            std::cerr << "Active raw body stem was silent or unbounded: "
+                      << body << ", " << bodyMetrics.energy << ", "
+                      << bodyMetrics.peak << "\n";
+            return false;
+        }
+        if (body > 0u && !(difference(audio[0], audio[body]) > 1.0e-7)) {
+            std::cerr << "Raw body stems collapsed to a shared signal\n";
+            return false;
+        }
+    }
+    for (uint32_t body = count;
+        body < s3g::kAccelerometerFieldMaxBodyCount; ++body) {
+        if (!std::all_of(audio[body].begin(), audio[body].end(),
+                [](float sample) { return sample == 0.0f; })) {
+            std::cerr << "Inactive raw body stem was not cleared exactly\n";
             return false;
         }
     }
     return true;
 }
 
-bool testFocusedGongBodyBank()
+bool testBalancedDroneAcrossBodyCounts()
 {
-    constexpr std::array<s3g::AccelerometerSubstrate, 4u> expected {{
-        s3g::AccelerometerSubstrate::GongAgeng,
-        s3g::AccelerometerSubstrate::BellBronze,
-        s3g::AccelerometerSubstrate::Jing,
-        s3g::AccelerometerSubstrate::Kkwaenggwari,
+    constexpr uint32_t frames = kSampleRate * 3u;
+    constexpr uint32_t tailStart = kSampleRate * 2u;
+    for (const uint32_t count : { 4u, 8u }) {
+        const auto params = balancedDroneParams(count);
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(kSampleRate);
+        engine.setParams(params);
+        engine.reset();
+        const StemBuffers audio = processStems(engine, frames);
+
+        double minimumEnergy = std::numeric_limits<double>::max();
+        double maximumEnergy = 0.0;
+        for (uint32_t body = 0u; body < count; ++body) {
+            const Metrics tail = metrics(audio[body], tailStart);
+            if (!tail.finite || !(tail.energy > 1.0e-8)
+                || !(tail.peak > 1.0e-6f) || !(tail.peak < 0.98f)) {
+                std::cerr << "Balanced drone did not sustain a finite body at "
+                          << count << " bodies, stem " << body << ": "
+                          << tail.energy << ", " << tail.peak << "\n";
+                return false;
+            }
+            minimumEnergy = std::min(minimumEnergy, tail.energy);
+            maximumEnergy = std::max(maximumEnergy, tail.energy);
+        }
+        const double energyRatio = maximumEnergy
+            / std::max(minimumEnergy, 1.0e-30);
+        if (!(energyRatio < 4.0)
+            || !(engine.listenerActivity() > 0.20f)) {
+            std::cerr << "Balanced drone developed unreasonable body imbalance at "
+                      << count << " bodies: " << energyRatio
+                      << ", activity " << engine.listenerActivity() << "\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool testGenericProfilesRemainDistinct()
+{
+    constexpr std::array<s3g::AccelerometerSubstrate, 4u> profiles {{
+        s3g::AccelerometerSubstrate::DeepBronze,
+        s3g::AccelerometerSubstrate::TieredBronze,
+        s3g::AccelerometerSubstrate::BroadBronze,
+        s3g::AccelerometerSubstrate::BrightBronze,
     }};
-    std::array<uint32_t, expected.size()> bodyCounts {};
+    std::array<bool, profiles.size()> seen {};
     for (uint32_t preset = 0u;
         preset < s3g::kAccelerometerFieldPresetCount; ++preset) {
         const auto params = s3g::accelerometerFieldFactoryPreset(preset);
         const auto found = std::find(
-            expected.begin(), expected.end(), params.substrate);
-        if (found == expected.end()) {
-            std::cerr << "Factory bank exposed a non-gong body at preset "
-                      << preset << "\n";
+            profiles.begin(), profiles.end(), params.substrate);
+        if (found == profiles.end()) {
+            std::cerr << "Factory bank exposed a non-public modal profile\n";
             return false;
         }
-        ++bodyCounts[static_cast<size_t>(found - expected.begin())];
+        seen[static_cast<size_t>(found - profiles.begin())] = true;
     }
-    for (uint32_t body = 0u; body < bodyCounts.size(); ++body) {
-        if (bodyCounts[body] < 2u) {
-            std::cerr << "Gong body lacks a curated preset pair: "
-                      << body << "\n";
-            return false;
-        }
-    }
-
-    std::array<float, expected.size()> fundamentals {};
-    for (uint32_t body = 0u; body < expected.size(); ++body) {
-        auto params = s3g::accelerometerFieldFactoryPreset(0u);
-        params.substrate = expected[body];
-        params.size = 0.5f;
-        s3g::AccelerometerFieldEncoder engine;
-        engine.prepare(48000.0);
-        engine.setParams(params);
-        fundamentals[body] = engine.modeFrequencyHz(0u);
-    }
-    if (!(fundamentals[0] > 40.0f && fundamentals[0] < 50.0f)
-        || !(fundamentals[1] > 145.0f && fundamentals[1] < 165.0f)
-        || !(fundamentals[2] > 108.0f && fundamentals[2] < 116.0f)
-        || !(fundamentals[3] > 240.0f && fundamentals[3] < 255.0f)) {
-        std::cerr << "Gong-family modal landmarks drifted: "
-                  << fundamentals[0] << ", " << fundamentals[1] << ", "
-                  << fundamentals[2] << ", " << fundamentals[3] << "\n";
+    if (!std::all_of(seen.begin(), seen.end(), [](bool value) { return value; })) {
+        std::cerr << "Factory bank no longer covers all four generic profiles\n";
         return false;
     }
-    for (uint32_t firstIndex = 0u;
-        firstIndex < fundamentals.size(); ++firstIndex) {
-        for (uint32_t secondIndex = firstIndex + 1u;
-            secondIndex < fundamentals.size(); ++secondIndex) {
-            if (std::fabs(fundamentals[firstIndex]
-                    - fundamentals[secondIndex]) < 2.0f) {
-                std::cerr << "Curated gong profiles collapsed to one modal family\n";
+
+    std::array<std::array<float, 4u>, profiles.size()> signatures {};
+    auto params = s3g::accelerometerFieldFactoryPreset(0u);
+    params.bodyCount = 4u;
+    params.size = 0.5f;
+    params.irregularity = 0.0f;
+    params.sensorMass = 0.0f;
+    params.arraySpread = 0.0f;
+    for (uint32_t profile = 0u; profile < profiles.size(); ++profile) {
+        params.substrate = profiles[profile];
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(kSampleRate);
+        engine.setParams(params);
+        for (uint32_t mode = 0u; mode < signatures[profile].size(); ++mode) {
+            signatures[profile][mode] = engine.modeFrequencyHz(mode * 2u);
+        }
+    }
+    for (uint32_t first = 0u; first < signatures.size(); ++first) {
+        for (uint32_t second = first + 1u;
+            second < signatures.size(); ++second) {
+            double signatureDistance = 0.0;
+            for (uint32_t mode = 0u; mode < signatures[first].size(); ++mode) {
+                signatureDistance += std::fabs(
+                    signatures[first][mode] - signatures[second][mode]);
+            }
+            if (!(signatureDistance > 20.0)) {
+                std::cerr << "Two generic modal profiles collapsed together\n";
                 return false;
             }
         }
     }
-
-    auto measured = s3g::accelerometerFieldFactoryPreset(0u);
-    measured.size = 0.5f;
-    measured.irregularity = 0.0f;
-    measured.sensorMass = 0.0f;
-    measured.substrate = s3g::AccelerometerSubstrate::Jing;
-    s3g::AccelerometerFieldEncoder analysisProfile;
-    analysisProfile.prepare(48000.0);
-    analysisProfile.setParams(measured);
-    if (std::fabs(analysisProfile.modeFrequencyHz(0u) - 114.0f) > 0.01f
-        || std::fabs(analysisProfile.modeFrequencyHz(2u) - 228.0f) > 0.02f
-        || std::fabs(analysisProfile.modeFrequencyHz(3u) - 240.0f) > 0.03f
-        || std::fabs(analysisProfile.modeFrequencyHz(5u) - 342.0f) > 0.03f) {
-        std::cerr << "Jing analysis landmarks left the measured mode bank\n";
-        return false;
-    }
-    measured.substrate = s3g::AccelerometerSubstrate::Kkwaenggwari;
-    analysisProfile.setParams(measured);
-    if (std::fabs(analysisProfile.modeFrequencyHz(2u) - 500.0f) > 0.05f
-        || std::fabs(analysisProfile.modeFrequencyHz(4u) - 1000.0f) > 0.05f
-        || std::fabs(analysisProfile.modeFrequencyHz(10u) - 2050.0f) > 0.10f
-        || std::fabs(analysisProfile.modeFrequencyHz(14u) - 3900.0f) > 0.10f) {
-        std::cerr << "Kkwaenggwari radiation landmarks left the modal bank\n";
-        return false;
-    }
     return true;
 }
 
-bool testMalletRollIsBroadbandAndPulsed()
+bool testLegacyTransientFieldsAreDormant()
 {
-    Buffer roll {};
-    Buffer bronze {};
-    Buffer air {};
-    const auto rollParams = s3g::accelerometerFieldFactoryPreset(4u);
-    if (rollParams.excitation != s3g::AccelerometerExcitation::Chewing
-        || !(rollParams.eventRateHz >= 3.0f
-            && rollParams.eventRateHz <= 6.0f)
-        || !(rollParams.contactDetail > 0.40f)
-        || !(rollParams.texture > 0.65f)) {
-        std::cerr << "Mallet Roll lost its articulated high-rate gesture\n";
-        return false;
-    }
-    render(rollParams, roll, air);
-    render(s3g::accelerometerFieldFactoryPreset(1u), bronze, air);
-    const auto rollMetrics = metrics(roll);
-    const auto bronzeMetrics = metrics(bronze);
-    const double rollPulseRatio = rollMetrics.differenceEnergy
-        / std::max(rollMetrics.energy, 1.0e-20);
-    const double bronzePulseRatio = bronzeMetrics.differenceEnergy
-        / std::max(bronzeMetrics.energy, 1.0e-20);
-    if (!(rollPulseRatio > bronzePulseRatio * 1.5)) {
-        std::cerr << "Mallet Roll collapsed into an ambient bronze ring: "
-                  << rollPulseRatio << " versus bronze "
-                  << bronzePulseRatio << "\n";
-        return false;
-    }
-    return true;
-}
-
-bool testExternalDrive()
-{
-    constexpr uint32_t frames = 8192u;
-    std::array<float, frames> input {};
-    std::array<float, frames> contact {};
-    std::array<float, frames> air {};
-    input[0] = 1.0f;
-    input[2048] = -0.6f;
+    constexpr uint32_t frames = 24000u;
     auto params = s3g::accelerometerFieldFactoryPreset(0u);
-    params.activity = 0.0f;
-    params.ambientDrive = 0.0f;
-    params.sensorNoise = 0.0f;
+    params.outputMode = s3g::AccelerometerFieldOutputMode::BodyStems;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+    params.fieldListenAmount = 1.0f;
+    params.excitation = s3g::AccelerometerExcitation::Tremulation;
+    params.eventRateHz = 80.0f;
+    params.activity = 1.0f;
+    params.force = 1.0f;
+    params.texture = 1.0f;
+    params.ambientDrive = 1.0f;
+    params.sensorNoise = 1.0f;
+    params.contactDetail = 1.0f;
+    params.propagationLoss = 1.0f;
     params.externalDrive = 1.0f;
+
     s3g::AccelerometerFieldEncoder engine;
-    engine.prepare(48000.0);
+    engine.prepare(kSampleRate);
     engine.setParams(params);
     engine.reset();
-    std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
-    outputs[0] = contact.data();
-    outputs[1] = air.data();
-    engine.process(input.data(), outputs.data(), outputs.size(), frames);
-    double energy = 0.0;
-    for (float sample : contact) energy += static_cast<double>(sample) * sample;
-    if (!(energy > 1.0e-8)) {
-        std::cerr << "External excitation did not drive the structural model\n";
+    const StemBuffers audio = processStems(engine, frames, 0.25f);
+    for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+        if (!std::all_of(audio[body].begin(), audio[body].end(),
+                [](float sample) { return sample == 0.0f; })) {
+            std::cerr << "A dormant legacy transient field generated audio on "
+                      << "body " << body << "\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool testExternalActuatorIsModalOnly()
+{
+    constexpr uint32_t frames = kSampleRate * 4u;
+    std::array<float, frames> input {};
+    input[0] = 1.0f;
+    const auto renderImpulse = [&](float contactDetail,
+                                   float propagationLoss) {
+        auto params = s3g::accelerometerFieldFactoryPreset(0u);
+        params.outputMode = s3g::AccelerometerFieldOutputMode::BodyStems;
+        params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+        params.activity = 0.0f;
+        params.ambientDrive = 0.0f;
+        params.sensorNoise = 0.0f;
+        params.externalDrive = 1.0f;
+        params.contactDetail = contactDetail;
+        params.propagationLoss = propagationLoss;
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(kSampleRate);
+        engine.setParams(params);
+        engine.reset();
+        return processStems(engine, frames, 0.0f, input.data());
+    };
+
+    const StemBuffers neutral = renderImpulse(0.0f, 0.0f);
+    const StemBuffers extreme = renderImpulse(1.0f, 1.0f);
+    if (neutral != extreme) {
+        std::cerr << "Dormant contact-detail or propagation-loss fields changed "
+                  << "external modal actuation\n";
+        return false;
+    }
+
+    const uint32_t body = 0u;
+    const Metrics response = metrics(neutral[body]);
+    const Metrics earlyTail = metrics(
+        neutral[body], 256u, kSampleRate);
+    const Metrics lateTail = metrics(
+        neutral[body], kSampleRate * 3u, frames);
+    if (!response.finite || !(response.energy > 1.0e-12)
+        || !(std::fabs(neutral[body][0]) < 1.0e-3f)
+        || !(earlyTail.energy > 1.0e-13)
+        || !(lateTail.energy > 1.0e-14)
+        || !(lateTail.energy < earlyTail.energy)) {
+        std::cerr << "External actuator was not a smooth, decaying modal tail: "
+                  << neutral[body][0] << ", " << response.energy << ", "
+                  << earlyTail.energy << ", " << lateTail.energy << "\n";
         return false;
     }
     return true;
 }
 
-bool testMidiForceStrike()
+bool testPerBodyMidiStrike()
 {
-    constexpr uint32_t frames = 12000u;
-    std::array<float, frames> quiet {};
-    std::array<float, frames> struck {};
-    auto params = s3g::accelerometerFieldFactoryPreset(12u);
+    constexpr uint32_t frames = kSampleRate;
+    auto params = s3g::accelerometerFieldFactoryPreset(0u);
+    params.bodyCount = 4u;
     params.activity = 0.0f;
     params.ambientDrive = 0.0f;
     params.sensorNoise = 0.0f;
     params.externalDrive = 0.0f;
-    params.outputMode = s3g::AccelerometerFieldOutputMode::SensorStems;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+    params.outputMode = s3g::AccelerometerFieldOutputMode::BodyStems;
 
     s3g::AccelerometerFieldEncoder engine;
-    engine.prepare(48000.0);
+    engine.prepare(kSampleRate);
     engine.setParams(params);
     engine.reset();
     const float reference = engine.modeFrequencyHz(0u);
-    std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
-    outputs[0] = quiet.data();
-    engine.process(nullptr, outputs.data(), outputs.size(), frames);
+    std::array<uint32_t, s3g::kAccelerometerFieldMaxBodyCount> modeCounts {};
+    std::array<float, s3g::kAccelerometerFieldMaxBodyCount> positions {};
+    std::array<s3g::Vec3, s3g::kAccelerometerFieldMaxBodyCount> directions {};
+    for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+        modeCounts[body] = engine.modesForBody(body);
+        positions[body] = engine.bodyPosition(body);
+        directions[body] = engine.bodyDirection(body);
+    }
 
-    engine.reset();
     engine.strikeMidi(72, 0.82f);
     const float transposed = engine.modeFrequencyHz(0u);
-    outputs[0] = struck.data();
-    engine.process(nullptr, outputs.data(), outputs.size(), frames);
-    double quietEnergy = 0.0;
-    double strikeEnergy = 0.0;
-    for (float sample : quiet) {
-        quietEnergy += static_cast<double>(sample) * sample;
-    }
-    for (float sample : struck) {
-        strikeEnergy += static_cast<double>(sample) * sample;
-    }
-    if (!(engine.performancePitchRatio() > 1.999f
-            && engine.performancePitchRatio() < 2.001f)
+    if (engine.lastActuatedBody() != 0u
         || !(transposed / reference > 1.999f
-            && transposed / reference < 2.001f)
-        || !(strikeEnergy > 1.0e-8)
-        || !(quietEnergy < strikeEnergy * 0.01)) {
-        std::cerr << "MIDI note-on did not act as a pitched force strike: "
-                  << reference << ", " << transposed << ", "
-                  << strikeEnergy << "\n";
+            && transposed / reference < 2.001f)) {
+        std::cerr << "First MIDI strike did not select and transpose one body\n";
         return false;
+    }
+    const StemBuffers firstStrike = processStems(engine, frames);
+    const Metrics selected = metrics(firstStrike[0]);
+    const Metrics ringingTail = metrics(firstStrike[0], 30000u);
+    if (!selected.finite || !ringingTail.finite
+        || firstStrike[0][0] != 0.0f
+        || !(selected.energy > 1.0e-12)
+        || !(ringingTail.energy > 1.0e-13)) {
+        std::cerr << "MIDI actuation was not a zero-start modal pulse with "
+                  << "a ringing tail: " << firstStrike[0][0] << ", "
+                  << selected.energy << ", " << ringingTail.energy << "\n";
+        return false;
+    }
+    for (uint32_t body = 1u; body < params.bodyCount; ++body) {
+        if (metrics(firstStrike[body]).energy != 0.0) {
+            std::cerr << "One MIDI strike leaked into an unselected body\n";
+            return false;
+        }
+    }
+
+    const float retainedEnergy = engine.bodyEnergy(0u);
+    engine.strikeMidi(48, 0.72f);
+    if (engine.lastActuatedBody() != 1u
+        || std::fabs(engine.modeFrequencyHz(0u) - transposed) > 1.0e-5f
+        || std::fabs(engine.bodyEnergy(0u) - retainedEnergy) > 1.0e-9f) {
+        std::cerr << "Second MIDI strike rebuilt or retuned the first body\n";
+        return false;
+    }
+    for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+        if (engine.modesForBody(body) != modeCounts[body]
+            || std::fabs(engine.bodyPosition(body) - positions[body]) > 1.0e-7f
+            || directionDistance(engine.bodyDirection(body), directions[body])
+                > 1.0e-7f) {
+            std::cerr << "MIDI strike rebuilt the body allocation or geometry\n";
+            return false;
+        }
     }
     engine.reset();
     if (std::fabs(engine.performancePitchRatio() - 1.0f) > 1.0e-6f
         || std::fabs(engine.modeFrequencyHz(0u) - reference) > 1.0e-3f) {
-        std::cerr << "MIDI performance pitch survived an engine reset\n";
+        std::cerr << "Per-body MIDI pitch survived an engine reset\n";
         return false;
     }
     return true;
 }
 
-bool testGongAgengEvolution()
+bool testModalCouplingEvolution()
 {
-    auto params = s3g::accelerometerFieldFactoryPreset(0u);
-    if (params.substrate != s3g::AccelerometerSubstrate::GongAgeng
-        || !(params.coupling > 0.60f)
-        || !(params.energy > 0.55f)) {
-        std::cerr << "Gong Ageng preset lost its coupled nonlinear profile\n";
-        return false;
-    }
-
-    s3g::AccelerometerFieldEncoder profile;
-    profile.prepare(48000.0);
-    profile.setParams(params);
-    const float fundamental = profile.modeFrequencyHz(0u);
-    const float secondHarmonic = profile.modeFrequencyHz(3u);
-    if (!(fundamental > 43.0f && fundamental < 46.0f)
-        || !(secondHarmonic / fundamental > 1.96f)
-        || !(secondHarmonic / fundamental < 2.04f)
-        || !(std::fabs(profile.modePickupWeight(0u, 0u)
-                - profile.modePickupWeight(1u, 0u)) > 0.05f)) {
-        std::cerr << "Gong Ageng modal landmarks drifted: "
-                  << fundamental << ", " << secondHarmonic << "\n";
-        return false;
-    }
-
     Buffer uncoupled {};
     Buffer coupled {};
     Buffer companion {};
+    auto params = s3g::accelerometerFieldFactoryPreset(0u);
     params.energy = 0.0f;
     params.coupling = 0.0f;
     render(params, uncoupled, companion);
     params.coupling = 1.0f;
     render(params, coupled, companion);
     if (!(difference(uncoupled, coupled) > 1.0e-5)) {
-        std::cerr << "Modal coupling did not animate the gong clusters\n";
+        std::cerr << "Modal coupling did not animate paired modes\n";
         return false;
-    }
-
-    constexpr uint32_t frames = 24000u;
-    std::array<float, frames> input {};
-    std::array<float, frames> linear {};
-    std::array<float, frames> nonlinear {};
-    input[0] = 1.0f;
-    const auto renderImpulse = [&](float energy, auto& output) {
-        auto impulseParams = s3g::accelerometerFieldFactoryPreset(0u);
-        impulseParams.activity = 0.0f;
-        impulseParams.ambientDrive = 0.0f;
-        impulseParams.sensorNoise = 0.0f;
-        impulseParams.externalDrive = 1.0f;
-        impulseParams.coupling = 0.0f;
-        impulseParams.energy = energy;
-        impulseParams.outputMode =
-            s3g::AccelerometerFieldOutputMode::SensorStems;
-        s3g::AccelerometerFieldEncoder engine;
-        engine.prepare(48000.0);
-        engine.setParams(impulseParams);
-        engine.reset();
-        std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
-        outputs[0] = output.data();
-        engine.process(input.data(), outputs.data(), outputs.size(), frames);
-    };
-    renderImpulse(0.0f, linear);
-    renderImpulse(1.0f, nonlinear);
-    double delayedDifference = 0.0;
-    for (uint32_t frame = 480u; frame < 12000u; ++frame) {
-        const double delta = nonlinear[frame] - linear[frame];
-        delayedDifference += delta * delta;
-    }
-    if (!(delayedDifference > 1.0e-7)) {
-        std::cerr << "Nonlinear energy did not create a finite delayed response: "
-                  << delayedDifference << "\n";
-        return false;
-    }
-    for (float sample : nonlinear) {
-        if (!std::isfinite(sample) || std::fabs(sample) > 1.0f) {
-            std::cerr << "Nonlinear gong response exceeded finite headroom\n";
-            return false;
-        }
     }
     return true;
 }
 
-bool testFieldListenerFeedback()
+bool testZeroPlayerDepthPreservesOpenLoop()
 {
-    Buffer off {};
-    Buffer zeroInfluence {};
-    Buffer active {};
+    Buffer open {};
+    Buffer zeroDepth {};
     Buffer companion {};
     auto params = s3g::accelerometerFieldFactoryPreset(4u);
-    if (params.fieldListenMode != s3g::AmbiFieldListenMode::Off) {
-        std::cerr << "Field listening did not default to Off\n";
-        return false;
-    }
-    render(params, off, companion);
-    params.fieldListenMode = s3g::AmbiFieldListenMode::Follow;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+    render(params, open, companion);
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Balance;
     params.fieldListenAmount = 0.0f;
     params.fieldListenResponse = s3g::AmbiFieldListenerResponse::Imprint;
-    render(params, zeroInfluence, companion);
-    if (off != zeroInfluence) {
-        std::cerr << "Zero listener influence changed the authored synthesis\n";
-        return false;
-    }
-
-    params.fieldListenAmount = 1.0f;
-    render(params, active, companion);
-    if (!(difference(off, active) > 1.0e-6)) {
-        std::cerr << "Active field listening did not affect later events\n";
-        return false;
-    }
-
-    params.outputMode = s3g::AccelerometerFieldOutputMode::SensorStems;
-    s3g::AccelerometerFieldEncoder rawEngine;
-    rawEngine.prepare(48000.0);
-    rawEngine.setParams(params);
-    rawEngine.reset();
-    std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
-    outputs[0] = active.data();
-    outputs[1] = companion.data();
-    rawEngine.process(nullptr, outputs.data(), outputs.size(), kFrames);
-    const float target = rawEngine.listenerTargetPosition();
-    if (!(rawEngine.listenerActivity() > 0.001f)
-        || !std::isfinite(target)
-        || !(target >= 0.02f && target <= 0.98f)
-        || !(std::fabs(target - params.sourcePosition) > 0.01f)) {
-        std::cerr << "Raw stems stopped feeding the internal HOA listener: "
-                  << rawEngine.listenerActivity() << ", target "
-                  << target << "\n";
+    render(params, zeroDepth, companion);
+    if (open != zeroDepth) {
+        std::cerr << "Zero player depth changed the authored open-loop field\n";
         return false;
     }
     return true;
@@ -669,19 +1227,23 @@ int main()
     if (!testFactoryPresets()
         || !testDeterminism()
         || !testHoaDefaultAndRotation()
-        || !testOptionalSensorStems()
         || !testLowerOrderClearsUnusedChannels()
-        || !testPickupGeometry()
-        || !testArrayCenterAndSpread()
-        || !testAedSpreadLocalization()
-        || !testArrayMotionSmoothing()
-        || !testGongFamilyHeadroom()
-        || !testFocusedGongBodyBank()
-        || !testMalletRollIsBroadbandAndPulsed()
-        || !testExternalDrive()
-        || !testMidiForceStrike()
-        || !testGongAgengEvolution()
-        || !testFieldListenerFeedback()) {
+        || !testBodyCountAndModeBudget()
+        || !testFixedListenerPickupSets()
+        || !testListenerAndActuatorTelemetry()
+        || !testCounterActuatorUsesSpatialAntipode()
+        || !testWorstCaseAmbisonicHeadroom()
+        || !testBodyPlacementAndSpread()
+        || !testBodyGeometrySmoothing()
+        || !testPerBodyAedEditing()
+        || !testRawBodyStems()
+        || !testBalancedDroneAcrossBodyCounts()
+        || !testGenericProfilesRemainDistinct()
+        || !testLegacyTransientFieldsAreDormant()
+        || !testPerBodyMidiStrike()
+        || !testModalCouplingEvolution()
+        || !testZeroPlayerDepthPreservesOpenLoop()
+        || !testExternalActuatorIsModalOnly()) {
         return 1;
     }
     std::cout << "Ambi Encoder Modal smoke passed\n";

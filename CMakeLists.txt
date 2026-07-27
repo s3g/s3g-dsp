@@ -21,6 +21,9 @@ if(APPLE)
   target_link_libraries(s3g_dsp_smoke PRIVATE "-framework Accelerate")
 endif()
 
+add_executable(s3g_crcltr_smoke tests/crcltr_smoke.cpp)
+target_link_libraries(s3g_crcltr_smoke PRIVATE s3g_dsp)
+
 add_executable(s3g_ambi_effect_displacement_smoke tests/ambi_effect_displacement_smoke.cpp)
 target_link_libraries(s3g_ambi_effect_displacement_smoke PRIVATE s3g_dsp)
 
@@ -135,9 +138,20 @@ if(S3G_BUILD_CLAP_PLUGIN OR S3G_BUILD_STANDALONE_APPS)
 endif()
 
 if(S3G_BUILD_CLAP_PLUGIN)
+  add_executable(s3g_accelerometer_field_encoder_clap_state_smoke
+    tests/accelerometer_field_encoder_clap_state_smoke.cpp)
+  target_include_directories(s3g_accelerometer_field_encoder_clap_state_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_accelerometer_field_encoder_clap_state_smoke PRIVATE
+    s3g_dsp ${CMAKE_DL_LIBS})
+
   add_executable(s3g_parameter_surface_clap_smoke tests/parameter_surface_clap_smoke.cpp)
   target_include_directories(s3g_parameter_surface_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
   target_link_libraries(s3g_parameter_surface_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
+
+  add_executable(s3g_crcltr_clap_smoke tests/crcltr_clap_smoke.cpp)
+  target_include_directories(s3g_crcltr_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_crcltr_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
 
   if(APPLE)
     add_executable(s3g_ambi_pulsar_encoder_gui_smoke tests/pulsar_encoder_gui_smoke.mm)
@@ -225,6 +239,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_psd_raw_field)
   add_subdirectory(plugins/clap_orbit_delay)
   add_subdirectory(plugins/clap_cascade_taps)
+  add_subdirectory(plugins/clap_crcltr)
 
   add_custom_target(audit_gui_layout_contract
     COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>

@@ -162,8 +162,13 @@ enum class PsdRawFieldModTarget : uint32_t {
     Data = 3,
     Damage = 4,
     Off = 5,
+    Body = 6,
+    Ring = 7,
+    Strike = 8,
+    Fold = 9,
+    Scan = 10,
 };
-constexpr uint32_t kPsdRawFieldModTargetCount = 6;
+constexpr uint32_t kPsdRawFieldModTargetCount = 11;
 
 enum class PsdRawFieldModAlgorithm : uint32_t {
     Broadcast = 0,
@@ -174,6 +179,28 @@ enum class PsdRawFieldModAlgorithm : uint32_t {
     Transcode = 5,
 };
 constexpr uint32_t kPsdRawFieldModAlgorithmCount = 6;
+
+enum class PsdRawFieldBassReceiver : uint32_t {
+    Direct = 0,
+    Demod = 1,
+    Divide = 2,
+    Error = 3,
+};
+constexpr uint32_t kPsdRawFieldBassReceiverCount = 4;
+
+enum class PsdRawFieldPitchTracking : uint32_t {
+    Scan = 0,
+    Body = 1,
+    BodyAndScan = 2,
+};
+constexpr uint32_t kPsdRawFieldPitchTrackingCount = 3;
+
+enum class PsdRawFieldBassOctave : uint32_t {
+    MinusTwo = 0,
+    MinusOne = 1,
+    Unison = 2,
+};
+constexpr uint32_t kPsdRawFieldBassOctaveCount = 3;
 
 struct PsdRawFieldParams {
     float scanRate = 0.44f;
@@ -221,6 +248,14 @@ struct PsdRawFieldParams {
     uint32_t modEnvelope2 = 0u;
     uint32_t modEnvelope3 = 0u;
     uint32_t modulationEnabled = 1u;
+    PsdRawFieldBassReceiver bassReceiver = PsdRawFieldBassReceiver::Direct;
+    float bassBody = 0.0f;
+    float bassPunch = 0.0f;
+    float bassTrace = 1.0f;
+    PsdRawFieldPitchTracking bassPitchTracking = PsdRawFieldPitchTracking::Scan;
+    float bassGlide = 0.0f;
+    PsdRawFieldBassOctave bassOctave = PsdRawFieldBassOctave::MinusOne;
+    float bassLowWidth = 1.0f;
 };
 
 class PsdRawField {
@@ -229,6 +264,14 @@ public:
     {
         sampleRate_ = std::max(1.0, sampleRate);
         pitchSmoothing_ = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.006));
+        destinationSmoothing_ = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.004));
+        modalControlSmoothing_ = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.018));
+        strikeDecay_ = std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.085));
+        bassReceiverAttack_ = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.006));
+        bassReceiverRelease_ = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.090));
+        bassErrorDecay_ = std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.060));
+        bassControlSmoothing_ = 1.0f - std::exp(-1.0f
+            / static_cast<float>(sampleRate_ * 0.004));
         for (uint32_t k = 0u; k < kPsdRawFieldTransformSize; ++k) {
             for (uint32_t n = 0u; n < kPsdRawFieldTransformSize; ++n) {
                 transformCosine_[k][n] = std::cos(
@@ -430,8 +473,34 @@ public:
             clockMod_[ch] = 0.0f;
             dataMod_[ch] = 0.0f;
             damageMod_[ch] = 0.0f;
+            bodyMod_[ch] = 0.0f;
+            ringMod_[ch] = 0.0f;
+            strikeMod_[ch] = 0.0f;
+            foldMod_[ch] = 0.0f;
+            scanMod_[ch] = 0.0f;
+            foldModSmoothed_[ch] = 0.0f;
+            scanModSmoothed_[ch] = 0.0f;
+            bodyModSmoothed_[ch] = 0.0f;
+            ringModSmoothed_[ch] = 0.0f;
+            strikePrevious_[ch] = 0.0f;
+            strikeEnvelope_[ch] = 0.0f;
+            strikeRouted_[ch] = false;
+            modalIc1_[ch] = 0.0f;
+            modalIc2_[ch] = 0.0f;
+            modalPhase_[ch] = static_cast<float>(ch) * 0.0625f;
+            bassReceiverEnvelope_[ch] = 0.0f;
+            bassReceiverPreviousEnvelope_[ch] = 0.0f;
+            bassReceiverPreviousInput_[ch] = 0.0f;
+            bassReceiverExcitation_[ch] = 0.0f;
+            bassReceiverActivity_[ch] = 0.0f;
+            bassDividerCounter_[ch] = 0u;
+            bassDividerState_[ch] = 0.0f;
+            bassDividerSmoothed_[ch] = 0.0f;
+            bassErrorEnvelope_[ch] = 0.0f;
+            bassLowState_[ch] = 0.0f;
             effectiveDamage_[ch] = params_.codecDamage;
         }
+        configureShaper();
         shaper_.reset();
         sectionPhase_ = 0.0f;
         frameSample_ = 0u;
@@ -440,6 +509,10 @@ public:
         loudnessGain_ = 1.0f;
         currentPitchRatio_ = targetPitchRatio_;
         currentModEnvelope_ = 1.0f;
+        bassPitchHz_ = bassPitchTargetHz();
+        bassPunchEnvelope_ = 0.0f;
+        bassBodySmoothed_ = params_.bassBody;
+        bassTraceSmoothed_ = params_.bassTrace;
     }
 
     void setParams(const PsdRawFieldParams& params)
@@ -455,6 +528,10 @@ public:
     bool ready() const { return ready_; }
     void setPitchRatio(float ratio) { targetPitchRatio_ = clamp(ratio, 1.0f / 64.0f, 64.0f); }
     float pitchRatio() const { return targetPitchRatio_; }
+    void triggerBassExcite(float velocity = 1.0f)
+    {
+        bassPunchEnvelope_ = std::max(bassPunchEnvelope_, clamp(velocity, 0.0f, 1.0f));
+    }
     void setSource(std::shared_ptr<const PsdRawFieldSource> source) { source_ = std::move(source); }
     std::shared_ptr<const PsdRawFieldSource> source() const { return source_; }
     uint32_t tapeSize() const { return static_cast<uint32_t>(tape_.size()); }
@@ -491,6 +568,14 @@ public:
         const float energyAttack = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.12));
         const float energyRelease = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.90));
         const float gainSmoothing = 1.0f - std::exp(-1.0f / static_cast<float>(sampleRate_ * 0.60));
+        const float glideSeconds = 0.002f * std::pow(450.0f,
+            params_.bassGlide * params_.bassGlide);
+        const float bassPitchSmoothing = 1.0f - std::exp(
+            -1.0f / static_cast<float>(sampleRate_ * glideSeconds));
+        const float bassPunchDecay = std::exp(-1.0f / static_cast<float>(sampleRate_
+            * lerp(0.045f, 0.220f, params_.bassPunch)));
+        const bool scanTracksPitch = params_.bassPitchTracking
+            != PsdRawFieldPitchTracking::Body;
         configureShaper();
 
         for (uint32_t i = 0; i < frames; ++i) {
@@ -498,6 +583,10 @@ public:
                 ? clamp(modulationEnvelope[i], 0.0f, 1.0f)
                 : 1.0f;
             currentPitchRatio_ += (targetPitchRatio_ - currentPitchRatio_) * pitchSmoothing_;
+            bassBodySmoothed_ += (params_.bassBody - bassBodySmoothed_) * bassControlSmoothing_;
+            bassTraceSmoothed_ += (params_.bassTrace - bassTraceSmoothed_) * bassControlSmoothing_;
+            bassPitchHz_ += (bassPitchTargetHz() - bassPitchHz_) * bassPitchSmoothing;
+            bassPunchEnvelope_ *= bassPunchDecay;
             advanceEvolution();
             sectionPhase_ += sectionRate;
             sectionPhase_ -= std::floor(sectionPhase_);
@@ -512,7 +601,9 @@ public:
                 const float rowBump = waveformSource_
                     ? 1.0f
                     : 1.0f + 0.48f * params_.texture * pulse(rowPhase(ch), 0.035f);
-                cursor_[ch] += baseStep * currentPitchRatio_ * planeSkew * rowBump;
+                const float scanScale = std::pow(2.0f, scanModSmoothed_[ch] * 2.0f);
+                const float scanPitchRatio = scanTracksPitch ? currentPitchRatio_ : 1.0f;
+                cursor_[ch] += baseStep * scanPitchRatio * planeSkew * rowBump * scanScale;
                 while (cursor_[ch] >= static_cast<double>(cursorSize_)) {
                     cursor_[ch] -= static_cast<double>(cursorSize_);
                 }
@@ -533,8 +624,10 @@ public:
                 const float textureCoeff = lerp(0.001f, 0.85f, params_.texture * params_.texture);
                 textureState_[ch] += (raw - textureState_[ch]) * textureCoeff;
                 raw = lerp(textureState_[ch], raw, params_.texture);
-                const float folded = std::sin(raw * (1.0f + params_.fold * 8.5f));
-                raw = lerp(raw, folded, params_.fold);
+                const float effectiveFold = clamp(params_.fold + foldModSmoothed_[ch] * 0.42f,
+                    0.0f, 1.0f);
+                const float folded = std::sin(raw * (1.0f + effectiveFold * 8.5f));
+                raw = lerp(raw, folded, effectiveFold);
                 raw = connectionStage(raw, ch, pos);
                 raw = softClip(raw * 1.55f);
 
@@ -547,16 +640,67 @@ public:
                 updateModulators(dc, ch);
                 if (newCodecFrame) updateCodecFrame(ch, pos);
                 shapedInput[ch] = codecStage(dc, ch);
+                if (strikeRouted_[ch]) {
+                    const float gate = 0.34f + strikeEnvelope_[ch] * 0.66f;
+                    const float polarity = (ch & 1u) != 0u ? -1.0f : 1.0f;
+                    shapedInput[ch] = shapedInput[ch] * gate
+                        + strikeEnvelope_[ch] * polarity * 0.08f;
+                }
             }
 
-            if (shapeMix > 0.0001f) shaper_.processFrame(shapedInput.data(), shapedOutput.data());
-            else shapedOutput = shapedInput;
+            for (uint32_t ch = 0; ch < channels; ++ch) {
+                updateBassReceiver(shapedInput[ch], ch, newCodecFrame);
+            }
+
+            float modulationShapeMix = 0.0f;
+            for (uint32_t ch = 0; ch < channels; ++ch) {
+                modulationShapeMix = std::max(modulationShapeMix,
+                    std::max({ bodyMod_[ch] * 0.78f, ringMod_[ch] * 0.92f,
+                        strikeEnvelope_[ch] * 0.86f }));
+            }
+            if (shapeMix > 0.0001f || modulationShapeMix > 0.0001f) {
+                shaper_.processFrame(shapedInput.data(), shapedOutput.data(),
+                    bodyMod_.data(), ringMod_.data(), strikeEnvelope_.data());
+            } else {
+                shapedOutput = shapedInput;
+            }
 
             std::array<float, kPsdRawFieldChannels> shapedFrame {};
+            for (uint32_t ch = 0; ch < channels; ++ch) {
+                const float laneShapeMix = clamp(std::max({ shapeMix,
+                    bodyMod_[ch] * 0.78f, ringMod_[ch] * 0.92f,
+                    strikeEnvelope_[ch] * 0.86f }), 0.0f, 1.0f);
+                const float shaped = lerp(shapedInput[ch], shapedOutput[ch], laneShapeMix);
+                shapedFrame[ch] = modalStage(shaped, ch);
+            }
+
+            float bassTraceActivity = clamp((1.0f - bassTraceSmoothed_) * 32.0f,
+                0.0f, 1.0f);
+            bassTraceActivity = bassTraceActivity * bassTraceActivity
+                * (3.0f - 2.0f * bassTraceActivity);
+            const float bassWidthAmount = bassBodySmoothed_ * bassTraceActivity;
+            if (bassWidthAmount > 0.0001f && params_.bassLowWidth < 0.9999f) {
+                const float lowCutoff = clamp(bassPitchHz_ * 2.0f, 80.0f, 180.0f);
+                const float lowCoefficient = 1.0f - std::exp(-2.0f * kPi * lowCutoff
+                    / static_cast<float>(sampleRate_));
+                float lowMean = 0.0f;
+                for (uint32_t ch = 0; ch < channels; ++ch) {
+                    bassLowState_[ch] += (shapedFrame[ch] - bassLowState_[ch])
+                        * lowCoefficient;
+                    lowMean += bassLowState_[ch];
+                }
+                lowMean /= static_cast<float>(std::max<uint32_t>(1u, channels));
+                const float width = lerp(1.0f, params_.bassLowWidth, bassWidthAmount);
+                for (uint32_t ch = 0; ch < channels; ++ch) {
+                    const float high = shapedFrame[ch] - bassLowState_[ch];
+                    shapedFrame[ch] = high + lowMean
+                        + (bassLowState_[ch] - lowMean) * width;
+                }
+            }
+
             float mean = 0.0f;
             float originalEnergy = 0.0f;
             for (uint32_t ch = 0; ch < channels; ++ch) {
-                shapedFrame[ch] = lerp(shapedInput[ch], shapedOutput[ch], shapeMix);
                 mean += shapedFrame[ch];
                 originalEnergy += shapedFrame[ch] * shapedFrame[ch];
             }
@@ -674,20 +818,35 @@ private:
         p.modEnvelope2 = std::min<uint32_t>(1u, p.modEnvelope2);
         p.modEnvelope3 = std::min<uint32_t>(1u, p.modEnvelope3);
         p.modulationEnabled = std::min<uint32_t>(1u, p.modulationEnabled);
+        p.bassReceiver = static_cast<PsdRawFieldBassReceiver>(std::min<uint32_t>(
+            kPsdRawFieldBassReceiverCount - 1u, static_cast<uint32_t>(p.bassReceiver)));
+        p.bassBody = clamp(p.bassBody, 0.0f, 1.0f);
+        p.bassPunch = clamp(p.bassPunch, 0.0f, 1.0f);
+        p.bassTrace = clamp(p.bassTrace, 0.0f, 1.0f);
+        p.bassPitchTracking = static_cast<PsdRawFieldPitchTracking>(std::min<uint32_t>(
+            kPsdRawFieldPitchTrackingCount - 1u,
+            static_cast<uint32_t>(p.bassPitchTracking)));
+        p.bassGlide = clamp(p.bassGlide, 0.0f, 1.0f);
+        p.bassOctave = static_cast<PsdRawFieldBassOctave>(std::min<uint32_t>(
+            kPsdRawFieldBassOctaveCount - 1u, static_cast<uint32_t>(p.bassOctave)));
+        p.bassLowWidth = clamp(p.bassLowWidth, 0.0f, 1.0f);
         return p;
     }
 
     void configureShaper()
     {
         MacroShredParams p {};
+        const float bassFocus = clamp((params_.resonance - 0.34f) / 0.50f, 0.0f, 1.0f);
+        const float movingColor = lerp(0.42f, 0.72f, params_.texture);
+        const float bodyColor = lerp(0.08f, 0.20f, params_.texture);
         p.inputGainDb = lerp(-3.0f, 36.0f, params_.drive);
         p.pressure = clamp(params_.drive * 0.82f + params_.shred * 0.18f, 0.0f, 1.0f);
         p.shred = params_.shred;
         p.feedback = params_.resonance * 0.90f;
-        p.color = lerp(0.42f, 0.72f, params_.texture);
+        p.color = lerp(movingColor, bodyColor, bassFocus);
         p.react = lerp(0.22f, 0.62f, params_.chaos);
-        p.tune = 0.94f;
-        p.body = lerp(0.70f, 0.42f, params_.shred);
+        p.tune = lerp(0.94f, 0.08f, bassFocus);
+        p.body = lerp(lerp(0.70f, 0.42f, params_.shred), 0.94f, bassFocus);
         p.spread = params_.channelSpread * 0.75f;
         p.deviation = params_.channelSpread * 0.82f;
         p.skew = (params_.chaos - 0.5f) * 0.8f;
@@ -696,6 +855,156 @@ private:
         p.mix = 1.0f;
         p.outputGainDb = -3.0f - 7.0f * clamp(params_.drive * 0.72f + params_.shred * 0.28f, 0.0f, 1.0f);
         shaper_.setParams(p);
+    }
+
+    float bassPitchTargetHz() const
+    {
+        const int octave = static_cast<int>(params_.bassOctave) - 2;
+        const bool tracksBody = params_.bassPitchTracking
+            != PsdRawFieldPitchTracking::Scan;
+        const float noteRatio = tracksBody ? targetPitchRatio_ : 1.0f;
+        return clamp(261.625565f * std::pow(2.0f, static_cast<float>(octave))
+                * noteRatio,
+            20.0f, 440.0f);
+    }
+
+    void updateBassReceiver(float input, uint32_t ch, bool newCodecFrame)
+    {
+        const float magnitude = std::abs(input);
+        float& fast = bassReceiverEnvelope_[ch];
+        float& slow = bassReceiverPreviousEnvelope_[ch];
+        fast += (magnitude - fast) * bassReceiverAttack_;
+        slow += (fast - slow) * bassReceiverRelease_;
+        const float previous = bassReceiverPreviousInput_[ch];
+        const bool risingCrossing = previous <= 0.0f && input > 0.0f
+            && std::max(std::abs(previous), input) > 0.015f;
+        const float discontinuity = std::abs(input - previous);
+        float activity = clamp(fast * 1.8f, 0.0f, 1.0f);
+        const float carrier = nominalCarrierFrequency()
+            * std::pow(2.0f, params_.carrierTune * (1.0f / 12.0f));
+        const float ratio = clamp(carrier / std::max(20.0f, bassPitchHz_), 2.0f, 64.0f);
+        const uint32_t division = static_cast<uint32_t>(std::pow(2.0f,
+            std::round(std::log2(ratio))));
+        const uint32_t halfDivision = std::max<uint32_t>(1u, division / 2u);
+        if (risingCrossing && ++bassDividerCounter_[ch] >= halfDivision) {
+            bassDividerCounter_[ch] = 0u;
+            bassDividerState_[ch] = bassDividerState_[ch] >= 0.0f ? -1.0f : 1.0f;
+        }
+        const float dividerCutoff = clamp(bassPitchHz_ * 3.5f, 70.0f, 900.0f);
+        const float dividerCoefficient = 1.0f - std::exp(-2.0f * kPi * dividerCutoff
+            / static_cast<float>(sampleRate_));
+        bassDividerSmoothed_[ch] += (bassDividerState_[ch]
+            - bassDividerSmoothed_[ch]) * dividerCoefficient;
+        const float subharmonic = bassDividerSmoothed_[ch];
+        float excitation = subharmonic * (0.12f + activity * 0.48f) + input * 0.08f;
+
+        switch (params_.bassReceiver) {
+        case PsdRawFieldBassReceiver::Demod: {
+            const float detected = std::tanh((fast - slow) * 4.0f);
+            excitation = subharmonic * (0.08f + fast * 0.70f) + detected * 0.22f;
+            activity = clamp(fast * 2.2f, 0.0f, 1.0f);
+            break;
+        }
+        case PsdRawFieldBassReceiver::Divide: {
+            excitation = subharmonic * (0.14f + activity * 0.58f) + input * 0.035f;
+            break;
+        }
+        case PsdRawFieldBassReceiver::Error: {
+            float event = 0.0f;
+            if (newCodecFrame) {
+                event = clamp((discontinuity - 0.08f) * 3.5f, 0.0f, 1.0f)
+                    * (0.22f + effectiveDamage_[ch] * 0.78f);
+                if (frameDrop_[ch]) event = std::max(event, 0.72f);
+            }
+            bassErrorEnvelope_[ch] = std::max(bassErrorEnvelope_[ch] * bassErrorDecay_, event);
+            excitation = subharmonic * bassErrorEnvelope_[ch]
+                + (input - previous) * event * 0.16f;
+            activity = clamp(0.08f + bassErrorEnvelope_[ch] * 1.5f, 0.0f, 1.0f);
+            break;
+        }
+        case PsdRawFieldBassReceiver::Direct:
+        default:
+            break;
+        }
+
+        bassReceiverPreviousInput_[ch] = input;
+        bassReceiverExcitation_[ch] = clamp(excitation, -1.5f, 1.5f);
+        bassReceiverActivity_[ch] = activity;
+    }
+
+    float modalStage(float input, uint32_t ch)
+    {
+        const float body = clamp(bodyModSmoothed_[ch] * 2.2f, 0.0f, 1.0f);
+        const float ring = clamp(ringModSmoothed_[ch] * 1.8f, 0.0f, 1.0f);
+        const float strike = clamp(strikeEnvelope_[ch], 0.0f, 1.0f);
+        const float modPresence = clamp(std::max({ body, ring * 0.88f, strike }), 0.0f, 1.0f);
+        const float bassAmount = clamp(bassBodySmoothed_, 0.0f, 1.0f);
+        const float trace = clamp(bassTraceSmoothed_, 0.0f, 1.0f);
+        float bassTraceActivity = clamp((1.0f - trace) * 32.0f, 0.0f, 1.0f);
+        bassTraceActivity = bassTraceActivity * bassTraceActivity
+            * (3.0f - 2.0f * bassTraceActivity);
+        const float bassPathAmount = bassAmount * bassTraceActivity;
+        const float punch = bassPunchEnvelope_ * params_.bassPunch * bassPathAmount;
+        const float bassPresence = bassPathAmount
+            * (0.24f + bassReceiverActivity_[ch] * 0.76f);
+        const float presence = clamp(std::max({ modPresence, bassPresence, punch }), 0.0f, 1.0f);
+        if (presence <= 0.000001f
+            && std::abs(modalIc1_[ch]) <= 0.000001f
+            && std::abs(modalIc2_[ch]) <= 0.000001f) {
+            return input;
+        }
+
+        const float legacyBaseHz = clamp(55.0f
+                * std::pow(2.0f, params_.carrierTune / 24.0f),
+            30.0f, 110.0f);
+        const float baseHz = lerp(legacyBaseHz, bassPitchHz_, bassPathAmount);
+        const float laneDetune = 1.0f
+            + (static_cast<float>(ch) - 3.5f) * 0.003f * params_.channelSpread
+                * (1.0f - bassPathAmount * (1.0f - params_.bassLowWidth));
+        const float frequency = clamp(baseHz * std::pow(2.0f,
+                body * 0.85f + strike * 0.42f)
+                * laneDetune,
+            20.0f, 440.0f);
+        const float qControl = clamp(0.16f + params_.resonance * 0.38f
+            + ring * 0.38f + body * 0.10f + bassPathAmount * 0.18f, 0.0f, 1.0f);
+        const float resonantQ = 0.9f + 16.1f * qControl * qControl;
+        const float receiverQ = 0.8f + 7.2f * qControl * qControl;
+        const float q = lerp(resonantQ, receiverQ, bassPathAmount);
+        const float modalAngle = kPi * frequency / static_cast<float>(sampleRate_);
+        const float g = modalAngle * (1.0f + modalAngle * modalAngle * (1.0f / 3.0f));
+        const float k = 1.0f / q;
+        const float a1 = 1.0f / (1.0f + g * (g + k));
+        const float a2 = g * a1;
+        const float a3 = g * a2;
+        const float codecExcitation = bassReceiverExcitation_[ch] * bassPathAmount
+            * (0.16f + bassReceiverActivity_[ch] * 0.30f)
+            * (1.0f + punch * 0.65f);
+        const float excitation = input * (0.12f + body * 0.24f + strike * 0.18f)
+            + codecExcitation;
+        const float v3 = excitation - modalIc2_[ch];
+        const float v1 = a1 * modalIc1_[ch] + a2 * v3;
+        const float v2 = modalIc2_[ch] + a2 * modalIc1_[ch] + a3 * v3;
+        modalIc1_[ch] = flushDenormal(2.0f * v1 - modalIc1_[ch]);
+        modalIc2_[ch] = flushDenormal(2.0f * v2 - modalIc2_[ch]);
+
+        modalPhase_[ch] += frequency / static_cast<float>(sampleRate_);
+        modalPhase_[ch] -= std::floor(modalPhase_[ch]);
+        const float legacySustainAmount = 1.0f - bassPathAmount;
+        const float legacySustain = std::sin(2.0f * kPi * modalPhase_[ch])
+            * modPresence * legacySustainAmount * legacySustainAmount
+            * (0.18f + params_.resonance * 0.24f + ring * 0.22f + strike * 0.12f);
+        const float modal = softClip(v1 * std::sqrt(k) * (2.5f + presence * 7.5f)
+            + legacySustain);
+        const float modMix = clamp(body * 1.20f + ring * 0.84f + strike * 0.88f,
+            0.0f, 0.97f);
+        const float faultSignal = lerp(input, input * 0.08f + modal, modMix);
+        if (bassPathAmount <= 0.000001f || trace >= 0.999999f) return faultSignal;
+
+        const float codecGain = std::sin(0.5f * kPi * trace);
+        const float coreGain = std::cos(0.5f * kPi * trace);
+        const float bassCore = softClip(modal * (1.18f + bassAmount * 0.42f));
+        return lerp(faultSignal, faultSignal * codecGain + bassCore * coreGain,
+            bassAmount);
     }
 
     float calibrationDb() const
@@ -1617,6 +1926,12 @@ private:
         clockMod_[ch] = 0.0f;
         dataMod_[ch] = 0.0f;
         damageMod_[ch] = 0.0f;
+        bodyMod_[ch] = 0.0f;
+        ringMod_[ch] = 0.0f;
+        strikeMod_[ch] = 0.0f;
+        foldMod_[ch] = 0.0f;
+        scanMod_[ch] = 0.0f;
+        strikeRouted_[ch] = false;
         const float enabled = params_.modulationEnabled != 0u ? 1.0f : 0.0f;
         const float depth1 = params_.modIndex * enabled
             * (params_.modEnvelope1 != 0u ? currentModEnvelope_ : 1.0f);
@@ -1624,17 +1939,29 @@ private:
             * (params_.modEnvelope2 != 0u ? currentModEnvelope_ : 1.0f);
         const float depth3 = params_.modIndex3 * enabled
             * (params_.modEnvelope3 != 0u ? currentModEnvelope_ : 1.0f);
+        const float routedDepth1 = params_.modSource != PsdRawFieldModSource::Off ? depth1 : 0.0f;
+        const float routedDepth2 = params_.modSource2 != PsdRawFieldModSource::Off ? depth2 : 0.0f;
+        const float routedDepth3 = params_.modSource3 != PsdRawFieldModSource::Off ? depth3 : 0.0f;
         const float m1 = modValue_[ch] * depth1;
         const float m2 = modValue2_[ch] * depth2;
         const float m3 = modValue3_[ch] * depth3;
-        auto route = [&](PsdRawFieldModTarget target, float value) {
+        auto route = [&](PsdRawFieldModTarget target, float value, float depth) {
             value = clamp(value, -1.0f, 1.0f);
+            const float unipolar = clamp((value + depth) * 0.5f, 0.0f, 1.0f);
             switch (target) {
             case PsdRawFieldModTarget::Carrier: carrierMod_[ch] = clamp(carrierMod_[ch] + value, -1.0f, 1.0f); break;
             case PsdRawFieldModTarget::Deviation: deviationMod_[ch] = clamp(deviationMod_[ch] + value, -1.0f, 1.0f); break;
             case PsdRawFieldModTarget::Clock: clockMod_[ch] = clamp(clockMod_[ch] + value, -1.0f, 1.0f); break;
             case PsdRawFieldModTarget::Data: dataMod_[ch] = clamp(dataMod_[ch] + value, -1.0f, 1.0f); break;
             case PsdRawFieldModTarget::Damage: damageMod_[ch] = clamp(damageMod_[ch] + value, -1.0f, 1.0f); break;
+            case PsdRawFieldModTarget::Body: bodyMod_[ch] = clamp(bodyMod_[ch] + unipolar, 0.0f, 1.0f); break;
+            case PsdRawFieldModTarget::Ring: ringMod_[ch] = clamp(ringMod_[ch] + unipolar, 0.0f, 1.0f); break;
+            case PsdRawFieldModTarget::Strike:
+                strikeMod_[ch] = clamp(strikeMod_[ch] + unipolar, 0.0f, 1.0f);
+                strikeRouted_[ch] = depth > 0.0001f;
+                break;
+            case PsdRawFieldModTarget::Fold: foldMod_[ch] = clamp(foldMod_[ch] + value, -1.0f, 1.0f); break;
+            case PsdRawFieldModTarget::Scan: scanMod_[ch] = clamp(scanMod_[ch] + value, -1.0f, 1.0f); break;
             case PsdRawFieldModTarget::Off:
             default: break;
             }
@@ -1643,13 +1970,36 @@ private:
         if (params_.modAlgorithm == PsdRawFieldModAlgorithm::Multiplex) {
             const uint32_t slot = std::min<uint32_t>(2u,
                 static_cast<uint32_t>(modPhase_[ch] * 3.0f));
-            if (slot == 0u) route(params_.modTarget, m1);
-            else if (slot == 1u) route(params_.modTarget2, m2);
-            else route(params_.modTarget3, m3);
+            if (slot == 0u) route(params_.modTarget, m1, routedDepth1);
+            else if (slot == 1u) route(params_.modTarget2, m2, routedDepth2);
+            else route(params_.modTarget3, m3, routedDepth3);
         } else {
-            route(params_.modTarget, m1);
-            route(params_.modTarget2, m2);
-            route(params_.modTarget3, m3);
+            route(params_.modTarget, m1, routedDepth1);
+            route(params_.modTarget2, m2, routedDepth2);
+            route(params_.modTarget3, m3, routedDepth3);
+        }
+
+        if (enabled <= 0.0f) {
+            foldModSmoothed_[ch] = 0.0f;
+            scanModSmoothed_[ch] = 0.0f;
+            bodyModSmoothed_[ch] = 0.0f;
+            ringModSmoothed_[ch] = 0.0f;
+            strikePrevious_[ch] = 0.0f;
+            strikeEnvelope_[ch] = 0.0f;
+            if (params_.bassBody <= 0.0001f || params_.bassTrace >= 0.9999f) {
+                modalIc1_[ch] = 0.0f;
+                modalIc2_[ch] = 0.0f;
+                modalPhase_[ch] = static_cast<float>(ch) * 0.0625f;
+            }
+        } else {
+            foldModSmoothed_[ch] += (foldMod_[ch] - foldModSmoothed_[ch]) * destinationSmoothing_;
+            scanModSmoothed_[ch] += (scanMod_[ch] - scanModSmoothed_[ch]) * destinationSmoothing_;
+            bodyModSmoothed_[ch] += (bodyMod_[ch] - bodyModSmoothed_[ch]) * modalControlSmoothing_;
+            ringModSmoothed_[ch] += (ringMod_[ch] - ringModSmoothed_[ch]) * modalControlSmoothing_;
+            const float rise = std::max(0.0f, strikeMod_[ch] - strikePrevious_[ch]);
+            strikeEnvelope_[ch] = std::max(strikeEnvelope_[ch] * strikeDecay_, rise);
+            strikeEnvelope_[ch] = std::max(strikeEnvelope_[ch], strikeMod_[ch] * 0.18f);
+            strikePrevious_[ch] = strikeMod_[ch];
         }
         effectiveDamage_[ch] = clamp(params_.codecDamage + damageMod_[ch], 0.0f, 1.0f);
     }
@@ -3115,6 +3465,31 @@ private:
     std::array<float, kPsdRawFieldChannels> clockMod_ {};
     std::array<float, kPsdRawFieldChannels> dataMod_ {};
     std::array<float, kPsdRawFieldChannels> damageMod_ {};
+    std::array<float, kPsdRawFieldChannels> bodyMod_ {};
+    std::array<float, kPsdRawFieldChannels> ringMod_ {};
+    std::array<float, kPsdRawFieldChannels> strikeMod_ {};
+    std::array<float, kPsdRawFieldChannels> foldMod_ {};
+    std::array<float, kPsdRawFieldChannels> scanMod_ {};
+    std::array<float, kPsdRawFieldChannels> foldModSmoothed_ {};
+    std::array<float, kPsdRawFieldChannels> scanModSmoothed_ {};
+    std::array<float, kPsdRawFieldChannels> bodyModSmoothed_ {};
+    std::array<float, kPsdRawFieldChannels> ringModSmoothed_ {};
+    std::array<float, kPsdRawFieldChannels> strikePrevious_ {};
+    std::array<float, kPsdRawFieldChannels> strikeEnvelope_ {};
+    std::array<bool, kPsdRawFieldChannels> strikeRouted_ {};
+    std::array<float, kPsdRawFieldChannels> modalIc1_ {};
+    std::array<float, kPsdRawFieldChannels> modalIc2_ {};
+    std::array<float, kPsdRawFieldChannels> modalPhase_ {};
+    std::array<float, kPsdRawFieldChannels> bassReceiverEnvelope_ {};
+    std::array<float, kPsdRawFieldChannels> bassReceiverPreviousEnvelope_ {};
+    std::array<float, kPsdRawFieldChannels> bassReceiverPreviousInput_ {};
+    std::array<float, kPsdRawFieldChannels> bassReceiverExcitation_ {};
+    std::array<float, kPsdRawFieldChannels> bassReceiverActivity_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> bassDividerCounter_ {};
+    std::array<float, kPsdRawFieldChannels> bassDividerState_ {};
+    std::array<float, kPsdRawFieldChannels> bassDividerSmoothed_ {};
+    std::array<float, kPsdRawFieldChannels> bassErrorEnvelope_ {};
+    std::array<float, kPsdRawFieldChannels> bassLowState_ {};
     std::array<float, kPsdRawFieldChannels> effectiveDamage_ {};
     uint32_t activeModChannel_ = 0u;
     float loudnessEnergy_ = 0.04f;
@@ -3123,6 +3498,17 @@ private:
     float currentPitchRatio_ = 1.0f;
     float currentModEnvelope_ = 1.0f;
     float pitchSmoothing_ = 0.003f;
+    float destinationSmoothing_ = 0.005f;
+    float modalControlSmoothing_ = 0.001f;
+    float strikeDecay_ = 0.99975f;
+    float bassReceiverAttack_ = 0.01f;
+    float bassReceiverRelease_ = 0.0002f;
+    float bassErrorDecay_ = 0.999f;
+    float bassControlSmoothing_ = 0.005f;
+    float bassBodySmoothed_ = 0.0f;
+    float bassTraceSmoothed_ = 1.0f;
+    float bassPitchHz_ = 65.4064f;
+    float bassPunchEnvelope_ = 0.0f;
     MacroShred shaper_ {};
 };
 
@@ -3213,6 +3599,11 @@ public:
     {
         pitchRatio_ = clamp(ratio, 1.0f / 64.0f, 64.0f);
         for (auto& engine : engines_) engine.setPitchRatio(pitchRatio_);
+    }
+
+    void triggerBassExcite(float velocity = 1.0f)
+    {
+        for (auto& engine : engines_) engine.triggerBassExcite(velocity);
     }
 
     void process(float* const* output, uint32_t outputChannels, uint32_t frames,

@@ -32,9 +32,10 @@ constexpr uint32_t kOutputChannels = s3g::kPsdRawFieldChannels;
 constexpr uint32_t kCodecModeCount = s3g::kPsdRawFieldCodecModeCount;
 constexpr uint32_t kCodecModeMax = kCodecModeCount - 1u;
 constexpr uint32_t kWaveHistory = 512;
-constexpr uint32_t kStateVersion = 21;
+constexpr uint32_t kStateVersion = 22;
 constexpr uint32_t kWaveTracePreset = 12;
 constexpr uint32_t kCustomPreset = 13;
+constexpr float kInitBassTrace = 0.62f;
 constexpr uint32_t kGuiWidth = 1356;
 constexpr uint32_t kGuiHeight = 720;
 constexpr double kLeftToolboxX = 18.0;
@@ -88,6 +89,12 @@ constexpr double kLabIndexRowY = 390.0;
 constexpr double kLabFeedbackRowY = 416.0;
 constexpr double kLabClockRowY = 442.0;
 constexpr double kLabEnvelopeRowY = 468.0;
+constexpr double kBassReceiverPanelX = 30.0;
+constexpr double kBassReceiverPanelWidth = 400.0;
+constexpr double kBassControlPanelX = 448.0;
+constexpr double kBassControlPanelWidth = 414.0;
+constexpr double kBassPathPanelX = 878.0;
+constexpr double kBassPathPanelWidth = 460.0;
 constexpr double labCardX(uint32_t index)
 {
     return kLabCardStartX + static_cast<double>(index) * (kLabCardWidth + kLabCardGap);
@@ -158,6 +165,14 @@ constexpr clap_id kModEnvelope1ParamId = 84;
 constexpr clap_id kModEnvelope2ParamId = 85;
 constexpr clap_id kModEnvelope3ParamId = 86;
 constexpr clap_id kModulationEnabledParamId = 87;
+constexpr clap_id kBassReceiverParamId = 88;
+constexpr clap_id kBassBodyParamId = 89;
+constexpr clap_id kBassPunchParamId = 90;
+constexpr clap_id kBassTraceParamId = 91;
+constexpr clap_id kBassPitchTrackingParamId = 92;
+constexpr clap_id kBassGlideParamId = 93;
+constexpr clap_id kBassOctaveParamId = 94;
+constexpr clap_id kBassLowWidthParamId = 95;
 
 enum class SourceInterpretation : uint32_t {
     Generated = 0u,
@@ -271,6 +286,12 @@ struct LegacyParamsV20 {
     uint32_t modEnvelope1, modEnvelope2, modEnvelope3;
 };
 static_assert(sizeof(LegacyParamsV20) == 176u, "Unexpected version-20 parameter layout");
+
+struct LegacyParamsV21 {
+    LegacyParamsV20 previous;
+    uint32_t modulationEnabled;
+};
+static_assert(sizeof(LegacyParamsV21) == 180u, "Unexpected version-21 parameter layout");
 
 struct LegacySavedStateV10 {
     uint32_t version = 10u;
@@ -407,6 +428,21 @@ struct LegacySavedStateV20 {
 };
 static_assert(sizeof(LegacySavedStateV20) == 4308u, "Unexpected version-20 state layout");
 
+struct LegacySavedStateV21 {
+    uint32_t version = 21u;
+    uint32_t selectedPreset = 0u;
+    LegacyParamsV21 params {};
+    uint32_t sourceMode = 0u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = static_cast<uint32_t>(PerformanceMode::Free);
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV21) == 4312u, "Unexpected version-21 state layout");
+
 struct SavedState {
     uint32_t version = kStateVersion;
     uint32_t selectedPreset = 0u;
@@ -420,7 +456,7 @@ struct SavedState {
     float releaseMs = 850.0f;
     char sourcePath[kSourcePathCapacity] {};
 };
-static_assert(sizeof(SavedState) == 4312u, "Unexpected version-21 state layout");
+static_assert(sizeof(SavedState) == 4344u, "Unexpected version-22 state layout");
 
 struct LegacyParamsV8 {
     float rawRate, strata, compression, masks, metadata, colorBleed, byteSkew, channelSpread, fold;
@@ -559,6 +595,7 @@ void midiNoteOn(Plugin& p, int32_t key, float velocity)
     p.heldVelocity[index] = std::clamp(velocity, 0.0f, 1.0f);
     p.heldNoteOrder[index] = ++p.noteOrderCounter;
     setActiveNote(p, index, p.heldVelocity[index]);
+    p.field.triggerBassExcite(p.heldVelocity[index]);
     p.envelopeGate = true;
     p.envelopeStage = EnvelopeStage::Attack;
 }
@@ -1143,6 +1180,22 @@ s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV20& old)
     return result;
 }
 
+s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV21& old)
+{
+    s3g::PsdRawFieldParams result {};
+    static_assert(sizeof(old) < sizeof(result), "Version-21 parameters must be a prefix");
+    std::memcpy(&result, &old, sizeof(old));
+    result.bassReceiver = s3g::PsdRawFieldBassReceiver::Direct;
+    result.bassBody = 0.0f;
+    result.bassPunch = 0.0f;
+    result.bassTrace = 1.0f;
+    result.bassPitchTracking = s3g::PsdRawFieldPitchTracking::Scan;
+    result.bassGlide = 0.0f;
+    result.bassOctave = s3g::PsdRawFieldBassOctave::MinusOne;
+    result.bassLowWidth = 1.0f;
+    return result;
+}
+
 s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV8& old)
 {
     s3g::PsdRawFieldParams result {};
@@ -1201,205 +1254,207 @@ s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV9& old)
 s3g::PsdRawFieldParams presetParams(uint32_t preset)
 {
     s3g::PsdRawFieldParams result {};
+    if (preset == 0u) result.bassTrace = kInitBassTrace;
     switch (preset) {
-    case 1u: // Slow Clock
-        result.scanRate = 0.16f; result.texture = 0.58f; result.geometry = 0.78f; result.chaos = 0.64f;
-        result.fold = 0.90f; result.evolve = 0.08f; result.codecMode = s3g::PsdRawFieldCodecMode::MuLaw;
-        result.codecRate = 0.70f; result.bitDepth = 7.0f; result.codecDamage = 0.22f;
+    case 1u: // Sub Clock
+        result.scanRate = 0.16f; result.texture = 0.38f; result.geometry = 0.70f; result.chaos = 0.28f;
+        result.fold = 0.18f; result.evolve = 0.08f; result.codecMode = s3g::PsdRawFieldCodecMode::MuLaw;
+        result.codecRate = 0.48f; result.bitDepth = 9.0f; result.codecDamage = 0.08f;
         result.modSource = s3g::PsdRawFieldModSource::Triangle;
         result.modTarget = s3g::PsdRawFieldModTarget::Clock;
-        result.modRate = 0.12f; result.modRatio = 1.0f; result.modIndex = 0.44f; result.modFeedback = 0.08f;
+        result.modRate = 0.12f; result.modRatio = 1.0f; result.modIndex = 0.24f; result.modFeedback = 0.04f;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Broadcast;
-        result.modSource2 = s3g::PsdRawFieldModSource::Sine; result.modTarget2 = s3g::PsdRawFieldModTarget::Carrier;
-        result.modRate2 = 0.56f; result.modRatio2 = 0.5f; result.modIndex2 = 0.22f; result.modFeedback2 = 0.06f;
-        result.modSource3 = s3g::PsdRawFieldModSource::Gate; result.modTarget3 = s3g::PsdRawFieldModTarget::Damage;
-        result.modRate3 = 0.08f; result.modRatio3 = 1.0f; result.modIndex3 = 0.18f; result.modFeedback3 = 0.04f;
-        result.drive = 0.76f; result.shred = 0.74f; result.resonance = 0.18f; result.gainDb = -12.5f;
+        result.modSource2 = s3g::PsdRawFieldModSource::Sine; result.modTarget2 = s3g::PsdRawFieldModTarget::Body;
+        result.modRate2 = 0.56f; result.modRatio2 = 0.5f; result.modIndex2 = 0.42f; result.modFeedback2 = 0.04f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Gate; result.modTarget3 = s3g::PsdRawFieldModTarget::Strike;
+        result.modRate3 = 0.08f; result.modRatio3 = 1.0f; result.modIndex3 = 0.32f; result.modFeedback3 = 0.02f;
+        result.drive = 0.58f; result.shred = 0.12f; result.resonance = 0.72f; result.gainDb = -12.5f;
         break;
-    case 2u: // Codec Scar
-        result.scanRate = 0.48f; result.texture = 0.82f; result.geometry = 0.42f; result.chaos = 0.52f;
-        result.fold = 0.54f; result.evolve = 0.16f; result.codecMode = s3g::PsdRawFieldCodecMode::CelpScramble;
-        result.codecRate = 0.80f; result.bitDepth = 4.0f; result.codecDamage = 0.84f;
-        result.modSource = s3g::PsdRawFieldModSource::Noise;
-        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
-        result.modRate = 0.48f; result.modRatio = 0.5f; result.modIndex = 0.18f; result.modFeedback = 0.26f;
+    case 2u: // Scar Drum
+        result.scanRate = 0.36f; result.texture = 0.46f; result.geometry = 0.42f; result.chaos = 0.38f;
+        result.fold = 0.24f; result.evolve = 0.12f; result.codecMode = s3g::PsdRawFieldCodecMode::CelpScramble;
+        result.codecRate = 0.48f; result.bitDepth = 6.0f; result.codecDamage = 0.24f;
+        result.modSource = s3g::PsdRawFieldModSource::Sine;
+        result.modTarget = s3g::PsdRawFieldModTarget::Fold;
+        result.modRate = 0.58f; result.modRatio = 0.5f; result.modIndex = 0.20f; result.modFeedback = 0.08f;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Regenerator;
         result.modSource2 = s3g::PsdRawFieldModSource::Feedback;
-        result.modTarget2 = s3g::PsdRawFieldModTarget::Damage;
-        result.modRate2 = 0.35f; result.modRatio2 = 1.0f; result.modIndex2 = 0.58f; result.modFeedback2 = 0.84f;
-        result.modSource3 = s3g::PsdRawFieldModSource::Sync; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
-        result.modRate3 = 0.16f; result.modRatio3 = 0.5f; result.modIndex3 = 0.36f; result.modFeedback3 = 0.18f;
-        result.drive = 0.82f; result.shred = 0.58f; result.resonance = 0.30f; result.gainDb = -15.0f;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Ring;
+        result.modRate2 = 0.34f; result.modRatio2 = 1.0f; result.modIndex2 = 0.34f; result.modFeedback2 = 0.48f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Sync; result.modTarget3 = s3g::PsdRawFieldModTarget::Strike;
+        result.modRate3 = 0.16f; result.modRatio3 = 0.5f; result.modIndex3 = 0.46f; result.modFeedback3 = 0.10f;
+        result.drive = 0.62f; result.shred = 0.20f; result.resonance = 0.42f; result.gainDb = -14.0f;
         break;
-    case 3u: // Field Diverge
-        result.scanRate = 0.34f; result.texture = 0.72f; result.geometry = 0.88f; result.chaos = 0.92f;
-        result.fold = 0.74f; result.evolve = 0.12f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Divergent;
+    case 3u: // Fax Body
+        result.scanRate = 0.30f; result.texture = 0.34f; result.geometry = 0.76f; result.chaos = 0.34f;
+        result.fold = 0.16f; result.evolve = 0.10f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Divergent;
         result.channelSpread = 0.96f; result.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
-        result.codecRate = 0.54f; result.bitDepth = 5.0f; result.codecDamage = 0.52f;
+        result.codecRate = 0.42f; result.bitDepth = 8.0f; result.codecDamage = 0.10f; result.carrierTune = -24.0f;
         result.modSource = s3g::PsdRawFieldModSource::Field;
-        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
-        result.modRate = 0.31f; result.modRatio = 1.0f; result.modIndex = 0.64f; result.modFeedback = 0.14f;
+        result.modTarget = s3g::PsdRawFieldModTarget::Body;
+        result.modRate = 0.31f; result.modRatio = 1.0f; result.modIndex = 0.34f; result.modFeedback = 0.08f;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::CrossedMachines;
         result.modSource2 = s3g::PsdRawFieldModSource::Apt;
         result.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
-        result.modRate2 = 0.22f; result.modRatio2 = 0.5f; result.modIndex2 = 0.48f; result.modFeedback2 = 0.10f;
+        result.modRate2 = 0.22f; result.modRatio2 = 0.5f; result.modIndex2 = 0.20f; result.modFeedback2 = 0.06f;
         result.modClockLock2 = 1u;
-        result.modSource3 = s3g::PsdRawFieldModSource::Noise; result.modTarget3 = s3g::PsdRawFieldModTarget::Deviation;
-        result.modRate3 = 0.40f; result.modRatio3 = 2.0f; result.modIndex3 = 0.28f; result.modFeedback3 = 0.12f;
-        result.drive = 0.88f; result.shred = 0.78f; result.resonance = 0.42f; result.gainDb = -14.0f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Triangle; result.modTarget3 = s3g::PsdRawFieldModTarget::Ring;
+        result.modRate3 = 0.30f; result.modRatio3 = 2.0f; result.modIndex3 = 0.32f; result.modFeedback3 = 0.08f;
+        result.drive = 0.54f; result.shred = 0.10f; result.resonance = 0.78f; result.gainDb = -14.0f;
         break;
     case 4u: // Gated Breaks
-        result.scanRate = 0.26f; result.texture = 0.52f; result.geometry = 1.0f; result.chaos = 0.80f;
-        result.fold = 0.66f; result.evolve = 0.10f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Shuffled;
+        result.scanRate = 0.26f; result.texture = 0.42f; result.geometry = 0.84f; result.chaos = 0.40f;
+        result.fold = 0.32f; result.evolve = 0.10f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Shuffled;
         result.channelSpread = 0.86f; result.codecMode = s3g::PsdRawFieldCodecMode::ModemFsk;
-        result.codecRate = 0.42f; result.bitDepth = 6.0f; result.codecDamage = 0.36f;
+        result.codecRate = 0.38f; result.bitDepth = 7.0f; result.codecDamage = 0.16f;
         result.modSource = s3g::PsdRawFieldModSource::Sine;
         result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
-        result.modRate = 0.62f; result.modRatio = 1.0f; result.modIndex = 0.46f; result.modFeedback = 0.10f;
+        result.modRate = 0.60f; result.modRatio = 1.0f; result.modIndex = 0.22f; result.modFeedback = 0.08f;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Relay;
         result.modSource2 = s3g::PsdRawFieldModSource::Gate;
-        result.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
-        result.modRate2 = 0.14f; result.modRatio2 = 0.5f; result.modIndex2 = 0.74f; result.modFeedback2 = 0.08f;
-        result.modSource3 = s3g::PsdRawFieldModSource::Morse; result.modTarget3 = s3g::PsdRawFieldModTarget::Damage;
-        result.modRate3 = 0.20f; result.modRatio3 = 0.5f; result.modIndex3 = 0.38f; result.modFeedback3 = 0.12f;
-        result.drive = 0.72f; result.shred = 0.70f; result.resonance = 0.26f; result.gainDb = -12.5f;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Strike;
+        result.modRate2 = 0.14f; result.modRatio2 = 0.5f; result.modIndex2 = 0.52f; result.modFeedback2 = 0.06f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Morse; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
+        result.modRate3 = 0.20f; result.modRatio3 = 0.5f; result.modIndex3 = 0.18f; result.modFeedback3 = 0.08f;
+        result.drive = 0.66f; result.shred = 0.20f; result.resonance = 0.32f; result.gainDb = -12.5f;
         break;
-    case 5u: // Sync Glass
-        result.scanRate = 0.62f; result.texture = 0.34f; result.geometry = 0.72f; result.chaos = 0.30f;
-        result.fold = 0.96f; result.evolve = 0.04f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Planes;
+    case 5u: // Sync Metal
+        result.scanRate = 0.48f; result.texture = 0.30f; result.geometry = 0.72f; result.chaos = 0.26f;
+        result.fold = 0.30f; result.evolve = 0.04f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Planes;
         result.channelSpread = 0.78f; result.codecMode = s3g::PsdRawFieldCodecMode::Hellschreiber;
-        result.codecRate = 0.18f; result.bitDepth = 10.0f; result.codecDamage = 0.10f;
+        result.codecRate = 0.26f; result.bitDepth = 10.0f; result.codecDamage = 0.05f;
         result.modSource = s3g::PsdRawFieldModSource::Sync;
-        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
-        result.modRate = 0.44f; result.modRatio = 2.0f; result.modIndex = 0.38f; result.modFeedback = 0.12f;
+        result.modTarget = s3g::PsdRawFieldModTarget::Strike;
+        result.modRate = 0.44f; result.modRatio = 2.0f; result.modIndex = 0.36f; result.modFeedback = 0.08f;
         result.modClockLock = 1u;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Multiplex;
         result.modSource2 = s3g::PsdRawFieldModSource::Hellschreiber;
-        result.modTarget2 = s3g::PsdRawFieldModTarget::Carrier;
-        result.modRate2 = 0.36f; result.modRatio2 = 1.5f; result.modIndex2 = 0.32f; result.modFeedback2 = 0.16f;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Fold;
+        result.modRate2 = 0.36f; result.modRatio2 = 1.5f; result.modIndex2 = 0.28f; result.modFeedback2 = 0.10f;
         result.modClockLock2 = 1u;
         result.modSource3 = s3g::PsdRawFieldModSource::Sync; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
-        result.modRate3 = 0.22f; result.modRatio3 = 0.75f; result.modIndex3 = 0.34f; result.modFeedback3 = 0.08f;
+        result.modRate3 = 0.22f; result.modRatio3 = 0.75f; result.modIndex3 = 0.18f; result.modFeedback3 = 0.06f;
         result.modClockLock3 = 1u;
-        result.drive = 0.74f; result.shred = 0.92f; result.resonance = 0.30f; result.gainDb = -13.5f;
+        result.drive = 0.62f; result.shred = 0.16f; result.resonance = 0.48f; result.gainDb = -13.5f;
         break;
-    case 6u: // Mu Dust
-        result.scanRate = 0.40f; result.texture = 0.92f; result.geometry = 0.34f; result.chaos = 0.66f;
-        result.fold = 0.50f; result.evolve = 0.22f; result.codecMode = s3g::PsdRawFieldCodecMode::MuLaw;
-        result.codecRate = 0.78f; result.bitDepth = 5.0f; result.codecDamage = 0.44f;
-        result.modSource = s3g::PsdRawFieldModSource::Noise;
+    case 6u: // Baudot Drum
+        result.scanRate = 0.34f; result.texture = 0.44f; result.geometry = 0.34f; result.chaos = 0.36f;
+        result.fold = 0.22f; result.evolve = 0.18f; result.codecMode = s3g::PsdRawFieldCodecMode::MuLaw;
+        result.codecRate = 0.48f; result.bitDepth = 8.0f; result.codecDamage = 0.14f;
+        result.modSource = s3g::PsdRawFieldModSource::Morse;
         result.modTarget = s3g::PsdRawFieldModTarget::Off;
-        result.modRate = 0.39f; result.modRatio = 0.25f; result.modIndex = 0.72f; result.modFeedback = 0.38f;
+        result.modRate = 0.18f; result.modRatio = 0.5f; result.modIndex = 0.58f; result.modFeedback = 0.10f;
+        result.modClockLock = 1u;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Transcode;
         result.modSource2 = s3g::PsdRawFieldModSource::BaudotRtty;
         result.modTarget2 = s3g::PsdRawFieldModTarget::Off;
-        result.modRate2 = 0.28f; result.modRatio2 = 1.0f; result.modIndex2 = 0.44f; result.modFeedback2 = 0.14f;
+        result.modRate2 = 0.28f; result.modRatio2 = 1.0f; result.modIndex2 = 0.40f; result.modFeedback2 = 0.10f;
         result.modClockLock2 = 1u;
-        result.modSource3 = s3g::PsdRawFieldModSource::HfFax; result.modTarget3 = s3g::PsdRawFieldModTarget::Data;
-        result.modRate3 = 0.24f; result.modRatio3 = 1.0f; result.modIndex3 = 0.52f; result.modFeedback3 = 0.10f;
+        result.modSource3 = s3g::PsdRawFieldModSource::HfFax; result.modTarget3 = s3g::PsdRawFieldModTarget::Strike;
+        result.modRate3 = 0.24f; result.modRatio3 = 1.0f; result.modIndex3 = 0.38f; result.modFeedback3 = 0.08f;
         result.modClockLock3 = 1u;
-        result.drive = 0.66f; result.shred = 0.48f; result.resonance = 0.12f; result.gainDb = -12.0f;
+        result.drive = 0.60f; result.shred = 0.14f; result.resonance = 0.34f; result.gainDb = -12.0f;
         break;
-    case 7u: // Delta Stairs
-        result.scanRate = 0.28f; result.texture = 0.60f; result.geometry = 0.90f; result.chaos = 0.46f;
-        result.fold = 0.70f; result.evolve = 0.08f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Planes;
+    case 7u: // Delta Knock
+        result.scanRate = 0.28f; result.texture = 0.40f; result.geometry = 0.78f; result.chaos = 0.34f;
+        result.fold = 0.34f; result.evolve = 0.08f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Planes;
         result.channelSpread = 0.82f; result.codecMode = s3g::PsdRawFieldCodecMode::DeltaPcm;
-        result.codecRate = 0.70f; result.bitDepth = 4.0f; result.codecDamage = 0.66f;
+        result.codecRate = 0.48f; result.bitDepth = 6.0f; result.codecDamage = 0.22f;
         result.modSource = s3g::PsdRawFieldModSource::Triangle;
-        result.modTarget = s3g::PsdRawFieldModTarget::Data;
-        result.modRate = 0.22f; result.modRatio = 4.0f; result.modIndex = 0.46f; result.modFeedback = 0.18f;
+        result.modTarget = s3g::PsdRawFieldModTarget::Fold;
+        result.modRate = 0.22f; result.modRatio = 4.0f; result.modIndex = 0.34f; result.modFeedback = 0.10f;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Broadcast;
-        result.modSource2 = s3g::PsdRawFieldModSource::Triangle; result.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
-        result.modRate2 = 0.14f; result.modRatio2 = 0.5f; result.modIndex2 = 0.24f; result.modFeedback2 = 0.08f;
-        result.modSource3 = s3g::PsdRawFieldModSource::Sync; result.modTarget3 = s3g::PsdRawFieldModTarget::Deviation;
-        result.modRate3 = 0.30f; result.modRatio3 = 2.0f; result.modIndex3 = 0.18f; result.modFeedback3 = 0.06f;
-        result.drive = 0.82f; result.shred = 0.72f; result.resonance = 0.22f; result.gainDb = -13.0f;
+        result.modSource2 = s3g::PsdRawFieldModSource::Gate; result.modTarget2 = s3g::PsdRawFieldModTarget::Strike;
+        result.modRate2 = 0.14f; result.modRatio2 = 0.5f; result.modIndex2 = 0.46f; result.modFeedback2 = 0.06f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Sync; result.modTarget3 = s3g::PsdRawFieldModTarget::Scan;
+        result.modRate3 = 0.30f; result.modRatio3 = 2.0f; result.modIndex3 = 0.18f; result.modFeedback3 = 0.04f;
+        result.drive = 0.64f; result.shred = 0.18f; result.resonance = 0.28f; result.gainDb = -13.0f;
         break;
-    case 8u: // ADPCM Feedback
-        result.scanRate = 0.55f; result.texture = 0.86f; result.geometry = 0.82f; result.chaos = 0.95f;
-        result.fold = 0.82f; result.evolve = 0.18f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Divergent;
+    case 8u: // ADPCM Sub
+        result.scanRate = 0.32f; result.texture = 0.30f; result.geometry = 0.72f; result.chaos = 0.30f;
+        result.fold = 0.14f; result.evolve = 0.12f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Divergent;
         result.channelSpread = 0.94f; result.codecMode = s3g::PsdRawFieldCodecMode::Adpcm;
-        result.codecRate = 0.48f; result.bitDepth = 4.0f; result.codecDamage = 0.80f;
-        result.modSource = s3g::PsdRawFieldModSource::Field;
-        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
-        result.modRate = 0.52f; result.modRatio = 1.0f; result.modIndex = 0.16f; result.modFeedback = 0.32f;
+        result.codecRate = 0.40f; result.bitDepth = 7.0f; result.codecDamage = 0.18f;
+        result.modSource = s3g::PsdRawFieldModSource::Sine;
+        result.modTarget = s3g::PsdRawFieldModTarget::Body;
+        result.modRate = 0.56f; result.modRatio = 1.0f; result.modIndex = 0.42f; result.modFeedback = 0.12f;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Regenerator;
         result.modSource2 = s3g::PsdRawFieldModSource::Feedback;
-        result.modTarget2 = s3g::PsdRawFieldModTarget::Damage;
-        result.modRate2 = 0.48f; result.modRatio2 = 1.0f; result.modIndex2 = 0.70f; result.modFeedback2 = 0.88f;
-        result.modSource3 = s3g::PsdRawFieldModSource::Gate; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
-        result.modRate3 = 0.12f; result.modRatio3 = 0.5f; result.modIndex3 = 0.42f; result.modFeedback3 = 0.20f;
-        result.drive = 0.90f; result.shred = 0.86f; result.resonance = 0.36f; result.gainDb = -15.0f;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Ring;
+        result.modRate2 = 0.40f; result.modRatio2 = 1.0f; result.modIndex2 = 0.36f; result.modFeedback2 = 0.52f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Gate; result.modTarget3 = s3g::PsdRawFieldModTarget::Strike;
+        result.modRate3 = 0.12f; result.modRatio3 = 0.5f; result.modIndex3 = 0.18f; result.modFeedback3 = 0.08f;
+        result.drive = 0.54f; result.shred = 0.10f; result.resonance = 0.82f; result.gainDb = -15.0f;
         break;
-    case 9u: // Morse Choir
-        result.scanRate = 0.38f; result.texture = 0.55f; result.geometry = 0.62f; result.chaos = 0.48f;
-        result.fold = 0.46f; result.evolve = 0.14f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Planes;
+    case 9u: // Morse Body
+        result.scanRate = 0.30f; result.texture = 0.32f; result.geometry = 0.58f; result.chaos = 0.28f;
+        result.fold = 0.12f; result.evolve = 0.12f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Planes;
         result.channelSpread = 0.95f; result.codecMode = s3g::PsdRawFieldCodecMode::CelpScramble;
-        result.codecRate = 0.32f; result.bitDepth = 7.0f; result.codecDamage = 0.42f;
+        result.codecRate = 0.32f; result.bitDepth = 8.0f; result.codecDamage = 0.12f;
         result.modSource = s3g::PsdRawFieldModSource::Morse;
         result.modTarget = s3g::PsdRawFieldModTarget::Off;
-        result.modRate = 0.18f; result.modRatio = 0.5f; result.modIndex = 0.86f; result.modFeedback = 0.16f;
+        result.modRate = 0.18f; result.modRatio = 0.5f; result.modIndex = 0.64f; result.modFeedback = 0.10f;
         result.modClockLock = 1u;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Transcode;
         result.modSource2 = s3g::PsdRawFieldModSource::HfFax;
         result.modTarget2 = s3g::PsdRawFieldModTarget::Off;
-        result.modRate2 = 0.26f; result.modRatio2 = 1.0f; result.modIndex2 = 0.46f; result.modFeedback2 = 0.12f;
+        result.modRate2 = 0.26f; result.modRatio2 = 1.0f; result.modIndex2 = 0.36f; result.modFeedback2 = 0.08f;
         result.modClockLock2 = 1u;
-        result.modSource3 = s3g::PsdRawFieldModSource::Sstv; result.modTarget3 = s3g::PsdRawFieldModTarget::Data;
-        result.modRate3 = 0.24f; result.modRatio3 = 1.0f; result.modIndex3 = 0.58f; result.modFeedback3 = 0.10f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Sstv; result.modTarget3 = s3g::PsdRawFieldModTarget::Body;
+        result.modRate3 = 0.24f; result.modRatio3 = 1.0f; result.modIndex3 = 0.44f; result.modFeedback3 = 0.08f;
         result.modClockLock3 = 1u;
-        result.drive = 0.76f; result.shred = 0.50f; result.resonance = 0.55f; result.gainDb = -15.0f;
+        result.drive = 0.52f; result.shred = 0.08f; result.resonance = 0.78f; result.gainDb = -15.0f;
         break;
-    case 10u: // Spark Embers
+    case 10u: // Spark Impact
         result.scanRate = 0.08f; result.texture = 0.40f; result.geometry = 0.70f; result.chaos = 0.22f;
-        result.fold = 0.92f; result.evolve = 0.05f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Parallel;
+        result.fold = 0.28f; result.evolve = 0.05f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Parallel;
         result.channelSpread = 0.46f; result.codecMode = s3g::PsdRawFieldCodecMode::SparkCw;
-        result.codecRate = 0.86f; result.bitDepth = 6.0f; result.codecDamage = 0.20f;
+        result.codecRate = 0.56f; result.bitDepth = 8.0f; result.codecDamage = 0.06f;
         result.modSource = s3g::PsdRawFieldModSource::Sine;
         result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
-        result.modRate = 0.64f; result.modRatio = 2.0f; result.modIndex = 0.42f; result.modFeedback = 0.18f;
+        result.modRate = 0.62f; result.modRatio = 2.0f; result.modIndex = 0.20f; result.modFeedback = 0.10f;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Relay;
         result.modSource2 = s3g::PsdRawFieldModSource::SparkCw;
-        result.modTarget2 = s3g::PsdRawFieldModTarget::Damage;
-        result.modRate2 = 0.12f; result.modRatio2 = 0.5f; result.modIndex2 = 0.68f; result.modFeedback2 = 0.36f;
-        result.modSource3 = s3g::PsdRawFieldModSource::Gate; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
-        result.modRate3 = 0.10f; result.modRatio3 = 0.5f; result.modIndex3 = 0.32f; result.modFeedback3 = 0.08f;
-        result.drive = 0.78f; result.shred = 0.80f; result.resonance = 0.18f; result.gainDb = -12.0f;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Strike;
+        result.modRate2 = 0.12f; result.modRatio2 = 0.5f; result.modIndex2 = 0.54f; result.modFeedback2 = 0.18f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Gate; result.modTarget3 = s3g::PsdRawFieldModTarget::Fold;
+        result.modRate3 = 0.10f; result.modRatio3 = 0.5f; result.modIndex3 = 0.30f; result.modFeedback3 = 0.06f;
+        result.drive = 0.66f; result.shred = 0.14f; result.resonance = 0.38f; result.gainDb = -12.0f;
         break;
-    case 11u: // Wide Fax
-        result.scanRate = 0.72f; result.texture = 1.0f; result.geometry = 0.48f; result.chaos = 0.88f;
-        result.fold = 0.58f; result.evolve = 0.28f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Shuffled;
+    case 11u: // Wide Fax Bass
+        result.scanRate = 0.42f; result.texture = 0.34f; result.geometry = 0.48f; result.chaos = 0.32f;
+        result.fold = 0.14f; result.evolve = 0.18f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Shuffled;
         result.channelSpread = 1.0f; result.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
-        result.codecRate = 0.56f; result.bitDepth = 5.0f; result.codecDamage = 0.62f;
+        result.codecRate = 0.38f; result.bitDepth = 8.0f; result.codecDamage = 0.08f; result.carrierTune = -24.0f;
         result.modSource = s3g::PsdRawFieldModSource::HfFax;
-        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
-        result.modRate = 0.34f; result.modRatio = 2.0f; result.modIndex = 0.54f; result.modFeedback = 0.20f;
+        result.modTarget = s3g::PsdRawFieldModTarget::Body;
+        result.modRate = 0.34f; result.modRatio = 2.0f; result.modIndex = 0.34f; result.modFeedback = 0.10f;
         result.modClockLock = 1u;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Multiplex;
         result.modSource2 = s3g::PsdRawFieldModSource::Sstv;
-        result.modTarget2 = s3g::PsdRawFieldModTarget::Deviation;
-        result.modRate2 = 0.30f; result.modRatio2 = 1.0f; result.modIndex2 = 0.42f; result.modFeedback2 = 0.12f;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Ring;
+        result.modRate2 = 0.30f; result.modRatio2 = 1.0f; result.modIndex2 = 0.38f; result.modFeedback2 = 0.10f;
         result.modClockLock2 = 1u;
-        result.modSource3 = s3g::PsdRawFieldModSource::HfFax; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
-        result.modRate3 = 0.20f; result.modRatio3 = 0.5f; result.modIndex3 = 0.36f; result.modFeedback3 = 0.08f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Sync; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
+        result.modRate3 = 0.20f; result.modRatio3 = 0.5f; result.modIndex3 = 0.14f; result.modFeedback3 = 0.05f;
         result.modClockLock3 = 1u;
-        result.drive = 0.84f; result.shred = 0.68f; result.resonance = 0.30f; result.gainDb = -14.0f;
+        result.drive = 0.52f; result.shred = 0.08f; result.resonance = 0.76f; result.gainDb = -14.0f;
         break;
     case kWaveTracePreset: // Wave Trace
         result.scanRate = 0.50f; result.texture = 0.22f; result.geometry = 0.20f; result.chaos = 0.18f;
-        result.fold = 0.14f; result.evolve = 0.0f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Deinterleave;
+        result.fold = 0.08f; result.evolve = 0.0f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Deinterleave;
         result.channelSpread = 0.92f; result.codecMode = s3g::PsdRawFieldCodecMode::RawPcm;
         result.codecRate = 0.0f; result.bitDepth = 12.0f; result.codecDamage = 0.0f;
         result.modSource = s3g::PsdRawFieldModSource::Field;
-        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
-        result.modRate = 0.30f; result.modRatio = 1.0f; result.modIndex = 0.12f; result.modFeedback = 0.06f;
+        result.modTarget = s3g::PsdRawFieldModTarget::Body;
+        result.modRate = 0.30f; result.modRatio = 1.0f; result.modIndex = 0.14f; result.modFeedback = 0.04f;
         result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::CrossedMachines;
         result.modSource2 = s3g::PsdRawFieldModSource::Sync;
         result.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
-        result.modRate2 = 0.18f; result.modRatio2 = 0.5f; result.modIndex2 = 0.18f; result.modFeedback2 = 0.04f;
-        result.modSource3 = s3g::PsdRawFieldModSource::Field; result.modTarget3 = s3g::PsdRawFieldModTarget::Data;
-        result.modRate3 = 0.26f; result.modRatio3 = 1.0f; result.modIndex3 = 0.12f; result.modFeedback3 = 0.04f;
-        result.drive = 0.20f; result.shred = 0.14f; result.resonance = 0.04f; result.gainDb = -8.0f;
+        result.modRate2 = 0.18f; result.modRatio2 = 0.5f; result.modIndex2 = 0.12f; result.modFeedback2 = 0.03f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Gate; result.modTarget3 = s3g::PsdRawFieldModTarget::Strike;
+        result.modRate3 = 0.20f; result.modRatio3 = 1.0f; result.modIndex3 = 0.16f; result.modFeedback3 = 0.03f;
+        result.drive = 0.36f; result.shred = 0.06f; result.resonance = 0.24f; result.gainDb = -8.0f;
         break;
     case 0u:
     default:
@@ -1411,6 +1466,60 @@ s3g::PsdRawFieldParams presetParams(uint32_t preset)
             ? 1u : 0u;
         result.modEnvelope2 = 1u;
         result.modEnvelope3 = 1u;
+    }
+    auto bass = [&](s3g::PsdRawFieldBassReceiver receiver,
+                    float body, float punch, float trace,
+                    s3g::PsdRawFieldPitchTracking tracking,
+                    float glide, s3g::PsdRawFieldBassOctave octave,
+                    float lowWidth) {
+        result.bassReceiver = receiver;
+        result.bassBody = body;
+        result.bassPunch = punch;
+        result.bassTrace = trace;
+        result.bassPitchTracking = tracking;
+        result.bassGlide = glide;
+        result.bassOctave = octave;
+        result.bassLowWidth = lowWidth;
+    };
+    switch (preset) {
+    case 1u: bass(s3g::PsdRawFieldBassReceiver::Divide, 0.82f, 0.18f, 0.32f,
+        s3g::PsdRawFieldPitchTracking::BodyAndScan, 0.12f,
+        s3g::PsdRawFieldBassOctave::MinusTwo, 0.05f); break;
+    case 2u: bass(s3g::PsdRawFieldBassReceiver::Error, 0.70f, 0.86f, 0.45f,
+        s3g::PsdRawFieldPitchTracking::Body, 0.05f,
+        s3g::PsdRawFieldBassOctave::MinusOne, 0.12f); break;
+    case 3u: bass(s3g::PsdRawFieldBassReceiver::Demod, 0.76f, 0.20f, 0.30f,
+        s3g::PsdRawFieldPitchTracking::BodyAndScan, 0.18f,
+        s3g::PsdRawFieldBassOctave::MinusTwo, 0.18f); break;
+    case 4u: bass(s3g::PsdRawFieldBassReceiver::Direct, 0.64f, 0.74f, 0.52f,
+        s3g::PsdRawFieldPitchTracking::BodyAndScan, 0.04f,
+        s3g::PsdRawFieldBassOctave::MinusOne, 0.20f); break;
+    case 5u: bass(s3g::PsdRawFieldBassReceiver::Divide, 0.56f, 0.62f, 0.58f,
+        s3g::PsdRawFieldPitchTracking::Body, 0.08f,
+        s3g::PsdRawFieldBassOctave::MinusOne, 0.30f); break;
+    case 6u: bass(s3g::PsdRawFieldBassReceiver::Demod, 0.66f, 0.78f, 0.42f,
+        s3g::PsdRawFieldPitchTracking::Body, 0.04f,
+        s3g::PsdRawFieldBassOctave::MinusTwo, 0.10f); break;
+    case 7u: bass(s3g::PsdRawFieldBassReceiver::Error, 0.68f, 0.82f, 0.46f,
+        s3g::PsdRawFieldPitchTracking::Body, 0.06f,
+        s3g::PsdRawFieldBassOctave::MinusOne, 0.18f); break;
+    case 8u: bass(s3g::PsdRawFieldBassReceiver::Direct, 0.88f, 0.22f, 0.22f,
+        s3g::PsdRawFieldPitchTracking::BodyAndScan, 0.28f,
+        s3g::PsdRawFieldBassOctave::MinusTwo, 0.03f); break;
+    case 9u: bass(s3g::PsdRawFieldBassReceiver::Demod, 0.76f, 0.48f, 0.38f,
+        s3g::PsdRawFieldPitchTracking::Body, 0.12f,
+        s3g::PsdRawFieldBassOctave::MinusTwo, 0.12f); break;
+    case 10u: bass(s3g::PsdRawFieldBassReceiver::Error, 0.62f, 0.92f, 0.50f,
+        s3g::PsdRawFieldPitchTracking::Body, 0.03f,
+        s3g::PsdRawFieldBassOctave::MinusOne, 0.10f); break;
+    case 11u: bass(s3g::PsdRawFieldBassReceiver::Divide, 0.82f, 0.24f, 0.35f,
+        s3g::PsdRawFieldPitchTracking::BodyAndScan, 0.16f,
+        s3g::PsdRawFieldBassOctave::MinusTwo, 0.18f); break;
+    case kWaveTracePreset: bass(s3g::PsdRawFieldBassReceiver::Direct,
+        0.42f, 0.15f, 0.72f, s3g::PsdRawFieldPitchTracking::BodyAndScan,
+        0.10f, s3g::PsdRawFieldBassOctave::MinusOne, 0.45f); break;
+    case 0u:
+    default: break;
     }
     result.fieldCodecMode = result.codecMode;
     if (preset != 0u) result.seed = hash32(0x50434431u ^ (preset * 0x9e3779b9u));
@@ -1537,38 +1646,103 @@ void applyCuratedAlgorithm(Plugin& p, uint32_t algorithm)
     transitionPatch(p, next, kCustomPreset, 0.45f, true);
 }
 
+float curatedTargetIndexLimit(s3g::PsdRawFieldModTarget target)
+{
+    switch (target) {
+    case s3g::PsdRawFieldModTarget::Body: return 0.70f;
+    case s3g::PsdRawFieldModTarget::Ring: return 0.62f;
+    case s3g::PsdRawFieldModTarget::Strike: return 0.70f;
+    case s3g::PsdRawFieldModTarget::Fold: return 0.48f;
+    case s3g::PsdRawFieldModTarget::Scan: return 0.28f;
+    case s3g::PsdRawFieldModTarget::Clock: return 0.30f;
+    case s3g::PsdRawFieldModTarget::Carrier: return 0.30f;
+    case s3g::PsdRawFieldModTarget::Deviation: return 0.24f;
+    case s3g::PsdRawFieldModTarget::Data:
+    case s3g::PsdRawFieldModTarget::Damage: return 0.22f;
+    case s3g::PsdRawFieldModTarget::Off:
+    default: return 0.68f;
+    }
+}
+
+void applyCuratedGuardrails(s3g::PsdRawFieldParams& params)
+{
+    params.scanRate = std::clamp(params.scanRate, 0.06f, 0.68f);
+    params.texture = std::clamp(params.texture, 0.16f, 0.68f);
+    params.geometry = std::clamp(params.geometry, 0.20f, 0.92f);
+    params.chaos = std::clamp(params.chaos, 0.10f, 0.62f);
+    params.fold = std::clamp(params.fold, 0.04f, 0.52f);
+    params.evolve = std::clamp(params.evolve, 0.0f, 0.28f);
+    params.codecRate = std::clamp(params.codecRate, 0.08f, 0.68f);
+    params.bitDepth = std::clamp(params.bitDepth, 5.0f, 12.0f);
+    params.codecDamage = std::clamp(params.codecDamage, 0.0f, 0.36f);
+    params.drive = std::clamp(params.drive, 0.34f, 0.78f);
+    params.shred = std::clamp(params.shred, 0.04f, 0.42f);
+    params.resonance = std::clamp(params.resonance, 0.16f, 0.88f);
+    params.bassBody = std::clamp(params.bassBody, 0.42f, 0.92f);
+    params.bassPunch = std::clamp(params.bassPunch, 0.08f, 0.92f);
+    params.bassTrace = std::clamp(params.bassTrace, 0.18f, 0.78f);
+    params.bassGlide = std::clamp(params.bassGlide, 0.0f, 0.55f);
+    params.bassLowWidth = std::clamp(params.bassLowWidth, 0.02f, 0.65f);
+    if (params.bassPitchTracking == s3g::PsdRawFieldPitchTracking::Scan) {
+        params.bassPitchTracking = s3g::PsdRawFieldPitchTracking::Body;
+    }
+    if (params.bassOctave == s3g::PsdRawFieldBassOctave::Unison) {
+        params.bassOctave = s3g::PsdRawFieldBassOctave::MinusOne;
+    }
+
+    auto guardOperator = [](s3g::PsdRawFieldModSource source,
+                             s3g::PsdRawFieldModTarget target,
+                             float& index,
+                             float& feedback) {
+        index = std::clamp(index, 0.06f, curatedTargetIndexLimit(target));
+        const float feedbackLimit = source == s3g::PsdRawFieldModSource::Feedback
+            ? 0.55f : 0.48f;
+        feedback = std::clamp(feedback, 0.0f, feedbackLimit);
+    };
+    guardOperator(params.modSource, params.modTarget, params.modIndex, params.modFeedback);
+    guardOperator(params.modSource2, params.modTarget2, params.modIndex2, params.modFeedback2);
+    guardOperator(params.modSource3, params.modTarget3, params.modIndex3, params.modFeedback3);
+}
+
 void randomizePatch(Plugin& p, uint32_t salt)
 {
     auto random01 = [&salt]() {
         salt = hash32(salt + 0x9e3779b9u);
         return static_cast<float>(salt & 0xffffu) / 65535.0f;
     };
+    auto signedRandom = [&random01]() { return random01() * 2.0f - 1.0f; };
     s3g::PsdRawFieldParams next = p.params;
     next.seed = hash32(next.seed ^ salt);
-    next.scanRate = 0.10f + random01() * 0.62f;
-    next.texture = 0.22f + random01() * 0.78f;
-    next.geometry = 0.28f + random01() * 0.72f;
-    next.chaos = 0.18f + random01() * 0.82f;
-    next.fold = 0.34f + random01() * 0.66f;
-    next.evolve = random01() * 0.34f;
-    next.channelScheme = static_cast<s3g::PsdRawFieldChannelScheme>(1u + static_cast<uint32_t>(random01() * 3.999f));
-    next.channelSpread = 0.52f + random01() * 0.48f;
-    next.codecMode = static_cast<s3g::PsdRawFieldCodecMode>(std::min(
-        static_cast<uint32_t>(random01() * static_cast<float>(kCodecModeCount)), kCodecModeMax));
-    if (!p.rawSource) next.fieldCodecMode = next.codecMode;
-    next.codecRate = 0.12f + random01() * 0.76f;
-    next.bitDepth = 3.0f + std::floor(random01() * 8.0f);
-    next.codecDamage = random01() * 0.82f;
-    next.carrierTune = (random01() * 2.0f - 1.0f) * 12.0f;
     const uint32_t circuitPreset = 1u + std::min<uint32_t>(11u,
         static_cast<uint32_t>(random01() * 12.0f));
     const s3g::PsdRawFieldParams recipe = presetParams(circuitPreset);
     copyModulationCircuit(next, recipe);
+    next.scanRate = std::clamp(recipe.scanRate + signedRandom() * 0.08f, 0.0f, 1.0f);
+    next.texture = std::clamp(recipe.texture + signedRandom() * 0.10f, 0.0f, 1.0f);
+    next.geometry = std::clamp(recipe.geometry + signedRandom() * 0.10f, 0.0f, 1.0f);
+    next.chaos = std::clamp(recipe.chaos + signedRandom() * 0.10f, 0.0f, 1.0f);
+    next.fold = std::clamp(recipe.fold + signedRandom() * 0.08f, 0.0f, 1.0f);
+    next.evolve = std::clamp(recipe.evolve + signedRandom() * 0.06f, 0.0f, 1.0f);
+    next.channelScheme = static_cast<s3g::PsdRawFieldChannelScheme>(
+        1u + static_cast<uint32_t>(random01() * 3.999f));
+    next.channelSpread = std::clamp(recipe.channelSpread + signedRandom() * 0.10f, 0.45f, 1.0f);
     next.codecMode = recipe.codecMode;
-    next.codecRate = std::clamp(recipe.codecRate + (random01() * 2.0f - 1.0f) * 0.10f, 0.0f, 1.0f);
-    next.bitDepth = std::clamp(std::round(recipe.bitDepth + (random01() * 2.0f - 1.0f) * 2.0f), 2.0f, 16.0f);
-    next.codecDamage = std::clamp(recipe.codecDamage + (random01() * 2.0f - 1.0f) * 0.15f, 0.0f, 0.82f);
-    next.carrierTune = std::clamp(recipe.carrierTune + (random01() * 2.0f - 1.0f) * 4.0f, -12.0f, 12.0f);
+    next.codecRate = std::clamp(recipe.codecRate + signedRandom() * 0.08f, 0.0f, 1.0f);
+    next.bitDepth = std::clamp(std::round(recipe.bitDepth + signedRandom() * 2.0f), 2.0f, 16.0f);
+    next.codecDamage = std::clamp(recipe.codecDamage + signedRandom() * 0.08f, 0.0f, 1.0f);
+    next.carrierTune = std::clamp(recipe.carrierTune + signedRandom() * 3.0f, -24.0f, 12.0f);
+    next.bassReceiver = recipe.bassReceiver;
+    next.bassBody = std::clamp(recipe.bassBody + signedRandom() * 0.08f, 0.0f, 1.0f);
+    next.bassPunch = std::clamp(recipe.bassPunch + signedRandom() * 0.10f, 0.0f, 1.0f);
+    next.bassTrace = std::clamp(recipe.bassTrace + signedRandom() * 0.09f, 0.0f, 1.0f);
+    next.bassPitchTracking = recipe.bassPitchTracking;
+    next.bassGlide = std::clamp(recipe.bassGlide + signedRandom() * 0.06f, 0.0f, 1.0f);
+    next.bassOctave = recipe.bassOctave;
+    next.bassLowWidth = std::clamp(recipe.bassLowWidth + signedRandom() * 0.08f, 0.0f, 1.0f);
+    if (random01() < 0.14f) {
+        next.bassReceiver = static_cast<s3g::PsdRawFieldBassReceiver>(
+            static_cast<uint32_t>(random01() * 3.999f));
+    }
     if (!p.rawSource) next.fieldCodecMode = next.codecMode;
     auto varyRate = [&random01](float value) {
         return std::clamp(value + (random01() * 2.0f - 1.0f) * 0.055f, 0.0f, 1.0f);
@@ -1578,7 +1752,7 @@ void randomizePatch(Plugin& p, uint32_t salt)
             0.125f, 16.0f);
     };
     auto varyIndex = [&random01](float value) {
-        return std::clamp(value + (random01() * 2.0f - 1.0f) * 0.08f, 0.08f, 0.78f);
+        return std::clamp(value + (random01() * 2.0f - 1.0f) * 0.06f, 0.06f, 0.78f);
     };
     next.modRate = varyRate(next.modRate);
     next.modRate2 = varyRate(next.modRate2);
@@ -1589,12 +1763,13 @@ void randomizePatch(Plugin& p, uint32_t salt)
     next.modIndex = varyIndex(next.modIndex);
     next.modIndex2 = varyIndex(next.modIndex2);
     next.modIndex3 = varyIndex(next.modIndex3);
-    next.modFeedback = std::clamp(next.modFeedback + (random01() * 2.0f - 1.0f) * 0.06f, 0.0f, 0.72f);
-    next.modFeedback2 = std::clamp(next.modFeedback2 + (random01() * 2.0f - 1.0f) * 0.06f, 0.0f, 0.72f);
-    next.modFeedback3 = std::clamp(next.modFeedback3 + (random01() * 2.0f - 1.0f) * 0.06f, 0.0f, 0.72f);
-    next.drive = std::clamp(recipe.drive + (random01() * 2.0f - 1.0f) * 0.14f, 0.30f, 1.0f);
-    next.shred = std::clamp(recipe.shred + (random01() * 2.0f - 1.0f) * 0.14f, 0.20f, 1.0f);
-    next.resonance = std::clamp(recipe.resonance + (random01() * 2.0f - 1.0f) * 0.10f, 0.0f, 0.58f);
+    next.modFeedback = std::clamp(next.modFeedback + signedRandom() * 0.05f, 0.0f, 0.72f);
+    next.modFeedback2 = std::clamp(next.modFeedback2 + signedRandom() * 0.05f, 0.0f, 0.72f);
+    next.modFeedback3 = std::clamp(next.modFeedback3 + signedRandom() * 0.05f, 0.0f, 0.72f);
+    next.drive = std::clamp(recipe.drive + signedRandom() * 0.08f, 0.0f, 1.0f);
+    next.shred = std::clamp(recipe.shred + signedRandom() * 0.07f, 0.0f, 1.0f);
+    next.resonance = std::clamp(recipe.resonance + signedRandom() * 0.08f, 0.0f, 1.0f);
+    applyCuratedGuardrails(next);
     transitionPatch(p, next, kCustomPreset, 0.90f, true);
 }
 
@@ -1616,6 +1791,20 @@ void mutatePatch(Plugin& p, uint32_t salt)
     next.codecRate = std::clamp(next.codecRate + signedRandom() * 0.09f, 0.0f, 1.0f);
     next.codecDamage = std::clamp(next.codecDamage + signedRandom() * 0.10f, 0.0f, 1.0f);
     next.carrierTune = std::clamp(next.carrierTune + signedRandom() * 2.0f, -24.0f, 24.0f);
+    next.bassBody = std::clamp(next.bassBody + signedRandom() * 0.055f, 0.0f, 1.0f);
+    next.bassPunch = std::clamp(next.bassPunch + signedRandom() * 0.075f, 0.0f, 1.0f);
+    next.bassTrace = std::clamp(next.bassTrace + signedRandom() * 0.06f, 0.0f, 1.0f);
+    next.bassGlide = std::clamp(next.bassGlide + signedRandom() * 0.045f, 0.0f, 1.0f);
+    next.bassLowWidth = std::clamp(next.bassLowWidth + signedRandom() * 0.055f, 0.0f, 1.0f);
+    if (random01() < 0.06f) {
+        next.bassReceiver = static_cast<s3g::PsdRawFieldBassReceiver>(
+            static_cast<uint32_t>(random01() * 3.999f));
+    }
+    if (random01() < 0.05f) {
+        next.bassOctave = random01() < 0.58f
+            ? s3g::PsdRawFieldBassOctave::MinusTwo
+            : s3g::PsdRawFieldBassOctave::MinusOne;
+    }
     if (random01() < 0.08f) {
         const uint32_t circuitPreset = 1u + std::min<uint32_t>(11u,
             static_cast<uint32_t>(random01() * 12.0f));
@@ -1648,6 +1837,8 @@ void mutatePatch(Plugin& p, uint32_t salt)
     if (random01() < 0.10f) {
         next.channelScheme = static_cast<s3g::PsdRawFieldChannelScheme>(static_cast<uint32_t>(random01() * 4.999f));
     }
+    applyCuratedGuardrails(next);
+    if (!p.rawSource) next.fieldCodecMode = next.codecMode;
     transitionPatch(p, next, kCustomPreset, 0.70f, true);
 }
 
@@ -1788,6 +1979,26 @@ void applyParam(Plugin& p, clap_id id, double value)
         structural = true;
         transitionSeconds = 0.08f;
         break;
+    case kBassReceiverParamId:
+        p.params.bassReceiver = static_cast<s3g::PsdRawFieldBassReceiver>(static_cast<uint32_t>(
+            std::clamp(std::round(value), 0.0,
+                static_cast<double>(s3g::kPsdRawFieldBassReceiverCount - 1u))));
+        break;
+    case kBassBodyParamId: p.params.bassBody = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kBassPunchParamId: p.params.bassPunch = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kBassTraceParamId: p.params.bassTrace = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kBassPitchTrackingParamId:
+        p.params.bassPitchTracking = static_cast<s3g::PsdRawFieldPitchTracking>(static_cast<uint32_t>(
+            std::clamp(std::round(value), 0.0,
+                static_cast<double>(s3g::kPsdRawFieldPitchTrackingCount - 1u))));
+        break;
+    case kBassGlideParamId: p.params.bassGlide = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kBassOctaveParamId:
+        p.params.bassOctave = static_cast<s3g::PsdRawFieldBassOctave>(static_cast<uint32_t>(
+            std::clamp(std::round(value), 0.0,
+                static_cast<double>(s3g::kPsdRawFieldBassOctaveCount - 1u))));
+        break;
+    case kBassLowWidthParamId: p.params.bassLowWidth = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kDriveParamId: p.params.drive = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kShredParamId: p.params.shred = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kResonanceParamId: p.params.resonance = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
@@ -2118,6 +2329,17 @@ constexpr ParamDef kParamDefs[] {
     { kDecayParamId, "Decay", 5.0, 8000.0, 280.0 },
     { kSustainParamId, "Sustain", 0.0, 1.0, 0.72 },
     { kReleaseParamId, "Release", 5.0, 12000.0, 850.0 },
+    { kBassReceiverParamId, "Receiver", 0.0,
+        static_cast<double>(s3g::kPsdRawFieldBassReceiverCount - 1u), 0.0 },
+    { kBassBodyParamId, "Body", 0.0, 1.0, 0.0 },
+    { kBassPunchParamId, "Excite", 0.0, 1.0, 0.0 },
+    { kBassTraceParamId, "Trace", 0.0, 1.0, kInitBassTrace },
+    { kBassPitchTrackingParamId, "Pitch Tracking", 0.0,
+        static_cast<double>(s3g::kPsdRawFieldPitchTrackingCount - 1u), 0.0 },
+    { kBassGlideParamId, "Glide", 0.0, 1.0, 0.0 },
+    { kBassOctaveParamId, "Octave", 0.0,
+        static_cast<double>(s3g::kPsdRawFieldBassOctaveCount - 1u), 1.0 },
+    { kBassLowWidthParamId, "Low Width", 0.0, 1.0, 1.0 },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParamDefs)); }
@@ -2137,13 +2359,17 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         || def.id == kModTarget2ParamId || def.id == kModSource3ParamId
         || def.id == kModTarget3ParamId || def.id == kModClockLock3ParamId
         || def.id == kModEnvelope1ParamId || def.id == kModEnvelope2ParamId
-        || def.id == kModEnvelope3ParamId || def.id == kModulationEnabledParamId) {
+        || def.id == kModEnvelope3ParamId || def.id == kModulationEnabledParamId
+        || def.id == kBassReceiverParamId || def.id == kBassPitchTrackingParamId
+        || def.id == kBassOctaveParamId) {
         info->flags |= CLAP_PARAM_IS_STEPPED;
     }
     std::strncpy(info->name, def.name, sizeof(info->name));
     info->name[sizeof(info->name) - 1u] = '\0';
     const bool performance = def.id >= kPerformanceModeParamId && def.id <= kReleaseParamId;
-    std::strncpy(info->module, performance ? "Performance" : "Processor Fault", sizeof(info->module));
+    const bool bassCore = def.id >= kBassReceiverParamId && def.id <= kBassLowWidthParamId;
+    const char* module = performance ? "Performance" : (bassCore ? "Bass Core" : "Processor Fault");
+    std::strncpy(info->module, module, sizeof(info->module));
     info->module[sizeof(info->module) - 1u] = '\0';
     info->min_value = def.min;
     info->max_value = def.max;
@@ -2196,6 +2422,14 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kModEnvelope2ParamId: *value = p.modEnvelope2; return true;
     case kModEnvelope3ParamId: *value = p.modEnvelope3; return true;
     case kModulationEnabledParamId: *value = p.modulationEnabled; return true;
+    case kBassReceiverParamId: *value = static_cast<uint32_t>(p.bassReceiver); return true;
+    case kBassBodyParamId: *value = p.bassBody; return true;
+    case kBassPunchParamId: *value = p.bassPunch; return true;
+    case kBassTraceParamId: *value = p.bassTrace; return true;
+    case kBassPitchTrackingParamId: *value = static_cast<uint32_t>(p.bassPitchTracking); return true;
+    case kBassGlideParamId: *value = p.bassGlide; return true;
+    case kBassOctaveParamId: *value = static_cast<uint32_t>(p.bassOctave); return true;
+    case kBassLowWidthParamId: *value = p.bassLowWidth; return true;
     case kDriveParamId: *value = p.drive; return true;
     case kShredParamId: *value = p.shred; return true;
     case kResonanceParamId: *value = p.resonance; return true;
@@ -2275,6 +2509,11 @@ const char* modTargetName(uint32_t target)
     case s3g::PsdRawFieldModTarget::Clock: return "CLOCK";
     case s3g::PsdRawFieldModTarget::Data: return "DATA";
     case s3g::PsdRawFieldModTarget::Damage: return "DAMAGE";
+    case s3g::PsdRawFieldModTarget::Body: return "BODY";
+    case s3g::PsdRawFieldModTarget::Ring: return "RING";
+    case s3g::PsdRawFieldModTarget::Strike: return "STRIKE";
+    case s3g::PsdRawFieldModTarget::Fold: return "FOLD";
+    case s3g::PsdRawFieldModTarget::Scan: return "SCAN";
     case s3g::PsdRawFieldModTarget::Off: return "OFF";
     case s3g::PsdRawFieldModTarget::Carrier:
     default: return "CARRIER";
@@ -2315,6 +2554,11 @@ const char* modTargetShortName(s3g::PsdRawFieldModTarget target)
     case s3g::PsdRawFieldModTarget::Clock: return "CLK";
     case s3g::PsdRawFieldModTarget::Data: return "DATA";
     case s3g::PsdRawFieldModTarget::Damage: return "DMG";
+    case s3g::PsdRawFieldModTarget::Body: return "BODY";
+    case s3g::PsdRawFieldModTarget::Ring: return "RING";
+    case s3g::PsdRawFieldModTarget::Strike: return "HIT";
+    case s3g::PsdRawFieldModTarget::Fold: return "FOLD";
+    case s3g::PsdRawFieldModTarget::Scan: return "SCAN";
     case s3g::PsdRawFieldModTarget::Off:
     default: return "OFF";
     }
@@ -2322,6 +2566,37 @@ const char* modTargetShortName(s3g::PsdRawFieldModTarget target)
 
 const char* modClockName(uint32_t lock) { return lock != 0u ? "LOCK" : "FREE"; }
 const char* modEnvelopeName(uint32_t follow) { return follow != 0u ? "ADSR" : "FIXED"; }
+
+const char* bassReceiverName(uint32_t receiver)
+{
+    switch (static_cast<s3g::PsdRawFieldBassReceiver>(receiver)) {
+    case s3g::PsdRawFieldBassReceiver::Demod: return "DEMOD";
+    case s3g::PsdRawFieldBassReceiver::Divide: return "DIVIDE";
+    case s3g::PsdRawFieldBassReceiver::Error: return "ERROR";
+    case s3g::PsdRawFieldBassReceiver::Direct:
+    default: return "DIRECT";
+    }
+}
+
+const char* bassPitchTrackingName(uint32_t tracking)
+{
+    switch (static_cast<s3g::PsdRawFieldPitchTracking>(tracking)) {
+    case s3g::PsdRawFieldPitchTracking::Body: return "BODY";
+    case s3g::PsdRawFieldPitchTracking::BodyAndScan: return "BODY + SCAN";
+    case s3g::PsdRawFieldPitchTracking::Scan:
+    default: return "SCAN";
+    }
+}
+
+const char* bassOctaveName(uint32_t octave)
+{
+    switch (static_cast<s3g::PsdRawFieldBassOctave>(octave)) {
+    case s3g::PsdRawFieldBassOctave::MinusTwo: return "-2 OCT";
+    case s3g::PsdRawFieldBassOctave::Unison: return "UNISON";
+    case s3g::PsdRawFieldBassOctave::MinusOne:
+    default: return "-1 OCT";
+    }
+}
 
 const char* performanceModeName(uint32_t mode) { return mode == 1u ? "MIDI" : "FREE"; }
 
@@ -2340,17 +2615,17 @@ const char* channelSchemeName(uint32_t mode)
 const char* presetName(uint32_t preset)
 {
     switch (preset) {
-    case 1u: return "SLOW CLOCK";
-    case 2u: return "CODEC SCAR";
-    case 3u: return "FIELD DIVERGE";
+    case 1u: return "SUB CLOCK";
+    case 2u: return "SCAR DRUM";
+    case 3u: return "FAX BODY";
     case 4u: return "GATED BREAKS";
-    case 5u: return "SYNC GLASS";
-    case 6u: return "MU DUST";
-    case 7u: return "DELTA STAIRS";
-    case 8u: return "ADPCM FEEDBACK";
-    case 9u: return "MORSE CHOIR";
-    case 10u: return "SPARK EMBERS";
-    case 11u: return "WIDE FAX";
+    case 5u: return "SYNC METAL";
+    case 6u: return "BAUDOT DRUM";
+    case 7u: return "DELTA KNOCK";
+    case 8u: return "ADPCM SUB";
+    case 9u: return "MORSE BODY";
+    case 10u: return "SPARK IMPACT";
+    case 11u: return "WIDE FAX BASS";
     case kWaveTracePreset: return "WAVE TRACE";
     case kCustomPreset: return "CUSTOM";
     case 0u:
@@ -2478,6 +2753,19 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value, ch
     else if (id == kGainParamId) std::snprintf(display, size, "%+.1f dB", value);
     else if (id == kRunParamId) std::snprintf(display, size, "%s", value >= 0.5 ? "PLAY" : "STOP");
     else if (id == kModulationEnabledParamId) std::snprintf(display, size, "%s", value >= 0.5 ? "MOD ON" : "MOD OFF");
+    else if (id == kBassReceiverParamId) std::snprintf(display, size, "%s", bassReceiverName(
+        static_cast<uint32_t>(std::clamp(std::round(value), 0.0,
+            static_cast<double>(s3g::kPsdRawFieldBassReceiverCount - 1u)))));
+    else if (id == kBassPitchTrackingParamId) std::snprintf(display, size, "%s", bassPitchTrackingName(
+        static_cast<uint32_t>(std::clamp(std::round(value), 0.0,
+            static_cast<double>(s3g::kPsdRawFieldPitchTrackingCount - 1u)))));
+    else if (id == kBassOctaveParamId) std::snprintf(display, size, "%s", bassOctaveName(
+        static_cast<uint32_t>(std::clamp(std::round(value), 0.0,
+            static_cast<double>(s3g::kPsdRawFieldBassOctaveCount - 1u)))));
+    else if (id == kBassBodyParamId || id == kBassPunchParamId || id == kBassTraceParamId
+        || id == kBassGlideParamId || id == kBassLowWidthParamId) {
+        std::snprintf(display, size, "%.1f%%", value * 100.0);
+    }
     else if (id == kPerformanceModeParamId) std::snprintf(display, size, "%s", performanceModeName(
         static_cast<uint32_t>(std::clamp(std::round(value), 0.0, 1.0))));
     else if (id == kAttackParamId || id == kDecayParamId || id == kReleaseParamId) {
@@ -2509,6 +2797,24 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id, const char* disp
         if (std::strcmp(display, "MOD ON") == 0 || std::strcmp(display, "ON") == 0) *value = 1.0;
         else if (std::strcmp(display, "MOD OFF") == 0 || std::strcmp(display, "OFF") == 0) *value = 0.0;
         else *value = numeric >= 0.5 ? 1.0 : 0.0;
+    } else if (id == kBassReceiverParamId) {
+        for (uint32_t receiver = 0u; receiver < s3g::kPsdRawFieldBassReceiverCount; ++receiver) {
+            if (std::strcmp(display, bassReceiverName(receiver)) == 0) { *value = receiver; return true; }
+        }
+        return false;
+    } else if (id == kBassPitchTrackingParamId) {
+        for (uint32_t tracking = 0u; tracking < s3g::kPsdRawFieldPitchTrackingCount; ++tracking) {
+            if (std::strcmp(display, bassPitchTrackingName(tracking)) == 0) { *value = tracking; return true; }
+        }
+        return false;
+    } else if (id == kBassOctaveParamId) {
+        for (uint32_t octave = 0u; octave < s3g::kPsdRawFieldBassOctaveCount; ++octave) {
+            if (std::strcmp(display, bassOctaveName(octave)) == 0) { *value = octave; return true; }
+        }
+        return false;
+    } else if (id == kBassBodyParamId || id == kBassPunchParamId || id == kBassTraceParamId
+        || id == kBassGlideParamId || id == kBassLowWidthParamId) {
+        *value = std::clamp(std::strchr(display, '%') ? numeric / 100.0 : numeric, 0.0, 1.0);
     } else if (id == kPerformanceModeParamId) {
         if (std::strcmp(display, "MIDI") == 0) *value = 1.0;
         else if (std::strcmp(display, "FREE") == 0) *value = 0.0;
@@ -2673,6 +2979,34 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
         p->params = state.params;
+        p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
+        restoredPlaying = state.runState != 0u;
+        p->performanceMode = static_cast<PerformanceMode>(std::min(state.performanceMode, 1u));
+        p->attackMs = std::clamp(state.attackMs, 1.0f, 5000.0f);
+        p->decayMs = std::clamp(state.decayMs, 5.0f, 8000.0f);
+        p->sustain = std::clamp(state.sustain, 0.0f, 1.0f);
+        p->releaseMs = std::clamp(state.releaseMs, 5.0f, 12000.0f);
+        p->rawSource.reset();
+        p->sourcePath.clear();
+        p->sourceName.clear();
+        p->sourceError.clear();
+        p->sourceInterpretation = SourceInterpretation::Generated;
+        if ((state.sourceMode == static_cast<uint32_t>(SourceInterpretation::RawBytes)
+                || state.sourceMode == static_cast<uint32_t>(SourceInterpretation::Waveform))
+            && state.sourcePath[0] != '\0') {
+            std::size_t pathLength = 0u;
+            while (pathLength < sizeof(state.sourcePath) && state.sourcePath[pathLength] != '\0') ++pathLength;
+            p->sourcePath.assign(state.sourcePath, pathLength);
+            p->sourceName = sourceNameFromPath(p->sourcePath);
+            p->sourceInterpretation = static_cast<SourceInterpretation>(state.sourceMode);
+            readSource(p->sourcePath, p->sourceInterpretation, p->rawSource, p->sourceError);
+        }
+    } else if (version == 21u) {
+        LegacySavedStateV21 state {};
+        state.version = version;
+        constexpr size_t offset = sizeof(state.version);
+        if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
         p->performanceMode = static_cast<PerformanceMode>(std::min(state.performanceMode, 1u));
@@ -3055,6 +3389,18 @@ double normalizedParam(const s3g::PsdRawFieldParams& p, clap_id id)
     case kModEnvelope2ParamId: return p.modEnvelope2;
     case kModEnvelope3ParamId: return p.modEnvelope3;
     case kModulationEnabledParamId: return p.modulationEnabled;
+    case kBassReceiverParamId: return static_cast<double>(static_cast<uint32_t>(p.bassReceiver))
+        / static_cast<double>(s3g::kPsdRawFieldBassReceiverCount - 1u);
+    case kBassBodyParamId: return p.bassBody;
+    case kBassPunchParamId: return p.bassPunch;
+    case kBassTraceParamId: return p.bassTrace;
+    case kBassPitchTrackingParamId:
+        return static_cast<double>(static_cast<uint32_t>(p.bassPitchTracking))
+            / static_cast<double>(s3g::kPsdRawFieldPitchTrackingCount - 1u);
+    case kBassGlideParamId: return p.bassGlide;
+    case kBassOctaveParamId: return static_cast<double>(static_cast<uint32_t>(p.bassOctave))
+        / static_cast<double>(s3g::kPsdRawFieldBassOctaveCount - 1u);
+    case kBassLowWidthParamId: return p.bassLowWidth;
     case kDriveParamId: return p.drive;
     case kShredParamId: return p.shred;
     case kResonanceParamId: return p.resonance;
@@ -3123,6 +3469,19 @@ void applyNormalizedParam(Plugin& p, clap_id id, double normalized)
     case kModEnvelope3ParamId:
     case kModulationEnabledParamId:
         applyParam(p, id, normalized >= 0.5 ? 1.0 : 0.0);
+        break;
+    case kBassReceiverParamId: applyParam(p, id, std::round(normalized
+        * static_cast<double>(s3g::kPsdRawFieldBassReceiverCount - 1u))); break;
+    case kBassPitchTrackingParamId: applyParam(p, id, std::round(normalized
+        * static_cast<double>(s3g::kPsdRawFieldPitchTrackingCount - 1u))); break;
+    case kBassOctaveParamId: applyParam(p, id, std::round(normalized
+        * static_cast<double>(s3g::kPsdRawFieldBassOctaveCount - 1u))); break;
+    case kBassBodyParamId:
+    case kBassPunchParamId:
+    case kBassTraceParamId:
+    case kBassGlideParamId:
+    case kBassLowWidthParamId:
+        applyParam(p, id, normalized);
         break;
     case kSeedParamId: applyParam(p, id, 1.0 + normalized * 4294967294.0); break;
     case kAttackParamId: applyParam(p, id, denormalizedEnvelopeTime(normalized, 1.0, 5000.0)); break;
@@ -3685,9 +4044,9 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     auto* p = static_cast<Plugin*>(_plugin);
     if (_openMenu == 1) {
         NSString* const items[] = {
-            @"INIT", @"SLOW CLOCK", @"CODEC SCAR", @"FIELD DIVERGE", @"GATED BREAKS", @"SYNC GLASS",
-            @"MU DUST", @"DELTA STAIRS", @"ADPCM FEEDBACK", @"MORSE CHOIR", @"SPARK EMBERS",
-            @"WIDE FAX", @"WAVE TRACE", @"CUSTOM"
+            @"INIT", @"SUB CLOCK", @"SCAR DRUM", @"FAX BODY", @"GATED BREAKS", @"SYNC METAL",
+            @"BAUDOT DRUM", @"DELTA KNOCK", @"ADPCM SUB", @"MORSE BODY", @"SPARK IMPACT",
+            @"WIDE FAX BASS", @"WAVE TRACE", @"CUSTOM"
         };
         s3g::clap_gui::drawDropdownMenu(NSMakeRect(kLeftControlX, 315.0, kToolboxMenuWidth, 18.0 * 14.0), 18.0, items, 14,
             static_cast<int>(std::min(p->selectedPreset, kCustomPreset)), _hoverMenuItem, attrs, style);
@@ -3731,7 +4090,10 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             18.0 * s3g::kPsdRawFieldModSourceCount), 18.0, items, s3g::kPsdRawFieldModSourceCount,
             selected, _hoverMenuItem, attrs, style);
     } else if (_openMenu == 6 || _openMenu == 8 || _openMenu == 10) {
-        NSString* const items[] = { @"CARRIER", @"DEVIATION", @"CLOCK", @"DATA", @"DAMAGE", @"OFF" };
+        NSString* const items[] = {
+            @"CARRIER", @"DEVIATION", @"CLOCK", @"DATA", @"DAMAGE", @"OFF",
+            @"BODY", @"RING", @"STRIKE", @"FOLD", @"SCAN"
+        };
         const uint32_t index = static_cast<uint32_t>((_openMenu - 6) / 2);
         const CGFloat cardX = labCardX(index);
         const int selected = _openMenu == 6 ? static_cast<int>(p->params.modTarget)
@@ -3753,6 +4115,27 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             s3g::gui_layout::processorControlX(cardX), kLabEnvelopeRowY + 14.0,
             s3g::gui_layout::processorMenuWidth(kLabCardWidth), 36.0),
             18.0, items, 2u, static_cast<int>(selected[index]), _hoverMenuItem, attrs, style);
+    } else if (_openMenu == 14) {
+        NSString* const items[] = { @"DIRECT", @"DEMOD", @"DIVIDE", @"ERROR" };
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(
+            s3g::gui_layout::processorControlX(kBassReceiverPanelX), 281.0,
+            s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 72.0),
+            18.0, items, 4u, static_cast<int>(p->params.bassReceiver),
+            _hoverMenuItem, attrs, style);
+    } else if (_openMenu == 15) {
+        NSString* const items[] = { @"SCAN", @"BODY", @"BODY + SCAN" };
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(
+            s3g::gui_layout::processorControlX(kBassReceiverPanelX), 307.0,
+            s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 54.0),
+            18.0, items, 3u, static_cast<int>(p->params.bassPitchTracking),
+            _hoverMenuItem, attrs, style);
+    } else if (_openMenu == 16) {
+        NSString* const items[] = { @"-2 OCT", @"-1 OCT", @"0 OCT" };
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(
+            s3g::gui_layout::processorControlX(kBassReceiverPanelX), 333.0,
+            s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 54.0),
+            18.0, items, 3u, static_cast<int>(p->params.bassOctave),
+            _hoverMenuItem, attrs, style);
     }
 }
 - (void)updateMenuHover:(NSPoint)point
@@ -3793,6 +4176,21 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             s3g::gui_layout::processorMenuWidth(kLabCardWidth), 36.0);
         count = 2u;
     }
+    else if (_openMenu == 14) {
+        rect = NSMakeRect(s3g::gui_layout::processorControlX(kBassReceiverPanelX),
+            281.0, s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 72.0);
+        count = 4u;
+    }
+    else if (_openMenu == 15) {
+        rect = NSMakeRect(s3g::gui_layout::processorControlX(kBassReceiverPanelX),
+            307.0, s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 54.0);
+        count = 3u;
+    }
+    else if (_openMenu == 16) {
+        rect = NSMakeRect(s3g::gui_layout::processorControlX(kBassReceiverPanelX),
+            333.0, s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 54.0);
+        count = 3u;
+    }
     if (count == 0u) return;
     const int next = s3g::clap_gui::dropdownHitIndex(point, rect, 18.0, count);
     if (next != _hoverMenuItem) {
@@ -3827,7 +4225,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             kLeftToolboxX, kToolboxTop, kToolboxWidth, 21, labels, style);
         s3g::clap_gui::drawPanelFrame(
             kRightToolboxX, kToolboxTop, kToolboxWidth,
-            s3g::gui_layout::toolboxHeightForRows(8), style);
+            s3g::gui_layout::toolboxHeightForRows(9), style);
         s3g::clap_gui::drawPanelHeader(@"CODEC / SHAPE", true,
             kRightToolboxX, kToolboxTop, kToolboxWidth, 21, labels, style);
         s3g::clap_gui::drawPanelFrame(
@@ -3835,11 +4233,17 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             s3g::gui_layout::toolboxHeightForRows(9), style);
         s3g::clap_gui::drawPanelHeader(@"MODULATION / QUICK VIEW", true,
             kModToolboxX, kToolboxTop, kModToolboxWidth, 21, labels, style);
-    } else {
+    } else if (_editorPage == 1) {
         s3g::clap_gui::drawPanelFrame(
             18.0, kToolboxTop, kGuiWidth - 36.0,
             s3g::gui_layout::toolboxHeightForRows(9), style);
         s3g::clap_gui::drawPanelHeader(@"MOD LAB / THREE OPERATORS", true,
+            18.0, kToolboxTop, kGuiWidth - 36.0, 21, labels, style);
+    } else {
+        s3g::clap_gui::drawPanelFrame(
+            18.0, kToolboxTop, kGuiWidth - 36.0,
+            s3g::gui_layout::toolboxHeightForRows(9), style);
+        s3g::clap_gui::drawPanelHeader(@"BASS LAB / CODEC-DRIVEN LOW CORE", true,
             18.0, kToolboxTop, kGuiWidth - 36.0, 21, labels, style);
     }
     auto drawPageTab = [&](NSString* title, NSRect rect, bool active) {
@@ -3854,11 +4258,12 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         [title drawAtPoint:NSMakePoint(NSMidX(rect) - size.width * 0.5,
             NSMidY(rect) - size.height * 0.5) withAttributes:values];
     };
-    drawPageTab(@"SOUND", NSMakeRect(1162.0, 232.0, 76.0, 17.0), _editorPage == 0);
-    drawPageTab(@"MOD LAB", NSMakeRect(1244.0, 232.0, 86.0, 17.0), _editorPage == 1);
+    drawPageTab(@"SOUND", NSMakeRect(1066.0, 232.0, 76.0, 17.0), _editorPage == 0);
+    drawPageTab(@"BASS LAB", NSMakeRect(1148.0, 232.0, 88.0, 17.0), _editorPage == 2);
+    drawPageTab(@"MOD LAB", NSMakeRect(1242.0, 232.0, 88.0, 17.0), _editorPage == 1);
     const bool modulationEnabled = p->params.modulationEnabled != 0u;
     [self drawTransportButton:(modulationEnabled ? @"MOD ON" : @"MOD OFF")
-        rect:NSMakeRect(1046.0, 232.0, 108.0, 17.0) attrs:values active:modulationEnabled];
+        rect:NSMakeRect(950.0, 232.0, 108.0, 17.0) attrs:values active:modulationEnabled];
     s3g::clap_gui::drawPanelFrame(18, kPatchPanelY, kGuiWidth - 36.0, 188.0, style);
     s3g::clap_gui::drawPanelHeader(@"PATCH / PERFORMANCE", true,
         18, kPatchPanelY, kGuiWidth - 36.0, 21, labels, style);
@@ -3889,6 +4294,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     [self drawRow:@"DRIVE" value:[NSString stringWithFormat:@"%.0f%%", params.drive * 100.0f] norm:params.drive panelX:kRightToolboxX panelWidth:kToolboxWidth y:396 attrs:labels small:values];
     [self drawRow:@"SHRED" value:[NSString stringWithFormat:@"%.0f%%", params.shred * 100.0f] norm:params.shred panelX:kRightToolboxX panelWidth:kToolboxWidth y:422 attrs:labels small:values];
     [self drawRow:@"RESONANCE" value:[NSString stringWithFormat:@"%.0f%%", params.resonance * 100.0f] norm:params.resonance panelX:kRightToolboxX panelWidth:kToolboxWidth y:448 attrs:labels small:values];
+    [self drawRow:@"BASS CORE" value:[NSString stringWithFormat:@"%.0f%%", params.bassBody * 100.0f] norm:params.bassBody panelX:kRightToolboxX panelWidth:kToolboxWidth y:474 attrs:labels small:values];
 
     [self drawMenuControl:@"CURATED CIRCUIT" value:[NSString stringWithUTF8String:modAlgorithmName(static_cast<uint32_t>(params.modAlgorithm))] panelX:kModToolboxX panelWidth:kModToolboxWidth y:266 attrs:labels small:values style:style];
     [self drawAlgorithmChart:p rect:NSMakeRect(kModToolboxX + 12.0, 292.0,
@@ -3905,7 +4311,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     drawSummary(3u, params.modSource3, params.modTarget3, params.modEnvelope3, 472.0);
     [@"MOD LAB: RATE · RATIO · INDEX · FEEDBACK · CLOCK · ENVELOPE"
         drawAtPoint:NSMakePoint(kModToolboxX + 18.0, 492.0) withAttributes:labels];
-    } else {
+    } else if (_editorPage == 1) {
         [self drawMenuControl:@"ALGORITHM" value:[NSString stringWithUTF8String:modAlgorithmName(static_cast<uint32_t>(params.modAlgorithm))]
             panelX:kLabChartX panelWidth:kLabChartWidth y:266 attrs:labels small:values style:style];
         [self drawAlgorithmChart:p rect:NSMakeRect(kLabChartX, 294.0, kLabChartWidth, 190.0)
@@ -3951,6 +4357,63 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         drawLabOperator(3u, params.modSource3, params.modTarget3, params.modRate3, params.modRatio3,
             params.modIndex3, params.modFeedback3, params.modClockLock3, params.modEnvelope3,
             kModRatio3ParamId, kModFeedback3ParamId);
+    } else {
+        s3g::clap_gui::drawPanelFrame(kBassReceiverPanelX, 258.0,
+            kBassReceiverPanelWidth, 234.0, style);
+        s3g::clap_gui::drawPanelHeader(@"RECEIVER / PITCH", true,
+            kBassReceiverPanelX, 258.0, kBassReceiverPanelWidth, 21, labels, style);
+        [self drawMenuControl:@"RECEIVER" value:[NSString stringWithUTF8String:bassReceiverName(
+            static_cast<uint32_t>(params.bassReceiver))]
+            panelX:kBassReceiverPanelX panelWidth:kBassReceiverPanelWidth y:286
+            attrs:labels small:values style:style];
+        [self drawMenuControl:@"KEY TRACK" value:[NSString stringWithUTF8String:bassPitchTrackingName(
+            static_cast<uint32_t>(params.bassPitchTracking))]
+            panelX:kBassReceiverPanelX panelWidth:kBassReceiverPanelWidth y:312
+            attrs:labels small:values style:style];
+        [self drawMenuControl:@"OCTAVE" value:[NSString stringWithUTF8String:bassOctaveName(
+            static_cast<uint32_t>(params.bassOctave))]
+            panelX:kBassReceiverPanelX panelWidth:kBassReceiverPanelWidth y:338
+            attrs:labels small:values style:style];
+        [@"DIRECT   codec waveform clocks the divider"
+            drawAtPoint:NSMakePoint(kBassReceiverPanelX + 18.0, 378.0) withAttributes:values];
+        [@"DEMOD    envelope weights divided crossings"
+            drawAtPoint:NSMakePoint(kBassReceiverPanelX + 18.0, 400.0) withAttributes:values];
+        [@"DIVIDE   carrier crossings generate subharmonics"
+            drawAtPoint:NSMakePoint(kBassReceiverPanelX + 18.0, 422.0) withAttributes:values];
+        [@"ERROR    damage gates divided codec crossings"
+            drawAtPoint:NSMakePoint(kBassReceiverPanelX + 18.0, 444.0) withAttributes:values];
+
+        s3g::clap_gui::drawPanelFrame(kBassControlPanelX, 258.0,
+            kBassControlPanelWidth, 234.0, style);
+        s3g::clap_gui::drawPanelHeader(@"SUBHARMONIC BODY", true,
+            kBassControlPanelX, 258.0, kBassControlPanelWidth, 21, labels, style);
+        [self drawRow:@"BODY" value:[NSString stringWithFormat:@"%.0f%%", params.bassBody * 100.0f]
+            norm:params.bassBody panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:286 attrs:labels small:values];
+        [self drawRow:@"EXCITE" value:[NSString stringWithFormat:@"%.0f%%", params.bassPunch * 100.0f]
+            norm:params.bassPunch panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:312 attrs:labels small:values];
+        [self drawRow:@"TRACE" value:[NSString stringWithFormat:@"%.0f%%", params.bassTrace * 100.0f]
+            norm:params.bassTrace panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:338 attrs:labels small:values];
+        [self drawRow:@"GLIDE" value:[NSString stringWithFormat:@"%.0f%%", params.bassGlide * 100.0f]
+            norm:params.bassGlide panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:364 attrs:labels small:values];
+        [self drawRow:@"LOW WIDTH" value:[NSString stringWithFormat:@"%.0f%%", params.bassLowWidth * 100.0f]
+            norm:params.bassLowWidth panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:390 attrs:labels small:values];
+
+        s3g::clap_gui::drawPanelFrame(kBassPathPanelX, 258.0,
+            kBassPathPanelWidth, 234.0, style);
+        s3g::clap_gui::drawPanelHeader(@"RECONSTRUCTION PATH", true,
+            kBassPathPanelX, 258.0, kBassPathPanelWidth, 21, labels, style);
+        [@"CODEC / MODULATION  →  RECEIVER  →  DIVIDER"
+            drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 300.0) withAttributes:values];
+        [@"                         |"
+            drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 326.0) withAttributes:values];
+        [@"MIDI ROOT  →  GLIDE / OCTAVE  →  MODAL FILTER"
+            drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 352.0) withAttributes:values];
+        [@"                         |"
+            drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 378.0) withAttributes:values];
+        [@"EXCITE  →  CODEC EMPHASIS  →  LOW WIDTH"
+            drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 404.0) withAttributes:values];
+        [@"TRACE keeps the raw codec present above the core."
+            drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 450.0) withAttributes:labels];
     }
 
     [self drawMenuControl:@"PRESET" value:[NSString stringWithUTF8String:presetName(p->selectedPreset)] panelX:kLeftToolboxX panelWidth:kToolboxWidth y:kPresetRowY attrs:labels small:values style:style];
@@ -3972,10 +4435,10 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         const double normalized = std::clamp(
             (point.x - kLeftControlX) / kToolboxTrackWidth, 0.0, 1.0);
         applyNormalizedParam(*p, ids[_dragSlider - 1], normalized);
-    } else if (_dragSlider >= 101 && _dragSlider <= 107) {
+    } else if (_dragSlider >= 101 && _dragSlider <= 108) {
         static const clap_id ids[] = {
             kCodecRateParamId, kBitDepthParamId, kCarrierTuneParamId, kCodecDamageParamId,
-            kDriveParamId, kShredParamId, kResonanceParamId
+            kDriveParamId, kShredParamId, kResonanceParamId, kBassBodyParamId
         };
         const double normalized = std::clamp(
             (point.x - kRightControlX) / kToolboxTrackWidth, 0.0, 1.0);
@@ -4004,6 +4467,15 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             (point.x - s3g::gui_layout::processorControlX(labCardX(2u)))
                 / s3g::gui_layout::processorTrackWidth(kLabCardWidth), 0.0, 1.0);
         applyNormalizedParam(*p, ids[_dragSlider - 501], normalized);
+    } else if (_dragSlider >= 601 && _dragSlider <= 605) {
+        static const clap_id ids[] = {
+            kBassBodyParamId, kBassPunchParamId, kBassTraceParamId,
+            kBassGlideParamId, kBassLowWidthParamId
+        };
+        const double normalized = std::clamp(
+            (point.x - s3g::gui_layout::processorControlX(kBassControlPanelX))
+                / s3g::gui_layout::processorTrackWidth(kBassControlPanelWidth), 0.0, 1.0);
+        applyNormalizedParam(*p, ids[_dragSlider - 601], normalized);
     } else if (_dragSlider >= 201 && _dragSlider <= 204) {
         const EnvelopeGraphGeometry graph = envelopeGraphGeometry(*p);
         const double sustain = std::clamp(
@@ -4085,6 +4557,24 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             };
             id = ids[index];
         }
+        else if (_openMenu == 14) {
+            rect = NSMakeRect(s3g::gui_layout::processorControlX(kBassReceiverPanelX),
+                281.0, s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 72.0);
+            count = 4u;
+            id = kBassReceiverParamId;
+        }
+        else if (_openMenu == 15) {
+            rect = NSMakeRect(s3g::gui_layout::processorControlX(kBassReceiverPanelX),
+                307.0, s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 54.0);
+            count = 3u;
+            id = kBassPitchTrackingParamId;
+        }
+        else if (_openMenu == 16) {
+            rect = NSMakeRect(s3g::gui_layout::processorControlX(kBassReceiverPanelX),
+                333.0, s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth), 54.0);
+            count = 3u;
+            id = kBassOctaveParamId;
+        }
         const int hit = s3g::clap_gui::dropdownHitIndex(point, rect, 18.0, count);
         if (hit >= 0 && id != CLAP_INVALID_ID) {
             if (id == kModAlgorithmParamId && _editorPage == 0)
@@ -4098,19 +4588,25 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(1162.0, 232.0, 76.0, 17.0))) {
+    if (NSPointInRect(point, NSMakeRect(1066.0, 232.0, 76.0, 17.0))) {
         _editorPage = 0;
         _dragSlider = -1;
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(1244.0, 232.0, 86.0, 17.0))) {
+    if (NSPointInRect(point, NSMakeRect(1148.0, 232.0, 88.0, 17.0))) {
+        _editorPage = 2;
+        _dragSlider = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, NSMakeRect(1242.0, 232.0, 88.0, 17.0))) {
         _editorPage = 1;
         _dragSlider = -1;
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(1046.0, 232.0, 108.0, 17.0))) {
+    if (NSPointInRect(point, NSMakeRect(950.0, 232.0, 108.0, 17.0))) {
         applyParam(*p, kModulationEnabledParamId,
             p->params.modulationEnabled != 0u ? 0.0 : 1.0);
         markHostStateDirty(*p);
@@ -4122,7 +4618,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         if (NSPointInRect(point, NSMakeRect(kLeftControlX, 447.0, kToolboxMenuWidth, 18))) { _openMenu = 2; [self setNeedsDisplay:YES]; return; }
         if (NSPointInRect(point, NSMakeRect(kRightControlX, 265.0, kToolboxMenuWidth, 16))) { _openMenu = 3; [self setNeedsDisplay:YES]; return; }
         if (NSPointInRect(point, NSMakeRect(kModControlX, 265.0, kModToolboxMenuWidth, 18))) { _openMenu = 4; [self setNeedsDisplay:YES]; return; }
-    } else {
+    } else if (_editorPage == 1) {
         const CGFloat algorithmX = s3g::gui_layout::processorControlX(kLabChartX);
         const CGFloat algorithmWidth = s3g::gui_layout::processorMenuWidth(kLabChartWidth);
         if (NSPointInRect(point, NSMakeRect(algorithmX, 265.0, algorithmWidth, 18.0))) {
@@ -4162,6 +4658,24 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
                 return;
             }
         }
+    } else {
+        const CGFloat receiverControlX = s3g::gui_layout::processorControlX(kBassReceiverPanelX);
+        const CGFloat receiverMenuWidth = s3g::gui_layout::processorMenuWidth(kBassReceiverPanelWidth);
+        if (NSPointInRect(point, NSMakeRect(receiverControlX, 285.0, receiverMenuWidth, 18.0))) {
+            _openMenu = 14;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, NSMakeRect(receiverControlX, 311.0, receiverMenuWidth, 18.0))) {
+            _openMenu = 15;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        if (NSPointInRect(point, NSMakeRect(receiverControlX, 337.0, receiverMenuWidth, 18.0))) {
+            _openMenu = 16;
+            [self setNeedsDisplay:YES];
+            return;
+        }
     }
     if (NSPointInRect(point, NSMakeRect(140, kPerformanceRowY - 10.0, 148, 22))) {
         applyParam(*p, kPerformanceModeParamId,
@@ -4194,11 +4708,13 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     }
     if (NSPointInRect(point, NSMakeRect(466, kPresetRowY - 7.0, 126, 24))) {
         applyParam(*p, kRandomizePatchParamId, std::fmod(static_cast<double>(p->params.seed) * 0.754877666 + 0.21, 1.0));
+        markHostStateDirty(*p);
         [self setNeedsDisplay:YES];
         return;
     }
     if (NSPointInRect(point, NSMakeRect(604, kPresetRowY - 7.0, 90, 24))) {
         applyParam(*p, kMutateParamId, std::fmod(static_cast<double>(p->params.seed) * 0.569840291 + 0.43, 1.0));
+        markHostStateDirty(*p);
         [self setNeedsDisplay:YES];
         return;
     }
@@ -4255,21 +4771,45 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             return;
         }
     }
-    static const CGFloat rightRows[] = { 292, 318, 344, 370, 396, 422, 448 };
+    static const CGFloat rightRows[] = { 292, 318, 344, 370, 396, 422, 448, 474 };
     static const clap_id rightIds[] = {
         kCodecRateParamId, kBitDepthParamId, kCarrierTuneParamId, kCodecDamageParamId,
-        kDriveParamId, kShredParamId, kResonanceParamId
+        kDriveParamId, kShredParamId, kResonanceParamId, kBassBodyParamId
     };
-    for (int i = 0; i < 7; ++i) {
+    for (int i = 0; i < 8; ++i) {
         if (NSPointInRect(point, NSMakeRect(
                 kRightToolboxX, rightRows[i] - 9.0, kToolboxWidth, 24))) {
             double defaultValue = 0.0;
             if (s3g::clap_gui::sliderDoubleClickDefault(
                     event, &p->plugin, rightIds[i], &defaultValue)) {
                 applyParam(*p, rightIds[i], defaultValue);
+                if (rightIds[i] == kBassBodyParamId) markHostStateDirty(*p);
                 _dragSlider = -1;
             } else {
                 _dragSlider = i + 101;
+                [self updateSlider:point];
+            }
+            return;
+        }
+    }
+    }
+    if (_editorPage == 2) {
+    static const CGFloat bassRows[] = { 286, 312, 338, 364, 390 };
+    static const clap_id bassIds[] = {
+        kBassBodyParamId, kBassPunchParamId, kBassTraceParamId,
+        kBassGlideParamId, kBassLowWidthParamId
+    };
+    for (int i = 0; i < 5; ++i) {
+        if (NSPointInRect(point, NSMakeRect(
+                kBassControlPanelX, bassRows[i] - 9.0, kBassControlPanelWidth, 24))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, bassIds[i], &defaultValue)) {
+                applyParam(*p, bassIds[i], defaultValue);
+                markHostStateDirty(*p);
+                _dragSlider = -1;
+            } else {
+                _dragSlider = i + 601;
                 [self updateSlider:point];
             }
             return;
@@ -4348,7 +4888,14 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     [self addCursorRect:NSMakeRect(kEnvelopeX, kEnvelopeY, kEnvelopeWidth, kEnvelopeHeight)
         cursor:[NSCursor crosshairCursor]];
 }
-- (void)mouseUp:(NSEvent*)event { (void)event; _dragSlider = -1; }
+- (void)mouseUp:(NSEvent*)event
+{
+    (void)event;
+    if (_dragSlider == 108 || (_dragSlider >= 601 && _dragSlider <= 605)) {
+        markHostStateDirty(*static_cast<Plugin*>(_plugin));
+    }
+    _dragSlider = -1;
+}
 @end
 
 namespace {
@@ -4457,8 +5004,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.16.1",
-    "Eight-channel free-running or MIDI-playable byte geometry, codec damage, and resonant nonlinear synthesis.",
+    "0.18.0",
+    "Eight-channel free-running or MIDI-playable byte geometry, codec damage, and receiver-driven bass synthesis.",
     features
 };
 
@@ -4467,6 +5014,7 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     if (std::strcmp(pluginId, descriptor.id) != 0) return nullptr;
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
+    p->params.bassTrace = kInitBassTrace;
     p->host = host;
     p->plugin.desc = &descriptor;
     p->plugin.plugin_data = p;

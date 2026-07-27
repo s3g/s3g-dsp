@@ -558,6 +558,9 @@ int main(int argc, char** argv)
             || std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.delay-processor-24ch") == 0;
+        const bool faultProcessor = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.fault") == 0;
         const bool parameterSurfaceEncoder = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.ambi-stochastic-encoder-64") == 0
@@ -1433,6 +1436,51 @@ int main(int argc, char** argv)
                 }
                 [[scroll contentView] scrollToPoint:NSZeroPoint];
                 [scroll reflectScrolledClipView:[scroll contentView]];
+            }
+        }
+        if (ok && faultProcessor) {
+            failureStage = "Processor Fault page tabs";
+            auto clickFaultPage = [&](NSPoint point) {
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown, point)];
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp, point)];
+                return true;
+            };
+            @try {
+                const bool bassClicked = clickFaultPage(NSMakePoint(1192.0, 240.0));
+                const int bassPageValue = [[document valueForKey:@"editorPage"] intValue];
+                ok = bassClicked && bassPageValue == 2;
+                if (!ok) {
+                    std::cerr << "Fault Bass Lab click/page: " << bassClicked
+                              << "/" << bassPageValue << "\n";
+                }
+                NSData* bassPage = ok
+                    ? [document dataWithPDFInsideRect:[document bounds]]
+                    : nil;
+                ok = ok && bassPage && [bassPage length] > 0u;
+                const char* captureDirectory = std::getenv(
+                    "S3G_GUI_SMOKE_PDF_DIR");
+                if (ok && captureDirectory && captureDirectory[0]) {
+                    NSString* directory = [NSString
+                        stringWithUTF8String:captureDirectory];
+                    [[NSFileManager defaultManager]
+                        createDirectoryAtPath:directory
+                        withIntermediateDirectories:YES
+                        attributes:nil
+                        error:nil];
+                    NSString* pageName = [[NSString
+                        stringWithFormat:@"%s.bass", pluginId]
+                        stringByAppendingPathExtension:@"pdf"];
+                    ok = [bassPage writeToFile:
+                        [directory stringByAppendingPathComponent:pageName]
+                        atomically:YES];
+                }
+                ok = ok
+                    && clickFaultPage(NSMakePoint(1286.0, 240.0))
+                    && [[document valueForKey:@"editorPage"] intValue] == 1
+                    && clickFaultPage(NSMakePoint(1104.0, 240.0))
+                    && [[document valueForKey:@"editorPage"] intValue] == 0;
+            } @catch (NSException*) {
+                ok = false;
             }
         }
         if (ok && topologyProcessor) {

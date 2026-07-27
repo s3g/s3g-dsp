@@ -51,6 +51,15 @@ struct AmbiFieldListenerScore {
     float charge = 0.0f;
 };
 
+inline const std::array<Vec3, 4u>& ambiFieldListenerTetraDirections()
+{
+    constexpr float k = 0.57735026919f;
+    static const std::array<Vec3, 4u> directions {{
+        { k, k, k }, { -k, -k, k }, { -k, k, -k }, { k, -k, -k },
+    }};
+    return directions;
+}
+
 inline const std::array<Vec3, kAmbiFieldListenerMaxLobes>& ambiFieldListenerCubeDirections()
 {
     constexpr float k = 0.57735026919f;

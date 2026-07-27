@@ -60,7 +60,7 @@ bool writeMultichannelWav(const std::string& path,
     writeU16(stream, 16u);
     writeU16(stream, 22u);
     writeU16(stream, 16u);
-    writeU32(stream, 0u); // ACN or sensor lanes, not a speaker-bed mask.
+    writeU32(stream, 0u); // ACN or body lanes, not a speaker-bed mask.
     constexpr std::array<char, 16> pcmSubformat {{
         0x01, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x10, 0x00,
@@ -99,7 +99,7 @@ int main(int argc, char** argv)
     if (argc < 2 || std::string(argv[1]) == "--list") {
         std::cout << "Usage: s3g_accelerometer_field_encoder_render "
                      "OUTPUT.wav [PRESET 0-12] [SECONDS] [hoa|raw] [ORDER 1-3]\n"
-                     "Default: third-order ACN/SN3D. Raw writes eight radiation-point stems.\n\n";
+                     "Default: third-order ACN/SN3D. Raw writes eight body stems.\n\n";
         printPresets();
         return argc < 2 ? 1 : 0;
     }
@@ -127,7 +127,7 @@ int main(int argc, char** argv)
     auto params = s3g::accelerometerFieldFactoryPreset(preset);
     params.ambisonicOrder = order;
     params.outputMode = raw
-        ? s3g::AccelerometerFieldOutputMode::SensorStems
+        ? s3g::AccelerometerFieldOutputMode::BodyStems
         : s3g::AccelerometerFieldOutputMode::Ambisonic;
     const uint32_t channels = raw
         ? s3g::kAccelerometerFieldSensorCount
@@ -151,6 +151,6 @@ int main(int argc, char** argv)
     std::cout << "Rendered "
               << s3g::accelerometerFieldFactoryPresetInfo(preset).name
               << " to " << argv[1] << " (" << channels << " channels, "
-              << (raw ? "radiation stems" : "ACN/SN3D") << ")\n";
+              << (raw ? "body stems" : "ACN/SN3D") << ")\n";
     return 0;
 }

@@ -33,6 +33,7 @@ constexpr clap_id kReleaseParamId = 60u;
 constexpr clap_id kCarrierTuneParamId = 61u;
 constexpr clap_id kPresetParamId = 50u;
 constexpr clap_id kRandomizePatchParamId = 51u;
+constexpr clap_id kMutateParamId = 53u;
 constexpr clap_id kModSourceParamId = 62u;
 constexpr clap_id kModTargetParamId = 63u;
 constexpr clap_id kModRateParamId = 64u;
@@ -59,6 +60,14 @@ constexpr clap_id kModEnvelope1ParamId = 84u;
 constexpr clap_id kModEnvelope2ParamId = 85u;
 constexpr clap_id kModEnvelope3ParamId = 86u;
 constexpr clap_id kModulationEnabledParamId = 87u;
+constexpr clap_id kBassReceiverParamId = 88u;
+constexpr clap_id kBassBodyParamId = 89u;
+constexpr clap_id kBassPunchParamId = 90u;
+constexpr clap_id kBassTraceParamId = 91u;
+constexpr clap_id kBassPitchTrackingParamId = 92u;
+constexpr clap_id kBassGlideParamId = 93u;
+constexpr clap_id kBassOctaveParamId = 94u;
+constexpr clap_id kBassLowWidthParamId = 95u;
 constexpr clap_id kCodecModeParamId = 15u;
 constexpr clap_id kRandomizeFieldParamId = 23u;
 
@@ -219,6 +228,19 @@ LegacyParamsV20 legacyParamsV20(const s3g::PsdRawFieldParams& params)
     return result;
 }
 
+struct LegacyParamsV21 {
+    LegacyParamsV20 previous;
+    uint32_t modulationEnabled;
+};
+static_assert(sizeof(LegacyParamsV21) == 180u, "Unexpected version-21 parameter layout");
+
+LegacyParamsV21 legacyParamsV21(const s3g::PsdRawFieldParams& params)
+{
+    LegacyParamsV21 result {};
+    std::memcpy(&result, &params, sizeof(result));
+    return result;
+}
+
 LegacyParamsV13 legacyParams(const s3g::PsdRawFieldParams& params)
 {
     return {
@@ -352,8 +374,24 @@ struct LegacySavedStateV20 {
 };
 static_assert(sizeof(LegacySavedStateV20) == 4308u, "Unexpected version-20 Fault state layout");
 
-struct SavedStateV21 {
+struct LegacySavedStateV21 {
     uint32_t version = 21u;
+    uint32_t selectedPreset = 12u;
+    LegacyParamsV21 params {};
+    uint32_t sourceMode = 2u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = 0u;
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV21) == 4312u,
+    "Unexpected version-21 Fault state layout");
+
+struct SavedStateV22 {
+    uint32_t version = 22u;
     uint32_t selectedPreset = 12u;
     s3g::PsdRawFieldParams params {};
     uint32_t sourceMode = 2u;
@@ -365,7 +403,7 @@ struct SavedStateV21 {
     float releaseMs = 850.0f;
     char sourcePath[kSourcePathCapacity] {};
 };
-static_assert(sizeof(SavedStateV21) == 4312u, "Unexpected current Fault state layout");
+static_assert(sizeof(SavedStateV22) == 4344u, "Unexpected current Fault state layout");
 
 struct SavedStateV13 {
     uint32_t version = 13u;
@@ -584,6 +622,12 @@ int main(int argc, char** argv)
     const bool activated = loaded && plugin->activate(plugin, 48000.0, 64u, 512u);
     const bool started = activated && plugin->start_processing(plugin);
     bool ok = started;
+    if (!ok) {
+        std::cerr << "Fault startup failed: state=" << (stateExtension != nullptr)
+                  << " loaded=" << loaded
+                  << " activated=" << activated
+                  << " started=" << started << "\n";
+    }
     if (ok) {
         const auto* notePorts = static_cast<const clap_plugin_note_ports_t*>(
             plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS));
@@ -616,6 +660,7 @@ int main(int argc, char** argv)
         process.out_events = &outputEvents;
         ok = plugin->process(plugin, &process) != CLAP_PROCESS_ERROR;
     }
+    if (!ok) std::cerr << "Fault initial process returned CLAP_PROCESS_ERROR\n";
 
     if (ok) {
         constexpr uint32_t lag = 218u;
@@ -805,6 +850,94 @@ int main(int argc, char** argv)
                       << " attack=" << attackEnergy << " held=" << heldEnergy
                       << " release=" << releaseEnergy << " idle=" << idleEnergy << "\n";
         }
+        if (ok) {
+            flushParam(kBassReceiverParamId,
+                static_cast<double>(s3g::PsdRawFieldBassReceiver::Direct));
+            flushParam(kBassBodyParamId, 1.0);
+            flushParam(kBassPunchParamId, 0.0);
+            flushParam(kBassTraceParamId, 0.0);
+            flushParam(kBassPitchTrackingParamId,
+                static_cast<double>(s3g::PsdRawFieldPitchTracking::Body));
+            flushParam(kBassGlideParamId, 0.0);
+            flushParam(kBassOctaveParamId,
+                static_cast<double>(s3g::PsdRawFieldBassOctave::MinusTwo));
+            flushParam(kBassLowWidthParamId, 0.0);
+
+            constexpr uint32_t noteBlocks = 32u;
+            auto renderBassNote = [&](int16_t key) {
+                std::vector<float> rendered(noteBlocks * kTransportFrames);
+                clap_event_note_t event {};
+                event.header.size = sizeof(event);
+                event.header.time = 0u;
+                event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+                event.header.type = CLAP_EVENT_NOTE_ON;
+                event.note_id = -1;
+                event.port_index = 30;
+                event.channel = 0;
+                event.key = key;
+                event.velocity = 0.90;
+                for (uint32_t block = 0u; block < noteBlocks; ++block) {
+                    if (!renderMidiBlock(block == 0u ? &event.header : nullptr)) {
+                        ok = false;
+                        break;
+                    }
+                    for (uint32_t i = 0u; i < kTransportFrames; ++i) {
+                        double mean = 0.0;
+                        for (uint32_t ch = 0u; ch < kChannels; ++ch) mean += midiAudio[ch][i];
+                        rendered[block * kTransportFrames + i]
+                            = static_cast<float>(mean / static_cast<double>(kChannels));
+                    }
+                }
+                event.header.type = CLAP_EVENT_NOTE_OFF;
+                event.velocity = 0.0;
+                if (ok) ok = renderMidiBlock(&event.header) && renderMidiBlock(nullptr);
+                return rendered;
+            };
+            auto dominantFrequency = [](const std::vector<float>& signal) {
+                double bestEnergy = -1.0;
+                double bestFrequency = 45.0;
+                for (double frequency = 45.0; frequency <= 155.0; frequency += 0.5) {
+                    const double coefficient = 2.0 * std::cos(
+                        2.0 * static_cast<double>(s3g::kPi) * frequency / 48000.0);
+                    double q1 = 0.0;
+                    double q2 = 0.0;
+                    for (uint32_t i = 4096u; i < signal.size(); ++i) {
+                        const double q0 = signal[i] + coefficient * q1 - q2;
+                        q2 = q1;
+                        q1 = q0;
+                    }
+                    const double energy = q1 * q1 + q2 * q2 - coefficient * q1 * q2;
+                    if (energy > bestEnergy) {
+                        bestEnergy = energy;
+                        bestFrequency = frequency;
+                    }
+                }
+                return std::pair<double, double> { bestFrequency, bestEnergy };
+            };
+            const auto lowNote = dominantFrequency(renderBassNote(60));
+            const auto highNote = dominantFrequency(renderBassNote(72));
+            const double octaveRatio = highNote.first / lowNote.first;
+            // The note selects the divider/filter target, but the audible
+            // period is still resolved from source and codec crossings. A
+            // loaded waveform therefore needs to move clearly upward without
+            // behaving like a pitch-perfect autonomous oscillator.
+            ok = ok && lowNote.second > 1.0e-6 && highNote.second > 1.0e-6
+                && octaveRatio >= 1.08 && octaveRatio <= 2.60;
+            if (!ok) {
+                std::cerr << "Fault MIDI receiver-derived bass did not follow its pitch target: frequency="
+                          << lowNote.first << "/" << highNote.first
+                          << " ratio=" << octaveRatio << " energy="
+                          << lowNote.second << "/" << highNote.second << "\n";
+            }
+
+            flushParam(kBassBodyParamId, 0.0);
+            flushParam(kBassTraceParamId, 1.0);
+            flushParam(kBassPitchTrackingParamId,
+                static_cast<double>(s3g::PsdRawFieldPitchTracking::Scan));
+            flushParam(kBassOctaveParamId,
+                static_cast<double>(s3g::PsdRawFieldBassOctave::MinusOne));
+            flushParam(kBassLowWidthParamId, 1.0);
+        }
     }
 
     if (started) plugin->stop_processing(plugin);
@@ -814,11 +947,11 @@ int main(int argc, char** argv)
         MemoryOutput currentOutput;
         clap_ostream_t currentStream { &currentOutput, streamWrite };
         ok = stateExtension->save(plugin, &currentStream)
-            && currentOutput.bytes.size() == sizeof(SavedStateV21);
+            && currentOutput.bytes.size() == sizeof(SavedStateV22);
         if (ok) {
-            SavedStateV21 saved {};
+            SavedStateV22 saved {};
             std::memcpy(&saved, currentOutput.bytes.data(), sizeof(saved));
-            ok = saved.version == 21u && saved.selectedPreset == 12u
+            ok = saved.version == 22u && saved.selectedPreset == 13u
                 && saved.sourceMode == 2u && saved.runState == 1u
                 && saved.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::RawPcm
                 && saved.params.carrierTune == 0.0f
@@ -835,9 +968,58 @@ int main(int argc, char** argv)
                 && saved.params.modEnvelope2 == 0u
                 && saved.params.modEnvelope3 == 0u
                 && saved.params.modulationEnabled == 1u
+                && saved.params.bassReceiver == s3g::PsdRawFieldBassReceiver::Direct
+                && saved.params.bassBody == 0.0f
+                && saved.params.bassPunch == 0.0f
+                && saved.params.bassTrace == 1.0f
+                && saved.params.bassPitchTracking == s3g::PsdRawFieldPitchTracking::Scan
+                && saved.params.bassGlide == 0.0f
+                && saved.params.bassOctave == s3g::PsdRawFieldBassOctave::MinusOne
+                && saved.params.bassLowWidth == 1.0f
                 && saved.performanceMode == 1u && saved.attackMs == 1.0f
                 && saved.decayMs == 5.0f && saved.sustain == 1.0f && saved.releaseMs == 5.0f;
         }
+        if (!ok) std::cerr << "Fault did not preserve the current version-22 state contract\n";
+    }
+
+    if (ok) {
+        s3g::PsdRawFieldParams oldParams {};
+        oldParams.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+        oldParams.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Multiplex;
+        oldParams.modSource = s3g::PsdRawFieldModSource::Morse;
+        oldParams.modTarget = s3g::PsdRawFieldModTarget::Body;
+        oldParams.modIndex = 0.57f;
+        oldParams.modulationEnabled = 0u;
+        LegacySavedStateV21 legacy {};
+        legacy.params = legacyParamsV21(oldParams);
+        std::snprintf(legacy.sourcePath, sizeof(legacy.sourcePath), "%s", wavePath.c_str());
+        MemoryInput legacyInput { reinterpret_cast<const uint8_t*>(&legacy), sizeof(legacy), 0u };
+        clap_istream_t legacyStream { &legacyInput, streamRead };
+        ok = stateExtension->load(plugin, &legacyStream);
+        MemoryOutput migratedOutput;
+        clap_ostream_t migratedStream { &migratedOutput, streamWrite };
+        ok = ok && stateExtension->save(plugin, &migratedStream)
+            && migratedOutput.bytes.size() == sizeof(SavedStateV22);
+        if (ok) {
+            SavedStateV22 migrated {};
+            std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
+            ok = migrated.version == 22u
+                && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::HfFax
+                && migrated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Multiplex
+                && migrated.params.modSource == s3g::PsdRawFieldModSource::Morse
+                && migrated.params.modTarget == s3g::PsdRawFieldModTarget::Body
+                && std::abs(migrated.params.modIndex - 0.57f) < 1.0e-6f
+                && migrated.params.modulationEnabled == 0u
+                && migrated.params.bassReceiver == s3g::PsdRawFieldBassReceiver::Direct
+                && migrated.params.bassBody == 0.0f
+                && migrated.params.bassPunch == 0.0f
+                && migrated.params.bassTrace == 1.0f
+                && migrated.params.bassPitchTracking == s3g::PsdRawFieldPitchTracking::Scan
+                && migrated.params.bassGlide == 0.0f
+                && migrated.params.bassOctave == s3g::PsdRawFieldBassOctave::MinusOne
+                && migrated.params.bassLowWidth == 1.0f;
+        }
+        if (!ok) std::cerr << "Fault did not migrate version-21 bass compatibility defaults\n";
     }
 
     if (ok) {
@@ -857,11 +1039,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV21);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV22);
         if (ok) {
-            SavedStateV21 migrated {};
+            SavedStateV22 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 21u
+            ok = migrated.version == 22u
                 && migrated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::CrossedMachines
                 && migrated.params.modEnvelope1 == 1u
                 && migrated.params.modEnvelope2 == 0u
@@ -893,11 +1075,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV21);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV22);
         if (ok) {
-            SavedStateV21 migrated {};
+            SavedStateV22 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 21u
+            ok = migrated.version == 22u
                 && migrated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Relay
                 && migrated.params.modSource3 == s3g::PsdRawFieldModSource::Hellschreiber
                 && migrated.params.modTarget3 == s3g::PsdRawFieldModTarget::Damage
@@ -931,11 +1113,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV21);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV22);
         if (ok) {
-            SavedStateV21 migrated {};
+            SavedStateV22 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 21u
+            ok = migrated.version == 22u
                 && migrated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::CrossedMachines
                 && migrated.params.modSource == s3g::PsdRawFieldModSource::Field
                 && migrated.params.modTarget == s3g::PsdRawFieldModTarget::Carrier
@@ -972,11 +1154,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV21);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV22);
         if (ok) {
-            SavedStateV21 migrated {};
+            SavedStateV22 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 21u
+            ok = migrated.version == 22u
                 && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::Hellschreiber
                 && migrated.params.modSource == s3g::PsdRawFieldModSource::Morse
                 && migrated.params.modTarget == s3g::PsdRawFieldModTarget::Data
@@ -1009,11 +1191,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV21);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV22);
         if (ok) {
-            SavedStateV21 migrated {};
+            SavedStateV22 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 21u
+            ok = migrated.version == 22u
                 && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::Sstv
                 && migrated.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::HfFax
                 && migrated.params.carrierTune == -7.5f
@@ -1036,11 +1218,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV21);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV22);
         if (ok) {
-            SavedStateV21 migrated {};
+            SavedStateV22 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 21u && migrated.selectedPreset == 12u
+            ok = migrated.version == 22u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.performanceMode == 0u && migrated.attackMs == 12.0f
                 && migrated.decayMs == 280.0f && migrated.sustain == 0.72f
@@ -1059,11 +1241,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV21);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV22);
         if (ok) {
-            SavedStateV21 migrated {};
+            SavedStateV22 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 21u && migrated.selectedPreset == 12u
+            ok = migrated.version == 22u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -1081,11 +1263,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV21);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV22);
         if (ok) {
-            SavedStateV21 migrated {};
+            SavedStateV22 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 21u && migrated.selectedPreset == 12u
+            ok = migrated.version == 22u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -1103,11 +1285,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV21);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV22);
         if (ok) {
-            SavedStateV21 migrated {};
+            SavedStateV22 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 21u && migrated.selectedPreset == 13u
+            ok = migrated.version == 22u && migrated.selectedPreset == 13u
                 && migrated.sourceMode == 1u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -1125,11 +1307,11 @@ int main(int argc, char** argv)
         MemoryOutput stoppedOutput;
         clap_ostream_t stoppedOutputStream { &stoppedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &stoppedOutputStream)
-            && stoppedOutput.bytes.size() == sizeof(SavedStateV21);
+            && stoppedOutput.bytes.size() == sizeof(SavedStateV22);
         if (ok) {
-            SavedStateV21 savedStopped {};
+            SavedStateV22 savedStopped {};
             std::memcpy(&savedStopped, stoppedOutput.bytes.data(), sizeof(savedStopped));
-            ok = savedStopped.version == 21u && savedStopped.runState == 0u;
+            ok = savedStopped.version == 22u && savedStopped.runState == 0u;
         }
         if (!ok) std::cerr << "Fault did not preserve its stopped transport state\n";
     }
@@ -1285,6 +1467,111 @@ int main(int argc, char** argv)
             if (!ok) std::cerr << "Fault did not expose protocol modulation parameter text\n";
         }
         if (ok) {
+            struct BassParamExpectation {
+                clap_id id;
+                const char* name;
+                double maximum;
+                double defaultValue;
+                bool stepped;
+            };
+            constexpr BassParamExpectation bassParams[] {
+                { kBassReceiverParamId, "Receiver", 3.0, 0.0, true },
+                { kBassBodyParamId, "Body", 1.0, 0.0, false },
+                { kBassPunchParamId, "Excite", 1.0, 0.0, false },
+                { kBassTraceParamId, "Trace", 1.0, static_cast<double>(0.62f), false },
+                { kBassPitchTrackingParamId, "Pitch Tracking", 2.0, 0.0, true },
+                { kBassGlideParamId, "Glide", 1.0, 0.0, false },
+                { kBassOctaveParamId, "Octave", 2.0, 1.0, true },
+                { kBassLowWidthParamId, "Low Width", 1.0, 1.0, false },
+            };
+            for (const auto& expectation : bassParams) {
+                clap_param_info_t found {};
+                uint32_t matches = 0u;
+                for (uint32_t index = 0u; index < paramsExtension->count(plugin); ++index) {
+                    clap_param_info_t candidate {};
+                    if (paramsExtension->get_info(plugin, index, &candidate)
+                        && candidate.id == expectation.id) {
+                        found = candidate;
+                        ++matches;
+                    }
+                }
+                const bool stepped = (found.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+                ok = ok && matches == 1u
+                    && std::strcmp(found.name, expectation.name) == 0
+                    && std::strcmp(found.module, "Bass Core") == 0
+                    && found.min_value == 0.0
+                    && found.max_value == expectation.maximum
+                    && found.default_value == expectation.defaultValue
+                    && (found.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u
+                    && stepped == expectation.stepped;
+            }
+
+            constexpr const char* receiverNames[] { "DIRECT", "DEMOD", "DIVIDE", "ERROR" };
+            constexpr const char* trackingNames[] { "SCAN", "BODY", "BODY + SCAN" };
+            constexpr const char* octaveNames[] { "-2 OCT", "-1 OCT", "UNISON" };
+            auto checkEnumText = [&](clap_id id, const char* const* names, uint32_t count) {
+                for (uint32_t value = 0u; value < count; ++value) {
+                    char text[24] {};
+                    double parsed = -1.0;
+                    if (!paramsExtension->value_to_text(plugin, id,
+                            static_cast<double>(value), text, sizeof(text))
+                        || std::strcmp(text, names[value]) != 0
+                        || !paramsExtension->text_to_value(plugin, id, names[value], &parsed)
+                        || parsed != static_cast<double>(value)) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            char bodyText[16] {};
+            double bodyValue = -1.0;
+            ok = ok
+                && checkEnumText(kBassReceiverParamId, receiverNames,
+                    static_cast<uint32_t>(std::size(receiverNames)))
+                && checkEnumText(kBassPitchTrackingParamId, trackingNames,
+                    static_cast<uint32_t>(std::size(trackingNames)))
+                && checkEnumText(kBassOctaveParamId, octaveNames,
+                    static_cast<uint32_t>(std::size(octaveNames)))
+                && paramsExtension->value_to_text(plugin, kBassBodyParamId,
+                    0.375, bodyText, sizeof(bodyText))
+                && std::strcmp(bodyText, "37.5%") == 0
+                && paramsExtension->text_to_value(plugin, kBassBodyParamId,
+                    bodyText, &bodyValue)
+                && std::abs(bodyValue - 0.375) < 1.0e-9;
+            if (!ok) std::cerr << "Fault did not expose the bass-core parameter contract\n";
+        }
+        if (ok) {
+            constexpr const char* targetNames[] {
+                "CARRIER", "DEVIATION", "CLOCK", "DATA", "DAMAGE", "OFF",
+                "BODY", "RING", "STRIKE", "FOLD", "SCAN",
+            };
+            clap_param_info_t targetInfo {};
+            bool foundTarget = false;
+            const uint32_t paramCount = paramsExtension->count(plugin);
+            for (uint32_t index = 0u; index < paramCount; ++index) {
+                clap_param_info_t candidate {};
+                if (paramsExtension->get_info(plugin, index, &candidate)
+                    && candidate.id == kModTargetParamId) {
+                    targetInfo = candidate;
+                    foundTarget = true;
+                    break;
+                }
+            }
+            ok = foundTarget
+                && targetInfo.max_value == static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u);
+            for (uint32_t target = 0u; ok && target < s3g::kPsdRawFieldModTargetCount; ++target) {
+                char display[24] {};
+                double parsed = -1.0;
+                ok = paramsExtension->value_to_text(plugin, kModTargetParamId,
+                        static_cast<double>(target), display, sizeof(display))
+                    && std::strcmp(display, targetNames[target]) == 0
+                    && paramsExtension->text_to_value(plugin, kModTargetParamId,
+                        targetNames[target], &parsed)
+                    && parsed == static_cast<double>(target);
+            }
+            if (!ok) std::cerr << "Fault did not expose all modulation destinations\n";
+        }
+        if (ok) {
             flushParam(kModSourceParamId,
                 static_cast<double>(s3g::PsdRawFieldModSource::Sstv));
             flushParam(kModTargetParamId,
@@ -1318,6 +1605,17 @@ int main(int argc, char** argv)
             flushParam(kModEnvelope2ParamId, 0.0);
             flushParam(kModEnvelope3ParamId, 1.0);
             flushParam(kModulationEnabledParamId, 0.0);
+            flushParam(kBassReceiverParamId,
+                static_cast<double>(s3g::PsdRawFieldBassReceiver::Error));
+            flushParam(kBassBodyParamId, 0.76);
+            flushParam(kBassPunchParamId, 0.42);
+            flushParam(kBassTraceParamId, 0.31);
+            flushParam(kBassPitchTrackingParamId,
+                static_cast<double>(s3g::PsdRawFieldPitchTracking::BodyAndScan));
+            flushParam(kBassGlideParamId, 0.27);
+            flushParam(kBassOctaveParamId,
+                static_cast<double>(s3g::PsdRawFieldBassOctave::MinusTwo));
+            flushParam(kBassLowWidthParamId, 0.18);
         }
         if (ok) {
             flushParam(kRandomizeFieldParamId, 0.613);
@@ -1325,9 +1623,9 @@ int main(int argc, char** argv)
             MemoryOutput generatedOutput;
             clap_ostream_t generatedStream { &generatedOutput, streamWrite };
             ok = stateExtension->save(plugin, &generatedStream)
-                && generatedOutput.bytes.size() == sizeof(SavedStateV21);
+                && generatedOutput.bytes.size() == sizeof(SavedStateV22);
             if (ok) {
-                SavedStateV21 generated {};
+                SavedStateV22 generated {};
                 std::memcpy(&generated, generatedOutput.bytes.data(), sizeof(generated));
                 ok = generated.sourceMode == 0u
                     && generated.params.codecMode == s3g::PsdRawFieldCodecMode::ModemFsk
@@ -1358,15 +1656,50 @@ int main(int argc, char** argv)
                     && generated.params.modEnvelope1 == 1u
                     && generated.params.modEnvelope2 == 0u
                     && generated.params.modEnvelope3 == 1u
-                    && generated.params.modulationEnabled == 0u;
+                    && generated.params.modulationEnabled == 0u
+                    && generated.params.bassReceiver == s3g::PsdRawFieldBassReceiver::Error
+                    && std::abs(generated.params.bassBody - 0.76f) < 1.0e-6f
+                    && std::abs(generated.params.bassPunch - 0.42f) < 1.0e-6f
+                    && std::abs(generated.params.bassTrace - 0.31f) < 1.0e-6f
+                    && generated.params.bassPitchTracking
+                        == s3g::PsdRawFieldPitchTracking::BodyAndScan
+                    && std::abs(generated.params.bassGlide - 0.27f) < 1.0e-6f
+                    && generated.params.bassOctave == s3g::PsdRawFieldBassOctave::MinusTwo
+                    && std::abs(generated.params.bassLowWidth - 0.18f) < 1.0e-6f;
+            }
+            if (ok) {
+                MemoryInput roundTripInput {
+                    generatedOutput.bytes.data(), generatedOutput.bytes.size(), 0u
+                };
+                clap_istream_t roundTripStream { &roundTripInput, streamRead };
+                ok = stateExtension->load(plugin, &roundTripStream);
+                MemoryOutput roundTripOutput;
+                clap_ostream_t roundTripSave { &roundTripOutput, streamWrite };
+                ok = ok && stateExtension->save(plugin, &roundTripSave)
+                    && roundTripOutput.bytes.size() == sizeof(SavedStateV22);
+                if (ok) {
+                    SavedStateV22 roundTripped {};
+                    std::memcpy(&roundTripped, roundTripOutput.bytes.data(), sizeof(roundTripped));
+                    ok = roundTripped.version == 22u
+                        && roundTripped.params.bassReceiver == s3g::PsdRawFieldBassReceiver::Error
+                        && std::abs(roundTripped.params.bassBody - 0.76f) < 1.0e-6f
+                        && std::abs(roundTripped.params.bassPunch - 0.42f) < 1.0e-6f
+                        && std::abs(roundTripped.params.bassTrace - 0.31f) < 1.0e-6f
+                        && roundTripped.params.bassPitchTracking
+                            == s3g::PsdRawFieldPitchTracking::BodyAndScan
+                        && std::abs(roundTripped.params.bassGlide - 0.27f) < 1.0e-6f
+                        && roundTripped.params.bassOctave
+                            == s3g::PsdRawFieldBassOctave::MinusTwo
+                        && std::abs(roundTripped.params.bassLowWidth - 0.18f) < 1.0e-6f;
+                }
             }
         }
         if (!ok) std::cerr << "Fault GEN FIELD did not latch the selected codec profile\n";
         if (ok) {
             constexpr const char* expectedPresetNames[] {
-                "INIT", "SLOW CLOCK", "CODEC SCAR", "FIELD DIVERGE", "GATED BREAKS",
-                "SYNC GLASS", "MU DUST", "DELTA STAIRS", "ADPCM FEEDBACK",
-                "MORSE CHOIR", "SPARK EMBERS", "WIDE FAX", "WAVE TRACE",
+                "INIT", "SUB CLOCK", "SCAR DRUM", "FAX BODY", "GATED BREAKS",
+                "SYNC METAL", "BAUDOT DRUM", "DELTA KNOCK", "ADPCM SUB",
+                "MORSE BODY", "SPARK IMPACT", "WIDE FAX BASS", "WAVE TRACE",
             };
             constexpr s3g::PsdRawFieldModAlgorithm expectedAlgorithms[] {
                 s3g::PsdRawFieldModAlgorithm::Broadcast,
@@ -1393,9 +1726,9 @@ int main(int argc, char** argv)
                         preset, presetText, sizeof(presetText))
                     && std::strcmp(presetText, expectedPresetNames[preset]) == 0
                     && stateExtension->save(plugin, &presetStream)
-                    && presetOutput.bytes.size() == sizeof(SavedStateV21);
+                    && presetOutput.bytes.size() == sizeof(SavedStateV22);
                 if (!ok) break;
-                SavedStateV21 savedPreset {};
+                SavedStateV22 savedPreset {};
                 std::memcpy(&savedPreset, presetOutput.bytes.data(), sizeof(savedPreset));
                 constexpr uint32_t presetFrames = 1024u;
                 std::array<std::array<float, presetFrames>, kChannels> presetAudio {};
@@ -1429,7 +1762,15 @@ int main(int argc, char** argv)
                         && savedPreset.params.modEnvelope1 == 0u
                         && savedPreset.params.modEnvelope2 == 0u
                         && savedPreset.params.modEnvelope3 == 0u
-                        && savedPreset.params.modulationEnabled == 1u;
+                        && savedPreset.params.modulationEnabled == 1u
+                        && savedPreset.params.bassReceiver == s3g::PsdRawFieldBassReceiver::Direct
+                        && savedPreset.params.bassBody == 0.0f
+                        && savedPreset.params.bassPunch == 0.0f
+                        && savedPreset.params.bassTrace == 0.62f
+                        && savedPreset.params.bassPitchTracking == s3g::PsdRawFieldPitchTracking::Scan
+                        && savedPreset.params.bassGlide == 0.0f
+                        && savedPreset.params.bassOctave == s3g::PsdRawFieldBassOctave::MinusOne
+                        && savedPreset.params.bassLowWidth == 1.0f;
                     continue;
                 }
                 const uint32_t source = static_cast<uint32_t>(savedPreset.params.modSource);
@@ -1439,6 +1780,18 @@ int main(int argc, char** argv)
                 const uint32_t target2 = static_cast<uint32_t>(savedPreset.params.modTarget2);
                 const uint32_t target3 = static_cast<uint32_t>(savedPreset.params.modTarget3);
                 const uint32_t algorithm = static_cast<uint32_t>(savedPreset.params.modAlgorithm);
+                const auto curatedDestination = [](s3g::PsdRawFieldModTarget destination) {
+                    return destination == s3g::PsdRawFieldModTarget::Body
+                        || destination == s3g::PsdRawFieldModTarget::Ring
+                        || destination == s3g::PsdRawFieldModTarget::Strike
+                        || destination == s3g::PsdRawFieldModTarget::Fold
+                        || destination == s3g::PsdRawFieldModTarget::Scan;
+                };
+                const auto destructiveDestination = [](s3g::PsdRawFieldModTarget destination) {
+                    return destination == s3g::PsdRawFieldModTarget::Deviation
+                        || destination == s3g::PsdRawFieldModTarget::Data
+                        || destination == s3g::PsdRawFieldModTarget::Damage;
+                };
                 ok = savedPreset.selectedPreset == preset
                     && source > 0u && source < s3g::kPsdRawFieldModSourceCount
                     && source2 > 0u && source2 < s3g::kPsdRawFieldModSourceCount
@@ -1462,45 +1815,129 @@ int main(int argc, char** argv)
                             || savedPreset.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Transcode ? 1u : 0u)
                     && savedPreset.params.modEnvelope2 == 1u
                     && savedPreset.params.modEnvelope3 == 1u
-                    && savedPreset.params.modulationEnabled == 1u;
+                    && savedPreset.params.modulationEnabled == 1u
+                    && savedPreset.params.modSource != s3g::PsdRawFieldModSource::Noise
+                    && savedPreset.params.modSource2 != s3g::PsdRawFieldModSource::Noise
+                    && savedPreset.params.modSource3 != s3g::PsdRawFieldModSource::Noise
+                    && (curatedDestination(savedPreset.params.modTarget)
+                        || curatedDestination(savedPreset.params.modTarget2)
+                        || curatedDestination(savedPreset.params.modTarget3))
+                    && !destructiveDestination(savedPreset.params.modTarget)
+                    && !destructiveDestination(savedPreset.params.modTarget2)
+                    && !destructiveDestination(savedPreset.params.modTarget3)
+                    && savedPreset.params.texture <= 0.46f
+                    && savedPreset.params.chaos <= 0.40f
+                    && savedPreset.params.fold <= 0.34f
+                    && savedPreset.params.codecDamage <= 0.24f
+                    && savedPreset.params.shred <= 0.20f
+                    && static_cast<uint32_t>(savedPreset.params.bassReceiver)
+                        < s3g::kPsdRawFieldBassReceiverCount
+                    && savedPreset.params.bassBody >= 0.42f
+                    && savedPreset.params.bassBody <= 0.88f
+                    && savedPreset.params.bassPunch >= 0.15f
+                    && savedPreset.params.bassPunch <= 0.92f
+                    && savedPreset.params.bassTrace >= 0.22f
+                    && savedPreset.params.bassTrace <= 0.72f
+                    && savedPreset.params.bassPitchTracking
+                        != s3g::PsdRawFieldPitchTracking::Scan
+                    && savedPreset.params.bassGlide <= 0.28f
+                    && savedPreset.params.bassOctave
+                        != s3g::PsdRawFieldBassOctave::Unison
+                    && savedPreset.params.bassLowWidth >= 0.03f
+                    && savedPreset.params.bassLowWidth <= 0.45f;
                 if (ok) ++algorithmCounts[algorithm];
             }
             for (uint32_t count : algorithmCounts) ok = ok && count == 2u;
             if (!ok) std::cerr << "Fault factory presets did not cover all six algorithms twice\n";
         }
         if (ok) {
-            for (uint32_t iteration = 0u; ok && iteration < 16u; ++iteration) {
-                flushParam(kRandomizePatchParamId,
-                    0.071 + static_cast<double>(iteration) * 0.053);
-                MemoryOutput randomOutput;
-                clap_ostream_t randomStream { &randomOutput, streamWrite };
-                ok = stateExtension->save(plugin, &randomStream)
-                    && randomOutput.bytes.size() == sizeof(SavedStateV21);
-                if (!ok) break;
-                SavedStateV21 randomized {};
-                std::memcpy(&randomized, randomOutput.bytes.data(), sizeof(randomized));
-                const auto& rp = randomized.params;
+            auto targetIndexLimit = [](s3g::PsdRawFieldModTarget target) {
+                switch (target) {
+                case s3g::PsdRawFieldModTarget::Body: return 0.70f;
+                case s3g::PsdRawFieldModTarget::Ring: return 0.62f;
+                case s3g::PsdRawFieldModTarget::Strike: return 0.70f;
+                case s3g::PsdRawFieldModTarget::Fold: return 0.48f;
+                case s3g::PsdRawFieldModTarget::Scan: return 0.28f;
+                case s3g::PsdRawFieldModTarget::Clock:
+                case s3g::PsdRawFieldModTarget::Carrier: return 0.30f;
+                case s3g::PsdRawFieldModTarget::Deviation: return 0.24f;
+                case s3g::PsdRawFieldModTarget::Data:
+                case s3g::PsdRawFieldModTarget::Damage: return 0.22f;
+                case s3g::PsdRawFieldModTarget::Off:
+                default: return 0.68f;
+                }
+            };
+            auto guarded = [&](const s3g::PsdRawFieldParams& rp) {
                 const bool transcode = rp.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Transcode;
-                ok = rp.modSource != s3g::PsdRawFieldModSource::Off
+                const auto safeTarget = [](s3g::PsdRawFieldModTarget target) {
+                    return target != s3g::PsdRawFieldModTarget::Data
+                        && target != s3g::PsdRawFieldModTarget::Damage
+                        && target != s3g::PsdRawFieldModTarget::Deviation;
+                };
+                return rp.modSource != s3g::PsdRawFieldModSource::Off
                     && rp.modSource2 != s3g::PsdRawFieldModSource::Off
                     && rp.modSource3 != s3g::PsdRawFieldModSource::Off
-                    && rp.modIndex >= 0.08f && rp.modIndex <= 0.78f
-                    && rp.modIndex2 >= 0.08f && rp.modIndex2 <= 0.78f
-                    && rp.modIndex3 >= 0.08f && rp.modIndex3 <= 0.78f
-                    && rp.modFeedback <= 0.72f
-                    && rp.modFeedback2 <= 0.72f
-                    && rp.modFeedback3 <= 0.72f
+                    && rp.modIndex >= 0.06f && rp.modIndex <= targetIndexLimit(rp.modTarget)
+                    && rp.modIndex2 >= 0.06f && rp.modIndex2 <= targetIndexLimit(rp.modTarget2)
+                    && rp.modIndex3 >= 0.06f && rp.modIndex3 <= targetIndexLimit(rp.modTarget3)
+                    && rp.modFeedback <= (rp.modSource == s3g::PsdRawFieldModSource::Feedback ? 0.55f : 0.48f)
+                    && rp.modFeedback2 <= (rp.modSource2 == s3g::PsdRawFieldModSource::Feedback ? 0.55f : 0.48f)
+                    && rp.modFeedback3 <= (rp.modSource3 == s3g::PsdRawFieldModSource::Feedback ? 0.55f : 0.48f)
+                    && rp.texture >= 0.16f && rp.texture <= 0.68f
+                    && rp.chaos >= 0.10f && rp.chaos <= 0.62f
+                    && rp.fold >= 0.04f && rp.fold <= 0.52f
+                    && rp.codecDamage <= 0.36f && rp.drive <= 0.78f
+                    && rp.shred >= 0.04f && rp.shred <= 0.42f
+                    && rp.resonance >= 0.16f && rp.resonance <= 0.88f
+                    && static_cast<uint32_t>(rp.bassReceiver)
+                        < s3g::kPsdRawFieldBassReceiverCount
+                    && rp.bassBody >= 0.42f && rp.bassBody <= 0.92f
+                    && rp.bassPunch >= 0.08f && rp.bassPunch <= 0.92f
+                    && rp.bassTrace >= 0.18f && rp.bassTrace <= 0.78f
+                    && rp.bassPitchTracking != s3g::PsdRawFieldPitchTracking::Scan
+                    && rp.bassGlide >= 0.0f && rp.bassGlide <= 0.55f
+                    && rp.bassOctave != s3g::PsdRawFieldBassOctave::Unison
+                    && rp.bassLowWidth >= 0.02f && rp.bassLowWidth <= 0.65f
                     && rp.modulationEnabled == 1u
                     && rp.modEnvelope2 == 1u && rp.modEnvelope3 == 1u
+                    && safeTarget(rp.modTarget) && safeTarget(rp.modTarget2)
+                    && safeTarget(rp.modTarget3)
                     && (transcode
                         ? rp.modTarget == s3g::PsdRawFieldModTarget::Off
                             && rp.modTarget2 == s3g::PsdRawFieldModTarget::Off
-                            && rp.modTarget3 == s3g::PsdRawFieldModTarget::Data
+                            && (rp.modTarget3 == s3g::PsdRawFieldModTarget::Body
+                                || rp.modTarget3 == s3g::PsdRawFieldModTarget::Strike)
                         : rp.modTarget != s3g::PsdRawFieldModTarget::Off
                             && rp.modTarget2 != s3g::PsdRawFieldModTarget::Off
                             && rp.modTarget3 != s3g::PsdRawFieldModTarget::Off);
+            };
+            for (uint32_t iteration = 0u; ok && iteration < 64u; ++iteration) {
+                flushParam(kRandomizePatchParamId,
+                    std::fmod(0.071 + static_cast<double>(iteration) * 0.053, 1.0));
+                MemoryOutput randomOutput;
+                clap_ostream_t randomStream { &randomOutput, streamWrite };
+                ok = stateExtension->save(plugin, &randomStream)
+                    && randomOutput.bytes.size() == sizeof(SavedStateV22);
+                if (!ok) break;
+                SavedStateV22 randomized {};
+                std::memcpy(&randomized, randomOutput.bytes.data(), sizeof(randomized));
+                const auto& rp = randomized.params;
+                ok = guarded(rp);
             }
             if (!ok) std::cerr << "Fault curated random escaped its modulation guardrails\n";
+            for (uint32_t iteration = 0u; ok && iteration < 64u; ++iteration) {
+                flushParam(kMutateParamId,
+                    std::fmod(0.193 + static_cast<double>(iteration) * 0.071, 1.0));
+                MemoryOutput mutateOutput;
+                clap_ostream_t mutateStream { &mutateOutput, streamWrite };
+                ok = stateExtension->save(plugin, &mutateStream)
+                    && mutateOutput.bytes.size() == sizeof(SavedStateV22);
+                if (!ok) break;
+                SavedStateV22 mutated {};
+                std::memcpy(&mutated, mutateOutput.bytes.data(), sizeof(mutated));
+                ok = guarded(mutated.params);
+            }
+            if (!ok) std::cerr << "Fault MUTATE escaped its modulation guardrails\n";
         }
     }
     plugin->destroy(plugin);

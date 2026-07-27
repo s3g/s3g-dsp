@@ -42,7 +42,7 @@
 
         <p>A surface supports up to 24 cells. It remains bypassed until at least two cells exist. Cell positions, assignments, curve, focus, glide, enabled state, and cursor position are stored with the host project.</p>
 
-        <p>The display follows the visual language of s3g-mc Snapshot Surface: smoothly clipped Voronoi regions use a restrained color sequence, outlined boundaries, circular cell nodes, and distance-sensitive influence halos. In <code>PLAY</code> with the surface enabled, participating toolbox sliders and menus visibly follow the effective interpolated state as the cursor moves; <code>EDIT</code> returns those controls to the base state used for capture.</p>
+        <p>The display follows the visual language of s3g-mc Snapshot Surface: smoothly clipped Voronoi regions use a restrained color sequence, outlined boundaries, circular cell nodes, and distance-sensitive influence halos. Cell hue is stable identity, not an ordered parameter value; see <a href="interpreting-color.html#identity">Interpreting Color</a>. In <code>PLAY</code> with the surface enabled, participating toolbox sliders and menus visibly follow the effective interpolated state as the cursor moves; <code>EDIT</code> returns those controls to the base state used for capture.</p>
 
         <p>The macOS <code>POP</code> panel is another view of the same surface, not a copy. Cell edits, play/edit mode, cursor movement, host automation, and interpolated toolbox feedback remain synchronized with the main editor. The panel follows the plugin window and is automatically hidden or destroyed with the CLAP GUI.</p>
 
@@ -99,6 +99,7 @@
         <div class="toc-section">
           <h2>Ambisonics</h2>
           <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
           <a href="listener-mode.html">Listener Mode</a>
           <a href="parameter-surface.html">Parameter Surface</a>
           <a href="ambisonic-encoders.html">Encoders</a>

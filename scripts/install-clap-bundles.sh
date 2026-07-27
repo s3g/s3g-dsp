@@ -127,3 +127,4 @@ copy_bundle "$src_root/clap_spectral_topology_processor/s3g_24ch_spectral_topolo
 copy_bundle "$src_root/clap_shard_scatter/s3g_shard_scatter.clap"
 copy_bundle "$src_root/clap_orbit_delay/s3g_orbit_delay.clap"
 copy_bundle "$src_root/clap_cascade_taps/s3g_cascade_taps.clap"
+copy_bundle "$src_root/clap_crcltr/s3g_crcltr.clap"

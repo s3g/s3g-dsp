@@ -408,13 +408,14 @@ public:
 
     void reset()
     {
-        for (uint32_t ch = 0; ch < channels_; ++ch) {
-            cores_[ch].reset();
-        }
         smoothedSpread_ = params_.spread;
         smoothedDeviation_ = params_.deviation;
         smoothedSkew_ = params_.skew;
         smoothedCenter_ = params_.center;
+        for (uint32_t ch = 0; ch < channels_; ++ch) {
+            cores_[ch].setParams(baseLaneParams(ch));
+            cores_[ch].reset();
+        }
     }
 
     void panic() { reset(); }
@@ -428,36 +429,43 @@ public:
 
     MacroShredParams params() const { return params_; }
 
-    void processFrame(const float* input, float* output)
+    void processFrame(const float* input, float* output,
+        const float* bodyModulation = nullptr,
+        const float* ringModulation = nullptr,
+        const float* strikeModulation = nullptr)
     {
         if (!input || !output || channels_ == 0u) {
             return;
         }
 
         updateRelationshipSmoothing();
-        const float denominator = static_cast<float>(std::max<uint32_t>(1u, channels_ - 1u));
         for (uint32_t ch = 0; ch < channels_; ++ch) {
-            const float u = channels_ > 1u ? static_cast<float>(ch) / denominator : 0.5f;
-            const float centered = channels_ > 1u ? clamp((u - smoothedCenter_) * 2.0f, -1.0f, 1.0f) : 0.0f;
-            const float random = channels_ > 1u ? laneHash(ch) : 0.0f;
-            const float laneDeviation = channels_ > 1u ? smoothedDeviation_ : 0.0f;
+            MacroShredCoreParams lane = baseLaneParams(ch);
 
-            MacroShredCoreParams lane;
-            lane.inputGainDb = params_.inputGainDb;
-            lane.pressure = params_.pressure;
-            lane.shred = params_.shred;
-            lane.feedback = params_.feedback * (1.0f - laneDeviation * 0.06f);
-            lane.color = params_.color;
-            lane.react = params_.react;
-            lane.tune = params_.tune;
-            lane.body = params_.body;
-            lane.mix = params_.mix;
-            lane.outputGainDb = params_.outputGainDb;
-            lane.colorShiftOctaves = centered * smoothedSpread_ * 1.5f
-                + random * laneDeviation * 0.75f
-                + smoothedSkew_ * (u - 0.5f) * 0.75f;
-            lane.intensityTrim = random * laneDeviation * 0.16f
-                + smoothedSkew_ * (u - 0.5f) * 0.24f;
+            const float body = bodyModulation
+                ? clamp(bodyModulation[ch], 0.0f, 1.0f)
+                : 0.0f;
+            const float ring = ringModulation
+                ? clamp(ringModulation[ch], 0.0f, 1.0f)
+                : 0.0f;
+            const float strike = strikeModulation
+                ? clamp(strikeModulation[ch], 0.0f, 1.0f)
+                : 0.0f;
+
+            // BODY pushes the governed feedback delay below the source centroid.
+            // RING opens that loop without exposing its raw gain, and STRIKE
+            // drives the existing transient detector instead of adding a square
+            // or protocol stream directly to the audio path.
+            lane.colorShiftOctaves -= body * 2.0f;
+            lane.tune *= 1.0f - body * 0.92f;
+            lane.body = lerp(lane.body, 0.96f, body);
+            lane.shred *= 1.0f - body * 0.52f;
+            lane.feedback = clamp(lane.feedback + body * 0.12f + ring * 0.62f
+                + strike * 0.10f, 0.0f, 0.92f);
+            lane.color = clamp(lane.color - ring * 0.22f - strike * 0.08f, 0.0f, 1.0f);
+            lane.pressure = clamp(lane.pressure + strike * 0.48f, 0.0f, 1.0f);
+            lane.react = clamp(lane.react + strike * 0.42f, 0.0f, 1.0f);
+            lane.intensityTrim = clamp(lane.intensityTrim + strike * 0.28f, -0.35f, 0.35f);
             cores_[ch].setParams(lane);
             output[ch] = cores_[ch].processSample(input[ch]);
         }
@@ -521,6 +529,35 @@ private:
         x = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
         x = (x >> 22u) ^ x;
         return static_cast<float>(x & 0xffffu) / 32767.5f - 1.0f;
+    }
+
+    MacroShredCoreParams baseLaneParams(uint32_t ch) const
+    {
+        const float denominator = static_cast<float>(std::max<uint32_t>(1u, channels_ - 1u));
+        const float u = channels_ > 1u ? static_cast<float>(ch) / denominator : 0.5f;
+        const float centered = channels_ > 1u
+            ? clamp((u - smoothedCenter_) * 2.0f, -1.0f, 1.0f)
+            : 0.0f;
+        const float random = channels_ > 1u ? laneHash(ch) : 0.0f;
+        const float laneDeviation = channels_ > 1u ? smoothedDeviation_ : 0.0f;
+
+        MacroShredCoreParams lane;
+        lane.inputGainDb = params_.inputGainDb;
+        lane.pressure = params_.pressure;
+        lane.shred = params_.shred;
+        lane.feedback = params_.feedback * (1.0f - laneDeviation * 0.06f);
+        lane.color = params_.color;
+        lane.react = params_.react;
+        lane.tune = params_.tune;
+        lane.body = params_.body;
+        lane.mix = params_.mix;
+        lane.outputGainDb = params_.outputGainDb;
+        lane.colorShiftOctaves = centered * smoothedSpread_ * 1.5f
+            + random * laneDeviation * 0.75f
+            + smoothedSkew_ * (u - 0.5f) * 0.75f;
+        lane.intensityTrim = random * laneDeviation * 0.16f
+            + smoothedSkew_ * (u - 0.5f) * 0.24f;
+        return lane;
     }
 
     void updateRelationshipSmoothing()

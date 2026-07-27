@@ -254,6 +254,71 @@ a:focus-visible {
   margin-bottom: 0;
 }
 
+.color-key {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.color-key-item {
+  min-width: 0;
+  padding: 9px;
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+}
+
+.color-key-item p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.color-chip {
+  display: block;
+  height: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.color-front {
+  background: #e64887;
+}
+
+.color-left {
+  background: #bb8100;
+}
+
+.color-rear {
+  background: #00b091;
+}
+
+.color-right {
+  background: #5f7eff;
+}
+
+.color-ramp {
+  height: 18px;
+  margin-top: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.heat-ramp {
+  background-color: #0a185e;
+  background-image: linear-gradient(90deg, #0a185e 0%, #0a185e 2%, #0092e8 22%, #ffe82a 48%, #ff540c 72%, #ee0000 100%);
+  border-left-color: #0a185e;
+}
+
+.color-ramp-labels {
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0 18px;
+  color: var(--muted);
+  font-family: Menlo, Monaco, "Courier New", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
 .related-links {
   margin: 22px 0;
   padding: 14px 16px;
@@ -483,6 +548,10 @@ a:focus-visible {
   .compact-grid,
   .page-nav {
     grid-template-columns: 1fr;
+  }
+
+  .color-key {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .doc-graphic svg,

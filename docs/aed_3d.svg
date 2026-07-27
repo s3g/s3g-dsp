@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="650" viewBox="0 0 980 650" role="img" aria-labelledby="title desc">
+  <title id="title">Three-dimensional AED coordinate space</title>
+  <desc id="desc">A source point around a listener shows azimuth as the horizontal angle, elevation as the vertical angle, and distance as radial reach. Separate annotations connect these dimensions to OKLCH hue, lightness, and chroma.</desc>
+  <defs>
+    <style>
+      text { font-family: Menlo, Monaco, "Courier New", monospace; }
+      .bg { fill: #080909; }
+      .panel { fill: #111313; stroke: #303636; stroke-width: 1; }
+      .title { fill: #d8ddd8; font-size: 18px; }
+      .panel-title { fill: #d8ddd8; font-size: 14px; }
+      .label { fill: #c6cdc8; font-size: 12px; }
+      .small { fill: #aab3ae; font-size: 10px; }
+      .muted { fill: #7f8a85; font-size: 9px; }
+      .sphere { fill: none; stroke: #8b9892; stroke-width: 1.7; }
+      .sphere-soft { fill: none; stroke: #66726c; stroke-width: 1.2; stroke-dasharray: 4 5; }
+      .axis { fill: none; stroke: #d8ddd8; stroke-width: 1.5; }
+      .guide { fill: none; stroke: #a8b0ac; stroke-width: 1.2; stroke-dasharray: 4 4; }
+      .distance { fill: none; stroke: #e65ea9; stroke-width: 4; }
+      .azimuth { fill: none; stroke: #d0a25c; stroke-width: 3; }
+      .elevation { fill: none; stroke: #8fd5c5; stroke-width: 3; }
+      .note { fill: #171b1a; stroke: #3d4743; stroke-width: 1; }
+      .note-head { fill: #9cdcfe; font-size: 11px; }
+      .note-text { fill: #c6cdc8; font-size: 10px; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#d8ddd8"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="980" height="650"/>
+  <text class="title" x="30" y="36">1 · AED POSITION SPACE</text>
+  <text class="small" x="30" y="56">A source is located by two angles and one radial distance from the listener.</text>
+
+  <rect class="panel" x="28" y="82" width="924" height="522"/>
+  <text class="panel-title" x="48" y="112">AZIMUTH · ELEVATION · DISTANCE</text>
+
+  <!-- Sphere -->
+  <circle class="sphere" cx="335" cy="345" r="205"/>
+  <ellipse class="sphere" cx="335" cy="345" rx="205" ry="72"/>
+  <ellipse class="sphere-soft" cx="335" cy="345" rx="78" ry="205"/>
+  <path class="sphere-soft" d="M142 274C234 316 436 316 528 274"/>
+  <path class="sphere-soft" d="M142 416C234 374 436 374 528 416"/>
+
+  <!-- Axes and landmarks -->
+  <path class="axis" d="M335 566V124" marker-end="url(#arrow)"/>
+  <path class="axis" d="M335 345H566" marker-end="url(#arrow)" opacity="0.72"/>
+  <path class="axis" d="M335 345V257" marker-end="url(#arrow)" opacity="0.72"/>
+  <text class="label" x="354" y="143">+90° ELEVATION</text>
+  <text class="small" x="352" y="564">−90°</text>
+  <text class="small" x="245" y="258">0° FRONT</text>
+  <text class="small" x="536" y="334">−90° RIGHT</text>
+  <text class="small" x="76" y="350">+90° LEFT</text>
+  <text class="small" x="350" y="433">±180° REAR</text>
+
+  <!-- Listener and example source -->
+  <circle cx="335" cy="345" r="8" fill="#d8ddd8" stroke="#080909" stroke-width="2"/>
+  <text class="small" x="350" y="365">LISTENER</text>
+  <path class="distance" d="M335 345L502 188"/>
+  <path class="guide" d="M502 188V295L335 345"/>
+  <path class="azimuth" d="M335 273C390 276 451 284 502 295"/>
+  <path class="elevation" d="M452 311C468 275 485 227 502 188"/>
+  <circle cx="502" cy="188" r="12" fill="#e65ea9" stroke="#f5e8ef" stroke-width="2"/>
+  <text class="label" x="525" y="164">SOURCE P</text>
+  <text class="small" x="525" y="184">a = −30°</text>
+  <text class="small" x="525" y="201">e = +35°</text>
+  <text class="small" x="525" y="218">d = 0.72</text>
+  <text x="401" y="302" fill="#d0a25c" font-size="13">a</text>
+  <text x="490" y="258" fill="#8fd5c5" font-size="13">e</text>
+  <text x="407" y="263" fill="#e65ea9" font-size="13">d</text>
+
+  <!-- Separate annotations -->
+  <rect class="note" x="650" y="154" width="264" height="102"/>
+  <text class="note-head" x="670" y="181">AZIMUTH a</text>
+  <text class="note-text" x="670" y="204">horizontal angle around listener</text>
+  <text class="note-text" x="670" y="226">maps to OKLCH hue angle h</text>
+
+  <rect class="note" x="650" y="278" width="264" height="102"/>
+  <text class="note-head" x="670" y="305">ELEVATION e</text>
+  <text class="note-text" x="670" y="328">vertical angle above or below</text>
+  <text class="note-text" x="670" y="350">maps to OKLCH lightness L</text>
+
+  <rect class="note" x="650" y="402" width="264" height="102"/>
+  <text class="note-head" x="670" y="429">DISTANCE d</text>
+  <text class="note-text" x="670" y="452">radial reach from the listener</text>
+  <text class="note-text" x="670" y="474">maps to OKLCH chroma C</text>
+
+  <text class="muted" x="48" y="582">The camera may rotate the drawing, but it does not change the source AED coordinates or derived color.</text>
+</svg>

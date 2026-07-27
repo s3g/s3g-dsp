@@ -100,6 +100,7 @@ bundles=(
   "$src_root/clap_shard_scatter/s3g_shard_scatter.clap"
   "$src_root/clap_orbit_delay/s3g_orbit_delay.clap"
   "$src_root/clap_cascade_taps/s3g_cascade_taps.clap"
+  "$src_root/clap_crcltr/s3g_crcltr.clap"
 )
 bundle_count="${#bundles[@]}"
 
@@ -234,6 +235,7 @@ Included plugins ($bundle_count bundles):
 - s3g Effect Shard Scatter
 - s3g Effect Orbit Delay
 - s3g Effect Cascade Taps
+- s3g Effect CRCLTR
 
 Docs:
 

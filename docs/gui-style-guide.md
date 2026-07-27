@@ -353,6 +353,8 @@ Speaker decoder views are spatial infrastructure, not physics instruments:
   `0` degrees at red and wrapping like a color wheel, lightness follows
   elevation, and chroma follows distance. Keep chroma restrained so color
   carries meaning without breaking the grayscale UI.
+- Keep the reader-facing mapping and all deliberate plugin exceptions current
+  in `docs/interpreting-color.html` whenever a new semantic palette is added.
 - Draw nearest-neighbor links as a quiet analysis overlay behind spatial
   points. These links show geometric proximity and should not imply audio
   routing unless the plugin explicitly uses them for DSP.

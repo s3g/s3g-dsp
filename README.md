@@ -31,7 +31,8 @@ Plugin areas:
 - [Multichannel](https://s3g.github.io/s3g-dsp/multichannel.html):
   [effects](https://s3g.github.io/s3g-dsp/multichannel-effects.html),
   fold-down, metering, direct panning, matrix and node mixing, and speaker
-  calibration for ordinary channel lanes.
+  calibration for ordinary channel lanes, plus the stereo
+  [CRCLTR](https://s3g.github.io/s3g-dsp/crcltr.html) Versio-derived looper.
 - [Ambisonics](https://s3g.github.io/s3g-dsp/ambisonics.html): separate
   [encoders](https://s3g.github.io/s3g-dsp/ambisonic-encoders.html),
   [decoders](https://s3g.github.io/s3g-dsp/ambisonic-decoders.html),
@@ -182,7 +183,7 @@ Create the local pre-release zip after a complete CLAP build with:
 ./scripts/package-macos-clap-prerelease.sh
 ```
 
-The package contains 88 CLAP bundles, the VOT wavetable library, the Ambi Vox
+The package contains 89 CLAP bundles, the VOT wavetable library, the Ambi Vox
 demo voicebank, and the applicable license notices. The packaging script
 ad-hoc signs and strictly verifies every bundle by default. Set
 `S3G_CODESIGN_IDENTITY` to use a different macOS signing identity; notarization
@@ -194,6 +195,7 @@ The local smoke executables exercise shared DSP code:
 
 ```sh
 ./build/s3g_dsp_smoke
+./build/s3g_crcltr_smoke
 ./build/s3g_ambi_effect_displacement_smoke
 ./build/s3g_ambi_imprint_safety_smoke
 ./build/s3g_ambi_ray_encoder_smoke
@@ -204,6 +206,14 @@ The local smoke executables exercise shared DSP code:
 ./build/s3g_parameter_surface_smoke
 ./build/s3g_psd_raw_field_smoke
 ./build/s3g_psd_raw_field_parameter_audit
+```
+
+The CRCLTR CLAP boundary test records and plays a loop through the loaded
+bundle:
+
+```sh
+./build-clap/s3g_crcltr_clap_smoke \
+  ./build-clap/plugins/clap_crcltr/s3g_crcltr.clap
 ```
 
 The smoke tests cover multichannel routing, loop playback, finite output,
