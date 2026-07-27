@@ -402,6 +402,49 @@ int main(int argc, char** argv)
             ok = ok && foundScale;
         }
 
+        if (ok && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-effect-dj-filter-64") == 0) {
+            bool foundBody = false;
+            const uint32_t parameterCount = params->count(plugin);
+            for (uint32_t index = 0u; index < parameterCount; ++index) {
+                clap_param_info_t info {};
+                if (!params->get_info(plugin, index, &info)) {
+                    ok = false;
+                    break;
+                }
+                if (std::strcmp(info.name, "Auditory body") != 0) continue;
+                SingleParamEventInput event {};
+                double reported = -1.0;
+                char text[32] {};
+                foundBody = params->flush
+                    && (info.flags & CLAP_PARAM_IS_STEPPED) != 0u
+                    && info.min_value == 0.0
+                    && info.max_value == 5.0;
+                if (foundBody) {
+                    setSingleParamEvent(event, info.id, 4.0);
+                    params->flush(plugin, &event.events, nullptr);
+                    foundBody = params->get_value(
+                            plugin, info.id, &reported)
+                        && reported == 4.0
+                        && params->value_to_text(
+                            plugin, info.id, reported, text, sizeof(text))
+                        && std::strcmp(text, "DODECA 20") == 0;
+                }
+                if (foundBody) {
+                    setSingleParamEvent(event, info.id, 5.0);
+                    params->flush(plugin, &event.events, nullptr);
+                    foundBody = params->get_value(
+                            plugin, info.id, &reported)
+                        && reported == 5.0
+                        && params->value_to_text(
+                            plugin, info.id, reported, text, sizeof(text))
+                        && std::strcmp(text, "SPHERE 24") == 0;
+                }
+                break;
+            }
+            ok = ok && foundBody;
+        }
+
         if (ok) failureStage = "GUI API";
         const auto* gui = static_cast<const clap_plugin_gui_t*>(
             plugin->get_extension(plugin, CLAP_EXT_GUI));

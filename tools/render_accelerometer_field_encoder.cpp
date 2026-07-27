@@ -98,8 +98,8 @@ int main(int argc, char** argv)
 {
     if (argc < 2 || std::string(argv[1]) == "--list") {
         std::cout << "Usage: s3g_accelerometer_field_encoder_render "
-                     "OUTPUT.wav [PRESET 0-11] [SECONDS] [hoa|raw] [ORDER 1-3]\n"
-                     "Default: third-order ACN/SN3D. Raw writes eight sensor stems.\n\n";
+                     "OUTPUT.wav [PRESET 0-12] [SECONDS] [hoa|raw] [ORDER 1-3]\n"
+                     "Default: third-order ACN/SN3D. Raw writes eight radiation-point stems.\n\n";
         printPresets();
         return argc < 2 ? 1 : 0;
     }
@@ -151,6 +151,6 @@ int main(int argc, char** argv)
     std::cout << "Rendered "
               << s3g::accelerometerFieldFactoryPresetInfo(preset).name
               << " to " << argv[1] << " (" << channels << " channels, "
-              << (raw ? "sensor stems" : "ACN/SN3D") << ")\n";
+              << (raw ? "radiation stems" : "ACN/SN3D") << ")\n";
     return 0;
 }

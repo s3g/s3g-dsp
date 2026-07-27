@@ -32,7 +32,7 @@ bundles=(
   "$src_root/clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder.clap"
   "$src_root/clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder.clap"
   "$src_root/clap_ambi_insect_encoder/s3g_ambi_insect_encoder.clap"
-  "$src_root/clap_accelerometer_field_encoder/s3g_accelerometer_field_encoder.clap"
+  "$src_root/clap_accelerometer_field_encoder/s3g_ambi_encoder_modal.clap"
   "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"
   "$src_root/clap_ambi_ray_encoder/s3g_ambi_ray_encoder.clap"
   "$src_root/clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder.clap"
@@ -166,7 +166,7 @@ Included plugins ($bundle_count bundles):
 - s3g Ambi Encoder Pyrosphere 64
 - s3g Ambi Encoder Cryosphere 64
 - s3g Ambi Encoder Insect 64
-- s3g Ambi Encoder Accelerometer Field 16
+- s3g Ambi Encoder Modal 16
 - s3g Processor Ambi Imprint 64ch
 - s3g Ambi Encoder Ray
 - s3g Ambi Encoder Ray Bilocation

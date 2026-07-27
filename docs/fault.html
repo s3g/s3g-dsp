@@ -30,7 +30,7 @@
 
         <p>Raw-data scanning reads bytes as a moving waveform, while stochastic breakpoint geometry connects selected values with evolving curves. The codec section then introduces prediction errors, quantization, missing blocks, or damaged reconstruction as sound-generating processes rather than as file-format emulation.</p>
 
-        <p>The native editor uses a compact 1356-by-720 layout with two upper pages. <code>SOUND</code> keeps the field, codec, a large FM-style algorithm chart, and concise M1/M2/M3 route summaries together for fast patch decisions. <code>MOD LAB</code> gives each operator a complete card without making the primary page wider or taller. Patch controls, performance state, and the envelope editor remain in one shared lower strip. Hosts may reduce the responsive viewport and use its scroll access without rescaling control hit areas.</p>
+        <p>The native editor uses a compact 1356-by-720 layout with two upper pages. <code>SOUND</code> keeps the field, codec, a large FM-style algorithm chart, and concise M1/M2/M3 route summaries together for fast patch decisions. <code>MOD LAB</code> gives each operator a complete card without making the primary page wider or taller. An always-visible <code>MOD ON</code>/<code>MOD OFF</code> button bypasses the complete graph from either page. Patch controls, performance state, and the envelope editor remain in one shared lower strip. Hosts may reduce the responsive viewport and use its scroll access without rescaling control hit areas.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -163,6 +163,7 @@
             <tr><th>Control</th><th>Meaning</th></tr>
           </thead>
           <tbody>
+            <tr><td>MOD ON / MOD OFF</td><td>Globally enables or bypasses all three operators and their interactions with a short transition. Bypass retains every source, destination, algorithm, index, feedback, clock, and envelope setting for immediate A/B comparison; the chart displays <code>MODULATION BYPASSED</code> while it is off. The switch is automatable and stored with the patch.</td></tr>
             <tr><td>CURATED CIRCUIT</td><td>On the <code>SOUND</code> page, selects one of the six graphs and loads a proven source, destination, timing, depth, feedback, and envelope recipe for it. Two variations per algorithm are selected repeatably from the patch seed.</td></tr>
             <tr><td>ALGORITHM</td><td>On <code>MOD LAB</code>, selects one of the six three-operator stacking graphs shown above without rewriting the operator controls. It controls how the operators influence one another, not where they must go.</td></tr>
             <tr><td>M1/M2/M3 DEST</td><td>Selects each operator's destination independently. <code>CARRIER</code> bends the transmission center, <code>DEVIATION</code> expands distances around it, <code>CLOCK</code> warps codec and raster timing, <code>DATA</code> writes into the pre-codec signal, <code>DAMAGE</code> becomes a moving error probability, and <code>OFF</code> disconnects the result while retaining its role inside a stack.</td></tr>

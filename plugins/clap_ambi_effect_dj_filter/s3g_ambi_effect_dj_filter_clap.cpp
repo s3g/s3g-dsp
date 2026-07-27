@@ -268,7 +268,7 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         break;
     case kParamBody:
         plugin.params.body = static_cast<s3g::AmbiEffectBody>(
-            std::min<uint32_t>(roundedUint(value), 3u));
+            std::min<uint32_t>(roundedUint(value), 5u));
         break;
     case kParamTopology:
         plugin.params.topology = static_cast<s3g::AmbiEffectTopology>(

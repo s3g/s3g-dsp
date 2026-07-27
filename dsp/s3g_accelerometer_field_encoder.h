@@ -12,7 +12,7 @@
 namespace s3g {
 
 constexpr uint32_t kAccelerometerFieldModeCount = 24u;
-constexpr uint32_t kAccelerometerFieldPresetCount = 12u;
+constexpr uint32_t kAccelerometerFieldPresetCount = 13u;
 constexpr uint32_t kAccelerometerFieldSensorCount = 8u;
 constexpr uint32_t kAccelerometerFieldMaxOrder = 3u;
 constexpr uint32_t kAccelerometerFieldMaxChannels = 16u;
@@ -36,6 +36,9 @@ enum class AccelerometerSubstrate : uint32_t {
     PaperCardboard,
     ShellChitin,
     PolymerMembrane,
+    GongAgeng,
+    Jing,
+    Kkwaenggwari,
     Count,
 };
 
@@ -57,8 +60,8 @@ enum class AccelerometerReadout : uint32_t {
 };
 
 struct AccelerometerFieldParams {
-    AccelerometerSubstrate substrate = AccelerometerSubstrate::Leaf;
-    AccelerometerExcitation excitation = AccelerometerExcitation::Footsteps;
+    AccelerometerSubstrate substrate = AccelerometerSubstrate::GongAgeng;
+    AccelerometerExcitation excitation = AccelerometerExcitation::Tap;
     AccelerometerReadout readout = AccelerometerReadout::Acceleration;
 
     float eventRateHz = 2.4f;
@@ -99,6 +102,12 @@ struct AccelerometerFieldParams {
     float fieldListenAmount = 0.62f;
     AmbiFieldListenerResponse fieldListenResponse =
         AmbiFieldListenerResponse::Excite;
+
+    // Coupling animates close modal families with synchronized AM/FM. Energy
+    // approximates the bounded pitch relaxation and delayed high-mode buildup
+    // of a nonlinear plate without placing an FDTD solver in the audio path.
+    float coupling = 0.28f;
+    float energy = 0.24f;
 };
 
 struct AccelerometerFieldPresetInfo {
@@ -162,6 +171,8 @@ inline AccelerometerFieldParams sanitizeAccelerometerFieldParams(
         params.fieldListenAmount, 0.62f, 0.0f, 1.0f);
     params.fieldListenResponse = sanitizeAmbiFieldListenerResponse(
         params.fieldListenResponse);
+    params.coupling = finite(params.coupling, 0.28f, 0.0f, 1.0f);
+    params.energy = finite(params.energy, 0.24f, 0.0f, 1.0f);
     return params;
 }
 
@@ -188,18 +199,19 @@ accelerometerFieldFactoryPresetInfo(uint32_t index)
 {
     static constexpr std::array<AccelerometerFieldPresetInfo,
         kAccelerometerFieldPresetCount> info {{
-        { "Silent Bronze", "Environmental energy discloses long bell modes." },
-        { "Bell Works", "Distant construction-like impacts enter a bronze body." },
-        { "Leaf Footfalls", "Small paired contacts travel across a damped leaf." },
-        { "Caterpillar Chew", "Soft closures pull irregular fibers from a leaf edge." },
-        { "Petiole Duet", "Low tremulation bends a plant stem past one pickup axis." },
-        { "Web Plucks", "Sparse contacts expose a dispersive tensioned filament." },
-        { "Wood Grain", "Friction reveals short anisotropic wooden modes." },
-        { "Glass Dust", "Minute hard impacts wake long, bright glass modes." },
-        { "Dry Leaf Skitter", "Brittle veins scatter quick contacts across a dry leaf." },
-        { "Cardboard Fibres", "Friction crosses lossy paper layers and corrugations." },
-        { "Chitin Ticks", "Small hard contacts activate a light curved shell." },
-        { "Film Rain", "Paired droplets travel across a tensioned polymer membrane." },
+        { "Gong Ageng", "Coupled rumble and ding clusters unfold across a great gong." },
+        { "Silent Bronze", "Ambient energy discloses long bronze modes." },
+        { "Temple Bronze", "Measured strikes wake a poised bronze bell field." },
+        { "Double Mallet", "Paired mallet contacts cross the gong face." },
+        { "Mallet Roll", "Dense articulated strokes accumulate into a bronze cloud." },
+        { "Bowed Rim", "Continuous rim friction sustains shifting modal families." },
+        { "Kkwaenggwari Lead", "A small Korean hand gong cuts an agile rhythmic line." },
+        { "Bronze Scrape", "Granular friction travels across the gong surface." },
+        { "Bright Boss", "Hard boss strikes launch a focused upper bloom." },
+        { "Muted Bloom", "Soft paired strokes rise through a damped field." },
+        { "Jing Wind", "A large Korean gong bends and beats around slow strokes." },
+        { "Kkwaenggwari Chae", "Bright stick attacks articulate a compact hand gong." },
+        { "Jing Ceremony", "Widely spaced jing strokes breathe through the full field." },
     }};
     return info[std::min<uint32_t>(
         index, kAccelerometerFieldPresetCount - 1u)];
@@ -208,11 +220,50 @@ accelerometerFieldFactoryPresetInfo(uint32_t index)
 inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
     uint32_t index)
 {
+    const uint32_t preset = std::min<uint32_t>(
+        index, kAccelerometerFieldPresetCount - 1u);
     AccelerometerFieldParams params;
-    params.seed = kAccelerometerFieldDefaultSeed + index * 0x9e3779b9u;
-    switch (std::min<uint32_t>(
-        index, kAccelerometerFieldPresetCount - 1u)) {
-    case 0u:
+    params.substrate = AccelerometerSubstrate::GongAgeng;
+    params.excitation = AccelerometerExcitation::Tap;
+    params.readout = AccelerometerReadout::Acceleration;
+    params.eventRateHz = 0.18f;
+    params.activity = 0.78f;
+    params.force = 0.62f;
+    params.texture = 0.12f;
+    params.ambientDrive = 0.012f;
+    params.externalDrive = 0.0f;
+    params.size = 0.50f;
+    params.damping = 0.08f;
+    params.irregularity = 0.025f;
+    params.propagationLoss = 0.16f;
+    params.contactDetail = 0.055f;
+    params.sourcePosition = 0.43f;
+    params.pickupPosition = 0.50f;
+    params.arraySpread = 0.94f;
+    params.pickupAxis = 0.34f;
+    params.sensorMass = 0.01f;
+    params.mountStiffness = 0.90f;
+    params.conditionerHighpassHz = 0.50f;
+    params.sensorNoise = 0.005f;
+    params.airRadiation = 0.24f;
+    params.ambisonicOrder = 3u;
+    params.outputMode = AccelerometerFieldOutputMode::Ambisonic;
+    params.contactRadiation = 0.52f;
+    params.spatialExtent = 0.90f;
+    params.fieldAzimuthDeg = 0.0f;
+    params.fieldElevationDeg = 0.0f;
+    params.outputGainDb = -11.0f;
+    params.seed = kAccelerometerFieldDefaultSeed + preset * 0x9e3779b9u;
+    params.fieldListenMode = AmbiFieldListenMode::Off;
+    params.fieldListenAmount = 0.62f;
+    params.fieldListenResponse = AmbiFieldListenerResponse::Excite;
+    params.coupling = 0.72f;
+    params.energy = 0.64f;
+
+    switch (preset) {
+    case 0u: // Gong Ageng reference
+        break;
+    case 1u: // Silent Bronze
         params.substrate = AccelerometerSubstrate::BellBronze;
         params.excitation = AccelerometerExcitation::Ambient;
         params.eventRateHz = 0.11f;
@@ -227,264 +278,206 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
         params.sourcePosition = 0.12f;
         params.pickupPosition = 0.63f;
         params.pickupAxis = 0.18f;
-        params.sensorMass = 0.02f;
-        params.mountStiffness = 0.94f;
-        params.sensorNoise = 0.035f;
-        params.airRadiation = 0.04f;
-        params.outputGainDb = -4.0f;
+        params.airRadiation = 0.08f;
+        params.outputGainDb = -8.0f;
+        params.coupling = 0.54f;
+        params.energy = 0.18f;
         break;
-    case 1u:
+    case 2u: // Temple Bronze
         params.substrate = AccelerometerSubstrate::BellBronze;
-        params.excitation = AccelerometerExcitation::Tap;
         params.eventRateHz = 0.42f;
-        params.activity = 0.78f;
+        params.activity = 0.72f;
         params.force = 0.46f;
-        params.texture = 0.62f;
-        params.ambientDrive = 0.22f;
+        params.texture = 0.58f;
+        params.ambientDrive = 0.12f;
         params.size = 0.68f;
         params.damping = 0.18f;
         params.irregularity = 0.16f;
-        params.contactDetail = 0.03f;
-        params.sourcePosition = 0.86f;
-        params.pickupPosition = 0.21f;
+        params.sourcePosition = 0.82f;
+        params.pickupPosition = 0.24f;
         params.pickupAxis = 0.74f;
-        params.sensorMass = 0.025f;
-        params.mountStiffness = 0.96f;
-        params.airRadiation = 0.12f;
-        params.outputGainDb = -8.0f;
+        params.outputGainDb = -10.0f;
+        params.coupling = 0.46f;
+        params.energy = 0.40f;
         break;
-    case 2u:
-        params.substrate = AccelerometerSubstrate::Leaf;
+    case 3u: // Double Mallet
         params.excitation = AccelerometerExcitation::Footsteps;
-        params.eventRateHz = 2.8f;
-        params.activity = 0.76f;
-        params.force = 0.42f;
-        params.texture = 0.48f;
-        params.ambientDrive = 0.16f;
-        params.size = 0.58f;
-        params.damping = 0.56f;
-        params.irregularity = 0.34f;
-        params.propagationLoss = 0.46f;
-        params.contactDetail = 0.32f;
-        params.sourcePosition = 0.78f;
-        params.pickupPosition = 0.20f;
-        params.arraySpread = 0.46f;
-        params.pickupAxis = 0.30f;
-        params.sensorMass = 0.20f;
-        params.mountStiffness = 0.64f;
-        params.conditionerHighpassHz = 8.0f;
-        params.airRadiation = 0.07f;
-        params.outputGainDb = 8.0f;
-        break;
-    case 3u:
-        params.substrate = AccelerometerSubstrate::Leaf;
-        params.excitation = AccelerometerExcitation::Chewing;
-        params.eventRateHz = 4.1f;
-        params.activity = 0.94f;
+        params.eventRateHz = 1.35f;
+        params.activity = 0.74f;
         params.force = 0.52f;
-        params.texture = 0.90f;
-        params.ambientDrive = 0.055f;
-        params.size = 0.45f;
-        params.damping = 0.78f;
-        params.irregularity = 0.72f;
-        params.propagationLoss = 0.42f;
-        params.contactDetail = 0.92f;
-        params.sourcePosition = 0.70f;
-        params.pickupPosition = 0.32f;
-        params.arraySpread = 0.58f;
-        params.pickupAxis = 0.58f;
-        params.sensorMass = 0.14f;
-        params.mountStiffness = 0.70f;
-        params.conditionerHighpassHz = 12.0f;
-        params.sensorNoise = 0.018f;
-        params.airRadiation = 0.035f;
-        params.outputGainDb = 8.0f;
+        params.texture = 0.34f;
+        params.ambientDrive = 0.04f;
+        params.sourcePosition = 0.72f;
+        params.pickupPosition = 0.30f;
+        params.arraySpread = 0.78f;
+        params.outputGainDb = -13.0f;
+        params.coupling = 0.68f;
+        params.energy = 0.54f;
         break;
-    case 4u:
-        params.substrate = AccelerometerSubstrate::Stem;
+    case 4u: // Mallet Roll
+        params.excitation = AccelerometerExcitation::Chewing;
+        params.eventRateHz = 4.4f;
+        params.activity = 0.86f;
+        params.force = 0.34f;
+        params.texture = 0.76f;
+        params.ambientDrive = 0.025f;
+        params.damping = 0.22f;
+        params.irregularity = 0.18f;
+        params.contactDetail = 0.48f;
+        params.sourcePosition = 0.66f;
+        params.pickupPosition = 0.38f;
+        params.outputGainDb = -15.0f;
+        params.coupling = 0.58f;
+        params.energy = 0.42f;
+        break;
+    case 5u: // Bowed Rim
         params.excitation = AccelerometerExcitation::Tremulation;
-        params.eventRateHz = 0.72f;
-        params.activity = 0.70f;
-        params.force = 0.56f;
-        params.texture = 0.26f;
+        params.eventRateHz = 0.62f;
+        params.activity = 0.82f;
+        params.force = 0.44f;
+        params.texture = 0.28f;
         params.ambientDrive = 0.08f;
-        params.size = 0.70f;
-        params.damping = 0.38f;
-        params.irregularity = 0.22f;
-        params.propagationLoss = 0.28f;
+        params.size = 0.60f;
+        params.damping = 0.28f;
+        params.irregularity = 0.12f;
         params.contactDetail = 0.18f;
-        params.sourcePosition = 0.88f;
-        params.pickupPosition = 0.34f;
-        params.pickupAxis = 0.90f;
-        params.sensorMass = 0.10f;
-        params.mountStiffness = 0.78f;
-        params.conditionerHighpassHz = 2.0f;
-        params.airRadiation = 0.025f;
-        params.outputGainDb = -2.0f;
+        params.sourcePosition = 0.92f;
+        params.pickupAxis = 0.88f;
+        params.contactRadiation = 0.38f;
+        params.outputGainDb = -13.0f;
+        params.coupling = 0.82f;
+        params.energy = 0.30f;
         break;
-    case 5u:
-        params.substrate = AccelerometerSubstrate::Wire;
-        params.excitation = AccelerometerExcitation::Tap;
-        params.eventRateHz = 1.15f;
+    case 6u: // Kkwaenggwari Lead
+        params.substrate = AccelerometerSubstrate::Kkwaenggwari;
+        params.eventRateHz = 0.84f;
+        params.activity = 0.68f;
+        params.force = 0.40f;
+        params.texture = 0.68f;
+        params.ambientDrive = 0.05f;
+        params.size = 0.40f;
+        params.damping = 0.26f;
+        params.irregularity = 0.14f;
+        params.sourcePosition = 0.48f;
+        params.pickupPosition = 0.76f;
+        params.spatialExtent = 0.68f;
+        params.outputGainDb = -6.0f;
+        params.coupling = 0.42f;
+        params.energy = 0.30f;
+        break;
+    case 7u: // Bronze Scrape
+        params.substrate = AccelerometerSubstrate::BellBronze;
+        params.excitation = AccelerometerExcitation::Scrape;
+        params.eventRateHz = 0.48f;
+        params.activity = 0.76f;
+        params.force = 0.32f;
+        params.texture = 0.80f;
+        params.ambientDrive = 0.06f;
+        params.size = 0.72f;
+        params.damping = 0.34f;
+        params.irregularity = 0.26f;
+        params.propagationLoss = 0.32f;
+        params.contactDetail = 0.72f;
+        params.sourcePosition = 0.16f;
+        params.pickupPosition = 0.62f;
+        params.contactRadiation = 0.28f;
+        params.outputGainDb = -15.0f;
+        params.coupling = 0.44f;
+        params.energy = 0.22f;
+        break;
+    case 8u: // Bright Boss
+        params.eventRateHz = 0.72f;
+        params.activity = 0.64f;
+        params.force = 0.70f;
+        params.texture = 0.82f;
+        params.ambientDrive = 0.02f;
+        params.size = 0.38f;
+        params.damping = 0.12f;
+        params.irregularity = 0.08f;
+        params.propagationLoss = 0.10f;
+        params.contactDetail = 0.20f;
+        params.sourcePosition = 0.50f;
+        params.pickupPosition = 0.72f;
+        params.airRadiation = 0.38f;
+        params.outputGainDb = -15.0f;
+        params.coupling = 0.64f;
+        params.energy = 0.78f;
+        break;
+    case 9u: // Muted Bloom
+        params.excitation = AccelerometerExcitation::Footsteps;
+        params.eventRateHz = 0.56f;
         params.activity = 0.62f;
         params.force = 0.38f;
-        params.texture = 0.68f;
-        params.ambientDrive = 0.06f;
-        params.size = 0.48f;
-        params.damping = 0.30f;
-        params.irregularity = 0.20f;
-        params.propagationLoss = 0.20f;
-        params.contactDetail = 0.24f;
-        params.sourcePosition = 0.25f;
-        params.pickupPosition = 0.73f;
-        params.pickupAxis = 0.48f;
-        params.sensorMass = 0.28f;
-        params.mountStiffness = 0.82f;
-        params.airRadiation = 0.08f;
-        params.outputGainDb = -7.0f;
-        break;
-    case 6u:
-        params.substrate = AccelerometerSubstrate::Wood;
-        params.excitation = AccelerometerExcitation::Scrape;
-        params.eventRateHz = 0.58f;
-        params.activity = 0.82f;
-        params.force = 0.36f;
-        params.texture = 0.74f;
-        params.ambientDrive = 0.08f;
-        params.size = 0.54f;
-        params.damping = 0.58f;
-        params.irregularity = 0.30f;
-        params.propagationLoss = 0.32f;
-        params.contactDetail = 0.68f;
-        params.sourcePosition = 0.15f;
-        params.pickupPosition = 0.61f;
-        params.pickupAxis = 0.68f;
-        params.sensorMass = 0.08f;
-        params.mountStiffness = 0.74f;
-        params.airRadiation = 0.10f;
-        params.outputGainDb = -5.0f;
-        break;
-    case 7u:
-        params.substrate = AccelerometerSubstrate::Glass;
-        params.excitation = AccelerometerExcitation::Tap;
-        params.eventRateHz = 0.84f;
-        params.activity = 0.48f;
-        params.force = 0.20f;
-        params.texture = 0.92f;
-        params.ambientDrive = 0.12f;
-        params.size = 0.40f;
-        params.damping = 0.24f;
-        params.irregularity = 0.14f;
-        params.propagationLoss = 0.18f;
-        params.contactDetail = 0.10f;
-        params.sourcePosition = 0.44f;
-        params.pickupPosition = 0.79f;
-        params.pickupAxis = 0.40f;
-        params.sensorMass = 0.035f;
-        params.mountStiffness = 0.91f;
-        params.airRadiation = 0.06f;
-        params.outputGainDb = -9.0f;
-        break;
-    case 8u:
-        params.substrate = AccelerometerSubstrate::DryLeaf;
-        params.excitation = AccelerometerExcitation::Footsteps;
-        params.eventRateHz = 5.2f;
-        params.activity = 0.78f;
-        params.force = 0.30f;
-        params.texture = 0.82f;
-        params.ambientDrive = 0.08f;
-        params.size = 0.42f;
-        params.damping = 0.74f;
-        params.irregularity = 0.68f;
-        params.propagationLoss = 0.58f;
-        params.contactDetail = 0.72f;
-        params.sourcePosition = 0.82f;
-        params.pickupPosition = 0.30f;
-        params.arraySpread = 0.68f;
-        params.pickupAxis = 0.52f;
-        params.sensorMass = 0.10f;
-        params.mountStiffness = 0.58f;
-        params.conditionerHighpassHz = 18.0f;
-        params.sensorNoise = 0.012f;
-        params.airRadiation = 0.025f;
-        params.contactRadiation = 0.18f;
-        params.outputGainDb = 4.0f;
-        break;
-    case 9u:
-        params.substrate = AccelerometerSubstrate::PaperCardboard;
-        params.excitation = AccelerometerExcitation::Scrape;
-        params.eventRateHz = 0.42f;
-        params.activity = 0.82f;
-        params.force = 0.38f;
-        params.texture = 0.78f;
-        params.ambientDrive = 0.06f;
-        params.size = 0.66f;
-        params.damping = 0.70f;
-        params.irregularity = 0.46f;
-        params.propagationLoss = 0.52f;
-        params.contactDetail = 0.84f;
-        params.sourcePosition = 0.14f;
-        params.pickupPosition = 0.60f;
-        params.arraySpread = 0.55f;
-        params.pickupAxis = 0.64f;
-        params.sensorMass = 0.12f;
-        params.mountStiffness = 0.48f;
-        params.conditionerHighpassHz = 10.0f;
-        params.sensorNoise = 0.015f;
-        params.airRadiation = 0.03f;
-        params.contactRadiation = 0.18f;
-        params.outputGainDb = 2.0f;
-        break;
-    case 10u:
-        params.substrate = AccelerometerSubstrate::ShellChitin;
-        params.excitation = AccelerometerExcitation::Tap;
-        params.eventRateHz = 3.4f;
-        params.activity = 0.70f;
-        params.force = 0.24f;
-        params.texture = 0.86f;
+        params.texture = 0.22f;
         params.ambientDrive = 0.05f;
-        params.size = 0.36f;
-        params.damping = 0.44f;
-        params.irregularity = 0.38f;
-        params.propagationLoss = 0.30f;
-        params.contactDetail = 0.54f;
-        params.sourcePosition = 0.68f;
-        params.pickupPosition = 0.26f;
-        params.arraySpread = 0.78f;
-        params.pickupAxis = 0.72f;
-        params.sensorMass = 0.04f;
-        params.mountStiffness = 0.88f;
-        params.conditionerHighpassHz = 25.0f;
-        params.sensorNoise = 0.010f;
-        params.airRadiation = 0.05f;
-        params.contactRadiation = 0.28f;
-        params.outputGainDb = -1.0f;
+        params.size = 0.68f;
+        params.damping = 0.58f;
+        params.irregularity = 0.10f;
+        params.propagationLoss = 0.46f;
+        params.sourcePosition = 0.36f;
+        params.pickupPosition = 0.58f;
+        params.contactRadiation = 0.62f;
+        params.outputGainDb = -10.0f;
+        params.coupling = 0.52f;
+        params.energy = 0.56f;
         break;
-    case 11u:
+    case 10u: // Jing Wind
+        params.substrate = AccelerometerSubstrate::Jing;
+        params.excitation = AccelerometerExcitation::Scrape;
+        params.eventRateHz = 0.20f;
+        params.activity = 0.84f;
+        params.force = 0.30f;
+        params.texture = 0.36f;
+        params.ambientDrive = 0.16f;
+        params.size = 0.86f;
+        params.damping = 0.36f;
+        params.irregularity = 0.20f;
+        params.propagationLoss = 0.54f;
+        params.contactDetail = 0.46f;
+        params.sourcePosition = 0.10f;
+        params.pickupPosition = 0.52f;
+        params.airRadiation = 0.12f;
+        params.contactRadiation = 0.22f;
+        params.outputGainDb = -10.0f;
+        params.coupling = 0.86f;
+        params.energy = 0.24f;
+        break;
+    case 11u: // Kkwaenggwari Chae
+        params.substrate = AccelerometerSubstrate::Kkwaenggwari;
+        params.eventRateHz = 1.10f;
+        params.activity = 0.72f;
+        params.force = 0.48f;
+        params.texture = 0.62f;
+        params.ambientDrive = 0.04f;
+        params.size = 0.32f;
+        params.damping = 0.24f;
+        params.irregularity = 0.16f;
+        params.sourcePosition = 0.54f;
+        params.pickupPosition = 0.24f;
+        params.arraySpread = 0.72f;
+        params.spatialExtent = 0.78f;
+        params.outputGainDb = -8.0f;
+        params.coupling = 0.60f;
+        params.energy = 0.46f;
+        break;
+    case 12u: // Jing Ceremony
     default:
-        params.substrate = AccelerometerSubstrate::PolymerMembrane;
+        params.substrate = AccelerometerSubstrate::Jing;
         params.excitation = AccelerometerExcitation::Footsteps;
-        params.eventRateHz = 7.5f;
-        params.activity = 0.88f;
-        params.force = 0.18f;
-        params.texture = 0.66f;
+        params.eventRateHz = 0.16f;
+        params.activity = 0.66f;
+        params.force = 0.64f;
+        params.texture = 0.16f;
         params.ambientDrive = 0.10f;
-        params.size = 0.64f;
-        params.damping = 0.55f;
-        params.irregularity = 0.30f;
-        params.propagationLoss = 0.22f;
-        params.contactDetail = 0.28f;
-        params.sourcePosition = 0.45f;
-        params.pickupPosition = 0.50f;
-        params.arraySpread = 0.90f;
-        params.pickupAxis = 0.40f;
-        params.sensorMass = 0.03f;
-        params.mountStiffness = 0.56f;
-        params.conditionerHighpassHz = 6.0f;
-        params.sensorNoise = 0.012f;
-        params.airRadiation = 0.08f;
-        params.contactRadiation = 0.40f;
-        params.outputGainDb = 3.0f;
+        params.size = 0.76f;
+        params.damping = 0.10f;
+        params.irregularity = 0.05f;
+        params.sourcePosition = 0.40f;
+        params.pickupPosition = 0.56f;
+        params.pickupAxis = 0.44f;
+        params.outputGainDb = -13.0f;
+        params.coupling = 0.76f;
+        params.energy = 0.68f;
         break;
     }
     return sanitizeAccelerometerFieldParams(params);
@@ -495,6 +488,8 @@ public:
     void prepare(double sampleRate)
     {
         sampleRate_ = std::max(1000.0, sampleRate);
+        geometrySmoothingCoefficient_ = 1.0f - std::exp(
+            -1.0f / (0.035f * static_cast<float>(sampleRate_)));
         params_ = sanitizeAccelerometerFieldParams(params_);
         fieldListener_.prepare(sampleRate_);
         fieldListener_.setMemorySeconds(0.42f);
@@ -505,6 +500,9 @@ public:
 
     void reset()
     {
+        const bool restoreReferencePitch = performancePitchRatio_ != 1.0f;
+        performancePitchRatio_ = 1.0f;
+        if (restoreReferencePitch && sampleRate_ > 0.0) rebuildModel();
         rngState_ = params_.seed;
         eventPosition_ = params_.sourcePosition;
         eventPhase_ = 0.92f;
@@ -525,15 +523,52 @@ public:
         ambientFast_ = 0.0f;
         eventTexture_ = params_.texture;
         listenerTargetPosition_ = params_.sourcePosition;
+        couplingSlowPhase_ = 0.0f;
+        couplingFastPhase_ = 1.57079632679489661923f;
+        couplingSlowValue_ = 0.0f;
+        couplingFastValue_ = 1.0f;
+        smoothedCoupling_ = params_.coupling;
+        smoothedEnergy_ = params_.energy;
+        impactAgeSeconds_ = 8.0f;
+        impactStrength_ = 0.0f;
+        currentPitchScale_ = 1.0f;
+        currentCascadeLevel_ = 0.0f;
+        externalTransientEnvelope_ = 0.0f;
+        midiStrikeEnvelope_ = 0.0f;
+        midiStrikeDecay_ = 0.0f;
+        midiStrikeTonePhase_ = 0.0f;
+        dynamicCoefficientCountdown_ = 0u;
         fieldListener_.reset();
-        for (auto& sensor : sensors_) sensor.reset();
-        for (auto& mode : modes_) mode.reset();
+        for (auto& sensor : sensors_) {
+            sensor.reset();
+            sensor.snapGeometry();
+        }
+        for (auto& mode : modes_) {
+            mode.reset();
+            mode.snapGeometry();
+        }
     }
 
     void setParams(AccelerometerFieldParams params)
     {
-        params_ = sanitizeAccelerometerFieldParams(params);
-        if (sampleRate_ > 0.0) rebuildModel();
+        const AccelerometerFieldParams sanitized =
+            sanitizeAccelerometerFieldParams(params);
+        const bool rebuild = params_.substrate != sanitized.substrate
+            || params_.size != sanitized.size
+            || params_.damping != sanitized.damping
+            || params_.irregularity != sanitized.irregularity
+            || params_.propagationLoss != sanitized.propagationLoss
+            || params_.sourcePosition != sanitized.sourcePosition
+            || params_.pickupPosition != sanitized.pickupPosition
+            || params_.arraySpread != sanitized.arraySpread
+            || params_.pickupAxis != sanitized.pickupAxis
+            || params_.sensorMass != sanitized.sensorMass
+            || params_.spatialExtent != sanitized.spatialExtent
+            || params_.fieldAzimuthDeg != sanitized.fieldAzimuthDeg
+            || params_.fieldElevationDeg != sanitized.fieldElevationDeg
+            || params_.seed != sanitized.seed;
+        params_ = sanitized;
+        if (sampleRate_ > 0.0 && rebuild) rebuildModel();
     }
 
     AccelerometerFieldParams params() const { return params_; }
@@ -544,6 +579,39 @@ public:
             ? kAccelerometerFieldSensorCount
             : (params_.ambisonicOrder + 1u) * (params_.ambisonicOrder + 1u);
     }
+
+    // MIDI is a second physical-force inlet: velocity sets impact energy and
+    // the most recent note transposes the one shared gong body. C4 (note 60)
+    // is the measured/reference body pitch; note-off deliberately does not
+    // damp a freely ringing metal plate.
+    void strikeMidi(int32_t note, float velocity)
+    {
+        if (sampleRate_ <= 0.0) prepare(48000.0);
+        velocity = clamp(std::isfinite(velocity) ? velocity : 0.0f,
+            0.0f, 1.0f);
+        if (velocity <= 0.0f) return;
+        const float pitchRatio = clamp(std::exp2(
+            (static_cast<float>(std::clamp(note, 0, 127)) - 60.0f) / 12.0f),
+            0.125f, 8.0f);
+        if (std::fabs(pitchRatio - performancePitchRatio_) > 1.0e-6f) {
+            performancePitchRatio_ = pitchRatio;
+            rebuildModel();
+        }
+        const float shapedVelocity = std::pow(velocity, 0.72f);
+        const float strength = shapedVelocity
+            * (0.30f + 0.70f * params_.force);
+        midiStrikeEnvelope_ = std::max(midiStrikeEnvelope_, strength);
+        const float contactSeconds = 0.0025f
+            + 0.010f * (1.0f - params_.texture);
+        midiStrikeDecay_ = std::exp(-1.0f / std::max(
+            1.0f, contactSeconds * static_cast<float>(sampleRate_)));
+        midiStrikeTonePhase_ = 0.0f;
+        eventPosition_ = params_.sourcePosition;
+        eventTexture_ = params_.texture;
+        triggerNonlinearImpact(strength);
+    }
+
+    float performancePitchRatio() const { return performancePitchRatio_; }
 
     // The default output is ACN/SN3D. SensorStems deliberately bypasses the
     // spherical-harmonic projection and places one conditioned virtual
@@ -589,11 +657,41 @@ public:
             (params_.ambisonicOrder + 1u) * (params_.ambisonicOrder + 1u);
 
         for (uint32_t frame = 0u; frame < frames; ++frame) {
+            smoothGeometry();
             float excitation = proceduralExcitation();
+            float externalForce = 0.0f;
             if (externalExcitation) {
                 const float external = std::isfinite(externalExcitation[frame])
                     ? externalExcitation[frame] : 0.0f;
-                excitation += external * params_.externalDrive;
+                externalForce = external * params_.externalDrive;
+                excitation += externalForce;
+            }
+            float midiForce = 0.0f;
+            if (midiStrikeEnvelope_ > 1.0e-7f) {
+                const float strikeToneHz = params_.substrate
+                        == AccelerometerSubstrate::Kkwaenggwari
+                    ? 2200.0f : (params_.substrate
+                            == AccelerometerSubstrate::Jing
+                        ? 420.0f : 900.0f);
+                midiStrikeTonePhase_ += strikeToneHz
+                    / static_cast<float>(sampleRate_);
+                midiStrikeTonePhase_ -= std::floor(midiStrikeTonePhase_);
+                const float contactTone = std::sin(
+                    kAccelerometerFieldTwoPi * midiStrikeTonePhase_);
+                midiForce = midiStrikeEnvelope_
+                    * (0.78f + 0.12f * contactTone
+                        + 0.10f * params_.texture * randomSigned());
+                midiStrikeEnvelope_ = flushDenormal(
+                    midiStrikeEnvelope_ * midiStrikeDecay_);
+                excitation += midiForce;
+            }
+            detectExternalImpact(externalForce + midiForce);
+            advanceModalEvolution();
+            if (dynamicCoefficientCountdown_ == 0u) {
+                updateDynamicCoefficients();
+                dynamicCoefficientCountdown_ = 15u;
+            } else {
+                --dynamicCoefficientCountdown_;
             }
 
             std::array<float, kAccelerometerFieldSensorCount>
@@ -618,9 +716,23 @@ public:
                 modalCoupling = 0.012f;
             }
             const float modalExcitation = excitation * modalCoupling;
-            for (auto& mode : modes_) {
+            const float cascadeNoise = currentCascadeLevel_ > 1.0e-7f
+                ? randomSigned() * currentCascadeLevel_ * 0.012f : 0.0f;
+            for (uint32_t index = 0u;
+                index < kAccelerometerFieldModeCount; ++index) {
+                auto& mode = modes_[index];
                 if (!mode.active) continue;
-                const ModeSample response = mode.process(modalExcitation);
+                ModeSample response = mode.process(modalExcitation
+                    + cascadeNoise * mode.cascadeWeight);
+                const float modulation = modalCouplingValue(index);
+                const float lowModeWeight = 1.0f - mode.pairProgress;
+                const float amplitudeDepth = smoothedCoupling_
+                    * (0.10f + 0.28f * lowModeWeight);
+                const float amplitudeScale = clamp(
+                    1.0f - amplitudeDepth * modulation, 0.38f, 1.38f);
+                response.displacement *= amplitudeScale;
+                response.velocity *= amplitudeScale;
+                response.acceleration *= amplitudeScale;
                 for (uint32_t sensor = 0u;
                     sensor < kAccelerometerFieldSensorCount; ++sensor) {
                     localDisplacement[sensor] += response.displacement
@@ -737,7 +849,7 @@ public:
     float modePickupWeight(uint32_t index, uint32_t sensor = 0u) const
     {
         return modes_[std::min<uint32_t>(
-            index, kAccelerometerFieldModeCount - 1u)].pickupWeight[
+            index, kAccelerometerFieldModeCount - 1u)].targetPickupWeight[
                 std::min<uint32_t>(
                     sensor, kAccelerometerFieldSensorCount - 1u)];
     }
@@ -745,13 +857,19 @@ public:
     float sensorPosition(uint32_t sensor) const
     {
         return sensors_[std::min<uint32_t>(
-            sensor, kAccelerometerFieldSensorCount - 1u)].position;
+            sensor, kAccelerometerFieldSensorCount - 1u)].targetPosition;
     }
 
     Vec3 sensorDirection(uint32_t sensor) const
     {
         return sensors_[std::min<uint32_t>(
-            sensor, kAccelerometerFieldSensorCount - 1u)].direction;
+            sensor, kAccelerometerFieldSensorCount - 1u)].targetDirection;
+    }
+
+    float currentSensorPosition(uint32_t sensor) const
+    {
+        return sensors_[std::min<uint32_t>(
+            sensor, kAccelerometerFieldSensorCount - 1u)].position;
     }
 
     float listenerActivity() const { return fieldListener_.activity(); }
@@ -785,6 +903,10 @@ private:
         float axis = 0.5f;
         Vec3 direction { 1.0f, 0.0f, 0.0f };
         std::array<float, kAccelerometerFieldMaxChannels> basis {};
+        float targetPosition = 0.5f;
+        float targetAxis = 0.5f;
+        Vec3 targetDirection { 1.0f, 0.0f, 0.0f };
+        std::array<float, kAccelerometerFieldMaxChannels> targetBasis {};
         float directLowpass = 0.0f;
         float directHighpassInput = 0.0f;
         float directHighpassOutput = 0.0f;
@@ -803,16 +925,46 @@ private:
             conditionerOutput = 0.0f;
             radiationLowpass = 0.0f;
         }
+
+        void snapGeometry()
+        {
+            position = targetPosition;
+            axis = targetAxis;
+            direction = targetDirection;
+            basis = targetBasis;
+        }
+
+        void smoothGeometry(float coefficient)
+        {
+            position += (targetPosition - position) * coefficient;
+            axis += (targetAxis - axis) * coefficient;
+            direction = normalize(Vec3 {
+                direction.x + (targetDirection.x - direction.x) * coefficient,
+                direction.y + (targetDirection.y - direction.y) * coefficient,
+                direction.z + (targetDirection.z - direction.z) * coefficient,
+            });
+            for (uint32_t channel = 0u;
+                channel < kAccelerometerFieldMaxChannels; ++channel) {
+                basis[channel] +=
+                    (targetBasis[channel] - basis[channel]) * coefficient;
+            }
+        }
     };
 
     struct Mode {
         bool active = false;
         float frequencyHz = 0.0f;
+        float pairProgress = 0.0f;
         float coefficient = 0.0f;
+        float radius = 0.0f;
         float radiusSquared = 0.0f;
         float drive = 0.0f;
+        float cascadeWeight = 0.0f;
+        float pitchEvolutionWeight = 1.0f;
         std::array<float, kAccelerometerFieldSensorCount> pickupWeight {};
         std::array<float, kAccelerometerFieldSensorCount> radiationWeight {};
+        std::array<float, kAccelerometerFieldSensorCount> targetPickupWeight {};
+        std::array<float, kAccelerometerFieldSensorCount> targetRadiationWeight {};
         float velocityNormalization = 1.0f;
         float accelerationNormalization = 1.0f;
         float state1 = 0.0f;
@@ -822,6 +974,25 @@ private:
         {
             state1 = 0.0f;
             state2 = 0.0f;
+        }
+
+        void snapGeometry()
+        {
+            pickupWeight = targetPickupWeight;
+            radiationWeight = targetRadiationWeight;
+        }
+
+        void smoothGeometry(float coefficient)
+        {
+            for (uint32_t sensor = 0u;
+                sensor < kAccelerometerFieldSensorCount; ++sensor) {
+                pickupWeight[sensor] +=
+                    (targetPickupWeight[sensor] - pickupWeight[sensor])
+                    * coefficient;
+                radiationWeight[sensor] +=
+                    (targetRadiationWeight[sensor] - radiationWeight[sensor])
+                    * coefficient;
+            }
         }
 
         ModeSample process(float input)
@@ -866,6 +1037,15 @@ private:
             return { 135.0f, 0.52f, 1.36f, 0.48f, 0.50f, 0.40f, 0.065f, 0.85f };
         case AccelerometerSubstrate::PolymerMembrane:
             return { 46.0f, 0.46f, 1.18f, 0.40f, 0.44f, 0.34f, 0.015f, 0.52f };
+        case AccelerometerSubstrate::GongAgeng:
+            return { 44.5f, 11.50f, 1.16f, 0.34f, 0.34f, 0.020f, 0.040f, 1.00f };
+        case AccelerometerSubstrate::Jing:
+            // Cho measured a 114 Hz resting fundamental on a 382 mm jing.
+            return { 114.0f, 10.80f, 1.14f, 0.32f, 0.30f, 0.018f, 0.038f, 1.00f };
+        case AccelerometerSubstrate::Kkwaenggwari:
+            // Low radiation is intentionally weak; the modal bank is weighted
+            // toward the documented 1, 2, and 4 kHz radiation/attack regions.
+            return { 250.0f, 4.20f, 1.20f, 0.20f, 0.38f, 0.018f, 0.070f, 1.00f };
         case AccelerometerSubstrate::Leaf:
         default:
             return { 28.0f, 0.14f, 1.58f, 0.58f, 0.82f, 0.72f, 0.025f, 0.65f };
@@ -885,6 +1065,55 @@ private:
 
     float nominalModeRatio(uint32_t index, const SubstrateProfile& profile) const
     {
+        if (params_.substrate == AccelerometerSubstrate::GongAgeng) {
+            // Twelve perceptually selected clusters after Ayers and Horner:
+            // the first/second partials provide rumble, the fifth/sixth region
+            // provides the focused ding, and upper groups mostly color attack.
+            // Adjacent members share one spatial lobe family so their beating
+            // changes the encoded field as well as the monophonic spectrum.
+            static constexpr std::array<float,
+                kAccelerometerFieldModeCount> ratios {{
+                1.0000f, 1.0375f, 1.6630f, 2.0000f,
+                2.6970f, 3.0000f, 5.0000f, 5.1200f,
+                5.8430f, 6.1800f, 6.3370f, 6.4700f,
+                7.0000f, 7.1600f, 9.0000f, 9.2000f,
+                10.000f, 10.220f, 11.000f, 11.250f,
+                12.000f, 12.280f, 14.000f, 14.300f,
+            }};
+            return ratios[index];
+        }
+        if (params_.substrate == AccelerometerSubstrate::Jing) {
+            // Cho's 114 Hz jing produced five exact resting harmonics. The
+            // measured 240/351/460/572 Hz impact components and 338/342,
+            // 408/416, and 1155/1163 Hz late pairs supply its two beat regimes.
+            static constexpr std::array<float,
+                kAccelerometerFieldModeCount> ratios {{
+                1.0000f, 1.0200f, 2.0000f, 2.1053f,
+                2.9649f, 3.0000f, 3.5789f, 3.6491f,
+                4.0000f, 4.0351f, 5.0000f, 5.0175f,
+                6.0000f, 6.0526f, 7.0000f, 7.0702f,
+                8.0000f, 8.0877f, 9.0000f, 9.0965f,
+                10.1316f, 10.2018f, 11.0000f, 11.0702f,
+            }};
+            return ratios[index];
+        }
+        if (params_.substrate == AccelerometerSubstrate::Kkwaenggwari) {
+            // Analysis establishes broad radiation landmarks rather than a
+            // single stable pitch: little below 125 Hz, weak 250 Hz, and the
+            // defining metal/attack energy around 1, 2, and 4 kHz. These
+            // inharmonic pairs place energy in those zones without pretending
+            // that one handmade instrument supplies universal exact partials.
+            static constexpr std::array<float,
+                kAccelerometerFieldModeCount> ratios {{
+                1.00f, 1.08f, 2.00f, 2.08f,
+                4.00f, 4.12f, 5.10f, 5.35f,
+                7.60f, 7.95f, 8.20f, 8.65f,
+                11.20f, 11.80f, 15.60f, 16.20f,
+                18.00f, 18.80f, 22.00f, 23.00f,
+                26.00f, 27.20f, 31.00f, 32.50f,
+            }};
+            return ratios[index];
+        }
         if (params_.substrate == AccelerometerSubstrate::BellBronze) {
             // Hum, prime, tierce, quint, nominal, then paired/non-axisymmetric
             // upper modes. Close pairs deliberately retain bell warble.
@@ -926,15 +1155,21 @@ private:
     {
         position = clamp(position, 0.0f, 1.0f);
         if (params_.substrate == AccelerometerSubstrate::BellBronze
+            || params_.substrate == AccelerometerSubstrate::GongAgeng
+            || params_.substrate == AccelerometerSubstrate::Jing
+            || params_.substrate == AccelerometerSubstrate::Kkwaenggwari
             || params_.substrate == AccelerometerSubstrate::ShellChitin) {
             const uint32_t pair = index / 2u;
             const float order = static_cast<float>(pair
                 + (params_.substrate == AccelerometerSubstrate::BellBronze
+                        || params_.substrate == AccelerometerSubstrate::GongAgeng
+                        || params_.substrate == AccelerometerSubstrate::Jing
+                        || params_.substrate == AccelerometerSubstrate::Kkwaenggwari
                     ? 2u : 1u));
-            const float phase = orthogonal
+            const float pairPhase = (index & 1u) == 0u ? 0.0f : 0.25f;
+            const float phase = pairPhase + (orthogonal
                 ? (params_.substrate == AccelerometerSubstrate::ShellChitin
-                    ? 0.18f : 0.25f)
-                : 0.0f;
+                    ? 0.18f : 0.25f) : 0.0f);
             return std::cos(kAccelerometerFieldTwoPi
                 * (order * position + phase));
         }
@@ -946,6 +1181,32 @@ private:
             ? 1.57079632679489661923f : 0.31f * static_cast<float>(index & 1u);
         return boundary * std::sin(
             3.14159265358979323846f * order * position + phase);
+    }
+
+    float pitchEvolutionWeight(uint32_t index) const
+    {
+        if (params_.substrate != AccelerometerSubstrate::Jing) return 1.0f;
+        // The exact harmonics soften with impact level; the short-lived
+        // components around them remain comparatively fixed and create the
+        // observed beat rate that changes as the harmonics recover upward.
+        static constexpr std::array<float,
+            kAccelerometerFieldModeCount> weights {{
+            1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+            0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f,
+            1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f,
+            1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+        }};
+        return weights[index];
+    }
+
+    void smoothGeometry()
+    {
+        for (auto& sensor : sensors_) {
+            sensor.smoothGeometry(geometrySmoothingCoefficient_);
+        }
+        for (auto& mode : modes_) {
+            mode.smoothGeometry(geometrySmoothingCoefficient_);
+        }
     }
 
     void rebuildModel()
@@ -963,9 +1224,9 @@ private:
             Sensor& sensor = sensors_[sensorIndex];
             const float unit = (static_cast<float>(sensorIndex) + 0.5f)
                 / static_cast<float>(kAccelerometerFieldSensorCount);
-            sensor.position = accelerometerFieldSensorPosition(
+            sensor.targetPosition = accelerometerFieldSensorPosition(
                 params_, sensorIndex);
-            sensor.axis = clamp(params_.pickupAxis
+            sensor.targetAxis = clamp(params_.pickupAxis
                     + (unit - 0.5f) * 0.72f,
                 0.0f, 1.0f);
 
@@ -973,6 +1234,9 @@ private:
             float elevationOffset = std::sin(
                 kAccelerometerFieldTwoPi * unit) * 24.0f;
             if (params_.substrate == AccelerometerSubstrate::BellBronze
+                || params_.substrate == AccelerometerSubstrate::GongAgeng
+                || params_.substrate == AccelerometerSubstrate::Jing
+                || params_.substrate == AccelerometerSubstrate::Kkwaenggwari
                 || params_.substrate == AccelerometerSubstrate::Glass
                 || params_.substrate == AccelerometerSubstrate::ShellChitin) {
                 azimuthOffset = (unit - 0.5f) * 360.0f;
@@ -993,16 +1257,16 @@ private:
                 elevationOffset = std::sin(
                     kAccelerometerFieldTwoPi * unit) * 16.0f;
             }
-            sensor.direction = directionFromAed(
+            sensor.targetDirection = directionFromAed(
                 params_.fieldAzimuthDeg
                     + azimuthOffset * params_.spatialExtent,
                 clamp(params_.fieldElevationDeg
                         + elevationOffset * params_.spatialExtent,
                     -89.0f, 89.0f));
-            const auto fullBasis = acnSn3dBasis7(sensor.direction);
+            const auto fullBasis = acnSn3dBasis7(sensor.targetDirection);
             for (uint32_t channel = 0u;
                 channel < kAccelerometerFieldMaxChannels; ++channel) {
-                sensor.basis[channel] = fullBasis[channel];
+                sensor.targetBasis[channel] = fullBasis[channel];
             }
         }
 
@@ -1013,7 +1277,8 @@ private:
             listenerDirections {};
         for (uint32_t sensorIndex = 0u;
             sensorIndex < kAccelerometerFieldSensorCount; ++sensorIndex) {
-            listenerDirections[sensorIndex] = sensors_[sensorIndex].direction;
+            listenerDirections[sensorIndex] =
+                sensors_[sensorIndex].targetDirection;
         }
         fieldListener_.setDirections(
             listenerDirections.data(), listenerDirections.size());
@@ -1027,62 +1292,205 @@ private:
                 params_.seed ^ (index + 1u) * 0x9e3779b9u);
             const float nominal = profile.baseFrequencyHz * sizeScale
                 * nominalModeRatio(index, profile)
+                * performancePitchRatio_
                 * std::exp2(irregular * params_.irregularity * 0.10f);
             const float addedMass = params_.sensorMass
                 * profile.massSensitivity * (0.72f + 0.55f * modeProgress);
             const float frequency = nominal / std::sqrt(1.0f + addedMass);
             mode.frequencyHz = frequency;
+            mode.pitchEvolutionWeight = pitchEvolutionWeight(index);
+            mode.pairProgress = static_cast<float>(index / 2u)
+                / static_cast<float>(kAccelerometerFieldModeCount / 2u - 1u);
             mode.active = frequency >= 5.0f && frequency < nyquistLimit;
             if (!mode.active) {
                 mode.reset();
                 mode.coefficient = 0.0f;
+                mode.radius = 0.0f;
                 mode.radiusSquared = 0.0f;
                 mode.drive = 0.0f;
-                mode.pickupWeight.fill(0.0f);
-                mode.radiationWeight.fill(0.0f);
+                mode.cascadeWeight = 0.0f;
+                mode.targetPickupWeight.fill(0.0f);
+                mode.targetRadiationWeight.fill(0.0f);
                 continue;
             }
 
             const float decayScale = std::exp2((0.5f - params_.damping) * 4.2f);
-            const float decay = std::max(0.015f,
+            float decay = std::max(0.015f,
                 profile.baseDecaySeconds * decayScale
                 / std::pow(1.0f + modeProgress * 5.0f, profile.decayFalloff));
+            if (params_.substrate == AccelerometerSubstrate::GongAgeng
+                || params_.substrate == AccelerometerSubstrate::Jing) {
+                static constexpr std::array<float, 12u> decayWeights {{
+                    1.35f, 1.00f, 0.82f, 0.58f, 0.88f, 0.66f,
+                    0.52f, 0.43f, 0.36f, 0.30f, 0.26f, 0.22f,
+                }};
+                decay *= decayWeights[index / 2u];
+            }
             const float radius = std::exp(
                 -1.0f / (decay * static_cast<float>(sampleRate_)));
             const float omega = kAccelerometerFieldTwoPi
                 * frequency / static_cast<float>(sampleRate_);
             mode.coefficient = 2.0f * radius * std::cos(omega);
+            mode.radius = radius;
             mode.radiusSquared = radius * radius;
 
             const float sourceShape = modeShape(
                 index, params_.sourcePosition, false);
-            const float modalGain = 1.0f
+            float modalGain = 1.0f
                 / std::pow(1.0f + static_cast<float>(index), profile.modeFalloff);
+            if (params_.substrate == AccelerometerSubstrate::GongAgeng
+                || params_.substrate == AccelerometerSubstrate::Jing
+                || params_.substrate == AccelerometerSubstrate::Kkwaenggwari) {
+                static constexpr std::array<float, 12u> clusterWeights {{
+                    0.82f, 1.00f, 0.58f, 0.42f, 0.76f, 0.46f,
+                    0.34f, 0.27f, 0.22f, 0.18f, 0.15f, 0.13f,
+                }};
+                static constexpr std::array<float, 12u> kkwaengWeights {{
+                    0.16f, 0.32f, 0.68f, 0.78f, 1.00f, 0.96f,
+                    0.88f, 0.82f, 0.66f, 0.52f, 0.40f, 0.30f,
+                }};
+                modalGain *= params_.substrate
+                        == AccelerometerSubstrate::Kkwaenggwari
+                    ? kkwaengWeights[index / 2u]
+                    : clusterWeights[index / 2u];
+            }
             mode.drive = 0.0045f * modalGain * sourceShape;
+            mode.cascadeWeight = std::pow(modeProgress, 1.45f)
+                * (0.32f + 0.68f * std::fabs(sourceShape));
             const float radiationEfficiency = std::sqrt(
                 frequency / (frequency + 720.0f));
             for (uint32_t sensorIndex = 0u;
                 sensorIndex < kAccelerometerFieldSensorCount; ++sensorIndex) {
                 const Sensor& sensor = sensors_[sensorIndex];
-                const float axisRadians = sensor.axis
+                const float axisRadians = sensor.targetAxis
                     * 1.57079632679489661923f;
                 const float pickupShape = std::cos(axisRadians) * modeShape(
-                    index, sensor.position, false)
+                    index, sensor.targetPosition, false)
                     + std::sin(axisRadians) * modeShape(
-                        index, sensor.position, true);
+                        index, sensor.targetPosition, true);
                 const float distance = std::fabs(
-                    params_.sourcePosition - sensor.position);
+                    params_.sourcePosition - sensor.targetPosition);
                 const float transmission = std::exp(-distance
                     * params_.propagationLoss
                     * (0.35f + 3.2f * modeProgress));
-                mode.pickupWeight[sensorIndex] = pickupShape * transmission;
-                mode.radiationWeight[sensorIndex] = modeShape(
-                    index, sensor.position, false)
+                mode.targetPickupWeight[sensorIndex] =
+                    pickupShape * transmission;
+                mode.targetRadiationWeight[sensorIndex] = modeShape(
+                    index, sensor.targetPosition, false)
                     * modalGain * radiationEfficiency
                     * (0.58f + 0.42f * std::fabs(sourceShape));
             }
             mode.velocityNormalization = velocityNormalization;
             mode.accelerationNormalization = accelerationNormalization;
+        }
+    }
+
+    float modalCouplingValue(uint32_t index) const
+    {
+        const float progress = static_cast<float>(index / 2u)
+            / static_cast<float>(kAccelerometerFieldModeCount / 2u - 1u);
+        const float slowWeight = 0.10f + 0.72f * (1.0f - progress);
+        return couplingSlowValue_ * slowWeight
+            + couplingFastValue_ * (1.0f - slowWeight);
+    }
+
+    void triggerNonlinearImpact(float strength)
+    {
+        strength = clamp(strength, 0.0f, 1.25f);
+        if (strength < 0.01f) return;
+        impactStrength_ = std::max(impactStrength_, strength);
+        impactAgeSeconds_ = 0.0f;
+        dynamicCoefficientCountdown_ = 0u;
+    }
+
+    void detectExternalImpact(float externalForce)
+    {
+        const float magnitude = std::fabs(externalForce);
+        const float onset = std::max(
+            0.0f, magnitude - externalTransientEnvelope_ * 1.8f);
+        const float coefficient = magnitude > externalTransientEnvelope_
+            ? 0.08f : 0.0008f;
+        externalTransientEnvelope_ += coefficient
+            * (magnitude - externalTransientEnvelope_);
+        if (onset > 0.02f) {
+            triggerNonlinearImpact(clamp(onset * 1.15f, 0.0f, 1.25f));
+        }
+    }
+
+    void advanceModalEvolution()
+    {
+        const float inverseSampleRate = 1.0f
+            / static_cast<float>(sampleRate_);
+        smoothedCoupling_ += geometrySmoothingCoefficient_
+            * (params_.coupling - smoothedCoupling_);
+        smoothedEnergy_ += geometrySmoothingCoefficient_
+            * (params_.energy - smoothedEnergy_);
+        const float slowRateHz = 0.80f + 1.30f * smoothedCoupling_;
+        const float fastRateHz = 8.0f + 10.0f * smoothedCoupling_;
+        couplingSlowPhase_ += kAccelerometerFieldTwoPi
+            * slowRateHz * inverseSampleRate;
+        couplingFastPhase_ += kAccelerometerFieldTwoPi
+            * fastRateHz * inverseSampleRate;
+        if (couplingSlowPhase_ >= kAccelerometerFieldTwoPi) {
+            couplingSlowPhase_ -= kAccelerometerFieldTwoPi;
+        }
+        if (couplingFastPhase_ >= kAccelerometerFieldTwoPi) {
+            couplingFastPhase_ -= kAccelerometerFieldTwoPi;
+        }
+        couplingSlowValue_ = std::sin(couplingSlowPhase_);
+        couplingFastValue_ = std::sin(couplingFastPhase_);
+
+        const bool isJing = params_.substrate
+            == AccelerometerSubstrate::Jing;
+        const float glideSeconds = isJing
+            ? 0.55f + 1.80f * params_.size
+            : 0.12f + 0.46f * params_.size;
+        const float glide = impactStrength_
+            * std::exp(-impactAgeSeconds_ / glideSeconds);
+        // Jing harmonics begin flat and recover upward (softening). Other gong
+        // families retain the bounded hardening trajectory of the earlier
+        // reduced model until instrument-specific measurements replace it.
+        currentPitchScale_ = isJing
+            ? 1.0f - smoothedEnergy_ * glide * 0.055f
+            : 1.0f + smoothedEnergy_ * glide * 0.10f;
+
+        const float cascadeRiseSeconds = 0.006f
+            + 0.054f * params_.size;
+        const float cascadeDecaySeconds = 0.09f
+            + 0.52f * params_.size;
+        const float cascadeRise = 1.0f
+            - std::exp(-impactAgeSeconds_ / cascadeRiseSeconds);
+        currentCascadeLevel_ = smoothedEnergy_ * impactStrength_
+            * cascadeRise
+            * std::exp(-impactAgeSeconds_ / cascadeDecaySeconds);
+        impactAgeSeconds_ += inverseSampleRate;
+        if (impactAgeSeconds_ > 5.0f) {
+            impactStrength_ = 0.0f;
+            currentPitchScale_ = 1.0f;
+            currentCascadeLevel_ = 0.0f;
+        }
+    }
+
+    void updateDynamicCoefficients()
+    {
+        const float nyquistLimit = static_cast<float>(sampleRate_) * 0.44f;
+        for (uint32_t index = 0u;
+            index < kAccelerometerFieldModeCount; ++index) {
+            auto& mode = modes_[index];
+            if (!mode.active) continue;
+            const float modulation = modalCouplingValue(index);
+            const float frequencyDepth = smoothedCoupling_
+                * (0.0025f + 0.0065f * (1.0f - mode.pairProgress));
+            const float nonlinearScale = 1.0f
+                + (currentPitchScale_ - 1.0f)
+                    * mode.pitchEvolutionWeight;
+            const float frequencyScale = nonlinearScale
+                * std::max(0.96f, 1.0f + frequencyDepth * modulation);
+            const float frequency = std::min(
+                nyquistLimit, mode.frequencyHz * frequencyScale);
+            const float omega = kAccelerometerFieldTwoPi
+                * frequency / static_cast<float>(sampleRate_);
+            mode.coefficient = 2.0f * mode.radius * std::cos(omega);
         }
     }
 
@@ -1210,6 +1618,7 @@ private:
         strength *= clamp(listenerStrengthScale, 0.55f, 1.55f);
         eventEnvelope_ = std::max(eventEnvelope_, strength);
         eventDecay_ = std::exp(-1.0f / std::max(1.0f, duration * sr));
+        triggerNonlinearImpact(strength);
     }
 
     float proceduralExcitation()
@@ -1259,6 +1668,7 @@ private:
                     eventEnvelope_, params_.force * 0.54f);
                 eventDecay_ = std::exp(-1.0f / std::max(
                     1.0f, 0.012f * static_cast<float>(sampleRate_)));
+                triggerNonlinearImpact(params_.force * 0.54f);
                 secondaryImpact = true;
             }
         }
@@ -1359,7 +1769,8 @@ private:
     }
 
     double sampleRate_ = 0.0;
-    AccelerometerFieldParams params_ {};
+    float geometrySmoothingCoefficient_ = 1.0f;
+    AccelerometerFieldParams params_ = accelerometerFieldFactoryPreset(0u);
     std::array<Mode, kAccelerometerFieldModeCount> modes_ {};
     std::array<Sensor, kAccelerometerFieldSensorCount> sensors_ {};
     AmbiFieldListener fieldListener_ {};
@@ -1383,6 +1794,22 @@ private:
     float ambientFast_ = 0.0f;
     float eventTexture_ = 0.5f;
     float listenerTargetPosition_ = 0.5f;
+    float couplingSlowPhase_ = 0.0f;
+    float couplingFastPhase_ = 1.57079632679489661923f;
+    float couplingSlowValue_ = 0.0f;
+    float couplingFastValue_ = 1.0f;
+    float smoothedCoupling_ = 0.28f;
+    float smoothedEnergy_ = 0.24f;
+    float impactAgeSeconds_ = 8.0f;
+    float impactStrength_ = 0.0f;
+    float currentPitchScale_ = 1.0f;
+    float currentCascadeLevel_ = 0.0f;
+    float externalTransientEnvelope_ = 0.0f;
+    float performancePitchRatio_ = 1.0f;
+    float midiStrikeEnvelope_ = 0.0f;
+    float midiStrikeDecay_ = 0.0f;
+    float midiStrikeTonePhase_ = 0.0f;
+    uint32_t dynamicCoefficientCountdown_ = 0u;
 };
 
 } // namespace s3g
