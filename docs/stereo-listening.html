@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Listening on a Stereo System - s3g-dsp</title>
+    <meta name="description" content="How to monitor s3g-dsp multichannel and ambisonic sessions through stereo loudspeakers or headphones.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Listening on a Stereo System</h1>
+
+        <p>You do not need a multichannel loudspeaker array to use s3g-dsp. Keep the session wide while its multichannel or ambisonic processing is active, then convert the result to two channels at the end of the monitoring chain.</p>
+
+        <div class="callout">
+          <p><strong>Choose by signal format, not channel count.</strong> Use MC to Stereo Autogain for ordinary multichannel lanes. Use an Ambi Stereo Decoder or Ambi Head Decoder when the channels are an encoded <code>ACN/SN3D</code> field.</p>
+        </div>
+
+        <h2 id="choose">Choose the Stereo Path</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Signal before the stereo stage</th><th>Listening target</th><th>Use</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Ordinary multichannel lanes or speaker feeds</td><td>Stereo loudspeakers or headphones</td><td><a href="mc-to-stereo-autogain.html">MC to Stereo Autogain</a></td></tr>
+            <tr><td><code>ACN/SN3D</code> ambisonics</td><td>Stereo loudspeakers or a stereo render</td><td><a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a></td></tr>
+            <tr><td><code>ACN/SN3D</code> ambisonics</td><td>Headphones</td><td><a href="ambisonic-head-decoder.html">Ambi Head Decoder</a> in <code>Binaural</code> mode</td></tr>
+            <tr><td><code>ACN/SN3D</code> ambisonics</td><td>A carefully positioned stereo loudspeaker pair</td><td>Ambi Head Decoder in optional <code>Transaural</code> mode</td></tr>
+          </tbody>
+        </table>
+
+        <p>A wide bus is not necessarily ambisonic. Ordinary lanes contain separate audio signals; ambisonic channels contain components of one encoded spatial field. The correct two-channel stage depends on that distinction.</p>
+
+        <h2 id="multichannel">Ordinary Multichannel Sessions</h2>
+
+        <p><code>s3g Output Autogain Stereo</code> accepts as many as 128 ordinary input channels and folds them into a true stereo output. Its layout, rotation, width, weighting, distance, attenuation, and autogain controls determine how the lanes reach the left and right channels.</p>
+
+        <pre><code>ordinary multichannel source
+-&gt; multichannel effects, panning, or routing
+-&gt; MC to Stereo Autogain
+-&gt; stereo loudspeakers or headphones</code></pre>
+
+        <p>This is the appropriate path for discrete processor outputs, direct speaker feeds, and other non-ambisonic buses. It is a controlled mixdown, not an ambisonic decoder.</p>
+
+        <h2 id="ambisonics">Ambisonic Sessions</h2>
+
+        <p>Do not sum ambisonic channels as if they were independent stems. Keep the complete <code>ACN/SN3D</code> field intact through its encoders, effects, and utilities, then decode it at the listening destination. Set the decoder to the same active order as the field.</p>
+
+        <pre><code>ambisonic encoder or instrument
+-&gt; optional ambisonic effects and utilities
+-&gt; Ambi Stereo Decoder -&gt; stereo loudspeakers or stereo render
+
+or
+
+ambisonic encoder or instrument
+-&gt; optional ambisonic effects and utilities
+-&gt; Ambi Head Decoder -&gt; headphones</code></pre>
+
+        <p><a href="ambisonic-stereo-decoder.html">Ambi Stereo Decoder</a> uses virtual speaker fields and stereo pickup models. It is the normal choice for two loudspeakers and conventional stereo renders.</p>
+
+        <p><a href="ambisonic-head-decoder.html">Ambi Head Decoder</a> uses a synthetic head model. Choose <code>Binaural</code> for headphones. Its <code>Transaural</code> mode adds crosstalk cancellation for stereo loudspeakers, but the result depends strongly on speaker angle, a centered listening position, and room acoustics.</p>
+
+        <h2 id="reaper">REAPER Setup</h2>
+
+        <ol>
+          <li>Set the track or monitoring bus wide enough for the source format before inserting the stereo stage.</li>
+          <li>Place the chosen mixdown or decoder after the processing that needs the wide bus.</li>
+          <li>Map its left and right outputs to channels 1-2 and then to the stereo hardware output.</li>
+          <li>If a following meter still shows higher channels, open the plugin pin connector and enable <code>Zero out unmapped output channels</code>.</li>
+        </ol>
+
+        <p>MC to Stereo Autogain, Ambi Stereo Decoder, and Ambi Head Decoder expose true stereo output buses. REAPER can nevertheless preserve unmapped higher track channels around a plugin unless that pin-connector option is enabled.</p>
+
+        <h2 id="expectations">What Stereo Preserves</h2>
+
+        <p>A two-channel monitor preserves a useful left-right image, balance, motion, and much of the spatial character needed for composition and auditioning. It cannot reproduce the physical coverage of a surrounding loudspeaker array. Treat the stereo path as a valid listening destination and monitoring format, while recognizing that a later array decode may reveal height, rear placement, and envelopment differently.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="installing-plugins.html">
+            <span>Previous</span>
+            Install Pre-release
+          </a>
+          <a class="page-nav-link next" href="multichannel.html">
+            <span>Next</span>
+            Multichannel
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Setup Pages</h2>
+          <a href="index.html">Getting Started</a>
+          <a href="building-from-source.html">Build From Source</a>
+          <a href="installing-plugins.html">Install Pre-release</a>
+          <a href="stereo-listening.html">Stereo Listening</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#choose">Choose the Stereo Path</a>
+          <a href="#multichannel">Ordinary Multichannel</a>
+          <a href="#ambisonics">Ambisonic Sessions</a>
+          <a href="#reaper">REAPER Setup</a>
+          <a href="#expectations">What Stereo Preserves</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

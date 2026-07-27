@@ -32,7 +32,7 @@ constexpr uint32_t kOutputChannels = s3g::kPsdRawFieldChannels;
 constexpr uint32_t kCodecModeCount = s3g::kPsdRawFieldCodecModeCount;
 constexpr uint32_t kCodecModeMax = kCodecModeCount - 1u;
 constexpr uint32_t kWaveHistory = 512;
-constexpr uint32_t kStateVersion = 22;
+constexpr uint32_t kStateVersion = 23;
 constexpr uint32_t kWaveTracePreset = 12;
 constexpr uint32_t kCustomPreset = 13;
 constexpr float kInitBassTrace = 0.62f;
@@ -173,6 +173,9 @@ constexpr clap_id kBassPitchTrackingParamId = 92;
 constexpr clap_id kBassGlideParamId = 93;
 constexpr clap_id kBassOctaveParamId = 94;
 constexpr clap_id kBassLowWidthParamId = 95;
+constexpr clap_id kBassFuzzParamId = 96;
+constexpr clap_id kBassMetalParamId = 97;
+constexpr clap_id kBassFeedbackParamId = 98;
 
 enum class SourceInterpretation : uint32_t {
     Generated = 0u,
@@ -292,6 +295,20 @@ struct LegacyParamsV21 {
     uint32_t modulationEnabled;
 };
 static_assert(sizeof(LegacyParamsV21) == 180u, "Unexpected version-21 parameter layout");
+
+struct LegacyParamsV22 {
+    LegacyParamsV21 previous;
+    uint32_t bassReceiver;
+    float bassBody;
+    float bassPunch;
+    float bassTrace;
+    uint32_t bassPitchTracking;
+    float bassGlide;
+    uint32_t bassOctave;
+    float bassLowWidth;
+};
+static_assert(sizeof(LegacyParamsV22) == 212u,
+    "Unexpected version-22 parameter layout");
 
 struct LegacySavedStateV10 {
     uint32_t version = 10u;
@@ -443,6 +460,22 @@ struct LegacySavedStateV21 {
 };
 static_assert(sizeof(LegacySavedStateV21) == 4312u, "Unexpected version-21 state layout");
 
+struct LegacySavedStateV22 {
+    uint32_t version = 22u;
+    uint32_t selectedPreset = 0u;
+    LegacyParamsV22 params {};
+    uint32_t sourceMode = 0u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = static_cast<uint32_t>(PerformanceMode::Free);
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV22) == 4344u,
+    "Unexpected version-22 state layout");
+
 struct SavedState {
     uint32_t version = kStateVersion;
     uint32_t selectedPreset = 0u;
@@ -456,7 +489,7 @@ struct SavedState {
     float releaseMs = 850.0f;
     char sourcePath[kSourcePathCapacity] {};
 };
-static_assert(sizeof(SavedState) == 4344u, "Unexpected version-22 state layout");
+static_assert(sizeof(SavedState) == 4356u, "Unexpected version-23 state layout");
 
 struct LegacyParamsV8 {
     float rawRate, strata, compression, masks, metadata, colorBleed, byteSkew, channelSpread, fold;
@@ -1196,6 +1229,18 @@ s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV21& old)
     return result;
 }
 
+s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV22& old)
+{
+    s3g::PsdRawFieldParams result {};
+    static_assert(sizeof(old) < sizeof(result),
+        "Version-22 parameters must be a prefix");
+    std::memcpy(&result, &old, sizeof(old));
+    result.bassFuzz = 0.0f;
+    result.bassMetal = 0.55f;
+    result.bassFeedback = 0.0f;
+    return result;
+}
+
 s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV8& old)
 {
     s3g::PsdRawFieldParams result {};
@@ -1521,6 +1566,27 @@ s3g::PsdRawFieldParams presetParams(uint32_t preset)
     case 0u:
     default: break;
     }
+    auto character = [&](float fuzz, float metal, float feedback) {
+        result.bassFuzz = fuzz;
+        result.bassMetal = metal;
+        result.bassFeedback = feedback;
+    };
+    switch (preset) {
+    case 1u: character(0.42f, 0.34f, 0.36f); break;
+    case 2u: character(0.66f, 0.70f, 0.24f); break;
+    case 3u: character(0.38f, 0.28f, 0.46f); break;
+    case 4u: character(0.58f, 0.54f, 0.32f); break;
+    case 5u: character(0.50f, 0.40f, 0.38f); break;
+    case 6u: character(0.68f, 0.72f, 0.28f); break;
+    case 7u: character(0.72f, 0.80f, 0.42f); break;
+    case 8u: character(0.44f, 0.24f, 0.58f); break;
+    case 9u: character(0.62f, 0.66f, 0.44f); break;
+    case 10u: character(0.80f, 0.86f, 0.30f); break;
+    case 11u: character(0.76f, 0.84f, 0.56f); break;
+    case kWaveTracePreset: character(0.28f, 0.48f, 0.18f); break;
+    case 0u:
+    default: break;
+    }
     result.fieldCodecMode = result.codecMode;
     if (preset != 0u) result.seed = hash32(0x50434431u ^ (preset * 0x9e3779b9u));
     return result;
@@ -1683,6 +1749,9 @@ void applyCuratedGuardrails(s3g::PsdRawFieldParams& params)
     params.bassTrace = std::clamp(params.bassTrace, 0.18f, 0.78f);
     params.bassGlide = std::clamp(params.bassGlide, 0.0f, 0.55f);
     params.bassLowWidth = std::clamp(params.bassLowWidth, 0.02f, 0.65f);
+    params.bassFuzz = std::clamp(params.bassFuzz, 0.14f, 0.86f);
+    params.bassMetal = std::clamp(params.bassMetal, 0.12f, 0.94f);
+    params.bassFeedback = std::clamp(params.bassFeedback, 0.08f, 0.72f);
     if (params.bassPitchTracking == s3g::PsdRawFieldPitchTracking::Scan) {
         params.bassPitchTracking = s3g::PsdRawFieldPitchTracking::Body;
     }
@@ -1739,6 +1808,12 @@ void randomizePatch(Plugin& p, uint32_t salt)
     next.bassGlide = std::clamp(recipe.bassGlide + signedRandom() * 0.06f, 0.0f, 1.0f);
     next.bassOctave = recipe.bassOctave;
     next.bassLowWidth = std::clamp(recipe.bassLowWidth + signedRandom() * 0.08f, 0.0f, 1.0f);
+    next.bassFuzz = std::clamp(recipe.bassFuzz + signedRandom() * 0.10f,
+        0.0f, 1.0f);
+    next.bassMetal = std::clamp(recipe.bassMetal + signedRandom() * 0.10f,
+        0.0f, 1.0f);
+    next.bassFeedback = std::clamp(
+        recipe.bassFeedback + signedRandom() * 0.08f, 0.0f, 0.78f);
     if (random01() < 0.14f) {
         next.bassReceiver = static_cast<s3g::PsdRawFieldBassReceiver>(
             static_cast<uint32_t>(random01() * 3.999f));
@@ -1796,6 +1871,12 @@ void mutatePatch(Plugin& p, uint32_t salt)
     next.bassTrace = std::clamp(next.bassTrace + signedRandom() * 0.06f, 0.0f, 1.0f);
     next.bassGlide = std::clamp(next.bassGlide + signedRandom() * 0.045f, 0.0f, 1.0f);
     next.bassLowWidth = std::clamp(next.bassLowWidth + signedRandom() * 0.055f, 0.0f, 1.0f);
+    next.bassFuzz = std::clamp(
+        next.bassFuzz + signedRandom() * 0.075f, 0.0f, 1.0f);
+    next.bassMetal = std::clamp(
+        next.bassMetal + signedRandom() * 0.075f, 0.0f, 1.0f);
+    next.bassFeedback = std::clamp(
+        next.bassFeedback + signedRandom() * 0.060f, 0.0f, 0.85f);
     if (random01() < 0.06f) {
         next.bassReceiver = static_cast<s3g::PsdRawFieldBassReceiver>(
             static_cast<uint32_t>(random01() * 3.999f));
@@ -1999,6 +2080,9 @@ void applyParam(Plugin& p, clap_id id, double value)
                 static_cast<double>(s3g::kPsdRawFieldBassOctaveCount - 1u))));
         break;
     case kBassLowWidthParamId: p.params.bassLowWidth = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kBassFuzzParamId: p.params.bassFuzz = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kBassMetalParamId: p.params.bassMetal = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kBassFeedbackParamId: p.params.bassFeedback = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kDriveParamId: p.params.drive = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kShredParamId: p.params.shred = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kResonanceParamId: p.params.resonance = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
@@ -2340,6 +2424,9 @@ constexpr ParamDef kParamDefs[] {
     { kBassOctaveParamId, "Octave", 0.0,
         static_cast<double>(s3g::kPsdRawFieldBassOctaveCount - 1u), 1.0 },
     { kBassLowWidthParamId, "Low Width", 0.0, 1.0, 1.0 },
+    { kBassFuzzParamId, "Fuzz", 0.0, 1.0, 0.0 },
+    { kBassMetalParamId, "Metal", 0.0, 1.0, 0.55 },
+    { kBassFeedbackParamId, "Feedback", 0.0, 1.0, 0.0 },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParamDefs)); }
@@ -2367,7 +2454,8 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     std::strncpy(info->name, def.name, sizeof(info->name));
     info->name[sizeof(info->name) - 1u] = '\0';
     const bool performance = def.id >= kPerformanceModeParamId && def.id <= kReleaseParamId;
-    const bool bassCore = def.id >= kBassReceiverParamId && def.id <= kBassLowWidthParamId;
+    const bool bassCore = def.id >= kBassReceiverParamId
+        && def.id <= kBassFeedbackParamId;
     const char* module = performance ? "Performance" : (bassCore ? "Bass Core" : "Processor Fault");
     std::strncpy(info->module, module, sizeof(info->module));
     info->module[sizeof(info->module) - 1u] = '\0';
@@ -2430,6 +2518,9 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kBassGlideParamId: *value = p.bassGlide; return true;
     case kBassOctaveParamId: *value = static_cast<uint32_t>(p.bassOctave); return true;
     case kBassLowWidthParamId: *value = p.bassLowWidth; return true;
+    case kBassFuzzParamId: *value = p.bassFuzz; return true;
+    case kBassMetalParamId: *value = p.bassMetal; return true;
+    case kBassFeedbackParamId: *value = p.bassFeedback; return true;
     case kDriveParamId: *value = p.drive; return true;
     case kShredParamId: *value = p.shred; return true;
     case kResonanceParamId: *value = p.resonance; return true;
@@ -2763,7 +2854,9 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value, ch
         static_cast<uint32_t>(std::clamp(std::round(value), 0.0,
             static_cast<double>(s3g::kPsdRawFieldBassOctaveCount - 1u)))));
     else if (id == kBassBodyParamId || id == kBassPunchParamId || id == kBassTraceParamId
-        || id == kBassGlideParamId || id == kBassLowWidthParamId) {
+        || id == kBassGlideParamId || id == kBassLowWidthParamId
+        || id == kBassFuzzParamId || id == kBassMetalParamId
+        || id == kBassFeedbackParamId) {
         std::snprintf(display, size, "%.1f%%", value * 100.0);
     }
     else if (id == kPerformanceModeParamId) std::snprintf(display, size, "%s", performanceModeName(
@@ -2813,7 +2906,9 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id, const char* disp
         }
         return false;
     } else if (id == kBassBodyParamId || id == kBassPunchParamId || id == kBassTraceParamId
-        || id == kBassGlideParamId || id == kBassLowWidthParamId) {
+        || id == kBassGlideParamId || id == kBassLowWidthParamId
+        || id == kBassFuzzParamId || id == kBassMetalParamId
+        || id == kBassFeedbackParamId) {
         *value = std::clamp(std::strchr(display, '%') ? numeric / 100.0 : numeric, 0.0, 1.0);
     } else if (id == kPerformanceModeParamId) {
         if (std::strcmp(display, "MIDI") == 0) *value = 1.0;
@@ -3000,6 +3095,41 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             p->sourceName = sourceNameFromPath(p->sourcePath);
             p->sourceInterpretation = static_cast<SourceInterpretation>(state.sourceMode);
             readSource(p->sourcePath, p->sourceInterpretation, p->rawSource, p->sourceError);
+        }
+    } else if (version == 22u) {
+        LegacySavedStateV22 state {};
+        state.version = version;
+        constexpr size_t offset = sizeof(state.version);
+        if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset,
+                sizeof(state) - offset)) return false;
+        p->params = migrateLegacyParams(state.params);
+        p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
+        restoredPlaying = state.runState != 0u;
+        p->performanceMode = static_cast<PerformanceMode>(
+            std::min(state.performanceMode, 1u));
+        p->attackMs = std::clamp(state.attackMs, 1.0f, 5000.0f);
+        p->decayMs = std::clamp(state.decayMs, 5.0f, 8000.0f);
+        p->sustain = std::clamp(state.sustain, 0.0f, 1.0f);
+        p->releaseMs = std::clamp(state.releaseMs, 5.0f, 12000.0f);
+        p->rawSource.reset();
+        p->sourcePath.clear();
+        p->sourceName.clear();
+        p->sourceError.clear();
+        p->sourceInterpretation = SourceInterpretation::Generated;
+        if ((state.sourceMode
+                    == static_cast<uint32_t>(SourceInterpretation::RawBytes)
+                || state.sourceMode
+                    == static_cast<uint32_t>(SourceInterpretation::Waveform))
+            && state.sourcePath[0] != '\0') {
+            std::size_t pathLength = 0u;
+            while (pathLength < sizeof(state.sourcePath)
+                && state.sourcePath[pathLength] != '\0') ++pathLength;
+            p->sourcePath.assign(state.sourcePath, pathLength);
+            p->sourceName = sourceNameFromPath(p->sourcePath);
+            p->sourceInterpretation =
+                static_cast<SourceInterpretation>(state.sourceMode);
+            readSource(p->sourcePath, p->sourceInterpretation,
+                p->rawSource, p->sourceError);
         }
     } else if (version == 21u) {
         LegacySavedStateV21 state {};
@@ -3401,6 +3531,9 @@ double normalizedParam(const s3g::PsdRawFieldParams& p, clap_id id)
     case kBassOctaveParamId: return static_cast<double>(static_cast<uint32_t>(p.bassOctave))
         / static_cast<double>(s3g::kPsdRawFieldBassOctaveCount - 1u);
     case kBassLowWidthParamId: return p.bassLowWidth;
+    case kBassFuzzParamId: return p.bassFuzz;
+    case kBassMetalParamId: return p.bassMetal;
+    case kBassFeedbackParamId: return p.bassFeedback;
     case kDriveParamId: return p.drive;
     case kShredParamId: return p.shred;
     case kResonanceParamId: return p.resonance;
@@ -3481,6 +3614,9 @@ void applyNormalizedParam(Plugin& p, clap_id id, double normalized)
     case kBassTraceParamId:
     case kBassGlideParamId:
     case kBassLowWidthParamId:
+    case kBassFuzzParamId:
+    case kBassMetalParamId:
+    case kBassFeedbackParamId:
         applyParam(p, id, normalized);
         break;
     case kSeedParamId: applyParam(p, id, 1.0 + normalized * 4294967294.0); break;
@@ -4385,7 +4521,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
 
         s3g::clap_gui::drawPanelFrame(kBassControlPanelX, 258.0,
             kBassControlPanelWidth, 234.0, style);
-        s3g::clap_gui::drawPanelHeader(@"SUBHARMONIC BODY", true,
+        s3g::clap_gui::drawPanelHeader(@"SUBHARMONIC / HIGH GAIN", true,
             kBassControlPanelX, 258.0, kBassControlPanelWidth, 21, labels, style);
         [self drawRow:@"BODY" value:[NSString stringWithFormat:@"%.0f%%", params.bassBody * 100.0f]
             norm:params.bassBody panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:286 attrs:labels small:values];
@@ -4393,10 +4529,16 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             norm:params.bassPunch panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:312 attrs:labels small:values];
         [self drawRow:@"TRACE" value:[NSString stringWithFormat:@"%.0f%%", params.bassTrace * 100.0f]
             norm:params.bassTrace panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:338 attrs:labels small:values];
+        [self drawRow:@"FUZZ" value:[NSString stringWithFormat:@"%.0f%%", params.bassFuzz * 100.0f]
+            norm:params.bassFuzz panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:364 attrs:labels small:values];
+        [self drawRow:@"METAL" value:[NSString stringWithFormat:@"%.0f%%", params.bassMetal * 100.0f]
+            norm:params.bassMetal panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:390 attrs:labels small:values];
+        [self drawRow:@"FEEDBACK" value:[NSString stringWithFormat:@"%.0f%%", params.bassFeedback * 100.0f]
+            norm:params.bassFeedback panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:416 attrs:labels small:values];
         [self drawRow:@"GLIDE" value:[NSString stringWithFormat:@"%.0f%%", params.bassGlide * 100.0f]
-            norm:params.bassGlide panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:364 attrs:labels small:values];
+            norm:params.bassGlide panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:442 attrs:labels small:values];
         [self drawRow:@"LOW WIDTH" value:[NSString stringWithFormat:@"%.0f%%", params.bassLowWidth * 100.0f]
-            norm:params.bassLowWidth panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:390 attrs:labels small:values];
+            norm:params.bassLowWidth panelX:kBassControlPanelX panelWidth:kBassControlPanelWidth y:468 attrs:labels small:values];
 
         s3g::clap_gui::drawPanelFrame(kBassPathPanelX, 258.0,
             kBassPathPanelWidth, 234.0, style);
@@ -4404,16 +4546,18 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             kBassPathPanelX, 258.0, kBassPathPanelWidth, 21, labels, style);
         [@"CODEC / MODULATION  →  RECEIVER  →  DIVIDER"
             drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 300.0) withAttributes:values];
-        [@"                         |"
-            drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 326.0) withAttributes:values];
         [@"MIDI ROOT  →  GLIDE / OCTAVE  →  MODAL FILTER"
+            drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 326.0) withAttributes:values];
+        [@"LOW ANCHOR  ───────────────────────────┐"
             drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 352.0) withAttributes:values];
-        [@"                         |"
+        [@"UPPER BODY  →  FUZZ  →  METAL  →  FEEDBACK"
             drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 378.0) withAttributes:values];
-        [@"EXCITE  →  CODEC EMPHASIS  →  LOW WIDTH"
+        [@"                                  ↓"
             drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 404.0) withAttributes:values];
-        [@"TRACE keeps the raw codec present above the core."
-            drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 450.0) withAttributes:labels];
+        [@"TRACE MIX  →  LOW WIDTH  →  8CH OUTPUT"
+            drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 430.0) withAttributes:values];
+        [@"The clean low anchor remains outside the feedback loop."
+            drawAtPoint:NSMakePoint(kBassPathPanelX + 24.0, 462.0) withAttributes:labels];
     }
 
     [self drawMenuControl:@"PRESET" value:[NSString stringWithUTF8String:presetName(p->selectedPreset)] panelX:kLeftToolboxX panelWidth:kToolboxWidth y:kPresetRowY attrs:labels small:values style:style];
@@ -4467,9 +4611,10 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             (point.x - s3g::gui_layout::processorControlX(labCardX(2u)))
                 / s3g::gui_layout::processorTrackWidth(kLabCardWidth), 0.0, 1.0);
         applyNormalizedParam(*p, ids[_dragSlider - 501], normalized);
-    } else if (_dragSlider >= 601 && _dragSlider <= 605) {
+    } else if (_dragSlider >= 601 && _dragSlider <= 608) {
         static const clap_id ids[] = {
             kBassBodyParamId, kBassPunchParamId, kBassTraceParamId,
+            kBassFuzzParamId, kBassMetalParamId, kBassFeedbackParamId,
             kBassGlideParamId, kBassLowWidthParamId
         };
         const double normalized = std::clamp(
@@ -4794,12 +4939,15 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     }
     }
     if (_editorPage == 2) {
-    static const CGFloat bassRows[] = { 286, 312, 338, 364, 390 };
+    static const CGFloat bassRows[] = {
+        286, 312, 338, 364, 390, 416, 442, 468
+    };
     static const clap_id bassIds[] = {
         kBassBodyParamId, kBassPunchParamId, kBassTraceParamId,
+        kBassFuzzParamId, kBassMetalParamId, kBassFeedbackParamId,
         kBassGlideParamId, kBassLowWidthParamId
     };
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 8; ++i) {
         if (NSPointInRect(point, NSMakeRect(
                 kBassControlPanelX, bassRows[i] - 9.0, kBassControlPanelWidth, 24))) {
             double defaultValue = 0.0;
@@ -4891,7 +5039,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
 - (void)mouseUp:(NSEvent*)event
 {
     (void)event;
-    if (_dragSlider == 108 || (_dragSlider >= 601 && _dragSlider <= 605)) {
+    if (_dragSlider == 108 || (_dragSlider >= 601 && _dragSlider <= 608)) {
         markHostStateDirty(*static_cast<Plugin*>(_plugin));
     }
     _dragSlider = -1;
@@ -5004,7 +5152,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.18.0",
+    "0.19.0",
     "Eight-channel free-running or MIDI-playable byte geometry, codec damage, and receiver-driven bass synthesis.",
     features
 };

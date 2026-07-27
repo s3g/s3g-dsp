@@ -1453,6 +1453,50 @@ int main(int argc, char** argv)
                     std::cerr << "Fault Bass Lab click/page: " << bassClicked
                               << "/" << bassPageValue << "\n";
                 }
+                if (ok) {
+                    failureStage = "Processor Fault Bass Core sliders";
+                    constexpr CGFloat bassPanelX = 448.0;
+                    constexpr CGFloat bassPanelWidth = 414.0;
+                    const CGFloat bassControlX = static_cast<CGFloat>(
+                        s3g::gui_layout::processorControlX(bassPanelX));
+                    const CGFloat bassTrackWidth = static_cast<CGFloat>(
+                        s3g::gui_layout::processorTrackWidth(bassPanelWidth));
+                    const std::array<clap_id, 3u> bassHighGainParams {
+                        96u, 97u, 98u
+                    };
+                    const std::array<CGFloat, 3u> bassHighGainRows {
+                        364.0, 390.0, 416.0
+                    };
+                    const std::array<double, 3u> bassHighGainValues {
+                        0.34, 0.67, 0.48
+                    };
+                    for (size_t index = 0u;
+                         ok && index < bassHighGainParams.size(); ++index) {
+                        const NSPoint point = NSMakePoint(
+                            bassControlX + bassTrackWidth
+                                * bassHighGainValues[index],
+                            bassHighGainRows[index]);
+                        NSView* hitView = [parent hitTest:
+                            [parent convertPoint:point fromView:document]];
+                        ok = hitView == document;
+                        if (ok) {
+                            [hitView mouseDown:mouseEvent(
+                                NSEventTypeLeftMouseDown, point)];
+                            [hitView mouseUp:mouseEvent(
+                                NSEventTypeLeftMouseUp, point)];
+                            double reported = -1.0;
+                            ok = params->get_value(plugin,
+                                    bassHighGainParams[index], &reported)
+                                && std::fabs(reported
+                                    - bassHighGainValues[index]) < 0.02;
+                            if (!ok) {
+                                std::cerr
+                                    << "Fault Bass Core slider did not track "
+                                    << bassHighGainParams[index] << "\n";
+                            }
+                        }
+                    }
+                }
                 NSData* bassPage = ok
                     ? [document dataWithPDFInsideRect:[document bounds]]
                     : nil;

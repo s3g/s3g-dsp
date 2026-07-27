@@ -256,6 +256,192 @@ struct PsdRawFieldParams {
     float bassGlide = 0.0f;
     PsdRawFieldBassOctave bassOctave = PsdRawFieldBassOctave::MinusOne;
     float bassLowWidth = 1.0f;
+    // Appended in Fault state version 23. METAL is a voicing axis and is
+    // intentionally inert until FUZZ or FEEDBACK opens the high-gain path.
+    float bassFuzz = 0.0f;
+    float bassMetal = 0.55f;
+    float bassFeedback = 0.0f;
+};
+
+struct PsdRawFieldBassFuzzCoefficients {
+    float split = 0.02f;
+    float postLow = 0.04f;
+    float postHigh = 0.20f;
+    float loopLowpass = 0.25f;
+    float delaySamples = 64.0f;
+};
+
+// A compact bass-only regeneration cell. It borrows Macro Shred's bounded
+// delay-loop safeguards, but keeps the fundamental outside the nonlinear loop
+// and replaces Shred's wavefolder/centroid tracking with pitch-related fuzz and
+// a fixed metal contour. All memory is allocated in prepare().
+class PsdRawFieldBassFuzzCore {
+public:
+    void prepare(double sampleRate)
+    {
+        sampleRate_ = std::max(1.0, sampleRate);
+        const auto delaySize = static_cast<size_t>(
+            std::ceil(sampleRate_ * 0.006)) + 4u;
+        delay_.assign(std::max<size_t>(delaySize, 8u), 0.0f);
+        const float sr = static_cast<float>(sampleRate_);
+        delaySmoothing_ = 1.0f - std::exp(-1.0f / (sr * 0.035f));
+        safetyCoefficient_ = 1.0f - std::exp(-1.0f / (sr * 0.012f));
+        activityCoefficient_ = 1.0f - std::exp(-1.0f / (sr * 0.060f));
+        dcPole_ = std::exp(-2.0f * kPi * 18.0f / sr);
+        reset();
+    }
+
+    void reset()
+    {
+        std::fill(delay_.begin(), delay_.end(), 0.0f);
+        writeIndex_ = 0u;
+        delaySamples_ = 64.0f;
+        cleanLow_ = 0.0f;
+        loopDcInput_ = 0.0f;
+        loopDcOutput_ = 0.0f;
+        loopLowpass_ = 0.0f;
+        loopEnvelope_ = 0.0f;
+        previousExcitation_ = 0.0f;
+        postLow_ = 0.0f;
+        postHigh_ = 0.0f;
+        outputDcInput_ = 0.0f;
+        outputDcOutput_ = 0.0f;
+        dirtyLow_ = 0.0f;
+        feedbackActivity_ = 0.0f;
+    }
+
+    float processSample(float input, float fuzz, float metal, float feedback,
+        float receiverActivity,
+        const PsdRawFieldBassFuzzCoefficients& coefficients)
+    {
+        if (delay_.empty()) return input;
+        input = std::isfinite(input) ? input : 0.0f;
+        fuzz = clamp(std::isfinite(fuzz) ? fuzz : 0.0f, 0.0f, 1.0f);
+        metal = clamp(std::isfinite(metal) ? metal : 0.55f, 0.0f, 1.0f);
+        feedback = clamp(
+            std::isfinite(feedback) ? feedback : 0.0f, 0.0f, 1.0f);
+        receiverActivity = clamp(std::isfinite(receiverActivity)
+            ? receiverActivity : 0.0f, 0.0f, 1.0f);
+
+        const float splitCoefficient = clamp(
+            coefficients.split, 0.00001f, 0.95f);
+        cleanLow_ += (input - cleanLow_) * splitCoefficient;
+        cleanLow_ = flushDenormal(cleanLow_);
+        const float upper = input - cleanLow_;
+
+        const float maximumDelay = static_cast<float>(delay_.size() - 2u);
+        const float delayTarget = clamp(
+            coefficients.delaySamples, 2.0f, maximumDelay);
+        delaySamples_ += (delayTarget - delaySamples_) * delaySmoothing_;
+        const float delayed = readDelay(delaySamples_);
+        const float loopDc = delayed - loopDcInput_ + dcPole_ * loopDcOutput_;
+        loopDcInput_ = delayed;
+        loopDcOutput_ = flushDenormal(loopDc);
+        loopLowpass_ += (loopDcOutput_ - loopLowpass_)
+            * clamp(coefficients.loopLowpass, 0.00001f, 0.95f);
+        loopLowpass_ = flushDenormal(loopLowpass_);
+
+        loopEnvelope_ += (std::abs(loopLowpass_) - loopEnvelope_)
+            * safetyCoefficient_;
+        const float excess = std::max(0.0f, loopEnvelope_ - 0.50f);
+        const float governor = 1.0f / (1.0f + excess * 11.0f);
+        const float feedbackGain = std::min(0.90f,
+            feedback * (0.55f + feedback * 0.45f) * 0.90f
+                + feedback * receiverActivity * 0.015f) * governor;
+
+        // METAL progressively removes low-mid energy before the clipper and
+        // emphasizes the upper branch. The clean low anchor is recombined only
+        // after the loop, so feedback cannot turn the fundamental into rumble.
+        const float preEmphasis = 1.0f + metal * 1.85f;
+        const float lowLeak = lerp(0.42f, 0.10f, metal);
+        const float excitation = clamp(upper * preEmphasis
+                + cleanLow_ * lowLeak + loopLowpass_ * feedbackGain,
+            -6.0f, 6.0f);
+        const float midpoint = 0.5f * (previousExcitation_ + excitation);
+        const float drive = 1.0f + fuzz * fuzz * 34.0f
+            + feedback * 2.5f + receiverActivity * fuzz * 2.0f;
+        const float bias = 0.11f * (1.0f - metal);
+        const auto shape = [drive, bias, metal](float value) {
+            const float asymmetric = std::tanh((value + bias) * drive)
+                - std::tanh(bias * drive);
+            const float first = std::tanh(value * drive);
+            const float symmetric = std::tanh(
+                first * (1.0f + metal * 5.0f));
+            return lerp(asymmetric, symmetric, metal);
+        };
+        const float distorted = 0.5f
+            * (shape(midpoint) + shape(excitation));
+        previousExcitation_ = excitation;
+        delay_[writeIndex_] = flushDenormal(std::tanh(distorted * 0.88f));
+        writeIndex_ = (writeIndex_ + 1u) % delay_.size();
+
+        postLow_ += (distorted - postLow_)
+            * clamp(coefficients.postLow, 0.00001f, 0.95f);
+        postHigh_ += (distorted - postHigh_)
+            * clamp(coefficients.postHigh, 0.00001f, 0.95f);
+        postLow_ = flushDenormal(postLow_);
+        postHigh_ = flushDenormal(postHigh_);
+        const float middle = postHigh_ - postLow_;
+        const float edge = distorted - postHigh_;
+        const float contoured = distorted - middle * metal * 0.72f
+            + edge * metal * 0.58f;
+        const float outputDc = contoured - outputDcInput_
+            + dcPole_ * outputDcOutput_;
+        outputDcInput_ = contoured;
+        outputDcOutput_ = flushDenormal(outputDc);
+
+        dirtyLow_ += (outputDcOutput_ - dirtyLow_) * splitCoefficient;
+        dirtyLow_ = flushDenormal(dirtyLow_);
+        const float dirtyUpper = outputDcOutput_ - dirtyLow_;
+        const float compensatedUpper = dirtyUpper
+            * lerp(1.0f, 0.68f, fuzz) * lerp(1.0f, 0.78f, feedback);
+        const float processed = cleanLow_ + compensatedUpper;
+        const float amount = std::max(fuzz, feedback);
+        const float mix = amount * amount * (3.0f - 2.0f * amount);
+        feedbackActivity_ += (std::abs(loopLowpass_) - feedbackActivity_)
+            * activityCoefficient_;
+        return flushDenormal(input + (processed - input) * mix);
+    }
+
+    float feedbackActivity() const
+    {
+        return clamp(feedbackActivity_, 0.0f, 1.0f);
+    }
+
+private:
+    float readDelay(float delaySamples) const
+    {
+        const float size = static_cast<float>(delay_.size());
+        float read = static_cast<float>(writeIndex_) - delaySamples;
+        while (read < 0.0f) read += size;
+        while (read >= size) read -= size;
+        const auto first = static_cast<size_t>(read);
+        const auto second = (first + 1u) % delay_.size();
+        const float fraction = read - static_cast<float>(first);
+        return delay_[first]
+            + (delay_[second] - delay_[first]) * fraction;
+    }
+
+    double sampleRate_ = 48000.0;
+    std::vector<float> delay_;
+    size_t writeIndex_ = 0u;
+    float delaySamples_ = 64.0f;
+    float cleanLow_ = 0.0f;
+    float loopDcInput_ = 0.0f;
+    float loopDcOutput_ = 0.0f;
+    float loopLowpass_ = 0.0f;
+    float loopEnvelope_ = 0.0f;
+    float previousExcitation_ = 0.0f;
+    float postLow_ = 0.0f;
+    float postHigh_ = 0.0f;
+    float outputDcInput_ = 0.0f;
+    float outputDcOutput_ = 0.0f;
+    float dirtyLow_ = 0.0f;
+    float feedbackActivity_ = 0.0f;
+    float delaySmoothing_ = 0.001f;
+    float safetyCoefficient_ = 0.001f;
+    float activityCoefficient_ = 0.001f;
+    float dcPole_ = 0.997f;
 };
 
 class PsdRawField {
@@ -280,6 +466,7 @@ public:
             }
         }
         shaper_.prepare(sampleRate_, kPsdRawFieldChannels);
+        for (auto& core : bassFuzzCores_) core.prepare(sampleRate_);
         setParams(params_);
         reset();
         ready_ = true;
@@ -502,6 +689,7 @@ public:
         }
         configureShaper();
         shaper_.reset();
+        for (auto& core : bassFuzzCores_) core.reset();
         sectionPhase_ = 0.0f;
         frameSample_ = 0u;
         codecFrameCounter_ = 0u;
@@ -513,6 +701,11 @@ public:
         bassPunchEnvelope_ = 0.0f;
         bassBodySmoothed_ = params_.bassBody;
         bassTraceSmoothed_ = params_.bassTrace;
+        bassFuzzSmoothed_ = params_.bassFuzz;
+        bassMetalSmoothed_ = params_.bassMetal;
+        bassFeedbackSmoothed_ = params_.bassFeedback;
+        bassFuzzControlCountdown_ = 0u;
+        updateBassFuzzCoefficients();
     }
 
     void setParams(const PsdRawFieldParams& params)
@@ -585,7 +778,20 @@ public:
             currentPitchRatio_ += (targetPitchRatio_ - currentPitchRatio_) * pitchSmoothing_;
             bassBodySmoothed_ += (params_.bassBody - bassBodySmoothed_) * bassControlSmoothing_;
             bassTraceSmoothed_ += (params_.bassTrace - bassTraceSmoothed_) * bassControlSmoothing_;
+            bassFuzzSmoothed_ += (params_.bassFuzz - bassFuzzSmoothed_)
+                * bassControlSmoothing_;
+            bassMetalSmoothed_ += (params_.bassMetal - bassMetalSmoothed_)
+                * bassControlSmoothing_;
+            bassFeedbackSmoothed_ +=
+                (params_.bassFeedback - bassFeedbackSmoothed_)
+                * bassControlSmoothing_;
             bassPitchHz_ += (bassPitchTargetHz() - bassPitchHz_) * bassPitchSmoothing;
+            if (bassFuzzControlCountdown_ == 0u) {
+                updateBassFuzzCoefficients();
+                bassFuzzControlCountdown_ = kBassFuzzControlInterval - 1u;
+            } else {
+                --bassFuzzControlCountdown_;
+            }
             bassPunchEnvelope_ *= bassPunchDecay;
             advanceEvolution();
             sectionPhase_ += sectionRate;
@@ -830,6 +1036,13 @@ private:
         p.bassOctave = static_cast<PsdRawFieldBassOctave>(std::min<uint32_t>(
             kPsdRawFieldBassOctaveCount - 1u, static_cast<uint32_t>(p.bassOctave)));
         p.bassLowWidth = clamp(p.bassLowWidth, 0.0f, 1.0f);
+        p.bassFuzz = clamp(std::isfinite(p.bassFuzz) ? p.bassFuzz : 0.0f,
+            0.0f, 1.0f);
+        p.bassMetal = clamp(std::isfinite(p.bassMetal) ? p.bassMetal : 0.55f,
+            0.0f, 1.0f);
+        p.bassFeedback = clamp(
+            std::isfinite(p.bassFeedback) ? p.bassFeedback : 0.0f,
+            0.0f, 1.0f);
         return p;
     }
 
@@ -855,6 +1068,28 @@ private:
         p.mix = 1.0f;
         p.outputGainDb = -3.0f - 7.0f * clamp(params_.drive * 0.72f + params_.shred * 0.28f, 0.0f, 1.0f);
         shaper_.setParams(p);
+    }
+
+    void updateBassFuzzCoefficients()
+    {
+        const float sr = static_cast<float>(sampleRate_);
+        const float metal = clamp(bassMetalSmoothed_, 0.0f, 1.0f);
+        const auto onePole = [sr](float frequency) {
+            return 1.0f - std::exp(-2.0f * kPi
+                * std::min(frequency, sr * 0.45f) / sr);
+        };
+        const float splitHz = clamp(bassPitchHz_ * lerp(1.5f, 2.0f, metal),
+            70.0f, 180.0f);
+        bassFuzzCoefficients_.split = onePole(splitHz);
+        bassFuzzCoefficients_.postLow = onePole(lerp(360.0f, 720.0f, metal));
+        bassFuzzCoefficients_.postHigh = onePole(
+            lerp(1700.0f, 3600.0f, metal));
+        bassFuzzCoefficients_.loopLowpass = onePole(
+            lerp(3200.0f, 8200.0f, metal));
+        const float feedbackFrequency = clamp(
+            bassPitchHz_ * lerp(7.0f, 18.0f, metal),
+            280.0f, 3200.0f);
+        bassFuzzCoefficients_.delaySamples = sr / feedbackFrequency;
     }
 
     float bassPitchTargetHz() const
@@ -998,12 +1233,19 @@ private:
         const float modMix = clamp(body * 1.20f + ring * 0.84f + strike * 0.88f,
             0.0f, 0.97f);
         const float faultSignal = lerp(input, input * 0.08f + modal, modMix);
-        if (bassPathAmount <= 0.000001f || trace >= 0.999999f) return faultSignal;
+        const float bassCore = softClip(modal * (1.18f + bassAmount * 0.42f));
+        const float highGainBass = bassFuzzCores_[ch].processSample(
+            bassCore, bassFuzzSmoothed_, bassMetalSmoothed_,
+            bassFeedbackSmoothed_, bassReceiverActivity_[ch],
+            bassFuzzCoefficients_);
+        if (bassPathAmount <= 0.000001f || trace >= 0.999999f) {
+            return faultSignal;
+        }
 
         const float codecGain = std::sin(0.5f * kPi * trace);
         const float coreGain = std::cos(0.5f * kPi * trace);
-        const float bassCore = softClip(modal * (1.18f + bassAmount * 0.42f));
-        return lerp(faultSignal, faultSignal * codecGain + bassCore * coreGain,
+        return lerp(faultSignal,
+            faultSignal * codecGain + highGainBass * coreGain,
             bassAmount);
     }
 
@@ -3507,8 +3749,16 @@ private:
     float bassControlSmoothing_ = 0.005f;
     float bassBodySmoothed_ = 0.0f;
     float bassTraceSmoothed_ = 1.0f;
+    float bassFuzzSmoothed_ = 0.0f;
+    float bassMetalSmoothed_ = 0.55f;
+    float bassFeedbackSmoothed_ = 0.0f;
     float bassPitchHz_ = 65.4064f;
     float bassPunchEnvelope_ = 0.0f;
+    static constexpr uint32_t kBassFuzzControlInterval = 16u;
+    uint32_t bassFuzzControlCountdown_ = 0u;
+    PsdRawFieldBassFuzzCoefficients bassFuzzCoefficients_ {};
+    std::array<PsdRawFieldBassFuzzCore, kPsdRawFieldChannels>
+        bassFuzzCores_ {};
     MacroShred shaper_ {};
 };
 

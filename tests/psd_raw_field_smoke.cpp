@@ -438,8 +438,11 @@ int main()
     modalStressParams.bassGlide = 1.0f;
     modalStressParams.bassOctave = s3g::PsdRawFieldBassOctave::Unison;
     modalStressParams.bassLowWidth = 0.0f;
+    modalStressParams.bassFuzz = 1.0f;
+    modalStressParams.bassMetal = 1.0f;
+    modalStressParams.bassFeedback = 1.0f;
     constexpr uint32_t modalStressFrames = 8192u;
-    for (const double stressRate : { 44100.0, 48000.0, 96000.0 }) {
+    for (const double stressRate : { 44100.0, 48000.0, 96000.0, 192000.0 }) {
         for (uint32_t receiver = 0u; receiver < s3g::kPsdRawFieldBassReceiverCount; ++receiver) {
             modalStressParams.bassReceiver = static_cast<s3g::PsdRawFieldBassReceiver>(receiver);
             std::array<std::array<float, modalStressFrames>, s3g::kPsdRawFieldChannels> stressAudio {};
@@ -507,6 +510,9 @@ int main()
     fullTraceParams.bassTrace = 1.0f;
     fullTraceParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::Body;
     fullTraceParams.bassOctave = s3g::PsdRawFieldBassOctave::MinusTwo;
+    fullTraceParams.bassFuzz = 1.0f;
+    fullTraceParams.bassMetal = 1.0f;
+    fullTraceParams.bassFeedback = 1.0f;
     const auto fullTrace = renderModulation(fullTraceParams);
     auto modulatedCompatibilityParams = modulationParams;
     modulatedCompatibilityParams.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
@@ -530,11 +536,23 @@ int main()
     protectedTraceParams.bassLowWidth = 0.0f;
     protectedTraceParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::BodyAndScan;
     protectedTraceParams.bassOctave = s3g::PsdRawFieldBassOctave::Unison;
+    protectedTraceParams.bassFuzz = 1.0f;
+    protectedTraceParams.bassMetal = 1.0f;
+    protectedTraceParams.bassFeedback = 1.0f;
     const auto protectedTrace = renderModulation(protectedTraceParams);
+    auto neutralHighGainParams = protectedTraceParams;
+    neutralHighGainParams.bassTrace = 0.0f;
+    neutralHighGainParams.bassFuzz = 0.0f;
+    neutralHighGainParams.bassFeedback = 0.0f;
+    neutralHighGainParams.bassMetal = 0.0f;
+    const auto neutralHighGainDark = renderModulation(neutralHighGainParams);
+    neutralHighGainParams.bassMetal = 1.0f;
+    const auto neutralHighGainBright = renderModulation(neutralHighGainParams);
     for (uint32_t i = 0u; i < frames; ++i) {
         if (neutralCore[i] != compatibilityReference[i]
             || fullTrace[i] != compatibilityReference[i]
-            || protectedTrace[i] != modulatedCompatibilityReference[i]) {
+            || protectedTrace[i] != modulatedCompatibilityReference[i]
+            || neutralHighGainDark[i] != neutralHighGainBright[i]) {
             std::cerr << "Fault bass compatibility path changed neutral or fully protected TRACE=1 output\n";
             return 1;
         }
@@ -684,6 +702,186 @@ int main()
         return metrics;
     };
 
+    struct BassCharacterMetrics {
+        double total = 0.0;
+        double low = 0.0;
+        double upper = 0.0;
+    };
+    auto bassCharacterMetrics = [](const BassRender& rendered, uint32_t warmup) {
+        BassCharacterMetrics metrics;
+        double lowState = 0.0;
+        double upperState = 0.0;
+        const double lowCoefficient = 1.0
+            - std::exp(-2.0 * s3g::kPi * 180.0 / 48000.0);
+        const double upperCoefficient = 1.0
+            - std::exp(-2.0 * s3g::kPi * 1400.0 / 48000.0);
+        for (uint32_t i = 0u; i < rendered.audio[0].size(); ++i) {
+            double sample = 0.0;
+            for (uint32_t ch = 0u; ch < s3g::kPsdRawFieldChannels; ++ch) {
+                sample += rendered.audio[ch][i];
+            }
+            sample /= static_cast<double>(s3g::kPsdRawFieldChannels);
+            lowState += (sample - lowState) * lowCoefficient;
+            upperState += (sample - upperState) * upperCoefficient;
+            if (i >= warmup) {
+                const double upper = sample - upperState;
+                metrics.total += sample * sample;
+                metrics.low += lowState * lowState;
+                metrics.upper += upper * upper;
+            }
+        }
+        return metrics;
+    };
+
+    // The active bass path must remain exactly backward compatible while the
+    // new controls are neutral. FUZZ then adds nonlinear upper-band energy,
+    // while METAL must provide a genuinely different contour without moving
+    // the protected fundamental.
+    auto highGainParams = bassParams;
+    highGainParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::Body;
+    highGainParams.bassReceiver = s3g::PsdRawFieldBassReceiver::Direct;
+    highGainParams.bassBody = 1.0f;
+    highGainParams.bassTrace = 0.0f;
+    highGainParams.bassLowWidth = 0.0f;
+    highGainParams.bassFuzz = 0.0f;
+    highGainParams.bassFeedback = 0.0f;
+    highGainParams.bassMetal = 0.0f;
+    const BassRender cleanBassDark = renderBass(
+        highGainParams, 1.0f, bassFrames, false, true);
+    highGainParams.bassMetal = 1.0f;
+    const BassRender cleanBassBright = renderBass(
+        highGainParams, 1.0f, bassFrames, false, true);
+    for (uint32_t ch = 0u; ch < s3g::kPsdRawFieldChannels; ++ch) {
+        if (!std::equal(cleanBassDark.audio[ch].begin(), cleanBassDark.audio[ch].end(),
+                cleanBassBright.audio[ch].begin())) {
+            std::cerr << "Fault METAL changed the active bass path while FUZZ and FEEDBACK were neutral\n";
+            return 1;
+        }
+    }
+
+    highGainParams.bassFuzz = 0.82f;
+    highGainParams.bassMetal = 0.10f;
+    const BassRender fuzzBass = renderBass(
+        highGainParams, 1.0f, bassFrames, false, true);
+    highGainParams.bassMetal = 0.90f;
+    const BassRender metalBass = renderBass(
+        highGainParams, 1.0f, bassFrames, false, true);
+    for (const BassRender* rendered : { &cleanBassDark, &fuzzBass, &metalBass }) {
+        for (const auto& channel : rendered->audio) {
+            for (const float sample : channel) {
+                if (!std::isfinite(sample) || std::abs(sample) > 1.0f) {
+                    std::cerr << "Fault bass high-gain character escaped its finite bounds\n";
+                    return 1;
+                }
+            }
+        }
+    }
+    const BassCharacterMetrics cleanCharacter = bassCharacterMetrics(
+        cleanBassDark, bassWarmup);
+    const BassCharacterMetrics fuzzCharacter = bassCharacterMetrics(
+        fuzzBass, bassWarmup);
+    const BassCharacterMetrics metalCharacter = bassCharacterMetrics(
+        metalBass, bassWarmup);
+    double fuzzDifference = 0.0;
+    double metalDifference = 0.0;
+    for (uint32_t i = bassWarmup; i < bassFrames; ++i) {
+        fuzzDifference += std::abs(static_cast<double>(
+            fuzzBass.audio[0][i] - cleanBassDark.audio[0][i]));
+        metalDifference += std::abs(static_cast<double>(
+            metalBass.audio[0][i] - fuzzBass.audio[0][i]));
+    }
+    const float cleanFundamental = dominantBassFrequency(
+        cleanBassDark, bassWarmup, 48.0f, 150.0f);
+    const float fuzzFundamental = dominantBassFrequency(
+        fuzzBass, bassWarmup, 48.0f, 150.0f);
+    const float metalFundamental = dominantBassFrequency(
+        metalBass, bassWarmup, 48.0f, 150.0f);
+    const double cleanUpperShare = cleanCharacter.upper
+        / std::max(1.0e-12, cleanCharacter.total);
+    const double fuzzUpperShare = fuzzCharacter.upper
+        / std::max(1.0e-12, fuzzCharacter.total);
+    const double metalUpperShare = metalCharacter.upper
+        / std::max(1.0e-12, metalCharacter.total);
+    if (fuzzDifference <= 0.01 || metalDifference <= 0.01
+        || fuzzUpperShare <= cleanUpperShare
+        || metalUpperShare <= fuzzUpperShare
+        || fuzzCharacter.low <= cleanCharacter.low * 0.05
+        || metalCharacter.low <= cleanCharacter.low * 0.05
+        || std::abs(fuzzFundamental - cleanFundamental) > 4.0f
+        || std::abs(metalFundamental - cleanFundamental) > 4.0f) {
+        std::cerr << "Fault bass high-gain controls did not create distinct, pitch-stable spectra: "
+                  << "difference=" << fuzzDifference << "/" << metalDifference
+                  << " upper=" << cleanUpperShare << "/" << fuzzUpperShare
+                  << "/" << metalUpperShare << " low=" << cleanCharacter.low
+                  << "/" << fuzzCharacter.low << "/" << metalCharacter.low
+                  << " fundamental=" << cleanFundamental << "/" << fuzzFundamental
+                  << "/" << metalFundamental << "\n";
+        return 1;
+    }
+
+    // Exercise the regeneration cell in isolation with a finite burst. The
+    // feedback setting must create a longer, still-decaying tail, stay bounded,
+    // and reproduce its output exactly after reset.
+    constexpr uint32_t fuzzCoreFrames = 24000u;
+    constexpr uint32_t fuzzCoreExcitationFrames = 640u;
+    auto renderFuzzCore = [](s3g::PsdRawFieldBassFuzzCore& core,
+                             float fuzz, float metal, float feedback) {
+        std::array<float, fuzzCoreFrames> rendered {};
+        s3g::PsdRawFieldBassFuzzCoefficients coefficients;
+        const auto onePole = [](float frequency) {
+            return 1.0f - std::exp(-2.0f * s3g::kPi * frequency / 48000.0f);
+        };
+        coefficients.split = onePole(105.0f);
+        coefficients.postLow = onePole(650.0f);
+        coefficients.postHigh = onePole(3200.0f);
+        coefficients.loopLowpass = onePole(7200.0f);
+        coefficients.delaySamples = 48000.0f / 1180.0f;
+        core.reset();
+        for (uint32_t i = 0u; i < fuzzCoreFrames; ++i) {
+            const float gate = i < fuzzCoreExcitationFrames
+                ? 1.0f - static_cast<float>(i) / fuzzCoreExcitationFrames : 0.0f;
+            const float input = gate * (0.32f * std::sin(2.0f * s3g::kPi
+                    * 82.0f * static_cast<float>(i) / 48000.0f)
+                + 0.18f * std::sin(2.0f * s3g::kPi
+                    * 670.0f * static_cast<float>(i) / 48000.0f));
+            rendered[i] = core.processSample(
+                input, fuzz, metal, feedback, 0.72f, coefficients);
+        }
+        return rendered;
+    };
+    s3g::PsdRawFieldBassFuzzCore feedbackCore;
+    feedbackCore.prepare(48000.0);
+    const auto feedbackOffTail = renderFuzzCore(feedbackCore, 0.20f, 0.30f, 0.0f);
+    const auto feedbackOnTail = renderFuzzCore(feedbackCore, 0.20f, 0.30f, 0.30f);
+    const auto feedbackResetTail = renderFuzzCore(feedbackCore, 0.20f, 0.30f, 0.30f);
+    double offTailEnergy = 0.0;
+    double onTailEnergy = 0.0;
+    double lateTailEnergy = 0.0;
+    float feedbackPeak = 0.0f;
+    for (uint32_t i = 0u; i < fuzzCoreFrames; ++i) {
+        if (!std::isfinite(feedbackOnTail[i])) {
+            std::cerr << "Fault bass feedback cell produced a non-finite sample\n";
+            return 1;
+        }
+        feedbackPeak = std::max(feedbackPeak, std::abs(feedbackOnTail[i]));
+        if (i >= 2048u && i < 8192u) {
+            offTailEnergy += static_cast<double>(feedbackOffTail[i]) * feedbackOffTail[i];
+            onTailEnergy += static_cast<double>(feedbackOnTail[i]) * feedbackOnTail[i];
+        }
+        if (i >= 18000u) {
+            lateTailEnergy += static_cast<double>(feedbackOnTail[i]) * feedbackOnTail[i];
+        }
+    }
+    if (feedbackOnTail != feedbackResetTail
+        || onTailEnergy <= offTailEnergy * 1.20 + 1.0e-12
+        || lateTailEnergy >= onTailEnergy * 0.10
+        || feedbackPeak > 2.5f) {
+        std::cerr << "Fault bass feedback tail was not longer, decaying, bounded, and reset-deterministic: "
+                  << "energy=" << offTailEnergy << "/" << onTailEnergy
+                  << "/" << lateTailEnergy << " peak=" << feedbackPeak << "\n";
+        return 1;
+    }
+
     auto receiverParams = bassParams;
     receiverParams.bassPitchTracking = s3g::PsdRawFieldPitchTracking::Body;
     receiverParams.bassBody = 0.86f;
@@ -783,6 +981,9 @@ int main()
     widthParams.bassBody = 1.0f;
     widthParams.bassTrace = 0.28f;
     widthParams.channelSpread = 1.0f;
+    widthParams.bassFuzz = 0.82f;
+    widthParams.bassMetal = 0.84f;
+    widthParams.bassFeedback = 0.68f;
     widthParams.bassLowWidth = 1.0f;
     const BassMetrics wideMetrics = bassMetrics(
         renderBass(widthParams, 1.0f, 24000u, false, true), 4096u);

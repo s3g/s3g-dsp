@@ -25,6 +25,7 @@ DOC_SEQUENCE = [
     "index.html",
     "building-from-source.html",
     "installing-plugins.html",
+    "stereo-listening.html",
     "multichannel.html",
     "multichannel-effects.html",
     "topology-processors.html",
