@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ambi Effect Resonance Print - s3g-dsp</title>
+    <meta name="description" content="Directional modal analysis and sinusoidal resonator resynthesis for first- through seventh-order ambisonic fields.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ambi Effect Resonance Print</h1>
+
+        <p><strong>s3g Ambi Effect Resonance Print 64</strong> listens to a complete <code>1OA</code> through <code>7OA</code> <code>ACN/SN3D</code> field, captures a compact directional modal fingerprint, and turns that fingerprint into an excitable resonant body. The result is closer to freezing the field's resonant identity than freezing its spectrum: transients and new material can continue to strike the learned modes.</p>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>Decode the active order onto the selected Icosa12, Dodeca20, or Sphere24 auditory body.</li>
+          <li>While Capture is active, analyze overlapping <code>4096</code>-sample Hann-windowed frames at every pickup.</li>
+          <li>Retain the strongest stable local peaks per pickup and estimate one shared fundamental hypothesis for the complete field.</li>
+          <li>Excite a bank of damped sinusoidal modes at each pickup from the live field.</li>
+          <li>Apply local, cross, diffuse, or roaming body relationships and the directional wet mask.</li>
+          <li>Re-encode only the processed correction and blend it over the untouched ambisonic input.</li>
+        </ol>
+
+        <p>The modal bank uses second-order resonators rather than long per-pickup impulse responses. It therefore adds no fixed host latency and remains practical at the 24-pickup Sphere body. The reported tail follows the longest transformed modal decay.</p>
+
+        <h2 id="print">What the Print Contains</h2>
+
+        <p>A print stores the captured body, a field-level fundamental estimate and confidence, and up to twelve frequency, amplitude, and stability values for each pickup. It does <strong>not</strong> store captured audio. A full print is only a few kilobytes and is embedded directly in CLAP project state, so reopening a session restores the learned body without an external media file.</p>
+
+        <p>Capture lasts from <code>0.25</code> to <code>3.0 s</code>. A new capture leaves the previous print sounding until the new analysis completes; Clear Print removes the model and cancels an active capture immediately. Changing ambisonic order or auditory body during capture also cancels that capture so one print cannot accidentally combine two projection geometries.</p>
+
+        <h2 id="body">Auditory Body</h2>
+
+        <p><code>AUTO</code> uses Icosa12 for <code>1OA</code> and <code>2OA</code>, Dodeca20 for <code>3OA</code>, and Sphere24 for <code>4OA</code> through <code>7OA</code>. The three bodies can also be selected explicitly. If playback uses a different body from the captured print, each current pickup follows the nearest captured direction; the print remains portable instead of being discarded.</p>
+
+        <p>The field view shows pickup input energy, print strength, and directional-mask attenuation. Select a pickup to edit its persistent Tune and Decay trims. These twenty-four slots remain in project state even when a lower-density body is active.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Capture / Clear Print</td><td>Starts or cancels analysis, or removes the current modal model.</td></tr>
+            <tr><td>Time</td><td>Capture duration. Longer captures average more analysis frames and favor persistent components.</td></tr>
+            <tr><td>Sensitivity</td><td>Lowers the peak threshold as it rises, allowing quieter resonances into the print.</td></tr>
+            <tr><td>Modes</td><td>Maximum retained modes per pickup, from <code>2</code> to <code>12</code>.</td></tr>
+            <tr><td>Transpose</td><td>Moves the complete print by <code>-24</code> to <code>+24 st</code>.</td></tr>
+            <tr><td>Harmonic Pull</td><td>Moves detected modes toward integer multiples of the shared fundamental when its confidence is useful.</td></tr>
+            <tr><td>Harmonic Stretch</td><td>Compresses or expands partial spacing around the fundamental.</td></tr>
+            <tr><td>Decay / Tilt</td><td>Sets the common modal tail and makes high modes shorter or longer relative to low modes.</td></tr>
+            <tr><td>Drive</td><td>Saturates and scales the signal exciting the resonator bank.</td></tr>
+            <tr><td>Spread / Deviation</td><td>Creates an ordered pickup relationship or stable irregular tuning and decay differences.</td></tr>
+            <tr><td>Pickup Tune / Decay</td><td>Adds up to <code>±12 st</code> of local tuning and a local exponential decay trim.</td></tr>
+            <tr><td>Topology / Amount / Rate</td><td>Routes the resonant pickup field locally, across opposite points, through neighbors, or around the body.</td></tr>
+            <tr><td>Mask Amount / Az / El</td><td>Places the resonant correction in one directional region.</td></tr>
+            <tr><td>Mask Width / Curve</td><td>Sets the angular reach and tightness. Curve remains host-automatable even though the compact editor concentrates on Width.</td></tr>
+            <tr><td>Mask Dry</td><td>Attenuates the complementary dry pickup field down to <code>FX ONLY</code>.</td></tr>
+            <tr><td>Mix / Output</td><td>Blends the re-encoded correction and applies final output trim.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="lineage">Concept Lineage and Licensing</h2>
+
+        <p>The design grew from an earlier Pure Data project and treats Miller Puckette's <a href="https://github.com/pure-data/pure-data/tree/master/extra/sigmund~" target="_blank" rel="noopener noreferrer"><code>sigmund~</code></a>, William Brent's <a href="https://github.com/wbrent/martha_tilde" target="_blank" rel="noopener noreferrer"><code>martha~</code></a>, and <a href="https://github.com/wbrent/convolve_tilde" target="_blank" rel="noopener noreferrer"><code>convolve~</code></a> as conceptual references. Their source code, Pd patches, test material, and binary artifacts are not incorporated here.</p>
+
+        <p>This implementation was written independently for the BSD-3-Clause <code>s3g-dsp</code> codebase. It uses conventional windowed Fourier analysis, peak selection, harmonic scoring, and damped sinusoidal resonators. The Pure Data repository is BSD-licensed, while the two William Brent projects identify GPLv3 licensing; keeping the latter at the level of behavior and artistic lineage avoids importing GPL-covered implementation into this BSD plugin.</p>
+
+        <h2 id="routing">REAPER Routing</h2>
+
+        <p>Place Resonance Print after an encoder or encoded recording and before the final decoder. Set the track to the complete channel count for the selected order—<code>4</code>, <code>9</code>, <code>16</code>, <code>25</code>, <code>36</code>, <code>49</code>, or <code>64</code>—and map the plugin pins one-to-one. Begin with Local topology, Mix near <code>55%</code>, and a short decay; capture a harmonically rich field, then raise Harmonic Pull only if a more explicitly pitched body is wanted.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="ambi-effect-gain.html">
+            <span>Previous</span>
+            Ambi Effect Gain
+          </a>
+          <a class="page-nav-link next" href="ambi-effect-displacement.html">
+            <span>Next</span>
+            Ambi Effect Displacement
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Ambisonics</h2>
+          <a href="ambisonics.html">Overview</a>
+          <a href="interpreting-color.html">Interpreting Color</a>
+          <a href="listener-mode.html">Listener Mode</a>
+          <a href="ambisonic-effects.html">Effects</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#print">The Print</a>
+          <a href="#body">Auditory Body</a>
+          <a href="#controls">Controls</a>
+          <a href="#lineage">Lineage and Licensing</a>
+          <a href="#routing">REAPER Routing</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

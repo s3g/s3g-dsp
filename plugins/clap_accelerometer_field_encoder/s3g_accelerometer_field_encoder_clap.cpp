@@ -30,9 +30,13 @@ namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAccelerometerFieldMaxChannels;
 constexpr uint32_t kInputChannels = 1u;
-constexpr uint32_t kStateVersion = 10u;
+constexpr uint32_t kStateVersion = 11u;
 constexpr uint32_t kFactoryPresetCount = s3g::kAccelerometerFieldPresetCount;
 constexpr uint32_t kCustomPresetIndex = kFactoryPresetCount;
+// Released state versions through v10 had thirteen factory presets, so 13 was
+// their Custom sentinel. Version 11 separates that historical value from the
+// newly appended material presets at indices 13-19.
+constexpr uint32_t kLegacyFactoryPresetCount = 13u;
 constexpr uint32_t kGuiWidth = 1160u;
 constexpr uint32_t kGuiHeight = 760u;
 constexpr const char* kPluginId =
@@ -137,7 +141,7 @@ struct ParamSpec {
 
 constexpr std::array<ParamSpec, 63u> kParamSpecs {{
     { kParamPreset, "Preset", "Preset", 0.0, static_cast<double>(kFactoryPresetCount), 0.0, DisplayKind::Menu, false, false },
-    { kParamSubstrate, "Modal profile", "Modal Body", 0.0, 12.0, 10.0, DisplayKind::Menu },
+    { kParamSubstrate, "Modal profile", "Modal Body", 0.0, 19.0, 10.0, DisplayKind::Menu },
     { kParamExcitation, "Legacy transient exciter", "Legacy", 0.0, 5.0, 0.0, DisplayKind::Menu, false, true, true },
     { kParamReadout, "Legacy sensor readout", "Advanced", 0.0, 2.0, 0.0, DisplayKind::Menu, false, true, true },
     { kParamEventRate, "Legacy event rate", "Legacy", 0.01, 80.0, 0.01, DisplayKind::Hertz, true, true, true },
@@ -201,9 +205,30 @@ constexpr std::array<ParamSpec, 63u> kParamSpecs {{
     { kParamModalLift, "Modal lift", "Output", 0.0, 1.0, 0.65, DisplayKind::Percent },
 }};
 
-constexpr const char* kSubstrateNames[] {
-    "DEEP BRONZE", "TIERED BRONZE", "BROAD BRONZE", "BRIGHT BRONZE"
-};
+constexpr std::array<s3g::AccelerometerSubstrate, 11u> kPublicSubstrates {{
+    s3g::AccelerometerSubstrate::DeepBronze,
+    s3g::AccelerometerSubstrate::TieredBronze,
+    s3g::AccelerometerSubstrate::BroadBronze,
+    s3g::AccelerometerSubstrate::BrightBronze,
+    s3g::AccelerometerSubstrate::CarbonLaminate,
+    s3g::AccelerometerSubstrate::GlassPlate,
+    s3g::AccelerometerSubstrate::SteelShell,
+    s3g::AccelerometerSubstrate::AluminumPlate,
+    s3g::AccelerometerSubstrate::PorcelainShell,
+    s3g::AccelerometerSubstrate::PorousEarthenware,
+    s3g::AccelerometerSubstrate::SprucePlate,
+}};
+constexpr std::array<const char*, kPublicSubstrates.size()> kSubstrateNames {{
+    "DEEP BRONZE", "TIERED BRONZE", "BROAD BRONZE", "BRIGHT BRONZE",
+    "CARBON LAM.", "GLASS PLATE", "STEEL SHELL", "ALUM. PLATE",
+    "PORCELAIN", "EARTHENWARE", "SPRUCE PLATE",
+}};
+
+bool isPublicSubstrate(s3g::AccelerometerSubstrate substrate)
+{
+    return std::find(kPublicSubstrates.begin(), kPublicSubstrates.end(),
+        substrate) != kPublicSubstrates.end();
+}
 constexpr const char* kExcitationNames[] {
     "AMBIENT", "DOUBLE MALLET", "MALLET ROLL", "SCRAPE / RUB",
     "BOWED RIM", "STRIKE"
@@ -322,13 +347,15 @@ uint32_t menuIndexForValue(clap_id id, double value)
         return roundedIndex(value, 3u) == 0u ? 0u : 1u;
     }
     if (id == kParamSubstrate) {
-        switch (static_cast<s3g::AccelerometerSubstrate>(
-            roundedIndex(value, 13u))) {
-        case s3g::AccelerometerSubstrate::TieredBronze: return 1u;
-        case s3g::AccelerometerSubstrate::BroadBronze: return 2u;
-        case s3g::AccelerometerSubstrate::BrightBronze: return 3u;
-        default: return 0u;
+        const auto substrate = static_cast<s3g::AccelerometerSubstrate>(
+            roundedIndex(value,
+                static_cast<uint32_t>(s3g::AccelerometerSubstrate::Count)));
+        const auto found = std::find(
+            kPublicSubstrates.begin(), kPublicSubstrates.end(), substrate);
+        if (found != kPublicSubstrates.end()) {
+            return static_cast<uint32_t>(found - kPublicSubstrates.begin());
         }
+        return 0u;
     }
     return roundedIndex(value, menuCount(id));
 }
@@ -342,14 +369,9 @@ double menuValueForIndex(clap_id id, uint32_t index)
             static_cast<uint32_t>(s3g::AccelerometerFieldOutputMode::BodyStems));
     }
     if (id == kParamSubstrate) {
-        constexpr std::array<s3g::AccelerometerSubstrate, 4u> bodies {{
-            s3g::AccelerometerSubstrate::DeepBronze,
-            s3g::AccelerometerSubstrate::TieredBronze,
-            s3g::AccelerometerSubstrate::BroadBronze,
-            s3g::AccelerometerSubstrate::BrightBronze,
-        }};
         return static_cast<double>(static_cast<uint32_t>(
-            bodies[std::min<uint32_t>(index, bodies.size() - 1u)]));
+            kPublicSubstrates[std::min<uint32_t>(
+                index, kPublicSubstrates.size() - 1u)]));
     }
     return static_cast<double>(index);
 }
@@ -490,10 +512,7 @@ s3g::AccelerometerFieldParams migrateParams(
 
 void focusModalParams(s3g::AccelerometerFieldParams& params)
 {
-    if (params.substrate != s3g::AccelerometerSubstrate::TieredBronze
-        && params.substrate != s3g::AccelerometerSubstrate::DeepBronze
-        && params.substrate != s3g::AccelerometerSubstrate::BroadBronze
-        && params.substrate != s3g::AccelerometerSubstrate::BrightBronze) {
+    if (!isPublicSubstrate(params.substrate)) {
         params.substrate = s3g::AccelerometerSubstrate::DeepBronze;
     }
     if (params.outputMode
@@ -692,15 +711,11 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         }
     } else switch (id) {
     case kParamSubstrate:
-        switch (static_cast<s3g::AccelerometerSubstrate>(
-            roundedIndex(value, 13u))) {
-        case s3g::AccelerometerSubstrate::TieredBronze:
-            p.substrate = s3g::AccelerometerSubstrate::TieredBronze; break;
-        case s3g::AccelerometerSubstrate::BroadBronze:
-            p.substrate = s3g::AccelerometerSubstrate::BroadBronze; break;
-        case s3g::AccelerometerSubstrate::BrightBronze:
-            p.substrate = s3g::AccelerometerSubstrate::BrightBronze; break;
-        default: p.substrate = s3g::AccelerometerSubstrate::DeepBronze; break;
+        p.substrate = static_cast<s3g::AccelerometerSubstrate>(roundedIndex(
+            value,
+            static_cast<uint32_t>(s3g::AccelerometerSubstrate::Count)));
+        if (!isPublicSubstrate(p.substrate)) {
+            p.substrate = s3g::AccelerometerSubstrate::DeepBronze;
         }
         break;
     case kParamExcitation: p.excitation = static_cast<s3g::AccelerometerExcitation>(roundedIndex(value, 6u)); break;
@@ -1253,6 +1268,19 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->params = s3g::sanitizeAccelerometerFieldParams(loadedParams);
         p->guiState = sanitizeSavedGuiState(
             loadedGui, p->params.bodyCount);
+    } else if (header.version == 10u) {
+        // The material expansion did not change the parameter or GUI layout,
+        // but it did occupy the former Custom preset index. Read the released
+        // v10 aggregate exactly; preset identity is migrated below.
+        s3g::AccelerometerFieldParams loadedParams {};
+        SavedGuiState loadedGui {};
+        if (!readExact(stream, &loadedParams, sizeof(loadedParams))
+            || !readExact(stream, &loadedGui, sizeof(loadedGui))) {
+            return false;
+        }
+        p->params = s3g::sanitizeAccelerometerFieldParams(loadedParams);
+        p->guiState = sanitizeSavedGuiState(
+            loadedGui, p->params.bodyCount);
     } else if (header.version == 9u) {
         // Modal Lift was appended in version 10. Existing sessions keep their
         // former level by entering the new adaptive stage fully bypassed.
@@ -1320,12 +1348,15 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else {
         return false;
     }
-    if (header.version < kStateVersion) {
+    if (header.version < 10u) {
         p->params.modalLift = 0.0f;
     }
     if (header.version < 8u) {
         focusModalParams(p->params);
         p->presetIndex = kCustomPresetIndex;
+    } else if (header.version < kStateVersion) {
+        p->presetIndex = header.presetIndex < kLegacyFactoryPresetCount
+            ? header.presetIndex : kCustomPresetIndex;
     } else {
         p->presetIndex = std::min<uint32_t>(
             header.presetIndex, kCustomPresetIndex);
@@ -2451,23 +2482,34 @@ NSColor* modalBodyColorFromAed(
     if (_openMenu == CLAP_INVALID_ID) return;
     auto* p = static_cast<Plugin*>(_plugin);
     const uint32_t count = menuCount(_openMenu);
-    if (!p || count == 0u || count > 16u) return;
+    constexpr uint32_t kMaximumMenuItems = kFactoryPresetCount + 1u;
+    if (!p || count == 0u || count > kMaximumMenuItems) return;
     NSRect anchor = _openMenu == kParamPreset
         ? s3g::clap_gui::cocoaRect(kTitleBand.presetMenu)
         : menuAnchorRect(_openMenuLocation);
     const CGFloat itemHeight = 19.0;
+    const uint32_t columns = count > 16u ? 2u : 1u;
+    const uint32_t rows = s3g::clap_gui::multiColumnMenuRows(
+        count, columns);
     NSRect menu = NSMakeRect(anchor.origin.x, NSMaxY(anchor) + 2.0,
-        anchor.size.width, itemHeight * count);
-    std::array<NSString*, 16u> items {};
+        anchor.size.width * static_cast<CGFloat>(columns),
+        itemHeight * static_cast<CGFloat>(rows));
+    std::array<NSString*, kMaximumMenuItems> items {};
     for (uint32_t index = 0u; index < count; ++index) {
         items[index] = [NSString stringWithUTF8String:
             menuName(_openMenu, index)];
     }
     const int selected = static_cast<int>(menuIndexForValue(
         _openMenu, getParam(*p, _openMenu)));
-    s3g::clap_gui::drawDropdownMenu(
-        menu, itemHeight, items.data(), count,
-        selected, -1, attrs, style);
+    if (columns > 1u) {
+        s3g::clap_gui::drawMultiColumnDropdownMenu(
+            menu, itemHeight, items.data(), count, columns,
+            selected, -1, attrs, style);
+    } else {
+        s3g::clap_gui::drawDropdownMenu(
+            menu, itemHeight, items.data(), count,
+            selected, -1, attrs, style);
+    }
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -2612,11 +2654,18 @@ NSColor* modalBodyColorFromAed(
         NSRect anchor = _openMenu == kParamPreset
             ? s3g::clap_gui::cocoaRect(kTitleBand.presetMenu)
             : menuAnchorRect(_openMenuLocation);
+        const uint32_t columns = count > 16u ? 2u : 1u;
+        const uint32_t rows = s3g::clap_gui::multiColumnMenuRows(
+            count, columns);
         const NSRect menu = NSMakeRect(anchor.origin.x,
-            NSMaxY(anchor) + 2.0, anchor.size.width,
-            itemHeight * count);
-        const int selected = s3g::clap_gui::dropdownHitIndex(
-            point, menu, itemHeight, count);
+            NSMaxY(anchor) + 2.0,
+            anchor.size.width * static_cast<CGFloat>(columns),
+            itemHeight * static_cast<CGFloat>(rows));
+        const int selected = columns > 1u
+            ? s3g::clap_gui::multiColumnDropdownHitIndex(
+                point, menu, itemHeight, count, columns)
+            : s3g::clap_gui::dropdownHitIndex(
+                point, menu, itemHeight, count);
         if (selected >= 0) {
             [self setParam:_openMenu value:menuValueForIndex(
                 _openMenu, static_cast<uint32_t>(selected))];

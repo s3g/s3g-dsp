@@ -79,6 +79,7 @@ DOC_SEQUENCE = [
     "ambi-effect-delay.html",
     "ambi-effect-pitch.html",
     "ambi-effect-gain.html",
+    "ambi-effect-resonance-print.html",
     "ambi-effect-displacement.html",
     "ambi-imprint.html",
     "ambisonic-rotate.html",

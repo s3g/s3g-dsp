@@ -5,6 +5,7 @@
 #include <clap/ext/state.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -20,6 +21,8 @@ constexpr clap_id kBodyCountParamId = 37u;
 constexpr clap_id kBody1AzimuthParamId = 38u;
 constexpr clap_id kListenerPickupSetParamId = 62u;
 constexpr clap_id kModalLiftParamId = 63u;
+constexpr clap_id kPresetParamId = 1u;
+constexpr clap_id kSubstrateParamId = 2u;
 
 const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
 void hostRequest(const clap_host_t*) {}
@@ -171,8 +174,10 @@ int main(int argc, char** argv)
 
     clap_param_info_t listenerInfo {};
     clap_param_info_t liftInfo {};
+    clap_param_info_t substrateInfo {};
     bool foundListener = false;
     bool foundLift = false;
+    bool foundSubstrate = false;
     if (ok) {
         for (uint32_t index = 0u; index < params->count(plugin); ++index) {
             clap_param_info_t info {};
@@ -183,6 +188,9 @@ int main(int argc, char** argv)
             } else if (info.id == kModalLiftParamId) {
                 liftInfo = info;
                 foundLift = true;
+            } else if (info.id == kSubstrateParamId) {
+                substrateInfo = info;
+                foundSubstrate = true;
             }
         }
         char cubeText[32] {};
@@ -190,7 +198,14 @@ int main(int argc, char** argv)
         double tetraValue = -1.0;
         double parsedLift = -1.0;
         double initialLift = -1.0;
-        ok = foundListener && foundLift
+        ok = foundListener && foundLift && foundSubstrate
+            && std::strcmp(substrateInfo.name, "Modal profile") == 0
+            && std::strcmp(substrateInfo.module, "Modal Body") == 0
+            && substrateInfo.min_value == 0.0
+            && substrateInfo.max_value == 19.0
+            && substrateInfo.default_value == 10.0
+            && (substrateInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
+            && (substrateInfo.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u
             && std::strcmp(listenerInfo.name, "Listener pickups") == 0
             && std::strcmp(listenerInfo.module, "Listener / Actuator") == 0
             && listenerInfo.min_value == 0.0
@@ -219,6 +234,53 @@ int main(int argc, char** argv)
             && params->text_to_value(plugin,
                 kModalLiftParamId, "41 %", &parsedLift)
             && approximately(parsedLift, 0.41);
+    }
+    constexpr std::array<double, 11u> substrateValues {{
+        10.0, 2.0, 11.0, 12.0, 13.0, 14.0,
+        15.0, 16.0, 17.0, 18.0, 19.0,
+    }};
+    constexpr std::array<const char*, substrateValues.size()>
+        substrateNames {{
+            "DEEP BRONZE", "TIERED BRONZE", "BROAD BRONZE",
+            "BRIGHT BRONZE", "CARBON LAM.", "GLASS PLATE",
+            "STEEL SHELL", "ALUM. PLATE", "PORCELAIN",
+            "EARTHENWARE", "SPRUCE PLATE",
+        }};
+    if (ok) {
+        for (uint32_t index = 0u; index < substrateValues.size(); ++index) {
+            char text[64] {};
+            double parsed = -1.0;
+            ok = params->value_to_text(plugin, kSubstrateParamId,
+                    substrateValues[index], text, sizeof(text))
+                && std::strcmp(text, substrateNames[index]) == 0
+                && params->text_to_value(plugin, kSubstrateParamId,
+                    substrateNames[index], &parsed)
+                && parsed == substrateValues[index];
+            if (!ok) break;
+        }
+    }
+
+    // New raw material IDs use the existing v10 aggregate without changing
+    // its layout. Verify a new value survives a complete state round trip.
+    MemoryState materialState;
+    double substrateValue = 0.0;
+    if (ok) {
+        OneParamEvent spruce(kSubstrateParamId, 19.0);
+        params->flush(plugin, &spruce.events, nullptr);
+        clap_ostream_t output { &materialState, stateWrite };
+        ok = params->get_value(plugin, kSubstrateParamId, &substrateValue)
+            && substrateValue == 19.0
+            && state->save(plugin, &output);
+    }
+    if (ok) {
+        OneParamEvent disturb(kSubstrateParamId, 10.0);
+        params->flush(plugin, &disturb.events, nullptr);
+        materialState.offset = 0u;
+        clap_istream_t input { &materialState, stateRead };
+        ok = state->load(plugin, &input)
+            && params->get_value(plugin,
+                kSubstrateParamId, &substrateValue)
+            && substrateValue == 19.0;
     }
     double modalLift = 0.0;
     if (ok) {
@@ -284,7 +346,7 @@ int main(int argc, char** argv)
         std::memcpy(&savedGui,
             migrated.bytes.data() + sizeof(header) + sizeof(savedParams),
             sizeof(savedGui));
-        ok = header.version == 10u
+        ok = header.version == 11u
             && header.presetIndex == 2u
             && savedParams.listenerPickupSet
                 == s3g::AccelerometerFieldListenerPickupSet::Cube8
@@ -299,6 +361,56 @@ int main(int argc, char** argv)
             && savedGui.selectedBody == legacyGui.selectedBody;
     }
 
+    // Released v10 used preset index 13 as Custom. The material expansion now
+    // uses 13 for Carbon Veil, so v11 must translate the historical sentinel
+    // without disturbing the v10 Modal Lift value or parameter aggregate.
+    auto releasedV10Params = s3g::accelerometerFieldFactoryPreset(10u);
+    releasedV10Params.modalLift = 0.47f;
+    releasedV10Params.substrate = s3g::AccelerometerSubstrate::BroadBronze;
+    const SavedGuiStateV8 releasedV10Gui {
+        2, 71.0f, -19.0f, 1.18f, 4u,
+    };
+    MemoryState releasedV10;
+    append(releasedV10, StateHeader { 10u, 13u });
+    append(releasedV10, releasedV10Params);
+    append(releasedV10, releasedV10Gui);
+    if (ok) {
+        clap_istream_t input { &releasedV10, stateRead };
+        ok = state->load(plugin, &input);
+    }
+    double migratedPreset = -1.0;
+    double migratedV10Lift = -1.0;
+    double migratedV10Substrate = -1.0;
+    if (ok) {
+        ok = params->get_value(plugin, kPresetParamId, &migratedPreset)
+            && params->get_value(
+                plugin, kModalLiftParamId, &migratedV10Lift)
+            && params->get_value(
+                plugin, kSubstrateParamId, &migratedV10Substrate)
+            && migratedPreset == 20.0
+            && approximately(migratedV10Lift, 0.47)
+            && migratedV10Substrate == 11.0;
+    }
+    MemoryState migratedV10State;
+    if (ok) {
+        clap_ostream_t output { &migratedV10State, stateWrite };
+        ok = state->save(plugin, &output)
+            && migratedV10State.bytes.size() == expectedSize;
+    }
+    if (ok) {
+        StateHeader header {};
+        s3g::AccelerometerFieldParams savedParams {};
+        std::memcpy(&header, migratedV10State.bytes.data(), sizeof(header));
+        std::memcpy(&savedParams,
+            migratedV10State.bytes.data() + sizeof(header),
+            sizeof(savedParams));
+        ok = header.version == 11u
+            && header.presetIndex == 20u
+            && approximately(savedParams.modalLift, 0.47)
+            && savedParams.substrate
+                == s3g::AccelerometerSubstrate::BroadBronze;
+    }
+
     if (ok) {
         OneParamEvent tetra(kListenerPickupSetParamId, 0.0);
         params->flush(plugin, &tetra.events, nullptr);
@@ -307,7 +419,7 @@ int main(int argc, char** argv)
             && listenerSet == 0.0;
     }
 
-    // Version 10 persists Modal Lift with the rest of the current parameter
+    // Version 11 persists Modal Lift with the rest of the current parameter
     // aggregate. Exercise a non-default value, then disturb and reload it so
     // this checks both the wire bytes and the public parameter surface.
     if (ok) {
@@ -326,7 +438,7 @@ int main(int argc, char** argv)
         std::memcpy(&header, current.bytes.data(), sizeof(header));
         std::memcpy(&savedParams,
             current.bytes.data() + sizeof(header), sizeof(savedParams));
-        ok = header.version == 10u
+        ok = header.version == 11u
             && approximately(savedParams.modalLift, 0.82)
             && savedParams.listenerPickupSet
                 == s3g::AccelerometerFieldListenerPickupSet::Tetra4;
@@ -391,7 +503,7 @@ int main(int argc, char** argv)
         std::memcpy(&savedGui,
             migratedV9.bytes.data() + sizeof(header) + sizeof(savedParams),
             sizeof(savedGui));
-        ok = header.version == 10u
+        ok = header.version == 11u
             && header.presetIndex == 4u
             && approximately(savedParams.modalLift, 0.0)
             && savedParams.bodyCount == 5u

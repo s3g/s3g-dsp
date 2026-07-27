@@ -67,6 +67,7 @@ clap_ambi_effect_dj_filter/s3g_ambi_effect_dj_filter.clap	s3g_ambi_effect_dj_fil
 clap_ambi_effect_delay/s3g_ambi_effect_delay.clap	s3g_ambi_effect_delay_64.clap	org.s3g.s3g-dsp.ambi-effect-delay-64	s3g Ambi Effect Delay 64
 clap_ambi_effect_pitch_gain/s3g_ambi_effect_pitch.clap	s3g_ambi_effect_pitch_64.clap	org.s3g.s3g-dsp.ambi-effect-pitch-64	s3g Ambi Effect Pitch 64
 clap_ambi_effect_pitch_gain/s3g_ambi_effect_gain.clap	s3g_ambi_effect_gain_64.clap	org.s3g.s3g-dsp.ambi-effect-gain-64	s3g Ambi Effect Gain 64
+clap_ambi_effect_resonance_print/s3g_ambi_effect_resonance_print.clap	s3g_ambi_effect_resonance_print_64.clap	org.s3g.s3g-dsp.ambi-effect-resonance-print-64	s3g Ambi Effect Resonance Print 64
 clap_ambi_effect_displacement/s3g_ambi_effect_displacement.clap	s3g_ambi_effect_displacement_64.clap	org.s3g.s3g-dsp.ambi-effect-displacement-64	s3g Ambi Effect Displacement 64
 clap_ambi_group_rotate/s3g_ambi_group_rotate_64.clap	s3g_ambi_transform_grp_rot_64.clap	org.s3g.s3g-dsp.ambi-group-rotate-64	s3g Ambi Transform Grp Rot 64
 clap_ambi_group_rotate/s3g_ambi_group_rotate_128.clap	s3g_ambi_transform_grp_rot_128.clap	org.s3g.s3g-dsp.ambi-group-rotate-128	s3g Ambi Transform Grp Rot 128

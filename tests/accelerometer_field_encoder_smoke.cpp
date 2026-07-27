@@ -14,6 +14,35 @@ namespace {
 constexpr uint32_t kSampleRate = 48000u;
 constexpr uint32_t kFrames = kSampleRate * 2u;
 constexpr float kLinkedOutputCeiling = 0.89125094f; // -1 dBFS
+
+// Substrate is serialized as an integer in the CLAP state. The seven public
+// material/form profiles must remain append-only so old sessions keep their
+// original bronze selections.
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::TieredBronze) == 2u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::DeepBronze) == 10u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::BroadBronze) == 11u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::BrightBronze) == 12u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::CarbonLaminate) == 13u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::GlassPlate) == 14u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::SteelShell) == 15u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::AluminumPlate) == 16u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::PorcelainShell) == 17u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::PorousEarthenware) == 18u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::SprucePlate) == 19u);
+static_assert(static_cast<uint32_t>(
+    s3g::AccelerometerSubstrate::Count) == 20u);
+static_assert(s3g::kAccelerometerFieldPresetCount == 20u);
 using Buffer = std::array<float, kFrames>;
 using StemBuffers = std::array<std::vector<float>,
     s3g::kAccelerometerFieldMaxBodyCount>;
@@ -1075,13 +1104,20 @@ bool testBalancedDroneAcrossBodyCounts()
     return true;
 }
 
-bool testGenericProfilesRemainDistinct()
+bool testPublicProfilesRemainDistinct()
 {
-    constexpr std::array<s3g::AccelerometerSubstrate, 4u> profiles {{
+    constexpr std::array<s3g::AccelerometerSubstrate, 11u> profiles {{
         s3g::AccelerometerSubstrate::DeepBronze,
         s3g::AccelerometerSubstrate::TieredBronze,
         s3g::AccelerometerSubstrate::BroadBronze,
         s3g::AccelerometerSubstrate::BrightBronze,
+        s3g::AccelerometerSubstrate::CarbonLaminate,
+        s3g::AccelerometerSubstrate::GlassPlate,
+        s3g::AccelerometerSubstrate::SteelShell,
+        s3g::AccelerometerSubstrate::AluminumPlate,
+        s3g::AccelerometerSubstrate::PorcelainShell,
+        s3g::AccelerometerSubstrate::PorousEarthenware,
+        s3g::AccelerometerSubstrate::SprucePlate,
     }};
     std::array<bool, profiles.size()> seen {};
     for (uint32_t preset = 0u;
@@ -1096,11 +1132,17 @@ bool testGenericProfilesRemainDistinct()
         seen[static_cast<size_t>(found - profiles.begin())] = true;
     }
     if (!std::all_of(seen.begin(), seen.end(), [](bool value) { return value; })) {
-        std::cerr << "Factory bank no longer covers all four generic profiles\n";
+        std::cerr << "Factory bank no longer covers all public modal profiles\n";
         return false;
     }
 
-    std::array<std::array<float, 4u>, profiles.size()> signatures {};
+    struct ProfileSignature {
+        float fundamentalHz = 0.0f;
+        float fundamentalDecaySeconds = 0.0f;
+        std::array<float, 12u> normalizedModes {};
+        std::array<float, 12u> normalizedDecay {};
+    };
+    std::array<ProfileSignature, profiles.size()> signatures {};
     auto params = s3g::accelerometerFieldFactoryPreset(0u);
     params.bodyCount = 4u;
     params.size = 0.5f;
@@ -1112,22 +1154,109 @@ bool testGenericProfilesRemainDistinct()
         s3g::AccelerometerFieldEncoder engine;
         engine.prepare(kSampleRate);
         engine.setParams(params);
-        for (uint32_t mode = 0u; mode < signatures[profile].size(); ++mode) {
-            signatures[profile][mode] = engine.modeFrequencyHz(mode * 2u);
+        signatures[profile].fundamentalHz = engine.modeFrequencyHz(0u);
+        signatures[profile].fundamentalDecaySeconds =
+            engine.modeDecaySeconds(0u);
+        if (!std::isfinite(signatures[profile].fundamentalHz)
+            || !(signatures[profile].fundamentalHz > 5.0f)
+            || !std::isfinite(signatures[profile].fundamentalDecaySeconds)
+            || !(signatures[profile].fundamentalDecaySeconds > 0.0f)) {
+            std::cerr << "Public modal profile has an invalid fundamental or "
+                      << "decay: " << profile << "\n";
+            return false;
+        }
+        for (uint32_t mode = 0u;
+            mode < signatures[profile].normalizedModes.size(); ++mode) {
+            const float frequency = engine.modeFrequencyHz(mode);
+            const float decaySeconds = engine.modeDecaySeconds(mode);
+            if (!std::isfinite(frequency) || !(frequency > 0.0f)
+                || !(frequency < static_cast<float>(kSampleRate) * 0.44f)
+                || !std::isfinite(decaySeconds) || !(decaySeconds > 0.0f)) {
+                std::cerr << "Public modal profile has an invalid mode or decay: "
+                          << profile << ", " << mode << ", "
+                          << frequency << ", " << decaySeconds << "\n";
+                return false;
+            }
+            signatures[profile].normalizedModes[mode] = frequency
+                / signatures[profile].fundamentalHz;
+            signatures[profile].normalizedDecay[mode] = decaySeconds
+                / signatures[profile].fundamentalDecaySeconds;
         }
     }
     for (uint32_t first = 0u; first < signatures.size(); ++first) {
         for (uint32_t second = first + 1u;
             second < signatures.size(); ++second) {
-            double signatureDistance = 0.0;
-            for (uint32_t mode = 0u; mode < signatures[first].size(); ++mode) {
-                signatureDistance += std::fabs(
-                    signatures[first][mode] - signatures[second][mode]);
+            double ratioDistance = 0.0;
+            double decayShapeDistance = 0.0;
+            for (uint32_t mode = 0u;
+                mode < signatures[first].normalizedModes.size(); ++mode) {
+                ratioDistance += std::fabs(
+                    signatures[first].normalizedModes[mode]
+                        - signatures[second].normalizedModes[mode]);
+                decayShapeDistance += std::fabs(std::log(
+                    signatures[first].normalizedDecay[mode]
+                        / signatures[second].normalizedDecay[mode]));
             }
-            if (!(signatureDistance > 20.0)) {
-                std::cerr << "Two generic modal profiles collapsed together\n";
+            const double registerDistance = std::fabs(std::log2(
+                signatures[first].fundamentalHz
+                    / signatures[second].fundamentalHz));
+            const double absoluteDecayDistance = std::fabs(std::log(
+                signatures[first].fundamentalDecaySeconds
+                    / signatures[second].fundamentalDecaySeconds));
+            if (!(ratioDistance > 0.01 || registerDistance > 0.02
+                    || decayShapeDistance > 0.02
+                    || absoluteDecayDistance > 0.02)) {
+                std::cerr << "Two public modal profiles collapsed together: "
+                          << first << ", " << second << "\n";
                 return false;
             }
+        }
+    }
+
+    // The seven appended presets are the renderer-facing audition path for
+    // the new material/form profiles. Exercise a discrete MIDI actuation as a
+    // complement to testFactoryPresets(), which covers their continuous drone.
+    constexpr std::array<s3g::AccelerometerSubstrate, 7u> newProfiles {{
+        s3g::AccelerometerSubstrate::CarbonLaminate,
+        s3g::AccelerometerSubstrate::GlassPlate,
+        s3g::AccelerometerSubstrate::SteelShell,
+        s3g::AccelerometerSubstrate::AluminumPlate,
+        s3g::AccelerometerSubstrate::PorcelainShell,
+        s3g::AccelerometerSubstrate::PorousEarthenware,
+        s3g::AccelerometerSubstrate::SprucePlate,
+    }};
+    constexpr uint32_t strikeFrames = kSampleRate;
+    for (uint32_t profile = 0u; profile < newProfiles.size(); ++profile) {
+        auto strikeParams = s3g::accelerometerFieldFactoryPreset(13u + profile);
+        if (strikeParams.substrate != newProfiles[profile]) {
+            std::cerr << "Appended material preset order changed at index "
+                      << 13u + profile << "\n";
+            return false;
+        }
+        strikeParams.bodyCount = 4u;
+        strikeParams.outputMode =
+            s3g::AccelerometerFieldOutputMode::BodyStems;
+        strikeParams.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+        strikeParams.fieldListenAmount = 0.0f;
+        strikeParams.externalDrive = 0.0f;
+        strikeParams.outputGainDb = -18.0f;
+        strikeParams.modalLift = 0.0f;
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(kSampleRate);
+        engine.setParams(strikeParams);
+        engine.reset();
+        engine.strikeMidi(60, 0.70f);
+        const StemBuffers audio = processStems(engine, strikeFrames);
+        const Metrics response = metrics(audio[0]);
+        const Metrics tail = metrics(audio[0], strikeFrames * 3u / 4u);
+        if (!response.finite || !tail.finite || audio[0].front() != 0.0f
+            || !(response.energy > 1.0e-14) || !(response.peak > 1.0e-6f)
+            || !(response.peak < 0.98f) || !(tail.energy > 1.0e-18)) {
+            std::cerr << "New material preset did not produce a finite, "
+                      << "bounded modal strike and tail: " << 13u + profile
+                      << ", energy " << response.energy << ", tail "
+                      << tail.energy << ", peak " << response.peak << "\n";
+            return false;
         }
     }
     return true;
@@ -1291,6 +1420,293 @@ bool testPerBodyMidiStrike()
     if (std::fabs(engine.performancePitchRatio() - 1.0f) > 1.0e-6f
         || std::fabs(engine.modeFrequencyHz(0u) - reference) > 1.0e-3f) {
         std::cerr << "Per-body MIDI pitch survived an engine reset\n";
+        return false;
+    }
+    return true;
+}
+
+bool testRepeatedHighVelocityMidiRemainsBounded()
+{
+    constexpr uint32_t blockFrames = 256u;
+    constexpr uint32_t totalFrames = kSampleRate * 10u;
+    constexpr std::array<int32_t, s3g::kAccelerometerFieldMaxBodyCount>
+        notes {{ 36, 48, 60, 72, 84, 96, 108, 127 }};
+    auto params = s3g::accelerometerFieldFactoryPreset(10u);
+    params.substrate = s3g::AccelerometerSubstrate::BroadBronze;
+    params.bodyCount = s3g::kAccelerometerFieldMaxBodyCount;
+    params.ambisonicOrder = s3g::kAccelerometerFieldMaxOrder;
+    params.outputMode = s3g::AccelerometerFieldOutputMode::Ambisonic;
+    params.activity = 0.0f;
+    params.ambientDrive = 0.0f;
+    params.externalDrive = 0.0f;
+    params.sensorNoise = 0.0f;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+    params.fieldListenAmount = 0.0f;
+    params.outputGainDb = 12.0f;
+    params.modalLift = 1.0f;
+    params.damping = 0.0f;
+
+    s3g::AccelerometerFieldEncoder engine;
+    engine.prepare(kSampleRate);
+    engine.setParams(params);
+    engine.reset();
+
+    std::array<std::array<float, blockFrames>,
+        s3g::kAccelerometerFieldMaxChannels> audio {};
+    std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
+    for (uint32_t channel = 0u; channel < audio.size(); ++channel) {
+        outputs[channel] = audio[channel].data();
+    }
+
+    uint32_t strikeCount = 0u;
+    double energy = 0.0;
+    float peak = 0.0f;
+    bool finite = true;
+    float minimumGuardGain = 1.0f;
+    for (uint32_t firstFrame = 0u; firstFrame < totalFrames;
+        firstFrame += blockFrames) {
+        // One strike every 512 samples is dense enough to accumulate modal
+        // energy while still allowing each body's smooth pulse to advance.
+        if ((firstFrame / blockFrames) % 2u == 0u) {
+            engine.strikeMidi(notes[strikeCount % notes.size()], 1.0f);
+            ++strikeCount;
+        }
+        engine.process(nullptr, outputs.data(), outputs.size(), blockFrames);
+        minimumGuardGain = std::min(
+            minimumGuardGain, engine.currentOutputGuardGain());
+        for (const auto& channel : audio) {
+            const Metrics channelMetrics = metrics(channel);
+            finite = finite && channelMetrics.finite;
+            peak = std::max(peak, channelMetrics.peak);
+            energy += channelMetrics.energy;
+        }
+    }
+
+    if (!finite || strikeCount < 900u || !(energy > 1.0e-5)
+        || !(peak > 0.01f) || !(minimumGuardGain > 0.05f)
+        || peak > kLinkedOutputCeiling + 2.0e-4f) {
+        std::cerr << "Dense high-velocity MIDI was silent, non-finite, or "
+                  << "escaped the linked output bound: strikes "
+                  << strikeCount << ", energy " << energy << ", peak "
+                  << peak << ", minimum guard " << minimumGuardGain
+                  << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool testOrdinaryMidiResponseSurvivesStressAndReset()
+{
+    constexpr uint32_t frames = kSampleRate;
+    constexpr uint32_t stressBlockFrames = 256u;
+    auto params = s3g::accelerometerFieldFactoryPreset(0u);
+    params.bodyCount = 4u;
+    params.outputMode = s3g::AccelerometerFieldOutputMode::BodyStems;
+    params.activity = 0.0f;
+    params.ambientDrive = 0.0f;
+    params.externalDrive = 0.0f;
+    params.sensorNoise = 0.0f;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+    params.fieldListenAmount = 0.0f;
+    params.outputGainDb = -18.0f;
+    params.modalLift = 0.0f;
+
+    const auto renderNote = [&](float velocity, bool stressBeforeReset) {
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(kSampleRate);
+        engine.setParams(params);
+        engine.reset();
+        if (stressBeforeReset) {
+            std::array<std::array<float, stressBlockFrames>,
+                s3g::kAccelerometerFieldMaxChannels> stressAudio {};
+            std::array<float*, s3g::kAccelerometerFieldMaxChannels>
+                stressOutputs {};
+            for (uint32_t channel = 0u;
+                channel < stressAudio.size(); ++channel) {
+                stressOutputs[channel] = stressAudio[channel].data();
+            }
+            for (uint32_t strike = 0u; strike < 128u; ++strike) {
+                engine.strikeMidi(36 + static_cast<int32_t>(strike % 8u) * 12,
+                    1.0f);
+                engine.process(nullptr, stressOutputs.data(),
+                    stressOutputs.size(), stressBlockFrames);
+            }
+            engine.reset();
+        }
+        engine.strikeMidi(60, velocity);
+        return processStems(engine, frames)[0];
+    };
+
+    const std::vector<float> quiet = renderNote(0.35f, false);
+    const std::vector<float> ordinary = renderNote(0.70f, false);
+    const std::vector<float> recovered = renderNote(0.70f, true);
+    const Metrics quietMetrics = metrics(quiet);
+    const Metrics ordinaryMetrics = metrics(ordinary);
+    const Metrics recoveredMetrics = metrics(recovered);
+    const double resetDifference = difference(ordinary, recovered);
+
+    if (!quietMetrics.finite || !ordinaryMetrics.finite
+        || !recoveredMetrics.finite
+        || quiet.front() != 0.0f || ordinary.front() != 0.0f
+        || !(quietMetrics.energy > 1.0e-13)
+        || !(ordinaryMetrics.energy > quietMetrics.energy * 1.15)
+        || !(ordinaryMetrics.peak > quietMetrics.peak * 1.08f)
+        || resetDifference > 1.0e-9) {
+        std::cerr << "Ordinary MIDI response was muted, flattened, altered, "
+                  << "or not restored by reset: energies "
+                  << quietMetrics.energy << ", " << ordinaryMetrics.energy
+                  << ", peaks " << quietMetrics.peak << ", "
+                  << ordinaryMetrics.peak << ", reset difference "
+                  << resetDifference << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool testListenerActiveCoincidentMidiUsesIdleBodies()
+{
+    auto params = s3g::accelerometerFieldFactoryPreset(10u);
+    params.bodyCount = s3g::kAccelerometerFieldMaxBodyCount;
+    params.activity = 0.0f;
+    params.ambientDrive = 0.0f;
+    params.externalDrive = 0.0f;
+    params.sensorNoise = 0.0f;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Balance;
+    params.fieldListenAmount = 1.0f;
+
+    s3g::AccelerometerFieldEncoder engine;
+    engine.prepare(kSampleRate);
+    engine.setParams(params);
+    engine.reset();
+
+    std::array<bool, s3g::kAccelerometerFieldMaxBodyCount> selected {};
+    for (uint32_t strike = 0u; strike < params.bodyCount; ++strike) {
+        engine.strikeMidi(48 + static_cast<int32_t>(strike) * 5, 1.0f);
+        const uint32_t body = engine.lastActuatedBody();
+        if (body >= params.bodyCount || selected[body]) {
+            std::cerr << "Listener-active coincident MIDI reused body "
+                      << body << " before all idle bodies were assigned\n";
+            return false;
+        }
+        selected[body] = true;
+    }
+
+    const float filledPitchRatio = engine.performancePitchRatio();
+    engine.strikeMidi(24, 1.0f);
+    if (engine.performancePitchRatio() != filledPitchRatio) {
+        std::cerr << "A ninth coincident full-velocity note escaped the "
+                  << "per-body MIDI energy reservoirs\n";
+        return false;
+    }
+
+    // A quarter-second returns enough of the two-second leaky reservoir to
+    // admit a useful retrigger, without requiring the modal tail to end.
+    constexpr uint32_t recoveryFrames = kSampleRate / 4u;
+    processStems(engine, recoveryFrames);
+    engine.strikeMidi(96, 1.0f);
+    if (std::fabs(engine.performancePitchRatio() - filledPitchRatio) < 0.1f
+        || std::fabs(engine.performancePitchRatio() - 8.0f) > 1.0e-5f) {
+        std::cerr << "MIDI energy reservoirs did not recover enough to admit "
+                  << "a note after 250 ms: "
+                  << engine.performancePitchRatio() << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool testContinuousBronzeActuatorIsSmoothAndStable()
+{
+    constexpr uint32_t blockFrames = 256u;
+    struct Result {
+        double rms = 0.0;
+        double normalizedDifference = 0.0;
+        float peak = 0.0f;
+        float minimumGuardGain = 1.0f;
+        bool finite = true;
+    };
+    const auto renderAt = [](uint32_t sampleRate) {
+        auto params = s3g::accelerometerFieldFactoryPreset(0u);
+        params.outputMode =
+            s3g::AccelerometerFieldOutputMode::Ambisonic;
+        params.fieldListenMode = s3g::AmbiFieldListenMode::Balance;
+        params.fieldListenAmount = 0.64f;
+        params.fieldListenResponse =
+            s3g::AmbiFieldListenerResponse::Imprint;
+        params.coupling = 0.0f;
+        params.energy = 0.0f;
+        params.externalDrive = 0.0f;
+        params.modalLift = 0.0f;
+        params.outputGainDb = 0.0f;
+
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(sampleRate);
+        engine.setParams(params);
+        engine.reset();
+
+        std::array<float, blockFrames> w {};
+        std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
+        outputs[0] = w.data();
+        constexpr uint32_t warmSeconds = 4u;
+        constexpr uint32_t measuredSeconds = 8u;
+        const uint32_t warmFrames = sampleRate * warmSeconds;
+        const uint32_t totalFrames = sampleRate
+            * (warmSeconds + measuredSeconds);
+        double energy = 0.0;
+        double differenceEnergy = 0.0;
+        uint64_t measuredFrames = 0u;
+        float previous = 0.0f;
+        bool hasPrevious = false;
+        Result result;
+        for (uint32_t firstFrame = 0u; firstFrame < totalFrames;
+            firstFrame += blockFrames) {
+            engine.process(nullptr, outputs.data(), outputs.size(),
+                blockFrames);
+            if (firstFrame < warmFrames) continue;
+            result.minimumGuardGain = std::min(
+                result.minimumGuardGain, engine.currentOutputGuardGain());
+            for (const float sample : w) {
+                result.finite = result.finite && std::isfinite(sample);
+                result.peak = std::max(result.peak, std::fabs(sample));
+                energy += static_cast<double>(sample) * sample;
+                if (hasPrevious) {
+                    const double delta = static_cast<double>(sample)
+                        - previous;
+                    differenceEnergy += delta * delta;
+                }
+                previous = sample;
+                hasPrevious = true;
+                ++measuredFrames;
+            }
+        }
+        result.rms = std::sqrt(energy
+            / static_cast<double>(std::max<uint64_t>(1u, measuredFrames)));
+        result.normalizedDifference = std::sqrt(differenceEnergy
+            / std::max(1.0e-30, energy));
+        return result;
+    };
+
+    const Result at48k = renderAt(48000u);
+    const Result at96k = renderAt(96000u);
+    if (!at48k.finite || !(at48k.rms > 0.008)
+        || !(at48k.rms < 0.08) || !(at48k.peak < 0.25f)
+        || !(at48k.normalizedDifference < 0.017)
+        || !(at48k.minimumGuardGain > 0.999f)) {
+        std::cerr << "Continuous bronze actuator lost its drone or retained "
+                  << "the fast snare-like stochastic edge at 48 kHz: RMS "
+                  << at48k.rms << ", normalized difference "
+                  << at48k.normalizedDifference << ", peak " << at48k.peak
+                  << ", guard " << at48k.minimumGuardGain << "\n";
+        return false;
+    }
+    if (!at96k.finite || !(at96k.rms > 0.008)
+        || !(at96k.rms < 0.10) || !(at96k.peak < 0.50f)
+        || !(at96k.normalizedDifference < 0.014)
+        || !(at96k.minimumGuardGain > 0.999f)) {
+        std::cerr << "Physical-time continuous actuator was silent, rough, "
+                  << "or unstable at 96 kHz: RMS " << at96k.rms
+                  << ", normalized difference "
+                  << at96k.normalizedDifference << ", peak " << at96k.peak
+                  << ", guard " << at96k.minimumGuardGain << "\n";
         return false;
     }
     return true;
@@ -1585,9 +2001,13 @@ int main()
         || !testPerBodyAedEditing()
         || !testRawBodyStems()
         || !testBalancedDroneAcrossBodyCounts()
-        || !testGenericProfilesRemainDistinct()
+        || !testPublicProfilesRemainDistinct()
         || !testLegacyTransientFieldsAreDormant()
         || !testPerBodyMidiStrike()
+        || !testRepeatedHighVelocityMidiRemainsBounded()
+        || !testOrdinaryMidiResponseSurvivesStressAndReset()
+        || !testListenerActiveCoincidentMidiUsesIdleBodies()
+        || !testContinuousBronzeActuatorIsSmoothAndStable()
         || !testModalCouplingEvolution()
         || !testZeroPlayerDepthPreservesOpenLoop()
         || !testOutputAndLiftDoNotDriveTelemetry()

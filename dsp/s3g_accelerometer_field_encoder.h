@@ -17,7 +17,7 @@ constexpr uint32_t kAccelerometerFieldModeCount = 24u;
 // receive 24 modes each; eight receive 12 each. Changing the body count never
 // creates an unbounded bank of complete resonators on the audio thread.
 constexpr uint32_t kAccelerometerFieldModeBudget = 96u;
-constexpr uint32_t kAccelerometerFieldPresetCount = 13u;
+constexpr uint32_t kAccelerometerFieldPresetCount = 20u;
 constexpr uint32_t kAccelerometerFieldSensorCount = 8u;
 constexpr uint32_t kAccelerometerFieldMinBodyCount = 4u;
 constexpr uint32_t kAccelerometerFieldMaxBodyCount = 8u;
@@ -47,7 +47,14 @@ enum class AccelerometerSubstrate : uint32_t {
     DeepBronze = 10u,
     BroadBronze = 11u,
     BrightBronze = 12u,
-    Count = 13u,
+    CarbonLaminate = 13u,
+    GlassPlate = 14u,
+    SteelShell = 15u,
+    AluminumPlate = 16u,
+    PorcelainShell = 17u,
+    PorousEarthenware = 18u,
+    SprucePlate = 19u,
+    Count = 20u,
 };
 
 enum class AccelerometerExcitation : uint32_t {
@@ -286,6 +293,13 @@ accelerometerFieldFactoryPresetInfo(uint32_t index)
         { "Broad Wind", "The field player balances a slow, breathing eight-body drone." },
         { "Bright Halo", "A sustained high modal halo circulates through five bodies." },
         { "Slow Ceremony", "An even actuator maintains a spacious eight-body drone." },
+        { "Carbon Veil", "Orthotropic laminate bodies divide long fiber modes from shorter cross-grain motion." },
+        { "Glass Horizon", "Clear plate pairs sustain a sparse, slowly beating transparent field." },
+        { "Steel Canopy", "Eight curved steel bodies maintain a dense low shell canopy." },
+        { "Aluminum Current", "Light plate families carry a broad responsive current through seven bodies." },
+        { "Porcelain Orbit", "Stiff ceramic shells circulate clear inharmonic middle and upper bands." },
+        { "Earthen Bloom", "Porous fired bodies gather a rounded low bloom beneath quickly settling overtones." },
+        { "Spruce Breath", "Grain-split wooden plates breathe across a continuously sustained diffuse field." },
     }};
     return info[std::min<uint32_t>(
         index, kAccelerometerFieldPresetCount - 1u)];
@@ -498,7 +512,6 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
         params.fieldListenResponse = AmbiFieldListenerResponse::Excite;
         break;
     case 12u: // Slow Ceremony
-    default:
         params.bodyCount = 8u;
         params.substrate = AccelerometerSubstrate::BroadBronze;
         params.size = 0.76f;
@@ -512,6 +525,126 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
         params.fieldListenMode = AmbiFieldListenMode::Balance;
         params.fieldListenAmount = 0.78f;
         params.fieldListenResponse = AmbiFieldListenerResponse::Imprint;
+        break;
+    case 13u: // Carbon Veil
+        params.bodyCount = 6u;
+        params.substrate = AccelerometerSubstrate::CarbonLaminate;
+        params.size = 0.64f;
+        params.damping = 0.42f;
+        params.irregularity = 0.045f;
+        params.sourcePosition = 0.28f;
+        params.pickupPosition = 0.70f;
+        params.pickupAxis = 0.62f;
+        params.airRadiation = 0.16f;
+        params.contactRadiation = 0.34f;
+        params.outputGainDb = -8.0f;
+        params.coupling = 0.56f;
+        params.fieldListenMode = AmbiFieldListenMode::Balance;
+        params.fieldListenAmount = 0.66f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Imprint;
+        break;
+    case 14u: // Glass Horizon
+        params.bodyCount = 5u;
+        params.substrate = AccelerometerSubstrate::GlassPlate;
+        params.size = 0.58f;
+        params.damping = 0.54f;
+        params.irregularity = 0.015f;
+        params.sourcePosition = 0.78f;
+        params.pickupPosition = 0.22f;
+        params.pickupAxis = 0.46f;
+        params.airRadiation = 0.42f;
+        params.contactRadiation = 0.58f;
+        params.outputGainDb = -10.0f;
+        params.coupling = 0.38f;
+        params.fieldListenMode = AmbiFieldListenMode::Follow;
+        params.fieldListenAmount = 0.54f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Settle;
+        break;
+    case 15u: // Steel Canopy
+        params.bodyCount = 8u;
+        params.substrate = AccelerometerSubstrate::SteelShell;
+        params.size = 0.78f;
+        params.damping = 0.40f;
+        params.irregularity = 0.035f;
+        params.sourcePosition = 0.44f;
+        params.pickupPosition = 0.62f;
+        params.airRadiation = 0.24f;
+        params.contactRadiation = 0.46f;
+        params.outputGainDb = -13.0f;
+        params.coupling = 0.74f;
+        params.fieldListenMode = AmbiFieldListenMode::Balance;
+        params.fieldListenAmount = 0.76f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Imprint;
+        break;
+    case 16u: // Aluminum Current
+        params.bodyCount = 7u;
+        params.substrate = AccelerometerSubstrate::AluminumPlate;
+        params.size = 0.58f;
+        params.damping = 0.48f;
+        params.irregularity = 0.070f;
+        params.sourcePosition = 0.68f;
+        params.pickupPosition = 0.34f;
+        params.pickupAxis = 0.72f;
+        params.airRadiation = 0.52f;
+        params.contactRadiation = 0.42f;
+        params.outputGainDb = -10.0f;
+        params.coupling = 0.60f;
+        params.fieldListenMode = AmbiFieldListenMode::Counter;
+        params.fieldListenAmount = 0.62f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Excite;
+        break;
+    case 17u: // Porcelain Orbit
+        params.bodyCount = 6u;
+        params.substrate = AccelerometerSubstrate::PorcelainShell;
+        params.size = 0.62f;
+        params.damping = 0.55f;
+        params.irregularity = 0.025f;
+        params.sourcePosition = 0.18f;
+        params.pickupPosition = 0.74f;
+        params.pickupAxis = 0.30f;
+        params.airRadiation = 0.50f;
+        params.contactRadiation = 0.64f;
+        params.outputGainDb = -10.0f;
+        params.coupling = 0.46f;
+        params.fieldListenMode = AmbiFieldListenMode::Follow;
+        params.fieldListenAmount = 0.60f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Imprint;
+        break;
+    case 18u: // Earthen Bloom
+        params.bodyCount = 5u;
+        params.substrate = AccelerometerSubstrate::PorousEarthenware;
+        params.size = 0.72f;
+        params.damping = 0.44f;
+        params.irregularity = 0.20f;
+        params.sourcePosition = 0.34f;
+        params.pickupPosition = 0.58f;
+        params.pickupAxis = 0.40f;
+        params.airRadiation = 0.14f;
+        params.contactRadiation = 0.68f;
+        params.outputGainDb = -5.0f;
+        params.coupling = 0.36f;
+        params.fieldListenMode = AmbiFieldListenMode::Balance;
+        params.fieldListenAmount = 0.58f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Settle;
+        break;
+    case 19u: // Spruce Breath
+        params.bodyCount = 8u;
+        params.substrate = AccelerometerSubstrate::SprucePlate;
+        params.size = 0.66f;
+        params.damping = 0.58f;
+        params.irregularity = 0.10f;
+        params.sourcePosition = 0.30f;
+        params.pickupPosition = 0.64f;
+        params.pickupAxis = 0.54f;
+        params.airRadiation = 0.34f;
+        params.contactRadiation = 0.42f;
+        params.outputGainDb = -4.0f;
+        params.coupling = 0.52f;
+        params.fieldListenMode = AmbiFieldListenMode::Balance;
+        params.fieldListenAmount = 0.74f;
+        params.fieldListenResponse = AmbiFieldListenerResponse::Imprint;
+        break;
+    default:
         break;
     }
     return sanitizeAccelerometerFieldParams(params);
@@ -538,6 +671,18 @@ public:
             -1.0f / (0.0015f * static_cast<float>(sampleRate_)));
         continuousWeightSmoothingCoefficient_ = 1.0f - std::exp(
             -1.0f / (0.004f * static_cast<float>(sampleRate_)));
+        // The sustaining rub is a physical-time process. The previous raw
+        // per-sample coefficients moved its noise corner with sample rate,
+        // and the ~248 Hz fast branch at 48 kHz exposed a snare-wire texture
+        // when OUT revealed the quiet modal field. Retain the slow breathing
+        // bandwidth while moving only the fast stochastic force below the
+        // metallic-rattle region.
+        continuousSlowNoiseCoefficient_ = 1.0f - std::exp(
+            -kAccelerometerFieldTwoPi * 9.0f
+                / static_cast<float>(sampleRate_));
+        continuousFastNoiseCoefficient_ = 1.0f - std::exp(
+            -kAccelerometerFieldTwoPi * 90.0f
+                / static_cast<float>(sampleRate_));
         outputGainSmoothingCoefficient_ = 1.0f - std::exp(
             -1.0f / (0.025f * static_cast<float>(sampleRate_)));
         levelDetectorAttackCoefficient_ = 1.0f - std::exp(
@@ -550,6 +695,11 @@ public:
             -1.0f / (0.025f * static_cast<float>(sampleRate_)));
         outputGuardReleaseCoefficient_ = 1.0f - std::exp(
             -1.0f / (0.30f * static_cast<float>(sampleRate_)));
+        // This is an input-energy memory, not an output envelope. It gives a
+        // struck body its full headroom back gradually, so a long modal tail
+        // cannot be force-fed by a dense MIDI stream.
+        midiActuationEnergyReleaseCoefficient_ = 1.0f - std::exp(
+            -1.0f / (2.0f * static_cast<float>(sampleRate_)));
         params_ = sanitizeAccelerometerFieldParams(params_);
         updateEvolutionIncrements();
         fieldListener_.prepare(sampleRate_);
@@ -640,6 +790,9 @@ public:
                     body < kAccelerometerFieldMaxBodyCount; ++body) {
                     bodies_[body].gain = 0.0f;
                     bodies_[body].energyEnvelope = 0.0f;
+                    bodies_[body].midiPulsePhase = 1.0f;
+                    bodies_[body].midiPulseStrength = 0.0f;
+                    bodies_[body].midiActuationEnergy = 0.0f;
                 }
             }
         } else if (sampleRate_ > 0.0 && geometryChanged) {
@@ -689,20 +842,51 @@ public:
     // MIDI selects one body through the same bounded player used by the
     // continuous actuator. A smooth, zero-endpoint force window enters only
     // the modal bank; there is no parallel click, noise burst, or dry layer.
+    // Idle bodies are used before an active pulse is stolen. Each body also
+    // owns a leaky actuation-energy reservoir: one full strike consumes its
+    // immediate headroom and later notes receive only the recovered energy.
     void strikeMidi(int32_t note, float velocity)
     {
         if (sampleRate_ <= 0.0) prepare(48000.0);
         velocity = clamp(std::isfinite(velocity) ? velocity : 0.0f,
             0.0f, 1.0f);
         if (velocity <= 0.0f) return;
-        const uint32_t bodyIndex = selectPlayerBody();
+        const uint32_t bodyIndex = selectPlayerBody(true);
         Body& body = bodies_[bodyIndex];
+
+        // Retain useful response at ordinary velocities while putting a soft
+        // energy knee under the top of the MIDI range. The old v^0.72 curve
+        // expanded mid velocities and made almost every played note a hard
+        // strike.
+        const float linearVelocity = velocity;
+        constexpr float kVelocityEnergyKnee = 1.10f;
+        const float conditionedVelocity = linearVelocity / std::sqrt(
+            1.0f + kVelocityEnergyKnee
+                * linearVelocity * linearVelocity);
+        constexpr float kConditionedMaximum = 1.0f
+            / 1.4491376746f; // sqrt(1 + kVelocityEnergyKnee)
+        const float normalizedVelocity = clamp(
+            conditionedVelocity / kConditionedMaximum, 0.0f, 1.0f);
+        const float requestedEnergy = normalizedVelocity * normalizedVelocity;
+        const float availableEnergy = std::max(
+            0.0f, 1.0f - body.midiActuationEnergy);
+        const float acceptedEnergy = std::min(
+            requestedEnergy, availableEnergy);
+        // Do not replace an active force pulse with an inaudibly small
+        // retrigger while the reservoir is nearly empty. Four percent energy
+        // is a 20-percent amplitude admission threshold.
+        if (acceptedEnergy < requestedEnergy * 0.04f) return;
+        const float energyAdmission = std::sqrt(acceptedEnergy
+            / std::max(requestedEnergy, 1.0e-12f));
+        body.midiActuationEnergy = clamp(
+            body.midiActuationEnergy + acceptedEnergy, 0.0f, 1.0f);
+
         body.pitchRatio = clamp(std::exp2(
             (static_cast<float>(std::clamp(note, 0, 127)) - 60.0f) / 12.0f),
             0.125f, 8.0f);
         lastPerformancePitchRatio_ = body.pitchRatio;
-        const float shapedVelocity = std::pow(velocity, 0.72f);
-        body.midiPulseStrength = shapedVelocity * 0.55f;
+        body.midiPulseStrength = conditionedVelocity
+            * energyAdmission * 0.55f;
         body.midiPulsePhase = 0.0f;
         const float pulseSeconds = 0.14f
             + 0.22f * (1.0f - params_.damping);
@@ -765,7 +949,7 @@ public:
             (params_.ambisonicOrder + 1u) * (params_.ambisonicOrder + 1u);
         const float ensembleScale = 1.0f
             / std::sqrt(static_cast<float>(activeBodyCount_));
-        const float modalInputScale = profile(params_.substrate).modalCoupling;
+        const float modalInputScale = profile(params_.substrate).driveScale;
         for (uint32_t frame = 0u; frame < frames; ++frame) {
             outputGainSmoothed_ = flushDenormal(outputGainSmoothed_
                 + outputGainSmoothingCoefficient_
@@ -808,6 +992,10 @@ public:
             for (uint32_t bodyIndex = 0u;
                 bodyIndex < activeBodyCount_; ++bodyIndex) {
                 Body& body = bodies_[bodyIndex];
+                body.midiActuationEnergy = flushDenormal(
+                    body.midiActuationEnergy
+                    + midiActuationEnergyReleaseCoefficient_
+                        * (0.0f - body.midiActuationEnergy));
                 if (body.midiPulsePhase < 1.0f) {
                     const float phase = clamp(
                         body.midiPulsePhase, 0.0f, 1.0f);
@@ -851,12 +1039,14 @@ public:
             for (auto& mode : modes_) {
                 if (!mode.active || mode.body >= activeBodyCount_) continue;
                 ModeSample response = mode.process(
-                    bodyDrive[mode.body] * modalInputScale);
+                    bodyDrive[mode.body] * modalInputScale
+                        * mode.transpositionGain);
                 const float modulation = modalCouplingValue(mode);
                 const float amplitudeDepth = params_.coupling
                     * (0.10f + 0.28f * (1.0f - mode.pairProgress));
                 const float amplitudeScale = clamp(
-                    1.0f - amplitudeDepth * modulation, 0.38f, 1.38f);
+                    1.0f - amplitudeDepth * modulation, 0.38f, 1.38f)
+                    * mode.transpositionGain;
                 displacement[mode.body] += response.displacement
                     * mode.pickupWeight * amplitudeScale;
                 velocity[mode.body] += response.velocity
@@ -1027,6 +1217,17 @@ public:
         return bodyModeFrequencyHz(0u, index);
     }
 
+    float modeDecaySeconds(uint32_t index) const
+    {
+        const Body& body = bodies_[0u];
+        if (body.modeCount == 0u || sampleRate_ <= 0.0) return 0.0f;
+        index = std::min<uint32_t>(index, body.modeCount - 1u);
+        const float radius = modes_[body.modeStart + index].radius;
+        if (!(radius > 0.0f && radius < 1.0f)) return 0.0f;
+        return -1.0f / (std::log(radius)
+            * static_cast<float>(sampleRate_));
+    }
+
     float bodyModeFrequencyHz(uint32_t bodyIndex, uint32_t index) const
     {
         bodyIndex = std::min<uint32_t>(bodyIndex, activeBodyCount_ - 1u);
@@ -1131,7 +1332,10 @@ private:
         float modeFalloff;
         float decayFalloff;
         float massSensitivity;
-        float modalCoupling;
+        float driveScale;
+        float radiationCornerHz;
+        float radiationExponent;
+        float radiationGain;
     };
 
     struct ModeSample {
@@ -1152,6 +1356,7 @@ private:
         float drive = 0.0f;
         float pickupWeight = 0.0f;
         float radiationWeight = 0.0f;
+        float transpositionGain = 1.0f;
         float velocityNormalization = 1.0f;
         float accelerationNormalization = 1.0f;
         float state1 = 0.0f;
@@ -1234,6 +1439,7 @@ private:
         float midiPulsePhase = 1.0f;
         float midiPulseIncrement = 0.0f;
         float midiPulseStrength = 0.0f;
+        float midiActuationEnergy = 0.0f;
         float midiSine = 0.0f;
         float midiCosine = 1.0f;
         float midiIncrementSine = 0.0f;
@@ -1261,6 +1467,7 @@ private:
             midiPulsePhase = 1.0f;
             midiPulseIncrement = 0.0f;
             midiPulseStrength = 0.0f;
+            midiActuationEnergy = 0.0f;
             midiSine = 0.0f;
             midiCosine = 1.0f;
             midiIncrementSine = 0.0f;
@@ -1314,14 +1521,39 @@ private:
     {
         switch (substrate) {
         case AccelerometerSubstrate::TieredBronze:
-            return { 155.0f, 8.50f, 0.28f, 0.20f, 0.025f, 1.00f };
+            return { 155.0f, 8.50f, 0.28f, 0.20f, 0.025f, 1.00f,
+                720.0f, 0.50f, 1.00f };
         case AccelerometerSubstrate::BroadBronze:
-            return { 114.0f, 10.80f, 0.32f, 0.30f, 0.018f, 1.00f };
+            return { 114.0f, 10.80f, 0.32f, 0.30f, 0.018f, 1.00f,
+                720.0f, 0.50f, 1.00f };
         case AccelerometerSubstrate::BrightBronze:
-            return { 250.0f, 4.20f, 0.20f, 0.38f, 0.018f, 1.00f };
+            return { 250.0f, 4.20f, 0.20f, 0.38f, 0.018f, 1.00f,
+                720.0f, 0.50f, 1.00f };
+        case AccelerometerSubstrate::CarbonLaminate:
+            return { 78.0f, 5.80f, 0.30f, 0.62f, 0.060f, 0.78f,
+                1500.0f, 0.68f, 0.72f };
+        case AccelerometerSubstrate::GlassPlate:
+            return { 172.0f, 9.20f, 0.22f, 0.48f, 0.050f, 0.58f,
+                1100.0f, 0.55f, 0.90f };
+        case AccelerometerSubstrate::SteelShell:
+            return { 52.0f, 13.0f, 0.34f, 0.40f, 0.014f, 0.92f,
+                360.0f, 0.40f, 1.05f };
+        case AccelerometerSubstrate::AluminumPlate:
+            return { 108.0f, 7.00f, 0.27f, 0.52f, 0.040f, 0.82f,
+                760.0f, 0.52f, 0.98f };
+        case AccelerometerSubstrate::PorcelainShell:
+            return { 136.0f, 6.20f, 0.36f, 0.58f, 0.038f, 0.66f,
+                620.0f, 0.50f, 0.88f };
+        case AccelerometerSubstrate::PorousEarthenware:
+            return { 88.0f, 3.10f, 0.52f, 0.78f, 0.052f, 0.78f,
+                900.0f, 0.65f, 0.55f };
+        case AccelerometerSubstrate::SprucePlate:
+            return { 68.0f, 4.30f, 0.46f, 0.72f, 0.085f, 0.84f,
+                480.0f, 0.44f, 1.03f };
         case AccelerometerSubstrate::DeepBronze:
         default:
-            return { 44.5f, 11.50f, 0.34f, 0.34f, 0.020f, 1.00f };
+            return { 44.5f, 11.50f, 0.34f, 0.34f, 0.020f, 1.00f,
+                720.0f, 0.50f, 1.00f };
         }
     }
 
@@ -1372,14 +1604,201 @@ private:
                 6.35f, 6.44f, 7.85f, 7.98f, 9.55f, 9.72f,
                 11.50f, 11.72f, 13.70f, 14.00f, 16.20f, 16.62f,
             }};
+        // The plate centers follow normalized isotropic or orthotropic thin-
+        // plate relationships. Their close companions model small boundary,
+        // layup, grain, and firing asymmetries that keep sustained pairs alive.
+        // Shell families use sparse curvature branches rather than plate
+        // harmonics. These are material/form archetypes, not specimen fits.
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            carbonRatios {{
+                1.0000f, 1.0060f, 2.7423f, 2.7670f,
+                4.0000f, 4.0320f, 5.8420f, 5.9472f,
+                6.7599f, 6.8951f, 9.0000f, 9.1980f,
+                10.2194f, 10.3829f, 10.9694f, 11.1778f,
+                12.7607f, 13.0287f, 15.8587f, 16.1442f,
+                16.5211f, 16.9176f, 18.0200f, 18.3804f,
+            }};
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            glassRatios {{
+                1.0000f, 1.0030f, 2.0428f, 2.0510f,
+                2.9572f, 2.9749f, 3.7808f, 3.7997f,
+                4.0000f, 4.0280f, 5.7380f, 5.7724f,
+                6.2139f, 6.2698f, 7.2620f, 7.3346f,
+                8.1712f, 8.2366f, 9.0000f, 9.1080f,
+                9.3423f, 9.4264f, 10.7861f, 10.9047f,
+            }};
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            steelRatios {{
+                1.0000f, 1.0015f, 1.6150f, 1.6182f,
+                2.3200f, 2.3258f, 3.1150f, 3.1243f,
+                4.0000f, 4.0140f, 4.9750f, 4.9949f,
+                6.0400f, 6.0672f, 7.1950f, 7.2310f,
+                8.4400f, 8.4864f, 9.7750f, 9.8337f,
+                11.2000f, 11.2728f, 12.7150f, 12.8040f,
+            }};
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            aluminumRatios {{
+                1.0000f, 1.0040f, 1.9062f, 1.9176f,
+                3.0938f, 3.1093f, 3.4166f, 3.4439f,
+                4.0000f, 4.0280f, 5.5104f, 5.5655f,
+                6.5834f, 6.6624f, 7.4896f, 7.5720f,
+                7.6249f, 7.7316f, 8.2499f, 8.3571f,
+                9.0000f, 9.1440f, 10.3436f, 10.4988f,
+            }};
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            porcelainRatios {{
+                1.0000f, 1.0060f, 1.7350f, 1.7558f,
+                2.5800f, 2.6032f, 3.5350f, 3.5986f,
+                4.6000f, 4.6506f, 5.7750f, 5.9078f,
+                7.0600f, 7.1659f, 8.4550f, 8.6833f,
+                9.9600f, 10.1293f, 11.5750f, 11.9223f,
+                13.3000f, 13.5660f, 15.1350f, 15.6193f,
+            }};
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            earthenwareRatios {{
+                1.0000f, 1.0180f, 1.5000f, 1.5375f,
+                2.0800f, 2.1216f, 2.7400f, 2.8359f,
+                3.4800f, 3.5705f, 4.3000f, 4.4892f,
+                5.2000f, 5.3664f, 6.1800f, 6.5014f,
+                7.2400f, 7.5151f, 8.3800f, 8.8660f,
+                9.6000f, 10.0224f, 10.9000f, 11.5976f,
+            }};
+        static constexpr std::array<float, kAccelerometerFieldModeCount>
+            spruceRatios {{
+                1.0000f, 1.0080f, 2.7614f, 2.8001f,
+                4.0000f, 4.0480f, 5.9390f, 6.0934f,
+                6.7557f, 6.9584f, 9.0000f, 9.3060f,
+                10.4329f, 10.6833f, 11.0455f, 11.3548f,
+                12.7285f, 13.1358f, 16.0000f, 16.3520f,
+                16.7321f, 17.3679f, 18.0541f, 18.5957f,
+            }};
         index = std::min<uint32_t>(
             index, kAccelerometerFieldModeCount - 1u);
         switch (params_.substrate) {
         case AccelerometerSubstrate::TieredBronze: return tieredRatios[index];
         case AccelerometerSubstrate::BroadBronze: return broadRatios[index];
         case AccelerometerSubstrate::BrightBronze: return brightRatios[index];
+        case AccelerometerSubstrate::CarbonLaminate:
+            return carbonRatios[index];
+        case AccelerometerSubstrate::GlassPlate: return glassRatios[index];
+        case AccelerometerSubstrate::SteelShell: return steelRatios[index];
+        case AccelerometerSubstrate::AluminumPlate:
+            return aluminumRatios[index];
+        case AccelerometerSubstrate::PorcelainShell:
+            return porcelainRatios[index];
+        case AccelerometerSubstrate::PorousEarthenware:
+            return earthenwareRatios[index];
+        case AccelerometerSubstrate::SprucePlate: return spruceRatios[index];
         case AccelerometerSubstrate::DeepBronze:
         default: return deepRatios[index];
+        }
+    }
+
+    static float modalDecayWeight(
+        AccelerometerSubstrate substrate, uint32_t local)
+    {
+        static constexpr std::array<float, 12u> bronze {{
+            1.35f, 1.00f, 0.82f, 0.58f, 0.88f, 0.66f,
+            0.52f, 0.43f, 0.36f, 0.30f, 0.26f, 0.22f,
+        }};
+        static constexpr std::array<float, 12u> carbon {{
+            1.05f, 0.82f, 0.96f, 0.72f, 0.88f, 0.65f,
+            0.78f, 0.58f, 0.70f, 0.50f, 0.61f, 0.44f,
+        }};
+        static constexpr std::array<float, 12u> glass {{
+            1.15f, 0.96f, 0.82f, 0.91f, 0.70f, 0.78f,
+            0.60f, 0.66f, 0.52f, 0.57f, 0.45f, 0.40f,
+        }};
+        static constexpr std::array<float, 12u> steel {{
+            1.30f, 1.10f, 0.92f, 0.78f, 0.98f, 0.72f,
+            0.84f, 0.62f, 0.70f, 0.54f, 0.60f, 0.46f,
+        }};
+        static constexpr std::array<float, 12u> aluminum {{
+            1.18f, 0.94f, 0.82f, 0.72f, 0.88f, 0.66f,
+            0.72f, 0.55f, 0.61f, 0.48f, 0.52f, 0.41f,
+        }};
+        static constexpr std::array<float, 12u> porcelain {{
+            1.20f, 0.82f, 1.00f, 0.68f, 0.85f, 0.55f,
+            0.72f, 0.45f, 0.60f, 0.38f, 0.49f, 0.32f,
+        }};
+        static constexpr std::array<float, 12u> earthenware {{
+            1.05f, 0.78f, 0.62f, 0.50f, 0.42f, 0.34f,
+            0.29f, 0.24f, 0.20f, 0.17f, 0.14f, 0.12f,
+        }};
+        static constexpr std::array<float, 12u> spruce {{
+            1.10f, 0.72f, 0.98f, 0.60f, 0.84f, 0.52f,
+            0.70f, 0.44f, 0.58f, 0.37f, 0.48f, 0.31f,
+        }};
+        const uint32_t pair = std::min<uint32_t>(local / 2u, 11u);
+        switch (substrate) {
+        case AccelerometerSubstrate::DeepBronze:
+        case AccelerometerSubstrate::BroadBronze: return bronze[pair];
+        case AccelerometerSubstrate::CarbonLaminate:
+            return carbon[pair] * ((local & 1u) == 0u ? 1.18f : 0.78f);
+        case AccelerometerSubstrate::GlassPlate: return glass[pair];
+        case AccelerometerSubstrate::SteelShell: return steel[pair];
+        case AccelerometerSubstrate::AluminumPlate: return aluminum[pair];
+        case AccelerometerSubstrate::PorcelainShell: return porcelain[pair];
+        case AccelerometerSubstrate::PorousEarthenware:
+            return earthenware[pair];
+        case AccelerometerSubstrate::SprucePlate:
+            return spruce[pair] * ((local & 1u) == 0u ? 1.12f : 0.72f);
+        default: return 1.0f;
+        }
+    }
+
+    static float modalSpectralWeight(
+        AccelerometerSubstrate substrate, uint32_t local)
+    {
+        static constexpr std::array<float, 12u> bronzeCluster {{
+            0.82f, 1.00f, 0.58f, 0.42f, 0.76f, 0.46f,
+            0.34f, 0.27f, 0.22f, 0.18f, 0.15f, 0.13f,
+        }};
+        static constexpr std::array<float, 12u> brightBronze {{
+            0.16f, 0.32f, 0.68f, 0.78f, 1.00f, 0.96f,
+            0.88f, 0.82f, 0.66f, 0.52f, 0.40f, 0.30f,
+        }};
+        static constexpr std::array<float, 12u> carbon {{
+            0.92f, 1.00f, 0.78f, 0.90f, 0.70f, 0.82f,
+            0.62f, 0.72f, 0.56f, 0.63f, 0.48f, 0.42f,
+        }};
+        static constexpr std::array<float, 12u> glass {{
+            0.42f, 0.65f, 0.88f, 1.00f, 0.91f, 0.82f,
+            0.74f, 0.67f, 0.60f, 0.52f, 0.45f, 0.38f,
+        }};
+        static constexpr std::array<float, 12u> steel {{
+            1.00f, 0.92f, 0.82f, 0.88f, 0.72f, 0.78f,
+            0.62f, 0.56f, 0.49f, 0.43f, 0.37f, 0.32f,
+        }};
+        static constexpr std::array<float, 12u> aluminum {{
+            0.72f, 0.88f, 1.00f, 0.90f, 0.84f, 0.76f,
+            0.68f, 0.61f, 0.54f, 0.48f, 0.42f, 0.36f,
+        }};
+        static constexpr std::array<float, 12u> porcelain {{
+            1.00f, 0.62f, 0.90f, 0.52f, 0.76f, 0.44f,
+            0.64f, 0.38f, 0.52f, 0.32f, 0.42f, 0.26f,
+        }};
+        static constexpr std::array<float, 12u> earthenware {{
+            1.00f, 0.84f, 0.66f, 0.50f, 0.38f, 0.29f,
+            0.22f, 0.17f, 0.13f, 0.10f, 0.08f, 0.06f,
+        }};
+        static constexpr std::array<float, 12u> spruce {{
+            1.00f, 0.96f, 0.84f, 0.72f, 0.61f, 0.51f,
+            0.43f, 0.36f, 0.30f, 0.25f, 0.21f, 0.17f,
+        }};
+        const uint32_t pair = std::min<uint32_t>(local / 2u, 11u);
+        switch (substrate) {
+        case AccelerometerSubstrate::BrightBronze:
+            return brightBronze[pair];
+        case AccelerometerSubstrate::CarbonLaminate: return carbon[pair];
+        case AccelerometerSubstrate::GlassPlate: return glass[pair];
+        case AccelerometerSubstrate::SteelShell: return steel[pair];
+        case AccelerometerSubstrate::AluminumPlate: return aluminum[pair];
+        case AccelerometerSubstrate::PorcelainShell: return porcelain[pair];
+        case AccelerometerSubstrate::PorousEarthenware:
+            return earthenware[pair];
+        case AccelerometerSubstrate::SprucePlate: return spruce[pair];
+        default: return bronzeCluster[pair];
         }
     }
 
@@ -1603,6 +2022,7 @@ private:
                     mode.drive = 0.0f;
                     mode.pickupWeight = 0.0f;
                     mode.radiationWeight = 0.0f;
+                    mode.transpositionGain = 0.0f;
                     continue;
                 }
                 const float decayScale = std::exp2(
@@ -1611,16 +2031,8 @@ private:
                     modalProfile.baseDecaySeconds * decayScale
                     / std::pow(1.0f + progress * 5.0f,
                         modalProfile.decayFalloff));
-                static constexpr std::array<float, 12u> decayWeights {{
-                    1.35f, 1.00f, 0.82f, 0.58f, 0.88f, 0.66f,
-                    0.52f, 0.43f, 0.36f, 0.30f, 0.26f, 0.22f,
-                }};
-                if (params_.substrate == AccelerometerSubstrate::DeepBronze
-                    || params_.substrate
-                        == AccelerometerSubstrate::BroadBronze) {
-                    decay *= decayWeights[std::min<uint32_t>(
-                        local / 2u, decayWeights.size() - 1u)];
-                }
+                decay = std::max(0.015f, decay * modalDecayWeight(
+                    params_.substrate, local));
                 mode.radius = std::exp(-1.0f
                     / (decay * static_cast<float>(sampleRate_)));
                 mode.radiusSquared = mode.radius * mode.radius;
@@ -1633,20 +2045,7 @@ private:
                 float modalGain = 1.0f
                     / std::pow(1.0f + static_cast<float>(local),
                         modalProfile.modeFalloff);
-                static constexpr std::array<float, 12u> clusterWeights {{
-                    0.82f, 1.00f, 0.58f, 0.42f, 0.76f, 0.46f,
-                    0.34f, 0.27f, 0.22f, 0.18f, 0.15f, 0.13f,
-                }};
-                static constexpr std::array<float, 12u> brightWeights {{
-                    0.16f, 0.32f, 0.68f, 0.78f, 1.00f, 0.96f,
-                    0.88f, 0.82f, 0.66f, 0.52f, 0.40f, 0.30f,
-                }};
-                modalGain *= params_.substrate
-                        == AccelerometerSubstrate::BrightBronze
-                    ? brightWeights[std::min<uint32_t>(
-                        local / 2u, brightWeights.size() - 1u)]
-                    : clusterWeights[std::min<uint32_t>(
-                        local / 2u, clusterWeights.size() - 1u)];
+                modalGain *= modalSpectralWeight(params_.substrate, local);
                 modalGain *= bodyNormalization;
                 mode.drive = 0.0045f * modalGain * sourceShape;
                 const float axisRadians = clamp(params_.pickupAxis
@@ -1656,8 +2055,11 @@ private:
                     local, body.targetPosition, false)
                     + std::sin(axisRadians) * modeShape(
                         local, body.targetPosition, true);
-                const float radiationEfficiency = std::sqrt(
-                    frequency / (frequency + 720.0f));
+                const float radiationEfficiency = std::pow(
+                    frequency / (frequency
+                        + modalProfile.radiationCornerHz),
+                    modalProfile.radiationExponent)
+                    * modalProfile.radiationGain;
                 mode.radiationWeight = modeShape(
                     local, body.targetPosition, false)
                     * modalGain * radiationEfficiency
@@ -1771,6 +2173,7 @@ private:
         if (bodyIndex >= activeBodyCount_) return;
         const Body& body = bodies_[bodyIndex];
         const float nyquistLimit = static_cast<float>(sampleRate_) * 0.44f;
+        const float fadeStart = static_cast<float>(sampleRate_) * 0.38f;
         for (uint32_t local = 0u;
             local < body.modeCount; ++local) {
             Mode& mode = modes_[body.modeStart + local];
@@ -1780,8 +2183,13 @@ private:
                 * (0.0025f + 0.0065f * (1.0f - mode.pairProgress));
             const float frequencyScale = body.pitchRatio
                 * std::max(0.96f, 1.0f + frequencyDepth * modulation);
+            const float requestedFrequency = mode.frequencyHz * frequencyScale;
+            mode.transpositionGain = clamp(
+                (nyquistLimit - requestedFrequency)
+                    / (nyquistLimit - fadeStart),
+                0.0f, 1.0f);
             const float frequency = std::min(
-                nyquistLimit, mode.frequencyHz * frequencyScale);
+                nyquistLimit, requestedFrequency);
             const float omega = kAccelerometerFieldTwoPi
                 * frequency / static_cast<float>(sampleRate_);
             mode.coefficient = 2.0f * mode.radius * std::cos(omega);
@@ -1827,12 +2235,32 @@ private:
         }
     }
 
-    uint32_t selectPlayerBody()
+    uint32_t selectPlayerBody(bool preferIdleMidiBody = false)
     {
+        bool hasIdleMidiBody = false;
+        if (preferIdleMidiBody) {
+            for (uint32_t body = 0u; body < activeBodyCount_; ++body) {
+                if (bodies_[body].midiPulsePhase >= 1.0f) {
+                    hasIdleMidiBody = true;
+                    break;
+                }
+            }
+        }
         if (params_.fieldListenMode == AmbiFieldListenMode::Off
             || params_.fieldListenAmount <= 1.0e-7f) {
-            const uint32_t selected = nextRoundRobinBody_;
-            nextRoundRobinBody_ = (nextRoundRobinBody_ + 1u)
+            uint32_t selected = nextRoundRobinBody_;
+            if (hasIdleMidiBody) {
+                for (uint32_t offset = 0u; offset < activeBodyCount_;
+                    ++offset) {
+                    const uint32_t candidate = (nextRoundRobinBody_ + offset)
+                        % activeBodyCount_;
+                    if (bodies_[candidate].midiPulsePhase >= 1.0f) {
+                        selected = candidate;
+                        break;
+                    }
+                }
+            }
+            nextRoundRobinBody_ = (selected + 1u)
                 % activeBodyCount_;
             return selected;
         }
@@ -1842,6 +2270,9 @@ private:
         float strongestScore = -1.0e9f;
         float quietestScore = 1.0e9f;
         for (uint32_t body = 0u; body < activeBodyCount_; ++body) {
+            if (hasIdleMidiBody && bodies_[body].midiPulsePhase < 1.0f) {
+                continue;
+            }
             const auto score = fieldListener_.score(
                 bodies_[body].direction, params_.fieldListenMode);
             const float heard = score.relativeEnergy * 0.62f
@@ -1867,6 +2298,9 @@ private:
         uint32_t selected = preferred;
         float best = -1.0e9f;
         for (uint32_t body = 0u; body < activeBodyCount_; ++body) {
+            if (hasIdleMidiBody && bodies_[body].midiPulsePhase < 1.0f) {
+                continue;
+            }
             const float preference = body == preferred ? 1.0f : 0.0f;
             const float fairness = static_cast<float>(bodies_[body].ageCredit)
                 / static_cast<float>(activeBodyCount_);
@@ -1913,8 +2347,10 @@ private:
                         - continuousWeight_[bodyIndex]));
             Body& body = bodies_[bodyIndex];
             const float noise = bodyRandomSigned(body);
-            body.droneSlow += 0.0012f * (noise - body.droneSlow);
-            body.droneFast += 0.032f * (noise - body.droneFast);
+            body.droneSlow += continuousSlowNoiseCoefficient_
+                * (noise - body.droneSlow);
+            body.droneFast += continuousFastNoiseCoefficient_
+                * (noise - body.droneFast);
             const float nextSine = body.droneSine
                     * body.droneIncrementCosine
                 + body.droneCosine * body.droneIncrementSine;
@@ -1924,17 +2360,17 @@ private:
             body.droneSine = flushDenormal(nextSine);
             body.droneCosine = flushDenormal(nextCosine);
             float rub = body.droneSlow * 1.8f
-                + body.droneFast * 0.45f
+                + body.droneFast * 0.24f
                 + body.droneSine * 0.16f;
             if (params_.fieldListenResponse
                 == AmbiFieldListenerResponse::Excite) {
                 rub = body.droneSlow * 1.10f
-                    + body.droneFast * 0.12f
+                    + body.droneFast * 0.10f
                     + body.droneSine * 0.34f;
             } else if (params_.fieldListenResponse
                 == AmbiFieldListenerResponse::Settle) {
                 rub = body.droneSlow * 1.70f
-                    + body.droneFast * 0.24f
+                    + body.droneFast * 0.14f
                     + body.droneSine * 0.16f;
             }
             drive[bodyIndex] += baseDrive
@@ -2003,12 +2439,15 @@ private:
     float energyReleaseCoefficient_ = 0.001f;
     float externalActuatorSmoothingCoefficient_ = 0.01f;
     float continuousWeightSmoothingCoefficient_ = 0.01f;
+    float continuousSlowNoiseCoefficient_ = 0.0012f;
+    float continuousFastNoiseCoefficient_ = 0.012f;
     float outputGainSmoothingCoefficient_ = 0.001f;
     float levelDetectorAttackCoefficient_ = 0.001f;
     float levelDetectorReleaseCoefficient_ = 0.00001f;
     float liftRiseCoefficient_ = 0.00001f;
     float liftFallCoefficient_ = 0.001f;
     float outputGuardReleaseCoefficient_ = 0.0001f;
+    float midiActuationEnergyReleaseCoefficient_ = 0.00001f;
     AccelerometerFieldParams params_ = accelerometerFieldFactoryPreset(0u);
     std::array<Mode, kAccelerometerFieldModeBudget> modes_ {};
     std::array<Body, kAccelerometerFieldMaxBodyCount> bodies_ {};

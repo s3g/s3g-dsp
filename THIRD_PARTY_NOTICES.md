@@ -3,6 +3,22 @@
 This project can optionally build against third-party libraries. These
 dependencies are not authored by s3g and retain their original licenses.
 
+## Resonance Print design references
+
+Ambi Effect Resonance Print was independently implemented in this repository.
+Pure Data's `sigmund~`, William Brent's `martha~`, and William Brent's
+`convolve~` informed the problem framing and artistic vocabulary only. Their
+source code, patches, binaries, and media are not copied, linked, or
+redistributed by this project.
+
+- Pure Data `sigmund~`: <https://github.com/pure-data/pure-data/tree/master/extra/sigmund~>
+- `martha~`: <https://github.com/wbrent/martha_tilde>
+- `convolve~`: <https://github.com/wbrent/convolve_tilde>
+
+The Pure Data repository is BSD-licensed. The two William Brent repositories
+identify GPLv3 licensing. These entries are provenance notes, not bundled
+dependencies.
+
 ## CLAP
 
 The CLAP plugin headers are fetched by CMake when `S3G_BUILD_CLAP_PLUGIN` is
