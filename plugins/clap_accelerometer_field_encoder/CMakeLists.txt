@@ -20,7 +20,7 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.accelerometer-field-encoder-16"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Encoder Modal"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Encoder Modal 16"
     MACOSX_BUNDLE_BUNDLE_VERSION "0.9.0"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.9.0"
   )

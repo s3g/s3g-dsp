@@ -1167,11 +1167,36 @@ private:
         {
             const float previous1 = state1;
             const float previous2 = state2;
-            const float current = coefficient * previous1
-                - radiusSquared * previous2 + input * drive;
-            if (!std::isfinite(current) || std::fabs(current) > 64.0f) {
+            // Continuous excitation can accumulate far more displacement than
+            // an isolated strike in these deliberately long modal decays. Add
+            // amplitude-dependent pole damping before the state reaches the
+            // safety range. This controls modal gain without clipping the
+            // waveform or changing the small-signal decay.
+            const float stateMagnitude = std::max(
+                std::fabs(previous1), std::fabs(previous2));
+            const float overload = std::max(
+                0.0f, stateMagnitude * (1.0f / 32.0f) - 1.0f);
+            const float nonlinearDamping = 1.0f
+                / (1.0f + 0.0010f * overload * overload);
+            float current = coefficient * nonlinearDamping * previous1
+                - radiusSquared * nonlinearDamping * nonlinearDamping
+                    * previous2
+                + input * drive;
+            if (!std::isfinite(current)) {
                 reset();
                 return {};
+            }
+            // A remote C1-continuous safety knee replaces the old hard reset.
+            // Normal modal gain control above keeps this branch inactive.
+            constexpr float kStateKnee = 256.0f;
+            constexpr float kStateLimit = 1024.0f;
+            const float magnitude = std::fabs(current);
+            if (magnitude > kStateKnee) {
+                const float excess = magnitude - kStateKnee;
+                const float range = kStateLimit - kStateKnee;
+                current = std::copysign(kStateKnee
+                        + excess / (1.0f + excess / range),
+                    current);
             }
             state2 = previous1;
             state1 = flushDenormal(current);

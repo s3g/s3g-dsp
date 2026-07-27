@@ -4,6 +4,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 src_root="$repo_root/build-clap/plugins"
 dist_root="$repo_root/dist"
+manifest="$repo_root/scripts/clap-bundles.tsv"
+legacy_manifest="$repo_root/scripts/clap-legacy-bundles.tsv"
+manifest_checker="$repo_root/scripts/check-clap-bundle-manifest.py"
 release_version="${S3G_RELEASE_VERSION:-0.4.0-pre}"
 release_date="${S3G_RELEASE_DATE:-$(date +%F)}"
 codesign_identity="${S3G_CODESIGN_IDENTITY:--}"
@@ -11,113 +14,51 @@ package_name="${1:-s3g-dsp-macos-clap-$release_version}"
 staging="$dist_root/$package_name"
 zip_path="$dist_root/$package_name.zip"
 
-bundles=(
-  "$src_root/clap_24ch_passthrough/s3g_24ch_passthrough_test.clap"
-  "$src_root/clap_delay_processor/s3g_8ch_delay_processor.clap"
-  "$src_root/clap_delay_processor/s3g_24ch_delay_processor.clap"
-  "$src_root/clap_mc_to_stereo_autogain/s3g_mc_to_stereo_autogain.clap"
-  "$src_root/clap_mc_to_quad_autogain/s3g_mc_to_quad_autogain.clap"
-  "$src_root/clap_ambi_point_encoder/s3g_ambi_point_encoder.clap"
-  "$src_root/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder.clap"
-  "$src_root/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator.clap"
-  "$src_root/clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap"
-  "$src_root/clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap"
-  "$src_root/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap"
-  "$src_root/clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder.clap"
-  "$src_root/clap_ambi_neural_ecology/s3g_ambi_neural_ecology.clap"
-  "$src_root/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap"
-  "$src_root/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder.clap"
-  "$src_root/clap_ambi_wind_encoder/s3g_ambi_wind_encoder.clap"
-  "$src_root/clap_ambi_water_encoder/s3g_ambi_water_encoder.clap"
-  "$src_root/clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder.clap"
-  "$src_root/clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder.clap"
-  "$src_root/clap_ambi_insect_encoder/s3g_ambi_insect_encoder.clap"
-  "$src_root/clap_accelerometer_field_encoder/s3g_ambi_encoder_modal.clap"
-  "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"
-  "$src_root/clap_ambi_ray_encoder/s3g_ambi_ray_encoder.clap"
-  "$src_root/clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder.clap"
-  "$src_root/clap_ambi_path_encoder/s3g_ambi_path_encoder.clap"
-  "$src_root/clap_ambi_speaker_decoder/s3g_ambi_speaker_decoder.clap"
-  "$src_root/clap_layout_panner/s3g_layout_panner.clap"
-  "$src_root/clap_dbap_panner/s3g_dbap_panner.clap"
-  "$src_root/clap_lbap_panner/s3g_lbap_panner.clap"
-  "$src_root/clap_vbap_panner/s3g_vbap_panner.clap"
-  "$src_root/clap_sub_crossover/s3g_sub_crossover.clap"
-  "$src_root/clap_loop_processor/s3g_loop_processor.clap"
-  "$src_root/clap_multi_loop_processor/s3g_multi_loop_processor.clap"
-  "$src_root/clap_psd_raw_field/s3g_fault.clap"
-  "$src_root/clap_ambi_grain_processor/s3g_ambi_grain_processor.clap"
-  "$src_root/clap_macro_delay/s3g_macro_delay.clap"
-  "$src_root/clap_macro_delay/s3g_24ch_macro_delay.clap"
-  "$src_root/clap_macro_pitch/s3g_macro_pitch.clap"
-  "$src_root/clap_macro_pitch/s3g_24ch_macro_pitch.clap"
-  "$src_root/clap_macro_shred/s3g_macro_shred_mono.clap"
-  "$src_root/clap_macro_shred/s3g_macro_shred.clap"
-  "$src_root/clap_macro_shred/s3g_24ch_macro_shred.clap"
-  "$src_root/clap_buffer_processor/s3g_buffer_processor.clap"
-  "$src_root/clap_wave_geometry_processor/s3g_wave_geometry_processor.clap"
-  "$src_root/clap_multichannel_meter/s3g_multichannel_meter.clap"
-  "$src_root/clap_ambisonic_energy_visualizer/s3g_ambisonic_energy_visualizer.clap"
-  "$src_root/clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder.clap"
-  "$src_root/clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder.clap"
-  "$src_root/clap_ambisonic_sub_decoder/s3g_ambisonic_sub_decoder.clap"
-  "$src_root/clap_ambi_object_decoder/s3g_ambi_object_decoder.clap"
-  "$src_root/clap_ambi_adaptive_decoder/s3g_ambi_adaptive_decoder.clap"
-  "$src_root/clap_array_hpf/s3g_array_hpf_16.clap"
-  "$src_root/clap_array_hpf/s3g_array_hpf_26.clap"
-  "$src_root/clap_array_hpf/s3g_array_hpf_32.clap"
-  "$src_root/clap_array_hpf/s3g_array_hpf_64.clap"
-  "$src_root/clap_array_delay/s3g_array_delay_16.clap"
-  "$src_root/clap_array_delay/s3g_array_delay_26.clap"
-  "$src_root/clap_array_delay/s3g_array_delay_32.clap"
-  "$src_root/clap_array_delay/s3g_array_delay_64.clap"
-  "$src_root/clap_array_trim/s3g_array_trim_16.clap"
-  "$src_root/clap_array_trim/s3g_array_trim_26.clap"
-  "$src_root/clap_array_trim/s3g_array_trim_32.clap"
-  "$src_root/clap_array_trim/s3g_array_trim_64.clap"
-  "$src_root/clap_ambisonic_rotate/s3g_ambisonic_rotate.clap"
-  "$src_root/clap_ambi_effect_dj_filter/s3g_ambi_effect_dj_filter.clap"
-  "$src_root/clap_ambi_effect_delay/s3g_ambi_effect_delay.clap"
-  "$src_root/clap_ambi_effect_pitch_gain/s3g_ambi_effect_pitch.clap"
-  "$src_root/clap_ambi_effect_pitch_gain/s3g_ambi_effect_gain.clap"
-  "$src_root/clap_ambi_effect_displacement/s3g_ambi_effect_displacement.clap"
-  "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_64.clap"
-  "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_128.clap"
-  "$src_root/clap_ambi_group_depth/s3g_ambi_depth_16.clap"
-  "$src_root/clap_ambi_group_depth/s3g_ambi_group_depth_64.clap"
-  "$src_root/clap_ambi_group_depth/s3g_ambi_group_depth_128.clap"
-  "$src_root/clap_ambisonic_order_band_tool/s3g_ambisonic_order_band_tool.clap"
-  "$src_root/clap_ambi_group_matrix/s3g_ambi_group_matrix.clap"
-  "$src_root/clap_ambi_group_matrix_128/s3g_ambi_group_matrix_128.clap"
-  "$src_root/clap_group_matrix/s3g_group_matrix.clap"
-  "$src_root/clap_group_matrix_32/s3g_group_matrix_32.clap"
-  "$src_root/clap_node_track_mixer/s3g_node_bus_mixer.clap"
-  "$src_root/clap_node_track_mixer/s3g_ambi_node_bus_mixer.clap"
-  "$src_root/clap_spectral_spray/s3g_spectral_spray.clap"
-  "$src_root/clap_8ch_spectral_spray/s3g_8ch_spectral_spray.clap"
-  "$src_root/clap_spectral_topology_processor/s3g_spectral_topology_processor.clap"
-  "$src_root/clap_spectral_topology_processor/s3g_24ch_spectral_topology_processor.clap"
-  "$src_root/clap_shard_scatter/s3g_shard_scatter.clap"
-  "$src_root/clap_orbit_delay/s3g_orbit_delay.clap"
-  "$src_root/clap_cascade_taps/s3g_cascade_taps.clap"
-  "$src_root/clap_crcltr/s3g_crcltr.clap"
-)
-bundle_count="${#bundles[@]}"
+if [[ ! "$package_name" =~ ^s3g-dsp-macos-clap-[A-Za-z0-9._-]+$ ]]; then
+  echo "Unsafe package name: $package_name" >&2
+  exit 2
+fi
 
-for bundle in "${bundles[@]}"; do
-  if [[ ! -d "$bundle" ]]; then
-    echo "Missing built bundle: $bundle" >&2
-    echo "Run: cmake --preset clap && cmake --build --preset clap" >&2
+relative_paths=()
+canonical_names=()
+bundle_ids=()
+host_names=()
+
+while IFS=$'\t' read -r relative_path canonical_name bundle_id host_name extra; do
+  if [[ -z "${relative_path:-}" || "${relative_path:0:1}" == "#" ]]; then
+    continue
+  fi
+  if [[ -n "${extra:-}" || -z "${host_name:-}" ]]; then
+    echo "Malformed active manifest row: $relative_path" >&2
     exit 1
   fi
-done
+  relative_paths+=("$relative_path")
+  canonical_names+=("$canonical_name")
+  bundle_ids+=("$bundle_id")
+  host_names+=("$host_name")
+done < "$manifest"
+
+bundle_count="${#canonical_names[@]}"
+if [[ "$bundle_count" -eq 0 ]]; then
+  echo "The CLAP bundle manifest is empty: $manifest" >&2
+  exit 1
+fi
+
+python3 "$manifest_checker" \
+  --active-manifest "$manifest" \
+  --legacy-manifest "$legacy_manifest" \
+  --build-root "$src_root"
 
 rm -rf "$staging" "$zip_path"
 mkdir -p "$staging"
 
-for bundle in "${bundles[@]}"; do
-  staged_bundle="$staging/$(basename "$bundle")"
-  cp -R "$bundle" "$staged_bundle"
+# The source build may retain internal target/output names. The release package
+# deliberately renames only the outer bundle directory to the canonical name;
+# CLAP and CFBundle identifiers remain stable for session compatibility.
+for ((i=0; i<bundle_count; i++)); do
+  source_bundle="$src_root/${relative_paths[$i]}"
+  staged_bundle="$staging/${canonical_names[$i]}"
+  cp -R "$source_bundle" "$staged_bundle"
   codesign --force --deep --sign "$codesign_identity" "$staged_bundle"
   codesign --verify --deep --strict "$staged_bundle"
 done
@@ -126,6 +67,12 @@ cp -R "$repo_root/wavetables/vot" "$staging/VOT Wavetables"
 cp -R "$repo_root/examples/voicebanks/s3g-demo-synthetic" "$staging/Ambi Vox Demo Voicebank"
 cp "$repo_root/LICENSE" "$staging/LICENSE.txt"
 cp "$repo_root/THIRD_PARTY_NOTICES.md" "$staging/THIRD_PARTY_NOTICES.md"
+
+mkdir -p "$staging/Installer Data"
+cp "$manifest" "$staging/Installer Data/clap-bundles.tsv"
+cp "$legacy_manifest" "$staging/Installer Data/clap-legacy-bundles.tsv"
+cp "$repo_root/scripts/install-clap-bundles.sh" "$staging/Install s3g-dsp CLAPs.command"
+chmod 755 "$staging/Install s3g-dsp CLAPs.command"
 
 cat > "$staging/README.txt" <<EOF
 s3g-dsp pre-release macOS CLAP builds for REAPER testing.
@@ -140,102 +87,35 @@ stable release.
 The bundles are ad-hoc signed by default for bundle-integrity verification but
 are not Apple notarized.
 
-Install by copying the .clap bundles to:
+Recommended installation:
 
-~/Library/Audio/Plug-Ins/CLAP/
+1. Double-click "Install s3g-dsp CLAPs.command".
+2. Rescan CLAP plugins in REAPER.
 
-Then rescan CLAP plugins in REAPER.
+The installer verifies all bundle identities before changing the user plugin
+folder, installs the current bundles under their canonical product names, and
+moves recognized renamed/retired s3g-dsp aliases to a timestamped backup under:
+
+~/Library/Application Support/s3g-dsp/CLAP Backups/
+
+Stable plugin identifiers do not change, so the filename migration does not
+break session identity. Other products, including s3g-rnbo-clap bundles, are
+left untouched. To preview the exact changes from Terminal, run:
+
+./Install\ s3g-dsp\ CLAPs.command --dry-run
+
+Manual drag-copying is possible, but it cannot retire older filenames and may
+leave duplicate host entries. The included installer is therefore preferred.
 
 Included plugins ($bundle_count bundles):
 
-- s3g 24ch Passthrough Test
-- s3g Processor Delay 8ch
-- s3g Processor Delay 24ch
-- s3g Output Autogain Stereo
-- s3g Output Autogain Quad
-- s3g Ambi Encoder Point
-- s3g Ambi Encoder Cloud 64
-- s3g Ambi Encoder Surface Terrain 64
-- s3g Ambi Encoder VOT 64
-- s3g Ambi Encoder Vox 64
-- s3g Ambi Encoder Wave Terrain 64
-- s3g Ambi Encoder Pulsar 64
-- s3g Ambi Encoder Stochastic 64
-- s3g Ambi Encoder Wrangler 64
-- s3g Ambi Encoder Wind 64
-- s3g Ambi Encoder Water 64
-- s3g Ambi Encoder Pyrosphere 64
-- s3g Ambi Encoder Cryosphere 64
-- s3g Ambi Encoder Insect 64
-- s3g Ambi Encoder Modal 16
-- s3g Processor Ambi Imprint 64ch
-- s3g Ambi Encoder Ray
-- s3g Ambi Encoder Ray Bilocation
-- s3g Ambi Encoder Path 64
-- s3g Ambi Speaker Decoder 64
-- s3g Layout Panner
-- s3g DBAP Panner
-- s3g LBAP Panner
-- s3g VBAP Panner
-- s3g Output Crossover
-- s3g Processor Loop 8ch
-- s3g Processor Multi Loop 8ch
-- s3g Processor Fault
-- s3g Processor Ambi Grain
-- s3g Macro Delay 8ch
-- s3g Macro Delay 24ch
-- s3g Macro Pitch 8ch
-- s3g Macro Pitch 24ch
-- s3g Macro Shred Mono
-- s3g Macro Shred 8ch
-- s3g Macro Shred 24ch
-- s3g Processor Buffer 8ch
-- s3g Processor Wave Geometry 8ch
-- s3g Analyzer Meter 64ch
-- s3g Analyzer Ambi Energy 64ch
-- s3g Ambi Stereo Decoder
-- s3g Ambi Head Decoder
-- s3g Ambisonic Sub Decoder
-- s3g Ambi Object Decoder 64
-- s3g Ambi Adaptive Decoder 64
-- s3g Array HPF 16
-- s3g Array HPF 26
-- s3g Array HPF 32
-- s3g Array HPF 64
-- s3g Array Delay 16
-- s3g Array Delay 26
-- s3g Array Delay 32
-- s3g Array Delay 64
-- s3g Array Trim 16
-- s3g Array Trim 26
-- s3g Array Trim 32
-- s3g Array Trim 64
-- s3g Ambi Transform Rot 64
-- s3g Ambi Effect DJ Filter 64
-- s3g Ambi Effect Delay 64
-- s3g Ambi Effect Pitch 64
-- s3g Ambi Effect Gain 64
-- s3g Ambi Effect Displacement 64
-- s3g Ambi Transform Depth 16
-- s3g Ambi Transform Grp Rot 64
-- s3g Ambi Transform Grp Rot 128
-- s3g Ambi Transform Grp Depth 64
-- s3g Ambi Transform Grp Depth 128
-- s3g Ambi Transform Order Band 64
-- s3g Ambi Matrix Group 64
-- s3g Ambi Matrix Group 128
-- s3g Matrix Group 64
-- s3g Matrix Group 32
-- s3g Mixer Node Bus 128
-- s3g Ambi Mixer Node Bus 128
-- s3g Effect Spectral Spray 2ch
-- s3g Effect Spectral Spray 8ch
-- s3g Processor Spectral 8ch
-- s3g Processor Spectral 24ch
-- s3g Effect Shard Scatter
-- s3g Effect Orbit Delay
-- s3g Effect Cascade Taps
-- s3g Effect CRCLTR
+EOF
+
+for ((i=0; i<bundle_count; i++)); do
+  printf -- '- %s\n' "${host_names[$i]}" >> "$staging/README.txt"
+done
+
+cat >> "$staging/README.txt" <<'EOF'
 
 Docs:
 
@@ -250,13 +130,13 @@ THIRD_PARTY_NOTICES.md.
 
 VOT Wavetable Library:
 
-Use the LOAD button in s3g Ambi Encoder VOT 64 to load any WAV file from the
+Use the LOAD button in s3g Ambi Encoder VOT to load any WAV file from the
 included VOT Wavetables folder. The library contains twenty-eight 4 x 4 banks,
 including four vocal-source atlases.
 
 Ambi Vox Demo Voicebank:
 
-Use the LOAD button in the s3g Ambi Encoder Vox 64 PHRASE panel to select the
+Use the LOAD button in the s3g Ambi Encoder Vox PHRASE panel to select the
 included Ambi Vox Demo Voicebank folder. It is a small synthetic UTAU-style
 test bank with WAV aliases, oto.ini timing, and pronunciation examples. The
 same button can load a vocal WAV for WORLD analysis and resynthesis.

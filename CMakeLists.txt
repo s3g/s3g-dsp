@@ -94,6 +94,32 @@ add_custom_target(audit_gui_style
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   COMMENT "Running advisory CLAP GUI style audit")
 
+find_package(Python3 QUIET COMPONENTS Interpreter)
+
+if(Python3_Interpreter_FOUND)
+  add_custom_target(audit_clap_bundle_manifest
+    COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-clap-bundle-manifest.py
+    DEPENDS
+      ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-clap-bundle-manifest.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/scripts/clap-bundles.tsv
+      ${CMAKE_CURRENT_SOURCE_DIR}/scripts/clap-legacy-bundles.tsv
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Validating canonical CLAP bundle manifest"
+    VERBATIM)
+endif()
+
+add_custom_target(audit_clap_bundle_installer
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/clap_bundle_installer_smoke.sh
+  DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/clap_bundle_installer_smoke.sh
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/install-clap-bundles.sh
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/clap-bundles.tsv
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/clap-legacy-bundles.tsv
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  COMMENT "Testing canonical CLAP install and legacy migration"
+  VERBATIM)
+
 option(S3G_BUILD_CLAP_PLUGIN "Build experimental CLAP plugin targets" OFF)
 option(S3G_BUILD_STANDALONE_APPS "Build experimental standalone app targets" OFF)
 option(S3G_FETCH_CLAP "Fetch the CLAP headers when S3G_CLAP_INCLUDE_DIR is not set" ON)

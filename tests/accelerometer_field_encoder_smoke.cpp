@@ -170,6 +170,67 @@ bool testFactoryPresets()
     return true;
 }
 
+bool testLiftedFactoryPresetsRemainClickFree()
+{
+    constexpr uint32_t blockFrames = 256u;
+    constexpr uint32_t totalFrames = kSampleRate * 12u;
+    constexpr uint32_t warmupFrames = kSampleRate;
+    constexpr std::array<uint32_t, 4u> presets {{ 3u, 5u, 9u, 10u }};
+    for (const uint32_t preset : presets) {
+        const auto params = s3g::accelerometerFieldFactoryPreset(preset);
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(kSampleRate);
+        engine.setParams(params);
+        engine.reset();
+
+        std::array<std::array<float, blockFrames>,
+            s3g::kAccelerometerFieldMaxChannels> audio {};
+        std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
+        for (uint32_t channel = 0u; channel < outputs.size(); ++channel) {
+            outputs[channel] = audio[channel].data();
+        }
+        std::array<float, s3g::kAccelerometerFieldMaxChannels> previous {};
+        double differenceEnergy = 0.0;
+        float maximumDifference = 0.0f;
+        uint64_t measuredSamples = 0u;
+        for (uint32_t start = 0u; start < totalFrames; start += blockFrames) {
+            engine.process(nullptr, outputs.data(), outputs.size(), blockFrames);
+            for (uint32_t frame = 0u; frame < blockFrames; ++frame) {
+                for (uint32_t channel = 0u;
+                    channel < engine.outputChannelCount(); ++channel) {
+                    const float sample = audio[channel][frame];
+                    if (!std::isfinite(sample)) {
+                        std::cerr << "Lifted modal preset produced a non-finite sample: "
+                                  << preset << "\n";
+                        return false;
+                    }
+                    const float delta = std::fabs(sample - previous[channel]);
+                    if (start + frame >= warmupFrames) {
+                        differenceEnergy += static_cast<double>(delta) * delta;
+                        maximumDifference = std::max(maximumDifference, delta);
+                        ++measuredSamples;
+                    }
+                    previous[channel] = sample;
+                }
+            }
+        }
+        const double differenceRms = std::sqrt(differenceEnergy
+            / static_cast<double>(std::max<uint64_t>(1u, measuredSamples)));
+        const double differenceCrest = maximumDifference
+            / std::max(1.0e-12, differenceRms);
+        if (!(differenceRms > 1.0e-8)
+            || !(maximumDifference < 0.0025f)
+            || !(differenceCrest < 24.0)) {
+            std::cerr << "Lifted modal preset retained a click-like discontinuity: "
+                      << preset << ", max delta " << maximumDifference
+                      << ", derivative RMS " << differenceRms
+                      << ", crest " << differenceCrest << "\n";
+            return false;
+        }
+    }
+    return true;
+}
+
 bool testDeterminism()
 {
     Buffer first {};
@@ -1510,6 +1571,7 @@ bool testLiveOutputGainIsSmoothed()
 int main()
 {
     if (!testFactoryPresets()
+        || !testLiftedFactoryPresetsRemainClickFree()
         || !testDeterminism()
         || !testHoaDefaultAndRotation()
         || !testLowerOrderClearsUnusedChannels()

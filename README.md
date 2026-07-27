@@ -20,8 +20,10 @@ DAWs are not support targets at this stage.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-The current macOS package installs 91 CLAP bundles, including fixed-width
-variants for several effects, bus tools, and speaker-array utilities.
+The current macOS package installs 89 CLAP products, including fixed-width
+variants for several effects, bus tools, and speaker-array utilities. Installed
+bundle filenames now follow the same family-first order as the host names, such
+as `s3g_ambi_encoder_modal_16.clap` and `s3g_processor_fault_8ch.clap`.
 All bundles build, but clap-validator conformance remains in progress for some
 older wrappers, chiefly around parameter text conversion and buffered state
 I/O. The package should continue to be treated as a pre-release.
@@ -162,10 +164,23 @@ automatic slicer.
 On macOS, install the built CLAP bundles into the user CLAP plugin folder:
 
 ```sh
+./scripts/install-clap-bundles.sh --dry-run
 ./scripts/install-clap-bundles.sh
+# Or rename verified current installs without replacing their binaries:
+./scripts/install-clap-bundles.sh --canonicalize-only
 ```
 
-REAPER may need a plugin rescan after installation.
+The first command previews the complete transaction without changing the
+plugin folder. The installer reads `scripts/clap-bundles.tsv`, installs the 89
+products under their canonical family-first filenames, and keeps their existing
+CLAP IDs stable so projects continue to resolve the same plugins. Recognized old
+filenames are moved to a timestamped backup only when their bundle identity
+matches `scripts/clap-legacy-bundles.tsv`; unrelated CLAP bundles are left
+untouched. Backups are written to
+`~/Library/Application Support/s3g-dsp/CLAP Backups/<timestamp-pid>/`, and the
+ownership receipt is
+`~/Library/Application Support/s3g-dsp/clap-install-receipt.tsv`. REAPER may
+need a plugin rescan after installation.
 
 ## Pre-release Binaries
 
@@ -183,13 +198,26 @@ Create the local pre-release zip after a complete CLAP build with:
 ./scripts/package-macos-clap-prerelease.sh
 ```
 
-The package contains 89 CLAP bundles, the VOT wavetable library, the Ambi Vox
-demo voicebank, and the applicable license notices. The packaging script
-ad-hoc signs and strictly verifies every bundle by default. Set
-`S3G_CODESIGN_IDENTITY` to use a different macOS signing identity; notarization
-is a separate release step.
+The package contains 89 CLAP products, the VOT wavetable library, the Ambi Vox
+demo voicebank, the applicable license notices, and an
+`Install s3g-dsp CLAPs.command` installer. Run the packaged installer instead of
+drag-copying the bundles so renamed aliases can be backed up safely; pass
+`--dry-run` from Terminal to preview its work. If the installed binaries are
+already current, `--canonicalize-only` migrates their verified filenames without
+replacing the binaries. The packaging script uses the same canonical manifest
+as the source installer, ad-hoc signs and strictly verifies every bundle by
+default. Set `S3G_CODESIGN_IDENTITY` to use a different macOS signing identity;
+notarization is a separate release step.
 
 ## Validate
+
+Audit the canonical CLAP inventory against source metadata and built bundles,
+then exercise the installer in isolated fixtures:
+
+```sh
+python3 scripts/check-clap-bundle-manifest.py --build-root build-clap/plugins
+./tests/clap_bundle_installer_smoke.sh
+```
 
 The local smoke executables exercise shared DSP code:
 
@@ -277,4 +305,3 @@ binary redistributions.
 Attribution is also appreciated for software development, publications,
 research, teaching materials, and projects that build on or adapt this package.
 See `CITATION.cff`.
-

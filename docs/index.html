@@ -35,7 +35,7 @@
         <h2 id="start-here">Start Here</h2>
 
         <ul>
-          <li><a href="installing-plugins.html">Install pre-release plugins</a> if you want to try the current macOS CLAP bundle.</li>
+          <li><a href="installing-plugins.html">Install pre-release plugins</a> if you want to try the current macOS CLAP package. Its included <code>Install s3g-dsp CLAPs.command</code> handles current filenames and recognized older aliases.</li>
           <li><a href="building-from-source.html">Build from source</a> if you want to compile locally.</li>
           <li><a href="stereo-listening.html">Listening on a Stereo System</a> explains how to monitor ordinary multichannel and ambisonic sessions through two loudspeakers or headphones.</li>
           <li><a href="interpreting-color.html">Interpreting Color</a> explains when plugin color represents AED position, group identity, magnitude, activity, or a view-specific state.</li>
@@ -47,7 +47,9 @@
 
         <h2 id="status">Status</h2>
 
-        <p>This is a pre-release project. Plugin names, parameters, included bundles, and saved states may change. The current macOS package installs 91 CLAP bundles, including fixed-width variants for several effects and routing tools.</p>
+        <p>This is a pre-release project. Plugin names, parameters, included bundles, and saved states may change. The current macOS package installs 89 CLAP products, including fixed-width variants for several effects and routing tools.</p>
+
+        <p>The package uses canonical family-first bundle filenames that mirror the names shown in the host. Filename migrations do not change the stable CLAP IDs used by saved projects. The packaged installer can preview its work with <code>--dry-run</code>, migrate verified current binaries with <code>--canonicalize-only</code>, and move recognized legacy aliases to a timestamped backup rather than deleting them.</p>
 
         <p>For the installable bundle list, see <a href="installing-plugins.html#included">Installing Pre-release Plugins</a>.</p>
 

@@ -90,21 +90,31 @@ build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
 
         <h2 id="install-local">Install Local Build</h2>
 
-        <p>Install the CLAP bundles:</p>
+        <p>Preview and then install the CLAP products:</p>
 
-        <pre><code>./scripts/install-clap-bundles.sh</code></pre>
+        <pre><code>./scripts/install-clap-bundles.sh --dry-run
+./scripts/install-clap-bundles.sh
+
+# Optional: rename verified current installs without replacing their binaries.
+./scripts/install-clap-bundles.sh --canonicalize-only</code></pre>
 
         <p>The default install location is:</p>
 
         <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
 
-        <p>The install script copies bundles from <code>build-clap/plugins/</code> and replaces matching older bundles.</p>
+        <p>The install script reads <code>scripts/clap-bundles.tsv</code> and copies exactly 89 products from <code>build-clap/plugins/</code> under canonical family-first filenames. For example, the current Modal and Fault bundles install as <code>s3g_ambi_encoder_modal_16.clap</code> and <code>s3g_processor_fault_8ch.clap</code>. These filesystem names mirror the host-browser families, while the CLAP IDs remain stable for saved-project compatibility.</p>
+
+        <p>A normal run validates the complete source and destination set before changing the destination, then stages and copies all 89 canonical bundles. <code>--canonicalize-only</code> instead renames verified current installations without replacing their binaries. The installer uses <code>scripts/clap-legacy-bundles.tsv</code> to recognize earlier filenames. A legacy bundle is moved to <code>~/Library/Application Support/s3g-dsp/CLAP Backups/&lt;timestamp-pid&gt;/</code> only when its identity matches the manifest; unrelated plugins are not pruned. The <code>--dry-run</code> form reports the planned installs, replacements, and alias backups without writing anything.</p>
+
+        <p>After a successful run, <code>~/Library/Application Support/s3g-dsp/clap-install-receipt.tsv</code> records the filenames owned by this package so later updates can distinguish them from other CLAP products.</p>
 
         <h2 id="validate">Validate</h2>
 
-        <p>Check the static documentation and advisory GUI conventions:</p>
+        <p>Check the canonical CLAP inventory, installer migration behavior, static documentation, and advisory GUI conventions:</p>
 
-        <pre><code>python3 scripts/check-docs.py
+        <pre><code>python3 scripts/check-clap-bundle-manifest.py --build-root build-clap/plugins
+./tests/clap_bundle_installer_smoke.sh
+python3 scripts/check-docs.py
 ./scripts/audit-gui-style.sh</code></pre>
 
         <p>If <code>clap-validator</code> is installed, validate one or more built or installed bundles. For example:</p>
@@ -121,11 +131,11 @@ build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
 
         <pre><code>./scripts/package-macos-clap-prerelease.sh</code></pre>
 
-        <p>The archive is written to <code>dist/</code> and includes 91 CLAP bundles, VOT wavetables, the Ambi Vox demo voicebank, the project license, and third-party notices. The script ad-hoc signs and strictly verifies every bundle by default; set <code>S3G_CODESIGN_IDENTITY</code> to use another macOS signing identity. Set <code>S3G_RELEASE_VERSION</code> and <code>S3G_RELEASE_DATE</code> to override the pre-release metadata. Apple notarization remains a separate release step.</p>
+        <p>The archive is written to <code>dist/</code> and includes 89 CLAP products, <code>Install s3g-dsp CLAPs.command</code>, the active and legacy manifests, VOT wavetables, the Ambi Vox demo voicebank, the project license, and third-party notices. Packaging and local installation consume the same manifest, so the archive inventory, installed filenames, and generated product list cannot drift independently. The script ad-hoc signs and strictly verifies every bundle by default; set <code>S3G_CODESIGN_IDENTITY</code> to use another macOS signing identity. Set <code>S3G_RELEASE_VERSION</code> and <code>S3G_RELEASE_DATE</code> to override the pre-release metadata. Apple notarization remains a separate release step.</p>
 
         <h2 id="cleanup">Cleanup</h2>
 
-        <p>If old plugin names remain after a rename, reconfigure and rebuild with the current preset.</p>
+        <p>Reconfiguring an existing CMake directory does not necessarily remove artifacts produced under earlier target names. The manifest-driven installer and packager ignore unlisted build artifacts, and the installer backs up recognized aliases already present in the user plugin folder. Use <code>--dry-run</code> to inspect that cleanup before applying it; do not remove every <code>s3g</code>-named bundle because the folder may also contain products from other s3g projects.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="index.html">
