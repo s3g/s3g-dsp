@@ -13,6 +13,7 @@ namespace {
 
 constexpr uint32_t kSampleRate = 48000u;
 constexpr uint32_t kFrames = kSampleRate * 2u;
+constexpr float kLinkedOutputCeiling = 0.89125094f; // -1 dBFS
 using Buffer = std::array<float, kFrames>;
 using StemBuffers = std::array<std::vector<float>,
     s3g::kAccelerometerFieldMaxBodyCount>;
@@ -57,6 +58,43 @@ double difference(const First& first, const Second& second)
         total += std::fabs(first[frame] - second[frame]);
     }
     return total / static_cast<double>(frames);
+}
+
+struct ScaleFit {
+    double scale = 0.0;
+    double normalizedError = std::numeric_limits<double>::infinity();
+};
+
+template <typename Reference, typename Candidate>
+ScaleFit fitScale(const Reference& reference, const Candidate& candidate,
+    size_t firstFrame = 0u,
+    size_t lastFrame = std::numeric_limits<size_t>::max())
+{
+    lastFrame = std::min({ lastFrame, reference.size(), candidate.size() });
+    if (firstFrame >= lastFrame) return {};
+    double referenceEnergy = 0.0;
+    double candidateEnergy = 0.0;
+    double cross = 0.0;
+    for (size_t frame = firstFrame; frame < lastFrame; ++frame) {
+        const double ref = reference[frame];
+        const double value = candidate[frame];
+        referenceEnergy += ref * ref;
+        candidateEnergy += value * value;
+        cross += ref * value;
+    }
+    if (!(referenceEnergy > 1.0e-24) || !(candidateEnergy > 1.0e-24)) {
+        return {};
+    }
+    ScaleFit result;
+    result.scale = cross / referenceEnergy;
+    double errorEnergy = 0.0;
+    for (size_t frame = firstFrame; frame < lastFrame; ++frame) {
+        const double error = candidate[frame]
+            - reference[frame] * result.scale;
+        errorEnergy += error * error;
+    }
+    result.normalizedError = std::sqrt(errorEnergy / candidateEnergy);
+    return result;
 }
 
 void render(const s3g::AccelerometerFieldParams& params,
@@ -540,16 +578,15 @@ bool testCounterActuatorUsesSpatialAntipode()
     return true;
 }
 
-bool testWorstCaseAmbisonicHeadroom()
+bool testWorstCaseOutputHeadroom()
 {
     constexpr uint32_t blockFrames = 256u;
-    constexpr uint32_t blockCount = kSampleRate * 8u / blockFrames;
     auto params = s3g::accelerometerFieldFactoryPreset(10u);
     params.substrate = s3g::AccelerometerSubstrate::BroadBronze;
     params.bodyCount = s3g::kAccelerometerFieldMaxBodyCount;
     params.ambisonicOrder = s3g::kAccelerometerFieldMaxOrder;
-    params.outputMode = s3g::AccelerometerFieldOutputMode::Ambisonic;
     params.outputGainDb = 12.0f;
+    params.modalLift = 1.0f;
     params.bodyDistance.fill(0.15f);
     params.spatialExtent = 0.0f;
     params.fieldAzimuthDeg = 0.0f;
@@ -577,58 +614,73 @@ bool testWorstCaseAmbisonicHeadroom()
     params.arraySpread = 1.0f;
     params.seed = 0x6d2b79f5u;
 
-    s3g::AccelerometerFieldEncoder engine;
-    engine.prepare(kSampleRate);
-    engine.setParams(params);
-    engine.reset();
-    const auto strikeAllBodies = [&]() {
-        auto off = params;
-        off.fieldListenMode = s3g::AmbiFieldListenMode::Off;
-        off.fieldListenAmount = 0.0f;
-        engine.setParams(off);
-        for (uint32_t body = 0u; body < params.bodyCount; ++body) {
-            engine.strikeMidi(60, 1.0f);
-        }
+    const auto renderWorstCase = [&](s3g::AccelerometerFieldOutputMode mode,
+                                      uint32_t seconds) {
+        params.outputMode = mode;
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(kSampleRate);
         engine.setParams(params);
-    };
-    strikeAllBodies();
-
-    std::array<std::array<float, blockFrames>,
-        s3g::kAccelerometerFieldMaxChannels> audio {};
-    std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
-    for (uint32_t channel = 0u; channel < audio.size(); ++channel) {
-        outputs[channel] = audio[channel].data();
-    }
-    std::array<float, blockFrames> excitation {};
-    uint32_t noiseState = 0x01234567u ^ params.seed;
-    float peak = 0.0f;
-    for (uint32_t block = 0u; block < blockCount; ++block) {
-        if (block > 0u && block % (kSampleRate / blockFrames) == 0u) {
-            strikeAllBodies();
-        }
-        for (float& sample : excitation) {
-            noiseState ^= noiseState << 13u;
-            noiseState ^= noiseState >> 17u;
-            noiseState ^= noiseState << 5u;
-            sample = static_cast<float>(static_cast<int32_t>(noiseState))
-                / 2147483648.0f;
-        }
-        engine.process(excitation.data(), outputs.data(), outputs.size(),
-            blockFrames);
-        for (const auto& channel : audio) {
-            const Metrics channelMetrics = metrics(channel);
-            if (!channelMetrics.finite) {
-                std::cerr << "Worst-case Ambisonic output became non-finite\n";
-                return false;
+        engine.reset();
+        const auto strikeAllBodies = [&]() {
+            auto off = params;
+            off.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+            off.fieldListenAmount = 0.0f;
+            engine.setParams(off);
+            for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+                engine.strikeMidi(60, 1.0f);
             }
-            peak = std::max(peak, channelMetrics.peak);
+            engine.setParams(params);
+        };
+        strikeAllBodies();
+
+        std::array<std::array<float, blockFrames>,
+            s3g::kAccelerometerFieldMaxChannels> audio {};
+        std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
+        for (uint32_t channel = 0u; channel < audio.size(); ++channel) {
+            outputs[channel] = audio[channel].data();
         }
-    }
-    if (!(peak > 0.95f) || peak > 1.0001f) {
-        std::cerr << "Worst-case Ambisonic safety was not exercised or "
-                     "exceeded unity: "
-                  << peak << "\n";
-        return false;
+        std::array<float, blockFrames> excitation {};
+        uint32_t noiseState = 0x01234567u ^ params.seed;
+        float peak = 0.0f;
+        const uint32_t blockCount = kSampleRate * seconds / blockFrames;
+        for (uint32_t block = 0u; block < blockCount; ++block) {
+            if (block > 0u && block % (kSampleRate / blockFrames) == 0u) {
+                strikeAllBodies();
+            }
+            for (float& sample : excitation) {
+                noiseState ^= noiseState << 13u;
+                noiseState ^= noiseState >> 17u;
+                noiseState ^= noiseState << 5u;
+                sample = static_cast<float>(static_cast<int32_t>(noiseState))
+                    / 2147483648.0f;
+            }
+            engine.process(excitation.data(), outputs.data(), outputs.size(),
+                blockFrames);
+            for (const auto& channel : audio) {
+                const Metrics channelMetrics = metrics(channel);
+                if (!channelMetrics.finite) {
+                    return std::numeric_limits<float>::quiet_NaN();
+                }
+                peak = std::max(peak, channelMetrics.peak);
+            }
+        }
+        return peak;
+    };
+
+    for (const auto mode : {
+             s3g::AccelerometerFieldOutputMode::Ambisonic,
+             s3g::AccelerometerFieldOutputMode::BodyStems }) {
+        const float peak = renderWorstCase(mode,
+            mode == s3g::AccelerometerFieldOutputMode::Ambisonic ? 8u : 4u);
+        if (!std::isfinite(peak) || !(peak > 0.80f)
+            || peak > kLinkedOutputCeiling + 2.0e-4f) {
+            std::cerr << "Worst-case "
+                      << (mode == s3g::AccelerometerFieldOutputMode::Ambisonic
+                              ? "HOA" : "body-stem")
+                      << " linked safety was not exercised or exceeded -1 dBFS: "
+                      << peak << "\n";
+            return false;
+        }
     }
     return true;
 }
@@ -1220,6 +1272,239 @@ bool testZeroPlayerDepthPreservesOpenLoop()
     return true;
 }
 
+bool testOutputAndLiftDoNotDriveTelemetry()
+{
+    constexpr uint32_t frames = kSampleRate * 2u;
+    struct Result {
+        std::vector<float> w;
+        std::array<float, s3g::kAccelerometerFieldMaxBodyCount> bodyEnergy {};
+        std::array<float, s3g::kAccelerometerFieldMaxBodyCount> bodyDrive {};
+        std::array<float, s3g::kAmbiFieldListenerMaxLobes> pickupEnergy {};
+        float listenerActivity = 0.0f;
+        float fieldListenerActivity = 0.0f;
+        float actuatorActivity = 0.0f;
+        uint32_t pickupCount = 0u;
+    };
+    const auto renderTelemetry = [](const auto& params) {
+        Result result;
+        result.w.assign(frames, 0.0f);
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(kSampleRate);
+        engine.setParams(params);
+        engine.reset();
+        std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
+        outputs[0] = result.w.data();
+        engine.process(nullptr, outputs.data(), outputs.size(), frames);
+        result.listenerActivity = engine.listenerActivity();
+        result.fieldListenerActivity = engine.fieldListenerActivity();
+        result.actuatorActivity = engine.actuatorActivity();
+        result.pickupCount = engine.listenerPickupCount();
+        for (uint32_t body = 0u; body < result.bodyEnergy.size(); ++body) {
+            result.bodyEnergy[body] = engine.bodyEnergy(body);
+            result.bodyDrive[body] = engine.actuatorBodyDrive(body);
+        }
+        for (uint32_t pickup = 0u;
+            pickup < result.pickupEnergy.size(); ++pickup) {
+            result.pickupEnergy[pickup] = engine.listenerPickupEnergy(pickup);
+        }
+        return result;
+    };
+    const auto telemetryDelta = [](const Result& first,
+                                    const Result& second) {
+        double delta = std::max({
+            std::fabs(static_cast<double>(first.listenerActivity)
+                - second.listenerActivity),
+            std::fabs(static_cast<double>(first.fieldListenerActivity)
+                - second.fieldListenerActivity),
+            std::fabs(static_cast<double>(first.actuatorActivity)
+                - second.actuatorActivity),
+        });
+        for (uint32_t body = 0u; body < first.bodyEnergy.size(); ++body) {
+            delta = std::max(delta, std::fabs(
+                static_cast<double>(first.bodyEnergy[body])
+                    - second.bodyEnergy[body]));
+            delta = std::max(delta, std::fabs(
+                static_cast<double>(first.bodyDrive[body])
+                    - second.bodyDrive[body]));
+        }
+        for (uint32_t pickup = 0u;
+            pickup < first.pickupEnergy.size(); ++pickup) {
+            delta = std::max(delta, std::fabs(
+                static_cast<double>(first.pickupEnergy[pickup])
+                    - second.pickupEnergy[pickup]));
+        }
+        return delta;
+    };
+
+    auto params = s3g::accelerometerFieldFactoryPreset(10u);
+    params.bodyCount = 8u;
+    params.outputMode = s3g::AccelerometerFieldOutputMode::Ambisonic;
+    params.listenerPickupSet =
+        s3g::AccelerometerFieldListenerPickupSet::Cube8;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Balance;
+    params.fieldListenAmount = 0.82f;
+    params.outputGainDb = -30.0f;
+    params.modalLift = 0.0f;
+    const Result quiet = renderTelemetry(params);
+    params.outputGainDb = 12.0f;
+    const Result loud = renderTelemetry(params);
+    params.outputGainDb = -30.0f;
+    params.modalLift = 1.0f;
+    const Result lifted = renderTelemetry(params);
+
+    const double outputDelta = telemetryDelta(quiet, loud);
+    const double liftDelta = telemetryDelta(quiet, lifted);
+    const double liftEnergyRatio = metrics(lifted.w).energy
+        / std::max(1.0e-30, metrics(quiet.w).energy);
+    if (quiet.pickupCount != loud.pickupCount
+        || quiet.pickupCount != lifted.pickupCount
+        || outputDelta > 5.0e-7 || liftDelta > 5.0e-7
+        || !(liftEnergyRatio > 1.05)) {
+        std::cerr << "OUT or modal lift leaked into Listener/body telemetry: "
+                  << outputDelta << ", " << liftDelta
+                  << ", lift energy ratio " << liftEnergyRatio << "\n";
+        return false;
+    }
+
+    auto stemParams = balancedDroneParams(6u);
+    stemParams.outputGainDb = -24.0f;
+    stemParams.modalLift = 0.0f;
+    s3g::AccelerometerFieldEncoder unliftedEngine;
+    unliftedEngine.prepare(kSampleRate);
+    unliftedEngine.setParams(stemParams);
+    unliftedEngine.reset();
+    const StemBuffers unlifted = processStems(
+        unliftedEngine, kSampleRate / 2u);
+    stemParams.modalLift = 1.0f;
+    s3g::AccelerometerFieldEncoder liftedEngine;
+    liftedEngine.prepare(kSampleRate);
+    liftedEngine.setParams(stemParams);
+    liftedEngine.reset();
+    const StemBuffers liftedStems = processStems(
+        liftedEngine, kSampleRate / 2u);
+    if (unlifted != liftedStems) {
+        std::cerr << "Modal lift changed the raw body-stem contract\n";
+        return false;
+    }
+    return true;
+}
+
+bool testOutputGainIsTransparentBelowGuard()
+{
+    const auto renderDrivenField = [](auto params) {
+        Buffer w {};
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(kSampleRate);
+        engine.setParams(params);
+        engine.reset();
+        for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+            engine.strikeMidi(60, 0.60f);
+        }
+        std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
+        outputs[0] = w.data();
+        engine.process(nullptr, outputs.data(), outputs.size(), kFrames);
+        return w;
+    };
+
+    auto params = s3g::accelerometerFieldFactoryPreset(10u);
+    params.bodyCount = 8u;
+    params.outputMode = s3g::AccelerometerFieldOutputMode::Ambisonic;
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+    params.fieldListenAmount = 0.0f;
+    params.bodyDistance.fill(1.0f);
+    params.modalLift = 0.0f;
+    params.outputGainDb = -30.0f;
+    const Buffer quiet = renderDrivenField(params);
+    params.outputGainDb = -18.0f;
+    const Buffer raised = renderDrivenField(params);
+
+    const ScaleFit fit = fitScale(quiet, raised, kSampleRate, kFrames);
+    const double expected = std::pow(10.0, 12.0 / 20.0);
+    const double gainErrorDb = 20.0 * std::log10(
+        std::max(1.0e-30, fit.scale / expected));
+    const Metrics raisedMetrics = metrics(raised, kSampleRate, kFrames);
+    if (!raisedMetrics.finite || !(raisedMetrics.energy > 1.0e-12)
+        || !(raisedMetrics.peak < kLinkedOutputCeiling * 0.75f)
+        || std::fabs(gainErrorDb) > 0.05
+        || !(fit.normalizedError < 0.001)) {
+        std::cerr << "Post-encoder OUT was nonlinear below the guard: gain error "
+                  << gainErrorDb << " dB, NRMSE " << fit.normalizedError
+                  << ", peak " << raisedMetrics.peak << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool testLiveOutputGainIsSmoothed()
+{
+    constexpr uint32_t warmFrames = kSampleRate * 3u / 4u;
+    constexpr uint32_t changedFrames = kSampleRate / 4u;
+    struct GainChange {
+        std::vector<float> samples;
+        float previousSample = 0.0f;
+    };
+    const auto renderChange = [](float nextGainDb) {
+        auto params = s3g::accelerometerFieldFactoryPreset(10u);
+        params.bodyCount = 8u;
+        params.outputMode = s3g::AccelerometerFieldOutputMode::Ambisonic;
+        params.fieldListenMode = s3g::AmbiFieldListenMode::Off;
+        params.fieldListenAmount = 0.0f;
+        params.bodyDistance.fill(1.0f);
+        params.modalLift = 0.0f;
+        params.outputGainDb = -24.0f;
+
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(kSampleRate);
+        engine.setParams(params);
+        engine.reset();
+        for (uint32_t body = 0u; body < params.bodyCount; ++body) {
+            engine.strikeMidi(60, 0.60f);
+        }
+        std::vector<float> warm(warmFrames, 0.0f);
+        std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
+        outputs[0] = warm.data();
+        engine.process(nullptr, outputs.data(), outputs.size(), warmFrames);
+
+        params.outputGainDb = nextGainDb;
+        engine.setParams(params);
+        GainChange result;
+        result.previousSample = warm.back();
+        result.samples.assign(changedFrames, 0.0f);
+        outputs[0] = result.samples.data();
+        engine.process(nullptr, outputs.data(), outputs.size(), changedFrames);
+        return result;
+    };
+
+    const GainChange reference = renderChange(-24.0f);
+    const GainChange raised = renderChange(-12.0f);
+    const Metrics referenceStart = metrics(reference.samples, 0u, 256u);
+    const double boundaryExcess = std::fabs(
+        static_cast<double>(raised.samples.front())
+            - reference.samples.front());
+    const ScaleFit early = fitScale(
+        reference.samples, raised.samples, 0u, 16u);
+    const ScaleFit settled = fitScale(reference.samples, raised.samples,
+        changedFrames - 2048u, changedFrames);
+    const double expected = std::pow(10.0, 12.0 / 20.0);
+    const double settledErrorDb = 20.0 * std::log10(
+        std::max(1.0e-30, settled.scale / expected));
+    if (reference.previousSample != raised.previousSample
+        || !metrics(reference.samples).finite || !metrics(raised.samples).finite
+        || !(referenceStart.peak > 1.0e-7f)
+        || boundaryExcess > std::max(2.0e-7,
+            static_cast<double>(referenceStart.peak) * 0.04)
+        || !(early.scale > 0.98 && early.scale < 1.10)
+        || std::fabs(settledErrorDb) > 0.12
+        || !(settled.normalizedError < 0.002)) {
+        std::cerr << "Live OUT change clicked or failed to settle smoothly: "
+                  << boundaryExcess << ", early scale " << early.scale
+                  << ", settled error " << settledErrorDb
+                  << " dB, NRMSE " << settled.normalizedError << "\n";
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -1232,7 +1517,7 @@ int main()
         || !testFixedListenerPickupSets()
         || !testListenerAndActuatorTelemetry()
         || !testCounterActuatorUsesSpatialAntipode()
-        || !testWorstCaseAmbisonicHeadroom()
+        || !testWorstCaseOutputHeadroom()
         || !testBodyPlacementAndSpread()
         || !testBodyGeometrySmoothing()
         || !testPerBodyAedEditing()
@@ -1243,6 +1528,9 @@ int main()
         || !testPerBodyMidiStrike()
         || !testModalCouplingEvolution()
         || !testZeroPlayerDepthPreservesOpenLoop()
+        || !testOutputAndLiftDoNotDriveTelemetry()
+        || !testOutputGainIsTransparentBelowGuard()
+        || !testLiveOutputGainIsSmoothed()
         || !testExternalActuatorIsModalOnly()) {
         return 1;
     }

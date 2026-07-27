@@ -278,4 +278,3 @@ Attribution is also appreciated for software development, publications,
 research, teaching materials, and projects that build on or adapt this package.
 See `CITATION.cff`.
 
-Development assistance: OpenAI Codex.

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 
@@ -141,6 +142,10 @@ struct AccelerometerFieldParams {
     // and remains independent of the editable modal-body constellation.
     AccelerometerFieldListenerPickupSet listenerPickupSet =
         AccelerometerFieldListenerPickupSet::Cube8;
+
+    // Appended in state version 10. Modal lift is a post-resonator, HOA-linked
+    // leveler. It never changes a body's drive, modal state, or listener score.
+    float modalLift = 0.65f;
 };
 
 struct AccelerometerFieldPresetInfo {
@@ -223,6 +228,7 @@ inline AccelerometerFieldParams sanitizeAccelerometerFieldParams(
                 static_cast<uint32_t>(params.listenerPickupSet),
                 static_cast<uint32_t>(
                     AccelerometerFieldListenerPickupSet::Count) - 1u));
+    params.modalLift = finite(params.modalLift, 0.65f, 0.0f, 1.0f);
     return params;
 }
 
@@ -330,6 +336,7 @@ inline AccelerometerFieldParams accelerometerFieldFactoryPreset(
     params.coupling = 0.72f;
     params.energy = 0.0f;
     params.bodyCount = 6u;
+    params.modalLift = 0.65f;
 
     switch (preset) {
     case 0u: // Deep Field
@@ -531,6 +538,18 @@ public:
             -1.0f / (0.0015f * static_cast<float>(sampleRate_)));
         continuousWeightSmoothingCoefficient_ = 1.0f - std::exp(
             -1.0f / (0.004f * static_cast<float>(sampleRate_)));
+        outputGainSmoothingCoefficient_ = 1.0f - std::exp(
+            -1.0f / (0.025f * static_cast<float>(sampleRate_)));
+        levelDetectorAttackCoefficient_ = 1.0f - std::exp(
+            -1.0f / (0.045f * static_cast<float>(sampleRate_)));
+        levelDetectorReleaseCoefficient_ = 1.0f - std::exp(
+            -1.0f / (2.5f * static_cast<float>(sampleRate_)));
+        liftRiseCoefficient_ = 1.0f - std::exp(
+            -1.0f / (1.8f * static_cast<float>(sampleRate_)));
+        liftFallCoefficient_ = 1.0f - std::exp(
+            -1.0f / (0.025f * static_cast<float>(sampleRate_)));
+        outputGuardReleaseCoefficient_ = 1.0f - std::exp(
+            -1.0f / (0.30f * static_cast<float>(sampleRate_)));
         params_ = sanitizeAccelerometerFieldParams(params_);
         updateEvolutionIncrements();
         fieldListener_.prepare(sampleRate_);
@@ -559,6 +578,13 @@ public:
         dynamicCoefficientCountdown_ = 0u;
         continuousWeightCountdown_ = 0u;
         playerActivity_ = 0.0f;
+        outputGainSmoothed_ = std::pow(
+            10.0f, outputGainTargetDb_.load(
+                std::memory_order_relaxed) / 20.0f);
+        modalLevelEnvelope_ = 0.0f;
+        modalLiftDb_ = modalLiftTarget_.load(
+            std::memory_order_relaxed) * 9.0f;
+        outputGuardGain_ = 1.0f;
         actuatorDriveEnvelope_.fill(0.0f);
         continuousWeightTarget_.fill(1.0f);
         continuousWeight_.fill(1.0f);
@@ -602,6 +628,10 @@ public:
                 != sanitized.bodyElevationOffsetDeg
             || params_.bodyDistance != sanitized.bodyDistance;
         params_ = sanitized;
+        outputGainTargetDb_.store(
+            sanitized.outputGainDb, std::memory_order_relaxed);
+        modalLiftTarget_.store(
+            sanitized.modalLift, std::memory_order_relaxed);
         if (sampleRate_ > 0.0 && rebuild) {
             rebuildModel(false);
             if (allocationChanged) {
@@ -622,6 +652,20 @@ public:
             updateEvolutionIncrements();
         }
         continuousWeightCountdown_ = 0u;
+    }
+
+    // The CLAP editor can change these two audition-only controls while the
+    // audio callback is active. Keeping their targets atomic avoids touching
+    // the modal parameter block from the UI thread; process() still performs
+    // all smoothing and gain-state updates on the audio thread.
+    void setOutputStageTargets(float outputGainDb, float modalLift)
+    {
+        outputGainTargetDb_.store(clamp(
+            std::isfinite(outputGainDb) ? outputGainDb : -9.0f,
+            -60.0f, 12.0f), std::memory_order_relaxed);
+        modalLiftTarget_.store(clamp(
+            std::isfinite(modalLift) ? modalLift : 0.65f,
+            0.0f, 1.0f), std::memory_order_relaxed);
     }
 
     AccelerometerFieldParams params() const { return params_; }
@@ -695,7 +739,12 @@ public:
             }
         }
 
-        const float outputGain = std::pow(10.0f, params_.outputGainDb / 20.0f);
+        const float outputGainTargetDb = outputGainTargetDb_.load(
+            std::memory_order_relaxed);
+        const float modalLiftAmount = modalLiftTarget_.load(
+            std::memory_order_relaxed);
+        const float outputGainTarget = std::pow(
+            10.0f, outputGainTargetDb / 20.0f);
         const float mountCutoff = std::min(
             static_cast<float>(sampleRate_) * 0.44f,
             280.0f * std::exp2(params_.mountStiffness * 6.0f));
@@ -718,6 +767,9 @@ public:
             / std::sqrt(static_cast<float>(activeBodyCount_));
         const float modalInputScale = profile(params_.substrate).modalCoupling;
         for (uint32_t frame = 0u; frame < frames; ++frame) {
+            outputGainSmoothed_ = flushDenormal(outputGainSmoothed_
+                + outputGainSmoothingCoefficient_
+                    * (outputGainTarget - outputGainSmoothed_));
             smoothGeometry();
             advanceEvolution();
             if (dynamicCoefficientCountdown_ == 0u) {
@@ -816,6 +868,7 @@ public:
             }
 
             std::array<float, kAccelerometerFieldMaxChannels> listenerHoa {};
+            float bodyPower = 0.0f;
             for (uint32_t bodyIndex = 0u;
                 bodyIndex < activeBodyCount_; ++bodyIndex) {
                 Body& body = bodies_[bodyIndex];
@@ -834,15 +887,19 @@ public:
                     + highpassPole * body.conditionerOutput;
                 body.conditionerInput = body.mountLowpass;
                 body.conditionerOutput = flushDenormal(conditioned);
-                contact = std::tanh(
-                    body.conditionerOutput * outputGain * 0.72f);
+                // These are fixed pickup-protection curves, not output gain.
+                // Their calibration remains inside each body while audition
+                // level is applied once, after Listener analysis and HOA
+                // encoding. Raising OUT therefore no longer hardens the body.
+                contact = std::tanh(body.conditionerOutput * 0.72f);
 
                 body.radiationLowpass += airCoefficient
                     * (radiation[bodyIndex] - body.radiationLowpass);
                 const float radiated = std::tanh(body.radiationLowpass
-                    * params_.airRadiation * outputGain * 0.46f);
+                    * params_.airRadiation * 0.46f);
                 const float bodySample = lerp(
                     contact, radiated, params_.contactRadiation) * body.gain;
+                bodyPower += bodySample * bodySample;
                 const float envelopeInput = std::fabs(bodySample);
                 const float envelopeCoefficient = envelopeInput
                         > body.energyEnvelope
@@ -871,33 +928,97 @@ public:
                     }
                 }
             }
-            // A coincident, fully driven body ensemble can sum coherently in
-            // W even though each body is individually bounded. Apply one
-            // linked soft-safety gain to the complete HOA frame so all
-            // ACN/SN3D coefficient ratios, and therefore the spatial image,
-            // remain intact. Raw body stems deliberately remain unsaturated.
-            float hoaPeak = 0.0f;
-            for (uint32_t channel = 0u;
-                channel < listenerChannels; ++channel) {
-                hoaPeak = std::max(hoaPeak, std::fabs(listenerHoa[channel]));
+            // Listener / Actuator hears the fixed-calibration body field. It
+            // is intentionally upstream of Lift, OUT, and peak protection so
+            // changing audition level cannot redirect or excite the player.
+            fieldListener_.processFrame(listenerHoa.data(), listenerChannels);
+
+            const float bodyRms = std::sqrt(bodyPower
+                / static_cast<float>(activeBodyCount_));
+            const float detectorCoefficient = bodyRms > modalLevelEnvelope_
+                ? levelDetectorAttackCoefficient_
+                : levelDetectorReleaseCoefficient_;
+            modalLevelEnvelope_ = flushDenormal(modalLevelEnvelope_
+                + detectorCoefficient * (bodyRms - modalLevelEnvelope_));
+
+            // Lift fills headroom rather than riding the modal tail. The slow
+            // detector and slower upward gain motion retain beating and decay;
+            // a new loud body lowers makeup quickly. Near silence, upward
+            // movement freezes instead of magnifying the end of a resonance.
+            constexpr float kLiftTargetAmplitude = 0.10f; // -20 dBFS
+            constexpr float kLiftMaximumDb = 18.0f;
+            constexpr float kLiftSilenceAmplitude = 0.0015f; // -56.5 dBFS
+            float desiredLiftDb = modalLiftDb_;
+            if (modalLevelEnvelope_ >= kLiftSilenceAmplitude) {
+                const float levelDb = 20.0f * std::log10(
+                    std::max(modalLevelEnvelope_, 1.0e-9f));
+                const float targetDb = 20.0f * std::log10(
+                    kLiftTargetAmplitude);
+                desiredLiftDb = clamp(
+                    targetDb - levelDb, 0.0f, kLiftMaximumDb)
+                    * modalLiftAmount;
+            } else {
+                desiredLiftDb = std::min(desiredLiftDb,
+                    modalLiftAmount * kLiftMaximumDb);
             }
-            const float hoaSafetyGain = 1.0f
-                / std::sqrt(1.0f + hoaPeak * hoaPeak);
+
+            float rawFramePeak = 0.0f;
             for (uint32_t channel = 0u;
-                channel < listenerChannels; ++channel) {
-                listenerHoa[channel] = flushDenormal(
-                    listenerHoa[channel] * hoaSafetyGain);
-            }
-            if (!stems) {
-                for (uint32_t channel = 0u;
-                    channel < activeChannels; ++channel) {
-                    if (outputs[channel]) {
-                        outputs[channel][frame] = flushDenormal(
-                            outputs[channel][frame] * hoaSafetyGain);
-                    }
+                channel < activeChannels; ++channel) {
+                if (outputs[channel]) {
+                    rawFramePeak = std::max(rawFramePeak,
+                        std::fabs(outputs[channel][frame]));
                 }
             }
-            fieldListener_.processFrame(listenerHoa.data(), listenerChannels);
+            if (!stems && rawFramePeak > 1.0e-8f) {
+                constexpr float kLiftHeadroom = 0.80f;
+                const float headroomDb = 20.0f * std::log10(
+                    kLiftHeadroom
+                    / (rawFramePeak * outputGainSmoothed_));
+                desiredLiftDb = std::min(desiredLiftDb,
+                    std::max(0.0f, headroomDb));
+            }
+            const float liftCoefficient = desiredLiftDb < modalLiftDb_
+                ? liftFallCoefficient_ : liftRiseCoefficient_;
+            modalLiftDb_ = flushDenormal(modalLiftDb_
+                + liftCoefficient * (desiredLiftDb - modalLiftDb_));
+
+            const float liftGain = stems ? 1.0f
+                : std::pow(10.0f, modalLiftDb_ / 20.0f);
+            const float auditionGain = outputGainSmoothed_ * liftGain;
+            float auditionPeak = 0.0f;
+            for (uint32_t channel = 0u;
+                channel < activeChannels; ++channel) {
+                if (!outputs[channel]) continue;
+                const float value = outputs[channel][frame] * auditionGain;
+                outputs[channel][frame] = std::isfinite(value) ? value : 0.0f;
+                auditionPeak = std::max(
+                    auditionPeak, std::fabs(outputs[channel][frame]));
+            }
+
+            // One thresholded gain protects the complete output frame. A
+            // frame below -1 dBFS requests unity; overshoots reduce
+            // immediately and recover over 300 ms. The same scalar reaches
+            // (or every body stem), preserving spatial and ensemble ratios.
+            constexpr float kOutputCeiling = 0.89125094f;
+            const float desiredGuardGain = auditionPeak > kOutputCeiling
+                ? kOutputCeiling / auditionPeak : 1.0f;
+            if (!std::isfinite(outputGuardGain_)
+                || desiredGuardGain < outputGuardGain_) {
+                outputGuardGain_ = desiredGuardGain;
+            } else {
+                outputGuardGain_ += outputGuardReleaseCoefficient_
+                    * (1.0f - outputGuardGain_);
+            }
+            outputGuardGain_ = clamp(std::min(
+                outputGuardGain_, desiredGuardGain), 0.0f, 1.0f);
+            for (uint32_t channel = 0u;
+                channel < activeChannels; ++channel) {
+                if (outputs[channel]) {
+                    outputs[channel][frame] = flushDenormal(
+                        outputs[channel][frame] * outputGuardGain_);
+                }
+            }
         }
     }
 
@@ -1000,6 +1121,8 @@ public:
         return body < kAccelerometerFieldMaxBodyCount
             ? actuatorDriveEnvelope_[body] : 0.0f;
     }
+    float currentModalLiftDb() const { return modalLiftDb_; }
+    float currentOutputGuardGain() const { return outputGuardGain_; }
 
 private:
     struct ModalProfile {
@@ -1855,6 +1978,12 @@ private:
     float energyReleaseCoefficient_ = 0.001f;
     float externalActuatorSmoothingCoefficient_ = 0.01f;
     float continuousWeightSmoothingCoefficient_ = 0.01f;
+    float outputGainSmoothingCoefficient_ = 0.001f;
+    float levelDetectorAttackCoefficient_ = 0.001f;
+    float levelDetectorReleaseCoefficient_ = 0.00001f;
+    float liftRiseCoefficient_ = 0.00001f;
+    float liftFallCoefficient_ = 0.001f;
+    float outputGuardReleaseCoefficient_ = 0.0001f;
     AccelerometerFieldParams params_ = accelerometerFieldFactoryPreset(0u);
     std::array<Mode, kAccelerometerFieldModeBudget> modes_ {};
     std::array<Body, kAccelerometerFieldMaxBodyCount> bodies_ {};
@@ -1880,6 +2009,12 @@ private:
     float couplingFastIncrementCosine_ = 1.0f;
     float listenerTargetPosition_ = 0.5f;
     float playerActivity_ = 0.0f;
+    float outputGainSmoothed_ = 1.0f;
+    float modalLevelEnvelope_ = 0.0f;
+    float modalLiftDb_ = 0.0f;
+    float outputGuardGain_ = 1.0f;
+    std::atomic<float> outputGainTargetDb_ { -11.0f };
+    std::atomic<float> modalLiftTarget_ { 0.65f };
     float lastPerformancePitchRatio_ = 1.0f;
     uint32_t dynamicBodyIndex_ = 0u;
     uint32_t dynamicCoefficientCountdown_ = 0u;

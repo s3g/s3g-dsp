@@ -30,7 +30,7 @@ namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAccelerometerFieldMaxChannels;
 constexpr uint32_t kInputChannels = 1u;
-constexpr uint32_t kStateVersion = 9u;
+constexpr uint32_t kStateVersion = 10u;
 constexpr uint32_t kFactoryPresetCount = s3g::kAccelerometerFieldPresetCount;
 constexpr uint32_t kCustomPresetIndex = kFactoryPresetCount;
 constexpr uint32_t kGuiWidth = 1160u;
@@ -103,12 +103,14 @@ enum ParamId : clap_id {
     kParamBody8ElevationOffset,
     kParamBody8Distance,
     kParamListenerPickupSet,
+    kParamModalLift,
 };
 
 constexpr clap_id kBodyAedParamBase = kParamBody1AzimuthOffset;
 constexpr uint32_t kBodyAedParamStride = 3u;
 static_assert(kParamBody8Distance == 61u);
 static_assert(kParamListenerPickupSet == 62u);
+static_assert(kParamModalLift == 63u);
 
 enum class DisplayKind : uint8_t {
     Menu,
@@ -133,7 +135,7 @@ struct ParamSpec {
     bool hidden = false;
 };
 
-constexpr std::array<ParamSpec, 62u> kParamSpecs {{
+constexpr std::array<ParamSpec, 63u> kParamSpecs {{
     { kParamPreset, "Preset", "Preset", 0.0, static_cast<double>(kFactoryPresetCount), 0.0, DisplayKind::Menu, false, false },
     { kParamSubstrate, "Modal profile", "Modal Body", 0.0, 12.0, 10.0, DisplayKind::Menu },
     { kParamExcitation, "Legacy transient exciter", "Legacy", 0.0, 5.0, 0.0, DisplayKind::Menu, false, true, true },
@@ -196,6 +198,7 @@ constexpr std::array<ParamSpec, 62u> kParamSpecs {{
     { kParamBody8ElevationOffset, "Body 8 elevation offset", "Body AED", -180.0, 180.0, 0.0, DisplayKind::Degrees },
     { kParamBody8Distance, "Body 8 distance", "Body AED", 0.15, 2.0, 1.0, DisplayKind::Distance },
     { kParamListenerPickupSet, "Listener pickups", "Listener / Actuator", 0.0, 1.0, 1.0, DisplayKind::Menu },
+    { kParamModalLift, "Modal lift", "Output", 0.0, 1.0, 0.65, DisplayKind::Percent },
 }};
 
 constexpr const char* kSubstrateNames[] {
@@ -545,10 +548,20 @@ struct MidiStrike {
     float velocity = 0.0f;
 };
 
+struct OutputStageChange {
+    uint32_t time = 0u;
+    clap_id id = CLAP_INVALID_ID;
+    double value = 0.0;
+};
+
 struct ProcessEventBatch {
     static constexpr uint32_t kMaximumStrikes = 256u;
+    static constexpr uint32_t kMaximumOutputStageChanges = 256u;
     std::array<MidiStrike, kMaximumStrikes> strikes {};
+    std::array<OutputStageChange, kMaximumOutputStageChanges>
+        outputStageChanges {};
     uint32_t strikeCount = 0u;
+    uint32_t outputStageChangeCount = 0u;
 };
 
 Plugin* self(const clap_plugin_t* plugin)
@@ -641,6 +654,7 @@ double getParam(const Plugin& plugin, clap_id id)
     case kParamBodyCount: return p.bodyCount;
     case kParamListenerPickupSet:
         return static_cast<uint32_t>(p.listenerPickupSet);
+    case kParamModalLift: return p.modalLift;
     default: return 0.0;
     }
 }
@@ -663,6 +677,8 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         return;
     }
 
+    const bool outputStageParam = id == kParamOutputGain
+        || id == kParamModalLift;
     auto& p = plugin.params;
     uint32_t body = 0u;
     BodyAedParamKind kind = BodyAedParamKind::AzimuthOffset;
@@ -731,6 +747,7 @@ void applyParam(Plugin& plugin, clap_id id, double value)
             static_cast<s3g::AccelerometerFieldListenerPickupSet>(
                 roundedIndex(value, 2u));
         break;
+    case kParamModalLift: p.modalLift = static_cast<float>(value); break;
     default: return;
     }
     plugin.params = s3g::sanitizeAccelerometerFieldParams(plugin.params);
@@ -740,7 +757,12 @@ void applyParam(Plugin& plugin, clap_id id, double value)
 #if defined(__APPLE__)
     std::snprintf(plugin.presetName, sizeof(plugin.presetName), "%s", "Custom");
 #endif
-    plugin.engine.setParams(plugin.params);
+    if (outputStageParam) {
+        plugin.engine.setOutputStageTargets(
+            plugin.params.outputGainDb, plugin.params.modalLift);
+    } else {
+        plugin.engine.setParams(plugin.params);
+    }
 }
 
 bool init(const clap_plugin_t* plugin)
@@ -817,6 +839,19 @@ ProcessEventBatch readInputEvents(Plugin& plugin,
         if (event->type == CLAP_EVENT_PARAM_VALUE) {
             const auto* param =
                 reinterpret_cast<const clap_event_param_value_t*>(event);
+            if (frames > 0u
+                && (param->param_id == kParamOutputGain
+                    || param->param_id == kParamModalLift)
+                && batch.outputStageChangeCount
+                    < ProcessEventBatch::kMaximumOutputStageChanges) {
+                auto& change = batch.outputStageChanges[
+                    batch.outputStageChangeCount++];
+                change.time = std::min<uint32_t>(
+                    event->time, frames - 1u);
+                change.id = param->param_id;
+                change.value = param->value;
+                continue;
+            }
             applyParam(plugin, param->param_id, param->value);
             continue;
         }
@@ -900,15 +935,27 @@ clap_process_status processFloat(Plugin& plugin,
         output.channel_count, kOutputChannels);
     uint32_t offset = 0u;
     uint32_t strikeIndex = 0u;
+    uint32_t outputStageChangeIndex = 0u;
     while (offset < process.frames_count) {
         while (strikeIndex < events.strikeCount
             && events.strikes[strikeIndex].time <= offset) {
             const auto& strike = events.strikes[strikeIndex++];
             plugin.engine.strikeMidi(strike.key, strike.velocity);
         }
+        while (outputStageChangeIndex < events.outputStageChangeCount
+            && events.outputStageChanges[outputStageChangeIndex].time
+                <= offset) {
+            const auto& change = events.outputStageChanges[
+                outputStageChangeIndex++];
+            applyParam(plugin, change.id, change.value);
+        }
         uint32_t end = process.frames_count;
         if (strikeIndex < events.strikeCount) {
             end = std::min(end, events.strikes[strikeIndex].time);
+        }
+        if (outputStageChangeIndex < events.outputStageChangeCount) {
+            end = std::min(end, events.outputStageChanges[
+                outputStageChangeIndex].time);
         }
         if (end <= offset) continue;
         std::array<float*, kOutputChannels> pointers {};
@@ -945,6 +992,7 @@ clap_process_status processDouble(Plugin& plugin,
         output.channel_count, kOutputChannels);
     uint32_t offset = 0u;
     uint32_t strikeIndex = 0u;
+    uint32_t outputStageChangeIndex = 0u;
     float peak = 0.0f;
     while (offset < process.frames_count) {
         while (strikeIndex < events.strikeCount
@@ -952,10 +1000,21 @@ clap_process_status processDouble(Plugin& plugin,
             const auto& strike = events.strikes[strikeIndex++];
             plugin.engine.strikeMidi(strike.key, strike.velocity);
         }
+        while (outputStageChangeIndex < events.outputStageChangeCount
+            && events.outputStageChanges[outputStageChangeIndex].time
+                <= offset) {
+            const auto& change = events.outputStageChanges[
+                outputStageChangeIndex++];
+            applyParam(plugin, change.id, change.value);
+        }
         uint32_t end = std::min<uint32_t>(
             process.frames_count, offset + plugin.maxFrames);
         if (strikeIndex < events.strikeCount) {
             end = std::min(end, events.strikes[strikeIndex].time);
+        }
+        if (outputStageChangeIndex < events.outputStageChangeCount) {
+            end = std::min(end, events.outputStageChanges[
+                outputStageChangeIndex].time);
         }
         if (end <= offset) continue;
         const uint32_t frames = end - offset;
@@ -1194,6 +1253,21 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->params = s3g::sanitizeAccelerometerFieldParams(loadedParams);
         p->guiState = sanitizeSavedGuiState(
             loadedGui, p->params.bodyCount);
+    } else if (header.version == 9u) {
+        // Modal Lift was appended in version 10. Existing sessions keep their
+        // former level by entering the new adaptive stage fully bypassed.
+        s3g::AccelerometerFieldParams params {};
+        SavedGuiState loadedGui {};
+        constexpr size_t legacyParamsSize = offsetof(
+            s3g::AccelerometerFieldParams, modalLift);
+        if (!readExact(stream, &params, legacyParamsSize)
+            || !readExact(stream, &loadedGui, sizeof(loadedGui))) {
+            return false;
+        }
+        params.modalLift = 0.0f;
+        p->params = s3g::sanitizeAccelerometerFieldParams(params);
+        p->guiState = sanitizeSavedGuiState(
+            loadedGui, p->params.bodyCount);
     } else if (header.version == 8u) {
         // Listener pickup set was appended in version 9. Version 8 already
         // stored camera state directly after its shorter parameter block.
@@ -1246,6 +1320,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else {
         return false;
     }
+    if (header.version < kStateVersion) {
+        p->params.modalLift = 0.0f;
+    }
     if (header.version < 8u) {
         focusModalParams(p->params);
         p->presetIndex = kCustomPresetIndex;
@@ -1275,8 +1352,8 @@ constexpr s3g::gui_layout::Canvas kGuiCanvas {
 constexpr auto kTitleBand =
     s3g::gui_layout::encoderTitleBand(kGuiCanvas);
 
-constexpr std::array<clap_id, 3u> kOutputControls {{
-    kParamOutputGain, kParamOrder, kParamOutputMode,
+constexpr std::array<clap_id, 4u> kOutputControls {{
+    kParamModalLift, kParamOutputGain, kParamOrder, kParamOutputMode,
 }};
 constexpr std::array<clap_id, 7u> kStructureControls {{
     kParamSubstrate, kParamBodyCount, kParamSize, kParamDamping, kParamIrregularity,
@@ -1442,6 +1519,7 @@ NSRect panelForParam(clap_id id)
     case kParamOrder:
     case kParamOutputMode:
     case kParamOutputGain:
+    case kParamModalLift:
         return outputPanelRect();
     case kParamFieldAzimuth:
     case kParamFieldElevation:
@@ -1521,6 +1599,7 @@ const char* shortParamName(clap_id id)
     case kParamFieldAzimuth: return "AZIMUTH";
     case kParamFieldElevation: return "ELEVATION";
     case kParamOutputGain: return "OUT";
+    case kParamModalLift: return "LIFT";
     case kParamFieldListenMode: return "ROUTING";
     case kParamFieldListenAmount: return "DRIVE";
     case kParamFieldListenResponse: return "BEHAVIOR";
@@ -1593,6 +1672,7 @@ void randomizeSafe(Plugin& plugin)
 {
     const uint32_t order = plugin.params.ambisonicOrder;
     const float outputGain = plugin.params.outputGainDb;
+    const float modalLift = plugin.params.modalLift;
     const auto listenerPickupSet = plugin.params.listenerPickupSet;
     const auto listenerMode = plugin.params.fieldListenMode;
     const float listenerAmount = plugin.params.fieldListenAmount;
@@ -1615,6 +1695,7 @@ void randomizeSafe(Plugin& plugin)
         vary(params.spatialExtent, 0.10f), 0.36f, 1.0f);
     params.ambisonicOrder = order;
     params.outputGainDb = outputGain;
+    params.modalLift = modalLift;
     params.outputMode = s3g::AccelerometerFieldOutputMode::Ambisonic;
     params.listenerPickupSet = listenerPickupSet;
     params.fieldListenMode = listenerMode;
@@ -2488,7 +2569,7 @@ NSColor* modalBodyColorFromAed(
         p->params.bodyCount]
         drawAtPoint:NSMakePoint(signalX, signal.origin.y + 116.0)
         withAttributes:values];
-    [@"ACN / SN3D FIELD" drawAtPoint:NSMakePoint(
+    [@"LIFT → OUT → LINKED GUARD" drawAtPoint:NSMakePoint(
         signalX, signal.origin.y + 136.0)
         withAttributes:values];
     [self drawOpenMenuWithStyle:style attrs:values];
@@ -2825,8 +2906,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.8.0",
-    "A transient-free, CPU-bounded ensemble of four to eight editable modal bodies with a visible Tetra/Cube listener-actuator environment and third-order ACN/SN3D encoding.",
+    "0.9.0",
+    "A transient-free, CPU-bounded ensemble of four to eight editable modal bodies with modal-aware level lift, a visible Tetra/Cube listener-actuator environment, and third-order ACN/SN3D encoding.",
     features,
 };
 

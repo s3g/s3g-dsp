@@ -19,6 +19,7 @@ namespace {
 constexpr clap_id kBodyCountParamId = 37u;
 constexpr clap_id kBody1AzimuthParamId = 38u;
 constexpr clap_id kListenerPickupSetParamId = 62u;
+constexpr clap_id kModalLiftParamId = 63u;
 
 const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
 void hostRequest(const clap_host_t*) {}
@@ -166,23 +167,30 @@ int main(int argc, char** argv)
         plugin->get_extension(plugin, CLAP_EXT_PARAMS)) : nullptr;
     const auto* state = ok ? static_cast<const clap_plugin_state_t*>(
         plugin->get_extension(plugin, CLAP_EXT_STATE)) : nullptr;
-    ok = ok && params && state && params->count(plugin) == 62u;
+    ok = ok && params && state && params->count(plugin) == 63u;
 
     clap_param_info_t listenerInfo {};
+    clap_param_info_t liftInfo {};
     bool foundListener = false;
+    bool foundLift = false;
     if (ok) {
         for (uint32_t index = 0u; index < params->count(plugin); ++index) {
             clap_param_info_t info {};
-            if (params->get_info(plugin, index, &info)
-                && info.id == kListenerPickupSetParamId) {
+            if (!params->get_info(plugin, index, &info)) continue;
+            if (info.id == kListenerPickupSetParamId) {
                 listenerInfo = info;
                 foundListener = true;
-                break;
+            } else if (info.id == kModalLiftParamId) {
+                liftInfo = info;
+                foundLift = true;
             }
         }
         char cubeText[32] {};
+        char liftText[32] {};
         double tetraValue = -1.0;
-        ok = foundListener
+        double parsedLift = -1.0;
+        double initialLift = -1.0;
+        ok = foundListener && foundLift
             && std::strcmp(listenerInfo.name, "Listener pickups") == 0
             && std::strcmp(listenerInfo.module, "Listener / Actuator") == 0
             && listenerInfo.min_value == 0.0
@@ -195,7 +203,29 @@ int main(int argc, char** argv)
             && std::strcmp(cubeText, "CUBE 8") == 0
             && params->text_to_value(plugin,
                 kListenerPickupSetParamId, "TETRA 4", &tetraValue)
-            && tetraValue == 0.0;
+            && tetraValue == 0.0
+            && std::strcmp(liftInfo.name, "Modal lift") == 0
+            && std::strcmp(liftInfo.module, "Output") == 0
+            && liftInfo.min_value == 0.0
+            && liftInfo.max_value == 1.0
+            && approximately(liftInfo.default_value, 0.65)
+            && (liftInfo.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u
+            && (liftInfo.flags & CLAP_PARAM_IS_STEPPED) == 0u
+            && params->get_value(plugin, kModalLiftParamId, &initialLift)
+            && approximately(initialLift, 0.65)
+            && params->value_to_text(plugin,
+                kModalLiftParamId, 0.65, liftText, sizeof(liftText))
+            && std::strcmp(liftText, "65 %") == 0
+            && params->text_to_value(plugin,
+                kModalLiftParamId, "41 %", &parsedLift)
+            && approximately(parsedLift, 0.41);
+    }
+    double modalLift = 0.0;
+    if (ok) {
+        OneParamEvent lift(kModalLiftParamId, 0.82);
+        params->flush(plugin, &lift.events, nullptr);
+        ok = params->get_value(plugin, kModalLiftParamId, &modalLift)
+            && approximately(modalLift, 0.82);
     }
 
     // Construct the exact v8 wire layout: header, the parameter prefix that
@@ -254,7 +284,7 @@ int main(int argc, char** argv)
         std::memcpy(&savedGui,
             migrated.bytes.data() + sizeof(header) + sizeof(savedParams),
             sizeof(savedGui));
-        ok = header.version == 9u
+        ok = header.version == 10u
             && header.presetIndex == 2u
             && savedParams.listenerPickupSet
                 == s3g::AccelerometerFieldListenerPickupSet::Cube8
@@ -275,6 +305,106 @@ int main(int argc, char** argv)
         ok = params->get_value(plugin,
             kListenerPickupSetParamId, &listenerSet)
             && listenerSet == 0.0;
+    }
+
+    // Version 10 persists Modal Lift with the rest of the current parameter
+    // aggregate. Exercise a non-default value, then disturb and reload it so
+    // this checks both the wire bytes and the public parameter surface.
+    if (ok) {
+        OneParamEvent lift(kModalLiftParamId, 0.82);
+        params->flush(plugin, &lift.events, nullptr);
+    }
+    MemoryState current;
+    if (ok) {
+        clap_ostream_t output { &current, stateWrite };
+        ok = state->save(plugin, &output)
+            && current.bytes.size() == expectedSize;
+    }
+    if (ok) {
+        StateHeader header {};
+        s3g::AccelerometerFieldParams savedParams {};
+        std::memcpy(&header, current.bytes.data(), sizeof(header));
+        std::memcpy(&savedParams,
+            current.bytes.data() + sizeof(header), sizeof(savedParams));
+        ok = header.version == 10u
+            && approximately(savedParams.modalLift, 0.82)
+            && savedParams.listenerPickupSet
+                == s3g::AccelerometerFieldListenerPickupSet::Tetra4;
+    }
+    if (ok) {
+        OneParamEvent disturb(kModalLiftParamId, 0.13);
+        params->flush(plugin, &disturb.events, nullptr);
+        current.offset = 0u;
+        clap_istream_t input { &current, stateRead };
+        ok = state->load(plugin, &input)
+            && params->get_value(plugin, kModalLiftParamId, &modalLift)
+            && approximately(modalLift, 0.82);
+    }
+
+    // Construct the exact v9 wire layout: its parameter aggregate ended
+    // immediately before Modal Lift. Migration must opt old sessions out of
+    // the new gain rider, while preserving the v9 listener and camera state.
+    auto legacyV9Params = s3g::accelerometerFieldFactoryPreset(4u);
+    legacyV9Params.bodyCount = 5u;
+    legacyV9Params.outputGainDb = -14.75f;
+    legacyV9Params.listenerPickupSet =
+        s3g::AccelerometerFieldListenerPickupSet::Tetra4;
+    legacyV9Params.bodyElevationOffsetDeg[2] = -33.0f;
+    const SavedGuiStateV8 legacyV9Gui {
+        1, -142.0f, 28.0f, 0.74f, 3u,
+    };
+    MemoryState v9;
+    append(v9, StateHeader { 9u, 4u });
+    const auto* legacyV9First =
+        reinterpret_cast<const uint8_t*>(&legacyV9Params);
+    constexpr size_t v9ParamsSize = offsetof(
+        s3g::AccelerometerFieldParams, modalLift);
+    v9.bytes.insert(v9.bytes.end(),
+        legacyV9First, legacyV9First + v9ParamsSize);
+    append(v9, legacyV9Gui);
+    if (ok) {
+        clap_istream_t input { &v9, stateRead };
+        ok = state->load(plugin, &input);
+    }
+    double migratedElevation = 0.0;
+    if (ok) {
+        constexpr clap_id kBody3ElevationParamId = 45u;
+        ok = params->get_value(plugin, kModalLiftParamId, &modalLift)
+            && params->get_value(plugin,
+                kBody3ElevationParamId, &migratedElevation)
+            && approximately(modalLift, 0.0)
+            && approximately(migratedElevation, -33.0);
+    }
+    MemoryState migratedV9;
+    if (ok) {
+        clap_ostream_t output { &migratedV9, stateWrite };
+        ok = state->save(plugin, &output)
+            && migratedV9.bytes.size() == expectedSize;
+    }
+    if (ok) {
+        StateHeader header {};
+        s3g::AccelerometerFieldParams savedParams {};
+        SavedGuiStateV8 savedGui {};
+        std::memcpy(&header, migratedV9.bytes.data(), sizeof(header));
+        std::memcpy(&savedParams,
+            migratedV9.bytes.data() + sizeof(header), sizeof(savedParams));
+        std::memcpy(&savedGui,
+            migratedV9.bytes.data() + sizeof(header) + sizeof(savedParams),
+            sizeof(savedGui));
+        ok = header.version == 10u
+            && header.presetIndex == 4u
+            && approximately(savedParams.modalLift, 0.0)
+            && savedParams.bodyCount == 5u
+            && approximately(savedParams.outputGainDb, -14.75)
+            && savedParams.listenerPickupSet
+                == s3g::AccelerometerFieldListenerPickupSet::Tetra4
+            && savedGui.viewMode == legacyV9Gui.viewMode
+            && approximately(savedGui.viewAzimuthDeg,
+                legacyV9Gui.viewAzimuthDeg)
+            && approximately(savedGui.viewElevationDeg,
+                legacyV9Gui.viewElevationDeg)
+            && approximately(savedGui.viewZoom, legacyV9Gui.viewZoom)
+            && savedGui.selectedBody == legacyV9Gui.selectedBody;
     }
 
     if (plugin) plugin->destroy(plugin);

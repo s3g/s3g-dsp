@@ -40,6 +40,7 @@
           <li><code>BODY SPREAD</code> distributes the body centers around the selected azimuth and elevation. Per-body AED offsets and distance can then be edited directly before the resulting directions are encoded as <code>ACN/SN3D</code>.</li>
           <li>In <code>DIFFUSE</code> + <code>DRONE</code>, the Listener/Actuator combines underexposed listener directions with each body’s slow energy deficit, maintaining a steady distributed field without returning decoded audio to the resonators.</li>
           <li>The normal output is HOA. Optional <code>8 BODY STEMS</code> publishes one post-body, pre-HOA signal per lane and clears lanes above the active body count.</li>
+          <li>On the HOA path, <code>LIFT</code> adds slow modal-aware makeup without entering the resonators or Listener analysis. Smoothed <code>OUT</code> then trims the complete result, followed by one linked peak guard shared by every active channel.</li>
         </ol>
 
         <h2 id="bodies">Modal Body Families</h2>
@@ -77,7 +78,7 @@
         <table class="readout-table">
           <thead><tr><th>Panel</th><th>Controls</th><th>Role</th></tr></thead>
           <tbody>
-            <tr><td>Output</td><td>Out / Order / Format</td><td>Selects 1OA, 2OA, or 3OA <code>ACN/SN3D</code>, or the optional eight discrete body stems, and calibrates the result.</td></tr>
+            <tr><td>Output</td><td>Lift / Out / Order / Format</td><td>Raises quiet modal fields with tail-respecting linked makeup, applies a clean post-modal trim, and selects 1OA, 2OA, or 3OA <code>ACN/SN3D</code> or the optional eight discrete body stems. Body stems bypass Lift.</td></tr>
             <tr><td>Modal Body</td><td>Body / Bodies / Size / Damp / Irregularity / Coupling / Drive Position</td><td>Creates four to eight independent resonators inside the shared 96-mode budget.</td></tr>
             <tr><td>Listener / Actuator</td><td>Ears / Routing / Drive / Behavior / Input</td><td>Selects the fixed Tetra 4 or Cube 8 listener, applies bounded direction-aware actuation, and sets the mono modal-only input contribution.</td></tr>
             <tr><td>Projection</td><td>Azimuth / Elevation / Body Spread</td><td>Places and distributes the independent body centers through HOA space.</td></tr>
@@ -95,9 +96,11 @@
 
         <p>Modal identity and encoded direction remain separate. HOA Body Spread changes only where the independent body centers appear: at minimum they coincide at the selected field center; increasing it opens the ensemble into a rotated Fibonacci constellation. Manual body AED offsets and distance are applied after that generated placement. None of these spatial operations detune the bodies or widen a single mono source, and spatial geometry interpolates so that moving the ensemble remains playable.</p>
 
-        <p>After the bodies sum, the ambisonic branch uses one linked soft-safety gain for the complete HOA frame. Because every coefficient receives the same gain, ACN/SN3D spatial ratios remain intact even when eight close, coincident bodies are driven coherently. Optional raw body stems deliberately bypass this HOA safety stage.</p>
+        <p>The contact and radiation protection curves now remain at one fixed internal calibration: <code>OUT</code> no longer drives them, so raising the level does not harden the body or change the contact-to-radiation color. <code>LIFT</code> observes body-domain power independently of ambisonic order, moves downward quickly for a newly loud body, rises slowly, and freezes its upward motion near silence rather than pulling up the end of a modal decay. It can supply up to 18 dB at full setting, while its default setting is deliberately moderate. Optional body stems bypass Lift to preserve their direct ensemble balance.</p>
 
-        <p>The Listener remains causal control, not an audio feedback return. Its world-fixed Tetra 4 or Cube 8 body analyzes the internal HOA field before the output-mode branch, independent of body count, Field Center, Body Spread, and manual AED edits. The actuator uses those directional scores together with per-body energy to apply bounded sustaining force. <code>DIFFUSE</code> routing with <code>DRONE</code> continuously favors bodies and directions below the ensemble’s target exposure without flattening the beating and decay that make them distinct. This behavior therefore remains available when the host receives body stems.</p>
+        <p><code>OUT</code> is a 25 ms-smoothed gain after modal formation and spatial encoding. The final output stage uses one thresholded linked guard with a −1 dBFS sample ceiling, immediate reduction, and a 300 ms release. It applies the same scalar to every active ACN/SN3D coefficient—or every body stem—so spatial direction and ensemble ratios remain intact. Below the threshold it introduces no new gain reduction; unlike the former instantaneous soft-safety curve, it does not waveshape every sample.</p>
+
+        <p>The Listener remains causal control, not an audio feedback return. Its world-fixed Tetra 4 or Cube 8 body analyzes the fixed-calibration internal HOA field before Lift, Out, peak protection, and the output-mode branch, independent of body count, Field Center, Body Spread, and manual AED edits. The actuator uses those directional scores together with per-body energy to apply bounded sustaining force. Changing audition level therefore cannot redirect the actuator. <code>DIFFUSE</code> routing with <code>DRONE</code> continuously favors bodies and directions below the ensemble’s target exposure without flattening the beating and decay that make them distinct. This behavior remains available when the host receives body stems.</p>
 
         <p>See <a href="references.html#accelerometry-structural-listening">Modal Synthesis and Structural Listening</a> for the research sources.</p>
 
