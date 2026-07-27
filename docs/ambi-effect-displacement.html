@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>3OAFX Displacement - s3g-dsp</title>
-    <meta name="description" content="3OAFX Displacement Score player documentation for s3g-dsp.">
+    <title>Ambi Effect Displacement - s3g-dsp</title>
+    <meta name="description" content="Ambi Effect Displacement Score player documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -15,7 +15,7 @@
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
         <a href="multichannel.html">Multichannel</a>
-        <a href="3oafx.html">Ambisonics</a>
+        <a href="ambisonics.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="references.html">References</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
@@ -24,27 +24,27 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>3OAFX Displacement</h1>
+        <h1>Ambi Effect Displacement</h1>
 
-        <p><strong>s3g 3OAFX Transform Displacement 16ch</strong> is a 16-channel third-order <code>ACN/SN3D</code> insert. It loads geometry timelines exported by the <a href="https://s3g.github.io/s3g-mc/utilities-displacement-score.html" target="_blank" rel="noopener noreferrer">s3g-mc Displacement Score</a> browser utility and applies them to an encoded ambisonic field.</p>
+        <p><strong>s3g Ambi Effect Displacement 64</strong> is an order-adaptive <code>1OA</code> through <code>7OA</code> <code>ACN/SN3D</code> insert. It loads geometry timelines exported by the <a href="https://s3g.github.io/s3g-mc/utilities-displacement-score.html" target="_blank" rel="noopener noreferrer">s3g-mc Displacement Score</a> browser utility and applies them to an encoded ambisonic field through the same listener-body process used by the other Ambi Effects.</p>
 
         <h2 id="signal-flow">Signal Flow</h2>
 
         <ol>
-          <li>Read the 3OA input from 16 channels.</li>
-          <li>Apply a matched decode to the fixed 24-point 3OAFX sphere.</li>
-          <li>Apply score-driven point displacement and distance processing.</li>
-          <li>Apply the matched dynamic encode.</li>
-          <li>Write the 3OA output to 16 channels.</li>
+          <li>Read the complete active order from <code>(order + 1)^2</code> channels.</li>
+          <li>Project the field onto the resolved Icosa12, Dodeca20, or Sphere24 listener body.</li>
+          <li>Resample the score's 24-point displacement field when the selected body has fewer pickups.</li>
+          <li>Apply the directional mask, score-driven displacement, and optional distance processing at each pickup.</li>
+          <li>Re-encode the moving pickup field and blend its correction with the untouched encoded input.</li>
         </ol>
 
-        <p>The matched encoder makes the source geometry an identity transform. An amount of <code>0%</code>, or the score's source scene, preserves the incoming field apart from the Output control. Geometry and distance coefficients ramp across each host block to avoid vector-boundary steps.</p>
+        <p>The source and target projections are used as a correction around the original field, so Amount <code>0%</code>, Mix <code>0%</code>, or the score's source scene is neutral apart from Output. Geometry, gain, damping, and propagation coefficients ramp across each host block.</p>
 
         <h2 id="scores">Score Files</h2>
 
         <p>Use <strong>LOAD SCORE</strong> to open a version 1 <code>s3g-mc-displacement-score</code> JSON file. The plugin reads up to 64 scenes, uses shortest-path azimuth interpolation, and embeds the parsed score in project state. The browser utility remains the authoring surface; the plugin is a playback and interpretation surface.</p>
 
-        <p>The player reads the raw radius stored in scene targets so its distance mode remains useful even when the browser preview was exported with radius normalization enabled.</p>
+        <p>The original 24-point score order is preserved when Body is Sphere24. Icosa12 and Dodeca20 sample the same continuous spherical displacement field, so lower pickup counts do not require a different score file. The player also reads raw target radius so its distance mode remains useful when the browser preview was exported with radius normalization enabled.</p>
 
         <h2 id="controls">Controls</h2>
 
@@ -54,15 +54,21 @@
           </thead>
           <tbody>
             <tr><td>Clock</td><td><code>FREE</code> runs an internal clock, <code>SYNC</code> follows the REAPER beat timeline, and <code>SCRUB</code> follows Position.</td></tr>
-            <tr><td>Play</td><td><code>LOOP</code> wraps to the beginning; <code>PALINDROME</code> alternates forward and reverse traversal.</td></tr>
+            <tr><td>Play</td><td><code>LOOP</code> wraps, <code>PALINDROME</code> alternates direction, and <code>ONCE</code> holds the final scene.</td></tr>
             <tr><td>Position</td><td>Normalized score position used by Scrub mode. Clicking the timeline switches to Scrub and sets this value.</td></tr>
             <tr><td>Rate</td><td>Free-running cycles per second.</td></tr>
             <tr><td>Beats</td><td>Score traversal length in host beats while Clock is set to Sync. Palindrome takes the same number of beats in each direction.</td></tr>
-            <tr><td>Amount</td><td>Morph from the fixed source sphere to the scored geometry.</td></tr>
+            <tr><td>Order</td><td>Selects <code>1OA</code> through <code>7OA</code>; only the complete active order is processed.</td></tr>
+            <tr><td>Body</td><td><code>AUTO</code> resolves low orders to Icosa12, 3OA to Dodeca20, and 4OA–7OA to Sphere24. A lower-density body may be chosen explicitly.</td></tr>
+            <tr><td>Mix</td><td>Blends the displacement correction around the original encoded field.</td></tr>
+            <tr><td>Amount</td><td>Morphs the selected listener body from source to scored geometry.</td></tr>
             <tr><td>Az / El / Rad</td><td>Independent scale for scored azimuth, elevation, and radius displacement.</td></tr>
             <tr><td>Distance</td><td>Selects <code>GAIN</code> or <code>PHYSICAL</code> radius interpretation.</td></tr>
             <tr><td>Metres</td><td>Physical distance represented by radius <code>1.0</code>; it scales propagation and air loss in Physical mode.</td></tr>
             <tr><td>Energy</td><td>Stabilizes level changes caused by geometry conditioning without cancelling the score's distance gain.</td></tr>
+            <tr><td>Mask Amount / Az / El</td><td>Places the displacement in one direction while other directions retain their dry field.</td></tr>
+            <tr><td>Mask Width / Curve</td><td>Sets angular reach and tightness around the mask direction.</td></tr>
+            <tr><td>Mask Dry</td><td>Reduces unaffected dry signal from <code>0%</code> change to <code>-100% FX ONLY</code>, where only the displacement inside the mask remains.</td></tr>
             <tr><td>Output / Bypass</td><td>Final output trim and a sample-transparent bypass.</td></tr>
           </tbody>
         </table>
@@ -75,14 +81,18 @@
 
         <p><code>PHYSICAL</code> keeps that safe gain law and adds relative propagation delay for farther points, distance-dependent air damping, and gradual high-order reduction as points recede. Nearer points are not given negative delay: doing that would require fixed lookahead and host latency. This keeps neutral geometry at zero added latency while still making outward displacement read as physical depth.</p>
 
+        <h2 id="listener-field">Listener Field</h2>
+
+        <p>The field view provides <code>TOP</code>, <code>SIDE</code>, <code>3/4</code>, and map cameras plus direct click-drag orbit and scroll zoom. Small source points connect to displaced targets. A radial halo at every target follows pickup energy, making it possible to see which parts of the selected body are receiving the encoded input.</p>
+
         <h2 id="routing">REAPER Routing</h2>
 
-        <p>Put the plugin on a 16-channel 3OA track after an encoder or other 3OA process and before an ambisonic decoder. Set the REAPER track to at least 16 channels and verify the plugin pin connector remains mapped one-to-one.</p>
+        <p>Put the plugin after an encoder or other ambisonic process and before the decoder. Set the REAPER track to the complete channel count for the selected order—4, 9, 16, 25, 36, 49, or 64—and keep the plugin pins mapped one-to-one.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="3oafx-effects.html">
+          <a class="page-nav-link" href="ambisonic-effects.html">
             <span>Previous</span>
-            3OAFX Effects
+            AMBISONIC Effects
           </a>
           <a class="page-nav-link next" href="ambi-imprint.html">
             <span>Next</span>
@@ -94,7 +104,7 @@
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
           <h2>Ambisonics</h2>
-          <a href="3oafx.html">Overview</a>
+          <a href="ambisonics.html">Overview</a>
           <a href="listener-mode.html">Listener Mode</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
@@ -103,8 +113,8 @@
         </div>
         <div class="toc-section">
           <h2>Effect Pages</h2>
-          <a href="3oafx-effects.html">3OAFX Effects</a>
-          <a href="3oafx-displacement.html">3OAFX Displacement</a>
+          <a href="ambisonic-effects.html">AMBISONIC Effects</a>
+          <a href="ambi-effect-displacement.html">Ambi Effect Displacement</a>
           <a href="ambi-imprint.html">Ambi Imprint</a>
           <a href="ambisonic-rotate.html">Ambi Rotate</a>
           <a href="ambisonic-bus-processors.html">Field / Bus Effects</a>
@@ -116,6 +126,7 @@
           <a href="#scores">Score Files</a>
           <a href="#controls">Controls</a>
           <a href="#distance">Distance</a>
+          <a href="#listener-field">Listener Field</a>
           <a href="#routing">REAPER Routing</a>
         </div>
       </aside>

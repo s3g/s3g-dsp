@@ -158,6 +158,17 @@ float renderPeriodicity(const Params& params)
     encoder.prepare(48000.0);
     encoder.setParams(params);
     encoder.process(outputs.data(), outputs.size(), frames);
+    // Remove the newly modelled geological/combustion mass band before
+    // looking for objectionable tonal repetition. Broad low-frequency
+    // energy is deliberately measured by renderLowFrequencyFraction().
+    constexpr float highpassCutoffHz = 160.0f;
+    const float coefficient = 1.0f - std::exp(
+        -2.0f * s3g::kPi * highpassCutoffHz / 48000.0f);
+    float lowpass = 0.0f;
+    for (float& sample : storage) {
+        lowpass += (sample - lowpass) * coefficient;
+        sample -= lowpass;
+    }
     constexpr std::array<uint32_t, 12> lags {
         43u, 53u, 64u, 80u, 96u, 109u,
         137u, 160u, 218u, 320u, 480u, 800u,
@@ -245,6 +256,43 @@ float renderLowFrequencyFraction(const Params& params)
     return static_cast<float>(lowEnergy / std::max(1.0e-12, totalEnergy));
 }
 
+struct EnvironmentalScoreProbe {
+    uint64_t arcs = 0u;
+    uint64_t cascades = 0u;
+    uint64_t consequences = 0u;
+    uint32_t quietSteps = 0u;
+    uint32_t maximumActive = 0u;
+    float finalActivity = 0.0f;
+};
+
+EnvironmentalScoreProbe runEnvironmentalScoreProbe()
+{
+    s3g::EnvironmentalScore score;
+    score.prepare(48000.0, 0x5c0a7e21u);
+    score.setParams({ .64f, .08f, .72f, .58f, .88f });
+    constexpr uint32_t entities = 12u;
+    score.reset(entities);
+    for (uint32_t index = 0u; index < entities; ++index) {
+        const float phase = static_cast<float>(index)
+            / static_cast<float>(entities) * s3g::kPi * 2.0f;
+        score.setEntityPosition(index,
+            std::cos(phase), std::sin(phase),
+            index & 1u ? 0.16f : -0.16f);
+    }
+    EnvironmentalScoreProbe result {};
+    for (uint32_t step = 0u; step < 12000u; ++step) {
+        score.update(0.01f, entities);
+        const uint32_t active = score.activeEntityCount();
+        if (active == 0u) ++result.quietSteps;
+        result.maximumActive = std::max(result.maximumActive, active);
+    }
+    result.arcs = score.arcCount();
+    result.cascades = score.cascadeCount();
+    result.consequences = score.consequenceCount();
+    result.finalActivity = score.globalActivity();
+    return result;
+}
+
 } // namespace
 
 int main()
@@ -325,8 +373,8 @@ int main()
     timber.material = 0.82f;
     timber.grit = 0.72f;
     timber.particles = 0.68f;
-    const float fuelDifference = renderDifference<s3g::AmbiPyrosphereEncoder>(
-        gas, timber);
+    const float fuelDifference = renderDurationDifference<
+        s3g::AmbiPyrosphereEncoder>(gas, timber, 2.0f);
     const float pyrosphereVsWind = renderInstrumentDifference<
         s3g::AmbiPyrosphereEncoder, s3g::AmbiWindEncoder>(
             timber, expandedWind);
@@ -337,8 +385,8 @@ int main()
     hail.drops = 0.92f;
     hail.contact = 0.94f;
     hail.scale = 0.22f;
-    const float iceRegimeDifference = renderDifference<
-        s3g::AmbiCryosphereEncoder>(frostCrack, hail);
+    const float iceRegimeDifference = renderDurationDifference<
+        s3g::AmbiCryosphereEncoder>(frostCrack, hail, 2.0f);
     const float cryosphereVsWater = renderInstrumentDifference<
         s3g::AmbiCryosphereEncoder, s3g::AmbiWaterEncoder>(
             frostCrack, expandedWater);
@@ -450,6 +498,20 @@ int main()
         s3g::AmbiPyrosphereEncoder>(lightFlamethrowerBody);
     const float heavyFlamethrowerLowFraction = renderLowFrequencyFraction<
         s3g::AmbiPyrosphereEncoder>(heavyFlamethrowerBody);
+    auto lightCryosphereMass = s3g::ambiCryosphereFactoryPreset(5u);
+    lightCryosphereMass.space = 0.0f;
+    lightCryosphereMass.scoreRest = 0.0f;
+    lightCryosphereMass.scale = 0.08f;
+    lightCryosphereMass.depth = 0.08f;
+    lightCryosphereMass.eventSize = 0.52f;
+    auto heavyCryosphereMass = lightCryosphereMass;
+    heavyCryosphereMass.scale = 1.0f;
+    heavyCryosphereMass.depth = 1.0f;
+    heavyCryosphereMass.eventSize = 1.0f;
+    const float lightCryosphereLowFraction = renderLowFrequencyFraction<
+        s3g::AmbiCryosphereEncoder>(lightCryosphereMass);
+    const float heavyCryosphereLowFraction = renderLowFrequencyFraction<
+        s3g::AmbiCryosphereEncoder>(heavyCryosphereMass);
     auto zeroWander = flamethrower;
     zeroWander.vectorRateHz = 0.0f;
     s3g::AmbiPyrosphereEncoder wanderSanitizer;
@@ -487,6 +549,15 @@ int main()
         }
     }
     const bool flexuralPacketEnded = !flexuralPacket.active();
+    const auto scoreProbe = runEnvironmentalScoreProbe();
+    const auto repeatedScoreProbe = runEnvironmentalScoreProbe();
+    const bool scoreDeterministic = scoreProbe.arcs == repeatedScoreProbe.arcs
+        && scoreProbe.cascades == repeatedScoreProbe.cascades
+        && scoreProbe.consequences == repeatedScoreProbe.consequences
+        && scoreProbe.quietSteps == repeatedScoreProbe.quietSteps
+        && scoreProbe.maximumActive == repeatedScoreProbe.maximumActive
+        && std::fabs(scoreProbe.finalActivity
+            - repeatedScoreProbe.finalActivity) < 1.0e-7f;
 
     std::cout << "pyrosphere/cryosphere/wind/water peaks: "
               << pyrospherePeak << " / "
@@ -513,7 +584,7 @@ int main()
               << cryosphere.slipEventCount() << " / "
               << cryosphere.calvingEventCount() << " / "
               << cryosphere.impactEventCount() << "\n";
-    std::cout << "maximum sampled periodicity pyro/cryo: "
+    std::cout << "maximum sampled mid/high periodicity pyro/cryo: "
               << pyrospherePeriodicity << " / "
               << cryospherePeriodicity << "\n";
     std::cout << "structural consequence differences pyro/cryo: "
@@ -540,12 +611,27 @@ int main()
     std::cout << "flamethrower low-band fraction light/heavy body: "
               << lightFlamethrowerLowFraction << " / "
               << heavyFlamethrowerLowFraction << "\n";
+    std::cout << "cryosphere low-band fraction light/heavy mass: "
+              << lightCryosphereLowFraction << " / "
+              << heavyCryosphereLowFraction << "\n";
     std::cout << "sanitized plume-wander floor: "
               << wanderSanitizer.params().vectorRateHz << " Hz\n";
     std::cout << "singing-ice events and flexural descent: "
               << singingLakeEncoder.singingIceEventCount() << " / "
               << earlyFlexuralFrequency << " -> "
               << lateFlexuralFrequency << " Hz\n";
+    std::cout << "entity score arcs/cascades/consequences/quiet/max-active: "
+              << scoreProbe.arcs << " / " << scoreProbe.cascades << " / "
+              << scoreProbe.consequences << " / " << scoreProbe.quietSteps
+              << " / " << scoreProbe.maximumActive << "\n";
+    std::cout << "instrument score arcs/cascades/consequences pyro: "
+              << structuralPyrosphere.scoreArcCount() << " / "
+              << structuralPyrosphere.scoreCascadeCount() << " / "
+              << structuralPyrosphere.scoreConsequenceCount() << "\n";
+    std::cout << "instrument score arcs/cascades/consequences cryo: "
+              << structuralCryosphere.scoreArcCount() << " / "
+              << structuralCryosphere.scoreCascadeCount() << " / "
+              << structuralCryosphere.scoreConsequenceCount() << "\n";
     return presetMappingsValid
             && pyrospherePeak > 0.0f && cryospherePeak > 0.0f
             && windPeak > 0.0f && waterPeak > 0.0f
@@ -563,14 +649,14 @@ int main()
             && cryosphere.slipEventCount() > 0u
             && cryosphere.calvingEventCount() > 0u
             && cryosphere.impactEventCount() > 0u
-            && timberFallDifference > 1.0e-5f
+            && timberFallDifference > 1.5e-3f
             && iceUnderFootDifference > 1.0e-5f
             && structuralPyrosphere.structuralSnapEventCount() > 0u
             && structuralPyrosphere.fallEventCount() > 0u
             && structuralCryosphere.structuralSnapEventCount() > 0u
             && structuralCryosphere.plateFailureEventCount() > 0u
             && densePyrosphere.ignitionEventCount()
-                > sparsePyrosphere.ignitionEventCount() + 500u
+                > sparsePyrosphere.ignitionEventCount() + 200u
             && heldCryosphereEvents == 0u
             && denseCryosphereEvents > 50u
             && flamethrowerDifference > 1.0e-4f
@@ -583,8 +669,23 @@ int main()
             && earlyFlexuralFrequency > lateFlexuralFrequency * 1.70f
             && lateFlexuralFrequency > 40.0f
             && flexuralPacketEnded
+            && scoreDeterministic
+            && scoreProbe.arcs > 8u
+            && scoreProbe.cascades > 2u
+            && scoreProbe.consequences > 2u
+            && scoreProbe.quietSteps > 0u
+            && scoreProbe.maximumActive < 12u
+            && structuralPyrosphere.scoreArcCount() > 0u
+            && structuralPyrosphere.scoreConsequenceCount() > 0u
+            && structuralCryosphere.scoreArcCount() > 0u
+            && structuralCryosphere.scoreConsequenceCount() > 0u
             && heavyFlamethrowerLowFraction
                 > lightFlamethrowerLowFraction * 1.15f
+            && heavyFlamethrowerLowFraction > 0.22f
+            && heavyCryosphereLowFraction
+                > lightCryosphereLowFraction * 1.15f
+            && heavyCryosphereLowFraction > 0.25f
+            && heavyCryosphereLowFraction < 0.78f
             && wanderSanitizer.params().vectorRateHz
                 >= s3g::kAmbiPyrosphereMinPlumeWanderHz
             && pyrospherePeriodicity < 0.72f

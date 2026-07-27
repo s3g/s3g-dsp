@@ -15,7 +15,7 @@ EXPECTED_TOP_NAV = [
     "building-from-source.html",
     "installing-plugins.html",
     "multichannel.html",
-    "3oafx.html",
+    "ambisonics.html",
     "instruments.html",
     "references.html",
     "https://github.com/s3g/s3g-dsp",

@@ -49,8 +49,9 @@ inline AmbiCryosphereParams ambiCryosphereFactoryPreset(uint32_t index)
     p.damping = 0.62f;
     p.environment = 1u;
     p.surfaceX = p.surfaceY = 0.5f;
-    switch (std::min<uint32_t>(index,
-        kAmbiCryosphereFactoryPresetCount - 1u)) {
+    const uint32_t safeIndex = std::min<uint32_t>(index,
+        kAmbiCryosphereFactoryPresetCount - 1u);
+    switch (safeIndex) {
     case 0u:
         p.voices=24; p.regime=0u; p.environment=1u; p.water=.82f; p.flow=.48f; p.scale=.56f; p.turbulence=.32f;
         p.bubbles=.56f; p.density=.42f; p.eventSize=.38f; p.contact=.78f; p.brightness=.48f; p.current=.08f;
@@ -115,6 +116,36 @@ inline AmbiCryosphereParams ambiCryosphereFactoryPreset(uint32_t index)
         p.surfaceLoad=.20f; p.snap=.72f; p.plateFailure=.02f; p.spread=.82f; p.deviation=.04f; p.motionRateHz=.012f;
         p.width=.88f; p.centerDistance=1.08f; p.space=.18f; p.environmentDecay=.42f; p.environmentDamping=.46f; p.outputGainDb=-11.0f; break;
     }
+    struct ScoreProfile {
+        float pace;
+        float occupancy;
+        float cascade;
+        float memory;
+        float rest;
+    };
+    static constexpr std::array<ScoreProfile,
+        kAmbiCryosphereFactoryPresetCount> scoreProfiles {{
+        { .18f, .12f, .74f, .92f, .94f }, // alpine frost crack
+        { .20f, .18f, .68f, .90f, .88f }, // ice segregation
+        { .16f, .18f, .62f, .92f, .90f }, // permafrost heave
+        { .28f, .22f, .74f, .86f, .80f }, // basal stick-slip
+        { .34f, .38f, .84f, .78f, .66f }, // pressure ridge
+        { .20f, .18f, .92f, .88f, .86f }, // calving front
+        { .18f, .12f, .86f, .90f, .90f }, // iceberg impact
+        { .62f, .72f, .82f, .48f, .30f }, // avalanche
+        { .14f, .18f, .34f, .90f, .88f }, // snowpack creep
+        { .82f, .82f, .10f, .28f, .18f }, // hail shower
+        { .72f, .72f, .16f, .36f, .26f }, // sleet shower
+        { .58f, .58f, .34f, .56f, .42f }, // meltwater under ice
+        { .34f, .10f, .94f, .90f, .88f }, // moving load under foot
+        { .12f, .08f, .46f, .96f, .98f }, // singing lake
+    }};
+    const auto score = scoreProfiles[safeIndex];
+    p.scorePace = score.pace;
+    p.scoreOccupancy = score.occupancy;
+    p.scoreCascade = score.cascade;
+    p.scoreMemory = score.memory;
+    p.scoreRest = score.rest;
     return p;
 }
 

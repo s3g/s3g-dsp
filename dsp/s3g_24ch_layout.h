@@ -12,7 +12,7 @@ struct SpeakerPoint {
 
 constexpr int kVirtualSpeakerCount = 24;
 
-// 24-point virtual dome layout used by the 3OAFX insert layer.
+// 24-point virtual dome layout used by the Ambisonic virtual-speaker layer.
 // Azimuth convention follows the s3g-mc REAPER tools: -90 is right, +90 is left.
 inline constexpr std::array<SpeakerPoint, kVirtualSpeakerCount> kVirtualDome24 = {{
     {  45.0f,   0.0f, 1.0f}, {   0.0f,   0.0f, 1.0f}, { -45.0f,   0.0f, 1.0f},

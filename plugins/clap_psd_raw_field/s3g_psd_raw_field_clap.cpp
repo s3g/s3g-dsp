@@ -32,7 +32,7 @@ constexpr uint32_t kOutputChannels = s3g::kPsdRawFieldChannels;
 constexpr uint32_t kCodecModeCount = s3g::kPsdRawFieldCodecModeCount;
 constexpr uint32_t kCodecModeMax = kCodecModeCount - 1u;
 constexpr uint32_t kWaveHistory = 512;
-constexpr uint32_t kStateVersion = 17;
+constexpr uint32_t kStateVersion = 21;
 constexpr uint32_t kWaveTracePreset = 12;
 constexpr uint32_t kCustomPreset = 13;
 constexpr uint32_t kGuiWidth = 1356;
@@ -42,6 +42,13 @@ constexpr double kRightToolboxX = 448.0;
 constexpr double kModToolboxX = 878.0;
 constexpr double kToolboxWidth = 414.0;
 constexpr double kModToolboxWidth = 460.0;
+constexpr double kModCardInset = 12.0;
+constexpr double kModCardGap = 8.0;
+constexpr double kModOperatorWidth =
+    (kModToolboxWidth - kModCardInset * 2.0 - kModCardGap * 2.0) / 3.0;
+constexpr double kMod1ToolboxX = kModToolboxX + kModCardInset;
+constexpr double kMod2ToolboxX = kMod1ToolboxX + kModOperatorWidth + kModCardGap;
+constexpr double kMod3ToolboxX = kMod2ToolboxX + kModOperatorWidth + kModCardGap;
 constexpr double kLeftControlX =
     s3g::gui_layout::processorControlX(kLeftToolboxX);
 constexpr double kRightControlX =
@@ -53,9 +60,38 @@ constexpr double kToolboxTrackWidth =
 constexpr double kToolboxMenuWidth =
     s3g::gui_layout::processorMenuWidth(kToolboxWidth);
 constexpr double kModToolboxTrackWidth =
-    s3g::gui_layout::processorTrackWidth(kModToolboxWidth);
+    60.0;
 constexpr double kModToolboxMenuWidth =
     s3g::gui_layout::processorMenuWidth(kModToolboxWidth);
+constexpr double kModCompactControlInset = 38.0;
+constexpr double kModCompactMenuWidth = kModOperatorWidth - kModCompactControlInset - 5.0;
+constexpr double kModCompactValueXOffset = 102.0;
+constexpr double kModCompactValueWidth = kModOperatorWidth - kModCompactValueXOffset - 3.0;
+constexpr double kModSourceRowY = 346.0;
+constexpr double kModTargetRowY = 370.0;
+constexpr double kModRateRowY = 394.0;
+constexpr double kModRatioRowY = 418.0;
+constexpr double kModIndexRowY = 442.0;
+constexpr double kModFeedbackRowY = 466.0;
+constexpr double kModClockRowY = 484.0;
+constexpr double compactModControlX(double cardX) { return cardX + kModCompactControlInset; }
+constexpr double kLabChartX = 30.0;
+constexpr double kLabChartWidth = 400.0;
+constexpr double kLabCardStartX = 448.0;
+constexpr double kLabCardGap = 10.0;
+constexpr double kLabCardWidth = (kGuiWidth - 18.0 - kLabCardStartX - kLabCardGap * 2.0) / 3.0;
+constexpr double kLabSourceRowY = 286.0;
+constexpr double kLabTargetRowY = 312.0;
+constexpr double kLabRateRowY = 338.0;
+constexpr double kLabRatioRowY = 364.0;
+constexpr double kLabIndexRowY = 390.0;
+constexpr double kLabFeedbackRowY = 416.0;
+constexpr double kLabClockRowY = 442.0;
+constexpr double kLabEnvelopeRowY = 468.0;
+constexpr double labCardX(uint32_t index)
+{
+    return kLabCardStartX + static_cast<double>(index) * (kLabCardWidth + kLabCardGap);
+}
 constexpr double kToolboxTop = 230.0;
 constexpr double kPatchPanelY = 516.0;
 constexpr double kPresetRowY = 552.0;
@@ -103,6 +139,25 @@ constexpr clap_id kModRatioParamId = 65;
 constexpr clap_id kModIndexParamId = 66;
 constexpr clap_id kModFeedbackParamId = 67;
 constexpr clap_id kModClockLockParamId = 68;
+constexpr clap_id kModAlgorithmParamId = 69;
+constexpr clap_id kModSource2ParamId = 70;
+constexpr clap_id kModRate2ParamId = 71;
+constexpr clap_id kModRatio2ParamId = 72;
+constexpr clap_id kModIndex2ParamId = 73;
+constexpr clap_id kModFeedback2ParamId = 74;
+constexpr clap_id kModClockLock2ParamId = 75;
+constexpr clap_id kModTarget2ParamId = 76;
+constexpr clap_id kModSource3ParamId = 77;
+constexpr clap_id kModTarget3ParamId = 78;
+constexpr clap_id kModRate3ParamId = 79;
+constexpr clap_id kModRatio3ParamId = 80;
+constexpr clap_id kModIndex3ParamId = 81;
+constexpr clap_id kModFeedback3ParamId = 82;
+constexpr clap_id kModClockLock3ParamId = 83;
+constexpr clap_id kModEnvelope1ParamId = 84;
+constexpr clap_id kModEnvelope2ParamId = 85;
+constexpr clap_id kModEnvelope3ParamId = 86;
+constexpr clap_id kModulationEnabledParamId = 87;
 
 enum class SourceInterpretation : uint32_t {
     Generated = 0u,
@@ -154,6 +209,68 @@ struct LegacyParamsV16 {
     uint32_t fieldCodecMode;
 };
 static_assert(sizeof(LegacyParamsV16) == 76u, "Unexpected version-16 parameter layout");
+
+struct LegacyParamsV17 {
+    float scanRate, texture, geometry, chaos, fold, evolve;
+    uint32_t channelScheme;
+    float channelSpread;
+    uint32_t codecMode;
+    float codecRate, bitDepth, codecDamage, carrierTune, drive, shred, resonance, gainDb;
+    uint32_t seed;
+    uint32_t fieldCodecMode;
+    uint32_t modSource;
+    uint32_t modTarget;
+    float modRate, modRatio, modIndex, modFeedback;
+    uint32_t modClockLock;
+};
+static_assert(sizeof(LegacyParamsV17) == 104u, "Unexpected version-17 parameter layout");
+
+struct LegacyParamsV18 {
+    float scanRate, texture, geometry, chaos, fold, evolve;
+    uint32_t channelScheme;
+    float channelSpread;
+    uint32_t codecMode;
+    float codecRate, bitDepth, codecDamage, carrierTune, drive, shred, resonance, gainDb;
+    uint32_t seed;
+    uint32_t fieldCodecMode;
+    uint32_t modSource;
+    uint32_t modTarget;
+    float modRate, modRatio, modIndex, modFeedback;
+    uint32_t modClockLock;
+    uint32_t modAlgorithm;
+    uint32_t modSource2;
+    float modRate2, modRatio2, modIndex2, modFeedback2;
+    uint32_t modClockLock2;
+};
+static_assert(sizeof(LegacyParamsV18) == 132u, "Unexpected version-18 parameter layout");
+
+struct LegacyParamsV19 {
+    float scanRate, texture, geometry, chaos, fold, evolve;
+    uint32_t channelScheme;
+    float channelSpread;
+    uint32_t codecMode;
+    float codecRate, bitDepth, codecDamage, carrierTune, drive, shred, resonance, gainDb;
+    uint32_t seed;
+    uint32_t fieldCodecMode;
+    uint32_t modSource;
+    uint32_t modTarget;
+    float modRate, modRatio, modIndex, modFeedback;
+    uint32_t modClockLock;
+    uint32_t modAlgorithm;
+    uint32_t modSource2;
+    float modRate2, modRatio2, modIndex2, modFeedback2;
+    uint32_t modClockLock2;
+    uint32_t modTarget2, modSource3, modTarget3;
+    float modRate3, modRatio3, modIndex3, modFeedback3;
+    uint32_t modClockLock3;
+};
+static_assert(sizeof(LegacyParamsV19) == 164u, "Unexpected version-19 parameter layout");
+
+struct LegacyParamsV20 {
+    LegacyParamsV19 previous;
+    uint32_t modEnvelope1, modEnvelope2, modEnvelope3;
+};
+static_assert(sizeof(LegacyParamsV20) == 176u, "Unexpected version-20 parameter layout");
 
 struct LegacySavedStateV10 {
     uint32_t version = 10u;
@@ -230,6 +347,66 @@ struct LegacySavedStateV16 {
 };
 static_assert(sizeof(LegacySavedStateV16) == 4208u, "Unexpected version-16 state layout");
 
+struct LegacySavedStateV17 {
+    uint32_t version = 17u;
+    uint32_t selectedPreset = 0u;
+    LegacyParamsV17 params {};
+    uint32_t sourceMode = 0u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = static_cast<uint32_t>(PerformanceMode::Free);
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV17) == 4236u, "Unexpected version-17 state layout");
+
+struct LegacySavedStateV18 {
+    uint32_t version = 18u;
+    uint32_t selectedPreset = 0u;
+    LegacyParamsV18 params {};
+    uint32_t sourceMode = 0u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = static_cast<uint32_t>(PerformanceMode::Free);
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV18) == 4264u, "Unexpected version-18 state layout");
+
+struct LegacySavedStateV19 {
+    uint32_t version = 19u;
+    uint32_t selectedPreset = 0u;
+    LegacyParamsV19 params {};
+    uint32_t sourceMode = 0u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = static_cast<uint32_t>(PerformanceMode::Free);
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV19) == 4296u, "Unexpected version-19 state layout");
+
+struct LegacySavedStateV20 {
+    uint32_t version = 20u;
+    uint32_t selectedPreset = 0u;
+    LegacyParamsV20 params {};
+    uint32_t sourceMode = 0u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = static_cast<uint32_t>(PerformanceMode::Free);
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV20) == 4308u, "Unexpected version-20 state layout");
+
 struct SavedState {
     uint32_t version = kStateVersion;
     uint32_t selectedPreset = 0u;
@@ -243,7 +420,7 @@ struct SavedState {
     float releaseMs = 850.0f;
     char sourcePath[kSourcePathCapacity] {};
 };
-static_assert(sizeof(SavedState) == 4236u, "Unexpected version-17 state layout");
+static_assert(sizeof(SavedState) == 4312u, "Unexpected version-21 state layout");
 
 struct LegacyParamsV8 {
     float rawRate, strata, compression, masks, metadata, colorBleed, byteSkew, channelSpread, fold;
@@ -311,6 +488,8 @@ struct Plugin {
     bool hasUndo = false;
     std::vector<std::vector<float>> output32;
     std::vector<float*> outputPtrs;
+    std::vector<float> modulationEnvelope;
+    std::vector<float> renderGain;
     std::atomic<float> outputPeak { 0.0f };
     std::array<std::array<float, kWaveHistory>, kOutputChannels> waveHistory {};
     std::atomic<uint32_t> waveWrite { 0u };
@@ -864,6 +1043,106 @@ s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV16& old)
     return result;
 }
 
+s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV17& old)
+{
+    s3g::PsdRawFieldParams result {};
+    result.scanRate = old.scanRate;
+    result.texture = old.texture;
+    result.geometry = old.geometry;
+    result.chaos = old.chaos;
+    result.fold = old.fold;
+    result.evolve = old.evolve;
+    result.channelScheme = static_cast<s3g::PsdRawFieldChannelScheme>(std::min(old.channelScheme, 4u));
+    result.channelSpread = old.channelSpread;
+    result.codecMode = static_cast<s3g::PsdRawFieldCodecMode>(std::min(old.codecMode, kCodecModeMax));
+    result.codecRate = old.codecRate;
+    result.bitDepth = old.bitDepth;
+    result.codecDamage = old.codecDamage;
+    result.carrierTune = old.carrierTune;
+    result.drive = old.drive;
+    result.shred = old.shred;
+    result.resonance = old.resonance;
+    result.gainDb = old.gainDb;
+    result.seed = old.seed;
+    result.fieldCodecMode = static_cast<s3g::PsdRawFieldCodecMode>(
+        std::min(old.fieldCodecMode, kCodecModeMax));
+    result.modSource = static_cast<s3g::PsdRawFieldModSource>(std::min(
+        old.modSource, s3g::kPsdRawFieldModSourceCount - 1u));
+    result.modTarget = static_cast<s3g::PsdRawFieldModTarget>(std::min(
+        old.modTarget, s3g::kPsdRawFieldModTargetCount - 1u));
+    result.modRate = old.modRate;
+    result.modRatio = old.modRatio;
+    result.modIndex = old.modIndex;
+    result.modFeedback = old.modFeedback;
+    result.modClockLock = std::min(old.modClockLock, 1u);
+    return result;
+}
+
+s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV18& old)
+{
+    LegacyParamsV17 firstOperator {};
+    std::memcpy(&firstOperator, &old, sizeof(firstOperator));
+    s3g::PsdRawFieldParams result = migrateLegacyParams(firstOperator);
+    result.modAlgorithm = static_cast<s3g::PsdRawFieldModAlgorithm>(std::min(
+        old.modAlgorithm, s3g::kPsdRawFieldModAlgorithmCount - 1u));
+    result.modSource2 = static_cast<s3g::PsdRawFieldModSource>(std::min(
+        old.modSource2, s3g::kPsdRawFieldModSourceCount - 1u));
+    result.modRate2 = old.modRate2;
+    result.modRatio2 = old.modRatio2;
+    result.modIndex2 = old.modIndex2;
+    result.modFeedback2 = old.modFeedback2;
+    result.modClockLock2 = std::min(old.modClockLock2, 1u);
+    switch (result.modAlgorithm) {
+    case s3g::PsdRawFieldModAlgorithm::Relay:
+        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Off;
+        break;
+    case s3g::PsdRawFieldModAlgorithm::Multiplex:
+        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Carrier;
+        break;
+    case s3g::PsdRawFieldModAlgorithm::CrossedMachines:
+        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
+        break;
+    case s3g::PsdRawFieldModAlgorithm::Regenerator:
+        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+        result.modTarget2 = old.modTarget == static_cast<uint32_t>(s3g::PsdRawFieldModTarget::Clock)
+            ? s3g::PsdRawFieldModTarget::Clock
+            : s3g::PsdRawFieldModTarget::Damage;
+        break;
+    case s3g::PsdRawFieldModAlgorithm::Transcode:
+        result.modTarget = s3g::PsdRawFieldModTarget::Off;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Data;
+        break;
+    case s3g::PsdRawFieldModAlgorithm::Broadcast:
+    default:
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Off;
+        break;
+    }
+    return result;
+}
+
+s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV19& old)
+{
+    s3g::PsdRawFieldParams result {};
+    static_assert(sizeof(old) < sizeof(result), "Version-19 parameters must be a prefix");
+    std::memcpy(&result, &old, sizeof(old));
+    result.modEnvelope1 = 0u;
+    result.modEnvelope2 = 0u;
+    result.modEnvelope3 = 0u;
+    return result;
+}
+
+s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV20& old)
+{
+    s3g::PsdRawFieldParams result {};
+    static_assert(sizeof(old) < sizeof(result), "Version-20 parameters must be a prefix");
+    std::memcpy(&result, &old, sizeof(old));
+    result.modulationEnabled = 1u;
+    return result;
+}
+
 s3g::PsdRawFieldParams migrateLegacyParams(const LegacyParamsV8& old)
 {
     s3g::PsdRawFieldParams result {};
@@ -930,6 +1209,11 @@ s3g::PsdRawFieldParams presetParams(uint32_t preset)
         result.modSource = s3g::PsdRawFieldModSource::Triangle;
         result.modTarget = s3g::PsdRawFieldModTarget::Clock;
         result.modRate = 0.12f; result.modRatio = 1.0f; result.modIndex = 0.44f; result.modFeedback = 0.08f;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Broadcast;
+        result.modSource2 = s3g::PsdRawFieldModSource::Sine; result.modTarget2 = s3g::PsdRawFieldModTarget::Carrier;
+        result.modRate2 = 0.56f; result.modRatio2 = 0.5f; result.modIndex2 = 0.22f; result.modFeedback2 = 0.06f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Gate; result.modTarget3 = s3g::PsdRawFieldModTarget::Damage;
+        result.modRate3 = 0.08f; result.modRatio3 = 1.0f; result.modIndex3 = 0.18f; result.modFeedback3 = 0.04f;
         result.drive = 0.76f; result.shred = 0.74f; result.resonance = 0.18f; result.gainDb = -12.5f;
         break;
     case 2u: // Codec Scar
@@ -937,8 +1221,14 @@ s3g::PsdRawFieldParams presetParams(uint32_t preset)
         result.fold = 0.54f; result.evolve = 0.16f; result.codecMode = s3g::PsdRawFieldCodecMode::CelpScramble;
         result.codecRate = 0.80f; result.bitDepth = 4.0f; result.codecDamage = 0.84f;
         result.modSource = s3g::PsdRawFieldModSource::Noise;
-        result.modTarget = s3g::PsdRawFieldModTarget::Damage;
-        result.modRate = 0.48f; result.modRatio = 0.5f; result.modIndex = 0.52f; result.modFeedback = 0.26f;
+        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+        result.modRate = 0.48f; result.modRatio = 0.5f; result.modIndex = 0.18f; result.modFeedback = 0.26f;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Regenerator;
+        result.modSource2 = s3g::PsdRawFieldModSource::Feedback;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Damage;
+        result.modRate2 = 0.35f; result.modRatio2 = 1.0f; result.modIndex2 = 0.58f; result.modFeedback2 = 0.84f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Sync; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
+        result.modRate3 = 0.16f; result.modRatio3 = 0.5f; result.modIndex3 = 0.36f; result.modFeedback3 = 0.18f;
         result.drive = 0.82f; result.shred = 0.58f; result.resonance = 0.30f; result.gainDb = -15.0f;
         break;
     case 3u: // Field Diverge
@@ -947,18 +1237,31 @@ s3g::PsdRawFieldParams presetParams(uint32_t preset)
         result.channelSpread = 0.96f; result.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
         result.codecRate = 0.54f; result.bitDepth = 5.0f; result.codecDamage = 0.52f;
         result.modSource = s3g::PsdRawFieldModSource::Field;
-        result.modTarget = s3g::PsdRawFieldModTarget::Deviation;
+        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
         result.modRate = 0.31f; result.modRatio = 1.0f; result.modIndex = 0.64f; result.modFeedback = 0.14f;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::CrossedMachines;
+        result.modSource2 = s3g::PsdRawFieldModSource::Apt;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
+        result.modRate2 = 0.22f; result.modRatio2 = 0.5f; result.modIndex2 = 0.48f; result.modFeedback2 = 0.10f;
+        result.modClockLock2 = 1u;
+        result.modSource3 = s3g::PsdRawFieldModSource::Noise; result.modTarget3 = s3g::PsdRawFieldModTarget::Deviation;
+        result.modRate3 = 0.40f; result.modRatio3 = 2.0f; result.modIndex3 = 0.28f; result.modFeedback3 = 0.12f;
         result.drive = 0.88f; result.shred = 0.78f; result.resonance = 0.42f; result.gainDb = -14.0f;
         break;
     case 4u: // Gated Breaks
         result.scanRate = 0.26f; result.texture = 0.52f; result.geometry = 1.0f; result.chaos = 0.80f;
         result.fold = 0.66f; result.evolve = 0.10f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Shuffled;
-        result.channelSpread = 0.86f; result.codecMode = s3g::PsdRawFieldCodecMode::DeltaPcm;
+        result.channelSpread = 0.86f; result.codecMode = s3g::PsdRawFieldCodecMode::ModemFsk;
         result.codecRate = 0.42f; result.bitDepth = 6.0f; result.codecDamage = 0.36f;
-        result.modSource = s3g::PsdRawFieldModSource::Gate;
-        result.modTarget = s3g::PsdRawFieldModTarget::Clock;
-        result.modRate = 0.27f; result.modRatio = 1.5f; result.modIndex = 0.70f; result.modFeedback = 0.10f;
+        result.modSource = s3g::PsdRawFieldModSource::Sine;
+        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+        result.modRate = 0.62f; result.modRatio = 1.0f; result.modIndex = 0.46f; result.modFeedback = 0.10f;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Relay;
+        result.modSource2 = s3g::PsdRawFieldModSource::Gate;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
+        result.modRate2 = 0.14f; result.modRatio2 = 0.5f; result.modIndex2 = 0.74f; result.modFeedback2 = 0.08f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Morse; result.modTarget3 = s3g::PsdRawFieldModTarget::Damage;
+        result.modRate3 = 0.20f; result.modRatio3 = 0.5f; result.modIndex3 = 0.38f; result.modFeedback3 = 0.12f;
         result.drive = 0.72f; result.shred = 0.70f; result.resonance = 0.26f; result.gainDb = -12.5f;
         break;
     case 5u: // Sync Glass
@@ -970,6 +1273,14 @@ s3g::PsdRawFieldParams presetParams(uint32_t preset)
         result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
         result.modRate = 0.44f; result.modRatio = 2.0f; result.modIndex = 0.38f; result.modFeedback = 0.12f;
         result.modClockLock = 1u;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Multiplex;
+        result.modSource2 = s3g::PsdRawFieldModSource::Hellschreiber;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Carrier;
+        result.modRate2 = 0.36f; result.modRatio2 = 1.5f; result.modIndex2 = 0.32f; result.modFeedback2 = 0.16f;
+        result.modClockLock2 = 1u;
+        result.modSource3 = s3g::PsdRawFieldModSource::Sync; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
+        result.modRate3 = 0.22f; result.modRatio3 = 0.75f; result.modIndex3 = 0.34f; result.modFeedback3 = 0.08f;
+        result.modClockLock3 = 1u;
         result.drive = 0.74f; result.shred = 0.92f; result.resonance = 0.30f; result.gainDb = -13.5f;
         break;
     case 6u: // Mu Dust
@@ -977,8 +1288,16 @@ s3g::PsdRawFieldParams presetParams(uint32_t preset)
         result.fold = 0.50f; result.evolve = 0.22f; result.codecMode = s3g::PsdRawFieldCodecMode::MuLaw;
         result.codecRate = 0.78f; result.bitDepth = 5.0f; result.codecDamage = 0.44f;
         result.modSource = s3g::PsdRawFieldModSource::Noise;
-        result.modTarget = s3g::PsdRawFieldModTarget::Data;
-        result.modRate = 0.39f; result.modRatio = 0.25f; result.modIndex = 0.34f; result.modFeedback = 0.38f;
+        result.modTarget = s3g::PsdRawFieldModTarget::Off;
+        result.modRate = 0.39f; result.modRatio = 0.25f; result.modIndex = 0.72f; result.modFeedback = 0.38f;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Transcode;
+        result.modSource2 = s3g::PsdRawFieldModSource::BaudotRtty;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Off;
+        result.modRate2 = 0.28f; result.modRatio2 = 1.0f; result.modIndex2 = 0.44f; result.modFeedback2 = 0.14f;
+        result.modClockLock2 = 1u;
+        result.modSource3 = s3g::PsdRawFieldModSource::HfFax; result.modTarget3 = s3g::PsdRawFieldModTarget::Data;
+        result.modRate3 = 0.24f; result.modRatio3 = 1.0f; result.modIndex3 = 0.52f; result.modFeedback3 = 0.10f;
+        result.modClockLock3 = 1u;
         result.drive = 0.66f; result.shred = 0.48f; result.resonance = 0.12f; result.gainDb = -12.0f;
         break;
     case 7u: // Delta Stairs
@@ -989,6 +1308,11 @@ s3g::PsdRawFieldParams presetParams(uint32_t preset)
         result.modSource = s3g::PsdRawFieldModSource::Triangle;
         result.modTarget = s3g::PsdRawFieldModTarget::Data;
         result.modRate = 0.22f; result.modRatio = 4.0f; result.modIndex = 0.46f; result.modFeedback = 0.18f;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Broadcast;
+        result.modSource2 = s3g::PsdRawFieldModSource::Triangle; result.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
+        result.modRate2 = 0.14f; result.modRatio2 = 0.5f; result.modIndex2 = 0.24f; result.modFeedback2 = 0.08f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Sync; result.modTarget3 = s3g::PsdRawFieldModTarget::Deviation;
+        result.modRate3 = 0.30f; result.modRatio3 = 2.0f; result.modIndex3 = 0.18f; result.modFeedback3 = 0.06f;
         result.drive = 0.82f; result.shred = 0.72f; result.resonance = 0.22f; result.gainDb = -13.0f;
         break;
     case 8u: // ADPCM Feedback
@@ -996,9 +1320,15 @@ s3g::PsdRawFieldParams presetParams(uint32_t preset)
         result.fold = 0.82f; result.evolve = 0.18f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Divergent;
         result.channelSpread = 0.94f; result.codecMode = s3g::PsdRawFieldCodecMode::Adpcm;
         result.codecRate = 0.48f; result.bitDepth = 4.0f; result.codecDamage = 0.80f;
-        result.modSource = s3g::PsdRawFieldModSource::Feedback;
-        result.modTarget = s3g::PsdRawFieldModTarget::Damage;
-        result.modRate = 0.52f; result.modRatio = 1.0f; result.modIndex = 0.58f; result.modFeedback = 0.80f;
+        result.modSource = s3g::PsdRawFieldModSource::Field;
+        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+        result.modRate = 0.52f; result.modRatio = 1.0f; result.modIndex = 0.16f; result.modFeedback = 0.32f;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Regenerator;
+        result.modSource2 = s3g::PsdRawFieldModSource::Feedback;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Damage;
+        result.modRate2 = 0.48f; result.modRatio2 = 1.0f; result.modIndex2 = 0.70f; result.modFeedback2 = 0.88f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Gate; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
+        result.modRate3 = 0.12f; result.modRatio3 = 0.5f; result.modIndex3 = 0.42f; result.modFeedback3 = 0.20f;
         result.drive = 0.90f; result.shred = 0.86f; result.resonance = 0.36f; result.gainDb = -15.0f;
         break;
     case 9u: // Morse Choir
@@ -1007,30 +1337,52 @@ s3g::PsdRawFieldParams presetParams(uint32_t preset)
         result.channelSpread = 0.95f; result.codecMode = s3g::PsdRawFieldCodecMode::CelpScramble;
         result.codecRate = 0.32f; result.bitDepth = 7.0f; result.codecDamage = 0.42f;
         result.modSource = s3g::PsdRawFieldModSource::Morse;
-        result.modTarget = s3g::PsdRawFieldModTarget::Data;
-        result.modRate = 0.18f; result.modRatio = 0.5f; result.modIndex = 0.40f; result.modFeedback = 0.16f;
+        result.modTarget = s3g::PsdRawFieldModTarget::Off;
+        result.modRate = 0.18f; result.modRatio = 0.5f; result.modIndex = 0.86f; result.modFeedback = 0.16f;
         result.modClockLock = 1u;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Transcode;
+        result.modSource2 = s3g::PsdRawFieldModSource::HfFax;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Off;
+        result.modRate2 = 0.26f; result.modRatio2 = 1.0f; result.modIndex2 = 0.46f; result.modFeedback2 = 0.12f;
+        result.modClockLock2 = 1u;
+        result.modSource3 = s3g::PsdRawFieldModSource::Sstv; result.modTarget3 = s3g::PsdRawFieldModTarget::Data;
+        result.modRate3 = 0.24f; result.modRatio3 = 1.0f; result.modIndex3 = 0.58f; result.modFeedback3 = 0.10f;
+        result.modClockLock3 = 1u;
         result.drive = 0.76f; result.shred = 0.50f; result.resonance = 0.55f; result.gainDb = -15.0f;
         break;
     case 10u: // Spark Embers
         result.scanRate = 0.08f; result.texture = 0.40f; result.geometry = 0.70f; result.chaos = 0.22f;
         result.fold = 0.92f; result.evolve = 0.05f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Parallel;
-        result.channelSpread = 0.46f; result.codecMode = s3g::PsdRawFieldCodecMode::MuLaw;
+        result.channelSpread = 0.46f; result.codecMode = s3g::PsdRawFieldCodecMode::SparkCw;
         result.codecRate = 0.86f; result.bitDepth = 6.0f; result.codecDamage = 0.20f;
-        result.modSource = s3g::PsdRawFieldModSource::SparkCw;
-        result.modTarget = s3g::PsdRawFieldModTarget::Data;
-        result.modRate = 0.14f; result.modRatio = 0.5f; result.modIndex = 0.48f; result.modFeedback = 0.34f;
+        result.modSource = s3g::PsdRawFieldModSource::Sine;
+        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+        result.modRate = 0.64f; result.modRatio = 2.0f; result.modIndex = 0.42f; result.modFeedback = 0.18f;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Relay;
+        result.modSource2 = s3g::PsdRawFieldModSource::SparkCw;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Damage;
+        result.modRate2 = 0.12f; result.modRatio2 = 0.5f; result.modIndex2 = 0.68f; result.modFeedback2 = 0.36f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Gate; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
+        result.modRate3 = 0.10f; result.modRatio3 = 0.5f; result.modIndex3 = 0.32f; result.modFeedback3 = 0.08f;
         result.drive = 0.78f; result.shred = 0.80f; result.resonance = 0.18f; result.gainDb = -12.0f;
         break;
     case 11u: // Wide Fax
         result.scanRate = 0.72f; result.texture = 1.0f; result.geometry = 0.48f; result.chaos = 0.88f;
         result.fold = 0.58f; result.evolve = 0.28f; result.channelScheme = s3g::PsdRawFieldChannelScheme::Shuffled;
-        result.channelSpread = 1.0f; result.codecMode = s3g::PsdRawFieldCodecMode::ALaw;
+        result.channelSpread = 1.0f; result.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
         result.codecRate = 0.56f; result.bitDepth = 5.0f; result.codecDamage = 0.62f;
         result.modSource = s3g::PsdRawFieldModSource::HfFax;
-        result.modTarget = s3g::PsdRawFieldModTarget::Data;
+        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
         result.modRate = 0.34f; result.modRatio = 2.0f; result.modIndex = 0.54f; result.modFeedback = 0.20f;
         result.modClockLock = 1u;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Multiplex;
+        result.modSource2 = s3g::PsdRawFieldModSource::Sstv;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Deviation;
+        result.modRate2 = 0.30f; result.modRatio2 = 1.0f; result.modIndex2 = 0.42f; result.modFeedback2 = 0.12f;
+        result.modClockLock2 = 1u;
+        result.modSource3 = s3g::PsdRawFieldModSource::HfFax; result.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
+        result.modRate3 = 0.20f; result.modRatio3 = 0.5f; result.modIndex3 = 0.36f; result.modFeedback3 = 0.08f;
+        result.modClockLock3 = 1u;
         result.drive = 0.84f; result.shred = 0.68f; result.resonance = 0.30f; result.gainDb = -14.0f;
         break;
     case kWaveTracePreset: // Wave Trace
@@ -1039,17 +1391,60 @@ s3g::PsdRawFieldParams presetParams(uint32_t preset)
         result.channelSpread = 0.92f; result.codecMode = s3g::PsdRawFieldCodecMode::RawPcm;
         result.codecRate = 0.0f; result.bitDepth = 12.0f; result.codecDamage = 0.0f;
         result.modSource = s3g::PsdRawFieldModSource::Field;
-        result.modTarget = s3g::PsdRawFieldModTarget::Data;
-        result.modRate = 0.30f; result.modRatio = 1.0f; result.modIndex = 0.14f; result.modFeedback = 0.06f;
+        result.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+        result.modRate = 0.30f; result.modRatio = 1.0f; result.modIndex = 0.12f; result.modFeedback = 0.06f;
+        result.modAlgorithm = s3g::PsdRawFieldModAlgorithm::CrossedMachines;
+        result.modSource2 = s3g::PsdRawFieldModSource::Sync;
+        result.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
+        result.modRate2 = 0.18f; result.modRatio2 = 0.5f; result.modIndex2 = 0.18f; result.modFeedback2 = 0.04f;
+        result.modSource3 = s3g::PsdRawFieldModSource::Field; result.modTarget3 = s3g::PsdRawFieldModTarget::Data;
+        result.modRate3 = 0.26f; result.modRatio3 = 1.0f; result.modIndex3 = 0.12f; result.modFeedback3 = 0.04f;
         result.drive = 0.20f; result.shred = 0.14f; result.resonance = 0.04f; result.gainDb = -8.0f;
         break;
     case 0u:
     default:
         break;
     }
+    if (preset != 0u) {
+        result.modEnvelope1 = result.modAlgorithm == s3g::PsdRawFieldModAlgorithm::CrossedMachines
+                || result.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Transcode
+            ? 1u : 0u;
+        result.modEnvelope2 = 1u;
+        result.modEnvelope3 = 1u;
+    }
     result.fieldCodecMode = result.codecMode;
     if (preset != 0u) result.seed = hash32(0x50434431u ^ (preset * 0x9e3779b9u));
     return result;
+}
+
+void copyModulationCircuit(s3g::PsdRawFieldParams& target,
+    const s3g::PsdRawFieldParams& source)
+{
+    target.modSource = source.modSource;
+    target.modTarget = source.modTarget;
+    target.modRate = source.modRate;
+    target.modRatio = source.modRatio;
+    target.modIndex = source.modIndex;
+    target.modFeedback = source.modFeedback;
+    target.modClockLock = source.modClockLock;
+    target.modAlgorithm = source.modAlgorithm;
+    target.modSource2 = source.modSource2;
+    target.modTarget2 = source.modTarget2;
+    target.modRate2 = source.modRate2;
+    target.modRatio2 = source.modRatio2;
+    target.modIndex2 = source.modIndex2;
+    target.modFeedback2 = source.modFeedback2;
+    target.modClockLock2 = source.modClockLock2;
+    target.modSource3 = source.modSource3;
+    target.modTarget3 = source.modTarget3;
+    target.modRate3 = source.modRate3;
+    target.modRatio3 = source.modRatio3;
+    target.modIndex3 = source.modIndex3;
+    target.modFeedback3 = source.modFeedback3;
+    target.modClockLock3 = source.modClockLock3;
+    target.modEnvelope1 = source.modEnvelope1;
+    target.modEnvelope2 = source.modEnvelope2;
+    target.modEnvelope3 = source.modEnvelope3;
 }
 
 bool paramsDiffer(const s3g::PsdRawFieldParams& a, const s3g::PsdRawFieldParams& b)
@@ -1125,6 +1520,23 @@ void applyPreset(Plugin& p, uint32_t preset)
     transitionPatch(p, presetParams(preset), preset, 0.90f, true);
 }
 
+void applyCuratedAlgorithm(Plugin& p, uint32_t algorithm)
+{
+    static constexpr uint32_t circuits[s3g::kPsdRawFieldModAlgorithmCount][2] = {
+        { 1u, 7u },   // Broadcast
+        { 4u, 10u },  // Relay
+        { 5u, 11u },  // Multiplex
+        { 3u, 12u },  // Crossed Machines
+        { 2u, 8u },   // Regenerator
+        { 6u, 9u }    // Transcode
+    };
+    algorithm = std::min<uint32_t>(algorithm, s3g::kPsdRawFieldModAlgorithmCount - 1u);
+    const uint32_t variation = hash32(p.params.seed ^ (algorithm * 0x9e3779b9u)) & 1u;
+    s3g::PsdRawFieldParams next = p.params;
+    copyModulationCircuit(next, presetParams(circuits[algorithm][variation]));
+    transitionPatch(p, next, kCustomPreset, 0.45f, true);
+}
+
 void randomizePatch(Plugin& p, uint32_t salt)
 {
     auto random01 = [&salt]() {
@@ -1148,20 +1560,41 @@ void randomizePatch(Plugin& p, uint32_t salt)
     next.bitDepth = 3.0f + std::floor(random01() * 8.0f);
     next.codecDamage = random01() * 0.82f;
     next.carrierTune = (random01() * 2.0f - 1.0f) * 12.0f;
-    next.modSource = static_cast<s3g::PsdRawFieldModSource>(std::min<uint32_t>(
-        static_cast<uint32_t>(random01() * static_cast<float>(s3g::kPsdRawFieldModSourceCount)),
-        s3g::kPsdRawFieldModSourceCount - 1u));
-    next.modTarget = static_cast<s3g::PsdRawFieldModTarget>(std::min<uint32_t>(
-        static_cast<uint32_t>(random01() * static_cast<float>(s3g::kPsdRawFieldModTargetCount)),
-        s3g::kPsdRawFieldModTargetCount - 1u));
-    next.modRate = random01();
-    next.modRatio = std::pow(2.0f, -3.0f + random01() * 7.0f);
-    next.modIndex = random01() * 0.86f;
-    next.modFeedback = random01() * 0.72f;
-    next.modClockLock = random01() < 0.42f ? 1u : 0u;
-    next.drive = 0.48f + random01() * 0.52f;
-    next.shred = 0.32f + random01() * 0.68f;
-    next.resonance = 0.04f + random01() * 0.44f;
+    const uint32_t circuitPreset = 1u + std::min<uint32_t>(11u,
+        static_cast<uint32_t>(random01() * 12.0f));
+    const s3g::PsdRawFieldParams recipe = presetParams(circuitPreset);
+    copyModulationCircuit(next, recipe);
+    next.codecMode = recipe.codecMode;
+    next.codecRate = std::clamp(recipe.codecRate + (random01() * 2.0f - 1.0f) * 0.10f, 0.0f, 1.0f);
+    next.bitDepth = std::clamp(std::round(recipe.bitDepth + (random01() * 2.0f - 1.0f) * 2.0f), 2.0f, 16.0f);
+    next.codecDamage = std::clamp(recipe.codecDamage + (random01() * 2.0f - 1.0f) * 0.15f, 0.0f, 0.82f);
+    next.carrierTune = std::clamp(recipe.carrierTune + (random01() * 2.0f - 1.0f) * 4.0f, -12.0f, 12.0f);
+    if (!p.rawSource) next.fieldCodecMode = next.codecMode;
+    auto varyRate = [&random01](float value) {
+        return std::clamp(value + (random01() * 2.0f - 1.0f) * 0.055f, 0.0f, 1.0f);
+    };
+    auto varyRatio = [&random01](float value) {
+        return std::clamp(value * std::pow(2.0f, (random01() * 2.0f - 1.0f) * 0.22f),
+            0.125f, 16.0f);
+    };
+    auto varyIndex = [&random01](float value) {
+        return std::clamp(value + (random01() * 2.0f - 1.0f) * 0.08f, 0.08f, 0.78f);
+    };
+    next.modRate = varyRate(next.modRate);
+    next.modRate2 = varyRate(next.modRate2);
+    next.modRate3 = varyRate(next.modRate3);
+    next.modRatio = varyRatio(next.modRatio);
+    next.modRatio2 = varyRatio(next.modRatio2);
+    next.modRatio3 = varyRatio(next.modRatio3);
+    next.modIndex = varyIndex(next.modIndex);
+    next.modIndex2 = varyIndex(next.modIndex2);
+    next.modIndex3 = varyIndex(next.modIndex3);
+    next.modFeedback = std::clamp(next.modFeedback + (random01() * 2.0f - 1.0f) * 0.06f, 0.0f, 0.72f);
+    next.modFeedback2 = std::clamp(next.modFeedback2 + (random01() * 2.0f - 1.0f) * 0.06f, 0.0f, 0.72f);
+    next.modFeedback3 = std::clamp(next.modFeedback3 + (random01() * 2.0f - 1.0f) * 0.06f, 0.0f, 0.72f);
+    next.drive = std::clamp(recipe.drive + (random01() * 2.0f - 1.0f) * 0.14f, 0.30f, 1.0f);
+    next.shred = std::clamp(recipe.shred + (random01() * 2.0f - 1.0f) * 0.14f, 0.20f, 1.0f);
+    next.resonance = std::clamp(recipe.resonance + (random01() * 2.0f - 1.0f) * 0.10f, 0.0f, 0.58f);
     transitionPatch(p, next, kCustomPreset, 0.90f, true);
 }
 
@@ -1183,20 +1616,23 @@ void mutatePatch(Plugin& p, uint32_t salt)
     next.codecRate = std::clamp(next.codecRate + signedRandom() * 0.09f, 0.0f, 1.0f);
     next.codecDamage = std::clamp(next.codecDamage + signedRandom() * 0.10f, 0.0f, 1.0f);
     next.carrierTune = std::clamp(next.carrierTune + signedRandom() * 2.0f, -24.0f, 24.0f);
-    next.modRate = std::clamp(next.modRate + signedRandom() * 0.08f, 0.0f, 1.0f);
-    next.modRatio = std::clamp(next.modRatio * std::pow(2.0f, signedRandom() * 0.5f), 0.125f, 16.0f);
-    next.modIndex = std::clamp(next.modIndex + signedRandom() * 0.10f, 0.0f, 1.0f);
-    next.modFeedback = std::clamp(next.modFeedback + signedRandom() * 0.08f, 0.0f, 0.98f);
-    if (random01() < 0.10f) next.modClockLock = 1u - next.modClockLock;
-    if (random01() < 0.10f) {
-        next.modSource = static_cast<s3g::PsdRawFieldModSource>(
-            static_cast<uint32_t>(random01() * static_cast<float>(s3g::kPsdRawFieldModSourceCount))
-            % s3g::kPsdRawFieldModSourceCount);
-    }
-    if (random01() < 0.10f) {
-        next.modTarget = static_cast<s3g::PsdRawFieldModTarget>(
-            static_cast<uint32_t>(random01() * static_cast<float>(s3g::kPsdRawFieldModTargetCount))
-            % s3g::kPsdRawFieldModTargetCount);
+    if (random01() < 0.08f) {
+        const uint32_t circuitPreset = 1u + std::min<uint32_t>(11u,
+            static_cast<uint32_t>(random01() * 12.0f));
+        copyModulationCircuit(next, presetParams(circuitPreset));
+    } else {
+        next.modRate = std::clamp(next.modRate + signedRandom() * 0.055f, 0.0f, 1.0f);
+        next.modRatio = std::clamp(next.modRatio * std::pow(2.0f, signedRandom() * 0.25f), 0.125f, 16.0f);
+        next.modIndex = std::clamp(next.modIndex + signedRandom() * 0.07f, 0.06f, 0.84f);
+        next.modFeedback = std::clamp(next.modFeedback + signedRandom() * 0.055f, 0.0f, 0.78f);
+        next.modRate2 = std::clamp(next.modRate2 + signedRandom() * 0.055f, 0.0f, 1.0f);
+        next.modRatio2 = std::clamp(next.modRatio2 * std::pow(2.0f, signedRandom() * 0.25f), 0.125f, 16.0f);
+        next.modIndex2 = std::clamp(next.modIndex2 + signedRandom() * 0.07f, 0.06f, 0.84f);
+        next.modFeedback2 = std::clamp(next.modFeedback2 + signedRandom() * 0.055f, 0.0f, 0.78f);
+        next.modRate3 = std::clamp(next.modRate3 + signedRandom() * 0.055f, 0.0f, 1.0f);
+        next.modRatio3 = std::clamp(next.modRatio3 * std::pow(2.0f, signedRandom() * 0.25f), 0.125f, 16.0f);
+        next.modIndex3 = std::clamp(next.modIndex3 + signedRandom() * 0.07f, 0.06f, 0.84f);
+        next.modFeedback3 = std::clamp(next.modFeedback3 + signedRandom() * 0.055f, 0.0f, 0.78f);
     }
     next.drive = std::clamp(next.drive + signedRandom() * 0.07f, 0.0f, 1.0f);
     next.shred = std::clamp(next.shred + signedRandom() * 0.08f, 0.0f, 1.0f);
@@ -1270,6 +1706,7 @@ void applyParam(Plugin& p, clap_id id, double value)
     const s3g::PsdRawFieldParams before = p.params;
     bool changed = true;
     bool structural = false;
+    float transitionSeconds = 0.45f;
     switch (id) {
     case kScanRateParamId: p.params.scanRate = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kTextureParamId: p.params.texture = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
@@ -1308,6 +1745,49 @@ void applyParam(Plugin& p, clap_id id, double value)
     case kModIndexParamId: p.params.modIndex = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kModFeedbackParamId: p.params.modFeedback = static_cast<float>(std::clamp(value, 0.0, 0.98)); break;
     case kModClockLockParamId: p.params.modClockLock = value >= 0.5 ? 1u : 0u; break;
+    case kModAlgorithmParamId:
+        p.params.modAlgorithm = static_cast<s3g::PsdRawFieldModAlgorithm>(static_cast<uint32_t>(
+            std::clamp(std::round(value), 0.0,
+                static_cast<double>(s3g::kPsdRawFieldModAlgorithmCount - 1u))));
+        structural = true;
+        break;
+    case kModSource2ParamId:
+        p.params.modSource2 = static_cast<s3g::PsdRawFieldModSource>(static_cast<uint32_t>(
+            std::clamp(std::round(value), 0.0,
+                static_cast<double>(s3g::kPsdRawFieldModSourceCount - 1u))));
+        structural = true;
+        break;
+    case kModRate2ParamId: p.params.modRate2 = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kModRatio2ParamId: p.params.modRatio2 = static_cast<float>(std::clamp(value, 0.125, 16.0)); break;
+    case kModIndex2ParamId: p.params.modIndex2 = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kModFeedback2ParamId: p.params.modFeedback2 = static_cast<float>(std::clamp(value, 0.0, 0.98)); break;
+    case kModClockLock2ParamId: p.params.modClockLock2 = value >= 0.5 ? 1u : 0u; break;
+    case kModTarget2ParamId:
+        p.params.modTarget2 = static_cast<s3g::PsdRawFieldModTarget>(static_cast<uint32_t>(
+            std::clamp(std::round(value), 0.0, static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u))));
+        break;
+    case kModSource3ParamId:
+        p.params.modSource3 = static_cast<s3g::PsdRawFieldModSource>(static_cast<uint32_t>(
+            std::clamp(std::round(value), 0.0, static_cast<double>(s3g::kPsdRawFieldModSourceCount - 1u))));
+        structural = true;
+        break;
+    case kModTarget3ParamId:
+        p.params.modTarget3 = static_cast<s3g::PsdRawFieldModTarget>(static_cast<uint32_t>(
+            std::clamp(std::round(value), 0.0, static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u))));
+        break;
+    case kModRate3ParamId: p.params.modRate3 = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kModRatio3ParamId: p.params.modRatio3 = static_cast<float>(std::clamp(value, 0.125, 16.0)); break;
+    case kModIndex3ParamId: p.params.modIndex3 = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
+    case kModFeedback3ParamId: p.params.modFeedback3 = static_cast<float>(std::clamp(value, 0.0, 0.98)); break;
+    case kModClockLock3ParamId: p.params.modClockLock3 = value >= 0.5 ? 1u : 0u; break;
+    case kModEnvelope1ParamId: p.params.modEnvelope1 = value >= 0.5 ? 1u : 0u; break;
+    case kModEnvelope2ParamId: p.params.modEnvelope2 = value >= 0.5 ? 1u : 0u; break;
+    case kModEnvelope3ParamId: p.params.modEnvelope3 = value >= 0.5 ? 1u : 0u; break;
+    case kModulationEnabledParamId:
+        p.params.modulationEnabled = value >= 0.5 ? 1u : 0u;
+        structural = true;
+        transitionSeconds = 0.08f;
+        break;
     case kDriveParamId: p.params.drive = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kShredParamId: p.params.shred = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
     case kResonanceParamId: p.params.resonance = static_cast<float>(std::clamp(value, 0.0, 1.0)); break;
@@ -1343,7 +1823,7 @@ void applyParam(Plugin& p, clap_id id, double value)
     }
     if (changed && paramsDiffer(before, p.params)) {
         p.selectedPreset = kCustomPreset;
-        if (structural) p.field.transitionTo(p.params, 0.45f);
+        if (structural) p.field.transitionTo(p.params, transitionSeconds);
         else p.field.setParams(p.params);
     }
 }
@@ -1367,6 +1847,8 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     p->maxFrames = std::max<uint32_t>(1u, maxFrames);
     p->output32.assign(kOutputChannels, std::vector<float>(p->maxFrames, 0.0f));
     p->outputPtrs.assign(kOutputChannels, nullptr);
+    p->modulationEnvelope.assign(p->maxFrames, 1.0f);
+    p->renderGain.assign(p->maxFrames, 1.0f);
     for (uint32_t ch = 0; ch < kOutputChannels; ++ch) p->outputPtrs[ch] = p->output32[ch].data();
     p->field.setParams(p->params);
     p->field.setSource(p->rawSource);
@@ -1459,14 +1941,6 @@ void renderSegment(Plugin& p, uint32_t offset, uint32_t frames)
     const bool midiMode = p.performanceMode == PerformanceMode::Midi;
     const bool voiceActive = !midiMode || p.envelopeGate || p.envelopeStage != EnvelopeStage::Idle;
     const bool transportActive = playing || p.runGain > 0.0f;
-    if (voiceActive && transportActive) {
-        p.field.process(p.outputPtrs.data(), kOutputChannels, frames);
-    } else {
-        for (uint32_t ch = 0u; ch < kOutputChannels; ++ch) {
-            std::fill(p.output32[ch].begin() + offset, p.output32[ch].begin() + offset + frames, 0.0f);
-        }
-    }
-
     const float runStep = 1.0f / static_cast<float>(std::max(1.0, p.sampleRate * 0.020));
     const float attack = envelopeCoefficient(p.attackMs, p.sampleRate);
     const float decay = envelopeCoefficient(p.decayMs, p.sampleRate);
@@ -1482,8 +1956,23 @@ void renderSegment(Plugin& p, uint32_t offset, uint32_t frames)
             p.runGain = std::max(0.0f, p.runGain - runStep);
         }
         const float envelope = midiMode ? processMidiEnvelope(p, attack, decay, release) : 1.0f;
-        const float gain = runGate * (midiMode ? envelope * velocityGain : 1.0f);
-        for (uint32_t ch = 0u; ch < kOutputChannels; ++ch) p.output32[ch][offset + i] *= gain;
+        p.modulationEnvelope[offset + i] = std::clamp(envelope, 0.0f, 1.0f);
+        p.renderGain[offset + i] = runGate * (midiMode ? envelope * velocityGain : 1.0f);
+    }
+
+    if (voiceActive && transportActive) {
+        p.field.process(p.outputPtrs.data(), kOutputChannels, frames,
+            midiMode ? p.modulationEnvelope.data() + offset : nullptr);
+        for (uint32_t i = 0u; i < frames; ++i) {
+            const float gain = p.renderGain[offset + i];
+            for (uint32_t ch = 0u; ch < kOutputChannels; ++ch) {
+                p.output32[ch][offset + i] *= gain;
+            }
+        }
+    } else {
+        for (uint32_t ch = 0u; ch < kOutputChannels; ++ch) {
+            std::fill(p.output32[ch].begin() + offset, p.output32[ch].begin() + offset + frames, 0.0f);
+        }
     }
     p.displayEnvelope.store(midiMode ? p.envelopeValue : 1.0f, std::memory_order_relaxed);
     p.displayEnvelopeStage.store(static_cast<uint32_t>(
@@ -1587,13 +2076,32 @@ constexpr ParamDef kParamDefs[] {
     { kBitDepthParamId, "Bit Depth", 2.0, 16.0, 8.0 },
     { kCodecDamageParamId, "Codec Damage", 0.0, 1.0, 0.28 },
     { kCarrierTuneParamId, "Carrier Tune", -24.0, 24.0, 0.0 },
-    { kModSourceParamId, "Modulator Source", 0.0, static_cast<double>(s3g::kPsdRawFieldModSourceCount - 1u), 0.0 },
-    { kModTargetParamId, "Modulator Target", 0.0, static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u), 0.0 },
-    { kModRateParamId, "Modulator Rate", 0.0, 1.0, 0.35 },
-    { kModRatioParamId, "Modulator Ratio", 0.125, 16.0, 1.0 },
-    { kModIndexParamId, "Modulator Index", 0.0, 1.0, 0.0 },
-    { kModFeedbackParamId, "Modulator Feedback", 0.0, 0.98, 0.0 },
-    { kModClockLockParamId, "Modulator Clock", 0.0, 1.0, 0.0 },
+    { kModSourceParamId, "M1 Source", 0.0, static_cast<double>(s3g::kPsdRawFieldModSourceCount - 1u), 0.0 },
+    { kModTargetParamId, "M1 Destination", 0.0, static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u), 0.0 },
+    { kModRateParamId, "M1 Rate", 0.0, 1.0, 0.35 },
+    { kModRatioParamId, "M1 Ratio", 0.125, 16.0, 1.0 },
+    { kModIndexParamId, "M1 Index", 0.0, 1.0, 0.0 },
+    { kModFeedbackParamId, "M1 Feedback", 0.0, 0.98, 0.0 },
+    { kModClockLockParamId, "M1 Clock", 0.0, 1.0, 0.0 },
+    { kModAlgorithmParamId, "Modulation Algorithm", 0.0, static_cast<double>(s3g::kPsdRawFieldModAlgorithmCount - 1u), 0.0 },
+    { kModSource2ParamId, "M2 Source", 0.0, static_cast<double>(s3g::kPsdRawFieldModSourceCount - 1u), 0.0 },
+    { kModRate2ParamId, "M2 Rate", 0.0, 1.0, 0.35 },
+    { kModRatio2ParamId, "M2 Ratio", 0.125, 16.0, 1.0 },
+    { kModIndex2ParamId, "M2 Index", 0.0, 1.0, 0.0 },
+    { kModFeedback2ParamId, "M2 Feedback", 0.0, 0.98, 0.0 },
+    { kModClockLock2ParamId, "M2 Clock", 0.0, 1.0, 0.0 },
+    { kModTarget2ParamId, "M2 Destination", 0.0, static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u), 5.0 },
+    { kModSource3ParamId, "M3 Source", 0.0, static_cast<double>(s3g::kPsdRawFieldModSourceCount - 1u), 0.0 },
+    { kModTarget3ParamId, "M3 Destination", 0.0, static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u), 5.0 },
+    { kModRate3ParamId, "M3 Rate", 0.0, 1.0, 0.35 },
+    { kModRatio3ParamId, "M3 Ratio", 0.125, 16.0, 1.0 },
+    { kModIndex3ParamId, "M3 Index", 0.0, 1.0, 0.0 },
+    { kModFeedback3ParamId, "M3 Feedback", 0.0, 0.98, 0.0 },
+    { kModClockLock3ParamId, "M3 Clock", 0.0, 1.0, 0.0 },
+    { kModEnvelope1ParamId, "M1 Envelope", 0.0, 1.0, 0.0 },
+    { kModEnvelope2ParamId, "M2 Envelope", 0.0, 1.0, 0.0 },
+    { kModEnvelope3ParamId, "M3 Envelope", 0.0, 1.0, 0.0 },
+    { kModulationEnabledParamId, "Modulation Enabled", 0.0, 1.0, 1.0 },
     { kDriveParamId, "Drive", 0.0, 1.0, 0.68 },
     { kShredParamId, "Shred", 0.0, 1.0, 0.58 },
     { kResonanceParamId, "Resonance", 0.0, 1.0, 0.18 },
@@ -1624,7 +2132,12 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
         || def.id == kMutateParamId || def.id == kUndoParamId || def.id == kSeedParamId
         || def.id == kRunParamId || def.id == kPerformanceModeParamId
         || def.id == kModSourceParamId || def.id == kModTargetParamId
-        || def.id == kModClockLockParamId) {
+        || def.id == kModClockLockParamId || def.id == kModAlgorithmParamId
+        || def.id == kModSource2ParamId || def.id == kModClockLock2ParamId
+        || def.id == kModTarget2ParamId || def.id == kModSource3ParamId
+        || def.id == kModTarget3ParamId || def.id == kModClockLock3ParamId
+        || def.id == kModEnvelope1ParamId || def.id == kModEnvelope2ParamId
+        || def.id == kModEnvelope3ParamId || def.id == kModulationEnabledParamId) {
         info->flags |= CLAP_PARAM_IS_STEPPED;
     }
     std::strncpy(info->name, def.name, sizeof(info->name));
@@ -1664,6 +2177,25 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kModIndexParamId: *value = p.modIndex; return true;
     case kModFeedbackParamId: *value = p.modFeedback; return true;
     case kModClockLockParamId: *value = p.modClockLock; return true;
+    case kModAlgorithmParamId: *value = static_cast<uint32_t>(p.modAlgorithm); return true;
+    case kModSource2ParamId: *value = static_cast<uint32_t>(p.modSource2); return true;
+    case kModRate2ParamId: *value = p.modRate2; return true;
+    case kModRatio2ParamId: *value = p.modRatio2; return true;
+    case kModIndex2ParamId: *value = p.modIndex2; return true;
+    case kModFeedback2ParamId: *value = p.modFeedback2; return true;
+    case kModClockLock2ParamId: *value = p.modClockLock2; return true;
+    case kModTarget2ParamId: *value = static_cast<uint32_t>(p.modTarget2); return true;
+    case kModSource3ParamId: *value = static_cast<uint32_t>(p.modSource3); return true;
+    case kModTarget3ParamId: *value = static_cast<uint32_t>(p.modTarget3); return true;
+    case kModRate3ParamId: *value = p.modRate3; return true;
+    case kModRatio3ParamId: *value = p.modRatio3; return true;
+    case kModIndex3ParamId: *value = p.modIndex3; return true;
+    case kModFeedback3ParamId: *value = p.modFeedback3; return true;
+    case kModClockLock3ParamId: *value = p.modClockLock3; return true;
+    case kModEnvelope1ParamId: *value = p.modEnvelope1; return true;
+    case kModEnvelope2ParamId: *value = p.modEnvelope2; return true;
+    case kModEnvelope3ParamId: *value = p.modEnvelope3; return true;
+    case kModulationEnabledParamId: *value = p.modulationEnabled; return true;
     case kDriveParamId: *value = p.drive; return true;
     case kShredParamId: *value = p.shred; return true;
     case kResonanceParamId: *value = p.resonance; return true;
@@ -1743,12 +2275,53 @@ const char* modTargetName(uint32_t target)
     case s3g::PsdRawFieldModTarget::Clock: return "CLOCK";
     case s3g::PsdRawFieldModTarget::Data: return "DATA";
     case s3g::PsdRawFieldModTarget::Damage: return "DAMAGE";
+    case s3g::PsdRawFieldModTarget::Off: return "OFF";
     case s3g::PsdRawFieldModTarget::Carrier:
     default: return "CARRIER";
     }
 }
 
+const char* modAlgorithmName(uint32_t algorithm)
+{
+    switch (static_cast<s3g::PsdRawFieldModAlgorithm>(algorithm)) {
+    case s3g::PsdRawFieldModAlgorithm::Relay: return "RELAY";
+    case s3g::PsdRawFieldModAlgorithm::Multiplex: return "MULTIPLEX";
+    case s3g::PsdRawFieldModAlgorithm::CrossedMachines: return "CROSSED MACHINES";
+    case s3g::PsdRawFieldModAlgorithm::Regenerator: return "REGENERATOR";
+    case s3g::PsdRawFieldModAlgorithm::Transcode: return "TRANSCODE";
+    case s3g::PsdRawFieldModAlgorithm::Broadcast:
+    default: return "BROADCAST";
+    }
+}
+
+const char* modAlgorithmDiagram(uint32_t algorithm)
+{
+    switch (static_cast<s3g::PsdRawFieldModAlgorithm>(algorithm)) {
+    case s3g::PsdRawFieldModAlgorithm::Relay: return "M3  →  M2  →  M1  →  DESTS";
+    case s3g::PsdRawFieldModAlgorithm::Multiplex: return "M1 / M2 / M3 TIME-SLOTS  →  DESTS";
+    case s3g::PsdRawFieldModAlgorithm::CrossedMachines: return "M1  ↻  M2  ↻  M3  →  DESTS";
+    case s3g::PsdRawFieldModAlgorithm::Regenerator: return "CODEC  ↺  M3  →  M2  →  M1";
+    case s3g::PsdRawFieldModAlgorithm::Transcode: return "DATA  →  M1  →  M2  →  M3  →  CODEC";
+    case s3g::PsdRawFieldModAlgorithm::Broadcast:
+    default: return "M1  |  M2  |  M3  →  DESTS";
+    }
+}
+
+const char* modTargetShortName(s3g::PsdRawFieldModTarget target)
+{
+    switch (target) {
+    case s3g::PsdRawFieldModTarget::Carrier: return "CARR";
+    case s3g::PsdRawFieldModTarget::Deviation: return "DEV";
+    case s3g::PsdRawFieldModTarget::Clock: return "CLK";
+    case s3g::PsdRawFieldModTarget::Data: return "DATA";
+    case s3g::PsdRawFieldModTarget::Damage: return "DMG";
+    case s3g::PsdRawFieldModTarget::Off:
+    default: return "OFF";
+    }
+}
+
 const char* modClockName(uint32_t lock) { return lock != 0u ? "LOCK" : "FREE"; }
+const char* modEnvelopeName(uint32_t follow) { return follow != 0u ? "ADSR" : "FIXED"; }
 
 const char* performanceModeName(uint32_t mode) { return mode == 1u ? "MIDI" : "FREE"; }
 
@@ -1887,19 +2460,24 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value, ch
             : static_cast<uint32_t>(s3g::PsdRawFieldCodecMode::Apt);
         std::snprintf(display, size, "%s", carrierTuneText(value, mode).c_str());
     }
-    else if (id == kModSourceParamId) std::snprintf(display, size, "%s", modSourceName(static_cast<uint32_t>(
+    else if (id == kModSourceParamId || id == kModSource2ParamId || id == kModSource3ParamId) std::snprintf(display, size, "%s", modSourceName(static_cast<uint32_t>(
         std::clamp(std::round(value), 0.0, static_cast<double>(s3g::kPsdRawFieldModSourceCount - 1u)))));
-    else if (id == kModTargetParamId) std::snprintf(display, size, "%s", modTargetName(static_cast<uint32_t>(
+    else if (id == kModAlgorithmParamId) std::snprintf(display, size, "%s", modAlgorithmName(static_cast<uint32_t>(
+        std::clamp(std::round(value), 0.0, static_cast<double>(s3g::kPsdRawFieldModAlgorithmCount - 1u)))));
+    else if (id == kModTargetParamId || id == kModTarget2ParamId || id == kModTarget3ParamId) std::snprintf(display, size, "%s", modTargetName(static_cast<uint32_t>(
         std::clamp(std::round(value), 0.0, static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u)))));
-    else if (id == kModClockLockParamId) std::snprintf(display, size, "%s", modClockName(
+    else if (id == kModClockLockParamId || id == kModClockLock2ParamId || id == kModClockLock3ParamId) std::snprintf(display, size, "%s", modClockName(
         static_cast<uint32_t>(std::clamp(std::round(value), 0.0, 1.0))));
-    else if (id == kModRateParamId) std::snprintf(display, size, "%s", rateText(modulatorRateHz(value), "Hz").c_str());
-    else if (id == kModRatioParamId) std::snprintf(display, size, "%.3fx", value);
-    else if (id == kModIndexParamId) std::snprintf(display, size, "%.1f%%", value * 100.0);
-    else if (id == kModFeedbackParamId) std::snprintf(display, size, "%.1f%%", value * (100.0 / 0.98));
+    else if (id == kModEnvelope1ParamId || id == kModEnvelope2ParamId || id == kModEnvelope3ParamId) std::snprintf(display, size, "%s", modEnvelopeName(
+        static_cast<uint32_t>(std::clamp(std::round(value), 0.0, 1.0))));
+    else if (id == kModRateParamId || id == kModRate2ParamId || id == kModRate3ParamId) std::snprintf(display, size, "%s", rateText(modulatorRateHz(value), "Hz").c_str());
+    else if (id == kModRatioParamId || id == kModRatio2ParamId || id == kModRatio3ParamId) std::snprintf(display, size, "%.3fx", value);
+    else if (id == kModIndexParamId || id == kModIndex2ParamId || id == kModIndex3ParamId) std::snprintf(display, size, "%.1f%%", value * 100.0);
+    else if (id == kModFeedbackParamId || id == kModFeedback2ParamId || id == kModFeedback3ParamId) std::snprintf(display, size, "%.1f%%", value * (100.0 / 0.98));
     else if (id == kEvolveParamId) std::snprintf(display, size, "%s", evolveText(value).c_str());
     else if (id == kGainParamId) std::snprintf(display, size, "%+.1f dB", value);
     else if (id == kRunParamId) std::snprintf(display, size, "%s", value >= 0.5 ? "PLAY" : "STOP");
+    else if (id == kModulationEnabledParamId) std::snprintf(display, size, "%s", value >= 0.5 ? "MOD ON" : "MOD OFF");
     else if (id == kPerformanceModeParamId) std::snprintf(display, size, "%s", performanceModeName(
         static_cast<uint32_t>(std::clamp(std::round(value), 0.0, 1.0))));
     else if (id == kAttackParamId || id == kDecayParamId || id == kReleaseParamId) {
@@ -1926,6 +2504,10 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id, const char* disp
         if (std::strcmp(display, "PLAY") == 0 || std::strcmp(display, "RUN") == 0
             || std::strcmp(display, "ON") == 0) *value = 1.0;
         else if (std::strcmp(display, "STOP") == 0 || std::strcmp(display, "OFF") == 0) *value = 0.0;
+        else *value = numeric >= 0.5 ? 1.0 : 0.0;
+    } else if (id == kModulationEnabledParamId) {
+        if (std::strcmp(display, "MOD ON") == 0 || std::strcmp(display, "ON") == 0) *value = 1.0;
+        else if (std::strcmp(display, "MOD OFF") == 0 || std::strcmp(display, "OFF") == 0) *value = 0.0;
         else *value = numeric >= 0.5 ? 1.0 : 0.0;
     } else if (id == kPerformanceModeParamId) {
         if (std::strcmp(display, "MIDI") == 0) *value = 1.0;
@@ -1954,29 +2536,38 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id, const char* disp
         } else {
             *value = std::clamp(numeric, -24.0, 24.0);
         }
-    } else if (id == kModSourceParamId) {
+    } else if (id == kModSourceParamId || id == kModSource2ParamId || id == kModSource3ParamId) {
         for (uint32_t source = 0u; source < s3g::kPsdRawFieldModSourceCount; ++source) {
             if (std::strcmp(display, modSourceName(source)) == 0) { *value = source; return true; }
         }
         return false;
-    } else if (id == kModTargetParamId) {
+    } else if (id == kModAlgorithmParamId) {
+        for (uint32_t algorithm = 0u; algorithm < s3g::kPsdRawFieldModAlgorithmCount; ++algorithm) {
+            if (std::strcmp(display, modAlgorithmName(algorithm)) == 0) { *value = algorithm; return true; }
+        }
+        return false;
+    } else if (id == kModTargetParamId || id == kModTarget2ParamId || id == kModTarget3ParamId) {
         for (uint32_t target = 0u; target < s3g::kPsdRawFieldModTargetCount; ++target) {
             if (std::strcmp(display, modTargetName(target)) == 0) { *value = target; return true; }
         }
         return false;
-    } else if (id == kModClockLockParamId) {
+    } else if (id == kModClockLockParamId || id == kModClockLock2ParamId || id == kModClockLock3ParamId) {
         if (std::strcmp(display, "LOCK") == 0) *value = 1.0;
         else if (std::strcmp(display, "FREE") == 0) *value = 0.0;
         else *value = numeric >= 0.5 ? 1.0 : 0.0;
-    } else if (id == kModRateParamId) {
+    } else if (id == kModEnvelope1ParamId || id == kModEnvelope2ParamId || id == kModEnvelope3ParamId) {
+        if (std::strcmp(display, "ADSR") == 0 || std::strcmp(display, "FOLLOW") == 0) *value = 1.0;
+        else if (std::strcmp(display, "FIXED") == 0 || std::strcmp(display, "OFF") == 0) *value = 0.0;
+        else *value = numeric >= 0.5 ? 1.0 : 0.0;
+    } else if (id == kModRateParamId || id == kModRate2ParamId || id == kModRate3ParamId) {
         double rate = numeric;
         if (std::strchr(display, 'k')) rate *= 1000.0;
         *value = std::clamp(std::log(std::max(rate, 0.05) / 0.05) / std::log(160000.0), 0.0, 1.0);
-    } else if (id == kModRatioParamId) {
+    } else if (id == kModRatioParamId || id == kModRatio2ParamId || id == kModRatio3ParamId) {
         *value = std::clamp(numeric, 0.125, 16.0);
-    } else if (id == kModIndexParamId) {
+    } else if (id == kModIndexParamId || id == kModIndex2ParamId || id == kModIndex3ParamId) {
         *value = std::clamp(std::strchr(display, '%') ? numeric / 100.0 : numeric, 0.0, 1.0);
-    } else if (id == kModFeedbackParamId) {
+    } else if (id == kModFeedbackParamId || id == kModFeedback2ParamId || id == kModFeedback3ParamId) {
         *value = std::clamp(std::strchr(display, '%') ? numeric * (0.98 / 100.0) : numeric, 0.0, 0.98);
     } else if (id == kEvolveParamId) {
         if (std::strcmp(display, "OFF") == 0) *value = 0.0;
@@ -2082,6 +2673,118 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
         p->params = state.params;
+        p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
+        restoredPlaying = state.runState != 0u;
+        p->performanceMode = static_cast<PerformanceMode>(std::min(state.performanceMode, 1u));
+        p->attackMs = std::clamp(state.attackMs, 1.0f, 5000.0f);
+        p->decayMs = std::clamp(state.decayMs, 5.0f, 8000.0f);
+        p->sustain = std::clamp(state.sustain, 0.0f, 1.0f);
+        p->releaseMs = std::clamp(state.releaseMs, 5.0f, 12000.0f);
+        p->rawSource.reset();
+        p->sourcePath.clear();
+        p->sourceName.clear();
+        p->sourceError.clear();
+        p->sourceInterpretation = SourceInterpretation::Generated;
+        if ((state.sourceMode == static_cast<uint32_t>(SourceInterpretation::RawBytes)
+                || state.sourceMode == static_cast<uint32_t>(SourceInterpretation::Waveform))
+            && state.sourcePath[0] != '\0') {
+            std::size_t pathLength = 0u;
+            while (pathLength < sizeof(state.sourcePath) && state.sourcePath[pathLength] != '\0') ++pathLength;
+            p->sourcePath.assign(state.sourcePath, pathLength);
+            p->sourceName = sourceNameFromPath(p->sourcePath);
+            p->sourceInterpretation = static_cast<SourceInterpretation>(state.sourceMode);
+            readSource(p->sourcePath, p->sourceInterpretation, p->rawSource, p->sourceError);
+        }
+    } else if (version == 20u) {
+        LegacySavedStateV20 state {};
+        state.version = version;
+        constexpr size_t offset = sizeof(state.version);
+        if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        p->params = migrateLegacyParams(state.params);
+        p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
+        restoredPlaying = state.runState != 0u;
+        p->performanceMode = static_cast<PerformanceMode>(std::min(state.performanceMode, 1u));
+        p->attackMs = std::clamp(state.attackMs, 1.0f, 5000.0f);
+        p->decayMs = std::clamp(state.decayMs, 5.0f, 8000.0f);
+        p->sustain = std::clamp(state.sustain, 0.0f, 1.0f);
+        p->releaseMs = std::clamp(state.releaseMs, 5.0f, 12000.0f);
+        p->rawSource.reset();
+        p->sourcePath.clear();
+        p->sourceName.clear();
+        p->sourceError.clear();
+        p->sourceInterpretation = SourceInterpretation::Generated;
+        if ((state.sourceMode == static_cast<uint32_t>(SourceInterpretation::RawBytes)
+                || state.sourceMode == static_cast<uint32_t>(SourceInterpretation::Waveform))
+            && state.sourcePath[0] != '\0') {
+            std::size_t pathLength = 0u;
+            while (pathLength < sizeof(state.sourcePath) && state.sourcePath[pathLength] != '\0') ++pathLength;
+            p->sourcePath.assign(state.sourcePath, pathLength);
+            p->sourceName = sourceNameFromPath(p->sourcePath);
+            p->sourceInterpretation = static_cast<SourceInterpretation>(state.sourceMode);
+            readSource(p->sourcePath, p->sourceInterpretation, p->rawSource, p->sourceError);
+        }
+    } else if (version == 19u) {
+        LegacySavedStateV19 state {};
+        state.version = version;
+        constexpr size_t offset = sizeof(state.version);
+        if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        p->params = migrateLegacyParams(state.params);
+        p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
+        restoredPlaying = state.runState != 0u;
+        p->performanceMode = static_cast<PerformanceMode>(std::min(state.performanceMode, 1u));
+        p->attackMs = std::clamp(state.attackMs, 1.0f, 5000.0f);
+        p->decayMs = std::clamp(state.decayMs, 5.0f, 8000.0f);
+        p->sustain = std::clamp(state.sustain, 0.0f, 1.0f);
+        p->releaseMs = std::clamp(state.releaseMs, 5.0f, 12000.0f);
+        p->rawSource.reset();
+        p->sourcePath.clear();
+        p->sourceName.clear();
+        p->sourceError.clear();
+        p->sourceInterpretation = SourceInterpretation::Generated;
+        if ((state.sourceMode == static_cast<uint32_t>(SourceInterpretation::RawBytes)
+                || state.sourceMode == static_cast<uint32_t>(SourceInterpretation::Waveform))
+            && state.sourcePath[0] != '\0') {
+            std::size_t pathLength = 0u;
+            while (pathLength < sizeof(state.sourcePath) && state.sourcePath[pathLength] != '\0') ++pathLength;
+            p->sourcePath.assign(state.sourcePath, pathLength);
+            p->sourceName = sourceNameFromPath(p->sourcePath);
+            p->sourceInterpretation = static_cast<SourceInterpretation>(state.sourceMode);
+            readSource(p->sourcePath, p->sourceInterpretation, p->rawSource, p->sourceError);
+        }
+    } else if (version == 18u) {
+        LegacySavedStateV18 state {};
+        state.version = version;
+        constexpr size_t offset = sizeof(state.version);
+        if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        p->params = migrateLegacyParams(state.params);
+        p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
+        restoredPlaying = state.runState != 0u;
+        p->performanceMode = static_cast<PerformanceMode>(std::min(state.performanceMode, 1u));
+        p->attackMs = std::clamp(state.attackMs, 1.0f, 5000.0f);
+        p->decayMs = std::clamp(state.decayMs, 5.0f, 8000.0f);
+        p->sustain = std::clamp(state.sustain, 0.0f, 1.0f);
+        p->releaseMs = std::clamp(state.releaseMs, 5.0f, 12000.0f);
+        p->rawSource.reset();
+        p->sourcePath.clear();
+        p->sourceName.clear();
+        p->sourceError.clear();
+        p->sourceInterpretation = SourceInterpretation::Generated;
+        if ((state.sourceMode == static_cast<uint32_t>(SourceInterpretation::RawBytes)
+                || state.sourceMode == static_cast<uint32_t>(SourceInterpretation::Waveform))
+            && state.sourcePath[0] != '\0') {
+            std::size_t pathLength = 0u;
+            while (pathLength < sizeof(state.sourcePath) && state.sourcePath[pathLength] != '\0') ++pathLength;
+            p->sourcePath.assign(state.sourcePath, pathLength);
+            p->sourceName = sourceNameFromPath(p->sourcePath);
+            p->sourceInterpretation = static_cast<SourceInterpretation>(state.sourceMode);
+            readSource(p->sourcePath, p->sourceInterpretation, p->rawSource, p->sourceError);
+        }
+    } else if (version == 17u) {
+        LegacySavedStateV17 state {};
+        state.version = version;
+        constexpr size_t offset = sizeof(state.version);
+        if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
         p->performanceMode = static_cast<PerformanceMode>(std::min(state.performanceMode, 1u));
@@ -2328,6 +3031,30 @@ double normalizedParam(const s3g::PsdRawFieldParams& p, clap_id id)
     case kModIndexParamId: return p.modIndex;
     case kModFeedbackParamId: return p.modFeedback / 0.98f;
     case kModClockLockParamId: return p.modClockLock;
+    case kModAlgorithmParamId: return static_cast<double>(static_cast<uint32_t>(p.modAlgorithm))
+        / static_cast<double>(s3g::kPsdRawFieldModAlgorithmCount - 1u);
+    case kModSource2ParamId: return static_cast<double>(static_cast<uint32_t>(p.modSource2))
+        / static_cast<double>(s3g::kPsdRawFieldModSourceCount - 1u);
+    case kModRate2ParamId: return p.modRate2;
+    case kModRatio2ParamId: return std::log2(p.modRatio2 / 0.125f) / 7.0;
+    case kModIndex2ParamId: return p.modIndex2;
+    case kModFeedback2ParamId: return p.modFeedback2 / 0.98f;
+    case kModClockLock2ParamId: return p.modClockLock2;
+    case kModTarget2ParamId: return static_cast<double>(static_cast<uint32_t>(p.modTarget2))
+        / static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u);
+    case kModSource3ParamId: return static_cast<double>(static_cast<uint32_t>(p.modSource3))
+        / static_cast<double>(s3g::kPsdRawFieldModSourceCount - 1u);
+    case kModTarget3ParamId: return static_cast<double>(static_cast<uint32_t>(p.modTarget3))
+        / static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u);
+    case kModRate3ParamId: return p.modRate3;
+    case kModRatio3ParamId: return std::log2(p.modRatio3 / 0.125f) / 7.0;
+    case kModIndex3ParamId: return p.modIndex3;
+    case kModFeedback3ParamId: return p.modFeedback3 / 0.98f;
+    case kModClockLock3ParamId: return p.modClockLock3;
+    case kModEnvelope1ParamId: return p.modEnvelope1;
+    case kModEnvelope2ParamId: return p.modEnvelope2;
+    case kModEnvelope3ParamId: return p.modEnvelope3;
+    case kModulationEnabledParamId: return p.modulationEnabled;
     case kDriveParamId: return p.drive;
     case kShredParamId: return p.shred;
     case kResonanceParamId: return p.resonance;
@@ -2375,6 +3102,28 @@ void applyNormalizedParam(Plugin& p, clap_id id, double normalized)
     case kModRatioParamId: applyParam(p, id, 0.125 * std::pow(2.0, normalized * 7.0)); break;
     case kModFeedbackParamId: applyParam(p, id, normalized * 0.98); break;
     case kModClockLockParamId: applyParam(p, id, normalized >= 0.5 ? 1.0 : 0.0); break;
+    case kModAlgorithmParamId: applyParam(p, id, std::round(normalized
+        * static_cast<double>(s3g::kPsdRawFieldModAlgorithmCount - 1u))); break;
+    case kModSource2ParamId: applyParam(p, id, std::round(normalized
+        * static_cast<double>(s3g::kPsdRawFieldModSourceCount - 1u))); break;
+    case kModRatio2ParamId: applyParam(p, id, 0.125 * std::pow(2.0, normalized * 7.0)); break;
+    case kModFeedback2ParamId: applyParam(p, id, normalized * 0.98); break;
+    case kModClockLock2ParamId: applyParam(p, id, normalized >= 0.5 ? 1.0 : 0.0); break;
+    case kModTarget2ParamId: applyParam(p, id, std::round(normalized
+        * static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u))); break;
+    case kModSource3ParamId: applyParam(p, id, std::round(normalized
+        * static_cast<double>(s3g::kPsdRawFieldModSourceCount - 1u))); break;
+    case kModTarget3ParamId: applyParam(p, id, std::round(normalized
+        * static_cast<double>(s3g::kPsdRawFieldModTargetCount - 1u))); break;
+    case kModRatio3ParamId: applyParam(p, id, 0.125 * std::pow(2.0, normalized * 7.0)); break;
+    case kModFeedback3ParamId: applyParam(p, id, normalized * 0.98); break;
+    case kModClockLock3ParamId: applyParam(p, id, normalized >= 0.5 ? 1.0 : 0.0); break;
+    case kModEnvelope1ParamId:
+    case kModEnvelope2ParamId:
+    case kModEnvelope3ParamId:
+    case kModulationEnabledParamId:
+        applyParam(p, id, normalized >= 0.5 ? 1.0 : 0.0);
+        break;
     case kSeedParamId: applyParam(p, id, 1.0 + normalized * 4294967294.0); break;
     case kAttackParamId: applyParam(p, id, denormalizedEnvelopeTime(normalized, 1.0, 5000.0)); break;
     case kDecayParamId: applyParam(p, id, denormalizedEnvelopeTime(normalized, 5.0, 8000.0)); break;
@@ -2495,6 +3244,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     int _dragSlider;
     int _openMenu;
     int _hoverMenuItem;
+    int _editorPage;
     NSTimer* _timer;
     NSTrackingArea* _trackingArea;
     char _titlePresetName[64];
@@ -2507,6 +3257,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
 - (void)drawPerformanceMode:(Plugin*)plugin attrs:(NSDictionary*)attrs small:(NSDictionary*)small style:(const s3g::clap_gui::Style&)style;
 - (void)drawEnvelopeEditor:(Plugin*)plugin attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)drawTransportButton:(NSString*)label rect:(NSRect)rect attrs:(NSDictionary*)attrs active:(BOOL)active;
+- (void)drawAlgorithmChart:(Plugin*)plugin rect:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)drawWaveforms:(Plugin*)plugin style:(s3g::clap_gui::Style&)style;
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style;
 - (void)chooseRawFile;
@@ -2523,6 +3274,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         _dragSlider = -1;
         _openMenu = 0;
         _hoverMenuItem = -1;
+        _editorPage = 0;
         _timer = nil;
         _trackingArea = nil;
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
@@ -2713,6 +3465,114 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     const NSSize size = [label sizeWithAttributes:attrs];
     [label drawAtPoint:NSMakePoint(NSMidX(rect) - size.width * 0.5, NSMidY(rect) - size.height * 0.5) withAttributes:attrs];
 }
+- (void)drawAlgorithmChart:(Plugin*)plugin rect:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
+{
+    [style.strip setFill];
+    NSRectFill(rect);
+    [style.grid setStroke];
+    NSFrameRect(rect);
+
+    auto node = [&](CGFloat cx, CGFloat cy, NSString* label, bool output = false) {
+        const NSRect box = NSMakeRect(cx - 29.0, cy - 13.0, 58.0, 26.0);
+        NSColor* fill = output
+            ? [NSColor colorWithCalibratedRed:0.12 green:0.34 blue:0.25 alpha:1.0]
+            : [NSColor colorWithCalibratedRed:0.12 green:0.22 blue:0.29 alpha:1.0];
+        [fill setFill];
+        NSRectFill(box);
+        [style.dim setStroke];
+        NSFrameRect(box);
+        const NSSize size = [label sizeWithAttributes:attrs];
+        [label drawAtPoint:NSMakePoint(NSMidX(box) - size.width * 0.5,
+            NSMidY(box) - size.height * 0.5) withAttributes:attrs];
+    };
+    auto arrow = [&](NSPoint from, NSPoint to) {
+        const CGFloat angle = std::atan2(to.y - from.y, to.x - from.x);
+        const CGFloat trim = 31.0;
+        from.x += std::cos(angle) * trim;
+        from.y += std::sin(angle) * trim;
+        to.x -= std::cos(angle) * trim;
+        to.y -= std::sin(angle) * trim;
+        NSBezierPath* path = [NSBezierPath bezierPath];
+        [path moveToPoint:from];
+        [path lineToPoint:to];
+        [style.text setStroke];
+        [path setLineWidth:1.2];
+        [path stroke];
+        NSBezierPath* head = [NSBezierPath bezierPath];
+        [head moveToPoint:to];
+        [head lineToPoint:NSMakePoint(to.x - std::cos(angle - 0.55) * 7.0,
+            to.y - std::sin(angle - 0.55) * 7.0)];
+        [head lineToPoint:NSMakePoint(to.x - std::cos(angle + 0.55) * 7.0,
+            to.y - std::sin(angle + 0.55) * 7.0)];
+        [head closePath];
+        [style.text setFill];
+        [head fill];
+    };
+    auto operatorLabel = [&](uint32_t index, s3g::PsdRawFieldModTarget target) {
+        return [NSString stringWithFormat:@"M%u:%s", index, modTargetShortName(target)];
+    };
+
+    const CGFloat left = NSMinX(rect);
+    const CGFloat top = NSMinY(rect);
+    const CGFloat width = NSWidth(rect);
+    const CGFloat height = NSHeight(rect);
+    auto point = [&](CGFloat nx, CGFloat ny) {
+        return NSMakePoint(left + nx * width, top + ny * height);
+    };
+    const auto algorithm = plugin->params.modAlgorithm;
+    NSString* m1 = operatorLabel(1u, plugin->params.modTarget);
+    NSString* m2 = operatorLabel(2u, plugin->params.modTarget2);
+    NSString* m3 = operatorLabel(3u, plugin->params.modTarget3);
+
+    if (algorithm == s3g::PsdRawFieldModAlgorithm::Relay
+        || algorithm == s3g::PsdRawFieldModAlgorithm::Transcode
+        || algorithm == s3g::PsdRawFieldModAlgorithm::Regenerator) {
+        const bool transcode = algorithm == s3g::PsdRawFieldModAlgorithm::Transcode;
+        const bool regenerate = algorithm == s3g::PsdRawFieldModAlgorithm::Regenerator;
+        const NSPoint a = point(0.10, 0.54);
+        const NSPoint b = point(0.31, 0.54);
+        const NSPoint c = point(0.52, 0.54);
+        const NSPoint d = point(0.73, 0.54);
+        const NSPoint e = point(0.91, 0.54);
+        node(a.x, a.y, transcode ? @"DATA" : (regenerate ? @"CODEC" : m3), regenerate || transcode);
+        node(b.x, b.y, transcode ? m1 : (regenerate ? m3 : m2));
+        node(c.x, c.y, transcode ? m2 : (regenerate ? m2 : m1));
+        node(d.x, d.y, transcode ? m3 : (regenerate ? m1 : @"DESTS"), !transcode);
+        node(e.x, e.y, @"CODEC", true);
+        arrow(a, b); arrow(b, c); arrow(c, d); arrow(d, e);
+        if (regenerate) {
+            [[NSString stringWithUTF8String:"↺"] drawAtPoint:NSMakePoint(
+                NSMidX(rect) - 5.0, NSMaxY(rect) - 27.0) withAttributes:attrs];
+        }
+    } else if (algorithm == s3g::PsdRawFieldModAlgorithm::CrossedMachines) {
+        const NSPoint a = point(0.24, 0.28);
+        const NSPoint b = point(0.24, 0.76);
+        const NSPoint c = point(0.56, 0.52);
+        const NSPoint out = point(0.86, 0.52);
+        node(a.x, a.y, m1); node(b.x, b.y, m2); node(c.x, c.y, m3);
+        node(out.x, out.y, @"DESTS", true);
+        arrow(a, b); arrow(b, c); arrow(c, a); arrow(c, out);
+    } else {
+        const bool multiplex = algorithm == s3g::PsdRawFieldModAlgorithm::Multiplex;
+        const NSPoint a = point(0.18, 0.25);
+        const NSPoint b = point(0.18, 0.52);
+        const NSPoint c = point(0.18, 0.79);
+        const NSPoint bus = point(0.58, 0.52);
+        const NSPoint out = point(0.86, 0.52);
+        node(a.x, a.y, m1); node(b.x, b.y, m2); node(c.x, c.y, m3);
+        node(bus.x, bus.y, multiplex ? @"MUX" : @"BUS");
+        node(out.x, out.y, @"DESTS", true);
+        arrow(a, bus); arrow(b, bus); arrow(c, bus); arrow(bus, out);
+    }
+    if (plugin->params.modulationEnabled == 0u) {
+        [[NSColor colorWithCalibratedWhite:0.04 alpha:0.68] setFill];
+        NSRectFillUsingOperation(rect, NSCompositingOperationSourceOver);
+        NSString* bypassed = @"MODULATION BYPASSED";
+        const NSSize size = [bypassed sizeWithAttributes:attrs];
+        [bypassed drawAtPoint:NSMakePoint(NSMidX(rect) - size.width * 0.5,
+            NSMidY(rect) - size.height * 0.5) withAttributes:attrs];
+    }
+}
 - (void)drawWaveforms:(Plugin*)plugin style:(s3g::clap_gui::Style&)style
 {
     const CGFloat x = 18.0;
@@ -2846,17 +3706,53 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             static_cast<int>(p->params.codecMode), _hoverMenuItem, attrs, style);
     } else if (_openMenu == 4) {
         NSString* const items[] = {
+            @"BROADCAST", @"RELAY", @"MULTIPLEX", @"CROSSED MACHINES", @"REGENERATOR", @"TRANSCODE"
+        };
+        const CGFloat panelX = _editorPage == 0 ? kModToolboxX : kLabChartX;
+        const CGFloat panelWidth = _editorPage == 0 ? kModToolboxWidth : kLabChartWidth;
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(
+            s3g::gui_layout::processorControlX(panelX), 281.0,
+            s3g::gui_layout::processorMenuWidth(panelWidth),
+            18.0 * s3g::kPsdRawFieldModAlgorithmCount), 18.0, items, s3g::kPsdRawFieldModAlgorithmCount,
+            static_cast<int>(p->params.modAlgorithm), _hoverMenuItem, attrs, style);
+    } else if (_openMenu == 5 || _openMenu == 7 || _openMenu == 9) {
+        NSString* const items[] = {
             @"OFF", @"SINE", @"TRIANGLE", @"NOISE", @"FIELD", @"SYNC", @"GATE", @"APT",
             @"HF FAX", @"HELL", @"MORSE", @"SPARK CW", @"BAUDOT RTTY", @"SSTV", @"FEEDBACK"
         };
-        s3g::clap_gui::drawDropdownMenu(NSMakeRect(kModControlX, 281.0, kModToolboxMenuWidth,
+        const uint32_t index = static_cast<uint32_t>((_openMenu - 5) / 2);
+        const CGFloat cardX = labCardX(index);
+        const int selected = _openMenu == 5 ? static_cast<int>(p->params.modSource)
+            : (_openMenu == 7 ? static_cast<int>(p->params.modSource2)
+                              : static_cast<int>(p->params.modSource3));
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(
+            s3g::gui_layout::processorControlX(cardX), kLabSourceRowY + 14.0,
+            s3g::gui_layout::processorMenuWidth(kLabCardWidth),
             18.0 * s3g::kPsdRawFieldModSourceCount), 18.0, items, s3g::kPsdRawFieldModSourceCount,
-            static_cast<int>(p->params.modSource), _hoverMenuItem, attrs, style);
-    } else if (_openMenu == 5) {
-        NSString* const items[] = { @"CARRIER", @"DEVIATION", @"CLOCK", @"DATA", @"DAMAGE" };
-        s3g::clap_gui::drawDropdownMenu(NSMakeRect(kModControlX, 307.0, kModToolboxMenuWidth,
+            selected, _hoverMenuItem, attrs, style);
+    } else if (_openMenu == 6 || _openMenu == 8 || _openMenu == 10) {
+        NSString* const items[] = { @"CARRIER", @"DEVIATION", @"CLOCK", @"DATA", @"DAMAGE", @"OFF" };
+        const uint32_t index = static_cast<uint32_t>((_openMenu - 6) / 2);
+        const CGFloat cardX = labCardX(index);
+        const int selected = _openMenu == 6 ? static_cast<int>(p->params.modTarget)
+            : (_openMenu == 8 ? static_cast<int>(p->params.modTarget2)
+                              : static_cast<int>(p->params.modTarget3));
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(
+            s3g::gui_layout::processorControlX(cardX), kLabTargetRowY + 14.0,
+            s3g::gui_layout::processorMenuWidth(kLabCardWidth),
             18.0 * s3g::kPsdRawFieldModTargetCount), 18.0, items, s3g::kPsdRawFieldModTargetCount,
-            static_cast<int>(p->params.modTarget), _hoverMenuItem, attrs, style);
+            selected, _hoverMenuItem, attrs, style);
+    } else if (_openMenu >= 11 && _openMenu <= 13) {
+        NSString* const items[] = { @"FIXED", @"ADSR" };
+        const uint32_t index = static_cast<uint32_t>(_openMenu - 11);
+        const uint32_t selected[] = {
+            p->params.modEnvelope1, p->params.modEnvelope2, p->params.modEnvelope3
+        };
+        const CGFloat cardX = labCardX(index);
+        s3g::clap_gui::drawDropdownMenu(NSMakeRect(
+            s3g::gui_layout::processorControlX(cardX), kLabEnvelopeRowY + 14.0,
+            s3g::gui_layout::processorMenuWidth(kLabCardWidth), 36.0),
+            18.0, items, 2u, static_cast<int>(selected[index]), _hoverMenuItem, attrs, style);
     }
 }
 - (void)updateMenuHover:(NSPoint)point
@@ -2870,12 +3766,32 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         count = kCodecModeCount;
     }
     else if (_openMenu == 4) {
-        rect = NSMakeRect(kModControlX, 281.0, kModToolboxMenuWidth, 18.0 * s3g::kPsdRawFieldModSourceCount);
+        const CGFloat panelX = _editorPage == 0 ? kModToolboxX : kLabChartX;
+        const CGFloat panelWidth = _editorPage == 0 ? kModToolboxWidth : kLabChartWidth;
+        rect = NSMakeRect(s3g::gui_layout::processorControlX(panelX), 281.0,
+            s3g::gui_layout::processorMenuWidth(panelWidth),
+            18.0 * s3g::kPsdRawFieldModAlgorithmCount);
+        count = s3g::kPsdRawFieldModAlgorithmCount;
+    }
+    else if (_openMenu == 5 || _openMenu == 7 || _openMenu == 9) {
+        const CGFloat cardX = labCardX(static_cast<uint32_t>((_openMenu - 5) / 2));
+        rect = NSMakeRect(s3g::gui_layout::processorControlX(cardX), kLabSourceRowY + 14.0,
+            s3g::gui_layout::processorMenuWidth(kLabCardWidth),
+            18.0 * s3g::kPsdRawFieldModSourceCount);
         count = s3g::kPsdRawFieldModSourceCount;
     }
-    else if (_openMenu == 5) {
-        rect = NSMakeRect(kModControlX, 307.0, kModToolboxMenuWidth, 18.0 * s3g::kPsdRawFieldModTargetCount);
+    else if (_openMenu == 6 || _openMenu == 8 || _openMenu == 10) {
+        const CGFloat cardX = labCardX(static_cast<uint32_t>((_openMenu - 6) / 2));
+        rect = NSMakeRect(s3g::gui_layout::processorControlX(cardX), kLabTargetRowY + 14.0,
+            s3g::gui_layout::processorMenuWidth(kLabCardWidth),
+            18.0 * s3g::kPsdRawFieldModTargetCount);
         count = s3g::kPsdRawFieldModTargetCount;
+    }
+    else if (_openMenu >= 11 && _openMenu <= 13) {
+        const CGFloat cardX = labCardX(static_cast<uint32_t>(_openMenu - 11));
+        rect = NSMakeRect(s3g::gui_layout::processorControlX(cardX), kLabEnvelopeRowY + 14.0,
+            s3g::gui_layout::processorMenuWidth(kLabCardWidth), 36.0);
+        count = 2u;
     }
     if (count == 0u) return;
     const int next = s3g::clap_gui::dropdownHitIndex(point, rect, 18.0, count);
@@ -2903,21 +3819,46 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         titleAttrs, labels, values, style);
     [self drawWaveforms:p style:style];
 
-    s3g::clap_gui::drawPanelFrame(
-        kLeftToolboxX, kToolboxTop, kToolboxWidth,
-        s3g::gui_layout::toolboxHeightForRows(9), style);
-    s3g::clap_gui::drawPanelHeader(@"FIELD / SPACE / OUTPUT", true,
-        kLeftToolboxX, kToolboxTop, kToolboxWidth, 21, labels, style);
-    s3g::clap_gui::drawPanelFrame(
-        kRightToolboxX, kToolboxTop, kToolboxWidth,
-        s3g::gui_layout::toolboxHeightForRows(8), style);
-    s3g::clap_gui::drawPanelHeader(@"CODEC / SHAPE", true,
-        kRightToolboxX, kToolboxTop, kToolboxWidth, 21, labels, style);
-    s3g::clap_gui::drawPanelFrame(
-        kModToolboxX, kToolboxTop, kModToolboxWidth,
-        s3g::gui_layout::toolboxHeightForRows(7), style);
-    s3g::clap_gui::drawPanelHeader(@"PROTOCOL MODULATION", true,
-        kModToolboxX, kToolboxTop, kModToolboxWidth, 21, labels, style);
+    if (_editorPage == 0) {
+        s3g::clap_gui::drawPanelFrame(
+            kLeftToolboxX, kToolboxTop, kToolboxWidth,
+            s3g::gui_layout::toolboxHeightForRows(9), style);
+        s3g::clap_gui::drawPanelHeader(@"FIELD / SPACE / OUTPUT", true,
+            kLeftToolboxX, kToolboxTop, kToolboxWidth, 21, labels, style);
+        s3g::clap_gui::drawPanelFrame(
+            kRightToolboxX, kToolboxTop, kToolboxWidth,
+            s3g::gui_layout::toolboxHeightForRows(8), style);
+        s3g::clap_gui::drawPanelHeader(@"CODEC / SHAPE", true,
+            kRightToolboxX, kToolboxTop, kToolboxWidth, 21, labels, style);
+        s3g::clap_gui::drawPanelFrame(
+            kModToolboxX, kToolboxTop, kModToolboxWidth,
+            s3g::gui_layout::toolboxHeightForRows(9), style);
+        s3g::clap_gui::drawPanelHeader(@"MODULATION / QUICK VIEW", true,
+            kModToolboxX, kToolboxTop, kModToolboxWidth, 21, labels, style);
+    } else {
+        s3g::clap_gui::drawPanelFrame(
+            18.0, kToolboxTop, kGuiWidth - 36.0,
+            s3g::gui_layout::toolboxHeightForRows(9), style);
+        s3g::clap_gui::drawPanelHeader(@"MOD LAB / THREE OPERATORS", true,
+            18.0, kToolboxTop, kGuiWidth - 36.0, 21, labels, style);
+    }
+    auto drawPageTab = [&](NSString* title, NSRect rect, bool active) {
+        NSColor* fill = active
+            ? [NSColor colorWithCalibratedRed:0.13 green:0.31 blue:0.24 alpha:1.0]
+            : [NSColor colorWithCalibratedWhite:0.12 alpha:1.0];
+        [fill setFill];
+        NSRectFill(rect);
+        [(active ? style.text : style.grid) setStroke];
+        NSFrameRect(rect);
+        const NSSize size = [title sizeWithAttributes:values];
+        [title drawAtPoint:NSMakePoint(NSMidX(rect) - size.width * 0.5,
+            NSMidY(rect) - size.height * 0.5) withAttributes:values];
+    };
+    drawPageTab(@"SOUND", NSMakeRect(1162.0, 232.0, 76.0, 17.0), _editorPage == 0);
+    drawPageTab(@"MOD LAB", NSMakeRect(1244.0, 232.0, 86.0, 17.0), _editorPage == 1);
+    const bool modulationEnabled = p->params.modulationEnabled != 0u;
+    [self drawTransportButton:(modulationEnabled ? @"MOD ON" : @"MOD OFF")
+        rect:NSMakeRect(1046.0, 232.0, 108.0, 17.0) attrs:values active:modulationEnabled];
     s3g::clap_gui::drawPanelFrame(18, kPatchPanelY, kGuiWidth - 36.0, 188.0, style);
     s3g::clap_gui::drawPanelHeader(@"PATCH / PERFORMANCE", true,
         18, kPatchPanelY, kGuiWidth - 36.0, 21, labels, style);
@@ -2929,6 +3870,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     const std::string codecRateText = rateText(codecUpdatesPerSecond(params.codecRate, p->sampleRate), "Hz");
     const std::string carrierText = carrierTuneText(params.carrierTune, static_cast<uint32_t>(params.codecMode));
     const std::string fieldEvolveText = evolveText(params.evolve);
+    if (_editorPage == 0) {
     [self drawRow:@"OUT" value:[NSString stringWithFormat:@"%+.1f dB", params.gainDb] norm:normalizedParam(params, kGainParamId) panelX:kLeftToolboxX panelWidth:kToolboxWidth y:266 attrs:labels small:values];
     [self drawRow:@"SCAN" value:[NSString stringWithUTF8String:scanText.c_str()] norm:params.scanRate panelX:kLeftToolboxX panelWidth:kToolboxWidth y:292 attrs:labels small:values];
     [self drawRow:@"TEXTURE" value:[NSString stringWithFormat:@"%.0f%%", params.texture * 100.0f] norm:params.texture panelX:kLeftToolboxX panelWidth:kToolboxWidth y:318 attrs:labels small:values];
@@ -2948,17 +3890,71 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
     [self drawRow:@"SHRED" value:[NSString stringWithFormat:@"%.0f%%", params.shred * 100.0f] norm:params.shred panelX:kRightToolboxX panelWidth:kToolboxWidth y:422 attrs:labels small:values];
     [self drawRow:@"RESONANCE" value:[NSString stringWithFormat:@"%.0f%%", params.resonance * 100.0f] norm:params.resonance panelX:kRightToolboxX panelWidth:kToolboxWidth y:448 attrs:labels small:values];
 
-    const std::string modRateText = rateText(modulatorRateHz(params.modRate), "Hz");
-    [self drawMenuControl:@"SOURCE" value:[NSString stringWithUTF8String:modSourceName(static_cast<uint32_t>(params.modSource))] panelX:kModToolboxX panelWidth:kModToolboxWidth y:266 attrs:labels small:values style:style];
-    [self drawMenuControl:@"TARGET" value:[NSString stringWithUTF8String:modTargetName(static_cast<uint32_t>(params.modTarget))] panelX:kModToolboxX panelWidth:kModToolboxWidth y:292 attrs:labels small:values style:style];
-    [self drawRow:@"RATE" value:[NSString stringWithUTF8String:modRateText.c_str()] norm:params.modRate panelX:kModToolboxX panelWidth:kModToolboxWidth y:318 attrs:labels small:values];
-    [self drawRow:@"RATIO" value:[NSString stringWithFormat:@"%.3fx", params.modRatio] norm:normalizedParam(params, kModRatioParamId) panelX:kModToolboxX panelWidth:kModToolboxWidth y:344 attrs:labels small:values];
-    [self drawRow:@"INDEX" value:[NSString stringWithFormat:@"%.0f%%", params.modIndex * 100.0f] norm:params.modIndex panelX:kModToolboxX panelWidth:kModToolboxWidth y:370 attrs:labels small:values];
-    [self drawMenuControl:@"CLOCK" value:[NSString stringWithUTF8String:modClockName(params.modClockLock)] panelX:kModToolboxX panelWidth:kModToolboxWidth y:396 attrs:labels small:values style:style];
-    [self drawRow:@"FEEDBACK" value:[NSString stringWithFormat:@"%.0f%%", params.modFeedback * (100.0f / 0.98f)] norm:normalizedParam(params, kModFeedbackParamId) panelX:kModToolboxX panelWidth:kModToolboxWidth y:422 attrs:labels small:values];
+    [self drawMenuControl:@"CURATED CIRCUIT" value:[NSString stringWithUTF8String:modAlgorithmName(static_cast<uint32_t>(params.modAlgorithm))] panelX:kModToolboxX panelWidth:kModToolboxWidth y:266 attrs:labels small:values style:style];
+    [self drawAlgorithmChart:p rect:NSMakeRect(kModToolboxX + 12.0, 292.0,
+        kModToolboxWidth - 24.0, 124.0) attrs:values style:style];
+    auto drawSummary = [&](uint32_t number, s3g::PsdRawFieldModSource source,
+                           s3g::PsdRawFieldModTarget target, uint32_t envelope, CGFloat y) {
+        NSString* summary = [NSString stringWithFormat:@"M%u   %s  →  %s   ·   %s",
+            number, modSourceName(static_cast<uint32_t>(source)),
+            modTargetName(static_cast<uint32_t>(target)), modEnvelopeName(envelope)];
+        [summary drawAtPoint:NSMakePoint(kModToolboxX + 18.0, y) withAttributes:values];
+    };
+    drawSummary(1u, params.modSource, params.modTarget, params.modEnvelope1, 428.0);
+    drawSummary(2u, params.modSource2, params.modTarget2, params.modEnvelope2, 450.0);
+    drawSummary(3u, params.modSource3, params.modTarget3, params.modEnvelope3, 472.0);
+    [@"MOD LAB: RATE · RATIO · INDEX · FEEDBACK · CLOCK · ENVELOPE"
+        drawAtPoint:NSMakePoint(kModToolboxX + 18.0, 492.0) withAttributes:labels];
+    } else {
+        [self drawMenuControl:@"ALGORITHM" value:[NSString stringWithUTF8String:modAlgorithmName(static_cast<uint32_t>(params.modAlgorithm))]
+            panelX:kLabChartX panelWidth:kLabChartWidth y:266 attrs:labels small:values style:style];
+        [self drawAlgorithmChart:p rect:NSMakeRect(kLabChartX, 294.0, kLabChartWidth, 190.0)
+            attrs:values style:style];
+        auto drawLabOperator = [&](uint32_t number,
+                                   s3g::PsdRawFieldModSource source,
+                                   s3g::PsdRawFieldModTarget target,
+                                   float rate, float ratio, float index, float feedback,
+                                   uint32_t clock, uint32_t envelope,
+                                   clap_id ratioId, clap_id feedbackId) {
+            const CGFloat cardX = labCardX(number - 1u);
+            s3g::clap_gui::drawPanelFrame(cardX, 258.0, kLabCardWidth, 234.0, style);
+            [style.strip setFill];
+            NSRectFill(NSMakeRect(cardX + 1.0, 259.0, kLabCardWidth - 2.0, 18.0));
+            NSString* title = [NSString stringWithFormat:@"M%u OPERATOR", number];
+            const NSSize titleSize = [title sizeWithAttributes:labels];
+            [title drawAtPoint:NSMakePoint(cardX + (kLabCardWidth - titleSize.width) * 0.5, 263.0)
+                withAttributes:labels];
+            [self drawMenuControl:@"SOURCE" value:[NSString stringWithUTF8String:modSourceName(static_cast<uint32_t>(source))]
+                panelX:cardX panelWidth:kLabCardWidth y:kLabSourceRowY attrs:labels small:values style:style];
+            [self drawMenuControl:@"DEST" value:[NSString stringWithUTF8String:modTargetName(static_cast<uint32_t>(target))]
+                panelX:cardX panelWidth:kLabCardWidth y:kLabTargetRowY attrs:labels small:values style:style];
+            const std::string rateValue = rateText(modulatorRateHz(rate), "Hz");
+            [self drawRow:@"RATE" value:[NSString stringWithUTF8String:rateValue.c_str()] norm:rate
+                panelX:cardX panelWidth:kLabCardWidth y:kLabRateRowY attrs:labels small:values];
+            [self drawRow:@"RATIO" value:[NSString stringWithFormat:@"%.2fx", ratio] norm:normalizedParam(params, ratioId)
+                panelX:cardX panelWidth:kLabCardWidth y:kLabRatioRowY attrs:labels small:values];
+            [self drawRow:@"INDEX" value:[NSString stringWithFormat:@"%.0f%%", index * 100.0f] norm:index
+                panelX:cardX panelWidth:kLabCardWidth y:kLabIndexRowY attrs:labels small:values];
+            [self drawRow:@"FEEDBACK" value:[NSString stringWithFormat:@"%.0f%%", feedback * (100.0f / 0.98f)] norm:normalizedParam(params, feedbackId)
+                panelX:cardX panelWidth:kLabCardWidth y:kLabFeedbackRowY attrs:labels small:values];
+            [self drawMenuControl:@"CLOCK" value:[NSString stringWithUTF8String:modClockName(clock)]
+                panelX:cardX panelWidth:kLabCardWidth y:kLabClockRowY attrs:labels small:values style:style];
+            [self drawMenuControl:@"ENVELOPE" value:[NSString stringWithUTF8String:modEnvelopeName(envelope)]
+                panelX:cardX panelWidth:kLabCardWidth y:kLabEnvelopeRowY attrs:labels small:values style:style];
+        };
+        drawLabOperator(1u, params.modSource, params.modTarget, params.modRate, params.modRatio,
+            params.modIndex, params.modFeedback, params.modClockLock, params.modEnvelope1,
+            kModRatioParamId, kModFeedbackParamId);
+        drawLabOperator(2u, params.modSource2, params.modTarget2, params.modRate2, params.modRatio2,
+            params.modIndex2, params.modFeedback2, params.modClockLock2, params.modEnvelope2,
+            kModRatio2ParamId, kModFeedback2ParamId);
+        drawLabOperator(3u, params.modSource3, params.modTarget3, params.modRate3, params.modRatio3,
+            params.modIndex3, params.modFeedback3, params.modClockLock3, params.modEnvelope3,
+            kModRatio3ParamId, kModFeedback3ParamId);
+    }
 
     [self drawMenuControl:@"PRESET" value:[NSString stringWithUTF8String:presetName(p->selectedPreset)] panelX:kLeftToolboxX panelWidth:kToolboxWidth y:kPresetRowY attrs:labels small:values style:style];
-    [self drawButton:@"RANDOM PATCH" rect:NSMakeRect(466, kPresetRowY - 7.0, 126, 24) attrs:values];
+    [self drawButton:@"CURATED RANDOM" rect:NSMakeRect(466, kPresetRowY - 7.0, 126, 24) attrs:values];
     [self drawButton:@"MUTATE" rect:NSMakeRect(604, kPresetRowY - 7.0, 90, 24) attrs:values];
     [self drawButton:@"UNDO" rect:NSMakeRect(706, kPresetRowY - 7.0, 90, 24) attrs:values];
     [self drawPerformanceMode:p attrs:labels small:values style:style];
@@ -2989,8 +3985,25 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             kModRateParamId, kModRatioParamId, kModIndexParamId, kModFeedbackParamId
         };
         const double normalized = std::clamp(
-            (point.x - kModControlX) / kModToolboxTrackWidth, 0.0, 1.0);
+            (point.x - s3g::gui_layout::processorControlX(labCardX(0u)))
+                / s3g::gui_layout::processorTrackWidth(kLabCardWidth), 0.0, 1.0);
         applyNormalizedParam(*p, ids[_dragSlider - 301], normalized);
+    } else if (_dragSlider >= 401 && _dragSlider <= 404) {
+        static const clap_id ids[] = {
+            kModRate2ParamId, kModRatio2ParamId, kModIndex2ParamId, kModFeedback2ParamId
+        };
+        const double normalized = std::clamp(
+            (point.x - s3g::gui_layout::processorControlX(labCardX(1u)))
+                / s3g::gui_layout::processorTrackWidth(kLabCardWidth), 0.0, 1.0);
+        applyNormalizedParam(*p, ids[_dragSlider - 401], normalized);
+    } else if (_dragSlider >= 501 && _dragSlider <= 504) {
+        static const clap_id ids[] = {
+            kModRate3ParamId, kModRatio3ParamId, kModIndex3ParamId, kModFeedback3ParamId
+        };
+        const double normalized = std::clamp(
+            (point.x - s3g::gui_layout::processorControlX(labCardX(2u)))
+                / s3g::gui_layout::processorTrackWidth(kLabCardWidth), 0.0, 1.0);
+        applyNormalizedParam(*p, ids[_dragSlider - 501], normalized);
     } else if (_dragSlider >= 201 && _dragSlider <= 204) {
         const EnvelopeGraphGeometry graph = envelopeGraphGeometry(*p);
         const double sustain = std::clamp(
@@ -3035,32 +4048,120 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             id = kCodecModeParamId;
         }
         else if (_openMenu == 4) {
-            rect = NSMakeRect(kModControlX, 281.0, kModToolboxMenuWidth, 18.0 * s3g::kPsdRawFieldModSourceCount);
-            count = s3g::kPsdRawFieldModSourceCount;
-            id = kModSourceParamId;
+            const CGFloat panelX = _editorPage == 0 ? kModToolboxX : kLabChartX;
+            const CGFloat panelWidth = _editorPage == 0 ? kModToolboxWidth : kLabChartWidth;
+            rect = NSMakeRect(s3g::gui_layout::processorControlX(panelX), 281.0,
+                s3g::gui_layout::processorMenuWidth(panelWidth),
+                18.0 * s3g::kPsdRawFieldModAlgorithmCount);
+            count = s3g::kPsdRawFieldModAlgorithmCount;
+            id = kModAlgorithmParamId;
         }
-        else if (_openMenu == 5) {
-            rect = NSMakeRect(kModControlX, 307.0, kModToolboxMenuWidth, 18.0 * s3g::kPsdRawFieldModTargetCount);
+        else if (_openMenu == 5 || _openMenu == 7 || _openMenu == 9) {
+            const CGFloat cardX = labCardX(static_cast<uint32_t>((_openMenu - 5) / 2));
+            rect = NSMakeRect(s3g::gui_layout::processorControlX(cardX), kLabSourceRowY + 14.0,
+                s3g::gui_layout::processorMenuWidth(kLabCardWidth),
+                18.0 * s3g::kPsdRawFieldModSourceCount);
+            count = s3g::kPsdRawFieldModSourceCount;
+            id = _openMenu == 5 ? kModSourceParamId
+                : (_openMenu == 7 ? kModSource2ParamId : kModSource3ParamId);
+        }
+        else if (_openMenu == 6 || _openMenu == 8 || _openMenu == 10) {
+            const CGFloat cardX = labCardX(static_cast<uint32_t>((_openMenu - 6) / 2));
+            rect = NSMakeRect(s3g::gui_layout::processorControlX(cardX), kLabTargetRowY + 14.0,
+                s3g::gui_layout::processorMenuWidth(kLabCardWidth),
+                18.0 * s3g::kPsdRawFieldModTargetCount);
             count = s3g::kPsdRawFieldModTargetCount;
-            id = kModTargetParamId;
+            id = _openMenu == 6 ? kModTargetParamId
+                : (_openMenu == 8 ? kModTarget2ParamId : kModTarget3ParamId);
+        }
+        else if (_openMenu >= 11 && _openMenu <= 13) {
+            const uint32_t index = static_cast<uint32_t>(_openMenu - 11);
+            const CGFloat cardX = labCardX(index);
+            rect = NSMakeRect(s3g::gui_layout::processorControlX(cardX), kLabEnvelopeRowY + 14.0,
+                s3g::gui_layout::processorMenuWidth(kLabCardWidth), 36.0);
+            count = 2u;
+            constexpr clap_id ids[] = {
+                kModEnvelope1ParamId, kModEnvelope2ParamId, kModEnvelope3ParamId
+            };
+            id = ids[index];
         }
         const int hit = s3g::clap_gui::dropdownHitIndex(point, rect, 18.0, count);
-        if (hit >= 0 && id != CLAP_INVALID_ID) applyParam(*p, id, hit);
+        if (hit >= 0 && id != CLAP_INVALID_ID) {
+            if (id == kModAlgorithmParamId && _editorPage == 0)
+                applyCuratedAlgorithm(*p, static_cast<uint32_t>(hit));
+            else
+                applyParam(*p, id, hit);
+            markHostStateDirty(*p);
+        }
         _openMenu = 0;
         _hoverMenuItem = -1;
         [self setNeedsDisplay:YES];
         return;
     }
-    if (NSPointInRect(point, NSMakeRect(kLeftControlX, kPresetRowY - 1.0, kToolboxMenuWidth, 16))) { _openMenu = 1; [self setNeedsDisplay:YES]; return; }
-    if (NSPointInRect(point, NSMakeRect(kLeftControlX, 447.0, kToolboxMenuWidth, 18))) { _openMenu = 2; [self setNeedsDisplay:YES]; return; }
-    if (NSPointInRect(point, NSMakeRect(kRightControlX, 265.0, kToolboxMenuWidth, 16))) { _openMenu = 3; [self setNeedsDisplay:YES]; return; }
-    if (NSPointInRect(point, NSMakeRect(kModControlX, 265.0, kModToolboxMenuWidth, 18))) { _openMenu = 4; [self setNeedsDisplay:YES]; return; }
-    if (NSPointInRect(point, NSMakeRect(kModControlX, 291.0, kModToolboxMenuWidth, 18))) { _openMenu = 5; [self setNeedsDisplay:YES]; return; }
-    if (NSPointInRect(point, NSMakeRect(kModControlX, 395.0, kModToolboxMenuWidth, 18))) {
-        applyParam(*p, kModClockLockParamId, p->params.modClockLock == 0u ? 1.0 : 0.0);
+    if (NSPointInRect(point, NSMakeRect(1162.0, 232.0, 76.0, 17.0))) {
+        _editorPage = 0;
+        _dragSlider = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, NSMakeRect(1244.0, 232.0, 86.0, 17.0))) {
+        _editorPage = 1;
+        _dragSlider = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (NSPointInRect(point, NSMakeRect(1046.0, 232.0, 108.0, 17.0))) {
+        applyParam(*p, kModulationEnabledParamId,
+            p->params.modulationEnabled != 0u ? 0.0 : 1.0);
         markHostStateDirty(*p);
         [self setNeedsDisplay:YES];
         return;
+    }
+    if (NSPointInRect(point, NSMakeRect(kLeftControlX, kPresetRowY - 1.0, kToolboxMenuWidth, 16))) { _openMenu = 1; [self setNeedsDisplay:YES]; return; }
+    if (_editorPage == 0) {
+        if (NSPointInRect(point, NSMakeRect(kLeftControlX, 447.0, kToolboxMenuWidth, 18))) { _openMenu = 2; [self setNeedsDisplay:YES]; return; }
+        if (NSPointInRect(point, NSMakeRect(kRightControlX, 265.0, kToolboxMenuWidth, 16))) { _openMenu = 3; [self setNeedsDisplay:YES]; return; }
+        if (NSPointInRect(point, NSMakeRect(kModControlX, 265.0, kModToolboxMenuWidth, 18))) { _openMenu = 4; [self setNeedsDisplay:YES]; return; }
+    } else {
+        const CGFloat algorithmX = s3g::gui_layout::processorControlX(kLabChartX);
+        const CGFloat algorithmWidth = s3g::gui_layout::processorMenuWidth(kLabChartWidth);
+        if (NSPointInRect(point, NSMakeRect(algorithmX, 265.0, algorithmWidth, 18.0))) {
+            _openMenu = 4;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        constexpr clap_id clockIds[] = {
+            kModClockLockParamId, kModClockLock2ParamId, kModClockLock3ParamId
+        };
+        for (int operatorIndex = 0; operatorIndex < 3; ++operatorIndex) {
+            const CGFloat cardX = labCardX(static_cast<uint32_t>(operatorIndex));
+            const CGFloat controlX = s3g::gui_layout::processorControlX(cardX);
+            const CGFloat menuWidth = s3g::gui_layout::processorMenuWidth(kLabCardWidth);
+            if (NSPointInRect(point, NSMakeRect(controlX, kLabSourceRowY - 1.0, menuWidth, 18.0))) {
+                _openMenu = 5 + operatorIndex * 2;
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, NSMakeRect(controlX, kLabTargetRowY - 1.0, menuWidth, 18.0))) {
+                _openMenu = 6 + operatorIndex * 2;
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, NSMakeRect(controlX, kLabClockRowY - 1.0, menuWidth, 18.0))) {
+                const uint32_t locks[] = {
+                    p->params.modClockLock, p->params.modClockLock2, p->params.modClockLock3
+                };
+                applyParam(*p, clockIds[operatorIndex], locks[operatorIndex] == 0u ? 1.0 : 0.0);
+                markHostStateDirty(*p);
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (NSPointInRect(point, NSMakeRect(controlX, kLabEnvelopeRowY - 1.0, menuWidth, 18.0))) {
+                _openMenu = 11 + operatorIndex;
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
     }
     if (NSPointInRect(point, NSMakeRect(140, kPerformanceRowY - 10.0, 148, 22))) {
         applyParam(*p, kPerformanceModeParamId,
@@ -3133,6 +4234,7 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
         return;
     }
 
+    if (_editorPage == 0) {
     static const CGFloat leftRows[] = { 292, 318, 344, 370, 396, 422, 474, 266 };
     static const clap_id leftIds[] = {
         kScanRateParamId, kTextureParamId, kGeometryParamId, kChaosParamId,
@@ -3173,13 +4275,15 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             return;
         }
     }
-    static const CGFloat modRows[] = { 318, 344, 370, 422 };
+    }
+    if (_editorPage == 1) {
+    static const CGFloat modRows[] = { kLabRateRowY, kLabRatioRowY, kLabIndexRowY, kLabFeedbackRowY };
     static const clap_id modIds[] = {
         kModRateParamId, kModRatioParamId, kModIndexParamId, kModFeedbackParamId
     };
     for (int i = 0; i < 4; ++i) {
         if (NSPointInRect(point, NSMakeRect(
-                kModToolboxX, modRows[i] - 9.0, kModToolboxWidth, 24))) {
+                labCardX(0u), modRows[i] - 9.0, kLabCardWidth, 22))) {
             double defaultValue = 0.0;
             if (s3g::clap_gui::sliderDoubleClickDefault(
                     event, &p->plugin, modIds[i], &defaultValue)) {
@@ -3191,6 +4295,43 @@ CGFloat squaredDistance(NSPoint a, NSPoint b)
             }
             return;
         }
+    }
+    static const clap_id mod2Ids[] = {
+        kModRate2ParamId, kModRatio2ParamId, kModIndex2ParamId, kModFeedback2ParamId
+    };
+    for (int i = 0; i < 4; ++i) {
+        if (NSPointInRect(point, NSMakeRect(
+                labCardX(1u), modRows[i] - 9.0, kLabCardWidth, 22))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, mod2Ids[i], &defaultValue)) {
+                applyParam(*p, mod2Ids[i], defaultValue);
+                _dragSlider = -1;
+            } else {
+                _dragSlider = i + 401;
+                [self updateSlider:point];
+            }
+            return;
+        }
+    }
+    static const clap_id mod3Ids[] = {
+        kModRate3ParamId, kModRatio3ParamId, kModIndex3ParamId, kModFeedback3ParamId
+    };
+    for (int i = 0; i < 4; ++i) {
+        if (NSPointInRect(point, NSMakeRect(
+                labCardX(2u), modRows[i] - 9.0, kLabCardWidth, 22))) {
+            double defaultValue = 0.0;
+            if (s3g::clap_gui::sliderDoubleClickDefault(
+                    event, &p->plugin, mod3Ids[i], &defaultValue)) {
+                applyParam(*p, mod3Ids[i], defaultValue);
+                _dragSlider = -1;
+            } else {
+                _dragSlider = i + 501;
+                [self updateSlider:point];
+            }
+            return;
+        }
+    }
     }
 }
 - (void)mouseDragged:(NSEvent*)event
@@ -3316,7 +4457,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.13.0",
+    "0.16.1",
     "Eight-channel free-running or MIDI-playable byte geometry, codec damage, and resonant nonlinear synthesis.",
     features
 };

@@ -31,7 +31,8 @@ namespace {
 constexpr bool kPitch = S3G_AMBI_EFFECT_PITCH != 0;
 constexpr uint32_t kChannels = s3g::kAmbiEffectDjFilterMaxChannels;
 constexpr uint32_t kPickups = s3g::kAmbiEffectDjFilterMaxPickups;
-constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kStateVersion = 2u;
+constexpr uint32_t kPreviousPickups = 20u;
 constexpr uint32_t kGuiWidth = 820u;
 constexpr uint32_t kGuiHeight = 640u;
 
@@ -97,11 +98,34 @@ struct Params {
     float maskDry = 1.0f;
 };
 
+struct ParamsV1 {
+    uint32_t order = 7u;
+    s3g::AmbiEffectBody body = s3g::AmbiEffectBody::Auto;
+    s3g::AmbiEffectTopology topology = s3g::AmbiEffectTopology::Local;
+    float primary = 0.0f;
+    float windowMs = 80.0f;
+    float glideMs = 250.0f;
+    float spread = 0.0f;
+    float deviation = 0.0f;
+    float topologyAmount = 0.65f;
+    float roamingRateHz = 0.08f;
+    float mix = kPitch ? 0.35f : 1.0f;
+    float outputGainDb = 0.0f;
+    std::array<float, kPreviousPickups> pickupPrimaryTrim {};
+    std::array<float, kPreviousPickups> pickupSecondaryTrim {};
+    float maskAmount = 0.0f;
+    float maskAzimuthDeg = 0.0f;
+    float maskElevationDeg = 0.0f;
+    float maskWidth = 0.35f;
+    float maskCurve = 0.5f;
+    float maskDry = 1.0f;
+};
+
 Params sanitize(Params p)
 {
     p.order = std::clamp<uint32_t>(p.order, 1u, 7u);
     p.body = static_cast<s3g::AmbiEffectBody>(std::min<uint32_t>(
-        static_cast<uint32_t>(p.body), 4u));
+        static_cast<uint32_t>(p.body), 5u));
     if (p.body == s3g::AmbiEffectBody::Tetra4
         || p.body == s3g::AmbiEffectBody::Cube8) {
         p.body = s3g::AmbiEffectBody::Icosa12;
@@ -139,7 +163,7 @@ struct Plugin {
     std::array<std::atomic<float>, kPickups> nodeLevel {};
     std::array<std::atomic<float>, kPickups> nodeWetMask {};
     std::atomic<uint32_t> resolvedBody {
-        static_cast<uint32_t>(s3g::AmbiEffectBody::Dodeca20) };
+        static_cast<uint32_t>(s3g::AmbiEffectBody::Sphere24) };
     std::atomic<float> roamingPhase { 0.0f };
     int32_t guiViewMode = 2;
     float guiViewAzDeg = 35.0f;
@@ -412,7 +436,7 @@ struct ParamSpec {
 
 constexpr std::array<ParamSpec, 18u> kPitchSpecs {{
     { kParamOrder, "Ambisonic order", 1, 7, 7, true },
-    { kParamBody, "Auditory body", 0, 4, 0, true },
+    { kParamBody, "Auditory body", 0, 5, 0, true },
     { kParamTopology, "Topology", 0, 3, 0, true },
     { kParamPrimary, "Pitch", -24, 24, 0, false },
     { kParamWindow, "Grain window", 20, 180, 80, false },
@@ -433,7 +457,7 @@ constexpr std::array<ParamSpec, 18u> kPitchSpecs {{
 
 constexpr std::array<ParamSpec, 16u> kGainSpecs {{
     { kParamOrder, "Ambisonic order", 1, 7, 7, true },
-    { kParamBody, "Auditory body", 0, 4, 0, true },
+    { kParamBody, "Auditory body", 0, 5, 0, true },
     { kParamTopology, "Topology", 0, 3, 0, true },
     { kParamPrimary, "Gain", -60, 18, 0, false },
     { kParamSpread, "Pickup spread", 0, 1, 0, false },
@@ -511,7 +535,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     switch (id) {
     case kParamOrder: std::snprintf(display, size, "%uOA", roundedUint(value)); break;
     case kParamBody: std::snprintf(display, size, "%s", s3g::ambiEffectBodyName(
-        static_cast<s3g::AmbiEffectBody>(std::min<uint32_t>(roundedUint(value), 4u)))); break;
+        static_cast<s3g::AmbiEffectBody>(std::min<uint32_t>(roundedUint(value), 5u)))); break;
     case kParamTopology: std::snprintf(display, size, "%s", s3g::ambiEffectTopologyName(
         static_cast<s3g::AmbiEffectTopology>(std::min<uint32_t>(roundedUint(value), 3u)))); break;
     case kParamPrimary: std::snprintf(display, size, "%+.1f %s", value, kPitch ? "st" : "dB"); break;
@@ -533,7 +557,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display,
 {
     if (!display || !value || !isParam(id)) return false;
     if (id == kParamBody) {
-        for (uint32_t i = 0u; i <= 4u; ++i) {
+        for (uint32_t i = 0u; i <= 5u; ++i) {
             if (std::strcmp(display, s3g::ambiEffectBodyName(
                 static_cast<s3g::AmbiEffectBody>(i))) == 0) {
                 *value = i; return true;
@@ -612,9 +636,38 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     int32_t viewMode = 2;
     float azimuth = 35.0f;
     float elevation = 34.0f;
-    if (!readAll(stream, &version, sizeof(version)) || version != kStateVersion
-        || !readAll(stream, &params, sizeof(params))
-        || !readAll(stream, &viewMode, sizeof(viewMode))
+    if (!readAll(stream, &version, sizeof(version))) return false;
+    if (version == kStateVersion) {
+        if (!readAll(stream, &params, sizeof(params))) return false;
+    } else if (version == 1u) {
+        ParamsV1 old {};
+        if (!readAll(stream, &old, sizeof(old))) return false;
+        params.order = old.order;
+        params.body = old.body;
+        params.topology = old.topology;
+        params.primary = old.primary;
+        params.windowMs = old.windowMs;
+        params.glideMs = old.glideMs;
+        params.spread = old.spread;
+        params.deviation = old.deviation;
+        params.topologyAmount = old.topologyAmount;
+        params.roamingRateHz = old.roamingRateHz;
+        params.mix = old.mix;
+        params.outputGainDb = old.outputGainDb;
+        std::copy(old.pickupPrimaryTrim.begin(), old.pickupPrimaryTrim.end(),
+            params.pickupPrimaryTrim.begin());
+        std::copy(old.pickupSecondaryTrim.begin(), old.pickupSecondaryTrim.end(),
+            params.pickupSecondaryTrim.begin());
+        params.maskAmount = old.maskAmount;
+        params.maskAzimuthDeg = old.maskAzimuthDeg;
+        params.maskElevationDeg = old.maskElevationDeg;
+        params.maskWidth = old.maskWidth;
+        params.maskCurve = old.maskCurve;
+        params.maskDry = old.maskDry;
+    } else {
+        return false;
+    }
+    if (!readAll(stream, &viewMode, sizeof(viewMode))
         || !readAll(stream, &azimuth, sizeof(azimuth))
         || !readAll(stream, &elevation, sizeof(elevation))) return false;
     auto* p = self(plugin);
@@ -1055,13 +1108,14 @@ NSRect secondaryAxisRect()
 
     if (_openMenu > 0 && _menuItems > 0u) {
         NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
-        NSString* bodyItems[] = { @"AUTO", @"ICOSA 12", @"DODECA 20" };
+        NSString* bodyItems[] = { @"AUTO", @"ICOSA 12", @"DODECA 20", @"SPHERE 24" };
         NSString* topologyItems[] = { @"LOCAL", @"CROSS", @"DIFFUSE", @"ROAMING" };
         NSString** items = _openMenu == 1 ? orderItems
             : (_openMenu == 2 ? bodyItems : topologyItems);
         const int selected = _openMenu == 1 ? static_cast<int>(p->params.order) - 1
             : (_openMenu == 2 ? (p->params.body == s3g::AmbiEffectBody::Auto ? 0
-                : (p->params.body == s3g::AmbiEffectBody::Dodeca20 ? 2 : 1))
+                : (p->params.body == s3g::AmbiEffectBody::Dodeca20 ? 2
+                    : (p->params.body == s3g::AmbiEffectBody::Sphere24 ? 3 : 1)))
                 : static_cast<int>(p->params.topology));
         const CGFloat width = s3g::gui_layout::processorMenuWidth(kLayout.output.frame.width);
         s3g::clap_gui::drawDropdownMenu(NSMakeRect(_menuOrigin.x, _menuOrigin.y,
@@ -1125,7 +1179,7 @@ NSRect secondaryAxisRect()
         if (hit >= 0) {
             if (_openMenu == 1) [self setParam:kParamOrder value:hit + 1.0];
             else if (_openMenu == 2) [self setParam:kParamBody
-                value:(hit == 0 ? 0.0 : (hit == 1 ? 3.0 : 4.0))];
+                value:(hit == 0 ? 0.0 : hit + 2.0)];
             else [self setParam:kParamTopology value:hit];
         }
         _openMenu = 0; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; return;
@@ -1167,7 +1221,7 @@ NSRect secondaryAxisRect()
     struct MenuHit { s3g::gui_layout::Rect rect; int menu; uint32_t items; };
     const MenuHit menus[] {
         { s3g::gui_layout::sliderHitRect(kLayout.output, 1u), 1, 7u },
-        { s3g::gui_layout::sliderHitRect(kEnginePanel, 0u), 2, 3u },
+        { s3g::gui_layout::sliderHitRect(kEnginePanel, 0u), 2, 4u },
         { s3g::gui_layout::sliderHitRect(kTopologyPanel, 0u), 3, 4u },
     };
     for (const auto& menu : menus) {

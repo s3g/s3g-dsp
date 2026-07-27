@@ -21,8 +21,8 @@ if(APPLE)
   target_link_libraries(s3g_dsp_smoke PRIVATE "-framework Accelerate")
 endif()
 
-add_executable(s3g_3oafx_displacement_smoke tests/3oafx_displacement_smoke.cpp)
-target_link_libraries(s3g_3oafx_displacement_smoke PRIVATE s3g_dsp)
+add_executable(s3g_ambi_effect_displacement_smoke tests/ambi_effect_displacement_smoke.cpp)
+target_link_libraries(s3g_ambi_effect_displacement_smoke PRIVATE s3g_dsp)
 
 add_executable(s3g_ambi_imprint_safety_smoke tests/ambi_imprint_safety_smoke.cpp)
 target_link_libraries(s3g_ambi_imprint_safety_smoke PRIVATE s3g_dsp)
@@ -161,9 +161,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_delay_processor)
   add_subdirectory(plugins/clap_mc_to_stereo_autogain)
   add_subdirectory(plugins/clap_mc_to_quad_autogain)
-  add_subdirectory(plugins/clap_3oafx_single_effects)
-  add_subdirectory(plugins/clap_3oafx_displacement)
-  add_subdirectory(plugins/clap_3oafx_point_encoder)
+  add_subdirectory(plugins/clap_ambi_effect_displacement)
+  add_subdirectory(plugins/clap_ambi_point_encoder)
   add_subdirectory(plugins/clap_ambi_cloud_encoder)
   add_subdirectory(plugins/clap_ambi_terrain_navigator)
   add_subdirectory(plugins/clap_ambi_vot_encoder)
@@ -183,7 +182,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_ray_encoder)
   add_subdirectory(plugins/clap_ambi_ray_bilocation_encoder)
   add_subdirectory(plugins/clap_ambi_path_encoder)
-  add_subdirectory(plugins/clap_3oafx_speaker_decoder)
+  add_subdirectory(plugins/clap_ambi_speaker_decoder)
   add_subdirectory(plugins/clap_layout_panner)
   add_subdirectory(plugins/clap_dbap_panner)
   add_subdirectory(plugins/clap_lbap_panner)
@@ -274,7 +273,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(APPLE)
     add_custom_target(audit_gui_encoder_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_point_encoder_clap> org.s3g.s3g-dsp.3oafx-point-encoder-16pt 900 716
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_point_encoder_clap> org.s3g.s3g-dsp.ambi-point-encoder-64 900 716
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_cloud_encoder_clap> org.s3g.s3g-dsp.ambi-cloud-encoder-64 900 672
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_path_encoder_clap> org.s3g.s3g-dsp.ambi-path-encoder-64 900 792
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_terrain_navigator_clap> org.s3g.s3g-dsp.ambi-terrain-navigator-64 900 792
@@ -296,7 +295,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
-        s3g_3oafx_point_encoder_clap
+        s3g_ambi_point_encoder_clap
         s3g_ambi_cloud_encoder_clap
         s3g_ambi_path_encoder_clap
         s3g_ambi_terrain_navigator_clap
@@ -323,7 +322,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_sub_decoder_clap> org.s3g.s3g-dsp.ambisonic-sub-decoder 600 360 "s3g Ambi Decoder " responsive
       COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_adaptive_decoder_clap> org.s3g.s3g-dsp.ambi-adaptive-decoder-64 900 620 "s3g Ambi Decoder " responsive
       COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_object_decoder_clap> org.s3g.s3g-dsp.ambi-object-decoder-64 900 620 "s3g Ambi Decoder " responsive
-      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_speaker_decoder_clap> org.s3g.s3g-dsp.3oafx-speaker-decoder-64 900 620 "s3g Ambi Decoder " responsive
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_speaker_decoder_clap> org.s3g.s3g-dsp.ambi-speaker-decoder-64 900 620 "s3g Ambi Decoder " responsive
       DEPENDS
         s3g_decoder_family_gui_smoke
         s3g_ambisonic_head_decoder_clap
@@ -331,7 +330,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_ambisonic_sub_decoder_clap
         s3g_ambi_adaptive_decoder_clap
         s3g_ambi_object_decoder_clap
-        s3g_3oafx_speaker_decoder_clap
+        s3g_ambi_speaker_decoder_clap
       COMMENT "Rendering and validating every decoder-family GUI")
 
     add_custom_target(audit_gui_panner_family
@@ -452,6 +451,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_delay_clap> org.s3g.s3g-dsp.ambi-effect-delay-64 820 640 "s3g Ambi Effect " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_pitch_clap> org.s3g.s3g-dsp.ambi-effect-pitch-64 820 640 "s3g Ambi Effect " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_gain_clap> org.s3g.s3g-dsp.ambi-effect-gain-64 820 640 "s3g Ambi Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_displacement_clap> org.s3g.s3g-dsp.ambi-effect-displacement-64 920 820 "s3g Ambi Effect " responsive
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
@@ -459,6 +459,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_ambi_effect_delay_clap
         s3g_ambi_effect_pitch_clap
         s3g_ambi_effect_gain_clap
+        s3g_ambi_effect_displacement_clap
       COMMENT "Rendering and validating every Ambi Effect-family GUI")
 
     add_custom_target(audit_gui_matrix_family
@@ -503,23 +504,6 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_orbit_delay_clap
         s3g_cascade_taps_clap
       COMMENT "Rendering and validating every compact Effect-family GUI")
-
-    add_custom_target(audit_gui_3oafx_family
-      COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_delay_clap> org.s3g.s3g-dsp.3oafx-delay 880 500 "s3g 3OAFX " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_pitch_clap> org.s3g.s3g-dsp.3oafx-pitch 880 500 "s3g 3OAFX " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_filter_clap> org.s3g.s3g-dsp.3oafx-filter 880 500 "s3g 3OAFX " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_gain_clap> org.s3g.s3g-dsp.3oafx-gain 880 500 "s3g 3OAFX " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_3oafx_displacement_clap> org.s3g.s3g-dsp.3oafx-displacement 920 610 "s3g 3OAFX " responsive
-      DEPENDS
-        s3g_gui_layout_contract_smoke
-        s3g_encoder_family_gui_smoke
-        s3g_3oafx_delay_clap
-        s3g_3oafx_pitch_clap
-        s3g_3oafx_filter_clap
-        s3g_3oafx_gain_clap
-        s3g_3oafx_displacement_clap
-      COMMENT "Rendering and validating every 3OAFX Effect/Transform GUI")
 
     add_custom_target(audit_gui_output_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>

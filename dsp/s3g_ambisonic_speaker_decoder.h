@@ -1,7 +1,7 @@
 #pragma once
 
 #include "s3g_24ch_layout.h"
-#include "s3g_3oafx.h"
+#include "s3g_ambisonic_geometry.h"
 #include "s3g_allrad.h"
 #include "s3g_cube41_layout.h"
 #include "s3g_math.h"
@@ -639,7 +639,7 @@ private:
         default:
             params_.activeSpeakers = 24;
             for (uint32_t i = 0; i < 24; ++i) {
-                const auto& v = k3OafxPoints[i];
+                const auto& v = kAmbisonicSphere24Points[i];
                 speakers_[i] = fromXyz(v.x, v.y, v.z);
             }
             break;

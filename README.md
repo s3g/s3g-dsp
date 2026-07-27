@@ -32,13 +32,13 @@ Plugin areas:
   [effects](https://s3g.github.io/s3g-dsp/multichannel-effects.html),
   fold-down, metering, direct panning, matrix and node mixing, and speaker
   calibration for ordinary channel lanes.
-- [Ambisonics](https://s3g.github.io/s3g-dsp/3oafx.html): separate
+- [Ambisonics](https://s3g.github.io/s3g-dsp/ambisonics.html): separate
   [encoders](https://s3g.github.io/s3g-dsp/ambisonic-encoders.html),
   [decoders](https://s3g.github.io/s3g-dsp/ambisonic-decoders.html),
   [effects](https://s3g.github.io/s3g-dsp/ambisonic-effects.html), and
   [utilities](https://s3g.github.io/s3g-dsp/ambisonic-utilities.html) for
-  `ACN/SN3D` workflows, including 3OAFX, Ambi Imprint, and the order-adaptive
-  Ambi Effect DJ Filter, Delay, Pitch, and Gain. The
+  `ACN/SN3D` workflows, including Ambi Imprint and the order-adaptive Ambi
+  Effect DJ Filter, Delay, Pitch, Gain, and Displacement. The
   [Listener Mode guide](https://s3g.github.io/s3g-dsp/listener-mode.html)
   describes plugins that use their own encoded field as an internal score;
   [Parameter Surface](https://s3g.github.io/s3g-dsp/parameter-surface.html)
@@ -73,8 +73,8 @@ tracks and true stereo outputs.
 - Spatial plugin camera state is saved with the plugin state where it is part
   of the editing workflow. For example, a top-view panner or decoder display
   should reopen that way with the project.
-- 24-channel 3OAFX-specific work is kept separate from general multichannel
-  lane effects.
+- Ambi Effects use order-adaptive 12-, 20-, or 24-pickup listener bodies while
+  keeping encoded-field processing separate from ordinary channel-lane effects.
 - C++ plugin and DSP work lives in `s3g-dsp`; generated RNBO exports use the
   separate `s3g-rnbo-clap` wrapper project.
 
@@ -182,7 +182,7 @@ Create the local pre-release zip after a complete CLAP build with:
 ./scripts/package-macos-clap-prerelease.sh
 ```
 
-The package contains 91 CLAP bundles, the VOT wavetable library, the Ambi Vox
+The package contains 88 CLAP bundles, the VOT wavetable library, the Ambi Vox
 demo voicebank, and the applicable license notices. The packaging script
 ad-hoc signs and strictly verifies every bundle by default. Set
 `S3G_CODESIGN_IDENTITY` to use a different macOS signing identity; notarization
@@ -194,7 +194,7 @@ The local smoke executables exercise shared DSP code:
 
 ```sh
 ./build/s3g_dsp_smoke
-./build/s3g_3oafx_displacement_smoke
+./build/s3g_ambi_effect_displacement_smoke
 ./build/s3g_ambi_imprint_safety_smoke
 ./build/s3g_ambi_ray_encoder_smoke
 ./build/s3g_ambi_ray_bilocation_encoder_smoke
@@ -245,8 +245,8 @@ sense for Max.
 project for RNBO/Max-generated C++ exports. It follows the same CLAP release
 workflow but is not required to build or use `s3g-dsp`.
 
-The 3OAFX workflow guide is maintained with `s3g-mc`:
-<https://s3g.github.io/s3g-mc/process-guides-3oafx.html>.
+Companion REAPER session and routing workflows are maintained with `s3g-mc`:
+<https://s3g.github.io/s3g-mc/process-guides-ambisonics.html>.
 
 ## License
 

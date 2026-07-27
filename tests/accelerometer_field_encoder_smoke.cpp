@@ -199,6 +199,141 @@ bool testPickupGeometry()
     return true;
 }
 
+bool testArrayCenterAndSpread()
+{
+    s3g::AccelerometerFieldEncoder engine;
+    engine.prepare(48000.0);
+    auto params = s3g::accelerometerFieldFactoryPreset(2u);
+    params.pickupPosition = 0.18f;
+    params.arraySpread = 0.0f;
+    engine.setParams(params);
+    const float localized = engine.sensorPosition(0u);
+    for (uint32_t sensor = 1u;
+        sensor < s3g::kAccelerometerFieldSensorCount; ++sensor) {
+        if (std::fabs(engine.sensorPosition(sensor) - localized) > 1.0e-6f) {
+            std::cerr << "Zero array spread did not co-locate the sensors\n";
+            return false;
+        }
+    }
+    params.pickupPosition = 0.82f;
+    engine.setParams(params);
+    if (!(engine.sensorPosition(0u) > localized + 0.25f)) {
+        std::cerr << "Array center did not move the localized pickup\n";
+        return false;
+    }
+    params.arraySpread = 1.0f;
+    engine.setParams(params);
+    if (!(engine.sensorPosition(7u) - engine.sensorPosition(0u) > 0.75f)) {
+        std::cerr << "Array spread did not separate the attachment points\n";
+        return false;
+    }
+    return true;
+}
+
+bool testAedSpreadLocalization()
+{
+    s3g::AccelerometerFieldEncoder engine;
+    engine.prepare(48000.0);
+    auto params = s3g::accelerometerFieldFactoryPreset(2u);
+    params.fieldAzimuthDeg = 37.0f;
+    params.fieldElevationDeg = -18.0f;
+    params.spatialExtent = 0.0f;
+    engine.setParams(params);
+    const auto localized = engine.sensorDirection(0u);
+    for (uint32_t sensor = 1u;
+        sensor < s3g::kAccelerometerFieldSensorCount; ++sensor) {
+        const auto direction = engine.sensorDirection(sensor);
+        if (std::fabs(direction.x - localized.x) > 1.0e-6f
+            || std::fabs(direction.y - localized.y) > 1.0e-6f
+            || std::fabs(direction.z - localized.z) > 1.0e-6f) {
+            std::cerr << "Zero AED spread did not localize the field\n";
+            return false;
+        }
+    }
+    params.spatialExtent = 1.0f;
+    engine.setParams(params);
+    const auto first = engine.sensorDirection(0u);
+    const auto last = engine.sensorDirection(7u);
+    const float separation = std::fabs(first.x - last.x)
+        + std::fabs(first.y - last.y) + std::fabs(first.z - last.z);
+    if (!(separation > 0.25f)) {
+        std::cerr << "AED spread did not distribute the encoded field\n";
+        return false;
+    }
+    return true;
+}
+
+bool testLeafFootfallsHeadroom()
+{
+    Buffer first {};
+    Buffer second {};
+    auto params = s3g::accelerometerFieldFactoryPreset(2u);
+    params.outputMode = s3g::AccelerometerFieldOutputMode::SensorStems;
+    render(params, first, second);
+    const auto firstMetrics = metrics(first);
+    const auto secondMetrics = metrics(second);
+    if (!(firstMetrics.energy > 1.0e-10)
+        || !(secondMetrics.energy > 1.0e-10)
+        || !(firstMetrics.peak < 0.96f)
+        || !(secondMetrics.peak < 0.96f)) {
+        std::cerr << "Leaf Footfalls lost usable sensor headroom: "
+                  << firstMetrics.peak << ", " << secondMetrics.peak << "\n";
+        return false;
+    }
+    return true;
+}
+
+bool testExpandedMaterials()
+{
+    constexpr std::array<s3g::AccelerometerSubstrate, 4u> expected {{
+        s3g::AccelerometerSubstrate::DryLeaf,
+        s3g::AccelerometerSubstrate::PaperCardboard,
+        s3g::AccelerometerSubstrate::ShellChitin,
+        s3g::AccelerometerSubstrate::PolymerMembrane,
+    }};
+    std::array<float, expected.size()> fundamentals {};
+    Buffer first {};
+    Buffer second {};
+    for (uint32_t material = 0u; material < expected.size(); ++material) {
+        auto params = s3g::accelerometerFieldFactoryPreset(8u + material);
+        if (params.substrate != expected[material]) {
+            std::cerr << "Expanded material preset selected the wrong substrate\n";
+            return false;
+        }
+        s3g::AccelerometerFieldEncoder engine;
+        engine.prepare(48000.0);
+        engine.setParams(params);
+        fundamentals[material] = engine.modeFrequencyHz(0u);
+        params.outputMode = s3g::AccelerometerFieldOutputMode::SensorStems;
+        render(params, first, second);
+        const auto firstMetrics = metrics(first);
+        const auto secondMetrics = metrics(second);
+        if (!firstMetrics.finite || !secondMetrics.finite
+            || !(firstMetrics.energy > 1.0e-10)
+            || !(secondMetrics.energy > 1.0e-10)
+            || !(firstMetrics.peak < 0.98f)
+            || !(secondMetrics.peak < 0.98f)) {
+            std::cerr << "Expanded material preset " << material
+                      << " lost finite headroom or audibility: "
+                      << firstMetrics.peak << ", " << secondMetrics.peak
+                      << "\n";
+            return false;
+        }
+    }
+    for (uint32_t firstIndex = 0u;
+        firstIndex < fundamentals.size(); ++firstIndex) {
+        for (uint32_t secondIndex = firstIndex + 1u;
+            secondIndex < fundamentals.size(); ++secondIndex) {
+            if (std::fabs(fundamentals[firstIndex]
+                    - fundamentals[secondIndex]) < 2.0f) {
+                std::cerr << "Expanded material profiles collapsed to one modal family\n";
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool testReadoutDomain()
 {
     Buffer acceleration {};
@@ -319,6 +454,56 @@ bool testExternalDrive()
     return true;
 }
 
+bool testFieldListenerFeedback()
+{
+    Buffer off {};
+    Buffer zeroInfluence {};
+    Buffer active {};
+    Buffer companion {};
+    auto params = s3g::accelerometerFieldFactoryPreset(8u);
+    if (params.fieldListenMode != s3g::AmbiFieldListenMode::Off) {
+        std::cerr << "Field listening did not default to Off\n";
+        return false;
+    }
+    render(params, off, companion);
+    params.fieldListenMode = s3g::AmbiFieldListenMode::Follow;
+    params.fieldListenAmount = 0.0f;
+    params.fieldListenResponse = s3g::AmbiFieldListenerResponse::Imprint;
+    render(params, zeroInfluence, companion);
+    if (off != zeroInfluence) {
+        std::cerr << "Zero listener influence changed the authored synthesis\n";
+        return false;
+    }
+
+    params.fieldListenAmount = 1.0f;
+    render(params, active, companion);
+    if (!(difference(off, active) > 1.0e-6)) {
+        std::cerr << "Active field listening did not affect later events\n";
+        return false;
+    }
+
+    params.outputMode = s3g::AccelerometerFieldOutputMode::SensorStems;
+    s3g::AccelerometerFieldEncoder rawEngine;
+    rawEngine.prepare(48000.0);
+    rawEngine.setParams(params);
+    rawEngine.reset();
+    std::array<float*, s3g::kAccelerometerFieldMaxChannels> outputs {};
+    outputs[0] = active.data();
+    outputs[1] = companion.data();
+    rawEngine.process(nullptr, outputs.data(), outputs.size(), kFrames);
+    const float target = rawEngine.listenerTargetPosition();
+    if (!(rawEngine.listenerActivity() > 0.01f)
+        || !std::isfinite(target)
+        || !(target >= 0.02f && target <= 0.98f)
+        || !(std::fabs(target - params.sourcePosition) > 0.01f)) {
+        std::cerr << "Raw stems stopped feeding the internal HOA listener: "
+                  << rawEngine.listenerActivity() << ", target "
+                  << target << "\n";
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -329,10 +514,15 @@ int main()
         || !testOptionalSensorStems()
         || !testLowerOrderClearsUnusedChannels()
         || !testPickupGeometry()
+        || !testArrayCenterAndSpread()
+        || !testAedSpreadLocalization()
+        || !testLeafFootfallsHeadroom()
+        || !testExpandedMaterials()
         || !testReadoutDomain()
         || !testChewingIsBroadbandAndPulsed()
         || !testMountAndMassLoading()
-        || !testExternalDrive()) {
+        || !testExternalDrive()
+        || !testFieldListenerFeedback()) {
         return 1;
     }
     std::cout << "Accelerometer field encoder smoke passed\n";

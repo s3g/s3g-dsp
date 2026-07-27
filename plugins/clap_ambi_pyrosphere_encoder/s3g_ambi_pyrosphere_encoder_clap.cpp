@@ -28,9 +28,9 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiPyrosphereMaxChannels;
-constexpr uint32_t kStateVersion = 20;
+constexpr uint32_t kStateVersion = 21;
 constexpr uint32_t kCustomPresetMagic = 0x31524946u; // FIR1
-constexpr uint32_t kCustomPresetVersion = 17;
+constexpr uint32_t kCustomPresetVersion = 18;
 
 constexpr clap_id kPresetParamId = 1;
 constexpr clap_id kOrderParamId = 2;
@@ -83,6 +83,11 @@ constexpr clap_id kPressureParamId = 59;
 constexpr clap_id kStructuralLoadParamId = 60;
 constexpr clap_id kSnapParamId = 61;
 constexpr clap_id kFallParamId = 62;
+constexpr clap_id kScorePaceParamId = 63;
+constexpr clap_id kScoreOccupancyParamId = 64;
+constexpr clap_id kScoreCascadeParamId = 65;
+constexpr clap_id kScoreMemoryParamId = 66;
+constexpr clap_id kScoreRestParamId = 67;
 
 using PyrosphereSurface = s3g::ParameterSurfaceState<s3g::AmbiPyrosphereParams>;
 
@@ -116,6 +121,9 @@ struct Plugin {
     char customPresetName[64] {};
     uint32_t randomSeed = 0x6d2b79f5u;
     std::atomic<float> outputPeak { 0.0f };
+    std::atomic<float> guiScoreActivity { 0.0f };
+    std::atomic<uint32_t> guiScoreEntities { 0u };
+    std::atomic<uint64_t> guiScoreArcs { 0u };
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -184,6 +192,7 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
         && file.magic == kCustomPresetMagic
         && (file.version == 10u || file.version == 11u || file.version == 12u
             || file.version == 13u || file.version == 14u
+            || file.version == 17u
             || file.version == kCustomPresetVersion)
         && std::fread(file.name, 1, sizeof(file.name), handle) == sizeof(file.name);
     if (ok) {
@@ -197,7 +206,9 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
                                     ? offsetof(s3g::AmbiPyrosphereParams, fieldListenAmount)
                                     : (file.version == 14u
                                             ? offsetof(s3g::AmbiPyrosphereParams, particles)
-                                            : sizeof(file.params)))));
+                                            : (file.version == 17u
+                                                    ? offsetof(s3g::AmbiPyrosphereParams, scorePace)
+                                                    : sizeof(file.params))))));
         ok = std::fread(&file.params, 1, paramsSize, handle) == paramsSize;
     }
     std::fclose(handle);
@@ -323,6 +334,11 @@ void randomizeSafe(Plugin& plugin)
         ? randomRange(seed, 0.48f, 0.96f) : randomRange(seed, 0.18f, 0.58f);
     p.fall = p.materialMode == 11u
         ? randomRange(seed, 0.38f, 0.88f) : randomRange(seed, 0.0f, 0.28f);
+    p.scorePace = randomRange(seed, 0.18f, 0.78f);
+    p.scoreOccupancy = randomRange(seed, 0.10f, 0.52f);
+    p.scoreCascade = randomRange(seed, 0.18f, 0.86f);
+    p.scoreMemory = randomRange(seed, 0.38f, 0.92f);
+    p.scoreRest = randomRange(seed, 0.42f, 0.92f);
     if (p.materialMode == 13u) {
         p.voices = 8u + randomChoice(seed, 13u);
         p.wind = randomRange(seed, 0.72f, 1.0f);
@@ -414,6 +430,11 @@ bool assignParam(s3g::AmbiPyrosphereParams& params, clap_id id, double value)
     case kStructuralLoadParamId: params.structuralLoad = static_cast<float>(value); return true;
     case kSnapParamId: params.snap = static_cast<float>(value); return true;
     case kFallParamId: params.fall = static_cast<float>(value); return true;
+    case kScorePaceParamId: params.scorePace = static_cast<float>(value); return true;
+    case kScoreOccupancyParamId: params.scoreOccupancy = static_cast<float>(value); return true;
+    case kScoreCascadeParamId: params.scoreCascade = static_cast<float>(value); return true;
+    case kScoreMemoryParamId: params.scoreMemory = static_cast<float>(value); return true;
+    case kScoreRestParamId: params.scoreRest = static_cast<float>(value); return true;
     default: return false;
     }
 }
@@ -480,6 +501,11 @@ s3g::AmbiPyrosphereParams pyrosphereSurfaceParams(
     S3G_PYROSPHERE_SURFACE_BLEND(structuralLoad);
     S3G_PYROSPHERE_SURFACE_BLEND(snap);
     S3G_PYROSPHERE_SURFACE_BLEND(fall);
+    S3G_PYROSPHERE_SURFACE_BLEND(scorePace);
+    S3G_PYROSPHERE_SURFACE_BLEND(scoreOccupancy);
+    S3G_PYROSPHERE_SURFACE_BLEND(scoreCascade);
+    S3G_PYROSPHERE_SURFACE_BLEND(scoreMemory);
+    S3G_PYROSPHERE_SURFACE_BLEND(scoreRest);
 #undef S3G_PYROSPHERE_SURFACE_BLEND
     // Routing, final level, and cursor remain live.
     result.order = base.order;
@@ -683,6 +709,12 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         surfaceOffset += spanFrames;
     }
     p->effectiveParams = p->engine.params();
+    p->guiScoreActivity.store(
+        p->engine.scoreActivity(), std::memory_order_relaxed);
+    p->guiScoreEntities.store(
+        p->engine.scoredEntityCount(), std::memory_order_relaxed);
+    p->guiScoreArcs.store(
+        p->engine.scoreArcCount(), std::memory_order_relaxed);
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
 
     float peak = 0.0f;
@@ -785,6 +817,11 @@ constexpr ParamDef kParams[] {
     { kStructuralLoadParamId, "Structural Load", 0.0, 1.0, 0.18, false },
     { kSnapParamId, "Branch Snap", 0.0, 1.0, 0.34, false },
     { kFallParamId, "Tree Fall", 0.0, 1.0, 0.08, false },
+    { kScorePaceParamId, "Score Pace", 0.0, 1.0, 0.48, false },
+    { kScoreOccupancyParamId, "Entity Occupancy", 0.0, 1.0, 0.32, false },
+    { kScoreCascadeParamId, "Causal Cascade", 0.0, 1.0, 0.52, false },
+    { kScoreMemoryParamId, "Score Memory", 0.0, 1.0, 0.66, false },
+    { kScoreRestParamId, "Scored Rest", 0.0, 1.0, 0.58, false },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
@@ -843,6 +880,11 @@ const char* paramModule(clap_id id)
     case kStructuralLoadParamId:
     case kSnapParamId:
     case kFallParamId: return "Structural Consequences";
+    case kScorePaceParamId:
+    case kScoreOccupancyParamId:
+    case kScoreCascadeParamId:
+    case kScoreMemoryParamId:
+    case kScoreRestParamId: return "Aleatoric Entity Score";
     default: return "Ambi Pyrosphere Encoder";
     }
 }
@@ -920,6 +962,11 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kStructuralLoadParamId: *value = params.structuralLoad; return true;
     case kSnapParamId: *value = params.snap; return true;
     case kFallParamId: *value = params.fall; return true;
+    case kScorePaceParamId: *value = params.scorePace; return true;
+    case kScoreOccupancyParamId: *value = params.scoreOccupancy; return true;
+    case kScoreCascadeParamId: *value = params.scoreCascade; return true;
+    case kScoreMemoryParamId: *value = params.scoreMemory; return true;
+    case kScoreRestParamId: *value = params.scoreRest; return true;
     default: return false;
     }
 }
@@ -984,7 +1031,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         || id == kFieldListenAmountParamId || id == kParticlesParamId
         || id == kVortexParamId || id == kPressureParamId
         || id == kStructuralLoadParamId || id == kSnapParamId
-        || id == kFallParamId) {
+        || id == kFallParamId || id == kScorePaceParamId
+        || id == kScoreOccupancyParamId || id == kScoreCascadeParamId
+        || id == kScoreMemoryParamId || id == kScoreRestParamId) {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
     } else {
         std::snprintf(display, size, "%.2f", value);
@@ -1080,7 +1129,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         || id == kFieldListenAmountParamId || id == kParticlesParamId
         || id == kVortexParamId || id == kPressureParamId
         || id == kStructuralLoadParamId || id == kSnapParamId
-        || id == kFallParamId) {
+        || id == kFallParamId || id == kScorePaceParamId
+        || id == kScoreOccupancyParamId || id == kScoreCascadeParamId
+        || id == kScoreMemoryParamId || id == kScoreRestParamId) {
         *value *= 0.01;
     }
     return true;
@@ -1251,6 +1302,11 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kStructuralLoadParamId, 896, 744, 0.0, 1.0, false },
     { kSnapParamId, 896, 770, 0.0, 1.0, false },
     { kFallParamId, 896, 796, 0.0, 1.0, false },
+    { kScorePaceParamId, 18, 698, 0.0, 1.0, false },
+    { kScoreOccupancyParamId, 18, 724, 0.0, 1.0, false },
+    { kScoreCascadeParamId, 18, 750, 0.0, 1.0, false },
+    { kScoreMemoryParamId, 310, 698, 0.0, 1.0, false },
+    { kScoreRestParamId, 310, 724, 0.0, 1.0, false },
 };
 
 const GuiSliderSpec* guiSliderSpec(clap_id id)
@@ -1865,6 +1921,27 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const auto p = _plugin->effectiveParams;
+    s3g::clap_gui::drawPanelFrame(18, 662, 596, 152, style);
+    s3g::clap_gui::drawPanelHeader(@"ALEATORIC ENTITY SCORE", true,
+        18, 662, 596, 21, attrs, style);
+    [self drawSlider:@"PACE" param:kScorePaceParamId value:p.scorePace
+        attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"OCCUPANCY" param:kScoreOccupancyParamId
+        value:p.scoreOccupancy attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"CASCADE" param:kScoreCascadeParamId
+        value:p.scoreCascade attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"MEMORY" param:kScoreMemoryParamId value:p.scoreMemory
+        attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"REST" param:kScoreRestParamId value:p.scoreRest
+        attrs:attrs valueAttrs:valueAttrs style:style];
+    NSString* scoreStatus = [NSString stringWithFormat:@"%u ENT / %llu ARCS / %.2f ACT",
+        _plugin->guiScoreEntities.load(std::memory_order_relaxed),
+        static_cast<unsigned long long>(_plugin->guiScoreArcs.load(
+            std::memory_order_relaxed)),
+        _plugin->guiScoreActivity.load(std::memory_order_relaxed)];
+    s3g::clap_gui::drawRightStatus(scoreStatus, 614, 669,
+        valueAttrs, 8.0);
+
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 132, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT / AIR", true, 630, 42, 250, 21, attrs, style);
     [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];

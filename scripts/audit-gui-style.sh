@@ -202,7 +202,7 @@ for file in "${large_encoder_order_family[@]}"; do
 done
 
 encoder_family_members=(
-  "plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp|s3g Ambi Encoder Point"
+  "plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp|s3g Ambi Encoder Point"
   "plugins/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder_clap.cpp|s3g Ambi Encoder Cloud"
   "plugins/clap_ambi_path_encoder/s3g_ambi_path_encoder_clap.cpp|s3g Ambi Encoder Path"
   "plugins/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator_clap.cpp|s3g Ambi Encoder Surface Terrain"
@@ -266,7 +266,7 @@ decoder_family_members=(
   "plugins/clap_ambisonic_sub_decoder/s3g_ambisonic_sub_decoder_clap.cpp|s3g Ambi Decoder Sub"
   "plugins/clap_ambi_adaptive_decoder/s3g_ambi_adaptive_decoder_clap.cpp|s3g Ambi Decoder Adaptive 64"
   "plugins/clap_ambi_object_decoder/s3g_ambi_object_decoder_clap.cpp|s3g Ambi Decoder Object 64"
-  "plugins/clap_3oafx_speaker_decoder/s3g_3oafx_speaker_decoder_clap.cpp|s3g Ambi Decoder Speaker 64"
+  "plugins/clap_ambi_speaker_decoder/s3g_ambi_speaker_decoder_clap.cpp|s3g Ambi Decoder Speaker 64"
 )
 for member in "${decoder_family_members[@]}"; do
   file="${member%%|*}"
@@ -309,7 +309,7 @@ decoder_output_unit_contracts=(
   'plugins/clap_ambisonic_sub_decoder/s3g_ambisonic_sub_decoder_clap.cpp|drawSlider\(@"OUT"[^\n]*textForParam'
   'plugins/clap_ambi_adaptive_decoder/s3g_ambi_adaptive_decoder_clap.cpp|isEqualToString:@"dB"[^\n]*%\+\.1f dB'
   'plugins/clap_ambi_object_decoder/s3g_ambi_object_decoder_clap.cpp|isEqualToString:@"dB"[^\n]*%\+\.1f dB'
-  'plugins/clap_3oafx_speaker_decoder/s3g_3oafx_speaker_decoder_clap.cpp|drawSlider:@"OUT"[^\n]*%\+\.1f dB'
+  'plugins/clap_ambi_speaker_decoder/s3g_ambi_speaker_decoder_clap.cpp|drawSlider:@"OUT"[^\n]*%\+\.1f dB'
 )
 for contract in "${decoder_output_unit_contracts[@]}"; do
   file="${contract%%|*}"
@@ -326,7 +326,7 @@ if ! rg -q 'menuDisplayText' plugins/common/s3g_cocoa_gui.h \
 fi
 
 compact_output_first_contracts=(
-  'plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp|drawSlider:@"OUT"[^\n]*y:78'
+  'plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp|drawSlider:@"OUT"[^\n]*y:78'
   'plugins/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder_clap.cpp|drawSlider:@"OUT"[^\n]*y:78'
   'plugins/clap_ambi_path_encoder/s3g_ambi_path_encoder_clap.cpp|drawSlider:@"OUT"[^\n]*y:78'
   'plugins/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator_clap.cpp|drawSlider:@"OUT"[^\n]*kOutputParamId[^\n]*y:78'
@@ -354,7 +354,7 @@ for contract in "${compact_output_first_contracts[@]}"; do
 done
 
 compact_encoder_order_contracts=(
-  'plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp|drawMenu:@"ORDER"[^\n]*y:103'
+  'plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp|drawMenu:@"ORDER"[^\n]*y:103'
   'plugins/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder_clap.cpp|drawMenu:@"ORDER"[^\n]*y:104'
   'plugins/clap_ambi_path_encoder/s3g_ambi_path_encoder_clap.cpp|drawMenu:@"ORDER"[^\n]*y:104'
   'plugins/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator_clap.cpp|drawMenu:@"ORDER"[^\n]*y:104'
@@ -370,7 +370,7 @@ for contract in "${compact_encoder_order_contracts[@]}"; do
 done
 
 compact_toolbox_alignment_family=(
-  "plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp"
+  "plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp"
   "plugins/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder_clap.cpp"
 )
 for file in "${compact_toolbox_alignment_family[@]}"; do
@@ -383,9 +383,9 @@ for file in "${compact_toolbox_alignment_family[@]}"; do
 done
 
 if ! rg -q 'softLabelAttrs\(\), small, style' \
-    plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp; then
+    plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp; then
   warn "typography" \
-    "plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp" \
+    "plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp" \
     "Point toolbox labels must use the shared label style, not the dimmer value style."
 fi
 if ! rg -q 'softLabelAttrs\(\), attrs, style' \
@@ -395,17 +395,17 @@ if ! rg -q 'softLabelAttrs\(\), attrs, style' \
     "Ray toolbox labels must use the shared label style, not the dimmer value style."
 fi
 if ! rg -q 'pointFieldPlotRect' \
-    plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp; then
+    plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp; then
   warn "layout" \
-    "plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp" \
+    "plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp" \
     "Point must use an inset dark plotting field inside the shared medium-gray panel shell."
 fi
 if ! rg -q 'pointPrimaryPanelRect\(\).*' \
-    plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp \
+    plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp \
     || ! rg -q 'NSMakeRect\(18\.0, 42\.0, 596\.0, 656\.0\)' \
-    plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp; then
+    plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp; then
   warn "layout" \
-    "plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp" \
+    "plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp" \
     "Point must share the compact encoder 596 px primary-panel width and one draw/hit geometry source."
 fi
 if ! rg -q 'positionZPanelRect' \
@@ -439,7 +439,7 @@ if ! rg -Fq 'suffix:@"count"' \
     "Cloud INPUTS is an integral count and must not display decimal places."
 fi
 compact_encoder_output_units=(
-  "plugins/clap_3oafx_point_encoder/s3g_3oafx_point_encoder_clap.cpp"
+  "plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp"
   "plugins/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder_clap.cpp"
   "plugins/clap_ambi_ray_encoder/s3g_ambi_ray_encoder_clap.cpp"
 )
@@ -1090,44 +1090,43 @@ for contract in "${compact_effect_names[@]}"; do
   fi
 done
 
-section "3OAFX Family"
-three_oafx_sources=(
-  plugins/clap_3oafx_single_effects/s3g_3oafx_single_effect_clap.cpp
-  plugins/clap_3oafx_displacement/s3g_3oafx_displacement_clap.cpp
+section "Ambi Effect Family"
+ambi_effect_sources=(
+  plugins/clap_ambi_effect_dj_filter/s3g_ambi_effect_dj_filter_clap.cpp
+  plugins/clap_ambi_effect_delay/s3g_ambi_effect_delay_clap.cpp
+  plugins/clap_ambi_effect_pitch_gain/s3g_ambi_effect_pitch_gain_clap.cpp
+  plugins/clap_ambi_effect_displacement/s3g_ambi_effect_displacement_clap.cpp
 )
-for file in "${three_oafx_sources[@]}"; do
-  if ! rg -q 'kThreeOafxFamilyLayout' "$file" \
-      || ! rg -q 'drawThreeOafxTitleBand' "$file" \
-      || ! rg -q 'ResponsiveViewport' "$file"; then
+for file in "${ambi_effect_sources[@]}"; do
+  if ! rg -q 'ResponsiveViewport' "$file" \
+      || ! rg -q 'sliderDoubleClickDefault' "$file" \
+      || ! rg -q 'SPHERE 24' "$file"; then
     warn "family" "$file" \
-      "3OAFX effects and transforms use the shared family field, title, and responsive geometry."
-  fi
-  if ! rg -q '@\"OUTPUT\"' "$file" \
-      || ! rg -q '\"OUT\"' "$file" \
-      || ! rg -q 'sliderDoubleClickDefault' "$file"; then
-    warn "layout" "$file" \
-      "Every 3OAFX control stack begins with OUTPUT/OUT and resets sliders on double-click."
+      "Ambi Effects use responsive editors, standard slider defaults, and the shared Sphere24 pickup body."
   fi
 done
-three_oafx_names=(
-  'plugins/clap_3oafx_single_effects/CMakeLists.txt|s3g 3OAFX Effect Delay'
-  'plugins/clap_3oafx_single_effects/CMakeLists.txt|s3g 3OAFX Effect Pitch'
-  'plugins/clap_3oafx_single_effects/CMakeLists.txt|s3g 3OAFX Effect Filter'
-  'plugins/clap_3oafx_single_effects/CMakeLists.txt|s3g 3OAFX Effect Gain'
-  'plugins/clap_3oafx_displacement/CMakeLists.txt|s3g 3OAFX Transform Displacement 16ch'
+if ! rg -q 'kAmbiEffectFamilyLayout' \
+    plugins/clap_ambi_effect_displacement/s3g_ambi_effect_displacement_clap.cpp \
+    || ! rg -q 'drawAmbiEffectTitleBand' \
+    plugins/clap_ambi_effect_displacement/s3g_ambi_effect_displacement_clap.cpp; then
+  warn "layout" "plugins/clap_ambi_effect_displacement/s3g_ambi_effect_displacement_clap.cpp" \
+    "Ambi Effect Displacement uses the shared listener-field layout and title."
+fi
+ambi_effect_names=(
+  'plugins/clap_ambi_effect_dj_filter/CMakeLists.txt|s3g Ambi Effect DJ Filter 64'
+  'plugins/clap_ambi_effect_delay/CMakeLists.txt|s3g Ambi Effect Delay 64'
+  'plugins/clap_ambi_effect_pitch_gain/CMakeLists.txt|s3g Ambi Effect Pitch 64'
+  'plugins/clap_ambi_effect_pitch_gain/CMakeLists.txt|s3g Ambi Effect Gain 64'
+  'plugins/clap_ambi_effect_displacement/CMakeLists.txt|s3g Ambi Effect Displacement 64'
 )
-for contract in "${three_oafx_names[@]}"; do
+for contract in "${ambi_effect_names[@]}"; do
   file="${contract%%|*}"
   expected_name="${contract#*|}"
   if ! rg -Fq "\"${expected_name}\"" "$file"; then
     warn "name" "$file" \
-      "3OAFX host names must expose '${expected_name}'."
+      "Ambi Effect host names must expose '${expected_name}'."
   fi
 done
-if [[ -d plugins/clap_3oafx_rack ]]; then
-  warn "retired" "plugins/clap_3oafx_rack" \
-    "The retired 3OAFX Rack source directory must not return."
-fi
 
 section "Parameter Surface"
 surface_members=(

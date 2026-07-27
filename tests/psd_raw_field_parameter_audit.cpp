@@ -217,6 +217,87 @@ int main()
             p.modTarget = s3g::PsdRawFieldModTarget::Carrier;
             p.modIndex = 0.8f;
         } },
+        { "modRate2 RELAY", &Params::modRate2, 0.1f, 0.8f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Relay;
+            p.modSource = s3g::PsdRawFieldModSource::Sine;
+            p.modIndex = 0.72f;
+            p.modSource2 = s3g::PsdRawFieldModSource::Gate;
+            p.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
+            p.modIndex2 = 0.78f;
+        } },
+        { "modRatio2 MULTI", &Params::modRatio2, 0.125f, 16.0f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Multiplex;
+            p.modSource = s3g::PsdRawFieldModSource::Sine;
+            p.modIndex = 0.62f;
+            p.modSource2 = s3g::PsdRawFieldModSource::Hellschreiber;
+            p.modTarget2 = s3g::PsdRawFieldModTarget::Carrier;
+            p.modIndex2 = 0.74f;
+        } },
+        { "modIndex2 TRANSCODE", &Params::modIndex2, 0.0f, 1.0f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Transcode;
+            p.modSource = s3g::PsdRawFieldModSource::Morse;
+            p.modIndex = 0.84f;
+            p.modSource2 = s3g::PsdRawFieldModSource::Sstv;
+            p.modTarget2 = s3g::PsdRawFieldModTarget::Data;
+        } },
+        { "modFeedback2 REGEN", &Params::modFeedback2, 0.0f, 0.98f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Regenerator;
+            p.modSource = s3g::PsdRawFieldModSource::Field;
+            p.modIndex = 0.36f;
+            p.modSource2 = s3g::PsdRawFieldModSource::Feedback;
+            p.modTarget2 = s3g::PsdRawFieldModTarget::Damage;
+            p.modIndex2 = 0.82f;
+        } },
+        { "modRate3 RELAY", &Params::modRate3, 0.1f, 0.8f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Relay;
+            p.modSource = s3g::PsdRawFieldModSource::Sine;
+            p.modIndex = 0.66f;
+            p.modSource2 = s3g::PsdRawFieldModSource::Gate;
+            p.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
+            p.modIndex2 = 0.72f;
+            p.modSource3 = s3g::PsdRawFieldModSource::Morse;
+            p.modTarget3 = s3g::PsdRawFieldModTarget::Damage;
+            p.modIndex3 = 0.78f;
+        } },
+        { "modRatio3 MULTI", &Params::modRatio3, 0.125f, 16.0f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Multiplex;
+            p.modSource = s3g::PsdRawFieldModSource::Sine;
+            p.modIndex = 0.58f;
+            p.modSource2 = s3g::PsdRawFieldModSource::Hellschreiber;
+            p.modTarget2 = s3g::PsdRawFieldModTarget::Deviation;
+            p.modIndex2 = 0.68f;
+            p.modSource3 = s3g::PsdRawFieldModSource::Sstv;
+            p.modTarget3 = s3g::PsdRawFieldModTarget::Data;
+            p.modIndex3 = 0.78f;
+        } },
+        { "modIndex3 XCODE", &Params::modIndex3, 0.0f, 1.0f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Transcode;
+            p.modSource = s3g::PsdRawFieldModSource::Morse;
+            p.modIndex = 0.76f;
+            p.modSource2 = s3g::PsdRawFieldModSource::Hellschreiber;
+            p.modIndex2 = 0.82f;
+            p.modSource3 = s3g::PsdRawFieldModSource::Sstv;
+            p.modTarget3 = s3g::PsdRawFieldModTarget::Data;
+        } },
+        { "modFeedback3 REGEN", &Params::modFeedback3, 0.0f, 0.98f, [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Regenerator;
+            p.modSource = s3g::PsdRawFieldModSource::Field;
+            p.modIndex = 0.42f;
+            p.modSource2 = s3g::PsdRawFieldModSource::Feedback;
+            p.modTarget2 = s3g::PsdRawFieldModTarget::Damage;
+            p.modIndex2 = 0.72f;
+            p.modSource3 = s3g::PsdRawFieldModSource::Feedback;
+            p.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
+            p.modIndex3 = 0.84f;
+        } },
         { "drive", &Params::drive, 0.0f, 1.0f, {} },
         { "shred", &Params::shred, 0.0f, 1.0f, {} },
         { "resonance", &Params::resonance, 0.0f, 1.0f, {} },
@@ -244,6 +325,50 @@ int main()
             p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
             p.modSource = s3g::PsdRawFieldModSource::HfFax;
             p.modIndex = 0.8f;
+        });
+    printEnumCase("modSource2", &Params::modSource2, s3g::kPsdRawFieldModSourceCount,
+        [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Multiplex;
+            p.modSource = s3g::PsdRawFieldModSource::Sine;
+            p.modIndex = 0.56f;
+            p.modTarget2 = s3g::PsdRawFieldModTarget::Carrier;
+            p.modIndex2 = 0.78f;
+            p.modFeedback2 = 0.70f;
+        });
+    printEnumCase("modTarget2", &Params::modTarget2, s3g::kPsdRawFieldModTargetCount,
+        [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modSource2 = s3g::PsdRawFieldModSource::HfFax;
+            p.modIndex2 = 0.8f;
+        });
+    printEnumCase("modSource3", &Params::modSource3, s3g::kPsdRawFieldModSourceCount,
+        [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modSource3 = s3g::PsdRawFieldModSource::Sine;
+            p.modTarget3 = s3g::PsdRawFieldModTarget::Data;
+            p.modIndex3 = 0.78f;
+            p.modFeedback3 = 0.70f;
+        });
+    printEnumCase("modTarget3", &Params::modTarget3, s3g::kPsdRawFieldModTargetCount,
+        [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modSource3 = s3g::PsdRawFieldModSource::HfFax;
+            p.modIndex3 = 0.8f;
+        });
+    printEnumCase("modAlgorithm", &Params::modAlgorithm, s3g::kPsdRawFieldModAlgorithmCount,
+        [](Params& p) {
+            p.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+            p.modSource = s3g::PsdRawFieldModSource::Morse;
+            p.modTarget = s3g::PsdRawFieldModTarget::Damage;
+            p.modIndex = 0.72f;
+            p.modSource2 = s3g::PsdRawFieldModSource::Feedback;
+            p.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
+            p.modIndex2 = 0.76f;
+            p.modFeedback2 = 0.82f;
+            p.modSource3 = s3g::PsdRawFieldModSource::Sstv;
+            p.modTarget3 = s3g::PsdRawFieldModTarget::Data;
+            p.modIndex3 = 0.68f;
         });
     return 0;
 }

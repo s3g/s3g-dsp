@@ -98,7 +98,7 @@ int main(int argc, char** argv)
 {
     if (argc < 2 || std::string(argv[1]) == "--list") {
         std::cout << "Usage: s3g_accelerometer_field_encoder_render "
-                     "OUTPUT.wav [PRESET 0-7] [SECONDS] [hoa|raw] [ORDER 1-3]\n"
+                     "OUTPUT.wav [PRESET 0-11] [SECONDS] [hoa|raw] [ORDER 1-3]\n"
                      "Default: third-order ACN/SN3D. Raw writes eight sensor stems.\n\n";
         printPresets();
         return argc < 2 ? 1 : 0;

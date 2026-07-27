@@ -168,7 +168,7 @@ bool automationSafetyCheck()
     for (uint32_t block = 0u; block < 240u; ++block) {
         s3g::AmbiEffectDelayParams params {};
         params.order = 1u + block % 7u;
-        params.body = static_cast<s3g::AmbiEffectBody>(block % 5u);
+        params.body = static_cast<s3g::AmbiEffectBody>(block % 6u);
         params.topology = static_cast<s3g::AmbiEffectTopology>(block % 4u);
         params.timeMs = 5.0f + static_cast<float>(block % 100u) * 19.9f;
         params.feedback = static_cast<float>(block % 12u) * 0.08f;

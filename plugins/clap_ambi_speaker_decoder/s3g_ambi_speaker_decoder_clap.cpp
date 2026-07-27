@@ -594,7 +594,7 @@ const char* layoutName(uint32_t value)
     case 4: return "DOME 24";
     case 5: return "DOME 25";
     case 6: return "QUAD+OH";
-    case 7: return "3OAFX 24";
+    case 7: return "SPHERE 24";
     case 8: return "DODECA 12";
     case 9: return "ICOSAHEDRON 20";
     case 12: return "LPAC 41";
@@ -620,7 +620,7 @@ uint32_t layoutPresetForMenuIndex(uint32_t index)
         1u, // QUAD
         6u, // QUAD+OH
         13u, // SRST 25
-        7u, // 3OAFX 24
+        7u, // SPHERE 24
     };
     return values[std::min<uint32_t>(index, static_cast<uint32_t>(std::size(values) - 1u))];
 }
@@ -1935,7 +1935,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 } // namespace
 
 #if defined(__APPLE__)
-@interface S3G3OAFXSpeakerDecoderView : NSView <NSTextFieldDelegate> {
+@interface S3GAmbiSpeakerDecoderView : NSView <NSTextFieldDelegate> {
     void* _plugin;
     int _dragSlider;
     NSTimer* _timer;
@@ -2040,7 +2040,7 @@ static NSColor* speakerColorFromAed(float azDeg, float elDeg, float distance, bo
     return [NSColor colorWithCalibratedRed:r green:g blue:bl alpha:selected ? 1.0 : 0.88];
 }
 
-@implementation S3G3OAFXSpeakerDecoderView
+@implementation S3GAmbiSpeakerDecoderView
 - (id)initWithPlugin:(void*)plugin
 {
     self = [super initWithFrame:NSMakeRect(0, 0, 900, 620)];
@@ -3367,8 +3367,8 @@ namespace {
 
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
-bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3G3OAFXSpeakerDecoderView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), 900u, 620u)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
-void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; [static_cast<S3G3OAFXSpeakerDecoderView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GAmbiSpeakerDecoderView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), 900u, 620u)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
+void guiDestroy(const clap_plugin_t* plugin) { auto* p = self(plugin); if (p->guiView) { p->guiVisible = false; [static_cast<S3GAmbiSpeakerDecoderView*>(p->guiView) stopRefreshTimer]; s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView); } }
 bool guiSetScale(const clap_plugin_t*, double) { return true; }
 bool guiGetSize(const clap_plugin_t* plugin, uint32_t* w, uint32_t* h) { return s3g::clap_gui::getResponsiveViewportSize(self(plugin)->guiViewport, 900u, 620u, w, h); }
 bool guiCanResize(const clap_plugin_t*) { return true; }
@@ -3378,8 +3378,8 @@ bool guiSetSize(const clap_plugin_t* plugin, uint32_t w, uint32_t h) { return s3
 bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* win) { if (!win || std::strcmp(win->api, CLAP_WINDOW_API_COCOA) != 0 || !win->cocoa) return false; auto* p = self(plugin); return s3g::clap_gui::setResponsiveViewportParent(p->guiViewport, static_cast<NSView*>(win->cocoa), p->host); }
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
 void guiSuggestTitle(const clap_plugin_t*, const char*) {}
-bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3G3OAFXSpeakerDecoderView*>(p->guiView) startRefreshTimer]; return true; }
-bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3G3OAFXSpeakerDecoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
+bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3GAmbiSpeakerDecoderView*>(p->guiView) startRefreshTimer]; return true; }
+bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiSpeakerDecoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 
@@ -3398,7 +3398,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
-    "org.s3g.s3g-dsp.3oafx-speaker-decoder-64",
+    "org.s3g.s3g-dsp.ambi-speaker-decoder-64",
     "s3g Ambi Decoder Speaker 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",

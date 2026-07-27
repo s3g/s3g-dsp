@@ -1,4 +1,4 @@
-#include "s3g_3oafx.h"
+#include "s3g_ambisonic_geometry.h"
 #include "s3g_layout_panner.h"
 #include "s3g_realtime.h"
 
@@ -315,7 +315,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         return true;
     }
     if (id == kLayoutParamId) {
-        static constexpr const char* names[] = { "AUTO", "CUBE 8", "CUBE 17", "DODECA 12", "DOME 24", "DOME 25", "DBL RING 16", "DBL RING 20", "OCTO RING", "QUAD", "QUAD+OH", "RING 12", "RING 16", "3OAFX 24" };
+        static constexpr const char* names[] = { "AUTO", "CUBE 8", "CUBE 17", "DODECA 12", "DOME 24", "DOME 25", "DBL RING 16", "DBL RING 20", "OCTO RING", "QUAD", "QUAD+OH", "RING 12", "RING 16", "SPHERE 24" };
         std::snprintf(display, size, "%s", names[std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, kMeterLayoutCount - 1u)]);
         return true;
     }
@@ -453,7 +453,7 @@ static NSString* viewName(uint32_t mode)
 
 static NSString* layoutName(uint32_t layout)
 {
-    static NSString* names[] = { @"AUTO", @"CUBE 8", @"CUBE 17", @"DODECA 12", @"DOME 24", @"DOME 25", @"DBL RING 16", @"DBL RING 20", @"OCTO RING", @"QUAD", @"QUAD+OH", @"RING 12", @"RING 16", @"3OAFX 24" };
+    static NSString* names[] = { @"AUTO", @"CUBE 8", @"CUBE 17", @"DODECA 12", @"DOME 24", @"DOME 25", @"DBL RING 16", @"DBL RING 20", @"OCTO RING", @"QUAD", @"QUAD+OH", @"RING 12", @"RING 16", @"SPHERE 24" };
     return names[std::clamp<uint32_t>(layout, 0u, kMeterLayoutCount - 1u)];
 }
 
@@ -550,8 +550,8 @@ static MeterFieldLayout makeFieldLayout(uint32_t requestedLayout, uint32_t visib
     MeterFieldLayout out {};
     const uint32_t layout = requestedLayout == 0u ? autoLayoutForWidth(visible) : requestedLayout;
     if (layout == static_cast<uint32_t>(MeterLayout::Sphere24)) {
-        out.count = s3g::k3OafxVirtualSpeakers;
-        for (uint32_t i = 0; i < out.count; ++i) out.points[i] = s3g::k3OafxPoints[i];
+        out.count = s3g::kAmbisonicSphere24PointCount;
+        for (uint32_t i = 0; i < out.count; ++i) out.points[i] = s3g::kAmbisonicSphere24Points[i];
         return out;
     }
     s3g::LayoutPanner panner;
@@ -972,7 +972,7 @@ static MeterFieldLayout makeFieldLayout(uint32_t requestedLayout, uint32_t visib
         const NSRect menuRect = openMenuRect(_openMenu, bar);
         const uint32_t count = openMenuCount(_openMenu);
         NSString* viewItems[] = { @"GRID", @"FIELD", @"HEAT" };
-        NSString* layoutItems[] = { @"AUTO", @"CUBE 8", @"CUBE 17", @"DODECA 12", @"DOME 24", @"DOME 25", @"DBL RING 16", @"DBL RING 20", @"OCTO RING", @"QUAD", @"QUAD+OH", @"RING 12", @"RING 16", @"3OAFX 24" };
+        NSString* layoutItems[] = { @"AUTO", @"CUBE 8", @"CUBE 17", @"DODECA 12", @"DOME 24", @"DOME 25", @"DBL RING 16", @"DBL RING 20", @"OCTO RING", @"QUAD", @"QUAD+OH", @"RING 12", @"RING 16", @"SPHERE 24" };
         s3g::clap_gui::drawDropdownMenu(menuRect,
                                         kOpenMenuItemH,
                                         _openMenu == 1 ? viewItems : layoutItems,

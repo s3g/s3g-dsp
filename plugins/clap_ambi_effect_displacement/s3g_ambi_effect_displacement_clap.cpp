@@ -1,4 +1,4 @@
-#include "s3g_3oafx_displacement.h"
+#include "s3g_ambi_effect_displacement.h"
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
@@ -29,12 +29,12 @@
 
 namespace {
 
-constexpr uint32_t kChannels = s3g::k3OaChannels;
+constexpr uint32_t kChannels = s3g::kAmbiEffectDisplacementMaxChannels;
 constexpr uint32_t kStateMagic = 0x53334450u;
 constexpr uint32_t kStateVersion = 1u;
-constexpr const char* kPluginId = "org.s3g.s3g-dsp.3oafx-displacement";
+constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-effect-displacement-64";
 constexpr const char* kPluginName =
-    "s3g 3OAFX Transform Displacement 16ch";
+    "s3g Ambi Effect Displacement 64";
 
 enum class TransportMode : uint32_t {
     Sync = 0,
@@ -57,12 +57,21 @@ enum ParamId : clap_id {
     kParamEnergy = 12,
     kParamOutput = 13,
     kParamBypass = 14,
+    kParamOrder = 15,
+    kParamBody = 16,
+    kParamMix = 17,
+    kParamMaskAmount = 18,
+    kParamMaskAzimuth = 19,
+    kParamMaskElevation = 20,
+    kParamMaskWidth = 21,
+    kParamMaskCurve = 22,
+    kParamMaskDry = 23,
 };
 
 struct PluginParams {
-    s3g::ThreeOafxDisplacementParams dsp {};
+    s3g::AmbiEffectDisplacementParams dsp {};
     TransportMode transport = TransportMode::Free;
-    s3g::ThreeOafxDisplacementPlaybackMode playback = s3g::ThreeOafxDisplacementPlaybackMode::Palindrome;
+    s3g::AmbiEffectDisplacementPlaybackMode playback = s3g::AmbiEffectDisplacementPlaybackMode::Palindrome;
     float position = 0.0f;
     float rateHz = 0.05f;
     float lengthBeats = 16.0f;
@@ -72,7 +81,7 @@ struct SavedState {
     uint32_t magic = kStateMagic;
     uint32_t version = kStateVersion;
     PluginParams params {};
-    s3g::ThreeOafxDisplacementScore score = s3g::makeDefaultThreeOafxDisplacementScore();
+    s3g::AmbiEffectDisplacementScore score = s3g::makeDefaultAmbiEffectDisplacementScore();
     double freePhase = 0.0;
     char scoreName[128] { "DEFAULT / IDENTITY" };
     int32_t guiViewMode = 2;
@@ -84,7 +93,7 @@ struct SavedState {
 static_assert(std::is_trivially_copyable<SavedState>::value, "CLAP state must remain fixed and trivially copyable");
 
 struct Runtime {
-    s3g::ThreeOafxDisplacement processor;
+    s3g::AmbiEffectDisplacement processor;
 };
 
 struct Plugin {
@@ -92,13 +101,17 @@ struct Plugin {
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
     PluginParams params {};
-    s3g::ThreeOafxDisplacementScore score = s3g::makeDefaultThreeOafxDisplacementScore();
+    s3g::AmbiEffectDisplacementScore score = s3g::makeDefaultAmbiEffectDisplacementScore();
     std::string scoreName = "DEFAULT / IDENTITY";
     std::string status = "LOAD A DISPLACEMENT SCORE";
     std::mutex stateMutex;
     std::vector<std::unique_ptr<Runtime>> runtimes;
     std::atomic<Runtime*> activeRuntime { nullptr };
     std::atomic<float> outputPeak { 0.0f };
+    std::array<std::atomic<float>,
+        s3g::kAmbiEffectDisplacementMaxPickups> nodeLevel {};
+    std::atomic<uint32_t> resolvedBody {
+        static_cast<uint32_t>(s3g::AmbiEffectBody::Sphere24) };
     std::atomic<float> guiPhase { 0.0f };
     double sampleRate = 48000.0;
     double freePhase = 0.0;
@@ -126,7 +139,7 @@ struct ParamDef {
 
 constexpr ParamDef kParamDefs[] {
     { kParamTransport, "Clock", 0.0, 2.0, 1.0, true, false },
-    { kParamPlayback, "Playback", 0.0, 1.0, 1.0, true, false },
+    { kParamPlayback, "Playback", 0.0, 2.0, 1.0, true, false },
     { kParamPosition, "Position", 0.0, 1.0, 0.0, false, false },
     { kParamRate, "Rate", 0.001, 2.0, 0.05, false, false },
     { kParamLength, "Sync Division", 0.25, 128.0, 16.0, false, false },
@@ -139,6 +152,15 @@ constexpr ParamDef kParamDefs[] {
     { kParamEnergy, "Energy", 0.0, 1.0, 0.65, false, false },
     { kParamOutput, "Output", -60.0, 12.0, 0.0, false, false },
     { kParamBypass, "Bypass", 0.0, 1.0, 0.0, true, true },
+    { kParamOrder, "Ambisonic Order", 1.0, 7.0, 7.0, true, false },
+    { kParamBody, "Listener Body", 0.0, 5.0, 0.0, true, false },
+    { kParamMix, "Mix", 0.0, 1.0, 1.0, false, false },
+    { kParamMaskAmount, "Mask Amount", 0.0, 1.0, 0.0, false, false },
+    { kParamMaskAzimuth, "Mask Azimuth", -180.0, 180.0, 0.0, false, false },
+    { kParamMaskElevation, "Mask Elevation", -90.0, 90.0, 0.0, false, false },
+    { kParamMaskWidth, "Mask Width", 0.0, 1.0, 0.35, false, false },
+    { kParamMaskCurve, "Mask Curve", 0.0, 1.0, 0.5, false, false },
+    { kParamMaskDry, "Mask Dry", -1.0, 0.0, 0.0, false, false },
 };
 
 Plugin* self(const clap_plugin_t* plugin)
@@ -148,11 +170,11 @@ Plugin* self(const clap_plugin_t* plugin)
 
 PluginParams sanitizeParams(PluginParams params)
 {
-    params.dsp = s3g::sanitizeThreeOafxDisplacementParams(params.dsp);
+    params.dsp = s3g::sanitizeAmbiEffectDisplacementParams(params.dsp);
     params.transport = static_cast<TransportMode>(
         std::min<uint32_t>(static_cast<uint32_t>(params.transport), 2u));
-    params.playback = static_cast<s3g::ThreeOafxDisplacementPlaybackMode>(
-        std::min<uint32_t>(static_cast<uint32_t>(params.playback), 1u));
+    params.playback = static_cast<s3g::AmbiEffectDisplacementPlaybackMode>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.playback), 2u));
     params.position = s3g::clamp(params.position, 0.0f, 1.0f);
     params.rateHz = s3g::clamp(params.rateHz, 0.001f, 2.0f);
     params.lengthBeats = s3g::clamp(params.lengthBeats, 0.25f, 128.0f);
@@ -167,8 +189,8 @@ const char* transportName(uint32_t value)
 
 const char* playbackName(uint32_t value)
 {
-    static constexpr const char* names[] { "LOOP", "PALINDROME" };
-    return names[std::min<uint32_t>(value, 1u)];
+    static constexpr const char* names[] { "LOOP", "PALINDROME", "ONCE" };
+    return names[std::min<uint32_t>(value, 2u)];
 }
 
 const char* distanceName(uint32_t value)
@@ -229,7 +251,7 @@ void applyParam(Plugin& plugin, clap_id id, double value)
             std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 2u));
         break;
     case kParamPlayback:
-        plugin.params.playback = static_cast<s3g::ThreeOafxDisplacementPlaybackMode>(
+        plugin.params.playback = static_cast<s3g::AmbiEffectDisplacementPlaybackMode>(
             std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 2u));
         break;
     case kParamPosition: plugin.params.position = static_cast<float>(value); break;
@@ -240,13 +262,35 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kParamElevationScale: plugin.params.dsp.elevationScale = static_cast<float>(value); break;
     case kParamRadiusScale: plugin.params.dsp.radiusScale = static_cast<float>(value); break;
     case kParamDistanceMode:
-        plugin.params.dsp.distanceMode = static_cast<s3g::ThreeOafxDisplacementDistanceMode>(
+        plugin.params.dsp.distanceMode = static_cast<s3g::AmbiEffectDisplacementDistanceMode>(
             std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 1u));
         break;
     case kParamReferenceMeters: plugin.params.dsp.referenceDistanceMeters = static_cast<float>(value); break;
     case kParamEnergy: plugin.params.dsp.energy = static_cast<float>(value); break;
     case kParamOutput: plugin.params.dsp.outputGainDb = static_cast<float>(value); break;
     case kParamBypass: plugin.params.dsp.bypass = value >= 0.5; break;
+    case kParamOrder:
+        plugin.params.dsp.order = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 1u, 7u);
+        break;
+    case kParamBody:
+        plugin.params.dsp.body = static_cast<s3g::AmbiEffectBody>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                0u, 5u));
+        break;
+    case kParamMix: plugin.params.dsp.mix = static_cast<float>(value); break;
+    case kParamMaskAmount:
+        plugin.params.dsp.maskAmount = static_cast<float>(value); break;
+    case kParamMaskAzimuth:
+        plugin.params.dsp.maskAzimuthDeg = static_cast<float>(value); break;
+    case kParamMaskElevation:
+        plugin.params.dsp.maskElevationDeg = static_cast<float>(value); break;
+    case kParamMaskWidth:
+        plugin.params.dsp.maskWidth = static_cast<float>(value); break;
+    case kParamMaskCurve:
+        plugin.params.dsp.maskCurve = static_cast<float>(value); break;
+    case kParamMaskDry:
+        plugin.params.dsp.maskDry = static_cast<float>(value + 1.0); break;
     default: return;
     }
     plugin.params = sanitizeParams(plugin.params);
@@ -275,6 +319,15 @@ double getParam(const Plugin& plugin, clap_id id)
     case kParamEnergy: return plugin.params.dsp.energy;
     case kParamOutput: return plugin.params.dsp.outputGainDb;
     case kParamBypass: return plugin.params.dsp.bypass ? 1.0 : 0.0;
+    case kParamOrder: return plugin.params.dsp.order;
+    case kParamBody: return static_cast<uint32_t>(plugin.params.dsp.body);
+    case kParamMix: return plugin.params.dsp.mix;
+    case kParamMaskAmount: return plugin.params.dsp.maskAmount;
+    case kParamMaskAzimuth: return plugin.params.dsp.maskAzimuthDeg;
+    case kParamMaskElevation: return plugin.params.dsp.maskElevationDeg;
+    case kParamMaskWidth: return plugin.params.dsp.maskWidth;
+    case kParamMaskCurve: return plugin.params.dsp.maskCurve;
+    case kParamMaskDry: return plugin.params.dsp.maskDry - 1.0f;
     default: return 0.0;
     }
 }
@@ -400,7 +453,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     double phaseIncrement = 0.0;
     playbackPosition(*instance, process->transport, frames, phaseStart, phaseIncrement);
     instance->guiPhase.store(
-        s3g::threeOafxDisplacementPlaybackPhase(phaseStart, instance->params.playback),
+        s3g::ambiEffectDisplacementPlaybackPhase(phaseStart, instance->params.playback),
         std::memory_order_relaxed);
 
     if (auto* runtime = instance->activeRuntime.load(std::memory_order_acquire)) {
@@ -412,6 +465,14 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
                                         phaseStart,
                                         phaseIncrement,
                                         instance->params.playback);
+        instance->resolvedBody.store(static_cast<uint32_t>(
+            runtime->processor.resolvedBody()), std::memory_order_relaxed);
+        for (uint32_t point = 0u;
+            point < s3g::kAmbiEffectDisplacementMaxPickups; ++point) {
+            instance->nodeLevel[point].store(
+                runtime->processor.nodeLevel(point),
+                std::memory_order_relaxed);
+        }
     } else {
         for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
             if (!outputs[channel]) continue;
@@ -441,7 +502,8 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audi
 {
     if (!info || index != 0u) return false;
     info->id = isInput ? 10u : 20u;
-    std::snprintf(info->name, sizeof(info->name), "3OA ACN/SN3D %s", isInput ? "In" : "Out");
+    std::snprintf(info->name, sizeof(info->name),
+        "1OA-7OA ACN/SN3D %s", isInput ? "In" : "Out");
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = kChannels;
     info->port_type = CLAP_PORT_SURROUND;
@@ -468,7 +530,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     info->max_value = def.maximum;
     info->default_value = def.defaultValue;
     std::snprintf(info->name, sizeof(info->name), "%s", def.name);
-    std::snprintf(info->module, sizeof(info->module), "3OAFX Displacement");
+    std::snprintf(info->module, sizeof(info->module), "Ambi Effect Displacement");
     return true;
 }
 
@@ -497,13 +559,37 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
     case kParamDistanceMode:
         std::snprintf(display, size, "%s", distanceName(static_cast<uint32_t>(std::lround(value))));
         break;
+    case kParamOrder:
+        std::snprintf(display, size, "%uOA",
+            static_cast<uint32_t>(std::lround(value)));
+        break;
+    case kParamBody:
+        std::snprintf(display, size, "%s", s3g::ambiEffectBodyName(
+            static_cast<s3g::AmbiEffectBody>(std::clamp<uint32_t>(
+                static_cast<uint32_t>(std::lround(value)), 0u, 5u))));
+        break;
     case kParamBypass:
         std::snprintf(display, size, "%s", value >= 0.5 ? "ON" : "OFF");
         break;
     case kParamPosition:
     case kParamAmount:
     case kParamEnergy:
+    case kParamMix:
+    case kParamMaskAmount:
+    case kParamMaskWidth:
+    case kParamMaskCurve:
         std::snprintf(display, size, "%.0f%%", value * 100.0);
+        break;
+    case kParamMaskDry:
+        if (value <= -0.995) {
+            std::snprintf(display, size, "-100%% FX ONLY");
+        } else {
+            std::snprintf(display, size, "%.0f%%", value * 100.0);
+        }
+        break;
+    case kParamMaskAzimuth:
+    case kParamMaskElevation:
+        std::snprintf(display, size, "%+.0f deg", value);
         break;
     case kParamRate:
         std::snprintf(display, size, "%.3f Hz", value);
@@ -542,8 +628,19 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     if (id == kParamPlayback) {
         if (std::strcmp(display, "LOOP") == 0) *value = 0.0;
         else if (std::strcmp(display, "PALINDROME") == 0) *value = 1.0;
+        else if (std::strcmp(display, "ONCE") == 0) *value = 2.0;
         else return false;
         return true;
+    }
+    if (id == kParamBody) {
+        for (uint32_t body = 0u; body <= 5u; ++body) {
+            if (std::strcmp(display, s3g::ambiEffectBodyName(
+                    static_cast<s3g::AmbiEffectBody>(body))) == 0) {
+                *value = body;
+                return true;
+            }
+        }
+        return false;
     }
     if (id == kParamDistanceMode) {
         if (std::strcmp(display, "GAIN") == 0) *value = 0.0;
@@ -557,8 +654,17 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         else return false;
         return true;
     }
+    if (id == kParamMaskDry
+        && (std::strcmp(display, "-100% FX ONLY") == 0
+            || std::strcmp(display, "FX ONLY") == 0)) {
+        *value = -1.0;
+        return true;
+    }
     *value = std::atof(display);
-    if (id == kParamPosition || id == kParamAmount || id == kParamEnergy) {
+    if (id == kParamPosition || id == kParamAmount || id == kParamEnergy
+        || id == kParamMix || id == kParamMaskAmount
+        || id == kParamMaskWidth || id == kParamMaskCurve
+        || id == kParamMaskDry) {
         *value *= 0.01;
     }
     return true;
@@ -616,7 +722,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     {
         std::lock_guard<std::mutex> lock(instance->stateMutex);
         instance->params = sanitizeParams(state.params);
-        instance->score = s3g::sanitizeThreeOafxDisplacementScore(state.score);
+        instance->score = s3g::sanitizeAmbiEffectDisplacementScore(state.score);
         instance->freePhase = 0.0;
         state.scoreName[sizeof(state.scoreName) - 1u] = '\0';
         instance->scoreName = state.scoreName;
@@ -641,7 +747,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 namespace {
 
 constexpr uint32_t kGuiWidth = 920u;
-constexpr uint32_t kGuiHeight = 610u;
+constexpr uint32_t kGuiHeight = 820u;
 constexpr NSUInteger kMaximumScoreBytes = 4u * 1024u * 1024u;
 
 float numberValue(NSDictionary* dictionary, NSString* key, float fallback)
@@ -669,21 +775,21 @@ NSDictionary* dictionaryValue(NSDictionary* dictionary, NSString* key)
 }
 
 bool parsePointArray(NSArray* values,
-                     const std::array<s3g::ThreeOafxDisplacementPoint, s3g::k3OafxVirtualSpeakers>& fallback,
-                     std::array<s3g::ThreeOafxDisplacementPoint, s3g::k3OafxVirtualSpeakers>& output)
+                     const std::array<s3g::AmbiEffectDisplacementPoint, s3g::kAmbisonicSphere24PointCount>& fallback,
+                     std::array<s3g::AmbiEffectDisplacementPoint, s3g::kAmbisonicSphere24PointCount>& output)
 {
-    if (![values isKindOfClass:[NSArray class]] || [values count] < s3g::k3OafxVirtualSpeakers) return false;
+    if (![values isKindOfClass:[NSArray class]] || [values count] < s3g::kAmbisonicSphere24PointCount) return false;
     output = fallback;
-    std::array<bool, s3g::k3OafxVirtualSpeakers> seen {};
-    const NSUInteger count = std::min<NSUInteger>([values count], s3g::k3OafxVirtualSpeakers);
+    std::array<bool, s3g::kAmbisonicSphere24PointCount> seen {};
+    const NSUInteger count = std::min<NSUInteger>([values count], s3g::kAmbisonicSphere24PointCount);
     for (NSUInteger index = 0u; index < count; ++index) {
         id item = [values objectAtIndex:index];
         if (![item isKindOfClass:[NSDictionary class]]) return false;
         auto* point = static_cast<NSDictionary*>(item);
         const uint32_t channel = unsignedValue(point, @"channel", static_cast<uint32_t>(index + 1u));
-        if (channel == 0u || channel > s3g::k3OafxVirtualSpeakers) return false;
+        if (channel == 0u || channel > s3g::kAmbisonicSphere24PointCount) return false;
         const uint32_t destination = channel - 1u;
-        output[destination] = s3g::sanitizeThreeOafxDisplacementPoint({
+        output[destination] = s3g::sanitizeAmbiEffectDisplacementPoint({
             numberValue(point, @"azimuth", fallback[destination].azimuthDeg),
             numberValue(point, @"elevation", fallback[destination].elevationDeg),
             numberValue(point, @"radius", fallback[destination].radius),
@@ -694,7 +800,7 @@ bool parsePointArray(NSArray* values,
 }
 
 bool parseScoreData(NSData* data,
-                    s3g::ThreeOafxDisplacementScore& score,
+                    s3g::AmbiEffectDisplacementScore& score,
                     float& amount,
                     float& azimuthScale,
                     float& elevationScale,
@@ -723,7 +829,7 @@ bool parseScoreData(NSData* data,
         return false;
     }
 
-    auto parsed = s3g::makeDefaultThreeOafxDisplacementScore();
+    auto parsed = s3g::makeDefaultAmbiEffectDisplacementScore();
     parsePointArray(arrayValue(root, @"source"), parsed.source, parsed.source);
     parsed.sceneCount = 0u;
     if (NSDictionary* timeline = dictionaryValue(root, @"timeline")) {
@@ -732,7 +838,7 @@ bool parseScoreData(NSData* data,
 
     if (NSArray* scenes = arrayValue(root, @"scenes")) {
         const uint32_t count = std::min<uint32_t>(
-            static_cast<uint32_t>([scenes count]), s3g::k3OafxDisplacementMaxScenes);
+            static_cast<uint32_t>([scenes count]), s3g::kAmbiEffectDisplacementMaxScenes);
         for (uint32_t index = 0u; index < count; ++index) {
             id item = [scenes objectAtIndex:index];
             if (![item isKindOfClass:[NSDictionary class]]) continue;
@@ -751,7 +857,7 @@ bool parseScoreData(NSData* data,
         parsed.sceneCount = 1u;
         parsed.scenes[0].time = 0.0f;
         parsed.scenes[0].points = parsed.source;
-        std::array<s3g::ThreeOafxDisplacementPoint, s3g::k3OafxVirtualSpeakers> target {};
+        std::array<s3g::AmbiEffectDisplacementPoint, s3g::kAmbisonicSphere24PointCount> target {};
         if (parsePointArray(arrayValue(root, @"target"), parsed.source, target)) {
             parsed.sceneCount = 2u;
             parsed.scenes[1].time = 1.0f;
@@ -764,7 +870,7 @@ bool parseScoreData(NSData* data,
     }
     parsed.scenes[0].time = 0.0f;
     parsed.scenes[0].points = parsed.source;
-    score = s3g::sanitizeThreeOafxDisplacementScore(parsed);
+    score = s3g::sanitizeAmbiEffectDisplacementScore(parsed);
 
     amount = numberValue(root, @"amount", 0.65f);
     if (NSDictionary* scales = dictionaryValue(root, @"scales")) {
@@ -780,7 +886,7 @@ bool parseScoreData(NSData* data,
 }
 
 void installScore(Plugin& plugin,
-                  s3g::ThreeOafxDisplacementScore score,
+                  s3g::AmbiEffectDisplacementScore score,
                   float amount,
                   float azimuthScale,
                   float elevationScale,
@@ -789,7 +895,7 @@ void installScore(Plugin& plugin,
 {
     {
         std::lock_guard<std::mutex> lock(plugin.stateMutex);
-        plugin.score = s3g::sanitizeThreeOafxDisplacementScore(score);
+        plugin.score = s3g::sanitizeAmbiEffectDisplacementScore(score);
         plugin.params.dsp.amount = amount;
         plugin.params.dsp.azimuthScale = azimuthScale;
         plugin.params.dsp.elevationScale = elevationScale;
@@ -813,7 +919,7 @@ float linearToSrgb(float value)
     return x <= 0.0031308f ? x * 12.92f : 1.055f * std::pow(x, 1.0f / 2.4f) - 0.055f;
 }
 
-NSColor* displacementPointColor(const s3g::ThreeOafxDisplacementPoint& point)
+NSColor* displacementPointColor(const s3g::AmbiEffectDisplacementPoint& point)
 {
     const float hue = std::fmod(point.azimuthDeg / 360.0f + 1.0f, 1.0f);
     const float light = std::clamp((point.elevationDeg + 90.0f) / 180.0f, 0.30f, 0.84f);
@@ -832,63 +938,77 @@ NSColor* displacementPointColor(const s3g::ThreeOafxDisplacementPoint& point)
                                        alpha:0.94f];
 }
 
-const std::vector<std::array<uint32_t, 2>>& displacementMeshEdges()
+std::vector<std::array<uint32_t, 2>> displacementMeshEdges(
+    const std::array<s3g::AmbiEffectDisplacementPoint,
+        s3g::kAmbiEffectDisplacementMaxPickups>& points,
+    uint32_t count)
 {
-    static const std::vector<std::array<uint32_t, 2>> edges = [] {
-        std::vector<std::array<uint32_t, 2>> result;
-        for (uint32_t point = 0u; point < s3g::k3OafxVirtualSpeakers; ++point) {
-            std::vector<std::pair<float, uint32_t>> neighbors;
-            for (uint32_t other = 0u; other < s3g::k3OafxVirtualSpeakers; ++other) {
-                if (point == other) continue;
-                const auto& a = s3g::k3OafxPoints[point];
-                const auto& b = s3g::k3OafxPoints[other];
-                const float dx = a.x - b.x;
-                const float dy = a.y - b.y;
-                const float dz = a.z - b.z;
-                neighbors.push_back({ dx * dx + dy * dy + dz * dz, other });
-            }
-            std::sort(neighbors.begin(), neighbors.end());
-            for (uint32_t index = 0u; index < std::min<uint32_t>(4u, static_cast<uint32_t>(neighbors.size())); ++index) {
-                const uint32_t a = std::min(point, neighbors[index].second);
-                const uint32_t b = std::max(point, neighbors[index].second);
-                const std::array<uint32_t, 2> edge { a, b };
-                if (std::find(result.begin(), result.end(), edge) == result.end()) result.push_back(edge);
+    std::vector<std::array<uint32_t, 2>> result;
+    count = std::min<uint32_t>(count, s3g::kAmbiEffectDisplacementMaxPickups);
+    for (uint32_t point = 0u; point < count; ++point) {
+        std::vector<std::pair<float, uint32_t>> neighbors;
+        const auto a = s3g::directionFromAed(
+            points[point].azimuthDeg, points[point].elevationDeg);
+        for (uint32_t other = 0u; other < count; ++other) {
+            if (point == other) continue;
+            const auto b = s3g::directionFromAed(
+                points[other].azimuthDeg, points[other].elevationDeg);
+            const float dx = a.x - b.x;
+            const float dy = a.y - b.y;
+            const float dz = a.z - b.z;
+            neighbors.push_back({ dx * dx + dy * dy + dz * dz, other });
+        }
+        std::sort(neighbors.begin(), neighbors.end());
+        for (uint32_t index = 0u;
+            index < std::min<uint32_t>(3u,
+                static_cast<uint32_t>(neighbors.size())); ++index) {
+            const uint32_t aIndex = std::min(point, neighbors[index].second);
+            const uint32_t bIndex = std::max(point, neighbors[index].second);
+            const std::array<uint32_t, 2> edge { aIndex, bIndex };
+            if (std::find(result.begin(), result.end(), edge) == result.end()) {
+                result.push_back(edge);
             }
         }
-        return result;
-    }();
-    return edges;
+    }
+    return result;
 }
 
 } // namespace
 
 constexpr auto kDisplacementOutputPanel =
-    s3g::gui_layout::threeOafxDisplacementOutputPanel();
+    s3g::gui_layout::ambiEffectDisplacementOutputPanel();
 constexpr auto kDisplacementPlaybackPanel =
     s3g::gui_layout::fittedStackPanel(
         s3g::gui_layout::PanelRole::EventTiming,
-        kDisplacementOutputPanel, 5u);
+        kDisplacementOutputPanel, 5u, 24.0, 32.0);
 constexpr auto kDisplacementWarpPanel =
     s3g::gui_layout::fittedStackPanel(
         s3g::gui_layout::PanelRole::Motion,
-        kDisplacementPlaybackPanel, 4u);
+        kDisplacementPlaybackPanel, 4u, 24.0, 32.0);
 constexpr auto kDisplacementDistancePanel =
     s3g::gui_layout::fittedStackPanel(
         s3g::gui_layout::PanelRole::Projection,
-        kDisplacementWarpPanel, 3u);
+        kDisplacementWarpPanel, 3u, 24.0, 32.0);
+constexpr auto kDisplacementMaskPanel =
+    s3g::gui_layout::fittedStackPanel(
+        s3g::gui_layout::PanelRole::Routing,
+        kDisplacementDistancePanel, 6u, 24.0, 32.0);
 constexpr std::array kDisplacementColumnPanels {
     kDisplacementOutputPanel,
     kDisplacementPlaybackPanel,
     kDisplacementWarpPanel,
     kDisplacementDistancePanel,
+    kDisplacementMaskPanel,
 };
 static_assert(s3g::gui_layout::validateColumn(
     kDisplacementColumnPanels,
-    s3g::gui_layout::kThreeOafxFamilyLayout.displacementCanvas));
+    s3g::gui_layout::kAmbiEffectFamilyLayout.displacementCanvas));
 
 const s3g::gui_layout::Panel& displacementPanelForParam(clap_id param)
 {
-    if (param == kParamOutput || param == kParamBypass) {
+    if (param == kParamOutput || param == kParamBypass
+        || param == kParamOrder || param == kParamBody
+        || param == kParamMix) {
         return kDisplacementOutputPanel;
     }
     if (param >= kParamTransport && param <= kParamLength) {
@@ -897,6 +1017,9 @@ const s3g::gui_layout::Panel& displacementPanelForParam(clap_id param)
     if (param >= kParamAmount && param <= kParamRadiusScale) {
         return kDisplacementWarpPanel;
     }
+    if (param >= kParamMaskAmount && param <= kParamMaskDry) {
+        return kDisplacementMaskPanel;
+    }
     return kDisplacementDistancePanel;
 }
 
@@ -904,7 +1027,10 @@ uint32_t displacementRowForParam(clap_id param)
 {
     switch (param) {
     case kParamOutput: return 0u;
-    case kParamBypass: return 1u;
+    case kParamOrder: return 1u;
+    case kParamBody: return 2u;
+    case kParamMix: return 3u;
+    case kParamBypass: return 4u;
     case kParamTransport: return 0u;
     case kParamPlayback: return 1u;
     case kParamPosition: return 2u;
@@ -917,11 +1043,17 @@ uint32_t displacementRowForParam(clap_id param)
     case kParamDistanceMode: return 0u;
     case kParamReferenceMeters: return 1u;
     case kParamEnergy: return 2u;
+    case kParamMaskAmount: return 0u;
+    case kParamMaskAzimuth: return 1u;
+    case kParamMaskElevation: return 2u;
+    case kParamMaskWidth: return 3u;
+    case kParamMaskCurve: return 4u;
+    case kParamMaskDry: return 5u;
     default: return 0u;
     }
 }
 
-@interface S3G3OAFXDisplacementView : NSView {
+@interface S3GAmbiEffectDisplacementView : NSView {
     Plugin* _plugin;
     NSTimer* _timer;
     clap_id _dragParam;
@@ -942,7 +1074,7 @@ uint32_t displacementRowForParam(clap_id param)
 - (void)storeViewState;
 @end
 
-@implementation S3G3OAFXDisplacementView
+@implementation S3GAmbiEffectDisplacementView
 
 - (instancetype)initWithPlugin:(Plugin*)plugin
 {
@@ -1019,14 +1151,14 @@ uint32_t displacementRowForParam(clap_id param)
 - (NSRect)fieldPanelRect
 {
     return s3g::clap_gui::cocoaRect(
-        s3g::gui_layout::kThreeOafxFamilyLayout.displacementFieldPanel);
+        s3g::gui_layout::kAmbiEffectFamilyLayout.displacementFieldPanel);
 }
 - (NSRect)fieldRect
 {
     return s3g::clap_gui::cocoaRect(
-        s3g::gui_layout::kThreeOafxFamilyLayout.displacementField);
+        s3g::gui_layout::kAmbiEffectFamilyLayout.displacementField);
 }
-- (NSRect)timelineRect { return NSMakeRect(42, 536, 564, 12); }
+- (NSRect)timelineRect { return NSMakeRect(42, 746, 564, 12); }
 - (NSRect)loadButtonRect { return NSMakeRect(176, 45, 92, 16); }
 
 - (NSRect)viewButtonRect:(int)index
@@ -1046,8 +1178,10 @@ uint32_t displacementRowForParam(clap_id param)
     clap_id param = CLAP_INVALID_ID;
     uint32_t count = 0u;
     if (menu == 1) { param = kParamTransport; count = 3u; }
-    else if (menu == 2) { param = kParamPlayback; count = 2u; }
+    else if (menu == 2) { param = kParamPlayback; count = 3u; }
     else if (menu == 3) { param = kParamDistanceMode; count = 2u; }
+    else if (menu == 4) { param = kParamOrder; count = 7u; }
+    else if (menu == 5) { param = kParamBody; count = 4u; }
     if (param == CLAP_INVALID_ID) return NSZeroRect;
     const auto& panel = displacementPanelForParam(param);
     const uint32_t row = displacementRowForParam(param);
@@ -1066,7 +1200,7 @@ uint32_t displacementRowForParam(clap_id param)
     [self setNeedsDisplay:YES];
 }
 
-- (GuiProjection)projectPoint:(const s3g::ThreeOafxDisplacementPoint&)point inRect:(NSRect)rect
+- (GuiProjection)projectPoint:(const s3g::AmbiEffectDisplacementPoint&)point inRect:(NSRect)rect
 {
     if (_viewMode == 3) {
         const CGFloat x = NSMidX(rect) - static_cast<CGFloat>(point.azimuthDeg / 180.0f) * rect.size.width * 0.47;
@@ -1127,7 +1261,7 @@ uint32_t displacementRowForParam(clap_id param)
         s3g::clap_gui::softValueAttrs(), style);
 }
 
-- (void)drawFieldWithScore:(const s3g::ThreeOafxDisplacementScore&)score
+- (void)drawFieldWithScore:(const s3g::AmbiEffectDisplacementScore&)score
                     params:(const PluginParams&)params
                      phase:(float)phase
                       rect:(NSRect)rect
@@ -1135,17 +1269,20 @@ uint32_t displacementRowForParam(clap_id param)
 {
     [s3g::clap_gui::color(0x111111) setFill];
     NSRectFill(rect);
-    const auto geometry = s3g::threeOafxDisplacementGeometry(score, params.dsp, phase, params.playback);
-    std::array<GuiProjection, s3g::k3OafxVirtualSpeakers> sourceProjected {};
-    std::array<GuiProjection, s3g::k3OafxVirtualSpeakers> targetProjected {};
-    for (uint32_t point = 0u; point < s3g::k3OafxVirtualSpeakers; ++point) {
-        sourceProjected[point] = [self projectPoint:score.source[point] inRect:rect];
-        targetProjected[point] = [self projectPoint:geometry[point] inRect:rect];
+    const auto geometry = s3g::ambiEffectDisplacementBodyGeometry(
+        score, params.dsp, phase, params.playback);
+    const uint32_t pointCount = geometry.count;
+    std::array<GuiProjection, s3g::kAmbiEffectDisplacementMaxPickups> sourceProjected {};
+    std::array<GuiProjection, s3g::kAmbiEffectDisplacementMaxPickups> targetProjected {};
+    for (uint32_t point = 0u; point < pointCount; ++point) {
+        sourceProjected[point] = [self projectPoint:geometry.source[point] inRect:rect];
+        targetProjected[point] = [self projectPoint:geometry.target[point] inRect:rect];
     }
 
-    auto drawEdgeSet = [&](const auto& projected, NSColor* color, CGFloat width) {
+    auto drawEdgeSet = [&](const auto& projected, const auto& points,
+                           NSColor* color, CGFloat width) {
         [color setStroke];
-        for (const auto& edge : displacementMeshEdges()) {
+        for (const auto& edge : displacementMeshEdges(points, pointCount)) {
             const NSPoint a = projected[edge[0]].point;
             const NSPoint b = projected[edge[1]].point;
             if (_viewMode == 3 && std::abs(a.x - b.x) > rect.size.width * 0.55) continue;
@@ -1156,11 +1293,13 @@ uint32_t displacementRowForParam(clap_id param)
             [line stroke];
         }
     };
-    drawEdgeSet(sourceProjected, s3g::clap_gui::color(0x747474, 0.13), 0.7);
-    drawEdgeSet(targetProjected, s3g::clap_gui::color(0x74bdc6, 0.30), 0.9);
+    drawEdgeSet(sourceProjected, geometry.source,
+        s3g::clap_gui::color(0x747474, 0.13), 0.7);
+    drawEdgeSet(targetProjected, geometry.target,
+        s3g::clap_gui::color(0x74bdc6, 0.30), 0.9);
 
     [s3g::clap_gui::color(0x777777, 0.24) setStroke];
-    for (uint32_t point = 0u; point < s3g::k3OafxVirtualSpeakers; ++point) {
+    for (uint32_t point = 0u; point < pointCount; ++point) {
         NSBezierPath* spoke = [NSBezierPath bezierPath];
         [spoke setLineWidth:0.7];
         [spoke moveToPoint:sourceProjected[point].point];
@@ -1168,23 +1307,33 @@ uint32_t displacementRowForParam(clap_id param)
         [spoke stroke];
     }
 
-    std::array<uint32_t, s3g::k3OafxVirtualSpeakers> order {};
-    for (uint32_t point = 0u; point < order.size(); ++point) order[point] = point;
+    std::vector<uint32_t> order(pointCount);
+    for (uint32_t point = 0u; point < pointCount; ++point) order[point] = point;
     std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) {
         return targetProjected[a].depth < targetProjected[b].depth;
     });
     for (uint32_t point : order) {
         const NSPoint source = sourceProjected[point].point;
         [s3g::clap_gui::color(0x777777, 0.70) setFill];
-        NSRectFill(NSMakeRect(source.x - 2.0, source.y - 2.0, 4.0, 4.0));
+        NSRectFill(NSMakeRect(source.x - 1.5, source.y - 1.5, 3.0, 3.0));
         const NSPoint target = targetProjected[point].point;
-        [displacementPointColor(geometry[point]) setFill];
-        NSRectFill(NSMakeRect(target.x - 3.5, target.y - 3.5, 7.0, 7.0));
+        const float energy = _plugin->nodeLevel[point].load(
+            std::memory_order_relaxed);
+        const CGFloat haloRadius = 5.0 + 15.0
+            * std::sqrt(std::clamp<CGFloat>(energy, 0.0, 1.0));
+        [[displacementPointColor(geometry.target[point])
+            colorWithAlphaComponent:0.08 + 0.26 * energy] setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            target.x - haloRadius, target.y - haloRadius,
+            haloRadius * 2.0, haloRadius * 2.0)] fill];
+        [displacementPointColor(geometry.target[point]) setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            target.x - 3.0, target.y - 3.0, 6.0, 6.0)] fill];
     }
 
     std::vector<NSRect> occupied;
-    occupied.reserve(s3g::k3OafxVirtualSpeakers * 2u);
-    for (uint32_t point = 0u; point < s3g::k3OafxVirtualSpeakers; ++point) {
+    occupied.reserve(pointCount * 2u);
+    for (uint32_t point = 0u; point < pointCount; ++point) {
         const NSPoint target = targetProjected[point].point;
         occupied.push_back(NSMakeRect(target.x - 5.0, target.y - 5.0, 10.0, 10.0));
     }
@@ -1219,7 +1368,7 @@ uint32_t displacementRowForParam(clap_id param)
     }
 }
 
-- (void)drawTimelineWithScore:(const s3g::ThreeOafxDisplacementScore&)score phase:(float)phase attrs:(NSDictionary*)attrs
+- (void)drawTimelineWithScore:(const s3g::AmbiEffectDisplacementScore&)score phase:(float)phase attrs:(NSDictionary*)attrs
 {
     const NSRect rect = [self timelineRect];
     [s3g::clap_gui::color(0x151515) setFill];
@@ -1244,19 +1393,34 @@ uint32_t displacementRowForParam(clap_id param)
 {
     if (_openMenu == 0) return;
     static NSString* transportItems[] = { @"SYNC", @"FREE", @"SCRUB" };
-    static NSString* playbackItems[] = { @"LOOP", @"PALINDROME" };
+    static NSString* playbackItems[] = { @"LOOP", @"PALINDROME", @"ONCE" };
     static NSString* distanceItems[] = { @"GAIN", @"PHYSICAL" };
+    static NSString* orderItems[] = {
+        @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA"
+    };
+    static NSString* bodyItems[] = {
+        @"AUTO", @"ICOSA 12", @"DODECA 20", @"SPHERE 24"
+    };
     NSString* const* items = transportItems;
     uint32_t count = 3u;
     int selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.transport));
     if (_openMenu == 2) {
         items = playbackItems;
-        count = 2u;
+        count = 3u;
         selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.playback));
     } else if (_openMenu == 3) {
         items = distanceItems;
         count = 2u;
         selected = static_cast<int>(static_cast<uint32_t>(_plugin->params.dsp.distanceMode));
+    } else if (_openMenu == 4) {
+        items = orderItems;
+        count = 7u;
+        selected = static_cast<int>(_plugin->params.dsp.order - 1u);
+    } else if (_openMenu == 5) {
+        items = bodyItems;
+        count = 4u;
+        const uint32_t body = static_cast<uint32_t>(_plugin->params.dsp.body);
+        selected = body == 0u ? 0 : static_cast<int>(body - 2u);
     }
     s3g::clap_gui::drawDropdownMenu([self menuRectForId:_openMenu], 19.0, items, count,
                                     selected, _hoverMenuItem, attrs, style);
@@ -1272,7 +1436,7 @@ uint32_t displacementRowForParam(clap_id param)
     [style.bg setFill];
     NSRectFill([self bounds]);
 
-    s3g::ThreeOafxDisplacementScore score;
+    s3g::AmbiEffectDisplacementScore score;
     std::string scoreName;
     std::string status;
     {
@@ -1289,16 +1453,16 @@ uint32_t displacementRowForParam(clap_id param)
     const float peak = _plugin->outputPeak.exchange(
         _plugin->outputPeak.load(std::memory_order_relaxed) * 0.92f,
         std::memory_order_relaxed);
-    const auto titleBand = s3g::gui_layout::threeOafxTitleBand(
-        s3g::gui_layout::kThreeOafxFamilyLayout.displacementCanvas);
-    s3g::clap_gui::drawThreeOafxTitleBand(
-        @"s3g 3OAFX TRANSFORM DISPLACEMENT 16CH",
+    const auto titleBand = s3g::gui_layout::ambiEffectTitleBand(
+        s3g::gui_layout::kAmbiEffectFamilyLayout.displacementCanvas);
+    s3g::clap_gui::drawAmbiEffectTitleBand(
+        @"s3g AMBI EFFECT DISPLACEMENT 64",
         [NSString stringWithUTF8String:_titlePresetName],
         s3g::clap_gui::peakDbText(peak), titleBand, style);
 
     const NSRect fieldPanel = [self fieldPanelRect];
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
-    s3g::clap_gui::drawPanelHeader(@"DISPLACEMENT FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, labels, style);
+    s3g::clap_gui::drawPanelHeader(@"LISTENER PICKUPS / DISPLACEMENT FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, labels, style);
     s3g::clap_gui::drawHeaderActionButton([self loadButtonRect], fieldPanel, @"LOAD SCORE", labels, style);
     static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4", @"MAP" };
     for (int index = 0; index < 2; ++index) {
@@ -1311,8 +1475,14 @@ uint32_t displacementRowForParam(clap_id param)
     [self drawTimelineWithScore:score phase:phase attrs:values];
     NSString* nameText = [[NSString stringWithUTF8String:scoreName.c_str()] uppercaseString];
     NSString* statusText = [[NSString stringWithUTF8String:status.c_str()] uppercaseString];
-    [nameText drawAtPoint:NSMakePoint(38, 560) withAttributes:labels];
-    [statusText drawAtPoint:NSMakePoint(350, 560) withAttributes:values];
+    const auto resolvedBody = static_cast<s3g::AmbiEffectBody>(
+        _plugin->resolvedBody.load(std::memory_order_relaxed));
+    NSString* bodyText = [NSString stringWithFormat:@"%@ / %u PICKUPS",
+        [NSString stringWithUTF8String:s3g::ambiEffectBodyName(resolvedBody)],
+        s3g::ambiEffectBodyPickupCount(resolvedBody)];
+    [nameText drawAtPoint:NSMakePoint(38, 770) withAttributes:labels];
+    [bodyText drawAtPoint:NSMakePoint(255, 770) withAttributes:values];
+    [statusText drawAtPoint:NSMakePoint(410, 770) withAttributes:values];
 
     const auto drawPanel = [&](NSString* name,
                                const s3g::gui_layout::Panel& panel) {
@@ -1327,12 +1497,22 @@ uint32_t displacementRowForParam(clap_id param)
     drawPanel(@"PLAYBACK", kDisplacementPlaybackPanel);
     drawPanel(@"WARP", kDisplacementWarpPanel);
     drawPanel(@"DISTANCE", kDisplacementDistancePanel);
+    drawPanel(@"DIRECTION MASK", kDisplacementMaskPanel);
     [self drawSlider:@"OUT" param:kParamOutput minimum:-60.0 maximum:12.0
         y:s3g::gui_layout::rowY(kDisplacementOutputPanel, 0u)
         attrs:labels style:style];
+    [self drawMenu:@"ORDER" param:kParamOrder
+        y:s3g::gui_layout::rowY(kDisplacementOutputPanel, 1u)
+        attrs:labels style:style];
+    [self drawMenu:@"BODY" param:kParamBody
+        y:s3g::gui_layout::rowY(kDisplacementOutputPanel, 2u)
+        attrs:labels style:style];
+    [self drawSlider:@"MIX" param:kParamMix minimum:0.0 maximum:1.0
+        y:s3g::gui_layout::rowY(kDisplacementOutputPanel, 3u)
+        attrs:labels style:style];
     s3g::clap_gui::drawToggle(
         @"BYP", params.dsp.bypass,
-        s3g::gui_layout::rowY(kDisplacementOutputPanel, 1u),
+        s3g::gui_layout::rowY(kDisplacementOutputPanel, 4u),
         labels, values, style,
         s3g::gui_layout::processorLabelX(kDisplacementOutputPanel.frame.x),
         s3g::gui_layout::processorControlX(kDisplacementOutputPanel.frame.x),
@@ -1373,6 +1553,24 @@ uint32_t displacementRowForParam(clap_id param)
     [self drawSlider:@"ENRG" param:kParamEnergy minimum:0.0 maximum:1.0
         y:s3g::gui_layout::rowY(kDisplacementDistancePanel, 2u)
         attrs:labels style:style];
+    [self drawSlider:@"AMT" param:kParamMaskAmount minimum:0.0 maximum:1.0
+        y:s3g::gui_layout::rowY(kDisplacementMaskPanel, 0u)
+        attrs:labels style:style];
+    [self drawSlider:@"AZ" param:kParamMaskAzimuth minimum:-180.0 maximum:180.0
+        y:s3g::gui_layout::rowY(kDisplacementMaskPanel, 1u)
+        attrs:labels style:style];
+    [self drawSlider:@"EL" param:kParamMaskElevation minimum:-90.0 maximum:90.0
+        y:s3g::gui_layout::rowY(kDisplacementMaskPanel, 2u)
+        attrs:labels style:style];
+    [self drawSlider:@"WIDTH" param:kParamMaskWidth minimum:0.0 maximum:1.0
+        y:s3g::gui_layout::rowY(kDisplacementMaskPanel, 3u)
+        attrs:labels style:style];
+    [self drawSlider:@"CURVE" param:kParamMaskCurve minimum:0.0 maximum:1.0
+        y:s3g::gui_layout::rowY(kDisplacementMaskPanel, 4u)
+        attrs:labels style:style];
+    [self drawSlider:@"DRY" param:kParamMaskDry minimum:-1.0 maximum:0.0
+        y:s3g::gui_layout::rowY(kDisplacementMaskPanel, 5u)
+        attrs:labels style:style];
     [self drawOpenMenu:values style:style];
 }
 
@@ -1387,7 +1585,7 @@ uint32_t displacementRowForParam(clap_id param)
 #pragma clang diagnostic pop
     if ([panel runModal] != NSModalResponseOK) return;
     NSData* data = [NSData dataWithContentsOfURL:[panel URL]];
-    s3g::ThreeOafxDisplacementScore score;
+    s3g::AmbiEffectDisplacementScore score;
     float amount = 0.65f;
     float azimuthScale = 1.0f;
     float elevationScale = 1.0f;
@@ -1438,21 +1636,28 @@ uint32_t displacementRowForParam(clap_id param)
 - (void)mouseDown:(NSEvent*)event
 {
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    const auto titleBand = s3g::gui_layout::threeOafxTitleBand(
-        s3g::gui_layout::kThreeOafxFamilyLayout.displacementCanvas);
+    const auto titleBand = s3g::gui_layout::ambiEffectTitleBand(
+        s3g::gui_layout::kAmbiEffectFamilyLayout.displacementCanvas);
     if (s3g::clap_gui::handleProcessorTitleClick(
-            point, &_plugin->plugin, @"3OAFX Transform Displacement",
+            point, &_plugin->plugin, @"Ambi Effect Displacement",
             titleBand, _titlePresetName, sizeof(_titlePresetName))) {
         [self setNeedsDisplay:YES];
         return;
     }
     if (_openMenu != 0) {
         const NSRect menu = [self menuRectForId:_openMenu];
-        const uint32_t count = _openMenu == 1 ? 3u : 2u;
+        const uint32_t count = _openMenu == 1 || _openMenu == 2 ? 3u
+            : (_openMenu == 4 ? 7u : (_openMenu == 5 ? 4u : 2u));
         const int hit = s3g::clap_gui::dropdownHitIndex(point, menu, 19.0, count);
         if (hit >= 0) {
-            const clap_id param = _openMenu == 1 ? kParamTransport : (_openMenu == 2 ? kParamPlayback : kParamDistanceMode);
-            [self setParam:param value:hit];
+            const clap_id param = _openMenu == 1 ? kParamTransport
+                : (_openMenu == 2 ? kParamPlayback
+                : (_openMenu == 3 ? kParamDistanceMode
+                : (_openMenu == 4 ? kParamOrder : kParamBody)));
+            double value = hit;
+            if (_openMenu == 4) value = hit + 1;
+            if (_openMenu == 5) value = hit == 0 ? 0 : hit + 2;
+            [self setParam:param value:value];
             _openMenu = 0;
             _hoverMenuItem = -1;
             return;
@@ -1476,6 +1681,8 @@ uint32_t displacementRowForParam(clap_id param)
         { 1, kParamTransport },
         { 2, kParamPlayback },
         { 3, kParamDistanceMode },
+        { 4, kParamOrder },
+        { 5, kParamBody },
     };
     for (const auto& menu : menus) {
         const auto& panel = displacementPanelForParam(menu.param);
@@ -1491,15 +1698,18 @@ uint32_t displacementRowForParam(clap_id param)
     }
     if (NSPointInRect(point, s3g::clap_gui::cocoaRect(
             s3g::gui_layout::sliderHitRect(
-                kDisplacementOutputPanel, 1u)))) {
+                kDisplacementOutputPanel, 4u)))) {
         [self setParam:kParamBypass value:_plugin->params.dsp.bypass ? 0.0 : 1.0];
         return;
     }
     const clap_id sliders[] {
         kParamOutput,
+        kParamMix,
         kParamPosition, kParamRate, kParamLength,
         kParamAmount, kParamAzimuthScale, kParamElevationScale,
         kParamRadiusScale, kParamReferenceMeters, kParamEnergy,
+        kParamMaskAmount, kParamMaskAzimuth, kParamMaskElevation,
+        kParamMaskWidth, kParamMaskCurve, kParamMaskDry,
     };
     for (const clap_id slider : sliders) {
         const auto& panel = displacementPanelForParam(slider);
@@ -1557,7 +1767,8 @@ uint32_t displacementRowForParam(clap_id param)
 {
     if (_openMenu == 0) return;
     const NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-    const uint32_t count = _openMenu == 3 ? 2u : 3u;
+    const uint32_t count = _openMenu == 1 || _openMenu == 2 ? 3u
+        : (_openMenu == 4 ? 7u : (_openMenu == 5 ? 4u : 2u));
     _hoverMenuItem = s3g::clap_gui::dropdownHitIndex(point, [self menuRectForId:_openMenu], 19.0, count);
     [self setNeedsDisplay:YES];
 }
@@ -1593,7 +1804,7 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool)
     if (!guiIsApiSupported(plugin, api, false)) return false;
     auto* instance = self(plugin);
     if (instance->guiView) return true;
-    instance->guiView = [[S3G3OAFXDisplacementView alloc] initWithPlugin:instance];
+    instance->guiView = [[S3GAmbiEffectDisplacementView alloc] initWithPlugin:instance];
     if (instance->guiView
         && !s3g::clap_gui::createResponsiveViewport(
             instance->guiViewport, static_cast<NSView*>(instance->guiView),
@@ -1608,7 +1819,7 @@ void guiDestroy(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
     if (!instance->guiView) return;
-    [static_cast<S3G3OAFXDisplacementView*>(instance->guiView) stopRefreshTimer];
+    [static_cast<S3GAmbiEffectDisplacementView*>(instance->guiView) stopRefreshTimer];
     s3g::clap_gui::destroyResponsiveViewport(
         instance->guiViewport, instance->guiView);
     instance->guiVisible = false;
@@ -1654,7 +1865,7 @@ bool guiShow(const clap_plugin_t* plugin)
     instance->guiVisible = true;
     if (!s3g::clap_gui::setResponsiveViewportHidden(
             instance->guiViewport, false)) return false;
-    [static_cast<S3G3OAFXDisplacementView*>(instance->guiView) startRefreshTimer];
+    [static_cast<S3GAmbiEffectDisplacementView*>(instance->guiView) startRefreshTimer];
     return true;
 }
 bool guiHide(const clap_plugin_t* plugin)
@@ -1662,7 +1873,7 @@ bool guiHide(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
     if (!instance->guiView) return false;
     instance->guiVisible = false;
-    [static_cast<S3G3OAFXDisplacementView*>(instance->guiView) stopRefreshTimer];
+    [static_cast<S3GAmbiEffectDisplacementView*>(instance->guiView) stopRefreshTimer];
     return s3g::clap_gui::setResponsiveViewportHidden(
         instance->guiViewport, true);
 }
@@ -1717,7 +1928,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.4.0-pre",
-    "3OA field displacement player for s3g-mc Displacement Score files.",
+    "Order-adaptive ambisonic field displacement player for s3g-mc Displacement Score files.",
     features,
 };
 

@@ -15,7 +15,7 @@
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
         <a href="multichannel.html">Multichannel</a>
-        <a href="3oafx.html">Ambisonics</a>
+        <a href="ambisonics.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="references.html">References</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
@@ -30,7 +30,7 @@
 
         <p>Raw-data scanning reads bytes as a moving waveform, while stochastic breakpoint geometry connects selected values with evolving curves. The codec section then introduces prediction errors, quantization, missing blocks, or damaged reconstruction as sound-generating processes rather than as file-format emulation.</p>
 
-        <p>The native editor uses a wide 1356-by-720 layout. Field, codec, and protocol modulation occupy three parallel columns; patch controls, performance state, and the compact envelope editor remain in one lower strip. Hosts may reduce the responsive viewport and use its scroll access without rescaling control hit areas.</p>
+        <p>The native editor uses a compact 1356-by-720 layout with two upper pages. <code>SOUND</code> keeps the field, codec, a large FM-style algorithm chart, and concise M1/M2/M3 route summaries together for fast patch decisions. <code>MOD LAB</code> gives each operator a complete card without making the primary page wider or taller. Patch controls, performance state, and the envelope editor remain in one shared lower strip. Hosts may reduce the responsive viewport and use its scroll access without rescaling control hit areas.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -40,7 +40,7 @@
           <li>Use <code>FREE</code> for continuous sound, or select <code>MIDI</code> and play notes from the DAW.</li>
           <li>Set <code>SCAN</code>, <code>GEOMETRY</code>, <code>CHAOS</code>, and <code>FOLD</code> for the underlying motion.</li>
           <li>Choose a codec, then use <code>RATE</code>, <code>BITS</code>, <code>CARRIER</code>, and <code>DAMAGE</code> to break its continuity.</li>
-          <li>Choose a protocol-modulation <code>SOURCE</code> and <code>TARGET</code>, then raise <code>INDEX</code>. Try <code>LOCK</code> when the modulator should inherit the codec's transmission clock.</li>
+          <li>On <code>SOUND</code>, choose a <code>CURATED CIRCUIT</code> and read its operator flow in the chart. Start with a factory patch or <code>CURATED RANDOM</code> for a bounded variation, then open <code>MOD LAB</code> when you want to change an algorithm or an operator's source, destination, rate, ratio, index, feedback, clock, or envelope response.</li>
           <li>Raise <code>DRIVE</code>, <code>SHRED</code>, and <code>RESONANCE</code> to expose the byte-field contours.</li>
           <li>Choose a <code>ROUTE</code> and set <code>SPREAD</code> for the eight-channel distribution.</li>
         </ol>
@@ -67,7 +67,7 @@
 
         <p>The envelope graph is directly editable. Drag the attack and release endpoints horizontally, the decay breakpoint in both axes, and the sustain breakpoint vertically. The dashed live-level trace and highlighted breakpoint follow the active MIDI envelope stage.</p>
 
-        <p><code>PLAY</code> and <code>STOP</code> remain global: they fade and freeze either mode. Presets, <code>RANDOM PATCH</code>, and <code>MUTATE</code> shape the timbre but leave the selected performance mode and ADSR settings alone.</p>
+        <p><code>PLAY</code> and <code>STOP</code> remain global: they fade and freeze either mode. Presets, <code>CURATED RANDOM</code>, and <code>MUTATE</code> shape the timbre but leave the selected performance mode and ADSR settings alone. In MIDI mode, any modulation operator set to <code>ADSR</code> also follows this envelope at its index, so attacks can assemble a modulation stack and releases can withdraw it without changing the operator's stored depth. <code>FIXED</code> leaves that operator running at full index. In <code>FREE</code> mode both settings behave as fully open.</p>
 
         <h2 id="field">Byte Field and Geometry</h2>
 
@@ -138,22 +138,41 @@
 
         <h2 id="modulation">Protocol Modulation</h2>
 
-        <p>Protocol modulation adds a second operator to the codec. It is a distant cousin of FM synthesis: one process acts on another, but the operator is not limited to a sinusoid and its destination is not limited to oscillator frequency. Raster sync, telegraph keying, framed bits, image scanlines, field data, and the codec's own output can become control signals. This makes the historically functional parts of a transmission system available as timbre structure.</p>
+        <p>Protocol modulation adds three operators, M1, M2, and M3, and six selectable stacking algorithms to the codec. It is a distant cousin of FM synthesis: one process acts on another, but an operator is not limited to a sinusoid and its destination is not limited to oscillator frequency. Raster sync, telegraph keying, framed bits, image scanlines, field data, and the codec's own output can become control signals. This makes the historically functional parts of a transmission system available as timbre structure without exposing a large modulation matrix.</p>
 
-        <p>The tonal sources are <code>SINE</code>, <code>TRIANGLE</code>, and stepped <code>NOISE</code>. <code>FIELD</code> follows the current byte-field signal; <code>SYNC</code> and <code>GATE</code> supply narrow and square pulses. <code>APT</code>, <code>HF FAX</code>, <code>HELL</code>, <code>MORSE</code>, <code>SPARK CW</code>, <code>BAUDOT RTTY</code>, and <code>SSTV</code> reuse simplified line, raster, keying, framing, and scan grammars as modulation shapes. <code>FEEDBACK</code> derives a bounded operator from the codec's recent output, turning the carrier/modulator distinction into a recursive loop.</p>
+        <p>All three operators share the same source vocabulary. The tonal sources are <code>SINE</code>, <code>TRIANGLE</code>, and stepped <code>NOISE</code>. <code>FIELD</code> follows the current byte-field signal; <code>SYNC</code> and <code>GATE</code> supply narrow and square pulses. <code>APT</code>, <code>HF FAX</code>, <code>HELL</code>, <code>MORSE</code>, <code>SPARK CW</code>, <code>BAUDOT RTTY</code>, and <code>SSTV</code> reuse simplified line, raster, keying, framing, and scan grammars as modulation shapes. <code>FEEDBACK</code> derives a bounded operator from the codec's recent output, turning the carrier/modulator distinction into a recursive loop.</p>
+
+        <table>
+          <thead>
+            <tr><th>Algorithm</th><th>Active topology</th><th>Character</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>BROADCAST</code></td><td>M1 | M2 | M3 → destinations</td><td>Three independent transmission voices run in parallel, each acting directly on its selected destination.</td></tr>
+            <tr><td><code>RELAY</code></td><td>M3 → M2 rate → M1 rate</td><td>A slow protocol can bend M2, which bends M1; all three results still act on their independently selected destinations.</td></tr>
+            <tr><td><code>MULTIPLEX</code></td><td>M1 / M2 / M3 time slots → destinations</td><td>The operators take turns addressing their destinations, producing framed competition among clocks, data grammars, and carrier motion.</td></tr>
+            <tr><td><code>CROSSED MACHINES</code></td><td>M1 ↻ M2 ↻ M3 → destinations</td><td>A cyclic rate-modulation ring couples the three machines while their spectral and structural destinations remain independently controllable.</td></tr>
+            <tr><td><code>REGENERATOR</code></td><td>codec ↺ M3 → M2 → M1</td><td>Recent codec output bends M3, then propagates through the serial rate chain. Feedback sources and damage or clock destinations create accumulating slips and unstable locked states.</td></tr>
+            <tr><td><code>TRANSCODE</code></td><td>data → M1 → M2 → M3 → codec</td><td>Each protocol conditions the next operator's content: Hell glyphs can become SSTV brightness, Morse timing can become fax pixels, and field data can become Baudot framing.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The <code>SOUND</code> page draws the selected topology as an FM-style node chart: arrows show inter-operator influence, <code>BUS</code> or <code>MUX</code> nodes show parallel and time-slotted combinations, and the final node identifies the independent destinations. The three text summaries beneath it retain each operator's source, destination, and envelope mode. Its <code>CURATED CIRCUIT</code> menu installs one of two musically bounded operator recipes for the chosen topology while preserving the rest of the patch. <code>MOD LAB</code> repeats the live chart beside the full operator cards; its <code>ALGORITHM</code> menu changes only the graph, leaving the deep settings under direct control.</p>
 
         <table>
           <thead>
             <tr><th>Control</th><th>Meaning</th></tr>
           </thead>
           <tbody>
-            <tr><td>SOURCE</td><td>Selects the second operator. <code>OFF</code> preserves earlier patches and bypasses modulation.</td></tr>
-            <tr><td>TARGET</td><td><code>CARRIER</code> bends the whole transmission center by up to two octaves. <code>DEVIATION</code> expands and contracts distances around the protocol's nominal center. <code>CLOCK</code> warps codec, bit, raster, and scan timing. <code>DATA</code> writes the operator into the pre-codec signal. <code>DAMAGE</code> turns it into a moving error probability.</td></tr>
-            <tr><td>RATE</td><td>Sets the free-running operator rate from 0.05 Hz to 8 kHz.</td></tr>
-            <tr><td>RATIO</td><td>Multiplies the free or locked base rate from 0.125× to 16×, providing the carrier-to-modulator-ratio role familiar from FM without requiring harmonic ratios.</td></tr>
-            <tr><td>INDEX</td><td>Sets modulation depth. At zero the selected source remains inaudible; increasing it moves farther into sidebands, clock fracture, data overwrite, or error bursts according to the target.</td></tr>
-            <tr><td>CLOCK</td><td><code>FREE</code> uses the displayed rate. <code>LOCK</code> derives a protocol-appropriate rate from the active codec clock or nominal carrier, so line, symbol, and raster relationships follow changes to codec <code>RATE</code>.</td></tr>
-            <tr><td>FEEDBACK</td><td>Recirculates the preceding operator state. With the <code>FEEDBACK</code> source it controls a bounded codec-output loop; with other sources it smears clean periodicity toward recursive, unstable-looking contours.</td></tr>
+            <tr><td>CURATED CIRCUIT</td><td>On the <code>SOUND</code> page, selects one of the six graphs and loads a proven source, destination, timing, depth, feedback, and envelope recipe for it. Two variations per algorithm are selected repeatably from the patch seed.</td></tr>
+            <tr><td>ALGORITHM</td><td>On <code>MOD LAB</code>, selects one of the six three-operator stacking graphs shown above without rewriting the operator controls. It controls how the operators influence one another, not where they must go.</td></tr>
+            <tr><td>M1/M2/M3 DEST</td><td>Selects each operator's destination independently. <code>CARRIER</code> bends the transmission center, <code>DEVIATION</code> expands distances around it, <code>CLOCK</code> warps codec and raster timing, <code>DATA</code> writes into the pre-codec signal, <code>DAMAGE</code> becomes a moving error probability, and <code>OFF</code> disconnects the result while retaining its role inside a stack.</td></tr>
+            <tr><td>M1/M2/M3 SOURCE</td><td>Selects each operator's generator. <code>OFF</code> silences that operator. Older patches retain their audible route and recall new operators conservatively.</td></tr>
+            <tr><td>M1/M2/M3 RATE</td><td>Sets each free-running operator rate from 0.05 Hz to 8 kHz.</td></tr>
+            <tr><td>M1/M2/M3 RATIO</td><td>Multiplies the free or locked base rate from 0.125× to 16×, providing the carrier-to-modulator-ratio role familiar from FM without requiring harmonic ratios.</td></tr>
+            <tr><td>M1/M2/M3 INDEX</td><td>Sets each operator's depth. At zero that operator remains inaudible; increasing it moves farther into sidebands, clock fracture, data overwrite, transcode influence, or an error loop.</td></tr>
+            <tr><td>M1/M2/M3 CLOCK</td><td><code>FREE</code> uses the displayed rate. <code>LOCK</code> derives a protocol-appropriate rate from the active codec clock or nominal carrier, so line, symbol, and raster relationships follow changes to codec <code>RATE</code>.</td></tr>
+            <tr><td>M1/M2/M3 FEEDBACK</td><td>Recirculates each preceding operator state. With the <code>FEEDBACK</code> source it controls a bounded codec-output loop; with other sources it smears clean periodicity toward recursive, unstable-looking contours.</td></tr>
+            <tr><td>M1/M2/M3 ENVELOPE</td><td><code>FIXED</code> keeps the operator's selected index. <code>ADSR</code> multiplies that index by the live MIDI envelope before the algorithm is evaluated, including operator-to-operator rate and content influence. This can articulate timbre separately from the final amplitude envelope without adding a modulation matrix.</td></tr>
           </tbody>
         </table>
 
@@ -190,25 +209,25 @@
 
         <h2 id="patches">Presets and Patch Actions</h2>
 
-        <p>The factory bank now treats protocol modulation as part of the patch rather than an optional afterthought. <code>INIT</code> remains neutral with modulation off; every other factory preset selects an active source, target, ratio, index, and feedback relationship. Editing a sound control changes the menu state to <code>CUSTOM</code>.</p>
+        <p>The factory bank treats the modulation graph as part of the patch rather than an optional afterthought. <code>INIT</code> remains neutral with M1, M2, and M3 off. The twelve active presets demonstrate every algorithm exactly twice and store all three operators' source, destination, rate, ratio, index, feedback, clock, and envelope state. Their M2 and M3 paths follow the ADSR; M1 follows it where a crossed or transcoding graph benefits from the complete stack entering and leaving together. Editing a sound control changes the menu state to <code>CUSTOM</code>.</p>
 
         <table>
           <thead>
-            <tr><th>Preset</th><th>Protocol-modulation identity</th></tr>
+            <tr><th>Preset</th><th>Algorithm</th><th>Modulation identity</th></tr>
           </thead>
           <tbody>
-            <tr><td>SLOW CLOCK</td><td>A slow triangle expands and contracts the μ-law codec clock.</td></tr>
-            <tr><td>CODEC SCAR</td><td>Stepped noise moves CELP damage probability.</td></tr>
-            <tr><td>FIELD DIVERGE</td><td>The byte field modulates HF-fax deviation across divergent output lanes.</td></tr>
-            <tr><td>GATED BREAKS</td><td>A gate fractures the delta-codec clock.</td></tr>
-            <tr><td>SYNC GLASS</td><td>Clock-locked sync pulses bend the Hellschreiber carrier.</td></tr>
-            <tr><td>MU DUST</td><td>Recursive stepped noise writes into μ-law data.</td></tr>
-            <tr><td>DELTA STAIRS</td><td>A faster triangle writes pitched stair shapes into delta data.</td></tr>
-            <tr><td>ADPCM FEEDBACK</td><td>The codec's bounded feedback operator drives its own damage process.</td></tr>
-            <tr><td>MORSE CHOIR</td><td>Clock-locked Morse keying enters the CELP data path.</td></tr>
-            <tr><td>SPARK EMBERS</td><td>Spark-CW bursts excite a slow, folded μ-law field.</td></tr>
-            <tr><td>WIDE FAX</td><td>Clock-locked HF-fax line structure writes across a wide A-law field.</td></tr>
-            <tr><td>WAVE TRACE</td><td>The loaded waveform feeds itself back into the data path at a restrained index.</td></tr>
+            <tr><td>SLOW CLOCK</td><td>Broadcast</td><td>Triangle clock, sine carrier, and gated damage run as three parallel broadcasts.</td></tr>
+            <tr><td>CODEC SCAR</td><td>Regenerator</td><td>CELP output returns through sync-clock and high-feedback damage operators.</td></tr>
+            <tr><td>FIELD DIVERGE</td><td>Crossed Machines</td><td>Field pitch, locked APT clock, and noise deviation form a cyclic machine.</td></tr>
+            <tr><td>GATED BREAKS</td><td>Relay</td><td>Morse damage and a slow gate descend through the relay into an audio-rate carrier operator.</td></tr>
+            <tr><td>SYNC GLASS</td><td>Multiplex</td><td>Sync, Hell raster, and clock pulses take turns across the Hellschreiber transmission.</td></tr>
+            <tr><td>MU DUST</td><td>Transcode</td><td>Noise conditions Baudot framing, which becomes HF-fax content in μ-law data.</td></tr>
+            <tr><td>DELTA STAIRS</td><td>Broadcast</td><td>Triangle data and clock shapes share the delta codec with sync deviation.</td></tr>
+            <tr><td>ADPCM FEEDBACK</td><td>Regenerator</td><td>Field carrier motion, codec feedback damage, and gated clock form a bounded loop.</td></tr>
+            <tr><td>MORSE CHOIR</td><td>Transcode</td><td>Morse timing becomes HF-fax content and then SSTV data inside CELP.</td></tr>
+            <tr><td>SPARK EMBERS</td><td>Relay</td><td>A gated clock and Spark-CW damage descend into an audio-rate carrier operator.</td></tr>
+            <tr><td>WIDE FAX</td><td>Multiplex</td><td>HF-fax carrier and clock take turns with SSTV deviation.</td></tr>
+            <tr><td>WAVE TRACE</td><td>Crossed Machines</td><td>Field carrier and data paths cycle against a sync clock over loaded waveform material.</td></tr>
           </tbody>
         </table>
 
@@ -217,8 +236,8 @@
           <li><code>STOP</code> fades to silence over 20 ms, then freezes the synthesis engine without resetting it.</li>
           <li><code>OPEN ANY</code> loads any file as a byte field. Its enabled WAV option skips the container header and prepares eight lossy waveform-derived lanes; disabling the option uses every file byte literally.</li>
           <li><code>GEN FIELD</code> leaves file mode, captures the selected codec as the field profile, and creates new codec-oriented source data while retaining the remaining control settings.</li>
-          <li><code>RANDOM PATCH</code> creates a new bounded patch across the field, codec, protocol-modulation, shaping, and routing sections.</li>
-          <li><code>MUTATE</code> makes smaller changes around the current patch and usually preserves its seed and codec family.</li>
+          <li><code>CURATED RANDOM</code> chooses one of the twelve proven modulation circuits, keeps its associated codec and shaping recipe, then varies the codec, rates, ratios, indices, feedback, and nonlinear controls inside conservative limits while randomizing the field and routing motion. It does not invent an arbitrary source/destination graph, disconnect an essential path, or push feedback to its full range.</li>
+          <li><code>MUTATE</code> makes smaller changes around the current patch and usually preserves its seed and codec family. It normally keeps the current circuit; occasional circuit changes select another factory topology and use the same guardrails.</li>
           <li><code>UNDO</code> restores the state before the most recent preset, source, field, randomize, or mutate action.</li>
         </ul>
 

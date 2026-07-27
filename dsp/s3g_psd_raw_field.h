@@ -161,8 +161,19 @@ enum class PsdRawFieldModTarget : uint32_t {
     Clock = 2,
     Data = 3,
     Damage = 4,
+    Off = 5,
 };
-constexpr uint32_t kPsdRawFieldModTargetCount = 5;
+constexpr uint32_t kPsdRawFieldModTargetCount = 6;
+
+enum class PsdRawFieldModAlgorithm : uint32_t {
+    Broadcast = 0,
+    Relay = 1,
+    Multiplex = 2,
+    CrossedMachines = 3,
+    Regenerator = 4,
+    Transcode = 5,
+};
+constexpr uint32_t kPsdRawFieldModAlgorithmCount = 6;
 
 struct PsdRawFieldParams {
     float scanRate = 0.44f;
@@ -191,6 +202,25 @@ struct PsdRawFieldParams {
     float modIndex = 0.0f;
     float modFeedback = 0.0f;
     uint32_t modClockLock = 0u;
+    PsdRawFieldModAlgorithm modAlgorithm = PsdRawFieldModAlgorithm::Broadcast;
+    PsdRawFieldModSource modSource2 = PsdRawFieldModSource::Off;
+    float modRate2 = 0.35f;
+    float modRatio2 = 1.0f;
+    float modIndex2 = 0.0f;
+    float modFeedback2 = 0.0f;
+    uint32_t modClockLock2 = 0u;
+    PsdRawFieldModTarget modTarget2 = PsdRawFieldModTarget::Off;
+    PsdRawFieldModSource modSource3 = PsdRawFieldModSource::Off;
+    PsdRawFieldModTarget modTarget3 = PsdRawFieldModTarget::Off;
+    float modRate3 = 0.35f;
+    float modRatio3 = 1.0f;
+    float modIndex3 = 0.0f;
+    float modFeedback3 = 0.0f;
+    uint32_t modClockLock3 = 0u;
+    uint32_t modEnvelope1 = 0u;
+    uint32_t modEnvelope2 = 0u;
+    uint32_t modEnvelope3 = 0u;
+    uint32_t modulationEnabled = 1u;
 };
 
 class PsdRawField {
@@ -381,6 +411,25 @@ public:
             modFeedbackState_[ch] = 0.0f;
             modSparkEnvelope_[ch] = 0.0f;
             modStep_[ch] = 0u;
+            modPhase2_[ch] = static_cast<float>(ch) * 0.017f + 0.25f;
+            modValue2_[ch] = 0.0f;
+            modPrevious2_[ch] = 0.0f;
+            modHeldNoise2_[ch] = fieldNoise(tapeSeed_ ^ (ch * 0x85ebca6bu) ^ 0xa511e9b3u);
+            modFeedbackState2_[ch] = 0.0f;
+            modSparkEnvelope2_[ch] = 0.0f;
+            modStep2_[ch] = 0u;
+            modPhase3_[ch] = static_cast<float>(ch) * 0.019f + 0.5f;
+            modValue3_[ch] = 0.0f;
+            modPrevious3_[ch] = 0.0f;
+            modHeldNoise3_[ch] = fieldNoise(tapeSeed_ ^ (ch * 0xc2b2ae35u) ^ 0x63d83595u);
+            modFeedbackState3_[ch] = 0.0f;
+            modSparkEnvelope3_[ch] = 0.0f;
+            modStep3_[ch] = 0u;
+            carrierMod_[ch] = 0.0f;
+            deviationMod_[ch] = 0.0f;
+            clockMod_[ch] = 0.0f;
+            dataMod_[ch] = 0.0f;
+            damageMod_[ch] = 0.0f;
             effectiveDamage_[ch] = params_.codecDamage;
         }
         shaper_.reset();
@@ -390,6 +439,7 @@ public:
         loudnessEnergy_ = 0.04f;
         loudnessGain_ = 1.0f;
         currentPitchRatio_ = targetPitchRatio_;
+        currentModEnvelope_ = 1.0f;
     }
 
     void setParams(const PsdRawFieldParams& params)
@@ -423,7 +473,8 @@ public:
         reset();
     }
 
-    void process(float* const* output, uint32_t outputChannels, uint32_t frames)
+    void process(float* const* output, uint32_t outputChannels, uint32_t frames,
+        const float* modulationEnvelope = nullptr)
     {
         if (!ready_ || !output || frames == 0u) return;
         const uint32_t channels = std::min<uint32_t>(outputChannels, kPsdRawFieldChannels);
@@ -443,6 +494,9 @@ public:
         configureShaper();
 
         for (uint32_t i = 0; i < frames; ++i) {
+            currentModEnvelope_ = modulationEnvelope
+                ? clamp(modulationEnvelope[i], 0.0f, 1.0f)
+                : 1.0f;
             currentPitchRatio_ += (targetPitchRatio_ - currentPitchRatio_) * pitchSmoothing_;
             advanceEvolution();
             sectionPhase_ += sectionRate;
@@ -490,7 +544,7 @@ public:
                 const float dc = smoothed - dcX_[ch] + dcR * dcY_[ch];
                 dcX_[ch] = smoothed;
                 dcY_[ch] = dc;
-                updateModulator(dc, ch);
+                updateModulators(dc, ch);
                 if (newCodecFrame) updateCodecFrame(ch, pos);
                 shapedInput[ch] = codecStage(dc, ch);
             }
@@ -596,6 +650,30 @@ private:
         p.modIndex = clamp(p.modIndex, 0.0f, 1.0f);
         p.modFeedback = clamp(p.modFeedback, 0.0f, 0.98f);
         p.modClockLock = std::min<uint32_t>(1u, p.modClockLock);
+        p.modAlgorithm = static_cast<PsdRawFieldModAlgorithm>(std::min<uint32_t>(
+            kPsdRawFieldModAlgorithmCount - 1u, static_cast<uint32_t>(p.modAlgorithm)));
+        p.modSource2 = static_cast<PsdRawFieldModSource>(std::min<uint32_t>(
+            kPsdRawFieldModSourceCount - 1u, static_cast<uint32_t>(p.modSource2)));
+        p.modRate2 = clamp(p.modRate2, 0.0f, 1.0f);
+        p.modRatio2 = clamp(p.modRatio2, 0.125f, 16.0f);
+        p.modIndex2 = clamp(p.modIndex2, 0.0f, 1.0f);
+        p.modFeedback2 = clamp(p.modFeedback2, 0.0f, 0.98f);
+        p.modClockLock2 = std::min<uint32_t>(1u, p.modClockLock2);
+        p.modTarget2 = static_cast<PsdRawFieldModTarget>(std::min<uint32_t>(
+            kPsdRawFieldModTargetCount - 1u, static_cast<uint32_t>(p.modTarget2)));
+        p.modSource3 = static_cast<PsdRawFieldModSource>(std::min<uint32_t>(
+            kPsdRawFieldModSourceCount - 1u, static_cast<uint32_t>(p.modSource3)));
+        p.modTarget3 = static_cast<PsdRawFieldModTarget>(std::min<uint32_t>(
+            kPsdRawFieldModTargetCount - 1u, static_cast<uint32_t>(p.modTarget3)));
+        p.modRate3 = clamp(p.modRate3, 0.0f, 1.0f);
+        p.modRatio3 = clamp(p.modRatio3, 0.125f, 16.0f);
+        p.modIndex3 = clamp(p.modIndex3, 0.0f, 1.0f);
+        p.modFeedback3 = clamp(p.modFeedback3, 0.0f, 0.98f);
+        p.modClockLock3 = std::min<uint32_t>(1u, p.modClockLock3);
+        p.modEnvelope1 = std::min<uint32_t>(1u, p.modEnvelope1);
+        p.modEnvelope2 = std::min<uint32_t>(1u, p.modEnvelope2);
+        p.modEnvelope3 = std::min<uint32_t>(1u, p.modEnvelope3);
+        p.modulationEnabled = std::min<uint32_t>(1u, p.modulationEnabled);
         return p;
     }
 
@@ -1320,10 +1398,8 @@ private:
     float codecInterval(uint32_t ch) const
     {
         float interval = baseCodecInterval();
-        if (params_.modSource != PsdRawFieldModSource::Off
-            && params_.modTarget == PsdRawFieldModTarget::Clock
-            && ch < kPsdRawFieldChannels) {
-            interval *= std::pow(2.0f, modValue_[ch] * params_.modIndex * 6.0f);
+        if (ch < kPsdRawFieldChannels) {
+            interval *= std::pow(2.0f, clockMod_[ch] * 6.0f);
         }
         return clamp(interval, 1.0f, 65536.0f);
     }
@@ -1400,32 +1476,47 @@ private:
         return -1.0f;
     }
 
-    void updateModulator(float input, uint32_t ch)
+    float renderModulator(
+        PsdRawFieldModSource source,
+        float input,
+        float rate,
+        float ratio,
+        uint32_t clockLock,
+        float feedback,
+        float rateModulation,
+        uint32_t ch,
+        std::array<float, kPsdRawFieldChannels>& phaseState,
+        std::array<float, kPsdRawFieldChannels>& valueState,
+        std::array<float, kPsdRawFieldChannels>& previousState,
+        std::array<float, kPsdRawFieldChannels>& heldNoiseState,
+        std::array<float, kPsdRawFieldChannels>& feedbackState,
+        std::array<float, kPsdRawFieldChannels>& sparkEnvelopeState,
+        std::array<uint32_t, kPsdRawFieldChannels>& stepState,
+        uint32_t salt)
     {
-        const auto source = params_.modSource;
         if (source == PsdRawFieldModSource::Off) {
-            modValue_[ch] = 0.0f;
-            effectiveDamage_[ch] = params_.codecDamage;
-            return;
+            valueState[ch] = 0.0f;
+            previousState[ch] = 0.0f;
+            return 0.0f;
         }
 
-        const float freeRate = 0.05f * std::pow(160000.0f, params_.modRate);
-        const float baseRate = params_.modClockLock != 0u
+        const float freeRate = 0.05f * std::pow(160000.0f, rate);
+        const float baseRate = clockLock != 0u
             ? lockedModulatorFrequency(source)
             : freeRate;
-        const float frequency = clamp(baseRate * params_.modRatio,
+        const float frequency = clamp(baseRate * ratio * std::pow(2.0f, rateModulation * 4.0f),
             0.0001f, static_cast<float>(sampleRate_) * 0.45f);
-        const float previousPhase = modPhase_[ch];
-        modPhase_[ch] += frequency / static_cast<float>(sampleRate_);
-        modPhase_[ch] -= std::floor(modPhase_[ch]);
-        const bool wrapped = modPhase_[ch] < previousPhase;
+        const float previousPhase = phaseState[ch];
+        phaseState[ch] += frequency / static_cast<float>(sampleRate_);
+        phaseState[ch] -= std::floor(phaseState[ch]);
+        const bool wrapped = phaseState[ch] < previousPhase;
         if (wrapped) {
-            ++modStep_[ch];
-            modHeldNoise_[ch] = fieldNoise(modStep_[ch] ^ tapeSeed_
-                ^ (ch * 0x9e3779b9u) ^ 0x68e31da4u);
+            ++stepState[ch];
+            heldNoiseState[ch] = fieldNoise(stepState[ch] ^ tapeSeed_
+                ^ (ch * 0x9e3779b9u) ^ 0x68e31da4u ^ salt);
         }
 
-        const float phase = modPhase_[ch];
+        const float phase = phaseState[ch];
         float value = 0.0f;
         switch (source) {
         case PsdRawFieldModSource::Sine:
@@ -1435,7 +1526,7 @@ private:
             value = triangle(phase) * 2.0f - 1.0f;
             break;
         case PsdRawFieldModSource::Noise:
-            value = modHeldNoise_[ch];
+            value = heldNoiseState[ch];
             break;
         case PsdRawFieldModSource::Field:
             value = input;
@@ -1467,7 +1558,7 @@ private:
             const uint32_t pixel = std::min<uint32_t>(97u, static_cast<uint32_t>(phase * 98.0f));
             const uint32_t column = pixel / 14u;
             const uint32_t row = (pixel % 14u) >> 1u;
-            const uint32_t glyph = hash(modStep_[ch] ^ tapeSeed_ ^ (ch * 0x632be59bu)) % 26u;
+            const uint32_t glyph = hash(stepState[ch] ^ tapeSeed_ ^ (ch * 0x632be59bu) ^ salt) % 26u;
             const bool ink = column < 5u
                 && ((hellGlyphRow(glyph, row) >> (4u - column)) & 1u) != 0u;
             value = ink ? 1.0f : -1.0f;
@@ -1478,16 +1569,16 @@ private:
             break;
         case PsdRawFieldModSource::SparkCw: {
             const float gate = morseModulatorGate(input, phase);
-            if (gate > 0.0f && modPrevious_[ch] <= 0.0f) modSparkEnvelope_[ch] = 1.0f;
-            modSparkEnvelope_[ch] *= 0.9975f;
+            if (gate > 0.0f && previousState[ch] <= 0.0f) sparkEnvelopeState[ch] = 1.0f;
+            sparkEnvelopeState[ch] *= 0.9975f;
             value = gate > 0.0f
-                ? clamp(modHeldNoise_[ch] * modSparkEnvelope_[ch] * 1.6f, -1.0f, 1.0f)
+                ? clamp(heldNoiseState[ch] * sparkEnvelopeState[ch] * 1.6f, -1.0f, 1.0f)
                 : -1.0f;
             break;
         }
         case PsdRawFieldModSource::BaudotRtty: {
             const uint32_t bit = std::min<uint32_t>(7u, static_cast<uint32_t>(phase * 8.0f));
-            const uint8_t code = baudotLetterCode(hash(modStep_[ch] ^ tapeSeed_) % 26u);
+            const uint8_t code = baudotLetterCode(hash(stepState[ch] ^ tapeSeed_ ^ salt) % 26u);
             const bool mark = bit == 0u ? false : bit <= 5u
                 ? ((code >> (bit - 1u)) & 1u) != 0u
                 : true;
@@ -1503,22 +1594,140 @@ private:
             break;
         }
         case PsdRawFieldModSource::Feedback:
-            value = std::tanh(modFeedbackState_[ch] * 2.2f
-                + modPrevious_[ch] * params_.modFeedback * 1.8f);
+            value = std::tanh(feedbackState[ch] * 2.2f
+                + previousState[ch] * feedback * 1.8f);
             break;
         case PsdRawFieldModSource::Off:
         default:
             break;
         }
 
-        if (source != PsdRawFieldModSource::Feedback && params_.modFeedback > 0.0001f) {
-            value = std::tanh(value + modPrevious_[ch] * params_.modFeedback * 1.45f);
+        if (source != PsdRawFieldModSource::Feedback && feedback > 0.0001f) {
+            value = std::tanh(value + previousState[ch] * feedback * 1.45f);
         }
-        modPrevious_[ch] = value;
-        modValue_[ch] = clamp(value, -1.0f, 1.0f);
-        effectiveDamage_[ch] = params_.modTarget == PsdRawFieldModTarget::Damage
-            ? clamp(params_.codecDamage + modValue_[ch] * params_.modIndex, 0.0f, 1.0f)
-            : params_.codecDamage;
+        previousState[ch] = value;
+        valueState[ch] = clamp(value, -1.0f, 1.0f);
+        return valueState[ch];
+    }
+
+    void routeModulators(uint32_t ch)
+    {
+        carrierMod_[ch] = 0.0f;
+        deviationMod_[ch] = 0.0f;
+        clockMod_[ch] = 0.0f;
+        dataMod_[ch] = 0.0f;
+        damageMod_[ch] = 0.0f;
+        const float enabled = params_.modulationEnabled != 0u ? 1.0f : 0.0f;
+        const float depth1 = params_.modIndex * enabled
+            * (params_.modEnvelope1 != 0u ? currentModEnvelope_ : 1.0f);
+        const float depth2 = params_.modIndex2 * enabled
+            * (params_.modEnvelope2 != 0u ? currentModEnvelope_ : 1.0f);
+        const float depth3 = params_.modIndex3 * enabled
+            * (params_.modEnvelope3 != 0u ? currentModEnvelope_ : 1.0f);
+        const float m1 = modValue_[ch] * depth1;
+        const float m2 = modValue2_[ch] * depth2;
+        const float m3 = modValue3_[ch] * depth3;
+        auto route = [&](PsdRawFieldModTarget target, float value) {
+            value = clamp(value, -1.0f, 1.0f);
+            switch (target) {
+            case PsdRawFieldModTarget::Carrier: carrierMod_[ch] = clamp(carrierMod_[ch] + value, -1.0f, 1.0f); break;
+            case PsdRawFieldModTarget::Deviation: deviationMod_[ch] = clamp(deviationMod_[ch] + value, -1.0f, 1.0f); break;
+            case PsdRawFieldModTarget::Clock: clockMod_[ch] = clamp(clockMod_[ch] + value, -1.0f, 1.0f); break;
+            case PsdRawFieldModTarget::Data: dataMod_[ch] = clamp(dataMod_[ch] + value, -1.0f, 1.0f); break;
+            case PsdRawFieldModTarget::Damage: damageMod_[ch] = clamp(damageMod_[ch] + value, -1.0f, 1.0f); break;
+            case PsdRawFieldModTarget::Off:
+            default: break;
+            }
+        };
+
+        if (params_.modAlgorithm == PsdRawFieldModAlgorithm::Multiplex) {
+            const uint32_t slot = std::min<uint32_t>(2u,
+                static_cast<uint32_t>(modPhase_[ch] * 3.0f));
+            if (slot == 0u) route(params_.modTarget, m1);
+            else if (slot == 1u) route(params_.modTarget2, m2);
+            else route(params_.modTarget3, m3);
+        } else {
+            route(params_.modTarget, m1);
+            route(params_.modTarget2, m2);
+            route(params_.modTarget3, m3);
+        }
+        effectiveDamage_[ch] = clamp(params_.codecDamage + damageMod_[ch], 0.0f, 1.0f);
+    }
+
+    void updateModulators(float input, uint32_t ch)
+    {
+        const float enabled = params_.modulationEnabled != 0u ? 1.0f : 0.0f;
+        const float depth1 = params_.modIndex * enabled
+            * (params_.modEnvelope1 != 0u ? currentModEnvelope_ : 1.0f);
+        const float depth2 = params_.modIndex2 * enabled
+            * (params_.modEnvelope2 != 0u ? currentModEnvelope_ : 1.0f);
+        const float depth3 = params_.modIndex3 * enabled
+            * (params_.modEnvelope3 != 0u ? currentModEnvelope_ : 1.0f);
+        const float previous1 = modValue_[ch];
+        const float previous2 = modValue2_[ch];
+        const float previous3 = modValue3_[ch];
+        auto render1 = [&](float rateModulation, float operatorInput) {
+            return renderModulator(params_.modSource, operatorInput,
+                params_.modRate, params_.modRatio, params_.modClockLock,
+                params_.modFeedback, rateModulation, ch,
+                modPhase_, modValue_, modPrevious_, modHeldNoise_,
+                modFeedbackState_, modSparkEnvelope_, modStep_, 0u);
+        };
+        auto render2 = [&](float rateModulation, float operatorInput) {
+            return renderModulator(params_.modSource2, operatorInput,
+                params_.modRate2, params_.modRatio2, params_.modClockLock2,
+                params_.modFeedback2, rateModulation, ch,
+                modPhase2_, modValue2_, modPrevious2_, modHeldNoise2_,
+                modFeedbackState2_, modSparkEnvelope2_, modStep2_, 0xa511e9b3u);
+        };
+        auto render3 = [&](float rateModulation, float operatorInput) {
+            return renderModulator(params_.modSource3, operatorInput,
+                params_.modRate3, params_.modRatio3, params_.modClockLock3,
+                params_.modFeedback3, rateModulation, ch,
+                modPhase3_, modValue3_, modPrevious3_, modHeldNoise3_,
+                modFeedbackState3_, modSparkEnvelope3_, modStep3_, 0x63d83595u);
+        };
+
+        switch (params_.modAlgorithm) {
+        case PsdRawFieldModAlgorithm::Relay: {
+            const float m3 = render3(0.0f, input);
+            const float m2 = render2(m3 * depth3, input);
+            render1(m2 * depth2, input);
+            break;
+        }
+        case PsdRawFieldModAlgorithm::CrossedMachines:
+            render1(previous3 * depth3, input);
+            render2(previous1 * depth1, input);
+            render3(previous2 * depth2, input);
+            break;
+        case PsdRawFieldModAlgorithm::Regenerator: {
+            const float codecLoop = std::tanh(modFeedbackState3_[ch] * 1.6f);
+            const float m3 = render3(codecLoop * depth3, input);
+            const float m2 = render2(m3 * depth3, input);
+            render1(m2 * depth2, input);
+            break;
+        }
+        case PsdRawFieldModAlgorithm::Transcode: {
+            const float m1 = render1(0.0f, input);
+            const float content2 = lerp(input, m1, depth1);
+            const float m2 = render2(0.0f, content2);
+            const float content3 = lerp(content2, m2, depth2);
+            render3(0.0f, content3);
+            break;
+        }
+        case PsdRawFieldModAlgorithm::Multiplex:
+        case PsdRawFieldModAlgorithm::Broadcast:
+        default:
+            render1(0.0f, input);
+            renderModulator(params_.modSource2, input,
+                params_.modRate2, params_.modRatio2, params_.modClockLock2,
+                params_.modFeedback2, 0.0f, ch,
+                modPhase2_, modValue2_, modPrevious2_, modHeldNoise2_,
+                modFeedbackState2_, modSparkEnvelope2_, modStep2_, 0xa511e9b3u);
+            render3(0.0f, input);
+            break;
+        }
+        routeModulators(ch);
     }
 
     void updateCodecFrame(uint32_t ch, uint32_t pos)
@@ -1551,11 +1760,7 @@ private:
     float codecStage(float input, uint32_t ch)
     {
         activeModChannel_ = ch;
-        float clean = clamp(input, -1.0f, 1.0f);
-        if (params_.modSource != PsdRawFieldModSource::Off
-            && params_.modTarget == PsdRawFieldModTarget::Data) {
-            clean = clamp(clean + modValue_[ch] * params_.modIndex * 1.5f, -1.0f, 1.0f);
-        }
+        float clean = clamp(input + dataMod_[ch] * 1.5f, -1.0f, 1.0f);
         const bool ownsClock = params_.codecMode == PsdRawFieldCodecMode::Cvsd
             || params_.codecMode == PsdRawFieldCodecMode::ModemFsk
             || params_.codecMode == PsdRawFieldCodecMode::FaxQam
@@ -1673,8 +1878,8 @@ private:
             break;
         }
 
-        if (params_.modSource != PsdRawFieldModSource::Off
-            && params_.modTarget == PsdRawFieldModTarget::Damage) {
+        const bool damageRoute = std::abs(damageMod_[ch]) > 0.0001f;
+        if (damageRoute) {
             const float damage = effectiveDamage_[ch];
             const uint32_t h = hash(codecSample_[ch] ^ tapeSeed_ ^ (ch * 0xd1b54a35u));
             if (hash01(h) < damage * damage * 0.045f) {
@@ -1684,6 +1889,10 @@ private:
         predictor_[ch] += (x - predictor_[ch]) * lerp(0.18f, 0.82f, effectiveDamage_[ch]);
         modFeedbackState_[ch] += (clamp(x, -1.5f, 1.5f) - modFeedbackState_[ch])
             * lerp(0.08f, 0.42f, 1.0f - params_.modFeedback);
+        modFeedbackState2_[ch] += (clamp(x, -1.5f, 1.5f) - modFeedbackState2_[ch])
+            * lerp(0.08f, 0.42f, 1.0f - params_.modFeedback2);
+        modFeedbackState3_[ch] += (clamp(x, -1.5f, 1.5f) - modFeedbackState3_[ch])
+            * lerp(0.08f, 0.42f, 1.0f - params_.modFeedback3);
         ++codecSample_[ch];
         return clamp(x, -1.5f, 1.5f);
     }
@@ -2107,18 +2316,15 @@ private:
 
     float tunedFrequency(float frequency) const
     {
-        const bool active = params_.modSource != PsdRawFieldModSource::Off
-            && activeModChannel_ < kPsdRawFieldChannels;
-        if (active && params_.modTarget == PsdRawFieldModTarget::Deviation) {
+        const bool active = activeModChannel_ < kPsdRawFieldChannels;
+        if (active) {
             const float center = nominalCarrierFrequency();
             const float deviationScale = std::pow(2.0f,
-                modValue_[activeModChannel_] * params_.modIndex * 3.0f);
+                deviationMod_[activeModChannel_] * 3.0f);
             frequency = center + (frequency - center) * deviationScale;
         }
         float semitones = params_.carrierTune;
-        if (active && params_.modTarget == PsdRawFieldModTarget::Carrier) {
-            semitones += modValue_[activeModChannel_] * params_.modIndex * 24.0f;
-        }
+        if (active) semitones += carrierMod_[activeModChannel_] * 24.0f;
         const float transposed = frequency * std::pow(2.0f, semitones * (1.0f / 12.0f));
         return clamp(transposed, 20.0f, static_cast<float>(sampleRate_) * 0.45f);
     }
@@ -2890,12 +3096,32 @@ private:
     std::array<float, kPsdRawFieldChannels> modFeedbackState_ {};
     std::array<float, kPsdRawFieldChannels> modSparkEnvelope_ {};
     std::array<uint32_t, kPsdRawFieldChannels> modStep_ {};
+    std::array<float, kPsdRawFieldChannels> modPhase2_ {};
+    std::array<float, kPsdRawFieldChannels> modValue2_ {};
+    std::array<float, kPsdRawFieldChannels> modPrevious2_ {};
+    std::array<float, kPsdRawFieldChannels> modHeldNoise2_ {};
+    std::array<float, kPsdRawFieldChannels> modFeedbackState2_ {};
+    std::array<float, kPsdRawFieldChannels> modSparkEnvelope2_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> modStep2_ {};
+    std::array<float, kPsdRawFieldChannels> modPhase3_ {};
+    std::array<float, kPsdRawFieldChannels> modValue3_ {};
+    std::array<float, kPsdRawFieldChannels> modPrevious3_ {};
+    std::array<float, kPsdRawFieldChannels> modHeldNoise3_ {};
+    std::array<float, kPsdRawFieldChannels> modFeedbackState3_ {};
+    std::array<float, kPsdRawFieldChannels> modSparkEnvelope3_ {};
+    std::array<uint32_t, kPsdRawFieldChannels> modStep3_ {};
+    std::array<float, kPsdRawFieldChannels> carrierMod_ {};
+    std::array<float, kPsdRawFieldChannels> deviationMod_ {};
+    std::array<float, kPsdRawFieldChannels> clockMod_ {};
+    std::array<float, kPsdRawFieldChannels> dataMod_ {};
+    std::array<float, kPsdRawFieldChannels> damageMod_ {};
     std::array<float, kPsdRawFieldChannels> effectiveDamage_ {};
     uint32_t activeModChannel_ = 0u;
     float loudnessEnergy_ = 0.04f;
     float loudnessGain_ = 1.0f;
     float targetPitchRatio_ = 1.0f;
     float currentPitchRatio_ = 1.0f;
+    float currentModEnvelope_ = 1.0f;
     float pitchSmoothing_ = 0.003f;
     MacroShred shaper_ {};
 };
@@ -2989,11 +3215,12 @@ public:
         for (auto& engine : engines_) engine.setPitchRatio(pitchRatio_);
     }
 
-    void process(float* const* output, uint32_t outputChannels, uint32_t frames)
+    void process(float* const* output, uint32_t outputChannels, uint32_t frames,
+        const float* modulationEnvelope = nullptr)
     {
         if (!ready_ || !output || frames == 0u) return;
         if (!transitioning_) {
-            engines_[activeEngine_].process(output, outputChannels, frames);
+            engines_[activeEngine_].process(output, outputChannels, frames, modulationEnvelope);
             return;
         }
 
@@ -3004,8 +3231,11 @@ public:
                 sourcePtrs_[ch] = sourceScratch_[ch].data();
                 targetPtrs_[ch] = targetScratch_[ch].data();
             }
-            engines_[activeEngine_].process(sourcePtrs_.data(), kPsdRawFieldChannels, chunk);
-            engines_[targetEngine_].process(targetPtrs_.data(), kPsdRawFieldChannels, chunk);
+            const float* chunkEnvelope = modulationEnvelope ? modulationEnvelope + processed : nullptr;
+            engines_[activeEngine_].process(
+                sourcePtrs_.data(), kPsdRawFieldChannels, chunk, chunkEnvelope);
+            engines_[targetEngine_].process(
+                targetPtrs_.data(), kPsdRawFieldChannels, chunk, chunkEnvelope);
 
             const uint32_t channels = std::min<uint32_t>(outputChannels, kPsdRawFieldChannels);
             for (uint32_t i = 0; i < chunk; ++i) {
@@ -3034,7 +3264,8 @@ public:
                     for (uint32_t ch = 0; ch < renderChannels; ++ch) {
                         remainderPtrs[ch] = output[ch] ? output[ch] + processed : nullptr;
                     }
-                    engines_[activeEngine_].process(remainderPtrs.data(), renderChannels, frames - processed);
+                    engines_[activeEngine_].process(remainderPtrs.data(), renderChannels,
+                        frames - processed, modulationEnvelope ? modulationEnvelope + processed : nullptr);
                     for (uint32_t ch = renderChannels; ch < outputChannels; ++ch) {
                         if (output[ch]) std::fill(output[ch] + processed, output[ch] + frames, 0.0f);
                     }

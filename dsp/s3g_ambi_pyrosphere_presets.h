@@ -53,8 +53,9 @@ inline AmbiPyrosphereParams ambiPyrosphereFactoryPreset(uint32_t index)
     p.body = 0.46f;
     p.breath = 0.48f;
     p.surfaceX = p.surfaceY = 0.5f;
-    switch (std::min<uint32_t>(index,
-        kAmbiPyrosphereFactoryPresetCount - 1u)) {
+    const uint32_t safeIndex = std::min<uint32_t>(index,
+        kAmbiPyrosphereFactoryPresetCount - 1u);
+    switch (safeIndex) {
     case 0u:
         p.voices=22; p.materialMode=2u; p.wind=.28f; p.gustRate=.015f; p.gustDepth=.24f; p.turbulence=.20f; p.flutter=.14f;
         p.material=.82f; p.body=.76f; p.breath=.24f; p.air=.18f; p.hiss=.12f; p.q=.48f; p.grit=.38f; p.particles=.12f;
@@ -119,6 +120,36 @@ inline AmbiPyrosphereParams ambiPyrosphereFactoryPreset(uint32_t index)
         p.motionRateHz=.15f; p.motionFlow=1.0f; p.motionShear=.88f; p.motionCurl=.18f; p.motionUpdraft=.24f;
         p.structuralLoad=0.0f; p.snap=.12f; p.fall=0.0f; p.centerDistance=.86f; p.space=.12f; p.outputGainDb=-11.0f; break;
     }
+    struct ScoreProfile {
+        float pace;
+        float occupancy;
+        float cascade;
+        float memory;
+        float rest;
+    };
+    static constexpr std::array<ScoreProfile,
+        kAmbiPyrosphereFactoryPresetCount> scoreProfiles {{
+        { .18f, .16f, .24f, .88f, .90f }, // duff smoulder
+        { .28f, .24f, .50f, .84f, .78f }, // timber pyrolysis
+        { .68f, .42f, .82f, .55f, .52f }, // resinous brush
+        { .78f, .68f, .88f, .42f, .30f }, // grass front
+        { .34f, .32f, .78f, .82f, .68f }, // forest front
+        { .16f, .16f, .36f, .90f, .90f }, // root burn
+        { .14f, .12f, .28f, .92f, .92f }, // coal seam
+        { .42f, .38f, .36f, .70f, .48f }, // oil pool
+        { .24f, .22f, .50f, .82f, .82f }, // masonry spall
+        { .18f, .18f, .62f, .90f, .88f }, // rock talus
+        { .30f, .28f, .74f, .86f, .78f }, // structural collapse
+        { .82f, .80f, .95f, .38f, .16f }, // firestorm
+        { .22f, .12f, .72f, .92f, .92f }, // burned timber fall
+        { .78f, .95f, .10f, .85f, .05f }, // pressure jet
+    }};
+    const auto score = scoreProfiles[safeIndex];
+    p.scorePace = score.pace;
+    p.scoreOccupancy = score.occupancy;
+    p.scoreCascade = score.cascade;
+    p.scoreMemory = score.memory;
+    p.scoreRest = score.rest;
     return p;
 }
 

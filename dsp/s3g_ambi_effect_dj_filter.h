@@ -14,7 +14,7 @@ namespace s3g {
 
 constexpr uint32_t kAmbiEffectDjFilterMaxOrder = 7u;
 constexpr uint32_t kAmbiEffectDjFilterMaxChannels = 64u;
-constexpr uint32_t kAmbiEffectDjFilterMaxPickups = 20u;
+constexpr uint32_t kAmbiEffectDjFilterMaxPickups = 24u;
 
 enum class AmbiEffectBody : uint32_t {
     Auto = 0u,
@@ -22,6 +22,7 @@ enum class AmbiEffectBody : uint32_t {
     Cube8 = 2u,
     Icosa12 = 3u,
     Dodeca20 = 4u,
+    Sphere24 = 5u,
 };
 
 enum class AmbiEffectTopology : uint32_t {
@@ -81,7 +82,7 @@ inline AmbiEffectDjFilterParams sanitizeAmbiEffectDjFilterParams(
     params.order = std::clamp<uint32_t>(
         params.order, 1u, kAmbiEffectDjFilterMaxOrder);
     params.body = static_cast<AmbiEffectBody>(
-        std::min<uint32_t>(static_cast<uint32_t>(params.body), 4u));
+        std::min<uint32_t>(static_cast<uint32_t>(params.body), 5u));
     if (params.body == AmbiEffectBody::Tetra4
         || params.body == AmbiEffectBody::Cube8) {
         params.body = AmbiEffectBody::Icosa12;
@@ -247,15 +248,16 @@ inline uint32_t ambiEffectChannelsForOrder(uint32_t order)
 inline AmbiEffectBody ambiEffectDefaultBodyForOrder(uint32_t order)
 {
     order = std::clamp<uint32_t>(order, 1u, kAmbiEffectDjFilterMaxOrder);
-    return order <= 3u
-        ? AmbiEffectBody::Icosa12 : AmbiEffectBody::Dodeca20;
+    if (order <= 2u) return AmbiEffectBody::Icosa12;
+    if (order == 3u) return AmbiEffectBody::Dodeca20;
+    return AmbiEffectBody::Sphere24;
 }
 
 inline AmbiEffectBody resolveAmbiEffectBody(
     AmbiEffectBody requested, uint32_t order)
 {
     requested = static_cast<AmbiEffectBody>(
-        std::min<uint32_t>(static_cast<uint32_t>(requested), 4u));
+        std::min<uint32_t>(static_cast<uint32_t>(requested), 5u));
     if (requested == AmbiEffectBody::Tetra4
         || requested == AmbiEffectBody::Cube8) {
         requested = AmbiEffectBody::Icosa12;
@@ -267,12 +269,13 @@ inline AmbiEffectBody resolveAmbiEffectBody(
 inline uint32_t ambiEffectBodyPickupCount(AmbiEffectBody body)
 {
     switch (body) {
-    case AmbiEffectBody::Tetra4: return 4u;
-    case AmbiEffectBody::Cube8: return 8u;
+    case AmbiEffectBody::Tetra4:
+    case AmbiEffectBody::Cube8:
     case AmbiEffectBody::Icosa12: return 12u;
     case AmbiEffectBody::Dodeca20: return 20u;
+    case AmbiEffectBody::Sphere24: return 24u;
     case AmbiEffectBody::Auto:
-    default: return 4u;
+    default: return 12u;
     }
 }
 
@@ -284,6 +287,7 @@ inline const char* ambiEffectBodyName(AmbiEffectBody body)
     case AmbiEffectBody::Cube8: return "CUBE 8";
     case AmbiEffectBody::Icosa12: return "ICOSA 12";
     case AmbiEffectBody::Dodeca20: return "DODECA 20";
+    case AmbiEffectBody::Sphere24: return "SPHERE 24";
     }
     return "AUTO";
 }
@@ -292,22 +296,12 @@ inline std::array<Vec3, kAmbiEffectDjFilterMaxPickups>
 ambiEffectBodyDirections(AmbiEffectBody body)
 {
     std::array<Vec3, kAmbiEffectDjFilterMaxPickups> result {};
-    constexpr float k = 0.5773502691896258f;
     constexpr float phi = 1.6180339887498948f;
     constexpr float invPhi = 1.0f / phi;
-    if (body == AmbiEffectBody::Tetra4) {
-        const std::array<Vec3, 4u> points {{
-            { k, k, k }, { -k, -k, k }, { -k, k, -k }, { k, -k, -k },
-        }};
-        for (uint32_t i = 0u; i < points.size(); ++i) result[i] = normalize(points[i]);
-        return result;
-    }
-    if (body == AmbiEffectBody::Cube8) {
-        const std::array<Vec3, 8u> points {{
-            { k, k, k }, { -k, -k, k }, { -k, k, -k }, { k, -k, -k },
-            { -k, -k, -k }, { k, k, -k }, { k, -k, k }, { -k, k, k },
-        }};
-        for (uint32_t i = 0u; i < points.size(); ++i) result[i] = normalize(points[i]);
+    if (body == AmbiEffectBody::Sphere24) {
+        for (uint32_t i = 0u; i < kAmbisonicSphere24PointCount; ++i) {
+            result[i] = normalize(kAmbisonicSphere24Points[i]);
+        }
         return result;
     }
     if (body == AmbiEffectBody::Dodeca20) {
@@ -1151,7 +1145,7 @@ private:
     {
         for (uint32_t order = 1u;
             order <= kAmbiEffectDjFilterMaxOrder; ++order) {
-            for (uint32_t bodyIndex = 0u; bodyIndex < 4u; ++bodyIndex) {
+            for (uint32_t bodyIndex = 0u; bodyIndex < 5u; ++bodyIndex) {
                 buildMatrix(matrixCache_[order - 1u][bodyIndex],
                     order, static_cast<AmbiEffectBody>(bodyIndex + 1u));
             }
@@ -1161,29 +1155,9 @@ private:
 
     static void setBodyDirections(MatrixSet& matrix, AmbiEffectBody body)
     {
-        constexpr float k = 0.5773502691896258f;
         constexpr float phi = 1.6180339887498948f;
-        if (body == AmbiEffectBody::Tetra4) {
-            matrix.count = 4u;
-            matrix.directions[0] = normalize({ k, k, k });
-            matrix.directions[1] = normalize({ -k, -k, k });
-            matrix.directions[2] = normalize({ -k, k, -k });
-            matrix.directions[3] = normalize({ k, -k, -k });
-            return;
-        }
-        if (body == AmbiEffectBody::Cube8) {
-            matrix.count = 8u;
-            static constexpr std::array<Vec3, 8u> points {{
-                { k, k, k }, { -k, -k, k }, { -k, k, -k }, { k, -k, -k },
-                { -k, -k, -k }, { k, k, -k }, { k, -k, k }, { -k, k, k },
-            }};
-            matrix.directions = {};
-            for (uint32_t i = 0u; i < points.size(); ++i) {
-                matrix.directions[i] = normalize(points[i]);
-            }
-            return;
-        }
-        if (body == AmbiEffectBody::Icosa12) {
+        if (body != AmbiEffectBody::Dodeca20
+            && body != AmbiEffectBody::Sphere24) {
             matrix.count = 12u;
             const std::array<Vec3, 12u> points {{
                 { 0, 1, phi }, { 0, -1, phi }, { phi, 0, 1 }, { 1, phi, 0 },
@@ -1195,20 +1169,27 @@ private:
             }
             return;
         }
-        matrix.count = 20u;
-        constexpr float invPhi = 1.0f / phi;
-        const std::array<Vec3, 20u> points {{
-            { 1, 1, 1 }, { 1, 1, -1 }, { 1, -1, 1 }, { 1, -1, -1 },
-            { -1, 1, 1 }, { -1, 1, -1 }, { -1, -1, 1 }, { -1, -1, -1 },
-            { 0, invPhi, phi }, { 0, invPhi, -phi },
-            { 0, -invPhi, phi }, { 0, -invPhi, -phi },
-            { invPhi, phi, 0 }, { invPhi, -phi, 0 },
-            { -invPhi, phi, 0 }, { -invPhi, -phi, 0 },
-            { phi, 0, invPhi }, { phi, 0, -invPhi },
-            { -phi, 0, invPhi }, { -phi, 0, -invPhi },
-        }};
-        for (uint32_t i = 0u; i < points.size(); ++i) {
-            matrix.directions[i] = normalize(points[i]);
+        if (body == AmbiEffectBody::Dodeca20) {
+            matrix.count = 20u;
+            constexpr float invPhi = 1.0f / phi;
+            const std::array<Vec3, 20u> points {{
+                { 1, 1, 1 }, { 1, 1, -1 }, { 1, -1, 1 }, { 1, -1, -1 },
+                { -1, 1, 1 }, { -1, 1, -1 }, { -1, -1, 1 }, { -1, -1, -1 },
+                { 0, invPhi, phi }, { 0, invPhi, -phi },
+                { 0, -invPhi, phi }, { 0, -invPhi, -phi },
+                { invPhi, phi, 0 }, { invPhi, -phi, 0 },
+                { -invPhi, phi, 0 }, { -invPhi, -phi, 0 },
+                { phi, 0, invPhi }, { phi, 0, -invPhi },
+                { -phi, 0, invPhi }, { -phi, 0, -invPhi },
+            }};
+            for (uint32_t i = 0u; i < points.size(); ++i) {
+                matrix.directions[i] = normalize(points[i]);
+            }
+            return;
+        }
+        matrix.count = kAmbisonicSphere24PointCount;
+        for (uint32_t i = 0u; i < kAmbisonicSphere24PointCount; ++i) {
+            matrix.directions[i] = normalize(kAmbisonicSphere24Points[i]);
         }
     }
 
@@ -1425,7 +1406,7 @@ private:
     double sampleRate_ = 48000.0;
     AmbiEffectDjFilterParams params_ {};
     bool matricesBuilt_ = false;
-    std::array<std::array<MatrixSet, 4u>,
+    std::array<std::array<MatrixSet, 5u>,
         kAmbiEffectDjFilterMaxOrder> matrixCache_ {};
     const MatrixSet* currentMatrix_ = nullptr;
     bool matrixSmoothingActive_ = false;

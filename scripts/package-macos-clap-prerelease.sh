@@ -17,12 +17,7 @@ bundles=(
   "$src_root/clap_delay_processor/s3g_24ch_delay_processor.clap"
   "$src_root/clap_mc_to_stereo_autogain/s3g_mc_to_stereo_autogain.clap"
   "$src_root/clap_mc_to_quad_autogain/s3g_mc_to_quad_autogain.clap"
-  "$src_root/clap_3oafx_single_effects/s3g_3oafx_delay.clap"
-  "$src_root/clap_3oafx_single_effects/s3g_3oafx_pitch.clap"
-  "$src_root/clap_3oafx_single_effects/s3g_3oafx_filter.clap"
-  "$src_root/clap_3oafx_single_effects/s3g_3oafx_gain.clap"
-  "$src_root/clap_3oafx_displacement/s3g_3oafx_displacement.clap"
-  "$src_root/clap_3oafx_point_encoder/s3g_3oafx_point_encoder.clap"
+  "$src_root/clap_ambi_point_encoder/s3g_ambi_point_encoder.clap"
   "$src_root/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder.clap"
   "$src_root/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator.clap"
   "$src_root/clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap"
@@ -36,12 +31,13 @@ bundles=(
   "$src_root/clap_ambi_water_encoder/s3g_ambi_water_encoder.clap"
   "$src_root/clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder.clap"
   "$src_root/clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder.clap"
+  "$src_root/clap_ambi_insect_encoder/s3g_ambi_insect_encoder.clap"
   "$src_root/clap_accelerometer_field_encoder/s3g_accelerometer_field_encoder.clap"
   "$src_root/clap_ambi_imprint/s3g_ambi_imprint.clap"
   "$src_root/clap_ambi_ray_encoder/s3g_ambi_ray_encoder.clap"
   "$src_root/clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder.clap"
   "$src_root/clap_ambi_path_encoder/s3g_ambi_path_encoder.clap"
-  "$src_root/clap_3oafx_speaker_decoder/s3g_3oafx_speaker_decoder.clap"
+  "$src_root/clap_ambi_speaker_decoder/s3g_ambi_speaker_decoder.clap"
   "$src_root/clap_layout_panner/s3g_layout_panner.clap"
   "$src_root/clap_dbap_panner/s3g_dbap_panner.clap"
   "$src_root/clap_lbap_panner/s3g_lbap_panner.clap"
@@ -84,6 +80,7 @@ bundles=(
   "$src_root/clap_ambi_effect_delay/s3g_ambi_effect_delay.clap"
   "$src_root/clap_ambi_effect_pitch_gain/s3g_ambi_effect_pitch.clap"
   "$src_root/clap_ambi_effect_pitch_gain/s3g_ambi_effect_gain.clap"
+  "$src_root/clap_ambi_effect_displacement/s3g_ambi_effect_displacement.clap"
   "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_64.clap"
   "$src_root/clap_ambi_group_rotate/s3g_ambi_group_rotate_128.clap"
   "$src_root/clap_ambi_group_depth/s3g_ambi_depth_16.clap"
@@ -155,11 +152,6 @@ Included plugins ($bundle_count bundles):
 - s3g Processor Delay 24ch
 - s3g Output Autogain Stereo
 - s3g Output Autogain Quad
-- s3g 3OAFX Effect Delay
-- s3g 3OAFX Effect Pitch
-- s3g 3OAFX Effect Filter
-- s3g 3OAFX Effect Gain
-- s3g 3OAFX Transform Displacement 16ch
 - s3g Ambi Encoder Point
 - s3g Ambi Encoder Cloud 64
 - s3g Ambi Encoder Surface Terrain 64
@@ -173,6 +165,7 @@ Included plugins ($bundle_count bundles):
 - s3g Ambi Encoder Water 64
 - s3g Ambi Encoder Pyrosphere 64
 - s3g Ambi Encoder Cryosphere 64
+- s3g Ambi Encoder Insect 64
 - s3g Ambi Encoder Accelerometer Field 16
 - s3g Processor Ambi Imprint 64ch
 - s3g Ambi Encoder Ray
@@ -221,6 +214,7 @@ Included plugins ($bundle_count bundles):
 - s3g Ambi Effect Delay 64
 - s3g Ambi Effect Pitch 64
 - s3g Ambi Effect Gain 64
+- s3g Ambi Effect Displacement 64
 - s3g Ambi Transform Depth 16
 - s3g Ambi Transform Grp Rot 64
 - s3g Ambi Transform Grp Rot 128

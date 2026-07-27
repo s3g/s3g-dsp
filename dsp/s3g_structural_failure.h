@@ -78,6 +78,28 @@ public:
         presenceNoise_ = 0.0f;
         highNoise_ = 0.0f;
         previousWhite_ = 0.0f;
+        forcedConsequencePending_ = false;
+    }
+
+    // Applies an external physical impulse from a higher-level environmental
+    // entity (footfall, crown failure, slab release). The normal load/fatigue
+    // path still produces the sound; a scored consequence merely guarantees
+    // that the primary member reaches its failure threshold on the next
+    // process step.
+    void excite(float strength, bool forceConsequence = false)
+    {
+        strength = clampUnit(strength);
+        if (strength <= 0.0001f) return;
+        forcingPulse_ = std::max(forcingPulse_, strength);
+        flexEnvelope_ = std::max(flexEnvelope_, strength * 0.72f);
+        loads_[2] += strength * 0.34f;
+        loads_[1] += strength * 0.26f;
+        loads_[0] += strength * 0.18f;
+        if (forceConsequence) {
+            loads_[0] = std::max(loads_[0],
+                thresholds_[0] * (1.02f + strength * 0.24f));
+            forcedConsequencePending_ = true;
+        }
     }
 
     StructuralFailureOutput process(StructuralFailureParams params)
@@ -326,7 +348,10 @@ private:
         cascadeTimer_ = 0.0005f + randomUnit() * 0.004f;
         const float consequenceChance = params.consequence
             * (0.18f + params.damage * 0.64f);
-        if (!consequenceActive_ && randomUnit() < consequenceChance) {
+        const bool forceConsequence = forcedConsequencePending_;
+        forcedConsequencePending_ = false;
+        if (!consequenceActive_
+            && (forceConsequence || randomUnit() < consequenceChance)) {
             consequenceActive_ = true;
             consequenceProgress_ = 0.0f;
             consequenceDuration_ = params.mode
@@ -385,6 +410,7 @@ private:
     float presenceNoise_ = 0.0f;
     float highNoise_ = 0.0f;
     float previousWhite_ = 0.0f;
+    bool forcedConsequencePending_ = false;
 };
 
 } // namespace s3g

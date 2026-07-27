@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_environmental_score.h"
 #include "s3g_geological_field.h"
 #include "s3g_singing_ice.h"
 #include "s3g_structural_failure.h"
@@ -69,6 +70,11 @@ struct AmbiCryosphereParams {
     float plateFailure = 0.14f;  // through-fracture and local collapse
     float surfaceX = 0.5f;
     float surfaceY = 0.5f;
+    float scorePace = 0.46f;       // slow-to-fast causal arc pacing
+    float scoreOccupancy = 0.28f;  // simultaneous plates / loads / cracks
+    float scoreCascade = 0.58f;    // crack and load propagation
+    float scoreMemory = 0.72f;     // persistence of macro-scene behaviour
+    float scoreRest = 0.64f;       // duration and depth of stillness
 };
 
 using AmbiCryospherePoint = GeologicalFieldPoint;
@@ -148,6 +154,8 @@ inline constexpr std::array<AmbiCryosphereSubstrateProfile,
 
 struct AmbiCryosphereVoice {
     uint32_t rng = 1u;
+    float infraNoise = 0.0f;
+    float massNoise = 0.0f;
     float slowNoise = 0.0f;
     float contactNoise = 0.0f;
     float airNoise = 0.0f;
@@ -170,6 +178,9 @@ struct AmbiCryosphereVoice {
     float slipEnvelope = 0.0f;
     float grainEnvelope = 0.0f;
     float impactEnvelope = 0.0f;
+    float plateBodyEnvelope = 0.0f;
+    float plateBodyPhase = 0.0f;
+    float plateBodyFrequencyHz = 46.0f;
     float cavitationEnvelope = 0.0f;
     float tailEnvelope = 0.0f;
     float forcePulse = 0.0f;
@@ -177,6 +188,14 @@ struct AmbiCryosphereVoice {
     float energy = 0.0f;
     float singingSample = 0.0f;
     float singingActivity = 0.0f;
+    float plateIntegrity = 1.0f;
+    float crackExtent = 0.0f;
+    float brineCharge = 0.0f;
+    float scoreActivity = 0.0f;
+    float scoreDrive = 0.0f;
+    float scorePropagation = 0.0f;
+    float scoreConsequence = 0.0f;
+    float scoreAftermath = 0.0f;
     StructuralFailureModel structure {};
     SingingIceModel singingIce {};
 };
@@ -187,6 +206,7 @@ public:
     {
         sampleRate_ = std::max(1000.0, sampleRate);
         field_.prepare(sampleRate_);
+        score_.prepare(sampleRate_, 0x4372796fu);
         reset();
         setParams(params_);
     }
@@ -194,6 +214,7 @@ public:
     void reset()
     {
         field_.reset();
+        score_.reset(params_.voices);
         for (uint32_t voice = 0u; voice < voices_.size(); ++voice) {
             initializeVoice(voice);
         }
@@ -242,6 +263,8 @@ public:
         fieldParams.fieldListenAmount = params.fieldListenAmount;
         fieldParams.fieldListenResponse = params.fieldListenResponse;
         field_.setParams(fieldParams);
+        score_.setParams({ params.scorePace, params.scoreOccupancy,
+            params.scoreCascade, params.scoreMemory, params.scoreRest });
     }
 
     AmbiCryosphereParams params() const { return params_; }
@@ -309,6 +332,14 @@ public:
         return plateFailureEventCount_;
     }
     uint64_t singingIceEventCount() const { return singingIceEventCount_; }
+    float scoreActivity() const { return score_.globalActivity(); }
+    uint32_t scoredEntityCount() const { return score_.activeEntityCount(); }
+    uint64_t scoreArcCount() const { return score_.arcCount(); }
+    uint64_t scoreCascadeCount() const { return score_.cascadeCount(); }
+    uint64_t scoreConsequenceCount() const
+    {
+        return score_.consequenceCount();
+    }
 
     void process(float* const* outputs, uint32_t outputChannels,
         uint32_t frames)
@@ -345,6 +376,13 @@ public:
                 activity[voice] = voices_[voice].eventLevel;
             }
             field_.update(dt, activity.data());
+            for (uint32_t voice = 0u; voice < voiceCount; ++voice) {
+                const auto direction = field_.direction(voice);
+                score_.setEntityPosition(voice,
+                    direction.x, direction.y, direction.z);
+            }
+            score_.update(dt, voiceCount);
+            applyScoreDirectives(voiceCount);
             const float targetGain = dbToGain(params_.outputGainDb)
                 * 1.16f / voiceNorm;
 
@@ -492,6 +530,11 @@ private:
         S3G_CRYO_CLAMP(plateFailure, 0.0f, 1.0f);
         S3G_CRYO_CLAMP(surfaceX, 0.0f, 1.0f);
         S3G_CRYO_CLAMP(surfaceY, 0.0f, 1.0f);
+        S3G_CRYO_CLAMP(scorePace, 0.0f, 1.0f);
+        S3G_CRYO_CLAMP(scoreOccupancy, 0.0f, 1.0f);
+        S3G_CRYO_CLAMP(scoreCascade, 0.0f, 1.0f);
+        S3G_CRYO_CLAMP(scoreMemory, 0.0f, 1.0f);
+        S3G_CRYO_CLAMP(scoreRest, 0.0f, 1.0f);
 #undef S3G_CRYO_CLAMP
     }
 
@@ -535,10 +578,81 @@ private:
         voice.grainTimer = 0.0f;
         voice.calvingTimer = 0.0f;
         voice.impactCountdown = -1.0f;
+        voice.plateIntegrity = 0.68f + randomUnit(voice.rng) * 0.32f;
+        voice.crackExtent = 0.0f;
+        voice.brineCharge = randomUnit(voice.rng) * 0.18f;
         voice.structure.prepare(sampleRate_,
             0x1ceba11u + index * 0x85ebca6bu);
         voice.singingIce.prepare(sampleRate_,
             0x51a91ce5u + index * 0xc2b2ae35u);
+    }
+
+    void applyScoreDirectives(uint32_t voiceCount)
+    {
+        const auto& regime = kAmbiCryosphereRegimeProfiles[
+            std::min<uint32_t>(params_.regime,
+                kAmbiCryosphereRegimeCount - 1u)];
+        for (uint32_t index = 0u; index < voiceCount; ++index) {
+            auto& voice = voices_[index];
+            const auto directive = score_.directive(index);
+            voice.scoreActivity = directive.activity;
+            voice.scoreDrive = directive.drive;
+            voice.scorePropagation = directive.propagation;
+            voice.scoreConsequence = directive.consequence;
+            voice.scoreAftermath = directive.aftermath;
+            if (params_.flow <= 1.0e-5f) {
+                voice.scoreActivity = 0.0f;
+                voice.scoreDrive = 0.0f;
+                voice.scorePropagation = 0.0f;
+                voice.scoreConsequence = 0.0f;
+                voice.scoreAftermath = 0.0f;
+                continue;
+            }
+            if (directive.arcStarted) {
+                voice.plateIntegrity = 0.66f
+                    + randomUnit(voice.rng) * 0.34f;
+                voice.crackExtent = 0.0f;
+                voice.brineCharge = params_.bubbles
+                    * (0.24f + randomUnit(voice.rng) * 0.58f);
+                voice.strain *= 0.16f;
+                voice.slipLoad *= 0.22f;
+            }
+            if (directive.onset || directive.cascadeArrival) {
+                const float transfer = directive.cascadeArrival
+                    ? 0.68f : 1.0f;
+                const float force = transfer
+                    * (0.38f + params_.surfaceLoad * 0.38f
+                        + params_.contact * 0.26f);
+                voice.forcePulse += randomSigned(voice.rng) * force;
+                voice.strain = std::max(voice.strain,
+                    voice.fractureThreshold * (directive.cascadeArrival
+                        ? 1.04f : 1.01f));
+                voice.crackExtent = std::min(1.0f,
+                    voice.crackExtent + force * 0.18f);
+                voice.brineCharge = std::min(1.0f,
+                    voice.brineCharge + force * params_.bubbles * 0.22f);
+            }
+            if (directive.consequenceStarted) {
+                const float force = std::clamp(0.58f
+                        + directive.consequence * 0.42f,
+                    0.0f, 1.0f);
+                if (std::max({ params_.surfaceLoad, params_.snap,
+                        params_.plateFailure }) > 0.001f) {
+                    voice.structure.excite(force, true);
+                }
+                voice.plateIntegrity *= 0.28f;
+                voice.crackExtent = 1.0f;
+                voice.strain = std::max(voice.strain,
+                    voice.fractureThreshold * (1.06f + force * 0.12f));
+                if (regime.calving * params_.splash > 0.18f) {
+                    triggerCalving(voice, regime);
+                } else {
+                    voice.macroEnvelope = std::max(
+                        voice.macroEnvelope,
+                        force * (0.34f + params_.eventSize * 0.66f));
+                }
+            }
+        }
     }
 
     void triggerFracture(AmbiCryosphereVoice& voice,
@@ -556,6 +670,16 @@ private:
             * (branch ? 0.52f : 1.0f);
         voice.fractureEnvelope = std::max(
             voice.fractureEnvelope, strength);
+        if (!branch) {
+            voice.plateBodyEnvelope = std::max(
+                voice.plateBodyEnvelope,
+                strength * (0.18f + params_.eventSize * 0.34f
+                    + params_.scale * 0.28f));
+            voice.plateBodyFrequencyHz = 31.0f
+                + (1.0f - params_.scale) * 58.0f
+                + randomUnit(voice.rng) * 16.0f;
+            voice.plateBodyPhase = 0.0f;
+        }
         voice.forcePulse += randomSigned(voice.rng) * strength;
         voice.tailEnvelope = std::max(voice.tailEnvelope,
             strength * params_.resonance * 0.46f);
@@ -603,6 +727,14 @@ private:
             * (0.48f + params_.splash * 0.82f);
         voice.macroEnvelope = std::max(
             voice.macroEnvelope, strength);
+        voice.plateBodyEnvelope = std::max(
+            voice.plateBodyEnvelope, strength * (0.58f
+                + params_.scale * 0.64f + params_.depth * 0.32f));
+        voice.plateBodyFrequencyHz = 17.0f
+            + (1.0f - params_.scale) * 34.0f
+            + (1.0f - params_.depth) * 15.0f
+            + randomUnit(voice.rng) * 9.0f;
+        voice.plateBodyPhase = 0.0f;
         voice.fractureEnvelope = std::max(
             voice.fractureEnvelope, strength * 0.58f);
         voice.impactCountdown = 0.055f + params_.scale * 0.42f
@@ -626,11 +758,19 @@ private:
         const float sr = static_cast<float>(sampleRate_);
         const float dt = 1.0f / sr;
         const float white = randomSigned(voice.rng);
+        const float infraHz = 2.0f + (1.0f - params_.depth) * 5.0f;
+        const float massHz = 24.0f + (1.0f - params_.scale) * 58.0f
+            + (1.0f - params_.depth) * 22.0f
+            + (1.0f - substrate.lowMass) * 16.0f;
         const float slowHz = 16.0f + params_.depth * 150.0f
             + substrate.lowMass * 72.0f;
         const float contactHz = 340.0f + params_.brightness * 5200.0f
             + substrate.hardness * 1400.0f;
         const float airHz = 2600.0f + params_.brightness * 10500.0f;
+        voice.infraNoise += (white - voice.infraNoise)
+            * (1.0f - std::exp(-kPi * 2.0f * infraHz / sr));
+        voice.massNoise += (white - voice.massNoise)
+            * (1.0f - std::exp(-kPi * 2.0f * massHz / sr));
         voice.slowNoise += (white - voice.slowNoise)
             * (1.0f - std::exp(-kPi * 2.0f * slowHz / sr));
         voice.contactNoise += (white - voice.contactNoise)
@@ -639,12 +779,20 @@ private:
             * (1.0f - std::exp(-kPi * 2.0f * airHz / sr));
         const float contactBand = voice.contactNoise - voice.slowNoise;
         const float highBand = white - voice.airNoise;
+        const float massBand = (voice.massNoise - voice.infraNoise)
+            * (1.5f + params_.scale * 1.0f
+                + params_.depth * 0.56f + substrate.lowMass * 0.34f);
         const float derivative = white - voice.previousWhite;
         voice.previousWhite = white;
 
         const float porePressure = params_.bubbles
-            * (0.28f + substrate.poreWater * 0.92f);
-        const float eventRate = params_.flow;
+            * (0.28f + substrate.poreWater * 0.92f)
+            + voice.brineCharge * 0.34f;
+        const float scoreClock = (1.0f - params_.scoreRest)
+            + params_.scoreRest * std::clamp(0.012f
+                + voice.scoreDrive
+                + voice.scorePropagation * 0.38f, 0.012f, 1.0f);
+        const float eventRate = params_.flow * scoreClock;
         const float freezeDrive = params_.water * regime.freezeGrowth
             * (1.02f + porePressure * 0.64f)
             * (0.42f + params_.density * 0.88f)
@@ -658,7 +806,9 @@ private:
             * (0.54f
                 + params_.convergence * 0.30f
                 + regime.fracture * 0.28f)
-            * eventRate, 0.0f, 1.0f);
+            * eventRate
+            * (0.08f + voice.scoreDrive * 0.66f
+                + voice.scoreConsequence * 0.52f), 0.0f, 1.0f);
         structureParams.motion = clamp(0.12f + params_.current * 0.36f
             + params_.drops * 0.22f + std::fabs(params_.slope) * 0.18f,
             0.0f, 1.0f);
@@ -672,9 +822,12 @@ private:
                 + substrate.damping * 0.16f, 0.0f, 1.0f);
         structureParams.damage = clamp(std::sqrt(eventRate) * 0.34f
             + params_.density * 0.24f + porePressure * 0.22f
-            + regime.fracture * 0.20f, 0.0f, 1.0f);
+            + regime.fracture * 0.20f
+            + (1.0f - voice.plateIntegrity) * 0.42f
+            + voice.scoreConsequence * 0.36f, 0.0f, 1.0f);
         structureParams.highDetail = params_.snap;
-        structureParams.consequence = params_.plateFailure;
+        structureParams.consequence = clamp(params_.plateFailure
+            + voice.scoreConsequence * 0.56f, 0.0f, 1.0f);
         structureParams.mass = clamp(params_.scale * 0.58f
             + substrate.lowMass * 0.28f + params_.depth * 0.14f,
             0.0f, 1.0f);
@@ -682,6 +835,29 @@ private:
         const auto structural = voice.structure.process(structureParams);
         if (structural.snapTriggered) ++structuralSnapEventCount_;
         if (structural.consequenceTriggered) ++plateFailureEventCount_;
+        if (structural.consequenceTriggered) {
+            voice.plateBodyEnvelope = std::max(
+                voice.plateBodyEnvelope,
+                (0.48f + structureParams.mass * 0.92f)
+                    * (0.52f + params_.plateFailure * 0.48f));
+            voice.plateBodyFrequencyHz = 20.0f
+                + (1.0f - structureParams.mass) * 48.0f
+                + randomUnit(voice.rng) * 12.0f;
+            voice.plateBodyPhase = 0.0f;
+        }
+        if (structural.snapTriggered || structural.consequenceTriggered) {
+            score_.exciteCascade(index,
+                structural.consequenceTriggered ? 1.0f
+                    : 0.42f + params_.turbulence * 0.38f);
+        }
+        voice.plateIntegrity = std::max(0.0f,
+            voice.plateIntegrity - dt
+                * (structural.activity * (0.016f + params_.contact * 0.054f)
+                    + voice.scoreDrive * params_.surfaceLoad * 0.012f));
+        voice.crackExtent = std::min(1.0f,
+            voice.crackExtent + dt
+                * (structural.activity * 0.28f
+                    + voice.scorePropagation * 0.12f));
         if (params_.regime == 13u
             && (structural.snapTriggered
                 || structural.consequenceTriggered)) {
@@ -694,7 +870,9 @@ private:
             ++singingIceEventCount_;
         }
         voice.strain += dt * (freezeDrive * 2.8f + mechanicalDrive * 1.7f)
-            * (0.72f + std::fabs(voice.slowNoise) * 0.48f);
+            * (0.72f + std::fabs(voice.slowNoise) * 0.48f)
+            * (0.08f + voice.scoreDrive * 0.74f
+                + voice.scorePropagation * 0.34f);
         voice.strain = std::max(0.0f, voice.strain - dt
             * (0.006f + params_.damping * substrate.damping * 0.038f));
         if (voice.strain >= voice.fractureThreshold) {
@@ -779,6 +957,13 @@ private:
                     * (0.42f + regime.waterImpact * 0.86f);
                 voice.impactEnvelope = std::max(
                     voice.impactEnvelope, impact);
+                voice.plateBodyEnvelope = std::max(
+                    voice.plateBodyEnvelope,
+                    impact * (0.46f + params_.scale * 0.72f));
+                voice.plateBodyFrequencyHz = 18.0f
+                    + (1.0f - params_.scale) * 38.0f
+                    + randomUnit(voice.rng) * 11.0f;
+                voice.plateBodyPhase = 0.0f;
                 voice.cavitationEnvelope = std::max(
                     voice.cavitationEnvelope,
                     impact * (0.18f + regime.waterImpact * 0.58f));
@@ -786,6 +971,9 @@ private:
                 ++impactEventCount_;
             }
         }
+        voice.brineCharge = std::max(0.0f,
+            voice.brineCharge - dt
+                * (0.018f + params_.damping * 0.044f));
 
         voice.fractureEnvelope *= std::exp(-dt
             / (0.0014f + params_.eventSize * 0.013f));
@@ -807,6 +995,18 @@ private:
                 + params_.resonance * 0.54f));
         voice.forcePulse *= std::exp(-dt
             / (0.0012f + substrate.damping * 0.007f));
+        voice.plateBodyPhase += kPi * 2.0f
+            * voice.plateBodyFrequencyHz
+            * (1.0f + voice.infraNoise * 0.06f) / sr;
+        if (voice.plateBodyPhase >= kPi * 2.0f) {
+            voice.plateBodyPhase -= kPi * 2.0f;
+        }
+        const float plateBody = voice.plateBodyEnvelope
+            * (std::sin(voice.plateBodyPhase) * 0.72f
+                + massBand * 0.28f);
+        voice.plateBodyEnvelope *= std::exp(-dt
+            / (0.075f + params_.scale * 0.18f
+                + params_.depth * 0.12f));
 
         const float creep = voice.slowNoise * voice.strain
             * (0.12f + params_.depth * 0.46f);
@@ -814,7 +1014,8 @@ private:
             * (derivative * (0.42f + substrate.hardness * 0.58f)
                 + highBand * 0.34f + voice.forcePulse * 0.46f);
         const float macro = voice.macroEnvelope
-            * (voice.slowNoise * (0.82f + substrate.lowMass * 0.72f)
+            * (massBand * (0.42f + substrate.lowMass * 0.52f)
+                + voice.slowNoise * (0.82f + substrate.lowMass * 0.72f)
                 + contactBand * 0.42f);
         const float slip = voice.slipEnvelope
             * (contactBand * (0.58f + substrate.roughness * 0.64f)
@@ -829,7 +1030,8 @@ private:
             * highBand * (0.04f + std::fabs(voice.slowNoise) * 0.18f)
             * (1.0f - substrate.hardness * 0.48f);
         const float impact = voice.impactEnvelope
-            * (voice.slowNoise * 1.28f + contactBand * 0.36f
+            * (massBand * 0.72f + voice.slowNoise * 1.28f
+                + contactBand * 0.36f
                 + voice.forcePulse * 0.42f);
         const float cavitation = voice.cavitationEnvelope
             * (highBand * 0.62f + contactBand * 0.28f);
@@ -847,18 +1049,31 @@ private:
         }
         const float listenerGain = 1.0f
             + field_.listenerDrive(index) * 0.20f;
-        const float iceSample = (creep + fracture * 0.42f + macro * 0.48f
+        const float entityBed = (1.0f - params_.scoreRest)
+            + params_.scoreRest * std::clamp(0.018f
+                + voice.scoreActivity + voice.scoreAftermath * 0.24f,
+                0.018f, 1.0f);
+        const float basalPressure = massBand
+            * (params_.bubbles * (0.12f + substrate.poreWater * 0.34f)
+                + params_.current * params_.depth * 0.18f)
+            * (0.18f + voice.brineCharge * 0.52f);
+        const float iceSample = (basalPressure * 0.38f
+            + creep + fracture * 0.42f + macro * 0.52f
             + slip * 0.38f + grain * 0.32f + grinding * 0.46f
             + snow * 0.42f + impact * 0.58f + cavitation * 0.34f
             + diffuseTail * 0.30f)
             * (0.20f + params_.water * 0.46f
-                + params_.density * 0.18f + params_.drops * 0.14f);
+                + params_.density * 0.18f + params_.drops * 0.14f)
+            * entityBed;
         const float structuralSample = (structural.flex * 0.14f
             + structural.crack * 0.62f + structural.snap * 0.76f
             + structural.rupture * 0.54f + structural.fall * 0.48f
             + structural.impact * 0.72f)
             * (0.24f + params_.surfaceLoad * 0.62f);
-        const float sample = (iceSample + structuralSample
+        const float massConsequence = plateBody
+            * (0.09f + params_.eventSize * 0.135f
+                + params_.scale * 0.09f + params_.depth * 0.06f);
+        const float sample = (iceSample + structuralSample + massConsequence
             + voice.singingSample * (0.46f + params_.resonance * 0.74f))
             * listenerGain;
 
@@ -873,6 +1088,7 @@ private:
 
     AmbiCryosphereParams params_ {};
     GeologicalField field_ {};
+    EnvironmentalScore score_ {};
     std::array<AmbiCryosphereVoice, kAmbiCryosphereMaxVoices> voices_ {};
     std::array<float, kAmbiCryosphereMaxChannels> lastOutput_ {};
     std::array<float, kAmbiCryosphereMaxChannels> transitionTail_ {};

@@ -289,7 +289,7 @@ const clap_plugin_descriptor_t descriptor {
     "",
     "",
     "0.1.0",
-    "24-channel passthrough/gain test for s3g-mc 3OAFX insert workflows.",
+    "24-channel passthrough/gain test for Ambisonic insert and routing workflows.",
     features
 };
 

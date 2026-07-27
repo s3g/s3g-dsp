@@ -2,7 +2,7 @@
   "format": "s3g-imprint-sketch",
   "version": 1,
   "tool": "s3g-mc Imprint Sketch",
-  "target_process": "3OAFX Synthetic Ambisonic IR Bank",
+  "target_process": "Ambisonic Synthetic IR Bank",
   "interpretation": "directional acoustic sketch for architectural, natural, open, or imaginary spaces",
   "space_family": "cavern",
   "space_seed": 880409,

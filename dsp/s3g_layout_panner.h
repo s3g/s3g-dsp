@@ -1,6 +1,6 @@
 #pragma once
 
-#include "s3g_3oafx.h"
+#include "s3g_ambisonic_geometry.h"
 #include "s3g_cube41_layout.h"
 #include "s3g_math.h"
 

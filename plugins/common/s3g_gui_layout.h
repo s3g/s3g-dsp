@@ -314,11 +314,7 @@ struct CompactEffectFamilyLayout {
     Column secondColumn {};
 };
 
-struct ThreeOafxFamilyLayout {
-    Canvas singleCanvas {};
-    Rect singleFieldPanel {};
-    Rect singleField {};
-    Column singleColumn {};
+struct AmbiEffectFamilyLayout {
     Canvas displacementCanvas {};
     Rect displacementFieldPanel {};
     Rect displacementField {};
@@ -642,14 +638,10 @@ inline constexpr CompactEffectFamilyLayout kCompactEffectFamilyLayout {
     { 388.0, 354.0, 42.0 },
 };
 
-inline constexpr ThreeOafxFamilyLayout kThreeOafxFamilyLayout {
-    { 880.0, 500.0 },
-    { 18.0, 42.0, 480.0, 440.0 },
-    { 34.0, 78.0, 448.0, 350.0 },
-    { 518.0, 344.0, 42.0 },
-    { 920.0, 610.0 },
-    { 18.0, 42.0, 612.0, 550.0 },
-    { 34.0, 76.0, 580.0, 438.0 },
+inline constexpr AmbiEffectFamilyLayout kAmbiEffectFamilyLayout {
+    { 920.0, 820.0 },
+    { 18.0, 42.0, 612.0, 760.0 },
+    { 34.0, 76.0, 580.0, 648.0 },
     { 648.0, 258.0, 42.0 },
 };
 
@@ -851,7 +843,7 @@ constexpr EncoderTitleBand compactEffectTitleBand(Canvas canvas)
     return encoderTitleBand(canvas);
 }
 
-constexpr EncoderTitleBand threeOafxTitleBand(Canvas canvas)
+constexpr EncoderTitleBand ambiEffectTitleBand(Canvas canvas)
 {
     if (canvas.width >= 860.0) {
         return {
@@ -1197,25 +1189,11 @@ constexpr Panel compactEffectRightPanel(PanelRole role, uint32_t rowCount)
         kCompactEffectFamilyLayout.secondColumn.top, rowCount);
 }
 
-constexpr Panel threeOafxSingleOutputPanel(uint32_t rowCount)
+constexpr Panel ambiEffectDisplacementOutputPanel()
 {
     return fittedPanel(PluginClass::EffectProcessor, PanelRole::Output,
-        kThreeOafxFamilyLayout.singleColumn,
-        kThreeOafxFamilyLayout.singleColumn.top, rowCount);
-}
-
-constexpr Panel threeOafxSingleStackPanel(const Panel& previous,
-                                          PanelRole role,
-                                          uint32_t rowCount)
-{
-    return fittedStackPanel(role, previous, rowCount);
-}
-
-constexpr Panel threeOafxDisplacementOutputPanel()
-{
-    return fittedPanel(PluginClass::EffectProcessor, PanelRole::Output,
-        kThreeOafxFamilyLayout.displacementColumn,
-        kThreeOafxFamilyLayout.displacementColumn.top, 2u);
+        kAmbiEffectFamilyLayout.displacementColumn,
+        kAmbiEffectFamilyLayout.displacementColumn.top, 5u, 24.0, 32.0);
 }
 
 constexpr Panel outputUtilityPanel(PanelRole role,

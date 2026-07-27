@@ -1,6 +1,6 @@
 #pragma once
 
-#include "s3g_3oafx.h"
+#include "s3g_ambisonic_geometry.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_layout_panner.h"
 #include "s3g_math.h"

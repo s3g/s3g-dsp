@@ -28,9 +28,9 @@
 namespace {
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiCryosphereMaxChannels;
-constexpr uint32_t kStateVersion = 8;
+constexpr uint32_t kStateVersion = 9;
 constexpr uint32_t kCustomPresetMagic = 0x31454349u; // ICE1
-constexpr uint32_t kCustomPresetVersion = 8;
+constexpr uint32_t kCustomPresetVersion = 9;
 
 constexpr clap_id kPresetParamId = 1;
 constexpr clap_id kOrderParamId = 2;
@@ -81,6 +81,11 @@ constexpr clap_id kShoreParamId = 46;
 constexpr clap_id kSurfaceLoadParamId = 47;
 constexpr clap_id kSnapParamId = 48;
 constexpr clap_id kPlateFailureParamId = 49;
+constexpr clap_id kScorePaceParamId = 50;
+constexpr clap_id kScoreOccupancyParamId = 51;
+constexpr clap_id kScoreCascadeParamId = 52;
+constexpr clap_id kScoreMemoryParamId = 53;
+constexpr clap_id kScoreRestParamId = 54;
 
 using CryosphereSurface = s3g::ParameterSurfaceState<s3g::AmbiCryosphereParams>;
 
@@ -114,6 +119,9 @@ struct Plugin {
     char customPresetName[64] {};
     uint32_t randomSeed = 0x6d2b79f5u;
     std::atomic<float> outputPeak { 0.0f };
+    std::atomic<float> guiScoreActivity { 0.0f };
+    std::atomic<uint32_t> guiScoreEntities { 0u };
+    std::atomic<uint64_t> guiScoreArcs { 0u };
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -182,6 +190,7 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
         && file.magic == kCustomPresetMagic
         && (file.version == 1u || file.version == 2u || file.version == 3u
             || file.version == 4u || file.version == 5u
+            || file.version == 8u
             || file.version == kCustomPresetVersion)
         && std::fread(file.name, 1, sizeof(file.name), handle) == sizeof(file.name);
     if (ok) {
@@ -195,7 +204,9 @@ bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
                                     ? offsetof(s3g::AmbiCryosphereParams, fieldListenAmount)
                                     : (file.version == 5u
                                             ? offsetof(s3g::AmbiCryosphereParams, foam)
-                                            : sizeof(file.params)))));
+                                            : (file.version == 8u
+                                                    ? offsetof(s3g::AmbiCryosphereParams, scorePace)
+                                                    : sizeof(file.params))))));
         ok = std::fread(&file.params, 1, paramsSize, handle) == paramsSize;
     }
     std::fclose(handle);
@@ -306,6 +317,11 @@ void randomizeSafe(Plugin& plugin)
     p.snap = randomRange(seed, 0.42f, 0.96f);
     p.plateFailure = p.regime <= 4u
         ? randomRange(seed, 0.18f, 0.72f) : randomRange(seed, 0.04f, 0.42f);
+    p.scorePace = randomRange(seed, 0.14f, 0.72f);
+    p.scoreOccupancy = randomRange(seed, 0.08f, 0.46f);
+    p.scoreCascade = randomRange(seed, 0.24f, 0.92f);
+    p.scoreMemory = randomRange(seed, 0.46f, 0.94f);
+    p.scoreRest = randomRange(seed, 0.52f, 0.96f);
     p.order = order;
     p.outputGainDb = outputGainDb;
     p.fieldListenMode = fieldListenMode;
@@ -509,6 +525,11 @@ bool assignParam(s3g::AmbiCryosphereParams& params, clap_id id, double value)
     case kSurfaceLoadParamId: params.surfaceLoad = static_cast<float>(value); return true;
     case kSnapParamId: params.snap = static_cast<float>(value); return true;
     case kPlateFailureParamId: params.plateFailure = static_cast<float>(value); return true;
+    case kScorePaceParamId: params.scorePace = static_cast<float>(value); return true;
+    case kScoreOccupancyParamId: params.scoreOccupancy = static_cast<float>(value); return true;
+    case kScoreCascadeParamId: params.scoreCascade = static_cast<float>(value); return true;
+    case kScoreMemoryParamId: params.scoreMemory = static_cast<float>(value); return true;
+    case kScoreRestParamId: params.scoreRest = static_cast<float>(value); return true;
     default: return false;
     }
 }
@@ -571,6 +592,11 @@ s3g::AmbiCryosphereParams waterSurfaceParams(
     S3G_CRYOSPHERE_SURFACE_BLEND(surfaceLoad);
     S3G_CRYOSPHERE_SURFACE_BLEND(snap);
     S3G_CRYOSPHERE_SURFACE_BLEND(plateFailure);
+    S3G_CRYOSPHERE_SURFACE_BLEND(scorePace);
+    S3G_CRYOSPHERE_SURFACE_BLEND(scoreOccupancy);
+    S3G_CRYOSPHERE_SURFACE_BLEND(scoreCascade);
+    S3G_CRYOSPHERE_SURFACE_BLEND(scoreMemory);
+    S3G_CRYOSPHERE_SURFACE_BLEND(scoreRest);
 #undef S3G_CRYOSPHERE_SURFACE_BLEND
     result.order = base.order;
     result.outputGainDb = base.outputGainDb;
@@ -773,6 +799,12 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         surfaceOffset += spanFrames;
     }
     p->effectiveParams = p->engine.params();
+    p->guiScoreActivity.store(
+        p->engine.scoreActivity(), std::memory_order_relaxed);
+    p->guiScoreEntities.store(
+        p->engine.scoredEntityCount(), std::memory_order_relaxed);
+    p->guiScoreArcs.store(
+        p->engine.scoreArcCount(), std::memory_order_relaxed);
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
 
     float peak = 0.0f;
@@ -869,6 +901,11 @@ constexpr ParamDef kParams[] {
     { kSurfaceLoadParamId, "Surface Load", 0.0, 1.0, 0.20, false },
     { kSnapParamId, "Ice Snap", 0.0, 1.0, 0.48, false },
     { kPlateFailureParamId, "Plate Failure", 0.0, 1.0, 0.14, false },
+    { kScorePaceParamId, "Score Pace", 0.0, 1.0, 0.46, false },
+    { kScoreOccupancyParamId, "Entity Occupancy", 0.0, 1.0, 0.28, false },
+    { kScoreCascadeParamId, "Causal Cascade", 0.0, 1.0, 0.58, false },
+    { kScoreMemoryParamId, "Score Memory", 0.0, 1.0, 0.72, false },
+    { kScoreRestParamId, "Scored Rest", 0.0, 1.0, 0.64, false },
 };
 
 uint32_t paramsCount(const clap_plugin_t*) { return static_cast<uint32_t>(std::size(kParams)); }
@@ -884,6 +921,11 @@ const char* paramModule(clap_id id)
     case kSurfaceLoadParamId:
     case kSnapParamId:
     case kPlateFailureParamId: return "Structural Consequences";
+    case kScorePaceParamId:
+    case kScoreOccupancyParamId:
+    case kScoreCascadeParamId:
+    case kScoreMemoryParamId:
+    case kScoreRestParamId: return "Aleatoric Entity Score";
     case kOrderParamId:
     case kRegimeParamId:
     case kEnvironmentParamId:
@@ -1000,6 +1042,11 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kSurfaceLoadParamId: *value = params.surfaceLoad; return true;
     case kSnapParamId: *value = params.snap; return true;
     case kPlateFailureParamId: *value = params.plateFailure; return true;
+    case kScorePaceParamId: *value = params.scorePace; return true;
+    case kScoreOccupancyParamId: *value = params.scoreOccupancy; return true;
+    case kScoreCascadeParamId: *value = params.scoreCascade; return true;
+    case kScoreMemoryParamId: *value = params.scoreMemory; return true;
+    case kScoreRestParamId: *value = params.scoreRest; return true;
     default: return false;
     }
 }
@@ -1052,7 +1099,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* dis
         || id == kEnvironmentDecayParamId || id == kEnvironmentDampingParamId
         || id == kFieldListenAmountParamId || id == kFoamParamId || id == kShoreParamId
         || id == kSurfaceLoadParamId || id == kSnapParamId
-        || id == kPlateFailureParamId) {
+        || id == kPlateFailureParamId || id == kScorePaceParamId
+        || id == kScoreOccupancyParamId || id == kScoreCascadeParamId
+        || id == kScoreMemoryParamId || id == kScoreRestParamId) {
         std::snprintf(display, size, "%.0f%%", value * 100.0);
     } else {
         std::snprintf(display, size, "%.2f", value);
@@ -1137,7 +1186,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
         || id == kEnvironmentDecayParamId || id == kEnvironmentDampingParamId
         || id == kFieldListenAmountParamId || id == kFoamParamId || id == kShoreParamId
         || id == kSurfaceLoadParamId || id == kSnapParamId
-        || id == kPlateFailureParamId) {
+        || id == kPlateFailureParamId || id == kScorePaceParamId
+        || id == kScoreOccupancyParamId || id == kScoreCascadeParamId
+        || id == kScoreMemoryParamId || id == kScoreRestParamId) {
         *value *= 0.01;
     }
     return true;
@@ -1298,6 +1349,11 @@ constexpr GuiSliderSpec kGuiSliders[] {
     { kFieldListenAmountParamId, 896, 626, 0.0, 1.0, false },
     { kFoamParamId, 896, 692, 0.0, 1.0, false },
     { kShoreParamId, 896, 718, 0.0, 1.0, false },
+    { kScorePaceParamId, 18, 698, 0.0, 1.0, false },
+    { kScoreOccupancyParamId, 18, 724, 0.0, 1.0, false },
+    { kScoreCascadeParamId, 18, 750, 0.0, 1.0, false },
+    { kScoreMemoryParamId, 310, 698, 0.0, 1.0, false },
+    { kScoreRestParamId, 310, 724, 0.0, 1.0, false },
 };
 
 const GuiSliderSpec* guiSliderSpec(clap_id id)
@@ -1912,6 +1968,27 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 - (void)drawPanels:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
 {
     const auto p = _plugin->effectiveParams;
+    s3g::clap_gui::drawPanelFrame(18, 662, 596, 152, style);
+    s3g::clap_gui::drawPanelHeader(@"ALEATORIC ENTITY SCORE", true,
+        18, 662, 596, 21, attrs, style);
+    [self drawSlider:@"PACE" param:kScorePaceParamId value:p.scorePace
+        attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"OCCUPANCY" param:kScoreOccupancyParamId
+        value:p.scoreOccupancy attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"CASCADE" param:kScoreCascadeParamId
+        value:p.scoreCascade attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"MEMORY" param:kScoreMemoryParamId value:p.scoreMemory
+        attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSlider:@"REST" param:kScoreRestParamId value:p.scoreRest
+        attrs:attrs valueAttrs:valueAttrs style:style];
+    NSString* scoreStatus = [NSString stringWithFormat:@"%u ENT / %llu ARCS / %.2f ACT",
+        _plugin->guiScoreEntities.load(std::memory_order_relaxed),
+        static_cast<unsigned long long>(_plugin->guiScoreArcs.load(
+            std::memory_order_relaxed)),
+        _plugin->guiScoreActivity.load(std::memory_order_relaxed)];
+    s3g::clap_gui::drawRightStatus(scoreStatus, 614, 669,
+        valueAttrs, 8.0);
+
     s3g::clap_gui::drawPanelFrame(630, 42, 250, 80, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, 630, 42, 250, 21, attrs, style);
     [self drawSlider:@"OUT" param:kOutputParamId value:p.outputGainDb attrs:attrs valueAttrs:valueAttrs style:style];

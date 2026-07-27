@@ -191,8 +191,8 @@ int main()
         return 1;
     }
 
-    // Protocol modulation is a second operator: every source must create a
-    // deterministic, finite, audible departure from the unmodulated codec.
+    // Every M1 source must create a deterministic, finite, audible departure
+    // from the unmodulated codec in the backward-compatible Broadcast graph.
     auto modulationParams = profileParams;
     modulationParams.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
     modulationParams.fieldCodecMode = s3g::PsdRawFieldCodecMode::HfFax;
@@ -246,8 +246,26 @@ int main()
         }
     }
 
-    // Each destination operates on a different layer of the transmission:
-    // carrier frequency, deviation, codec clock, data, or error process.
+    auto bypassParams = modulationParams;
+    bypassParams.modSource = s3g::PsdRawFieldModSource::Sine;
+    const auto modulationOn = renderModulation(bypassParams);
+    bypassParams.modulationEnabled = 0u;
+    const auto modulationOff = renderModulation(bypassParams);
+    double bypassDifference = 0.0;
+    for (uint32_t i = 0u; i < frames; ++i) {
+        if (modulationOff[i] != unmodulated[i]) {
+            std::cerr << "Fault MOD OFF did not fully bypass the operator graph\n";
+            return 1;
+        }
+        bypassDifference += std::abs(static_cast<double>(modulationOn[i] - modulationOff[i]));
+    }
+    if (bypassDifference <= 0.01) {
+        std::cerr << "Fault MOD ON and MOD OFF were indistinguishable\n";
+        return 1;
+    }
+
+    // Each destination operates on a different layer of the transmission;
+    // OFF must leave the carrier unchanged.
     for (uint32_t target = 0u; target < s3g::kPsdRawFieldModTargetCount; ++target) {
         auto targetedParams = modulationParams;
         targetedParams.modSource = s3g::PsdRawFieldModSource::Sine;
@@ -258,7 +276,8 @@ int main()
         for (uint32_t i = 0u; i < frames; ++i) {
             difference += std::abs(static_cast<double>(targeted[i] - unmodulated[i]));
         }
-        if (difference <= 0.01) {
+        const bool isOff = targetedParams.modTarget == s3g::PsdRawFieldModTarget::Off;
+        if ((!isOff && difference <= 0.01) || (isOff && difference != 0.0)) {
             std::cerr << "Fault protocol modulation target was inaudible: " << target
                       << " difference=" << difference << "\n";
             return 1;
@@ -279,6 +298,126 @@ int main()
     if (clockDifference <= 0.01) {
         std::cerr << "Fault FREE and LOCK protocol clocks were indistinguishable\n";
         return 1;
+    }
+
+    // MIDI envelope following scales modulation depth before the operator graph.
+    std::array<float, frames> closedEnvelope {};
+    std::array<float, frames> openEnvelope {};
+    openEnvelope.fill(1.0f);
+    auto renderWithEnvelope = [&](const s3g::PsdRawFieldParams& p,
+                                  const std::array<float, frames>& envelope) {
+        field.prepare(48000.0);
+        field.setParams(p);
+        field.reset();
+        field.process(pointers.data(), s3g::kPsdRawFieldChannels, frames, envelope.data());
+        return output[0];
+    };
+    auto envelopeParams = modulationParams;
+    envelopeParams.modSource3 = s3g::PsdRawFieldModSource::Hellschreiber;
+    envelopeParams.modTarget3 = s3g::PsdRawFieldModTarget::Data;
+    envelopeParams.modIndex3 = 0.72f;
+    envelopeParams.modEnvelope3 = 1u;
+    const auto envelopeClosed = renderWithEnvelope(envelopeParams, closedEnvelope);
+    const auto envelopeOpen = renderWithEnvelope(envelopeParams, openEnvelope);
+    double envelopeDifference = 0.0;
+    for (uint32_t i = 0u; i < frames; ++i) {
+        envelopeDifference += std::abs(static_cast<double>(envelopeOpen[i] - envelopeClosed[i]));
+    }
+    if (envelopeDifference <= 0.01) {
+        std::cerr << "Fault ADSR-following operator did not open with the envelope\n";
+        return 1;
+    }
+    envelopeParams.modEnvelope3 = 0u;
+    const auto fixedClosed = renderWithEnvelope(envelopeParams, closedEnvelope);
+    const auto fixedOpen = renderWithEnvelope(envelopeParams, openEnvelope);
+    for (uint32_t i = 0u; i < frames; ++i) {
+        if (fixedClosed[i] != fixedOpen[i]) {
+            std::cerr << "Fault FIXED operator unexpectedly followed the MIDI envelope\n";
+            return 1;
+        }
+    }
+
+    // All six algorithms must stack three audible operators while preserving
+    // each operator's independently selected destination.
+    std::array<std::array<float, frames>, s3g::kPsdRawFieldModAlgorithmCount> algorithmAudio {};
+    for (uint32_t algorithm = 0u; algorithm < s3g::kPsdRawFieldModAlgorithmCount; ++algorithm) {
+        auto algorithmParams = modulationParams;
+        algorithmParams.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+        algorithmParams.fieldCodecMode = s3g::PsdRawFieldCodecMode::HfFax;
+        algorithmParams.modAlgorithm = static_cast<s3g::PsdRawFieldModAlgorithm>(algorithm);
+        algorithmParams.modSource = s3g::PsdRawFieldModSource::Sine;
+        algorithmParams.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+        algorithmParams.modRate = 0.58f;
+        algorithmParams.modRatio = 1.5f;
+        algorithmParams.modIndex = 0.68f;
+        algorithmParams.modFeedback = 0.16f;
+        algorithmParams.modSource2 = s3g::PsdRawFieldModSource::Hellschreiber;
+        algorithmParams.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
+        algorithmParams.modRate2 = 0.24f;
+        algorithmParams.modRatio2 = 0.75f;
+        algorithmParams.modIndex2 = 0.72f;
+        algorithmParams.modFeedback2 = 0.18f;
+        algorithmParams.modClockLock2 = 1u;
+        algorithmParams.modSource3 = s3g::PsdRawFieldModSource::Noise;
+        algorithmParams.modTarget3 = s3g::PsdRawFieldModTarget::Data;
+        algorithmParams.modRate3 = 0.36f;
+        algorithmParams.modRatio3 = 2.0f;
+        algorithmParams.modIndex3 = 0.64f;
+        algorithmParams.modFeedback3 = 0.14f;
+        algorithmParams.modClockLock3 = 0u;
+        if (algorithmParams.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Regenerator) {
+            algorithmParams.modSource2 = s3g::PsdRawFieldModSource::Feedback;
+            algorithmParams.modTarget2 = s3g::PsdRawFieldModTarget::Damage;
+            algorithmParams.modSource3 = s3g::PsdRawFieldModSource::Sync;
+            algorithmParams.modTarget3 = s3g::PsdRawFieldModTarget::Clock;
+            algorithmParams.modFeedback2 = 0.86f;
+        } else if (algorithmParams.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Transcode) {
+            algorithmParams.modSource = s3g::PsdRawFieldModSource::Morse;
+            algorithmParams.modSource2 = s3g::PsdRawFieldModSource::Sstv;
+            algorithmParams.modSource3 = s3g::PsdRawFieldModSource::HfFax;
+            algorithmParams.modTarget = s3g::PsdRawFieldModTarget::Off;
+            algorithmParams.modTarget2 = s3g::PsdRawFieldModTarget::Off;
+            algorithmParams.modTarget3 = s3g::PsdRawFieldModTarget::Data;
+        }
+
+        const auto withOperators = renderModulation(algorithmParams);
+        algorithmAudio[algorithm] = withOperators;
+        const auto deterministic = renderModulation(algorithmParams);
+        auto withoutM2Params = algorithmParams;
+        withoutM2Params.modIndex2 = 0.0f;
+        const auto withoutM2 = renderModulation(withoutM2Params);
+        auto withoutM3Params = algorithmParams;
+        withoutM3Params.modIndex3 = 0.0f;
+        const auto withoutM3 = renderModulation(withoutM3Params);
+        double m2Difference = 0.0;
+        double m3Difference = 0.0;
+        for (uint32_t i = 0u; i < frames; ++i) {
+            if (!std::isfinite(withOperators[i]) || withOperators[i] != deterministic[i]) {
+                std::cerr << "Fault modulation algorithm was non-finite or non-deterministic: "
+                          << algorithm << " at sample " << i << "\n";
+                return 1;
+            }
+            m2Difference += std::abs(static_cast<double>(withOperators[i] - withoutM2[i]));
+            m3Difference += std::abs(static_cast<double>(withOperators[i] - withoutM3[i]));
+        }
+        if (m2Difference <= 0.01 || m3Difference <= 0.01) {
+            std::cerr << "Fault modulation algorithm did not route all three operators: "
+                      << algorithm << " M2=" << m2Difference
+                      << " M3=" << m3Difference << "\n";
+            return 1;
+        }
+    }
+    for (uint32_t algorithm = 1u; algorithm < s3g::kPsdRawFieldModAlgorithmCount; ++algorithm) {
+        double topologyDifference = 0.0;
+        for (uint32_t i = 0u; i < frames; ++i) {
+            topologyDifference += std::abs(static_cast<double>(
+                algorithmAudio[algorithm][i] - algorithmAudio[algorithm - 1u][i]));
+        }
+        if (topologyDifference <= 0.01) {
+            std::cerr << "Fault adjacent modulation algorithms collapsed together: "
+                      << algorithm - 1u << " and " << algorithm << "\n";
+            return 1;
+        }
     }
 
     s3g::PsdRawField rawField;

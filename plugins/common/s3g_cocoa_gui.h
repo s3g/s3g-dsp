@@ -1135,7 +1135,7 @@ inline void drawCompactEffectTitleBand(
         softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
 }
 
-inline void drawThreeOafxTitleBand(
+inline void drawAmbiEffectTitleBand(
     NSString* title,
     NSString* preset,
     NSString* status,

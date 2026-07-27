@@ -26,8 +26,9 @@
 namespace {
 
 constexpr uint32_t kChannels = s3g::kAmbiEffectDelayMaxChannels;
-constexpr uint32_t kStateVersion = 3u;
+constexpr uint32_t kStateVersion = 4u;
 constexpr uint32_t kLegacyPickupCount = 12u;
+constexpr uint32_t kPreviousPickupCount = 20u;
 constexpr uint32_t kGuiWidth = 820u;
 constexpr uint32_t kGuiHeight = 640u;
 
@@ -56,6 +57,29 @@ enum ParamId : clap_id {
     kParamPickupFeedbackFirst = 200,
     kParamPickupFeedbackLast = kParamPickupFeedbackFirst
         + s3g::kAmbiEffectDelayMaxPickups - 1u,
+};
+
+struct AmbiEffectDelayParamsV3 {
+    uint32_t order = 7u;
+    s3g::AmbiEffectBody body = s3g::AmbiEffectBody::Auto;
+    s3g::AmbiEffectTopology topology = s3g::AmbiEffectTopology::Local;
+    float timeMs = 320.0f;
+    float feedback = 0.32f;
+    float tone = 0.62f;
+    float spread = 0.0f;
+    float deviation = 0.0f;
+    float topologyAmount = 0.65f;
+    float roamingRateHz = 0.08f;
+    float mix = 0.35f;
+    float outputGainDb = 0.0f;
+    std::array<float, kPreviousPickupCount> pickupTimeTrim {};
+    std::array<float, kPreviousPickupCount> pickupFeedbackTrim {};
+    float maskAmount = 0.0f;
+    float maskAzimuthDeg = 0.0f;
+    float maskElevationDeg = 0.0f;
+    float maskWidth = 0.35f;
+    float maskCurve = 0.5f;
+    float maskDry = 1.0f;
 };
 
 struct AmbiEffectDelayParamsV2 {
@@ -367,7 +391,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     struct Spec { clap_id id; const char* name; double min; double max; double def; bool stepped; };
     static constexpr Spec specs[] {
         { kParamOrder, "Ambisonic order", 1.0, 7.0, 7.0, true },
-        { kParamBody, "Auditory body", 0.0, 4.0, 0.0, true },
+        { kParamBody, "Auditory body", 0.0, 5.0, 0.0, true },
         { kParamTopology, "Topology", 0.0, 3.0, 0.0, true },
         { kParamTime, "Delay time", 5.0, 2000.0, 320.0, false },
         { kParamFeedback, "Feedback", 0.0, 0.88, 0.32, false },
@@ -420,7 +444,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id,
     case kParamOrder: std::snprintf(display, size, "%uOA", roundedUint(value)); return true;
     case kParamBody:
         std::snprintf(display, size, "%s", s3g::ambiEffectBodyName(
-            static_cast<s3g::AmbiEffectBody>(std::min<uint32_t>(roundedUint(value), 4u))));
+            static_cast<s3g::AmbiEffectBody>(std::min<uint32_t>(roundedUint(value), 5u))));
         return true;
     case kParamTopology:
         std::snprintf(display, size, "%s", s3g::ambiEffectTopologyName(
@@ -449,7 +473,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         return true;
     }
     if (id == kParamBody) {
-        for (uint32_t i = 0u; i <= 4u; ++i) {
+        for (uint32_t i = 0u; i <= 5u; ++i) {
             if (std::strcmp(display, s3g::ambiEffectBodyName(
                 static_cast<s3g::AmbiEffectBody>(i))) == 0) {
                 *value = i; return true;
@@ -540,6 +564,31 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!readAll(stream, &version, sizeof(version))) return false;
     if (version == kStateVersion) {
         if (!readAll(stream, &params, sizeof(params))) return false;
+    } else if (version == 3u) {
+        AmbiEffectDelayParamsV3 old {};
+        if (!readAll(stream, &old, sizeof(old))) return false;
+        params.order = old.order;
+        params.body = old.body;
+        params.topology = old.topology;
+        params.timeMs = old.timeMs;
+        params.feedback = old.feedback;
+        params.tone = old.tone;
+        params.spread = old.spread;
+        params.deviation = old.deviation;
+        params.topologyAmount = old.topologyAmount;
+        params.roamingRateHz = old.roamingRateHz;
+        params.mix = old.mix;
+        params.outputGainDb = old.outputGainDb;
+        std::copy(old.pickupTimeTrim.begin(), old.pickupTimeTrim.end(),
+            params.pickupTimeTrim.begin());
+        std::copy(old.pickupFeedbackTrim.begin(), old.pickupFeedbackTrim.end(),
+            params.pickupFeedbackTrim.begin());
+        params.maskAmount = old.maskAmount;
+        params.maskAzimuthDeg = old.maskAzimuthDeg;
+        params.maskElevationDeg = old.maskElevationDeg;
+        params.maskWidth = old.maskWidth;
+        params.maskCurve = old.maskCurve;
+        params.maskDry = old.maskDry;
     } else if (version == 2u) {
         AmbiEffectDelayParamsV2 old {};
         if (!readAll(stream, &old, sizeof(old))) return false;
@@ -1068,14 +1117,15 @@ NSRect feedbackAxisRect()
 
     if (_openMenu > 0 && _menuItems > 0u) {
         NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
-        NSString* bodyItems[] = { @"AUTO", @"ICOSA 12", @"DODECA 20" };
+        NSString* bodyItems[] = { @"AUTO", @"ICOSA 12", @"DODECA 20", @"SPHERE 24" };
         NSString* topologyItems[] = { @"LOCAL", @"CROSS", @"DIFFUSE", @"ROAMING" };
         NSString** items = _openMenu == 1 ? orderItems
             : (_openMenu == 2 ? bodyItems : topologyItems);
         const int selected = _openMenu == 1 ? static_cast<int>(p->params.order) - 1
             : (_openMenu == 2
                 ? (p->params.body == s3g::AmbiEffectBody::Auto ? 0
-                    : (p->params.body == s3g::AmbiEffectBody::Dodeca20 ? 2 : 1))
+                    : (p->params.body == s3g::AmbiEffectBody::Dodeca20 ? 2
+                        : (p->params.body == s3g::AmbiEffectBody::Sphere24 ? 3 : 1)))
                 : static_cast<int>(p->params.topology));
         const CGFloat width = s3g::gui_layout::processorMenuWidth(kLayout.output.frame.width);
         s3g::clap_gui::drawDropdownMenu(NSMakeRect(_menuOrigin.x, _menuOrigin.y,
@@ -1137,7 +1187,7 @@ NSRect feedbackAxisRect()
         if (hit >= 0) {
             if (_openMenu == 1) [self setParam:kParamOrder value:hit + 1.0];
             else if (_openMenu == 2) [self setParam:kParamBody
-                value:(hit == 0 ? 0.0 : (hit == 1 ? 3.0 : 4.0))];
+                value:(hit == 0 ? 0.0 : hit + 2.0)];
             else [self setParam:kParamTopology value:hit];
         }
         _openMenu = 0; _hoverMenuItem = -1; [self setNeedsDisplay:YES]; return;
@@ -1179,7 +1229,7 @@ NSRect feedbackAxisRect()
     struct MenuHit { s3g::gui_layout::Rect rect; int menu; uint32_t items; };
     const MenuHit menus[] {
         { s3g::gui_layout::sliderHitRect(kLayout.output, 1u), 1, 7u },
-        { s3g::gui_layout::sliderHitRect(kDelayPanel, 0u), 2, 3u },
+        { s3g::gui_layout::sliderHitRect(kDelayPanel, 0u), 2, 4u },
         { s3g::gui_layout::sliderHitRect(kTopologyPanel, 0u), 3, 4u },
     };
     for (const auto& menu : menus) {

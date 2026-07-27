@@ -3,6 +3,7 @@
 #include <clap/ext/state.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -212,6 +213,49 @@ int main(int argc, char** argv)
                     middleText, sizeof(middleText))
                 && std::strcmp(lowText, "HOLD") == 0
                 && std::strstr(middleText, "0.025x");
+        }
+
+        constexpr std::array<const char*, 5> scoreNames {
+            "Score Pace", "Entity Occupancy", "Causal Cascade",
+            "Score Memory", "Scored Rest",
+        };
+        const clap_id firstScoreId = pyrosphere ? 63u : 50u;
+        EventList scoreEvents;
+        for (uint32_t scoreIndex = 0u;
+            scoreIndex < scoreNames.size(); ++scoreIndex) {
+            const clap_id scoreId = firstScoreId + scoreIndex;
+            clap_param_info_t scoreInfo {};
+            bool foundScore = false;
+            for (uint32_t index = 0u;
+                index < params->count(plugin); ++index) {
+                clap_param_info_t info {};
+                if (!params->get_info(plugin, index, &info)) continue;
+                if (info.id == scoreId) {
+                    scoreInfo = info;
+                    foundScore = true;
+                    break;
+                }
+            }
+            ok = ok && foundScore
+                && std::strcmp(scoreInfo.name,
+                    scoreNames[scoreIndex]) == 0
+                && std::strcmp(scoreInfo.module,
+                    "Aleatoric Entity Score") == 0
+                && approximately(scoreInfo.min_value, 0.0)
+                && approximately(scoreInfo.max_value, 1.0)
+                && (scoreInfo.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0u
+                && (scoreInfo.flags & CLAP_PARAM_IS_STEPPED) == 0u;
+            scoreEvents.add(scoreId,
+                0.11 + static_cast<double>(scoreIndex) * 0.13);
+        }
+        if (ok) params->flush(plugin, &scoreEvents.input, nullptr);
+        for (uint32_t scoreIndex = 0u;
+            ok && scoreIndex < scoreNames.size(); ++scoreIndex) {
+            double value = -1.0;
+            ok = params->get_value(plugin,
+                    firstScoreId + scoreIndex, &value)
+                && approximately(value,
+                    0.11 + static_cast<double>(scoreIndex) * 0.13);
         }
     }
 

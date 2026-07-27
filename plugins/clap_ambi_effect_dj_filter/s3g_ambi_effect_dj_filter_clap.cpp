@@ -26,8 +26,9 @@
 namespace {
 
 constexpr uint32_t kChannels = s3g::kAmbiEffectDjFilterMaxChannels;
-constexpr uint32_t kStateVersion = 5u;
+constexpr uint32_t kStateVersion = 6u;
 constexpr uint32_t kLegacyPickupCount = 12u;
+constexpr uint32_t kPreviousPickupCount = 20u;
 constexpr uint32_t kGuiWidth = 820u;
 constexpr uint32_t kGuiHeight = 640u;
 
@@ -55,6 +56,41 @@ enum ParamId : clap_id {
     kParamPickupResonanceFirst = 200,
     kParamPickupResonanceLast = kParamPickupResonanceFirst
         + s3g::kAmbiEffectDjFilterMaxPickups - 1u,
+};
+
+struct AmbiEffectDjFilterParamsV5 {
+    s3g::AmbiEffectEngine engine = s3g::AmbiEffectEngine::DjFilter;
+    uint32_t order = 7u;
+    s3g::AmbiEffectBody body = s3g::AmbiEffectBody::Auto;
+    s3g::AmbiEffectTopology topology = s3g::AmbiEffectTopology::Local;
+    float filter = 0.5f;
+    float resonance = 0.12f;
+    float spread = 0.0f;
+    float deviation = 0.0f;
+    float topologyAmount = 0.65f;
+    float roamingRateHz = 0.08f;
+    float mix = 1.0f;
+    float outputGainDb = 0.0f;
+    std::array<float, kPreviousPickupCount> pickupFilterTrim {};
+    std::array<float, kPreviousPickupCount> pickupResonanceTrim {};
+    float maskAmount = 0.0f;
+    float maskAzimuthDeg = 0.0f;
+    float maskElevationDeg = 0.0f;
+    float maskWidth = 0.35f;
+    float maskCurve = 0.5f;
+    float maskDry = 1.0f;
+    float delayTimeMs = 320.0f;
+    float delayFeedback = 0.32f;
+    float delayTone = 0.62f;
+    std::array<float, kPreviousPickupCount> pickupDelayTimeTrim {};
+    std::array<float, kPreviousPickupCount> pickupDelayFeedbackTrim {};
+    float pitchSemitones = 0.0f;
+    float pitchWindowMs = 80.0f;
+    float pitchGlideMs = 250.0f;
+    std::array<float, kPreviousPickupCount> pickupPitchTrim {};
+    std::array<float, kPreviousPickupCount> pickupPitchWindowTrim {};
+    float gainDb = 0.0f;
+    std::array<float, kPreviousPickupCount> pickupGainTrim {};
 };
 
 struct AmbiEffectDjFilterParamsV4 {
@@ -512,7 +548,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
         info->id = kParamBody;
         info->flags |= CLAP_PARAM_IS_STEPPED;
         std::strncpy(info->name, "Auditory body", sizeof(info->name));
-        info->min_value = 0.0; info->max_value = 4.0;
+        info->min_value = 0.0; info->max_value = 5.0;
         info->default_value = 0.0; return true;
     case 2:
         info->id = kParamTopology;
@@ -633,7 +669,7 @@ bool paramsValueToText(const clap_plugin_t*, clap_id paramId,
     case kParamBody:
         std::snprintf(display, size, "%s",
             s3g::ambiEffectBodyName(static_cast<s3g::AmbiEffectBody>(
-                std::min<uint32_t>(roundedUint(value), 4u))));
+                std::min<uint32_t>(roundedUint(value), 5u))));
         return true;
     case kParamTopology:
         std::snprintf(display, size, "%s",
@@ -713,7 +749,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId,
         *value = std::atof(display);
         return true;
     case kParamBody:
-        for (uint32_t index = 0u; index <= 4u; ++index) {
+        for (uint32_t index = 0u; index <= 5u; ++index) {
             const auto body = static_cast<s3g::AmbiEffectBody>(index);
             if (std::strcmp(display, s3g::ambiEffectBodyName(body)) == 0) {
                 *value = static_cast<double>(index);
@@ -848,6 +884,53 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 sizeof(loadedViewAzDeg))
             || !streamReadAll(stream, &loadedViewElDeg,
                 sizeof(loadedViewElDeg))) return false;
+    } else if (version == 5u) {
+        AmbiEffectDjFilterParamsV5 old {};
+        if (!streamReadAll(stream, &old, sizeof(old))) return false;
+        loaded.engine = old.engine;
+        loaded.order = old.order;
+        loaded.body = old.body;
+        loaded.topology = old.topology;
+        loaded.filter = old.filter;
+        loaded.resonance = old.resonance;
+        loaded.spread = old.spread;
+        loaded.deviation = old.deviation;
+        loaded.topologyAmount = old.topologyAmount;
+        loaded.roamingRateHz = old.roamingRateHz;
+        loaded.mix = old.mix;
+        loaded.outputGainDb = old.outputGainDb;
+        std::copy(old.pickupFilterTrim.begin(), old.pickupFilterTrim.end(),
+            loaded.pickupFilterTrim.begin());
+        std::copy(old.pickupResonanceTrim.begin(), old.pickupResonanceTrim.end(),
+            loaded.pickupResonanceTrim.begin());
+        loaded.maskAmount = old.maskAmount;
+        loaded.maskAzimuthDeg = old.maskAzimuthDeg;
+        loaded.maskElevationDeg = old.maskElevationDeg;
+        loaded.maskWidth = old.maskWidth;
+        loaded.maskCurve = old.maskCurve;
+        loaded.maskDry = old.maskDry;
+        loaded.delayTimeMs = old.delayTimeMs;
+        loaded.delayFeedback = old.delayFeedback;
+        loaded.delayTone = old.delayTone;
+        std::copy(old.pickupDelayTimeTrim.begin(), old.pickupDelayTimeTrim.end(),
+            loaded.pickupDelayTimeTrim.begin());
+        std::copy(old.pickupDelayFeedbackTrim.begin(), old.pickupDelayFeedbackTrim.end(),
+            loaded.pickupDelayFeedbackTrim.begin());
+        loaded.pitchSemitones = old.pitchSemitones;
+        loaded.pitchWindowMs = old.pitchWindowMs;
+        loaded.pitchGlideMs = old.pitchGlideMs;
+        std::copy(old.pickupPitchTrim.begin(), old.pickupPitchTrim.end(),
+            loaded.pickupPitchTrim.begin());
+        std::copy(old.pickupPitchWindowTrim.begin(), old.pickupPitchWindowTrim.end(),
+            loaded.pickupPitchWindowTrim.begin());
+        loaded.gainDb = old.gainDb;
+        std::copy(old.pickupGainTrim.begin(), old.pickupGainTrim.end(),
+            loaded.pickupGainTrim.begin());
+        if (!streamReadAll(stream, &loadedViewMode, sizeof(loadedViewMode))
+            || !streamReadAll(stream, &loadedViewAzDeg, sizeof(loadedViewAzDeg))
+            || !streamReadAll(stream, &loadedViewElDeg, sizeof(loadedViewElDeg))) {
+            return false;
+        }
     } else if (version == 4u) {
         AmbiEffectDjFilterParamsV4 old {};
         if (!streamReadAll(stream, &old, sizeof(old))) return false;
@@ -1548,7 +1631,7 @@ NSRect pickupResonanceAxisRect()
             @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA"
         };
         NSString* bodyItems[] = {
-            @"AUTO", @"ICOSA 12", @"DODECA 20"
+            @"AUTO", @"ICOSA 12", @"DODECA 20", @"SPHERE 24"
         };
         NSString* topologyItems[] = {
             @"LOCAL", @"CROSS", @"DIFFUSE", @"ROAMING"
@@ -1559,7 +1642,8 @@ NSRect pickupResonanceAxisRect()
             ? static_cast<int>(p->params.order) - 1
             : (_openMenu == 2
                 ? (p->params.body == s3g::AmbiEffectBody::Auto ? 0
-                    : (p->params.body == s3g::AmbiEffectBody::Dodeca20 ? 2 : 1))
+                    : (p->params.body == s3g::AmbiEffectBody::Dodeca20 ? 2
+                        : (p->params.body == s3g::AmbiEffectBody::Sphere24 ? 3 : 1)))
                 : static_cast<int>(p->params.topology));
         const CGFloat width = s3g::gui_layout::processorMenuWidth(
             kLayout.output.frame.width);
@@ -1662,7 +1746,7 @@ NSRect pickupResonanceAxisRect()
         if (hit >= 0) {
             if (_openMenu == 1) [self setParam:kParamOrder value:hit + 1.0];
             else if (_openMenu == 2) [self setParam:kParamBody
-                value:(hit == 0 ? 0.0 : (hit == 1 ? 3.0 : 4.0))];
+                value:(hit == 0 ? 0.0 : hit + 2.0)];
             else [self setParam:kParamTopology value:hit];
         }
         _openMenu = 0;
@@ -1736,7 +1820,7 @@ NSRect pickupResonanceAxisRect()
     };
     const MenuHit menus[] {
         { s3g::gui_layout::sliderHitRect(kLayout.output, 1u), 1, 7u },
-        { s3g::gui_layout::sliderHitRect(kFilterPanel, 0u), 2, 3u },
+        { s3g::gui_layout::sliderHitRect(kFilterPanel, 0u), 2, 4u },
         { s3g::gui_layout::sliderHitRect(kTopologyPanel, 0u), 3, 4u },
     };
     for (const auto& menu : menus) {

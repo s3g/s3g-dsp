@@ -167,21 +167,21 @@ universal `RANDOM` action. Every continuous slider resets to its CLAP default
 on double-click, values remain inside the bounded right cell, and each editor
 uses the responsive viewport.
 
-## 3OAFX Family Reference
+## Ambi Effect Family Reference
 
-3OAFX host names keep `s3g 3OAFX` first and use the second word to identify
-the workflow: `Effect` for Delay, Pitch, Filter, and Gain; `Transform` for
-Displacement. Stable IDs and bundle filenames remain unchanged.
+Ambi Effect host names use `s3g Ambi Effect <member> 64`. DJ Filter, Delay,
+Pitch, Gain, and Displacement share order-adaptive Icosa12, Dodeca20, and
+Sphere24 pickup bodies, listener-field meters, standard cameras, and
+directional dry/wet masking.
 
-The four single effects use a shared 880 × 500 layout: a primary field at
-x 18 / y 42 and a right parameter column at x 518 / y 42. `OUTPUT` is first,
-followed by the effect engine and return-mask/projection controls.
-Displacement uses the 920 × 610 spatial variant, with its field at x 18 /
-y 42 and its x 648 parameter column beginning with `OUTPUT`; score playback,
-warp, and distance panels follow in that order.
+Displacement uses the shared 920 × 820 spatial canvas. Its listener field is
+at x 18 / y 42 and its x 648 parameter column begins with `OUTPUT`; playback,
+warp, distance, and mask panels follow in that order. The field preserves the
+standard `TOP`, `SIDE`, and `3/4` cameras, direct drag orbit, map view, zoom,
+score timeline, and per-pickup radial energy display.
 
-All 3OAFX titles use `PRESET`, `LOAD`, and `SAVE`, with contextual score/file
-loading retained in the panel that owns it. Sliders use shared 26 px rows and
+Ambi Effect titles use `PRESET`, `LOAD`, and `SAVE`, with contextual score
+loading retained in the field header. Sliders use the shared compact rows and
 double-click defaults. Menus and contextual dropdowns consume the same panel
 geometry used for drawing and hit testing.
 

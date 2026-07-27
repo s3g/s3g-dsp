@@ -32,6 +32,7 @@ constexpr clap_id kSustainParamId = 59u;
 constexpr clap_id kReleaseParamId = 60u;
 constexpr clap_id kCarrierTuneParamId = 61u;
 constexpr clap_id kPresetParamId = 50u;
+constexpr clap_id kRandomizePatchParamId = 51u;
 constexpr clap_id kModSourceParamId = 62u;
 constexpr clap_id kModTargetParamId = 63u;
 constexpr clap_id kModRateParamId = 64u;
@@ -39,6 +40,25 @@ constexpr clap_id kModRatioParamId = 65u;
 constexpr clap_id kModIndexParamId = 66u;
 constexpr clap_id kModFeedbackParamId = 67u;
 constexpr clap_id kModClockLockParamId = 68u;
+constexpr clap_id kModAlgorithmParamId = 69u;
+constexpr clap_id kModSource2ParamId = 70u;
+constexpr clap_id kModRate2ParamId = 71u;
+constexpr clap_id kModRatio2ParamId = 72u;
+constexpr clap_id kModIndex2ParamId = 73u;
+constexpr clap_id kModFeedback2ParamId = 74u;
+constexpr clap_id kModClockLock2ParamId = 75u;
+constexpr clap_id kModTarget2ParamId = 76u;
+constexpr clap_id kModSource3ParamId = 77u;
+constexpr clap_id kModTarget3ParamId = 78u;
+constexpr clap_id kModRate3ParamId = 79u;
+constexpr clap_id kModRatio3ParamId = 80u;
+constexpr clap_id kModIndex3ParamId = 81u;
+constexpr clap_id kModFeedback3ParamId = 82u;
+constexpr clap_id kModClockLock3ParamId = 83u;
+constexpr clap_id kModEnvelope1ParamId = 84u;
+constexpr clap_id kModEnvelope2ParamId = 85u;
+constexpr clap_id kModEnvelope3ParamId = 86u;
+constexpr clap_id kModulationEnabledParamId = 87u;
 constexpr clap_id kCodecModeParamId = 15u;
 constexpr clap_id kRandomizeFieldParamId = 23u;
 
@@ -93,6 +113,110 @@ LegacyParamsV16 legacyParamsV16(const s3g::PsdRawFieldParams& params)
         params.codecDamage, params.carrierTune, params.drive, params.shred, params.resonance,
         params.gainDb, params.seed, static_cast<uint32_t>(params.fieldCodecMode),
     };
+}
+
+struct LegacyParamsV17 {
+    float scanRate, texture, geometry, chaos, fold, evolve;
+    uint32_t channelScheme;
+    float channelSpread;
+    uint32_t codecMode;
+    float codecRate, bitDepth, codecDamage, carrierTune, drive, shred, resonance, gainDb;
+    uint32_t seed;
+    uint32_t fieldCodecMode;
+    uint32_t modSource;
+    uint32_t modTarget;
+    float modRate, modRatio, modIndex, modFeedback;
+    uint32_t modClockLock;
+};
+static_assert(sizeof(LegacyParamsV17) == 104u, "Unexpected version-17 parameter layout");
+
+LegacyParamsV17 legacyParamsV17(const s3g::PsdRawFieldParams& params)
+{
+    return {
+        params.scanRate, params.texture, params.geometry, params.chaos, params.fold, params.evolve,
+        static_cast<uint32_t>(params.channelScheme), params.channelSpread,
+        static_cast<uint32_t>(params.codecMode), params.codecRate, params.bitDepth,
+        params.codecDamage, params.carrierTune, params.drive, params.shred, params.resonance,
+        params.gainDb, params.seed, static_cast<uint32_t>(params.fieldCodecMode),
+        static_cast<uint32_t>(params.modSource), static_cast<uint32_t>(params.modTarget),
+        params.modRate, params.modRatio, params.modIndex, params.modFeedback, params.modClockLock,
+    };
+}
+
+struct LegacyParamsV18 {
+    float scanRate, texture, geometry, chaos, fold, evolve;
+    uint32_t channelScheme;
+    float channelSpread;
+    uint32_t codecMode;
+    float codecRate, bitDepth, codecDamage, carrierTune, drive, shred, resonance, gainDb;
+    uint32_t seed;
+    uint32_t fieldCodecMode;
+    uint32_t modSource;
+    uint32_t modTarget;
+    float modRate, modRatio, modIndex, modFeedback;
+    uint32_t modClockLock;
+    uint32_t modAlgorithm;
+    uint32_t modSource2;
+    float modRate2, modRatio2, modIndex2, modFeedback2;
+    uint32_t modClockLock2;
+};
+static_assert(sizeof(LegacyParamsV18) == 132u, "Unexpected version-18 parameter layout");
+
+LegacyParamsV18 legacyParamsV18(const s3g::PsdRawFieldParams& params)
+{
+    LegacyParamsV18 result {};
+    const LegacyParamsV17 first = legacyParamsV17(params);
+    std::memcpy(&result, &first, sizeof(first));
+    result.modAlgorithm = static_cast<uint32_t>(params.modAlgorithm);
+    result.modSource2 = static_cast<uint32_t>(params.modSource2);
+    result.modRate2 = params.modRate2;
+    result.modRatio2 = params.modRatio2;
+    result.modIndex2 = params.modIndex2;
+    result.modFeedback2 = params.modFeedback2;
+    result.modClockLock2 = params.modClockLock2;
+    return result;
+}
+
+struct LegacyParamsV19 {
+    float scanRate, texture, geometry, chaos, fold, evolve;
+    uint32_t channelScheme;
+    float channelSpread;
+    uint32_t codecMode;
+    float codecRate, bitDepth, codecDamage, carrierTune, drive, shred, resonance, gainDb;
+    uint32_t seed;
+    uint32_t fieldCodecMode;
+    uint32_t modSource;
+    uint32_t modTarget;
+    float modRate, modRatio, modIndex, modFeedback;
+    uint32_t modClockLock;
+    uint32_t modAlgorithm;
+    uint32_t modSource2;
+    float modRate2, modRatio2, modIndex2, modFeedback2;
+    uint32_t modClockLock2;
+    uint32_t modTarget2, modSource3, modTarget3;
+    float modRate3, modRatio3, modIndex3, modFeedback3;
+    uint32_t modClockLock3;
+};
+static_assert(sizeof(LegacyParamsV19) == 164u, "Unexpected version-19 parameter layout");
+
+LegacyParamsV19 legacyParamsV19(const s3g::PsdRawFieldParams& params)
+{
+    LegacyParamsV19 result {};
+    std::memcpy(&result, &params, sizeof(result));
+    return result;
+}
+
+struct LegacyParamsV20 {
+    LegacyParamsV19 previous;
+    uint32_t modEnvelope1, modEnvelope2, modEnvelope3;
+};
+static_assert(sizeof(LegacyParamsV20) == 176u, "Unexpected version-20 parameter layout");
+
+LegacyParamsV20 legacyParamsV20(const s3g::PsdRawFieldParams& params)
+{
+    LegacyParamsV20 result {};
+    std::memcpy(&result, &params, sizeof(result));
+    return result;
 }
 
 LegacyParamsV13 legacyParams(const s3g::PsdRawFieldParams& params)
@@ -168,8 +292,68 @@ struct SavedStateV16 {
 };
 static_assert(sizeof(SavedStateV16) == 4208u, "Unexpected version-16 Fault state layout");
 
-struct SavedStateV17 {
+struct LegacySavedStateV17 {
     uint32_t version = 17u;
+    uint32_t selectedPreset = 12u;
+    LegacyParamsV17 params {};
+    uint32_t sourceMode = 2u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = 0u;
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV17) == 4236u, "Unexpected version-17 Fault state layout");
+
+struct LegacySavedStateV18 {
+    uint32_t version = 18u;
+    uint32_t selectedPreset = 12u;
+    LegacyParamsV18 params {};
+    uint32_t sourceMode = 2u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = 0u;
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV18) == 4264u, "Unexpected version-18 Fault state layout");
+
+struct LegacySavedStateV19 {
+    uint32_t version = 19u;
+    uint32_t selectedPreset = 12u;
+    LegacyParamsV19 params {};
+    uint32_t sourceMode = 2u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = 0u;
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV19) == 4296u, "Unexpected version-19 Fault state layout");
+
+struct LegacySavedStateV20 {
+    uint32_t version = 20u;
+    uint32_t selectedPreset = 12u;
+    LegacyParamsV20 params {};
+    uint32_t sourceMode = 2u;
+    uint32_t runState = 1u;
+    uint32_t performanceMode = 0u;
+    float attackMs = 12.0f;
+    float decayMs = 280.0f;
+    float sustain = 0.72f;
+    float releaseMs = 850.0f;
+    char sourcePath[kSourcePathCapacity] {};
+};
+static_assert(sizeof(LegacySavedStateV20) == 4308u, "Unexpected version-20 Fault state layout");
+
+struct SavedStateV21 {
+    uint32_t version = 21u;
     uint32_t selectedPreset = 12u;
     s3g::PsdRawFieldParams params {};
     uint32_t sourceMode = 2u;
@@ -181,7 +365,7 @@ struct SavedStateV17 {
     float releaseMs = 850.0f;
     char sourcePath[kSourcePathCapacity] {};
 };
-static_assert(sizeof(SavedStateV17) == 4236u, "Unexpected current Fault state layout");
+static_assert(sizeof(SavedStateV21) == 4312u, "Unexpected current Fault state layout");
 
 struct SavedStateV13 {
     uint32_t version = 13u;
@@ -630,19 +814,153 @@ int main(int argc, char** argv)
         MemoryOutput currentOutput;
         clap_ostream_t currentStream { &currentOutput, streamWrite };
         ok = stateExtension->save(plugin, &currentStream)
-            && currentOutput.bytes.size() == sizeof(SavedStateV17);
+            && currentOutput.bytes.size() == sizeof(SavedStateV20);
         if (ok) {
-            SavedStateV17 saved {};
+            SavedStateV20 saved {};
             std::memcpy(&saved, currentOutput.bytes.data(), sizeof(saved));
-            ok = saved.version == 17u && saved.selectedPreset == 12u
+            ok = saved.version == 20u && saved.selectedPreset == 12u
                 && saved.sourceMode == 2u && saved.runState == 1u
                 && saved.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::RawPcm
                 && saved.params.carrierTune == 0.0f
                 && saved.params.modSource == s3g::PsdRawFieldModSource::Off
                 && saved.params.modIndex == 0.0f
+                && saved.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Broadcast
+                && saved.params.modSource2 == s3g::PsdRawFieldModSource::Off
+                && saved.params.modIndex2 == 0.0f
+                && saved.params.modTarget2 == s3g::PsdRawFieldModTarget::Off
+                && saved.params.modSource3 == s3g::PsdRawFieldModSource::Off
+                && saved.params.modTarget3 == s3g::PsdRawFieldModTarget::Off
+                && saved.params.modIndex3 == 0.0f
+                && saved.params.modEnvelope1 == 0u
+                && saved.params.modEnvelope2 == 0u
+                && saved.params.modEnvelope3 == 0u
                 && saved.performanceMode == 1u && saved.attackMs == 1.0f
                 && saved.decayMs == 5.0f && saved.sustain == 1.0f && saved.releaseMs == 5.0f;
         }
+    }
+
+    if (ok) {
+        s3g::PsdRawFieldParams oldParams {};
+        oldParams.codecMode = s3g::PsdRawFieldCodecMode::Sstv;
+        oldParams.modAlgorithm = s3g::PsdRawFieldModAlgorithm::Relay;
+        oldParams.modSource = s3g::PsdRawFieldModSource::Sine;
+        oldParams.modTarget = s3g::PsdRawFieldModTarget::Carrier;
+        oldParams.modIndex = 0.52f;
+        oldParams.modSource2 = s3g::PsdRawFieldModSource::Morse;
+        oldParams.modTarget2 = s3g::PsdRawFieldModTarget::Clock;
+        oldParams.modIndex2 = 0.43f;
+        oldParams.modSource3 = s3g::PsdRawFieldModSource::Hellschreiber;
+        oldParams.modTarget3 = s3g::PsdRawFieldModTarget::Damage;
+        oldParams.modIndex3 = 0.34f;
+        LegacySavedStateV19 legacy {};
+        legacy.params = legacyParamsV19(oldParams);
+        std::snprintf(legacy.sourcePath, sizeof(legacy.sourcePath), "%s", wavePath.c_str());
+        MemoryInput legacyInput { reinterpret_cast<const uint8_t*>(&legacy), sizeof(legacy), 0u };
+        clap_istream_t legacyStream { &legacyInput, streamRead };
+        ok = stateExtension->load(plugin, &legacyStream);
+        MemoryOutput migratedOutput;
+        clap_ostream_t migratedStream { &migratedOutput, streamWrite };
+        ok = ok && stateExtension->save(plugin, &migratedStream)
+            && migratedOutput.bytes.size() == sizeof(SavedStateV20);
+        if (ok) {
+            SavedStateV20 migrated {};
+            std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
+            ok = migrated.version == 20u
+                && migrated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Relay
+                && migrated.params.modSource3 == s3g::PsdRawFieldModSource::Hellschreiber
+                && migrated.params.modTarget3 == s3g::PsdRawFieldModTarget::Damage
+                && std::abs(migrated.params.modIndex3 - 0.34f) < 1.0e-6f
+                && migrated.params.modEnvelope1 == 0u
+                && migrated.params.modEnvelope2 == 0u
+                && migrated.params.modEnvelope3 == 0u;
+        }
+        if (!ok) std::cerr << "Fault did not migrate version-19 three-operator state\n";
+    }
+
+    if (ok) {
+        s3g::PsdRawFieldParams oldParams {};
+        oldParams.codecMode = s3g::PsdRawFieldCodecMode::HfFax;
+        oldParams.modAlgorithm = s3g::PsdRawFieldModAlgorithm::CrossedMachines;
+        oldParams.modSource = s3g::PsdRawFieldModSource::Field;
+        oldParams.modTarget = s3g::PsdRawFieldModTarget::Data;
+        oldParams.modRate = 0.41f;
+        oldParams.modIndex = 0.63f;
+        oldParams.modSource2 = s3g::PsdRawFieldModSource::Apt;
+        oldParams.modRate2 = 0.22f;
+        oldParams.modRatio2 = 0.5f;
+        oldParams.modIndex2 = 0.48f;
+        oldParams.modClockLock2 = 1u;
+        LegacySavedStateV18 legacy {};
+        legacy.params = legacyParamsV18(oldParams);
+        std::snprintf(legacy.sourcePath, sizeof(legacy.sourcePath), "%s", wavePath.c_str());
+        MemoryInput legacyInput { reinterpret_cast<const uint8_t*>(&legacy), sizeof(legacy), 0u };
+        clap_istream_t legacyStream { &legacyInput, streamRead };
+        ok = stateExtension->load(plugin, &legacyStream);
+        MemoryOutput migratedOutput;
+        clap_ostream_t migratedStream { &migratedOutput, streamWrite };
+        ok = ok && stateExtension->save(plugin, &migratedStream)
+            && migratedOutput.bytes.size() == sizeof(SavedStateV20);
+        if (ok) {
+            SavedStateV20 migrated {};
+            std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
+            ok = migrated.version == 20u
+                && migrated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::CrossedMachines
+                && migrated.params.modSource == s3g::PsdRawFieldModSource::Field
+                && migrated.params.modTarget == s3g::PsdRawFieldModTarget::Carrier
+                && std::abs(migrated.params.modRate - 0.41f) < 1.0e-6f
+                && std::abs(migrated.params.modIndex - 0.63f) < 1.0e-6f
+                && migrated.params.modSource2 == s3g::PsdRawFieldModSource::Apt
+                && migrated.params.modTarget2 == s3g::PsdRawFieldModTarget::Clock
+                && std::abs(migrated.params.modRate2 - 0.22f) < 1.0e-6f
+                && std::abs(migrated.params.modRatio2 - 0.5f) < 1.0e-6f
+                && std::abs(migrated.params.modIndex2 - 0.48f) < 1.0e-6f
+                && migrated.params.modClockLock2 == 1u
+                && migrated.params.modSource3 == s3g::PsdRawFieldModSource::Off
+                && migrated.params.modTarget3 == s3g::PsdRawFieldModTarget::Off;
+        }
+        if (!ok) std::cerr << "Fault did not migrate version-18 two-operator state\n";
+    }
+
+    if (ok) {
+        s3g::PsdRawFieldParams oldParams {};
+        oldParams.codecMode = s3g::PsdRawFieldCodecMode::Hellschreiber;
+        oldParams.modSource = s3g::PsdRawFieldModSource::Morse;
+        oldParams.modTarget = s3g::PsdRawFieldModTarget::Data;
+        oldParams.modRate = 0.42f;
+        oldParams.modRatio = 3.0f;
+        oldParams.modIndex = 0.67f;
+        oldParams.modFeedback = 0.31f;
+        oldParams.modClockLock = 1u;
+        LegacySavedStateV17 legacy {};
+        legacy.params = legacyParamsV17(oldParams);
+        std::snprintf(legacy.sourcePath, sizeof(legacy.sourcePath), "%s", wavePath.c_str());
+        MemoryInput legacyInput { reinterpret_cast<const uint8_t*>(&legacy), sizeof(legacy), 0u };
+        clap_istream_t legacyStream { &legacyInput, streamRead };
+        ok = stateExtension->load(plugin, &legacyStream);
+        MemoryOutput migratedOutput;
+        clap_ostream_t migratedStream { &migratedOutput, streamWrite };
+        ok = ok && stateExtension->save(plugin, &migratedStream)
+            && migratedOutput.bytes.size() == sizeof(SavedStateV20);
+        if (ok) {
+            SavedStateV20 migrated {};
+            std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
+            ok = migrated.version == 20u
+                && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::Hellschreiber
+                && migrated.params.modSource == s3g::PsdRawFieldModSource::Morse
+                && migrated.params.modTarget == s3g::PsdRawFieldModTarget::Data
+                && std::abs(migrated.params.modRate - 0.42f) < 1.0e-6f
+                && std::abs(migrated.params.modRatio - 3.0f) < 1.0e-6f
+                && std::abs(migrated.params.modIndex - 0.67f) < 1.0e-6f
+                && std::abs(migrated.params.modFeedback - 0.31f) < 1.0e-6f
+                && migrated.params.modClockLock == 1u
+                && migrated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Broadcast
+                && migrated.params.modSource2 == s3g::PsdRawFieldModSource::Off
+                && migrated.params.modIndex2 == 0.0f
+                && migrated.params.modTarget2 == s3g::PsdRawFieldModTarget::Off
+                && migrated.params.modSource3 == s3g::PsdRawFieldModSource::Off
+                && migrated.params.modTarget3 == s3g::PsdRawFieldModTarget::Off;
+        }
+        if (!ok) std::cerr << "Fault did not migrate version-17 modulation state\n";
     }
 
     if (ok) {
@@ -659,11 +977,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV17);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV20);
         if (ok) {
-            SavedStateV17 migrated {};
+            SavedStateV20 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 17u
+            ok = migrated.version == 20u
                 && migrated.params.codecMode == s3g::PsdRawFieldCodecMode::Sstv
                 && migrated.params.fieldCodecMode == s3g::PsdRawFieldCodecMode::HfFax
                 && migrated.params.carrierTune == -7.5f
@@ -686,11 +1004,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV17);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV20);
         if (ok) {
-            SavedStateV17 migrated {};
+            SavedStateV20 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 17u && migrated.selectedPreset == 12u
+            ok = migrated.version == 20u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.performanceMode == 0u && migrated.attackMs == 12.0f
                 && migrated.decayMs == 280.0f && migrated.sustain == 0.72f
@@ -709,11 +1027,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV17);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV20);
         if (ok) {
-            SavedStateV17 migrated {};
+            SavedStateV20 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 17u && migrated.selectedPreset == 12u
+            ok = migrated.version == 20u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -731,11 +1049,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV17);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV20);
         if (ok) {
-            SavedStateV17 migrated {};
+            SavedStateV20 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 17u && migrated.selectedPreset == 12u
+            ok = migrated.version == 20u && migrated.selectedPreset == 12u
                 && migrated.sourceMode == 2u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -753,11 +1071,11 @@ int main(int argc, char** argv)
         MemoryOutput migratedOutput;
         clap_ostream_t migratedStream { &migratedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &migratedStream)
-            && migratedOutput.bytes.size() == sizeof(SavedStateV17);
+            && migratedOutput.bytes.size() == sizeof(SavedStateV20);
         if (ok) {
-            SavedStateV17 migrated {};
+            SavedStateV20 migrated {};
             std::memcpy(&migrated, migratedOutput.bytes.data(), sizeof(migrated));
-            ok = migrated.version == 17u && migrated.selectedPreset == 13u
+            ok = migrated.version == 20u && migrated.selectedPreset == 13u
                 && migrated.sourceMode == 1u && migrated.runState == 1u
                 && migrated.params.fieldCodecMode == migrated.params.codecMode
                 && migrated.performanceMode == 0u;
@@ -775,11 +1093,11 @@ int main(int argc, char** argv)
         MemoryOutput stoppedOutput;
         clap_ostream_t stoppedOutputStream { &stoppedOutput, streamWrite };
         ok = ok && stateExtension->save(plugin, &stoppedOutputStream)
-            && stoppedOutput.bytes.size() == sizeof(SavedStateV17);
+            && stoppedOutput.bytes.size() == sizeof(SavedStateV20);
         if (ok) {
-            SavedStateV17 savedStopped {};
+            SavedStateV20 savedStopped {};
             std::memcpy(&savedStopped, stoppedOutput.bytes.data(), sizeof(savedStopped));
-            ok = savedStopped.version == 17u && savedStopped.runState == 0u;
+            ok = savedStopped.version == 20u && savedStopped.runState == 0u;
         }
         if (!ok) std::cerr << "Fault did not preserve its stopped transport state\n";
     }
@@ -850,10 +1168,20 @@ int main(int argc, char** argv)
             char targetText[24] {};
             char clockText[16] {};
             char rateText[24] {};
+            char algorithmText[24] {};
+            char source2Text[24] {};
+            char source3Text[24] {};
+            char target3Text[24] {};
+            char envelopeText[16] {};
             double sourceValue = -1.0;
             double targetValue = -1.0;
             double clockValue = -1.0;
             double rateValue = -1.0;
+            double algorithmValue = -1.0;
+            double source2Value = -1.0;
+            double source3Value = -1.0;
+            double target3Value = -1.0;
+            double envelopeValue = -1.0;
             constexpr double displayedRate = 0.61;
             ok = paramsExtension->value_to_text(plugin, kModSourceParamId,
                     static_cast<double>(s3g::PsdRawFieldModSource::Hellschreiber),
@@ -879,7 +1207,41 @@ int main(int argc, char** argv)
                     displayedRate, rateText, sizeof(rateText))
                 && paramsExtension->text_to_value(plugin, kModRateParamId,
                     rateText, &rateValue)
-                && std::abs(rateValue - displayedRate) < 0.002;
+                && std::abs(rateValue - displayedRate) < 0.002
+                && paramsExtension->value_to_text(plugin, kModAlgorithmParamId,
+                    static_cast<double>(s3g::PsdRawFieldModAlgorithm::Transcode),
+                    algorithmText, sizeof(algorithmText))
+                && std::strcmp(algorithmText, "TRANSCODE") == 0
+                && paramsExtension->text_to_value(plugin, kModAlgorithmParamId,
+                    "TRANSCODE", &algorithmValue)
+                && algorithmValue == static_cast<double>(s3g::PsdRawFieldModAlgorithm::Transcode)
+                && paramsExtension->value_to_text(plugin, kModSource2ParamId,
+                    static_cast<double>(s3g::PsdRawFieldModSource::BaudotRtty),
+                    source2Text, sizeof(source2Text))
+                && std::strcmp(source2Text, "BAUDOT RTTY") == 0
+                && paramsExtension->text_to_value(plugin, kModSource2ParamId,
+                    "BAUDOT RTTY", &source2Value)
+                && source2Value == static_cast<double>(s3g::PsdRawFieldModSource::BaudotRtty)
+                && paramsExtension->value_to_text(plugin, kModSource3ParamId,
+                    static_cast<double>(s3g::PsdRawFieldModSource::Sstv),
+                    source3Text, sizeof(source3Text))
+                && std::strcmp(source3Text, "SSTV") == 0
+                && paramsExtension->text_to_value(plugin, kModSource3ParamId,
+                    "SSTV", &source3Value)
+                && source3Value == static_cast<double>(s3g::PsdRawFieldModSource::Sstv)
+                && paramsExtension->value_to_text(plugin, kModTarget3ParamId,
+                    static_cast<double>(s3g::PsdRawFieldModTarget::Off),
+                    target3Text, sizeof(target3Text))
+                && std::strcmp(target3Text, "OFF") == 0
+                && paramsExtension->text_to_value(plugin, kModTarget3ParamId,
+                    "OFF", &target3Value)
+                && target3Value == static_cast<double>(s3g::PsdRawFieldModTarget::Off)
+                && paramsExtension->value_to_text(plugin, kModEnvelope3ParamId,
+                    1.0, envelopeText, sizeof(envelopeText))
+                && std::strcmp(envelopeText, "ADSR") == 0
+                && paramsExtension->text_to_value(plugin, kModEnvelope3ParamId,
+                    "FIXED", &envelopeValue)
+                && envelopeValue == 0.0;
             if (!ok) std::cerr << "Fault did not expose protocol modulation parameter text\n";
         }
         if (ok) {
@@ -892,6 +1254,29 @@ int main(int argc, char** argv)
             flushParam(kModIndexParamId, 0.74);
             flushParam(kModFeedbackParamId, 0.61);
             flushParam(kModClockLockParamId, 1.0);
+            flushParam(kModAlgorithmParamId,
+                static_cast<double>(s3g::PsdRawFieldModAlgorithm::Transcode));
+            flushParam(kModSource2ParamId,
+                static_cast<double>(s3g::PsdRawFieldModSource::BaudotRtty));
+            flushParam(kModRate2ParamId, 0.27);
+            flushParam(kModRatio2ParamId, 0.75);
+            flushParam(kModIndex2ParamId, 0.82);
+            flushParam(kModFeedback2ParamId, 0.29);
+            flushParam(kModClockLock2ParamId, 1.0);
+            flushParam(kModTarget2ParamId,
+                static_cast<double>(s3g::PsdRawFieldModTarget::Clock));
+            flushParam(kModSource3ParamId,
+                static_cast<double>(s3g::PsdRawFieldModSource::Sstv));
+            flushParam(kModTarget3ParamId,
+                static_cast<double>(s3g::PsdRawFieldModTarget::Data));
+            flushParam(kModRate3ParamId, 0.31);
+            flushParam(kModRatio3ParamId, 2.0);
+            flushParam(kModIndex3ParamId, 0.69);
+            flushParam(kModFeedback3ParamId, 0.37);
+            flushParam(kModClockLock3ParamId, 1.0);
+            flushParam(kModEnvelope1ParamId, 1.0);
+            flushParam(kModEnvelope2ParamId, 0.0);
+            flushParam(kModEnvelope3ParamId, 1.0);
         }
         if (ok) {
             flushParam(kRandomizeFieldParamId, 0.613);
@@ -899,9 +1284,9 @@ int main(int argc, char** argv)
             MemoryOutput generatedOutput;
             clap_ostream_t generatedStream { &generatedOutput, streamWrite };
             ok = stateExtension->save(plugin, &generatedStream)
-                && generatedOutput.bytes.size() == sizeof(SavedStateV17);
+                && generatedOutput.bytes.size() == sizeof(SavedStateV20);
             if (ok) {
-                SavedStateV17 generated {};
+                SavedStateV20 generated {};
                 std::memcpy(&generated, generatedOutput.bytes.data(), sizeof(generated));
                 ok = generated.sourceMode == 0u
                     && generated.params.codecMode == s3g::PsdRawFieldCodecMode::ModemFsk
@@ -913,7 +1298,25 @@ int main(int argc, char** argv)
                     && std::abs(generated.params.modRatio - 3.0f) < 1.0e-6f
                     && std::abs(generated.params.modIndex - 0.74f) < 1.0e-6f
                     && std::abs(generated.params.modFeedback - 0.61f) < 1.0e-6f
-                    && generated.params.modClockLock == 1u;
+                    && generated.params.modClockLock == 1u
+                    && generated.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Transcode
+                    && generated.params.modSource2 == s3g::PsdRawFieldModSource::BaudotRtty
+                    && std::abs(generated.params.modRate2 - 0.27f) < 1.0e-6f
+                    && std::abs(generated.params.modRatio2 - 0.75f) < 1.0e-6f
+                    && std::abs(generated.params.modIndex2 - 0.82f) < 1.0e-6f
+                    && std::abs(generated.params.modFeedback2 - 0.29f) < 1.0e-6f
+                    && generated.params.modClockLock2 == 1u
+                    && generated.params.modTarget2 == s3g::PsdRawFieldModTarget::Clock
+                    && generated.params.modSource3 == s3g::PsdRawFieldModSource::Sstv
+                    && generated.params.modTarget3 == s3g::PsdRawFieldModTarget::Data
+                    && std::abs(generated.params.modRate3 - 0.31f) < 1.0e-6f
+                    && std::abs(generated.params.modRatio3 - 2.0f) < 1.0e-6f
+                    && std::abs(generated.params.modIndex3 - 0.69f) < 1.0e-6f
+                    && std::abs(generated.params.modFeedback3 - 0.37f) < 1.0e-6f
+                    && generated.params.modClockLock3 == 1u
+                    && generated.params.modEnvelope1 == 1u
+                    && generated.params.modEnvelope2 == 0u
+                    && generated.params.modEnvelope3 == 1u;
             }
         }
         if (!ok) std::cerr << "Fault GEN FIELD did not latch the selected codec profile\n";
@@ -923,9 +1326,22 @@ int main(int argc, char** argv)
                 "SYNC GLASS", "MU DUST", "DELTA STAIRS", "ADPCM FEEDBACK",
                 "MORSE CHOIR", "SPARK EMBERS", "WIDE FAX", "WAVE TRACE",
             };
-            std::array<std::array<bool, s3g::kPsdRawFieldModTargetCount>,
-                s3g::kPsdRawFieldModSourceCount> combinations {};
-            uint32_t uniqueCombinations = 0u;
+            constexpr s3g::PsdRawFieldModAlgorithm expectedAlgorithms[] {
+                s3g::PsdRawFieldModAlgorithm::Broadcast,
+                s3g::PsdRawFieldModAlgorithm::Broadcast,
+                s3g::PsdRawFieldModAlgorithm::Regenerator,
+                s3g::PsdRawFieldModAlgorithm::CrossedMachines,
+                s3g::PsdRawFieldModAlgorithm::Relay,
+                s3g::PsdRawFieldModAlgorithm::Multiplex,
+                s3g::PsdRawFieldModAlgorithm::Transcode,
+                s3g::PsdRawFieldModAlgorithm::Broadcast,
+                s3g::PsdRawFieldModAlgorithm::Regenerator,
+                s3g::PsdRawFieldModAlgorithm::Transcode,
+                s3g::PsdRawFieldModAlgorithm::Relay,
+                s3g::PsdRawFieldModAlgorithm::Multiplex,
+                s3g::PsdRawFieldModAlgorithm::CrossedMachines,
+            };
+            std::array<uint32_t, s3g::kPsdRawFieldModAlgorithmCount> algorithmCounts {};
             for (uint32_t preset = 0u; ok && preset <= 12u; ++preset) {
                 char presetText[32] {};
                 flushParam(kPresetParamId, preset);
@@ -935,9 +1351,9 @@ int main(int argc, char** argv)
                         preset, presetText, sizeof(presetText))
                     && std::strcmp(presetText, expectedPresetNames[preset]) == 0
                     && stateExtension->save(plugin, &presetStream)
-                    && presetOutput.bytes.size() == sizeof(SavedStateV17);
+                    && presetOutput.bytes.size() == sizeof(SavedStateV20);
                 if (!ok) break;
-                SavedStateV17 savedPreset {};
+                SavedStateV20 savedPreset {};
                 std::memcpy(&savedPreset, presetOutput.bytes.data(), sizeof(savedPreset));
                 constexpr uint32_t presetFrames = 1024u;
                 std::array<std::array<float, presetFrames>, kChannels> presetAudio {};
@@ -960,24 +1376,86 @@ int main(int argc, char** argv)
                 ok = ok && presetEnergy > 1.0e-8;
                 if (preset == 0u) {
                     ok = savedPreset.params.modSource == s3g::PsdRawFieldModSource::Off
-                        && savedPreset.params.modIndex == 0.0f;
+                        && savedPreset.params.modIndex == 0.0f
+                        && savedPreset.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Broadcast
+                        && savedPreset.params.modSource2 == s3g::PsdRawFieldModSource::Off
+                        && savedPreset.params.modTarget2 == s3g::PsdRawFieldModTarget::Off
+                        && savedPreset.params.modIndex2 == 0.0f
+                        && savedPreset.params.modSource3 == s3g::PsdRawFieldModSource::Off
+                        && savedPreset.params.modTarget3 == s3g::PsdRawFieldModTarget::Off
+                        && savedPreset.params.modIndex3 == 0.0f
+                        && savedPreset.params.modEnvelope1 == 0u
+                        && savedPreset.params.modEnvelope2 == 0u
+                        && savedPreset.params.modEnvelope3 == 0u;
                     continue;
                 }
                 const uint32_t source = static_cast<uint32_t>(savedPreset.params.modSource);
+                const uint32_t source2 = static_cast<uint32_t>(savedPreset.params.modSource2);
+                const uint32_t source3 = static_cast<uint32_t>(savedPreset.params.modSource3);
                 const uint32_t target = static_cast<uint32_t>(savedPreset.params.modTarget);
+                const uint32_t target2 = static_cast<uint32_t>(savedPreset.params.modTarget2);
+                const uint32_t target3 = static_cast<uint32_t>(savedPreset.params.modTarget3);
+                const uint32_t algorithm = static_cast<uint32_t>(savedPreset.params.modAlgorithm);
                 ok = savedPreset.selectedPreset == preset
                     && source > 0u && source < s3g::kPsdRawFieldModSourceCount
+                    && source2 > 0u && source2 < s3g::kPsdRawFieldModSourceCount
+                    && source3 > 0u && source3 < s3g::kPsdRawFieldModSourceCount
                     && target < s3g::kPsdRawFieldModTargetCount
+                    && target2 < s3g::kPsdRawFieldModTargetCount
+                    && target3 < s3g::kPsdRawFieldModTargetCount
+                    && algorithm < s3g::kPsdRawFieldModAlgorithmCount
+                    && savedPreset.params.modAlgorithm == expectedAlgorithms[preset]
                     && savedPreset.params.modIndex >= 0.10f
                     && savedPreset.params.modRatio >= 0.125f
-                    && savedPreset.params.modRatio <= 16.0f;
-                if (ok && !combinations[source][target]) {
-                    combinations[source][target] = true;
-                    ++uniqueCombinations;
-                }
+                    && savedPreset.params.modRatio <= 16.0f
+                    && savedPreset.params.modIndex2 >= 0.10f
+                    && savedPreset.params.modRatio2 >= 0.125f
+                    && savedPreset.params.modRatio2 <= 16.0f
+                    && savedPreset.params.modIndex3 >= 0.10f
+                    && savedPreset.params.modRatio3 >= 0.125f
+                    && savedPreset.params.modRatio3 <= 16.0f
+                    && savedPreset.params.modEnvelope1
+                        == (savedPreset.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::CrossedMachines
+                            || savedPreset.params.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Transcode ? 1u : 0u)
+                    && savedPreset.params.modEnvelope2 == 1u
+                    && savedPreset.params.modEnvelope3 == 1u;
+                if (ok) ++algorithmCounts[algorithm];
             }
-            ok = ok && uniqueCombinations == 12u;
-            if (!ok) std::cerr << "Fault factory presets were not modulation-aware and distinct\n";
+            for (uint32_t count : algorithmCounts) ok = ok && count == 2u;
+            if (!ok) std::cerr << "Fault factory presets did not cover all six algorithms twice\n";
+        }
+        if (ok) {
+            for (uint32_t iteration = 0u; ok && iteration < 16u; ++iteration) {
+                flushParam(kRandomizePatchParamId,
+                    0.071 + static_cast<double>(iteration) * 0.053);
+                MemoryOutput randomOutput;
+                clap_ostream_t randomStream { &randomOutput, streamWrite };
+                ok = stateExtension->save(plugin, &randomStream)
+                    && randomOutput.bytes.size() == sizeof(SavedStateV20);
+                if (!ok) break;
+                SavedStateV20 randomized {};
+                std::memcpy(&randomized, randomOutput.bytes.data(), sizeof(randomized));
+                const auto& rp = randomized.params;
+                const bool transcode = rp.modAlgorithm == s3g::PsdRawFieldModAlgorithm::Transcode;
+                ok = rp.modSource != s3g::PsdRawFieldModSource::Off
+                    && rp.modSource2 != s3g::PsdRawFieldModSource::Off
+                    && rp.modSource3 != s3g::PsdRawFieldModSource::Off
+                    && rp.modIndex >= 0.08f && rp.modIndex <= 0.78f
+                    && rp.modIndex2 >= 0.08f && rp.modIndex2 <= 0.78f
+                    && rp.modIndex3 >= 0.08f && rp.modIndex3 <= 0.78f
+                    && rp.modFeedback <= 0.72f
+                    && rp.modFeedback2 <= 0.72f
+                    && rp.modFeedback3 <= 0.72f
+                    && rp.modEnvelope2 == 1u && rp.modEnvelope3 == 1u
+                    && (transcode
+                        ? rp.modTarget == s3g::PsdRawFieldModTarget::Off
+                            && rp.modTarget2 == s3g::PsdRawFieldModTarget::Off
+                            && rp.modTarget3 == s3g::PsdRawFieldModTarget::Data
+                        : rp.modTarget != s3g::PsdRawFieldModTarget::Off
+                            && rp.modTarget2 != s3g::PsdRawFieldModTarget::Off
+                            && rp.modTarget3 != s3g::PsdRawFieldModTarget::Off);
+            }
+            if (!ok) std::cerr << "Fault curated random escaped its modulation guardrails\n";
         }
     }
     plugin->destroy(plugin);

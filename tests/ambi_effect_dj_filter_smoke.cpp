@@ -68,9 +68,9 @@ bool bodyDefaultsCheck()
         && s3g::ambiEffectDefaultBodyForOrder(2u)
             == s3g::AmbiEffectBody::Icosa12
         && s3g::ambiEffectDefaultBodyForOrder(3u)
-            == s3g::AmbiEffectBody::Icosa12
-        && s3g::ambiEffectDefaultBodyForOrder(7u)
             == s3g::AmbiEffectBody::Dodeca20
+        && s3g::ambiEffectDefaultBodyForOrder(7u)
+            == s3g::AmbiEffectBody::Sphere24
         && s3g::resolveAmbiEffectBody(
                s3g::AmbiEffectBody::Tetra4, 7u)
             == s3g::AmbiEffectBody::Icosa12;
@@ -80,7 +80,7 @@ bool openIdentityCheck()
 {
     constexpr uint32_t frames = 257u;
     for (uint32_t order = 1u; order <= 7u; ++order) {
-        for (uint32_t body = 0u; body <= 3u; ++body) {
+        for (uint32_t body = 0u; body <= 5u; ++body) {
             for (uint32_t topology = 0u; topology <= 3u; ++topology) {
                 s3g::AmbiEffectDjFilterParams params {};
                 params.order = order;
@@ -301,7 +301,7 @@ bool automationSafetyCheck()
     for (uint32_t block = 0u; block < 200u; ++block) {
         s3g::AmbiEffectDjFilterParams params {};
         params.order = 1u + block % 7u;
-        params.body = static_cast<s3g::AmbiEffectBody>(block % 5u);
+        params.body = static_cast<s3g::AmbiEffectBody>(block % 6u);
         params.topology = static_cast<s3g::AmbiEffectTopology>(block % 4u);
         params.filter = static_cast<float>(block % 21u) / 20.0f;
         params.resonance = static_cast<float>(block % 11u) / 10.0f;

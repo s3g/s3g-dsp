@@ -416,38 +416,21 @@ static_assert(layout::rolesFollowTemplate(
     kCompactEffectRightPanels, layout::kCompactEffectTemplate, false));
 static_assert(layout::processorTitleBandFits(kCompactEffectTitle));
 
-constexpr const auto& kThreeOafx = layout::kThreeOafxFamilyLayout;
-constexpr auto kThreeOafxOutput =
-    layout::threeOafxSingleOutputPanel(2u);
-constexpr auto kThreeOafxEngine =
-    layout::threeOafxSingleStackPanel(
-        kThreeOafxOutput, layout::PanelRole::Engine, 4u);
-constexpr auto kThreeOafxProjection =
-    layout::threeOafxSingleStackPanel(
-        kThreeOafxEngine, layout::PanelRole::Projection, 3u);
-constexpr std::array kThreeOafxPanels {
-    kThreeOafxOutput, kThreeOafxEngine, kThreeOafxProjection
-};
-constexpr auto kThreeOafxDisplacementOutput =
-    layout::threeOafxDisplacementOutputPanel();
-constexpr auto kThreeOafxTitle =
-    layout::threeOafxTitleBand(kThreeOafx.singleCanvas);
-static_assert(kThreeOafx.singleCanvas.width == 880.0);
-static_assert(kThreeOafx.displacementCanvas.width == 920.0);
-static_assert(kThreeOafx.singleFieldPanel.y
+constexpr const auto& kAmbiEffect = layout::kAmbiEffectFamilyLayout;
+constexpr auto kAmbiEffectDisplacementOutput =
+    layout::ambiEffectDisplacementOutputPanel();
+constexpr auto kAmbiEffectTitle =
+    layout::ambiEffectTitleBand(kAmbiEffect.displacementCanvas);
+static_assert(kAmbiEffect.displacementCanvas.width == 920.0);
+static_assert(kAmbiEffect.displacementCanvas.height == 820.0);
+static_assert(kAmbiEffect.displacementFieldPanel.y
     == layout::kStandardMetrics.contentTop);
-static_assert(kThreeOafx.displacementFieldPanel.y
-    == layout::kStandardMetrics.contentTop);
-static_assert(layout::rowY(kThreeOafxOutput, 0u) == 78.0);
-static_assert(layout::rowY(kThreeOafxDisplacementOutput, 0u) == 78.0);
-static_assert(layout::processorSliderFitsPanel(kThreeOafxOutput));
+static_assert(layout::rowY(kAmbiEffectDisplacementOutput, 0u) == 74.0);
 static_assert(layout::processorSliderFitsPanel(
-    kThreeOafxDisplacementOutput));
-static_assert(layout::validateColumn(
-    kThreeOafxPanels, kThreeOafx.singleCanvas));
+    kAmbiEffectDisplacementOutput));
 static_assert(layout::rectFitsCanvas(
-    kThreeOafx.displacementField, kThreeOafx.displacementCanvas));
-static_assert(layout::processorTitleBandFits(kThreeOafxTitle));
+    kAmbiEffect.displacementField, kAmbiEffect.displacementCanvas));
+static_assert(layout::processorTitleBandFits(kAmbiEffectTitle));
 
 constexpr const auto& kAnalyzer = layout::kAnalyzerFamilyLayout;
 constexpr auto kAnalyzerTitle =

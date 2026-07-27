@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_environmental_score.h"
 #include "s3g_geological_field.h"
 #include "s3g_structural_failure.h"
 #include "s3g_turbulent_flame_jet.h"
@@ -80,6 +81,11 @@ struct AmbiPyrosphereParams {
     float fall = 0.08f;          // hinge, descent, and ground impact
     float surfaceX = 0.5f;
     float surfaceY = 0.5f;
+    float scorePace = 0.48f;       // slow-to-fast causal arc pacing
+    float scoreOccupancy = 0.32f;  // simultaneous active entities
+    float scoreCascade = 0.52f;    // spatial ignition / failure transfer
+    float scoreMemory = 0.66f;     // persistence of macro-scene behaviour
+    float scoreRest = 0.58f;       // duration and depth of quiet aftermaths
 };
 
 using AmbiPyrospherePoint = GeologicalFieldPoint;
@@ -134,6 +140,7 @@ inline constexpr std::array<AmbiPyrosphereMaterialProfile,
 
 struct AmbiPyrosphereVoice {
     uint32_t rng = 1u;
+    float infraNoise = 0.0f;
     float subNoise = 0.0f;
     float slowNoise = 0.0f;
     float midNoise = 0.0f;
@@ -156,11 +163,22 @@ struct AmbiPyrosphereVoice {
     float debrisEnvelope = 0.0f;
     float fragmentEnvelope = 0.0f;
     float pressureEnvelope = 0.0f;
+    float massEnvelope = 0.0f;
+    float massPhase = 0.0f;
+    float massFrequencyHz = 38.0f;
     float forcePulse = 0.0f;
     float eventLevel = 0.0f;
     float energy = 0.0f;
     float jetSample = 0.0f;
     float jetActivity = 0.0f;
+    float fuelRemaining = 1.0f;
+    float structuralIntegrity = 1.0f;
+    float emberCharge = 0.0f;
+    float scoreActivity = 0.0f;
+    float scoreDrive = 0.0f;
+    float scorePropagation = 0.0f;
+    float scoreConsequence = 0.0f;
+    float scoreAftermath = 0.0f;
     StructuralFailureModel structure {};
     TurbulentFlameJetModel flameJet {};
 };
@@ -171,6 +189,7 @@ public:
     {
         sampleRate_ = std::max(1000.0, sampleRate);
         field_.prepare(sampleRate_);
+        score_.prepare(sampleRate_, 0x5079726fu);
         reset();
         setParams(params_);
     }
@@ -178,6 +197,7 @@ public:
     void reset()
     {
         field_.reset();
+        score_.reset(params_.voices);
         for (uint32_t voice = 0u; voice < voices_.size(); ++voice) {
             initializeVoice(voice);
         }
@@ -227,6 +247,8 @@ public:
         fieldParams.fieldListenAmount = params.fieldListenAmount;
         fieldParams.fieldListenResponse = params.fieldListenResponse;
         field_.setParams(fieldParams);
+        score_.setParams({ params.scorePace, params.scoreOccupancy,
+            params.scoreCascade, params.scoreMemory, params.scoreRest });
     }
 
     AmbiPyrosphereParams params() const { return params_; }
@@ -290,6 +312,14 @@ public:
         return structuralSnapEventCount_;
     }
     uint64_t fallEventCount() const { return fallEventCount_; }
+    float scoreActivity() const { return score_.globalActivity(); }
+    uint32_t scoredEntityCount() const { return score_.activeEntityCount(); }
+    uint64_t scoreArcCount() const { return score_.arcCount(); }
+    uint64_t scoreCascadeCount() const { return score_.cascadeCount(); }
+    uint64_t scoreConsequenceCount() const
+    {
+        return score_.consequenceCount();
+    }
 
     void process(float* const* outputs, uint32_t outputChannels,
         uint32_t frames)
@@ -326,6 +356,13 @@ public:
                 activity[voice] = voices_[voice].eventLevel;
             }
             field_.update(dt, activity.data());
+            for (uint32_t voice = 0u; voice < voiceCount; ++voice) {
+                const auto direction = field_.direction(voice);
+                score_.setEntityPosition(voice,
+                    direction.x, direction.y, direction.z);
+            }
+            score_.update(dt, voiceCount);
+            applyScoreDirectives(voiceCount);
             const float targetGain = dbToGain(params_.outputGainDb)
                 * 1.18f / voiceNorm;
 
@@ -475,6 +512,11 @@ private:
         S3G_PYRO_CLAMP(fall, 0.0f, 1.0f);
         S3G_PYRO_CLAMP(surfaceX, 0.0f, 1.0f);
         S3G_PYRO_CLAMP(surfaceY, 0.0f, 1.0f);
+        S3G_PYRO_CLAMP(scorePace, 0.0f, 1.0f);
+        S3G_PYRO_CLAMP(scoreOccupancy, 0.0f, 1.0f);
+        S3G_PYRO_CLAMP(scoreCascade, 0.0f, 1.0f);
+        S3G_PYRO_CLAMP(scoreMemory, 0.0f, 1.0f);
+        S3G_PYRO_CLAMP(scoreRest, 0.0f, 1.0f);
 #undef S3G_PYRO_CLAMP
     }
 
@@ -516,9 +558,69 @@ private:
         voice.fractureThreshold = 0.035f
             + randomUnit(voice.rng) * 0.22f;
         voice.fragmentTimer = 0.0f;
+        voice.fuelRemaining = 0.58f + randomUnit(voice.rng) * 0.42f;
+        voice.structuralIntegrity = 0.74f
+            + randomUnit(voice.rng) * 0.26f;
+        voice.emberCharge = 0.0f;
         voice.structure.prepare(sampleRate_,
             0xb12a4c5du + index * 0x85ebca6bu);
         voice.flameJet.prepare(sampleRate_);
+    }
+
+    void applyScoreDirectives(uint32_t voiceCount)
+    {
+        for (uint32_t index = 0u; index < voiceCount; ++index) {
+            auto& voice = voices_[index];
+            const auto directive = score_.directive(index);
+            voice.scoreActivity = directive.activity;
+            voice.scoreDrive = directive.drive;
+            voice.scorePropagation = directive.propagation;
+            voice.scoreConsequence = directive.consequence;
+            voice.scoreAftermath = directive.aftermath;
+            if (directive.arcStarted) {
+                voice.fuelRemaining = 0.56f
+                    + randomUnit(voice.rng) * 0.44f;
+                voice.structuralIntegrity = 0.74f
+                    + randomUnit(voice.rng) * 0.26f;
+                voice.emberCharge = 0.0f;
+                voice.thermalStress *= 0.18f;
+            }
+            if (directive.onset || directive.cascadeArrival) {
+                const float transfer = directive.cascadeArrival
+                    ? 0.58f : 1.0f;
+                const float ignition = transfer
+                    * (0.34f + params_.wind * 0.54f
+                        + params_.gustDepth * 0.32f);
+                voice.heatTarget = std::max(voice.heatTarget, ignition);
+                voice.pressureEnvelope = std::max(
+                    voice.pressureEnvelope,
+                    ignition * params_.pressure * 0.46f);
+                voice.fragmentEnvelope = std::max(
+                    voice.fragmentEnvelope,
+                    ignition * params_.particles * 0.22f);
+                voice.emberCharge = std::max(voice.emberCharge,
+                    directive.cascadeArrival ? 0.48f : 0.24f);
+                ++ignitionEventCount_;
+            }
+            if (directive.consequenceStarted) {
+                const float force = std::clamp(0.54f
+                        + directive.consequence * 0.46f,
+                    0.0f, 1.0f);
+                const bool standingMaterial = params_.materialMode == 2u
+                    || params_.materialMode == 3u
+                    || params_.materialMode == 9u
+                    || params_.materialMode == 10u
+                    || params_.materialMode == 11u;
+                if (standingMaterial
+                    && std::max({ params_.structuralLoad,
+                            params_.snap, params_.fall }) > 0.001f) {
+                    voice.structure.excite(force, true);
+                }
+                voice.thermalStress = std::max(voice.thermalStress,
+                    voice.fractureThreshold * (1.02f + force * 0.18f));
+                voice.structuralIntegrity *= 0.34f;
+            }
+        }
     }
 
     void triggerFracture(AmbiPyrosphereVoice& voice,
@@ -548,6 +650,12 @@ private:
         if (!branch && randomUnit(voice.rng) < collapseChance) {
             voice.debrisEnvelope = std::max(voice.debrisEnvelope,
                 strength * (0.42f + params_.body * 0.82f));
+            voice.massEnvelope = std::max(voice.massEnvelope,
+                strength * (0.38f + params_.body * 0.72f));
+            voice.massFrequencyHz = 23.0f
+                + (1.0f - params_.body) * 42.0f
+                + randomUnit(voice.rng) * 16.0f;
+            voice.massPhase = 0.0f;
             ++collapseEventCount_;
         }
         if (!branch) {
@@ -569,6 +677,8 @@ private:
         const float sr = static_cast<float>(sampleRate_);
         const float dt = 1.0f / sr;
         const float white = randomSigned(voice.rng);
+        const float infraHz = 2.4f + (1.0f - params_.body) * 5.6f
+            + (1.0f - material.collapse) * 2.0f;
         const float subHz = 14.0f + (1.0f - params_.body) * 52.0f
             + material.collapse * 12.0f;
         const float slowHz = 48.0f + (1.0f - params_.body) * 140.0f
@@ -577,6 +687,8 @@ private:
             + material.highColor * 680.0f;
         const float airHz = 2200.0f + params_.shrill * 10800.0f
             + params_.air * 2400.0f;
+        voice.infraNoise += (white - voice.infraNoise)
+            * (1.0f - std::exp(-kPi * 2.0f * infraHz / sr));
         voice.subNoise += (white - voice.subNoise)
             * (1.0f - std::exp(-kPi * 2.0f * subHz / sr));
         voice.slowNoise += (white - voice.slowNoise)
@@ -587,10 +699,17 @@ private:
             * (1.0f - std::exp(-kPi * 2.0f * airHz / sr));
         const float midBand = voice.midNoise - voice.slowNoise;
         const float highBand = white - voice.airNoise;
+        const float plumeBand = (voice.subNoise - voice.infraNoise)
+            * (5.0f + params_.body * 4.2f
+                + material.collapse * 1.4f);
         const float derivative = white - voice.previousWhite;
         voice.previousWhite = white;
 
-        const float ignitionRateHz = params_.gustRate;
+        const float scoreClock = (1.0f - params_.scoreRest)
+            + params_.scoreRest * std::clamp(0.015f
+                + voice.scoreDrive
+                + voice.scorePropagation * 0.32f, 0.015f, 1.0f);
+        const float ignitionRateHz = params_.gustRate * scoreClock;
         const float temporalScale = ambiPyrosphereTemporalScale(
             ignitionRateHz);
         if (!voice.heatScheduled) {
@@ -600,8 +719,7 @@ private:
         } else if (std::fabs(ignitionRateHz
                 - voice.scheduledHeatRateHz) > 1.0e-6f) {
             voice.heatTimer *= voice.scheduledHeatRateHz
-                / std::max(kAmbiPyrosphereMinIgnitionRateHz,
-                    ignitionRateHz);
+                / std::max(1.0e-5f, ignitionRateHz);
             voice.scheduledHeatRateHz = ignitionRateHz;
         }
 
@@ -609,7 +727,10 @@ private:
         if (voice.heatTimer <= 0.0f) {
             const float oxygen = 0.18f + params_.breath * 0.82f;
             const float heatAvailability = params_.wind
-                * (0.26f + material.combustibility * 0.74f);
+                * (0.26f + material.combustibility * 0.74f)
+                * (0.10f + voice.fuelRemaining * 0.90f)
+                * std::clamp(0.06f + voice.scoreDrive
+                    + voice.scorePropagation * 0.28f, 0.06f, 1.0f);
             const float shapedRandom = std::pow(randomUnit(voice.rng),
                 0.55f + static_cast<float>(params_.gustShape) * 0.24f);
             voice.heatTarget = clamp(heatAvailability * oxygen
@@ -639,6 +760,13 @@ private:
             * (0.72f + std::fabs(voice.slowNoise)
                 * (0.34f + params_.flutter * 0.92f)),
             0.0f, 1.8f);
+        voice.fuelRemaining = std::max(0.0f,
+            voice.fuelRemaining - dt * voice.scoreDrive
+                * (0.018f + params_.wind * 0.092f)
+                * (0.46f + material.combustibility * 0.72f));
+        voice.emberCharge = std::max(0.0f,
+            voice.emberCharge - dt
+                * (0.10f + params_.particles * 0.28f));
         const bool pressureJet = params_.materialMode == 13u;
         const auto jet = pressureJet
             ? voice.flameJet.process(white, params_.pressure, params_.wind,
@@ -660,12 +788,19 @@ private:
         case 2u: standingStructure = 0.32f; hierarchy = 0.54f; structureMass = 0.34f; break; // duff/root
         default: break;
         }
+        voice.structuralIntegrity = std::max(0.0f,
+            voice.structuralIntegrity - dt * unstableHeat
+                * standingStructure
+                * (0.008f + params_.structuralLoad * 0.068f)
+                * (0.18f + voice.scoreDrive * 0.82f));
         StructuralFailureParams structureParams {};
         structureParams.drive = clamp(params_.structuralLoad
             * standingStructure
             * (0.28f + params_.motionFlow * 0.34f
                 + unstableHeat * 0.48f)
-            * (0.02f + temporalScale * 0.98f), 0.0f, 1.0f);
+            * (0.02f + temporalScale * 0.98f)
+            * (0.08f + voice.scoreDrive * 0.68f
+                + voice.scoreConsequence * 0.44f), 0.0f, 1.0f);
         structureParams.motion = clamp(params_.motionFlow * 0.46f
             + params_.motionShear * 0.24f + params_.vortex * 0.30f,
             0.0f, 1.0f);
@@ -678,20 +813,40 @@ private:
             0.0f, 1.0f);
         structureParams.damage = clamp(unstableHeat * 0.46f
             + params_.grit * 0.24f
-            + material.thermalMismatch * 0.30f, 0.0f, 1.0f);
+            + material.thermalMismatch * 0.30f
+            + (1.0f - voice.structuralIntegrity) * 0.46f
+            + voice.scoreConsequence * 0.34f, 0.0f, 1.0f);
         structureParams.highDetail = params_.snap;
-        structureParams.consequence = params_.fall * standingStructure;
+        structureParams.consequence = clamp(params_.fall * standingStructure
+            + voice.scoreConsequence * standingStructure * 0.52f,
+            0.0f, 1.0f);
         structureParams.mass = structureMass;
         structureParams.mode = StructuralConsequence::HingeFall;
         const auto structural = voice.structure.process(structureParams);
         if (structural.snapTriggered) ++structuralSnapEventCount_;
         if (structural.consequenceTriggered) ++fallEventCount_;
+        if (structural.consequenceTriggered) {
+            voice.massEnvelope = std::max(voice.massEnvelope,
+                (0.46f + structureMass * 0.82f)
+                    * (0.52f + params_.fall * 0.48f));
+            voice.massFrequencyHz = 19.0f
+                + (1.0f - structureMass) * 38.0f
+                + randomUnit(voice.rng) * 13.0f;
+            voice.massPhase = 0.0f;
+        }
+        if (structural.snapTriggered || structural.consequenceTriggered) {
+            score_.exciteCascade(index,
+                structural.consequenceTriggered ? 1.0f
+                    : 0.38f + params_.particles * 0.42f);
+        }
 
         const float thermalDrive = unstableHeat
             * (0.18f + material.thermalMismatch * 1.32f)
             * (0.28f + params_.material * 0.82f)
             * (0.38f + params_.q * 0.78f)
-            * temporalScale;
+            * temporalScale
+            * (0.08f + voice.scoreDrive * 0.74f
+                + voice.scorePropagation * 0.36f);
         voice.thermalStress += dt * thermalDrive;
         voice.thermalStress = std::max(0.0f,
             voice.thermalStress - dt
@@ -717,7 +872,9 @@ private:
         const float fragmentRate = (0.1f + params_.particles
                 * params_.particles * (6.0f + material.fracture * 26.0f)
                 + params_.grit * material.fracture * 4.0f)
-            * temporalScale;
+            * temporalScale
+            * (0.08f + voice.scoreActivity * 0.72f
+                + voice.emberCharge * 0.42f);
         if (!voice.fragmentScheduled) {
             voice.fragmentTimer = randomInterval(voice, fragmentRate);
             voice.scheduledFragmentRateHz = fragmentRate;
@@ -751,8 +908,23 @@ private:
             / (0.055f + params_.pressure * 0.46f));
         voice.forcePulse *= std::exp(-dt
             / (0.0011f + material.damping * 0.006f));
+        voice.massPhase += kPi * 2.0f * voice.massFrequencyHz
+            * (1.0f + voice.infraNoise * 0.08f) / sr;
+        if (voice.massPhase >= kPi * 2.0f) {
+            voice.massPhase -= kPi * 2.0f;
+        }
+        const float massMode = std::sin(voice.massPhase)
+            * voice.massEnvelope;
+        voice.massEnvelope *= std::exp(-dt
+            / (0.10f + params_.body * 0.34f
+                + material.collapse * 0.18f));
 
         const float combustion = material.combustibility * params_.material;
+        const float plumeBody = std::tanh(plumeBand
+                * (0.34f + params_.body * 1.12f))
+            * unstableHeat * combustion
+            * (0.14f + params_.wind * 0.34f
+                + params_.pressure * 0.24f);
         const float roar = std::tanh((voice.subNoise
                 * (1.4f + params_.body * 4.2f)
             + voice.slowNoise * (0.8f + params_.body * 1.8f)
@@ -770,28 +942,51 @@ private:
             * (midBand * 0.72f + voice.slowNoise * 0.64f
                 + voice.forcePulse * 0.38f);
         const float debris = voice.debrisEnvelope
-            * (voice.subNoise * 0.82f + voice.slowNoise * 0.72f
+            * (plumeBand * 0.38f + voice.subNoise * 0.82f
+                + voice.slowNoise * 0.72f
                 + midBand * 0.38f)
             * (0.48f + params_.grit * 0.72f);
         const float fragments = voice.fragmentEnvelope
             * (highBand * 0.74f + derivative * 0.18f);
         const float pressure = voice.pressureEnvelope
-            * (voice.subNoise * 0.92f + voice.slowNoise * 0.34f)
+            * (plumeBand * 0.54f + voice.subNoise * 0.72f
+                + voice.slowNoise * 0.34f)
             * params_.pressure * 1.18f;
         const float listenerGain = 1.0f
             + field_.listenerDrive(index) * 0.22f;
-        const float combustionSample = (roar * 0.34f + flameNoise * 0.26f
+        const float entityBed = pressureJet
+            ? (1.0f - params_.scoreRest * 0.30f)
+                + params_.scoreRest * 0.30f
+                    * std::clamp(voice.scoreActivity, 0.0f, 1.0f)
+            : (1.0f - params_.scoreRest)
+                + params_.scoreRest * std::clamp(0.025f
+                    + voice.scoreActivity
+                    + voice.scoreAftermath * 0.18f, 0.025f, 1.0f);
+        const float combustionSample = (plumeBody * 0.42f
+            + roar * 0.34f + flameNoise * 0.26f
             + fracture * 0.34f + spall * 0.48f + debris * 0.38f
             + fragments * 0.30f + pressure * 0.42f
             + voice.jetSample * 0.92f)
-            * (0.18f + params_.wind * 0.68f);
-        const float structuralSample = (structural.flex * 0.10f
-            + structural.crack * 0.52f + structural.snap * 0.66f
-            + structural.rupture * 0.48f + structural.fall * 0.56f
-            + structural.impact * 0.78f)
+            * (0.18f + params_.wind * 0.68f) * entityBed;
+        const float structuralTransient = structural.flex * 0.12f
+            + structural.crack * 0.82f + structural.snap * 1.12f
+            + structural.rupture * 0.92f;
+        const float structuralConsequence = structural.fall * 1.10f
+            + structural.impact * 1.52f
+            + massMode * (0.24f + structureMass * 0.62f);
+        const float structuralSample = (structuralTransient
+                + structuralConsequence)
             * standingStructure
-            * (0.22f + params_.structuralLoad * 0.58f);
-        const float sample = (combustionSample + structuralSample)
+            * (0.32f + params_.structuralLoad * 0.98f)
+            * (1.0f + params_.fall * 0.28f);
+        const float structuralFocus = clamp(structural.activity
+            * standingStructure
+            * (0.32f + params_.snap * 0.18f + params_.fall * 0.38f),
+            0.0f, 0.68f);
+        const float geologicalMass = massMode
+            * material.collapse * (0.16f + params_.body * 0.34f);
+        const float sample = (combustionSample * (1.0f - structuralFocus)
+                + structuralSample + geologicalMass)
             * listenerGain;
 
         const float event = std::max({ voice.fractureEnvelope,
@@ -805,6 +1000,7 @@ private:
 
     AmbiPyrosphereParams params_ {};
     GeologicalField field_ {};
+    EnvironmentalScore score_ {};
     std::array<AmbiPyrosphereVoice, kAmbiPyrosphereMaxVoices> voices_ {};
     std::array<float, kAmbiPyrosphereMaxChannels> lastOutput_ {};
     std::array<float, kAmbiPyrosphereMaxChannels> transitionTail_ {};

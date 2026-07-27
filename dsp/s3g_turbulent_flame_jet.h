@@ -25,6 +25,7 @@ public:
 
     void reset()
     {
+        infra_ = 0.0f;
         sub_ = 0.0f;
         plenum_ = 0.0f;
         core_ = 0.0f;
@@ -51,6 +52,8 @@ public:
             constexpr float kTwoPi = 6.28318530717958647692f;
             return 1.0f - std::exp(-kTwoPi * hz / sr);
         };
+        infra_ += (white - infra_)
+            * coefficient(2.8f + (1.0f - pressure) * 3.2f);
         sub_ += (white - sub_)
             * coefficient(14.0f + (1.0f - body) * 42.0f
                 + (1.0f - pressure) * 30.0f);
@@ -67,6 +70,11 @@ public:
         const float coreBand = core_ - plenum_;
         const float shearBand = shear_ - core_;
         const float nozzleBand = white - shear_;
+        // A DC-safe, energy-compensated plenum band. A raw low-pass loses
+        // most of its RMS level as its cutoff falls, which previously made
+        // the jet look broad-band in the model while sounding mid-heavy.
+        const float plenumBand = (sub_ - infra_)
+            * (5.2f + body * 3.8f + pressure * 1.8f);
         const float coherentTarget = std::clamp(0.62f
             + std::fabs(plenum_) * (0.78f + turbulence * 1.24f),
             0.56f, 1.34f);
@@ -85,8 +93,9 @@ public:
         const float drive = (0.18f + pressure * 0.82f)
             * (0.30f + velocity * 0.70f)
             * (0.34f + oxygen * 0.66f);
-        const float jetCore = std::tanh(sub_
-                * (2.4f + body * 4.6f + pressure * 1.2f)
+        const float jetCore = std::tanh(plenumBand
+                * (0.62f + body * 0.92f + pressure * 0.28f)
+            + sub_ * (1.2f + body * 2.4f)
             + plenum_ * (1.1f + body * 2.2f)
             + coreBand * (0.72f + turbulence * 1.58f));
         const float shearLayer = shearBand
@@ -108,6 +117,7 @@ public:
 
 private:
     double sampleRate_ = 48000.0;
+    float infra_ = 0.0f;
     float sub_ = 0.0f;
     float plenum_ = 0.0f;
     float core_ = 0.0f;

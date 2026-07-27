@@ -44,7 +44,7 @@ inline AmbiEffectDelayParams sanitizeAmbiEffectDelayParams(
     params.order = std::clamp<uint32_t>(
         params.order, 1u, kAmbiEffectDelayMaxOrder);
     params.body = static_cast<AmbiEffectBody>(
-        std::min<uint32_t>(static_cast<uint32_t>(params.body), 4u));
+        std::min<uint32_t>(static_cast<uint32_t>(params.body), 5u));
     if (params.body == AmbiEffectBody::Tetra4
         || params.body == AmbiEffectBody::Cube8) {
         params.body = AmbiEffectBody::Icosa12;

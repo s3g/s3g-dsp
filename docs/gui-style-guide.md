@@ -48,7 +48,7 @@ Put the searchable family before the specific member:
 - Ambisonic decoders: `s3g Ambi Decoder <member>`
 - Direct panners: `s3g Panner <method>`
 - Processor effects and instruments: `s3g Processor <member>`
-- 3OAFX tools: `s3g 3OAFX <role> <member>`
+- Ambisonic effects: `s3g Ambi Effect <member> 64`
 - Array tools: `s3g Array <operation> <width>`
 - Compact effects: `s3g Effect <member> [width]`
 - Signal inspection: `s3g Analyzer <member> [width]`
@@ -81,10 +81,9 @@ measurement and visualization tools. `Output` identifies final audition,
 fold-down, crossover, and delivery utilities; it does not replace `Decoder`
 when loudspeaker or binaural decoding is the plugin's main job.
 
-Within `3OAFX`, keep the signal-format family first and put the functional role
-second: `s3g 3OAFX Effect Delay` and
-`s3g 3OAFX Transform Displacement 16ch`. This keeps all 3OAFX tools adjacent
-while separating insert effects from geometric field transforms.
+Within `Ambi Effect`, keep the encoded-field family first and the member next:
+`s3g Ambi Effect Delay 64` and `s3g Ambi Effect Displacement 64`. This keeps
+all order-adaptive pickup effects adjacent in host browsers.
 Do not move a specific member such as `Head`, `Point`, `Surface Terrain`, or
 `LBAP` ahead of its family; that fragments adjacent search results in host
 plugin browsers. Family membership is maintained explicitly in the encoder
@@ -215,7 +214,7 @@ buttons. Do this before build/test so style drift is caught in the edit pass.
 
 ## Spatial Views
 
-Ambisonic and 3OAFX infrastructure plugins use a restrained spatial-view
+Ambisonic infrastructure and effect plugins use a restrained spatial-view
 grammar:
 
 - Put compact `TOP`, `SIDE`, and `3/4` view buttons in the primary visual
@@ -291,8 +290,8 @@ Speaker decoder views are spatial infrastructure, not physics instruments:
   size.
 - Speaker layout presets should number room-style speakers from the stereo
   right position, continue clockwise around the current elevation layer, then
-  continue upward through higher layers. Fixed 3OAFX virtual-speaker layouts may
-  preserve their workflow-specific order.
+  continue upward through higher layers. Fixed Sphere24 virtual-speaker layouts
+  preserve their published point order.
 - Speaker decoder fields should use the same camera controls as Point Encoder:
   `TOP`, `SIDE`, `3/4`, `-`, `+`, and blank-field drag rotation.
 - Speaker markers should use square Point Encoder-style blocks with centered

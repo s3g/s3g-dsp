@@ -15,7 +15,7 @@
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
         <a href="multichannel.html">Multichannel</a>
-        <a href="3oafx.html">Ambisonics</a>
+        <a href="ambisonics.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
         <a href="references.html">References</a>
         <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
@@ -26,14 +26,14 @@
       <main class="content" id="content">
         <h1>Ambi Speaker Decoder</h1>
 
-        <p><code>s3g Ambi Speaker Decoder 64</code> decodes ambisonic <code>ACN/SN3D</code> input to a 64-channel speaker output bus. It is built for REAPER sessions where the speaker layout is part of the composition, installation, or 3OAFX chain.</p>
+        <p><code>s3g Ambi Speaker Decoder 64</code> decodes ambisonic <code>ACN/SN3D</code> input to a 64-channel speaker output bus. It is built for REAPER sessions where the speaker layout is part of the composition, installation, or encoded-field chain.</p>
 
         <p>The decoder supports first through seventh order. The output bus stays 64 channels so routing is predictable; the active speaker count decides which output lanes are used.</p>
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="3oafx_speaker_decoder_gui.png" aria-label="Open Ambi Speaker Decoder GUI screenshot">
-              <img src="3oafx_speaker_decoder_gui.png" alt="Screenshot of the s3g Ambi Speaker Decoder plugin GUI">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="ambi_speaker_decoder_gui.png" aria-label="Open Ambi Speaker Decoder GUI screenshot">
+              <img src="ambi_speaker_decoder_gui.png" alt="Screenshot of the s3g Ambi Speaker Decoder plugin GUI">
             </button>
           </div>
           <figcaption>Ambi Speaker Decoder with speaker field, layout controls, and editable speaker placement.</figcaption>
@@ -48,7 +48,7 @@
         </ol>
 
         <figure class="doc-graphic">
-          <img src="3oafx_speaker_decoder_map.svg" alt="Diagram of ACN/SN3D input, decoder matrix, speaker layout, and 64-channel output">
+          <img src="ambi_speaker_decoder_map.svg" alt="Diagram of ACN/SN3D input, decoder matrix, speaker layout, and 64-channel output">
         </figure>
 
         <h2 id="decoder-variants">Decoder Variants</h2>
@@ -64,7 +64,7 @@
 
         <p>The layout menu provides common speaker shapes plus custom editing.</p>
 
-        <p>For room-style presets, speaker numbering starts at the stereo-right position and moves clockwise around each elevation layer, then continues upward. <code>DOME24</code> and <code>DOME25</code> follow the s3g-mc dome panner structure: 12 lower speakers, 8 middle speakers, 4 upper speakers, and a top point for <code>DOME25</code>. <code>SPHERE24</code> keeps the fixed 3OAFX virtual-speaker order because that order is part of the insert workflow.</p>
+        <p>For room-style presets, speaker numbering starts at the stereo-right position and moves clockwise around each elevation layer, then continues upward. <code>DOME24</code> and <code>DOME25</code> follow the s3g-mc dome panner structure: 12 lower speakers, 8 middle speakers, 4 upper speakers, and a top point for <code>DOME25</code>. <code>SPHERE24</code> keeps the fixed Ambisonic virtual-speaker order used by the shared geometry layer.</p>
 
         <div class="table-wrap">
           <table>
@@ -101,7 +101,7 @@
               </tr>
               <tr>
                 <td><code>SPHERE24</code></td>
-                <td>The 24-channel virtual sphere used by the 3OAFX workflow.</td>
+                <td>The 24-channel virtual sphere used by Ambi Effects and encoded-field routing.</td>
               </tr>
               <tr>
                 <td><code>CUSTOM</code></td>
@@ -149,7 +149,7 @@
 
         <p>Use a track with enough channels for the selected ambisonic input and speaker output. The plugin has a fixed 64-channel input bus and fixed 64-channel output bus so REAPER pin routing remains stable while layout and order change inside the plugin.</p>
 
-        <p>For 3OAFX insert work, use <code>SPHERE24</code> as the virtual speaker reference. For real speaker playback, start with the layout closest to the room, then switch to <code>CUSTOM</code> for measured speaker positions.</p>
+        <p>For Ambi Effect reference work, use <code>SPHERE24</code> as the virtual speaker layout. For real speaker playback, start with the layout closest to the room, then switch to <code>CUSTOM</code> for measured speaker positions.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="ambisonic-decoders.html">
@@ -166,7 +166,7 @@
       <aside class="toc" aria-label="Page navigation">
         <div class="toc-section">
           <h2>Ambisonics</h2>
-          <a href="3oafx.html">Overview</a>
+          <a href="ambisonics.html">Overview</a>
           <a href="listener-mode.html">Listener Mode</a>
           <a href="ambisonic-encoders.html">Encoders</a>
           <a href="ambisonic-decoders.html">Decoders</a>
@@ -175,7 +175,7 @@
         </div>
         <div class="toc-section">
           <h2>Decoder Pages</h2>
-          <a href="3oafx-speaker-decoder.html">Speaker Decoder Family</a>
+          <a href="ambi-speaker-decoder.html">Speaker Decoder Family</a>
           <a href="ambisonic-stereo-decoder.html">Stereo Decoder</a>
           <a href="ambisonic-head-decoder.html">Head Decoder</a>
         </div>

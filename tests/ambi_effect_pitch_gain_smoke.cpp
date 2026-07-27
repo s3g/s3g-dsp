@@ -53,16 +53,26 @@ int main()
     assert(s3g::resolveAmbiEffectBody(s3g::AmbiEffectBody::Auto, 1u)
         == s3g::AmbiEffectBody::Icosa12);
     assert(s3g::resolveAmbiEffectBody(s3g::AmbiEffectBody::Auto, 3u)
-        == s3g::AmbiEffectBody::Icosa12);
-    assert(s3g::resolveAmbiEffectBody(s3g::AmbiEffectBody::Auto, 4u)
         == s3g::AmbiEffectBody::Dodeca20);
+    assert(s3g::resolveAmbiEffectBody(s3g::AmbiEffectBody::Auto, 4u)
+        == s3g::AmbiEffectBody::Sphere24);
     assert(s3g::resolveAmbiEffectBody(s3g::AmbiEffectBody::Tetra4, 1u)
         == s3g::AmbiEffectBody::Icosa12);
     assert(s3g::ambiEffectBodyPickupCount(s3g::AmbiEffectBody::Dodeca20)
         == 20u);
     const auto dodeca = s3g::ambiEffectBodyDirections(
         s3g::AmbiEffectBody::Dodeca20);
-    for (const auto& direction : dodeca) {
+    for (uint32_t point = 0u; point < 20u; ++point) {
+        const auto& direction = dodeca[point];
+        const float length = std::sqrt(direction.x * direction.x
+            + direction.y * direction.y + direction.z * direction.z);
+        assert(std::fabs(length - 1.0f) < 0.0001f);
+    }
+    assert(s3g::ambiEffectBodyPickupCount(s3g::AmbiEffectBody::Sphere24)
+        == 24u);
+    const auto sphere = s3g::ambiEffectBodyDirections(
+        s3g::AmbiEffectBody::Sphere24);
+    for (const auto& direction : sphere) {
         const float length = std::sqrt(direction.x * direction.x
             + direction.y * direction.y + direction.z * direction.z);
         assert(std::fabs(length - 1.0f) < 0.0001f);
