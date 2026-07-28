@@ -114,14 +114,23 @@ inline bool createResponsiveViewport(ResponsiveViewport& state,
     [scrollView setDocumentView:content];
     [[scrollView contentView] scrollToPoint:NSMakePoint(0.0, 0.0)];
     [scrollView reflectScrolledClipView:[scrollView contentView]];
+#if __has_feature(objc_arc)
+    state.container = (__bridge_retained void*)scrollView;
+#else
     state.container = scrollView;
+#endif
     return true;
 }
 
 inline void stopResponsiveScreenObservation(ResponsiveViewport& state)
 {
     if (!state.screenObserver) return;
-    [[NSNotificationCenter defaultCenter] removeObserver:static_cast<id>(state.screenObserver)];
+#if __has_feature(objc_arc)
+    id observer = (__bridge_transfer id)state.screenObserver;
+#else
+    id observer = static_cast<id>(state.screenObserver);
+#endif
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
     state.screenObserver = nullptr;
 }
 
@@ -129,15 +138,27 @@ inline void destroyResponsiveViewport(ResponsiveViewport& state, void*& contentV
 {
     stopResponsiveScreenObservation(state);
     if (state.container) {
+#if __has_feature(objc_arc)
+        auto* scrollView = (__bridge_transfer NSScrollView*)state.container;
+#else
         auto* scrollView = static_cast<NSScrollView*>(state.container);
+#endif
         [scrollView setDocumentView:nil];
         [scrollView removeFromSuperview];
+#if !__has_feature(objc_arc)
         [scrollView release];
+#endif
     }
     if (contentView) {
+#if __has_feature(objc_arc)
+        auto* content = (__bridge_transfer NSView*)contentView;
+#else
         auto* content = static_cast<NSView*>(contentView);
+#endif
         [content removeFromSuperview];
+#if !__has_feature(objc_arc)
         [content release];
+#endif
     }
     state = {};
     contentView = nullptr;
@@ -203,14 +224,22 @@ inline bool setResponsiveViewportSize(ResponsiveViewport& state,
     clampResponsiveViewportSize(state, width, height);
     state.width = width;
     state.height = height;
+#if __has_feature(objc_arc)
+    [(__bridge NSView*)state.container setFrameSize:NSMakeSize(width, height)];
+#else
     [static_cast<NSView*>(state.container) setFrameSize:NSMakeSize(width, height)];
+#endif
     return true;
 }
 
 inline void requestResponsiveViewportFit(ResponsiveViewport& state, const clap_host_t* host)
 {
     if (!state.container || !host || !host->get_extension) return;
+#if __has_feature(objc_arc)
+    NSView* container = (__bridge NSView*)state.container;
+#else
     NSView* container = static_cast<NSView*>(state.container);
+#endif
     NSScreen* screen = [container window] ? [[container window] screen] : [NSScreen mainScreen];
     const NSSize fit = responsiveViewportSizeForScreen(state.nativeWidth, state.nativeHeight,
         state.minimumWidth, state.minimumHeight, screen);
@@ -228,7 +257,11 @@ inline bool setResponsiveViewportParent(ResponsiveViewport& state,
                                         const clap_host_t* host)
 {
     if (!state.container || !parent) return false;
+#if __has_feature(objc_arc)
+    NSView* container = (__bridge NSView*)state.container;
+#else
     NSView* container = static_cast<NSView*>(state.container);
+#endif
     [parent addSubview:container];
     [container setFrame:NSMakeRect(0.0, 0.0, state.width, state.height)];
     stopResponsiveScreenObservation(state);
@@ -239,11 +272,19 @@ inline bool setResponsiveViewportParent(ResponsiveViewport& state,
                     object:nil
                      queue:[NSOperationQueue mainQueue]
                 usingBlock:^(NSNotification* notification) {
+#if __has_feature(objc_arc)
+                    NSWindow* window = [(__bridge NSView*)statePtr->container window];
+#else
                     NSWindow* window = [static_cast<NSView*>(statePtr->container) window];
+#endif
                     if (!window || ([notification object] && [notification object] != window)) return;
                     requestResponsiveViewportFit(*statePtr, hostPtr);
                 }];
+#if __has_feature(objc_arc)
+    state.screenObserver = (__bridge_retained void*)observer;
+#else
     state.screenObserver = observer;
+#endif
     requestResponsiveViewportFit(state, host);
     return true;
 }
@@ -251,7 +292,11 @@ inline bool setResponsiveViewportParent(ResponsiveViewport& state,
 inline bool setResponsiveViewportHidden(const ResponsiveViewport& state, bool hidden)
 {
     if (!state.container) return false;
+#if __has_feature(objc_arc)
+    [(__bridge NSView*)state.container setHidden:hidden ? YES : NO];
+#else
     [static_cast<NSView*>(state.container) setHidden:hidden ? YES : NO];
+#endif
     return true;
 }
 
@@ -380,7 +425,11 @@ inline void drawBoundedRightText(NSString* value,
                                  NSRect rect,
                                  NSDictionary* attrs)
 {
+#if __has_feature(objc_arc)
+    NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc] init];
+#else
     NSMutableParagraphStyle* paragraph = [[[NSMutableParagraphStyle alloc] init] autorelease];
+#endif
     [paragraph setAlignment:NSTextAlignmentRight];
     [paragraph setLineBreakMode:NSLineBreakByClipping];
     NSMutableDictionary* boundedAttrs = [NSMutableDictionary dictionaryWithDictionary:attrs];

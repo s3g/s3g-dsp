@@ -28,7 +28,7 @@
 
         <p>Parameter Surface turns several complete instrument states into a playable two-dimensional space. Each cell holds a preset or captured state. Moving the <code>X/Y</code> cursor blends the continuous synthesis controls of nearby cells and selects discrete controls from the nearest cell.</p>
 
-        <p>Parameter Surface is available in <a href="ambi-stochastic-encoder.html">Ambi Encoder Stochastic</a>, <a href="ambi-wrangler-encoder.html">Ambi Encoder Wrangler</a>, <a href="ambi-water-encoder.html">Ambi Encoder Water</a>, <a href="ambi-wind-encoder.html">Ambi Encoder Wind</a>, <a href="ambi-pyrosphere-encoder.html">Ambi Encoder Pyrosphere</a>, <a href="ambi-cryosphere-encoder.html">Ambi Encoder Cryosphere</a>, and <a href="ambi-insect-encoder.html">Ambi Encoder Insect</a>. Each provides a <code>SURF</code> page in the main field view plus automatable <code>SURFACE X</code> and <code>SURFACE Y</code> host parameters.</p>
+        <p>Parameter Surface is available in <a href="ambi-stochastic-encoder.html">Ambi Encoder Stochastic</a>, <a href="ambi-wrangler-encoder.html">Ambi Encoder Wrangler</a>, <a href="ambi-water-encoder.html">Ambi Encoder Water</a>, <a href="ambi-wind-encoder.html">Ambi Encoder Wind</a>, <a href="ambi-pyrosphere-encoder.html">Ambi Encoder Pyrosphere</a>, <a href="ambi-cryosphere-encoder.html">Ambi Encoder Cryosphere</a>, <a href="ambi-insect-encoder.html">Ambi Encoder Insect</a>, and <a href="no-input-mixer.html">Processor No Input Mixer</a>. Each provides a <code>SURF</code> page plus automatable <code>SURFACE X</code> and <code>SURFACE Y</code> host parameters.</p>
 
         <h2 id="workflow">Building a Surface</h2>
 
@@ -103,6 +103,8 @@
         <h2 id="automation">Automation and Transport</h2>
 
         <p><code>SURFACE X</code> and <code>SURFACE Y</code> use a normalized <code>0…1</code> range and appear under the host module <code>Parameter Surface</code>. They can be controlled by track envelopes, automation items, modulation, or any other host mechanism that writes ordinary CLAP parameters. The DSP evaluates automated cursor changes at their event position; the visual crosshair follows the current host-visible values.</p>
+
+        <p>In Processor No Input Mixer, a cell stores the feedback matrix, lane bodies and tuning, EQ and processors, movement/REACT state, and configurable aux topology. Continuous controls blend; discrete circuit and clock choices use the nearest active cell. Output containment, lane audition levels and mutes, global aux mutes, house tone, quality, and preset variance stay live outside the surface. Cell state does not include delay lines, resonator memory, or other live audio history, so a SURF gesture steers one continuing feedback network.</p>
 
         <p>The cells are the score and X/Y is the performance. Automating X/Y is therefore portable within the saved plugin state without creating a second internal sequencer or competing with the DAW transport.</p>
 

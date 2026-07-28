@@ -2704,6 +2704,8 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (NSPanel*)patchPanel;
 - (NSPanel*)channelPanel;
 - (NSPanel*)safetyPanel;
+- (NSPanel*)auxPanel;
+- (NSPanel*)surfacePanel;
 - (uint32_t)activePage;
 - (void)navigatePageBy:(NSInteger)delta;
 - (void)clearAllConnections;
@@ -3261,6 +3263,8 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (NSPanel*)patchPanel { return _pagePanels[0u]; }
 - (NSPanel*)channelPanel { return _pagePanels[2u]; }
 - (NSPanel*)safetyPanel { return _pagePanels[3u]; }
+- (NSPanel*)auxPanel { return _pagePanels[4u]; }
+- (NSPanel*)surfacePanel { return _pagePanels[5u]; }
 - (NSPanel*)effectPanel { return _effectPanel; }
 
 - (void)openEffectEditorForLane:(uint32_t)lane slot:(uint32_t)slot

@@ -270,6 +270,15 @@ static bool writeViewSnapshot(NSView* view, NSString* path)
     return png && [png writeToFile:path atomically:YES];
 }
 
+static bool writeViewPDFSnapshot(NSView* view, NSString* path)
+{
+    if (!view || [path length] == 0u) return false;
+    [view layoutSubtreeIfNeeded];
+    [view displayIfNeeded];
+    NSData* pdf = [view dataWithPDFInsideRect:[view bounds]];
+    return pdf && [pdf writeToFile:path atomically:YES];
+}
+
 } // namespace
 
 @class S3GVoxGeneratorView;
@@ -278,6 +287,7 @@ static bool writeViewSnapshot(NSView* view, NSString* path)
     NSComboBoxDelegate, NSDraggingDestination>
 - (BOOL)loadAudioURLs:(NSArray<NSURL*>*)selection;
 - (BOOL)hasSeedSource;
+- (BOOL)isDocumentationSnapshotReady;
 - (NSString*)selectedSeedDescription;
 - (float)selectedSeedFrequency;
 - (BOOL)beginVoiceGeneration:(s3g::VoxSourceSynthParams)params
@@ -477,6 +487,11 @@ static bool writeViewSnapshot(NSView* view, NSString* path)
         && !_aliasesDirty
         && !_analyzing.load(std::memory_order_acquire)
         && !_generating.load(std::memory_order_acquire);
+}
+
+- (BOOL)isDocumentationSnapshotReady
+{
+    return [self canExportVoicebank];
 }
 
 - (NSString*)aliasGuideText
@@ -2074,9 +2089,52 @@ static bool writeViewSnapshot(NSView* view, NSString* path)
 @interface S3GVoxBuilderAppDelegate : NSObject <NSApplicationDelegate>
 @end
 
+@interface S3GVoxBuilderAppDelegate ()
+- (void)captureDocumentationSnapshotsAtDirectory:(NSString*)directory
+                                          attempt:(NSUInteger)attempt;
+@end
+
 @implementation S3GVoxBuilderAppDelegate {
     NSWindow* _window;
     S3GVoxBuilderView* _view;
+}
+
+- (void)captureDocumentationSnapshotsAtDirectory:(NSString*)directory
+                                          attempt:(NSUInteger)attempt
+{
+    constexpr NSUInteger kMaximumAttempts = 300u;
+    if (![_view isDocumentationSnapshotReady] && attempt < kMaximumAttempts) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC),
+            dispatch_get_main_queue(), ^{
+                [self captureDocumentationSnapshotsAtDirectory:directory attempt:attempt + 1u];
+            });
+        return;
+    }
+
+    [_view setNeedsDisplay:YES];
+    [_window displayIfNeeded];
+    writeViewSnapshot(_view,
+        [directory stringByAppendingPathComponent:@"vox-builder-main.png"]);
+    writeViewPDFSnapshot(_view,
+        [directory stringByAppendingPathComponent:@"vox-builder-main.pdf"]);
+
+    S3GVoxGeneratorView* generator = [[S3GVoxGeneratorView alloc]
+        initWithFrame:NSMakeRect(0, 0, 520, 580) builder:_view];
+    NSPanel* generatorWindow = [[NSPanel alloc]
+        initWithContentRect:NSMakeRect(0, 0, 520, 580)
+        styleMask:NSWindowStyleMaskBorderless
+        backing:NSBackingStoreBuffered defer:NO];
+    [generatorWindow setContentView:generator];
+    [generatorWindow orderFront:nil];
+    [generator refreshSeedState];
+    [generator setNeedsDisplay:YES];
+    [generatorWindow displayIfNeeded];
+    writeViewSnapshot(generator,
+        [directory stringByAppendingPathComponent:@"vox-builder-generator.png"]);
+    writeViewPDFSnapshot(generator,
+        [directory stringByAppendingPathComponent:@"vox-builder-generator.pdf"]);
+    [generatorWindow orderOut:nil];
+    dispatch_async(dispatch_get_main_queue(), ^{ [NSApp terminate:nil]; });
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification*)notification
@@ -2118,22 +2176,7 @@ static bool writeViewSnapshot(NSView* view, NSString* path)
     if ([snapshotDirectory length] > 0u) {
         [[NSFileManager defaultManager] createDirectoryAtPath:snapshotDirectory
             withIntermediateDirectories:YES attributes:nil error:nil];
-        writeViewSnapshot(_view,
-            [snapshotDirectory stringByAppendingPathComponent:@"vox-builder-main.png"]);
-        S3GVoxGeneratorView* generator = [[S3GVoxGeneratorView alloc]
-            initWithFrame:NSMakeRect(0, 0, 520, 580) builder:_view];
-        NSPanel* generatorWindow = [[NSPanel alloc]
-            initWithContentRect:NSMakeRect(0, 0, 520, 580)
-            styleMask:NSWindowStyleMaskBorderless
-            backing:NSBackingStoreBuffered defer:NO];
-        [generatorWindow setContentView:generator];
-        [generatorWindow orderFront:nil];
-        [generatorWindow displayIfNeeded];
-        [generator refreshSeedState];
-        writeViewSnapshot(generator,
-            [snapshotDirectory stringByAppendingPathComponent:@"vox-builder-generator.png"]);
-        [generatorWindow orderOut:nil];
-        dispatch_async(dispatch_get_main_queue(), ^{ [NSApp terminate:nil]; });
+        [self captureDocumentationSnapshotsAtDirectory:snapshotDirectory attempt:0u];
     }
 }
 

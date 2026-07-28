@@ -2368,7 +2368,7 @@ int main(int argc, char** argv)
                     const auto& movement =
                         s3g::gui_layout::kNoInputMixerFamilyLayout.movement;
                     if (ok) clickNoInput(NSMakePoint(
-                        movement.frame.x + movement.frame.width - 105.0
+                        movement.frame.x + movement.frame.width - 153.0
                             + 48.0 + 22.0,
                         movement.frame.y + 14.5));
                     NSData* gridRender = [document dataWithPDFInsideRect:
@@ -2398,7 +2398,7 @@ int main(int argc, char** argv)
                     const auto& movement =
                         s3g::gui_layout::kNoInputMixerFamilyLayout.movement;
                     clickNoInput(NSMakePoint(
-                        movement.frame.x + movement.frame.width - 105.0
+                        movement.frame.x + movement.frame.width - 153.0
                             + 48.0 + 22.0,
                         movement.frame.y + 14.5));
                     const NSRect behaviorAnchor = NSMakeRect(
@@ -2414,6 +2414,47 @@ int main(int argc, char** argv)
                     double behavior = 0.0;
                     ok = params->get_value(plugin, 35u, &behavior)
                         && behavior == 3.0;
+                    if (ok) {
+                        failureStage = "No Input Mixer REACT controls";
+                        clickNoInput(NSMakePoint(
+                            movement.frame.x + movement.frame.width - 153.0
+                                + 2.0 * 48.0 + 22.0,
+                            movement.frame.y + 14.5));
+                        clickNoInput(NSMakePoint(
+                            NSMidX(behaviorAnchor), NSMidY(behaviorAnchor)));
+                        clickNoInput(NSMakePoint(NSMidX(behaviorAnchor),
+                            NSMaxY(behaviorAnchor) + 2.0 + 18.0 * 1.5));
+                        const CGFloat reactTrackX =
+                            s3g::gui_layout::processorControlX(
+                                movement.frame.x)
+                            + s3g::gui_layout::processorTrackWidth(
+                                movement.frame.width) * 0.78;
+                        clickNoInput(NSMakePoint(reactTrackX,
+                            s3g::gui_layout::rowY(movement, 1u) + 5.0));
+                        const CGFloat toggleX =
+                            s3g::gui_layout::processorControlX(
+                                movement.frame.x);
+                        const CGFloat toggleY =
+                            s3g::gui_layout::rowY(movement, 6u) + 6.0;
+                        clickNoInput(NSMakePoint(toggleX + 26.0, toggleY));
+                        clickNoInput(NSMakePoint(toggleX + 83.0, toggleY));
+                        clickNoInput(NSMakePoint(toggleX + 140.0, toggleY));
+                        double reactMode = 0.0;
+                        double reactDepth = 0.0;
+                        double hold = 0.0;
+                        double slow = 0.0;
+                        double sync = 0.0;
+                        ok = params->get_value(plugin, 44u, &reactMode)
+                            && reactMode == 1.0
+                            && params->get_value(plugin, 45u, &reactDepth)
+                            && reactDepth > 0.70
+                            && params->get_value(plugin, 50u, &hold)
+                            && hold == 1.0
+                            && params->get_value(plugin, 51u, &slow)
+                            && slow == 1.0
+                            && params->get_value(plugin, 52u, &sync)
+                            && sync == 1.0;
+                    }
                 }
                 if (ok) {
                     failureStage =
@@ -2422,14 +2463,16 @@ int main(int argc, char** argv)
                         s3g::gui_layout::kNoInputMixerFamilyLayout;
                     const NSRect plot = s3g::clap_gui::cocoaRect(
                         family.fieldPlot);
-                    constexpr CGFloat tabWidth = 58.0;
-                    constexpr CGFloat tabGap = 5.0;
+                    constexpr CGFloat tabWidth = 52.0;
+                    constexpr CGFloat tabGap = 3.0;
                     const CGFloat tabStart = family.fieldPanel.x
-                        + family.fieldPanel.width - 4.0 * tabWidth
-                        - 3.0 * tabGap - 10.0;
+                        + family.fieldPanel.width - 6.0 * tabWidth
+                        - 5.0 * tabGap - 10.0;
                     clickNoInput(NSMakePoint(
                         tabStart + (tabWidth + tabGap) + tabWidth * 0.5,
                         family.fieldPanel.y + 11.0));
+
+                    failureStage = "No Input Mixer smooth mixer drag";
 
                     constexpr CGFloat mixerContentWidth = 1216.0;
                     constexpr CGFloat mixerContentHeight = 706.0;
@@ -2476,6 +2519,7 @@ int main(int argc, char** argv)
                             plugin, 1020u, &laneEffect)
                         && laneEffect == 11.0;
 
+                    failureStage = "No Input Mixer mixer effect editor";
                     const NSRect laneInsertEdit = NSMakeRect(
                         NSMaxX(laneInsert) - 28.0,
                         laneInsert.origin.y, 28.0, laneInsert.size.height);
@@ -2586,6 +2630,7 @@ int main(int argc, char** argv)
                     const NSPoint auxMuteB = NSMakePoint(
                         auxMuteA.x, auxMuteA.y + 248.0);
                     double auxMuteValue = 0.0;
+                    failureStage = "No Input Mixer aux mute buttons";
                     if (ok) clickNoInput(auxMuteA);
                     ok = ok && params->get_value(
                         plugin, 33u, &auxMuteValue)
@@ -2603,9 +2648,9 @@ int main(int argc, char** argv)
                         && auxMuteValue == 1.0;
 
                     const NSPoint popPoint = NSMakePoint(
-                        family.fieldPanel.x + family.fieldPanel.width
-                            - 4.0 * tabWidth - 3.0 * tabGap - 68.0 + 24.0,
+                        tabStart - 56.0 + 24.0,
                         family.fieldPanel.y + 11.0);
+                    failureStage = "No Input Mixer POP window open";
                     if (ok) clickNoInput(popPoint);
                     NSPanel* mixerPanel = ok
                         ? [document valueForKey:@"mixerPanel"] : nil;
@@ -2614,6 +2659,7 @@ int main(int argc, char** argv)
                     ok = ok && mixerPanel && [mixerPanel isVisible]
                         && popup;
                     if (ok) {
+                        failureStage = "No Input Mixer POP fader drag";
                         auto popupEvent = [&](NSEventType type,
                                               NSPoint point) {
                             return [NSEvent mouseEventWithType:type
@@ -2645,6 +2691,7 @@ int main(int argc, char** argv)
                             mixerOffset.x + 12.0 + 8.0
                                 + (popupStripWidth - 16.0) * 0.5,
                             mixerOffset.y + 42.0 + 500.0 + 9.0);
+                        failureStage = "No Input Mixer POP insert menu";
                         if (ok) {
                             [popup mouseDown:popupEvent(
                                 NSEventTypeLeftMouseDown,
@@ -2678,7 +2725,10 @@ int main(int argc, char** argv)
                     }
                     NSPanel* channelPanel = nil;
                     NSPanel* safetyPanel = nil;
+                    NSPanel* auxPanel = nil;
+                    NSPanel* surfacePanel = nil;
                     NSPanel* patchPanel = nil;
+                    failureStage = "No Input Mixer logical POP windows";
                     if (ok) clickNoInput(popPoint);
                     channelPanel = ok
                         ? [document valueForKey:@"channelPanel"] : nil;
@@ -2686,16 +2736,102 @@ int main(int argc, char** argv)
                     safetyPanel = ok
                         ? [document valueForKey:@"safetyPanel"] : nil;
                     if (ok) clickNoInput(popPoint);
+                    auxPanel = ok
+                        ? [document valueForKey:@"auxPanel"] : nil;
+                    if (ok) clickNoInput(popPoint);
+                    surfacePanel = ok
+                        ? [document valueForKey:@"surfacePanel"] : nil;
+                    if (ok) clickNoInput(popPoint);
                     patchPanel = ok
                         ? [document valueForKey:@"patchPanel"] : nil;
-                    ok = ok && channelPanel && safetyPanel && patchPanel
+                    ok = ok && channelPanel && safetyPanel && auxPanel
+                        && surfacePanel && patchPanel
                         && [channelPanel isVisible]
                         && [safetyPanel isVisible]
+                        && [auxPanel isVisible]
+                        && [surfacePanel isVisible]
                         && [patchPanel isVisible]
                         && NSWidth([[channelPanel contentView] bounds])
                             == nativeWidth
                         && NSHeight([[channelPanel contentView] bounds])
                             == nativeHeight;
+                    if (ok) {
+                        failureStage =
+                            "No Input Mixer Aux topology interaction";
+                        NSView* auxView = [auxPanel contentView];
+                        auto auxEvent = [&](NSEventType type,
+                                            NSPoint point) {
+                            return [NSEvent mouseEventWithType:type
+                                location:[auxView convertPoint:point toView:nil]
+                                modifierFlags:0 timestamp:0.0
+                                windowNumber:[auxPanel windowNumber]
+                                context:nil eventNumber:0 clickCount:1
+                                pressure:1.0];
+                        };
+                        const NSRect tapA = NSMakeRect(
+                            42.0 + 12.0, 281.0, 128.0, 21.0);
+                        [auxView mouseDown:auxEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(NSMidX(tapA), NSMidY(tapA)))];
+                        [auxView mouseUp:auxEvent(
+                            NSEventTypeLeftMouseUp,
+                            NSMakePoint(NSMidX(tapA), NSMidY(tapA)))];
+                        const NSPoint tapChoice = NSMakePoint(
+                            NSMidX(tapA), NSMaxY(tapA) + 2.0 + 18.0 * 3.5);
+                        [auxView mouseDown:auxEvent(
+                            NSEventTypeLeftMouseDown, tapChoice)];
+                        [auxView mouseUp:auxEvent(
+                            NSEventTypeLeftMouseUp, tapChoice)];
+                        const NSRect returnA = NSMakeRect(
+                            54.0, 370.0, 128.0, 11.0);
+                        const NSPoint returnPoint = NSMakePoint(
+                            NSMinX(returnA) + returnA.size.width * 0.125,
+                            NSMidY(returnA));
+                        [auxView mouseDown:auxEvent(
+                            NSEventTypeLeftMouseDown, returnPoint)];
+                        [auxView mouseUp:auxEvent(
+                            NSEventTypeLeftMouseUp, returnPoint)];
+                        double tapValue = 0.0;
+                        double returnValue = 0.0;
+                        ok = params->get_value(plugin, 1013u, &tapValue)
+                            && tapValue == 3.0
+                            && params->get_value(plugin, 1015u, &returnValue)
+                            && std::fabs(returnValue + 0.75) < 0.03;
+                    }
+                    if (ok) {
+                        failureStage =
+                            "No Input Mixer SURF interaction";
+                        NSView* surfaceView = [surfacePanel contentView];
+                        auto surfaceEvent = [&](NSEventType type,
+                                                NSPoint point) {
+                            return [NSEvent mouseEventWithType:type
+                                location:[surfaceView convertPoint:point
+                                    toView:nil]
+                                modifierFlags:0 timestamp:0.0
+                                windowNumber:[surfacePanel windowNumber]
+                                context:nil eventNumber:0 clickCount:1
+                                pressure:1.0];
+                        };
+                        const auto clickSurface = [&](NSPoint point) {
+                            [surfaceView mouseDown:surfaceEvent(
+                                NSEventTypeLeftMouseDown, point)];
+                            [surfaceView mouseUp:surfaceEvent(
+                                NSEventTypeLeftMouseUp, point)];
+                        };
+                        clickSurface(NSMakePoint(205.0, 132.0));
+                        clickSurface(NSMakePoint(205.0, 132.0));
+                        clickSurface(NSMakePoint(141.0, 132.0));
+                        const NSPoint cursor = NSMakePoint(
+                            42.0 + 1272.0 * 0.73,
+                            774.0 - 610.0 * 0.27);
+                        clickSurface(cursor);
+                        double surfaceX = 0.0;
+                        double surfaceY = 0.0;
+                        ok = params->get_value(plugin, 55u, &surfaceX)
+                            && std::fabs(surfaceX - 0.73) < 0.02
+                            && params->get_value(plugin, 56u, &surfaceY)
+                            && std::fabs(surfaceY - 0.27) < 0.02;
+                    }
                     if (ok) {
                         failureStage =
                             "No Input Mixer Channel window effect edit";
@@ -2721,6 +2857,48 @@ int main(int argc, char** argv)
                                 context:nil eventNumber:0 clickCount:1
                                 pressure:1.0];
                         };
+                        failureStage =
+                            "No Input Mixer Channel tuning controls";
+                        const auto& selectedLanePanel = family.selectedLane;
+                        const CGFloat selectedControlX =
+                            s3g::gui_layout::processorControlX(
+                                selectedLanePanel.frame.x);
+                        const CGFloat selectedTrackWidth =
+                            s3g::gui_layout::processorTrackWidth(
+                                selectedLanePanel.frame.width);
+                        const NSPoint tunePoint = NSMakePoint(
+                            selectedControlX + selectedTrackWidth * 0.72,
+                            s3g::gui_layout::rowY(
+                                selectedLanePanel, 3u) + 5.0);
+                        [channelView mouseDown:channelEvent(
+                            NSEventTypeLeftMouseDown, tunePoint)];
+                        [channelView mouseUp:channelEvent(
+                            NSEventTypeLeftMouseUp, tunePoint)];
+                        const NSPoint lockPoint = NSMakePoint(
+                            selectedControlX + 25.0,
+                            s3g::gui_layout::rowY(
+                                selectedLanePanel, 6u) + 6.0);
+                        [channelView mouseDown:channelEvent(
+                            NSEventTypeLeftMouseDown, lockPoint)];
+                        [channelView mouseUp:channelEvent(
+                            NSEventTypeLeftMouseUp, lockPoint)];
+                        bool tunedLaneFound = false;
+                        for (uint32_t laneIndex = 0u;
+                             laneIndex < 8u; ++laneIndex) {
+                            double tuneValue = 0.0;
+                            double lockValue = 0.0;
+                            const clap_id base = 1000u + laneIndex * 100u;
+                            tunedLaneFound = tunedLaneFound
+                                || (params->get_value(
+                                        plugin, base + 10u, &tuneValue)
+                                    && tuneValue > 75.0
+                                    && params->get_value(
+                                        plugin, base + 12u, &lockValue)
+                                    && lockValue == 1.0);
+                        }
+                        ok = ok && tunedLaneFound;
+                        failureStage =
+                            "No Input Mixer Channel window effect edit";
                         [channelView mouseDown:channelEvent(
                             NSEventTypeLeftMouseDown, channelEdit)];
                         [channelView mouseUp:channelEvent(
@@ -2762,10 +2940,12 @@ int main(int argc, char** argv)
                     if (ok && captureDirectory && captureDirectory[0]) {
                         NSString* directory = [NSString
                             stringWithUTF8String:captureDirectory];
-                        const std::array<std::pair<NSPanel*, NSString*>, 3u>
+                        const std::array<std::pair<NSPanel*, NSString*>, 5u>
                             detached {{
                                 { channelPanel, @"channel-pop" },
                                 { safetyPanel, @"safety-pop" },
+                                { auxPanel, @"aux-pop" },
+                                { surfacePanel, @"surf-pop" },
                                 { patchPanel, @"patch-pop" },
                             }};
                         for (const auto& item : detached) {
@@ -2783,6 +2963,8 @@ int main(int argc, char** argv)
                     [mixerPanel orderOut:nil];
                     [channelPanel orderOut:nil];
                     [safetyPanel orderOut:nil];
+                    [auxPanel orderOut:nil];
+                    [surfacePanel orderOut:nil];
                     [patchPanel orderOut:nil];
                     [effectPanel orderOut:nil];
                     clickNoInput(NSMakePoint(

@@ -858,6 +858,11 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.motion = 0.34f;
         params.motionShape = MatrixFlowShape::Swirl;
         params.vortex = 0.42f;
+        params.reactMode = NoInputReactMode::Balance;
+        params.reactDepth = 0.34f;
+        params.reactThreshold = 0.20f;
+        params.reactAttack = 0.14f;
+        params.reactRelease = 0.38f;
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             route(lane, lane, 0.92f + 0.008f * static_cast<float>(lane));
             route(lane, (lane + 7u) % 8u,
@@ -867,6 +872,10 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
             auto& voice = params.lanes[lane];
             voice.body = 0.18f + 0.086f * static_cast<float>(lane);
             voice.loss = 0.27f + 0.035f * static_cast<float>(lane % 4u);
+            voice.tuneNote = 40.0f
+                + static_cast<float>((lane * 5u) % 24u);
+            voice.tuneCents = (lane & 1u) == 0u ? -7.0f : 7.0f;
+            voice.pitchLock = 1u;
             voice.inserts[0].type = (lane & 1u) == 0u
                 ? NoInputDistortionType::Diode
                 : NoInputDistortionType::Ring;
@@ -887,6 +896,12 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.space = 0.36f;
         params.motion = 0.28f;
         params.motionShape = MatrixFlowShape::Scatter;
+        params.reactMode = NoInputReactMode::Edge;
+        params.reactDepth = 0.42f;
+        params.reactThreshold = 0.16f;
+        params.reactAttack = 0.34f;
+        params.reactRelease = 0.72f;
+        params.slowTime = 1u;
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             route(lane, lane, 0.96f);
             route(lane, (lane + 5u) % 8u,
@@ -894,6 +909,9 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
             auto& voice = params.lanes[lane];
             voice.body = 0.12f + 0.105f * static_cast<float>(lane);
             voice.loss = 0.18f + 0.022f * static_cast<float>(lane % 3u);
+            voice.tuneNote = 36.0f
+                + static_cast<float>((lane * 7u) % 29u);
+            voice.pitchLock = 1u;
             voice.lowDb = 2.5f - 0.5f * static_cast<float>(lane % 3u);
             voice.highDb = -2.0f + 0.6f * static_cast<float>(lane % 4u);
             voice.inserts[0].type = NoInputDistortionType::Diode;
@@ -904,7 +922,7 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         break;
     }
     case 3u: { // Wool Ring: compressed walls feeding ring-modulated returns.
-        params.seed = 0x4d554646u;
+        params.seed = 0x574f4f4cu;
         params.feedback = 0.90f;
         params.coupling = 0.57f;
         params.phase = 0.31f;
@@ -912,6 +930,11 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.formant = 0.37f;
         params.motion = 0.26f;
         params.motionShape = MatrixFlowShape::Chase;
+        params.clockSync = 1u;
+        params.fieldDivision = 5u;
+        params.eventDivision = 3u;
+        params.reactMode = NoInputReactMode::Follow;
+        params.reactDepth = 0.24f;
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             route(lane, lane, 0.94f);
             route(lane, (lane + 1u) % 8u,
@@ -941,6 +964,14 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.agency = 0.42f;
         params.motion = 0.18f;
         params.motionShape = MatrixFlowShape::Pulse;
+        params.clockSync = 1u;
+        params.fieldDivision = 3u;
+        params.eventDivision = 1u;
+        params.reactMode = NoInputReactMode::Edge;
+        params.reactDepth = 0.70f;
+        params.reactThreshold = 0.27f;
+        params.reactAttack = 0.05f;
+        params.reactRelease = 0.18f;
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             route(lane, lane, 0.91f);
             route(lane, (lane + 7u) % 8u, 0.27f);
@@ -967,6 +998,10 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.motion = 0.38f;
         params.motionShape = MatrixFlowShape::Flow;
         params.vortex = -0.34f;
+        params.reactMode = NoInputReactMode::Balance;
+        params.reactDepth = 0.56f;
+        params.reactThreshold = 0.22f;
+        params.reactPolarity = -0.32f;
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             route(lane, lane, 0.93f);
             route(lane, (lane + 2u) % 8u,
@@ -998,6 +1033,11 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.agency = 0.74f;
         params.motion = 0.30f;
         params.motionShape = MatrixFlowShape::Hold;
+        params.reactMode = NoInputReactMode::Avoid;
+        params.reactDepth = 0.68f;
+        params.reactThreshold = 0.18f;
+        params.reactAttack = 0.08f;
+        params.reactRelease = 0.44f;
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             route(lane, lane, 0.95f);
             route(lane, (lane + 1u) % 8u, -0.31f);
@@ -1024,6 +1064,11 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.space = 0.28f;
         params.motion = 0.46f;
         params.motionShape = MatrixFlowShape::Scatter;
+        params.reactMode = NoInputReactMode::Edge;
+        params.reactDepth = 0.62f;
+        params.reactThreshold = 0.32f;
+        params.reactAttack = 0.04f;
+        params.reactRelease = 0.22f;
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             route(lane, lane, 0.96f);
             route(lane, (lane + 3u) % 8u,
@@ -1059,6 +1104,12 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.houseTone = -0.34f;
         params.motion = 0.24f;
         params.motionShape = MatrixFlowShape::Hold;
+        params.slowTime = 1u;
+        params.reactMode = NoInputReactMode::Follow;
+        params.reactDepth = 0.28f;
+        params.reactThreshold = 0.14f;
+        params.reactAttack = 0.40f;
+        params.reactRelease = 0.76f;
         params.aux[0].effect.type = NoInputDistortionType::Diode;
         params.aux[0].effect.gain = 0.24f;
         params.aux[0].feedback = 0.48f;
@@ -1078,6 +1129,18 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
             voice.levelDb = -6.0f;
             voice.auxSend[0] = (lane % 3u) == 0u ? 0.42f : 0.14f;
             voice.auxSend[1] = (lane % 3u) == 1u ? 0.36f : 0.09f;
+            voice.tuneNote = 33.0f
+                + static_cast<float>((lane * 5u) % 31u);
+            voice.tuneCents = (lane % 3u) == 0u ? -12.0f : 0.0f;
+            voice.pitchLock = 1u;
+            voice.auxTap[0] = (lane & 1u) == 0u
+                ? NoInputAuxTap::PreEq : NoInputAuxTap::PostEq;
+            voice.auxTap[1] = (lane & 1u) == 0u
+                ? NoInputAuxTap::PostInsert : NoInputAuxTap::Return;
+            voice.auxReturn[0] = 0.24f
+                + 0.05f * static_cast<float>(lane % 3u);
+            voice.auxReturn[1] = (lane & 1u) == 0u
+                ? -0.30f : 0.34f;
             voice.inserts[0].type = NoInputDistortionType::Diode;
             voice.inserts[0].gain = 0.18f;
             voice.inserts[0].levelDb = -4.0f;
@@ -1103,6 +1166,15 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         params.motion = 0.72f;
         params.motionShape = MatrixFlowShape::Swirl;
         params.motionRate = 0.22f;
+        params.clockSync = 1u;
+        params.fieldDivision = 4u;
+        params.eventDivision = 2u;
+        params.reactMode = NoInputReactMode::Balance;
+        params.reactDepth = 0.72f;
+        params.reactThreshold = 0.24f;
+        params.reactAttack = 0.10f;
+        params.reactRelease = 0.30f;
+        params.reactPolarity = 0.46f;
         params.aux[0].effect.type = NoInputDistortionType::Wool;
         params.aux[0].effect.gain = 0.32f;
         params.aux[0].feedback = 0.34f;
@@ -1181,6 +1253,21 @@ inline NoInputMixerParams randomizedNoInputMixerParams(uint32_t seed)
         next() % (static_cast<uint32_t>(MatrixFlowShape::Hold) + 1u));
     params.motionRate = 0.06f + unit() * 0.42f;
     params.motionPhase = unit();
+    params.reactMode = unit() < 0.24f ? NoInputReactMode::Off
+        : static_cast<NoInputReactMode>(1u + next() % 4u);
+    params.reactDepth = params.reactMode == NoInputReactMode::Off
+        ? 0.0f : 0.18f + unit() * 0.56f;
+    params.reactThreshold = 0.10f + unit() * 0.42f;
+    params.reactAttack = 0.04f + unit() * 0.54f;
+    params.reactRelease = 0.16f + unit() * 0.68f;
+    params.reactPolarity = bipolar();
+    params.controllerHold = 0u;
+    params.slowTime = unit() > 0.82f ? 1u : 0u;
+    params.clockSync = unit() > 0.52f ? 1u : 0u;
+    params.fieldDivision = 2u + next() % 7u;
+    params.eventDivision = next() % 7u;
+    params.surfaceX = 0.5f;
+    params.surfaceY = 0.5f;
     params.quality = unit() > 0.82f ? 2u : 1u;
     params.matrix.fill(0.0f);
 
@@ -1210,6 +1297,15 @@ inline NoInputMixerParams randomizedNoInputMixerParams(uint32_t seed)
         voice.highDb = bipolar() * 5.5f;
         voice.auxSend[0] = unit() * 0.46f;
         voice.auxSend[1] = unit() * 0.42f;
+        voice.tuneNote = 33.0f + static_cast<float>(next() % 40u);
+        voice.tuneCents = bipolar() * 24.0f;
+        voice.pitchLock = unit() > 0.46f ? 1u : 0u;
+        voice.auxTap[0] = static_cast<NoInputAuxTap>(next() % 4u);
+        voice.auxTap[1] = static_cast<NoInputAuxTap>(next() % 4u);
+        voice.auxReturn[0] = (unit() > 0.22f ? 1.0f : -1.0f)
+            * (0.12f + unit() * 0.46f);
+        voice.auxReturn[1] = (unit() > 0.42f ? 1.0f : -1.0f)
+            * (0.10f + unit() * 0.42f);
         for (uint32_t slot = 0u; slot < kNoInputMixerInsertSlots; ++slot) {
             auto& insert = voice.inserts[slot];
             insert.type = static_cast<NoInputDistortionType>(
@@ -1257,6 +1353,11 @@ inline NoInputMixerParams variedNoInputMixerParams(
     params.feedback += signedRandom() * 0.035f * amount;
     params.coupling += signedRandom() * 0.10f * amount;
     params.phase += signedRandom() * 0.12f * amount;
+    params.reactDepth += signedRandom() * 0.18f * amount;
+    params.reactThreshold += signedRandom() * 0.12f * amount;
+    params.reactAttack += signedRandom() * 0.14f * amount;
+    params.reactRelease += signedRandom() * 0.16f * amount;
+    params.reactPolarity += signedRandom() * 0.24f * amount;
     params.motionPhase = noInputWrapPhase(
         params.motionPhase + signedRandom() * amount);
     for (float& route : params.matrix) {
@@ -1274,6 +1375,10 @@ inline NoInputMixerParams variedNoInputMixerParams(
         lane.highDb += signedRandom() * 3.0f * amount;
         for (float& send : lane.auxSend) {
             send += signedRandom() * 0.16f * amount;
+        }
+        lane.tuneCents += signedRandom() * 18.0f * amount;
+        for (float& returnAmount : lane.auxReturn) {
+            returnAmount += signedRandom() * 0.18f * amount;
         }
         for (auto& insert : lane.inserts) {
             insert.gain += signedRandom() * 0.12f * amount;

@@ -13,3 +13,6 @@ _deps/
 .idea/
 __pycache__/
 *.py[cod]
+
+# Local high-resolution GUI sources; docs use the rendered PNGs.
+docs/assets/**/masters/*.pdf

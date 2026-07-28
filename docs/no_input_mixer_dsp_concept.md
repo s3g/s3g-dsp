@@ -70,8 +70,8 @@ For lane `i`, the feedback excitation is:
 
 ```text
 e_i[n] = seed_i[n]
-       + aux_A[n] * return_A
-       + polarity_i * aux_B[n] * return_B
+       + aux_A[n] * return_A[i]
+       + aux_B[n] * return_B[i]
        + sum_j matrix[i,j] * move_ij[n] * space_ij[n]
              * agency_ij[n] * phase_ij(return_j[n - 1])
 ```
@@ -96,6 +96,11 @@ RETURN -> LANE LEVEL -> HOUSE TONE -> MASTER OUT -> LIMITER -> OUTPUT 1..8
 
 LANE RETURNS -> AUX SEND SUM -> AUX EFFECT -> AUX FEEDBACK -> AUX RETURNS
 ```
+
+Each lane/bus send chooses `RETURN`, `PRE EQ`, `POST EQ`, or `POST INSERT` as
+its source. Each processed bus then has a signed per-destination return gain.
+The default `RETURN` taps, positive A vector, and alternating-sign B vector
+preserve the first-generation topology while making that structure editable.
 
 Every return path has at least one sample of memory, so the graph has no
 algebraic loop. Fractional micro-delays and first-order all-pass sections make
@@ -163,6 +168,21 @@ closed routes reach zero. `CHOKE` then optionally applies the destination's
 live articulation gate after its EQ and three nonlinear inserts but before the
 governed return and audition branch. This second stage makes dropouts remain
 audible when saturated parallel feedback would otherwise refill the gap.
+
+The third `REACT` bank derives route gain from measured lane activity rather
+than a free controller. `FOLLOW` follows source activity, `AVOID` recedes from
+active destinations, `EDGE` responds to source threshold crossings, and
+`BALANCE` compares source and destination activity. Threshold, attack,
+release, bipolar polarity, and a 30 dB depth law make this a listener-like view
+from inside the circuit. REACT multiplies only existing signed gains and never
+opens an empty matrix cell or exceeds a stored route ceiling.
+
+`HOLD ECOLOGY` freezes field phase, articulation clocks, slow drift, and REACT
+controller state while the audio graph continues. `SLOW TIME` remaps field and
+event rates down to one cycle/event per ten minutes without removing their
+faster ranges. `TEMPO SYNC` derives independent FIELD and EVENT clocks from
+host tempo at divisions from `1/64` through `8 BARS`; absent host tempo falls
+back to the free-rate law.
 
 This preserves a crucial distinction: patching describes the electronic
 instrument; movement describes how energy travels inside that instrument.
@@ -251,8 +271,11 @@ Global `NETWORK` controls:
 - `VARIANCE`: bounded deviation applied when a factory patch is recalled.
 - `SEED`: injects a deterministic excitation packet.
 
-Selected-lane controls expose `BODY`, `LOSS`, `LEVEL`, `AUX A`, `AUX B`,
-`MUTE`, and `KILL`.
+Selected-lane controls expose `BODY`, `LOSS`, continuous MIDI-note `TUNE`,
+±100-cent `FINE`, `PITCH LOCK`, `LEVEL`, `MUTE`, and `KILL`. Pitch lock makes
+the lane body's base frequency follow its note/cents target and suppresses
+resonator detune drift, so eight lanes can act as a tuned polyphonic feedback
+instrument without forcing the matrix into a single shared pitch.
 The lane EQ remains `LOW`, `MID F`, `MID G`, and `HIGH`. Matrix, lane, EQ,
 and insert state are stored per lane; global macros never collapse the eight
 lane states into one shared processor.
@@ -271,10 +294,11 @@ return, so muting removes it from all eight destinations, its own feedback, and
 cross-aux ring modulation without rewriting any lane send. Unmuting restores
 the preserved send mix without a discontinuity.
 
-The aux output is returned to the lane excitation stage with a fixed stable
-distribution: A reinforces all destinations while B alternates polarity. This
-gives the buses different circuit roles without adding another hidden matrix.
-All aux paths retain one-sample memory and pass through DC control.
+Each lane chooses the source tap for each bus and owns a signed destination
+return coefficient. This exposes the former fixed distribution as an editable
+two-bus topology without hiding another matrix. The factory default still has
+A reinforce all destinations and B alternate polarity. All aux paths retain
+one-sample memory and pass through DC control.
 
 `INTERNAL` is a tilt-like one-pole tone path applied to governed lane returns.
 `HOUSE` is a separate tilt on the audition output. Neither parameter rewrites
@@ -282,7 +306,7 @@ per-lane EQ, and `HOUSE` cannot alter the feedback ecology.
 
 ## Editor and mixer interaction contract
 
-The editor is a full-width shell with four logical pages rather than a
+The editor is a full-width shell with six logical pages rather than a
 permanent side control column:
 
 - `PATCH` combines signed wiring (or the alternate exact grid), network,
@@ -292,8 +316,11 @@ permanent side control column:
 - `CHANNEL` combines eight lane summaries with the selected lane, EQ, and
   insert controls.
 - `SAFETY` combines output and containment controls.
+- `AUX` exposes all sixteen send taps and sixteen signed destination returns.
+- `SURF` captures and performs between complete parameter snapshots using the
+  shared s3g Voronoi Parameter Surface.
 
-`PANIC` stays fixed in the title band. `POP` detaches the current page and
+`PANIC` lives with the `SAFETY` page. `POP` detaches the current page and
 `DOCK` closes that attached window. Every detached page uses the same renderer
 and native 1356-by-820 coordinate system as its nested form; there is no second
 set of mixer controls and no DSP state lives in a window. The `MIXER` renderer
@@ -307,6 +334,28 @@ hiding the host editor hides its attached pages.
 When a plugin view is first responder, unmodified Left/Right moves to the
 adjacent logical page; if that page is detached, its attached window comes to
 the front. The shortcut is handled only while the plugin GUI owns focus.
+
+## SURF state interpolation
+
+The No Input Mixer uses the shared `ParameterSurfaceState` format with up to
+twenty-four Voronoi cells, distance focus, selectable weight curve, and a
+0–2000 ms target-cursor glide. `ADD` and `CAP` store a complete base parameter
+snapshot: network, signed matrix, body/tuning, EQ, processors, movement,
+REACT, and aux topology. Continuous fields use weighted interpolation;
+stepped processor, routing-tap, movement-shape, reaction, and clock choices
+come from the nearest active cell.
+
+Output trim/ceiling, limiter/DC, quality, lane faders and mutes, global aux
+mutes, house tone, preset variance, and the X/Y cursor remain a live audition
+and containment frame outside interpolation. CLAP modulation is applied after
+the surface blend. A factory preset, `RANDOM`, or `FORGET` bypasses the surface
+so the new complete scene is immediately audible but deliberately preserves
+the captured cells for later re-enabling.
+
+Only parameters are captured. Feedback returns, filters, resonators,
+envelopes, processor delay buffers, and random-controller memory are not
+serialized into cells. Cursor motion therefore changes the coefficients of
+one continuous live graph rather than crossfading frozen audio states.
 
 ## Containment
 
@@ -347,16 +396,21 @@ signal colors.
   and containment settings are serialized.
 - Ten deterministic factory patches, preset variance, localized forgetting,
   and bounded full-network randomization
-  resolve into the same stored parameter surface; reseeding remains an
+  resolve into the same stored base parameter set; each whole-scene action
+  bypasses, but does not delete, the optional SURF map. Reseeding remains an
   independent action.
-- The CLAP surface contains 331 parameters, including automatable bias for both
-  aux processors. Version-one state is migrated by
+- The CLAP surface contains 400 parameters: 56 globals, 64 matrix gains,
+  seventeen direct controls per lane, and six controls for every insert.
+  Continuous controls advertise CLAP modulation and parameter/modulation
+  events are applied at their sample offsets. Version-one state is migrated by
   retaining its globals, matrix, lane, EQ, and insert values, then filling new
   movement and aux fields from conservative defaults. Version-two state is
   retained directly; both older formats initialize the aux mutes off and the
   articulation layer to `GLIDE`. Version-three preserves its aux mutes and also
   initializes articulation to `GLIDE`; version four stores all seven new
-  articulation parameters.
+  articulation parameters. Version five adds REACT, hold/slow/sync clocks,
+  pitch targets, editable aux taps/returns, and the complete Parameter Surface
+  state while migrating versions one through four conservatively.
 - Processing is allocation-free after `prepare()`.
 - Fixed SPLICE/CHORUS time buffers live inside the heap-allocated plugin
   engine. Audio-thread `reset` and lane `KILL` clear them in place, without
@@ -415,10 +469,11 @@ For this instrument, those findings imply:
 Mantione's practical [no-input patching guide](https://waveinformer.com/2024/02/17/no-input-mixing/)
 supports treating filters, distortion, delay, VCAs, clocks, and decay stages as
 parts of the feedback topology rather than a conventional linear effects rack.
-It suggests several compatible future directions: lane envelopes as internal
-matrix-gain control sources, clock-divided gates with variable decay, and short
-rolling capture of unrepeatable incidents. These should extend the existing
-CV-like movement and effect-placement model without replacing manual routing.
+Its lane-envelope and clock-divider directions are represented here by REACT's
+measured activity followers and the host-synchronized FIELD/EVENT divisions.
+Short rolling capture of unrepeatable incidents remains a compatible future
+direction, provided it extends the CV-like movement and effect-placement model
+without replacing manual routing.
 Blackwell's [critical listening guide](https://daily.bandcamp.com/lists/toshimaru-nakamura-discography-list)
 is useful for checking that the result retains musical range across restrained,
 spatial, collaborative, and high-density material; it is not used as a DSP

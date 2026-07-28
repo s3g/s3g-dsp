@@ -176,6 +176,21 @@ bool testFactoryPresetsAndRandomization()
         std::cerr << "No Input Mixer articulation presets regressed\n";
         return false;
     }
+    const auto lattice = s3g::noInputMixerFactoryPreset(1u);
+    const auto rain = s3g::noInputMixerFactoryPreset(2u);
+    const auto ratCage = s3g::noInputMixerFactoryPreset(4u);
+    const auto openHouse = s3g::noInputMixerFactoryPreset(8u);
+    if (lattice.reactMode != s3g::NoInputReactMode::Balance
+        || lattice.lanes[0].pitchLock == 0u
+        || rain.slowTime == 0u
+        || ratCage.clockSync == 0u
+        || openHouse.lanes[0].auxTap[0]
+            == s3g::NoInputAuxTap::Return
+        || openHouse.lanes[0].auxReturn[1] >= 0.0f) {
+        std::cerr << "No Input Mixer factory presets do not expose the "
+                     "reactive, tuned, clocked, and aux-topology layers\n";
+        return false;
+    }
     for (uint32_t preset = 0u;
          preset < s3g::kNoInputMixerFactoryPresetCount; ++preset) {
         const auto params = s3g::noInputMixerFactoryPreset(preset);
@@ -202,6 +217,11 @@ bool testFactoryPresetsAndRandomization()
         || randomA.feedback != randomB.feedback
         || randomA.matrix != randomB.matrix
         || randomA.lanes[3].body != randomB.lanes[3].body
+        || randomA.reactMode != randomB.reactMode
+        || randomA.lanes[3].tuneNote != randomB.lanes[3].tuneNote
+        || randomA.lanes[3].auxTap != randomB.lanes[3].auxTap
+        || randomA.lanes[3].auxReturn != randomB.lanes[3].auxReturn
+        || randomA.controllerHold != 0u
         || (randomA.feedback == randomC.feedback
             && randomA.matrix == randomC.matrix)) {
         std::cerr << "No Input Mixer bounded randomization was not "
@@ -531,6 +551,136 @@ bool testMovementBehaviors()
     return true;
 }
 
+bool testReactClockTuningAndAuxTopology()
+{
+    if (std::abs(s3g::noInputMixerMotionRateHz(0.0f, true)
+            - 1.0f / 600.0f) > 1.0e-7f
+        || std::abs(s3g::noInputMovementEventRateHz(1.0f, true) - 1.0f)
+            > 1.0e-5f
+        || std::abs(s3g::noInputSyncedRateHz(6u, 120.0) - 0.5f)
+            > 1.0e-6f
+        || std::strcmp(s3g::noInputClockDivisionName(9u), "8 BARS") != 0) {
+        std::cerr << "Slow/tempo clock laws regressed\n";
+        return false;
+    }
+
+    auto reactParams = s3g::defaultNoInputMixerParams();
+    reactParams.motion = 0.72f;
+    reactParams.motionRate = 0.8f;
+    reactParams.reactMode = s3g::NoInputReactMode::Avoid;
+    reactParams.reactDepth = 1.0f;
+    reactParams.reactThreshold = 0.0f;
+    reactParams.reactAttack = 0.0f;
+    reactParams.reactRelease = 0.0f;
+    uint32_t closedRoute = 0u;
+    while (closedRoute < reactParams.matrix.size()
+        && std::abs(reactParams.matrix[closedRoute]) > 1.0e-7f) {
+        ++closedRoute;
+    }
+    if (closedRoute >= reactParams.matrix.size()) return false;
+    s3g::NoInputMixer react;
+    react.prepare(48000.0);
+    react.setParams(reactParams);
+    react.reseed(0x52454143u, 0.82f);
+    Frame frame {};
+    float minimumReact = 1.0f;
+    for (uint32_t sample = 0u; sample < 32000u; ++sample) {
+        react.processFrame(frame.data());
+        for (uint32_t route = 0u; route < reactParams.matrix.size(); ++route) {
+            if (std::abs(reactParams.matrix[route]) <= 1.0e-7f) continue;
+            minimumReact = std::min(minimumReact,
+                react.reactRouteGate(route));
+        }
+        if (std::abs(react.routeSignal(closedRoute)) > 1.0e-9f) {
+            std::cerr << "REACT invented a closed matrix route\n";
+            return false;
+        }
+    }
+    if (!(minimumReact < 0.65f)) {
+        std::cerr << "REACT did not materially articulate route gain: "
+                  << minimumReact << "\n";
+        return false;
+    }
+    const float heldPhase = react.motionPhase();
+    const float heldGate = react.reactRouteGate(0u);
+    reactParams.controllerHold = 1u;
+    react.setParams(reactParams);
+    render(react, 4096u);
+    if (react.motionPhase() != heldPhase
+        || react.reactRouteGate(0u) != heldGate) {
+        std::cerr << "Hold Ecology did not freeze controller state\n";
+        return false;
+    }
+
+    auto lowTune = s3g::defaultNoInputMixerParams();
+    auto highTune = lowTune;
+    for (uint32_t lane = 0u; lane < s3g::kNoInputMixerChannels; ++lane) {
+        lowTune.lanes[lane].pitchLock = 1u;
+        highTune.lanes[lane].pitchLock = 1u;
+        lowTune.lanes[lane].tuneNote = 36.0f + lane;
+        highTune.lanes[lane].tuneNote = 84.0f + lane;
+    }
+    s3g::NoInputMixer low;
+    s3g::NoInputMixer high;
+    low.prepare(48000.0);
+    high.prepare(48000.0);
+    low.setParams(lowTune);
+    high.setParams(highTune);
+    low.reseed(0x54554e45u, 0.72f);
+    high.reseed(0x54554e45u, 0.72f);
+    Frame lowFrame {};
+    Frame highFrame {};
+    double tunedDifference = 0.0;
+    for (uint32_t sample = 0u; sample < 16000u; ++sample) {
+        low.processFrame(lowFrame.data());
+        high.processFrame(highFrame.data());
+        for (uint32_t lane = 0u; lane < lowFrame.size(); ++lane) {
+            tunedDifference += std::abs(static_cast<double>(
+                lowFrame[lane] - highFrame[lane]));
+        }
+    }
+    if (!(tunedDifference > 0.01)) {
+        std::cerr << "Pitch-locked lane tuning had no DSP effect\n";
+        return false;
+    }
+
+    auto returnTap = s3g::defaultNoInputMixerParams();
+    auto insertTap = returnTap;
+    for (auto& lane : returnTap.lanes) {
+        lane.auxSend = { 0.72f, 0.0f };
+        lane.auxReturn = { 0.65f, 0.0f };
+        lane.auxTap[0] = s3g::NoInputAuxTap::Return;
+    }
+    for (auto& lane : insertTap.lanes) {
+        lane.auxSend = { 0.72f, 0.0f };
+        lane.auxReturn = { -0.65f, 0.0f };
+        lane.auxTap[0] = s3g::NoInputAuxTap::PostInsert;
+    }
+    s3g::NoInputMixer returnMixer;
+    s3g::NoInputMixer insertMixer;
+    returnMixer.prepare(48000.0);
+    insertMixer.prepare(48000.0);
+    returnMixer.setParams(returnTap);
+    insertMixer.setParams(insertTap);
+    returnMixer.reseed(0x41555854u, 0.68f);
+    insertMixer.reseed(0x41555854u, 0.68f);
+    double topologyDifference = 0.0;
+    for (uint32_t sample = 0u; sample < 20000u; ++sample) {
+        returnMixer.processFrame(lowFrame.data());
+        insertMixer.processFrame(highFrame.data());
+        for (uint32_t lane = 0u; lane < lowFrame.size(); ++lane) {
+            topologyDifference += std::abs(static_cast<double>(
+                lowFrame[lane] - highFrame[lane]));
+        }
+    }
+    if (!(topologyDifference > 0.01)
+        || !(insertMixer.auxActivity(0u) > 0.0f)) {
+        std::cerr << "Configurable aux tap/return topology had no DSP effect\n";
+        return false;
+    }
+    return true;
+}
+
 bool testPanic()
 {
     auto params = s3g::defaultNoInputMixerParams();
@@ -596,6 +746,7 @@ int main()
     if (!testSignedMatrixChangesState()) return 1;
     if (!testHybridControlEcology()) return 1;
     if (!testMovementBehaviors()) return 1;
+    if (!testReactClockTuningAndAuxTopology()) return 1;
     if (!testPanic()) return 1;
     if (!testSanitization()) return 1;
     std::cout << "No Input Mixer smoke passed\n";

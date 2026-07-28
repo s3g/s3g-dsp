@@ -29,6 +29,7 @@ target_link_libraries(s3g_vox_builder_app PRIVATE
 
 target_include_directories(s3g_vox_builder_app PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../../plugins/common
+  ${S3G_CLAP_INCLUDE_DIR}
 )
 
 target_compile_options(s3g_vox_builder_app PRIVATE "-fobjc-arc")

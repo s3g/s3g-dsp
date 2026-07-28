@@ -89,6 +89,76 @@ struct LegacyState {
     uint32_t guiPage = 0u;
 };
 
+struct Version4Aux {
+    LegacyInsert effect {};
+    float feedback = 0.24f;
+    float returnGain = 0.18f;
+};
+
+struct Version4Lane {
+    float body = 0.50f;
+    float loss = 0.38f;
+    float levelDb = -3.0f;
+    uint32_t mute = 0u;
+    float lowDb = 0.0f;
+    float midFrequencyHz = 850.0f;
+    float midGainDb = 0.0f;
+    float highDb = 0.0f;
+    std::array<float, 2u> auxSend {{ 0.0f, 0.0f }};
+    std::array<LegacyInsert, 3u> inserts {};
+};
+
+struct Version4Params {
+    float outputGainDb = -18.0f;
+    float ceilingDb = -1.0f;
+    uint32_t limiterEnabled = 1u;
+    uint32_t dcBlockEnabled = 1u;
+    float feedback = 0.82f;
+    float coupling = 0.42f;
+    float phase = 0.34f;
+    float drift = 0.18f;
+    float formant = 0.30f;
+    float agency = 0.28f;
+    float space = 0.10f;
+    float variance = 0.12f;
+    float internalTone = 0.0f;
+    float houseTone = -0.08f;
+    float flow = 0.42f;
+    float spread = 0.36f;
+    float vortex = 0.0f;
+    float motion = 0.0f;
+    uint32_t motionShape = 0u;
+    float motionRate = 0.15f;
+    float motionPhase = 0.0f;
+    uint32_t quality = 1u;
+    uint32_t seed = 0x5455444fu;
+    std::array<Version4Aux, 2u> aux {};
+    std::array<float, 64u> matrix {};
+    std::array<Version4Lane, 8u> lanes {};
+};
+
+struct Version4Behavior {
+    uint32_t behavior = 0u;
+    float eventRate = 0.42f;
+    float length = 0.32f;
+    float density = 0.55f;
+    float chaos = 0.34f;
+    float slew = 0.22f;
+    float choke = 0.0f;
+};
+
+struct Version4State {
+    uint32_t version = 4u;
+    Version4Params params {};
+    uint32_t selectedLane = 2u;
+    uint32_t selectedSlot = 0u;
+    uint32_t selectedSource = 2u;
+    uint32_t selectedDestination = 2u;
+    uint32_t guiPage = 0u;
+    std::array<uint32_t, 2u> auxMute {};
+    Version4Behavior behavior {};
+};
+
 const void* hostGetExtension(const clap_host_t*, const char*) { return nullptr; }
 void hostRequest(const clap_host_t*) {}
 
@@ -287,12 +357,48 @@ int main(int argc, char** argv)
     ok = ok && state->save(plugin, &outputStream) && !saved.bytes.empty();
     if (!ok) std::cerr << "failed: current state save\n";
 
+    Version4State versionFour;
+    versionFour.params.feedback = 0.71f;
+    versionFour.params.matrix[0] = 0.88f;
+    versionFour.params.lanes[0].body = 0.67f;
+    versionFour.params.lanes[0].auxSend[0] = 0.62f;
+    versionFour.auxMute[0] = 1u;
+    versionFour.behavior.behavior = 4u;
+    MemoryState versionFourMemory;
+    const auto* versionFourBytes = reinterpret_cast<const uint8_t*>(
+        &versionFour);
+    versionFourMemory.bytes.assign(versionFourBytes,
+        versionFourBytes + sizeof(versionFour));
+    clap_istream_t versionFourStream { &versionFourMemory, stateRead };
+    double versionFourValue = 0.0;
+    ok = ok && state->load(plugin, &versionFourStream)
+        && params->get_value(plugin, 5u, &versionFourValue)
+        && std::abs(versionFourValue - 0.71) < 1.0e-6
+        && params->get_value(plugin, 100u, &versionFourValue)
+        && std::abs(versionFourValue - 0.88) < 1.0e-6
+        && params->get_value(plugin, kLaneOneAuxAParam, &versionFourValue)
+        && std::abs(versionFourValue - 0.62) < 1.0e-6
+        && params->get_value(plugin, kBehaviorParam, &versionFourValue)
+        && versionFourValue == 4.0
+        && params->get_value(plugin, kReactModeParam, &versionFourValue)
+        && versionFourValue == 0.0
+        && params->get_value(plugin, kLaneOneTuneParam, &versionFourValue)
+        && std::abs(versionFourValue - 45.0) < 1.0e-6
+        && params->get_value(plugin, kLaneOneAuxReturnAParam,
+            &versionFourValue)
+        && std::abs(versionFourValue - 0.42) < 1.0e-6;
+    if (!ok) std::cerr << "failed: v4 state migration\n";
+    saved.offset = 0u;
+    clap_istream_t postV4Restore { &saved, stateRead };
+    ok = ok && state->load(plugin, &postV4Restore);
+
     EventList matrixChange;
     matrixChange.add(kFirstMatrixParam, 0.0);
     if (ok) params->flush(plugin, &matrixChange.input, nullptr);
     double matrixValue = -1.0;
     ok = ok && params->get_value(plugin, kFirstMatrixParam, &matrixValue)
         && matrixValue == 0.0;
+    saved.offset = 0u;
     clap_istream_t inputStream { &saved, stateRead };
     ok = ok && state->load(plugin, &inputStream)
         && params->get_value(plugin, kFirstMatrixParam, &matrixValue)
