@@ -345,6 +345,12 @@ REACT, and aux topology. Continuous fields use weighted interpolation;
 stepped processor, routing-tap, movement-shape, reaction, and clock choices
 come from the nearest active cell.
 
+Its native SURF page follows the shared control hierarchy rather than using
+plugin-specific abbreviations: the cell actions occupy the first row, followed
+by `CURVE`, `FOCUS -/+` with its numeric value, and `GLIDE -/+` with its time.
+Curve reshapes normalized weights, focus changes their spatial concentration,
+and glide changes only the target cursor's temporal settling.
+
 Output trim/ceiling, limiter/DC, quality, lane faders and mutes, global aux
 mutes, house tone, preset variance, and the X/Y cursor remain a live audition
 and containment frame outside interpolation. CLAP modulation is applied after
@@ -412,7 +418,7 @@ signal colors.
   surface.
 - Seeds, matrix state, resonator variations, insert types, all lane controls,
   and containment settings are serialized.
-- Ten deterministic factory patches, preset variance, localized forgetting,
+- Twenty deterministic factory patches, preset variance, localized forgetting,
   and three bounded, energy-coherent full-network randomization profiles
   resolve into the same stored base parameter set; each whole-scene action
   bypasses, but does not delete, the optional SURF map. Reseeding remains an

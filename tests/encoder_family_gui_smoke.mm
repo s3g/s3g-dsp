@@ -2915,9 +2915,14 @@ int main(int argc, char** argv)
                         clickSurface(NSMakePoint(205.0, 132.0));
                         clickSurface(NSMakePoint(205.0, 132.0));
                         clickSurface(NSMakePoint(141.0, 132.0));
+                        // Exercise the shared CURVE, FOCUS, GLIDE control
+                        // order used by every s3g SURF page.
+                        clickSurface(NSMakePoint(98.0, 165.0));
+                        clickSurface(NSMakePoint(251.0, 165.0));
+                        clickSurface(NSMakePoint(425.0, 165.0));
                         const NSPoint cursor = NSMakePoint(
                             42.0 + 1272.0 * 0.73,
-                            774.0 - 610.0 * 0.27);
+                            774.0 - 580.0 * 0.27);
                         clickSurface(cursor);
                         double surfaceX = 0.0;
                         double surfaceY = 0.0;

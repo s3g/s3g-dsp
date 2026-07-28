@@ -2338,20 +2338,42 @@ NSRect auxPageTapRect(uint32_t lane, uint32_t bus)
 NSRect surfacePlotRect()
 {
     const NSRect page = widePageRect();
-    return NSMakeRect(page.origin.x + 14.0, page.origin.y + 86.0,
-        page.size.width - 28.0, page.size.height - 104.0);
+    return NSMakeRect(page.origin.x + 14.0, page.origin.y + 116.0,
+        page.size.width - 28.0, page.size.height - 134.0);
 }
 
 NSRect surfaceButtonRect(uint32_t index)
 {
     const NSRect page = widePageRect();
     static constexpr CGFloat widths[] {
-        62.0, 62.0, 54.0, 54.0, 54.0, 34.0, 34.0,
-        70.0, 34.0, 34.0,
+        62.0, 62.0, 54.0, 54.0, 54.0,
     };
     CGFloat x = page.origin.x + 14.0;
     for (uint32_t item = 0u; item < index; ++item) x += widths[item] + 6.0;
     return NSMakeRect(x, page.origin.y + 43.0, widths[index], 22.0);
+}
+
+NSRect surfaceCurveRect()
+{
+    const NSRect page = widePageRect();
+    return NSMakeRect(page.origin.x + 14.0, page.origin.y + 76.0,
+        112.0, 22.0);
+}
+
+NSRect surfaceFocusRect(uint32_t index)
+{
+    const NSRect page = widePageRect();
+    return NSMakeRect(page.origin.x + 186.0
+            + static_cast<CGFloat>(index) * 26.0,
+        page.origin.y + 76.0, 22.0, 22.0);
+}
+
+NSRect surfaceGlideRect(uint32_t index)
+{
+    const NSRect page = widePageRect();
+    return NSMakeRect(page.origin.x + 360.0
+            + static_cast<CGFloat>(index) * 26.0,
+        page.origin.y + 76.0, 22.0, 22.0);
 }
 
 NSRect reactModeToggleRect(uint32_t index)
@@ -4074,7 +4096,10 @@ NSRect effectEditorToggleRect(uint32_t row)
     NSString* presetItems[s3g::kNoInputMixerFactoryPresetCount] = {
         @"INIT", @"CIRCUIT LATTICE", @"RAIN FOREST", @"WOOL RING",
         @"RAT CAGE", @"ZONE WEB", @"NEGATIVE SPACE", @"RELAY BLOOM",
-        @"OPEN HOUSE", @"MOBILE CIRCUIT",
+        @"OPEN HOUSE", @"MOBILE CIRCUIT", @"STATIC CHOIR",
+        @"RAZOR CLOCK", @"SUBHARMONIC WELL", @"SPEECH CIRCUIT",
+        @"SPLICE STORM", @"PHASE ORCHARD", @"LOGIC FLOCK",
+        @"OCTAVE LADDER", @"AUX MIRROR", @"WALL ENGINE",
     };
     NSString** items = laneItems;
     uint32_t count = kChannelCount;
@@ -4388,17 +4413,25 @@ NSRect effectEditorToggleRect(uint32_t row)
     drawFlatButton(surfaceButtonRect(2u), @"ADD", false, value);
     drawFlatButton(surfaceButtonRect(3u), @"DEL", false, value);
     drawFlatButton(surfaceButtonRect(4u), @"CAP", false, value);
-    drawFlatButton(surfaceButtonRect(5u), @"F−", false, value);
-    drawFlatButton(surfaceButtonRect(6u), @"F+", false, value);
-    drawFlatButton(surfaceButtonRect(7u),
-        [NSString stringWithUTF8String:s3g::parameterSurfaceCurveName(
-            plugin->surface.curve)], true, value);
-    drawFlatButton(surfaceButtonRect(8u), @"G−", false, value);
-    drawFlatButton(surfaceButtonRect(9u), @"G+", false, value);
-    [[NSString stringWithFormat:@"FOCUS %.2f  ·  GLIDE %.0f MS",
-        plugin->surface.focus, plugin->surface.glideMs]
-        drawAtPoint:NSMakePoint(NSMaxX(surfaceButtonRect(9u)) + 14.0,
-            surfaceButtonRect(9u).origin.y + 4.0) withAttributes:value];
+    drawFlatButton(surfaceCurveRect(),
+        [NSString stringWithFormat:@"CURVE  %s",
+            s3g::parameterSurfaceCurveName(plugin->surface.curve)],
+        false, value);
+    [@"FOCUS" drawAtPoint:NSMakePoint(page.origin.x + 140.0,
+        page.origin.y + 80.0) withAttributes:label];
+    drawFlatButton(surfaceFocusRect(0u), @"-", false, value);
+    drawFlatButton(surfaceFocusRect(1u), @"+", false, value);
+    [[NSString stringWithFormat:@"%.2f", plugin->surface.focus]
+        drawAtPoint:NSMakePoint(page.origin.x + 242.0,
+            page.origin.y + 80.0) withAttributes:value];
+    [@"GLIDE" drawAtPoint:NSMakePoint(page.origin.x + 306.0,
+        page.origin.y + 80.0) withAttributes:label];
+    drawFlatButton(surfaceGlideRect(0u), @"-", false, value);
+    drawFlatButton(surfaceGlideRect(1u), @"+", false, value);
+    NSString* glide = plugin->surface.glideMs < 0.5f ? @"OFF"
+        : [NSString stringWithFormat:@"%.0f MS", plugin->surface.glideMs];
+    [glide drawAtPoint:NSMakePoint(page.origin.x + 416.0,
+        page.origin.y + 80.0) withAttributes:value];
     const float effectiveX = plugin->active.load(std::memory_order_acquire)
         ? plugin->effectiveSurfaceX.load(std::memory_order_relaxed)
         : plugin->params.surfaceX;
@@ -5250,16 +5283,16 @@ NSRect effectEditorToggleRect(uint32_t row)
             [self setNeedsDisplay:YES];
             return;
         }
-        if (NSPointInRect(point, surfaceButtonRect(5u))
-            || NSPointInRect(point, surfaceButtonRect(6u))) {
+        if (NSPointInRect(point, surfaceFocusRect(0u))
+            || NSPointInRect(point, surfaceFocusRect(1u))) {
             plugin->surface.focus = std::clamp(plugin->surface.focus
-                * (NSPointInRect(point, surfaceButtonRect(5u))
+                * (NSPointInRect(point, surfaceFocusRect(0u))
                     ? 0.8f : 1.25f), 0.25f, 8.0f);
             syncMixerState(*plugin);
             [self setNeedsDisplay:YES];
             return;
         }
-        if (NSPointInRect(point, surfaceButtonRect(7u))) {
+        if (NSPointInRect(point, surfaceCurveRect())) {
             plugin->surface.curve = static_cast<s3g::ParameterSurfaceCurve>(
                 (static_cast<uint32_t>(plugin->surface.curve) + 1u)
                     % s3g::kParameterSurfaceCurveCount);
@@ -5267,11 +5300,11 @@ NSRect effectEditorToggleRect(uint32_t row)
             [self setNeedsDisplay:YES];
             return;
         }
-        if (NSPointInRect(point, surfaceButtonRect(8u))
-            || NSPointInRect(point, surfaceButtonRect(9u))) {
+        if (NSPointInRect(point, surfaceGlideRect(0u))
+            || NSPointInRect(point, surfaceGlideRect(1u))) {
             plugin->surface.glideMs = s3g::parameterSurfaceSteppedGlide(
                 plugin->surface.glideMs,
-                NSPointInRect(point, surfaceButtonRect(8u)) ? -1 : 1);
+                NSPointInRect(point, surfaceGlideRect(0u)) ? -1 : 1);
             syncMixerState(*plugin);
             [self setNeedsDisplay:YES];
             return;

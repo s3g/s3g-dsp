@@ -57,7 +57,7 @@
 
         <h2 id="presets">Presets and Randomization</h2>
 
-        <p>The title-band <code>PRESET</code> menu contains ten complete starting states. Selecting one replaces the global network, all sixty-four matrix gains, eight bodies and EQs, twenty-four insert slots, aux system, and movement state, then applies the current <code>VARIANCE</code> and injects a deterministic seed.</p>
+        <p>The title-band <code>PRESET</code> menu contains twenty complete starting states. Selecting one replaces the global network, all sixty-four matrix gains, eight bodies and EQs, twenty-four insert slots, aux system, and movement state, then applies the current <code>VARIANCE</code> and injects a deterministic seed.</p>
 
         <table class="readout-table">
           <thead><tr><th>Preset</th><th>Network identity</th></tr></thead>
@@ -72,6 +72,16 @@
             <tr><td>RELAY BLOOM</td><td>Gated fuzz cells open into diode recovery under clustered <code>BURST</code> motion and fast <code>EDGE</code> listening.</td></tr>
             <tr><td>OPEN HOUSE</td><td>A slow pitch-locked ecology with mixed pre/post aux taps, signed destination returns, and separate internal/house tone.</td></tr>
             <tr><td>MOBILE CIRCUIT</td><td>A host-clocked signed nonlinear circuit whose active relationships move through Swirl and <code>BALANCE</code> fields.</td></tr>
+            <tr><td>STATIC CHOIR</td><td>A slow, dense tuned network in which Throat, Chorus, and octave voices form a sustained polyphonic field.</td></tr>
+            <tr><td>RAZOR CLOCK</td><td>Host-synchronized Logic, Shred, and Crush cells driven by rapid Pulse motion and sharply choked <code>CUT</code> events.</td></tr>
+            <tr><td>SUBHARMONIC WELL</td><td>Low pitch-locked bodies feed Oct Down and Oct Stack processors through a deep, slowly moving feedback ecology.</td></tr>
+            <tr><td>SPEECH CIRCUIT</td><td>Moving formant bands, Throat and Robot transformations, and ring multiplication make the network behave like a synthetic vocal tract.</td></tr>
+            <tr><td>SPLICE STORM</td><td>Clocked buffer slices, Shred, Crush, and destructive <code>BURST</code> articulation create abrupt cut-up structures.</td></tr>
+            <tr><td>PHASE ORCHARD</td><td>Pitch-locked Rotor, Phase, and Chorus branches drift slowly through a wide phase-bearing Swirl.</td></tr>
+            <tr><td>LOGIC FLOCK</td><td>Logic, Relay, and Robot cells reorganize in unstable clusters under fast <code>SCRAMBLE</code> motion.</td></tr>
+            <tr><td>OCTAVE LADDER</td><td>A host-clocked Chase moves among tuned Oct Down, Oct Stack, and Oct Up lanes arranged as an ascending register ladder.</td></tr>
+            <tr><td>AUX MIRROR</td><td>Alternating pre/post taps and bipolar destination returns make the two processed aux loops the central routing instrument.</td></tr>
+            <tr><td>WALL ENGINE</td><td>A continuously moving, densely coupled saturation wall using Wool, Rat, Zone, fuzz, and diode stages without listening-induced gaps.</td></tr>
           </tbody>
         </table>
 
@@ -155,6 +165,15 @@
 
         <p>Aux A and B are genuine internal return loops. Every lane can send independently; each bus has its own dropdown-selected processor from the complete twenty-three-type library, drive, tone, bias, return level, and bounded self-feedback. The dedicated <code>AUX</code> page makes the topology explicit. Each lane and bus selects <code>RETURN</code>, <code>PRE EQ</code>, <code>POST EQ</code>, or <code>POST INSERT</code> as its send tap, then uses a signed <code>-1…+1</code> destination return. Negative return values invert the processed bus before it excites that lane. The default <code>RETURN</code> taps and alternating Aux B signs preserve the original patch behavior.</p>
 
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/no-input-mixer.aux-pop.png" aria-label="Open Processor No Input Mixer AUX topology screenshot">
+              <img src="assets/plugin-guis/no-input-mixer.aux-pop.png" alt="Detached Processor No Input Mixer AUX page with two bus columns per lane showing send gain, tap position, and signed destination return" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The detached <code>AUX</code> page aligns every lane's two sends, tap positions, and signed destination returns so the complete feedback topology can be read and edited as one surface.</figcaption>
+        </figure>
+
         <p>Each bus also has a global <code>MUTE ALL</code> button. It applies a clickless four-millisecond gate to that processed aux return everywhere in the eight-lane graph, including cross-aux modulation, without erasing any lane's send level. Unmuting therefore restores the preserved aux mix. <code>INTERNAL</code> tone sits inside the feedback ecology, while <code>HOUSE</code> tone affects only the eight audition outputs. This separation allows bright internal energy to sustain a circuit without forcing the same spectrum into the listening system.</p>
 
         <h2 id="lanes">Lanes and EQ</h2>
@@ -199,7 +218,18 @@
 
         <h2 id="surf">SURF Parameter Surface</h2>
 
-        <p><code>SURF</code> brings the shared s3g <a href="parameter-surface.html">Parameter Surface</a> to the feedback network. <code>ADD</code> captures the current base patch as a cell; <code>CAP</code> replaces the selected cell; <code>DEL</code> removes it. After at least two cells exist, switch the surface <code>ON</code> and use <code>PLAY</code> to drag the crosshair. <code>FOCUS</code> shapes spatial influence, <code>CURVE</code> selects the interpolation response, and <code>GLIDE</code> gives the active cursor a click-safe settling time. Automatable, modulatable <code>SURFACE X</code> and <code>SURFACE Y</code> parameters make the same gesture available to the host.</p>
+        <p><code>SURF</code> brings the shared s3g <a href="parameter-surface.html">Parameter Surface</a> to the feedback network. Its controls now use the same two-row order as the other SURF interfaces: <code>PLAY/EDIT</code>, <code>ON</code>, <code>ADD</code>, <code>DEL</code>, and <code>CAP</code> above <code>CURVE</code>, <code>FOCUS −/+</code>, and <code>GLIDE −/+</code>. <code>ADD</code> captures the current base patch as a cell; <code>CAP</code> replaces the selected cell; <code>DEL</code> removes it. After at least two cells exist, switch the surface <code>ON</code> and use <code>PLAY</code> to drag the crosshair. Automatable, modulatable <code>SURFACE X</code> and <code>SURFACE Y</code> parameters make the same gesture available to the host.</p>
+
+        <p>The three interpolation controls are independent. <code>CURVE</code> changes the response profile applied to the normalized cell weights. <code>FOCUS</code> changes their spatial concentration: lower values keep distant cells in the mixture, while higher values favor nearby cells. <code>GLIDE</code> changes only time, smoothing the active cursor toward its target from <code>OFF</code> to 2000 ms; it does not alter either the curve or the focus.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/no-input-mixer.surf-pop.png" aria-label="Open Processor No Input Mixer SURF page screenshot">
+              <img src="assets/plugin-guis/no-input-mixer.surf-pop.png" alt="Detached Processor No Input Mixer SURF page with the standard cell-action row and separate Curve, Focus, and Glide controls above a two-cell Voronoi surface" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The detached <code>SURF</code> page now uses the same explicit action, <code>CURVE</code>, <code>FOCUS</code>, and <code>GLIDE</code> hierarchy as the other s3g Parameter Surface interfaces.</figcaption>
+        </figure>
 
         <p>Continuous network, matrix, processor, tuning, movement, REACT, and aux-topology values blend by distance. Processor choices, tap locations, movement shapes, clock modes, and other discrete topology follow the nearest cell. Final output gain, ceiling, limiter/DC settings, quality, lane faders/mutes, aux global mutes, house tone, and preset variance remain live outside the surface, so containment and audition controls never disappear under an interpolated scene. A whole-patch preset, <code>RANDOM</code>, or <code>FORGET</code> bypasses SURF without deleting its cells.</p>
 

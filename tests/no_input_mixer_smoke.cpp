@@ -169,10 +169,23 @@ bool testDistortionFamilies()
 
 bool testFactoryPresetsAndRandomization()
 {
-    if (s3g::noInputMixerFactoryBehavior(4u).behavior
+    if (s3g::kNoInputMixerFactoryPresetCount != 20u
+        || std::strcmp(s3g::noInputMixerFactoryPresetName(10u),
+            "STATIC CHOIR") != 0
+        || std::strcmp(s3g::noInputMixerFactoryPresetName(19u),
+            "WALL ENGINE") != 0
+        || s3g::noInputMixerFactoryBehavior(4u).behavior
             != s3g::NoInputMovementBehavior::Burst
         || s3g::noInputMixerFactoryBehavior(5u).behavior
-            != s3g::NoInputMovementBehavior::Scramble) {
+            != s3g::NoInputMovementBehavior::Scramble
+        || s3g::noInputMixerFactoryBehavior(11u).behavior
+            != s3g::NoInputMovementBehavior::Cut
+        || s3g::noInputMixerFactoryBehavior(14u).behavior
+            != s3g::NoInputMovementBehavior::Burst
+        || s3g::noInputMixerFactoryBehavior(16u).behavior
+            != s3g::NoInputMovementBehavior::Scramble
+        || s3g::noInputMixerFactoryBehavior(19u).behavior
+            != s3g::NoInputMovementBehavior::Glide) {
         std::cerr << "No Input Mixer articulation presets regressed\n";
         return false;
     }
@@ -180,15 +193,37 @@ bool testFactoryPresetsAndRandomization()
     const auto rain = s3g::noInputMixerFactoryPreset(2u);
     const auto ratCage = s3g::noInputMixerFactoryPreset(4u);
     const auto openHouse = s3g::noInputMixerFactoryPreset(8u);
+    const auto staticChoir = s3g::noInputMixerFactoryPreset(10u);
+    const auto spliceStorm = s3g::noInputMixerFactoryPreset(14u);
+    const auto octaveLadder = s3g::noInputMixerFactoryPreset(17u);
+    const auto auxMirror = s3g::noInputMixerFactoryPreset(18u);
+    const auto wallEngine = s3g::noInputMixerFactoryPreset(19u);
     if (lattice.reactMode != s3g::NoInputReactMode::Balance
         || lattice.lanes[0].pitchLock == 0u
         || rain.slowTime == 0u
         || ratCage.clockSync == 0u
         || openHouse.lanes[0].auxTap[0]
             == s3g::NoInputAuxTap::Return
-        || openHouse.lanes[0].auxReturn[1] >= 0.0f) {
+        || openHouse.lanes[0].auxReturn[1] >= 0.0f
+        || staticChoir.lanes[0].pitchLock == 0u
+        || staticChoir.lanes[0].inserts[0].type
+            != s3g::NoInputDistortionType::Throat
+        || spliceStorm.lanes[0].inserts[0].type
+            != s3g::NoInputDistortionType::Splice
+        || spliceStorm.clockSync == 0u
+        || octaveLadder.lanes[0].inserts[0].type
+            != s3g::NoInputDistortionType::OctDown
+        || octaveLadder.lanes[7].inserts[0].type
+            != s3g::NoInputDistortionType::OctUp
+        || auxMirror.lanes[0].auxTap[0]
+            == auxMirror.lanes[1].auxTap[0]
+        || auxMirror.lanes[0].auxReturn[1] >= 0.0f
+        || auxMirror.lanes[1].auxReturn[1] <= 0.0f
+        || wallEngine.reactMode != s3g::NoInputReactMode::Off
+        || wallEngine.lanes[0].inserts[2].bypass != 0u) {
         std::cerr << "No Input Mixer factory presets do not expose the "
-                     "reactive, tuned, clocked, and aux-topology layers\n";
+                     "reactive, tuned, clocked, processor, and aux-topology "
+                     "layers\n";
         return false;
     }
     for (uint32_t preset = 0u;

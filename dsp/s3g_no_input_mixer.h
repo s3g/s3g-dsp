@@ -1347,6 +1347,637 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
         }
         break;
     }
+    case 10u: { // Static Choir: tuned voices breathing through vocal cells.
+        params.seed = 0x43484f52u;
+        params.outputGainDb = -14.0f;
+        params.feedback = 0.92f;
+        params.coupling = 0.46f;
+        params.phase = 0.58f;
+        params.drift = 0.14f;
+        params.formant = 0.72f;
+        params.agency = 0.38f;
+        params.space = 0.20f;
+        params.flow = 0.34f;
+        params.spread = 0.76f;
+        params.motion = 0.28f;
+        params.motionShape = MatrixFlowShape::Flow;
+        params.motionRate = 0.72f;
+        params.slowTime = 1u;
+        params.reactMode = NoInputReactMode::Follow;
+        params.reactDepth = 0.18f;
+        params.reactThreshold = 0.10f;
+        params.reactAttack = 0.42f;
+        params.reactRelease = 0.74f;
+        params.aux[0].effect.type = NoInputDistortionType::Chorus;
+        params.aux[0].effect.gain = 0.34f;
+        params.aux[0].effect.tone = 0.30f;
+        params.aux[0].feedback = 0.24f;
+        params.aux[0].returnGain = 0.28f;
+        params.aux[1].effect.type = NoInputDistortionType::Phase;
+        params.aux[1].effect.gain = 0.28f;
+        params.aux[1].effect.tone = 0.58f;
+        params.aux[1].feedback = 0.18f;
+        params.aux[1].returnGain = 0.22f;
+        static constexpr std::array<float, 8u> notes {{
+            36.0f, 43.0f, 48.0f, 55.0f,
+            60.0f, 67.0f, 72.0f, 79.0f,
+        }};
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.96f);
+            route(lane, (lane + 4u) % 8u,
+                (lane & 1u) == 0u ? 0.13f : -0.11f);
+            route(lane, (lane + 2u) % 8u, 0.07f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.14f + 0.096f * static_cast<float>(lane);
+            voice.loss = 0.20f + 0.025f * static_cast<float>(lane % 4u);
+            voice.levelDb = -2.5f;
+            voice.tuneNote = notes[lane];
+            voice.tuneCents = (lane & 1u) == 0u ? -5.0f : 5.0f;
+            voice.pitchLock = 1u;
+            voice.midGainDb = 2.5f;
+            voice.midFrequencyHz = 360.0f + 190.0f * lane;
+            voice.auxSend[0] = 0.20f + 0.03f * (lane % 3u);
+            voice.auxSend[1] = 0.12f + 0.025f * ((lane + 1u) % 3u);
+            voice.auxTap[0] = NoInputAuxTap::PostEq;
+            voice.auxTap[1] = NoInputAuxTap::PostInsert;
+            voice.auxReturn[0] = 0.30f;
+            voice.auxReturn[1] = (lane & 1u) == 0u ? -0.18f : 0.22f;
+            voice.inserts[0].type = NoInputDistortionType::Throat;
+            voice.inserts[0].gain = 0.28f;
+            voice.inserts[0].tone = 0.18f + 0.09f * (lane % 5u);
+            voice.inserts[0].levelDb = -4.0f;
+            voice.inserts[1].type = (lane & 1u) == 0u
+                ? NoInputDistortionType::Chorus
+                : NoInputDistortionType::OctStack;
+            voice.inserts[1].gain = 0.18f;
+            voice.inserts[1].tone = 0.44f;
+            voice.inserts[1].levelDb = -3.0f;
+            voice.inserts[1].bypass = 0u;
+        }
+        break;
+    }
+    case 11u: { // Razor Clock: hard logic under rapid synchronized cuts.
+        params.seed = 0x525a434bu;
+        params.outputGainDb = -13.0f;
+        params.feedback = 0.98f;
+        params.coupling = 0.84f;
+        params.phase = 0.24f;
+        params.drift = 0.18f;
+        params.formant = 0.10f;
+        params.agency = 0.94f;
+        params.space = 0.05f;
+        params.flow = 0.86f;
+        params.spread = 0.34f;
+        params.vortex = -0.48f;
+        params.motion = 0.94f;
+        params.motionShape = MatrixFlowShape::Pulse;
+        params.clockSync = 1u;
+        params.fieldDivision = 1u;
+        params.eventDivision = 0u;
+        params.reactMode = NoInputReactMode::Edge;
+        params.reactDepth = 0.38f;
+        params.reactThreshold = 0.12f;
+        params.reactAttack = 0.025f;
+        params.reactRelease = 0.14f;
+        params.aux[0].effect.type = NoInputDistortionType::Crush;
+        params.aux[0].effect.gain = 0.52f;
+        params.aux[0].feedback = 0.42f;
+        params.aux[0].returnGain = 0.24f;
+        params.aux[1].effect.type = NoInputDistortionType::Logic;
+        params.aux[1].effect.gain = 0.44f;
+        params.aux[1].feedback = 0.34f;
+        params.aux[1].returnGain = 0.20f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.97f);
+            route(lane, (lane + 7u) % 8u, 0.34f);
+            route(lane, (lane + 3u) % 8u, -0.24f);
+            route(lane, (lane + 5u) % 8u,
+                (lane & 1u) == 0u ? 0.16f : -0.15f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.30f + 0.045f * (lane % 5u);
+            voice.loss = 0.38f + 0.025f * (lane % 3u);
+            voice.levelDb = -4.0f;
+            voice.highDb = 4.0f;
+            voice.auxSend[0] = 0.18f + 0.035f * (lane % 4u);
+            voice.auxSend[1] = 0.12f + 0.025f * ((lane + 2u) % 4u);
+            voice.inserts[0].type = (lane % 3u) == 0u
+                ? NoInputDistortionType::Logic
+                : ((lane % 3u) == 1u ? NoInputDistortionType::Shred
+                    : NoInputDistortionType::Crush);
+            voice.inserts[0].gain = 0.48f + 0.035f * (lane % 4u);
+            voice.inserts[0].tone = 0.30f + 0.08f * (lane % 4u);
+            voice.inserts[0].bias = (lane & 1u) == 0u ? 0.10f : -0.10f;
+            voice.inserts[0].levelDb = -9.0f;
+            voice.inserts[1].type = NoInputDistortionType::Diode;
+            voice.inserts[1].gain = 0.24f;
+            voice.inserts[1].levelDb = -4.0f;
+            voice.inserts[1].bypass = 0u;
+        }
+        break;
+    }
+    case 12u: { // Subharmonic Well: low tuned returns and octave division.
+        params.seed = 0x53554257u;
+        params.outputGainDb = -11.0f;
+        params.feedback = 0.91f;
+        params.coupling = 0.34f;
+        params.phase = 0.68f;
+        params.drift = 0.20f;
+        params.formant = 0.26f;
+        params.agency = 0.42f;
+        params.space = 0.30f;
+        params.internalTone = -0.42f;
+        params.houseTone = -0.36f;
+        params.flow = 0.28f;
+        params.spread = 0.68f;
+        params.motion = 0.38f;
+        params.motionShape = MatrixFlowShape::Flow;
+        params.motionRate = 0.70f;
+        params.slowTime = 1u;
+        params.reactMode = NoInputReactMode::Balance;
+        params.reactDepth = 0.16f;
+        params.reactThreshold = 0.08f;
+        params.reactAttack = 0.44f;
+        params.reactRelease = 0.78f;
+        params.aux[0].effect.type = NoInputDistortionType::Rotor;
+        params.aux[0].effect.gain = 0.28f;
+        params.aux[0].effect.tone = 0.16f;
+        params.aux[0].feedback = 0.32f;
+        params.aux[0].returnGain = 0.30f;
+        params.aux[1].effect.type = NoInputDistortionType::OctStack;
+        params.aux[1].effect.gain = 0.26f;
+        params.aux[1].effect.tone = 0.30f;
+        params.aux[1].feedback = 0.24f;
+        params.aux[1].returnGain = 0.24f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.97f);
+            route(lane, (lane + 4u) % 8u,
+                (lane & 1u) == 0u ? 0.12f : -0.10f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.08f + 0.065f * lane;
+            voice.loss = 0.16f + 0.018f * (lane % 4u);
+            voice.levelDb = -1.5f;
+            voice.lowDb = 5.0f;
+            voice.midGainDb = -2.5f;
+            voice.highDb = -7.0f;
+            voice.tuneNote = 24.0f + 3.0f * lane;
+            voice.tuneCents = (lane & 1u) == 0u ? -9.0f : 6.0f;
+            voice.pitchLock = 1u;
+            voice.auxSend[0] = 0.16f + 0.025f * (lane % 3u);
+            voice.auxSend[1] = 0.20f + 0.03f * ((lane + 1u) % 3u);
+            voice.auxTap[0] = NoInputAuxTap::PreEq;
+            voice.auxTap[1] = NoInputAuxTap::PostInsert;
+            voice.auxReturn[0] = 0.26f;
+            voice.auxReturn[1] = 0.22f;
+            voice.inserts[0].type = (lane & 1u) == 0u
+                ? NoInputDistortionType::OctDown
+                : NoInputDistortionType::OctStack;
+            voice.inserts[0].gain = 0.30f;
+            voice.inserts[0].tone = 0.26f + 0.04f * (lane % 4u);
+            voice.inserts[0].levelDb = -3.0f;
+            voice.inserts[1].type = NoInputDistortionType::Wool;
+            voice.inserts[1].gain = 0.14f;
+            voice.inserts[1].levelDb = -5.0f;
+            voice.inserts[1].bypass = 0u;
+        }
+        break;
+    }
+    case 13u: { // Speech Circuit: formant voices cross-modulate the matrix.
+        params.seed = 0x53504543u;
+        params.outputGainDb = -13.0f;
+        params.feedback = 0.92f;
+        params.coupling = 0.62f;
+        params.phase = 0.50f;
+        params.drift = 0.34f;
+        params.formant = 0.88f;
+        params.agency = 0.74f;
+        params.space = 0.18f;
+        params.internalTone = 0.18f;
+        params.houseTone = 0.10f;
+        params.flow = 0.58f;
+        params.spread = 0.46f;
+        params.vortex = 0.30f;
+        params.motion = 0.52f;
+        params.motionShape = MatrixFlowShape::Swirl;
+        params.motionRate = 0.36f;
+        params.reactMode = NoInputReactMode::Balance;
+        params.reactDepth = 0.48f;
+        params.reactThreshold = 0.18f;
+        params.reactAttack = 0.16f;
+        params.reactRelease = 0.46f;
+        params.aux[0].effect.type = NoInputDistortionType::Throat;
+        params.aux[0].effect.gain = 0.38f;
+        params.aux[0].effect.tone = 0.72f;
+        params.aux[0].feedback = 0.26f;
+        params.aux[0].returnGain = 0.28f;
+        params.aux[1].effect.type = NoInputDistortionType::Robot;
+        params.aux[1].effect.gain = 0.32f;
+        params.aux[1].effect.tone = 0.42f;
+        params.aux[1].feedback = 0.22f;
+        params.aux[1].returnGain = 0.22f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.94f);
+            route(lane, (lane + 1u) % 8u, 0.19f);
+            route(lane, (lane + 5u) % 8u,
+                (lane & 1u) == 0u ? -0.15f : 0.13f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.18f + 0.075f * lane;
+            voice.loss = 0.25f + 0.03f * (lane % 4u);
+            voice.midFrequencyHz = 300.0f + 420.0f * lane;
+            voice.midGainDb = (lane & 1u) == 0u ? 5.0f : -2.0f;
+            voice.highDb = 2.0f;
+            voice.auxSend[0] = 0.20f + 0.04f * (lane % 3u);
+            voice.auxSend[1] = 0.14f + 0.035f * ((lane + 1u) % 3u);
+            voice.auxTap[0] = NoInputAuxTap::PostEq;
+            voice.auxTap[1] = NoInputAuxTap::PostInsert;
+            voice.auxReturn[0] = 0.30f;
+            voice.auxReturn[1] = (lane & 1u) == 0u ? -0.22f : 0.25f;
+            voice.inserts[0].type = (lane & 1u) == 0u
+                ? NoInputDistortionType::Throat
+                : NoInputDistortionType::Robot;
+            voice.inserts[0].gain = 0.34f;
+            voice.inserts[0].tone = 0.12f + 0.105f * lane;
+            voice.inserts[0].levelDb = -5.0f;
+            voice.inserts[1].type = NoInputDistortionType::Ring;
+            voice.inserts[1].gain = 0.16f;
+            voice.inserts[1].tone = 0.52f;
+            voice.inserts[1].levelDb = -3.0f;
+            voice.inserts[1].bypass = 0u;
+        }
+        break;
+    }
+    case 14u: { // Splice Storm: buffer cuts and destructive short events.
+        params.seed = 0x53504c43u;
+        params.outputGainDb = -14.0f;
+        params.feedback = 0.97f;
+        params.coupling = 0.78f;
+        params.phase = 0.32f;
+        params.drift = 0.26f;
+        params.formant = 0.18f;
+        params.agency = 0.92f;
+        params.space = 0.08f;
+        params.flow = 0.88f;
+        params.spread = 0.72f;
+        params.vortex = -0.66f;
+        params.motion = 0.96f;
+        params.motionShape = MatrixFlowShape::Scatter;
+        params.clockSync = 1u;
+        params.fieldDivision = 2u;
+        params.eventDivision = 0u;
+        params.reactMode = NoInputReactMode::Edge;
+        params.reactDepth = 0.44f;
+        params.reactThreshold = 0.16f;
+        params.reactAttack = 0.02f;
+        params.reactRelease = 0.16f;
+        params.aux[0].effect.type = NoInputDistortionType::Splice;
+        params.aux[0].effect.gain = 0.52f;
+        params.aux[0].effect.tone = 0.20f;
+        params.aux[0].feedback = 0.46f;
+        params.aux[0].returnGain = 0.24f;
+        params.aux[1].effect.type = NoInputDistortionType::Void;
+        params.aux[1].effect.gain = 0.42f;
+        params.aux[1].effect.tone = 0.68f;
+        params.aux[1].feedback = 0.38f;
+        params.aux[1].returnGain = 0.20f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.96f);
+            route(lane, (lane + 7u) % 8u, 0.30f);
+            route(lane, (lane + 2u) % 8u, -0.22f);
+            route(lane, (lane + 5u) % 8u,
+                (lane & 1u) == 0u ? 0.14f : -0.13f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.24f + 0.05f * (lane % 5u);
+            voice.loss = 0.32f + 0.025f * (lane % 3u);
+            voice.levelDb = -4.5f;
+            voice.auxSend[0] = 0.22f + 0.04f * (lane % 4u);
+            voice.auxSend[1] = 0.14f + 0.03f * ((lane + 2u) % 4u);
+            voice.auxTap[0] = NoInputAuxTap::PreEq;
+            voice.auxTap[1] = NoInputAuxTap::PostInsert;
+            voice.auxReturn[0] = (lane & 1u) == 0u ? 0.34f : -0.28f;
+            voice.auxReturn[1] = (lane & 2u) == 0u ? -0.24f : 0.26f;
+            voice.inserts[0].type = NoInputDistortionType::Splice;
+            voice.inserts[0].gain = 0.42f + 0.04f * (lane % 4u);
+            voice.inserts[0].tone = 0.10f + 0.08f * (lane % 5u);
+            voice.inserts[0].bias = (lane & 1u) == 0u ? -0.50f : 0.50f;
+            voice.inserts[0].levelDb = -7.0f;
+            voice.inserts[1].type = NoInputDistortionType::Shred;
+            voice.inserts[1].gain = 0.30f;
+            voice.inserts[1].tone = 0.58f;
+            voice.inserts[1].levelDb = -5.0f;
+            voice.inserts[1].bypass = 0u;
+            voice.inserts[2].type = NoInputDistortionType::Crush;
+            voice.inserts[2].gain = 0.22f;
+            voice.inserts[2].tone = 0.40f;
+            voice.inserts[2].levelDb = -3.0f;
+            voice.inserts[2].bypass = (lane & 1u) == 0u ? 0u : 1u;
+        }
+        break;
+    }
+    case 15u: { // Phase Orchard: slowly detuned modulation branches.
+        params.seed = 0x50484f52u;
+        params.outputGainDb = -13.0f;
+        params.feedback = 0.92f;
+        params.coupling = 0.54f;
+        params.phase = 0.90f;
+        params.drift = 0.46f;
+        params.formant = 0.28f;
+        params.agency = 0.56f;
+        params.space = 0.26f;
+        params.flow = 0.48f;
+        params.spread = 0.82f;
+        params.vortex = 0.54f;
+        params.motion = 0.46f;
+        params.motionShape = MatrixFlowShape::Swirl;
+        params.motionRate = 0.74f;
+        params.slowTime = 1u;
+        params.reactMode = NoInputReactMode::Follow;
+        params.reactDepth = 0.22f;
+        params.reactThreshold = 0.12f;
+        params.reactAttack = 0.34f;
+        params.reactRelease = 0.70f;
+        params.aux[0].effect.type = NoInputDistortionType::Chorus;
+        params.aux[0].effect.gain = 0.42f;
+        params.aux[0].effect.tone = 0.22f;
+        params.aux[0].feedback = 0.30f;
+        params.aux[0].returnGain = 0.30f;
+        params.aux[1].effect.type = NoInputDistortionType::Phase;
+        params.aux[1].effect.gain = 0.46f;
+        params.aux[1].effect.tone = 0.64f;
+        params.aux[1].feedback = 0.28f;
+        params.aux[1].returnGain = 0.26f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.95f);
+            route(lane, (lane + 1u) % 8u,
+                (lane & 1u) == 0u ? 0.17f : -0.15f);
+            route(lane, (lane + 4u) % 8u, 0.09f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.16f + 0.085f * lane;
+            voice.loss = 0.22f + 0.035f * (lane % 4u);
+            voice.tuneNote = 38.0f + 5.0f * lane;
+            voice.tuneCents = (lane & 1u) == 0u ? -14.0f : 11.0f;
+            voice.pitchLock = 1u;
+            voice.auxSend[0] = 0.20f;
+            voice.auxSend[1] = 0.18f;
+            voice.auxReturn[0] = 0.28f;
+            voice.auxReturn[1] = (lane & 1u) == 0u ? -0.20f : 0.24f;
+            voice.inserts[0].type = static_cast<NoInputDistortionType>(
+                static_cast<uint32_t>(NoInputDistortionType::Rotor)
+                    + lane % 3u);
+            voice.inserts[0].gain = 0.30f;
+            voice.inserts[0].tone = 0.16f + 0.09f * (lane % 5u);
+            voice.inserts[0].levelDb = -4.0f;
+            voice.inserts[1].type = NoInputDistortionType::Chorus;
+            voice.inserts[1].gain = 0.18f;
+            voice.inserts[1].tone = 0.48f;
+            voice.inserts[1].levelDb = -3.0f;
+            voice.inserts[1].bypass = 0u;
+        }
+        break;
+    }
+    case 16u: { // Logic Flock: relay and logic cells form unstable clusters.
+        params.seed = 0x4c464c4bu;
+        params.outputGainDb = -14.0f;
+        params.feedback = 0.96f;
+        params.coupling = 0.82f;
+        params.phase = 0.20f;
+        params.drift = 0.58f;
+        params.formant = 0.34f;
+        params.agency = 0.96f;
+        params.space = 0.14f;
+        params.flow = 0.82f;
+        params.spread = 0.62f;
+        params.vortex = 0.72f;
+        params.motion = 0.86f;
+        params.motionShape = MatrixFlowShape::Scatter;
+        params.motionRate = 0.62f;
+        params.reactMode = NoInputReactMode::Edge;
+        params.reactDepth = 0.54f;
+        params.reactThreshold = 0.20f;
+        params.reactAttack = 0.04f;
+        params.reactRelease = 0.24f;
+        params.aux[0].effect.type = NoInputDistortionType::Logic;
+        params.aux[0].effect.gain = 0.40f;
+        params.aux[0].feedback = 0.38f;
+        params.aux[0].returnGain = 0.24f;
+        params.aux[1].effect.type = NoInputDistortionType::Crush;
+        params.aux[1].effect.gain = 0.34f;
+        params.aux[1].feedback = 0.32f;
+        params.aux[1].returnGain = 0.22f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.96f);
+            route(lane, (lane + 7u) % 8u,
+                (lane & 1u) == 0u ? 0.29f : -0.27f);
+            route(lane, (lane + 2u) % 8u,
+                (lane % 3u) == 0u ? -0.20f : 0.18f);
+            route(lane, (lane + 5u) % 8u, 0.11f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.22f + 0.06f * (lane % 6u);
+            voice.loss = 0.30f + 0.035f * (lane % 4u);
+            voice.levelDb = -4.0f;
+            voice.auxSend[0] = 0.18f + 0.035f * (lane % 4u);
+            voice.auxSend[1] = 0.14f + 0.03f * ((lane + 1u) % 4u);
+            voice.inserts[0].type = (lane % 3u) == 0u
+                ? NoInputDistortionType::Logic
+                : ((lane % 3u) == 1u ? NoInputDistortionType::Relay
+                    : NoInputDistortionType::Robot);
+            voice.inserts[0].gain = 0.38f + 0.04f * (lane % 4u);
+            voice.inserts[0].tone = 0.26f + 0.07f * (lane % 5u);
+            voice.inserts[0].bias = (lane & 1u) == 0u ? -0.16f : 0.16f;
+            voice.inserts[0].levelDb = -7.0f;
+            voice.inserts[1].type = NoInputDistortionType::Diode;
+            voice.inserts[1].gain = 0.18f;
+            voice.inserts[1].levelDb = -3.0f;
+            voice.inserts[1].bypass = 0u;
+        }
+        break;
+    }
+    case 17u: { // Octave Ladder: pitch-locked lanes exchange octave voices.
+        params.seed = 0x4f43544cu;
+        params.outputGainDb = -12.0f;
+        params.feedback = 0.92f;
+        params.coupling = 0.60f;
+        params.phase = 0.46f;
+        params.drift = 0.18f;
+        params.formant = 0.40f;
+        params.agency = 0.62f;
+        params.space = 0.20f;
+        params.flow = 0.68f;
+        params.spread = 0.42f;
+        params.motion = 0.68f;
+        params.motionShape = MatrixFlowShape::Chase;
+        params.clockSync = 1u;
+        params.fieldDivision = 5u;
+        params.eventDivision = 3u;
+        params.reactMode = NoInputReactMode::Balance;
+        params.reactDepth = 0.34f;
+        params.reactThreshold = 0.14f;
+        params.reactAttack = 0.20f;
+        params.reactRelease = 0.48f;
+        params.aux[0].effect.type = NoInputDistortionType::OctStack;
+        params.aux[0].effect.gain = 0.36f;
+        params.aux[0].feedback = 0.28f;
+        params.aux[0].returnGain = 0.28f;
+        params.aux[1].effect.type = NoInputDistortionType::Chorus;
+        params.aux[1].effect.gain = 0.30f;
+        params.aux[1].feedback = 0.22f;
+        params.aux[1].returnGain = 0.22f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.95f);
+            route(lane, (lane + 7u) % 8u, 0.22f);
+            route(lane, (lane + 3u) % 8u,
+                (lane & 1u) == 0u ? -0.14f : 0.12f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.12f + 0.09f * lane;
+            voice.loss = 0.22f + 0.03f * (lane % 4u);
+            voice.tuneNote = 31.0f + 5.0f * lane;
+            voice.tuneCents = (lane % 3u) == 0u ? -7.0f : 0.0f;
+            voice.pitchLock = 1u;
+            voice.auxSend[0] = 0.18f + 0.03f * (lane % 3u);
+            voice.auxSend[1] = 0.12f + 0.025f * ((lane + 1u) % 3u);
+            voice.auxReturn[0] = 0.28f;
+            voice.auxReturn[1] = 0.20f;
+            voice.inserts[0].type = lane < 2u
+                ? NoInputDistortionType::OctDown
+                : (lane < 6u ? NoInputDistortionType::OctStack
+                    : NoInputDistortionType::OctUp);
+            voice.inserts[0].gain = 0.34f;
+            voice.inserts[0].tone = 0.26f + 0.06f * (lane % 4u);
+            voice.inserts[0].levelDb = -4.0f;
+            voice.inserts[1].type = NoInputDistortionType::Diode;
+            voice.inserts[1].gain = 0.16f;
+            voice.inserts[1].levelDb = -3.0f;
+            voice.inserts[1].bypass = 0u;
+        }
+        break;
+    }
+    case 18u: { // Aux Mirror: the aux topology is the primary composition.
+        params.seed = 0x4155584du;
+        params.outputGainDb = -12.0f;
+        params.feedback = 0.90f;
+        params.coupling = 0.34f;
+        params.phase = 0.64f;
+        params.drift = 0.28f;
+        params.formant = 0.22f;
+        params.agency = 0.72f;
+        params.space = 0.50f;
+        params.internalTone = 0.12f;
+        params.houseTone = -0.18f;
+        params.flow = 0.38f;
+        params.spread = 0.74f;
+        params.motion = 0.36f;
+        params.motionShape = MatrixFlowShape::Flow;
+        params.motionRate = 0.30f;
+        params.reactMode = NoInputReactMode::Avoid;
+        params.reactDepth = 0.30f;
+        params.reactThreshold = 0.12f;
+        params.reactAttack = 0.22f;
+        params.reactRelease = 0.60f;
+        params.aux[0].effect.type = NoInputDistortionType::Ring;
+        params.aux[0].effect.gain = 0.42f;
+        params.aux[0].effect.tone = 0.36f;
+        params.aux[0].feedback = 0.56f;
+        params.aux[0].returnGain = 0.38f;
+        params.aux[1].effect.type = NoInputDistortionType::Chorus;
+        params.aux[1].effect.gain = 0.38f;
+        params.aux[1].effect.tone = 0.62f;
+        params.aux[1].feedback = 0.48f;
+        params.aux[1].returnGain = 0.34f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.96f);
+            if ((lane & 1u) == 0u)
+                route(lane, (lane + 4u) % 8u, -0.10f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.16f + 0.085f * lane;
+            voice.loss = 0.20f + 0.03f * (lane % 4u);
+            voice.levelDb = -2.0f;
+            voice.auxSend[0] = (lane & 1u) == 0u ? 0.52f : 0.16f;
+            voice.auxSend[1] = (lane & 1u) == 0u ? 0.14f : 0.48f;
+            voice.auxTap[0] = (lane & 1u) == 0u
+                ? NoInputAuxTap::PreEq : NoInputAuxTap::PostInsert;
+            voice.auxTap[1] = (lane & 1u) == 0u
+                ? NoInputAuxTap::PostInsert : NoInputAuxTap::PostEq;
+            const uint32_t mirror = kNoInputMixerChannels - 1u - lane;
+            voice.auxReturn[0] = (mirror & 1u) == 0u ? 0.48f : -0.42f;
+            voice.auxReturn[1] = (lane & 1u) == 0u ? -0.40f : 0.46f;
+            voice.inserts[0].type = NoInputDistortionType::Diode;
+            voice.inserts[0].gain = 0.16f;
+            voice.inserts[0].tone = 0.42f;
+            voice.inserts[0].levelDb = -3.0f;
+            voice.inserts[1].bypass = 1u;
+            voice.inserts[2].bypass = 1u;
+        }
+        break;
+    }
+    case 19u: { // Wall Engine: dense continuous saturation without cuts.
+        params.seed = 0x57414c4cu;
+        params.outputGainDb = -18.0f;
+        params.feedback = 1.04f;
+        params.coupling = 0.94f;
+        params.phase = 0.38f;
+        params.drift = 0.26f;
+        params.formant = 0.52f;
+        params.agency = 0.94f;
+        params.space = 0.01f;
+        params.internalTone = 0.20f;
+        params.houseTone = -0.08f;
+        params.flow = 0.26f;
+        params.spread = 0.92f;
+        params.vortex = 0.18f;
+        params.motion = 0.22f;
+        params.motionShape = MatrixFlowShape::Flow;
+        params.motionRate = 0.12f;
+        params.reactMode = NoInputReactMode::Off;
+        params.reactDepth = 0.0f;
+        params.aux[0].effect.type = NoInputDistortionType::Wool;
+        params.aux[0].effect.gain = 0.52f;
+        params.aux[0].effect.tone = 0.30f;
+        params.aux[0].feedback = 0.62f;
+        params.aux[0].returnGain = 0.38f;
+        params.aux[1].effect.type = NoInputDistortionType::Rat;
+        params.aux[1].effect.gain = 0.46f;
+        params.aux[1].effect.tone = 0.58f;
+        params.aux[1].feedback = 0.56f;
+        params.aux[1].returnGain = 0.34f;
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            route(lane, lane, 0.99f);
+            route(lane, (lane + 7u) % 8u, 0.36f);
+            route(lane, (lane + 1u) % 8u, 0.31f);
+            route(lane, (lane + 2u) % 8u,
+                (lane & 1u) == 0u ? -0.24f : 0.23f);
+            route(lane, (lane + 4u) % 8u, 0.18f);
+            auto& voice = params.lanes[lane];
+            voice.body = 0.20f + 0.06f * (lane % 6u);
+            voice.loss = 0.34f + 0.025f * (lane % 3u);
+            voice.levelDb = -5.0f;
+            voice.lowDb = 2.0f;
+            voice.midGainDb = 3.5f;
+            voice.midFrequencyHz = 420.0f + 310.0f * lane;
+            voice.highDb = 1.5f;
+            voice.auxSend[0] = 0.30f + 0.025f * (lane % 3u);
+            voice.auxSend[1] = 0.26f + 0.025f * ((lane + 1u) % 3u);
+            voice.auxReturn[0] = 0.42f;
+            voice.auxReturn[1] = 0.36f;
+            voice.inserts[0].type = (lane & 1u) == 0u
+                ? NoInputDistortionType::Wool : NoInputDistortionType::Rat;
+            voice.inserts[0].gain = 0.52f;
+            voice.inserts[0].tone = 0.28f + 0.07f * (lane % 4u);
+            voice.inserts[0].levelDb = -11.0f;
+            voice.inserts[1].type = (lane & 1u) == 0u
+                ? NoInputDistortionType::ZoneA
+                : NoInputDistortionType::ZoneB;
+            voice.inserts[1].gain = 0.40f;
+            voice.inserts[1].tone = 0.36f + 0.06f * (lane % 3u);
+            voice.inserts[1].levelDb = -10.0f;
+            voice.inserts[1].bypass = 0u;
+            voice.inserts[2].type = (lane % 3u) == 0u
+                ? NoInputDistortionType::FuzzI
+                : NoInputDistortionType::Diode;
+            voice.inserts[2].gain = 0.28f;
+            voice.inserts[2].tone = 0.50f;
+            voice.inserts[2].levelDb = -7.0f;
+            voice.inserts[2].bypass = 0u;
+        }
+        break;
+    }
     default:
         break;
     }
