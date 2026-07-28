@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Listener Mode</h1>
 
-        <p>Listener Mode lets a plugin analyze its own ambisonic field and use what it hears to influence what happens next. It turns spatial output into an internal score: direction, activity, change, and—in the more developed listeners—spectral and temporal character can guide later movement, synthesis, or field shaping.</p>
+        <p>Listener Mode lets a plugin analyze its own ambisonic field and use what it hears to influence what happens next. It turns spatial output into an internal score: direction, activity, change, and, where supported, spectral and temporal character can guide later movement, synthesis, or field shaping.</p>
 
         <p>This is a shared design idea rather than one identical circuit copied into every plugin. A room effect may rebalance reflections, a procedural instrument may choose its next region, and a recurrent instrument may return decoded audio to its generating network. The individual plugin page remains the authority for its exact controls and tap point.</p>
 
@@ -44,7 +44,7 @@
 
         <h2 id="auditory-body">The Auditory Body</h2>
 
-        <p>The common listener uses a symmetric directional body. <code>TETRA 4</code> provides four broad viewpoints, <code>CUBE 8</code> adds their opposites, <code>ICOSA 12</code> provides twelve evenly distributed vertices, <code>DODECA 20</code> is the twenty-vertex dual of the icosahedron, and <code>SPHERE 24</code> extends the body for high-order work. Plugins with fixed four- or eight-pickup listeners retain their authored bodies. The latest order-adaptive Ambi Effects use twelve points for <code>1OA</code>-<code>2OA</code>, twenty for <code>3OA</code>, and twenty-four for <code>4OA</code>-<code>7OA</code> in <code>AUTO</code>. Processor Ambi Imprint instead follows the directions stored in its response profile, while Ambi Encoder Neural Ecology can steer each pickup within a bounded region around its tetrahedral or cubical anchor.</p>
+        <p>The common listener uses a symmetric directional body. <code>TETRA 4</code> provides four broad viewpoints, <code>CUBE 8</code> adds their opposites, <code>ICOSA 12</code> provides twelve evenly distributed vertices, <code>DODECA 20</code> is the twenty-vertex dual of the icosahedron, and <code>SPHERE 24</code> extends the body for high-order work. Plugins with fixed four- or eight-pickup listeners retain their authored bodies. In <code>AUTO</code>, order-adaptive Ambi Effects use twelve points for <code>1OA</code>-<code>2OA</code>, twenty for <code>3OA</code>, and twenty-four for <code>4OA</code>-<code>7OA</code>. Processor Ambi Imprint instead follows the directions stored in its response profile, while Ambi Encoder Neural Ecology can steer each pickup within a bounded region around its tetrahedral or cubical anchor.</p>
 
         <p>These pickups hear spatial relationships that a mono sum would discard. A source moving between directions changes which pickups become active; width, rotation, environment return, reflections, and ambisonic order may also change the field presented to the listener. Pickup meters are analysis displays, not additional audio outputs.</p>
 
@@ -81,7 +81,7 @@
           <li><strong>Reinforcing responses</strong> increase attraction, event activity, resonance, or motion in heard directions. Names include <code>FOLLOW</code>, <code>CHARGE</code>, <code>CHORUS</code>, and <code>RESONATE</code>.</li>
           <li><strong>Balancing responses</strong> seek quieter regions or reduce activity where the field remains dominant. Names include <code>BALANCE</code>, <code>SETTLE</code>, and capture or viscosity controls.</li>
           <li><strong>Imprinting responses</strong> transfer features of the heard field into newly generated material. <code>IMPRINT</code>, <code>ENTRAIN</code>, and Wrangler's <code>WRITE</code> belong to this family, although each affects very different state.</li>
-          <li><strong>Legacy or classic responses</strong> preserve an earlier listener behavior while newer analysis features remain available to alternate response laws.</li>
+          <li><strong>Legacy or classic responses</strong> provide the baseline listener behavior, making them useful references when comparing the alternate response laws.</li>
         </ul>
 
         <p>Response names are not interchangeable presets. For example, Water's <code>IMPRINT</code> affects event material and size, Pulsar's <code>IMPRINT</code> latches features into a new grain, and Wrangler's <code>WRITE</code> can influence a shift-register bit.</p>

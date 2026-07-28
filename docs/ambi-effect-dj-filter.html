@@ -26,9 +26,9 @@
       <main class="content" id="content">
         <h1>Ambi Effect DJ Filter</h1>
 
-        <p><strong>s3g Ambi Effect DJ Filter 64</strong> is the first member of the Ambi Effect family: insert processing for complete <code>ACN/SN3D</code> fields from first through seventh order. Its global control moves continuously from low-pass filtering on the left, through an open center, to high-pass filtering on the right. Twenty persistent pickup pairs can independently vary filter position and resonance around an Icosa12 or Dodeca20 listener body.</p>
+        <p><strong>s3g Ambi Effect DJ Filter 64</strong> processes complete first- through seventh-order <code>ACN/SN3D</code> fields. Its global control moves continuously from low-pass filtering on the left, through an open center, to high-pass filtering on the right. Twenty persistent pickup pairs can independently vary filter position and resonance around an Icosa12 or Dodeca20 listener body.</p>
 
-        <p>The effect borrows the directional body learned through <a href="listener-mode.html">Listener Mode</a>, but uses that body as an audio-processing topology. The shared body can upscale to Icosa12, Dodeca20, or Sphere24 according to order or an explicit user choice.</p>
+        <p>The effect projects the encoded field onto the directional body described in <a href="listener-mode.html">Listener Mode</a> and uses those pickup relationships as an audio-processing topology. Select Icosa12 or Dodeca20 explicitly, or use <code>AUTO</code> to choose a body for the active order.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -64,7 +64,7 @@
           <li><code>OUT</code> applies final gain and channels above the selected order remain silent.</li>
         </ol>
 
-        <p>Re-encoding only the processed-minus-original residual keeps material outside the selected pickup subspace intact. With every pickup trim at zero, the exact center makes filter depth and topology depth zero, so the residual disappears and the active-order field passes unchanged apart from <code>OUT</code>. A nonzero pickup trim deliberately keeps that point active while the global control is centered. Both filter wings continue running internally, which keeps automation across the center smooth.</p>
+        <p>Re-encoding only the processed-minus-original residual keeps material outside the selected pickup subspace intact. With every pickup trim at zero, the exact center makes filter depth and topology depth zero, so the residual disappears and the active-order field passes unchanged apart from <code>OUT</code>. A nonzero pickup trim deliberately keeps that point active while the global control is centered. Both filter wings remain active so automation passes smoothly through the center.</p>
 
         <h2 id="body">Order and Auditory Body</h2>
 

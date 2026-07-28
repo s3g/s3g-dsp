@@ -87,6 +87,71 @@ enum class NoInputMovementBehavior : uint32_t {
     Count,
 };
 
+enum class NoInputReactMode : uint32_t {
+    Off = 0u,
+    Follow,
+    Avoid,
+    Edge,
+    Balance,
+    Count,
+};
+
+inline const char* noInputReactModeName(NoInputReactMode mode)
+{
+    switch (mode) {
+    case NoInputReactMode::Off: return "OFF";
+    case NoInputReactMode::Follow: return "FOLLOW";
+    case NoInputReactMode::Avoid: return "AVOID";
+    case NoInputReactMode::Edge: return "EDGE";
+    case NoInputReactMode::Balance: return "BALANCE";
+    case NoInputReactMode::Count: break;
+    }
+    return "OFF";
+}
+
+enum class NoInputAuxTap : uint32_t {
+    Return = 0u,
+    PreEq,
+    PostEq,
+    PostInsert,
+    Count,
+};
+
+inline const char* noInputAuxTapName(NoInputAuxTap tap)
+{
+    switch (tap) {
+    case NoInputAuxTap::Return: return "RETURN";
+    case NoInputAuxTap::PreEq: return "PRE EQ";
+    case NoInputAuxTap::PostEq: return "POST EQ";
+    case NoInputAuxTap::PostInsert: return "POST INSERT";
+    case NoInputAuxTap::Count: break;
+    }
+    return "RETURN";
+}
+
+constexpr uint32_t kNoInputClockDivisionCount = 10u;
+
+inline float noInputClockDivisionBeats(uint32_t division)
+{
+    static constexpr std::array<float, kNoInputClockDivisionCount> beats {{
+        0.0625f, 0.125f, 0.25f, 0.5f, 1.0f,
+        2.0f, 4.0f, 8.0f, 16.0f, 32.0f,
+    }};
+    return beats[std::min<uint32_t>(division,
+        kNoInputClockDivisionCount - 1u)];
+}
+
+inline const char* noInputClockDivisionName(uint32_t division)
+{
+    static constexpr std::array<const char*, kNoInputClockDivisionCount>
+        names {{
+            "1/64", "1/32", "1/16", "1/8", "1/4",
+            "1/2", "1 BAR", "2 BARS", "4 BARS", "8 BARS",
+        }};
+    return names[std::min<uint32_t>(division,
+        kNoInputClockDivisionCount - 1u)];
+}
+
 inline const char* noInputMovementBehaviorName(NoInputMovementBehavior behavior)
 {
     switch (behavior) {
@@ -133,6 +198,14 @@ inline float noInputMovementEventRateHz(float normalizedRate)
     normalizedRate = clamp(std::isfinite(normalizedRate)
         ? normalizedRate : 0.42f, 0.0f, 1.0f);
     return 0.25f * std::pow(320.0f, normalizedRate);
+}
+
+inline float noInputMovementEventRateHz(float normalizedRate, bool slow)
+{
+    if (!slow) return noInputMovementEventRateHz(normalizedRate);
+    normalizedRate = clamp(std::isfinite(normalizedRate)
+        ? normalizedRate : 0.42f, 0.0f, 1.0f);
+    return (1.0f / 600.0f) * std::pow(600.0f, normalizedRate);
 }
 
 inline float noInputMovementLengthMs(float normalizedLength)
@@ -201,6 +274,13 @@ struct NoInputLaneParams {
     float midGainDb = 0.0f;
     float highDb = 0.0f;
     std::array<float, 2u> auxSend {{ 0.0f, 0.0f }};
+    float tuneNote = 60.0f;
+    float tuneCents = 0.0f;
+    uint32_t pitchLock = 0u;
+    std::array<NoInputAuxTap, 2u> auxTap {{
+        NoInputAuxTap::Return, NoInputAuxTap::Return,
+    }};
+    std::array<float, 2u> auxReturn {{ 0.42f, 0.36f }};
     std::array<NoInputInsertParams, kNoInputMixerInsertSlots> inserts {};
 };
 
@@ -226,6 +306,19 @@ struct NoInputMixerParams {
     MatrixFlowShape motionShape = MatrixFlowShape::Flow;
     float motionRate = 0.15f;
     float motionPhase = 0.0f;
+    NoInputReactMode reactMode = NoInputReactMode::Off;
+    float reactDepth = 0.0f;
+    float reactThreshold = 0.24f;
+    float reactAttack = 0.18f;
+    float reactRelease = 0.42f;
+    float reactPolarity = 1.0f;
+    uint32_t controllerHold = 0u;
+    uint32_t slowTime = 0u;
+    uint32_t clockSync = 0u;
+    uint32_t fieldDivision = 6u;
+    uint32_t eventDivision = 2u;
+    float surfaceX = 0.5f;
+    float surfaceY = 0.5f;
     uint32_t quality = 1u;
     uint32_t seed = 0x5455444fu;
     std::array<NoInputAuxParams, 2u> aux {};
@@ -267,6 +360,9 @@ inline NoInputMixerParams defaultNoInputMixerParams()
             * static_cast<float>(destination % 4u);
         lane.auxSend[1] = 0.04f + 0.012f
             * static_cast<float>((destination + 2u) % 4u);
+        lane.tuneNote = 45.0f + static_cast<float>(destination) * 3.0f;
+        lane.auxReturn[0] = 0.42f;
+        lane.auxReturn[1] = (destination & 1u) == 0u ? 0.36f : -0.36f;
         lane.midFrequencyHz = 420.0f
             * std::pow(1.24f, static_cast<float>(destination));
 
@@ -366,6 +462,30 @@ inline NoInputMixerParams sanitizeNoInputMixerParams(
     params.motionPhase = clamp(
         std::isfinite(params.motionPhase) ? params.motionPhase : 0.0f,
         0.0f, 1.0f);
+    params.reactMode = static_cast<NoInputReactMode>(
+        std::min<uint32_t>(static_cast<uint32_t>(params.reactMode),
+            static_cast<uint32_t>(NoInputReactMode::Count) - 1u));
+    params.reactDepth = clamp(std::isfinite(params.reactDepth)
+        ? params.reactDepth : 0.0f, 0.0f, 1.0f);
+    params.reactThreshold = clamp(std::isfinite(params.reactThreshold)
+        ? params.reactThreshold : 0.24f, 0.0f, 1.0f);
+    params.reactAttack = clamp(std::isfinite(params.reactAttack)
+        ? params.reactAttack : 0.18f, 0.0f, 1.0f);
+    params.reactRelease = clamp(std::isfinite(params.reactRelease)
+        ? params.reactRelease : 0.42f, 0.0f, 1.0f);
+    params.reactPolarity = clamp(std::isfinite(params.reactPolarity)
+        ? params.reactPolarity : 1.0f, -1.0f, 1.0f);
+    params.controllerHold = params.controllerHold != 0u ? 1u : 0u;
+    params.slowTime = params.slowTime != 0u ? 1u : 0u;
+    params.clockSync = params.clockSync != 0u ? 1u : 0u;
+    params.fieldDivision = std::min<uint32_t>(params.fieldDivision,
+        kNoInputClockDivisionCount - 1u);
+    params.eventDivision = std::min<uint32_t>(params.eventDivision,
+        kNoInputClockDivisionCount - 1u);
+    params.surfaceX = clamp(std::isfinite(params.surfaceX)
+        ? params.surfaceX : 0.5f, 0.0f, 1.0f);
+    params.surfaceY = clamp(std::isfinite(params.surfaceY)
+        ? params.surfaceY : 0.5f, 0.0f, 1.0f);
     params.quality = std::min<uint32_t>(params.quality, 2u);
     if (params.seed == 0u) params.seed = 1u;
     for (float& value : params.matrix) {
@@ -395,6 +515,20 @@ inline NoInputMixerParams sanitizeNoInputMixerParams(
         for (float& send : lane.auxSend) {
             send = clamp(std::isfinite(send) ? send : 0.0f,
                 0.0f, 1.0f);
+        }
+        lane.tuneNote = clamp(std::isfinite(lane.tuneNote)
+            ? lane.tuneNote : 60.0f, 24.0f, 108.0f);
+        lane.tuneCents = clamp(std::isfinite(lane.tuneCents)
+            ? lane.tuneCents : 0.0f, -100.0f, 100.0f);
+        lane.pitchLock = lane.pitchLock != 0u ? 1u : 0u;
+        for (auto& tap : lane.auxTap) {
+            tap = static_cast<NoInputAuxTap>(std::min<uint32_t>(
+                static_cast<uint32_t>(tap),
+                static_cast<uint32_t>(NoInputAuxTap::Count) - 1u));
+        }
+        for (float& value : lane.auxReturn) {
+            value = clamp(std::isfinite(value) ? value : 0.0f,
+                -1.0f, 1.0f);
         }
         for (auto& insert : lane.inserts) {
             insert = sanitizeNoInputInsertParams(insert);
@@ -427,6 +561,45 @@ inline float noInputMixerMotionRateHz(float normalizedRate)
     normalizedRate = clamp(std::isfinite(normalizedRate)
         ? normalizedRate : 0.0f, 0.0f, 1.0f);
     return 0.05f * std::pow(100.0f, normalizedRate);
+}
+
+inline float noInputMixerMotionRateHz(float normalizedRate, bool slow)
+{
+    if (!slow) return noInputMixerMotionRateHz(normalizedRate);
+    normalizedRate = clamp(std::isfinite(normalizedRate)
+        ? normalizedRate : 0.0f, 0.0f, 1.0f);
+    return (1.0f / 600.0f) * std::pow(150.0f, normalizedRate);
+}
+
+inline float noInputSyncedRateHz(
+    uint32_t division, double tempoBpm)
+{
+    const double tempo = std::clamp(
+        std::isfinite(tempoBpm) ? tempoBpm : 120.0, 1.0, 1000.0);
+    const double seconds = static_cast<double>(
+        noInputClockDivisionBeats(division)) * 60.0 / tempo;
+    return static_cast<float>(1.0 / std::max(1.0e-6, seconds));
+}
+
+inline float noInputReactThreshold(float normalized)
+{
+    normalized = clamp(std::isfinite(normalized) ? normalized : 0.24f,
+        0.0f, 1.0f);
+    return 0.0005f * std::pow(1600.0f, normalized);
+}
+
+inline float noInputReactAttackMs(float normalized)
+{
+    normalized = clamp(std::isfinite(normalized) ? normalized : 0.18f,
+        0.0f, 1.0f);
+    return 0.5f * std::pow(4000.0f, normalized);
+}
+
+inline float noInputReactReleaseMs(float normalized)
+{
+    normalized = clamp(std::isfinite(normalized) ? normalized : 0.42f,
+        0.0f, 1.0f);
+    return 5.0f * std::pow(2000.0f, normalized);
 }
 
 inline float noInputMixerMotionGainScale(float generatedWeight,
@@ -1241,6 +1414,13 @@ public:
         rebuildMotionTargets();
     }
 
+    void setTransport(double tempoBpm, bool hasTempo)
+    {
+        transportTempoBpm_ = std::clamp(
+            std::isfinite(tempoBpm) ? tempoBpm : 120.0, 1.0, 1000.0);
+        transportHasTempo_ = hasTempo;
+    }
+
     const NoInputMixerParams& params() const { return params_; }
 
     void setMovementBehaviorParams(NoInputMovementBehaviorParams params)
@@ -1313,6 +1493,9 @@ public:
         clearLaneSignalState(laneState_[lane]);
         returns_[lane] = 0.0f;
         previousReturns_[lane] = 0.0f;
+        tapPreEq_[lane] = previousTapPreEq_[lane] = 0.0f;
+        tapPostEq_[lane] = previousTapPostEq_[lane] = 0.0f;
+        tapPostInsert_[lane] = previousTapPostInsert_[lane] = 0.0f;
         lanePeak_[lane] = 0.0f;
         laneActivity_[lane] = 0.0f;
         for (uint32_t source = 0u; source < kNoInputMixerChannels;
@@ -1334,15 +1517,26 @@ public:
             return;
         }
 
-        if (params_.motion > 0.0001f
+        if (params_.controllerHold == 0u
+            && params_.motion > 0.0001f
             && params_.motionShape != MatrixFlowShape::Hold) {
-            const float hz = noInputMixerMotionRateHz(params_.motionRate);
+            const float hz = params_.clockSync != 0u && transportHasTempo_
+                ? noInputSyncedRateHz(params_.fieldDivision,
+                    transportTempoBpm_)
+                : noInputMixerMotionRateHz(params_.motionRate,
+                    params_.slowTime != 0u);
             motionPhase_ = noInputWrapPhase(motionPhase_
                 + hz / static_cast<float>(sampleRate_));
         }
-        if ((controlCounter_++ & 31u) == 0u) updateSlowControl();
-        updateMovementBehavior();
+        if (params_.controllerHold == 0u) {
+            if ((controlCounter_++ & 31u) == 0u) updateSlowControl();
+            updateMovementBehavior();
+            updateReact();
+        }
         previousReturns_ = returns_;
+        previousTapPreEq_ = tapPreEq_;
+        previousTapPostEq_ = tapPostEq_;
+        previousTapPostInsert_ = tapPostInsert_;
         previousAuxReturns_ = auxReturns_;
         for (uint32_t bus = 0u; bus < 2u; ++bus) {
             const float target = auxMuted_[bus] != 0u ? 0.0f : 1.0f;
@@ -1368,12 +1562,11 @@ public:
         std::array<float, kNoInputMixerChannels> matrixInput {};
         for (uint32_t destination = 0u;
              destination < kNoInputMixerChannels; ++destination) {
-            const float busBPolarity = (destination & 1u) == 0u
-                ? 1.0f : -1.0f;
             float sum = seedForLane(destination)
-                + auxReturns_[0] * params_.aux[0].returnGain * 0.42f
-                + auxReturns_[1] * params_.aux[1].returnGain * 0.36f
-                    * busBPolarity;
+                + auxReturns_[0] * params_.aux[0].returnGain
+                    * params_.lanes[destination].auxReturn[0]
+                + auxReturns_[1] * params_.aux[1].returnGain
+                    * params_.lanes[destination].auxReturn[1];
             float weightSum = 0.0f;
             for (uint32_t source = 0u;
                  source < kNoInputMixerChannels; ++source) {
@@ -1396,6 +1589,13 @@ public:
                         == NoInputMovementBehavior::Scramble) {
                     motionScale *= lerp(1.0f, behaviorCurrent_[index],
                         params_.motion);
+                }
+                if (params_.reactMode != NoInputReactMode::Off
+                    && params_.reactDepth > 1.0e-6f) {
+                    const float reactScale = 0.0316227766f
+                        + reactCurrent_[index] * 0.9683772234f;
+                    motionScale *= lerp(1.0f, reactScale,
+                        params_.reactDepth);
                 }
                 const float spaceScale = lerp(1.0f,
                     routeSpaceGate_[index], params_.space);
@@ -1441,9 +1641,11 @@ public:
         for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
             float value = processBody(lane, matrixInput[lane]);
             value = processFormant(lane, value);
+            tapPreEq_[lane] = value;
             value = laneState_[lane].lowShelf.process(value);
             value = laneState_[lane].midPeak.process(value);
             value = laneState_[lane].highShelf.process(value);
+            tapPostEq_[lane] = value;
 
             for (uint32_t slot = 0u;
                  slot < kNoInputMixerInsertSlots; ++slot) {
@@ -1462,6 +1664,7 @@ public:
                 value *= lerp(1.0f, laneBehaviorGate_[lane],
                     behaviorParams_.choke);
             }
+            tapPostInsert_[lane] = value;
             value = clamp(value, -8.0f, 8.0f);
 
             auto& state = laneState_[lane];
@@ -1561,6 +1764,11 @@ public:
     {
         return route < kNoInputMixerMatrixCells
             ? behaviorCurrent_[route] : 0.0f;
+    }
+    float reactRouteGate(uint32_t route) const
+    {
+        return route < kNoInputMixerMatrixCells
+            ? reactCurrent_[route] : 1.0f;
     }
     float minimumGovernor() const { return minimumLaneGovernor(); }
     NoInputContainmentState containmentState() const
@@ -1752,15 +1960,19 @@ private:
         const auto& params = params_.lanes[lane];
         const float laneSpread = 1.0f + (static_cast<float>(lane) - 3.5f)
             * 0.013f;
-        const float base = 44.0f * std::pow(2.0f, params.body * 5.0f)
-            * laneSpread;
+        const float base = params.pitchLock != 0u
+            ? 440.0f * std::pow(2.0f,
+                (params.tuneNote - 69.0f + params.tuneCents * 0.01f)
+                    / 12.0f)
+            : 44.0f * std::pow(2.0f, params.body * 5.0f) * laneSpread;
         const float decaySeconds = lerp(2.8f, 0.055f, params.loss);
         const float radius = std::exp(-1.0f
             / std::max(1.0f,
                 static_cast<float>(sampleRate_) * decaySeconds));
         for (uint32_t mode = 0u; mode < 4u; ++mode) {
-            const float detune = 1.0f + driftState_[lane * 8u + mode]
-                * params_.drift * 0.018f;
+            const float detune = params.pitchLock != 0u ? 1.0f
+                : 1.0f + driftState_[lane * 8u + mode]
+                    * params_.drift * 0.018f;
             const float frequency = clamp(base * ratios[mode] * detune,
                 24.0f, static_cast<float>(sampleRate_ * 0.42));
             const float omega = 2.0f * kPi * frequency
@@ -1895,7 +2107,19 @@ private:
             for (uint32_t lane = 0u; lane < kNoInputMixerChannels;
                  ++lane) {
                 const float send = params_.lanes[lane].auxSend[bus];
-                input += previousReturns_[lane] * send;
+                float tapped = previousReturns_[lane];
+                switch (params_.lanes[lane].auxTap[bus]) {
+                case NoInputAuxTap::PreEq:
+                    tapped = previousTapPreEq_[lane]; break;
+                case NoInputAuxTap::PostEq:
+                    tapped = previousTapPostEq_[lane]; break;
+                case NoInputAuxTap::PostInsert:
+                    tapped = previousTapPostInsert_[lane]; break;
+                case NoInputAuxTap::Return:
+                case NoInputAuxTap::Count:
+                    break;
+                }
+                input += tapped * send;
                 sendWeight += send;
             }
             input /= std::max(1.0f, 0.7f + sendWeight * 0.52f);
@@ -2388,8 +2612,11 @@ private:
             }
         }
 
-        const float hz = noInputMovementEventRateHz(
-            behaviorParams_.eventRate);
+        const float hz = params_.clockSync != 0u && transportHasTempo_
+            ? noInputSyncedRateHz(params_.eventDivision,
+                transportTempoBpm_)
+            : noInputMovementEventRateHz(behaviorParams_.eventRate,
+                params_.slowTime != 0u);
         float interval = static_cast<float>(sampleRate_) / hz;
         const float jitter = (behaviorHashUnit(0x4a495454u) * 2.0f - 1.0f)
             * behaviorParams_.chaos;
@@ -2457,6 +2684,79 @@ private:
         }
     }
 
+    void updateReact()
+    {
+        if (params_.reactMode == NoInputReactMode::Off) {
+            reactCurrent_.fill(1.0f);
+            reactEdge_.fill(0.0f);
+            return;
+        }
+        const float threshold = noInputReactThreshold(
+            params_.reactThreshold);
+        const float attackSeconds = noInputReactAttackMs(
+            params_.reactAttack) * 0.001f;
+        const float releaseSeconds = noInputReactReleaseMs(
+            params_.reactRelease) * 0.001f;
+        const float attack = 1.0f - std::exp(-1.0f
+            / std::max(1.0f, static_cast<float>(sampleRate_)
+                * attackSeconds));
+        const float release = 1.0f - std::exp(-1.0f
+            / std::max(1.0f, static_cast<float>(sampleRate_)
+                * releaseSeconds));
+        for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
+            const bool above = laneActivity_[lane] >= threshold;
+            if (above && reactWasAbove_[lane] == 0u) {
+                reactEdge_[lane] = 1.0f;
+            } else {
+                reactEdge_[lane] += (0.0f - reactEdge_[lane]) * release;
+            }
+            reactWasAbove_[lane] = above ? 1u : 0u;
+        }
+        const float range = std::max(0.0005f, threshold * 3.0f);
+        for (uint32_t destination = 0u;
+             destination < kNoInputMixerChannels; ++destination) {
+            const float destinationGate = clamp(
+                (laneActivity_[destination] - threshold) / range,
+                0.0f, 1.0f);
+            for (uint32_t source = 0u;
+                 source < kNoInputMixerChannels; ++source) {
+                const uint32_t index = destination
+                    * kNoInputMixerChannels + source;
+                const float sourceGate = clamp(
+                    (laneActivity_[source] - threshold) / range,
+                    0.0f, 1.0f);
+                float target = 1.0f;
+                switch (params_.reactMode) {
+                case NoInputReactMode::Follow:
+                    target = sourceGate; break;
+                case NoInputReactMode::Avoid:
+                    target = 1.0f - destinationGate; break;
+                case NoInputReactMode::Edge:
+                    target = reactEdge_[source]; break;
+                case NoInputReactMode::Balance:
+                    target = clamp(0.5f
+                        + (laneActivity_[source]
+                            - laneActivity_[destination])
+                            / std::max(0.001f, range * 2.0f),
+                        0.0f, 1.0f);
+                    break;
+                case NoInputReactMode::Off:
+                case NoInputReactMode::Count:
+                    target = 1.0f; break;
+                }
+                const float polarity = std::abs(params_.reactPolarity);
+                target = lerp(0.5f, params_.reactPolarity < 0.0f
+                    ? 1.0f - target : target, polarity);
+                const float coefficient = target > reactCurrent_[index]
+                    ? attack : release;
+                reactCurrent_[index] += (target - reactCurrent_[index])
+                    * coefficient;
+                reactCurrent_[index] = flushDenormal(clamp(
+                    reactCurrent_[index], 0.0f, 1.0f));
+            }
+        }
+    }
+
     void updateSlowControl()
     {
         rebuildMotionTargets();
@@ -2512,6 +2812,12 @@ private:
         for (auto& lane : laneState_) clearLaneSignalState(lane);
         returns_.fill(0.0f);
         previousReturns_.fill(0.0f);
+        tapPreEq_.fill(0.0f);
+        tapPostEq_.fill(0.0f);
+        tapPostInsert_.fill(0.0f);
+        previousTapPreEq_.fill(0.0f);
+        previousTapPostEq_.fill(0.0f);
+        previousTapPostInsert_.fill(0.0f);
         routeSignals_.fill(0.0f);
         phaseMemory_.fill(0.0f);
         driftState_.fill(0.0f);
@@ -2522,6 +2828,9 @@ private:
         behaviorCurrent_.fill(1.0f);
         laneBehaviorGate_.fill(1.0f);
         routeSpaceGate_.fill(1.0f);
+        reactCurrent_.fill(1.0f);
+        reactEdge_.fill(0.0f);
+        reactWasAbove_.fill(0u);
         for (auto& aux : auxState_) clearAuxSignalState(aux);
         auxReturns_.fill(0.0f);
         previousAuxReturns_.fill(0.0f);
@@ -2599,6 +2908,12 @@ private:
     std::array<AuxState, 2u> auxState_ {};
     std::array<float, kNoInputMixerChannels> returns_ {};
     std::array<float, kNoInputMixerChannels> previousReturns_ {};
+    std::array<float, kNoInputMixerChannels> tapPreEq_ {};
+    std::array<float, kNoInputMixerChannels> tapPostEq_ {};
+    std::array<float, kNoInputMixerChannels> tapPostInsert_ {};
+    std::array<float, kNoInputMixerChannels> previousTapPreEq_ {};
+    std::array<float, kNoInputMixerChannels> previousTapPostEq_ {};
+    std::array<float, kNoInputMixerChannels> previousTapPostInsert_ {};
     std::array<float, kNoInputMixerMatrixCells> routeSignals_ {};
     std::array<float, 2u> auxReturns_ {};
     std::array<float, 2u> previousAuxReturns_ {};
@@ -2614,6 +2929,9 @@ private:
     std::array<float, kNoInputMixerMatrixCells> behaviorCurrent_ {};
     std::array<float, kNoInputMixerChannels> laneBehaviorGate_ {};
     std::array<float, kNoInputMixerMatrixCells> routeSpaceGate_ {};
+    std::array<float, kNoInputMixerMatrixCells> reactCurrent_ {};
+    std::array<float, kNoInputMixerChannels> reactEdge_ {};
+    std::array<uint32_t, kNoInputMixerChannels> reactWasAbove_ {};
     std::array<float, kNoInputMixerChannels> lanePeak_ {};
     std::array<float, kNoInputMixerChannels> laneActivity_ {};
     float networkActivity_ = 0.0f;
@@ -2633,6 +2951,8 @@ private:
     uint32_t behaviorSamplesUntilClose_ = 0u;
     uint32_t panicRemaining_ = 0u;
     uint32_t panicSamplesTotal_ = 384u;
+    double transportTempoBpm_ = 120.0;
+    bool transportHasTempo_ = false;
     bool silenced_ = true;
     NoInputContainmentState containmentState_ =
         NoInputContainmentState::Quiet;

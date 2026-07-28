@@ -128,7 +128,7 @@
 
         <p><code>IN</code> selects how source distances inside the unit speaker perimeter behave: <code>HOLD</code> keeps level stable and is the default, <code>ATTENUATE</code> reduces level as the point moves inward, <code>DIFFUSE</code> spreads energy more evenly, and <code>CENTER</code> blends inward positions toward the center response.</p>
 
-        <p>The <code>TOP</code>, <code>SIDE</code>, <code>3/4</code>, manual rotation, and zoom state are saved with the plugin state in the host project. A panner saved in top view should reopen in top view.</p>
+        <p>The host project stores the selected <code>TOP</code>, <code>SIDE</code>, or <code>3/4</code> view together with manual rotation and zoom. Reopening the project restores that camera state.</p>
 
         <h2 id="design-page">Design Page</h2>
 
@@ -157,11 +157,11 @@
 
         <p>Imported files preserve their speaker coordinates. The shape label is metadata after import, so loading a measured layout does not regenerate over the edited positions.</p>
 
-        <h2 id="reaper">REAPER Notes</h2>
+        <h2 id="reaper">REAPER Setup</h2>
 
         <p>Use a track with enough channels for the desired speaker output. The plugin exposes a stable 64-channel output bus so REAPER pin routing remains predictable as layouts change.</p>
 
-        <p>This is not a replacement for the Ambi Encoder Point or Decoder Speaker. Use those when you need an <code>ACN/SN3D</code> ambisonic signal path. Use Panner Layout when you want direct source-to-speaker panning.</p>
+        <p>Use <a href="ambi-point-encoder.html">Ambi Encoder Point</a> and <a href="ambi-speaker-decoder.html">Ambi Decoder Speaker</a> for an <code>ACN/SN3D</code> ambisonic signal path. Use Panner Layout for direct source-to-speaker panning.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="direct-panning.html">
@@ -197,7 +197,7 @@
           <a href="#panner-variants">Panner Variants</a>
           <a href="#design-page">Design Page</a>
           <a href="#json">Custom Layout JSON</a>
-          <a href="#reaper">REAPER Notes</a>
+          <a href="#reaper">REAPER Setup</a>
         </div>
       </aside>
     </div>

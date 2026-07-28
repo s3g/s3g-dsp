@@ -98,7 +98,7 @@
         <p>The propagation panel turns the mesh from an instantaneous crossfeed network into a traversable spectral space. Travel time follows the current smoothed distance between connected nodes, so moving or reshaping the graph also bends the timing of the routed field. The whole-field <code>CENT</code> path remains immediate.</p>
 
         <ul>
-          <li><code>VEL</code>: propagation speed. At 100%, neighbor routing is instantaneous and matches earlier Processor Spectral sessions. Lower values reveal progressively longer travel, reaching roughly 127 FFT hops at the slowest, longest route.</li>
+          <li><code>VEL</code>: propagation speed. At 100%, neighbor routing is instantaneous; use this setting to preserve the timing of sessions saved with instantaneous routing. Lower values reveal progressively longer travel, reaching roughly 127 FFT hops at the slowest, longest route.</li>
           <li><code>DISP</code>: frequency-dependent travel. Positive settings let low bins lead while high bins arrive later; negative settings reverse that relationship.</li>
           <li><code>DAMP</code>: distance- and frequency-dependent loss along a route. Raise it to make long journeys quieter and darker.</li>
         </ul>
@@ -113,7 +113,7 @@
 
         <p>Patch a chord into one node, raise <code>AMT</code> and <code>NN</code>, then engage <code>FRZ</code> while the chord is sounding. Mute the source and the captured spectrum can continue through the mesh. Lower <code>VEL</code> until each connection becomes a distinct spectral arrival, add positive <code>DISP</code> for a low-to-high unfurling, and use <code>DAMP</code> to keep distant echoes behind the source. <code>CAP</code> replaces the frozen material, <code>RPT</code> recalls earlier frames, <code>FDBK</code> extends circulation, and <code>CLR</code> empties the capture.</p>
 
-        <h2 id="reaper">REAPER Notes</h2>
+        <h2 id="reaper">REAPER Setup</h2>
 
         <p>Use the 8-channel build for eight-lane material and the 24-channel build for wider fixed-width workflows. In either case, route the REAPER FX pins first, then use the plugin matrix for lane-level decisions.</p>
 
@@ -154,7 +154,7 @@
           <a href="#propagation">Propagation</a>
           <a href="#patching">Patch Matrix</a>
           <a href="#performance">Performance Example</a>
-          <a href="#reaper">REAPER Notes</a>
+          <a href="#reaper">REAPER Setup</a>
         </div>
       </aside>
     </div>

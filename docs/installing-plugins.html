@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Installing Pre-release Plugins - s3g-dsp</title>
-    <meta name="description" content="Install notes for pre-release s3g-dsp CLAP plugin bundles.">
+    <meta name="description" content="Instructions for installing pre-release s3g-dsp CLAP plugin bundles.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Installing Pre-release Plugins</h1>
 
-        <p>These notes are for installing a packaged macOS CLAP zip from a GitHub pre-release. Plugin names, parameters, saved states, and included plugins may change.</p>
+        <p>Use this procedure to install a packaged macOS CLAP zip from a GitHub pre-release. Plugin names, parameters, saved states, and included plugins may change while the collection remains in pre-release.</p>
 
         <p>The supported target is macOS + REAPER.</p>
 
@@ -47,25 +47,25 @@
 
         <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
 
-        <p>Using the installer is important when updating an earlier pre-release: manually copying only replaces identical filenames and cannot retire a bundle whose name changed. To inspect the full transaction first, open Terminal in the unzipped package and run:</p>
+        <p>Use the installer for upgrades as well as first-time installation. A manual copy replaces only identical filenames and can leave a renamed bundle installed beside its replacement. To preview every copy, replacement, and alias backup, open Terminal in the unzipped package and run:</p>
 
         <pre><code>./Install\ s3g-dsp\ CLAPs.command --dry-run</code></pre>
 
-        <p>A normal run preflights and copies all 93 canonical bundles. If those installed binaries are already current and only their filenames need migration, use:</p>
+        <p>A normal run preflights and copies all 93 canonical bundles. If the installed binaries already match the package and only their filenames need migration, use:</p>
 
         <pre><code>./Install\ s3g-dsp\ CLAPs.command --canonicalize-only</code></pre>
 
-        <p>The normal installer copies all 93 products under canonical family-first filenames, such as <code>s3g_ambi_encoder_modal_16.clap</code>, <code>s3g_ambi_decoder_stereo.clap</code>, and <code>s3g_processor_no_input_mixer_8ch.clap</code>. These filenames match the collection's current host-browser families. The underlying CLAP IDs remain stable, so the filename cleanup does not create new plugin identities or intentionally break saved projects.</p>
+        <p>The installer copies all 93 products under canonical family-first filenames, such as <code>s3g_ambi_encoder_modal_16.clap</code>, <code>s3g_ambi_decoder_stereo.clap</code>, and <code>s3g_processor_no_input_mixer_8ch.clap</code>. These filenames match the families shown in the host browser. Because the underlying CLAP IDs remain stable, renaming a verified bundle does not create a new plugin identity or intentionally break saved projects.</p>
 
-        <p>Known older filenames are checked against the package's legacy manifest and moved to <code>~/Library/Application Support/s3g-dsp/CLAP Backups/&lt;timestamp-pid&gt;/</code> when their bundle identity matches. They are not silently deleted. An identity mismatch is left in place and reported, and unrelated CLAP bundles—including bundles from other s3g projects—are not touched. The installer records package ownership in <code>~/Library/Application Support/s3g-dsp/clap-install-receipt.tsv</code>. REAPER may need a plugin rescan after installation.</p>
+        <p>The installer checks recognized older filenames against the package's legacy manifest. When a bundle identity matches, the installer moves the alias to <code>~/Library/Application Support/s3g-dsp/CLAP Backups/&lt;timestamp-pid&gt;/</code> instead of deleting it. Review any reported identity mismatch manually; the installer leaves that bundle and unrelated CLAP products—including bundles from other s3g projects—in place. Package ownership is recorded in <code>~/Library/Application Support/s3g-dsp/clap-install-receipt.tsv</code>. Rescan plugins in REAPER after installation if necessary.</p>
 
         <p>The package also includes a <code>VOT Wavetables</code> library and an <code>Ambi Vox Demo Voicebank</code>. Both can be stored anywhere. Load a wavetable WAV from Ambi Encoder VOT, or select the complete demo voicebank folder from the Ambi Encoder Vox <code>PHRASE</code> panel.</p>
 
-        <p>Current pre-release bundles are ad-hoc signed for bundle integrity but are not Apple notarized. macOS security policy may therefore require explicit approval for downloaded builds.</p>
+        <p>The pre-release bundles are ad-hoc signed for bundle integrity but are not Apple notarized. If macOS blocks a downloaded build, approve it explicitly in the applicable Privacy &amp; Security prompt before rescanning REAPER.</p>
 
         <h2 id="included">Included Groups</h2>
 
-        <p>The current pre-release package installs 93 products. The groups below combine fixed-width variants so the inventory remains readable.</p>
+        <p>The pre-release package installs 93 products. The groups below combine fixed-width variants so the inventory remains readable.</p>
 
         <ul>
           <li><a href="multichannel-effects.html">Multichannel Effects</a>: Processor Delay, Processor Wave Geometry, Processor Spectral, Macro Delay, Macro Pitch, <a href="macro-shred.html">Macro Shred</a>, Spectral Spray 2ch/8ch, Processor Buffer, Shard Scatter, Orbit Delay, and Cascade Taps.</li>
@@ -77,7 +77,7 @@
           <li><a href="instruments.html">Instruments</a>: <a href="no-input-mixer.html">Processor No Input Mixer</a>, <a href="fault.html">Processor Fault</a>, Processor Loop, Processor Multi Loop, <a href="ambi-vot-encoder.html">Ambi Encoder VOT</a>, <a href="ambi-vox-encoder.html">Ambi Encoder Vox</a>, <a href="ambi-wave-terrain-encoder.html">Ambi Encoder Wave Terrain</a>, <a href="ambi-wind-encoder.html">Ambi Encoder Wind</a>, <a href="ambi-water-encoder.html">Ambi Encoder Water</a>, <a href="ambi-pyrosphere-encoder.html">Ambi Encoder Pyrosphere</a>, <a href="ambi-cryosphere-encoder.html">Ambi Encoder Cryosphere</a>, <a href="ambi-insect-encoder.html">Ambi Encoder Insect</a>, <a href="accelerometer-field-encoder.html">Ambi Encoder Modal</a>, <a href="ambi-pulsar-encoder.html">Ambi Encoder Pulsar</a>, <a href="ambi-neural-ecology.html">Ambi Encoder Neural Ecology</a>, <a href="ambi-stochastic-encoder.html">Ambi Encoder Stochastic</a>, <a href="ambi-wrangler-encoder.html">Ambi Encoder Wrangler</a>, and <a href="ambi-grain-processor.html">Processor Ambi Grain</a>.</li>
         </ul>
 
-        <p><code>Processor</code> is the shared host-search family for the package's more developed, self-contained effects and instruments. It does not mean that every member uses topology: some do, while others are organized around delay, buffer, loop, grain, or codec workflows. <code>s3g Processor Ambi Grain 16ch</code> stays in this group because its loaded-file granulation workflow is the stronger family relationship; its ambisonic-file requirement describes the source format.</p>
+        <p>In the host browser, the <code>Processor</code> family groups self-contained effects and instruments organized around delay, buffer, loop, grain, codec, or topology workflows. Choose <code>s3g Processor Ambi Grain 16ch</code> for loaded-file granulation; its ambisonic-file requirement describes the source format, while <code>Processor</code> identifies its workflow family.</p>
 
         <h2 id="reaper">REAPER Setup</h2>
 

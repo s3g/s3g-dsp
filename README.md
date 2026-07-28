@@ -12,8 +12,8 @@ The project focuses on predictable multichannel routing, compact automation,
 and clear control models. Some plugins use topology; others use simpler
 relationship controls when that better fits the sound.
 
-The supported target is macOS + REAPER. Other operating systems and
-DAWs are not support targets at this stage.
+The supported environment is macOS + REAPER. Other operating systems and
+DAWs are unsupported.
 
 ## Status
 
@@ -22,11 +22,11 @@ change.
 
 The current macOS package installs 93 CLAP products, including fixed-width
 variants for several effects, bus tools, and speaker-array utilities. Installed
-bundle filenames now follow the same family-first order as the host names, such
+bundle filenames follow the same family-first order as the host names, such
 as `s3g_ambi_encoder_modal_16.clap` and `s3g_processor_fault_8ch.clap`.
-All bundles build, but clap-validator conformance remains in progress for some
-older wrappers, chiefly around parameter text conversion and buffered state
-I/O. The package should continue to be treated as a pre-release.
+All bundles build. Some wrappers have incomplete clap-validator conformance,
+chiefly around parameter text conversion and buffered state I/O. Treat the
+package as a pre-release.
 
 Plugin areas:
 
@@ -148,8 +148,8 @@ open "build-apps/apps/vox_builder/s3g Vox Builder.app"
 The app writes sliced WAVs, `oto.ini`, `voicebank.json`, `markers.csv`, and the
 phoneme list. See [Vox Builder](docs/vox-builder.html) for the workflow.
 
-`tools/voicebank_builder.py` remains available for batch preparation and exact
-CSV marker workflows:
+For batch preparation and exact CSV marker workflows, use
+`tools/voicebank_builder.py`:
 
 ```sh
 python3 tools/voicebank_builder.py my-recording.wav \

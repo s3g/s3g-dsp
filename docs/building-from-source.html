@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Building From Source - s3g-dsp</title>
-    <meta name="description" content="Source build notes for s3g-dsp CLAP plugins.">
+    <meta name="description" content="Instructions for building s3g-dsp CLAP plugins from source.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -26,9 +26,9 @@
       <main class="content" id="content">
         <h1>Building From Source</h1>
 
-        <p>These notes are for building the current s3g-dsp CLAP plugins from source. This is pre-release software: plugin names, parameters, saved states, and included plugins may change.</p>
+        <p>Use this procedure to build the s3g-dsp CLAP plugins from source. Because this is pre-release software, plugin names, parameters, saved states, and included plugins may change.</p>
 
-        <p>The supported development target is macOS + REAPER.</p>
+        <p>The supported build and host environment is macOS with REAPER.</p>
 
         <h2 id="requirements">Requirements</h2>
 
@@ -42,7 +42,7 @@
 
         <h2 id="smoke-test">Smoke Test</h2>
 
-        <p>The development preset builds the DSP smoke test without CLAP bundles:</p>
+        <p>The <code>dev</code> preset builds the DSP smoke tests without CLAP bundles:</p>
 
         <pre><code>cmake --preset dev
 cmake --build --preset dev
@@ -102,7 +102,7 @@ build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
 
         <pre><code>~/Library/Audio/Plug-Ins/CLAP/</code></pre>
 
-        <p>The install script reads <code>scripts/clap-bundles.tsv</code> and copies exactly 93 products from <code>build-clap/plugins/</code> under canonical family-first filenames. For example, the current Modal and Fault bundles install as <code>s3g_ambi_encoder_modal_16.clap</code> and <code>s3g_processor_fault_8ch.clap</code>. These filesystem names mirror the host-browser families, while the CLAP IDs remain stable for saved-project compatibility.</p>
+        <p>The install script reads <code>scripts/clap-bundles.tsv</code> and copies exactly 93 products from <code>build-clap/plugins/</code> under canonical family-first filenames. For example, Modal and Fault install as <code>s3g_ambi_encoder_modal_16.clap</code> and <code>s3g_processor_fault_8ch.clap</code>. These filesystem names mirror the host-browser families, while the CLAP IDs remain stable for saved-project compatibility.</p>
 
         <p>A normal run validates the complete source and destination set before changing the destination, then stages and copies all 93 canonical bundles. <code>--canonicalize-only</code> instead renames verified current installations without replacing their binaries. The installer uses <code>scripts/clap-legacy-bundles.tsv</code> to recognize earlier filenames. A legacy bundle is moved to <code>~/Library/Application Support/s3g-dsp/CLAP Backups/&lt;timestamp-pid&gt;/</code> only when its identity matches the manifest; unrelated plugins are not pruned. The <code>--dry-run</code> form reports the planned installs, replacements, and alias backups without writing anything.</p>
 

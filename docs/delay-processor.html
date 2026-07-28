@@ -101,7 +101,7 @@
         <ol>
           <li>Each active input lane enters its local delay node.</li>
           <li>The node's <code>TIME</code>, <code>TONE</code>, <code>PITCH</code>, <code>CHAR</code>, and <code>SMR</code> processing produces the audible local tap.</li>
-          <li><code>FDBK</code> creates the node's regenerated return. At <code>ROUTE</code> zero this follows the existing topology-diffusion path; raising <code>ROUTE</code> crossfades that return toward source-local feedback transported through Echo Routes.</li>
+          <li><code>FDBK</code> creates the node's regenerated return. At <code>ROUTE</code> zero, the return stays in the local topology-diffusion path; raising <code>ROUTE</code> crossfades it toward source-local feedback transported through Echo Routes.</li>
           <li>When <code>ROUTE</code> is raised, a normalized portion of that return leaves the node and is distributed to topology neighbors or the centroid hub.</li>
           <li>A routed repeat is written into the destination node and waits for that node's <code>TIME</code> before it is heard. Its color and pitch therefore develop at every node it visits.</li>
           <li>The patch matrix collects the requested node lanes, followed by <code>MIX</code>, output gain, and safety.</li>
@@ -205,7 +205,7 @@
         <p>Echo Routes turns the topology graph into a repeat-scale transport. It does not add a second short propagation delay: every hop uses the destination node's existing delay time. An impulse can therefore appear first at node A after <code>TIME A</code>, then at node B after <code>TIME A + TIME B</code>, and continue along a longer rhythmic path while each visited node applies its own pitch and color.</p>
 
         <ul>
-          <li><code>ROUTE</code>: moves a portion of each regenerated return away from its current node and into the graph. At zero, the earlier Processor Delay feedback path is unchanged. Since this is feedback transport, <code>FDBK</code> must be above zero for a repeat to walk.</li>
+          <li><code>ROUTE</code>: moves a portion of each regenerated return away from its current node and into the graph. Set it to zero for local feedback without cross-node repeat travel. Because Echo Routes transports regenerated audio, <code>FDBK</code> must be above zero for a repeat to walk.</li>
           <li><code>TURN</code>: signed circulation bias around the topology's current orientation. Negative and positive settings favor opposite travel directions; zero leaves the graph reciprocal.</li>
           <li><code>BRCH</code>: route focus. Low values favor one strong continuation; high values divide the repeat among more of the eligible neighbors and centroid destinations.</li>
           <li><code>LOSS</code>: distance-dependent level and high-frequency loss. Long routes become quieter and darker while the node-level <code>TONE</code> remains the main delay color.</li>

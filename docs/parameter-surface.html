@@ -28,7 +28,7 @@
 
         <p>Parameter Surface turns several complete instrument states into a playable two-dimensional space. Each cell holds a preset or captured state. Moving the <code>X/Y</code> cursor blends the continuous synthesis controls of nearby cells and selects discrete controls from the nearest cell.</p>
 
-        <p>The shared implementations are <a href="ambi-stochastic-encoder.html">Ambi Encoder Stochastic</a>, <a href="ambi-wrangler-encoder.html">Ambi Encoder Wrangler</a>, <a href="ambi-water-encoder.html">Ambi Encoder Water</a>, <a href="ambi-wind-encoder.html">Ambi Encoder Wind</a>, <a href="ambi-pyrosphere-encoder.html">Ambi Encoder Pyrosphere</a>, <a href="ambi-cryosphere-encoder.html">Ambi Encoder Cryosphere</a>, and <a href="ambi-insect-encoder.html">Ambi Encoder Insect</a>. Each exposes the surface as a <code>SURF</code> page in the main field view and exposes <code>SURFACE X</code> and <code>SURFACE Y</code> as automatable host parameters.</p>
+        <p>Parameter Surface is available in <a href="ambi-stochastic-encoder.html">Ambi Encoder Stochastic</a>, <a href="ambi-wrangler-encoder.html">Ambi Encoder Wrangler</a>, <a href="ambi-water-encoder.html">Ambi Encoder Water</a>, <a href="ambi-wind-encoder.html">Ambi Encoder Wind</a>, <a href="ambi-pyrosphere-encoder.html">Ambi Encoder Pyrosphere</a>, <a href="ambi-cryosphere-encoder.html">Ambi Encoder Cryosphere</a>, and <a href="ambi-insect-encoder.html">Ambi Encoder Insect</a>. Each provides a <code>SURF</code> page in the main field view plus automatable <code>SURFACE X</code> and <code>SURFACE Y</code> host parameters.</p>
 
         <h2 id="workflow">Building a Surface</h2>
 
@@ -98,7 +98,7 @@
           </tbody>
         </table>
 
-        <p>For the current encoder instruments, <code>OUT</code> and <code>ORDER</code> are never interpolated. Wrangler's Listener controls also remain live so its existing auditory score is not replaced by the surface; Stochastic, Water, Wind, Pyrosphere, Cryosphere, and Insect store their listener selection with each cell and interpolate listener amount as part of the generator state. Pyrosphere and Cryosphere additionally interpolate <code>PACE</code>, <code>OCCUPANCY</code>, <code>CASCADE</code>, <code>MEMORY</code>, and <code>REST</code>, allowing a SURF gesture to move continuously between different event dramaturgies as well as different materials. Wrangler interpolates continuous per-voice curves while nearest-cell selection governs stepped curve modes.</p>
+        <p>Across these encoder instruments, <code>OUT</code> and <code>ORDER</code> are never interpolated. Wrangler's Listener controls also remain live so its auditory score is not replaced by the surface; Stochastic, Water, Wind, Pyrosphere, Cryosphere, and Insect store their listener selection with each cell and interpolate listener amount as part of the generator state. Pyrosphere and Cryosphere additionally interpolate <code>PACE</code>, <code>OCCUPANCY</code>, <code>CASCADE</code>, <code>MEMORY</code>, and <code>REST</code>, allowing a SURF gesture to move continuously between different event dramaturgies as well as different materials. Wrangler interpolates continuous per-voice curves while nearest-cell selection governs stepped curve modes.</p>
 
         <h2 id="automation">Automation and Transport</h2>
 
@@ -112,7 +112,7 @@
 
         <p><code>RANDOM</code> is an explicit whole-scene action. It bypasses an enabled surface so the newly generated base scene is immediately audible, but it does not delete or rewrite any cells. Turn the surface back <code>ON</code> to resume the saved map.</p>
 
-        <p>Portable single-preset files continue to describe one instrument state. The complete multi-cell surface belongs to plugin/project state. Project states from before Parameter Surface load with an empty, bypassed surface and retain their previous sound; states from the original eight-cell and 24-cell implementations migrate their cells intact, using <code>LINEAR</code> interpolation and the 160 ms default glide.</p>
+        <p>Portable single-preset files describe one instrument state; the complete multi-cell surface belongs to plugin/project state. When loading a project saved without Parameter Surface data, the plugin creates an empty, bypassed surface and leaves the recalled sound unchanged. Projects saved with eight-cell or 24-cell surface data retain their cells and use <code>LINEAR</code> interpolation with the 160 ms default glide.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="listener-mode.html">

@@ -55,9 +55,9 @@
 
         <p>The direct component follows the selected first-through-seventh ambisonic order. Early and late room components are represented through third order. Timing is sample-rate independent in the file and compiled for the current host rate. Imported JSON is embedded in CLAP project state.</p>
 
-        <h2 id="compatibility">Compatibility</h2>
+        <h2 id="compatibility">Choosing and Updating Files</h2>
 
-        <p>The editable Ray Sketch project uses the <code>s3g-ray-sketch</code> format identifier and is not a plugin input. Ray Sketch may import Imprint Sketch and legacy room-sketch projects as authoring sources, but Ambi Encoder Ray loads only a version 1 <code>s3g-ambi-ray-field</code> runtime file. It also accepts version 1 fields without <code>world_to_aed</code> and corrects their screen-space horizontal azimuth while loading.</p>
+        <p>Load a version 1 <code>s3g-ambi-ray-field</code> runtime file in Ambi Encoder Ray, not an editable <code>s3g-ray-sketch</code> project. To reuse an Imprint Sketch or legacy room-sketch project, import it into Ray Sketch and export a <code>.s3gray</code> file. Version 1 fields without <code>world_to_aed</code> remain supported; the encoder corrects their screen-space horizontal azimuth while loading.</p>
 
         <p>Geometry, materials, path losses, bounce points, and decay values are creative acoustic estimates intended for repeatable spatial composition. Resolved delay, gain, and AED values remain sufficient for a fixed reference listener. <code>bounce_position_m</code> enables moving-listener path resolution without requiring a live geometry simulation; generalized geometry remains display provenance. Version 1 readers may ignore the bounce field.</p>
 
@@ -95,7 +95,7 @@
           <h2>On This Page</h2>
           <a href="#version">Version 1</a>
           <a href="#runtime">Runtime Interpretation</a>
-          <a href="#compatibility">Compatibility</a>
+          <a href="#compatibility">Choosing and Updating Files</a>
         </div>
       </aside>
     </div>

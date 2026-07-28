@@ -28,7 +28,7 @@
 
         <p><code>s3g Processor No Input Mixer 8ch</code> is a zero-audio-input, fixed eight-output CLAP feedback instrument. Each lane has its own resonant body, formant path, four-band EQ, three serial nonlinear inserts, two aux sends, return memory, level, and meter. A signed 8-by-8 matrix and two effect-bearing aux-return loops couple the lanes into one playable electronic ecology.</p>
 
-        <p>The instrument hybridizes no-input mixing, configurable feedback circuits, resonant-object excitation, and the existing s3g Matrix movement engine. It is a new clean-room DSP design, not a circuit reconstruction, artist emulation, or transcription of a historical instrument.</p>
+        <p>The instrument combines no-input mixing, configurable feedback circuits, resonant-object excitation, and s3g Matrix movement. Its controls describe musical feedback behaviors rather than recreating a specific circuit or artist's instrument.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -36,7 +36,7 @@
               <img src="assets/plugin-guis/no-input-mixer.png" alt="Screenshot of the s3g Processor No Input Mixer eight-channel feedback matrix and lane controls" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>The 1356-by-820 <code>PATCH</code> page. Signed cable shells preserve the patch topology while measured routed-audio waveforms show what is actually passing through every connection.</figcaption>
+          <figcaption>The <code>PATCH</code> page. Signed cable shells show the stored topology, while routed-audio waveforms show the signal passing through each connection.</figcaption>
         </figure>
 
         <h2 id="workflow">Workflow</h2>
@@ -98,11 +98,11 @@
 
         <h2 id="movement">Matrix Movement</h2>
 
-        <p><code>MATRIX MOVEMENT</code> separates spatial allocation from articulation. The <code>FIELD</code> bank retains the s3g Matrix vocabulary: <code>FLOW</code>, <code>PULSE</code>, <code>CHASE</code>, <code>SWIRL</code>, <code>SCAT</code>, and <code>HOLD</code>. <code>FLOW</code>, <code>SPREAD</code>, <code>VORTEX</code>, <code>DEPTH</code>, <code>RATE</code>, and <code>PHASE</code> describe how that field scales each patched crosspoint. <code>GLIDE</code> is the continuous original behavior. <code>STEP</code> samples and holds the field; <code>CUT</code> opens and closes binary route sets; <code>BURST</code> produces irregular clustered ratchets and gaps; and <code>SCRAMBLE</code> rapidly chooses different subsets of the existing graph. None of these modes can invent a connection, reverse its sign, or exceed its stored gain.</p>
+        <p><code>MATRIX MOVEMENT</code> separates spatial allocation from articulation. The <code>FIELD</code> bank offers <code>FLOW</code>, <code>PULSE</code>, <code>CHASE</code>, <code>SWIRL</code>, <code>SCAT</code>, and <code>HOLD</code>. <code>FLOW</code>, <code>SPREAD</code>, <code>VORTEX</code>, <code>DEPTH</code>, <code>RATE</code>, and <code>PHASE</code> determine how the field scales each patched crosspoint. <code>GLIDE</code> applies the field continuously. <code>STEP</code> samples and holds it; <code>CUT</code> opens and closes binary route sets; <code>BURST</code> produces irregular clustered ratchets and gaps; and <code>SCRAMBLE</code> rapidly chooses different subsets of the patched graph. These modes affect only existing connections and cannot reverse a route's sign or exceed its stored gain.</p>
 
-        <p>The compact <code>CUT</code> bank exposes <code>BEHAV</code>, 0.25–80 Hz <code>EVENT</code> rate, 0.5–250 ms <code>LENGTH</code>, <code>DENSITY</code>, <code>CHAOS</code>, 0.1–20 ms click-safe <code>SLEW</code>, and <code>CHOKE</code>. <code>CHOKE</code> applies the articulated gate after each lane's EQ and three inserts, before its signal returns to the graph and audition output. This is deliberate: saturated feedback can refill a route-level gap, whereas the lane-return choke makes cuts remain audible. At zero <code>DEPTH</code>, stored gains pass unchanged; at full depth the field uses a perceptual 30 dB contrast law, with binary modes additionally closing their gated routes. Destination normalization follows the unmodulated graph and therefore cannot boost the background to conceal the motion.</p>
+        <p>The compact <code>CUT</code> bank exposes <code>BEHAV</code>, 0.25–80 Hz <code>EVENT</code> rate, 0.5–250 ms <code>LENGTH</code>, <code>DENSITY</code>, <code>CHAOS</code>, 0.1–20 ms click-safe <code>SLEW</code>, and <code>CHOKE</code>. <code>CHOKE</code> applies the articulated gate after each lane's EQ and three inserts, before its signal returns to the graph and audition output. Use it when saturated feedback refills route-level gaps and makes cuts less distinct. At zero <code>DEPTH</code>, stored gains pass unchanged; at full depth the field uses a perceptual 30 dB contrast law, with binary modes additionally closing their gated routes. Destination normalization follows the unmodulated graph, preventing background gain from masking the motion.</p>
 
-        <p><code>WIRES</code> does not substitute an abstract movement animation for the result: each bright trace is a 24 kHz scope of the route's measured post-phase, post-gain, post-motion audio contribution, bent around its cable. Trace shape is the real waveform and trace visibility follows measured level. The selected route reports dBFS below the wiring. In <code>GRID</code>, crosspoint brightness and the lower gain-modulation groups read the live DSP route gates, align with their source columns, and sit above eight visible −60-to-0 dBFS output meters.</p>
+        <p>In <code>WIRES</code>, each bright trace is a 24 kHz scope of the route's measured post-phase, post-gain, post-motion audio contribution, drawn along its cable. Trace shape follows the routed waveform, and visibility follows measured level. The selected route reports dBFS below the wiring. In <code>GRID</code>, crosspoint brightness and the lower gain-modulation groups show the live route gates, align with their source columns, and sit above eight −60-to-0 dBFS output meters.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -110,14 +110,14 @@
               <img src="assets/plugin-guis/no-input-mixer.grid.png" alt="Processor No Input Mixer matrix grid with aligned source columns, logarithmic output meters, and route-gain movement display" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>The exact <code>GRID</code> view. Crosspoints, grouped effective-gain indicators, and dBFS output meters share the same source-column alignment.</figcaption>
+          <figcaption>The <code>GRID</code> view aligns crosspoints, grouped effective-gain indicators, and dBFS output meters by source column.</figcaption>
         </figure>
 
         <h2 id="mixer">Mixer and Aux Returns</h2>
 
-        <p>The <code>MIXER</code> page keeps all eight channel strips, both aux returns, and <code>INTERNAL</code>/<code>HOUSE</code> tone visible together. <code>BODY</code>, <code>LOSS</code>, signed local loop gain, low/mid/high EQ, Aux A/B sends, and the output fader all use smooth click-and-drag tracks. Clicking a processor name in any of the three lane slots selects that slot and opens the complete effect menu; clicking either aux processor name opens the same menu for that return. The adjacent <code>EDIT</code> action opens one shared floating Effect Editor for the selected lane slot or aux return. There is no hidden click-to-cycle behavior. <code>MUTE</code> remains an immediate action.</p>
+        <p>The <code>MIXER</code> page keeps all eight channel strips, both aux returns, and <code>INTERNAL</code>/<code>HOUSE</code> tone visible together. <code>BODY</code>, <code>LOSS</code>, signed local loop gain, low/mid/high EQ, Aux A/B sends, and the output fader all use smooth click-and-drag tracks. Click a processor name in any lane slot or aux return to open its effect menu. The adjacent <code>EDIT</code> action opens the floating Effect Editor for the selected processor. Use the explicit menu to change processor type; <code>MUTE</code> acts immediately.</p>
 
-        <p><code>POP</code> opens the current logical page in a synchronized, host-attached window without creating a second DSP instance. The detached <code>MIXER</code> is identical to the nested page: it uses the same renderer, positions, values, and gestures, so no controls migrate or appear only after detaching. <code>PATCH</code>, <code>CHANNEL</code>, and <code>SAFETY</code> can detach independently as well; <code>DOCK</code> closes a detached page back into the editor.</p>
+        <p><code>POP</code> opens the current page in a synchronized, host-attached window. The detached page keeps the same controls, values, and gestures as its docked view. <code>PATCH</code>, <code>MIXER</code>, <code>CHANNEL</code>, and <code>SAFETY</code> can be detached independently; click <code>DOCK</code> to return a page to the main editor.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -125,7 +125,7 @@
               <img src="assets/plugin-guis/no-input-mixer.mixer-pop.png" alt="The synchronized eight-strip Processor No Input Mixer performance mixer pop-out with the full lane effect dropdown, aux returns, and master tone controls" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>The detached 1356-by-820 <code>MIXER</code> page with a lane-slot effect menu open. The docked page uses the same renderer, menu, gestures, and CLAP parameter state.</figcaption>
+          <figcaption>The detached <code>MIXER</code> page with a lane-slot effect menu open. Its controls and gestures remain synchronized with the docked editor.</figcaption>
         </figure>
 
         <figure>
@@ -134,7 +134,7 @@
               <img src="assets/plugin-guis/no-input-mixer.effect-editor.png" alt="Compact Processor No Input Mixer Effect Editor showing SPLICE mix, length, direction, level, and bypass controls" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>The shared Effect Editor retargeted to SPLICE. Its labels describe the selected algorithm while its controls write the same stable CLAP parameters used by the Channel page and host automation.</figcaption>
+          <figcaption>The Effect Editor showing SPLICE controls. Its labels adapt to the selected algorithm, and the same controls remain available from the Channel page and host automation.</figcaption>
         </figure>
 
         <p>Aux A and B are genuine internal return loops. Every lane can send independently; each bus has its own dropdown-selected processor from the complete twenty-three-type library, drive, tone, bias, return level, and bounded self-feedback. Each bus also has a global <code>MUTE ALL</code> button. It applies a clickless four-millisecond gate to that processed aux return everywhere in the eight-lane graph, including cross-aux modulation, without erasing any lane's send level. Unmuting therefore restores the preserved aux mix. <code>INTERNAL</code> tone sits inside the feedback ecology, while <code>HOUSE</code> tone affects only the eight audition outputs. This separation allows bright internal energy to sustain a circuit without forcing the same spectrum into the listening system.</p>
@@ -147,7 +147,7 @@
 
         <h2 id="inserts">Processor Inserts</h2>
 
-        <p>Each lane owns three independently selectable serial slots. Type changes use a short crossfade and processing can run at 1x, 2x, or 4x quality. The library now spans distortion, switching, buffer, modulation, voice transformation, and octave-generation families. Circuit-oriented names identify transfer-family inspiration rather than component-perfect branded emulation.</p>
+        <p>Each lane owns three independently selectable serial slots. Type changes use a short crossfade, and processing can run at 1x, 2x, or 4x quality. The library covers distortion, switching, buffer, modulation, voice transformation, and octave-generation families. Circuit-oriented names describe a transfer-character family rather than an exact hardware replica.</p>
 
         <table class="readout-table">
           <thead><tr><th>Type</th><th>Character</th></tr></thead>
@@ -187,7 +187,7 @@
 
         <h2 id="state">Automation and State</h2>
 
-        <p>The plugin exposes 331 stable CLAP parameters: forty-three global network, movement, articulation, tone, aux, output, and containment controls; sixty-four signed matrix gains; ten direct controls for each lane; and six controls for each of the twenty-four insert slots. The two added global parameters expose Aux A/B processor bias that was already part of stored DSP state. Factory presets, variance, randomization, forgetting, the articulation layer, and the two global aux mutes resolve into ordinary stored state. The selected lane, slot, source, destination, and editor page are stored as well. Version-one and version-two project state migrate with both aux buses unmuted and <code>GLIDE</code> articulation; version-three state preserves its aux mutes and also initializes <code>GLIDE</code>. Processing allocates no memory after activation.</p>
+        <p>The plugin exposes 331 CLAP parameters for host automation, including the global network, movement, articulation, tone, aux, output, and containment controls; all sixty-four signed matrix gains; ten direct controls per lane; and six controls per insert slot. Project state stores the full patch together with the selected lane, slot, source, destination, and editor page. After opening a project saved with state version 1 or 2, verify the Aux A/B mute settings: both buses recall unmuted, and articulation uses <code>GLIDE</code>. Projects saved with state version 3 preserve their aux mutes and recall with <code>GLIDE</code> articulation. Save the project again after confirming the intended settings.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="generative-instruments.html">

@@ -71,7 +71,7 @@
         <p>The Wave Mesh turns the topology graph into a short sample-domain propagation network. Unlike the longer dual tape-head layer, it exchanges energy between lanes over millisecond-scale paths. Transients can strike neighboring nodes, circulate through several routes, and form membrane- or wire-like resonances.</p>
 
         <ul>
-          <li><code>COUP</code>: sends the local processed lanes into the mesh and blends the returned field into the result. At zero, the mesh is bypassed and the legacy Wave Geometry path is unchanged.</li>
+          <li><code>COUP</code>: sends the local processed lanes into the mesh and blends the returned field into the result. Set it to zero to bypass the mesh and hear only the local Wave Geometry processing.</li>
           <li><code>TENS</code>: controls propagation velocity. Higher tension shortens travel time and raises the network modes; lower tension produces slower, lower movement.</li>
           <li><code>DECY</code>: controls junction reflection and therefore how long energy recirculates.</li>
           <li><code>DAMP</code>: increases high-frequency and distance-dependent absorption on each route.</li>
@@ -98,7 +98,7 @@
 
         <p><code>TAPE</code> defaults to zero, so the plugin opens as a wave processor first. Bring it up gradually when using continuous material.</p>
 
-        <h2 id="reaper">REAPER Notes</h2>
+        <h2 id="reaper">REAPER Setup</h2>
 
         <p>Use an eight-channel REAPER track for the most direct behavior. On wider tracks, use REAPER pins and the internal patch matrix intentionally so that the lanes you want are the lanes being processed.</p>
 
@@ -139,7 +139,7 @@
           <a href="#topology">Topology</a>
           <a href="#patching">Patch Matrix</a>
           <a href="#tape-heads">Dual Tape Heads</a>
-          <a href="#reaper">REAPER Notes</a>
+          <a href="#reaper">REAPER Setup</a>
         </div>
       </aside>
     </div>

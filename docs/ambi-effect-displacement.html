@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Ambi Effect Displacement</h1>
 
-        <p><strong>s3g Ambi Effect Displacement 64</strong> is an order-adaptive <code>1OA</code> through <code>7OA</code> <code>ACN/SN3D</code> insert. It loads geometry timelines exported by the <a href="https://s3g.github.io/s3g-mc/utilities-displacement-score.html" target="_blank" rel="noopener noreferrer">s3g-mc Displacement Score</a> browser utility and applies them to an encoded ambisonic field through the same listener-body process used by the other Ambi Effects.</p>
+        <p><strong>s3g Ambi Effect Displacement 64</strong> is an order-adaptive <code>1OA</code> through <code>7OA</code> <code>ACN/SN3D</code> insert. It loads geometry timelines exported by the <a href="https://s3g.github.io/s3g-mc/utilities-displacement-score.html" target="_blank" rel="noopener noreferrer">s3g-mc Displacement Score</a> browser utility, projects the encoded field onto a listener body, and moves its directional pickups through the scored geometry.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -53,7 +53,7 @@
 
         <p>Use <strong>LOAD SCORE</strong> to open a version 1 <code>s3g-mc-displacement-score</code> JSON file. The plugin reads up to 64 scenes, uses shortest-path azimuth interpolation, and embeds the parsed score in project state. The browser utility remains the authoring surface; the plugin is a playback and interpretation surface.</p>
 
-        <p>The original 24-point score order is preserved when Body is Sphere24. Icosa12 and Dodeca20 sample the same continuous spherical displacement field, so lower pickup counts do not require a different score file. The player also reads raw target radius so its distance mode remains useful when the browser preview was exported with radius normalization enabled.</p>
+        <p>With Body set to Sphere24, the score's 24 points map directly to the listener body. Icosa12 and Dodeca20 sample the same continuous spherical displacement field, so lower pickup counts do not require a different score file. The player also reads raw target radius, keeping Distance mode useful when the browser preview was exported with radius normalization enabled.</p>
 
         <h2 id="controls">Controls</h2>
 
@@ -88,7 +88,7 @@
 
         <p><code>GAIN</code> treats radius as a capped inverse-distance level law. Radius <code>1.0</code> is unity, nearer points can rise to at most <code>+6 dB</code>, and farther points can fall to at most <code>-12 dB</code>.</p>
 
-        <p><code>PHYSICAL</code> keeps that safe gain law and adds relative propagation delay for farther points, distance-dependent air damping, and gradual high-order reduction as points recede. Nearer points are not given negative delay: doing that would require fixed lookahead and host latency. This keeps neutral geometry at zero added latency while still making outward displacement read as physical depth.</p>
+        <p><code>PHYSICAL</code> keeps that safe gain law and adds relative propagation delay for farther points, distance-dependent air damping, and gradual high-order reduction as points recede. The mode uses no lookahead, so nearer points remain at zero relative delay instead of receiving negative delay. Neutral geometry therefore adds no latency while outward displacement still reads as physical depth.</p>
 
         <h2 id="listener-field">Listener Field</h2>
 

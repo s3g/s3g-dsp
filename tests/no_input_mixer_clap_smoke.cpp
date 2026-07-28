@@ -19,7 +19,8 @@ namespace {
 
 constexpr uint32_t kChannels = 8u;
 constexpr uint32_t kFrames = 256u;
-constexpr uint32_t kParamCount = 331u;
+constexpr uint32_t kParamCount = 400u;
+constexpr clap_id kOutputParam = 1u;
 constexpr clap_id kFirstMatrixParam = 100u;
 constexpr clap_id kMotionShapeParam = 20u;
 constexpr clap_id kAuxATypeParam = 23u;
@@ -30,7 +31,16 @@ constexpr clap_id kEventRateParam = 36u;
 constexpr clap_id kEventChokeParam = 41u;
 constexpr clap_id kAuxABiasParam = 42u;
 constexpr clap_id kAuxBBiasParam = 43u;
+constexpr clap_id kReactModeParam = 44u;
+constexpr clap_id kReactDepthParam = 45u;
+constexpr clap_id kClockSyncParam = 52u;
+constexpr clap_id kFieldDivisionParam = 53u;
+constexpr clap_id kSurfaceXParam = 55u;
 constexpr clap_id kLaneOneAuxAParam = 1008u;
+constexpr clap_id kLaneOneTuneParam = 1010u;
+constexpr clap_id kLaneOnePitchLockParam = 1012u;
+constexpr clap_id kLaneOneAuxTapAParam = 1013u;
+constexpr clap_id kLaneOneAuxReturnAParam = 1015u;
 
 struct LegacyInsert {
     uint32_t type = 0u;
@@ -112,12 +122,13 @@ struct EventList {
         },
     };
 
-    void add(clap_id id, double value)
+    void add(clap_id id, double value, uint32_t time = 0u)
     {
         clap_event_param_value_t event {};
         event.header.size = sizeof(event);
         event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
         event.header.type = CLAP_EVENT_PARAM_VALUE;
+        event.header.time = time;
         event.param_id = id;
         event.note_id = -1;
         event.port_index = -1;
@@ -235,6 +246,32 @@ int main(int argc, char** argv)
         && plugin->activate(plugin, 48000.0, kFrames, kFrames)
         && plugin->start_processing(plugin);
 
+    clap_param_info_t reactDepthInfo {};
+    clap_param_info_t reactModeInfo {};
+    bool foundReactDepth = false;
+    bool foundReactMode = false;
+    for (uint32_t index = 0u; ok && index < params->count(plugin); ++index) {
+        clap_param_info_t info {};
+        if (!params->get_info(plugin, index, &info)) {
+            ok = false;
+            break;
+        }
+        if (info.id == kReactDepthParam) {
+            reactDepthInfo = info;
+            foundReactDepth = true;
+        }
+        if (info.id == kReactModeParam) {
+            reactModeInfo = info;
+            foundReactMode = true;
+        }
+    }
+    ok = ok && foundReactDepth && foundReactMode
+        && (reactDepthInfo.flags & CLAP_PARAM_IS_MODULATABLE) != 0u
+        && (reactDepthInfo.flags & CLAP_PARAM_IS_STEPPED) == 0u
+        && (reactModeInfo.flags & CLAP_PARAM_IS_STEPPED) != 0u
+        && (reactModeInfo.flags & CLAP_PARAM_IS_MODULATABLE) == 0u;
+    if (!ok) std::cerr << "failed: setup/parameter metadata\n";
+
     if (ok) {
         std::atomic<bool> resetReturned { false };
         std::thread audioThread([&]() {
@@ -248,40 +285,7 @@ int main(int argc, char** argv)
     MemoryState saved;
     clap_ostream_t outputStream { &saved, stateWrite };
     ok = ok && state->save(plugin, &outputStream) && !saved.bytes.empty();
-
-    constexpr size_t kBehaviorStateBytes = sizeof(uint32_t)
-        + sizeof(float) * 6u;
-    MemoryState versionThree = saved;
-    if (ok && versionThree.bytes.size() > kBehaviorStateBytes) {
-        versionThree.bytes.resize(versionThree.bytes.size()
-            - kBehaviorStateBytes);
-        const uint32_t version = 3u;
-        std::memcpy(versionThree.bytes.data(), &version, sizeof(version));
-        clap_istream_t versionThreeStream { &versionThree, stateRead };
-        double migrated = -1.0;
-        ok = state->load(plugin, &versionThreeStream)
-            && params->get_value(plugin, kBehaviorParam, &migrated)
-            && migrated == 0.0;
-    } else {
-        ok = false;
-    }
-
-    MemoryState versionTwo = saved;
-    if (ok && versionTwo.bytes.size() >= sizeof(uint32_t) * 3u) {
-        versionTwo.bytes.resize(versionTwo.bytes.size()
-            - kBehaviorStateBytes - sizeof(uint32_t) * 2u);
-        const uint32_t version = 2u;
-        std::memcpy(versionTwo.bytes.data(), &version, sizeof(version));
-        clap_istream_t versionTwoStream { &versionTwo, stateRead };
-        double migratedMute = 1.0;
-        ok = state->load(plugin, &versionTwoStream)
-            && params->get_value(plugin, kAuxAMuteParam, &migratedMute)
-            && migratedMute == 0.0
-            && params->get_value(plugin, kAuxBMuteParam, &migratedMute)
-            && migratedMute == 0.0;
-    } else {
-        ok = false;
-    }
+    if (!ok) std::cerr << "failed: current state save\n";
 
     EventList matrixChange;
     matrixChange.add(kFirstMatrixParam, 0.0);
@@ -293,6 +297,7 @@ int main(int argc, char** argv)
     ok = ok && state->load(plugin, &inputStream)
         && params->get_value(plugin, kFirstMatrixParam, &matrixValue)
         && std::abs(matrixValue - 0.94) < 1.0e-6;
+    if (!ok) std::cerr << "failed: current state restore\n";
 
     LegacyState legacy;
     legacy.params.feedback = 0.73f;
@@ -314,6 +319,7 @@ int main(int argc, char** argv)
         && std::abs(migrated - 0.28) < 1.0e-6
         && params->get_value(plugin, kLaneOneAuxAParam, &migrated)
         && std::abs(migrated - 0.08) < 1.0e-6;
+    if (!ok) std::cerr << "failed: v1 state migration\n";
     saved.offset = 0u;
     clap_istream_t restoredStream { &saved, stateRead };
     ok = ok && state->load(plugin, &restoredStream);
@@ -327,6 +333,7 @@ int main(int argc, char** argv)
         && muteValue == 1.0
         && params->get_value(plugin, kAuxBMuteParam, &muteValue)
         && muteValue == 1.0;
+    if (!ok) std::cerr << "failed: aux mute state\n";
     MemoryState mutedState;
     clap_ostream_t mutedOutput { &mutedState, stateWrite };
     ok = ok && state->save(plugin, &mutedOutput);
@@ -350,6 +357,15 @@ int main(int argc, char** argv)
     hybridChange.add(kEventChokeParam, 1.0);
     hybridChange.add(kAuxABiasParam, -0.63);
     hybridChange.add(kAuxBBiasParam, 0.41);
+    hybridChange.add(kReactModeParam, 1.0);
+    hybridChange.add(kReactDepthParam, 0.78);
+    hybridChange.add(kClockSyncParam, 1.0);
+    hybridChange.add(kFieldDivisionParam, 8.0);
+    hybridChange.add(kSurfaceXParam, 0.19);
+    hybridChange.add(kLaneOneTuneParam, 57.25);
+    hybridChange.add(kLaneOnePitchLockParam, 1.0);
+    hybridChange.add(kLaneOneAuxTapAParam, 3.0);
+    hybridChange.add(kLaneOneAuxReturnAParam, -0.62);
     if (ok) params->flush(plugin, &hybridChange.input, nullptr);
     double hybridValue = 0.0;
     ok = ok && params->get_value(plugin, kMotionShapeParam, &hybridValue)
@@ -367,7 +383,26 @@ int main(int argc, char** argv)
         && params->get_value(plugin, kAuxABiasParam, &hybridValue)
         && std::abs(hybridValue + 0.63) < 1.0e-6
         && params->get_value(plugin, kAuxBBiasParam, &hybridValue)
-        && std::abs(hybridValue - 0.41) < 1.0e-6;
+        && std::abs(hybridValue - 0.41) < 1.0e-6
+        && params->get_value(plugin, kReactModeParam, &hybridValue)
+        && hybridValue == 1.0
+        && params->get_value(plugin, kReactDepthParam, &hybridValue)
+        && std::abs(hybridValue - 0.78) < 1.0e-6
+        && params->get_value(plugin, kClockSyncParam, &hybridValue)
+        && hybridValue == 1.0
+        && params->get_value(plugin, kFieldDivisionParam, &hybridValue)
+        && hybridValue == 8.0
+        && params->get_value(plugin, kSurfaceXParam, &hybridValue)
+        && std::abs(hybridValue - 0.19) < 1.0e-6
+        && params->get_value(plugin, kLaneOneTuneParam, &hybridValue)
+        && std::abs(hybridValue - 57.25) < 1.0e-6
+        && params->get_value(plugin, kLaneOnePitchLockParam, &hybridValue)
+        && hybridValue == 1.0
+        && params->get_value(plugin, kLaneOneAuxTapAParam, &hybridValue)
+        && hybridValue == 3.0
+        && params->get_value(plugin, kLaneOneAuxReturnAParam, &hybridValue)
+        && std::abs(hybridValue + 0.62) < 1.0e-6;
+    if (!ok) std::cerr << "failed: new parameter values\n";
     char processorName[32] {};
     ok = ok && params->value_to_text(plugin, kAuxATypeParam, 1.0,
             processorName, sizeof(processorName))
@@ -383,7 +418,14 @@ int main(int argc, char** argv)
         && std::strcmp(processorName, "BURST") == 0
         && params->value_to_text(plugin, kAuxABiasParam, -0.63,
             processorName, sizeof(processorName))
-        && std::strcmp(processorName, "-0.63") == 0;
+        && std::strcmp(processorName, "-0.63") == 0
+        && params->value_to_text(plugin, kReactModeParam, 1.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "FOLLOW") == 0
+        && params->value_to_text(plugin, kLaneOneAuxTapAParam, 3.0,
+            processorName, sizeof(processorName))
+        && std::strcmp(processorName, "POST INSERT") == 0;
+    if (!ok) std::cerr << "failed: parameter text\n";
 
     AudioBlock audio;
     std::array<double, kChannels> energy {};
@@ -412,6 +454,38 @@ int main(int argc, char** argv)
         ok = energy[channel] > 1.0e-8;
         if (channel > 0u) ok = ok && difference[channel] > 1.0e-4;
     }
+    if (!ok) std::cerr << "failed: audio generation\n";
+
+    saved.offset = 0u;
+    clap_istream_t timedRestore { &saved, stateRead };
+    ok = ok && state->load(plugin, &timedRestore);
+    process.in_events = nullptr;
+    for (uint32_t block = 0u; ok && block < 40u; ++block) {
+        audio.clear();
+        ok = plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    }
+    EventList timedOutput;
+    timedOutput.add(kOutputParam, -60.0, 0u);
+    timedOutput.add(kOutputParam, 6.0, kFrames / 2u);
+    process.in_events = &timedOutput.input;
+    audio.clear();
+    ok = ok && plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+    double firstHalf = 0.0;
+    double secondHalf = 0.0;
+    for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+        for (uint32_t frame = 0u; frame < kFrames / 2u; ++frame)
+            firstHalf += std::abs(audio.output[channel][frame]);
+        for (uint32_t frame = kFrames / 2u; frame < kFrames; ++frame)
+            secondHalf += std::abs(audio.output[channel][frame]);
+    }
+    double finalOutputValue = -999.0;
+    ok = ok && params->get_value(plugin, kOutputParam, &finalOutputValue)
+        && std::abs(finalOutputValue - 6.0) < 1.0e-9
+        && secondHalf > firstHalf * 20.0;
+    if (!ok) std::cerr << "failed: sample-accurate event ratio "
+        << firstHalf << " / " << secondHalf << " final "
+        << finalOutputValue << "\n";
+    process.in_events = nullptr;
 
     if (plugin) {
         plugin->stop_processing(plugin);

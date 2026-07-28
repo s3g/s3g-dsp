@@ -60,7 +60,7 @@
 
         <h2 id="population">Node Sets and Growth</h2>
 
-        <p>The engine reserves sixty-four fixed node slots and never allocates while processing. A node-set change activates or retires a balanced structural population over a 120 ms transition. New nodes inherit energy from their parent lobe and cluster plus a deterministic seeded disturbance, so increasing population behaves as growth rather than a hard synthesizer reload.</p>
+        <p>Changing the node set activates or retires a balanced structural population over a 120 ms transition. New nodes inherit energy from their parent lobe and cluster plus a deterministic seeded disturbance, so increasing the population sounds like growth rather than a hard reload.</p>
 
         <table class="readout-table">
           <thead><tr><th>Node set</th><th>Structure</th><th>Spatial form</th></tr></thead>
@@ -175,7 +175,7 @@
 
         <h3>User presets</h3>
 
-        <p><code>SAVE</code> writes the complete parameter set, live genome, every resident genome and generation, ingress/egress locations, birth seed and count, current cell, traversal trail, and preset name to a <code>.s3gne</code> file. <code>LOAD</code> restores that evolutionary state. The default location is <code>~/Music/s3g/Presets/Ambi Neural Ecology</code>. CLAP project state stores the same material. This three-dimensional evolutionary-lattice format is a breaking change and does not load earlier score projects or presets.</p>
+        <p><code>SAVE</code> writes the complete parameter set, live genome, every resident genome and generation, ingress/egress locations, birth seed and count, current cell, traversal trail, and preset name to a <code>.s3gne</code> file. <code>LOAD</code> restores that evolutionary state. The default location is <code>~/Music/s3g/Presets/Ambi Neural Ecology</code>. CLAP project state stores the same material. <code>LOAD</code> supports only the three-dimensional evolutionary-lattice format; score-based project and preset formats are incompatible.</p>
 
         <h2 id="space">Spatial Field</h2>
 

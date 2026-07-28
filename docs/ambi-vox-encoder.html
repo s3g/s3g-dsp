@@ -98,7 +98,7 @@
 
         <h2 id="voicebank-timing">Voicebank Timing and Pronunciation</h2>
 
-        <p>The renderer honors each <code>oto.ini</code> entry's offset, consonant/fixed region, cutoff, preutterance, and overlap. Adjacent aliases crossfade using their preutterance and overlap values, and <code>BLEND</code> scales that transition. In <code>SPEAK</code>, the complete alias is one-shot and never wraps inside its phrase event. In <code>SING</code>, the consonant region runs once and the vowel can sustain after the fixed region. If a legacy CV bank supplies zeros for every timing field, Ambi Vox derives a short onset and vowel region from the recording.</p>
+        <p>The renderer honors each <code>oto.ini</code> entry's offset, consonant/fixed region, cutoff, preutterance, and overlap. Adjacent aliases crossfade using their preutterance and overlap values, and <code>BLEND</code> scales that transition. In <code>SPEAK</code>, the complete alias is one-shot and never wraps inside its phrase event. In <code>SING</code>, the consonant region runs once and the vowel can sustain after the fixed region. For CV banks with zeros in every timing field, Ambi Vox derives a short onset and vowel region from the recording.</p>
 
         <p>A bank can override the built-in word mapping with an optional <code>s3g-pronunciations.txt</code> file in its root folder. Put one lower-case word and its alias sequence on each line:</p>
 
@@ -131,7 +131,7 @@ sorrow=so ro</code></pre>
         <h2 id="ensemble">Ensemble Direction</h2>
 
         <ul>
-          <li><code>INDIVIDUAL</code> keeps the original free-running scale-field behavior. In <code>MIDI</code>, every ensemble direction now retains normal per-note point allocation.</li>
+          <li><code>INDIVIDUAL</code> uses the free-running scale field. In <code>MIDI</code>, every ensemble direction uses normal per-note point allocation.</li>
           <li><code>UNISON</code> shares one root with small deterministic entrance and tuning differences.</li>
           <li><code>CHORALE</code> repeats an open SATB voicing across the field and keeps soprano, alto, tenor, and bass parts inside practical tessitura.</li>
           <li><code>CHORUS</code> distributes unison and octave doubles with wider entrance and tuning variation.</li>

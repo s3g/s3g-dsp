@@ -80,7 +80,7 @@
 
         <p><code>SAVE</code> writes the current state as a portable <code>.s3gstochastic</code> file. <code>LOAD</code> restores one through the macOS file chooser. The file contains every synthesis, selection, time-field, envelope, topology, projection, listener, ambisonic-order, and output setting.</p>
 
-        <p>User presets are versioned JSON documents and can be moved between systems or kept with a project archive. Changing a control after loading or selecting a preset marks the current state as <code>CUSTOM</code>. REAPER project state continues to store the complete plugin state independently.</p>
+        <p>User presets are versioned JSON documents and can be moved between systems or kept with a project archive. Changing a control after loading or selecting a preset marks the current state as <code>CUSTOM</code>. REAPER project state stores the complete plugin state independently.</p>
 
         <h2 id="parameter-surface">Parameter Surface</h2>
 
@@ -149,7 +149,7 @@
 
         <h2 id="field-listener">Field Listener</h2>
 
-        <p><code>LISTEN</code> decodes the instrument's pre-output-gain <code>ACN/SN3D</code> field through eight cube-corner virtual microphones. Their smoothed directional energy charges a slow voice-local capture state rather than creating an audio return. <code>LOCAL</code> lets each voice read the pickup nearest its own direction, <code>CROSS</code> reads the opposing pickup, <code>DIFFUSE</code> gives every voice a stable weighted mixture of the complete aperture, and <code>ROAMING</code> moves independent read heads continuously around it. <code>CAPTURE</code> controls the depth of this negative-feedback viscosity, while <code>OFF</code> preserves the original autonomous system.</p>
+        <p><code>LISTEN</code> decodes the instrument's pre-output-gain <code>ACN/SN3D</code> field through eight cube-corner virtual microphones. Their smoothed directional energy charges a slow voice-local capture state rather than creating an audio return. <code>LOCAL</code> lets each voice read the pickup nearest its own direction, <code>CROSS</code> reads the opposing pickup, <code>DIFFUSE</code> gives every voice a stable weighted mixture of the complete aperture, and <code>ROAMING</code> moves independent read heads continuously around it. <code>CAPTURE</code> controls the depth of this negative-feedback viscosity, while <code>OFF</code> disables listener influence and leaves the generator autonomous.</p>
 
         <figure>
           <div class="doc-graphic">

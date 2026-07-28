@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Ambi Decoder Speaker</h1>
 
-        <p><code>s3g Ambi Decoder Speaker 64</code> decodes ambisonic <code>ACN/SN3D</code> input to a 64-channel speaker output bus. It is built for REAPER sessions where the speaker layout is part of the composition, installation, or encoded-field chain.</p>
+        <p><code>s3g Ambi Decoder Speaker 64</code> decodes ambisonic <code>ACN/SN3D</code> input to a 64-channel speaker output bus. Use it when the REAPER session's speaker layout is part of the composition, installation, or encoded-field chain.</p>
 
         <p>The decoder supports first through seventh order. The output bus stays 64 channels so routing is predictable; the active speaker count decides which output lanes are used.</p>
 
@@ -64,7 +64,7 @@
 
         <p>The layout menu provides common speaker shapes plus custom editing.</p>
 
-        <p>For room-style presets, speaker numbering starts at the stereo-right position and moves clockwise around each elevation layer, then continues upward. <code>DOME24</code> and <code>DOME25</code> follow the s3g-mc dome panner structure: 12 lower speakers, 8 middle speakers, 4 upper speakers, and a top point for <code>DOME25</code>. <code>SPHERE24</code> keeps the fixed Ambisonic virtual-speaker order used by the shared geometry layer.</p>
+        <p>For room-style presets, speaker numbering starts at the stereo-right position and moves clockwise around each elevation layer, then continues upward. <code>DOME24</code> and <code>DOME25</code> follow the s3g-mc dome panner structure: 12 lower speakers, 8 middle speakers, 4 upper speakers, and a top point for <code>DOME25</code>. <code>SPHERE24</code> uses the fixed 24-direction ordering expected by the Ambi Effect workflows.</p>
 
         <div class="table-wrap">
           <table>
@@ -141,13 +141,13 @@
 
         <p>The ordinary field uses shared AED color, while <code>MAP</code> replaces it with a normalized low-to-high response scale. See <a href="interpreting-color.html">Interpreting Color</a> before comparing the two views.</p>
 
-        <h2 id="mode-notes">Mode Notes</h2>
+        <h2 id="mode-notes">Choosing a Decode Mode</h2>
 
-        <p><code>BASIC</code> uses direct speaker basis weighting and is useful as a clear, simple reference. <code>EPAD</code> uses a regularized matrix solve inspired by energy-preserving speaker decoding. <code>MMD</code> is a multi-mode-inspired blend for comparing direct and energy-weighted behavior.</p>
+        <p>Choose <code>BASIC</code> for direct speaker-basis weighting and a clear reference decode. Choose <code>EPAD</code> for a regularized, energy-preserving matrix decode. Choose <code>MMD</code> to blend direct and energy-weighted behavior across multiple modes.</p>
 
         <p><code>WGT</code> is separate from <code>MODE</code>. It tapers ambisonic orders before the signal reaches the speaker outputs. <code>MAXRE</code> is the default because it usually gives a useful balance of localization and stability. <code>INPHASE</code> is more conservative and can help with irregular layouts. <code>NONE</code> leaves the orders unweighted for comparison.</p>
 
-        <h2 id="reaper">REAPER Notes</h2>
+        <h2 id="reaper">REAPER Setup</h2>
 
         <p>Use a track with enough channels for the selected ambisonic input and speaker output. The plugin has a fixed 64-channel input bus and fixed 64-channel output bus so REAPER pin routing remains stable while layout and order change inside the plugin.</p>
 
@@ -189,8 +189,8 @@
           <a href="#layouts">Layouts</a>
           <a href="#controls">Controls</a>
           <a href="#field-view">Field View</a>
-          <a href="#mode-notes">Mode Notes</a>
-          <a href="#reaper">REAPER Notes</a>
+          <a href="#mode-notes">Choosing a Decode Mode</a>
+          <a href="#reaper">REAPER Setup</a>
         </div>
       </aside>
     </div>
