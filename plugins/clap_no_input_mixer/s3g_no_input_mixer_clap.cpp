@@ -1436,7 +1436,7 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     snapSurfaceCursor(*p);
     p->active.store(true, std::memory_order_release);
     syncMixerState(*p);
-    p->mixer.reseed(p->params.seed, 0.48f);
+    p->mixer.reseed(p->params.seed, 0.62f);
     resetMeters(*p);
     p->seedRequested.store(false, std::memory_order_relaxed);
     p->panicRequested.store(false, std::memory_order_relaxed);
@@ -1456,7 +1456,7 @@ void reset(const clap_plugin_t* plugin)
     auto* p = self(plugin);
     snapSurfaceCursor(*p);
     syncMixerState(*p);
-    p->mixer.reseed(p->params.seed, 0.48f);
+    p->mixer.reseed(p->params.seed, 0.62f);
     resetMeters(*p);
 }
 
@@ -1518,7 +1518,7 @@ clap_process_status process(const clap_plugin_t* plugin,
         p->params.seed = p->params.seed * 1664525u + 1013904223u;
         if (p->params.seed == 0u) p->params.seed = 1u;
         syncMixerState(*p);
-        p->mixer.reseed(p->params.seed, 0.56f);
+        p->mixer.reseed(p->params.seed, 0.70f);
     }
     if (p->panicRequested.exchange(false, std::memory_order_acq_rel)) {
         p->mixer.panic();
@@ -2177,7 +2177,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         std::memory_order_relaxed);
     snapSurfaceCursor(*p);
     syncMixerState(*p);
-    p->mixer.reseed(p->params.seed, 0.48f);
+    p->mixer.reseed(p->params.seed, 0.62f);
     resetMeters(*p);
     return true;
 }
@@ -2193,6 +2193,7 @@ namespace {
 enum OpenMenu : int {
     kMenuNone = -1,
     kMenuPreset = 0,
+    kMenuRandomEnergy,
     kMenuLane,
     kMenuSource,
     kMenuDestination,
@@ -2661,10 +2662,12 @@ NSRect effectEditorToggleRect(uint32_t row)
     clap_id _dragParam;
     NSTimer* _timer;
     int _openMenu;
+    int _hoverMenuItem;
     NSRect _menuAnchor;
     uint32_t _effectMenuLane;
     uint32_t _effectMenuSlot;
     uint32_t _effectMenuBus;
+    uint32_t _randomEnergyProfile;
     uint32_t _movementBank;
     char _titlePresetName[64];
     clap_id _mixerDragParam;
@@ -2706,6 +2709,7 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (NSPanel*)safetyPanel;
 - (NSPanel*)auxPanel;
 - (NSPanel*)surfacePanel;
+- (NSInteger)hoverMenuItem;
 - (uint32_t)activePage;
 - (void)navigatePageBy:(NSInteger)delta;
 - (void)clearAllConnections;
@@ -3035,10 +3039,13 @@ NSRect effectEditorToggleRect(uint32_t row)
         _dragParam = CLAP_INVALID_ID;
         _timer = nil;
         _openMenu = kMenuNone;
+        _hoverMenuItem = -1;
         _menuAnchor = NSZeroRect;
         _effectMenuLane = 0u;
         _effectMenuSlot = 0u;
         _effectMenuBus = 0u;
+        _randomEnergyProfile = static_cast<uint32_t>(
+            s3g::NoInputRandomEnergy::Mid);
         _movementBank = 0u;
         _mixerDragParam = CLAP_INVALID_ID;
         _mixerDragRect = NSZeroRect;
@@ -3068,6 +3075,26 @@ NSRect effectEditorToggleRect(uint32_t row)
 
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)updateTrackingAreas
+{
+    for (NSTrackingArea* area in [self trackingAreas]) {
+        [self removeTrackingArea:area];
+    }
+    NSTrackingArea* area = [[[NSTrackingArea alloc]
+        initWithRect:[self bounds]
+        options:NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited
+            | NSTrackingActiveInKeyWindow
+        owner:self userInfo:nil] autorelease];
+    [self addTrackingArea:area];
+    [super updateTrackingAreas];
+}
+
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    [[self window] setAcceptsMouseMovedEvents:YES];
+}
 
 - (uint32_t)activePage
 {
@@ -3265,6 +3292,7 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (NSPanel*)safetyPanel { return _pagePanels[3u]; }
 - (NSPanel*)auxPanel { return _pagePanels[4u]; }
 - (NSPanel*)surfacePanel { return _pagePanels[5u]; }
+- (NSInteger)hoverMenuItem { return _hoverMenuItem; }
 - (NSPanel*)effectPanel { return _effectPanel; }
 
 - (void)openEffectEditorForLane:(uint32_t)lane slot:(uint32_t)slot
@@ -3924,6 +3952,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     case kMenuPreset:
         return s3g::clap_gui::cocoaRect(
             s3g::gui_layout::matrixTitleBand(family.canvas).presetMenu);
+    case kMenuRandomEnergy: return randomButtonRect();
     case kMenuLane: return processorMenuRect(family.selectedLane, 0u);
     case kMenuSource: return processorMenuRect(family.crosspoint, 0u);
     case kMenuDestination: return processorMenuRect(family.crosspoint, 1u);
@@ -3955,6 +3984,8 @@ NSRect effectEditorToggleRect(uint32_t row)
 - (uint32_t)menuItemCount:(int)menu
 {
     if (menu == kMenuPreset) return s3g::kNoInputMixerFactoryPresetCount;
+    if (menu == kMenuRandomEnergy)
+        return static_cast<uint32_t>(s3g::NoInputRandomEnergy::Count);
     if (menu == kMenuSlot0 || menu == kMenuSlot1 || menu == kMenuSlot2) {
         return s3g::kNoInputDistortionTypeCount;
     }
@@ -3990,6 +4021,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         || menu == kMenuAuxTapA || menu == kMenuAuxTapB
         || menu == kMenuSlot0 || menu == kMenuSlot1
         || menu == kMenuSlot2;
+    if (menu == kMenuRandomEnergy) width = std::max<CGFloat>(154.0, width);
     if (effectMenu) {
         if (menu == kMenuMixerInsert || menu == kMenuMixerAux)
             width = std::max<CGFloat>(148.0, width);
@@ -4020,6 +4052,9 @@ NSRect effectEditorToggleRect(uint32_t row)
         @"OCT DOWN", @"OCT UP", @"OCT STACK",
     };
     NSString* qualityItems[3] = { @"1X", @"2X", @"4X" };
+    NSString* randomEnergyItems[3] = {
+        @"HIGH / QUICK", @"MID / MODERATE", @"LOW / SLOW",
+    };
     NSString* shapeItems[6] = {
         @"FLOW", @"PULSE", @"CHASE", @"SWIRL", @"SCAT", @"HOLD",
     };
@@ -4055,6 +4090,10 @@ NSRect effectEditorToggleRect(uint32_t row)
                 break;
             }
         }
+    } else if (_openMenu == kMenuRandomEnergy) {
+        items = randomEnergyItems;
+        count = static_cast<uint32_t>(s3g::NoInputRandomEnergy::Count);
+        selected = static_cast<int>(_randomEnergyProfile);
     } else if (_openMenu == kMenuLane) {
         selected = static_cast<int>(plugin->selectedLane.load(
             std::memory_order_relaxed));
@@ -4112,7 +4151,7 @@ NSRect effectEditorToggleRect(uint32_t row)
             .inserts[slot].type);
     }
     s3g::clap_gui::drawDropdownMenu([self menuDropdownRect:_openMenu],
-        18.0, items, count, selected, -1, attrs, style);
+        18.0, items, count, selected, _hoverMenuItem, attrs, style);
 }
 
 - (void)drawPerformanceMixer:(Plugin*)plugin surface:(NSRect)surface
@@ -4495,7 +4534,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         s3g::gui_layout::rowY(family.network, 0u) - 2.0)
         withAttributes:label];
     drawFlatButton(seedNewButtonRect(), @"NEW", false, value);
-    drawFlatButton(randomButtonRect(), @"RANDOM", false, value);
+    drawFlatButton(randomButtonRect(), @"RANDOM V", false, value);
     drawFlatButton(forgetButtonRect(), @"FORGET", false, value);
     [self drawSlider:@"FDBK"
         value:[NSString stringWithFormat:@"%.0f%%",
@@ -4960,9 +4999,26 @@ NSRect effectEditorToggleRect(uint32_t row)
                 patch, seed, variance);
             plugin->behavior = s3g::noInputMixerFactoryBehavior(index);
             applyCompletePatch(*plugin,
-                patch, 0.58f);
+                patch, 0.68f);
             std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
                 s3g::noInputMixerFactoryPresetName(index));
+        }
+        break;
+    case kMenuRandomEnergy:
+        if (index < static_cast<uint32_t>(s3g::NoInputRandomEnergy::Count)) {
+            const auto energy = static_cast<s3g::NoInputRandomEnergy>(index);
+            uint32_t seed = plugin->params.seed * 1664525u + 1013904223u;
+            if (seed == 0u) seed = 1u;
+            _randomEnergyProfile = index;
+            plugin->behavior = s3g::randomizedNoInputMovementBehaviorParams(
+                seed ^ 0x43564d58u, energy);
+            applyCompletePatch(*plugin,
+                s3g::randomizedNoInputMixerParams(seed, energy),
+                s3g::noInputRandomSeedAmount(energy));
+            std::snprintf(_titlePresetName, sizeof(_titlePresetName),
+                "RANDOM %s", energy == s3g::NoInputRandomEnergy::High
+                    ? "HIGH" : (energy == s3g::NoInputRandomEnergy::Low
+                        ? "LOW" : "MID"));
         }
         break;
     case kMenuLane:
@@ -5060,6 +5116,7 @@ NSRect effectEditorToggleRect(uint32_t row)
             [self menuItemCount:_openMenu]);
         if (hit >= 0) [self applyMenuSelection:static_cast<uint32_t>(hit)];
         _openMenu = kMenuNone;
+        _hoverMenuItem = -1;
         [self setNeedsDisplay:YES];
         if (hit >= 0) return;
     }
@@ -5068,6 +5125,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     if (NSPointInRect(point,
             s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
         _openMenu = kMenuPreset;
+        _hoverMenuItem = -1;
         [self setNeedsDisplay:YES];
         return;
     }
@@ -5113,6 +5171,7 @@ NSRect effectEditorToggleRect(uint32_t row)
                 _effectMenuLane = lane;
                 _menuAnchor = auxPageTapRect(lane, bus);
                 _openMenu = bus == 0u ? kMenuAuxTapA : kMenuAuxTapB;
+                _hoverMenuItem = -1;
                 [self setNeedsDisplay:YES];
                 return;
             }
@@ -5453,6 +5512,7 @@ NSRect effectEditorToggleRect(uint32_t row)
                     _effectMenuSlot = slot;
                     _menuAnchor = menu;
                     _openMenu = kMenuMixerInsert;
+                    _hoverMenuItem = -1;
                     [self setNeedsDisplay:YES];
                     return;
                 }
@@ -5491,6 +5551,7 @@ NSRect effectEditorToggleRect(uint32_t row)
                     _effectMenuBus = bus;
                     _menuAnchor = typeRect;
                     _openMenu = kMenuMixerAux;
+                    _hoverMenuItem = -1;
                     [self setNeedsDisplay:YES];
                     return;
                 }
@@ -5550,6 +5611,7 @@ NSRect effectEditorToggleRect(uint32_t row)
     const auto openMenuIfHit = [&](int menu) {
         if (NSPointInRect(point, [self menuAnchorRect:menu])) {
             _openMenu = menu;
+            _hoverMenuItem = -1;
             [self setNeedsDisplay:YES];
             return true;
         }
@@ -5572,6 +5634,7 @@ NSRect effectEditorToggleRect(uint32_t row)
             if (!NSPointInRect(point, movementBankButtonRect(bank))) continue;
             _movementBank = bank;
             _openMenu = kMenuNone;
+            _hoverMenuItem = -1;
             [self setNeedsDisplay:YES];
             return;
         }
@@ -5613,14 +5676,8 @@ NSRect effectEditorToggleRect(uint32_t row)
         }
     }
     if (page == 0u && NSPointInRect(point, randomButtonRect())) {
-        uint32_t seed = plugin->params.seed * 1664525u + 1013904223u;
-        if (seed == 0u) seed = 1u;
-        plugin->behavior = s3g::randomizedNoInputMovementBehaviorParams(
-            seed ^ 0x43564d58u);
-        applyCompletePatch(*plugin,
-            s3g::randomizedNoInputMixerParams(seed), 0.64f);
-        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
-            "RANDOM");
+        _openMenu = kMenuRandomEnergy;
+        _hoverMenuItem = -1;
         [self setNeedsDisplay:YES];
         return;
     }
@@ -5628,7 +5685,7 @@ NSRect effectEditorToggleRect(uint32_t row)
         uint32_t seed = plugin->params.seed * 1664525u + 1013904223u;
         if (seed == 0u) seed = 1u;
         applyCompletePatch(*plugin,
-            s3g::forgottenNoInputMixerParams(plugin->params, seed), 0.42f);
+            s3g::forgottenNoInputMixerParams(plugin->params, seed), 0.62f);
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
             "FORGOTTEN");
         [self setNeedsDisplay:YES];
@@ -5848,6 +5905,27 @@ NSRect effectEditorToggleRect(uint32_t row)
     _surfaceDragCell = -1;
     _dragParam = CLAP_INVALID_ID;
     _mixerDragParam = CLAP_INVALID_ID;
+}
+
+- (void)mouseMoved:(NSEvent*)event
+{
+    if (_openMenu == kMenuNone) return;
+    const NSPoint point = [self convertPoint:[event locationInWindow]
+        fromView:nil];
+    const int next = s3g::clap_gui::dropdownHitIndex(point,
+        [self menuDropdownRect:_openMenu], 18.0,
+        [self menuItemCount:_openMenu]);
+    if (next == _hoverMenuItem) return;
+    _hoverMenuItem = next;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)mouseExited:(NSEvent*)event
+{
+    (void)event;
+    if (_hoverMenuItem < 0) return;
+    _hoverMenuItem = -1;
+    [self setNeedsDisplay:YES];
 }
 
 @end

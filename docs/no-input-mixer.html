@@ -43,7 +43,7 @@
 
         <ol>
           <li>Set a REAPER track to eight channels, then insert <code>s3g Processor No Input Mixer 8ch</code>. No audio pins or MIDI source are required.</li>
-          <li>Choose one of the title-band factory presets, or click <code>RANDOM</code> for a bounded complete-network variation.</li>
+          <li>Choose one of the title-band factory presets, or click <code>RANDOM</code> and choose <code>HIGH / QUICK</code>, <code>MID / MODERATE</code>, or <code>LOW / SLOW</code> for a bounded complete-network variation.</li>
           <li>Activation injects a deterministic startup packet into the otherwise oscillator-free network. Click <code>NEW</code> to reseed the current patch without changing its matrix or processors.</li>
           <li>Begin on <code>PATCH</code>. Drag a source port to a destination port to create a route; repeat the gesture or click an already selected cable to dissolve it. Hold Option while connecting for negative polarity. In <code>GRID</code>, click once to patch or select an intersection and click the selected intersection again to dissolve it.</li>
           <li>Add a few off-diagonal routes. Positive gains reinforce a destination; negative gains can inhibit, cancel, or frequency-pull it. Movement can animate only the intersections that remain patched.</li>
@@ -75,7 +75,18 @@
           </tbody>
         </table>
 
-        <p><code>RANDOM</code> generates a new deterministic seed and varies the complete matrix, bodies, EQ, tuning and lock states, processor types, insert settings, aux taps and signed destination returns, movement field, optional host sync or slow time, listening response, articulation behavior, phase, drift, formant, feedback, and coupling. It keeps controller <code>HOLD</code> off, the final limiter enabled, the ceiling at <code>-1 dB</code>, output trim conservative, diagonal regeneration present on every lane, and all generated values inside the DSP's bounded operating ranges. It does not alter or erase captured <code>SURF</code> cells. <code>NEW</code> changes only the excitation seed. <code>FORGET</code> is a smaller structural mutation. It reconsiders two to ten off-diagonal crosspoints—the number rises with <code>AGENCY</code>. An existing route may disappear or return with reduced gain and reversed polarity; an empty cell may acquire a quiet new route. One aux send and the movement phase also change. Lane bodies, EQ, inserts, master feedback, output, articulation behavior, and safety settings remain intact, so <code>FORGET</code> disrupts the current solution without replacing the instrument.</p>
+        <p><code>RANDOM</code> is an energy-profile menu rather than one uncorrelated roll. Each choice generates a new deterministic seed and varies the complete matrix, bodies, EQ, tuning and lock states, processor types, insert settings, aux taps and signed destination returns, movement field, optional host sync, listening response, articulation behavior, phase, drift, formant, feedback, and coupling. The profile coordinates those dimensions so slow clocks, sparse choke, and deep listening attenuation do not accidentally accumulate into an inaudible start.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Random profile</th><th>Coordinated behavior</th></tr></thead>
+          <tbody>
+            <tr><td>HIGH / QUICK</td><td>Dense signed routing, stronger regeneration and distortion, 1–32 Hz field motion, 4–72 Hz Cut/Burst/Scramble articulation, fast REACT, deep choke, and the strongest startup packet.</td></tr>
+            <tr><td>MID / MODERATE</td><td>Moderate routing and drive, approximately 0.35–8 Hz field motion, 1–16 Hz Step/Cut/Burst/Scramble articulation, and restrained listening depth.</td></tr>
+            <tr><td>LOW / SLOW</td><td>Sparse lower-energy coupling with output compensation, continuously moving Flow/Chase/Swirl fields, approximately 0.03–1 Hz motion, Glide or gently choked Step behavior, shallow REACT, and a still-audible startup packet.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Every profile keeps controller <code>HOLD</code> off, excludes static <code>HOLD</code> as its generated field shape, begins each lane with an immediate processor type, retains diagonal regeneration, leaves the final limiter enabled at <code>-1 dB</code>, and stays inside the DSP's bounded ranges. It does not alter or erase captured <code>SURF</code> cells. <code>NEW</code> changes only the excitation seed and now uses a stronger restart packet. <code>FORGET</code> is a smaller structural mutation. It reconsiders two to ten off-diagonal crosspoints—the number rises with <code>AGENCY</code>. An existing route may disappear or return with reduced gain and reversed polarity; an empty cell may acquire a quiet new route. One aux send and the movement phase also change. Lane bodies, EQ, inserts, master feedback, output, articulation behavior, and safety settings remain intact, so <code>FORGET</code> disrupts the current solution without replacing the instrument.</p>
 
         <h2 id="matrix">Feedback Matrix</h2>
 

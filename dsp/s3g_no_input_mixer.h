@@ -96,6 +96,35 @@ enum class NoInputReactMode : uint32_t {
     Count,
 };
 
+enum class NoInputRandomEnergy : uint32_t {
+    High = 0u,
+    Mid,
+    Low,
+    Count,
+};
+
+inline const char* noInputRandomEnergyName(NoInputRandomEnergy energy)
+{
+    switch (energy) {
+    case NoInputRandomEnergy::High: return "HIGH / QUICK";
+    case NoInputRandomEnergy::Mid: return "MID / MODERATE";
+    case NoInputRandomEnergy::Low: return "LOW / SLOW";
+    case NoInputRandomEnergy::Count: break;
+    }
+    return "MID / MODERATE";
+}
+
+inline float noInputRandomSeedAmount(NoInputRandomEnergy energy)
+{
+    switch (energy) {
+    case NoInputRandomEnergy::High: return 0.86f;
+    case NoInputRandomEnergy::Mid: return 0.76f;
+    case NoInputRandomEnergy::Low: return 0.70f;
+    case NoInputRandomEnergy::Count: break;
+    }
+    return 0.76f;
+}
+
 inline const char* noInputReactModeName(NoInputReactMode mode)
 {
     switch (mode) {
@@ -223,7 +252,7 @@ inline float noInputMovementSlewMs(float normalizedSlew)
 }
 
 inline NoInputMovementBehaviorParams randomizedNoInputMovementBehaviorParams(
-    uint32_t seed)
+    uint32_t seed, NoInputRandomEnergy energy = NoInputRandomEnergy::Mid)
 {
     const auto unit = [&seed]() {
         seed += 0x9e3779b9u;
@@ -237,15 +266,39 @@ inline NoInputMovementBehaviorParams randomizedNoInputMovementBehaviorParams(
             / static_cast<float>(0x01000000u);
     };
     NoInputMovementBehaviorParams params;
-    params.behavior = static_cast<NoInputMovementBehavior>(
-        static_cast<uint32_t>(unit() * 5.0f) % 5u);
-    params.eventRate = 0.18f + unit() * 0.76f;
-    params.length = 0.08f + unit() * 0.66f;
-    params.density = 0.24f + unit() * 0.66f;
-    params.chaos = 0.12f + unit() * 0.82f;
-    params.slew = 0.02f + unit() * 0.54f;
-    params.choke = params.behavior == NoInputMovementBehavior::Glide
-        ? 0.0f : 0.30f + unit() * 0.70f;
+    energy = static_cast<NoInputRandomEnergy>(std::min<uint32_t>(
+        static_cast<uint32_t>(energy),
+        static_cast<uint32_t>(NoInputRandomEnergy::Count) - 1u));
+    if (energy == NoInputRandomEnergy::High) {
+        params.behavior = static_cast<NoInputMovementBehavior>(
+            2u + static_cast<uint32_t>(unit() * 3.0f) % 3u);
+        params.eventRate = 0.75f + unit() * 0.23f;
+        params.length = 0.02f + unit() * 0.18f;
+        params.density = 0.34f + unit() * 0.46f;
+        params.chaos = 0.58f + unit() * 0.40f;
+        params.slew = 0.01f + unit() * 0.12f;
+        params.choke = 0.66f + unit() * 0.34f;
+    } else if (energy == NoInputRandomEnergy::Low) {
+        params.behavior = unit() < 0.58f
+            ? NoInputMovementBehavior::Glide
+            : NoInputMovementBehavior::Step;
+        params.eventRate = 0.64f + unit() * 0.20f;
+        params.length = 0.36f + unit() * 0.40f;
+        params.density = 0.70f + unit() * 0.24f;
+        params.chaos = 0.08f + unit() * 0.28f;
+        params.slew = 0.24f + unit() * 0.30f;
+        params.choke = params.behavior == NoInputMovementBehavior::Glide
+            ? 0.0f : 0.10f + unit() * 0.20f;
+    } else {
+        params.behavior = static_cast<NoInputMovementBehavior>(
+            1u + static_cast<uint32_t>(unit() * 4.0f) % 4u);
+        params.eventRate = 0.42f + unit() * 0.28f;
+        params.length = 0.14f + unit() * 0.38f;
+        params.density = 0.46f + unit() * 0.42f;
+        params.chaos = 0.24f + unit() * 0.54f;
+        params.slew = 0.04f + unit() * 0.25f;
+        params.choke = 0.34f + unit() * 0.48f;
+    }
     return sanitizeNoInputMovementBehaviorParams(params);
 }
 
@@ -745,7 +798,7 @@ noInputMixerMotionWeights(const NoInputMixerParams& rawParams, float phase)
     return weights;
 }
 
-constexpr uint32_t kNoInputMixerFactoryPresetCount = 10u;
+constexpr uint32_t kNoInputMixerFactoryPresetCount = 20u;
 
 inline const char* noInputMixerFactoryPresetName(uint32_t index)
 {
@@ -761,6 +814,16 @@ inline const char* noInputMixerFactoryPresetName(uint32_t index)
         "RELAY BLOOM",
         "OPEN HOUSE",
         "MOBILE CIRCUIT",
+        "STATIC CHOIR",
+        "RAZOR CLOCK",
+        "SUBHARMONIC WELL",
+        "SPEECH CIRCUIT",
+        "SPLICE STORM",
+        "PHASE ORCHARD",
+        "LOGIC FLOCK",
+        "OCTAVE LADDER",
+        "AUX MIRROR",
+        "WALL ENGINE",
     }};
     return names[std::min<uint32_t>(index,
         kNoInputMixerFactoryPresetCount - 1u)];
@@ -826,6 +889,84 @@ inline NoInputMovementBehaviorParams noInputMixerFactoryBehavior(
         params.density = 0.62f;
         params.chaos = 0.46f;
         params.choke = 0.24f;
+        break;
+    case 10u:
+        params.behavior = NoInputMovementBehavior::Glide;
+        params.eventRate = 0.28f;
+        params.density = 0.82f;
+        params.slew = 0.44f;
+        break;
+    case 11u:
+        params.behavior = NoInputMovementBehavior::Cut;
+        params.eventRate = 0.86f;
+        params.length = 0.08f;
+        params.density = 0.42f;
+        params.chaos = 0.76f;
+        params.slew = 0.025f;
+        params.choke = 0.94f;
+        break;
+    case 12u:
+        params.behavior = NoInputMovementBehavior::Glide;
+        params.eventRate = 0.30f;
+        params.density = 0.88f;
+        params.slew = 0.50f;
+        break;
+    case 13u:
+        params.behavior = NoInputMovementBehavior::Step;
+        params.eventRate = 0.40f;
+        params.length = 0.48f;
+        params.density = 0.68f;
+        params.chaos = 0.32f;
+        params.slew = 0.24f;
+        params.choke = 0.18f;
+        break;
+    case 14u:
+        params.behavior = NoInputMovementBehavior::Burst;
+        params.eventRate = 0.88f;
+        params.length = 0.10f;
+        params.density = 0.38f;
+        params.chaos = 0.92f;
+        params.slew = 0.018f;
+        params.choke = 0.96f;
+        break;
+    case 15u:
+        params.behavior = NoInputMovementBehavior::Glide;
+        params.eventRate = 0.34f;
+        params.density = 0.80f;
+        params.slew = 0.38f;
+        break;
+    case 16u:
+        params.behavior = NoInputMovementBehavior::Scramble;
+        params.eventRate = 0.72f;
+        params.length = 0.16f;
+        params.density = 0.52f;
+        params.chaos = 0.86f;
+        params.slew = 0.05f;
+        params.choke = 0.72f;
+        break;
+    case 17u:
+        params.behavior = NoInputMovementBehavior::Step;
+        params.eventRate = 0.52f;
+        params.length = 0.36f;
+        params.density = 0.72f;
+        params.chaos = 0.30f;
+        params.slew = 0.20f;
+        params.choke = 0.22f;
+        break;
+    case 18u:
+        params.behavior = NoInputMovementBehavior::Cut;
+        params.eventRate = 0.44f;
+        params.length = 0.54f;
+        params.density = 0.76f;
+        params.chaos = 0.24f;
+        params.slew = 0.28f;
+        params.choke = 0.34f;
+        break;
+    case 19u:
+        params.behavior = NoInputMovementBehavior::Glide;
+        params.eventRate = 0.32f;
+        params.density = 0.92f;
+        params.slew = 0.42f;
         break;
     default:
         break;
@@ -1212,7 +1353,8 @@ inline NoInputMixerParams noInputMixerFactoryPreset(uint32_t index)
     return sanitizeNoInputMixerParams(params);
 }
 
-inline NoInputMixerParams randomizedNoInputMixerParams(uint32_t seed)
+inline NoInputMixerParams randomizedNoInputMixerParams(uint32_t seed,
+    NoInputRandomEnergy energy = NoInputRandomEnergy::Mid)
 {
     uint32_t randomState = seed == 0u ? 1u : seed;
     const auto next = [&randomState]() {
@@ -1231,100 +1373,202 @@ inline NoInputMixerParams randomizedNoInputMixerParams(uint32_t seed)
     };
     const auto bipolar = [&unit]() { return unit() * 2.0f - 1.0f; };
 
+    energy = static_cast<NoInputRandomEnergy>(std::min<uint32_t>(
+        static_cast<uint32_t>(energy),
+        static_cast<uint32_t>(NoInputRandomEnergy::Count) - 1u));
+    const bool highEnergy = energy == NoInputRandomEnergy::High;
+    const bool lowEnergy = energy == NoInputRandomEnergy::Low;
+
     auto params = defaultNoInputMixerParams();
     params.seed = seed == 0u ? 1u : seed;
-    params.outputGainDb = -20.0f + unit() * 5.0f;
+    params.outputGainDb = highEnergy ? -11.0f + unit() * 4.0f
+        : (lowEnergy ? -14.0f + unit() * 4.0f
+            : -17.0f + unit() * 4.0f);
     params.ceilingDb = -1.0f;
-    params.feedback = 0.86f + unit() * 0.11f;
-    params.coupling = 0.28f + unit() * 0.48f;
+    params.feedback = highEnergy ? 0.94f + unit() * 0.08f
+        : (lowEnergy ? 0.87f + unit() * 0.08f
+            : 0.90f + unit() * 0.08f);
+    params.coupling = highEnergy ? 0.52f + unit() * 0.38f
+        : (lowEnergy ? 0.22f + unit() * 0.30f
+            : 0.36f + unit() * 0.38f);
     params.phase = 0.14f + unit() * 0.66f;
-    params.drift = 0.08f + unit() * 0.45f;
+    params.drift = highEnergy ? 0.20f + unit() * 0.46f
+        : (lowEnergy ? 0.04f + unit() * 0.20f
+            : 0.10f + unit() * 0.38f);
     params.formant = 0.10f + unit() * 0.52f;
-    params.agency = 0.20f + unit() * 0.72f;
-    params.space = 0.04f + unit() * 0.68f;
+    params.agency = highEnergy ? 0.56f + unit() * 0.38f
+        : (lowEnergy ? 0.18f + unit() * 0.38f
+            : 0.34f + unit() * 0.50f);
+    params.space = highEnergy ? 0.02f + unit() * 0.22f
+        : (lowEnergy ? 0.04f + unit() * 0.24f
+            : 0.05f + unit() * 0.35f);
     params.variance = 0.08f + unit() * 0.46f;
     params.internalTone = bipolar() * 0.46f;
     params.houseTone = -0.42f + unit() * 0.58f;
-    params.flow = 0.18f + unit() * 0.70f;
-    params.spread = 0.12f + unit() * 0.74f;
+    params.flow = highEnergy ? 0.58f + unit() * 0.36f
+        : (lowEnergy ? 0.18f + unit() * 0.42f
+            : 0.32f + unit() * 0.50f);
+    params.spread = highEnergy ? 0.22f + unit() * 0.66f
+        : (lowEnergy ? 0.26f + unit() * 0.42f
+            : 0.18f + unit() * 0.62f);
     params.vortex = bipolar() * 0.88f;
-    params.motion = 0.08f + unit() * 0.68f;
-    params.motionShape = matrixFlowShapeFromIndex(
-        next() % (static_cast<uint32_t>(MatrixFlowShape::Hold) + 1u));
-    params.motionRate = 0.06f + unit() * 0.42f;
+    params.motion = highEnergy ? 0.72f + unit() * 0.24f
+        : (lowEnergy ? 0.38f + unit() * 0.18f
+            : 0.42f + unit() * 0.26f);
+    if (highEnergy) {
+        params.motionShape = matrixFlowShapeFromIndex(1u + next() % 4u);
+    } else if (lowEnergy) {
+        static constexpr std::array<MatrixFlowShape, 3u> slowShapes {{
+            MatrixFlowShape::Flow, MatrixFlowShape::Chase,
+            MatrixFlowShape::Swirl,
+        }};
+        params.motionShape = slowShapes[next() % slowShapes.size()];
+    } else {
+        params.motionShape = matrixFlowShapeFromIndex(next() % 5u);
+    }
+    params.motionRate = highEnergy ? 0.72f + unit() * 0.23f
+        : (lowEnergy ? 0.58f + unit() * 0.20f
+            : 0.42f + unit() * 0.24f);
     params.motionPhase = unit();
-    params.reactMode = unit() < 0.24f ? NoInputReactMode::Off
-        : static_cast<NoInputReactMode>(1u + next() % 4u);
+    params.reactMode = highEnergy
+        ? (unit() < 0.58f ? NoInputReactMode::Edge
+            : NoInputReactMode::Balance)
+        : (lowEnergy
+            ? (unit() < 0.34f ? NoInputReactMode::Follow
+                : NoInputReactMode::Balance)
+            : (unit() < 0.30f ? NoInputReactMode::Off
+                : static_cast<NoInputReactMode>(1u + next() % 4u)));
     params.reactDepth = params.reactMode == NoInputReactMode::Off
-        ? 0.0f : 0.18f + unit() * 0.56f;
-    params.reactThreshold = 0.10f + unit() * 0.42f;
-    params.reactAttack = 0.04f + unit() * 0.54f;
-    params.reactRelease = 0.16f + unit() * 0.68f;
-    params.reactPolarity = bipolar();
+        ? 0.0f : (highEnergy ? 0.24f + unit() * 0.26f
+            : (lowEnergy ? 0.10f + unit() * 0.16f
+                : 0.16f + unit() * 0.26f));
+    params.reactThreshold = highEnergy ? 0.08f + unit() * 0.20f
+        : (lowEnergy ? 0.06f + unit() * 0.16f
+            : 0.08f + unit() * 0.28f);
+    params.reactAttack = highEnergy ? 0.02f + unit() * 0.18f
+        : (lowEnergy ? 0.28f + unit() * 0.32f
+            : 0.08f + unit() * 0.32f);
+    params.reactRelease = highEnergy ? 0.08f + unit() * 0.24f
+        : (lowEnergy ? 0.48f + unit() * 0.34f
+            : 0.22f + unit() * 0.38f);
+    params.reactPolarity = highEnergy ? 0.55f + unit() * 0.45f
+        : (lowEnergy ? 0.35f + unit() * 0.35f : bipolar());
     params.controllerHold = 0u;
-    params.slowTime = unit() > 0.82f ? 1u : 0u;
-    params.clockSync = unit() > 0.52f ? 1u : 0u;
-    params.fieldDivision = 2u + next() % 7u;
-    params.eventDivision = next() % 7u;
+    params.slowTime = lowEnergy ? 1u : 0u;
+    params.clockSync = unit() > (highEnergy ? 0.64f
+        : (lowEnergy ? 0.70f : 0.68f)) ? 1u : 0u;
+    params.fieldDivision = highEnergy ? next() % 4u
+        : (lowEnergy ? 5u + next() % 3u : 2u + next() % 4u);
+    params.eventDivision = highEnergy ? next() % 4u
+        : (lowEnergy ? 5u + next() % 3u : 2u + next() % 4u);
     params.surfaceX = 0.5f;
     params.surfaceY = 0.5f;
     params.quality = unit() > 0.82f ? 2u : 1u;
     params.matrix.fill(0.0f);
 
+    static constexpr std::array<NoInputDistortionType, 9u>
+        immediateInsertTypes {{
+            NoInputDistortionType::Wool, NoInputDistortionType::Rat,
+            NoInputDistortionType::ZoneA, NoInputDistortionType::ZoneB,
+            NoInputDistortionType::FuzzI, NoInputDistortionType::FuzzII,
+            NoInputDistortionType::Diode, NoInputDistortionType::Ring,
+            NoInputDistortionType::Crush,
+        }};
+
     for (uint32_t lane = 0u; lane < kNoInputMixerChannels; ++lane) {
         params.matrix[lane * kNoInputMixerChannels + lane] =
-            0.90f + unit() * 0.08f;
+            highEnergy ? 0.95f + unit() * 0.05f
+                : (lowEnergy ? 0.90f + unit() * 0.06f
+                    : 0.92f + unit() * 0.06f);
         const uint32_t neighbor = (lane + 7u) % kNoInputMixerChannels;
         params.matrix[lane * kNoInputMixerChannels + neighbor] =
-            (unit() > 0.42f ? 1.0f : -1.0f) * (0.10f + unit() * 0.25f);
-        if (unit() > 0.46f) {
+            (unit() > 0.34f ? 1.0f : -1.0f)
+            * (highEnergy ? 0.18f + unit() * 0.20f
+                : (lowEnergy ? 0.08f + unit() * 0.12f
+                    : 0.12f + unit() * 0.20f));
+        if (unit() > (highEnergy ? 0.14f : (lowEnergy ? 0.72f : 0.46f))) {
             uint32_t source = next() % kNoInputMixerChannels;
             if (source == lane || source == neighbor) {
                 source = (source + 3u) % kNoInputMixerChannels;
             }
             params.matrix[lane * kNoInputMixerChannels + source] =
                 (unit() > 0.5f ? 1.0f : -1.0f)
-                * (0.06f + unit() * 0.22f);
+                * (highEnergy ? 0.10f + unit() * 0.24f
+                    : (lowEnergy ? 0.04f + unit() * 0.10f
+                        : 0.06f + unit() * 0.20f));
+        }
+        if (highEnergy) {
+            uint32_t source = (lane + 2u + next() % 5u)
+                % kNoInputMixerChannels;
+            if (source == lane || source == neighbor)
+                source = (source + 3u) % kNoInputMixerChannels;
+            params.matrix[lane * kNoInputMixerChannels + source] =
+                (unit() > 0.58f ? 1.0f : -1.0f)
+                * (0.07f + unit() * 0.17f);
         }
 
         auto& voice = params.lanes[lane];
         voice.body = 0.12f + unit() * 0.72f;
-        voice.loss = 0.20f + unit() * 0.34f;
-        voice.levelDb = -7.0f + unit() * 4.0f;
+        voice.loss = highEnergy ? 0.24f + unit() * 0.32f
+            : (lowEnergy ? 0.16f + unit() * 0.24f
+                : 0.20f + unit() * 0.30f);
+        voice.levelDb = highEnergy ? -3.0f + unit() * 4.0f
+            : (lowEnergy ? -2.0f + unit() * 3.0f
+                : -4.0f + unit() * 4.0f);
         voice.lowDb = bipolar() * 5.5f;
         voice.midFrequencyHz = 120.0f * std::pow(52.0f, unit());
         voice.midGainDb = bipolar() * 6.5f;
         voice.highDb = bipolar() * 5.5f;
-        voice.auxSend[0] = unit() * 0.46f;
-        voice.auxSend[1] = unit() * 0.42f;
+        voice.auxSend[0] = unit() * (highEnergy ? 0.58f
+            : (lowEnergy ? 0.24f : 0.42f));
+        voice.auxSend[1] = unit() * (highEnergy ? 0.52f
+            : (lowEnergy ? 0.22f : 0.38f));
         voice.tuneNote = 33.0f + static_cast<float>(next() % 40u);
         voice.tuneCents = bipolar() * 24.0f;
         voice.pitchLock = unit() > 0.46f ? 1u : 0u;
         voice.auxTap[0] = static_cast<NoInputAuxTap>(next() % 4u);
         voice.auxTap[1] = static_cast<NoInputAuxTap>(next() % 4u);
-        voice.auxReturn[0] = (unit() > 0.22f ? 1.0f : -1.0f)
-            * (0.12f + unit() * 0.46f);
-        voice.auxReturn[1] = (unit() > 0.42f ? 1.0f : -1.0f)
-            * (0.10f + unit() * 0.42f);
+        voice.auxReturn[0] = lowEnergy
+            ? 0.16f + unit() * 0.18f
+            : (unit() > 0.22f ? 1.0f : -1.0f)
+                * (0.12f + unit() * (highEnergy ? 0.52f : 0.40f));
+        voice.auxReturn[1] = lowEnergy
+            ? 0.12f + unit() * 0.16f
+            : (unit() > 0.42f ? 1.0f : -1.0f)
+                * (0.10f + unit() * (highEnergy ? 0.48f : 0.36f));
         for (uint32_t slot = 0u; slot < kNoInputMixerInsertSlots; ++slot) {
             auto& insert = voice.inserts[slot];
-            insert.type = static_cast<NoInputDistortionType>(
-                1u + next() % (kNoInputDistortionTypeCount - 1u));
-            insert.gain = 0.14f + unit() * (slot == 0u ? 0.43f : 0.32f);
+            insert.type = slot == 0u
+                ? immediateInsertTypes[next() % immediateInsertTypes.size()]
+                : static_cast<NoInputDistortionType>(
+                    1u + next() % (kNoInputDistortionTypeCount - 1u));
+            insert.gain = highEnergy ? 0.30f + unit() * 0.38f
+                : (lowEnergy ? 0.10f + unit() * 0.22f
+                    : 0.18f + unit() * (slot == 0u ? 0.34f : 0.26f));
             insert.tone = 0.18f + unit() * 0.68f;
             insert.bias = bipolar() * 0.22f;
-            insert.levelDb = -12.0f + unit() * 7.0f;
-            insert.bypass = slot == 0u || unit() > 0.66f ? 0u : 1u;
+            insert.levelDb = highEnergy ? -8.0f + unit() * 5.0f
+                : (lowEnergy ? -6.0f + unit() * 4.0f
+                    : -9.0f + unit() * 5.0f);
+            insert.bypass = slot == 0u
+                || unit() > (highEnergy ? 0.44f
+                    : (lowEnergy ? 0.84f : 0.66f)) ? 0u : 1u;
         }
     }
     for (uint32_t bus = 0u; bus < 2u; ++bus) {
         auto& aux = params.aux[bus];
         aux.effect.type = static_cast<NoInputDistortionType>(
             1u + next() % (kNoInputDistortionTypeCount - 1u));
-        aux.effect.gain = 0.12f + unit() * 0.44f;
+        aux.effect.gain = highEnergy ? 0.24f + unit() * 0.44f
+            : (lowEnergy ? 0.08f + unit() * 0.20f
+                : 0.14f + unit() * 0.34f);
         aux.effect.tone = 0.16f + unit() * 0.68f;
-        aux.feedback = 0.12f + unit() * 0.48f;
-        aux.returnGain = 0.08f + unit() * 0.30f;
+        aux.feedback = highEnergy ? 0.28f + unit() * 0.42f
+            : (lowEnergy ? 0.08f + unit() * 0.20f
+                : 0.16f + unit() * 0.34f);
+        aux.returnGain = highEnergy ? 0.16f + unit() * 0.30f
+            : (lowEnergy ? 0.08f + unit() * 0.16f
+                : 0.10f + unit() * 0.24f);
     }
     return sanitizeNoInputMixerParams(params);
 }

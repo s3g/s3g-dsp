@@ -357,6 +357,24 @@ envelopes, processor delay buffers, and random-controller memory are not
 serialized into cells. Cursor motion therefore changes the coefficients of
 one continuous live graph rather than crossfading frozen audio states.
 
+## Energy-coherent randomization
+
+The full-network randomizer exposes three coordinated distributions instead
+of independently rolling every new controller. `HIGH / QUICK` couples dense
+signed routing to rapid non-hold fields, Cut/Burst/Scramble articulation,
+strong choke, fast REACT, higher drive, and a stronger excitation packet.
+`MID / MODERATE` narrows those ranges into Step-through-Scramble movement at
+intermediate free or clocked rates. `LOW / SLOW` uses sparse coupling, shallow
+REACT, output compensation, long-time Flow/Chase/Swirl motion, and Glide or a
+gently choked Step. Its internal energy is restrained, but its onset and
+sustained ecology remain audible.
+
+All three profiles keep controller Hold off, exclude a static Hold field,
+retain every diagonal return, and choose the first lane insert from algorithms
+that respond immediately to the excitation packet. The profile therefore
+controls a correlated energy regime rather than merely scaling a completed
+random patch.
+
 ## Containment
 
 Containment should change only genuinely unsafe behavior:
@@ -395,7 +413,7 @@ signal colors.
 - Seeds, matrix state, resonator variations, insert types, all lane controls,
   and containment settings are serialized.
 - Ten deterministic factory patches, preset variance, localized forgetting,
-  and bounded full-network randomization
+  and three bounded, energy-coherent full-network randomization profiles
   resolve into the same stored base parameter set; each whole-scene action
   bypasses, but does not delete, the optional SURF map. Reseeding remains an
   independent action.

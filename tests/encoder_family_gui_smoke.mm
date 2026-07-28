@@ -2203,12 +2203,76 @@ int main(int argc, char** argv)
                     + 58.0 + 6.0 + 33.0);
                 const CGFloat randomY = static_cast<CGFloat>(
                     s3g::gui_layout::rowY(network, 0u) + 6.5);
-                if (ok) clickNoInput(NSMakePoint(randomX, randomY));
+                const NSRect randomAnchor = NSMakeRect(
+                    randomX - 33.0, randomY - 7.5, 66.0, 15.0);
+                const auto randomEnergyPoint = [&](uint32_t profile) {
+                    return NSMakePoint(NSMidX(randomAnchor),
+                        NSMaxY(randomAnchor) + 2.0
+                            + 18.0 * (profile + 0.5));
+                };
+                const auto chooseRandomEnergy = [&](uint32_t profile) {
+                    clickNoInput(NSMakePoint(randomX, randomY));
+                    clickNoInput(randomEnergyPoint(profile));
+                };
+                failureStage = "No Input Mixer random energy menu";
+                if (ok) {
+                    clickNoInput(NSMakePoint(randomX, randomY));
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, randomEnergyPoint(0u))];
+                    [document displayIfNeeded];
+                    ok = [[document valueForKey:@"hoverMenuItem"]
+                        integerValue] == 0;
+                    const char* captureDirectory = std::getenv(
+                        "S3G_GUI_SMOKE_PDF_DIR");
+                    if (ok && captureDirectory && captureDirectory[0]) {
+                        NSString* directory = [NSString
+                            stringWithUTF8String:captureDirectory];
+                        [[NSFileManager defaultManager]
+                            createDirectoryAtPath:directory
+                            withIntermediateDirectories:YES
+                            attributes:nil error:nil];
+                        NSData* randomMenuRender = [document
+                            dataWithPDFInsideRect:[document bounds]];
+                        NSString* randomMenuName = [[NSString
+                            stringWithFormat:@"%s.random-energy-menu",
+                                pluginId]
+                            stringByAppendingPathExtension:@"pdf"];
+                        ok = randomMenuRender
+                            && [randomMenuRender writeToFile:[directory
+                                stringByAppendingPathComponent:
+                                    randomMenuName]
+                                atomically:YES];
+                    }
+                    if (ok) clickNoInput(randomEnergyPoint(0u));
+                }
                 ok = ok
                     && params->get_value(plugin, 5u, &feedbackAfter)
                     && params->get_value(plugin, 1000u, &bodyAfter)
                     && (std::fabs(feedbackAfter - feedbackBefore) > 0.000001
                         || std::fabs(bodyAfter - bodyBefore) > 0.000001);
+                double randomMotion = 0.0;
+                double randomBehavior = 0.0;
+                double randomSlow = 0.0;
+                ok = ok && params->get_value(plugin, 19u, &randomMotion)
+                    && randomMotion >= 0.72
+                    && params->get_value(plugin, 35u, &randomBehavior)
+                    && randomBehavior >= 2.0
+                    && params->get_value(plugin, 51u, &randomSlow)
+                    && randomSlow == 0.0;
+                if (ok) chooseRandomEnergy(1u);
+                ok = ok && params->get_value(plugin, 19u, &randomMotion)
+                    && randomMotion >= 0.42 && randomMotion <= 0.681
+                    && params->get_value(plugin, 35u, &randomBehavior)
+                    && randomBehavior >= 1.0
+                    && params->get_value(plugin, 51u, &randomSlow)
+                    && randomSlow == 0.0;
+                if (ok) chooseRandomEnergy(2u);
+                ok = ok && params->get_value(plugin, 19u, &randomMotion)
+                    && randomMotion >= 0.38 && randomMotion <= 0.561
+                    && params->get_value(plugin, 35u, &randomBehavior)
+                    && randomBehavior <= 1.0
+                    && params->get_value(plugin, 51u, &randomSlow)
+                    && randomSlow == 1.0;
 
                 const auto titleBand = s3g::gui_layout::matrixTitleBand(
                     s3g::gui_layout::kNoInputMixerFamilyLayout.canvas);
@@ -2217,10 +2281,40 @@ int main(int argc, char** argv)
                 if (ok) clickNoInput(NSMakePoint(
                     NSMidX(presetAnchor), NSMidY(presetAnchor)));
                 const uint32_t zoneWebIndex = 5u;
-                if (ok) clickNoInput(NSMakePoint(
+                const NSPoint zoneWebMenuPoint = NSMakePoint(
                     NSMidX(presetAnchor),
                     NSMaxY(presetAnchor) + 2.0
-                        + 18.0 * (zoneWebIndex + 0.5)));
+                        + 18.0 * (zoneWebIndex + 0.5));
+                failureStage = "No Input Mixer dropdown hover highlight";
+                if (ok) {
+                    [document mouseMoved:mouseEvent(
+                        NSEventTypeMouseMoved, zoneWebMenuPoint)];
+                    [document displayIfNeeded];
+                    ok = [[document valueForKey:@"hoverMenuItem"]
+                        integerValue] == static_cast<NSInteger>(zoneWebIndex);
+                    const char* captureDirectory = std::getenv(
+                        "S3G_GUI_SMOKE_PDF_DIR");
+                    if (ok && captureDirectory && captureDirectory[0]) {
+                        NSString* directory = [NSString
+                            stringWithUTF8String:captureDirectory];
+                        [[NSFileManager defaultManager]
+                            createDirectoryAtPath:directory
+                            withIntermediateDirectories:YES
+                            attributes:nil error:nil];
+                        NSData* hoverRender = [document
+                            dataWithPDFInsideRect:[document bounds]];
+                        NSString* hoverName = [[NSString stringWithFormat:
+                            @"%s.menu-hover", pluginId]
+                            stringByAppendingPathExtension:@"pdf"];
+                        ok = hoverRender && [hoverRender writeToFile:
+                            [directory stringByAppendingPathComponent:
+                                hoverName]
+                            atomically:YES];
+                    }
+                }
+                if (ok) clickNoInput(zoneWebMenuPoint);
+                ok = ok && [[document valueForKey:@"hoverMenuItem"]
+                    integerValue] == -1;
                 double presetFeedback = 0.0;
                 double presetType = 0.0;
                 ok = ok

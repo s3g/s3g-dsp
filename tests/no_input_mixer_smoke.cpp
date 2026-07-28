@@ -245,6 +245,109 @@ bool testFactoryPresetsAndRandomization()
     return true;
 }
 
+bool testRandomEnergyProfiles()
+{
+    using Energy = s3g::NoInputRandomEnergy;
+    if (std::strcmp(s3g::noInputRandomEnergyName(Energy::High),
+            "HIGH / QUICK") != 0
+        || std::strcmp(s3g::noInputRandomEnergyName(Energy::Mid),
+            "MID / MODERATE") != 0
+        || std::strcmp(s3g::noInputRandomEnergyName(Energy::Low),
+            "LOW / SLOW") != 0
+        || !(s3g::noInputRandomSeedAmount(Energy::High)
+            > s3g::noInputRandomSeedAmount(Energy::Mid))
+        || !(s3g::noInputRandomSeedAmount(Energy::Mid)
+            > s3g::noInputRandomSeedAmount(Energy::Low))) {
+        std::cerr << "No Input Mixer random energy vocabulary regressed\n";
+        return false;
+    }
+
+    const std::array<Energy, 3u> profiles {{
+        Energy::High, Energy::Mid, Energy::Low,
+    }};
+    for (uint32_t profile = 0u; profile < profiles.size(); ++profile) {
+        const Energy energy = profiles[profile];
+        for (const uint32_t seed : { 0x3152414eu, 0x3252414eu }) {
+            const auto params = s3g::randomizedNoInputMixerParams(
+                seed + profile * 0x1000u, energy);
+            const auto repeat = s3g::randomizedNoInputMixerParams(
+                seed + profile * 0x1000u, energy);
+            const auto behavior =
+                s3g::randomizedNoInputMovementBehaviorParams(
+                    seed ^ 0x43564d58u, energy);
+            if (params.matrix != repeat.matrix
+                || params.motion != repeat.motion
+                || params.slowTime != repeat.slowTime
+                || params.controllerHold != 0u) {
+                std::cerr << "No Input Mixer energy randomization was not "
+                             "deterministic and controller-safe\n";
+                return false;
+            }
+
+            const float fieldHz = params.clockSync != 0u
+                ? s3g::noInputSyncedRateHz(params.fieldDivision, 120.0)
+                : s3g::noInputMixerMotionRateHz(
+                    params.motionRate, params.slowTime != 0u);
+            const float eventHz = params.clockSync != 0u
+                ? s3g::noInputSyncedRateHz(params.eventDivision, 120.0)
+                : s3g::noInputMovementEventRateHz(
+                    behavior.eventRate, params.slowTime != 0u);
+            bool profileValid = false;
+            if (energy == Energy::High) {
+                profileValid = params.slowTime == 0u
+                    && params.motion >= 0.72f
+                    && behavior.behavior >= s3g::NoInputMovementBehavior::Cut
+                    && behavior.choke >= 0.66f
+                    && fieldHz >= 1.0f && eventHz >= 4.0f;
+            } else if (energy == Energy::Mid) {
+                profileValid = params.slowTime == 0u
+                    && params.motion >= 0.42f && params.motion <= 0.681f
+                    && behavior.behavior
+                        >= s3g::NoInputMovementBehavior::Step
+                    && fieldHz >= 0.25f && fieldHz <= 8.01f
+                    && eventHz >= 0.9f && eventHz <= 16.1f;
+            } else {
+                profileValid = params.slowTime != 0u
+                    && params.motion >= 0.38f && params.motion <= 0.561f
+                    && behavior.behavior
+                        <= s3g::NoInputMovementBehavior::Step
+                    && behavior.choke <= 0.301f
+                    && fieldHz >= 0.03f && fieldHz <= 1.01f
+                    && eventHz >= 0.03f && eventHz <= 1.01f;
+            }
+            if (!profileValid) {
+                std::cerr << "No Input Mixer random profile "
+                          << s3g::noInputRandomEnergyName(energy)
+                          << " escaped its movement band: field/event "
+                          << fieldHz << "/" << eventHz << " Hz\n";
+                return false;
+            }
+
+            s3g::NoInputMixer mixer;
+            mixer.prepare(48000.0);
+            mixer.setParams(params);
+            mixer.setMovementBehaviorParams(behavior);
+            mixer.setTransport(120.0, true);
+            mixer.reseed(params.seed,
+                s3g::noInputRandomSeedAmount(energy));
+            const auto onset = render(mixer, 2048u);
+            const auto ecology = render(mixer, 36000u, 4000u);
+            double ecologyEnergy = 0.0;
+            for (double value : ecology.sumSquares) ecologyEnergy += value;
+            if (!onset.finite || !ecology.finite
+                || onset.peak <= 1.0e-4f || onset.peak > 1.01f
+                || ecologyEnergy <= 1.0e-8) {
+                std::cerr << "No Input Mixer random profile "
+                          << s3g::noInputRandomEnergyName(energy)
+                          << " was not immediately and persistently audible: "
+                          << onset.peak << "/" << ecologyEnergy << "\n";
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool testSignedMatrixChangesState()
 {
     auto positiveParams = s3g::defaultNoInputMixerParams();
@@ -743,6 +846,7 @@ int main()
     if (!testDefaultEcology()) return 1;
     if (!testDistortionFamilies()) return 1;
     if (!testFactoryPresetsAndRandomization()) return 1;
+    if (!testRandomEnergyProfiles()) return 1;
     if (!testSignedMatrixChangesState()) return 1;
     if (!testHybridControlEcology()) return 1;
     if (!testMovementBehaviors()) return 1;
