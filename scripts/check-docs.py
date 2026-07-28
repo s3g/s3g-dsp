@@ -94,6 +94,7 @@ DOC_SEQUENCE = [
     "s3gray-format.html",
     "instruments.html",
     "generative-instruments.html",
+    "no-input-mixer.html",
     "fault.html",
     "sample-instruments.html",
     "loop-processor.html",

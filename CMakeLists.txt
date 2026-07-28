@@ -45,6 +45,9 @@ target_link_libraries(s3g_ambi_pulsar_encoder_smoke PRIVATE s3g_dsp)
 add_executable(s3g_ambi_neural_ecology_smoke tests/ambi_neural_ecology_smoke.cpp)
 target_link_libraries(s3g_ambi_neural_ecology_smoke PRIVATE s3g_dsp)
 
+add_executable(s3g_no_input_mixer_smoke tests/no_input_mixer_smoke.cpp)
+target_link_libraries(s3g_no_input_mixer_smoke PRIVATE s3g_dsp)
+
 add_executable(s3g_ambi_insect_encoder_smoke tests/ambi_insect_encoder_smoke.cpp)
 target_link_libraries(s3g_ambi_insect_encoder_smoke PRIVATE s3g_dsp)
 
@@ -191,6 +194,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
   target_include_directories(s3g_crcltr_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
   target_link_libraries(s3g_crcltr_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
 
+  add_executable(s3g_no_input_mixer_clap_smoke
+    tests/no_input_mixer_clap_smoke.cpp)
+  target_include_directories(s3g_no_input_mixer_clap_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_no_input_mixer_clap_smoke PRIVATE
+    ${CMAKE_DL_LIBS})
+
   add_executable(s3g_ambi_effect_resonance_print_clap_smoke
     tests/ambi_effect_resonance_print_clap_smoke.cpp)
   target_include_directories(s3g_ambi_effect_resonance_print_clap_smoke
@@ -244,6 +254,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_accelerometer_field_encoder)
   add_subdirectory(plugins/clap_ambi_pulsar_encoder)
   add_subdirectory(plugins/clap_ambi_neural_ecology)
+  add_subdirectory(plugins/clap_no_input_mixer)
   add_subdirectory(plugins/clap_ambi_imprint)
   add_subdirectory(plugins/clap_ambi_ray_encoder)
   add_subdirectory(plugins/clap_ambi_ray_bilocation_encoder)
@@ -425,6 +436,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_multi_loop_processor_clap> org.s3g.s3g-dsp.multi-loop-processor-8ch 920 674 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_psd_raw_field_clap> org.s3g.s3g-dsp.fault 1356 720 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_grain_processor_clap> org.s3g.s3g-dsp.ambi-grain-processor 920 640 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_no_input_mixer_clap> org.s3g.s3g-dsp.no-input-mixer-8ch 1356 820 "s3g Processor " responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1356 950 "s3g Processor " responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1356 950 "s3g Processor " responsive-wide
       DEPENDS
@@ -437,6 +449,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_multi_loop_processor_clap
         s3g_psd_raw_field_clap
         s3g_ambi_grain_processor_clap
+        s3g_no_input_mixer_clap
         s3g_spectral_topology_processor_clap
         s3g_24ch_spectral_topology_processor_clap
       COMMENT "Rendering and validating every Processor-family GUI")

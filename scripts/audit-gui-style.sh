@@ -935,6 +935,7 @@ processor_family_names=(
   'plugins/clap_loop_processor/s3g_loop_processor_clap.cpp|s3g Processor Loop 8ch'
   'plugins/clap_multi_loop_processor/s3g_multi_loop_processor_clap.cpp|s3g Processor Multi Loop 8ch'
   'plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp|s3g Processor Fault 8ch'
+  'plugins/clap_no_input_mixer/s3g_no_input_mixer_clap.cpp|s3g Processor No Input Mixer 8ch'
   'plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp|s3g Processor Ambi Grain 16ch'
   'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral 8ch'
   'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral 24ch'
@@ -954,6 +955,7 @@ processor_family_sources=(
   plugins/clap_loop_processor/s3g_loop_processor_clap.cpp
   plugins/clap_multi_loop_processor/s3g_multi_loop_processor_clap.cpp
   plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp
+  plugins/clap_no_input_mixer/s3g_no_input_mixer_clap.cpp
   plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp
   plugins/clap_spectral_topology_processor/s3g_spectral_topology_processor_clap.cpp
 )

@@ -527,6 +527,15 @@ The current primary reference is `s3g Processor Delay 8ch`:
 - its shorter `OUTPUT`, `ENGINE`, and `RELATIONSHIPS` stack remains permanently
   visible in one column
 
+`s3g Processor No Input Mixer 8ch` is the feedback-matrix reference:
+
+- an exact signed 8-by-8 matrix is the primary visual object
+- lane, source, destination, and insert selections use bounded uppercase menus
+- all eight lane meters remain visible on the primary matrix page
+- EQ, inserts, and containment stay visible while the matrix page changes
+- destructive containment uses a restrained red action while ordinary signal
+  and signed-route states remain cyan, orange, and grayscale
+
 Across the Processor family, the title band is rendered by the shared
 Processor helper and reads `PRESET`, `LOAD`, `SAVE`. Contextual media loading
 stays with the waveform or source panel. The control stack begins with a

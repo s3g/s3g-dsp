@@ -16,6 +16,7 @@
 #include <dlfcn.h>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -23,12 +24,26 @@ namespace {
 constexpr uint32_t kChannels = 64u;
 constexpr uint32_t kFrames = 128u;
 constexpr double kSampleRate = 48000.0;
+constexpr clap_id kOrder = 1u;
 constexpr clap_id kBody = 2u;
+constexpr clap_id kTopology = 3u;
 constexpr clap_id kEnabled = 4u;
 constexpr clap_id kCapture = 5u;
 constexpr clap_id kClear = 6u;
 constexpr clap_id kCaptureSeconds = 7u;
 constexpr clap_id kTranspose = 14u;
+constexpr clap_id kEngineGain = 15u;
+constexpr clap_id kTone = 16u;
+constexpr clap_id kTopologyAmount = 17u;
+constexpr clap_id kRoamingRate = 18u;
+constexpr clap_id kMix = 19u;
+constexpr clap_id kOutput = 20u;
+constexpr clap_id kMaskAmount = 21u;
+constexpr clap_id kMaskAzimuth = 22u;
+constexpr clap_id kMaskElevation = 23u;
+constexpr clap_id kMaskWidth = 24u;
+constexpr clap_id kMaskCurve = 25u;
+constexpr clap_id kMaskDry = 26u;
 constexpr clap_id kFreeze = 27u;
 constexpr clap_id kSmear = 28u;
 
@@ -67,10 +82,11 @@ struct Events {
             return index < values.size() ? &values[index].header : nullptr;
         },
     };
-    void add(clap_id id, double value)
+    void add(clap_id id, double value, uint32_t time = 0u)
     {
         clap_event_param_value_t event {};
         event.header.size = sizeof(event);
+        event.header.time = time;
         event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
         event.header.type = CLAP_EVENT_PARAM_VALUE;
         event.param_id = id;
@@ -337,7 +353,7 @@ int main(int argc, char** argv)
             }
             ok = run(plugin, audio);
         }
-        for (uint32_t block = 0u; ok && block < 8u; ++block) {
+        for (uint32_t block = 0u; ok && block < 40u; ++block) {
             audio.clear();
             ok = run(plugin, audio);
         }
@@ -420,6 +436,79 @@ int main(int argc, char** argv)
             ok = run(plugin, audio) && finitePeak(audio, peak);
         }
         ok = ok && peak > 0.00001f;
+
+        std::array<float, kChannels> previousSample {};
+        bool havePrevious = false;
+        float phaseA = 0.0f;
+        float phaseB = 0.0f;
+        float automationPeak = 0.0f;
+        float maximumStep = 0.0f;
+        for (uint32_t block = 0u; ok && block < 180u; ++block) {
+            audio.clear();
+            for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                const float value = 0.08f * std::sin(phaseA)
+                    + 0.04f * std::sin(phaseB);
+                phaseA += 2.0f * 3.14159265358979323846f * 173.0f
+                    / static_cast<float>(kSampleRate);
+                phaseB += 2.0f * 3.14159265358979323846f * 419.0f
+                    / static_cast<float>(kSampleRate);
+                if (phaseA >= 2.0f * 3.14159265358979323846f) {
+                    phaseA -= 2.0f * 3.14159265358979323846f;
+                }
+                if (phaseB >= 2.0f * 3.14159265358979323846f) {
+                    phaseB -= 2.0f * 3.14159265358979323846f;
+                }
+                audio.input[0][frame] = value;
+                audio.input[1][frame] = value * 0.42f;
+                audio.input[2][frame] = value * -0.27f;
+                audio.input[3][frame] = value * 0.68f;
+            }
+            Events automation;
+            if (block % 6u == 0u) {
+                const uint32_t cycle = block / 6u;
+                automation.add(kTone, cycle % 2u ? 1.0 : 0.0, 8u);
+                automation.add(kTone, cycle % 2u ? 0.0 : 1.0, 96u);
+                automation.add(kEngineGain, cycle % 2u ? -36.0 : 12.0, 72u);
+                automation.add(kEnabled, cycle % 3u ? 1.0 : 0.0, 80u);
+                automation.add(kMix, cycle % 3u ? 1.0 : 0.1, 48u);
+                automation.add(kOutput,
+                    std::numeric_limits<double>::quiet_NaN(), 32u);
+                automation.add(kOutput, cycle % 2u ? -12.0 : 12.0, 104u);
+                automation.add(kTopology, cycle % 4u, 16u);
+                automation.add(kTopologyAmount, cycle % 2u ? 0.0 : 1.0, 24u);
+                automation.add(kRoamingRate, cycle % 2u ? 0.005 : 2.0, 40u);
+                automation.add(kMaskAmount, cycle % 2u ? 1.0 : 0.0, 56u);
+                automation.add(kMaskAzimuth, cycle % 2u ? -179.0 : 179.0, 64u);
+                automation.add(kMaskElevation, cycle % 2u ? -89.0 : 89.0, 72u);
+                automation.add(kMaskWidth, cycle % 2u ? 0.0 : 1.0, 88u);
+                automation.add(kMaskCurve, cycle % 2u ? 1.0 : 0.0, 96u);
+                automation.add(kMaskDry, cycle % 3u ? -1.0 : 0.0, 112u);
+                if (block % 36u == 0u) {
+                    const uint32_t shape = (block / 36u) % 5u;
+                    automation.add(kOrder, std::min<uint32_t>(7u, shape + 1u),
+                        20u);
+                    automation.add(kBody, shape + 1u, 28u);
+                }
+            }
+            ok = run(plugin, audio,
+                automation.values.empty() ? nullptr : &automation)
+                && finitePeak(audio, automationPeak);
+            for (uint32_t channel = 0u; ok && channel < kChannels; ++channel) {
+                for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+                    if (havePrevious || frame > 0u) {
+                        const float previous = frame > 0u
+                            ? audio.output[channel][frame - 1u]
+                            : previousSample[channel];
+                        maximumStep = std::max(maximumStep,
+                            std::abs(audio.output[channel][frame] - previous));
+                    }
+                }
+                previousSample[channel] = audio.output[channel][kFrames - 1u];
+            }
+            havePrevious = true;
+        }
+        ok = ok && automationPeak > 0.001f && maximumStep < 0.35f;
+        peak = std::max(peak, automationPeak);
     }
 
     if (plugin) {

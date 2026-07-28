@@ -605,9 +605,9 @@ double-click.
 
 ## Processor Family Reference
 
-The Processor-family audit uses eight concepts and ten editors: Delay 8ch/24ch,
-Buffer, Wave Geometry, Loop, Multi Loop, Fault, Ambi Grain, and Spectral
-8ch/24ch. Membership is explicit so a renamed or multichannel variant
+The Processor-family audit uses nine concepts and eleven editors: Delay 8ch/24ch,
+Buffer, Wave Geometry, Loop, Multi Loop, Fault, No Input Mixer, Ambi Grain,
+and Spectral 8ch/24ch. Membership is explicit so a renamed or multichannel variant
 cannot silently escape the family contract.
 
 All Processors use the shared Processor title renderer. Their complete title
@@ -695,10 +695,17 @@ The remaining layout follows the Processor subtype:
 | Loaded-media instrument | playback/source engine, source/window, `RELATIONSHIPS` |
 | Buffer/time processor | engine, `RELATIONSHIPS`, corruption/memory |
 | Developed generator | field/source, codec/shape, performance/envelope |
+| Feedback instrument | signed matrix/lanes/inserts field, then persistent network, selected-lane, crosspoint, EQ, insert, and containment toolboxes |
 
 Loop and Multi Loop fit `OUTPUT`, `ENGINE`, and `RELATIONSHIPS` in their
 existing single right column, so those panels remain open without widening the
 canvas.
+
+No Input Mixer uses the full 1356 px responsive Processor width and a fitted
+820 px canvas. Its 620 px left field provides three primary pages while the
+two 344 px columns keep `OUTPUT`, `NETWORK`, `SELECTED LANE`, `CROSSPOINT`,
+`EQ`, `INSERTS`, and `CONTAINMENT` permanently visible. The native editor
+minimum width remains 1356 px and the height may scroll without scaling.
 
 All Processor editors use the responsive viewport contract. Every continuous
 slider, including topology, relationship, contextual-source, and output rows,
@@ -707,7 +714,7 @@ uppercase through the shared bounded menu renderer. Numeric output values use
 the shared bounded value cell, which may remove a space or unnecessary
 precision before it allows text to cross a toolbox border.
 
-The `audit_gui_processor_family` build target renders and validates all ten
+The `audit_gui_processor_family` build target renders and validates all eleven
 editors, their host-name prefix, responsive sizing, and shared default lookup.
 
 ## Decoder Family Reference

@@ -42,11 +42,11 @@
 
         <p>Capture first decodes the HOA field through the selected Listener model, then records every virtual pickup for <code>0.05</code> to <code>1.5 s</code>. Each pickup becomes its own kernel, so a response arriving strongly from one region is not flattened into a shared mono trace. The kernels are DC-filtered and faded at their tails, then scaled together against bounded peak, energy, and absolute-sum budgets. This linked scaling preserves their relative directional levels.</p>
 
-        <p>Starting a new capture immediately bypasses the old response. After recording, the frequency-domain kernel bank is prepared across successive audio blocks instead of creating one large processing spike; the Listener display reports this short preparation phase. Completion also remains bypassed, so capture never causes an automatic jump in level. Changing Body during capture cancels that capture because it changes the pickup geometry.</p>
+        <p>Starting a new capture fades the old response to bypass. After recording, response conditioning and frequency-domain kernel preparation are spread across successive audio blocks instead of creating one large processing spike; the Listener display reports the complete preparation phase. Completion remains bypassed unless Apply was explicitly requested during preparation, in which case that request waits for the bank and then fades in. Changing Order or Body during an active capture cancels it because either change alters the pickup analysis.</p>
 
         <p>An arbitrary captured passage is a creative convolution kernel, not automatically a measurement of an acoustic system. To capture a recognizable physical response, feed the plugin a prepared impulse or a response recovered from a known excitation. Short percussive, noisy, and decaying sounds are often the easiest creative starting points.</p>
 
-        <p>The captured body and all of its directional kernels are embedded in CLAP project state together with the controls, applied or bypassed state, and camera view. No external media file is required when the project is reopened. Clear is destructive; Apply / Bypass retains the response.</p>
+        <p>The captured body and all of its directional kernels are embedded in CLAP project state together with the controls, applied or bypassed state, and camera view. No external media file is required when the project is reopened. Clear first fades an audible response to silence and then deletes it; Apply / Bypass retains the response.</p>
 
         <h2 id="signal-flow">Signal Flow</h2>
 
@@ -54,7 +54,8 @@
           <li>Decode the incoming HOA field onto the selected Listener body. During capture, store one response kernel per pickup.</li>
           <li>Give the complete decoded body one linked excitation budget so a hot field cannot drive different regions into unrelated gain reduction.</li>
           <li>Convolve each Listener pickup with its corresponding directional kernel using uniform partitioned convolution.</li>
-          <li>Apply Response gain, Tone, Local / Cross / Diffuse / Roaming topology, and the directional wet mask.</li>
+          <li>Apply Response gain and Tone, then contain an excessive linked wet return before soft bounding.</li>
+          <li>Apply Local / Cross / Diffuse / Roaming topology and the directional wet mask.</li>
           <li>Re-encode the processed correction and combine it with a latency-aligned copy of the original HOA field.</li>
         </ol>
 
@@ -62,7 +63,7 @@
 
         <h2 id="listener">Listener Body and Topology</h2>
 
-        <p><code>AUTO</code> uses Icosa12 for <code>1OA</code> and <code>2OA</code>, Dodeca20 for <code>3OA</code>, and Sphere24 for <code>4OA</code> through <code>7OA</code>. You can also select Tetra4, Cube8, Icosa12, Dodeca20, or Sphere24 explicitly. The body selected at capture time defines the stored kernel bank. If Body is changed later, the stored kernels are assigned to the new body by nearest direction, so the print remains usable without discarding it. The visual Listener shows input energy, response activity, and mask attenuation.</p>
+        <p><code>AUTO</code> uses Icosa12 for <code>1OA</code> and <code>2OA</code>, Dodeca20 for <code>3OA</code>, and Sphere24 for <code>4OA</code> through <code>7OA</code>. You can also select Tetra4, Cube8, Icosa12, Dodeca20, or Sphere24 explicitly. The body selected at capture time defines the stored kernel bank. If Order or Body is changed later, the response briefly fades out, stored kernels are assigned to the new body by nearest direction and rebuilt when necessary, then the response fades back in. The visual Listener shows input energy, response activity, and mask attenuation.</p>
 
         <ul>
           <li><code>LOCAL</code> returns convolution where the field excited it.</li>
@@ -76,26 +77,26 @@
         <table class="readout-table">
           <thead><tr><th>Control</th><th>Meaning</th></tr></thead>
           <tbody>
-            <tr><td>Order / Body</td><td>Sets the HOA working order and the directional Listener pickup geometry. The explicit bodies contain 4, 8, 12, 20, or 24 kernels.</td></tr>
+            <tr><td>Order / Body</td><td>Sets the HOA working order and directional Listener geometry. The explicit bodies contain 4, 8, 12, 20, or 24 kernels; live changes use a protected fade and rebuild.</td></tr>
             <tr><td>Capture</td><td>Records the next incoming passage as one kernel per Listener pickup and leaves the completed response bypassed.</td></tr>
-            <tr><td>Apply / Bypass</td><td>A/Bs the stored convolution response without removing it.</td></tr>
-            <tr><td>Clear</td><td>Deletes the response and cancels an active capture.</td></tr>
-            <tr><td>Time</td><td>Sets the captured kernel length from <code>0.05</code> to <code>1.5 s</code>.</td></tr>
-            <tr><td>Response</td><td>Sets the wet convolution level before topology and Mix.</td></tr>
-            <tr><td>Tone</td><td>Moves the wet low-pass cutoff from dark to nearly open.</td></tr>
+            <tr><td>Apply / Bypass</td><td>A/Bs the stored convolution response without removing it. The transition is ramped, and Apply can wait safely for preparation to finish.</td></tr>
+            <tr><td>Clear</td><td>Cancels an active capture, fades an audible response out, and then deletes it.</td></tr>
+            <tr><td>Time</td><td>Sets the captured kernel length from <code>0.05</code> to <code>1.5 s</code>. At exceptionally high sample rates, a bounded internal frame budget shortens the available maximum.</td></tr>
+            <tr><td>Response</td><td>Sets the ramped wet convolution level before topology and Mix.</td></tr>
+            <tr><td>Tone</td><td>Moves the wet low-pass cutoff from dark to nearly open, with smoothing during live moves.</td></tr>
             <tr><td>Topology / Amount / Roam Rate</td><td>Selects and scales the spatial relationship applied after convolution.</td></tr>
-            <tr><td>Mix</td><td>Blends the re-encoded response correction with the latency-aligned input field.</td></tr>
-            <tr><td>Mask</td><td>Places the wet response around an azimuth and elevation; Width and Curve set its reach and edge.</td></tr>
-            <tr><td>Mask Dry</td><td>Attenuates the complementary original pickup field down to <code>FX ONLY</code>.</td></tr>
+            <tr><td>Mix</td><td>Ramps the re-encoded response correction against the latency-aligned input field.</td></tr>
+            <tr><td>Mask</td><td>Places the wet response around an azimuth and elevation; Width and Curve set its reach and edge. Mask gain changes are smoothed.</td></tr>
+            <tr><td>Mask Dry</td><td>Smoothly attenuates the complementary original pickup field down to <code>FX ONLY</code>.</td></tr>
             <tr><td>Output</td><td>Applies a smoothed final gain before the linked output guard.</td></tr>
           </tbody>
         </table>
 
         <h2 id="safety">Level Safety</h2>
 
-        <p>Kernel conditioning limits several kinds of captured energy instead of normalizing peak alone. Its gain is linked across all stored kernels so it does not erase the directional level pattern. During playback, a linked decoded-excitation governor targets a <code>0.25</code> Listener peak with immediate reduction and a <code>250 ms</code> recovery. It affects only convolution excitation; capture and the original HOA field remain untouched. The wet Listener result is softly bounded before re-encoding.</p>
+        <p>Kernel conditioning limits several kinds of captured energy instead of normalizing peak alone. Its gain is linked across all stored kernels so it does not erase the directional level pattern. During playback, a linked decoded-excitation governor targets a <code>0.25</code> Listener peak with immediate reduction and a <code>250 ms</code> recovery. A second linked governor targets approximately <code>0.50</code> after Response gain, before soft bounding and an emergency wet slew limit. These stages prevent a strong kernel or fast control move from turning into a crackle while preserving one shared spatial gain relationship.</p>
 
-        <p>After Mix and the smoothed Output control, one linked <code>-1 dBFS</code> guard protects the complete HOA output with immediate attack and a <code>300 ms</code> release. It remains active while the response is bypassed, so positive Output gain cannot expose an unguarded dry path. <code>GOV</code> and <code>SAFE</code> appear in the title status only while active. Persistent governor or safety activity means the processing is functioning as a dynamics stage; lower Response, Mix, or Output for a more transparent result.</p>
+        <p>After Mix and the smoothed Output control, one linked soft-knee <code>-1 dBFS</code> guard protects the complete HOA output with immediate reduction and a <code>300 ms</code> recovery. It remains active while the response is bypassed, so positive Output gain cannot expose an unguarded dry path. <code>GOV</code> reports whichever linked excitation or wet-return governor is working harder; <code>SAFE</code> reports the final output guard. Persistent activity means the safeguards are audibly shaping the result, so lower Response, Mix, or Output for a more transparent sound.</p>
 
         <h2 id="routing">REAPER Routing</h2>
 

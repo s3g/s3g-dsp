@@ -20,7 +20,7 @@ DAWs are not support targets at this stage.
 This is a pre-release project. Plugin names, parameters, and saved states may
 change.
 
-The current macOS package installs 90 CLAP products, including fixed-width
+The current macOS package installs 93 CLAP products, including fixed-width
 variants for several effects, bus tools, and speaker-array utilities. Installed
 bundle filenames now follow the same family-first order as the host names, such
 as `s3g_ambi_encoder_modal_16.clap` and `s3g_processor_fault_8ch.clap`.
@@ -46,9 +46,11 @@ Plugin areas:
   describes plugins that use their own encoded field as an internal score;
   [Parameter Surface](https://s3g.github.io/s3g-dsp/parameter-surface.html)
   describes preset-cell interpolation and automatable X/Y performance.
-- [Instruments](https://s3g.github.io/s3g-dsp/instruments.html): loaded-loop,
+- [Instruments](https://s3g.github.io/s3g-dsp/instruments.html): no-input feedback, loaded-loop,
   granular, vector-wavetable, weather, liquid, WORLD/voicebank vocal, and
   stochastic instruments, including the eight-channel
+  [Processor No Input Mixer](https://s3g.github.io/s3g-dsp/no-input-mixer.html)
+  feedback ecology and
   [Processor Fault](https://s3g.github.io/s3g-dsp/fault.html) generated, raw-file,
   and waveform-derived byte-field and codec synthesizer with free-running and
   MIDI/ADSR performance modes.
@@ -171,7 +173,7 @@ On macOS, install the built CLAP bundles into the user CLAP plugin folder:
 ```
 
 The first command previews the complete transaction without changing the
-plugin folder. The installer reads `scripts/clap-bundles.tsv`, installs the 90
+plugin folder. The installer reads `scripts/clap-bundles.tsv`, installs the 93
 products under their canonical family-first filenames, and keeps their existing
 CLAP IDs stable so projects continue to resolve the same plugins. Recognized old
 filenames are moved to a timestamped backup only when their bundle identity
@@ -198,7 +200,7 @@ Create the local pre-release zip after a complete CLAP build with:
 ./scripts/package-macos-clap-prerelease.sh
 ```
 
-The package contains 90 CLAP products, the VOT wavetable library, the Ambi Vox
+The package contains 93 CLAP products, the VOT wavetable library, the Ambi Vox
 demo voicebank, the applicable license notices, and an
 `Install s3g-dsp CLAPs.command` installer. Run the packaged installer instead of
 drag-copying the bundles so renamed aliases can be backed up safely; pass

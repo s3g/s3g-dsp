@@ -400,18 +400,22 @@ bool sliderLocation(clap_id id, const s3g::gui_layout::Panel*& panel,
     const bool preparingNow = instance->preparingResponse.load(
         std::memory_order_relaxed);
     const bool ready = instance->hasResponse.load(std::memory_order_relaxed);
-    const bool applied = ready && instance->params.responseEnabled != 0u;
+    const bool requested = instance->params.responseEnabled != 0u;
+    const bool audible = instance->responseAudible.load(
+        std::memory_order_relaxed);
     const uint32_t capturedCount = instance->capturedPickupCount.load(
         std::memory_order_relaxed);
     fieldStatus = capturingNow
         ? [NSString stringWithFormat:@"CAPTURING RESPONSE · %.0f%%",
             instance->captureProgress.load(std::memory_order_relaxed) * 100.0f]
         : (preparingNow
-            ? [NSString stringWithFormat:@"PREPARING DIRECTIONAL KERNELS · %.0f%%",
+            ? [NSString stringWithFormat:@"PREPARING RESPONSE · %.0f%%%@",
                 instance->preparationProgress.load(
-                    std::memory_order_relaxed) * 100.0f]
+                    std::memory_order_relaxed) * 100.0f,
+                requested ? @" · APPLY QUEUED" : @""]
         : (ready ? [NSString stringWithFormat:@"%u DIRECTIONAL KERNELS · %@",
-                capturedCount, applied ? @"APPLIED" : @"READY · BYPASSED"]
+                capturedCount, audible ? @"APPLIED"
+                    : (requested ? @"APPLYING" : @"READY · BYPASSED")]
             : @"NO RESPONSE · PRESS CAPTURE"));
 #endif
     [fieldStatus drawAtPoint:NSMakePoint(kPlot.origin.x + 12.0,
@@ -513,10 +517,7 @@ bool sliderLocation(clap_id id, const s3g::gui_layout::Panel*& panel,
 #else
     const bool captureButtonActive = instance->capturing.load(
         std::memory_order_relaxed);
-    const bool responseReady = instance->hasResponse.load(
-        std::memory_order_relaxed);
-    const bool responseApplied = responseReady
-        && instance->params.responseEnabled != 0u;
+    const bool responseApplied = instance->params.responseEnabled != 0u;
     [self drawButton:actionRect(0u) text:captureButtonActive ? @"LISTEN" : @"CAPTURE"
         active:captureButtonActive style:style attrs:value];
     [self drawButton:actionRect(1u) text:responseApplied ? @"BYPASS" : @"APPLY"

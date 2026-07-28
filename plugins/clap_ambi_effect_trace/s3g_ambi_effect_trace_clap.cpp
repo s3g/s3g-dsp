@@ -122,6 +122,7 @@ struct Plugin {
     std::atomic<bool> preparingResponse { false };
     std::atomic<float> preparationProgress { 0.0f };
     std::atomic<uint32_t> capturedPickupCount { 0u };
+    std::atomic<bool> responseAudible { false };
     uint32_t lastTailFrames = 0u;
     char presetName[64] { "INIT" };
     int32_t guiViewMode = 2;
@@ -216,8 +217,10 @@ void markTailChanged(Plugin& plugin)
 #endif
 }
 
-void applyParam(Plugin& plugin, clap_id id, double value)
+void applyParam(Plugin& plugin, clap_id id, double value,
+    bool deferProcessorUpdate = false)
 {
+    if (!std::isfinite(value)) return;
     switch (id) {
     case kParamOrder: plugin.params.order = roundedUint(value); break;
     case kParamBody:
@@ -280,8 +283,10 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kParamMaskDry: plugin.params.maskDry = static_cast<float>(value + 1.0); break;
     default: return;
     }
-    updateProcessor(plugin, id);
-    if (id == kParamEnabled) markTailChanged(plugin);
+    if (!deferProcessorUpdate) {
+        updateProcessor(plugin, id);
+        if (id == kParamEnabled) markTailChanged(plugin);
+    }
 }
 
 double getParam(const Plugin& plugin, clap_id id)
@@ -372,7 +377,7 @@ void publishStatus(Plugin& plugin)
     plugin.excitationGain.store(plugin.processor.traceGovernorGain(),
         std::memory_order_relaxed);
 #else
-    plugin.excitationGain.store(plugin.processor.excitationGovernorGain(),
+    plugin.excitationGain.store(plugin.processor.containmentGain(),
         std::memory_order_relaxed);
     plugin.hasResponse.store(plugin.processor.hasResponse(),
         std::memory_order_relaxed);
@@ -386,6 +391,8 @@ void publishStatus(Plugin& plugin)
         std::memory_order_relaxed);
     plugin.capturedPickupCount.store(plugin.processor.capturedPickupCount(),
         std::memory_order_relaxed);
+    plugin.responseAudible.store(plugin.processor.responseAudible(),
+        std::memory_order_relaxed);
     markTailChanged(plugin);
 #endif
 }
@@ -393,6 +400,9 @@ void publishStatus(Plugin& plugin)
 void readParamEvents(Plugin& plugin, const clap_input_events_t* events)
 {
     if (!events || !events->size || !events->get) return;
+    constexpr size_t kEventSlots = static_cast<size_t>(kParamSmear) + 1u;
+    std::array<bool, kEventSlots> pending {};
+    std::array<double, kEventSlots> values {};
     const uint32_t count = events->size(events);
     for (uint32_t index = 0u; index < count; ++index) {
         const clap_event_header_t* header = events->get(events, index);
@@ -400,8 +410,28 @@ void readParamEvents(Plugin& plugin, const clap_input_events_t* events)
             || header->type != CLAP_EVENT_PARAM_VALUE
             || header->size < sizeof(clap_event_param_value_t)) continue;
         const auto* event = reinterpret_cast<const clap_event_param_value_t*>(header);
-        if (isParam(event->param_id)) applyParam(plugin,
-            event->param_id, event->value);
+        if (!isParam(event->param_id) || !std::isfinite(event->value)) continue;
+        if (event->param_id == kParamCapture
+            || event->param_id == kParamClear) {
+            applyParam(plugin, event->param_id, event->value);
+            continue;
+        }
+        if (event->param_id < kEventSlots) {
+            pending[event->param_id] = true;
+            values[event->param_id] = event->value;
+        }
+    }
+    bool changed = false;
+    bool enabledChanged = false;
+    for (clap_id id = kParamOrder; id <= kParamSmear; ++id) {
+        if (!pending[id]) continue;
+        applyParam(plugin, id, values[id], true);
+        changed = true;
+        enabledChanged = enabledChanged || id == kParamEnabled;
+    }
+    if (changed) {
+        updateProcessor(plugin);
+        if (enabledChanged) markTailChanged(plugin);
     }
 }
 
@@ -917,8 +947,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     if (!readAll(stream, &frames, sizeof(frames))
         || !readAll(stream, &rate, sizeof(rate))
-        || frames > 1200000u || (frames > 0u
-            && (!std::isfinite(rate) || rate < 1000.0 || rate > 768000.0))) {
+        || frames > s3g::kResponseTraceMaximumFrames
+        || (frames > 0u && (!std::isfinite(rate)
+            || rate < 1000.0 || rate > 768000.0))) {
         return false;
     }
     s3g::AmbiEffectBody capturedBody = s3g::AmbiEffectBody::Auto;
@@ -926,10 +957,20 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         capturedBody = s3g::resolveAmbiEffectBody(
             instance->params.body, instance->params.order, true);
         pickupCount = s3g::ambiEffectBodyPickupCount(capturedBody);
-        std::vector<float> mono(frames, 0.0f);
+        std::vector<float> mono;
+        try {
+            mono.assign(frames, 0.0f);
+        } catch (...) {
+            return false;
+        }
         if (!readAll(stream, mono.data(), frames * sizeof(float))) return false;
-        instance->pendingResponse.assign(
-            static_cast<size_t>(pickupCount) * frames, 0.0f);
+        try {
+            instance->pendingResponse.assign(
+                static_cast<size_t>(pickupCount) * frames, 0.0f);
+        } catch (...) {
+            instance->pendingResponse.clear();
+            return false;
+        }
         for (uint32_t node = 0u; node < pickupCount; ++node) {
             std::copy(mono.begin(), mono.end(),
                 instance->pendingResponse.begin()
@@ -942,8 +983,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 || pickupCount > s3g::ambiEffectBodyPickupCount(
                     static_cast<s3g::AmbiEffectBody>(bodyValue))))) return false;
         capturedBody = static_cast<s3g::AmbiEffectBody>(bodyValue);
-        instance->pendingResponse.assign(
-            static_cast<size_t>(pickupCount) * frames, 0.0f);
+        try {
+            instance->pendingResponse.assign(
+                static_cast<size_t>(pickupCount) * frames, 0.0f);
+        } catch (...) {
+            instance->pendingResponse.clear();
+            return false;
+        }
         if (frames > 0u && !readAll(stream,
             instance->pendingResponse.data(), static_cast<size_t>(pickupCount)
                 * frames * sizeof(float))) return false;
